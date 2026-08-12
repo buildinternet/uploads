@@ -27,11 +27,16 @@ export function optBool(args: ToolArgs, name: string): boolean {
   return v;
 }
 
-export function optPosInt(args: ToolArgs, name: string): number | undefined {
+export function optPosInt(
+  args: ToolArgs,
+  name: string,
+  options?: { allowZero?: boolean },
+): number | undefined {
+  const allowZero = options?.allowZero ?? false;
   const v = args[name];
   if (v === undefined || v === null) return undefined;
-  if (typeof v !== "number" || !Number.isInteger(v) || v <= 0) {
-    usage(`${name} must be a positive integer`);
+  if (typeof v !== "number" || !Number.isInteger(v) || (allowZero ? v < 0 : v <= 0)) {
+    usage(`${name} must be a ${allowZero ? "non-negative" : "positive"} integer`);
   }
   return v;
 }

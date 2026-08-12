@@ -26,6 +26,20 @@ beforeAll(() => {
 
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
 
+/**
+ * A minimal-but-real PNG signature + IHDR chunk header carrying the given
+ * pixel dimensions (issue #652's `decodePngDimensions` only reads bytes
+ * 0-23, so nothing past the IHDR width/height needs to be well-formed).
+ */
+function pngWithSize(width: number, height: number): Uint8Array {
+  const bytes = new Uint8Array(24);
+  bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 0);
+  const view = new DataView(bytes.buffer);
+  view.setUint32(16, width, false);
+  view.setUint32(20, height, false);
+  return bytes;
+}
+
 /** Extends UsageFakeD1 (real workspace_usage ledger) with an optional
  * D1-backed scoped auth token, so scope-enforcement tests can exercise a
  * token with fewer than the full FILE_SCOPES set — the legacy tokenHash path
@@ -432,5 +446,107 @@ describe("POST /v1/render Browser Run error passthrough", () => {
     expect(res.status).toBe(502);
     const json = (await res.json()) as { error: { code: string } };
     expect(json.error.code).toBe("render_failed");
+  });
+});
+
+describe("POST /v1/render full-page height cap (issue #652)", () => {
+  it("rejects a negative maxHeight", async () => {
+    const { env } = await makeEnv();
+    const res = await renderReq(env, { url: "https://example.com", fullPage: true, maxHeight: -1 });
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects a non-numeric maxHeight", async () => {
+    const { env } = await makeEnv();
+    const res = await renderReq(env, {
+      url: "https://example.com",
+      fullPage: true,
+      maxHeight: "tall",
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("injects the clamp addScriptTag when fullPage + an explicit maxHeight are set", async () => {
+    const { env, browser } = await makeEnv();
+    const res = await renderReq(env, {
+      url: "https://example.com",
+      fullPage: true,
+      maxHeight: 3000,
+    });
+    expect(res.status).toBe(200);
+    const tags = (browser.calls[0].options as { addScriptTag: { content: string }[] }).addScriptTag;
+    expect(tags).toHaveLength(1);
+    expect(tags[0].content).toContain("cap=3000");
+    // fullPage stays true — the clamp shrinks scrollHeight client-side rather
+    // than switching to a clip-region capture, so a page under the cap keeps
+    // its normal exact-content-height screenshot.
+    expect(browser.calls[0].options).toMatchObject({
+      screenshotOptions: { type: "png", fullPage: true },
+    });
+  });
+
+  it("applies the default 5000px cap when fullPage is set but maxHeight is omitted", async () => {
+    const { env, browser } = await makeEnv();
+    const res = await renderReq(env, { url: "https://example.com", fullPage: true });
+    expect(res.status).toBe(200);
+    const tags = (browser.calls[0].options as { addScriptTag: { content: string }[] }).addScriptTag;
+    expect(tags[0].content).toContain("cap=5000");
+  });
+
+  it("maxHeight: 0 is uncapped — no addScriptTag injected", async () => {
+    const { env, browser } = await makeEnv();
+    const res = await renderReq(env, {
+      url: "https://example.com",
+      fullPage: true,
+      maxHeight: 0,
+    });
+    expect(res.status).toBe(200);
+    expect(browser.calls[0].options).not.toHaveProperty("addScriptTag");
+  });
+
+  it("does not inject the clamp script when fullPage isn't set, even with maxHeight", async () => {
+    const { env, browser } = await makeEnv();
+    // maxHeight without fullPage is meaningless server-side too (the CLI
+    // guards this client-side); the server just ignores it rather than 400ing,
+    // since it's a harmless no-op.
+    const res = await renderReq(env, { url: "https://example.com", maxHeight: 3000 });
+    expect(res.status).toBe(200);
+    expect(browser.calls[0].options).not.toHaveProperty("addScriptTag");
+  });
+
+  it("sets X-Uploads-Full-Page-Clipped when the returned image is at/over the cap", async () => {
+    const { env } = await makeEnv({ browser: FakeBrowser.pngResponse(pngWithSize(1280, 5000)) });
+    const res = await renderReq(env, {
+      url: "https://example.com",
+      fullPage: true,
+      maxHeight: 5000,
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("x-uploads-full-page-clipped")).toBe("true");
+  });
+
+  it("omits the clip header when the returned image is under the cap", async () => {
+    const { env } = await makeEnv({ browser: FakeBrowser.pngResponse(pngWithSize(1280, 1200)) });
+    const res = await renderReq(env, {
+      url: "https://example.com",
+      fullPage: true,
+      maxHeight: 5000,
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("x-uploads-full-page-clipped")).toBeNull();
+  });
+
+  it("scales the clip-detection threshold by deviceScaleFactor", async () => {
+    // A 5000 CSS-px cap at deviceScaleFactor 2 comes back as a 10000 device-px
+    // image — the raw device height must not be compared against the CSS cap.
+    const { env } = await makeEnv({ browser: FakeBrowser.pngResponse(pngWithSize(2560, 10000)) });
+    const res = await renderReq(env, {
+      url: "https://example.com",
+      fullPage: true,
+      maxHeight: 5000,
+      viewport: { width: 1280, height: 800, deviceScaleFactor: 2 },
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("x-uploads-full-page-clipped")).toBe("true");
   });
 });

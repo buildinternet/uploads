@@ -49,6 +49,8 @@ import { readStdin, writeJson, writeStdout } from "../io.js";
 import {
   assertHideSelector,
   captureScreenshot,
+  clipHintText,
+  DEFAULT_FULL_PAGE_MAX_HEIGHT,
   parseViewport,
   parseWaitUntil,
   type ScreenshotBackend,
@@ -118,6 +120,10 @@ Options:
   --viewport <WxH[@Sx]>     Size + device scale factor (default: 1280x800@2)
   --selector <css>          Capture one element instead of the viewport
   --full-page               Capture the full scrollable page
+  --max-height <px>         Cap on full-page capture height in CSS px (default: ${DEFAULT_FULL_PAGE_MAX_HEIGHT},
+                            or 0 for uncapped). A page over the cap is clipped, with a note printed
+                            to stderr and a --format json \`hint\`. Requires --full-page. Applied on
+                            both --via local and --via remote so behavior matches.
   --dark / --light          Emulate prefers-color-scheme (full media-query emulation on --via local
                             only; --via remote just sets the CSS color-scheme property, so a page's
                             own prefers-color-scheme queries won't flip)
@@ -251,6 +257,14 @@ export async function runScreenshot(
   const viewport = parseViewport(flagString(parsed.flags, "--viewport"));
   const selector = flagString(parsed.flags, "--selector");
   const fullPage = flagBool(parsed.flags, "--full-page");
+  // Unlike every other --…-px flag, 0 is a valid (uncapped) value here, not
+  // an error — flagInt's allowZero option covers it.
+  const maxHeightFlag = flagInt(parsed.flags, "--max-height", "--max-height", {
+    allowZero: true,
+  });
+  if (maxHeightFlag !== undefined && !fullPage) {
+    throw new UsageError("--max-height requires --full-page");
+  }
   const colorScheme = colorSchemeFromFlags(parsed.flags);
   const waitUntil = parseWaitUntil(flagString(parsed.flags, "--wait"));
 
@@ -461,6 +475,7 @@ export async function runScreenshot(
     viewport,
     selector,
     fullPage,
+    maxHeight: maxHeightFlag,
     colorScheme,
     waitUntil,
     hide,
@@ -477,6 +492,14 @@ export async function runScreenshot(
   });
 
   if (logHuman) process.stderr.write(`>> captured via ${captured.backend} backend\n`);
+
+  // Full-page height cap note (issue #652): printed regardless of --format
+  // (only --quiet suppresses it) since it's directly actionable info about
+  // the image that was just captured, same as the upload-tail warnings below.
+  const clipHint = captured.capped?.clipped
+    ? clipHintText(captured.capped.maxHeightPx, "--max-height")
+    : undefined;
+  if (clipHint && !ctx.quiet) process.stderr.write(`${clipHint}\n`);
 
   // Resolve selectors + render annotations before the frame/optimize/upload
   // pipeline runs — everything downstream (the --out write, the sidecar
@@ -633,9 +656,11 @@ export async function runScreenshot(
     process.stderr.write("\n");
   }
 
-  // One JSON `hint` slot (mirrors bare put): the binding warning is more
-  // actionable than the generic staging note, so it wins when both fire; a
-  // replaced-object note (issue #618) is the lowest priority of the three —
+  // One JSON `hint` slot (mirrors bare put): the clip note (issue #652) wins
+  // first — it's about the just-captured image itself, more immediately
+  // actionable than the other three, which are about upload/staging
+  // mechanics. Then the binding warning, more actionable than the generic
+  // staging note; a replaced-object note (issue #618) is lowest priority —
   // it only surfaces when nothing else already claimed the slot. Since state
   // folds into the derived key, replaced + state means a same-side re-capture,
   // which is the intended replace-in-place flow — word it as informational,
@@ -644,7 +669,7 @@ export async function runScreenshot(
     result.replaced && explicitMeta.state
       ? `re-capture replaced the previous state=${explicitMeta.state} object at ${result.key} — expected for repeat captures of the same URL + state`
       : undefined;
-  const jsonHint = bindingWarning ?? stagingNote ?? replacedHint;
+  const jsonHint = clipHint ?? bindingWarning ?? stagingNote ?? replacedHint;
 
   switch (format) {
     case "json":

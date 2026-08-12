@@ -67,7 +67,13 @@ export const render = new Hono<WorkspaceVars>().post(
 
     return new Response(result.png, {
       status: 200,
-      headers: { "Content-Type": result.contentType || "image/png" },
+      headers: {
+        "Content-Type": result.contentType || "image/png",
+        // Best-effort full-page clip signal (issue #652) — read by the CLI's
+        // remote backend (screenshot-remote.ts) to print the same "exceeds
+        // Npx; clipped" note/hint the local backend gives.
+        ...(result.clipped ? { "X-Uploads-Full-Page-Clipped": "true" } : {}),
+      },
     });
   },
 );

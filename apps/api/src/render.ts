@@ -25,6 +25,18 @@ const MAX_VIEWPORT_DIMENSION = 4096;
 const MIN_DEVICE_SCALE_FACTOR = 1;
 const MAX_DEVICE_SCALE_FACTOR = 3;
 
+/**
+ * Default cap (CSS px) on `fullPage` capture height (issue #652): a
+ * deliberately independent, conservative fallback for direct API callers
+ * that omit `maxHeight` — 5000, matches the CLI default as of writing; no
+ * compile-time link — the CLI always sends an explicit value, and apps/api
+ * intentionally does not depend on packages/uploads, so nothing enforces
+ * the two stay in sync.
+ */
+const DEFAULT_FULL_PAGE_MAX_HEIGHT = 5000;
+/** Sanity ceiling on a caller-supplied `maxHeight`, well above the default. */
+const MAX_FULL_PAGE_MAX_HEIGHT = 20_000;
+
 /** Navigation timeout handed to Browser Run — below its 60s ceiling. */
 const NAVIGATION_TIMEOUT_MS = 30_000;
 /** Upstream cap on the post-load action (screenshot) so Browser Run can't
@@ -61,6 +73,13 @@ export interface RenderInput {
   viewport?: RenderViewport;
   selector?: string;
   fullPage?: boolean;
+  /**
+   * Cap (CSS px) on `fullPage` capture height (issue #652). Only consulted
+   * when `fullPage` is true; `0` means uncapped. Defaults to
+   * `DEFAULT_FULL_PAGE_MAX_HEIGHT` when `fullPage` is true and this is
+   * omitted (the CLI always sends it explicitly).
+   */
+  maxHeight?: number;
   colorScheme?: "dark" | "light";
   waitUntil?: "load" | "domcontentloaded" | "networkidle";
   hide?: string[];
@@ -70,6 +89,14 @@ export interface RenderInput {
 export interface RenderResult {
   png: Uint8Array;
   contentType: string;
+  /**
+   * True when the `fullPage` height clamp actually kicked in. Best-effort:
+   * Browser Run's quick-action surface has no direct "measure then clip"
+   * primitive, so this is inferred from the returned image's decoded height
+   * rather than known with certainty — see `toBrowserRunOptions` and
+   * `browserRenderer` below for the full explanation.
+   */
+  clipped?: boolean;
 }
 
 export interface Renderer {
@@ -247,6 +274,20 @@ export function parseRenderRequest(parsed: unknown): RenderInput {
     input.fullPage = body.fullPage;
   }
 
+  if (body.maxHeight !== undefined) {
+    if (
+      typeof body.maxHeight !== "number" ||
+      !Number.isFinite(body.maxHeight) ||
+      body.maxHeight < 0
+    ) {
+      throw new ValidationError("maxHeight must be a non-negative number", {
+        code: "invalid_request",
+      });
+    }
+    input.maxHeight =
+      body.maxHeight === 0 ? 0 : clamp(Math.round(body.maxHeight), 1, MAX_FULL_PAGE_MAX_HEIGHT);
+  }
+
   if (body.colorScheme !== undefined) {
     if (body.colorScheme !== "dark" && body.colorScheme !== "light") {
       throw new ValidationError('colorScheme must be "dark" or "light"', {
@@ -302,6 +343,44 @@ export function parseRenderRequest(parsed: unknown): RenderInput {
   }
 
   return input;
+}
+
+/** CSS px cap actually in force for this request; 0 means uncapped. */
+function effectiveFullPageMaxHeight(input: RenderInput): number {
+  if (!input.fullPage) return 0;
+  return input.maxHeight ?? DEFAULT_FULL_PAGE_MAX_HEIGHT;
+}
+
+/**
+ * JS injected (via `addScriptTag`) to bound a `fullPage` capture's height
+ * server-side (issue #652). Browser Run's quick-action surface is
+ * declarative (goto → tag injection → one screenshot action) with no
+ * "measure the page, then decide" step, so there's no direct way to ask for
+ * "fullPage, but capped at Npx" the way Playwright's `page.screenshot`
+ * would locally (see packages/uploads/src/screenshot-local.ts). Instead,
+ * this measures `scrollHeight` client-side and — only when it exceeds the
+ * cap — clamps `<html>`/`<body>` to exactly `capPx` with `overflow: hidden`
+ * before the screenshot action runs, so Puppeteer's own `fullPage`
+ * measurement (which reads the now-clamped scrollHeight) produces an image
+ * that's never taller than the cap. A page under the cap is untouched, so
+ * the common case still gets its normal exact-content-height capture.
+ *
+ * Known best-effort limitations (documented, not solved): `overflow: hidden`
+ * on the root elements can affect `position: fixed`/`sticky` elements and
+ * viewport-unit layouts on a page that gets clamped; there's no scroll-then-
+ * clip like the local backend's `clip` fallback, so a clamped remote capture
+ * is a true DOM truncation rather than a pixel-region crop.
+ */
+function fullPageClampScript(capPx: number): string {
+  return (
+    "(function(){try{" +
+    "var d=document.documentElement,b=document.body;" +
+    `var h=Math.max(d?d.scrollHeight:0,b?b.scrollHeight:0);var cap=${capPx};` +
+    "if(h>cap){[d,b].forEach(function(el){if(!el)return;" +
+    "el.style.setProperty('max-height',cap+'px','important');" +
+    "el.style.setProperty('overflow','hidden','important');});}" +
+    "}catch(e){}})();"
+  );
 }
 
 function toBrowserRunOptions(input: RenderInput): BrowserRunScreenshotOptions {
@@ -369,6 +448,11 @@ function toBrowserRunOptions(input: RenderInput): BrowserRunScreenshotOptions {
   }
   if (styleTags.length > 0) options.addStyleTag = styleTags;
 
+  const maxHeightPx = effectiveFullPageMaxHeight(input);
+  if (maxHeightPx > 0) {
+    options.addScriptTag = [{ content: fullPageClampScript(maxHeightPx) }];
+  }
+
   return options;
 }
 
@@ -391,6 +475,27 @@ async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   } finally {
     clearTimeout(timer);
   }
+}
+
+/**
+ * Reads a PNG's pixel dimensions straight from its IHDR chunk (bytes 16-23,
+ * big-endian uint32 width then height) — the 8-byte PNG signature plus the
+ * fixed 4-byte length + 4-byte "IHDR" type always precede it. No dependency
+ * needed; returns `undefined` for anything that isn't a well-formed PNG
+ * header instead of throwing, since this only feeds a best-effort clip
+ * heuristic below.
+ */
+function decodePngDimensions(bytes: Uint8Array): { width: number; height: number } | undefined {
+  const PNG_SIGNATURE = [137, 80, 78, 71, 13, 10, 26, 10];
+  if (bytes.length < 24) return undefined;
+  for (let i = 0; i < PNG_SIGNATURE.length; i++) {
+    if (bytes[i] !== PNG_SIGNATURE[i]) return undefined;
+  }
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const width = view.getUint32(16, false);
+  const height = view.getUint32(20, false);
+  if (width === 0 || height === 0) return undefined;
+  return { width, height };
 }
 
 /** Wraps the Browser Run `BROWSER` binding behind the `Renderer` seam. */
@@ -445,7 +550,26 @@ export function browserRenderer(browser: BrowserRun): Renderer {
 
       const contentType = response.headers.get("content-type") ?? "image/png";
       const png = new Uint8Array(await response.arrayBuffer());
-      return { png, contentType };
+
+      // Best-effort clip detection (issue #652): the clamp script above
+      // either did nothing (page was already under the cap) or pinned the
+      // rendered height to exactly capPx — decoding the returned image's
+      // height and comparing against capPx (in device px, with rounding
+      // slack) distinguishes the two without needing feedback from the page
+      // script itself, which quickAction's declarative surface has no way
+      // to return.
+      const maxHeightPx = effectiveFullPageMaxHeight(input);
+      let clipped = false;
+      if (maxHeightPx > 0) {
+        const dims = decodePngDimensions(png);
+        if (dims) {
+          const dsf = input.viewport?.deviceScaleFactor ?? 1;
+          const cssHeight = dims.height / dsf;
+          clipped = cssHeight >= maxHeightPx - 2;
+        }
+      }
+
+      return { png, contentType, clipped };
     },
   };
 }

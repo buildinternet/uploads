@@ -6,6 +6,7 @@ import { UploadsError } from "../src/errors.js";
 import {
   captureScreenshot,
   classifyTarget,
+  DEFAULT_FULL_PAGE_MAX_HEIGHT,
   DEV_TOOLBAR_SELECTORS,
   foldStateIntoFilename,
   isPrivateOrLocalHost,
@@ -192,7 +193,7 @@ describe("captureScreenshot backend selection", () => {
       state: "before",
       apiUrl: "https://api.uploads.sh",
       token: "t",
-      captureRemoteImpl: async () => png,
+      captureRemoteImpl: async () => ({ png, clipped: false }),
     });
     const after = await captureScreenshot({
       target: "https://example.com/docs/mcp",
@@ -200,7 +201,7 @@ describe("captureScreenshot backend selection", () => {
       state: "after",
       apiUrl: "https://api.uploads.sh",
       token: "t",
-      captureRemoteImpl: async () => png,
+      captureRemoteImpl: async () => ({ png, clipped: false }),
     });
     expect(before.filename).toBe("example.com-docs-mcp-before.png");
     expect(after.filename).toBe("example.com-docs-mcp-after.png");
@@ -213,7 +214,7 @@ describe("captureScreenshot backend selection", () => {
       via: "remote",
       apiUrl: "https://api.uploads.sh",
       token: "t",
-      captureRemoteImpl: async () => png,
+      captureRemoteImpl: async () => ({ png, clipped: false }),
     });
     expect(result.filename).toBe("example.com-docs-mcp.png");
   });
@@ -244,7 +245,7 @@ describe("captureScreenshot backend selection", () => {
       token: "t",
       captureRemoteImpl: async () => {
         usedRemote = true;
-        return png;
+        return { png, clipped: false };
       },
     });
     expect(usedRemote).toBe(true);
@@ -261,7 +262,7 @@ describe("captureScreenshot backend selection", () => {
         token: "t",
         captureRemoteImpl: async () => {
           usedRemote = true;
-          return png;
+          return { png, clipped: false };
         },
       }),
     ).rejects.toThrow(UploadsError);
@@ -280,7 +281,7 @@ describe("captureScreenshot backend selection", () => {
       token: "t",
       captureRemoteImpl: async (body) => {
         sentHtml = (body as { html?: string }).html;
-        return png;
+        return { png, clipped: false };
       },
     });
     expect(sentHtml).toBe("<html><body>hi</body></html>");
@@ -300,7 +301,7 @@ describe("captureScreenshot backend selection", () => {
         token: "t",
         captureRemoteImpl: async () => {
           usedRemote = true;
-          return png;
+          return { png, clipped: false };
         },
       }),
     ).rejects.toMatchObject({ code: "USAGE" });
@@ -324,7 +325,7 @@ describe("captureScreenshot backend selection", () => {
       },
       captureRemoteImpl: async () => {
         usedRemote = true;
-        return png;
+        return { png, clipped: false };
       },
     });
     expect(usedRemote).toBe(true);
@@ -386,7 +387,7 @@ describe("captureScreenshot backend selection", () => {
         token: "t",
         captureRemoteImpl: async () => {
           usedRemote = true;
-          return png;
+          return { png, clipped: false };
         },
       }),
     ).rejects.toMatchObject({ code: "USAGE" });
@@ -410,7 +411,7 @@ describe("captureScreenshot backend selection", () => {
         },
         captureRemoteImpl: async () => {
           usedRemote = true;
-          return png;
+          return { png, clipped: false };
         },
       }),
     ).rejects.toMatchObject({ code: "USAGE" });
@@ -534,7 +535,7 @@ describe("captureScreenshot backend selection", () => {
       token: "t",
       captureRemoteImpl: async (body) => {
         sentBody = body as unknown as Record<string, unknown>;
-        return png;
+        return { png, clipped: false };
       },
     });
     expect(sentBody).toMatchObject({ hide: [".banner"], reducedMotion: true });
@@ -551,7 +552,7 @@ describe("captureScreenshot backend selection", () => {
         token: "t",
         captureRemoteImpl: async () => {
           usedRemote = true;
-          return png;
+          return { png, clipped: false };
         },
       }),
     ).rejects.toMatchObject({ code: "USAGE" });
@@ -574,7 +575,7 @@ describe("captureScreenshot backend selection", () => {
         },
         captureRemoteImpl: async () => {
           usedRemote = true;
-          return png;
+          return { png, clipped: false };
         },
       }),
     ).rejects.toMatchObject({ code: "BROWSER_NOT_FOUND" });
@@ -630,7 +631,7 @@ describe("captureScreenshot backend selection", () => {
         token: "t",
         captureRemoteImpl: async () => {
           usedRemote = true;
-          return png;
+          return { png, clipped: false };
         },
       }),
     ).rejects.toMatchObject({ code: "USAGE" });
@@ -654,10 +655,131 @@ describe("captureScreenshot backend selection", () => {
         },
         captureRemoteImpl: async () => {
           usedRemote = true;
-          return png;
+          return { png, clipped: false };
         },
       }),
     ).rejects.toMatchObject({ code: "USAGE" });
     expect(usedRemote).toBe(false);
+  });
+});
+
+describe("captureScreenshot full-page height cap (issue #652)", () => {
+  const png = new Uint8Array([9, 9, 9]);
+
+  it("applies the default cap to the local backend when --full-page is set and --max-height is omitted", async () => {
+    let seenMaxHeightPx: number | undefined;
+    await captureScreenshot({
+      target: "https://example.com",
+      via: "local",
+      fullPage: true,
+      apiUrl: "https://api.uploads.sh",
+      token: "t",
+      captureLocalImpl: async (opts) => {
+        seenMaxHeightPx = opts.maxHeightPx;
+        return { png, clipped: false };
+      },
+    });
+    expect(seenMaxHeightPx).toBe(DEFAULT_FULL_PAGE_MAX_HEIGHT);
+  });
+
+  it("does not pass a cap when --full-page is not set", async () => {
+    let seenMaxHeightPx: number | undefined;
+    const result = await captureScreenshot({
+      target: "https://example.com",
+      via: "local",
+      apiUrl: "https://api.uploads.sh",
+      token: "t",
+      captureLocalImpl: async (opts) => {
+        seenMaxHeightPx = opts.maxHeightPx;
+        return { png, clipped: false };
+      },
+    });
+    expect(seenMaxHeightPx).toBe(0);
+    expect(result.capped).toBeUndefined();
+  });
+
+  it("--max-height overrides the default on the local backend", async () => {
+    let seenMaxHeightPx: number | undefined;
+    const result = await captureScreenshot({
+      target: "https://example.com",
+      via: "local",
+      fullPage: true,
+      maxHeight: 8000,
+      apiUrl: "https://api.uploads.sh",
+      token: "t",
+      captureLocalImpl: async (opts) => {
+        seenMaxHeightPx = opts.maxHeightPx;
+        return { png, clipped: false };
+      },
+    });
+    expect(seenMaxHeightPx).toBe(8000);
+    expect(result.capped).toEqual({ maxHeightPx: 8000, clipped: false });
+  });
+
+  it("--max-height 0 is uncapped: no cap forwarded, no capped result", async () => {
+    let seenMaxHeightPx: number | undefined;
+    const result = await captureScreenshot({
+      target: "https://example.com",
+      via: "local",
+      fullPage: true,
+      maxHeight: 0,
+      apiUrl: "https://api.uploads.sh",
+      token: "t",
+      captureLocalImpl: async (opts) => {
+        seenMaxHeightPx = opts.maxHeightPx;
+        return { png, clipped: false };
+      },
+    });
+    expect(seenMaxHeightPx).toBe(0);
+    expect(result.capped).toBeUndefined();
+  });
+
+  it("propagates clipped: true from the local backend", async () => {
+    const result = await captureScreenshot({
+      target: "https://example.com",
+      via: "local",
+      fullPage: true,
+      apiUrl: "https://api.uploads.sh",
+      token: "t",
+      captureLocalImpl: async () => ({ png, clipped: true }),
+    });
+    expect(result.capped).toEqual({ maxHeightPx: DEFAULT_FULL_PAGE_MAX_HEIGHT, clipped: true });
+  });
+
+  it("applies the default cap to the remote backend and propagates clipped: true", async () => {
+    let seenBody: Record<string, unknown> | undefined;
+    const result = await captureScreenshot({
+      target: "https://example.com",
+      via: "remote",
+      fullPage: true,
+      apiUrl: "https://api.uploads.sh",
+      token: "t",
+      captureRemoteImpl: async (body) => {
+        seenBody = body as unknown as Record<string, unknown>;
+        return { png, clipped: true };
+      },
+    });
+    expect(seenBody).toMatchObject({ fullPage: true, maxHeight: DEFAULT_FULL_PAGE_MAX_HEIGHT });
+    expect(result.capped).toEqual({
+      maxHeightPx: DEFAULT_FULL_PAGE_MAX_HEIGHT,
+      clipped: true,
+    });
+  });
+
+  it("does not send maxHeight to the remote backend when uncapped", async () => {
+    let seenBody: Record<string, unknown> | undefined;
+    await captureScreenshot({
+      target: "https://example.com",
+      via: "remote",
+      fullPage: true,
+      maxHeight: 0,
+      apiUrl: "https://api.uploads.sh",
+      token: "t",
+      captureRemoteImpl: async (body) => {
+        seenBody = body as unknown as Record<string, unknown>;
+        return { png, clipped: false };
+      },
+    });
+    expect(seenBody).not.toHaveProperty("maxHeight");
   });
 });

@@ -243,6 +243,49 @@ describe("runScreenshot flag validation", () => {
     expect(captured).toBe(false);
     expect(puts).toEqual([]);
   });
+
+  it("rejects --max-height without --full-page", async () => {
+    const { client } = fakeClient();
+    await expect(
+      runScreenshot(
+        ctxWith(client),
+        ["https://example.com", "--max-height", "3000"],
+        false,
+        noRun,
+        fakeCapture(),
+      ),
+    ).rejects.toThrow(UsageError);
+  });
+
+  it("rejects a non-numeric --max-height", async () => {
+    const { client } = fakeClient();
+    await expect(
+      runScreenshot(
+        ctxWith(client),
+        ["https://example.com", "--full-page", "--max-height", "tall"],
+        false,
+        noRun,
+        fakeCapture(),
+      ),
+    ).rejects.toThrow(UsageError);
+  });
+
+  it("accepts --max-height 0 (uncapped) with --full-page", async () => {
+    const { client } = fakeClient();
+    let seenMaxHeight: unknown = "unset";
+    const code = await runScreenshot(
+      ctxWith(client),
+      ["https://example.com", "--full-page", "--max-height", "0"],
+      false,
+      noRun,
+      async (opts) => {
+        seenMaxHeight = (opts as { maxHeight?: number }).maxHeight;
+        return { png, filename: "example-com.png", backend: "remote" };
+      },
+    );
+    expect(code).toBe(0);
+    expect(seenMaxHeight).toBe(0);
+  });
 });
 
 describe("runScreenshot upload tail", () => {
@@ -1143,6 +1186,88 @@ describe("runScreenshot replaced-object note (issue #618)", () => {
     );
     const parsed = JSON.parse(stdout);
     expect(parsed.replaced).toBe(true);
+    expect(parsed.hint).toBeUndefined();
+  });
+});
+
+/** A capture result with a full-page-cap outcome, for the #652 note/hint tests below. */
+function fakeCaptureCapped(capped?: {
+  maxHeightPx: number;
+  clipped: boolean;
+}): (opts: unknown) => Promise<CaptureScreenshotResult> {
+  return async () => ({ png, filename: "example-com.png", backend: "remote", capped });
+}
+
+describe("runScreenshot full-page height cap note/hint (issue #652)", () => {
+  it("prints the clip note to stderr in human mode", async () => {
+    const { client } = fakeClient();
+    const stderr = await captureStderr(() =>
+      runScreenshot(
+        { ...ctxWith(client), quiet: false },
+        ["https://example.com", "--full-page"],
+        false,
+        noRun,
+        fakeCaptureCapped({ maxHeightPx: 5000, clipped: true }),
+      ),
+    );
+    expect(stderr).toContain("full page exceeds 5000px; clipped — use --max-height to raise");
+  });
+
+  it("does not print a note when the page wasn't clipped", async () => {
+    const { client } = fakeClient();
+    const stderr = await captureStderr(() =>
+      runScreenshot(
+        { ...ctxWith(client), quiet: false },
+        ["https://example.com", "--full-page"],
+        false,
+        noRun,
+        fakeCaptureCapped({ maxHeightPx: 5000, clipped: false }),
+      ),
+    );
+    expect(stderr).not.toContain("clipped");
+  });
+
+  it("is suppressed in quiet mode", async () => {
+    const { client } = fakeClient();
+    const stderr = await captureStderr(() =>
+      runScreenshot(
+        ctxWith(client), // quiet: true by default
+        ["https://example.com", "--full-page"],
+        false,
+        noRun,
+        fakeCaptureCapped({ maxHeightPx: 5000, clipped: true }),
+      ),
+    );
+    expect(stderr).not.toContain("clipped");
+  });
+
+  it("carries the clip note in the json hint slot", async () => {
+    const { client } = fakeClient();
+    const stdout = await captureStdout(() =>
+      runScreenshot(
+        { ...ctxWith(client), json: true, quiet: false },
+        ["https://example.com", "--full-page", "--max-height", "3500"],
+        false,
+        noRun,
+        fakeCaptureCapped({ maxHeightPx: 3500, clipped: true }),
+      ),
+    );
+    const parsed = JSON.parse(stdout);
+    expect(parsed.hint).toBe("full page exceeds 3500px; clipped — use --max-height to raise");
+  });
+
+  it("does not set the json hint when the page wasn't clipped", async () => {
+    const { client } = fakeClient();
+    const stdout = await captureStdout(() =>
+      runScreenshot(
+        { ...ctxWith(client), json: true, quiet: false },
+        ["https://example.com", "--full-page"],
+        false,
+        noRun,
+        fakeCaptureCapped({ maxHeightPx: 5000, clipped: false }),
+      ),
+    );
+    const parsed = JSON.parse(stdout);
     expect(parsed.hint).toBeUndefined();
   });
 });

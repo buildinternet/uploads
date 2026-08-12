@@ -27,6 +27,8 @@ declare const document: {
     length: number;
     [index: number]: { getBoundingClientRect(): DOMRectLike };
   };
+  documentElement: { scrollHeight: number };
+  body: { scrollHeight: number } | null;
 };
 interface DOMRectLike {
   x: number;
@@ -317,6 +319,13 @@ export interface LocalCaptureOptions {
   viewport: { width: number; height: number; deviceScaleFactor: number };
   selector?: string;
   fullPage?: boolean;
+  /**
+   * Cap (CSS px) on full-page capture height (issue #652). Only consulted
+   * when `fullPage` is true; 0 or undefined means uncapped. When the page's
+   * measured scroll height exceeds this, the capture is clipped to exactly
+   * this height instead of the full scroll height.
+   */
+  maxHeightPx?: number;
   colorScheme?: "dark" | "light";
   /** "load" | "domcontentloaded" | "networkidle", or a millisecond settle delay. */
   waitUntil: "load" | "domcontentloaded" | "networkidle" | number;
@@ -356,6 +365,21 @@ export interface MeasuredBox {
 /** Minimal page shape this needs — matches playwright-core's `Page.evaluate`. */
 interface EvaluatablePage {
   evaluate<T>(fn: (selectors: string[]) => T, arg: string[]): Promise<T>;
+}
+
+/**
+ * Measures the page's full scrollable height in CSS px — the same quantity
+ * a `fullPage: true` screenshot would otherwise capture in its entirety.
+ * `document.documentElement.scrollHeight` is the standard measure; `body`'s
+ * is included too since some pages (quirks-mode, non-standard layouts) only
+ * grow one or the other.
+ */
+export async function measureFullPageHeight(page: {
+  evaluate<T>(fn: () => T): Promise<T>;
+}): Promise<number> {
+  return page.evaluate(() =>
+    Math.max(document.documentElement.scrollHeight, document.body?.scrollHeight ?? 0),
+  );
 }
 
 /**
@@ -463,7 +487,7 @@ async function launchLocalBrowser(
 /** Capture a PNG screenshot using a local (already-installed) browser. */
 export async function captureLocal(
   opts: LocalCaptureOptions,
-): Promise<{ png: Uint8Array; measures?: Record<string, MeasuredBox> }> {
+): Promise<{ png: Uint8Array; measures?: Record<string, MeasuredBox>; clipped?: boolean }> {
   const { chromium } = await loadPlaywrightCore();
 
   let browser: import("playwright-core").Browser;
@@ -535,11 +559,30 @@ export async function captureLocal(
         ? await measureSelectorBoxes(page, opts.measureSelectors, opts.viewport.deviceScaleFactor)
         : undefined;
 
-    const png = opts.selector
-      ? await page.locator(opts.selector).screenshot({ timeout: opts.timeoutMs ?? 30_000 })
-      : await page.screenshot({ fullPage: opts.fullPage === true });
+    // Full-page height cap (issue #652): measure the actual scroll height
+    // first so a page under the cap keeps its normal exact-content-height
+    // fullPage capture — only a page that genuinely exceeds the cap gets
+    // clipped to it. `clip` (CSS px, captures beyond the current viewport)
+    // is the mechanism; it can't be combined with `fullPage: true`.
+    let clipped = false;
+    let png: Uint8Array;
+    if (opts.selector) {
+      png = await page.locator(opts.selector).screenshot({ timeout: opts.timeoutMs ?? 30_000 });
+    } else if (opts.fullPage && opts.maxHeightPx && opts.maxHeightPx > 0) {
+      const fullHeight = await measureFullPageHeight(page);
+      if (fullHeight > opts.maxHeightPx) {
+        clipped = true;
+        png = await page.screenshot({
+          clip: { x: 0, y: 0, width: opts.viewport.width, height: opts.maxHeightPx },
+        });
+      } else {
+        png = await page.screenshot({ fullPage: true });
+      }
+    } else {
+      png = await page.screenshot({ fullPage: opts.fullPage === true });
+    }
     // Buffer extends Uint8Array — return it as-is rather than copying.
-    return { png, measures };
+    return { png, measures, clipped };
   } finally {
     await browser.close();
   }
