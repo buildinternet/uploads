@@ -2,6 +2,9 @@
 title: "A home for your screenshots"
 date: 2026-08-11
 tags: [platform, web]
+image:
+  url: https://storage.uploads.sh/default/screenshots/changelog/screenshots-page.webp
+  alt: "The Screenshots page grouping captures by project and page path"
 ---
 
 Every screenshot the CLI captures now has a page of its own. **Screenshots**

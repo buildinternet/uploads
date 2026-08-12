@@ -16,6 +16,16 @@ function escapeXml(value: string): string {
     .replaceAll('"', "&quot;");
 }
 
+/**
+ * The lead image lives in frontmatter, not the body — inline it into the
+ * feed content so releases.sh sees (and mirrors) it at ingest.
+ */
+function entryContentHtml(entry: ChangelogEntry): string {
+  if (!entry.image) return entry.html;
+  const escapeAttr = (v: string) => v.replaceAll("&", "&amp;").replaceAll('"', "&quot;");
+  return `<p><img src="${escapeAttr(entry.image.url)}" alt="${escapeAttr(entry.image.alt)}"></p>${entry.html}`;
+}
+
 export function renderAtomFeed(entries: ChangelogEntry[]): string {
   if (entries.length === 0) {
     throw new Error("renderAtomFeed: refusing to publish an empty feed");
@@ -33,7 +43,7 @@ export function renderAtomFeed(entries: ChangelogEntry[]): string {
     <link href="${PAGE}#${entry.id}"/>
     <updated>${entry.date}</updated>
 ${entry.tags.map((tag) => `    <category term="${escapeXml(tag)}"/>`).join("\n")}
-    <content type="html">${escapeXml(entry.html)}</content>
+    <content type="html">${escapeXml(entryContentHtml(entry))}</content>
   </entry>`,
     )
     .join("\n");

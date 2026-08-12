@@ -7,8 +7,11 @@ automatically from `packages/uploads/CHANGELOG.md` — never write those here.
 2. Upload it — never commit images to the repo:
 
    ```bash
-   uploads put shot.png --workspace buildinternet --key changelog/<slug>.png
+   uploads put shot.png --key screenshots/changelog/<slug>.png
    ```
+
+   (The workspace key policy only allows the `f/`, `gh/`, and `screenshots/`
+   prefixes, so changelog images live under `screenshots/changelog/`.)
 
    Copy the public `storage.uploads.sh` URL from the output.
 
@@ -20,7 +23,7 @@ automatically from `packages/uploads/CHANGELOG.md` — never write those here.
    date: 2026-08-12
    tags: [platform]
    image:
-     url: https://storage.uploads.sh/changelog/<slug>.png
+     url: https://storage.uploads.sh/default/screenshots/changelog/<slug>.png
      alt: "What the screenshot shows"
    ---
 

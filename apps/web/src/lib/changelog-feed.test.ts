@@ -10,6 +10,10 @@ const entries: ChangelogEntry[] = [
     date: "2026-08-11T00:00:00.000Z",
     html: '<p>Now with <img src="https://storage.uploads.sh/changelog/x.png" alt="x"></p>',
     tags: ["platform"],
+    image: {
+      url: "https://storage.uploads.sh/default/screenshots/changelog/lead.webp",
+      alt: 'The "lead" image',
+    },
   },
   {
     kind: "cli",
@@ -44,6 +48,12 @@ describe("renderAtomFeed", () => {
     expect(xml).toContain('<content type="html">');
     expect(xml).toContain("https://storage.uploads.sh/changelog/x.png");
     expect(xml).toContain("&lt;img src=");
+  });
+
+  it("inlines the frontmatter lead image into the entry content", () => {
+    // Escaped once for the HTML attribute, then again for XML.
+    expect(xml).toContain("https://storage.uploads.sh/default/screenshots/changelog/lead.webp");
+    expect(xml).toContain("alt=&quot;The &amp;quot;lead&amp;quot; image&quot;");
   });
 
   it("throws on an empty entry list rather than publishing an empty feed", () => {
