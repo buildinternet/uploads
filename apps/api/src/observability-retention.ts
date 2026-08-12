@@ -30,6 +30,28 @@ function placeholders(n: number): string {
 }
 
 /**
+ * D1 rejects any query binding more than 100 parameters ("too many SQL
+ * variables"), so a 500-id batch cannot go out as one `IN (...)` delete. The
+ * batch size stays 500 — it governs cron throughput and the truncation
+ * lookahead — and only the DELETE is split.
+ */
+const D1_MAX_BOUND_PARAMS = 100;
+
+async function deleteByIdsChunked(
+  db: D1Database,
+  table: "uploads_telemetry_events" | "auth_enrollments",
+  ids: string[],
+): Promise<void> {
+  for (let i = 0; i < ids.length; i += D1_MAX_BOUND_PARAMS) {
+    const chunk = ids.slice(i, i + D1_MAX_BOUND_PARAMS);
+    await db
+      .prepare(`DELETE FROM ${table} WHERE id IN (${placeholders(chunk.length)})`)
+      .bind(...chunk)
+      .run();
+  }
+}
+
+/**
  * Fetch BATCH_SIZE + 1 ids so truncation is grounded in a leftover row, not
  * “the last batch happened to be full” (exact-cap runs must report truncated=false).
  */
@@ -79,10 +101,7 @@ async function purgeTelemetry(
       return (results ?? []).map((r) => r.id);
     },
     async (ids) => {
-      await db
-        .prepare(`DELETE FROM uploads_telemetry_events WHERE id IN (${placeholders(ids.length)})`)
-        .bind(...ids)
-        .run();
+      await deleteByIdsChunked(db, "uploads_telemetry_events", ids);
     },
   );
 }
@@ -111,10 +130,7 @@ async function purgeEnrollments(
       return (results ?? []).map((r) => r.id);
     },
     async (ids) => {
-      await db
-        .prepare(`DELETE FROM auth_enrollments WHERE id IN (${placeholders(ids.length)})`)
-        .bind(...ids)
-        .run();
+      await deleteByIdsChunked(db, "auth_enrollments", ids);
     },
   );
 }

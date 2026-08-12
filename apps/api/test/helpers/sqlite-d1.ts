@@ -19,6 +19,9 @@ const API_ROOT = fileURLToPath(new NodeURL("../../", import.meta.url));
 
 type SqliteValue = string | number | bigint | null | Uint8Array;
 
+/** D1's hard cap on bound parameters per query, enforced by `bind()` below. */
+export const D1_MAX_BOUND_PARAMS = 100;
+
 export class SqliteStatement {
   private values: SqliteValue[] = [];
 
@@ -28,6 +31,12 @@ export class SqliteStatement {
   ) {}
 
   bind(...values: unknown[]) {
+    // node:sqlite allows 32k bound parameters; D1 allows 100 and rejects the
+    // query with "too many SQL variables". Without this the fake happily runs
+    // statements that 500 in production (issue: the screenshots by-path route).
+    if (values.length > D1_MAX_BOUND_PARAMS) {
+      throw new Error(`D1_ERROR: too many SQL variables at offset ${values.length}: SQLITE_ERROR`);
+    }
     this.values = values as SqliteValue[];
     return this;
   }

@@ -4,12 +4,15 @@ import { describe, expect, it } from "vitest";
 import {
   MAX_GALLERIES_PER_WORKSPACE,
   MAX_GALLERY_ITEMS,
+  MAX_GALLERY_PAGE_SIZE,
   addExternalReference,
   addGalleryItem,
+  countItemsForGalleries,
   createGallery,
   deleteGalleriesForWorkspace,
   getGallery,
   listExternalReferences,
+  listExternalReferencesForGalleries,
   listGalleryItems,
   removeExternalReference,
   removeGalleryItem,
@@ -169,6 +172,108 @@ describe("gallery persistence against SQLite", () => {
       await expect(getGallery(database(sqlite), "alpha", created.id)).resolves.toMatchObject({
         version: 1,
       });
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("reorders a full-size gallery without blowing D1's bound-parameter cap", async () => {
+    // The guard statement used to enumerate every item id as its own bound
+    // parameter, so a MAX_GALLERY_ITEMS reorder bound 106 and D1 rejected the
+    // whole batch with "too many SQL variables" (same defect class as the
+    // screenshots by-path 500). SqliteD1.bind() enforces the same 100 cap.
+    const sqlite = newSqliteD1();
+    try {
+      const created = await gallery(sqlite);
+      const insert = sqlite.db.prepare(
+        "INSERT INTO gallery_items (id, gallery_id, object_key, position, created_at) VALUES (?, ?, ?, ?, ?)",
+      );
+      const ids = Array.from({ length: MAX_GALLERY_ITEMS }, (_, index) => `item-${index}`);
+      ids.forEach((id, index) => {
+        insert.run(
+          id,
+          created.id,
+          `screenshots/${index}.png`,
+          (index + 1) * 1000,
+          created.created_at,
+        );
+      });
+
+      const reversed = [...ids].reverse();
+      await expect(
+        reorderGalleryItems(database(sqlite), "alpha", created.id, reversed, 1),
+      ).resolves.toMatchObject({ status: "ok" });
+      const items = await listGalleryItems(database(sqlite), "alpha", created.id);
+      expect(items.map((item) => item.id)).toEqual(reversed);
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("rejects a reorder whose ids are not the gallery's current set", async () => {
+    // Companion to the test above: the guard's set-equality check must keep
+    // working after the id list stopped being one-parameter-per-id.
+    const sqlite = newSqliteD1();
+    try {
+      const created = await gallery(sqlite);
+      const first = await addGalleryItem(database(sqlite), "alpha", created.id, {
+        expectedVersion: 1,
+        objectKey: "screenshots/one.png",
+      });
+      if (first.status !== "ok") throw new Error("add failed");
+
+      await expect(
+        reorderGalleryItems(database(sqlite), "alpha", created.id, ["not-an-item"], 2),
+      ).resolves.toMatchObject({ status: "invalid" });
+      await expect(listGalleryItems(database(sqlite), "alpha", created.id)).resolves.toMatchObject([
+        { id: first.value.id, position: 1000 },
+      ]);
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("counts items and external refs for a full page of galleries in one pass", async () => {
+    // countItemsForGalleries / listExternalReferencesForGalleries bind the
+    // workspace plus one parameter per gallery id, so a full
+    // MAX_GALLERY_PAGE_SIZE page bound 101 and 500ed on the account list.
+    const sqlite = newSqliteD1();
+    try {
+      const ids: string[] = [];
+      for (let index = 0; index < MAX_GALLERY_PAGE_SIZE; index++) {
+        const created = await createGallery(database(sqlite), {
+          workspace: "alpha",
+          title: `Gallery ${index}`,
+          now: new Date("2026-07-11T12:00:00Z"),
+        });
+        if (created.status !== "ok") throw new Error(`create failed: ${created.status}`);
+        ids.push(created.value.id);
+        const item = await addGalleryItem(database(sqlite), "alpha", created.value.id, {
+          expectedVersion: 1,
+          objectKey: `screenshots/${index}.png`,
+        });
+        if (item.status !== "ok") throw new Error("add failed");
+        const reference = await addExternalReference(database(sqlite), "alpha", created.value.id, {
+          expectedVersion: 2,
+          provider: "github",
+          resourceType: "item",
+          normalizedKey: `github:item:buildinternet/uploads#${index}`,
+          locator: { owner: "buildinternet", repository: "uploads", number: index },
+          canonicalUrl: `https://github.com/buildinternet/uploads/issues/${index}`,
+        });
+        if (reference.status !== "ok") throw new Error("reference failed");
+      }
+
+      const counts = await countItemsForGalleries(database(sqlite), "alpha", ids);
+      expect(counts.size).toBe(MAX_GALLERY_PAGE_SIZE);
+      expect(counts.get(ids[0])).toBe(1);
+      expect(counts.get(ids[MAX_GALLERY_PAGE_SIZE - 1])).toBe(1);
+
+      const refs = await listExternalReferencesForGalleries(database(sqlite), "alpha", ids);
+      expect(refs.size).toBe(MAX_GALLERY_PAGE_SIZE);
+      expect(refs.get(ids[MAX_GALLERY_PAGE_SIZE - 1])).toHaveLength(1);
+      // Another workspace must not see them, however the ids were chunked.
+      expect((await countItemsForGalleries(database(sqlite), "beta", ids)).size).toBe(0);
     } finally {
       sqlite.close();
     }

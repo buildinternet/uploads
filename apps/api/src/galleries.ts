@@ -4,6 +4,27 @@ export const MAX_GALLERY_ITEMS = 100;
 export const MAX_GALLERY_REFERENCES = 20;
 export const MAX_GALLERY_PAGE_SIZE = 100;
 
+/**
+ * D1 rejects any query binding more than 100 parameters ("too many SQL
+ * variables"). Every cap above is 100, so a full page of galleries or a
+ * full-size reorder overruns it the moment the workspace or version binds ride
+ * along — see `chunkIds` and `reorderGalleryItems` below.
+ */
+const D1_MAX_BOUND_PARAMS = 100;
+
+/**
+ * Split an id list so each statement stays under the cap, given how many
+ * parameters the rest of the statement already spends. Callers merge the
+ * per-chunk rows; these are read-only lookups, so splitting them changes
+ * nothing a caller can observe.
+ */
+function chunkIds(ids: string[], reservedParams: number): string[][] {
+  const size = Math.max(1, D1_MAX_BOUND_PARAMS - reservedParams);
+  const chunks: string[][] = [];
+  for (let i = 0; i < ids.length; i += size) chunks.push(ids.slice(i, i + size));
+  return chunks;
+}
+
 export function clampGalleryPageLimit(requestedLimit: number | undefined): number {
   const limit = requestedLimit ?? 50;
   return Number.isFinite(limit)
@@ -390,18 +411,20 @@ export async function countItemsForGalleries(
 ): Promise<Map<string, number>> {
   const counts = new Map<string, number>();
   if (!galleryIds.length) return counts;
-  const placeholders = galleryIds.map(() => "?").join(", ");
-  const result = await db
-    .prepare(
-      `SELECT i.gallery_id AS gallery_id, COUNT(*) AS n
+  for (const chunk of chunkIds(galleryIds, 1)) {
+    const placeholders = chunk.map(() => "?").join(", ");
+    const result = await db
+      .prepare(
+        `SELECT i.gallery_id AS gallery_id, COUNT(*) AS n
        FROM gallery_items i
        JOIN galleries g ON g.id = i.gallery_id
        WHERE g.workspace = ? AND g.deleted_at IS NULL AND i.gallery_id IN (${placeholders})
        GROUP BY i.gallery_id`,
-    )
-    .bind(workspace, ...galleryIds)
-    .all<{ gallery_id: string; n: number }>();
-  for (const row of result.results) counts.set(row.gallery_id, Number(row.n) || 0);
+      )
+      .bind(workspace, ...chunk)
+      .all<{ gallery_id: string; n: number }>();
+    for (const row of result.results) counts.set(row.gallery_id, Number(row.n) || 0);
+  }
   return counts;
 }
 
@@ -413,22 +436,26 @@ export async function listExternalReferencesForGalleries(
 ): Promise<Map<string, GalleryExternalReferenceRecord[]>> {
   const byGallery = new Map<string, GalleryExternalReferenceRecord[]>();
   if (!galleryIds.length) return byGallery;
-  const placeholders = galleryIds.map(() => "?").join(", ");
-  const result = await db
-    .prepare(
-      `SELECT r.id, r.gallery_id, r.provider, r.resource_type, r.normalized_key, r.locator_json,
+  // Each gallery id lands in exactly one chunk, so every gallery's references
+  // still come back from a single ORDER BY — per-gallery ordering is intact.
+  for (const chunk of chunkIds(galleryIds, 1)) {
+    const placeholders = chunk.map(() => "?").join(", ");
+    const result = await db
+      .prepare(
+        `SELECT r.id, r.gallery_id, r.provider, r.resource_type, r.normalized_key, r.locator_json,
               r.canonical_url, r.created_at, r.updated_at
        FROM gallery_external_references r
        JOIN galleries g ON g.id = r.gallery_id
        WHERE g.workspace = ? AND g.deleted_at IS NULL AND r.gallery_id IN (${placeholders})
        ORDER BY r.created_at, r.id`,
-    )
-    .bind(workspace, ...galleryIds)
-    .all<GalleryExternalReferenceRecord>();
-  for (const row of result.results) {
-    const list = byGallery.get(row.gallery_id) ?? [];
-    list.push(row);
-    byGallery.set(row.gallery_id, list);
+      )
+      .bind(workspace, ...chunk)
+      .all<GalleryExternalReferenceRecord>();
+    for (const row of result.results) {
+      const list = byGallery.get(row.gallery_id) ?? [];
+      list.push(row);
+      byGallery.set(row.gallery_id, list);
+    }
   }
   return byGallery;
 }
@@ -568,14 +595,19 @@ export async function reorderGalleryItems(
   if (existing.every((item, index) => item.id === orderedItemIds[index]))
     return { status: "unchanged", value: existing };
   const iso = now.toISOString();
-  const placeholders = orderedItemIds.map(() => "?").join(", ") || "NULL";
+  // The id list travels as ONE json_each parameter rather than one bind per
+  // id: at MAX_GALLERY_ITEMS the enumerated form bound 106 parameters and D1
+  // rejected the batch with "too many SQL variables". Chunking is not
+  // available here — this set-equality guard has to stay a single atomic
+  // statement — so the list is collapsed into a single bound value instead.
   const statements: D1PreparedStatement[] = [
     db
       .prepare(
         `UPDATE galleries SET version = version + 1, updated_at = ?
      WHERE id = ? AND workspace = ? AND deleted_at IS NULL AND version = ?
        AND (SELECT COUNT(*) FROM gallery_items i WHERE i.gallery_id = galleries.id) = ?
-       AND (SELECT COUNT(*) FROM gallery_items i WHERE i.gallery_id = galleries.id AND i.id IN (${placeholders})) = ?`,
+       AND (SELECT COUNT(*) FROM gallery_items i WHERE i.gallery_id = galleries.id
+              AND i.id IN (SELECT value FROM json_each(?))) = ?`,
       )
       .bind(
         iso,
@@ -583,7 +615,7 @@ export async function reorderGalleryItems(
         workspace,
         expectedVersion,
         orderedItemIds.length,
-        ...orderedItemIds,
+        JSON.stringify(orderedItemIds),
         orderedItemIds.length,
       ),
   ];

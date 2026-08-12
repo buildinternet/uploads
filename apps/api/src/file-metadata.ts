@@ -451,8 +451,9 @@ export async function deleteFileMetadataForKeys(
   workspace: string,
   keys: string[],
 ): Promise<void> {
-  for (let i = 0; i < keys.length; i += METADATA_LOOKUP_CHUNK) {
-    const chunk = keys.slice(i, i + METADATA_LOOKUP_CHUNK);
+  const chunkSize = metadataLookupChunk(1); // the workspace bind
+  for (let i = 0; i < keys.length; i += chunkSize) {
+    const chunk = keys.slice(i, i + chunkSize);
     const placeholders = chunk.map(() => "?").join(", ");
     await db
       .prepare(`DELETE FROM file_metadata WHERE workspace = ? AND object_key IN (${placeholders})`)
@@ -805,8 +806,24 @@ export async function listFacets(
   return { key, values, truncated };
 }
 
-/** Max object keys bound into a single `object_key IN (...)` statement (SQLite's ~999 host-parameter limit, kept well under it). */
-const METADATA_LOOKUP_CHUNK = 100;
+/**
+ * D1's hard cap on bound parameters per query. Not SQLite's ~999 host-parameter
+ * limit — D1 rejects anything over 100 with "too many SQL variables", which is
+ * how the screenshots by-path route came to 500 in production once a workspace
+ * had enough path groups to send 100 keys plus the workspace and meta-key binds.
+ * The test fake (test/helpers/sqlite-d1.ts) enforces the same ceiling.
+ */
+const D1_MAX_BOUND_PARAMS = 100;
+
+/**
+ * Max object keys bound into one `object_key IN (...)` statement, given how
+ * many parameters the rest of the statement already spends. Always at least 1,
+ * so a caller with an outsized fixed prefix chunks slowly rather than looping
+ * forever on an empty slice.
+ */
+function metadataLookupChunk(reservedParams: number): number {
+  return Math.max(1, D1_MAX_BOUND_PARAMS - reservedParams);
+}
 
 /**
  * Batched, unfiltered lookup of D1 metadata for a set of object keys — e.g.
@@ -835,8 +852,10 @@ export async function getMetadataForKeys(
   const metaKeys = opts.metaKeys?.length ? opts.metaKeys : undefined;
   const metaFilter = metaKeys ? ` AND meta_key IN (${metaKeys.map(() => "?").join(", ")})` : "";
 
-  for (let i = 0; i < keys.length; i += METADATA_LOOKUP_CHUNK) {
-    const chunk = keys.slice(i, i + METADATA_LOOKUP_CHUNK);
+  // The workspace bind plus one per meta key ride along with every chunk.
+  const chunkSize = metadataLookupChunk(1 + (metaKeys?.length ?? 0));
+  for (let i = 0; i < keys.length; i += chunkSize) {
+    const chunk = keys.slice(i, i + chunkSize);
     const placeholders = chunk.map(() => "?").join(", ");
     const result = await db
       .prepare(
