@@ -1,7 +1,11 @@
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runCli } from "../src/cli.js";
 import { generateCompletionScript, runCompletion } from "../src/commands/completion.js";
-import { ROOT_COMMANDS } from "../src/cli-catalog.js";
+import { COMPLETION_SHELLS, ROOT_COMMANDS } from "../src/cli-catalog.js";
 
 function captureStdio() {
   const stdout: string[] = [];
@@ -71,6 +75,45 @@ describe("generateCompletionScript", () => {
   it("includes the update command", () => {
     expect(ROOT_COMMANDS.map((c) => c.name)).toContain("update");
   });
+
+  it("continues every _arguments spec line so zsh keeps one command", () => {
+    const script = generateCompletionScript("zsh");
+    const block = /^ {2}_arguments -C -s -S \\\n((?: {4}.*\n)+)/m.exec(script);
+    expect(block).not.toBeNull();
+    const lines = block![1]!.trimEnd().split("\n");
+    // Every line but the last must end in a continuation; otherwise zsh ends the
+    // _arguments call early and tries to execute the remaining specs as commands.
+    for (const line of lines.slice(0, -1)) {
+      expect(line.endsWith(" \\")).toBe(true);
+    }
+    expect(lines.at(-1)).toMatch(/'\*::arg:->args'$/);
+    expect(lines.length).toBeGreaterThan(3);
+  });
+
+  it("pairs short flags with their long form, using the long summary", () => {
+    const script = generateCompletionScript("zsh");
+    expect(script).toContain("'(-w --workspace)'{-w,--workspace}'[Workspace name]:workspace:'");
+    expect(script).toContain("'(-h --help)'{-h,--help}'[Show help]'");
+    // The "(short)" catalog summaries are an artifact of the flag list, not copy
+    // a user should ever see in a completion menu.
+    expect(script).not.toMatch(/\(short\)/);
+  });
+
+  for (const [shell, bin, args] of [
+    ["zsh", "zsh", ["-n"]],
+    ["bash", "bash", ["-n"]],
+  ] as const) {
+    it(`${shell} script parses under ${bin} ${args.join(" ")}`, () => {
+      const which = spawnSync("command", ["-v", bin], { shell: true });
+      if (which.status !== 0) return; // shell not installed on this machine
+      const script = generateCompletionScript(shell);
+      const file = join(mkdtempSync(join(tmpdir(), "uploads-completion-")), `script.${shell}`);
+      writeFileSync(file, script);
+      const run = spawnSync(bin, [...args, file], { encoding: "utf8" });
+      expect(run.stderr.trim()).toBe("");
+      expect(run.status).toBe(0);
+    });
+  }
 });
 
 describe("runCompletion", () => {
@@ -91,6 +134,20 @@ describe("runCompletion", () => {
     const code = await runCompletion([], true);
     expect(code).toBe(0);
     expect(io.stderr()).toMatch(/uploads completion <shell>/);
+  });
+
+  it("help gives the zsh compdef binding, not fpath alone", async () => {
+    const io = captureStdio();
+    await runCompletion([], true);
+    const help = io.stderr();
+    // Writing the file into an fpath directory does nothing under a cached
+    // `compinit -C`, so the help has to show the direct binding as well.
+    expect(help).toMatch(/fpath=\(~\/\.zsh\/completions \$fpath\)/);
+    expect(help).toMatch(/autoload -Uz _uploads && compdef _uploads uploads/);
+    expect(help).toMatch(/compinit -C/);
+    for (const shell of COMPLETION_SHELLS) {
+      expect(help).toContain(`uploads completion ${shell}`);
+    }
   });
 
   it("exits 2 when shell is missing", async () => {
