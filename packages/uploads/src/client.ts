@@ -755,12 +755,19 @@ function encodeKeyPath(key: string): string {
 }
 
 // Stays on the legacy `/v1/:workspace/files` wildcard for now (issue #613):
-// the canonical files vertical has no upload PUT, POST /sign, or GET/PATCH
-// /:key metadata yet, and its list/search adopted the session response shape
-// rather than the bearer one. Move this once the canonical vertical grows
-// those routes and the bearer list shape is reconciled.
+// the canonical files vertical's list/search adopted the session response
+// shape rather than the bearer one, so list/find/facets keep the legacy
+// path until that shape is reconciled.
 function filesBase(config: UploadsClientConfig): string {
   return `${config.apiUrl}/v1/${encodeURIComponent(config.workspace)}/files`;
+}
+
+// Canonical files surface (issue #613 phase 4): per-key operations —
+// upload PUT, head/metadata GET, metadata PATCH, DELETE — live at
+// `/v1/workspaces/:workspace/files` with identical handlers to the legacy
+// wildcard (shared server-side since #636).
+function canonicalFilesBase(config: UploadsClientConfig): string {
+  return `${config.apiUrl}/v1/workspaces/${encodeURIComponent(config.workspace)}/files`;
 }
 
 function usageBase(config: UploadsClientConfig): string {
@@ -941,7 +948,7 @@ export function createUploadsClient(config: UploadsClientConfig) {
           embedUrl?: string | null;
           replaced?: boolean;
           wouldRefuse?: boolean;
-        }>("PUT", `${filesBase(config)}/${encodeKeyPath(key)}?${qs}`);
+        }>("PUT", `${canonicalFilesBase(config)}/${encodeKeyPath(key)}?${qs}`);
         if (preview.url == null) {
           throw new UploadsError(
             "workspace has no publicBaseUrl (cannot resolve a public URL)",
@@ -985,7 +992,7 @@ export function createUploadsClient(config: UploadsClientConfig) {
         replaced?: boolean;
         provenance?: Record<string, string>;
         metadata?: Record<string, string>;
-      }>("PUT", `${filesBase(config)}/${encodeKeyPath(key)}`, {
+      }>("PUT", `${canonicalFilesBase(config)}/${encodeKeyPath(key)}`, {
         body,
         headers,
       });
@@ -1023,23 +1030,27 @@ export function createUploadsClient(config: UploadsClientConfig) {
     },
 
     async delete(key: string): Promise<DeleteResult> {
-      return request<DeleteResult>("DELETE", `${filesBase(config)}/${encodeKeyPath(key)}`);
+      return request<DeleteResult>("DELETE", `${canonicalFilesBase(config)}/${encodeKeyPath(key)}`);
     },
 
     /** `GET /v1/:workspace/files/:key?metadata=1` — the object's queryable metadata. */
     async getMetadata(key: string): Promise<GetMetadataResult> {
       return request<GetMetadataResult>(
         "GET",
-        `${filesBase(config)}/${encodeKeyPath(key)}?metadata=1`,
+        `${canonicalFilesBase(config)}/${encodeKeyPath(key)}?metadata=1`,
       );
     },
 
     /** `PATCH /v1/:workspace/files/:key` — merge `set`/`delete`; returns the merged map. */
     async patchMetadata(key: string, opts: PatchMetadataOptions): Promise<GetMetadataResult> {
-      return request<GetMetadataResult>("PATCH", `${filesBase(config)}/${encodeKeyPath(key)}`, {
-        body: new TextEncoder().encode(JSON.stringify(opts)),
-        headers: { "Content-Type": "application/json" },
-      });
+      return request<GetMetadataResult>(
+        "PATCH",
+        `${canonicalFilesBase(config)}/${encodeKeyPath(key)}`,
+        {
+          body: new TextEncoder().encode(JSON.stringify(opts)),
+          headers: { "Content-Type": "application/json" },
+        },
+      );
     },
 
     /**
@@ -1074,7 +1085,10 @@ export function createUploadsClient(config: UploadsClientConfig) {
     },
 
     async head(key: string): Promise<HeadResult> {
-      const result = await request<HeadResult>("GET", `${filesBase(config)}/${encodeKeyPath(key)}`);
+      const result = await request<HeadResult>(
+        "GET",
+        `${canonicalFilesBase(config)}/${encodeKeyPath(key)}`,
+      );
       return { ...result, embedUrl: resolveEmbedUrl(result.url, result.embedUrl) };
     },
 
