@@ -299,19 +299,19 @@ export type GithubCommentResult =
       required?: string[];
     };
 
-/** `POST /v1/:workspace/github/private-prefix` request (server contract, issue #631). */
+/** `POST /v1/workspaces/:workspace/github/private-prefix` request (server contract, issue #631/#613). */
 export interface ResolveGhPrefixOptions {
   repo: string;
   branch?: string;
   target?: { kind: "pull" | "issues"; num: number };
 }
 
-/** `POST /v1/:workspace/github/private-prefix` response (server contract, issue #631). */
+/** `POST /v1/workspaces/:workspace/github/private-prefix` response (server contract, issue #631/#613). */
 export type ResolveGhPrefixResult =
   | { mode: "plain" }
   | { mode: "private"; prefixId: string; activePrefixIds?: string[] };
 
-/** `POST /v1/:workspace/github/private-prefix/rotate` request (server contract, issue #631). */
+/** `POST /v1/workspaces/:workspace/github/private-prefix/rotate` request (server contract, issue #631/#613). */
 export interface RotateGhPrefixOptions {
   repo: string;
   /** Mutually exclusive with `repoLevel`: rotate one branch's id. */
@@ -321,7 +321,7 @@ export interface RotateGhPrefixOptions {
   repoLevel?: boolean;
 }
 
-/** `POST /v1/:workspace/github/private-prefix/rotate` response (server contract, issue #631). */
+/** `POST /v1/workspaces/:workspace/github/private-prefix/rotate` response (server contract, issue #631/#613). */
 export type RotateGhPrefixResult =
   | { rotated: false; reason: string }
   | { rotated: true; prefixId: string; moved: number };
@@ -1275,7 +1275,7 @@ export function createUploadsClient(config: UploadsClientConfig) {
         try {
           return await request<ResolveGhPrefixResult>(
             "POST",
-            `${config.apiUrl}/v1/${encodeURIComponent(config.workspace)}/github/private-prefix`,
+            `${config.apiUrl}/v1/workspaces/${encodeURIComponent(config.workspace)}/github/private-prefix`,
             {
               body: new TextEncoder().encode(JSON.stringify(opts)),
               headers: { "Content-Type": "application/json" },
@@ -1301,7 +1301,7 @@ export function createUploadsClient(config: UploadsClientConfig) {
     async rotateGhPrefix(opts: RotateGhPrefixOptions): Promise<RotateGhPrefixResult> {
       return request<RotateGhPrefixResult>(
         "POST",
-        `${config.apiUrl}/v1/${encodeURIComponent(config.workspace)}/github/private-prefix/rotate`,
+        `${config.apiUrl}/v1/workspaces/${encodeURIComponent(config.workspace)}/github/private-prefix/rotate`,
         {
           body: new TextEncoder().encode(JSON.stringify(opts)),
           headers: { "Content-Type": "application/json" },

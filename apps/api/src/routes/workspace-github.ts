@@ -4,28 +4,34 @@
  * `/v1/workspaces/:workspace/github/*`. Dual-auth (`dualWorkspaceAuth`) —
  * either a session cookie or a bearer token reaches the same handlers below.
  *
- * Collapses the five sub-routers previously mounted separately at
+ * Collapses the six sub-routers previously mounted separately at
  * `/v1/:workspace/github` (`github-comment.ts`, `github-promote.ts`,
- * `github-link.ts`, `github-health.ts`, `github-activity.ts`) into one
- * router — issue #613 names "five separate sub-routers sharing one mount
- * prefix" as its own wart, on top of the missing dual-auth surface. Handler
- * bodies are the exact same functions those old routers call (extracted to
- * named exports there), same "response shape can't drift" guarantee phase 2
- * established for galleries. The old bearer paths at
- * `/v1/:workspace/github/*` are UNCHANGED — still five separate `.route()`
+ * `github-link.ts`, `github-health.ts`, `github-activity.ts`,
+ * `github-private-prefix.ts`) into one router — issue #613 names "five
+ * separate sub-routers sharing one mount prefix" as its own wart, on top of
+ * the missing dual-auth surface (issue #631's `private-prefix` route landed
+ * after that count and joins the canonical vertical here on the same terms).
+ * Handler bodies are the exact same functions those old routers call
+ * (extracted to named exports there), same "response shape can't drift"
+ * guarantee phase 2 established for galleries. The old bearer paths at
+ * `/v1/:workspace/github/*` are UNCHANGED — still six separate `.route()`
  * mounts in `index.ts`, still calling the same handler functions with their
  * own pre-existing scope requirements.
  *
  * Authorization posture per route (issue #613 phase 3 plan,
  * `.context/613-api-consolidation-plan.md`, "github" section):
- *  - `comment`/`promote` (POST, mutating + GitHub-API-calling/bot-posting):
- *    token-only on this canonical surface. A session caller who is a member
- *    gets a 403 `github_requires_token` — mirrors `workspace-usage.ts`'s
+ *  - `comment`/`promote`/`private-prefix`/`private-prefix/rotate` (POST,
+ *    mutating + GitHub-API-calling/bot-posting or D1/R2-mutating): token-only
+ *    on this canonical surface. A session caller who is a member gets a 403
+ *    `github_requires_token` — mirrors `workspace-usage.ts`'s
  *    `requireToken`/`usage_requires_token` guard exactly (membership already
  *    proven by `dualWorkspaceAuth`, so refusal here is "not allowed", not
  *    "doesn't exist"). Canonical `comment` requires `files:write` (NOT the
  *    old path's `files:read` — issue #613 flags a write op scoped as a read
  *    as a wart; fixed here, left untouched on the old bearer path).
+ *    `private-prefix`/`private-prefix/rotate` already require `files:write`
+ *    on the old bearer path too (issue #631) — no scope change here, just
+ *    the same token-only posture as their `comment`/`promote` siblings.
  *  - `link` (GET/POST/DELETE)/`repo-link` (GET)/`health` (GET)/`activity`
  *    (GET): dual-auth with a session-admin-tier gate layered on top
  *    (`requireSessionAdmin`, `../dual-workspace-auth.ts`) — bearer keeps
@@ -80,6 +86,10 @@ import {
   githubRepoLinkGetHandler,
 } from "./github-link";
 import { githubHealthHandler } from "./github-health";
+import {
+  githubPrivatePrefixHandler,
+  githubPrivatePrefixRotateHandler,
+} from "./github-private-prefix";
 import { githubPromoteHandler } from "./github-promote";
 
 // Same owner/name grammar as routes/github-comment.ts's `REPO_RE` — repeated
@@ -278,6 +288,22 @@ export const workspaceGithub = new Hono<DualAuthVars>()
     scoped("files:write"),
     requireToken,
     githubPromoteHandler as unknown as MiddlewareHandler<DualAuthVars>,
+  )
+  .post(
+    "/:workspace/github/private-prefix",
+    dualWorkspaceAuth(),
+    rateLimited,
+    scoped("files:write"),
+    requireToken,
+    githubPrivatePrefixHandler as unknown as MiddlewareHandler<DualAuthVars>,
+  )
+  .post(
+    "/:workspace/github/private-prefix/rotate",
+    dualWorkspaceAuth(),
+    rateLimited,
+    scoped("files:write"),
+    requireToken,
+    githubPrivatePrefixRotateHandler as unknown as MiddlewareHandler<DualAuthVars>,
   )
   .get(
     "/:workspace/github/link",

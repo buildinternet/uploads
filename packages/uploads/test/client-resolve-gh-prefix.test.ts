@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createUploadsClient } from "../src/client.js";
 
 describe("resolveGhPrefix (issue #631)", () => {
-  it("POSTs { repo, target } to /v1/:workspace/github/private-prefix and returns the result", async () => {
+  it("POSTs { repo, target } to /v1/workspaces/:workspace/github/private-prefix and returns the result", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(
         JSON.stringify({
@@ -28,7 +28,7 @@ describe("resolveGhPrefix (issue #631)", () => {
       activePrefixIds: ["a".repeat(32)],
     });
     const [url, init] = fetchSpy.mock.calls[0];
-    expect(url).toBe("https://api.test/v1/acme/github/private-prefix");
+    expect(url).toBe("https://api.test/v1/workspaces/acme/github/private-prefix");
     expect(init?.method).toBe("POST");
     expect(JSON.parse(new TextDecoder().decode(init?.body as Uint8Array))).toEqual({
       repo: "acme/web",
