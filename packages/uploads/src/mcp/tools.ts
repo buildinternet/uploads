@@ -1125,9 +1125,12 @@ export function createUploadsMcpTools(opts: {
         let prefix = prefixArg ?? (defaults.prefix ? `${defaults.prefix}/` : undefined);
         const target = ghTargetFromArgs(args, run);
         const { client } = clientFor(args);
-        // Also list the resolved private prefix, if any (issue #631) — a
-        // repo's attachment history can be split across the plain and
-        // private shapes. `prefixes` stays undefined outside pr/issue
+        // Also list every active private prefix, if any (issue #631) —
+        // mirrors syncAttachmentsComment's gh-fallback gather: a repo's
+        // attachment history can be split across the plain shape and
+        // MULTIPLE private prefixes, not just the currently-resolved one.
+        // Falls back to `[prefixId]` when the server omits
+        // `activePrefixIds`. `prefixes` stays undefined outside pr/issue
         // (unchanged behavior); collapses to `[prefix]` in plain mode, so
         // the single-request path below is byte-identical to pre-#631.
         let prefixes: string[] | undefined;
@@ -1140,18 +1143,30 @@ export function createUploadsMcpTools(opts: {
           });
           prefixes =
             ghPrefix.mode === "private"
-              ? [prefix, ghPrivateKeyPrefix(ghPrefix.prefixId, target)]
+              ? [
+                  prefix,
+                  ...(ghPrefix.activePrefixIds ?? [ghPrefix.prefixId]).map((id) =>
+                    ghPrivateKeyPrefix(id, target),
+                  ),
+                ]
               : [prefix];
         }
         const limit = optPosInt(args, "limit");
         const cursor = optString(args, "cursor");
 
+        // A cursor is opaque and scoped to the prefix it was minted against
+        // — a multi-prefix merge only ever hands it to the FIRST prefix;
+        // every other prefix always starts from its own beginning
+        // (undefined cursor), or a cursor minted for one prefix's keyspace
+        // would get replayed against a different one.
         if (optBool(args, "all")) {
           const items =
             prefixes && prefixes.length > 1
               ? (
                   await Promise.all(
-                    prefixes.map((p) => client.listAll({ prefix: p, limit, cursor })),
+                    prefixes.map((p, i) =>
+                      client.listAll({ prefix: p, limit, cursor: i === 0 ? cursor : undefined }),
+                    ),
                   )
                 ).flat()
               : await client.listAll({ prefix, limit, cursor });
@@ -1159,7 +1174,9 @@ export function createUploadsMcpTools(opts: {
         }
         if (prefixes && prefixes.length > 1) {
           const pages = await Promise.all(
-            prefixes.map((p) => client.list({ prefix: p, limit, cursor })),
+            prefixes.map((p, i) =>
+              client.list({ prefix: p, limit, cursor: i === 0 ? cursor : undefined }),
+            ),
           );
           return { items: pages.flatMap((page) => page.items), cursor: null };
         }

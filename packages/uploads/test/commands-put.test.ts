@@ -375,7 +375,7 @@ describe("runPut private-prefix mode (issue #631)", () => {
     // listing, issue #631 too, but a distinct call site with its own cache
     // key on the real client) — this test is only about uploadPuts not
     // re-resolving per file in its mapBounded loop.
-    const { client, resolveGhPrefixCalls } = fakeClient({
+    const { client, puts, resolveGhPrefixCalls } = fakeClient({
       resolveGhPrefix: { mode: "private", prefixId: PREFIX_ID },
     });
     const paths = tmpFiles("a.png", "b.png");
@@ -385,7 +385,10 @@ describe("runPut private-prefix mode (issue #631)", () => {
       false,
       noRun,
     );
-    expect(resolveGhPrefixCalls.length).toBeLessThanOrEqual(1);
+    expect(resolveGhPrefixCalls.length).toBe(1);
+    expect(puts.map((p) => p.key).sort()).toEqual(
+      [`gh/private/${PREFIX_ID}/pull/9/a.png`, `gh/private/${PREFIX_ID}/pull/9/b.png`].sort(),
+    );
   });
 });
 

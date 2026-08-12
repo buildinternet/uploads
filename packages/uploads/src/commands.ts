@@ -2083,14 +2083,24 @@ export async function resolveStaged(opts: {
 }): Promise<StagedResult> {
   const { client, repo, branch } = opts;
   const plainPrefix = ghBranchKeyPrefix(repo, branch);
-  // Also list the resolved private prefix, if any (issue #631) — a repo's
-  // staged history can be split across the plain and private shapes (e.g.
-  // the repo went private after some files were staged). Fail-open: any
-  // resolve failure degrades to plain-only, byte-identical to pre-#631.
+  // Also list every active private prefix, if any (issue #631) — mirrors
+  // syncAttachmentsComment's gh-fallback gather above: a repo's staged
+  // history can be split across the plain shape and MULTIPLE private
+  // prefixes (e.g. a prefix rotation, or the repo went private after some
+  // files were staged), not just the currently-resolved one. Falls back to
+  // `[prefixId]` when the server omits `activePrefixIds` (optional field —
+  // an older/self-hosted worker), so a private repo is never listed as
+  // zero private prefixes. Fail-open: any resolve failure degrades to
+  // plain-only, byte-identical to pre-#631.
   const ghPrefix = await resolveGhPrefixSafe(client, { repo, branch });
   const prefixes =
     ghPrefix.mode === "private"
-      ? [plainPrefix, ghPrivateBranchKeyPrefix(ghPrefix.prefixId)]
+      ? [
+          plainPrefix,
+          ...(ghPrefix.activePrefixIds ?? [ghPrefix.prefixId]).map((id) =>
+            ghPrivateBranchKeyPrefix(id),
+          ),
+        ]
       : [plainPrefix];
   const [lists, binding] = await Promise.all([
     Promise.all(prefixes.map((prefix) => client.list({ prefix, metadata: true }))),
@@ -2952,11 +2962,14 @@ export async function runList(
   const prefixFlag = flagString(parsed.flags, "--prefix");
   let prefix = prefixFlag ?? (defaults.prefix ? `${defaults.prefix}/` : undefined);
   const ghTarget = ghTargetFromFlags(parsed.flags, run);
-  // Also list the resolved private prefix, if any (issue #631) — a repo's
-  // attachment history can be split across the plain and private shapes.
-  // `prefixes` stays undefined outside --pr/--issue (unchanged behavior);
-  // when defined it collapses to just `[prefix]` in plain mode, so the
-  // single-request path below is byte-identical to pre-#631 output there.
+  // Also list every active private prefix, if any (issue #631) — mirrors
+  // syncAttachmentsComment's gh-fallback gather: a repo's attachment
+  // history can be split across the plain shape and MULTIPLE private
+  // prefixes, not just the currently-resolved one. Falls back to
+  // `[prefixId]` when the server omits `activePrefixIds`. `prefixes` stays
+  // undefined outside --pr/--issue (unchanged behavior); when defined it
+  // collapses to just `[prefix]` in plain mode, so the single-request path
+  // below is byte-identical to pre-#631 output there.
   let prefixes: string[] | undefined;
   if (ghTarget) {
     if (prefixFlag) throw new UsageError("--prefix cannot be combined with --pr/--issue");
@@ -2967,7 +2980,12 @@ export async function runList(
     });
     prefixes =
       ghPrefix.mode === "private"
-        ? [prefix, ghPrivateKeyPrefix(ghPrefix.prefixId, ghTarget)]
+        ? [
+            prefix,
+            ...(ghPrefix.activePrefixIds ?? [ghPrefix.prefixId]).map((id) =>
+              ghPrivateKeyPrefix(id, ghTarget),
+            ),
+          ]
         : [prefix];
   }
   const limit = flagInt(parsed.flags, "--limit", "--limit");
@@ -2975,10 +2993,19 @@ export async function runList(
 
   if (flagBool(parsed.flags, "--all")) {
     // --all may start from a caller-provided --cursor and drains from there.
+    // A cursor is opaque and scoped to the prefix it was minted against — a
+    // multi-prefix merge only ever hands it to the FIRST prefix; every other
+    // prefix always starts from its own beginning (undefined cursor), or a
+    // cursor minted for one prefix's keyspace would get replayed against a
+    // different one.
     const items =
       prefixes && prefixes.length > 1
         ? (
-            await Promise.all(prefixes.map((p) => ctx.client.listAll({ prefix: p, limit, cursor })))
+            await Promise.all(
+              prefixes.map((p, i) =>
+                ctx.client.listAll({ prefix: p, limit, cursor: i === 0 ? cursor : undefined }),
+              ),
+            )
           ).flat()
         : await ctx.client.listAll({ prefix, limit, cursor });
     if (ctx.json) await writeJson({ items, cursor: null });
@@ -2991,12 +3018,16 @@ export async function runList(
   // Merged multi-prefix pages don't have a meaningful combined cursor —
   // dropped (null) only when there's more than one prefix to merge; the
   // single-prefix path (every non-private call, plus every call before
-  // #631) is untouched.
+  // #631) is untouched. Same first-prefix-only cursor guard as --all above.
   const result =
     prefixes && prefixes.length > 1
       ? {
           items: (
-            await Promise.all(prefixes.map((p) => ctx.client.list({ prefix: p, limit, cursor })))
+            await Promise.all(
+              prefixes.map((p, i) =>
+                ctx.client.list({ prefix: p, limit, cursor: i === 0 ? cursor : undefined }),
+              ),
+            )
           ).flatMap((page) => page.items),
           cursor: null,
         }

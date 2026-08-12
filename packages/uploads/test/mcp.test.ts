@@ -1047,6 +1047,46 @@ describe("tools/call list, delete, comment", () => {
     ]);
   });
 
+  it("lists every active private prefix, not just the currently-resolved one (issue #631)", async () => {
+    const PREFIX_ID = "0123456789abcdef0123456789abcdef";
+    const OTHER_PREFIX_ID = "fedcba9876543210fedcba9876543210";
+    const PLAIN_PREFIX = "gh/o/r/pull/9/";
+    const PRIVATE_PREFIX = `gh/private/${PREFIX_ID}/pull/9/`;
+    const OTHER_PRIVATE_PREFIX = `gh/private/${OTHER_PREFIX_ID}/pull/9/`;
+    const items: Record<string, { key: string; url: string }[]> = {
+      [PLAIN_PREFIX]: [],
+      [PRIVATE_PREFIX]: [
+        { key: `${PRIVATE_PREFIX}current.png`, url: "https://x.test/current.png" },
+      ],
+      [OTHER_PRIVATE_PREFIX]: [
+        { key: `${OTHER_PRIVATE_PREFIX}rotated.png`, url: "https://x.test/rotated.png" },
+      ],
+    };
+    const { server } = serverWith({
+      factory: () =>
+        ({
+          list: async (opts: { prefix?: string } = {}) => ({
+            items: items[opts.prefix ?? ""] ?? [],
+            cursor: null,
+          }),
+          listAll: async (opts: { prefix?: string } = {}) => items[opts.prefix ?? ""] ?? [],
+          resolveGhPrefix: async () => ({
+            mode: "private" as const,
+            prefixId: PREFIX_ID,
+            activePrefixIds: [PREFIX_ID, OTHER_PREFIX_ID],
+          }),
+        }) as unknown as UploadsClient,
+    });
+    const res = await rpc(server, "tools/call", {
+      name: "list",
+      arguments: { pr: 9, repo: "o/r" },
+    });
+    expect(res.result.isError).toBe(false);
+    expect(
+      res.result.structuredContent.items.map((i: { key: string }) => i.key.split("/").pop()).sort(),
+    ).toEqual(["current.png", "rotated.png"].sort());
+  });
+
   it("rejects prefix combined with pr", async () => {
     const { server } = serverWith();
     const res = await rpc(server, "tools/call", {

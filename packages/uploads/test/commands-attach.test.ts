@@ -363,7 +363,7 @@ describe("runAttach private-prefix mode (issue #631)", () => {
   });
 
   it("resolves the gh prefix once per invocation for a multi-file batch", async () => {
-    const { client, resolveGhPrefixCalls } = fakeClient({
+    const { client, puts, resolveGhPrefixCalls } = fakeClient({
       resolveGhPrefix: { mode: "private", prefixId: PREFIX_ID },
     });
     const { run } = ghRunner();
@@ -373,7 +373,14 @@ describe("runAttach private-prefix mode (issue #631)", () => {
       false,
       run,
     );
-    expect(resolveGhPrefixCalls.length).toBeLessThanOrEqual(1);
+    expect(resolveGhPrefixCalls.length).toBe(1);
+    expect(puts.sort()).toEqual(
+      [
+        `gh/private/${PREFIX_ID}/pull/123/a.png`,
+        `gh/private/${PREFIX_ID}/pull/123/b.png`,
+        `gh/private/${PREFIX_ID}/pull/123/c.png`,
+      ].sort(),
+    );
   });
 });
 

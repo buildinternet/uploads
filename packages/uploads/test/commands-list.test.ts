@@ -132,6 +132,51 @@ describe("runList --pr private-prefix mode (issue #631)", () => {
     );
     expect(prefixes).toEqual([PLAIN_PREFIX]);
   });
+
+  it("lists every active private prefix, not just the currently-resolved one (mirrors the comment gather)", async () => {
+    const OTHER_PREFIX_ID = "fedcba9876543210fedcba9876543210";
+    const OTHER_PRIVATE_PREFIX = `gh/private/${OTHER_PREFIX_ID}/pull/123/`;
+    const { client, prefixes } = fakeListClient({
+      resolveGhPrefix: {
+        mode: "private",
+        prefixId: PREFIX_ID,
+        activePrefixIds: [PREFIX_ID, OTHER_PREFIX_ID],
+      },
+      itemsByPrefix: {
+        [PLAIN_PREFIX]: [],
+        [PRIVATE_PREFIX]: [
+          { key: `${PRIVATE_PREFIX}current.png`, url: "https://x.test/current.png" },
+        ],
+        [OTHER_PRIVATE_PREFIX]: [
+          { key: `${OTHER_PRIVATE_PREFIX}rotated.png`, url: "https://x.test/rotated.png" },
+        ],
+      },
+    });
+    const ctx = { ...ctxWith(client), json: true };
+    const chunks: string[] = [];
+    const spy = ((chunk: unknown) => {
+      chunks.push(String(chunk));
+      return true;
+    }) as typeof process.stdout.write;
+    const original = process.stdout.write;
+    process.stdout.write = spy;
+    try {
+      const code = await runList(
+        ctx,
+        ["--pr", "123", "--repo", "buildinternet/uploads"],
+        false,
+        noRun,
+      );
+      expect(code).toBe(0);
+    } finally {
+      process.stdout.write = original;
+    }
+    expect(prefixes.sort()).toEqual([PLAIN_PREFIX, PRIVATE_PREFIX, OTHER_PRIVATE_PREFIX].sort());
+    const parsed = JSON.parse(chunks.join(""));
+    expect(parsed.items.map((i: { key: string }) => i.key.split("/").pop()).sort()).toEqual(
+      ["current.png", "rotated.png"].sort(),
+    );
+  });
 });
 
 describe("runList --meta", () => {

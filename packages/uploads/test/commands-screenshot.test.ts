@@ -3,7 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { UsageError } from "../src/cli-args.js";
-import type { UploadsClient } from "../src/client.js";
+import type {
+  ResolveGhPrefixOptions,
+  ResolveGhPrefixResult,
+  UploadsClient,
+} from "../src/client.js";
 import type { CliContext } from "../src/commands.js";
 import { runScreenshot, type AnnotateModule } from "../src/commands/screenshot.js";
 import { foldStateIntoFilename } from "../src/screenshot.js";
@@ -12,7 +16,20 @@ import type { CaptureScreenshotResult } from "../src/screenshot.js";
 import type { AnnotationSpec, SpecError } from "../src/annotate/index.js";
 
 /** Fake client capturing put() calls; other methods throw if reached. */
-function fakeClient(opts: { replaced?: boolean } = {}) {
+function fakeClient(
+  opts: {
+    replaced?: boolean;
+    /**
+     * `client.resolveGhPrefix` behavior (issue #631 private-prefix mode).
+     * Omitted → method absent, simulating an older/self-hosted server
+     * without the route (404) — degrades to plain, byte-identical to
+     * pre-#631 keys.
+     */
+    resolveGhPrefix?:
+      | ResolveGhPrefixResult
+      | ((opts: ResolveGhPrefixOptions) => ResolveGhPrefixResult);
+  } = {},
+) {
   const puts: {
     key?: string;
     filename: string;
@@ -52,6 +69,14 @@ function fakeClient(opts: { replaced?: boolean } = {}) {
     },
     list: async () => ({ items: [], cursor: null }),
     health: async () => ({ ok: true }),
+    ...(opts.resolveGhPrefix !== undefined
+      ? {
+          resolveGhPrefix: async (req: ResolveGhPrefixOptions) =>
+            typeof opts.resolveGhPrefix === "function"
+              ? opts.resolveGhPrefix(req)
+              : opts.resolveGhPrefix!,
+        }
+      : {}),
   } as unknown as UploadsClient;
   return { client, puts };
 }
@@ -663,6 +688,22 @@ describe("runScreenshot auto branch staging (issue #469 lever 1)", () => {
     );
     expect(code).toBe(0);
     expect(puts[0]?.key).toBe("gh/o/r/pull/9/example-com.png");
+  });
+
+  it("builds a private-prefix key under --pr when the server advertises private mode (issue #631)", async () => {
+    const PREFIX_ID = "0123456789abcdef0123456789abcdef";
+    const { client, puts } = fakeClient({
+      resolveGhPrefix: { mode: "private", prefixId: PREFIX_ID },
+    });
+    const code = await runScreenshot(
+      ctxWith(client),
+      ["https://example.com", "--pr", "9", "--repo", "o/r"],
+      false,
+      stagingRunner(staged),
+      fakeCapture("remote"),
+    );
+    expect(code).toBe(0);
+    expect(puts[0]?.key).toBe(`gh/private/${PREFIX_ID}/pull/9/example-com.png`);
   });
 
   it("does not auto-stage with --issue", async () => {

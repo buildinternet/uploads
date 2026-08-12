@@ -359,6 +359,42 @@ describe("runStaged private-prefix mode (issue #631)", () => {
     await runStaged(ctxWith(client), ["--branch", "feature/thing", "--repo", "o/r"], false, noRun);
     expect(listCalls).toEqual([{ prefix: PLAIN_PREFIX, metadata: true }]);
   });
+
+  it("lists every active private prefix, not just the currently-resolved one (mirrors the comment gather)", async () => {
+    const OTHER_PREFIX_ID = "fedcba9876543210fedcba9876543210".slice(0, 32);
+    const OTHER_PRIVATE_PREFIX = `gh/private/${OTHER_PREFIX_ID}/branch/`;
+    const { client, listCalls } = fakeClient({
+      resolveGhPrefix: {
+        mode: "private",
+        prefixId: PREFIX_ID,
+        activePrefixIds: [PREFIX_ID, OTHER_PREFIX_ID],
+      },
+      itemsByPrefix: {
+        [PLAIN_PREFIX]: [],
+        [PRIVATE_PREFIX]: [
+          { key: `${PRIVATE_PREFIX}current.png`, url: "https://x.test/current.png" },
+        ],
+        [OTHER_PRIVATE_PREFIX]: [
+          { key: `${OTHER_PRIVATE_PREFIX}rotated.png`, url: "https://x.test/rotated.png" },
+        ],
+      },
+    });
+    const { stdout } = await withCapturedOutput(async () => {
+      await runStaged(
+        ctxWith(client, { json: true }),
+        ["--branch", "feature/thing", "--repo", "o/r"],
+        false,
+        noRun,
+      );
+    });
+    expect(listCalls.map((c) => c.prefix).sort()).toEqual(
+      [PLAIN_PREFIX, PRIVATE_PREFIX, OTHER_PRIVATE_PREFIX].sort(),
+    );
+    const parsed = JSON.parse(stdout);
+    expect(parsed.files.map((f: { filename: string }) => f.filename).sort()).toEqual(
+      ["current.png", "rotated.png"].sort(),
+    );
+  });
 });
 
 describe("runStaged: binding states", () => {
