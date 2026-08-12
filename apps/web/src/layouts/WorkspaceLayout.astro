@@ -111,7 +111,7 @@ const invitePath = `/account/workspaces/${encodeURIComponent(workspace)}/people`
         <div class="ws-rail__actions">
           {
             /* Server-rendered visible, then hidden by `initWorkspaceRail` when
-              `/me/workspaces/:name/github-status` reports the App installed
+              `/v1/workspaces/:name/github/status` reports the App installed
               (issue #492). Shown on every other outcome — a workspace that has
               it already sees one extra muted link; one that doesn't would
               otherwise never learn the App exists. */

@@ -326,8 +326,8 @@ describe("GET /v1/workspaces/:workspace/galleries (session auth)", () => {
   });
 });
 
-describe("old-path /me/workspaces/:name/galleries is NOT forwarded (issue #613 phase 2 divergence)", () => {
-  it("keeps its own richer shape (itemCount/references) rather than the canonical bearer-shaped list", async () => {
+describe("old-path /me/workspaces/:name/galleries now forwards to the canonical list (issue #613 final phase)", () => {
+  it("returns the same enriched (itemCount/references) body as the canonical route", async () => {
     const env = await makeEnv();
     await createViaCanonical(env);
 
@@ -340,17 +340,15 @@ describe("old-path /me/workspaces/:name/galleries is NOT forwarded (issue #613 p
     const oldBody = (await oldPath.json()) as { galleries: Record<string, unknown>[] };
     expect(oldBody.galleries[0]).toHaveProperty("itemCount");
     expect(oldBody.galleries[0]).toHaveProperty("references");
-    // No `nextCursor` on the old shape — confirms this is still the
-    // pre-#613 handler, not a forward through the canonical route.
-    expect(oldBody).not.toHaveProperty("nextCursor");
+    expect(oldBody).toHaveProperty("nextCursor");
 
     const canonical = await app.request(
       "/v1/workspaces/acme/galleries",
       { headers: { cookie: "session=x" } },
       env,
     );
-    const canonicalBody = (await canonical.json()) as { galleries: Record<string, unknown>[] };
-    expect(canonicalBody.galleries[0]).not.toHaveProperty("itemCount");
-    expect(canonicalBody).toHaveProperty("nextCursor");
+    // Byte-identical: both paths now run through the same canonical handler
+    // (`listGalleriesEnrichedHandler`, `workspace-galleries.ts`).
+    expect(oldBody).toEqual(await canonical.json());
   });
 });

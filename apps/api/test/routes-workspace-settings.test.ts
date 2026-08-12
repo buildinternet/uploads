@@ -12,6 +12,7 @@ import {
   setStorageVerifyForTests,
 } from "../src/routes/workspace-storage";
 import { fakeRegistry } from "./fake-kv";
+import { FakeR2Bucket } from "./fake-r2";
 import { UsageFakeD1 } from "./usage-fake-d1";
 
 const ADMIN = { id: "u-admin", email: "admin@example.com", name: "Admin" };
@@ -692,5 +693,92 @@ describe("/me alias forwards (issue #613 phase 3)", () => {
     expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
       "workspace_not_found",
     );
+  });
+});
+
+describe("GET /v1/workspaces/:workspace/comment-preview (issue #613 final phase)", () => {
+  function makePreviewEnv(opts: EnvOpts = {}) {
+    const { registry, db, env } = (() => {
+      const bucket = new FakeR2Bucket();
+      const record = {
+        ...SHARED_RECORD,
+        binding: "UPLOADS_DEFAULT",
+      };
+      const base = makeEnv({ ...opts, record });
+      return {
+        ...base,
+        env: {
+          ...base.env,
+          UPLOADS_DEFAULT: bucket,
+          WEB_ORIGIN: "https://uploads.test",
+        } as unknown as Env,
+      };
+    })();
+    return { env, registry, db };
+  }
+
+  it("200s for an admin session with the fixture fallback when the workspace has no gh/ uploads", async () => {
+    const { env } = makePreviewEnv({ role: "admin" });
+    const res = await app.request(
+      "/v1/workspaces/acme/comment-preview",
+      { headers: sessionHeaders },
+      env,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { sample: string; body: string };
+    expect(body.sample).toBe("fixtures");
+    expect(typeof body.body).toBe("string");
+  });
+
+  it("403s a non-admin member session", async () => {
+    const { env } = makePreviewEnv({ sessionUser: MEMBER, role: "member" });
+    const res = await app.request(
+      "/v1/workspaces/acme/comment-preview",
+      { headers: sessionHeaders },
+      env,
+    );
+    expect(res.status).toBe(403);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+      "workspace_admin_required",
+    );
+  });
+
+  it("404s a non-member session", async () => {
+    const { env } = makePreviewEnv({ noMembership: true });
+    const res = await app.request(
+      "/v1/workspaces/acme/comment-preview",
+      { headers: sessionHeaders },
+      env,
+    );
+    expect(res.status).toBe(404);
+  });
+
+  it("403s a bearer token with settings_requires_session", async () => {
+    const { env } = makePreviewEnv();
+    const res = await app.request(
+      "/v1/workspaces/acme/comment-preview",
+      { headers: bearerHeaders },
+      env,
+    );
+    expect(res.status).toBe(403);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+      "settings_requires_session",
+    );
+  });
+
+  it("/me/workspaces/:name/comment-preview forwards to the same handler (identical body)", async () => {
+    const { env } = makePreviewEnv({ role: "admin" });
+    const canonical = await app.request(
+      "/v1/workspaces/acme/comment-preview",
+      { headers: sessionHeaders },
+      env,
+    );
+    const alias = await app.request(
+      "/me/workspaces/acme/comment-preview",
+      { headers: sessionHeaders },
+      env,
+    );
+    expect(alias.status).toBe(200);
+    expect(await alias.json()).toEqual(await canonical.json());
   });
 });

@@ -431,3 +431,75 @@ describe("old-path aliases forward unchanged (issue #613)", () => {
     expect(body.error?.code).toBe("workspace_not_found");
   });
 });
+
+describe("ALL /v1/workspaces/:workspace/file-browser (session-only, member-gated, issue #613 final phase)", () => {
+  it("member session reaches the files-sdk readonly list gateway", async () => {
+    const { env, bucket } = await makeEnv();
+    await seed(bucket);
+    const res = await app.request(
+      "/v1/workspaces/acme/file-browser",
+      {
+        method: "POST",
+        headers: { cookie: "session=x", "content-type": "application/json" },
+        body: JSON.stringify({ op: "list" }),
+      },
+      env,
+    );
+    expect(res.status).toBe(200);
+  });
+
+  it("bearer 403s with file_browser_requires_session", async () => {
+    const { env } = await makeEnv();
+    const res = await app.request(
+      "/v1/workspaces/acme/file-browser",
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
+        body: JSON.stringify({ op: "list" }),
+      },
+      env,
+    );
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { error?: { code?: string } };
+    expect(body.error?.code).toBe("file_browser_requires_session");
+  });
+
+  it("non-member session 404s", async () => {
+    const { env } = await makeEnv({ member: false });
+    const res = await app.request(
+      "/v1/workspaces/acme/file-browser",
+      {
+        method: "POST",
+        headers: { cookie: "session=x", "content-type": "application/json" },
+        body: JSON.stringify({ op: "list" }),
+      },
+      env,
+    );
+    expect(res.status).toBe(404);
+  });
+
+  it("/me/workspaces/:name/file-browser forwards to the same handler (identical body)", async () => {
+    const { env, bucket } = await makeEnv();
+    await seed(bucket);
+    const direct = await app.request(
+      "/v1/workspaces/acme/file-browser",
+      {
+        method: "POST",
+        headers: { cookie: "session=x", "content-type": "application/json" },
+        body: JSON.stringify({ op: "list" }),
+      },
+      env,
+    );
+    const viaMe = await app.request(
+      "/me/workspaces/acme/file-browser",
+      {
+        method: "POST",
+        headers: { cookie: "session=x", "content-type": "application/json" },
+        body: JSON.stringify({ op: "list" }),
+      },
+      env,
+    );
+    expect(viaMe.status).toBe(direct.status);
+    expect(await viaMe.json()).toEqual(await direct.json());
+  });
+});

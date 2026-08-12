@@ -1,29 +1,35 @@
 /**
- * Canonical comment-settings, storage, and billing/summary verticals (issue
- * #613 phase 3): `/:workspace/comment-settings`, `/:workspace/storage`,
- * `/:workspace/storage/verify`, `/:workspace/summary`, `/:workspace/billing`,
- * mounted at `/v1/workspaces` in `index.ts` so its public paths are
- * `/v1/workspaces/:workspace/...`. Same self-contained-router shape as
- * `workspace-members.ts`/`workspace-github.ts`: own auth, own `.onError()`,
- * `.fetch()`-able directly by an alias with no parent-mount dependency for
- * its `:workspace` param.
+ * Canonical comment-settings, storage, billing/summary, and comment-preview
+ * verticals (issue #613 phase 3, comment-preview added final phase):
+ * `/:workspace/comment-settings`, `/:workspace/comment-preview`,
+ * `/:workspace/storage`, `/:workspace/storage/verify`, `/:workspace/summary`,
+ * `/:workspace/billing`, mounted at `/v1/workspaces` in `index.ts` so its
+ * public paths are `/v1/workspaces/:workspace/...`. Same self-contained-
+ * router shape as `workspace-members.ts`/`workspace-github.ts`: own auth,
+ * own `.onError()`, `.fetch()`-able directly by an alias with no
+ * parent-mount dependency for its `:workspace` param.
  *
  * Posture (`.context/613-api-consolidation-plan.md`, "comment-settings",
- * "storage", "billing/summary"):
+ * "storage", "billing/summary"; comment-preview follows the comment-settings
+ * tier exactly):
  *
- *  - `GET/PATCH /comment-settings`, `GET/POST-verify/PUT/DELETE /storage` —
- *    **session-only, admin/owner tier**. A bearer `Authorization` header
- *    403s `settings_requires_session` on every route in this tier — neither
- *    vertical has a bearer analog today (comment-settings: no
+ *  - `GET/PATCH /comment-settings`, `GET /comment-preview`,
+ *    `GET/POST-verify/PUT/DELETE /storage` — **session-only, admin/owner
+ *    tier**. A bearer `Authorization` header 403s `settings_requires_session`
+ *    on every route in this tier — none of these verticals has a bearer
+ *    analog today (comment-settings/comment-preview: no
  *    `/v1/:workspace/github/comment-settings` exists; storage is
  *    credential-adjacent and a token was never in scope for it), and this PR
- *    mints no new bearer capability for either. Flat 5-key comment-settings
- *    envelope (`imageWidth`/`maxInlineImages`/`showMetadata`/
- *    `linkToFilePage`/`note`) preserved EXACTLY — the admin-ui operator
- *    surface's prefixed 6-key naming (`/admin-ui/workspaces/:name/settings`)
- *    is a different privilege tier entirely and stays untouched. Storage's
- *    masked `storageStatusResponse` projection (never credential values) is
- *    likewise preserved exactly — see `workspace-storage.ts`.
+ *    mints no new bearer capability for any of them. Flat 5-key
+ *    comment-settings envelope (`imageWidth`/`maxInlineImages`/
+ *    `showMetadata`/`linkToFilePage`/`note`) preserved EXACTLY — the
+ *    admin-ui operator surface's prefixed 6-key naming
+ *    (`/admin-ui/workspaces/:name/settings`) is a different privilege tier
+ *    entirely and stays untouched. Storage's masked `storageStatusResponse`
+ *    projection (never credential values) is likewise preserved exactly —
+ *    see `workspace-storage.ts`. `comment-preview`'s response body (moved
+ *    verbatim from `routes/me.ts`) is unchanged — see
+ *    `commentPreviewHandler`'s docblock.
  *  - `GET /summary`, `GET /billing` — **session-only, member tier**. A
  *    bearer header 403s `billing_requires_session` — same "no bearer analog,
  *    none minted" posture, distinct code from the admin tier above so the
@@ -40,7 +46,12 @@
  * "one get-session call per forwarded request" property every other
  * vertical gets from the `presetResolvedSessionUser` WeakMap handoff.
  */
-import { NOTE_MAX_CHARS } from "@uploads/comment-config";
+import {
+  NOTE_MAX_CHARS,
+  resolveCommentOptions,
+  type OptionSource,
+  type ResolvedCommentOptions,
+} from "@uploads/comment-config";
 import {
   ConflictError,
   ForbiddenError,
@@ -51,8 +62,16 @@ import {
 import { type R2Jurisdiction } from "@uploads/storage";
 import { Hono, type Context, type MiddlewareHandler } from "hono";
 import { usageWithLimits } from "../budget";
+import { previewFixtureItems } from "../comment-preview-fixtures";
 import { resolveSessionUserId } from "../dual-workspace-auth";
 import { respondError } from "../error-response";
+import { listObjects } from "../files-core";
+import { findRepoLink } from "../github-repo-links";
+import {
+  attachmentsCommentBody,
+  attachmentsMarker,
+  type AttachmentItem,
+} from "../github-comment-render";
 import { allowWrite } from "../guards";
 import {
   adminWorkspaceOr403,
@@ -60,6 +79,7 @@ import {
   subscriptionForOrg,
   type MyWorkspace,
 } from "../org-workspaces";
+import { resolveRepoCommentOptions, workspaceCommentDefaults } from "../repo-comment-config";
 import { sealCredentialFieldsStrict } from "../secrets";
 import { selfServeWorkspaceRecord } from "../self-serve-defaults";
 import type { SessionVars } from "../session-auth";
@@ -73,6 +93,9 @@ import {
   storageStatusResponse,
   storageVerify,
 } from "./workspace-storage";
+
+/** `?repo=` shape for the comment preview endpoint: exactly one `/`, no empty segments. */
+const REPO_SHAPE_RE = /^[^/\s]+\/[^/\s]+$/;
 
 /** Context vars a `sessionMemberGate`/`sessionAdminGate`-guarded route can rely on. */
 export type SettingsVars = {
@@ -656,11 +679,90 @@ export async function billingHandler(c: Context<SettingsVars>) {
   });
 }
 
+/**
+ * `GET /:workspace/comment-preview` — preview the production managed-comment
+ * body against resolved comment settings (issue #307), moved verbatim from
+ * `routes/me.ts` (issue #613 final phase). Admin/owner-gated like the
+ * comment-settings/storage tier above: the response includes per-key source
+ * attribution ("repo" | "workspace" | "auto"), which a plain member has no
+ * reason to see. With no `repo` query param, resolution runs against
+ * workspace defaults only (`repoConfig: null`) via the same
+ * `resolveCommentOptions(null, ...)` entrypoint `resolveRepoCommentOptions`
+ * wraps. With `repo`, it must already be linked to THIS workspace
+ * (github-repo-links.ts) — otherwise 404, so a preview can't be used to
+ * probe another workspace's repo binding or `.uploads.yml` contents.
+ *
+ * Renders from a page of the workspace's own `gh/`-prefixed attachments
+ * (first page only, mirrors gatherAttachments's url/pageUrl mapping but
+ * skips the D1 metadata read — the preview needs no per-item meta beyond
+ * what the static fixtures already carry). `listObjects` pages in
+ * lexicographic key order, not upload recency, so this is a representative
+ * sample rather than the "most recent" uploads. An empty workspace falls
+ * back to `previewFixtureItems` so the preview is never blank.
+ */
+export async function commentPreviewHandler(c: Context<SettingsVars>) {
+  const name = c.req.param("workspace") ?? "";
+  const record = await loadWorkspaceRecord(c.env, name);
+  if (!record) throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
+
+  const repo = c.req.query("repo");
+  let resolved: ResolvedCommentOptions;
+  let source: Record<keyof ResolvedCommentOptions, OptionSource>;
+  let repoConfig: { found: boolean; path: string | null; warnings: string[] } | null = null;
+
+  if (repo !== undefined) {
+    if (!REPO_SHAPE_RE.test(repo)) {
+      throw new ValidationError("repo must be in owner/name form", { code: "invalid_repo" });
+    }
+    const link = await findRepoLink(c.env.DB, repo);
+    if (!link || link.workspaceName !== name) {
+      throw new NotFoundError("repo not linked to this workspace", { code: "repo_not_linked" });
+    }
+    const resolvedRepo = await resolveRepoCommentOptions(c.env, record, repo);
+    resolved = resolvedRepo.options;
+    source = resolvedRepo.source;
+    repoConfig = {
+      found: resolvedRepo.fetch.found,
+      path: resolvedRepo.fetch.path,
+      warnings: resolvedRepo.fetch.warnings,
+    };
+  } else {
+    const resolvedDefaults = resolveCommentOptions(null, workspaceCommentDefaults(record));
+    resolved = resolvedDefaults.options;
+    source = resolvedDefaults.source;
+  }
+
+  const { items: page } = await listObjects(c.env, record, { prefix: "gh/", limit: 8 });
+  const linkToFilePage = resolved.linkToFilePage;
+  let items: AttachmentItem[] = page.map((o) => ({
+    key: o.key,
+    url: o.url,
+    embedUrl: o.embedUrl,
+    pageUrl: linkToFilePage ? (o.pageUrl ?? null) : null,
+  }));
+  let sample: "workspace" | "fixtures" = "workspace";
+  if (items.length === 0) {
+    items = previewFixtureItems(c.env);
+    sample = "fixtures";
+  }
+
+  const body = attachmentsCommentBody(items, [], attachmentsMarker(name), {
+    imageWidth: resolved.imageWidth,
+    maxInlineImages: resolved.maxInlineImages,
+    metaPath: resolved.metaPath,
+    metaState: resolved.metaState,
+    note: resolved.note,
+  });
+
+  return c.json({ resolved, source, repoConfig, body, sample });
+}
+
 export const workspaceSettings = new Hono<SettingsVars>()
   .get("/:workspace/summary", sessionMemberGate(), summaryHandler)
   .get("/:workspace/billing", sessionMemberGate(), billingHandler)
   .get("/:workspace/comment-settings", sessionAdminGate(), commentSettingsGetHandler)
   .patch("/:workspace/comment-settings", sessionAdminGate(), commentSettingsPatchHandler)
+  .get("/:workspace/comment-preview", sessionAdminGate(), commentPreviewHandler)
   .get("/:workspace/storage", sessionAdminGate(), storageGetHandler)
   .post("/:workspace/storage/verify", sessionAdminGate(), storageVerifyHandler)
   .put("/:workspace/storage", sessionAdminGate(), storagePutHandler)

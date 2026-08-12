@@ -1004,10 +1004,14 @@ describe("GET /me/workspaces/:name/galleries", () => {
 
   it("returns an empty gallery list for a workspace named 'default' just like any other", async () => {
     const db = galleriesDb();
-    const env = memberEnv({ workspace: "default", db: new SQLiteD1(db) });
+    // Issue #613 final phase: this route now forwards to the canonical
+    // dual-auth galleries vertical (`workspace-galleries.ts`), which — unlike
+    // the pre-#613 inline handler — loads the workspace record as part of
+    // `dualWorkspaceAuth`, so a record must be seeded in `REGISTRY`.
+    const env = memberEnv({ workspace: "default", db: new SQLiteD1(db), record: R2_RECORD });
     const res = await app().request("/me/workspaces/default/galleries", {}, env);
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ galleries: [] });
+    expect(await res.json()).toEqual({ galleries: [], nextCursor: null });
   });
 
   it("returns gallery summaries for a member's workspace", async () => {
@@ -1019,7 +1023,7 @@ describe("GET /me/workspaces/:name/galleries", () => {
          ('gal_aaaaaaaaaaaaaaaaaaaaaa', 'acme', 'Launch media', NULL, 'public', NULL, 1,
           '2026-07-01T00:00:00.000Z', '2026-07-01T00:00:00.000Z', NULL)`,
     );
-    const env = memberEnv({ workspace: "acme", db: new SQLiteD1(db) });
+    const env = memberEnv({ workspace: "acme", db: new SQLiteD1(db), record: R2_RECORD });
     const res = await app().request("/me/workspaces/acme/galleries", {}, env);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
@@ -1039,6 +1043,7 @@ describe("GET /me/workspaces/:name/galleries", () => {
           references: [],
         },
       ],
+      nextCursor: null,
     });
   });
 
@@ -1064,7 +1069,7 @@ describe("GET /me/workspaces/:name/galleries", () => {
           'https://github.com/buildinternet/uploads/pull/58',
           '2026-07-02T00:00:00.000Z', '2026-07-02T00:00:00.000Z')`,
     );
-    const env = memberEnv({ workspace: "acme", db: new SQLiteD1(db) });
+    const env = memberEnv({ workspace: "acme", db: new SQLiteD1(db), record: R2_RECORD });
     const res = await app().request("/me/workspaces/acme/galleries", {}, env);
     expect(res.status).toBe(200);
     const body = (await res.json()) as {

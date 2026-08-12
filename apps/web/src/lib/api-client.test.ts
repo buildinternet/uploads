@@ -908,7 +908,7 @@ describe("getGithubInstalled", () => {
     );
 
     await expect(getGithubInstalled("https://api.test", "acme")).resolves.toBe(true);
-    expect(requested).toBe("https://api.test/me/workspaces/acme/github-status");
+    expect(requested).toBe("https://api.test/v1/workspaces/acme/github/status");
   });
 
   it("keeps the CTA visible when the workspace has no install", async () => {

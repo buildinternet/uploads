@@ -203,8 +203,8 @@ export async function getWorkspaceSummary(
 }
 
 /**
- * Shared GET for the array-returning `/me/workspaces/:name/<segment>` endpoints
- * (galleries, files). Reads `body[key]`, drops malformed entries via `isValid`,
+ * Shared GET for the array-returning `/v1/workspaces/:name/<segment>` endpoints
+ * (galleries). Reads `body[key]`, drops malformed entries via `isValid`,
  * and returns [] on any non-2xx or malformed body.
  */
 async function fetchWorkspaceList<T>(
@@ -215,7 +215,7 @@ async function fetchWorkspaceList<T>(
   isValid: (value: unknown) => value is T,
 ): Promise<T[]> {
   const result = await fetchWithTimeout(
-    `${trimOrigin(apiOrigin)}/me/workspaces/${encodeURIComponent(name)}/${segment}`,
+    `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(name)}/${segment}`,
     { credentials: "include", cache: "no-store" },
   );
   if (result.kind === "unavailable" || !result.response.ok) return [];
@@ -270,7 +270,7 @@ function isGallerySummary(value: unknown): value is GallerySummary {
   return true;
 }
 
-/** GET /me/workspaces/:name/galleries. See {@link fetchWorkspaceList}. */
+/** GET /v1/workspaces/:name/galleries. See {@link fetchWorkspaceList}. */
 export function getMyWorkspaceGalleries(
   apiOrigin: string,
   name: string,
@@ -1022,7 +1022,7 @@ export interface GithubTitleInfo {
 }
 export type GithubTitleMap = Record<string, GithubTitleInfo | null>;
 
-/** Server-enforced per-request ref cap on `/me/workspaces/:name/github-titles`. */
+/** Server-enforced per-request ref cap on `/v1/workspaces/:name/github/titles`. */
 export const GITHUB_TITLES_MAX_REFS = 20;
 
 /**
@@ -1038,7 +1038,7 @@ export async function getGithubTitles(
   if (refs.length === 0) return {};
   const qs = encodeURIComponent(refs.slice(0, GITHUB_TITLES_MAX_REFS).join(","));
   const result = await fetchWithTimeout(
-    `${trimOrigin(apiOrigin)}/me/workspaces/${encodeURIComponent(name)}/github-titles?refs=${qs}`,
+    `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(name)}/github/titles?refs=${qs}`,
     { credentials: "include", cache: "no-store" },
   );
   if (result.kind === "unavailable" || !result.response.ok) return null;
@@ -1066,7 +1066,7 @@ export async function getGithubTitles(
  */
 export async function getGithubInstalled(apiOrigin: string, name: string): Promise<boolean> {
   const result = await fetchWithTimeout(
-    `${trimOrigin(apiOrigin)}/me/workspaces/${encodeURIComponent(name)}/github-status`,
+    `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(name)}/github/status`,
     { credentials: "include", cache: "no-store" },
   );
   if (result.kind === "unavailable" || !result.response.ok) return false;
@@ -1296,14 +1296,14 @@ export async function patchWorkspaceCommentSettings(
 }
 
 /**
- * GET /me/workspaces/:name/repo-links — repo names this workspace has
+ * GET /v1/workspaces/:name/github/repo-links — repo names this workspace has
  * linked (issue #307, Task 7's repo picker). Fails open to `[]`: an empty
  * picker just means "no repo config" is the only option, same as a
  * workspace that genuinely has no linked repos.
  */
 export async function getWorkspaceRepoLinks(apiOrigin: string, name: string): Promise<string[]> {
   const result = await fetchWithTimeout(
-    `${trimOrigin(apiOrigin)}/me/workspaces/${encodeURIComponent(name)}/repo-links`,
+    `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(name)}/github/repo-links`,
     { credentials: "include", cache: "no-store" },
   );
   if (result.kind === "unavailable" || !result.response.ok) return [];
@@ -1340,7 +1340,7 @@ export type CommentPreviewResult =
     };
 
 /**
- * GET /me/workspaces/:name/comment-preview[?repo=owner/name]. `repo` must
+ * GET /v1/workspaces/:name/comment-preview[?repo=owner/name]. `repo` must
  * already be linked to this workspace — an unlinked or malformed repo 404s/
  * 400s server-side, surfaced here as `not_found`/`invalid_repo` so the
  * preview panel can tell the two apart (a stale picker entry vs. a typo).
@@ -1352,7 +1352,7 @@ export async function getWorkspaceCommentPreview(
 ): Promise<CommentPreviewResult> {
   const qs = repo ? `?repo=${encodeURIComponent(repo)}` : "";
   const result = await fetchWithTimeout(
-    `${trimOrigin(apiOrigin)}/me/workspaces/${encodeURIComponent(name)}/comment-preview${qs}`,
+    `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(name)}/comment-preview${qs}`,
     { credentials: "include", cache: "no-store" },
   );
   if (result.kind === "unavailable") return result;
