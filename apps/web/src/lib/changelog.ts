@@ -77,7 +77,20 @@ export function mergeEntries(entries: ChangelogEntry[]): ChangelogEntry[] {
   });
 }
 
-export async function loadChangelogEntries(): Promise<ChangelogEntry[]> {
+let cached: Promise<ChangelogEntry[]> | null = null;
+
+/**
+ * Both /changelog and /changelog.xml call this during the same build; cache
+ * the promise so the npm registry fetch (and content-collection load) only
+ * happens once per build instead of once per route. A rejected build-time
+ * promise still rejects every caller, so failures still fail the build.
+ */
+export function loadChangelogEntries(): Promise<ChangelogEntry[]> {
+  cached ??= buildChangelogEntries();
+  return cached;
+}
+
+async function buildChangelogEntries(): Promise<ChangelogEntry[]> {
   const [{ cliChangelogRaw }, { getChangelogCollection }] = await Promise.all([
     import("./changelog-source"),
     import("./changelog-collection"),
