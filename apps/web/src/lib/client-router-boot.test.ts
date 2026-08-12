@@ -51,12 +51,6 @@ describe("ClientRouter boot scripts", () => {
       rel: "layouts/DocsLayout.astro",
       needles: ["ViewTransitions", "onAstroPageLoad", "bindCopyButtons", "tocSpy"],
     },
-    {
-      // Star-count logic lives in the extracted module so prettier-plugin-astro
-      // can format SiteHeader (JSX-conditional scripts can't hold function bodies).
-      rel: "components/site-header-stars.ts",
-      needles: ["onAstroPageLoad", "fillStarCount", 'getElementById("star-count")'],
-    },
   ] as const;
 
   it.each(pageLoadBoot)(
@@ -91,7 +85,10 @@ describe("SiteHeader chrome", () => {
     expect(src).toContain('href="/docs"');
     expect(src).toContain("Star on GitHub");
     expect(src).toContain("data-header-files");
-    expect(src).toContain('import "./site-header-stars"');
+    // The count is resolved server-side: no page CSP allows api.github.com in
+    // connect-src, so a client fetch is blocked on every surface that ships one.
+    expect(src).toContain("githubStarCount");
+    expect(src).not.toContain("site-header-stars");
     // Opt-in was the reason account/admin lacked the star CTA.
     expect(src).not.toMatch(/star\s*\?\s*:/);
     expect(src).not.toMatch(/star\s*=\s*false/);
