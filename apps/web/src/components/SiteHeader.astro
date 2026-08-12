@@ -11,6 +11,7 @@
  *
  * Centered auth cards (login, device, invite, consent) omit this header.
  */
+import { formatStars, githubStarCount } from "../lib/github-stars";
 import AuthIndicator from "./AuthIndicator.astro";
 import Brand from "./Brand.astro";
 
@@ -23,6 +24,9 @@ interface Props {
 
 const { authOrigin, badge } = Astro.props;
 const REPO = "https://github.com/buildinternet/uploads";
+// Resolved server-side: no page CSP allows api.github.com in connect-src, so
+// the old client fetch was blocked everywhere. See lib/github-stars.
+const stars = await githubStarCount();
 ---
 
 <header class="site-header">
@@ -50,18 +54,13 @@ const REPO = "https://github.com/buildinternet/uploads";
           ></path>
         </svg>
         Star on GitHub
-        <span class="count" id="star-count"></span>
+        {stars === null ? null : <span class="count">{formatStars(stars)}</span>}
       </a>
       {authOrigin ? <AuthIndicator authOrigin={authOrigin} /> : null}
       <slot name="end" />
     </div>
   </div>
 </header>
-
-{/* Live star count — always shipped; one module for every surface. */}
-<script>
-  import "./site-header-stars";
-</script>
 
 <style>
   /* Full-bleed bar: sits outside page max-width columns (releases/either). */
@@ -151,9 +150,6 @@ const REPO = "https://github.com/buildinternet/uploads";
     border-left: 1px solid var(--line, #232327);
     padding-left: 7px;
     font-variant-numeric: tabular-nums;
-  }
-  .star-cta .count:empty {
-    display: none;
   }
   @media (max-width: 420px) {
     .site-header__inner {
