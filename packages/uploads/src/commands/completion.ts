@@ -14,8 +14,9 @@ import { writeCommandHelp } from "../cli-style.js";
 
 const HELP = `uploads completion <shell>
 
-Print a shell completion script to stdout. Source it or install it so Tab
-completes commands, subcommands, and common flags.
+Print a shell completion script to stdout. Save it where your shell looks for
+completions, then start a new shell. Tab then completes commands, subcommands,
+and common flags.
 
 Shells:
   bash   Bash (complete -F)
@@ -23,16 +24,36 @@ Shells:
   fish   Fish (complete -c)
 
 Examples:
-  # zsh (Oh My Zsh / fpath)
-  uploads completion zsh > ~/.zsh/completions/_uploads
-
-  # bash
-  uploads completion bash > ~/.local/share/bash-completion/completions/uploads
-  # or for the current session:
+  # bash — for the current session:
   eval "$(uploads completion bash)"
+  # or save it:
+  uploads completion bash > ~/.local/share/bash-completion/completions/uploads
 
   # fish
   uploads completion fish > ~/.config/fish/completions/uploads.fish
+
+  # zsh — save the script:
+  uploads completion zsh > ~/.zsh/completions/_uploads
+  # then add these two lines to the END of ~/.zshrc:
+  #   fpath=(~/.zsh/completions $fpath)
+  #   autoload -Uz _uploads && compdef _uploads uploads
+
+Zsh notes:
+  Saving the file into an fpath directory is often not enough. compinit caches
+  its scan in ~/.zcompdump, and \`compinit -C\` reuses that cache instead of
+  rescanning, so it never sees the new file. Oh My Zsh and several installers
+  call compinit that way. Some plugins also rewrite fpath as they load, which
+  drops entries added before them; zsh-autocomplete is one.
+
+  The \`compdef\` line avoids both problems, because it binds the function
+  directly instead of relying on a scan. Put it after any framework or plugin
+  setup. If completion still does nothing, delete ~/.zcompdump* and start a
+  new shell.
+
+  Check the result with: print $_comps[uploads] — it prints _uploads when the
+  completion is active, and nothing when it is not.
+
+After you upgrade the CLI, generate the script again so it lists new commands.
 `;
 
 function bashScript(): string {

@@ -58,7 +58,12 @@ answers `did you mean: uploads meta set`. With `--json`, an unknown command
 returns `{ "error", "code": "USAGE", "didYouMean" }` on stdout.
 
 **Shell completion:** `uploads completion bash|zsh|fish` prints a script to
-stdout. Example (zsh): `uploads completion zsh > ~/.zsh/completions/_uploads`.
+stdout. Save it where your shell looks for completions, then start a new shell.
+For zsh, write the script to `~/.zsh/completions/_uploads`, then bind it at the
+end of `~/.zshrc` with `fpath=(~/.zsh/completions $fpath)` and
+`autoload -Uz _uploads && compdef _uploads uploads`. The `compdef` line matters:
+a cached `compinit -C` never rescans fpath, so the file alone can go unnoticed.
+`uploads completion --help` covers the rest.
 
 **Globals (before the command):** `--api-url`, `--token`, `--workspace` / `-w`,
 `--env-file`, `--json`, `--quiet`, `--version` / `-V`, `-h` / `--help`, `--all`

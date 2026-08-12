@@ -10,5 +10,10 @@ the remaining ones as commands — Tab printed a wall of `command not found`
 instead of completing. Short flags now also pair with their long form's
 summary, so the menu no longer reads `Show help (short)`.
 
+`uploads completion --help` now also covers installation properly. Saving the
+script into an fpath directory does nothing when `compinit -C` reuses a cached
+dump, which is common under Oh My Zsh, so the help gives the `compdef` binding
+that works regardless of startup order.
+
 Regenerate an installed script after upgrading:
 `uploads completion zsh > ~/.zsh/completions/_uploads`

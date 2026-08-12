@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runCli } from "../src/cli.js";
 import { generateCompletionScript, runCompletion } from "../src/commands/completion.js";
-import { ROOT_COMMANDS } from "../src/cli-catalog.js";
+import { COMPLETION_SHELLS, ROOT_COMMANDS } from "../src/cli-catalog.js";
 
 function captureStdio() {
   const stdout: string[] = [];
@@ -134,6 +134,20 @@ describe("runCompletion", () => {
     const code = await runCompletion([], true);
     expect(code).toBe(0);
     expect(io.stderr()).toMatch(/uploads completion <shell>/);
+  });
+
+  it("help gives the zsh compdef binding, not fpath alone", async () => {
+    const io = captureStdio();
+    await runCompletion([], true);
+    const help = io.stderr();
+    // Writing the file into an fpath directory does nothing under a cached
+    // `compinit -C`, so the help has to show the direct binding as well.
+    expect(help).toMatch(/fpath=\(~\/\.zsh\/completions \$fpath\)/);
+    expect(help).toMatch(/autoload -Uz _uploads && compdef _uploads uploads/);
+    expect(help).toMatch(/compinit -C/);
+    for (const shell of COMPLETION_SHELLS) {
+      expect(help).toContain(`uploads completion ${shell}`);
+    }
   });
 
   it("exits 2 when shell is missing", async () => {
