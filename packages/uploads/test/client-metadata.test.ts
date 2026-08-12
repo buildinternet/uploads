@@ -71,7 +71,9 @@ describe("put metadata headers", () => {
 describe("metadata CRUD client methods", () => {
   it("getMetadata GETs the key-at-tail route with ?metadata=1", async () => {
     const fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
-      expect(String(input)).toBe("https://api.test/v1/test/files/screenshots/a.png?metadata=1");
+      expect(String(input)).toBe(
+        "https://api.test/v1/workspaces/test/files/screenshots/a.png?metadata=1",
+      );
       expect(init?.method).toBe("GET");
       return new Response(JSON.stringify({ metadata: { app: "myapp" } }));
     });
@@ -86,7 +88,7 @@ describe("metadata CRUD client methods", () => {
 
   it("patchMetadata PATCHes { set, delete } to the key-at-tail route and returns the merged map", async () => {
     const fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
-      expect(String(input)).toBe("https://api.test/v1/test/files/screenshots/a.png");
+      expect(String(input)).toBe("https://api.test/v1/workspaces/test/files/screenshots/a.png");
       expect(init?.method).toBe("PATCH");
       const body = JSON.parse(new TextDecoder().decode(init?.body as Uint8Array));
       expect(body).toEqual({ set: { app: "myapp" }, delete: ["page"] });
@@ -106,7 +108,7 @@ describe("metadata CRUD client methods", () => {
   it("findFiles sends repeatable ANDed meta.<key> params plus prefix/limit", async () => {
     const fetch = vi.fn(async (input: string | URL | Request) => {
       const url = new URL(String(input));
-      expect(url.pathname).toBe("/v1/test/files");
+      expect(url.pathname).toBe("/v1/workspaces/test/files/search");
       expect(url.searchParams.getAll("meta.gh.repo")).toEqual(["buildinternet/uploads"]);
       expect(url.searchParams.getAll("meta.gh.number")).toEqual(["123"]);
       expect(url.searchParams.get("prefix")).toBe("gh/");
@@ -135,7 +137,7 @@ describe("metadata CRUD client methods", () => {
   it("findFiles sends ?name= with optional empty filters", async () => {
     const fetch = vi.fn(async (input: string | URL | Request) => {
       const url = new URL(String(input));
-      expect(url.pathname).toBe("/v1/test/files");
+      expect(url.pathname).toBe("/v1/workspaces/test/files/search");
       expect(url.searchParams.get("name")).toBe("hero");
       expect(url.searchParams.getAll("meta.app")).toEqual(["web"]);
       return new Response(
@@ -159,7 +161,7 @@ describe("metadata CRUD client methods", () => {
 
   it("listMetadataKeys GETs /files/facets", async () => {
     const fetch = vi.fn(async (input: string | URL | Request) => {
-      expect(String(input)).toBe("https://api.test/v1/test/files/facets");
+      expect(String(input)).toBe("https://api.test/v1/workspaces/test/files/facets");
       return new Response(
         JSON.stringify({
           keys: [{ key: "app", count: 2, distinctValues: 1 }],
@@ -181,7 +183,7 @@ describe("metadata CRUD client methods", () => {
 
   it("listMetadataValues GETs /files/facets?key=", async () => {
     const fetch = vi.fn(async (input: string | URL | Request) => {
-      expect(String(input)).toBe("https://api.test/v1/test/files/facets?key=app");
+      expect(String(input)).toBe("https://api.test/v1/workspaces/test/files/facets?key=app");
       return new Response(
         JSON.stringify({
           key: "app",
@@ -211,7 +213,7 @@ describe("list metadata hydration", () => {
       seenUrl = String(input);
       return new Response(
         JSON.stringify({
-          items: [
+          files: [
             {
               key: "gh/acme/web/pull/12/before.webp",
               url: "https://storage.test/before.webp",
@@ -240,7 +242,7 @@ describe("list metadata hydration", () => {
     let seenUrl = "";
     const fetch = vi.fn(async (input: string | URL | Request) => {
       seenUrl = String(input);
-      return new Response(JSON.stringify({ items: [], cursor: null }), { status: 200 });
+      return new Response(JSON.stringify({ files: [], cursor: null }), { status: 200 });
     });
     vi.stubGlobal("fetch", fetch);
     const client = createUploadsClient({

@@ -326,7 +326,7 @@ export type RotateGhPrefixResult =
   | { rotated: false; reason: string }
   | { rotated: true; prefixId: string; moved: number };
 
-/** `POST /v1/:workspace/github/promote` request/response (server contract, PR #310). */
+/** `POST /v1/workspaces/:workspace/github/promote` request/response (server contract, PR #310). */
 export interface PromoteBranchAttachmentsOptions {
   repo: string;
   num: number;
@@ -343,7 +343,7 @@ export interface PromoteBranchAttachmentsResult {
   skipped: PromoteSkip[];
 }
 
-/** `GET`/`POST /v1/:workspace/github/link` result (server contract, phase 4b). */
+/** `GET`/`POST /v1/workspaces/:workspace/github/link` result (server contract, phase 4b). */
 export interface GithubLinkResult {
   repo: string;
   linked: boolean;
@@ -364,7 +364,7 @@ export interface GithubLinkClaimResult extends GithubLinkResult {
   reason?: "not_authorized";
 }
 
-/** `DELETE /v1/:workspace/github/link` result (issue #318, self-serve unlink). */
+/** `DELETE /v1/workspaces/:workspace/github/link` result (issue #318, self-serve unlink). */
 export interface GithubLinkUnlinkResult {
   repo: string;
   unlinked: boolean;
@@ -372,7 +372,7 @@ export interface GithubLinkUnlinkResult {
 }
 
 /**
- * `GET /v1/:workspace/github/repo-link` result (issue #398). Deliberately
+ * `GET /v1/workspaces/:workspace/github/repo-link` result (issue #398). Deliberately
  * minimal relative to `GithubLinkResult`: never names the owning workspace
  * when it isn't this one — "self"/"other"/"none" is all the stage-time
  * warning needs, and anything richer would leak cross-tenant info to a
@@ -405,7 +405,7 @@ export interface HealthResult {
   ok: boolean;
 }
 
-/** `GET /v1/:workspace/github/health` result (issue #293 follow-up). */
+/** `GET /v1/workspaces/:workspace/github/health` result (issue #293 follow-up). */
 export interface GithubHealthResult {
   configured: boolean;
   ok: boolean;
@@ -781,16 +781,20 @@ function encodeKeyPath(key: string): string {
   return key.split("/").map(encodeURIComponent).join("/");
 }
 
-function filesBase(config: UploadsClientConfig): string {
-  return `${config.apiUrl}/v1/${encodeURIComponent(config.workspace)}/files`;
+// Canonical files surface (issue #613): every file operation now goes to
+// `/v1/workspaces/:workspace/files`. Per-key ops share handlers with the
+// legacy wildcard (#636); list/find/facets adapt the canonical envelopes in
+// their wrappers below (#613 shape reconciliation).
+function canonicalFilesBase(config: UploadsClientConfig): string {
+  return `${config.apiUrl}/v1/workspaces/${encodeURIComponent(config.workspace)}/files`;
 }
 
 function usageBase(config: UploadsClientConfig): string {
-  return `${config.apiUrl}/v1/${encodeURIComponent(config.workspace)}/usage`;
+  return `${config.apiUrl}/v1/workspaces/${encodeURIComponent(config.workspace)}/usage`;
 }
 
 function galleriesBase(config: UploadsClientConfig): string {
-  return `${config.apiUrl}/v1/${encodeURIComponent(config.workspace)}/galleries`;
+  return `${config.apiUrl}/v1/workspaces/${encodeURIComponent(config.workspace)}/galleries`;
 }
 
 function mapApiError(
@@ -926,13 +930,25 @@ export function createUploadsClient(config: UploadsClientConfig) {
     if (opts.cursor) params.set("cursor", opts.cursor);
     if (opts.metadata) params.set("metadata", "1");
     const qs = params.toString();
-    const page = await request<ListResult>("GET", `${filesBase(config)}${qs ? `?${qs}` : ""}`);
+    // Canonical list envelope is `{files, prefixes, cursor}` with queryable
+    // metadata always hydrated (issue #613 — the session shape won the
+    // reconciliation). This client keeps its historical `{items, cursor}`
+    // contract: rename the array and honor `opts.metadata` by stripping the
+    // hydrated maps when the caller didn't ask for them.
+    const page = await request<{ files: ListItem[]; cursor: string | null }>(
+      "GET",
+      `${canonicalFilesBase(config)}${qs ? `?${qs}` : ""}`,
+    );
     return {
-      ...page,
-      items: page.items.map((item) => ({
-        ...item,
-        embedUrl: resolveEmbedUrl(item.url, item.embedUrl),
-      })),
+      cursor: page.cursor,
+      items: page.files.map((item) => {
+        const { metadata, ...rest } = item;
+        return {
+          ...rest,
+          ...(opts.metadata && metadata !== undefined ? { metadata } : {}),
+          embedUrl: resolveEmbedUrl(item.url, item.embedUrl),
+        };
+      }),
     };
   }
 
@@ -967,7 +983,7 @@ export function createUploadsClient(config: UploadsClientConfig) {
           embedUrl?: string | null;
           replaced?: boolean;
           wouldRefuse?: boolean;
-        }>("PUT", `${filesBase(config)}/${encodeKeyPath(key)}?${qs}`);
+        }>("PUT", `${canonicalFilesBase(config)}/${encodeKeyPath(key)}?${qs}`);
         if (preview.url == null) {
           throw new UploadsError(
             "workspace has no publicBaseUrl (cannot resolve a public URL)",
@@ -1011,7 +1027,7 @@ export function createUploadsClient(config: UploadsClientConfig) {
         replaced?: boolean;
         provenance?: Record<string, string>;
         metadata?: Record<string, string>;
-      }>("PUT", `${filesBase(config)}/${encodeKeyPath(key)}`, {
+      }>("PUT", `${canonicalFilesBase(config)}/${encodeKeyPath(key)}`, {
         body,
         headers,
       });
@@ -1049,30 +1065,36 @@ export function createUploadsClient(config: UploadsClientConfig) {
     },
 
     async delete(key: string): Promise<DeleteResult> {
-      return request<DeleteResult>("DELETE", `${filesBase(config)}/${encodeKeyPath(key)}`);
+      return request<DeleteResult>("DELETE", `${canonicalFilesBase(config)}/${encodeKeyPath(key)}`);
     },
 
     /** `GET /v1/:workspace/files/:key?metadata=1` — the object's queryable metadata. */
     async getMetadata(key: string): Promise<GetMetadataResult> {
       return request<GetMetadataResult>(
         "GET",
-        `${filesBase(config)}/${encodeKeyPath(key)}?metadata=1`,
+        `${canonicalFilesBase(config)}/${encodeKeyPath(key)}?metadata=1`,
       );
     },
 
     /** `PATCH /v1/:workspace/files/:key` — merge `set`/`delete`; returns the merged map. */
     async patchMetadata(key: string, opts: PatchMetadataOptions): Promise<GetMetadataResult> {
-      return request<GetMetadataResult>("PATCH", `${filesBase(config)}/${encodeKeyPath(key)}`, {
-        body: new TextEncoder().encode(JSON.stringify(opts)),
-        headers: { "Content-Type": "application/json" },
-      });
+      return request<GetMetadataResult>(
+        "PATCH",
+        `${canonicalFilesBase(config)}/${encodeKeyPath(key)}`,
+        {
+          body: new TextEncoder().encode(JSON.stringify(opts)),
+          headers: { "Content-Type": "application/json" },
+        },
+      );
     },
 
     /**
-     * `GET /v1/:workspace/files?meta.<k>=<v>&…&name=…` — ANDed equality filter
-     * over queryable metadata and/or a case-insensitive filename substring.
-     * At least one of non-empty `filters` or `opts.name` is required.
-     * `filters` must be pre-validated when present (see `metadata.ts`).
+     * `GET /v1/workspaces/:workspace/files/search?meta.<k>=<v>&…&name=…` —
+     * ANDed equality filter over queryable metadata and/or a case-insensitive
+     * filename substring. At least one of non-empty `filters` or `opts.name`
+     * is required. `filters` must be pre-validated when present (see
+     * `metadata.ts`). The canonical search route is non-paginated (server cap
+     * 100, narrowable via `limit`), so `cursor` is always null.
      */
     async findFiles(
       filters: Record<string, string> = {},
@@ -1083,24 +1105,31 @@ export function createUploadsClient(config: UploadsClientConfig) {
       if (opts.name) params.set("name", opts.name);
       if (opts.prefix) params.set("prefix", opts.prefix);
       if (opts.limit != null) params.set("limit", String(opts.limit));
-      return request<FindFilesResult>("GET", `${filesBase(config)}?${params.toString()}`);
+      const result = await request<{ items: FindFilesItem[]; truncated: boolean }>(
+        "GET",
+        `${canonicalFilesBase(config)}/search?${params.toString()}`,
+      );
+      return { items: result.items, cursor: null, truncated: result.truncated };
     },
 
     /** `GET /v1/:workspace/files/facets` — workspace metadata key vocabulary. */
     async listMetadataKeys(): Promise<MetadataKeysResult> {
-      return request<MetadataKeysResult>("GET", `${filesBase(config)}/facets`);
+      return request<MetadataKeysResult>("GET", `${canonicalFilesBase(config)}/facets`);
     },
 
     /** `GET /v1/:workspace/files/facets?key=` — distinct values for one key. */
     async listMetadataValues(key: string): Promise<MetadataValuesResult> {
       return request<MetadataValuesResult>(
         "GET",
-        `${filesBase(config)}/facets?${new URLSearchParams({ key })}`,
+        `${canonicalFilesBase(config)}/facets?${new URLSearchParams({ key })}`,
       );
     },
 
     async head(key: string): Promise<HeadResult> {
-      const result = await request<HeadResult>("GET", `${filesBase(config)}/${encodeKeyPath(key)}`);
+      const result = await request<HeadResult>(
+        "GET",
+        `${canonicalFilesBase(config)}/${encodeKeyPath(key)}`,
+      );
       return { ...result, embedUrl: resolveEmbedUrl(result.url, result.embedUrl) };
     },
 
@@ -1216,7 +1245,7 @@ export function createUploadsClient(config: UploadsClientConfig) {
     }): Promise<GithubCommentResult> {
       return request<GithubCommentResult>(
         "POST",
-        `${config.apiUrl}/v1/${encodeURIComponent(config.workspace)}/github/comment`,
+        `${config.apiUrl}/v1/workspaces/${encodeURIComponent(config.workspace)}/github/comment`,
         {
           body: new TextEncoder().encode(JSON.stringify(opts)),
           headers: { "Content-Type": "application/json" },
@@ -1291,7 +1320,7 @@ export function createUploadsClient(config: UploadsClientConfig) {
     ): Promise<PromoteBranchAttachmentsResult> {
       return request<PromoteBranchAttachmentsResult>(
         "POST",
-        `${config.apiUrl}/v1/${encodeURIComponent(config.workspace)}/github/promote`,
+        `${config.apiUrl}/v1/workspaces/${encodeURIComponent(config.workspace)}/github/promote`,
         {
           body: new TextEncoder().encode(JSON.stringify(opts)),
           headers: { "Content-Type": "application/json" },
@@ -1305,7 +1334,7 @@ export function createUploadsClient(config: UploadsClientConfig) {
     async githubLinkStatus(repo: string): Promise<GithubLinkResult> {
       return request<GithubLinkResult>(
         "GET",
-        `${config.apiUrl}/v1/${encodeURIComponent(config.workspace)}/github/link?repo=${encodeURIComponent(repo)}`,
+        `${config.apiUrl}/v1/workspaces/${encodeURIComponent(config.workspace)}/github/link?repo=${encodeURIComponent(repo)}`,
       );
     },
 
@@ -1319,7 +1348,7 @@ export function createUploadsClient(config: UploadsClientConfig) {
     async githubLinkClaim(repo: string): Promise<GithubLinkClaimResult> {
       return request<GithubLinkClaimResult>(
         "POST",
-        `${config.apiUrl}/v1/${encodeURIComponent(config.workspace)}/github/link`,
+        `${config.apiUrl}/v1/workspaces/${encodeURIComponent(config.workspace)}/github/link`,
         {
           body: new TextEncoder().encode(JSON.stringify({ repo })),
           headers: { "Content-Type": "application/json" },
@@ -1337,7 +1366,7 @@ export function createUploadsClient(config: UploadsClientConfig) {
     async githubRepoLinkStatus(repo: string): Promise<GithubRepoLinkResult> {
       return request<GithubRepoLinkResult>(
         "GET",
-        `${config.apiUrl}/v1/${encodeURIComponent(config.workspace)}/github/repo-link?repo=${encodeURIComponent(repo)}`,
+        `${config.apiUrl}/v1/workspaces/${encodeURIComponent(config.workspace)}/github/repo-link?repo=${encodeURIComponent(repo)}`,
       );
     },
 
@@ -1349,9 +1378,9 @@ export function createUploadsClient(config: UploadsClientConfig) {
     /**
      * `POST /v1/workspaces/:workspace/github/ingest` (Task 6) — manual/
      * backfill mirror of a PR/issue's `github.com/user-attachments` media
-     * into the workspace. Only mounted on the canonical `/v1/workspaces`
-     * surface (no old bearer-only alias), unlike the other `github/*`
-     * client methods above.
+     * into the workspace. Only ever had the canonical `/v1/workspaces`
+     * route (no old bearer-only alias) — unlike the other `github/*` client
+     * methods above, which moved onto it in issue #613.
      */
     async ingestGithub(input: {
       repo: string;
@@ -1375,7 +1404,7 @@ export function createUploadsClient(config: UploadsClientConfig) {
     async githubHealth(): Promise<GithubHealthResult> {
       return request<GithubHealthResult>(
         "GET",
-        `${config.apiUrl}/v1/${encodeURIComponent(config.workspace)}/github/health`,
+        `${config.apiUrl}/v1/workspaces/${encodeURIComponent(config.workspace)}/github/health`,
       );
     },
 
@@ -1389,7 +1418,7 @@ export function createUploadsClient(config: UploadsClientConfig) {
     async githubLinkUnlink(repo: string): Promise<GithubLinkUnlinkResult> {
       return request<GithubLinkUnlinkResult>(
         "DELETE",
-        `${config.apiUrl}/v1/${encodeURIComponent(config.workspace)}/github/link?repo=${encodeURIComponent(repo)}`,
+        `${config.apiUrl}/v1/workspaces/${encodeURIComponent(config.workspace)}/github/link?repo=${encodeURIComponent(repo)}`,
       );
     },
 

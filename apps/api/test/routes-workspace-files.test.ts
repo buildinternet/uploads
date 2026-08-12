@@ -318,6 +318,25 @@ describe("GET /v1/workspaces/:workspace/files/facets and /search (dual auth)", (
     expect(bearer.status).toBe(400);
     expect(session.status).toBe(400);
   });
+
+  it("search: ?limit= narrows the page and reports truncation", async () => {
+    const { env, bucket } = await makeEnv();
+    await bucket.put("acme/shots/hero-a.png", new Uint8Array([1]).buffer, {
+      httpMetadata: { contentType: "image/png" },
+    });
+    await bucket.put("acme/shots/hero-b.png", new Uint8Array([1]).buffer, {
+      httpMetadata: { contentType: "image/png" },
+    });
+    const res = await app.request(
+      "/v1/workspaces/acme/files/search?name=hero&limit=1",
+      { headers: { Authorization: `Bearer ${TOKEN}` } },
+      env,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { items: unknown[]; truncated: boolean };
+    expect(body.items).toHaveLength(1);
+    expect(body.truncated).toBe(true);
+  });
 });
 
 describe("GET /v1/workspaces/:workspace/files/by-path (dual auth)", () => {
@@ -410,5 +429,77 @@ describe("old-path aliases forward unchanged (issue #613)", () => {
     expect(res.status).toBe(404);
     const body = (await res.json()) as { error?: { code?: string } };
     expect(body.error?.code).toBe("workspace_not_found");
+  });
+});
+
+describe("ALL /v1/workspaces/:workspace/file-browser (session-only, member-gated, issue #613 final phase)", () => {
+  it("member session reaches the files-sdk readonly list gateway", async () => {
+    const { env, bucket } = await makeEnv();
+    await seed(bucket);
+    const res = await app.request(
+      "/v1/workspaces/acme/file-browser",
+      {
+        method: "POST",
+        headers: { cookie: "session=x", "content-type": "application/json" },
+        body: JSON.stringify({ op: "list" }),
+      },
+      env,
+    );
+    expect(res.status).toBe(200);
+  });
+
+  it("bearer 403s with file_browser_requires_session", async () => {
+    const { env } = await makeEnv();
+    const res = await app.request(
+      "/v1/workspaces/acme/file-browser",
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
+        body: JSON.stringify({ op: "list" }),
+      },
+      env,
+    );
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { error?: { code?: string } };
+    expect(body.error?.code).toBe("file_browser_requires_session");
+  });
+
+  it("non-member session 404s", async () => {
+    const { env } = await makeEnv({ member: false });
+    const res = await app.request(
+      "/v1/workspaces/acme/file-browser",
+      {
+        method: "POST",
+        headers: { cookie: "session=x", "content-type": "application/json" },
+        body: JSON.stringify({ op: "list" }),
+      },
+      env,
+    );
+    expect(res.status).toBe(404);
+  });
+
+  it("/me/workspaces/:name/file-browser forwards to the same handler (identical body)", async () => {
+    const { env, bucket } = await makeEnv();
+    await seed(bucket);
+    const direct = await app.request(
+      "/v1/workspaces/acme/file-browser",
+      {
+        method: "POST",
+        headers: { cookie: "session=x", "content-type": "application/json" },
+        body: JSON.stringify({ op: "list" }),
+      },
+      env,
+    );
+    const viaMe = await app.request(
+      "/me/workspaces/acme/file-browser",
+      {
+        method: "POST",
+        headers: { cookie: "session=x", "content-type": "application/json" },
+        body: JSON.stringify({ op: "list" }),
+      },
+      env,
+    );
+    expect(viaMe.status).toBe(direct.status);
+    expect(await viaMe.json()).toEqual(await direct.json());
   });
 });

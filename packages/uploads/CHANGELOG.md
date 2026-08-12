@@ -1,5 +1,32 @@
 # @buildinternet/uploads
 
+## 0.40.0
+
+### Minor Changes
+
+- 8770eaa: CLI workspace-scoped `github/comment`, `github/promote`, `github/link`, `github/repo-link`, `github/health`, `usage`, and `galleries` requests now use the canonical `/v1/workspaces/:workspace/...` paths instead of the legacy `/v1/:workspace/...` wildcard (#613). The old paths keep working server-side, so this is a client-only move.
+
+  Files operations (`get`/`set`/`list`/`facets`/etc.) stay on the legacy wildcard for now — the canonical files vertical doesn't yet cover uploads, `/sign`, or `:key` metadata, and its list/search response shape differs from the bearer one.
+
+  Note: the canonical `github/comment` route requires the `files:write` scope, where the legacy path also accepted `files:read`. Default-minted CLI tokens carry read+write, so this is transparent for normal use; a manually-minted read-only token will now get a 403 from `uploads comment`.
+
+- eef5e70: Derive `repo` metadata (owner/name from the git remote) on `put` and `screenshot`, suppressed by `--no-git`.
+
+### Patch Changes
+
+- e560cce: Bump the files-sdk peer range to ^2.2.3 (>=2.2.3 for @uploads/ui). 2.2.3 fixes list() content types on the S3/HTTP paths upstream; the pinned patch is re-cut against 2.2.3 and still carries the r2 endpoint override and the binding-path list() metadata hunk.
+
+## 0.39.0
+
+### Minor Changes
+
+- 9d7793b: Add `uploads ingest` to mirror GitHub-native PR/issue attachments into the workspace.
+
+### Patch Changes
+
+- ea1da34: `uploads github doctor` now prints the App's actual subscribed webhook events (including recommended ones like `issue_comment`) instead of only the required subset.
+- fad6b61: `uploads ingest`: honor --format json; note manual reconcile now detaches assets from deleted comments.
+
 ## 0.38.0
 
 ### Minor Changes

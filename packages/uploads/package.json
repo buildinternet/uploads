@@ -1,6 +1,6 @@
 {
   "name": "@buildinternet/uploads",
-  "version": "0.38.0",
+  "version": "0.40.0",
   "description": "CLI and client for uploads.sh — workspace-scoped image hosting for GitHub embeds",
   "type": "module",
   "sideEffects": false,
@@ -45,7 +45,7 @@
     "node": ">=22"
   },
   "peerDependencies": {
-    "files-sdk": "^2.1.0"
+    "files-sdk": "^2.2.3"
   },
   "peerDependenciesMeta": {
     "files-sdk": {
@@ -55,7 +55,7 @@
   "devDependencies": {
     "@types/node": "^26.1.0",
     "ai": "^6.0.0",
-    "files-sdk": "^2.1.0",
+    "files-sdk": "^2.2.3",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10"
   },

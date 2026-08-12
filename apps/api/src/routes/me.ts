@@ -10,31 +10,10 @@
  * for workspace existence any more precisely than for any other workspace.
  */
 import { resolveWorkspaceCreateQuota } from "@uploads/billing";
-import {
-  resolveCommentOptions,
-  type OptionSource,
-  type ResolvedCommentOptions,
-} from "@uploads/comment-config";
-import { NotFoundError, ValidationError } from "@uploads/errors";
-import { createFilesRouter } from "@uploads/storage";
+import { NotFoundError } from "@uploads/errors";
 import { Hono, type Context } from "hono";
-import { parseExternalReference } from "../external-references";
-import { previewFixtureItems } from "../comment-preview-fixtures";
-import { badKey, listObjects } from "../files-core";
-import { listGalleries } from "../galleries";
-import { galleryListSummaries } from "../gallery-service";
+import { badKey } from "../files-core";
 import {
-  attachmentsCommentBody,
-  attachmentsMarker,
-  type AttachmentItem,
-} from "../github-comment-render";
-import { githubInstallStatus, type GithubInstallStatus } from "../github-install-status";
-import { findRepoLink, listRepoLinksForWorkspace } from "../github-repo-links";
-import { resolveRepoCommentOptions, workspaceCommentDefaults } from "../repo-comment-config";
-import { resolveTitles } from "../github-titles";
-import {
-  adminWorkspaceOr403,
-  memberWorkspaceOr404,
   membershipsForUser,
   myWorkspaceFromMembership,
   workspacesFromMembership,
@@ -42,10 +21,11 @@ import {
 } from "../org-workspaces";
 import { presetResolvedSessionUser } from "../dual-workspace-auth";
 import { requireSessionUser, sessionAuth, type SessionVars } from "../session-auth";
-import { storage } from "../storage";
 import { loadWorkspaceRecord } from "../workspace";
 import { planResponse } from "../workspace-plan";
 import { workspaceFiles } from "./workspace-files";
+import { workspaceGalleries } from "./workspace-galleries";
+import { workspaceGithub } from "./workspace-github";
 import { workspaceMembers } from "./workspace-members";
 import { workspaceSettings } from "./workspace-settings";
 import { workspaceUsage } from "./workspace-usage";
@@ -100,6 +80,31 @@ function forwardToWorkspaceFiles(c: Context<SessionVars>, path: string): Promise
 }
 
 /**
+ * Forwards to the canonical dual-auth galleries vertical
+ * (`routes/workspace-galleries.ts`, issue #613 final phase) — routes
+ * registered as `/:workspace/galleries*`. Its `GET /:workspace/galleries`
+ * list is now enriched with `itemCount`/`references` for every caller (see
+ * that router's `listGalleriesEnrichedHandler`), matching this route's old
+ * inline shape exactly — so this is now a genuine forward, not a
+ * reimplementation.
+ */
+function forwardToWorkspaceGalleries(c: Context<SessionVars>, path: string): Promise<Response> {
+  return forwardTo(workspaceGalleries, c, path);
+}
+
+/**
+ * Forwards to the canonical dual-auth github vertical
+ * (`routes/workspace-github.ts`, issue #613 final phase) — routes registered
+ * as `/:workspace/github/*`. The canonical `titles`/`status`/`repo-links`
+ * handlers are session-member/admin-gated (a bearer 403s
+ * `github_requires_session`/`github_repo_links_requires_session`), moved
+ * verbatim from this file's original bodies, so this is a genuine forward.
+ */
+function forwardToWorkspaceGithub(c: Context<SessionVars>, path: string): Promise<Response> {
+  return forwardTo(workspaceGithub, c, path);
+}
+
+/**
  * Forwards to the canonical usage vertical (`routes/workspace-usage.ts`,
  * issue #613 phase 2). Response shape is a strict superset of the pre-#613
  * session shape (adds `scopes`/`plan`; every other field —
@@ -144,9 +149,6 @@ function forwardToWorkspaceInvite(c: Context<SessionVars>, name: string): Promis
 function forwardToWorkspaceSettings(c: Context<SessionVars>, path: string): Promise<Response> {
   return forwardTo(workspaceSettings, c, path);
 }
-
-/** `?repo=` shape for the comment preview endpoint: exactly one `/`, no empty segments. */
-const REPO_SHAPE_RE = /^[^/\s]+\/[^/\s]+$/;
 
 /**
  * Every workspace the user's memberships map to. Memberships already include
@@ -258,25 +260,19 @@ export const me = new Hono<SessionVars>()
     forwardToWorkspaceMembers(c, `/${encodeURIComponent(c.req.param("name"))}/people`),
   )
 
-  // Galleries in one workspace — member-gated. Issue #613 phase 2: NOT
-  // forwarded to the canonical `/v1/workspaces/:workspace/galleries` list —
-  // this session shape carries `itemCount`/`references` per gallery (from
-  // `galleryListSummaries`) that the canonical/bearer list route omits (it
-  // uses the cheaper `gallerySummary` projection instead), so canonical is
-  // not a strict superset. `apps/web/src/lib/api-client.ts`'s `GallerySummary`
-  // does mark both fields optional ("Omitted on older API deployments"), but
-  // per the conservative rule for this migration (keep-and-document over
-  // inventing a new shape), this handler stays as-is rather than either
-  // dropping those fields for everyone or growing the canonical route to add
-  // them just for this alias. See `.context/613-api-consolidation-plan.md`.
-  .get("/workspaces/:name/galleries", async (c) => {
-    const name = c.req.param("name");
-    await memberWorkspaceOr404(c.env, requireUserId(c), name);
-    const page = await listGalleries(c.env.DB, name, { limit: 50 });
-    return c.json({
-      galleries: await galleryListSummaries(c.env, name, page.galleries),
-    });
-  })
+  // Galleries in one workspace — member-gated. Issue #613 final phase: the
+  // canonical `/v1/workspaces/:workspace/galleries` list is now enriched
+  // with `itemCount`/`references` per gallery for every caller (see
+  // `workspace-galleries.ts`'s `listGalleriesEnrichedHandler`), so this
+  // route forwards there instead of reimplementing. The pre-#613 shape had
+  // no `limit`/`cursor`/`nextCursor` — the canonical route defaults `limit`
+  // to 50 (same default this handler used) and adds `nextCursor`, an
+  // additive field this response shape tolerates the same way
+  // `apps/web/src/lib/api-client.ts`'s `GallerySummary` already marks
+  // `itemCount`/`references` optional.
+  .get("/workspaces/:name/galleries", (c) =>
+    forwardToWorkspaceGalleries(c, `/${encodeURIComponent(c.req.param("name"))}/galleries`),
+  )
 
   // Issue #613 phase 1: list/search/facets/by-path/file-url/visibility/delete
   // now forward to the canonical dual-auth handlers in
@@ -317,27 +313,14 @@ export const me = new Hono<SessionVars>()
     );
   })
 
-  // files-sdk's folder-aware browser gateway. Authorization happens before a
-  // storage instance is constructed; readonly plus this operation allow-list
-  // independently prevent member UI requests from mutating storage.
-  .all("/workspaces/:name/file-browser", async (c) => {
-    const name = c.req.param("name");
-    await memberWorkspaceOr404(c.env, requireUserId(c), name);
-    const record = await loadWorkspaceRecord(c.env, name);
-    if (!record) {
-      throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
-    }
-    const router = createFilesRouter({
-      files: (await storage(c.env, record)).readonly(),
-      operations: ["list"],
-      maxListLimit: 100,
-      // files-sdk resolves a signing secret even when signing operations are
-      // disabled. This value is intentionally non-secret and cannot authorize
-      // anything on this list-only, authenticated gateway.
-      secret: `readonly-list:${name}`,
-    });
-    return router.handle(c.req.raw);
-  })
+  // files-sdk's folder-aware browser gateway. Issue #613 final phase:
+  // forwards to the canonical session-member-gated handler in
+  // `routes/workspace-files.ts` — the extracted handler is byte-for-byte the
+  // body this route used to run, so response shape can't drift. See
+  // `forwardToWorkspaceFiles`'s docblock.
+  .all("/workspaces/:name/file-browser", (c) =>
+    forwardToWorkspaceFiles(c, `/${encodeURIComponent(c.req.param("name"))}/file-browser`),
+  )
 
   // Invite an email to the org backing this workspace (Better Auth invitation).
   // Workspace org admin|owner only. Returns acceptUrl so self-hosted installs
@@ -393,44 +376,23 @@ export const me = new Hono<SessionVars>()
   // gated: title text for private repos is sensitive, and membership scoping
   // keeps this from becoming a public title oracle for whatever repos the
   // App can read. Per-ref failures are nulls — the endpoint never fails the
-  // batch wholesale.
-  .get("/workspaces/:name/github-titles", async (c) => {
-    const name = c.req.param("name");
-    await memberWorkspaceOr404(c.env, requireUserId(c), name);
-
-    const raw = (c.req.query("refs") ?? "").split(",").filter((s) => s.length > 0);
-    if (raw.length === 0) {
-      throw new ValidationError("refs query parameter required", { code: "refs_required" });
-    }
-    if (raw.length > 20) {
-      throw new ValidationError("at most 20 refs per request", { code: "too_many_refs" });
-    }
-    const normalized = raw.map((coordinate) => {
-      const parsed = parseExternalReference("github", coordinate);
-      if (!parsed.ok) {
-        throw new ValidationError(`invalid ref: ${coordinate}`, { code: "invalid_ref" });
-      }
-      // normalizedKey carries a `github:item:` provider prefix — the gh.ref
-      // metadata shape (and this response's keys) is bare
-      // `owner/repo#number`, so derive it from the locator instead.
-      const { owner, repository, number } = parsed.value.locator;
-      return `${owner}/${repository}#${number}`;
-    });
-
-    const titles = await resolveTitles(c.env, [...new Set(normalized)]);
-    return c.json({ refs: titles });
-  })
+  // batch wholesale. Issue #613 final phase: forwards to the canonical
+  // session-member-gated handler in `routes/workspace-github.ts` — the
+  // extracted handler is byte-for-byte the body this route used to run, so
+  // response shape can't drift. See `forwardToWorkspaceGithub`'s docblock.
+  .get("/workspaces/:name/github-titles", (c) =>
+    forwardToWorkspaceGithub(c, `/${encodeURIComponent(c.req.param("name"))}/github/titles`),
+  )
 
   // Whether this workspace already has the GitHub App installed (issue #492),
   // so the rail's `install github app` CTA can stop nagging workspaces that
   // installed it. Member-gated like the sibling `/github-titles`: the answer
   // is derived from the workspace's repo bindings, which aren't public.
   // Never fails — see `githubInstallStatus` for the degrade-to-false rule.
-  .get("/workspaces/:name/github-status", async (c) => {
-    const name = c.req.param("name");
-    await memberWorkspaceOr404(c.env, requireUserId(c), name);
-    return c.json<GithubInstallStatus>(await githubInstallStatus(c.env, name));
-  })
+  // Same forward as above.
+  .get("/workspaces/:name/github-status", (c) =>
+    forwardToWorkspaceGithub(c, `/${encodeURIComponent(c.req.param("name"))}/github/status`),
+  )
 
   // Repos this workspace has linked (issue #307, Task 7) — feeds the comment
   // settings preview panel's repo picker. Admin/owner-gated like the
@@ -441,13 +403,13 @@ export const me = new Hono<SessionVars>()
   // `ADMIN_TOKEN`, which the web app's Better Auth session can't produce.
   // Repo names only: the web client has no use for installationId/source/
   // createdAt, and trimming them keeps this from becoming a second surface
-  // to keep in sync with `repoLinkResponse` in admin-ui.ts.
-  .get("/workspaces/:name/repo-links", async (c) => {
-    const name = c.req.param("name");
-    await adminWorkspaceOr403(c.env, requireUserId(c), name);
-    const links = await listRepoLinksForWorkspace(c.env.DB, name);
-    return c.json({ repos: links.map((link) => link.repo) });
-  })
+  // to keep in sync with `repoLinkResponse` in admin-ui.ts. Issue #613 final
+  // phase: forwards to the canonical session-admin-gated handler in
+  // `routes/workspace-github.ts`, which keeps this exact `{repos}`
+  // projection. Same forward pattern as above.
+  .get("/workspaces/:name/repo-links", (c) =>
+    forwardToWorkspaceGithub(c, `/${encodeURIComponent(c.req.param("name"))}/github/repo-links`),
+  )
 
   // Workspace-level managed-comment defaults (issue #307): image width,
   // inline-image cap, the two legacy booleans, and a short note. Admin/owner
@@ -465,80 +427,14 @@ export const me = new Hono<SessionVars>()
   )
 
   // Preview the production managed-comment body against resolved comment
-  // settings (issue #307). Admin/owner-gated like the settings routes above:
-  // the response includes per-key source attribution ("repo" | "workspace" |
-  // "auto"), which a plain member has no reason to see. With no `repo` query
-  // param, resolution runs against workspace defaults only (`repoConfig:
-  // null`) via the same `resolveCommentOptions(null, ...)` entrypoint
-  // `resolveRepoCommentOptions` wraps. With `repo`, it must already be
-  // linked to THIS workspace (github-repo-links.ts) — otherwise 404, so a
-  // preview can't be used to probe another workspace's repo binding or
-  // `.uploads.yml` contents.
-  //
-  // Renders from a page of the workspace's own `gh/`-prefixed attachments
-  // (first page only, mirrors gatherAttachments's url/pageUrl mapping but
-  // skips the D1 metadata read — the preview needs no per-item meta beyond
-  // what the static fixtures already carry). `listObjects` pages in
-  // lexicographic key order, not upload recency, so this is a representative
-  // sample rather than the "most recent" uploads. An empty workspace falls
-  // back to `previewFixtureItems` so the preview is never blank.
-  .get("/workspaces/:name/comment-preview", async (c) => {
-    const name = c.req.param("name");
-    await adminWorkspaceOr403(c.env, requireUserId(c), name);
-    const record = await loadWorkspaceRecord(c.env, name);
-    if (!record) throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
-
-    const repo = c.req.query("repo");
-    let resolved: ResolvedCommentOptions;
-    let source: Record<keyof ResolvedCommentOptions, OptionSource>;
-    let repoConfig: { found: boolean; path: string | null; warnings: string[] } | null = null;
-
-    if (repo !== undefined) {
-      if (!REPO_SHAPE_RE.test(repo)) {
-        throw new ValidationError("repo must be in owner/name form", { code: "invalid_repo" });
-      }
-      const link = await findRepoLink(c.env.DB, repo);
-      if (!link || link.workspaceName !== name) {
-        throw new NotFoundError("repo not linked to this workspace", { code: "repo_not_linked" });
-      }
-      const resolvedRepo = await resolveRepoCommentOptions(c.env, record, repo);
-      resolved = resolvedRepo.options;
-      source = resolvedRepo.source;
-      repoConfig = {
-        found: resolvedRepo.fetch.found,
-        path: resolvedRepo.fetch.path,
-        warnings: resolvedRepo.fetch.warnings,
-      };
-    } else {
-      const resolvedDefaults = resolveCommentOptions(null, workspaceCommentDefaults(record));
-      resolved = resolvedDefaults.options;
-      source = resolvedDefaults.source;
-    }
-
-    const { items: page } = await listObjects(c.env, record, { prefix: "gh/", limit: 8 });
-    const linkToFilePage = resolved.linkToFilePage;
-    let items: AttachmentItem[] = page.map((o) => ({
-      key: o.key,
-      url: o.url,
-      embedUrl: o.embedUrl,
-      pageUrl: linkToFilePage ? (o.pageUrl ?? null) : null,
-    }));
-    let sample: "workspace" | "fixtures" = "workspace";
-    if (items.length === 0) {
-      items = previewFixtureItems(c.env);
-      sample = "fixtures";
-    }
-
-    const body = attachmentsCommentBody(items, [], attachmentsMarker(name), {
-      imageWidth: resolved.imageWidth,
-      maxInlineImages: resolved.maxInlineImages,
-      metaPath: resolved.metaPath,
-      metaState: resolved.metaState,
-      note: resolved.note,
-    });
-
-    return c.json({ resolved, source, repoConfig, body, sample });
-  })
+  // settings (issue #307). Admin/owner-gated like the settings routes above.
+  // Issue #613 final phase: forwards to the canonical session-admin-gated
+  // handler in `routes/workspace-settings.ts` — the extracted handler is
+  // byte-for-byte the body this route used to run, so response shape can't
+  // drift. See that router's `commentPreviewHandler` docblock.
+  .get("/workspaces/:name/comment-preview", (c) =>
+    forwardToWorkspaceSettings(c, `/${encodeURIComponent(c.req.param("name"))}/comment-preview`),
+  )
 
   // Self-serve BYO R2 bucket (issue #583 Task 1.1): read/verify/write/detach
   // of a workspace's storage config. Same audience as the comment-settings
