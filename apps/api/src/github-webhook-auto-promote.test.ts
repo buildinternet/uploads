@@ -49,6 +49,11 @@ async function baseEnv(): Promise<{ env: Env; db: UsageFakeD1; bucket: FakeR2Buc
   const githubCache = new FakeKv();
   githubCache.store.set("ghinst:acme/web", { value: "42" });
   githubCache.store.set("ghtok:42", { value: "cached-token" });
+  // Public by default (cache hit — no network call): promoteBranchAttachments
+  // now resolves a key mode via resolveGhKeyContext on every call, so every
+  // test in this file that doesn't care about privacy needs a deterministic
+  // "plain" answer without a real GitHub API round trip.
+  githubCache.store.set("ghpriv:acme/web", { value: "0" });
   const env = {
     REGISTRY: registry,
     DB: db,

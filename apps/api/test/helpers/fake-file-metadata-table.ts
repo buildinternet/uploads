@@ -69,6 +69,19 @@ export class FileMetadataTable {
       this.metadata.delete(this.scopeKey(workspace, objectKey));
       return { success: true, meta: { changes: 1 }, results: [] };
     }
+    if (normalizedSql.startsWith("UPDATE file_metadata SET object_key = ?")) {
+      // Rotation's rename-in-place (issue #631, Task 8): move every
+      // meta_key row from the old object_key scope to the new one, keeping
+      // their values, so the metadata "follows" the key across the rename.
+      const [newObjectKey, workspace, oldObjectKey] = args as [string, string, string];
+      const oldScope = this.scopeKey(workspace, oldObjectKey);
+      const map = this.metadata.get(oldScope);
+      if (map) {
+        this.metadata.set(this.scopeKey(workspace, newObjectKey), map);
+        this.metadata.delete(oldScope);
+      }
+      return { success: true, meta: { changes: map ? map.size : 0 }, results: [] };
+    }
     if (normalizedSql.startsWith("UPDATE file_metadata SET meta_value = ?")) {
       // updateFileMetadataValue: targeted single-key flip (e.g. gh.detached),
       // no-op if the key isn't already present.

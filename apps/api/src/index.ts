@@ -30,6 +30,7 @@ import { render } from "./routes/render";
 import { githubWebhook } from "./routes/github-webhook";
 import { handleGithubWebhookBatch } from "./github-webhook-queue";
 import { githubComment } from "./routes/github-comment";
+import { githubPrivatePrefix } from "./routes/github-private-prefix";
 import { githubPromote } from "./routes/github-promote";
 import { githubLink } from "./routes/github-link";
 import { githubHealth } from "./routes/github-health";
@@ -200,6 +201,9 @@ export const app = new Hono<WorkspaceVars>()
   // Bot-owned managed comment (phase 2 PR B). Workspace-authed (unlike the
   // HMAC-public /v1/github/webhook above) — behind the workspaceAuth guard.
   .route("/v1/:workspace/github", githubComment)
+  // Issue #631: resolves the plain-vs-randomized-private-prefix key mode for
+  // an attachment stage, same base path, distinct sub-route "/private-prefix".
+  .route("/v1/:workspace/github", githubPrivatePrefix)
   // Phase 2a: promotes branch-staged attachments into a PR's attachment
   // prefix. Same base path as the comment route above (workspace-authed,
   // distinct sub-route "/promote" vs "/comment").

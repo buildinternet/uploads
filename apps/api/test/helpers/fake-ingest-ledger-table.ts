@@ -84,6 +84,22 @@ export class IngestLedgerTable {
       row.source = source;
       return { success: true, meta: { changes: 1 }, results: [] };
     }
+    if (
+      normalizedSql.startsWith("UPDATE github_ingested_assets SET object_key = ?") &&
+      normalizedSql.includes("WHERE object_key = ?")
+    ) {
+      // Rotation's rename-in-place (issue #631, Task 8) — the row stays
+      // keyed by (repo, asset_id); only its object_key column changes.
+      const [newObjectKey, oldObjectKey] = args as [string, string];
+      let changes = 0;
+      for (const row of this.rows.values()) {
+        if (row.object_key === oldObjectKey) {
+          row.object_key = newObjectKey;
+          changes++;
+        }
+      }
+      return { success: true, meta: { changes }, results: [] };
+    }
     return undefined;
   }
 

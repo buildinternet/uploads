@@ -38,7 +38,7 @@
  */
 
 import { hasUserAttachmentUrl } from "./github-attachment-extract";
-import { githubAppConfig, installationForRepo } from "./github-app";
+import { cacheRepoPrivacy, githubAppConfig, installationForRepo } from "./github-app";
 import { commentCacheKey, gatherCommentBody, upsertBotComment } from "./github-comment";
 import { ATTACHMENTS_MARKER } from "./github-comment-render";
 import type { GhTarget } from "./github-comment-render";
@@ -108,9 +108,25 @@ function repoFullNames(value: unknown): string[] {
 /** `pull_request` actions that trigger auto-promotion (a fresh/updated head to promote from). */
 const PROMOTE_ACTIONS = new Set(["opened", "reopened", "synchronize"]);
 
+/**
+ * Privacy write-through (issue #631): `{ repo, isPrivate }` when `repo`
+ * carries a boolean `private` field, else `undefined`. Takes the typed
+ * `repository` field straight off `PullRequestPayload`/`IssueCommentPayload`
+ * — no separate ad-hoc cast — so both payload interfaces' `private?: unknown`
+ * member is what's actually read here.
+ */
+function repoPrivacy(
+  repo: PullRequestPayload["repository"] | IssueCommentPayload["repository"],
+): WebhookEvent["privacy"] {
+  if (typeof repo?.full_name === "string" && typeof repo.private === "boolean") {
+    return { repo: repo.full_name, isPrivate: repo.private };
+  }
+  return undefined;
+}
+
 interface PullRequestPayload {
   action?: unknown;
-  repository?: { full_name?: unknown };
+  repository?: { full_name?: unknown; private?: unknown };
   pull_request?: {
     number?: unknown;
     head?: { ref?: unknown; repo?: { full_name?: unknown } };
@@ -208,7 +224,7 @@ const MARKER_SUBSTRING = ATTACHMENTS_MARKER.replace(/^<!--\s*|\s*-->$/g, "");
 
 interface IssueCommentPayload {
   action?: unknown;
-  repository?: { full_name?: unknown };
+  repository?: { full_name?: unknown; private?: unknown };
   issue?: { number?: unknown; pull_request?: unknown };
   comment?: { id?: unknown; body?: unknown; user?: { login?: unknown; type?: unknown } };
   sender?: { login?: unknown; type?: unknown };
@@ -288,6 +304,11 @@ export interface WebhookEvent {
   /** Opt-in GitHub-native attachment ingest (spec 2026-08-11). Source ref only —
    * the consumer re-fetches current text, so this stays queue-compact. */
   ingest?: IngestSourceRef;
+  /** Write-through for `repoIsPrivate`'s KV cache (issue #631) — present
+   * whenever the delivery's `repository.private` field is a boolean, so a
+   * webhook primes the private-prefix decision flow without an extra GitHub
+   * API round trip. */
+  privacy?: { repo: string; isPrivate: boolean };
 }
 
 /**
@@ -336,6 +357,7 @@ export function extractWebhookEvent(eventType: string, payload: unknown): Webhoo
 
   if (eventType === "pull_request") {
     const pp = p as PullRequestPayload;
+    ev.privacy = repoPrivacy(pp.repository);
     const action = pp.action;
     const repo = pp.repository?.full_name;
     const pr = pp.pull_request;
@@ -358,6 +380,7 @@ export function extractWebhookEvent(eventType: string, payload: unknown): Webhoo
     // any I/O or enqueue, so the common case (an ordinary human comment on
     // any installed repo — this event fires on every one) costs nothing.
     const ip = p as IssueCommentPayload;
+    ev.privacy = repoPrivacy(ip.repository);
     const repo = ip.repository?.full_name;
     const num = ip.issue?.number;
     if (isReconcilableCommentEvent(ip) && typeof repo === "string" && typeof num === "number") {
@@ -387,7 +410,7 @@ export function extractWebhookEvent(eventType: string, payload: unknown): Webhoo
   }
   // ping and unknown events fall through with no work.
 
-  return ev.keys.length || ev.promote || ev.reconcile || ev.ingest ? ev : null;
+  return ev.keys.length || ev.promote || ev.reconcile || ev.ingest || ev.privacy ? ev : null;
 }
 
 /**
@@ -398,6 +421,24 @@ export function extractWebhookEvent(eventType: string, payload: unknown): Webhoo
  * (`handleWebhook`'s no-queue fallback) catch and log instead.
  */
 export async function processWebhookEvent(env: Env, ev: WebhookEvent): Promise<void> {
+  if (ev.privacy) {
+    // Best-effort priming, not a gate: a KV outage here must never block
+    // promote/reconcile/ingest below (those degrade to plain on their own
+    // when the cache is unreadable) — same doctrine as the KV-delete
+    // allSettled just below, applied to a single awaited put.
+    try {
+      await cacheRepoPrivacy(env, ev.privacy.repo, ev.privacy.isPrivate);
+    } catch (err) {
+      console.error(
+        JSON.stringify({
+          message: "webhook privacy cache write-through failed",
+          repo: ev.privacy.repo,
+          error: err instanceof Error ? err.message : String(err),
+        }),
+      );
+    }
+  }
+
   await Promise.allSettled(ev.keys.map((key) => env.GITHUB_CACHE.delete(key)));
 
   if (ev.promote) {

@@ -28,6 +28,7 @@ import {
   resolveStageBindingWarning,
   mergeStagingMeta,
   writeReplacedNote,
+  resolveGhPrefixSafe,
   type BranchTarget,
 } from "../commands.js";
 import { resolvePutDefaults } from "../config.js";
@@ -39,7 +40,6 @@ import {
   resolveRepo,
   type CommandRunner,
 } from "../github-gh.js";
-import { ghBranchAttachmentKey } from "../github.js";
 import { deriveRepoSlugFromGit } from "../keys.js";
 import { safeCaptureFacts } from "../capture-facts.js";
 import { parseMetaFlags, validateMetaMap } from "../metadata.js";
@@ -520,9 +520,19 @@ export async function runScreenshot(
 
   const repo = flagString(parsed.flags, "--repo") ?? putDefaults.repo;
   const ref = flagString(parsed.flags, "--ref") ?? putDefaults.ref;
-  const branchKey =
-    stagingTarget !== undefined
-      ? ghBranchAttachmentKey(stagingTarget.repo, stagingTarget.branch, captured.filename)
+  // Resolved once (issue #631), only when it's actually needed for the
+  // upload about to happen (never for the noUpload/no-target bailouts
+  // above) — never per file (screenshot only ever uploads one).
+  const ghPrefix = ghTarget
+    ? await resolveGhPrefixSafe(ctx.client, {
+        repo: ghTarget.repo,
+        target: { kind: ghTarget.kind, num: ghTarget.num },
+      })
+    : stagingTarget !== undefined
+      ? await resolveGhPrefixSafe(ctx.client, {
+          repo: stagingTarget.repo,
+          branch: stagingTarget.branch,
+        })
       : undefined;
 
   const alt = altFlag ?? basename(captured.filename);
@@ -534,7 +544,9 @@ export async function runScreenshot(
       frame: frameOpts,
       optimize: optimizeOpts,
       ghTarget,
-      key: keyHint ?? branchKey,
+      ghBranchTarget: stagingTarget,
+      ghPrefix,
+      key: keyHint,
       prefix: resolvedPrefix ?? putDefaults.prefix,
       repo,
       ref,

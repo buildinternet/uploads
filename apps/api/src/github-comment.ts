@@ -14,6 +14,7 @@ import { galleryUrl, hydrateOwnerGallery } from "./gallery-service";
 import { parseExternalReference } from "./external-references";
 import { objectPublicUrls, storageConfig } from "./storage";
 import { posterKeyFor } from "./poster";
+import { listActivePrefixIds } from "./github-private-prefixes";
 import type { WorkspaceRecord } from "./workspace";
 import { githubFetch, githubHeaders, installationToken, type GithubAppConfig } from "./github-app";
 import { resolveRepoCommentOptions } from "./repo-comment-config";
@@ -22,6 +23,7 @@ import {
   attachmentsCommentBody,
   attachmentsMarker,
   ghKeyPrefix,
+  ghPrivateKeyPrefix,
   ATTACHMENTS_MARKER,
   type AttachmentItem,
   type CommentRenderOptions,
@@ -102,23 +104,43 @@ async function gatherAttachments(
   // issue #365, extended by #307: skip the metadata read entirely when
   // neither meta field would render anything.
   const showMetadata = options.metaPath || options.metaState;
-  const items: AttachmentItem[] = [];
-  let cursor: string | undefined;
-  do {
-    const page = await listObjects(env, ws, {
-      prefix: ghKeyPrefix(target),
-      limit: 1000,
-      cursor,
-    });
-    for (const o of page.items)
-      items.push({
-        key: o.key,
-        url: o.url,
-        embedUrl: o.embedUrl,
-        pageUrl: linkToFilePage ? o.pageUrl : null,
-      });
-    cursor = page.cursor ?? undefined;
-  } while (cursor);
+
+  // Every active private prefix id for this repo (across branches, #631) is
+  // also listed — a private-repo attachment can land under any of them, not
+  // just the plain `ghKeyPrefix`. Plain prefix listed first so ordering
+  // stays stable regardless of listActivePrefixIds' order.
+  const activePrefixIds = await listActivePrefixIds(env.DB, target.repo);
+  const prefixes = [
+    ghKeyPrefix(target),
+    ...activePrefixIds.map((id) => ghPrivateKeyPrefix(id, target)),
+  ];
+
+  // Paginated per-prefix, but the prefixes themselves are independent — run
+  // them concurrently and concatenate in prefix order, so output ordering is
+  // unchanged (plain first, then ids in listActivePrefixIds order).
+  const perPrefixItems = await Promise.all(
+    prefixes.map(async (prefix) => {
+      const prefixItems: AttachmentItem[] = [];
+      let cursor: string | undefined;
+      do {
+        const page = await listObjects(env, ws, {
+          prefix,
+          limit: 1000,
+          cursor,
+        });
+        for (const o of page.items)
+          prefixItems.push({
+            key: o.key,
+            url: o.url,
+            embedUrl: o.embedUrl,
+            pageUrl: linkToFilePage ? o.pageUrl : null,
+          });
+        cursor = page.cursor ?? undefined;
+      } while (cursor);
+      return prefixItems;
+    }),
+  );
+  const items: AttachmentItem[] = perPrefixItems.flat();
 
   if (!showMetadata || items.length === 0) return items;
 

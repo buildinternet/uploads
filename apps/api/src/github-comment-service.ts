@@ -41,12 +41,12 @@ import type { WorkspaceRecord } from "./workspace";
  *   can never claim a new repo (though they can still act on repos already
  *   bound to `default`).
  */
-async function checkRepoAuthorization(
+export async function checkRepoAuthorization(
   env: Env,
   repo: string,
   workspaceName: string,
   mintingUserId: string | null,
-  installId: number,
+  installId: number | null,
 ): Promise<{ posted: false; reason: "not_authorized"; message: string } | null> {
   const link = await findRepoLinkStrict(env.DB, repo);
   if (link) {
@@ -59,7 +59,13 @@ async function checkRepoAuthorization(
         `workspace is not authorized to post the uploads-sh[bot] comment there.`,
     };
   }
-  const entitled = await isEntitledToClaimRepo(env, repo, mintingUserId, fetch, installId);
+  const entitled = await isEntitledToClaimRepo(
+    env,
+    repo,
+    mintingUserId,
+    fetch,
+    installId ?? undefined,
+  );
   if (!entitled) {
     return {
       posted: false,

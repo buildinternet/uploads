@@ -1,7 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import { UsageError } from "../src/cli-args.js";
 import { UploadsError } from "../src/errors.js";
-import type { GithubRepoLinkResult, UploadsClient } from "../src/client.js";
+import type {
+  GithubRepoLinkResult,
+  ResolveGhPrefixOptions,
+  ResolveGhPrefixResult,
+  UploadsClient,
+} from "../src/client.js";
 import { runPut, stateAppMetaFromFlags, type CliContext } from "../src/commands.js";
 import type { CommandRunner } from "../src/github-gh.js";
 import { writeSidecarMeta } from "../src/sidecar.js";
@@ -18,6 +23,16 @@ function fakeClient(opts?: {
    * simulates an older server without the route).
    */
   repoLinkStatus?: GithubRepoLinkResult | Error | ((repo: string) => GithubRepoLinkResult | Error);
+  /**
+   * `client.resolveGhPrefix` behavior (issue #631 private-prefix mode):
+   * a fixed result, or a function of the request. Omitted → the method is
+   * absent entirely, simulating an older/self-hosted server without the
+   * `/github/private-prefix` route (the 404 case) — must degrade to plain,
+   * byte-identical to pre-#631 keys.
+   */
+  resolveGhPrefix?:
+    | ResolveGhPrefixResult
+    | ((opts: ResolveGhPrefixOptions) => ResolveGhPrefixResult);
 }) {
   const puts: {
     key?: string;
@@ -28,6 +43,7 @@ function fakeClient(opts?: {
     body: Uint8Array;
     metadata?: Record<string, string>;
   }[] = [];
+  const resolveGhPrefixCalls: ResolveGhPrefixOptions[] = [];
   const client = {
     put: async (
       body: Uint8Array,
@@ -85,8 +101,18 @@ function fakeClient(opts?: {
           },
         }
       : {}),
+    ...(opts?.resolveGhPrefix !== undefined
+      ? {
+          resolveGhPrefix: async (req: ResolveGhPrefixOptions) => {
+            resolveGhPrefixCalls.push(req);
+            return typeof opts.resolveGhPrefix === "function"
+              ? opts.resolveGhPrefix(req)
+              : opts.resolveGhPrefix!;
+          },
+        }
+      : {}),
   } as unknown as UploadsClient;
-  return { client, puts };
+  return { client, puts, resolveGhPrefixCalls };
 }
 
 function ctxWith(client: UploadsClient): CliContext {
@@ -278,6 +304,91 @@ describe("runPut --pr/--issue", () => {
     );
     expect(puts[0].filename).toBe("shot.png");
     expect(puts[0].key).toBe("gh/o/r/pull/9/shot.png");
+  });
+});
+
+describe("runPut private-prefix mode (issue #631)", () => {
+  const PREFIX_ID = "0123456789abcdef0123456789abcdef";
+
+  it("writes the private key and returns a URL containing /gh/private/<id>/ under --pr", async () => {
+    const { client, puts } = fakeClient({
+      resolveGhPrefix: { mode: "private", prefixId: PREFIX_ID },
+    });
+    const code = await runPut(
+      ctxWith(client),
+      [tmpFile(), "--pr", "123", "--repo", "buildinternet/uploads"],
+      false,
+      noRun,
+    );
+    expect(code).toBe(0);
+    expect(puts[0].key).toBe(`gh/private/${PREFIX_ID}/pull/123/shot.png`);
+  });
+
+  it("stages a bare put on a feature branch under gh/private/<id>/branch/<file>", async () => {
+    const { client, puts } = fakeClient({
+      resolveGhPrefix: { mode: "private", prefixId: PREFIX_ID },
+    });
+    await runPut(
+      ctxWith(client),
+      [tmpFile()],
+      false,
+      stagingRunner({
+        branch: "feature/thing",
+        defaultBranch: "main",
+        originUrl: "git@github.com:o/r.git",
+        repo: "o/r",
+      }),
+    );
+    expect(puts[0]?.key).toBe(`gh/private/${PREFIX_ID}/branch/shot.png`);
+  });
+
+  it("leaves --state metadata naming untouched in private mode", async () => {
+    const { client, puts } = fakeClient({
+      resolveGhPrefix: { mode: "private", prefixId: PREFIX_ID },
+    });
+    await runPut(
+      ctxWith(client),
+      [tmpFile(), "--pr", "9", "--repo", "o/r", "--state", "after"],
+      false,
+      noRun,
+    );
+    expect(puts[0].key).toBe(`gh/private/${PREFIX_ID}/pull/9/shot.png`);
+    expect(puts[0].metadata?.state).toBe("after");
+  });
+
+  it("degrades to the exact pre-#631 plain key when the server lacks the resolve route (older/self-hosted server, 404)", async () => {
+    // resolveGhPrefix omitted entirely — the fake client has no such method,
+    // simulating an older/self-hosted server that 404s the route.
+    const { client, puts } = fakeClient();
+    await runPut(
+      ctxWith(client),
+      [tmpFile(), "--pr", "123", "--repo", "buildinternet/uploads"],
+      false,
+      noRun,
+    );
+    expect(puts[0].key).toBe("gh/buildinternet/uploads/pull/123/shot.png");
+  });
+
+  it("resolves the gh prefix once per invocation for the upload batch, not once per file", async () => {
+    // --no-comment isolates the upload key-building resolve from the
+    // separate comment-sync resolve (syncAttachmentsComment's own gh-fallback
+    // listing, issue #631 too, but a distinct call site with its own cache
+    // key on the real client) — this test is only about uploadPuts not
+    // re-resolving per file in its mapBounded loop.
+    const { client, puts, resolveGhPrefixCalls } = fakeClient({
+      resolveGhPrefix: { mode: "private", prefixId: PREFIX_ID },
+    });
+    const paths = tmpFiles("a.png", "b.png");
+    await runPut(
+      ctxWith(client),
+      [...paths, "--pr", "9", "--repo", "o/r", "--no-comment"],
+      false,
+      noRun,
+    );
+    expect(resolveGhPrefixCalls.length).toBe(1);
+    expect(puts.map((p) => p.key).sort()).toEqual(
+      [`gh/private/${PREFIX_ID}/pull/9/a.png`, `gh/private/${PREFIX_ID}/pull/9/b.png`].sort(),
+    );
   });
 });
 

@@ -6,6 +6,8 @@ import { UsageError } from "../src/cli-args.js";
 import type {
   GithubRepoLinkResult,
   PromoteBranchAttachmentsResult,
+  ResolveGhPrefixOptions,
+  ResolveGhPrefixResult,
   UploadsClient,
 } from "../src/client.js";
 import { runAttach, type CliContext } from "../src/commands.js";
@@ -37,11 +39,20 @@ function fakeClient(opts?: {
    * absent — simulates an older server without the route).
    */
   repoLinkStatus?: GithubRepoLinkResult | Error | ((repo: string) => GithubRepoLinkResult | Error);
+  /**
+   * `client.resolveGhPrefix` behavior (issue #631 private-prefix mode).
+   * Omitted → method absent, simulating an older/self-hosted server without
+   * the route (404) — must degrade to plain, byte-identical to pre-#631 keys.
+   */
+  resolveGhPrefix?:
+    | ResolveGhPrefixResult
+    | ((opts: ResolveGhPrefixOptions) => ResolveGhPrefixResult);
 }) {
   const puts: string[] = [];
   const metadataByKey: Record<string, Record<string, string> | undefined> = {};
   const promoteCalls: { repo: string; num: number; branch: string }[] = [];
   const callOrder: string[] = [];
+  const resolveGhPrefixCalls: ResolveGhPrefixOptions[] = [];
   const list = async ({ prefix }: { prefix?: string } = {}) => ({
     items: puts
       .filter((key) => key.startsWith(prefix ?? ""))
@@ -109,8 +120,18 @@ function fakeClient(opts?: {
           },
         }
       : {}),
+    ...(opts?.resolveGhPrefix !== undefined
+      ? {
+          resolveGhPrefix: async (req: ResolveGhPrefixOptions) => {
+            resolveGhPrefixCalls.push(req);
+            return typeof opts.resolveGhPrefix === "function"
+              ? opts.resolveGhPrefix(req)
+              : opts.resolveGhPrefix!;
+          },
+        }
+      : {}),
   } as unknown as UploadsClient;
-  return { client, puts, metadataByKey, promoteCalls, callOrder };
+  return { client, puts, metadataByKey, promoteCalls, callOrder, resolveGhPrefixCalls };
 }
 
 function ctxWith(client: UploadsClient): CliContext {
@@ -319,6 +340,50 @@ describe("runAttach", () => {
   });
 });
 
+describe("runAttach private-prefix mode (issue #631)", () => {
+  const PREFIX_ID = "0123456789abcdef0123456789abcdef";
+
+  it("writes the private key under --pr when the server advertises private mode", async () => {
+    const { client, puts } = fakeClient({
+      resolveGhPrefix: { mode: "private", prefixId: PREFIX_ID },
+    });
+    const { run } = ghRunner();
+    expect(
+      await runAttach(ctxWith(client), [...files("shot.png"), "--no-comment"], false, run),
+    ).toBe(0);
+    expect(puts).toEqual([`gh/private/${PREFIX_ID}/pull/123/shot.png`]);
+  });
+
+  it("degrades to the exact pre-#631 plain key when the server lacks the resolve route", async () => {
+    // resolveGhPrefix omitted — simulates an older/self-hosted server (404).
+    const { client, puts } = fakeClient();
+    const { run } = ghRunner();
+    await runAttach(ctxWith(client), [...files("shot.png"), "--no-comment"], false, run);
+    expect(puts).toEqual(["gh/buildinternet/uploads/pull/123/shot.png"]);
+  });
+
+  it("resolves the gh prefix once per invocation for a multi-file batch", async () => {
+    const { client, puts, resolveGhPrefixCalls } = fakeClient({
+      resolveGhPrefix: { mode: "private", prefixId: PREFIX_ID },
+    });
+    const { run } = ghRunner();
+    await runAttach(
+      ctxWith(client),
+      [...files("a.png", "b.png", "c.png"), "--no-comment"],
+      false,
+      run,
+    );
+    expect(resolveGhPrefixCalls.length).toBe(1);
+    expect(puts.sort()).toEqual(
+      [
+        `gh/private/${PREFIX_ID}/pull/123/a.png`,
+        `gh/private/${PREFIX_ID}/pull/123/b.png`,
+        `gh/private/${PREFIX_ID}/pull/123/c.png`,
+      ].sort(),
+    );
+  });
+});
+
 describe("runAttach gh.* metadata", () => {
   it("writes gh.repo/gh.kind/gh.number/gh.ref for a pull request target", async () => {
     const { client, metadataByKey } = fakeClient();
@@ -413,6 +478,23 @@ describe("runAttach --branch (branch-staged, pre-PR)", () => {
       ),
     ).toBe(0);
     expect(puts).toEqual(["gh/o/r/branch/feature-thing/shot.png"]);
+  });
+
+  it("stages under gh/private/<id>/branch/<filename> when the server advertises private mode (issue #631)", async () => {
+    const PREFIX_ID = "0123456789abcdef0123456789abcdef";
+    const { client, puts } = fakeClient({
+      resolveGhPrefix: { mode: "private", prefixId: PREFIX_ID },
+    });
+    const { run } = branchRunner();
+    expect(
+      await runAttach(
+        ctxWith(client),
+        [...files("shot.png"), "--branch", "feature/thing", "--repo", "o/r"],
+        false,
+        run,
+      ),
+    ).toBe(0);
+    expect(puts).toEqual([`gh/private/${PREFIX_ID}/branch/shot.png`]);
   });
 
   it("defaults --branch (no value) to the current git branch", async () => {

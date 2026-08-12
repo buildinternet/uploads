@@ -299,6 +299,33 @@ export type GithubCommentResult =
       required?: string[];
     };
 
+/** `POST /v1/workspaces/:workspace/github/private-prefix` request (server contract, issue #631/#613). */
+export interface ResolveGhPrefixOptions {
+  repo: string;
+  branch?: string;
+  target?: { kind: "pull" | "issues"; num: number };
+}
+
+/** `POST /v1/workspaces/:workspace/github/private-prefix` response (server contract, issue #631/#613). */
+export type ResolveGhPrefixResult =
+  | { mode: "plain" }
+  | { mode: "private"; prefixId: string; activePrefixIds?: string[] };
+
+/** `POST /v1/workspaces/:workspace/github/private-prefix/rotate` request (server contract, issue #631/#613). */
+export interface RotateGhPrefixOptions {
+  repo: string;
+  /** Mutually exclusive with `repoLevel`: rotate one branch's id. */
+  branch?: string;
+  /** Mutually exclusive with `branch`: rotate the repo-level id shared by
+   * issue attachments and ingested assets. */
+  repoLevel?: boolean;
+}
+
+/** `POST /v1/workspaces/:workspace/github/private-prefix/rotate` response (server contract, issue #631/#613). */
+export type RotateGhPrefixResult =
+  | { rotated: false; reason: string }
+  | { rotated: true; prefixId: string; moved: number };
+
 /** `POST /v1/workspaces/:workspace/github/promote` request/response (server contract, PR #310). */
 export interface PromoteBranchAttachmentsOptions {
   repo: string;
@@ -929,6 +956,10 @@ export function createUploadsClient(config: UploadsClientConfig) {
     return request<Gallery>("GET", `${galleriesBase(config)}/${encodeURIComponent(id)}`);
   }
 
+  // Per-process cache for resolveGhPrefix, keyed by repo+branch+target — see
+  // that method's doc.
+  const resolveGhPrefixCache = new Map<string, ResolveGhPrefixResult>();
+
   return {
     async put(body: Uint8Array, opts: PutOptions & { filename: string }): Promise<PutResult> {
       const key =
@@ -1215,6 +1246,62 @@ export function createUploadsClient(config: UploadsClientConfig) {
       return request<GithubCommentResult>(
         "POST",
         `${config.apiUrl}/v1/workspaces/${encodeURIComponent(config.workspace)}/github/comment`,
+        {
+          body: new TextEncoder().encode(JSON.stringify(opts)),
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+    },
+
+    /**
+     * Resolve the GitHub-key mode (plain vs. randomized private prefix, issue
+     * #631) a caller should stage/list attachments under for `repo`. Fail-open:
+     * ANY failure — a 404 from an older/self-hosted server, a network error, a
+     * non-2xx response, or a malformed body — resolves to `{ mode: "plain" }`
+     * silently (no stderr noise), never throws. Cached per-process, keyed by
+     * repo+branch+target, so repeated calls for the same coordinate (e.g. the
+     * gh-fallback comment gather re-checking on every sync) cost one request.
+     */
+    async resolveGhPrefix(opts: ResolveGhPrefixOptions): Promise<ResolveGhPrefixResult> {
+      const cacheKey = JSON.stringify([
+        opts.repo.toLowerCase(),
+        opts.branch ?? "",
+        opts.target ?? null,
+      ]);
+      const cached = resolveGhPrefixCache.get(cacheKey);
+      if (cached) return cached;
+
+      const resolved = await (async (): Promise<ResolveGhPrefixResult> => {
+        try {
+          return await request<ResolveGhPrefixResult>(
+            "POST",
+            `${config.apiUrl}/v1/workspaces/${encodeURIComponent(config.workspace)}/github/private-prefix`,
+            {
+              body: new TextEncoder().encode(JSON.stringify(opts)),
+              headers: { "Content-Type": "application/json" },
+            },
+          );
+        } catch {
+          return { mode: "plain" };
+        }
+      })();
+      resolveGhPrefixCache.set(cacheKey, resolved);
+      return resolved;
+    },
+
+    /**
+     * Rotate the active private-repo attachment prefix for `opts.repo` +
+     * (`opts.branch` or `opts.repoLevel`) (issue #631). Unlike
+     * `resolveGhPrefix`, this is NOT fail-open: it's an explicit, caller-
+     * initiated action, so a failure (including a 404 from an older/self-
+     * hosted server without this route) throws `UploadsError` — the CLI
+     * command decides how to present that, rather than this method silently
+     * degrading to a shape that would look like success.
+     */
+    async rotateGhPrefix(opts: RotateGhPrefixOptions): Promise<RotateGhPrefixResult> {
+      return request<RotateGhPrefixResult>(
+        "POST",
+        `${config.apiUrl}/v1/workspaces/${encodeURIComponent(config.workspace)}/github/private-prefix/rotate`,
         {
           body: new TextEncoder().encode(JSON.stringify(opts)),
           headers: { "Content-Type": "application/json" },

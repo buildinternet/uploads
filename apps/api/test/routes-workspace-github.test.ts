@@ -253,6 +253,165 @@ describe("POST /v1/workspaces/:workspace/github/promote (token-only)", () => {
   });
 });
 
+describe("POST /v1/workspaces/:workspace/github/private-prefix (token-only)", () => {
+  it("bearer with files:write reaches the handler", async () => {
+    const { env } = await makeEnv();
+    const res = await app.request(
+      "/v1/workspaces/acme/github/private-prefix",
+      {
+        method: "POST",
+        headers: { ...bearer(), "content-type": "application/json" },
+        body: JSON.stringify({ repo: "acme/web", branch: "main" }),
+      },
+      env,
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ mode: "plain" });
+  });
+
+  it("a files:read-only token 403s (missing files:write)", async () => {
+    const { env } = await makeEnv({ scopedTokenScopes: ["files:read"] });
+    const res = await app.request(
+      "/v1/workspaces/acme/github/private-prefix",
+      {
+        method: "POST",
+        headers: { ...bearer(), "content-type": "application/json" },
+        body: JSON.stringify({ repo: "acme/web", branch: "main" }),
+      },
+      env,
+    );
+    expect(res.status).toBe(403);
+  });
+
+  it("session member 403s with github_requires_token", async () => {
+    const { env } = await makeEnv();
+    const res = await app.request(
+      "/v1/workspaces/acme/github/private-prefix",
+      {
+        method: "POST",
+        headers: { ...sessionCookie, "content-type": "application/json" },
+        body: JSON.stringify({ repo: "acme/web", branch: "main" }),
+      },
+      env,
+    );
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { error?: { code?: string } };
+    expect(body.error?.code).toBe("github_requires_token");
+  });
+
+  it("non-member session 404s before reaching the token gate", async () => {
+    const { env } = await makeEnv({ member: false });
+    const res = await app.request(
+      "/v1/workspaces/acme/github/private-prefix",
+      {
+        method: "POST",
+        headers: { ...sessionCookie, "content-type": "application/json" },
+        body: JSON.stringify({ repo: "acme/web", branch: "main" }),
+      },
+      env,
+    );
+    expect(res.status).toBe(404);
+  });
+});
+
+describe("old bearer path /v1/:workspace/github/private-prefix is untouched (issue #631/#613)", () => {
+  it("still reachable at the old bearer-only path", async () => {
+    const { env } = await makeEnv();
+    const res = await app.request(
+      "/v1/acme/github/private-prefix",
+      {
+        method: "POST",
+        headers: { ...bearer(), "content-type": "application/json" },
+        body: JSON.stringify({ repo: "acme/web", branch: "main" }),
+      },
+      env,
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ mode: "plain" });
+  });
+});
+
+describe("POST /v1/workspaces/:workspace/github/private-prefix/rotate (token-only)", () => {
+  it("bearer with files:write reaches the handler", async () => {
+    const { env, db } = await makeEnv();
+    await recordRepoLink(db as unknown as D1Database, "acme/web", WS, "test");
+    const res = await app.request(
+      "/v1/workspaces/acme/github/private-prefix/rotate",
+      {
+        method: "POST",
+        headers: { ...bearer(), "content-type": "application/json" },
+        body: JSON.stringify({ repo: "acme/web", repoLevel: true }),
+      },
+      env,
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ rotated: false, reason: "no_prefix" });
+  });
+
+  it("a files:read-only token 403s (missing files:write)", async () => {
+    const { env, db } = await makeEnv({ scopedTokenScopes: ["files:read"] });
+    await recordRepoLink(db as unknown as D1Database, "acme/web", WS, "test");
+    const res = await app.request(
+      "/v1/workspaces/acme/github/private-prefix/rotate",
+      {
+        method: "POST",
+        headers: { ...bearer(), "content-type": "application/json" },
+        body: JSON.stringify({ repo: "acme/web", repoLevel: true }),
+      },
+      env,
+    );
+    expect(res.status).toBe(403);
+  });
+
+  it("session member 403s with github_requires_token", async () => {
+    const { env } = await makeEnv();
+    const res = await app.request(
+      "/v1/workspaces/acme/github/private-prefix/rotate",
+      {
+        method: "POST",
+        headers: { ...sessionCookie, "content-type": "application/json" },
+        body: JSON.stringify({ repo: "acme/web", repoLevel: true }),
+      },
+      env,
+    );
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { error?: { code?: string } };
+    expect(body.error?.code).toBe("github_requires_token");
+  });
+
+  it("non-member session 404s before reaching the token gate", async () => {
+    const { env } = await makeEnv({ member: false });
+    const res = await app.request(
+      "/v1/workspaces/acme/github/private-prefix/rotate",
+      {
+        method: "POST",
+        headers: { ...sessionCookie, "content-type": "application/json" },
+        body: JSON.stringify({ repo: "acme/web", repoLevel: true }),
+      },
+      env,
+    );
+    expect(res.status).toBe(404);
+  });
+});
+
+describe("old bearer path /v1/:workspace/github/private-prefix/rotate is untouched (issue #631/#613)", () => {
+  it("still reachable at the old bearer-only path", async () => {
+    const { env, db } = await makeEnv();
+    await recordRepoLink(db as unknown as D1Database, "acme/web", WS, "test");
+    const res = await app.request(
+      "/v1/acme/github/private-prefix/rotate",
+      {
+        method: "POST",
+        headers: { ...bearer(), "content-type": "application/json" },
+        body: JSON.stringify({ repo: "acme/web", repoLevel: true }),
+      },
+      env,
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ rotated: false, reason: "no_prefix" });
+  });
+});
+
 describe("GET/POST/DELETE /v1/workspaces/:workspace/github/link (dual-auth, session-admin-gated)", () => {
   it("bearer with files:read reaches GET", async () => {
     const { env } = await makeEnv();

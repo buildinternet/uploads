@@ -7,14 +7,36 @@ import {
   attachmentPairWidth,
   attachmentsCommentBody,
   AUTO_RENDER_OPTIONS,
+  GH_PRIVATE_ROOT,
+  ghPrivateAttachmentKey,
+  ghPrivateBranchAttachmentKey,
+  ghPrivateBranchKeyPrefix,
+  ghPrivateKeyPrefix,
+  parseGhPrivateKey,
   type AttachmentItem,
   type CommentRenderOptions,
+  type GhTarget,
 } from "../src/github.js";
 
 function loadFixture(name: string) {
   return JSON.parse(
     readFileSync(fileURLToPath(new URL(`../../../test/fixtures/${name}`, import.meta.url)), "utf8"),
   ) as { items: any[]; galleries: any[]; marker?: string; expected: string };
+}
+
+interface PrivateKeyGolden {
+  prefixId: string;
+  keyCases: { target: GhTarget; filename: string; expectedPrefix: string; expectedKey: string }[];
+  branchCases: { filename: string; expectedPrefix: string; expectedKey: string }[];
+  parseCases: { key: string; expected: { prefixId: string; kind: string; num: number } }[];
+  parseInvalidKeys: string[];
+  invalidPrefixIds: string[];
+}
+
+function loadPrivateKeyFixture(name: string): PrivateKeyGolden {
+  return JSON.parse(
+    readFileSync(fileURLToPath(new URL(`../../../test/fixtures/${name}`, import.meta.url)), "utf8"),
+  ) as PrivateKeyGolden;
 }
 
 function loadOptionsFixture(name: string) {
@@ -38,6 +60,45 @@ const goldenMeta = loadFixture("github-comment-golden-meta.json");
 const goldenVideo = loadFixture("github-comment-golden-video.json");
 const goldenEmpty = loadFixture("github-comment-golden-empty.json");
 const goldenOptions = loadOptionsFixture("github-comment-golden-options.json");
+const goldenPrivateKeys = loadPrivateKeyFixture("github-comment-golden-private-keys.json");
+
+describe("private-repo key builders/parsers (CLI copy) — golden parity fixture", () => {
+  const { prefixId } = goldenPrivateKeys;
+
+  it.each(goldenPrivateKeys.keyCases)(
+    "builds the prefix and attachment key for $target.kind/$target.num",
+    (c) => {
+      expect(ghPrivateKeyPrefix(prefixId, c.target)).toBe(c.expectedPrefix);
+      expect(ghPrivateAttachmentKey(prefixId, c.target, c.filename)).toBe(c.expectedKey);
+    },
+  );
+
+  it.each(goldenPrivateKeys.branchCases)("builds the branch prefix and attachment key", (c) => {
+    expect(ghPrivateBranchKeyPrefix(prefixId)).toBe(c.expectedPrefix);
+    expect(ghPrivateBranchAttachmentKey(prefixId, c.filename)).toBe(c.expectedKey);
+  });
+
+  it.each(goldenPrivateKeys.parseCases)("round-trips $key via parseGhPrivateKey", (c) => {
+    expect(parseGhPrivateKey(c.key)).toEqual(c.expected);
+  });
+
+  it.each(goldenPrivateKeys.parseInvalidKeys)(
+    "parseGhPrivateKey returns undefined for %s",
+    (key) => {
+      expect(parseGhPrivateKey(key)).toBeUndefined();
+    },
+  );
+
+  it.each(goldenPrivateKeys.invalidPrefixIds)("rejects a malformed prefixId %s", (badId) => {
+    const target: GhTarget = { repo: "acme/web", kind: "pull", num: 1 };
+    expect(() => ghPrivateKeyPrefix(badId, target)).toThrow();
+    expect(() => ghPrivateBranchKeyPrefix(badId)).toThrow();
+  });
+
+  it("GH_PRIVATE_ROOT matches the fixture's literal prefix", () => {
+    expect(GH_PRIVATE_ROOT).toBe("gh/private/");
+  });
+});
 
 describe("attachmentsCommentBody (CLI copy)", () => {
   it("renders the golden body byte-for-byte", () => {

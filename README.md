@@ -169,20 +169,21 @@ case plus peer deps, no API changes.
 
 ## Docs
 
-| Doc                                          | Contents                                            |
-| -------------------------------------------- | --------------------------------------------------- |
-| [cli](docs/cli.md)                           | CLI usage, GitHub embeds, keys, galleries           |
-| [api](docs/api.md)                           | REST routes                                         |
-| [local-dev](docs/local-dev.md)               | Manual setup, dev stack, smoke tests                |
-| [workspaces](docs/workspaces.md)             | Multi-tenant model, budgets, key policy, BYO-bucket |
-| [enrollment](docs/enrollment.md)             | Agent login, scopes, expiry, and migration          |
-| [admin-tokens](docs/admin-tokens.md)         | Minting, listing, and revoking upload tokens        |
-| [deletion](docs/deletion.md)                 | Workspace soft delete, grace period, and restore    |
-| [ops](docs/ops.md)                           | Operator runbook (limits, retention, secrets)       |
-| [deploy](docs/deploy.md)                     | Cloudflare setup and production deploy              |
-| [releasing](docs/releasing.md)               | Changesets and publishing the CLI to npm            |
-| [contract testing](docs/contract-testing.md) | Deployed smoke checks and release gate              |
-| [roadmap](docs/roadmap.md)                   | Planned features                                    |
+| Doc                                                | Contents                                             |
+| -------------------------------------------------- | ---------------------------------------------------- |
+| [cli](docs/cli.md)                                 | CLI usage, GitHub embeds, keys, galleries            |
+| [api](docs/api.md)                                 | REST routes                                          |
+| [local-dev](docs/local-dev.md)                     | Manual setup, dev stack, smoke tests                 |
+| [workspaces](docs/workspaces.md)                   | Multi-tenant model, budgets, key policy, BYO-bucket  |
+| [enrollment](docs/enrollment.md)                   | Agent login, scopes, expiry, and migration           |
+| [admin-tokens](docs/admin-tokens.md)               | Minting, listing, and revoking upload tokens         |
+| [deletion](docs/deletion.md)                       | Workspace soft delete, grace period, and restore     |
+| [private-attachments](docs/private-attachments.md) | Randomized private-repo attachment URLs and rotation |
+| [ops](docs/ops.md)                                 | Operator runbook (limits, retention, secrets)        |
+| [deploy](docs/deploy.md)                           | Cloudflare setup and production deploy               |
+| [releasing](docs/releasing.md)                     | Changesets and publishing the CLI to npm             |
+| [contract testing](docs/contract-testing.md)       | Deployed smoke checks and release gate               |
+| [roadmap](docs/roadmap.md)                         | Planned features                                     |
 
 How to set up, test, and open a pull request:
 [CONTRIBUTING.md](CONTRIBUTING.md). Agent working conventions live in

@@ -9,8 +9,11 @@ import type { GlobalFlags } from "../cli-args.js";
 import { createUploadsClient, type UploadsClient } from "../client.js";
 import {
   buildDoctorReport,
+  ghListPrefixes,
+  ghMergedList,
   makeGhTarget,
   mergeStagingMeta,
+  resolveGhPrefixSafe,
   resolvePutStagingTarget,
   resolveStaged,
   syncAttachmentsComment,
@@ -27,7 +30,7 @@ import {
   type UploadsClientConfig,
 } from "../config.js";
 import { resolvePutPrefix } from "../destinations.js";
-import { ghBranchAttachmentKey, ghKeyPrefix, type GhTarget } from "../github.js";
+import { ghKeyPrefix, ghPrivateKeyPrefix, type GhTarget } from "../github.js";
 import { safeCaptureFacts } from "../capture-facts.js";
 import { deriveRepoSlugFromGit } from "../keys.js";
 import { validateMetaMap } from "../metadata.js";
@@ -916,9 +919,19 @@ export function createUploadsMcpTools(opts: {
           throw err;
         }
 
-        const branchKey = stagingTarget
-          ? ghBranchAttachmentKey(stagingTarget.repo, stagingTarget.branch, captured.filename)
-          : undefined;
+        // Resolved once (issue #631), only now that upload is actually
+        // about to happen — never per file (screenshot uploads exactly one).
+        const ghPrefix = target
+          ? await resolveGhPrefixSafe(client, {
+              repo: target.repo,
+              target: { kind: target.kind, num: target.num },
+            })
+          : stagingTarget
+            ? await resolveGhPrefixSafe(client, {
+                repo: stagingTarget.repo,
+                branch: stagingTarget.branch,
+              })
+            : undefined;
 
         const { result, prepared, markdown } = await uploadPreparedImage(
           client,
@@ -928,7 +941,9 @@ export function createUploadsMcpTools(opts: {
             frame: frameOpts,
             optimize: optimizeOpts,
             ghTarget: target,
-            key: keyArg ?? branchKey,
+            ghBranchTarget: stagingTarget,
+            ghPrefix,
+            key: keyArg,
             prefix: resolvedPrefix ?? defaults.prefix,
             repo: optString(args, "repo") ?? defaults.repo,
             ref: refArg ?? defaults.ref,
@@ -1111,16 +1126,42 @@ export function createUploadsMcpTools(opts: {
         const prefixArg = optString(args, "prefix");
         let prefix = prefixArg ?? (defaults.prefix ? `${defaults.prefix}/` : undefined);
         const target = ghTargetFromArgs(args, run);
+        const { client } = clientFor(args);
+        // Also list every active private prefix, if any (issue #631) —
+        // mirrors syncAttachmentsComment's gh-fallback gather: a repo's
+        // attachment history can be split across the plain shape and
+        // MULTIPLE private prefixes, not just the currently-resolved one.
+        // `prefixes` stays undefined outside pr/issue (unchanged behavior);
+        // collapses to `[prefix]` in plain mode, so the single-request path
+        // below is byte-identical to pre-#631.
+        let prefixes: string[] | undefined;
         if (target) {
           if (prefixArg) usage("prefix cannot be combined with pr/issue");
           prefix = ghKeyPrefix(target);
+          const ghPrefix = await resolveGhPrefixSafe(client, {
+            repo: target.repo,
+            target: { kind: target.kind, num: target.num },
+          });
+          prefixes = ghListPrefixes(prefix, ghPrefix, (id) => ghPrivateKeyPrefix(id, target));
         }
         const limit = optPosInt(args, "limit");
         const cursor = optString(args, "cursor");
-        const { client } = clientFor(args);
 
         if (optBool(args, "all")) {
-          const items = await client.listAll({ prefix, limit, cursor });
+          const items =
+            prefixes && prefixes.length > 1
+              ? await ghMergedList(prefixes, cursor, (p, c) =>
+                  client.listAll({ prefix: p, limit, cursor: c }),
+                )
+              : await client.listAll({ prefix, limit, cursor });
+          return { items, cursor: null };
+        }
+        if (prefixes && prefixes.length > 1) {
+          const items = await ghMergedList(
+            prefixes,
+            cursor,
+            async (p, c) => (await client.list({ prefix: p, limit, cursor: c })).items,
+          );
           return { items, cursor: null };
         }
         return client.list({ prefix, limit, cursor });

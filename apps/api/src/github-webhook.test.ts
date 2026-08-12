@@ -1,7 +1,9 @@
 import { createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { handleWebhook, verifySignature } from "./github-webhook";
+import { extractWebhookEvent, handleWebhook, verifySignature } from "./github-webhook";
+import { githubAppConfig, repoIsPrivate } from "./github-app";
 import { FakeKv } from "../test/fake-kv";
+import { GITHUB_APP_CFG_ENV } from "../test/github-app-env";
 
 const SECRET = "webhook-secret";
 const sign = (body: string) => `sha256=${createHmac("sha256", SECRET).update(body).digest("hex")}`;
@@ -116,5 +118,105 @@ describe("handleWebhook", () => {
         issue: { number: 1 },
       }),
     ).resolves.toBeUndefined();
+  });
+});
+
+describe("handleWebhook — repository.private write-through (issue #631)", () => {
+  it("a pull_request payload with private:true populates the KV privacy cache (repoIsPrivate answers without fetch)", async () => {
+    const kv = new FakeKv();
+    const env = { GITHUB_CACHE: kv, ...GITHUB_APP_CFG_ENV } as unknown as Env;
+
+    await handleWebhook(env, "pull_request", {
+      action: "labeled",
+      repository: { full_name: "acme/web", private: true },
+      pull_request: { number: 3 },
+    });
+
+    const cfg = githubAppConfig(env);
+    expect(cfg).not.toBeNull();
+    // installationId (1) is irrelevant here — the cache hit short-circuits
+    // before any installation token is ever needed, so no fetch occurs.
+    const result = await repoIsPrivate(env, cfg!, 1, "acme/web");
+    expect(result).toBe(true);
+  });
+
+  it("a repository.private:false payload caches the negative answer too", async () => {
+    const kv = new FakeKv();
+    const env = { GITHUB_CACHE: kv, ...GITHUB_APP_CFG_ENV } as unknown as Env;
+
+    await handleWebhook(env, "pull_request", {
+      action: "labeled",
+      repository: { full_name: "acme/web", private: false },
+      pull_request: { number: 3 },
+    });
+
+    const cfg = githubAppConfig(env);
+    const result = await repoIsPrivate(env, cfg!, 1, "acme/web");
+    expect(result).toBe(false);
+  });
+
+  it("issue_comment payloads write through the same way as pull_request", async () => {
+    const kv = new FakeKv();
+    const env = { GITHUB_CACHE: kv, ...GITHUB_APP_CFG_ENV } as unknown as Env;
+
+    await handleWebhook(env, "issue_comment", {
+      action: "created",
+      repository: { full_name: "acme/private-repo", private: true },
+      issue: { number: 1 },
+      comment: { id: 1, body: "hello", user: { login: "octocat", type: "User" } },
+    });
+
+    const cfg = githubAppConfig(env);
+    const result = await repoIsPrivate(env, cfg!, 1, "acme/private-repo");
+    expect(result).toBe(true);
+  });
+
+  it("extractWebhookEvent omits `privacy` when repository.private is absent or non-boolean", () => {
+    expect(
+      extractWebhookEvent("pull_request", {
+        action: "labeled",
+        repository: { full_name: "acme/web" },
+        pull_request: { number: 3 },
+      })?.privacy,
+    ).toBeUndefined();
+    expect(
+      extractWebhookEvent("pull_request", {
+        action: "labeled",
+        repository: { full_name: "acme/web", private: "true" },
+        pull_request: { number: 3 },
+      })?.privacy,
+    ).toBeUndefined();
+  });
+
+  it("survives a privacy-cache write failure without throwing (degrade-safe, never blocks the rest of the event)", async () => {
+    let deleteCalled = false;
+    const env = {
+      GITHUB_CACHE: {
+        put: async () => {
+          throw new Error("kv down");
+        },
+        delete: async () => {
+          deleteCalled = true;
+        },
+      },
+    } as unknown as Env;
+    await expect(
+      handleWebhook(env, "pull_request", {
+        action: "labeled",
+        repository: { full_name: "acme/web", private: true },
+        pull_request: { number: 3 },
+      }),
+    ).resolves.toBeUndefined();
+    expect(deleteCalled).toBe(true);
+  });
+
+  it("awaits the privacy write-through rather than firing it off unobserved (no floating promise)", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { fileURLToPath, URL: NodeURL } = await import("node:url");
+    const src = readFileSync(
+      fileURLToPath(new NodeURL("./github-webhook.ts", import.meta.url)),
+      "utf8",
+    );
+    expect(src).toMatch(/await cacheRepoPrivacy\(/);
   });
 });

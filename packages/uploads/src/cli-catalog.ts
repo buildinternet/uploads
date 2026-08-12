@@ -181,6 +181,10 @@ export const ROOT_COMMANDS: readonly CatalogCommand[] = [
     subcommands: [
       { name: "link", summary: "Claim or inspect the repo binding" },
       { name: "doctor", summary: "Check the GitHub App's webhook event subscriptions" },
+      {
+        name: "rotate-prefix",
+        summary: "Rotate a private repo's randomized attachment URL prefix",
+      },
     ],
   },
   {

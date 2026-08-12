@@ -437,9 +437,13 @@ describe("hosted put: comment sync (issue #392)", () => {
     const { env, githubCache } = await makeEnv({ boundTo: "other-ws" });
     githubCache.store.set("ghinst:acme/widgets", { value: "42" });
     githubCache.store.set("ghtok:42", { value: "cached-token" });
-    let sawGithubCall = false;
-    const restore = stubGithubFetch(() => {
-      sawGithubCall = true;
+    const seenMethods: string[] = [];
+    // Issue #631: resolveKey now runs a private-repo-prefix check (a GET
+    // repo-privacy read, uncached here) ahead of the comment gather's own
+    // authorization check — so this repo's not_authorized decline no longer
+    // means zero GitHub calls, only zero *writes* (no comment POST).
+    const restore = stubGithubFetch((_url, init) => {
+      seenMethods.push(init.method ?? "GET");
       return new Response("nf", { status: 404 });
     });
     try {
@@ -455,7 +459,7 @@ describe("hosted put: comment sync (issue #392)", () => {
         posted: false,
         reason: "not_authorized",
       });
-      expect(sawGithubCall).toBe(false);
+      expect(seenMethods.every((m) => m === "GET")).toBe(true);
     } finally {
       restore();
     }

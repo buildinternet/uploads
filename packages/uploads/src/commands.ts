@@ -8,6 +8,9 @@ import {
   type GithubHealthResult,
   type PromoteBranchAttachmentsResult,
   type PutResult,
+  type ResolveGhPrefixOptions,
+  type ResolveGhPrefixResult,
+  type RotateGhPrefixResult,
   type UploadsClient,
 } from "./client.js";
 import {
@@ -35,12 +38,15 @@ import { parseMetaFlags, validateMetaMap } from "./metadata.js";
 import { mergeDerivedMeta, nearMissMetaWarnings, validateStateValue } from "./metadata-vocab.js";
 import { mergeSidecarMeta } from "./sidecar.js";
 import {
-  ghAttachmentKey,
-  ghBranchAttachmentKey,
+  ghAttachmentKeyForMode,
+  ghBranchAttachmentKeyForMode,
   ghBranchKeyPrefix,
   ghKeyPrefix,
+  ghPrivateKeyPrefix,
+  ghPrivateBranchKeyPrefix,
   ghMetadataFromTarget,
   parseGhKey,
+  parseGhPrivateKey,
   ghMetadataForBranch,
   attachmentsCommentBody,
   attachmentsMarker,
@@ -85,6 +91,70 @@ import { colorEnabled, writeCommandHelp } from "./cli-style.js";
 export const UPLOAD_BATCH_CONCURRENCY = 8;
 /** @deprecated Use UPLOAD_BATCH_CONCURRENCY. */
 export const ATTACH_CONCURRENCY = UPLOAD_BATCH_CONCURRENCY;
+
+/**
+ * Fail-open wrapper around `client.resolveGhPrefix` (issue #631): resolves to
+ * `{ mode: "plain" }` on ANY failure — an HTTP/network error (already handled
+ * inside `resolveGhPrefix` itself), or a self-hosted/older server or test
+ * double that lacks the method entirely (the outer try/catch here). Never
+ * blocks an upload or a read-back, and never logs — this is not an error.
+ * Call once per command invocation and thread the resolved mode through
+ * (uploadPuts/uploadAttachments/uploadBranchAttachments each do this once
+ * internally, ahead of their per-file loop); `resolveGhPrefix` itself also
+ * caches per-process by repo+branch+target, so repeat callers in the same
+ * process (e.g. attach's promote + comment-sync + upload, all for the same
+ * target) cost one request total.
+ */
+export async function resolveGhPrefixSafe(
+  client: UploadsClient,
+  opts: ResolveGhPrefixOptions,
+): Promise<ResolveGhPrefixResult> {
+  try {
+    return await client.resolveGhPrefix(opts);
+  } catch {
+    return { mode: "plain" };
+  }
+}
+
+/**
+ * The list of prefixes to fan a multi-prefix list/gather across (issue
+ * #631): the plain prefix plus every active private prefix, if any — a
+ * repo's history can be split across the plain shape and MULTIPLE private
+ * prefixes (e.g. a prefix rotation, or the repo went private after some
+ * files were uploaded), not just the currently-resolved one. Falls back to
+ * `[prefixId]` when the server omits `activePrefixIds` (optional field — an
+ * older/self-hosted worker), so a private repo is never listed as zero
+ * private prefixes. Collapses to `[plainPrefix]` in plain mode, so callers
+ * that special-case a single-prefix array stay byte-identical to pre-#631.
+ */
+export function ghListPrefixes(
+  plainPrefix: string,
+  ghPrefix: ResolveGhPrefixResult,
+  privatePrefixFor: (prefixId: string) => string,
+): string[] {
+  if (ghPrefix.mode !== "private") return [plainPrefix];
+  return [plainPrefix, ...(ghPrefix.activePrefixIds ?? [ghPrefix.prefixId]).map(privatePrefixFor)];
+}
+
+/**
+ * Merge-list helper for a multi-prefix fan-out: runs `fetchItems` per prefix
+ * concurrently and concatenates in prefix order. Encodes the first-prefix-
+ * only cursor rule once — a cursor is opaque and scoped to the prefix it was
+ * minted against, so a multi-prefix merge only ever hands it to the FIRST
+ * prefix; every other prefix always starts from its own beginning (undefined
+ * cursor), or a cursor minted for one prefix's keyspace would get replayed
+ * against a different one.
+ */
+export async function ghMergedList<T>(
+  prefixes: readonly string[],
+  cursor: string | undefined,
+  fetchItems: (prefix: string, cursor: string | undefined) => Promise<T[]>,
+): Promise<T[]> {
+  const pages = await Promise.all(
+    prefixes.map((prefix, i) => fetchItems(prefix, i === 0 ? cursor : undefined)),
+  );
+  return pages.flat();
+}
 
 export { formatUsageHuman } from "./format-usage.js";
 
@@ -520,6 +590,14 @@ export interface UploadPreparedImageOptions {
    * --branch` for the same filename via `ghBranchAttachmentKey`.
    */
   ghBranchTarget?: BranchTarget;
+  /**
+   * Resolved GitHub-key mode (issue #631), from a single upstream
+   * `resolveGhPrefixSafe` call — never resolved here. Passed straight to
+   * `ghAttachmentKeyForMode`/`ghBranchAttachmentKeyForMode`, which own the
+   * plain-vs-private branch. Ignored when neither `ghTarget` nor
+   * `ghBranchTarget` is set.
+   */
+  ghPrefix?: ResolveGhPrefixResult;
   key?: string;
   prefix?: string;
   repo?: string;
@@ -589,10 +667,12 @@ export async function uploadPreparedImage(
     frameFit: opts.frame.frameFit,
     optimize: opts.optimize,
   });
+  const ghMode = opts.ghPrefix ?? { mode: "plain" as const };
   let key = opts.ghTarget
-    ? ghAttachmentKey(opts.ghTarget, prepared.filename)
+    ? ghAttachmentKeyForMode(ghMode, opts.ghTarget, prepared.filename)
     : opts.ghBranchTarget
-      ? ghBranchAttachmentKey(
+      ? ghBranchAttachmentKeyForMode(
+          ghMode,
           opts.ghBranchTarget.repo,
           opts.ghBranchTarget.branch,
           prepared.filename,
@@ -749,23 +829,39 @@ export async function syncAttachmentsComment(
   // always links to the file page and always shows metadata here, matching the
   // defaults. This only diverges from the bot-posted comment for a workspace
   // that both sets one of those flags false and falls through to this path.
-  const items: AttachmentItem[] = (
-    await client.listAll({ prefix: ghKeyPrefix(target), metadata: true })
-  ).map(({ key, url, embedUrl, pageUrl, metadata }) => {
-    // The list endpoint returns every metadata key; the comment renders only
-    // these two. Narrowing here keeps both render paths byte-identical.
-    const path = metadata?.path;
-    const state = metadata?.state;
-    return {
-      key,
-      url,
-      embedUrl,
-      pageUrl,
-      ...(path || state
-        ? { meta: { ...(path ? { path } : {}), ...(state ? { state } : {}) } }
-        : {}),
-    };
+  //
+  // Also list every active private prefix for this repo (issue #631): a
+  // private repo's attachments can live under a randomized prefix instead of
+  // the plain one. `resolveGhPrefixSafe` is fail-open (any resolve failure,
+  // including a client that lacks the method entirely) — plain-only listing,
+  // silently, matching pre-#631 behavior exactly.
+  const ghPrefix = await resolveGhPrefixSafe(client, {
+    repo: target.repo,
+    target: { kind: target.kind, num: target.num },
   });
+  const prefixes = ghListPrefixes(ghKeyPrefix(target), ghPrefix, (id) =>
+    ghPrivateKeyPrefix(id, target),
+  );
+  const items: AttachmentItem[] = await ghMergedList(prefixes, undefined, async (prefix) =>
+    (await client.listAll({ prefix, metadata: true })).map(
+      ({ key, url, embedUrl, pageUrl, metadata }) => {
+        // The list endpoint returns every metadata key; the comment
+        // renders only these two. Narrowing here keeps both render paths
+        // byte-identical.
+        const path = metadata?.path;
+        const state = metadata?.state;
+        return {
+          key,
+          url,
+          embedUrl,
+          pageUrl,
+          ...(path || state
+            ? { meta: { ...(path ? { path } : {}), ...(state ? { state } : {}) } }
+            : {}),
+        };
+      },
+    ),
+  );
 
   const galleries: (GalleryCommentItem & { id: string })[] = [];
   let cursor: string | undefined;
@@ -1127,9 +1223,14 @@ export async function uploadAttachments(opts: {
   provenanceClient?: string;
   concurrency?: number;
 }): Promise<UploadBatchResult<AttachUploadItem>> {
+  // Resolved once for the whole batch (issue #631) — never per file.
+  const ghPrefix = await resolveGhPrefixSafe(opts.client, {
+    repo: opts.target.repo,
+    target: { kind: opts.target.kind, num: opts.target.num },
+  });
   return uploadAttachmentBatch({
     ...opts,
-    keyFor: (filename) => ghAttachmentKey(opts.target, filename),
+    keyFor: (filename) => ghAttachmentKeyForMode(ghPrefix, opts.target, filename),
   });
 }
 
@@ -1163,9 +1264,15 @@ export async function uploadBranchAttachments(opts: {
   provenanceClient?: string;
   concurrency?: number;
 }): Promise<UploadBatchResult<AttachUploadItem>> {
+  // Resolved once for the whole batch (issue #631) — never per file.
+  const ghPrefix = await resolveGhPrefixSafe(opts.client, {
+    repo: opts.target.repo,
+    branch: opts.target.branch,
+  });
   return uploadAttachmentBatch({
     ...opts,
-    keyFor: (filename) => ghBranchAttachmentKey(opts.target.repo, opts.target.branch, filename),
+    keyFor: (filename) =>
+      ghBranchAttachmentKeyForMode(ghPrefix, opts.target.repo, opts.target.branch, filename),
   });
 }
 
@@ -1233,6 +1340,19 @@ export async function uploadPuts(opts: {
     throw new UsageError("--name cannot be combined with multiple files");
   }
 
+  // Resolved once for the whole batch (issue #631) — never per file.
+  const ghPrefix = opts.ghTarget
+    ? await resolveGhPrefixSafe(opts.client, {
+        repo: opts.ghTarget.repo,
+        target: { kind: opts.ghTarget.kind, num: opts.ghTarget.num },
+      })
+    : opts.ghBranchTarget
+      ? await resolveGhPrefixSafe(opts.client, {
+          repo: opts.ghBranchTarget.repo,
+          branch: opts.ghBranchTarget.branch,
+        })
+      : undefined;
+
   type Slot =
     | { ok: true; upload: PutUploadItem; sentMetadata?: Record<string, string> }
     | { ok: false; file: string; err: unknown };
@@ -1263,6 +1383,7 @@ export async function uploadPuts(opts: {
             optimize: opts.optimize,
             ghTarget: opts.ghTarget,
             ghBranchTarget: opts.ghBranchTarget,
+            ghPrefix,
             key: opts.explicitKey,
             prefix: opts.prefix,
             repo: opts.repo,
@@ -1983,18 +2104,28 @@ export async function resolveStaged(opts: {
   branch: string;
 }): Promise<StagedResult> {
   const { client, repo, branch } = opts;
-  const prefix = ghBranchKeyPrefix(repo, branch);
-  const [list, binding] = await Promise.all([
-    client.list({ prefix, metadata: true }),
+  const plainPrefix = ghBranchKeyPrefix(repo, branch);
+  // Also list every active private prefix, if any (issue #631) — mirrors
+  // syncAttachmentsComment's gh-fallback gather above: a repo's staged
+  // history can be split across the plain shape and MULTIPLE private
+  // prefixes (e.g. a prefix rotation, or the repo went private after some
+  // files were staged), not just the currently-resolved one. Fail-open: any
+  // resolve failure degrades to plain-only, byte-identical to pre-#631.
+  const ghPrefix = await resolveGhPrefixSafe(client, { repo, branch });
+  const prefixes = ghListPrefixes(plainPrefix, ghPrefix, (id) => ghPrivateBranchKeyPrefix(id));
+  const [files, binding] = await Promise.all([
+    ghMergedList(prefixes, undefined, async (prefix) => {
+      const list = await client.list({ prefix, metadata: true });
+      return list.items.map((item) => ({
+        key: item.key,
+        filename: item.key.slice(prefix.length),
+        size: item.size,
+        stagedAt: item.metadata?.["gh.staged-at"],
+        url: item.url,
+      }));
+    }),
     resolveStagedBinding(client, repo),
   ]);
-  const files: StagedFile[] = list.items.map((item) => ({
-    key: item.key,
-    filename: item.key.slice(prefix.length),
-    size: item.size,
-    stagedAt: item.metadata?.["gh.staged-at"],
-    url: item.url,
-  }));
   return { repo, branch, files, binding };
 }
 
@@ -2842,16 +2973,34 @@ export async function runList(
   const prefixFlag = flagString(parsed.flags, "--prefix");
   let prefix = prefixFlag ?? (defaults.prefix ? `${defaults.prefix}/` : undefined);
   const ghTarget = ghTargetFromFlags(parsed.flags, run);
+  // Also list every active private prefix, if any (issue #631) — mirrors
+  // syncAttachmentsComment's gh-fallback gather: a repo's attachment
+  // history can be split across the plain shape and MULTIPLE private
+  // prefixes, not just the currently-resolved one. `prefixes` stays
+  // undefined outside --pr/--issue (unchanged behavior); when defined it
+  // collapses to just `[prefix]` in plain mode, so the single-request path
+  // below is byte-identical to pre-#631 output there.
+  let prefixes: string[] | undefined;
   if (ghTarget) {
     if (prefixFlag) throw new UsageError("--prefix cannot be combined with --pr/--issue");
     prefix = ghKeyPrefix(ghTarget);
+    const ghPrefix = await resolveGhPrefixSafe(ctx.client, {
+      repo: ghTarget.repo,
+      target: { kind: ghTarget.kind, num: ghTarget.num },
+    });
+    prefixes = ghListPrefixes(prefix, ghPrefix, (id) => ghPrivateKeyPrefix(id, ghTarget));
   }
   const limit = flagInt(parsed.flags, "--limit", "--limit");
   const cursor = flagString(parsed.flags, "--cursor");
 
   if (flagBool(parsed.flags, "--all")) {
     // --all may start from a caller-provided --cursor and drains from there.
-    const items = await ctx.client.listAll({ prefix, limit, cursor });
+    const items =
+      prefixes && prefixes.length > 1
+        ? await ghMergedList(prefixes, cursor, (p, c) =>
+            ctx.client.listAll({ prefix: p, limit, cursor: c }),
+          )
+        : await ctx.client.listAll({ prefix, limit, cursor });
     if (ctx.json) await writeJson({ items, cursor: null });
     else
       for (const item of items)
@@ -2859,7 +3008,21 @@ export async function runList(
     return 0;
   }
 
-  const result = await ctx.client.list({ prefix, limit, cursor });
+  // Merged multi-prefix pages don't have a meaningful combined cursor —
+  // dropped (null) only when there's more than one prefix to merge; the
+  // single-prefix path (every non-private call, plus every call before
+  // #631) is untouched. Same first-prefix-only cursor guard as --all above.
+  const result =
+    prefixes && prefixes.length > 1
+      ? {
+          items: await ghMergedList(
+            prefixes,
+            cursor,
+            async (p, c) => (await ctx.client.list({ prefix: p, limit, cursor: c })).items,
+          ),
+          cursor: null,
+        }
+      : await ctx.client.list({ prefix, limit, cursor });
   if (ctx.json) await writeJson(result);
   else {
     for (const item of result.items)
@@ -3057,13 +3220,40 @@ const COMMENT_RENDERED_META_KEYS = ["path", "state"];
  * metadata tweak, not an explicit comment command); any failure degrades to
  * a stderr hint instead of failing the metadata write that already landed.
  */
+/**
+ * Resolve the `{repo, kind, num}` target for a key, whether plain
+ * (`parseGhKey`) or private-prefixed (issue #631, `parseGhPrivateKey` —
+ * cannot recover the repo from the key alone, since the randomized prefix
+ * deliberately omits it). For a private key, reads `gh.repo` metadata — the
+ * attach/put that created this key already wrote it — via the same metadata
+ * client call `meta get` uses. Fail-open: any read failure, or a key that
+ * isn't gh-managed at all, resolves to undefined (nothing to resync).
+ */
+async function resolveGhTargetForResync(
+  client: UploadsClient,
+  key: string,
+): Promise<GhTarget | undefined> {
+  const plain = parseGhKey(key);
+  if (plain) return plain;
+  const priv = parseGhPrivateKey(key);
+  if (!priv) return undefined;
+  try {
+    const { metadata } = await client.getMetadata(key);
+    const repo = metadata["gh.repo"];
+    if (!repo) return undefined;
+    return { repo, kind: priv.kind, num: priv.num };
+  } catch {
+    return undefined;
+  }
+}
+
 async function resyncCommentAfterMetaSet(
   ctx: CliContext,
   key: string,
   touchedKeys: string[],
 ): Promise<void> {
   if (!touchedKeys.some((k) => COMMENT_RENDERED_META_KEYS.includes(k))) return;
-  const target = parseGhKey(key);
+  const target = await resolveGhTargetForResync(ctx.client, key);
   if (!target) return;
   try {
     const bot = await ctx.client.upsertGithubComment({
@@ -3239,6 +3429,7 @@ export async function runIngest(
 const GITHUB_HELP = `uploads github link [--repo <owner/name>] [--status] [--workspace <name>]
 uploads github unlink [--repo <owner/name>] [--workspace <name>]
 uploads github doctor [--workspace <name>]
+uploads github rotate-prefix [--repo <owner/name>] [--branch <name> | --repo-level] [--workspace <name>]
 
 Claim, inspect, or release this workspace's binding to a GitHub repo (see the
 managed attachments comment / webhook auto-promotion, which use this
@@ -3260,12 +3451,22 @@ subscription is the classic silent failure: the App's ping stays green
 while webhook auto-promotion and title-cache invalidation quietly do
 nothing.
 
+\`rotate-prefix\` mints a fresh randomized URL prefix for a private repo's
+attachments and moves everything under the old one to it, so the old URLs
+404 at origin immediately (see docs/private-attachments.md). --branch
+defaults to the current git branch; --repo-level rotates the id shared by
+issue attachments and ingested assets instead of a branch's id. Rotation
+is an explicit action — an unauthorized caller gets an error, not a silent
+no-op.
+
 Examples:
   uploads github link
   uploads github link --repo buildinternet/uploads
   uploads github link --status
   uploads github unlink --repo buildinternet/uploads
   uploads github doctor
+  uploads github rotate-prefix --branch feature-x
+  uploads github rotate-prefix --repo-level
 `;
 
 /** Older servers' health payload predates recommendedEvents/missingRecommendedEvents — treat as no recommendations rather than crashing. */
@@ -3417,6 +3618,49 @@ async function runGithubUnlink(ctx: CliContext, repo: string): Promise<number> {
   return 0;
 }
 
+function formatGithubRotatePrefix(
+  repo: string,
+  branchLabel: string,
+  result: RotateGhPrefixResult,
+): string {
+  if (!result.rotated) {
+    return `nothing to rotate for ${repo} (${branchLabel}): ${result.reason}\n`;
+  }
+  return `rotated ${repo} (${branchLabel}): moved ${result.moved} object${result.moved === 1 ? "" : "s"} to a new prefix (${result.prefixId})\n`;
+}
+
+async function runGithubRotatePrefix(
+  ctx: CliContext,
+  repo: string,
+  branch: string | undefined,
+  repoLevel: boolean,
+): Promise<number> {
+  let result: RotateGhPrefixResult;
+  try {
+    result = await ctx.client.rotateGhPrefix(
+      repoLevel ? { repo, repoLevel: true } : { repo, branch },
+    );
+  } catch (err) {
+    if (err instanceof UploadsError && err.status === 404) {
+      throw new UsageError(
+        "server does not support private-prefix rotation yet (404) — upgrade the uploads.sh API/self-hosted worker",
+      );
+    }
+    if (err instanceof UploadsError && err.status === 403) {
+      throw new UsageError(`not authorized to rotate ${repo}'s attachment prefix (${err.message})`);
+    }
+    throw err;
+  }
+
+  if (ctx.json) {
+    await writeJson(result);
+    return result.rotated ? 0 : 1;
+  }
+  const branchLabel = repoLevel ? "repo-level" : (branch ?? "");
+  await writeStdout(formatGithubRotatePrefix(repo, branchLabel, result));
+  return result.rotated ? 0 : 1;
+}
+
 export async function runGithub(
   ctx: CliContext,
   args: string[],
@@ -3429,15 +3673,31 @@ export async function runGithub(
     writeCommandHelp(GITHUB_HELP);
     return help || parsed.help ? 0 : 2;
   }
-  if (action !== "link" && action !== "unlink" && action !== "doctor") {
-    throw new UsageError(`unknown github subcommand: ${action} (expected link or doctor)`, {
-      example: "uploads github link",
-    });
+  if (
+    action !== "link" &&
+    action !== "unlink" &&
+    action !== "doctor" &&
+    action !== "rotate-prefix"
+  ) {
+    throw new UsageError(
+      `unknown github subcommand: ${action} (expected link, unlink, doctor, or rotate-prefix)`,
+      { example: "uploads github link" },
+    );
   }
 
   if (action === "doctor") return runGithubDoctor(ctx);
 
   const repo = resolveRepo(flagString(parsed.flags, "--repo"), run);
+
+  if (action === "rotate-prefix") {
+    const repoLevel = flagBool(parsed.flags, "--repo-level");
+    const branchFlag = flagString(parsed.flags, "--branch");
+    if (repoLevel && branchFlag !== undefined) {
+      throw new UsageError("pass either --branch or --repo-level, not both");
+    }
+    const branch = repoLevel ? undefined : (branchFlag ?? resolveCurrentBranch(run));
+    return runGithubRotatePrefix(ctx, repo, branch, repoLevel);
+  }
 
   if (action === "unlink") return runGithubUnlink(ctx, repo);
 

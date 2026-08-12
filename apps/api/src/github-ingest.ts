@@ -25,7 +25,7 @@
 
 import { AppError, isRetryableType, NotFoundError } from "@uploads/errors";
 import { attachmentKeyBasename, extractUserAttachments } from "./github-attachment-extract";
-import { sanitizeKeySegment } from "./github-comment-render";
+import { GH_PRIVATE_ROOT, sanitizeKeySegment } from "./github-comment-render";
 import {
   githubAppConfig,
   githubFetch,
@@ -33,6 +33,7 @@ import {
   installationForRepo,
   installationToken,
 } from "./github-app";
+import { resolveGhKeyContextSafe, type GhKeyMode } from "./github-private-prefix-service";
 import {
   ledgerRow,
   ledgerRowsForSource,
@@ -78,6 +79,15 @@ export interface IngestDeps {
    * call with no pre-minted token, which still self-mints as before.
    */
   token?: string;
+  /**
+   * Repo-level key mode (issue #631), resolved ONCE per `ingestForWebhook`/
+   * `reconcileIngestTarget` call and threaded through every
+   * `reconcileIngestSource`/`fetchAndStore` call it makes — never re-resolved
+   * per attachment. Absent (a direct `reconcileIngestSource` call with no
+   * mode supplied, as every pre-#631 test does) defaults to plain, same as
+   * today's behavior.
+   */
+  mode?: GhKeyMode;
 }
 
 function emptySummary(): IngestSummary {
@@ -118,6 +128,35 @@ function ingestKey(ref: IngestSourceRef, assetId: string, ext: string): string {
   const repoSeg =
     `${sanitizeKeySegment(owner ?? "")}-${sanitizeKeySegment(name ?? "")}`.toLowerCase();
   return `gh/${repoSeg}/${ref.kind}-${ref.num}/${attachmentKeyBasename(assetId)}.${ext}`;
+}
+
+/**
+ * Private-repo ingest key: `gh/private/<id>/ingest/<kind>-<num>/<basename>.<ext>`.
+ * Deliberately a distinct `ingest/` segment from `ghPrivateKeyPrefix`'s
+ * `<kind>/<num>/` layout (github-comment-render.ts) — same non-collision
+ * rationale as the plain `ingestKey` above: an ingested asset must never sit
+ * under the prefix `gatherCommentBody` lists when rendering the managed
+ * comment (`gh/private/<id>/<kind>/<num>/`), it's an index only.
+ */
+function privateIngestKey(
+  prefixId: string,
+  ref: IngestSourceRef,
+  assetId: string,
+  ext: string,
+): string {
+  return `${GH_PRIVATE_ROOT}${prefixId}/ingest/${ref.kind}-${ref.num}/${attachmentKeyBasename(assetId)}.${ext}`;
+}
+
+/** `ingestKey` when `mode` is plain, `privateIngestKey` when private. */
+function ingestKeyForMode(
+  mode: GhKeyMode,
+  ref: IngestSourceRef,
+  assetId: string,
+  ext: string,
+): string {
+  return mode.mode === "private"
+    ? privateIngestKey(mode.prefixId, ref, assetId, ext)
+    : ingestKey(ref, assetId, ext);
 }
 
 function ingestMetadata(ref: IngestSourceRef, author: string | null): Record<string, string> {
@@ -196,7 +235,8 @@ async function fetchAndStore(
     return { kind: "skip", reason: "too_large" };
   }
 
-  const key = ingestKey(ref, attachment.id, extensionForContentType(sniffed));
+  const mode: GhKeyMode = deps.mode ?? { mode: "plain" };
+  const key = ingestKeyForMode(mode, ref, attachment.id, extensionForContentType(sniffed));
   try {
     await putImpl(env, ws, key, bytes, workspaceName, {
       metadata: ingestMetadata(ref, author),
@@ -361,10 +401,21 @@ export async function ingestForWebhook(
   const token = await installationToken(env, cfg, installationId, fetchImpl);
   if (!token) throw new Error("github installation token mint failed");
 
+  // Repo-level mode (issue #631), resolved ONCE for this call — `branch: ""`
+  // forces the repo-level sentinel regardless of `ref.kind`, matching the
+  // ingest key layout's own repo/kind-num shape (no branch segment).
+  const mode = await resolveGhKeyContextSafe(
+    env,
+    link.workspaceName,
+    { repo: ref.repo, branch: "" },
+    "github-ingest",
+  );
+
   const { text, author } = await fetchSourceText(fetchImpl, token, ref);
   await reconcileIngestSource(env, ws, link.workspaceName, ref, text, author, {
     ...deps,
     token,
+    mode,
   });
 }
 
@@ -407,6 +458,15 @@ export async function reconcileIngestTarget(
   const token = await installationToken(env, cfg, installationId, fetchImpl);
   if (!token) throw new Error("github installation token mint failed");
 
+  // Repo-level mode (issue #631), resolved ONCE for this call — see
+  // `ingestForWebhook`'s identical `branch: ""` rationale.
+  const mode = await resolveGhKeyContextSafe(
+    env,
+    workspaceName,
+    { repo: target.repo, branch: "" },
+    "github-ingest",
+  );
+
   const bodyRes = await githubFetch(
     fetchImpl,
     `https://api.github.com/repos/${target.repo}/issues/${target.num}`,
@@ -434,7 +494,7 @@ export async function reconcileIngestTarget(
       bodyRef,
       bodyJson.body ?? null,
       bodyJson.user?.login ?? null,
-      { ...deps, token },
+      { ...deps, token, mode },
     ),
   );
 
@@ -471,7 +531,7 @@ export async function reconcileIngestTarget(
           commentRef,
           comment.body ?? null,
           comment.user?.login ?? null,
-          { ...deps, token },
+          { ...deps, token, mode },
         ),
       );
     }

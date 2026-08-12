@@ -3,13 +3,20 @@ import { UsageError } from "../src/cli-args.js";
 import {
   ATTACHMENTS_MARKER,
   attachmentsCommentBody,
+  GH_PRIVATE_ROOT,
   ghAttachmentKey,
   ghBranchAttachmentKey,
   ghBranchKeyPrefix,
   ghKeyPrefix,
   ghMetadataForBranch,
+  ghPrivateAttachmentKey,
+  ghPrivateBranchAttachmentKey,
+  ghPrivateBranchKeyPrefix,
+  ghPrivateKeyPrefix,
   isValidRepo,
   normalizeGithubCoordinate,
+  parseGhKey,
+  parseGhPrivateKey,
   parseRepoFromRemoteUrl,
   type GhTarget,
 } from "../src/github.js";
@@ -106,6 +113,101 @@ describe("ghBranchKeyPrefix / ghBranchAttachmentKey", () => {
     expect(ghBranchAttachmentKey("o/r", "main", "my shot (1).png")).toBe(
       "gh/o/r/branch/main/my-shot--1-.png",
     );
+  });
+});
+
+const PREFIX_ID = "0123456789abcdef0123456789abcdef";
+
+describe("ghPrivateKeyPrefix / ghPrivateAttachmentKey", () => {
+  const pr: GhTarget = { repo: "acme/web", kind: "pull", num: 12 };
+
+  it("builds the PR prefix under gh/private/<id>/", () => {
+    expect(ghPrivateKeyPrefix(PREFIX_ID, pr)).toBe(`gh/private/${PREFIX_ID}/pull/12/`);
+  });
+  it("builds the issue prefix", () => {
+    expect(ghPrivateKeyPrefix(PREFIX_ID, { repo: "o/r", kind: "issues", num: 7 })).toBe(
+      `gh/private/${PREFIX_ID}/issues/7/`,
+    );
+  });
+  it("does not include the repo in the key (repo is unrecoverable from the key)", () => {
+    expect(ghPrivateKeyPrefix(PREFIX_ID, pr)).not.toContain("acme");
+    expect(ghPrivateKeyPrefix(PREFIX_ID, pr)).not.toContain("web");
+  });
+  it("builds a stable attachment key with no content hash", () => {
+    expect(ghPrivateAttachmentKey(PREFIX_ID, pr, "after.png")).toBe(
+      `gh/private/${PREFIX_ID}/pull/12/after.png`,
+    );
+  });
+  it("sanitizes filename characters", () => {
+    expect(ghPrivateAttachmentKey(PREFIX_ID, pr, "my shot (1).png")).toBe(
+      `gh/private/${PREFIX_ID}/pull/12/my-shot--1-.png`,
+    );
+  });
+  it("throws when prefixId fails the 32-lowercase-hex shape", () => {
+    expect(() => ghPrivateKeyPrefix("not-hex", pr)).toThrow();
+    expect(() => ghPrivateKeyPrefix(PREFIX_ID.toUpperCase(), pr)).toThrow();
+    expect(() => ghPrivateKeyPrefix(PREFIX_ID.slice(0, 31), pr)).toThrow();
+    expect(() => ghPrivateAttachmentKey("bad", pr, "x.png")).toThrow();
+  });
+  it("GH_PRIVATE_ROOT is the shared literal prefix", () => {
+    expect(GH_PRIVATE_ROOT).toBe("gh/private/");
+    expect(ghPrivateKeyPrefix(PREFIX_ID, pr).startsWith(GH_PRIVATE_ROOT)).toBe(true);
+  });
+});
+
+describe("ghPrivateBranchKeyPrefix / ghPrivateBranchAttachmentKey", () => {
+  it("builds the branch prefix with no branch-name segment", () => {
+    expect(ghPrivateBranchKeyPrefix(PREFIX_ID)).toBe(`gh/private/${PREFIX_ID}/branch/`);
+  });
+  it("builds a stable branch attachment key", () => {
+    expect(ghPrivateBranchAttachmentKey(PREFIX_ID, "after.png")).toBe(
+      `gh/private/${PREFIX_ID}/branch/after.png`,
+    );
+  });
+  it("sanitizes filename characters", () => {
+    expect(ghPrivateBranchAttachmentKey(PREFIX_ID, "my shot (1).png")).toBe(
+      `gh/private/${PREFIX_ID}/branch/my-shot--1-.png`,
+    );
+  });
+  it("throws when prefixId fails the 32-lowercase-hex shape", () => {
+    expect(() => ghPrivateBranchKeyPrefix("bad")).toThrow();
+    expect(() => ghPrivateBranchAttachmentKey("bad", "x.png")).toThrow();
+  });
+});
+
+describe("parseGhPrivateKey", () => {
+  it("round-trips a PR key built by ghPrivateAttachmentKey", () => {
+    const pr: GhTarget = { repo: "acme/web", kind: "pull", num: 12 };
+    const key = ghPrivateAttachmentKey(PREFIX_ID, pr, "hero.png");
+    expect(parseGhPrivateKey(key)).toEqual({ prefixId: PREFIX_ID, kind: "pull", num: 12 });
+  });
+  it("round-trips an issue key", () => {
+    const key = `gh/private/${PREFIX_ID}/issues/42/screenshot.webp`;
+    expect(parseGhPrivateKey(key)).toEqual({ prefixId: PREFIX_ID, kind: "issues", num: 42 });
+  });
+  it("returns undefined for a non-hex or wrong-length second segment", () => {
+    expect(parseGhPrivateKey("gh/private/notHex/pull/5/x.png")).toBeUndefined();
+    expect(parseGhPrivateKey(`gh/private/${PREFIX_ID.slice(0, 31)}/pull/5/x.png`)).toBeUndefined();
+    expect(parseGhPrivateKey(`gh/private/${PREFIX_ID.toUpperCase()}/pull/5/x.png`)).toBeUndefined();
+  });
+  it("returns undefined for a non-private key", () => {
+    expect(parseGhPrivateKey("gh/acme/web/pull/12/hero.png")).toBeUndefined();
+  });
+  it("returns undefined for a branch key (no PR/issue number)", () => {
+    expect(parseGhPrivateKey(`gh/private/${PREFIX_ID}/branch/x.png`)).toBeUndefined();
+  });
+});
+
+describe("parseGhKey with private-shape keys", () => {
+  it("returns undefined for a key matching the strict private shape (32-hex id)", () => {
+    expect(parseGhKey(`gh/private/${PREFIX_ID}/pull/5/x.png`)).toBeUndefined();
+  });
+  it("still parses a real owner literally named 'private' when the second segment is not 32-hex (accepted ambiguity)", () => {
+    expect(parseGhKey("gh/private/realrepo/pull/5/x.png")).toEqual({
+      repo: "private/realrepo",
+      kind: "pull",
+      num: 5,
+    });
   });
 });
 

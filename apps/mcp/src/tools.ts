@@ -14,8 +14,8 @@
 import {
   buildMarkdown,
   buildScreenshotKey,
-  ghAttachmentKey,
-  ghBranchAttachmentKey,
+  ghAttachmentKeyForMode,
+  ghBranchAttachmentKeyForMode,
   ghMetadataForBranch,
   ghMetadataFromTarget,
   type GhTarget,
@@ -58,7 +58,12 @@ import {
   searchFilesByNameAndMeta,
 } from "@uploads/api/file-search";
 import { hasGithubTags, uploaderTags } from "@uploads/api/uploader-identity";
-import { deriveRepoBinding, findRepoLink } from "@uploads/api/github-repo-binding";
+import {
+  deriveRepoBinding,
+  findRepoLink,
+  resolveGhKeyContext,
+  type GhKeyMode,
+} from "@uploads/api/github-repo-binding";
 import {
   addExternalReference,
   addGalleryItem,
@@ -714,11 +719,34 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
             ? { metadata, replace: replaceArg, surface: "mcp" as const }
             : { surface: "mcp" as const };
 
+        // Resolved once per tool call, cached across every file in a batch
+        // (issue #631) — `resolveGhKeyContext` itself is fail-open (any
+        // failure degrades to `{ mode: "plain" }`), so this never blocks an
+        // upload; it just avoids resolving it once per file.
+        let ghPrefixPromise: Promise<GhKeyMode> | undefined;
+        function resolveGhPrefixOnce(req: {
+          repo: string;
+          branch?: string;
+          target?: { kind: "pull" | "issues"; num: number };
+        }): Promise<GhKeyMode> {
+          ghPrefixPromise ??= resolveGhKeyContext(env, workspaceName, ctx.mintingUserId, req);
+          return ghPrefixPromise;
+        }
+
         /** Resolve the object key for one filename (+ bytes for the dated layout). */
         async function resolveKey(name: string, bytes: Uint8Array): Promise<string> {
           if (explicitKey) return explicitKey;
-          if (target) return ghAttachmentKey(target, name);
-          if (staging && repo && branch) return ghBranchAttachmentKey(repo, branch, name);
+          if (target) {
+            const ghPrefix = await resolveGhPrefixOnce({
+              repo: target.repo,
+              target: { kind: target.kind, num: target.num },
+            });
+            return ghAttachmentKeyForMode(ghPrefix, target, name);
+          }
+          if (staging && repo && branch) {
+            const ghPrefix = await resolveGhPrefixOnce({ repo, branch });
+            return ghBranchAttachmentKeyForMode(ghPrefix, repo, branch, name);
+          }
           // deriveRepoFromGit: false — no git on a worker.
           return buildScreenshotKey({
             filename: name,

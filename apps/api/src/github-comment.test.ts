@@ -2,11 +2,12 @@
 
 import { describe, expect, it } from "vitest";
 import { gatherCommentBody, upsertBotComment } from "./github-comment";
-import { ATTACHMENTS_MARKER, attachmentsMarker } from "./github-comment-render";
+import { ATTACHMENTS_MARKER, attachmentsMarker, ghPrivateKeyPrefix } from "./github-comment-render";
 import { addExternalReference, addGalleryItem, createGallery } from "./galleries";
 import { replaceFileMetadata, setServerFileMetadata } from "./file-metadata";
 import { objectPublicUrls, storageConfig } from "./storage";
 import { posterKeyFor } from "./poster";
+import { getOrMintPrefixId } from "./github-private-prefixes";
 import type { WorkspaceRecord } from "./workspace";
 import { FakeR2Bucket } from "../test/fake-r2";
 import { FakeKv } from "../test/fake-kv";
@@ -15,6 +16,7 @@ import { SqliteD1, database } from "../test/helpers/sqlite-d1";
 const MIGRATION = [
   "migrations/20260711180000_galleries.sql",
   "migrations/20260713210559_file_metadata.sql",
+  "migrations/20260811210000_github_private_prefixes.sql",
 ];
 const PRAGMAS = ["PRAGMA foreign_keys = ON"];
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
@@ -91,6 +93,26 @@ describe("gatherCommentBody", () => {
     expect(result.body.startsWith(attachmentsMarker(workspaceName))).toBe(true);
     expect(result.body).toContain("hero.png");
     expect(result.count).toBe(1);
+  });
+
+  it("also lists objects under active private prefixes, plain first (issue #631)", async () => {
+    const { env, ws, workspaceName, bucket } = makeTestEnv();
+    await bucket.put("acme/gh/acme/web/pull/12/hero.png", PNG, {
+      httpMetadata: { contentType: "image/png" },
+    });
+    const prefixId = await getOrMintPrefixId(env.DB, "acme/web", "main");
+    const target = { repo: "acme/web", num: 12, kind: "pull" as const };
+    await bucket.put(`acme/${ghPrivateKeyPrefix(prefixId, target)}private.png`, PNG, {
+      httpMetadata: { contentType: "image/png" },
+    });
+
+    const result = await gatherCommentBody(env, ws, workspaceName, target);
+    expect(result.body.startsWith(attachmentsMarker(workspaceName))).toBe(true);
+    expect(result.body).toContain("hero.png");
+    expect(result.body).toContain("private.png");
+    // Ordering: the plain-prefix object appears before the private one.
+    expect(result.body.indexOf("hero.png")).toBeLessThan(result.body.indexOf("private.png"));
+    expect(result.count).toBe(2);
   });
 
   it("links an attachment to its /f/ file page by default (flag absent)", async () => {

@@ -77,12 +77,88 @@ export function normalizeGithubCoordinate(value: string): GithubCoordinate | und
  * Inverse of `ghKeyPrefix`: parse the PR/issue coordinate back out of a
  * stable attachment key (`gh/<owner>/<name>/<kind>/<num>/<filename>`), or
  * undefined for any other key shape.
+ *
+ * A real GitHub owner CAN be named `private`, so the strict private-repo
+ * shape (`gh/private/<32-hex-id>/...`, see `parseGhPrivateKey`) is checked
+ * first and rejected here — otherwise a private-prefixed key would
+ * misparse as an ordinary key with owner "private". The accepted ambiguity:
+ * a key whose second segment is NOT 32-lowercase-hex (e.g.
+ * `gh/private/realrepo/pull/5/x.png`) still parses here as owner "private",
+ * repo "private/realrepo" — that's an ordinary public-repo key for a repo
+ * actually named "private", not a private-prefix key.
  */
 export function parseGhKey(key: string): GhTarget | undefined {
+  if (parseGhPrivateKey(key)) return undefined;
   const match = /^gh\/([^/]+)\/([^/]+)\/(pull|issues)\/([1-9][0-9]*)\/./.exec(key);
   if (!match) return undefined;
   const [, owner, name, kind, num] = match;
   return { repo: `${owner}/${name}`, kind: kind as GhTargetKind, num: Number(num) };
+}
+
+/** Literal root under which every private-repo attachment key lives. */
+export const GH_PRIVATE_ROOT = "gh/private/";
+
+/** Strict shape for a randomized private-repo prefix id: 32 lowercase hex chars. */
+const PRIVATE_PREFIX_ID_RE = /^[0-9a-f]{32}$/;
+
+/**
+ * Guard every private-key builder against a malformed `prefixId` — a
+ * caller bug here must never silently produce a guessable-ish key.
+ */
+function assertPrivatePrefixId(prefixId: string): void {
+  if (!PRIVATE_PREFIX_ID_RE.test(prefixId)) {
+    throw new Error(`invalid private prefix id: "${prefixId}" must be 32 lowercase hex characters`);
+  }
+}
+
+/**
+ * Private-repo key prefix: `gh/private/<32-hex-id>/<kind>/<num>/`.
+ * Deliberately omits the repo (unlike `ghKeyPrefix`) — the id is a random,
+ * unguessable per-repo prefix rather than an owner/name path, so callers
+ * that need the repo back must read `gh.repo` metadata (see
+ * `parseGhPrivateKey`, which cannot recover it from the key alone).
+ */
+export function ghPrivateKeyPrefix(prefixId: string, target: GhTarget): string {
+  assertPrivatePrefixId(prefixId);
+  return `${GH_PRIVATE_ROOT}${prefixId}/${target.kind}/${target.num}/`;
+}
+
+/** Private-repo attachment key: `ghPrivateKeyPrefix` + the sanitized filename. */
+export function ghPrivateAttachmentKey(
+  prefixId: string,
+  target: GhTarget,
+  filename: string,
+): string {
+  return `${ghPrivateKeyPrefix(prefixId, target)}${sanitizeKeySegment(filename)}`;
+}
+
+/**
+ * Private-repo branch-staged key prefix: `gh/private/<32-hex-id>/branch/`.
+ * Unlike `ghBranchKeyPrefix`, there is deliberately NO branch-name segment —
+ * the branch name itself is not embedded in a private-repo key.
+ */
+export function ghPrivateBranchKeyPrefix(prefixId: string): string {
+  assertPrivatePrefixId(prefixId);
+  return `${GH_PRIVATE_ROOT}${prefixId}/branch/`;
+}
+
+/** Private-repo branch-staged attachment key: `ghPrivateBranchKeyPrefix` + the sanitized filename. */
+export function ghPrivateBranchAttachmentKey(prefixId: string, filename: string): string {
+  return `${ghPrivateBranchKeyPrefix(prefixId)}${sanitizeKeySegment(filename)}`;
+}
+
+/**
+ * Inverse of `ghPrivateKeyPrefix`: parse the prefix id/kind/number back out
+ * of a private-repo attachment key, or undefined for any other key shape.
+ * Cannot recover the repo — callers that need it read `gh.repo` metadata.
+ */
+export function parseGhPrivateKey(
+  key: string,
+): { prefixId: string; kind: GhTargetKind; num: number } | undefined {
+  const match = /^gh\/private\/([0-9a-f]{32})\/(pull|issues)\/([1-9][0-9]*)\/./.exec(key);
+  if (!match) return undefined;
+  const [, prefixId, kind, num] = match;
+  return { prefixId, kind: kind as GhTargetKind, num: Number(num) };
 }
 
 export function ghKeyPrefix(target: GhTarget): string {
@@ -113,6 +189,44 @@ export function ghBranchKeyPrefix(repo: string, branch: string): string {
 /** Branch-staged attachment key: `ghBranchKeyPrefix` + the sanitized filename. */
 export function ghBranchAttachmentKey(repo: string, branch: string, filename: string): string {
   return `${ghBranchKeyPrefix(repo, branch)}${sanitizeKeySegment(filename)}`;
+}
+
+/**
+ * Structural stand-in for `ResolveGhPrefixResult` (defined in client.ts) —
+ * kept local so these key builders don't need to import client types just
+ * to own the plain-vs-private branch.
+ */
+export type GhKeyMode = { mode: "plain" } | { mode: "private"; prefixId: string };
+
+/**
+ * Mode-owning attachment key builder: collapses the
+ * `mode === "private" ? ghPrivateAttachmentKey(...) : ghAttachmentKey(...)`
+ * ternary repeated across call sites into one place.
+ */
+export function ghAttachmentKeyForMode(
+  mode: GhKeyMode,
+  target: GhTarget,
+  filename: string,
+): string {
+  return mode.mode === "private"
+    ? ghPrivateAttachmentKey(mode.prefixId, target, filename)
+    : ghAttachmentKey(target, filename);
+}
+
+/**
+ * Mode-owning branch-staged attachment key builder. The private form
+ * ignores `repo`/`branch` (a private-repo key has no branch-name segment,
+ * see `ghPrivateBranchKeyPrefix`) and uses the prefix id instead.
+ */
+export function ghBranchAttachmentKeyForMode(
+  mode: GhKeyMode,
+  repo: string,
+  branch: string,
+  filename: string,
+): string {
+  return mode.mode === "private"
+    ? ghPrivateBranchAttachmentKey(mode.prefixId, filename)
+    : ghBranchAttachmentKey(repo, branch, filename);
 }
 
 /**
