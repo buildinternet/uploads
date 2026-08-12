@@ -673,6 +673,15 @@ or internal repository does **not** make the uploaded file private. Before using
 mode, confirm the media is safe for a public, guessable URL; otherwise redact it or do
 not upload it.
 
+If the uploads GitHub App can see that the target repo is private, this key layout
+changes automatically: the key becomes `gh/private/<id>/...`, where `<id>` is a random
+id minted per branch (or per repo, for issues), instead of the derivable
+`gh/<owner>/<repo>/...`. No flag needed — public repos, and repos the App can't see,
+keep the derivable layout. The URL is still unauthenticated and durable, not
+access-controlled — anyone who obtains it can read it until you rotate the id with
+`uploads github rotate-prefix --branch <branch>` (or `--repo-level` for issues/ingested
+assets). See `docs/private-attachments.md` for the full threat model.
+
 Then reference the **embed** URL in the PR/issue markdown you write with `gh`
 (CLI `--format markdown` / MCP `markdown` already do this):
 

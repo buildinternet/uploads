@@ -271,6 +271,12 @@ handful of milestones reads better than a dumped folder.
   visibility is not an access control, and `gh/<owner>/<repo>/pull/<num>/…`
   keys are predictable. Never upload secrets, tokens, or customer PII —
   crop/redact first.
+- **Private repos get an unguessable URL automatically.** When the uploads
+  GitHub App can see a target repo is private, attachments key under
+  `gh/private/<id>/…` instead — no flag needed. The id is durable, not
+  access-controlled: anyone who gets the URL can read it until you rotate it
+  (`uploads github rotate-prefix`). See **docs/private-attachments.md** for
+  the full model.
 
 ## Need to point at something in the screenshot?
 
