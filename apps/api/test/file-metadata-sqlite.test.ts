@@ -427,6 +427,27 @@ describe("file metadata persistence against SQLite", () => {
       }
     });
 
+    it("stays under D1's 100-parameter cap when a filter rides along (screenshots by-path 500)", async () => {
+      // The regression: chunking at a flat 100 keys, then binding the
+      // workspace and each metaKey on top, sent 102 variables and D1 replied
+      // "too many SQL variables" — a 500 on every screenshots page whose path
+      // groups yielded 100+ recent keys. The fake enforces the same cap.
+      const sqlite = new SqliteD1(MIGRATION);
+      try {
+        const keys = Array.from({ length: 100 }, (_, i) => `shots/${i}.png`);
+        for (const key of keys) {
+          await replaceFileMetadata(database(sqlite), "ws1", key, { path: "/settings" });
+        }
+
+        const out = await getMetadataForKeys(database(sqlite), "ws1", keys, {
+          metaKeys: ["state"],
+        });
+        expect(out.size).toBe(0); // no `state` rows, but the query must not throw
+      } finally {
+        sqlite.close();
+      }
+    });
+
     it("applies the filter across every chunk when keys exceed the chunk size", async () => {
       const sqlite = new SqliteD1(MIGRATION);
       try {
