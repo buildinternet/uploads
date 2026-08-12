@@ -93,7 +93,7 @@ describe("runLogin", () => {
       .spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(response({ workspace: "default", token }, 201))
       .mockResolvedValueOnce(response({ ok: true }))
-      .mockResolvedValueOnce(response({ items: [], cursor: null }));
+      .mockResolvedValueOnce(response({ files: [], cursor: null }));
     const output = captureOutput();
     expect(await runLogin(["--non-interactive", "--path", path], { json: true })).toBe(0);
     expect(fetchMock).toHaveBeenCalledTimes(3);
@@ -206,7 +206,7 @@ describe("runLogin device flow", () => {
       ) // POST /v1/tokens
       .mockResolvedValueOnce(response({ session: { cliVersion: "0.0.0" } })) // update-session
       .mockResolvedValueOnce(response({ ok: true })) // doctor health
-      .mockResolvedValueOnce(response({ items: [], cursor: null })); // doctor list
+      .mockResolvedValueOnce(response({ files: [], cursor: null })); // doctor list
     const output = captureOutput();
 
     expect(await runLogin(["--path", path], { json: true }, false, silentIo)).toBe(0);

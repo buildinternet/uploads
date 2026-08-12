@@ -754,18 +754,10 @@ function encodeKeyPath(key: string): string {
   return key.split("/").map(encodeURIComponent).join("/");
 }
 
-// Stays on the legacy `/v1/:workspace/files` wildcard for now (issue #613):
-// the canonical files vertical's list/search adopted the session response
-// shape rather than the bearer one, so list/find/facets keep the legacy
-// path until that shape is reconciled.
-function filesBase(config: UploadsClientConfig): string {
-  return `${config.apiUrl}/v1/${encodeURIComponent(config.workspace)}/files`;
-}
-
-// Canonical files surface (issue #613 phase 4): per-key operations —
-// upload PUT, head/metadata GET, metadata PATCH, DELETE — live at
-// `/v1/workspaces/:workspace/files` with identical handlers to the legacy
-// wildcard (shared server-side since #636).
+// Canonical files surface (issue #613): every file operation now goes to
+// `/v1/workspaces/:workspace/files`. Per-key ops share handlers with the
+// legacy wildcard (#636); list/find/facets adapt the canonical envelopes in
+// their wrappers below (#613 shape reconciliation).
 function canonicalFilesBase(config: UploadsClientConfig): string {
   return `${config.apiUrl}/v1/workspaces/${encodeURIComponent(config.workspace)}/files`;
 }
@@ -911,13 +903,25 @@ export function createUploadsClient(config: UploadsClientConfig) {
     if (opts.cursor) params.set("cursor", opts.cursor);
     if (opts.metadata) params.set("metadata", "1");
     const qs = params.toString();
-    const page = await request<ListResult>("GET", `${filesBase(config)}${qs ? `?${qs}` : ""}`);
+    // Canonical list envelope is `{files, prefixes, cursor}` with queryable
+    // metadata always hydrated (issue #613 — the session shape won the
+    // reconciliation). This client keeps its historical `{items, cursor}`
+    // contract: rename the array and honor `opts.metadata` by stripping the
+    // hydrated maps when the caller didn't ask for them.
+    const page = await request<{ files: ListItem[]; cursor: string | null }>(
+      "GET",
+      `${canonicalFilesBase(config)}${qs ? `?${qs}` : ""}`,
+    );
     return {
-      ...page,
-      items: page.items.map((item) => ({
-        ...item,
-        embedUrl: resolveEmbedUrl(item.url, item.embedUrl),
-      })),
+      cursor: page.cursor,
+      items: page.files.map((item) => {
+        const { metadata, ...rest } = item;
+        return {
+          ...rest,
+          ...(opts.metadata && metadata !== undefined ? { metadata } : {}),
+          embedUrl: resolveEmbedUrl(item.url, item.embedUrl),
+        };
+      }),
     };
   }
 
@@ -1054,10 +1058,12 @@ export function createUploadsClient(config: UploadsClientConfig) {
     },
 
     /**
-     * `GET /v1/:workspace/files?meta.<k>=<v>&…&name=…` — ANDed equality filter
-     * over queryable metadata and/or a case-insensitive filename substring.
-     * At least one of non-empty `filters` or `opts.name` is required.
-     * `filters` must be pre-validated when present (see `metadata.ts`).
+     * `GET /v1/workspaces/:workspace/files/search?meta.<k>=<v>&…&name=…` —
+     * ANDed equality filter over queryable metadata and/or a case-insensitive
+     * filename substring. At least one of non-empty `filters` or `opts.name`
+     * is required. `filters` must be pre-validated when present (see
+     * `metadata.ts`). The canonical search route is non-paginated (server cap
+     * 100, narrowable via `limit`), so `cursor` is always null.
      */
     async findFiles(
       filters: Record<string, string> = {},
@@ -1068,19 +1074,23 @@ export function createUploadsClient(config: UploadsClientConfig) {
       if (opts.name) params.set("name", opts.name);
       if (opts.prefix) params.set("prefix", opts.prefix);
       if (opts.limit != null) params.set("limit", String(opts.limit));
-      return request<FindFilesResult>("GET", `${filesBase(config)}?${params.toString()}`);
+      const result = await request<{ items: FindFilesItem[]; truncated: boolean }>(
+        "GET",
+        `${canonicalFilesBase(config)}/search?${params.toString()}`,
+      );
+      return { items: result.items, cursor: null, truncated: result.truncated };
     },
 
     /** `GET /v1/:workspace/files/facets` — workspace metadata key vocabulary. */
     async listMetadataKeys(): Promise<MetadataKeysResult> {
-      return request<MetadataKeysResult>("GET", `${filesBase(config)}/facets`);
+      return request<MetadataKeysResult>("GET", `${canonicalFilesBase(config)}/facets`);
     },
 
     /** `GET /v1/:workspace/files/facets?key=` — distinct values for one key. */
     async listMetadataValues(key: string): Promise<MetadataValuesResult> {
       return request<MetadataValuesResult>(
         "GET",
-        `${filesBase(config)}/facets?${new URLSearchParams({ key })}`,
+        `${canonicalFilesBase(config)}/facets?${new URLSearchParams({ key })}`,
       );
     },
 

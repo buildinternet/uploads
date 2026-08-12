@@ -318,6 +318,25 @@ describe("GET /v1/workspaces/:workspace/files/facets and /search (dual auth)", (
     expect(bearer.status).toBe(400);
     expect(session.status).toBe(400);
   });
+
+  it("search: ?limit= narrows the page and reports truncation", async () => {
+    const { env, bucket } = await makeEnv();
+    await bucket.put("acme/shots/hero-a.png", new Uint8Array([1]).buffer, {
+      httpMetadata: { contentType: "image/png" },
+    });
+    await bucket.put("acme/shots/hero-b.png", new Uint8Array([1]).buffer, {
+      httpMetadata: { contentType: "image/png" },
+    });
+    const res = await app.request(
+      "/v1/workspaces/acme/files/search?name=hero&limit=1",
+      { headers: { Authorization: `Bearer ${TOKEN}` } },
+      env,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { items: unknown[]; truncated: boolean };
+    expect(body.items).toHaveLength(1);
+    expect(body.truncated).toBe(true);
+  });
 });
 
 describe("GET /v1/workspaces/:workspace/files/by-path (dual auth)", () => {
