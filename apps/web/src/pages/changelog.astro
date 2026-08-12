@@ -1,0 +1,190 @@
+---
+// /changelog — merged product stream: hand-written platform updates
+// (src/content/changelog) interleaved with CLI releases from changesets.
+// Fully prerendered, zero client JS. Machine twin: /changelog.xml (Atom).
+import BaseHead from "../components/BaseHead.astro";
+import Footer from "../components/Footer.astro";
+import SiteHeader from "../components/SiteHeader.astro";
+import { loadChangelogEntries } from "../lib/changelog";
+
+const entries = await loadChangelogEntries();
+
+const pageTitle = "Changelog";
+const pageDescription =
+  "What's new in uploads.sh — platform updates and CLI releases, newest first.";
+
+// Static page — auth origin is baked at build time (see src/lib/auth-client.ts).
+const authOrigin = import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ?? "https://auth.uploads.sh";
+
+const formatDate = (iso: string) =>
+  new Date(iso).toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    timeZone: "UTC",
+  });
+---
+
+<html lang="en">
+  <head>
+    <BaseHead preloadSans />
+    <title>{pageTitle} · uploads.sh</title>
+    <meta name="description" content={pageDescription} />
+    <link rel="canonical" href="https://uploads.sh/changelog" />
+    <link
+      rel="alternate"
+      type="application/atom+xml"
+      title="uploads.sh changelog"
+      href="/changelog.xml"
+    />
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100dvh;
+        background: var(--bg);
+        color: var(--fg);
+        font: 15.5px/1.7 var(--sans);
+        display: flex;
+        flex-direction: column;
+      }
+      main {
+        width: min(var(--width-content, 720px), 100%);
+        margin: 0 auto;
+        padding: 32px 24px 64px;
+        flex: 1;
+      }
+      h1 {
+        font-size: clamp(26px, 5vw, 34px);
+        font-weight: 600;
+        letter-spacing: -0.015em;
+        line-height: 1.25;
+        margin: 8px 0 4px;
+      }
+      .lede {
+        color: var(--muted);
+        font-size: 14px;
+        margin: 0 0 12px;
+      }
+      .feed-link {
+        color: var(--muted);
+        font-size: 13px;
+        text-decoration: underline;
+        text-underline-offset: 3px;
+      }
+      .entry {
+        border-top: 1px solid var(--line);
+        padding: 32px 0 8px;
+        margin-top: 24px;
+      }
+      .entry time {
+        display: block;
+        color: var(--muted);
+        font: 12px var(--mono);
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+        margin-bottom: 6px;
+      }
+      .entry h2 {
+        font-size: 20px;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+        margin: 0 0 12px;
+      }
+      .entry h2 a {
+        color: inherit;
+        text-decoration: none;
+      }
+      .entry h2 a:hover {
+        text-decoration: underline;
+        text-underline-offset: 3px;
+      }
+      .entry--cli h2 {
+        font-size: 16px;
+        color: var(--body);
+      }
+      .entry--cli .body {
+        color: var(--muted);
+      }
+      .lead-image {
+        max-width: 100%;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        margin: 0 0 14px;
+      }
+      .body :global(p),
+      .body :global(li) {
+        color: var(--body);
+      }
+      .body :global(img) {
+        max-width: 100%;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+      }
+      .body :global(h3) {
+        font-size: 13px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--muted);
+        margin: 18px 0 6px;
+      }
+      .body :global(a) {
+        color: var(--fg);
+        text-decoration: underline;
+        text-decoration-color: color-mix(in srgb, var(--accent) 55%, transparent);
+        text-underline-offset: 3px;
+      }
+      .body :global(code) {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        padding: 1px 6px;
+        font: 0.88em var(--mono);
+        font-variant-ligatures: none;
+      }
+      .body :global(pre) {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 12px 14px;
+        overflow-x: auto;
+      }
+      .body :global(pre code) {
+        background: none;
+        border: none;
+        padding: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <SiteHeader authOrigin={authOrigin} />
+    <main>
+      <h1>Changelog</h1>
+      <p class="lede">{pageDescription}</p>
+      <a class="feed-link" href="/changelog.xml">Atom feed</a>
+      {
+        entries.map((entry) => (
+          <article class:list={["entry", { "entry--cli": entry.kind === "cli" }]} id={entry.id}>
+            <time datetime={entry.date}>{formatDate(entry.date)}</time>
+            <h2>
+              <a href={`#${entry.id}`}>{entry.title}</a>
+            </h2>
+            {entry.image && (
+              <img
+                class="lead-image"
+                src={entry.image.url}
+                alt={entry.image.alt}
+                loading="lazy"
+                decoding="async"
+              />
+            )}
+            <div class="body" set:html={entry.html} />
+          </article>
+        ))
+      }
+    </main>
+    <Footer />
+  </body>
+</html>
