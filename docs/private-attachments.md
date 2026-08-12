@@ -72,6 +72,20 @@ adds no new exposure.
 Rotate a branch's id after removing a collaborator's access, or any other
 time you want existing URLs for that branch to stop working.
 
+The prefix hides the URL from guessing. It does not anonymize the file once
+someone holds the URL: the object's public metadata still names the source.
+Anyone holding a private-prefix URL can fetch the file page or public
+metadata and learn the repository, PR number, and branch.
+
+Rotation is best-effort against concurrent writers. An upload or promotion
+in flight during a rotation can land under the old prefix. Re-run the
+rotation if uploads were in flight.
+
+A workspace token on an unlinked private repo falls back to today's
+derivable keys when no GitHub identity is entitled to claim it. That
+fallback is silent, and it's the same behavior the repo had before this
+feature.
+
 ## Rotating a prefix
 
 ```bash

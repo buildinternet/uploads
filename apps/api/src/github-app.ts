@@ -386,6 +386,10 @@ export async function prHeadBranch(
     const body = (await res.json().catch(() => null)) as { head?: { ref?: unknown } } | null;
     if (typeof body?.head?.ref !== "string") return null;
     const ref = body.head.ref.toLowerCase();
+    // An empty/whitespace ref must fail like a missing one — otherwise `""`
+    // flows into `resolveGhKeyContext` as a real branch name and silently
+    // shares the repo-level "" sentinel used for issues/branch-less calls.
+    if (ref.trim() === "") return null;
     await env.GITHUB_CACHE.put(key, ref, { expirationTtl: PR_HEAD_TTL });
     return ref;
   } catch {

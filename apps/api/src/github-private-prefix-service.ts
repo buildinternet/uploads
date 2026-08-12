@@ -256,15 +256,26 @@ export async function rotatePrivatePrefix(
             .bind(workspaceName, item.key)
             .run();
 
+          // Scoped to `workspace` (not just `object_key`): object keys are
+          // R2-bucket-relative and can collide across workspaces sharing a
+          // bucket prefix, so an unscoped match could rename another
+          // workspace's row that merely happens to share this tail.
           await env.DB.prepare(
-            `UPDATE github_ingested_assets SET object_key = ? WHERE object_key = ?`,
+            `UPDATE github_ingested_assets SET object_key = ? WHERE object_key = ? AND workspace = ?`,
           )
-            .bind(newKey, item.key)
+            .bind(newKey, item.key, workspaceName)
             .run();
           // Gallery items referencing this object follow the move too, so a
           // rotated attachment doesn't quietly break a public gallery page.
-          await env.DB.prepare(`UPDATE gallery_items SET object_key = ? WHERE object_key = ?`)
-            .bind(newKey, item.key)
+          // `gallery_items` has no `workspace` column of its own, so scope
+          // through its parent `galleries` row instead — same
+          // cross-workspace-collision reasoning as the ledger update above.
+          await env.DB.prepare(
+            `UPDATE gallery_items SET object_key = ?
+             WHERE object_key = ?
+               AND gallery_id IN (SELECT id FROM galleries WHERE workspace = ?)`,
+          )
+            .bind(newKey, item.key, workspaceName)
             .run();
 
           // `deleteObject` (not a raw `store.delete`): it also releases the

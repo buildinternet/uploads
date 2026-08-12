@@ -377,6 +377,15 @@ describe("prHeadBranch", () => {
     expect(await prHeadBranch(envWith(kv), cfgWith(pem), 42, "o/r", 7, fetchImpl)).toBeNull();
   });
 
+  it("returns null (uncached) on an empty/whitespace head.ref, so it can never stand in for the repo-level sentinel", async () => {
+    const { pem } = await testKeyPair();
+    const kv = kvWithToken();
+    const fetchImpl = (async () =>
+      new Response(JSON.stringify({ head: { ref: "   " } }), { status: 200 })) as typeof fetch;
+    expect(await prHeadBranch(envWith(kv), cfgWith(pem), 42, "o/r", 7, fetchImpl)).toBeNull();
+    expect(kv.store.get("prhead:o/r#7")).toBeUndefined();
+  });
+
   it("returns null on a malformed repo or num without fetching", async () => {
     const { pem } = await testKeyPair();
     const kv = kvWithToken();

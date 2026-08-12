@@ -339,4 +339,98 @@ describe("rotatePrivatePrefix", () => {
   it("sanity: GH_PRIVATE_ROOT stays the base this module sweeps under", () => {
     expect(GH_PRIVATE_ROOT).toBe("gh/private/");
   });
+
+  it("review fix 4: the D1 rewrites for github_ingested_assets and gallery_items are scoped to this workspace — a same-object_key row belonging to another workspace is untouched", async () => {
+    const { env, db, ws } = await seededEnv();
+    const oldId = await getOrMintPrefixId(db, REPO, BRANCH);
+    const pullKey = ghPrivateAttachmentKey(
+      oldId,
+      { repo: REPO, kind: "pull", num: NUM },
+      "shot.png",
+    );
+
+    await putObject(env, ws, pullKey, PNG, WS, {
+      metadata: { "gh.repo": REPO, "gh.kind": "pull", "gh.number": String(NUM) },
+    });
+
+    // Same object_key, but recorded under a DIFFERENT workspace — object
+    // keys are workspace-relative strings, not globally unique, so an
+    // unscoped rewrite would rename this row too.
+    await recordIngestedAsset(db, {
+      repo: REPO,
+      assetId: "assets/other-ws-asset",
+      workspace: "other-ws",
+      objectKey: pullKey,
+      kind: "pull",
+      num: NUM,
+      source: "body",
+      createdAt: new Date().toISOString(),
+    });
+
+    // Same shape for gallery_items, via a gallery that belongs to the other
+    // workspace — gallery_items has no workspace column of its own, so
+    // scoping has to go through the parent `galleries` row.
+    const now = new Date().toISOString();
+    await db
+      .prepare(
+        `INSERT INTO galleries (id, workspace, title, visibility, version, created_at, updated_at)
+         VALUES (?, ?, ?, 'public', 1, ?, ?)`,
+      )
+      .bind("gallery-other-ws", "other-ws", "Other workspace gallery", now, now)
+      .run();
+    await db
+      .prepare(
+        `INSERT INTO gallery_items (id, gallery_id, object_key, position, created_at)
+         VALUES (?, ?, ?, ?, ?)`,
+      )
+      .bind("item-other-ws", "gallery-other-ws", pullKey, 1, now)
+      .run();
+
+    // And this workspace's own gallery_items row for the SAME object_key,
+    // which must still be rewritten normally.
+    await db
+      .prepare(
+        `INSERT INTO galleries (id, workspace, title, visibility, version, created_at, updated_at)
+         VALUES (?, ?, ?, 'public', 1, ?, ?)`,
+      )
+      .bind("gallery-ws", WS, "This workspace gallery", now, now)
+      .run();
+    await db
+      .prepare(
+        `INSERT INTO gallery_items (id, gallery_id, object_key, position, created_at)
+         VALUES (?, ?, ?, ?, ?)`,
+      )
+      .bind("item-ws", "gallery-ws", pullKey, 1, now)
+      .run();
+
+    const result = await withFetch(commentFlowFetch({ bodies: [] }), () =>
+      rotatePrivatePrefix(env, ws, WS, "user-1", REPO, BRANCH),
+    );
+
+    expect(result.rotated).toBe(true);
+    if (!result.rotated) throw new Error("expected rotated: true");
+    const newKey = ghPrivateAttachmentKey(
+      result.prefixId,
+      { repo: REPO, kind: "pull", num: NUM },
+      "shot.png",
+    );
+
+    // The other workspace's ledger row still points at the OLD key.
+    const otherLedger = await ledgerRow(db, REPO, "assets/other-ws-asset");
+    expect(otherLedger?.objectKey).toBe(pullKey);
+
+    // The other workspace's gallery_items row is also untouched.
+    const otherItem = await db
+      .prepare(`SELECT object_key FROM gallery_items WHERE id = ?`)
+      .bind("item-other-ws")
+      .first<{ object_key: string }>();
+    expect(otherItem?.object_key).toBe(pullKey);
+
+    // This workspace's own gallery_items row DID follow the rename.
+    const ownItem = await db
+      .prepare(`SELECT object_key FROM gallery_items WHERE id = ?`)
+      .bind("item-ws")
+      .first<{ object_key: string }>();
+    expect(ownItem?.object_key).toBe(newKey);
+  });
 });
