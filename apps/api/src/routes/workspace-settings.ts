@@ -65,6 +65,7 @@ import { usageWithLimits } from "../budget";
 import { previewFixtureItems } from "../comment-preview-fixtures";
 import { hasPreresolvedSession, resolveSessionUserId } from "../dual-workspace-auth";
 import { respondError } from "../error-response";
+import { getMetadataForKeys } from "../file-metadata";
 import { listObjects } from "../files-core";
 import { findRepoLink } from "../github-repo-links";
 import {
@@ -698,9 +699,9 @@ export async function billingHandler(c: Context<SettingsVars>) {
  * probe another workspace's repo binding or `.uploads.yml` contents.
  *
  * Renders from a page of the workspace's own `gh/`-prefixed attachments
- * (first page only, mirrors gatherAttachments's url/pageUrl mapping but
- * skips the D1 metadata read — the preview needs no per-item meta beyond
- * what the static fixtures already carry). `listObjects` pages in
+ * (first page only, mirrors gatherAttachments's url/pageUrl mapping and its
+ * `path`/`state` D1 metadata read, so captions and before/after pairing
+ * preview the way the production comment renders). `listObjects` pages in
  * lexicographic key order, not upload recency, so this is a representative
  * sample rather than the "most recent" uploads. An empty workspace falls
  * back to `previewFixtureItems` so the preview is never blank.
@@ -749,6 +750,23 @@ export async function commentPreviewHandler(c: Context<SettingsVars>) {
   if (items.length === 0) {
     items = previewFixtureItems(c.env);
     sample = "fixtures";
+  } else if (resolved.metaPath || resolved.metaState) {
+    // Same narrow key set and skip condition as gatherAttachments — the
+    // preview must caption and pair exactly like the production comment.
+    const metaByKey = await getMetadataForKeys(
+      c.env.DB,
+      name,
+      items.map((item) => item.key),
+      { metaKeys: ["path", "state"] },
+    );
+    for (const item of items) {
+      const meta = metaByKey.get(item.key);
+      if (!meta) continue;
+      const { path, state } = meta;
+      if (path || state) {
+        item.meta = { ...(path ? { path } : {}), ...(state ? { state } : {}) };
+      }
+    }
   }
 
   const body = attachmentsCommentBody(items, [], attachmentsMarker(name), {
