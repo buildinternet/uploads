@@ -13,12 +13,25 @@
  * INTO this canonical router — see `forwardToWorkspaceUsage`/the galleries
  * divergence note in `.context/613-api-consolidation-plan.md` for why the
  * old `/me/workspaces/:name/galleries` list is NOT aliased here).
+ *
+ * `GET /:workspace/galleries` is the one exception to the "reuse
+ * `routes/galleries.ts`'s handler bodies verbatim" rule above (issue #613
+ * final phase): it uses a LOCAL `listGalleriesEnrichedHandler`, not the
+ * shared `listGalleriesHandler`, so the enrichment below can't leak onto the
+ * pre-existing bearer-only `/v1/:workspace/galleries` list (`routes/galleries.ts`,
+ * mounted separately in `index.ts`) — that handler function is shared
+ * between this router and the old one, so mutating it in place would have
+ * changed both surfaces at once. See `listGalleriesEnrichedHandler`'s
+ * docblock.
  */
-import { Hono, type MiddlewareHandler } from "hono";
+import { ValidationError } from "@uploads/errors";
+import { Hono, type Context, type MiddlewareHandler } from "hono";
 import { dualWorkspaceAuth, type DualAuthVars } from "../dual-workspace-auth";
 import { respondError } from "../error-response";
+import { listGalleries } from "../galleries";
+import { decodeGalleryCursor, encodeGalleryCursor, galleryListSummaries } from "../gallery-service";
 import { writeRateLimit } from "../guards";
-import { requireScope } from "../workspace";
+import { requireScope, type WorkspaceVars } from "../workspace";
 import {
   addExternalReferenceHandler,
   addGalleryItemHandler,
@@ -27,12 +40,39 @@ import {
   galleriesByReferenceHandler,
   getGalleryHandler,
   listExternalReferencesHandler,
-  listGalleriesHandler,
   removeExternalReferenceHandler,
   removeGalleryItemHandler,
   reorderGalleryItemsHandler,
   updateGalleryHandler,
 } from "./galleries";
+
+/**
+ * `GET /:workspace/galleries` — canonical list, enriched with `itemCount`/
+ * `references` per gallery (`galleryListSummaries`, `gallery-service.ts`) for
+ * EVERY caller, bearer and session alike (issue #613 final phase). Body is
+ * otherwise identical to `listGalleriesHandler` (`routes/galleries.ts`):
+ * same `limit`/`cursor` query contract, same `nextCursor` envelope —
+ * `GalleryListSummaryDto` extends `GallerySummaryDto` with additive fields
+ * only, so this is a strict superset of the old canonical shape. Local to
+ * this router (not exported/shared) so it can never be reused by the
+ * pre-existing bearer-only `/v1/:workspace/galleries` list, which keeps its
+ * current cheaper `gallerySummary` projection untouched.
+ */
+async function listGalleriesEnrichedHandler(c: Context<WorkspaceVars>) {
+  const rawLimit = c.req.query("limit");
+  const limit = rawLimit === undefined ? 50 : Number(rawLimit);
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100)
+    throw new ValidationError("limit must be an integer from 1 to 100.");
+  const name = c.get("workspaceName");
+  const page = await listGalleries(c.env.DB, name, {
+    limit,
+    cursor: decodeGalleryCursor(c.req.query("cursor")),
+  });
+  return c.json({
+    galleries: await galleryListSummaries(c.env, name, page.galleries),
+    nextCursor: page.nextCursor ? encodeGalleryCursor(page.nextCursor) : null,
+  });
+}
 
 // Same cross-cast pattern as `routes/workspace-files.ts`'s `scoped`: these
 // helpers/handlers are typed against `WorkspaceVars`, a strict subset of this
@@ -55,7 +95,7 @@ export const workspaceGalleries = new Hono<DualAuthVars>()
     "/:workspace/galleries",
     dualWorkspaceAuth(),
     scoped("files:read"),
-    listGalleriesHandler as unknown as MiddlewareHandler<DualAuthVars>,
+    listGalleriesEnrichedHandler as unknown as MiddlewareHandler<DualAuthVars>,
   )
   .get(
     "/:workspace/galleries/by-reference",

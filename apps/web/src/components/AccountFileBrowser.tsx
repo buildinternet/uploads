@@ -45,7 +45,7 @@ export function AccountFileBrowser({
   onPrefixChange,
 }: Props) {
   const files = useFiles({
-    endpoint: `${apiOrigin.replace(/\/$/, "")}/me/workspaces/${encodeURIComponent(workspace)}/file-browser`,
+    endpoint: `${apiOrigin.replace(/\/$/, "")}/v1/workspaces/${encodeURIComponent(workspace)}/file-browser`,
     fetchImpl: credentialedFetch,
   });
   // Keys with an in-flight visibility PATCH, so the toggle button disables

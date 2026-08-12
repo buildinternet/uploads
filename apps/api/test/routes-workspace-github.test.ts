@@ -732,3 +732,163 @@ describe("old-path bearer routes are untouched by the canonical mount (issue #61
     expect(res.status).toBe(200);
   });
 });
+
+describe("GET /v1/workspaces/:workspace/github/titles (session-only, member-gated, issue #613 final phase)", () => {
+  it("member session 200s", async () => {
+    const { env } = await makeEnv();
+    const res = await app.request(
+      "/v1/workspaces/acme/github/titles",
+      { headers: sessionCookie },
+      env,
+    );
+    expect(res.status).toBe(400); // no `refs` query param
+    const body = (await res.json()) as { error?: { code?: string } };
+    expect(body.error?.code).toBe("refs_required");
+  });
+
+  it("bearer 403s with github_requires_session", async () => {
+    const { env } = await makeEnv();
+    const res = await app.request("/v1/workspaces/acme/github/titles", { headers: bearer() }, env);
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { error?: { code?: string } };
+    expect(body.error?.code).toBe("github_requires_session");
+  });
+
+  it("non-member session 404s", async () => {
+    const { env } = await makeEnv({ member: false });
+    const res = await app.request(
+      "/v1/workspaces/acme/github/titles",
+      { headers: sessionCookie },
+      env,
+    );
+    expect(res.status).toBe(404);
+  });
+
+  it("/me/workspaces/:name/github-titles forwards to the same handler (identical body)", async () => {
+    const { env } = await makeEnv();
+    const direct = await app.request(
+      "/v1/workspaces/acme/github/titles",
+      { headers: sessionCookie },
+      env,
+    );
+    const viaMe = await app.request(
+      "/me/workspaces/acme/github-titles",
+      { headers: sessionCookie },
+      env,
+    );
+    expect(viaMe.status).toBe(direct.status);
+    expect(await viaMe.json()).toEqual(await direct.json());
+  });
+});
+
+describe("GET /v1/workspaces/:workspace/github/status (session-only, member-gated, issue #613 final phase)", () => {
+  it("member session 200s with no bound repos", async () => {
+    const { env } = await makeEnv();
+    const res = await app.request(
+      "/v1/workspaces/acme/github/status",
+      { headers: sessionCookie },
+      env,
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ checkedRepos: 0 });
+  });
+
+  it("bearer 403s with github_requires_session", async () => {
+    const { env } = await makeEnv();
+    const res = await app.request("/v1/workspaces/acme/github/status", { headers: bearer() }, env);
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { error?: { code?: string } };
+    expect(body.error?.code).toBe("github_requires_session");
+  });
+
+  it("non-member session 404s", async () => {
+    const { env } = await makeEnv({ member: false });
+    const res = await app.request(
+      "/v1/workspaces/acme/github/status",
+      { headers: sessionCookie },
+      env,
+    );
+    expect(res.status).toBe(404);
+  });
+
+  it("/me/workspaces/:name/github-status forwards to the same handler (identical body)", async () => {
+    const { env } = await makeEnv();
+    const direct = await app.request(
+      "/v1/workspaces/acme/github/status",
+      { headers: sessionCookie },
+      env,
+    );
+    const viaMe = await app.request(
+      "/me/workspaces/acme/github-status",
+      { headers: sessionCookie },
+      env,
+    );
+    expect(viaMe.status).toBe(direct.status);
+    expect(await viaMe.json()).toEqual(await direct.json());
+  });
+});
+
+describe("GET /v1/workspaces/:workspace/github/repo-links (session-only, admin-gated, issue #613 final phase)", () => {
+  it("admin session 200s with the stripped {repos} projection", async () => {
+    const { env, db } = await makeEnv({ role: "admin" });
+    await recordRepoLink(db as unknown as D1Database, "acme/web", WS, "claim");
+    const res = await app.request(
+      "/v1/workspaces/acme/github/repo-links",
+      { headers: sessionCookie },
+      env,
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ repos: ["acme/web"] });
+  });
+
+  it("member (non-admin) session 403s with github_repo_links_requires_session", async () => {
+    const { env } = await makeEnv({ role: "member" });
+    const res = await app.request(
+      "/v1/workspaces/acme/github/repo-links",
+      { headers: sessionCookie },
+      env,
+    );
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { error?: { code?: string } };
+    expect(body.error?.code).toBe("workspace_admin_required");
+  });
+
+  it("bearer 403s with github_repo_links_requires_session", async () => {
+    const { env } = await makeEnv({ role: "admin" });
+    const res = await app.request(
+      "/v1/workspaces/acme/github/repo-links",
+      { headers: bearer() },
+      env,
+    );
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { error?: { code?: string } };
+    expect(body.error?.code).toBe("github_repo_links_requires_session");
+  });
+
+  it("non-member session 404s", async () => {
+    const { env } = await makeEnv({ member: false });
+    const res = await app.request(
+      "/v1/workspaces/acme/github/repo-links",
+      { headers: sessionCookie },
+      env,
+    );
+    expect(res.status).toBe(404);
+  });
+
+  it("/me/workspaces/:name/repo-links forwards to the same handler (identical body)", async () => {
+    const { env, db } = await makeEnv({ role: "admin" });
+    await recordRepoLink(db as unknown as D1Database, "acme/web", WS, "claim");
+    const direct = await app.request(
+      "/v1/workspaces/acme/github/repo-links",
+      { headers: sessionCookie },
+      env,
+    );
+    const viaMe = await app.request(
+      "/me/workspaces/acme/repo-links",
+      { headers: sessionCookie },
+      env,
+    );
+    expect(viaMe.status).toBe(direct.status);
+    expect(await viaMe.json()).toEqual(await direct.json());
+  });
+});

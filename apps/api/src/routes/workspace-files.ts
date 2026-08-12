@@ -27,10 +27,15 @@
  * once the key contains raw slashes in the deployed (non-vitest) router.
  * Kept out of scope for this phase — see `.context/613-api-consolidation-plan.md`.
  */
-import { NotFoundError, ValidationError } from "@uploads/errors";
-import { signedDownloadUrl } from "@uploads/storage";
-import { Hono, type Handler, type MiddlewareHandler } from "hono";
-import { dualWorkspaceAuth, type DualAuthVars } from "../dual-workspace-auth";
+import { ForbiddenError, NotFoundError, ValidationError } from "@uploads/errors";
+import { createFilesRouter, signedDownloadUrl } from "@uploads/storage";
+import { Hono, type Context, type Handler, type MiddlewareHandler } from "hono";
+import {
+  dualWorkspaceAuth,
+  hasPreresolvedSession,
+  resolveSessionUserId,
+  type DualAuthVars,
+} from "../dual-workspace-auth";
 import { respondError } from "../error-response";
 import { badKey, deleteObject, listObjects, setObjectVisibility } from "../files-core";
 import { getMetadataForKeys, groupObjectsByPath, listFacets } from "../file-metadata";
@@ -40,9 +45,11 @@ import {
   searchFilesByNameAndMeta,
 } from "../file-search";
 import { writeRateLimit } from "../guards";
+import { memberWorkspaceOr404 } from "../org-workspaces";
+import type { SessionVars } from "../session-auth";
 import { objectPublicUrls, publicUrl, storage, storageConfig } from "../storage";
 import { sanitizeVisibility, VISIBILITY_VALUES } from "../visibility";
-import { requireScope } from "../workspace";
+import { loadWorkspaceRecord, requireScope } from "../workspace";
 import {
   getFileHandler,
   patchFileHandler,
@@ -61,6 +68,31 @@ function scoped(scope: Parameters<typeof requireScope>[0]): MiddlewareHandler<Du
 const rateLimited = writeRateLimit as unknown as MiddlewareHandler<DualAuthVars>;
 function shared(handler: SharedFilesHandler): Handler<DualAuthVars> {
   return handler as unknown as Handler<DualAuthVars>;
+}
+
+/**
+ * Session-only member gate for `file-browser` (issue #613 final phase): a
+ * bearer `Authorization` header 403s `file_browser_requires_session` — the
+ * files-sdk folder-browser gateway has no bearer analog today and this PR
+ * mints none, same posture as `workspace-members.ts`'s `sessionMemberGate`
+ * and `workspace-settings.ts`'s tiered gates. Bearer discrimination mirrors
+ * those: a preset (`hasPreresolvedSession`, e.g. a forwarded `/me` request)
+ * always wins, unconditionally, before ever looking at the `Authorization`
+ * header — a forwarded request keeps its original headers verbatim, so a
+ * caller who authenticated to `/me` with a Better Auth bearer session (no
+ * cookie) must not be rejected a second time here.
+ */
+function sessionFileBrowserGate(): MiddlewareHandler<DualAuthVars> {
+  return async (c, next) => {
+    if (!hasPreresolvedSession(c.req.raw) && c.req.header("Authorization")?.startsWith("Bearer ")) {
+      throw new ForbiddenError("requires a session", { code: "file_browser_requires_session" });
+    }
+    const userId = await resolveSessionUserId(c as unknown as Context<SessionVars>);
+    const name = c.req.param("workspace") ?? "";
+    if (!name) throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
+    await memberWorkspaceOr404(c.env, userId, name);
+    await next();
+  };
 }
 
 export const workspaceFiles = new Hono<DualAuthVars>()
@@ -231,6 +263,31 @@ export const workspaceFiles = new Hono<DualAuthVars>()
       return c.json({ key, visibility: sanitizeVisibility(requested) ?? "public" });
     },
   )
+
+  // files-sdk's folder-aware browser gateway (issue #613 final phase, moved
+  // verbatim from `routes/me.ts`). Session-member-gated only — see
+  // `sessionFileBrowserGate`'s docblock. Its path is `/:workspace/file-browser`
+  // (a sibling of `/:workspace/files*`, not nested under it), so it can never
+  // collide with this router's `/:workspace/files/:key{.+}` catch-alls
+  // below regardless of registration order — kept above them anyway to match
+  // this file's established "static routes before catch-alls" convention.
+  .all("/:workspace/file-browser", sessionFileBrowserGate(), async (c) => {
+    const name = c.req.param("workspace") ?? "";
+    const record = await loadWorkspaceRecord(c.env, name);
+    if (!record) {
+      throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
+    }
+    const router = createFilesRouter({
+      files: (await storage(c.env, record)).readonly(),
+      operations: ["list"],
+      maxListLimit: 100,
+      // files-sdk resolves a signing secret even when signing operations are
+      // disabled. This value is intentionally non-secret and cannot
+      // authorize anything on this list-only, authenticated gateway.
+      secret: `readonly-list:${name}`,
+    });
+    return router.handle(c.req.raw);
+  })
 
   // These four key operations share their handler bodies with the legacy
   // bearer router. Keep every catch-all route after the static paths above:
