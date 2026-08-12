@@ -11,6 +11,7 @@ import {
   buildDoctorReport,
   makeGhTarget,
   mergeStagingMeta,
+  resolveGhPrefixSafe,
   resolvePutStagingTarget,
   resolveStaged,
   syncAttachmentsComment,
@@ -27,7 +28,7 @@ import {
   type UploadsClientConfig,
 } from "../config.js";
 import { resolvePutPrefix } from "../destinations.js";
-import { ghBranchAttachmentKey, ghKeyPrefix, type GhTarget } from "../github.js";
+import { ghKeyPrefix, ghPrivateKeyPrefix, type GhTarget } from "../github.js";
 import { safeCaptureFacts } from "../capture-facts.js";
 import { deriveRepoSlugFromGit } from "../keys.js";
 import { validateMetaMap } from "../metadata.js";
@@ -916,9 +917,19 @@ export function createUploadsMcpTools(opts: {
           throw err;
         }
 
-        const branchKey = stagingTarget
-          ? ghBranchAttachmentKey(stagingTarget.repo, stagingTarget.branch, captured.filename)
-          : undefined;
+        // Resolved once (issue #631), only now that upload is actually
+        // about to happen — never per file (screenshot uploads exactly one).
+        const ghPrefix = target
+          ? await resolveGhPrefixSafe(client, {
+              repo: target.repo,
+              target: { kind: target.kind, num: target.num },
+            })
+          : stagingTarget
+            ? await resolveGhPrefixSafe(client, {
+                repo: stagingTarget.repo,
+                branch: stagingTarget.branch,
+              })
+            : undefined;
 
         const { result, prepared, markdown } = await uploadPreparedImage(
           client,
@@ -928,7 +939,9 @@ export function createUploadsMcpTools(opts: {
             frame: frameOpts,
             optimize: optimizeOpts,
             ghTarget: target,
-            key: keyArg ?? branchKey,
+            ghBranchTarget: stagingTarget,
+            ghPrefix,
+            key: keyArg,
             prefix: resolvedPrefix ?? defaults.prefix,
             repo: optString(args, "repo") ?? defaults.repo,
             ref: refArg ?? defaults.ref,
@@ -1111,17 +1124,44 @@ export function createUploadsMcpTools(opts: {
         const prefixArg = optString(args, "prefix");
         let prefix = prefixArg ?? (defaults.prefix ? `${defaults.prefix}/` : undefined);
         const target = ghTargetFromArgs(args, run);
+        const { client } = clientFor(args);
+        // Also list the resolved private prefix, if any (issue #631) — a
+        // repo's attachment history can be split across the plain and
+        // private shapes. `prefixes` stays undefined outside pr/issue
+        // (unchanged behavior); collapses to `[prefix]` in plain mode, so
+        // the single-request path below is byte-identical to pre-#631.
+        let prefixes: string[] | undefined;
         if (target) {
           if (prefixArg) usage("prefix cannot be combined with pr/issue");
           prefix = ghKeyPrefix(target);
+          const ghPrefix = await resolveGhPrefixSafe(client, {
+            repo: target.repo,
+            target: { kind: target.kind, num: target.num },
+          });
+          prefixes =
+            ghPrefix.mode === "private"
+              ? [prefix, ghPrivateKeyPrefix(ghPrefix.prefixId, target)]
+              : [prefix];
         }
         const limit = optPosInt(args, "limit");
         const cursor = optString(args, "cursor");
-        const { client } = clientFor(args);
 
         if (optBool(args, "all")) {
-          const items = await client.listAll({ prefix, limit, cursor });
+          const items =
+            prefixes && prefixes.length > 1
+              ? (
+                  await Promise.all(
+                    prefixes.map((p) => client.listAll({ prefix: p, limit, cursor })),
+                  )
+                ).flat()
+              : await client.listAll({ prefix, limit, cursor });
           return { items, cursor: null };
+        }
+        if (prefixes && prefixes.length > 1) {
+          const pages = await Promise.all(
+            prefixes.map((p) => client.list({ prefix: p, limit, cursor })),
+          );
+          return { items: pages.flatMap((page) => page.items), cursor: null };
         }
         return client.list({ prefix, limit, cursor });
       },

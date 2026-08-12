@@ -8,6 +8,8 @@ import {
   type GithubHealthResult,
   type PromoteBranchAttachmentsResult,
   type PutResult,
+  type ResolveGhPrefixOptions,
+  type ResolveGhPrefixResult,
   type UploadsClient,
 } from "./client.js";
 import {
@@ -40,8 +42,12 @@ import {
   ghBranchKeyPrefix,
   ghKeyPrefix,
   ghPrivateKeyPrefix,
+  ghPrivateAttachmentKey,
+  ghPrivateBranchKeyPrefix,
+  ghPrivateBranchAttachmentKey,
   ghMetadataFromTarget,
   parseGhKey,
+  parseGhPrivateKey,
   ghMetadataForBranch,
   attachmentsCommentBody,
   attachmentsMarker,
@@ -86,6 +92,30 @@ import { colorEnabled, writeCommandHelp } from "./cli-style.js";
 export const UPLOAD_BATCH_CONCURRENCY = 8;
 /** @deprecated Use UPLOAD_BATCH_CONCURRENCY. */
 export const ATTACH_CONCURRENCY = UPLOAD_BATCH_CONCURRENCY;
+
+/**
+ * Fail-open wrapper around `client.resolveGhPrefix` (issue #631): resolves to
+ * `{ mode: "plain" }` on ANY failure — an HTTP/network error (already handled
+ * inside `resolveGhPrefix` itself), or a self-hosted/older server or test
+ * double that lacks the method entirely (the outer try/catch here). Never
+ * blocks an upload or a read-back, and never logs — this is not an error.
+ * Call once per command invocation and thread the resolved mode through
+ * (uploadPuts/uploadAttachments/uploadBranchAttachments each do this once
+ * internally, ahead of their per-file loop); `resolveGhPrefix` itself also
+ * caches per-process by repo+branch+target, so repeat callers in the same
+ * process (e.g. attach's promote + comment-sync + upload, all for the same
+ * target) cost one request total.
+ */
+export async function resolveGhPrefixSafe(
+  client: UploadsClient,
+  opts: ResolveGhPrefixOptions,
+): Promise<ResolveGhPrefixResult> {
+  try {
+    return await client.resolveGhPrefix(opts);
+  } catch {
+    return { mode: "plain" };
+  }
+}
 
 export { formatUsageHuman } from "./format-usage.js";
 
@@ -521,6 +551,16 @@ export interface UploadPreparedImageOptions {
    * --branch` for the same filename via `ghBranchAttachmentKey`.
    */
   ghBranchTarget?: BranchTarget;
+  /**
+   * Resolved GitHub-key mode (issue #631), from a single upstream
+   * `resolveGhPrefixSafe` call — never resolved here. `undefined`/`{ mode:
+   * "plain" }` builds the plain key via `ghAttachmentKey`/
+   * `ghBranchAttachmentKey`; `{ mode: "private", prefixId }` builds the
+   * randomized-prefix key via `ghPrivateAttachmentKey`/
+   * `ghPrivateBranchAttachmentKey` instead. Ignored when neither `ghTarget`
+   * nor `ghBranchTarget` is set.
+   */
+  ghPrefix?: ResolveGhPrefixResult;
   key?: string;
   prefix?: string;
   repo?: string;
@@ -591,13 +631,17 @@ export async function uploadPreparedImage(
     optimize: opts.optimize,
   });
   let key = opts.ghTarget
-    ? ghAttachmentKey(opts.ghTarget, prepared.filename)
+    ? opts.ghPrefix?.mode === "private"
+      ? ghPrivateAttachmentKey(opts.ghPrefix.prefixId, opts.ghTarget, prepared.filename)
+      : ghAttachmentKey(opts.ghTarget, prepared.filename)
     : opts.ghBranchTarget
-      ? ghBranchAttachmentKey(
-          opts.ghBranchTarget.repo,
-          opts.ghBranchTarget.branch,
-          prepared.filename,
-        )
+      ? opts.ghPrefix?.mode === "private"
+        ? ghPrivateBranchAttachmentKey(opts.ghPrefix.prefixId, prepared.filename)
+        : ghBranchAttachmentKey(
+            opts.ghBranchTarget.repo,
+            opts.ghBranchTarget.branch,
+            prepared.filename,
+          )
       : opts.key;
   if (key && prepared.optimized) key = rewriteKeyExtension(key, prepared.filename);
   const result = await client.put(prepared.bytes, {
@@ -1152,9 +1196,17 @@ export async function uploadAttachments(opts: {
   provenanceClient?: string;
   concurrency?: number;
 }): Promise<UploadBatchResult<AttachUploadItem>> {
+  // Resolved once for the whole batch (issue #631) — never per file.
+  const ghPrefix = await resolveGhPrefixSafe(opts.client, {
+    repo: opts.target.repo,
+    target: { kind: opts.target.kind, num: opts.target.num },
+  });
   return uploadAttachmentBatch({
     ...opts,
-    keyFor: (filename) => ghAttachmentKey(opts.target, filename),
+    keyFor: (filename) =>
+      ghPrefix.mode === "private"
+        ? ghPrivateAttachmentKey(ghPrefix.prefixId, opts.target, filename)
+        : ghAttachmentKey(opts.target, filename),
   });
 }
 
@@ -1188,9 +1240,17 @@ export async function uploadBranchAttachments(opts: {
   provenanceClient?: string;
   concurrency?: number;
 }): Promise<UploadBatchResult<AttachUploadItem>> {
+  // Resolved once for the whole batch (issue #631) — never per file.
+  const ghPrefix = await resolveGhPrefixSafe(opts.client, {
+    repo: opts.target.repo,
+    branch: opts.target.branch,
+  });
   return uploadAttachmentBatch({
     ...opts,
-    keyFor: (filename) => ghBranchAttachmentKey(opts.target.repo, opts.target.branch, filename),
+    keyFor: (filename) =>
+      ghPrefix.mode === "private"
+        ? ghPrivateBranchAttachmentKey(ghPrefix.prefixId, filename)
+        : ghBranchAttachmentKey(opts.target.repo, opts.target.branch, filename),
   });
 }
 
@@ -1258,6 +1318,19 @@ export async function uploadPuts(opts: {
     throw new UsageError("--name cannot be combined with multiple files");
   }
 
+  // Resolved once for the whole batch (issue #631) — never per file.
+  const ghPrefix = opts.ghTarget
+    ? await resolveGhPrefixSafe(opts.client, {
+        repo: opts.ghTarget.repo,
+        target: { kind: opts.ghTarget.kind, num: opts.ghTarget.num },
+      })
+    : opts.ghBranchTarget
+      ? await resolveGhPrefixSafe(opts.client, {
+          repo: opts.ghBranchTarget.repo,
+          branch: opts.ghBranchTarget.branch,
+        })
+      : undefined;
+
   type Slot =
     | { ok: true; upload: PutUploadItem; sentMetadata?: Record<string, string> }
     | { ok: false; file: string; err: unknown };
@@ -1288,6 +1361,7 @@ export async function uploadPuts(opts: {
             optimize: opts.optimize,
             ghTarget: opts.ghTarget,
             ghBranchTarget: opts.ghBranchTarget,
+            ghPrefix,
             key: opts.explicitKey,
             prefix: opts.prefix,
             repo: opts.repo,
@@ -2008,18 +2082,29 @@ export async function resolveStaged(opts: {
   branch: string;
 }): Promise<StagedResult> {
   const { client, repo, branch } = opts;
-  const prefix = ghBranchKeyPrefix(repo, branch);
-  const [list, binding] = await Promise.all([
-    client.list({ prefix, metadata: true }),
+  const plainPrefix = ghBranchKeyPrefix(repo, branch);
+  // Also list the resolved private prefix, if any (issue #631) — a repo's
+  // staged history can be split across the plain and private shapes (e.g.
+  // the repo went private after some files were staged). Fail-open: any
+  // resolve failure degrades to plain-only, byte-identical to pre-#631.
+  const ghPrefix = await resolveGhPrefixSafe(client, { repo, branch });
+  const prefixes =
+    ghPrefix.mode === "private"
+      ? [plainPrefix, ghPrivateBranchKeyPrefix(ghPrefix.prefixId)]
+      : [plainPrefix];
+  const [lists, binding] = await Promise.all([
+    Promise.all(prefixes.map((prefix) => client.list({ prefix, metadata: true }))),
     resolveStagedBinding(client, repo),
   ]);
-  const files: StagedFile[] = list.items.map((item) => ({
-    key: item.key,
-    filename: item.key.slice(prefix.length),
-    size: item.size,
-    stagedAt: item.metadata?.["gh.staged-at"],
-    url: item.url,
-  }));
+  const files: StagedFile[] = prefixes.flatMap((prefix, i) =>
+    lists[i]!.items.map((item) => ({
+      key: item.key,
+      filename: item.key.slice(prefix.length),
+      size: item.size,
+      stagedAt: item.metadata?.["gh.staged-at"],
+      url: item.url,
+    })),
+  );
   return { repo, branch, files, binding };
 }
 
@@ -2867,16 +2952,35 @@ export async function runList(
   const prefixFlag = flagString(parsed.flags, "--prefix");
   let prefix = prefixFlag ?? (defaults.prefix ? `${defaults.prefix}/` : undefined);
   const ghTarget = ghTargetFromFlags(parsed.flags, run);
+  // Also list the resolved private prefix, if any (issue #631) — a repo's
+  // attachment history can be split across the plain and private shapes.
+  // `prefixes` stays undefined outside --pr/--issue (unchanged behavior);
+  // when defined it collapses to just `[prefix]` in plain mode, so the
+  // single-request path below is byte-identical to pre-#631 output there.
+  let prefixes: string[] | undefined;
   if (ghTarget) {
     if (prefixFlag) throw new UsageError("--prefix cannot be combined with --pr/--issue");
     prefix = ghKeyPrefix(ghTarget);
+    const ghPrefix = await resolveGhPrefixSafe(ctx.client, {
+      repo: ghTarget.repo,
+      target: { kind: ghTarget.kind, num: ghTarget.num },
+    });
+    prefixes =
+      ghPrefix.mode === "private"
+        ? [prefix, ghPrivateKeyPrefix(ghPrefix.prefixId, ghTarget)]
+        : [prefix];
   }
   const limit = flagInt(parsed.flags, "--limit", "--limit");
   const cursor = flagString(parsed.flags, "--cursor");
 
   if (flagBool(parsed.flags, "--all")) {
     // --all may start from a caller-provided --cursor and drains from there.
-    const items = await ctx.client.listAll({ prefix, limit, cursor });
+    const items =
+      prefixes && prefixes.length > 1
+        ? (
+            await Promise.all(prefixes.map((p) => ctx.client.listAll({ prefix: p, limit, cursor })))
+          ).flat()
+        : await ctx.client.listAll({ prefix, limit, cursor });
     if (ctx.json) await writeJson({ items, cursor: null });
     else
       for (const item of items)
@@ -2884,7 +2988,19 @@ export async function runList(
     return 0;
   }
 
-  const result = await ctx.client.list({ prefix, limit, cursor });
+  // Merged multi-prefix pages don't have a meaningful combined cursor —
+  // dropped (null) only when there's more than one prefix to merge; the
+  // single-prefix path (every non-private call, plus every call before
+  // #631) is untouched.
+  const result =
+    prefixes && prefixes.length > 1
+      ? {
+          items: (
+            await Promise.all(prefixes.map((p) => ctx.client.list({ prefix: p, limit, cursor })))
+          ).flatMap((page) => page.items),
+          cursor: null,
+        }
+      : await ctx.client.list({ prefix, limit, cursor });
   if (ctx.json) await writeJson(result);
   else {
     for (const item of result.items)
@@ -3082,13 +3198,40 @@ const COMMENT_RENDERED_META_KEYS = ["path", "state"];
  * metadata tweak, not an explicit comment command); any failure degrades to
  * a stderr hint instead of failing the metadata write that already landed.
  */
+/**
+ * Resolve the `{repo, kind, num}` target for a key, whether plain
+ * (`parseGhKey`) or private-prefixed (issue #631, `parseGhPrivateKey` —
+ * cannot recover the repo from the key alone, since the randomized prefix
+ * deliberately omits it). For a private key, reads `gh.repo` metadata — the
+ * attach/put that created this key already wrote it — via the same metadata
+ * client call `meta get` uses. Fail-open: any read failure, or a key that
+ * isn't gh-managed at all, resolves to undefined (nothing to resync).
+ */
+async function resolveGhTargetForResync(
+  client: UploadsClient,
+  key: string,
+): Promise<GhTarget | undefined> {
+  const plain = parseGhKey(key);
+  if (plain) return plain;
+  const priv = parseGhPrivateKey(key);
+  if (!priv) return undefined;
+  try {
+    const { metadata } = await client.getMetadata(key);
+    const repo = metadata["gh.repo"];
+    if (!repo) return undefined;
+    return { repo, kind: priv.kind, num: priv.num };
+  } catch {
+    return undefined;
+  }
+}
+
 async function resyncCommentAfterMetaSet(
   ctx: CliContext,
   key: string,
   touchedKeys: string[],
 ): Promise<void> {
   if (!touchedKeys.some((k) => COMMENT_RENDERED_META_KEYS.includes(k))) return;
-  const target = parseGhKey(key);
+  const target = await resolveGhTargetForResync(ctx.client, key);
   if (!target) return;
   try {
     const bot = await ctx.client.upsertGithubComment({

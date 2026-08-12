@@ -76,6 +76,8 @@ export {
   type MetadataValuesResult,
   type GetMetadataResult,
   type PatchMetadataOptions,
+  type ResolveGhPrefixOptions,
+  type ResolveGhPrefixResult,
 } from "./client.js";
 export { buildCliProvenance } from "./provenance.js";
 export {
@@ -99,6 +101,16 @@ export {
   ghMetadataForBranch,
   isValidRepo,
   parseRepoFromRemoteUrl,
+  // Private-repo randomized-prefix builders (issue #631) — needed by the
+  // hosted MCP (apps/mcp), which builds keys in-process rather than via
+  // the CLI's own commands.ts.
+  GH_PRIVATE_ROOT,
+  ghPrivateKeyPrefix,
+  ghPrivateAttachmentKey,
+  ghPrivateBranchKeyPrefix,
+  ghPrivateBranchAttachmentKey,
+  parseGhKey,
+  parseGhPrivateKey,
   type AttachmentItem,
   type GhTarget,
   type GhTargetKind,

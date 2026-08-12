@@ -286,6 +286,56 @@ describe("runMeta set comment re-sync (issue #470)", () => {
     expect(upsertCalls).toEqual([]);
   });
 
+  it("re-syncs a private-prefix key (issue #631) by recovering the repo from gh.repo metadata", async () => {
+    const PREFIX_ID = "0123456789abcdef0123456789abcdef";
+    const upsertCalls: { repo: string; num: number; kind: string }[] = [];
+    const getMetadataCalls: string[] = [];
+    const client = {
+      patchMetadata: async (_key: string, o: { set?: Record<string, string> }) => ({
+        metadata: { ...o.set },
+      }),
+      getMetadata: async (key: string) => {
+        getMetadataCalls.push(key);
+        return { metadata: { "gh.repo": "acme/private-repo" } };
+      },
+      upsertGithubComment: async (o: { repo: string; num: number; kind: string }) => {
+        upsertCalls.push(o);
+        return { posted: true, action: "updated", count: 1 };
+      },
+    } as unknown as UploadsClient;
+    const code = await runMeta(
+      ctxWith(client),
+      ["set", `gh/private/${PREFIX_ID}/pull/12/shot.png`, "path=/docs/limits"],
+      false,
+    );
+    expect(code).toBe(0);
+    expect(getMetadataCalls).toEqual([`gh/private/${PREFIX_ID}/pull/12/shot.png`]);
+    expect(upsertCalls).toEqual([
+      { repo: "acme/private-repo", num: 12, kind: "pull", resync: true },
+    ]);
+  });
+
+  it("does not sync a private-prefix key when gh.repo metadata is missing", async () => {
+    const PREFIX_ID = "0123456789abcdef0123456789abcdef";
+    const upsertCalls: { repo: string; num: number; kind: string }[] = [];
+    const client = {
+      patchMetadata: async (_key: string, o: { set?: Record<string, string> }) => ({
+        metadata: { ...o.set },
+      }),
+      getMetadata: async () => ({ metadata: {} }),
+      upsertGithubComment: async (o: { repo: string; num: number; kind: string }) => {
+        upsertCalls.push(o);
+        return { posted: true, action: "updated", count: 1 };
+      },
+    } as unknown as UploadsClient;
+    await runMeta(
+      ctxWith(client),
+      ["set", `gh/private/${PREFIX_ID}/pull/12/shot.png`, "path=/docs/limits"],
+      false,
+    );
+    expect(upsertCalls).toEqual([]);
+  });
+
   it("prints a refresh hint instead of failing when the sync errors", async () => {
     const { client } = syncClient({ fail: true });
     const ctx = { ...ctxWith(client), quiet: false };

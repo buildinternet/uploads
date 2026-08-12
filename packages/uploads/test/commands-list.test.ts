@@ -1,16 +1,34 @@
 import { describe, expect, it } from "vitest";
 import { UsageError } from "../src/cli-args.js";
-import type { UploadsClient } from "../src/client.js";
+import type {
+  ListItem,
+  ResolveGhPrefixOptions,
+  ResolveGhPrefixResult,
+  UploadsClient,
+} from "../src/client.js";
 import { runList, type CliContext } from "../src/commands.js";
 import type { CommandRunner } from "../src/github-gh.js";
 
-function fakeListClient() {
+function fakeListClient(opts?: {
+  itemsByPrefix?: Record<string, ListItem[]>;
+  resolveGhPrefix?:
+    | ResolveGhPrefixResult
+    | ((opts: ResolveGhPrefixOptions) => ResolveGhPrefixResult);
+}) {
   const prefixes: (string | undefined)[] = [];
   const client = {
-    list: async (opts: { prefix?: string }) => {
-      prefixes.push(opts.prefix);
-      return { items: [], cursor: null };
+    list: async (listOpts: { prefix?: string }) => {
+      prefixes.push(listOpts.prefix);
+      return { items: opts?.itemsByPrefix?.[listOpts.prefix ?? ""] ?? [], cursor: null };
     },
+    ...(opts?.resolveGhPrefix !== undefined
+      ? {
+          resolveGhPrefix: async (req: ResolveGhPrefixOptions) =>
+            typeof opts.resolveGhPrefix === "function"
+              ? opts.resolveGhPrefix(req)
+              : opts.resolveGhPrefix!,
+        }
+      : {}),
   } as unknown as UploadsClient;
   return { client, prefixes };
 }
@@ -78,6 +96,41 @@ describe("runList --pr/--issue", () => {
     const { client, prefixes } = fakeListClient();
     await runList(ctxWith(client), ["--prefix", "screenshots/"], false, noRun);
     expect(prefixes[0]).toBe("screenshots/");
+  });
+});
+
+describe("runList --pr private-prefix mode (issue #631)", () => {
+  const PREFIX_ID = "0123456789abcdef0123456789abcdef";
+  const PLAIN_PREFIX = "gh/buildinternet/uploads/pull/123/";
+  const PRIVATE_PREFIX = `gh/private/${PREFIX_ID}/pull/123/`;
+
+  it("lists both the plain and resolved private prefix (mixed history)", async () => {
+    const { client, prefixes } = fakeListClient({
+      resolveGhPrefix: { mode: "private", prefixId: PREFIX_ID },
+      itemsByPrefix: {
+        [PLAIN_PREFIX]: [{ key: `${PLAIN_PREFIX}old.png`, url: "https://x.test/old.png" }],
+        [PRIVATE_PREFIX]: [{ key: `${PRIVATE_PREFIX}new.png`, url: "https://x.test/new.png" }],
+      },
+    });
+    const code = await runList(
+      ctxWith(client),
+      ["--pr", "123", "--repo", "buildinternet/uploads"],
+      false,
+      noRun,
+    );
+    expect(code).toBe(0);
+    expect(prefixes.sort()).toEqual([PLAIN_PREFIX, PRIVATE_PREFIX].sort());
+  });
+
+  it("lists only the plain prefix when the server has no resolve route (404, byte-identical to pre-#631)", async () => {
+    const { client, prefixes } = fakeListClient();
+    await runList(
+      ctxWith(client),
+      ["--pr", "123", "--repo", "buildinternet/uploads"],
+      false,
+      noRun,
+    );
+    expect(prefixes).toEqual([PLAIN_PREFIX]);
   });
 });
 

@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import { UsageError } from "../src/cli-args.js";
-import type { GithubRepoLinkResult, ListItem, UploadsClient } from "../src/client.js";
+import type {
+  GithubRepoLinkResult,
+  ListItem,
+  ResolveGhPrefixOptions,
+  ResolveGhPrefixResult,
+  UploadsClient,
+} from "../src/client.js";
 import {
   resolveStageBindingWarning,
   runAttach,
@@ -29,13 +35,26 @@ function ctxWith(client: UploadsClient, overrides: Partial<CliContext> = {}): Cl
 
 function fakeClient(opts?: {
   items?: ListItem[];
+  /** Per-prefix item sets (issue #631 mixed plain+private listing tests) — wins over `items` when set. */
+  itemsByPrefix?: Record<string, ListItem[]>;
   repoLinkStatus?: GithubRepoLinkResult | Error | ((repo: string) => GithubRepoLinkResult | Error);
+  /**
+   * `client.resolveGhPrefix` behavior (issue #631). Omitted → method absent,
+   * simulating an older/self-hosted server without the route (404) —
+   * degrades to plain, byte-identical to pre-#631 behavior.
+   */
+  resolveGhPrefix?:
+    | ResolveGhPrefixResult
+    | ((opts: ResolveGhPrefixOptions) => ResolveGhPrefixResult);
 }) {
   const listCalls: { prefix?: string; metadata?: boolean }[] = [];
   const client = {
     list: async (listOpts: { prefix?: string; metadata?: boolean }) => {
       listCalls.push(listOpts);
-      return { items: opts?.items ?? [], cursor: null };
+      const items = opts?.itemsByPrefix
+        ? (opts.itemsByPrefix[listOpts.prefix ?? ""] ?? [])
+        : (opts?.items ?? []);
+      return { items, cursor: null };
     },
     ...(opts?.repoLinkStatus !== undefined
       ? {
@@ -47,6 +66,14 @@ function fakeClient(opts?: {
             if (result instanceof Error) throw result;
             return result;
           },
+        }
+      : {}),
+    ...(opts?.resolveGhPrefix !== undefined
+      ? {
+          resolveGhPrefix: async (req: ResolveGhPrefixOptions) =>
+            typeof opts.resolveGhPrefix === "function"
+              ? opts.resolveGhPrefix(req)
+              : opts.resolveGhPrefix!,
         }
       : {}),
   } as unknown as UploadsClient;
@@ -278,6 +305,59 @@ describe("runStaged: file listing", () => {
     });
     expect(stderr).toContain("binding: other");
     expect(stderr).not.toContain("uploads attach --promote");
+  });
+});
+
+describe("runStaged private-prefix mode (issue #631)", () => {
+  const PREFIX_ID = "0123456789abcdef0123456789abcdef";
+  const PLAIN_PREFIX = "gh/o/r/branch/feature-thing/";
+  const PRIVATE_PREFIX = `gh/private/${PREFIX_ID}/branch/`;
+
+  it("lists files under both the plain and resolved private prefix (mixed history)", async () => {
+    const { client, listCalls } = fakeClient({
+      resolveGhPrefix: { mode: "private", prefixId: PREFIX_ID },
+      itemsByPrefix: {
+        [PLAIN_PREFIX]: [
+          {
+            key: `${PLAIN_PREFIX}old.png`,
+            url: "https://x.test/old.png",
+            size: 10,
+            metadata: { "gh.staged-at": "2026-07-01T00:00:00Z" },
+          },
+        ],
+        [PRIVATE_PREFIX]: [
+          {
+            key: `${PRIVATE_PREFIX}new.png`,
+            url: "https://x.test/new.png",
+            size: 20,
+            metadata: { "gh.staged-at": "2026-08-01T00:00:00Z" },
+          },
+        ],
+      },
+    });
+    const { stdout } = await withCapturedOutput(async () => {
+      const result = await runStaged(
+        ctxWith(client, { json: true }),
+        ["--branch", "feature/thing", "--repo", "o/r"],
+        false,
+        noRun,
+      );
+      expect(result).toBe(0);
+    });
+    expect(listCalls.map((c) => c.prefix).sort()).toEqual([PLAIN_PREFIX, PRIVATE_PREFIX].sort());
+    const parsed = JSON.parse(stdout);
+    // filename is derived per-prefix via key.slice(prefix.length) — the
+    // private key's much longer prefix must not leak into the plain item's
+    // filename, or vice versa.
+    expect(parsed.files.map((f: { filename: string }) => f.filename).sort()).toEqual(
+      ["old.png", "new.png"].sort(),
+    );
+  });
+
+  it("lists only the plain prefix when the server has no resolve route (404, byte-identical to pre-#631)", async () => {
+    const { client, listCalls } = fakeClient();
+    await runStaged(ctxWith(client), ["--branch", "feature/thing", "--repo", "o/r"], false, noRun);
+    expect(listCalls).toEqual([{ prefix: PLAIN_PREFIX, metadata: true }]);
   });
 });
 
