@@ -1,5 +1,16 @@
 # @buildinternet/uploads
 
+## 0.41.0
+
+### Minor Changes
+
+- 085da59: Per-key file operations — upload PUT, head/metadata GET, metadata PATCH, and DELETE — now use the canonical `/v1/workspaces/:workspace/files/<key>` paths (#613). The server has shared identical handlers across both surfaces since #636, so behavior is unchanged; the legacy paths keep working.
+
+  List, find, and facets stay on the legacy `/v1/:workspace/files` wildcard until the bearer list/search response shape is reconciled with the canonical one.
+
+- 47091c1: List, find, and facets complete the CLI's move to the canonical `/v1/workspaces/:workspace/files` surface (#613) — no legacy `/v1/:workspace` paths remain in the client. The client's own return shapes are unchanged: `list` adapts the canonical `{files, prefixes, cursor}` envelope back to `{items, cursor}` (and still honors `metadata: true` opt-in), and `findFiles` now calls `files/search`, which is non-paginated (server cap 100, narrowable with `limit`), so its `cursor` is always `null`.
+- f4de70a: Private GitHub repos get randomized, unguessable attachment URL prefixes (#631). Public repos are unchanged. Requires no flags; applies automatically when the uploads GitHub App can see the repo is private. `uploads github rotate-prefix [--branch <b> | --repo-level]` rotates a prefix on demand, moving its attachments to a new URL and re-syncing the managed comment.
+
 ## 0.40.0
 
 ### Minor Changes
