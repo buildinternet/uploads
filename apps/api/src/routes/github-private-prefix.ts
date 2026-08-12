@@ -29,10 +29,16 @@ import { jsonBody } from "./json-body";
 const REPO_RE = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
 const DOTS_ONLY_RE = /^\.+$/;
 
-function parseRequest(body: Record<string, unknown>): ResolveGhKeyRequest {
+/** Shared `repo` shape validation for both request bodies below: `owner/name`, no dots-only segment. */
+function validateRepoShape(body: Record<string, unknown>): string {
   const repo = typeof body.repo === "string" ? body.repo : "";
   if (!REPO_RE.test(repo) || repo.split("/").some((seg) => DOTS_ONLY_RE.test(seg)))
     throw new ValidationError("repo must be owner/name.", { code: "invalid_repo" });
+  return repo;
+}
+
+function parseRequest(body: Record<string, unknown>): ResolveGhKeyRequest {
+  const repo = validateRepoShape(body);
 
   let branch: string | undefined;
   if (body.branch !== undefined) {
@@ -116,9 +122,7 @@ interface RotateRequest {
 }
 
 function parseRotateRequest(body: Record<string, unknown>): RotateRequest {
-  const repo = typeof body.repo === "string" ? body.repo : "";
-  if (!REPO_RE.test(repo) || repo.split("/").some((seg) => DOTS_ONLY_RE.test(seg)))
-    throw new ValidationError("repo must be owner/name.", { code: "invalid_repo" });
+  const repo = validateRepoShape(body);
 
   const repoLevel = body.repoLevel === true;
   const hasBranch = body.branch !== undefined;

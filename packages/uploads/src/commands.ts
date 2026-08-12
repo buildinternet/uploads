@@ -38,14 +38,12 @@ import { parseMetaFlags, validateMetaMap } from "./metadata.js";
 import { mergeDerivedMeta, nearMissMetaWarnings, validateStateValue } from "./metadata-vocab.js";
 import { mergeSidecarMeta } from "./sidecar.js";
 import {
-  ghAttachmentKey,
-  ghBranchAttachmentKey,
+  ghAttachmentKeyForMode,
+  ghBranchAttachmentKeyForMode,
   ghBranchKeyPrefix,
   ghKeyPrefix,
   ghPrivateKeyPrefix,
-  ghPrivateAttachmentKey,
   ghPrivateBranchKeyPrefix,
-  ghPrivateBranchAttachmentKey,
   ghMetadataFromTarget,
   parseGhKey,
   parseGhPrivateKey,
@@ -116,6 +114,46 @@ export async function resolveGhPrefixSafe(
   } catch {
     return { mode: "plain" };
   }
+}
+
+/**
+ * The list of prefixes to fan a multi-prefix list/gather across (issue
+ * #631): the plain prefix plus every active private prefix, if any — a
+ * repo's history can be split across the plain shape and MULTIPLE private
+ * prefixes (e.g. a prefix rotation, or the repo went private after some
+ * files were uploaded), not just the currently-resolved one. Falls back to
+ * `[prefixId]` when the server omits `activePrefixIds` (optional field — an
+ * older/self-hosted worker), so a private repo is never listed as zero
+ * private prefixes. Collapses to `[plainPrefix]` in plain mode, so callers
+ * that special-case a single-prefix array stay byte-identical to pre-#631.
+ */
+export function ghListPrefixes(
+  plainPrefix: string,
+  ghPrefix: ResolveGhPrefixResult,
+  privatePrefixFor: (prefixId: string) => string,
+): string[] {
+  if (ghPrefix.mode !== "private") return [plainPrefix];
+  return [plainPrefix, ...(ghPrefix.activePrefixIds ?? [ghPrefix.prefixId]).map(privatePrefixFor)];
+}
+
+/**
+ * Merge-list helper for a multi-prefix fan-out: runs `fetchItems` per prefix
+ * concurrently and concatenates in prefix order. Encodes the first-prefix-
+ * only cursor rule once — a cursor is opaque and scoped to the prefix it was
+ * minted against, so a multi-prefix merge only ever hands it to the FIRST
+ * prefix; every other prefix always starts from its own beginning (undefined
+ * cursor), or a cursor minted for one prefix's keyspace would get replayed
+ * against a different one.
+ */
+export async function ghMergedList<T>(
+  prefixes: readonly string[],
+  cursor: string | undefined,
+  fetchItems: (prefix: string, cursor: string | undefined) => Promise<T[]>,
+): Promise<T[]> {
+  const pages = await Promise.all(
+    prefixes.map((prefix, i) => fetchItems(prefix, i === 0 ? cursor : undefined)),
+  );
+  return pages.flat();
 }
 
 export { formatUsageHuman } from "./format-usage.js";
@@ -554,12 +592,10 @@ export interface UploadPreparedImageOptions {
   ghBranchTarget?: BranchTarget;
   /**
    * Resolved GitHub-key mode (issue #631), from a single upstream
-   * `resolveGhPrefixSafe` call — never resolved here. `undefined`/`{ mode:
-   * "plain" }` builds the plain key via `ghAttachmentKey`/
-   * `ghBranchAttachmentKey`; `{ mode: "private", prefixId }` builds the
-   * randomized-prefix key via `ghPrivateAttachmentKey`/
-   * `ghPrivateBranchAttachmentKey` instead. Ignored when neither `ghTarget`
-   * nor `ghBranchTarget` is set.
+   * `resolveGhPrefixSafe` call — never resolved here. Passed straight to
+   * `ghAttachmentKeyForMode`/`ghBranchAttachmentKeyForMode`, which own the
+   * plain-vs-private branch. Ignored when neither `ghTarget` nor
+   * `ghBranchTarget` is set.
    */
   ghPrefix?: ResolveGhPrefixResult;
   key?: string;
@@ -631,18 +667,16 @@ export async function uploadPreparedImage(
     frameFit: opts.frame.frameFit,
     optimize: opts.optimize,
   });
+  const ghMode = opts.ghPrefix ?? { mode: "plain" as const };
   let key = opts.ghTarget
-    ? opts.ghPrefix?.mode === "private"
-      ? ghPrivateAttachmentKey(opts.ghPrefix.prefixId, opts.ghTarget, prepared.filename)
-      : ghAttachmentKey(opts.ghTarget, prepared.filename)
+    ? ghAttachmentKeyForMode(ghMode, opts.ghTarget, prepared.filename)
     : opts.ghBranchTarget
-      ? opts.ghPrefix?.mode === "private"
-        ? ghPrivateBranchAttachmentKey(opts.ghPrefix.prefixId, prepared.filename)
-        : ghBranchAttachmentKey(
-            opts.ghBranchTarget.repo,
-            opts.ghBranchTarget.branch,
-            prepared.filename,
-          )
+      ? ghBranchAttachmentKeyForMode(
+          ghMode,
+          opts.ghBranchTarget.repo,
+          opts.ghBranchTarget.branch,
+          prepared.filename,
+        )
       : opts.key;
   if (key && prepared.optimized) key = rewriteKeyExtension(key, prepared.filename);
   const result = await client.put(prepared.bytes, {
@@ -798,44 +832,36 @@ export async function syncAttachmentsComment(
   //
   // Also list every active private prefix for this repo (issue #631): a
   // private repo's attachments can live under a randomized prefix instead of
-  // the plain one. `resolveGhPrefix` itself is fail-open (any HTTP/network
-  // failure there already resolves to `{ mode: "plain" }`); the try/catch
-  // here is belt-and-suspenders for a client that lacks the method entirely
-  // (an older embedder of this package) — either way, plain-only listing,
+  // the plain one. `resolveGhPrefixSafe` is fail-open (any resolve failure,
+  // including a client that lacks the method entirely) — plain-only listing,
   // silently, matching pre-#631 behavior exactly.
-  let ghPrefix: Awaited<ReturnType<UploadsClient["resolveGhPrefix"]>>;
-  try {
-    ghPrefix = await client.resolveGhPrefix({
-      repo: target.repo,
-      target: { kind: target.kind, num: target.num },
-    });
-  } catch {
-    ghPrefix = { mode: "plain" };
-  }
-  const activePrefixIds = ghPrefix.mode === "private" ? (ghPrefix.activePrefixIds ?? []) : [];
-  const prefixes = [
-    ghKeyPrefix(target),
-    ...activePrefixIds.map((id) => ghPrivateKeyPrefix(id, target)),
-  ];
-  const items: AttachmentItem[] = (
-    await Promise.all(prefixes.map((prefix) => client.listAll({ prefix, metadata: true })))
-  )
-    .flat()
-    .map(({ key, url, embedUrl, pageUrl, metadata }) => {
-      // The list endpoint returns every metadata key; the comment renders only
-      // these two. Narrowing here keeps both render paths byte-identical.
-      const path = metadata?.path;
-      const state = metadata?.state;
-      return {
-        key,
-        url,
-        embedUrl,
-        pageUrl,
-        ...(path || state
-          ? { meta: { ...(path ? { path } : {}), ...(state ? { state } : {}) } }
-          : {}),
-      };
-    });
+  const ghPrefix = await resolveGhPrefixSafe(client, {
+    repo: target.repo,
+    target: { kind: target.kind, num: target.num },
+  });
+  const prefixes = ghListPrefixes(ghKeyPrefix(target), ghPrefix, (id) =>
+    ghPrivateKeyPrefix(id, target),
+  );
+  const items: AttachmentItem[] = await ghMergedList(prefixes, undefined, async (prefix) =>
+    (await client.listAll({ prefix, metadata: true })).map(
+      ({ key, url, embedUrl, pageUrl, metadata }) => {
+        // The list endpoint returns every metadata key; the comment
+        // renders only these two. Narrowing here keeps both render paths
+        // byte-identical.
+        const path = metadata?.path;
+        const state = metadata?.state;
+        return {
+          key,
+          url,
+          embedUrl,
+          pageUrl,
+          ...(path || state
+            ? { meta: { ...(path ? { path } : {}), ...(state ? { state } : {}) } }
+            : {}),
+        };
+      },
+    ),
+  );
 
   const galleries: (GalleryCommentItem & { id: string })[] = [];
   let cursor: string | undefined;
@@ -1204,10 +1230,7 @@ export async function uploadAttachments(opts: {
   });
   return uploadAttachmentBatch({
     ...opts,
-    keyFor: (filename) =>
-      ghPrefix.mode === "private"
-        ? ghPrivateAttachmentKey(ghPrefix.prefixId, opts.target, filename)
-        : ghAttachmentKey(opts.target, filename),
+    keyFor: (filename) => ghAttachmentKeyForMode(ghPrefix, opts.target, filename),
   });
 }
 
@@ -1249,9 +1272,7 @@ export async function uploadBranchAttachments(opts: {
   return uploadAttachmentBatch({
     ...opts,
     keyFor: (filename) =>
-      ghPrefix.mode === "private"
-        ? ghPrivateBranchAttachmentKey(ghPrefix.prefixId, filename)
-        : ghBranchAttachmentKey(opts.target.repo, opts.target.branch, filename),
+      ghBranchAttachmentKeyForMode(ghPrefix, opts.target.repo, opts.target.branch, filename),
   });
 }
 
@@ -2088,34 +2109,23 @@ export async function resolveStaged(opts: {
   // syncAttachmentsComment's gh-fallback gather above: a repo's staged
   // history can be split across the plain shape and MULTIPLE private
   // prefixes (e.g. a prefix rotation, or the repo went private after some
-  // files were staged), not just the currently-resolved one. Falls back to
-  // `[prefixId]` when the server omits `activePrefixIds` (optional field —
-  // an older/self-hosted worker), so a private repo is never listed as
-  // zero private prefixes. Fail-open: any resolve failure degrades to
-  // plain-only, byte-identical to pre-#631.
+  // files were staged), not just the currently-resolved one. Fail-open: any
+  // resolve failure degrades to plain-only, byte-identical to pre-#631.
   const ghPrefix = await resolveGhPrefixSafe(client, { repo, branch });
-  const prefixes =
-    ghPrefix.mode === "private"
-      ? [
-          plainPrefix,
-          ...(ghPrefix.activePrefixIds ?? [ghPrefix.prefixId]).map((id) =>
-            ghPrivateBranchKeyPrefix(id),
-          ),
-        ]
-      : [plainPrefix];
-  const [lists, binding] = await Promise.all([
-    Promise.all(prefixes.map((prefix) => client.list({ prefix, metadata: true }))),
+  const prefixes = ghListPrefixes(plainPrefix, ghPrefix, (id) => ghPrivateBranchKeyPrefix(id));
+  const [files, binding] = await Promise.all([
+    ghMergedList(prefixes, undefined, async (prefix) => {
+      const list = await client.list({ prefix, metadata: true });
+      return list.items.map((item) => ({
+        key: item.key,
+        filename: item.key.slice(prefix.length),
+        size: item.size,
+        stagedAt: item.metadata?.["gh.staged-at"],
+        url: item.url,
+      }));
+    }),
     resolveStagedBinding(client, repo),
   ]);
-  const files: StagedFile[] = prefixes.flatMap((prefix, i) =>
-    lists[i]!.items.map((item) => ({
-      key: item.key,
-      filename: item.key.slice(prefix.length),
-      size: item.size,
-      stagedAt: item.metadata?.["gh.staged-at"],
-      url: item.url,
-    })),
-  );
   return { repo, branch, files, binding };
 }
 
@@ -2966,8 +2976,7 @@ export async function runList(
   // Also list every active private prefix, if any (issue #631) — mirrors
   // syncAttachmentsComment's gh-fallback gather: a repo's attachment
   // history can be split across the plain shape and MULTIPLE private
-  // prefixes, not just the currently-resolved one. Falls back to
-  // `[prefixId]` when the server omits `activePrefixIds`. `prefixes` stays
+  // prefixes, not just the currently-resolved one. `prefixes` stays
   // undefined outside --pr/--issue (unchanged behavior); when defined it
   // collapses to just `[prefix]` in plain mode, so the single-request path
   // below is byte-identical to pre-#631 output there.
@@ -2979,35 +2988,18 @@ export async function runList(
       repo: ghTarget.repo,
       target: { kind: ghTarget.kind, num: ghTarget.num },
     });
-    prefixes =
-      ghPrefix.mode === "private"
-        ? [
-            prefix,
-            ...(ghPrefix.activePrefixIds ?? [ghPrefix.prefixId]).map((id) =>
-              ghPrivateKeyPrefix(id, ghTarget),
-            ),
-          ]
-        : [prefix];
+    prefixes = ghListPrefixes(prefix, ghPrefix, (id) => ghPrivateKeyPrefix(id, ghTarget));
   }
   const limit = flagInt(parsed.flags, "--limit", "--limit");
   const cursor = flagString(parsed.flags, "--cursor");
 
   if (flagBool(parsed.flags, "--all")) {
     // --all may start from a caller-provided --cursor and drains from there.
-    // A cursor is opaque and scoped to the prefix it was minted against — a
-    // multi-prefix merge only ever hands it to the FIRST prefix; every other
-    // prefix always starts from its own beginning (undefined cursor), or a
-    // cursor minted for one prefix's keyspace would get replayed against a
-    // different one.
     const items =
       prefixes && prefixes.length > 1
-        ? (
-            await Promise.all(
-              prefixes.map((p, i) =>
-                ctx.client.listAll({ prefix: p, limit, cursor: i === 0 ? cursor : undefined }),
-              ),
-            )
-          ).flat()
+        ? await ghMergedList(prefixes, cursor, (p, c) =>
+            ctx.client.listAll({ prefix: p, limit, cursor: c }),
+          )
         : await ctx.client.listAll({ prefix, limit, cursor });
     if (ctx.json) await writeJson({ items, cursor: null });
     else
@@ -3023,13 +3015,11 @@ export async function runList(
   const result =
     prefixes && prefixes.length > 1
       ? {
-          items: (
-            await Promise.all(
-              prefixes.map((p, i) =>
-                ctx.client.list({ prefix: p, limit, cursor: i === 0 ? cursor : undefined }),
-              ),
-            )
-          ).flatMap((page) => page.items),
+          items: await ghMergedList(
+            prefixes,
+            cursor,
+            async (p, c) => (await ctx.client.list({ prefix: p, limit, cursor: c })).items,
+          ),
           cursor: null,
         }
       : await ctx.client.list({ prefix, limit, cursor });

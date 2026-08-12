@@ -53,10 +53,11 @@ export async function getActivePrefixId(
 
 /**
  * Returns the active prefix id for (repo, branch), minting one if none
- * exists yet. Race-safe: concurrent first-callers all `INSERT OR IGNORE`
- * against the partial unique index, so at most one insert wins; every
- * caller (winner and losers) then re-selects the active row, so they all
- * converge on the same id regardless of who won.
+ * exists yet. Read-first: the steady state (an id already minted) costs one
+ * query. Race-safe on the mint path: concurrent first-callers all
+ * `INSERT OR IGNORE` against the partial unique index, so at most one insert
+ * wins; every caller (winner and losers) then re-selects the active row, so
+ * they all converge on the same id regardless of who won.
  */
 export async function getOrMintPrefixId(
   db: D1Database,
@@ -66,6 +67,10 @@ export async function getOrMintPrefixId(
 ): Promise<string> {
   const normalizedRepo = normalizeRepo(repo);
   const normalizedBranch = normalizeBranch(branch);
+
+  const existing = await getActivePrefixId(db, normalizedRepo, normalizedBranch);
+  if (existing !== null) return existing;
+
   const candidate = generatePrefixId();
 
   await db

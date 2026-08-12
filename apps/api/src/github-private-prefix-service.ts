@@ -104,6 +104,39 @@ export async function resolveGhKeyContext(
   }
 }
 
+/**
+ * `resolveGhKeyContext`, guarded for a server-side (no caller identity)
+ * call: its own D1 tail (`checkRepoAuthorization` → `findRepoLinkStrict`)
+ * deliberately PROPAGATES D1 errors rather than degrading — fine for its
+ * direct HTTP route caller, but a background ingest/promote pass must never
+ * abort just because the mode couldn't be determined. Same fail-open idiom
+ * as the webhook's privacy-cache write-through. `mintingUserId` is always
+ * `null` here — every current caller runs with no caller identity.
+ * `callerLabel` tags the degrade log (e.g. "github-ingest", "promote") so
+ * the two near-identical call sites this replaces stay distinguishable in
+ * logs.
+ */
+export async function resolveGhKeyContextSafe(
+  env: Env,
+  workspaceName: string,
+  req: ResolveGhKeyRequest,
+  callerLabel: string,
+): Promise<GhKeyMode> {
+  try {
+    return await resolveGhKeyContext(env, workspaceName, null, req);
+  } catch (err) {
+    console.error(
+      JSON.stringify({
+        message: `${callerLabel}: resolveGhKeyContext failed; degrading to plain`,
+        repo: req.repo,
+        ...(req.branch !== undefined ? { branch: req.branch } : {}),
+        error: err instanceof Error ? err.message : String(err),
+      }),
+    );
+    return { mode: "plain" };
+  }
+}
+
 export type RotatePrivatePrefixResult =
   | { rotated: false; reason: string }
   | { rotated: true; prefixId: string; moved: number };
@@ -298,17 +331,23 @@ export async function rotatePrivatePrefix(
     // Runs even when the loop above threw partway through: every target
     // that was fully moved before the failure still gets its managed
     // comment pointed at the new prefix, rather than staying stale until
-    // someone notices and retries the whole rotation.
-    for (const target of targets.values()) {
-      await postManagedComment(
-        env,
-        ws,
-        workspaceName,
-        mintingUserId,
-        { repo, kind: target.kind, num: target.num },
-        { resync: true },
-      );
-    }
+    // someone notices and retries the whole rotation. Each re-sync is
+    // already best-effort and independent of the others, so they run
+    // concurrently; `allSettled` (not `all`) so one target's rejection can't
+    // throw from inside a `finally` and mask whatever error the try block
+    // above was already propagating.
+    await Promise.allSettled(
+      Array.from(targets.values(), (target) =>
+        postManagedComment(
+          env,
+          ws,
+          workspaceName,
+          mintingUserId,
+          { repo, kind: target.kind, num: target.num },
+          { resync: true },
+        ),
+      ),
+    );
   }
 
   return { rotated: true, prefixId: newId, moved };

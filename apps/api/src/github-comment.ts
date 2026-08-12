@@ -104,36 +104,43 @@ async function gatherAttachments(
   // issue #365, extended by #307: skip the metadata read entirely when
   // neither meta field would render anything.
   const showMetadata = options.metaPath || options.metaState;
-  const items: AttachmentItem[] = [];
 
   // Every active private prefix id for this repo (across branches, #631) is
   // also listed — a private-repo attachment can land under any of them, not
-  // just the plain `ghKeyPrefix`. Listed AFTER the plain prefix so ordering
-  // stays stable (plain first) regardless of listActivePrefixIds' order.
+  // just the plain `ghKeyPrefix`. Plain prefix listed first so ordering
+  // stays stable regardless of listActivePrefixIds' order.
   const activePrefixIds = await listActivePrefixIds(env.DB, target.repo);
   const prefixes = [
     ghKeyPrefix(target),
     ...activePrefixIds.map((id) => ghPrivateKeyPrefix(id, target)),
   ];
 
-  for (const prefix of prefixes) {
-    let cursor: string | undefined;
-    do {
-      const page = await listObjects(env, ws, {
-        prefix,
-        limit: 1000,
-        cursor,
-      });
-      for (const o of page.items)
-        items.push({
-          key: o.key,
-          url: o.url,
-          embedUrl: o.embedUrl,
-          pageUrl: linkToFilePage ? o.pageUrl : null,
+  // Paginated per-prefix, but the prefixes themselves are independent — run
+  // them concurrently and concatenate in prefix order, so output ordering is
+  // unchanged (plain first, then ids in listActivePrefixIds order).
+  const perPrefixItems = await Promise.all(
+    prefixes.map(async (prefix) => {
+      const prefixItems: AttachmentItem[] = [];
+      let cursor: string | undefined;
+      do {
+        const page = await listObjects(env, ws, {
+          prefix,
+          limit: 1000,
+          cursor,
         });
-      cursor = page.cursor ?? undefined;
-    } while (cursor);
-  }
+        for (const o of page.items)
+          prefixItems.push({
+            key: o.key,
+            url: o.url,
+            embedUrl: o.embedUrl,
+            pageUrl: linkToFilePage ? o.pageUrl : null,
+          });
+        cursor = page.cursor ?? undefined;
+      } while (cursor);
+      return prefixItems;
+    }),
+  );
+  const items: AttachmentItem[] = perPrefixItems.flat();
 
   if (!showMetadata || items.length === 0) return items;
 

@@ -20,7 +20,7 @@
 import { getMetadataForKeys, setFileMetadata } from "./file-metadata";
 import { putObject } from "./files-core";
 import { ghPrivateAttachmentKey, ghPrivateBranchKeyPrefix } from "./github-comment-render";
-import { resolveGhKeyContext } from "./github-private-prefix-service";
+import { resolveGhKeyContextSafe } from "./github-private-prefix-service";
 import { storage } from "./storage";
 import { objectVisibility } from "./visibility";
 import type { WorkspaceRecord } from "./workspace";
@@ -135,28 +135,14 @@ export async function promoteBranchAttachments(
   const plainPrefix = stagedPrefix(owner, name, target.branch);
   const store = await storage(env, ws);
 
-  // resolveGhKeyContext's own D1 tail (checkRepoAuthorization →
-  // findRepoLinkStrict) deliberately PROPAGATES D1 errors rather than
-  // degrading — that's fine for its direct HTTP route caller, but promote
-  // must never abort just because the mode couldn't be determined. Guard
-  // here, same fail-open idiom as the webhook's privacy-cache write-through.
-  let mode: Awaited<ReturnType<typeof resolveGhKeyContext>>;
-  try {
-    mode = await resolveGhKeyContext(env, workspaceName, null, {
-      repo: target.repo,
-      branch: target.branch,
-    });
-  } catch (err) {
-    console.error(
-      JSON.stringify({
-        message: "promote: resolveGhKeyContext failed; degrading to plain",
-        repo: target.repo,
-        branch: target.branch,
-        error: err instanceof Error ? err.message : String(err),
-      }),
-    );
-    mode = { mode: "plain" };
-  }
+  // Fail-open resolve (see `resolveGhKeyContextSafe`'s doc) — promote must
+  // never abort just because the mode couldn't be determined.
+  const mode = await resolveGhKeyContextSafe(
+    env,
+    workspaceName,
+    { repo: target.repo, branch: target.branch },
+    "promote",
+  );
 
   const promoted: string[] = [];
   const skipped: PromoteSkip[] = [];

@@ -109,11 +109,14 @@ export {
   ghPrivateAttachmentKey,
   ghPrivateBranchKeyPrefix,
   ghPrivateBranchAttachmentKey,
+  ghAttachmentKeyForMode,
+  ghBranchAttachmentKeyForMode,
   parseGhKey,
   parseGhPrivateKey,
   type AttachmentItem,
   type GhTarget,
   type GhTargetKind,
+  type GhKeyMode,
 } from "./github.js";
 export {
   DEFAULT_OPTIMIZE_MAX_EDGE,

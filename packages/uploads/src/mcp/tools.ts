@@ -9,6 +9,8 @@ import type { GlobalFlags } from "../cli-args.js";
 import { createUploadsClient, type UploadsClient } from "../client.js";
 import {
   buildDoctorReport,
+  ghListPrefixes,
+  ghMergedList,
   makeGhTarget,
   mergeStagingMeta,
   resolveGhPrefixSafe,
@@ -1129,10 +1131,9 @@ export function createUploadsMcpTools(opts: {
         // mirrors syncAttachmentsComment's gh-fallback gather: a repo's
         // attachment history can be split across the plain shape and
         // MULTIPLE private prefixes, not just the currently-resolved one.
-        // Falls back to `[prefixId]` when the server omits
-        // `activePrefixIds`. `prefixes` stays undefined outside pr/issue
-        // (unchanged behavior); collapses to `[prefix]` in plain mode, so
-        // the single-request path below is byte-identical to pre-#631.
+        // `prefixes` stays undefined outside pr/issue (unchanged behavior);
+        // collapses to `[prefix]` in plain mode, so the single-request path
+        // below is byte-identical to pre-#631.
         let prefixes: string[] | undefined;
         if (target) {
           if (prefixArg) usage("prefix cannot be combined with pr/issue");
@@ -1141,44 +1142,27 @@ export function createUploadsMcpTools(opts: {
             repo: target.repo,
             target: { kind: target.kind, num: target.num },
           });
-          prefixes =
-            ghPrefix.mode === "private"
-              ? [
-                  prefix,
-                  ...(ghPrefix.activePrefixIds ?? [ghPrefix.prefixId]).map((id) =>
-                    ghPrivateKeyPrefix(id, target),
-                  ),
-                ]
-              : [prefix];
+          prefixes = ghListPrefixes(prefix, ghPrefix, (id) => ghPrivateKeyPrefix(id, target));
         }
         const limit = optPosInt(args, "limit");
         const cursor = optString(args, "cursor");
 
-        // A cursor is opaque and scoped to the prefix it was minted against
-        // — a multi-prefix merge only ever hands it to the FIRST prefix;
-        // every other prefix always starts from its own beginning
-        // (undefined cursor), or a cursor minted for one prefix's keyspace
-        // would get replayed against a different one.
         if (optBool(args, "all")) {
           const items =
             prefixes && prefixes.length > 1
-              ? (
-                  await Promise.all(
-                    prefixes.map((p, i) =>
-                      client.listAll({ prefix: p, limit, cursor: i === 0 ? cursor : undefined }),
-                    ),
-                  )
-                ).flat()
+              ? await ghMergedList(prefixes, cursor, (p, c) =>
+                  client.listAll({ prefix: p, limit, cursor: c }),
+                )
               : await client.listAll({ prefix, limit, cursor });
           return { items, cursor: null };
         }
         if (prefixes && prefixes.length > 1) {
-          const pages = await Promise.all(
-            prefixes.map((p, i) =>
-              client.list({ prefix: p, limit, cursor: i === 0 ? cursor : undefined }),
-            ),
+          const items = await ghMergedList(
+            prefixes,
+            cursor,
+            async (p, c) => (await client.list({ prefix: p, limit, cursor: c })).items,
           );
-          return { items: pages.flatMap((page) => page.items), cursor: null };
+          return { items, cursor: null };
         }
         return client.list({ prefix, limit, cursor });
       },

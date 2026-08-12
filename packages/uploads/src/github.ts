@@ -192,6 +192,44 @@ export function ghBranchAttachmentKey(repo: string, branch: string, filename: st
 }
 
 /**
+ * Structural stand-in for `ResolveGhPrefixResult` (defined in client.ts) —
+ * kept local so these key builders don't need to import client types just
+ * to own the plain-vs-private branch.
+ */
+export type GhKeyMode = { mode: "plain" } | { mode: "private"; prefixId: string };
+
+/**
+ * Mode-owning attachment key builder: collapses the
+ * `mode === "private" ? ghPrivateAttachmentKey(...) : ghAttachmentKey(...)`
+ * ternary repeated across call sites into one place.
+ */
+export function ghAttachmentKeyForMode(
+  mode: GhKeyMode,
+  target: GhTarget,
+  filename: string,
+): string {
+  return mode.mode === "private"
+    ? ghPrivateAttachmentKey(mode.prefixId, target, filename)
+    : ghAttachmentKey(target, filename);
+}
+
+/**
+ * Mode-owning branch-staged attachment key builder. The private form
+ * ignores `repo`/`branch` (a private-repo key has no branch-name segment,
+ * see `ghPrivateBranchKeyPrefix`) and uses the prefix id instead.
+ */
+export function ghBranchAttachmentKeyForMode(
+  mode: GhKeyMode,
+  repo: string,
+  branch: string,
+  filename: string,
+): string {
+  return mode.mode === "private"
+    ? ghPrivateBranchAttachmentKey(mode.prefixId, filename)
+    : ghBranchAttachmentKey(repo, branch, filename);
+}
+
+/**
  * `gh.*` metadata for a branch-staged attach: `gh.repo`, `gh.kind=branch`,
  * `gh.branch` (lowercased), and `gh.staged-at` (ISO 8601 UTC, no fractional
  * seconds). No `gh.number`/`gh.ref`/`gh.title` — there is no PR/issue yet.

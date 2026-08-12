@@ -14,12 +14,10 @@
 import {
   buildMarkdown,
   buildScreenshotKey,
-  ghAttachmentKey,
-  ghBranchAttachmentKey,
+  ghAttachmentKeyForMode,
+  ghBranchAttachmentKeyForMode,
   ghMetadataForBranch,
   ghMetadataFromTarget,
-  ghPrivateAttachmentKey,
-  ghPrivateBranchAttachmentKey,
   type GhTarget,
 } from "@buildinternet/uploads";
 import {
@@ -743,15 +741,11 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
               repo: target.repo,
               target: { kind: target.kind, num: target.num },
             });
-            return ghPrefix.mode === "private"
-              ? ghPrivateAttachmentKey(ghPrefix.prefixId, target, name)
-              : ghAttachmentKey(target, name);
+            return ghAttachmentKeyForMode(ghPrefix, target, name);
           }
           if (staging && repo && branch) {
             const ghPrefix = await resolveGhPrefixOnce({ repo, branch });
-            return ghPrefix.mode === "private"
-              ? ghPrivateBranchAttachmentKey(ghPrefix.prefixId, name)
-              : ghBranchAttachmentKey(repo, branch, name);
+            return ghBranchAttachmentKeyForMode(ghPrefix, repo, branch, name);
           }
           // deriveRepoFromGit: false — no git on a worker.
           return buildScreenshotKey({
