@@ -713,7 +713,7 @@ export async function groupObjectsByPath(
   let truncated = false;
   for (const row of result.results) {
     const project = projectLabelFromMeta({ repo: row.repo, ghRepo: row.gh_repo, url: row.url });
-    const groupKey = `${project} ${row.path}`;
+    const groupKey = `${project}\0${row.path}`;
     let group = byKey.get(groupKey);
     if (!group) {
       if (groups.length === BY_PATH_GROUP_LIMIT) {
