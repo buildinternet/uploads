@@ -796,19 +796,9 @@ export function createUploadsMcpTools(opts: {
           usage("colorScheme must be dark or light");
         }
         const fullPageArg = optBool(args, "fullPage");
-        // Not optPosInt: unlike other px args, 0 is valid here (uncapped).
-        const maxHeightRaw = args.maxHeight;
-        let maxHeightArg: number | undefined;
-        if (maxHeightRaw !== undefined && maxHeightRaw !== null) {
-          if (
-            typeof maxHeightRaw !== "number" ||
-            !Number.isInteger(maxHeightRaw) ||
-            maxHeightRaw < 0
-          ) {
-            usage("maxHeight must be a non-negative integer");
-          }
-          maxHeightArg = maxHeightRaw;
-        }
+        // Unlike other px args, 0 is valid here (uncapped) — optPosInt's
+        // allowZero option covers it.
+        const maxHeightArg = optPosInt(args, "maxHeight", { allowZero: true });
         if (maxHeightArg !== undefined && !fullPageArg) usage("maxHeight requires fullPage");
 
         const target = ghTargetFromArgs(args, run);
@@ -1014,9 +1004,7 @@ export function createUploadsMcpTools(opts: {
           // Full-page height cap note (issue #652), mirrors the CLI's stderr
           // note + `hint` field.
           ...(captured.capped?.clipped
-            ? {
-                hint: `full page exceeds ${captured.capped.maxHeightPx}px; clipped — use maxHeight to raise`,
-              }
+            ? { hint: screenshotModule.clipHintText(captured.capped.maxHeightPx, "maxHeight") }
             : {}),
         };
         if (wantComment && target) {

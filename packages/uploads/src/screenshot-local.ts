@@ -367,11 +367,6 @@ interface EvaluatablePage {
   evaluate<T>(fn: (selectors: string[]) => T, arg: string[]): Promise<T>;
 }
 
-/** Minimal page shape for measuring the full scrollable height (no args). */
-interface MeasurablePage {
-  evaluate<T>(fn: () => T): Promise<T>;
-}
-
 /**
  * Measures the page's full scrollable height in CSS px — the same quantity
  * a `fullPage: true` screenshot would otherwise capture in its entirety.
@@ -379,7 +374,9 @@ interface MeasurablePage {
  * is included too since some pages (quirks-mode, non-standard layouts) only
  * grow one or the other.
  */
-export async function measureFullPageHeight(page: MeasurablePage): Promise<number> {
+export async function measureFullPageHeight(page: {
+  evaluate<T>(fn: () => T): Promise<T>;
+}): Promise<number> {
   return page.evaluate(() =>
     Math.max(document.documentElement.scrollHeight, document.body?.scrollHeight ?? 0),
   );

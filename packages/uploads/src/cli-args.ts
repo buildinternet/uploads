@@ -246,15 +246,18 @@ export function flagInt(
   flags: CommandFlags["flags"],
   name: string,
   label: string,
+  options?: { allowZero?: boolean },
 ): number | undefined {
+  const allowZero = options?.allowZero ?? false;
+  const kind = allowZero ? "non-negative" : "positive";
   const raw = flagString(flags, name);
   if (raw === undefined) return undefined;
   if (!/^\d+$/.test(raw)) {
-    throw new UsageError(`invalid ${label}: must be a positive integer (got ${raw})`);
+    throw new UsageError(`invalid ${label}: must be a ${kind} integer (got ${raw})`);
   }
   const n = Number.parseInt(raw, 10);
-  if (!Number.isFinite(n) || n <= 0) {
-    throw new UsageError(`invalid ${label}: must be a positive integer (got ${raw})`);
+  if (!Number.isFinite(n) || (allowZero ? n < 0 : n <= 0)) {
+    throw new UsageError(`invalid ${label}: must be a ${kind} integer (got ${raw})`);
   }
   return n;
 }

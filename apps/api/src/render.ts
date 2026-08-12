@@ -26,11 +26,12 @@ const MIN_DEVICE_SCALE_FACTOR = 1;
 const MAX_DEVICE_SCALE_FACTOR = 3;
 
 /**
- * Default cap (CSS px) on `fullPage` capture height (issue #652), mirroring
- * the CLI's `DEFAULT_FULL_PAGE_MAX_HEIGHT` (packages/uploads/src/screenshot.ts)
- * so both backends default to the same behavior. The CLI always sends an
- * explicit `maxHeight` when `fullPage` is set, so this is really only a
- * fallback for a bare API call that omits it.
+ * Default cap (CSS px) on `fullPage` capture height (issue #652): a
+ * deliberately independent, conservative fallback for direct API callers
+ * that omit `maxHeight` — 5000, matches the CLI default as of writing; no
+ * compile-time link — the CLI always sends an explicit value, and apps/api
+ * intentionally does not depend on packages/uploads, so nothing enforces
+ * the two stay in sync.
  */
 const DEFAULT_FULL_PAGE_MAX_HEIGHT = 5000;
 /** Sanity ceiling on a caller-supplied `maxHeight`, well above the default. */

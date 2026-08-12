@@ -49,6 +49,7 @@ import { readStdin, writeJson, writeStdout } from "../io.js";
 import {
   assertHideSelector,
   captureScreenshot,
+  clipHintText,
   DEFAULT_FULL_PAGE_MAX_HEIGHT,
   parseViewport,
   parseWaitUntil,
@@ -256,18 +257,11 @@ export async function runScreenshot(
   const viewport = parseViewport(flagString(parsed.flags, "--viewport"));
   const selector = flagString(parsed.flags, "--selector");
   const fullPage = flagBool(parsed.flags, "--full-page");
-  // Not flagInt: unlike every other --…-px flag, 0 is a valid (uncapped)
-  // value here, not an error.
-  const maxHeightRaw = flagString(parsed.flags, "--max-height");
-  let maxHeightFlag: number | undefined;
-  if (maxHeightRaw !== undefined) {
-    if (!/^\d+$/.test(maxHeightRaw)) {
-      throw new UsageError(
-        `invalid --max-height: must be a non-negative integer (got ${maxHeightRaw})`,
-      );
-    }
-    maxHeightFlag = Number.parseInt(maxHeightRaw, 10);
-  }
+  // Unlike every other --…-px flag, 0 is a valid (uncapped) value here, not
+  // an error — flagInt's allowZero option covers it.
+  const maxHeightFlag = flagInt(parsed.flags, "--max-height", "--max-height", {
+    allowZero: true,
+  });
   if (maxHeightFlag !== undefined && !fullPage) {
     throw new UsageError("--max-height requires --full-page");
   }
@@ -503,7 +497,7 @@ export async function runScreenshot(
   // (only --quiet suppresses it) since it's directly actionable info about
   // the image that was just captured, same as the upload-tail warnings below.
   const clipHint = captured.capped?.clipped
-    ? `full page exceeds ${captured.capped.maxHeightPx}px; clipped — use --max-height to raise`
+    ? clipHintText(captured.capped.maxHeightPx, "--max-height")
     : undefined;
   if (clipHint && !ctx.quiet) process.stderr.write(`${clipHint}\n`);
 

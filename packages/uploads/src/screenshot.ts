@@ -293,6 +293,15 @@ export interface CaptureScreenshotResult {
   capped?: { maxHeightPx: number; clipped: boolean };
 }
 
+/**
+ * The "clipped by the max-height cap" note shared by the CLI's stderr
+ * message and the MCP tool's JSON `hint` field (issue #652) — identical
+ * except for how each surface names the flag to raise the cap.
+ */
+export function clipHintText(maxHeightPx: number, flagName: string): string {
+  return `full page exceeds ${maxHeightPx}px; clipped — use ${flagName} to raise`;
+}
+
 /** Derives a filename from a URL (host+path) or the source .html filename. */
 function deriveFilename(target: ScreenshotTarget): string {
   if (target.kind === "html-file") {
@@ -382,6 +391,13 @@ export async function captureScreenshot(
   // (explicit --max-height 0) means uncapped; undefined applies the default.
   const effectiveMaxHeight = opts.fullPage ? (opts.maxHeight ?? DEFAULT_FULL_PAGE_MAX_HEIGHT) : 0;
 
+  // Shared by both backends below — only meaningful when fullPage capped at
+  // a positive height; `clipped` is the one thing that differs per backend.
+  const cappedFrom = (clipped: boolean): CaptureScreenshotResult["capped"] =>
+    opts.fullPage && effectiveMaxHeight > 0
+      ? { maxHeightPx: effectiveMaxHeight, clipped }
+      : undefined;
+
   // Populated only when auto-routing actually probes the filesystem, so it
   // can be threaded into captureLocalImpl below to avoid a second scan.
   let detected: import("./screenshot-local.js").DetectResult | undefined;
@@ -464,10 +480,7 @@ export async function captureScreenshot(
       detectRoots: opts.detectRoots,
       detectResult: detected,
     });
-    const capped =
-      opts.fullPage && effectiveMaxHeight > 0
-        ? { maxHeightPx: effectiveMaxHeight, clipped: localResult.clipped === true }
-        : undefined;
+    const capped = cappedFrom(localResult.clipped === true);
     return { png: localResult.png, filename, backend, measures: localResult.measures, capped };
   }
 
@@ -496,9 +509,6 @@ export async function captureScreenshot(
     },
     { apiUrl: opts.apiUrl, token: opts.token },
   );
-  const capped =
-    opts.fullPage && effectiveMaxHeight > 0
-      ? { maxHeightPx: effectiveMaxHeight, clipped: remoteResult.clipped === true }
-      : undefined;
+  const capped = cappedFrom(remoteResult.clipped === true);
   return { png: remoteResult.png, filename, backend, capped };
 }
