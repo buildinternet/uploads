@@ -156,20 +156,24 @@ function zshScript(): string {
 
   const globalArgs = GLOBAL_FLAGS.map((g) => {
     const desc = g.summary.replace(/'/g, "'\\''");
-    // Short and long flags as separate specs when needed.
-    if (g.flag === "-w") return `    '(-w --workspace)'{-w,--workspace}'[${desc}]:workspace:'`;
-    if (g.flag === "--workspace") return null; // paired with -w
-    if (g.flag === "-V") return `    '(-V --version)'{-V,--version}'[${desc}]'`;
-    if (g.flag === "--version") return null;
-    if (g.flag === "-h") return `    '(-h --help)'{-h,--help}'[${desc}]'`;
-    if (g.flag === "--help") return null;
+    // Pair each short flag with its long form, keeping the long form's cleaner
+    // summary; the short entry then contributes nothing of its own.
+    if (g.flag === "--workspace")
+      return `    '(-w --workspace)'{-w,--workspace}'[${desc}]:workspace:'`;
+    if (g.flag === "-w") return null; // paired with --workspace
+    if (g.flag === "--version") return `    '(-V --version)'{-V,--version}'[${desc}]'`;
+    if (g.flag === "-V") return null;
+    if (g.flag === "--help") return `    '(-h --help)'{-h,--help}'[${desc}]'`;
+    if (g.flag === "-h") return null;
     if (g.flag === "--api-url") return `    '--api-url[${desc}]:url:'`;
     if (g.flag === "--token") return `    '--token[${desc}]:token:'`;
     if (g.flag === "--env-file") return `    '--env-file[${desc}]:file:_files'`;
     return `    '${g.flag}[${desc}]'`;
   })
     .filter(Boolean)
-    .join("\n");
+    // Every spec but the last needs a line continuation — without them zsh ends
+    // the `_arguments` call after the first spec and tries to *run* the rest.
+    .join(" \\\n");
 
   const subCases = ROOT_COMMANDS.filter((c) => c.subcommands?.length)
     .map((c) => {
