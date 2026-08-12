@@ -107,6 +107,22 @@ export class PrivatePrefixesTable {
         .map((row) => ({ prefix_id: row.prefix_id }));
       return { success: true, results: results as T[], meta: {} };
     }
+    // listRetiredPrefixIds: every retired row for one (repo, branch),
+    // oldest first — rotation's resumability sweep (issue #631, Task 8).
+    if (
+      normalizedSql.includes("FROM github_private_prefixes") &&
+      normalizedSql.includes("rotated_at IS NOT NULL") &&
+      normalizedSql.includes("branch = ?")
+    ) {
+      const [repo, branch] = args as [string, string];
+      const results = [...this.rows.values()]
+        .filter(
+          (row) => row.repo_full_name === repo && row.branch === branch && row.rotated_at !== null,
+        )
+        .sort((a, b) => a.created_at.localeCompare(b.created_at))
+        .map((row) => ({ prefix_id: row.prefix_id }));
+      return { success: true, results: results as T[], meta: {} };
+    }
     return undefined;
   }
 }

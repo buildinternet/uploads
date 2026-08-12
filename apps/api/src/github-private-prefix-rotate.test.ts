@@ -16,7 +16,7 @@ import {
 } from "./github-comment-render";
 import { attachmentsMarker } from "./github-comment-render";
 import { rotatePrivatePrefix } from "./github-private-prefix-service";
-import { getActivePrefixId, getOrMintPrefixId } from "./github-private-prefixes";
+import { getActivePrefixId, getOrMintPrefixId, retirePrefixId } from "./github-private-prefixes";
 import { ledgerRow, recordIngestedAsset } from "./github-ingest-ledger";
 import { recordRepoLink } from "./github-repo-links";
 import { getWorkspaceUsage } from "./usage";
@@ -178,6 +178,146 @@ describe("rotatePrivatePrefix", () => {
     const usage = await getWorkspaceUsage(db, WS);
     expect(usage.objects).toBe(2);
     expect(usage.bytes).toBe(PNG.byteLength * 2);
+  });
+
+  it("review fix 1 (Critical): rotating an object carrying inheritable metadata (repo/path/url) doesn't throw a UNIQUE constraint violation — the new key ends up with exactly the old rows, once", async () => {
+    const { env, db, ws } = await seededEnv();
+    const oldId = await getOrMintPrefixId(db, REPO, BRANCH);
+    const pullKey = ghPrivateAttachmentKey(
+      oldId,
+      { repo: REPO, kind: "pull", num: NUM },
+      "shot.png",
+    );
+
+    // `repo`/`path`/`url` are in INHERITABLE_META_KEYS (content-hash.ts) —
+    // this is the shape a real CLI screenshot stamps. Rotation's copy calls
+    // `putObject` with no explicit `metadata`, which triggers ADDITIVE
+    // content-hash inheritance: since the new key's bytes are identical to
+    // this (still-present) old key, `putObject` finds the old key as its
+    // own donor and writes these rows onto the new key BEFORE rotation's
+    // own rename runs.
+    await putObject(env, ws, pullKey, PNG, WS, {
+      metadata: {
+        "gh.repo": REPO,
+        "gh.kind": "pull",
+        "gh.number": String(NUM),
+        repo: "acme/web",
+        path: "/dashboard",
+        url: "https://acme.test/dashboard",
+      },
+    });
+
+    const result = await withFetch(commentFlowFetch({ bodies: [] }), () =>
+      rotatePrivatePrefix(env, ws, WS, "user-1", REPO, BRANCH),
+    );
+
+    expect(result.rotated).toBe(true);
+    if (!result.rotated) throw new Error("expected rotated: true");
+
+    const newKey = ghPrivateAttachmentKey(
+      result.prefixId,
+      { repo: REPO, kind: "pull", num: NUM },
+      "shot.png",
+    );
+    const meta = await getFileMetadata(db, WS, newKey);
+    expect(meta).toEqual({
+      "gh.repo": REPO,
+      "gh.kind": "pull",
+      "gh.number": String(NUM),
+      repo: "acme/web",
+      path: "/dashboard",
+      url: "https://acme.test/dashboard",
+    });
+    // Row-count check (not just merged-object equality) — catches a
+    // duplicate row landing under the same meta_key, which `toEqual` above
+    // couldn't distinguish from a single row.
+    const rowCount = await db
+      .prepare(`SELECT COUNT(*) AS n FROM file_metadata WHERE workspace = ? AND object_key = ?`)
+      .bind(WS, newKey)
+      .first<{ n: number }>();
+    expect(rowCount?.n).toBe(6);
+  });
+
+  it("review fix 2 (Important): resumability — drains leftovers stranded under a PREVIOUSLY retired id for the same (repo, branch), not just the id retired this call", async () => {
+    const { env, db, bucket, ws } = await seededEnv();
+
+    // Simulate an earlier, interrupted rotation: id1 was retired but its
+    // sweep never finished, so an object is still physically sitting under
+    // it even though it is no longer the active row.
+    const id1 = await getOrMintPrefixId(db, REPO, BRANCH);
+    const strandedKey = ghPrivateBranchAttachmentKey(id1, "stranded.png");
+    await putObject(env, ws, strandedKey, PNG, WS, {
+      metadata: { "gh.repo": REPO, "gh.kind": "branch" },
+    });
+    await retirePrefixId(db, REPO, BRANCH, id1);
+
+    // The id this call's own rotation targets — the CURRENT active id, with
+    // its own live object.
+    const id2 = await getOrMintPrefixId(db, REPO, BRANCH);
+    const liveKey = ghPrivateBranchAttachmentKey(id2, "live.png");
+    await putObject(env, ws, liveKey, PNG, WS, {
+      metadata: { "gh.repo": REPO, "gh.kind": "branch" },
+    });
+
+    const result = await withFetch(commentFlowFetch({ bodies: [] }), () =>
+      rotatePrivatePrefix(env, ws, WS, "user-1", REPO, BRANCH),
+    );
+
+    expect(result.rotated).toBe(true);
+    if (!result.rotated) throw new Error("expected rotated: true");
+    expect(result.moved).toBe(2);
+
+    const id3 = result.prefixId;
+    const newStranded = ghPrivateBranchAttachmentKey(id3, "stranded.png");
+    const newLive = ghPrivateBranchAttachmentKey(id3, "live.png");
+    expect(bucket.store.has(`${PREFIX}${newStranded}`)).toBe(true);
+    expect(bucket.store.has(`${PREFIX}${newLive}`)).toBe(true);
+    expect(bucket.store.has(`${PREFIX}${strandedKey}`)).toBe(false);
+    expect(bucket.store.has(`${PREFIX}${liveKey}`)).toBe(false);
+  });
+
+  it("review fix 3 (Important): a copy failure on object 2 of 2 leaves its old copy intact, propagates the error, but still resyncs object 1's comment via the finally", async () => {
+    const { env, db, bucket, ws } = await seededEnv();
+    const oldId = await getOrMintPrefixId(db, REPO, BRANCH);
+
+    const goodKey = ghPrivateAttachmentKey(
+      oldId,
+      { repo: REPO, kind: "pull", num: NUM },
+      "a-good.png",
+    );
+    const badKey = ghPrivateAttachmentKey(
+      oldId,
+      { repo: REPO, kind: "pull", num: NUM },
+      "b-bad.png",
+    );
+
+    await putObject(env, ws, goodKey, PNG, WS, {
+      metadata: { "gh.repo": REPO, "gh.kind": "pull", "gh.number": String(NUM) },
+    });
+    // Seeded directly (bypassing `putObject`, which itself rejects an empty
+    // body on write) so rotation's own copy step is what discovers the
+    // problem, mid-sweep, on the SECOND object (`list()` sorts keys, and
+    // "a-good.png" sorts before "b-bad.png").
+    await bucket.put(`${PREFIX}${badKey}`, new Uint8Array(0), {
+      httpMetadata: { contentType: "image/png" },
+    });
+
+    const seen = { bodies: [] as string[] };
+    await expect(
+      withFetch(commentFlowFetch(seen), () =>
+        rotatePrivatePrefix(env, ws, WS, "user-1", REPO, BRANCH),
+      ),
+    ).rejects.toThrow();
+
+    // Object 2's old copy is untouched — the failure happened before its
+    // delete step ever ran, so nothing was lost.
+    expect(bucket.store.has(`${PREFIX}${badKey}`)).toBe(true);
+    // Object 1 DID finish moving (its old copy is gone).
+    expect(bucket.store.has(`${PREFIX}${goodKey}`)).toBe(false);
+
+    // The comment resync for object 1's target still ran, from the
+    // `finally`, even though the loop threw partway through on object 2.
+    expect(seen.bodies).toHaveLength(1);
   });
 
   it("no active id → { rotated: false, reason: 'no_prefix' }", async () => {

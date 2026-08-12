@@ -101,6 +101,32 @@ export async function listActivePrefixIds(db: D1Database, repo: string): Promise
 }
 
 /**
+ * All RETIRED prefix ids for (repo, branch), oldest first. Rotation's
+ * resumability (issue #631, Task 8) uses this to drain any leftovers
+ * stranded under a PREVIOUS rotation that was interrupted mid-sweep — a
+ * plain re-run of rotation only sweeps the id it itself just retired, so
+ * without this an earlier crash's abandoned objects would sit under a
+ * tombstoned id forever, unreachable at the (repo, branch)'s current active
+ * id and never revoked. Distinct from `listActivePrefixIds`, which is
+ * scoped to non-retired rows across an entire repo, not one branch.
+ */
+export async function listRetiredPrefixIds(
+  db: D1Database,
+  repo: string,
+  branch: string,
+): Promise<string[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT prefix_id FROM github_private_prefixes
+       WHERE repo_full_name = ? AND branch = ? AND rotated_at IS NOT NULL
+       ORDER BY created_at ASC`,
+    )
+    .bind(normalizeRepo(repo), normalizeBranch(branch))
+    .all<PrefixRow>();
+  return (results ?? []).map((row) => row.prefix_id);
+}
+
+/**
  * Retires an active prefix id, stamping `rotated_at`. The row is kept as a
  * tombstone rather than deleted. A subsequent `getOrMintPrefixId` for the
  * same (repo, branch) mints a fresh id, since the partial unique index no

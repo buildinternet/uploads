@@ -18,7 +18,13 @@ import { githubAppConfig, installationForRepo, prHeadBranch, repoIsPrivate } fro
 import { checkRepoAuthorization, postManagedComment } from "./github-comment-service";
 import { GH_PRIVATE_ROOT, type GhTargetKind, parseGhPrivateKey } from "./github-comment-render";
 import { deleteObject, putObject } from "./files-core";
-import { getActivePrefixId, getOrMintPrefixId, retirePrefixId } from "./github-private-prefixes";
+import { deleteFileMetadata } from "./file-metadata";
+import {
+  getActivePrefixId,
+  getOrMintPrefixId,
+  listRetiredPrefixIds,
+  retirePrefixId,
+} from "./github-private-prefixes";
 import { storage } from "./storage";
 import { objectVisibility } from "./visibility";
 import type { WorkspaceRecord } from "./workspace";
@@ -104,11 +110,13 @@ export type RotatePrivatePrefixResult =
 
 /**
  * Rotate the active prefix id for `(repo, branch)` (issue #631, Task 8):
- * mint a fresh id, move every object under the old id's key space to the
- * same tail under the new id (bytes + R2 custom metadata + the D1 rows that
- * point at the object key), delete the old objects (so old URLs 404 at
- * origin immediately), retire the old row, and re-sync the managed comment
- * for every PR/issue that had a moved object.
+ * mint a fresh id, move every object under the old id's key space (plus any
+ * leftovers stranded under a PREVIOUS, interrupted rotation for the same
+ * (repo, branch) — see the resumability note below) to the same tail under
+ * the new id (bytes + R2 custom metadata + the D1 rows that point at the
+ * object key), delete the old objects (so old URLs 404 at origin
+ * immediately), retire the old row, and re-sync the managed comment for
+ * every PR/issue that had a moved object.
  *
  * Authorization mirrors `resolveGhKeyContext`'s `checkRepoAuthorization`
  * call, but with the opposite failure posture: `resolveGhKeyContext` is an
@@ -134,6 +142,25 @@ export type RotatePrivatePrefixResult =
  * object is copied to the new id's key space (and the old copy still
  * exists) before the old object is deleted, so there is no window where a
  * moved attachment is unreachable at both keys.
+ *
+ * Resumability: a crash/timeout mid-sweep would otherwise strand objects
+ * under a tombstoned id forever — a later `rotatePrivatePrefix` call only
+ * discovers `getActivePrefixId`'s CURRENT row, never a retired one, so a
+ * naive re-run would silently leave those objects unrevoked. Instead every
+ * call sweeps `listRetiredPrefixIds` for this (repo, branch) — which
+ * includes the id retired a few lines up PLUS any earlier tombstones a
+ * previous interrupted rotation left mid-sweep — so a follow-up rotation
+ * (even one that only fires because an operator noticed and retried) drains
+ * every stranded object into the new id, not just the most recent old one.
+ *
+ * Partial-failure posture: a single object's copy can throw (e.g. an
+ * `InsufficientStorageError`/`ValidationError` from `putObject`). That
+ * propagates — the caller sees the failure — but the comment resync for
+ * every target already moved before the failure still runs (`finally`), so
+ * a partial rotation doesn't also leave a stale managed comment pointing at
+ * now-half-migrated attachments. The failed object's OLD copy is left in
+ * place (never reached the delete step), so nothing is lost; the next call
+ * picks it up via the resumability sweep above.
  */
 export async function rotatePrivatePrefix(
   env: Env,
@@ -154,74 +181,123 @@ export async function rotatePrivatePrefix(
   await retirePrefixId(env.DB, repo, branch, oldId);
   const newId = await getOrMintPrefixId(env.DB, repo, branch);
 
+  // Includes `oldId` (just retired above) plus any tombstone left behind by
+  // an earlier, interrupted rotation for this same (repo, branch) — see the
+  // resumability note above.
+  const sourceIds = await listRetiredPrefixIds(env.DB, repo, branch);
+
   const store = await storage(env, ws);
-  const oldPrefix = `${GH_PRIVATE_ROOT}${oldId}/`;
   const newPrefixRoot = `${GH_PRIVATE_ROOT}${newId}/`;
 
   const targets = new Map<string, { kind: GhTargetKind; num: number }>();
   let moved = 0;
 
-  let cursor: string | undefined;
-  // Bounded pagination, same idiom (and same ceiling) as
-  // `promoteBranchAttachments`'s sweep — a pathological prefix can't loop
-  // forever.
-  const MAX_LIST_PAGES = 50;
-  for (let page = 0; page < MAX_LIST_PAGES; page++) {
-    const result = await store.list({ prefix: oldPrefix, limit: 1000, cursor });
-    for (const item of result.items) {
-      const tail = item.key.slice(oldPrefix.length);
-      const newKey = `${newPrefixRoot}${tail}`;
+  try {
+    for (const sourceId of sourceIds) {
+      const oldPrefix = `${GH_PRIVATE_ROOT}${sourceId}/`;
+      let cursor: string | undefined;
+      // Bounded pagination, same idiom (and same ceiling) as
+      // `promoteBranchAttachments`'s sweep — a pathological prefix can't
+      // loop forever.
+      const MAX_LIST_PAGES = 50;
+      for (let page = 0; page < MAX_LIST_PAGES; page++) {
+        const result = await store.list({ prefix: oldPrefix, limit: 1000, cursor });
+        for (const item of result.items) {
+          const tail = item.key.slice(oldPrefix.length);
+          const newKey = `${newPrefixRoot}${tail}`;
 
-      const source = await store.download(item.key);
-      const bytes = new Uint8Array(await source.arrayBuffer());
-      const visibility = objectVisibility(source.metadata);
-      // Byte-for-byte copy: the R2 custom metadata (provenance/visibility)
-      // is carried over as-is — unlike `promoteBranchAttachments`, this is
-      // not a re-derivation with fresh `gh.*` tags, since nothing about the
-      // attachment's identity (repo, kind, number) changed, only its key.
-      await putObject(env, ws, newKey, bytes, workspaceName, {
-        provenance: source.metadata,
-        visibility,
-        surface: "rotate",
-      });
+          const source = await store.download(item.key);
+          const bytes = new Uint8Array(await source.arrayBuffer());
+          const visibility = objectVisibility(source.metadata);
+          // Not a byte-for-byte metadata copy: `putObject` runs its normal
+          // write path on `provenance: source.metadata` — `sanitizeProvenance`
+          // strips it to the client-safe subset, `content-sha256` is
+          // recomputed fresh from the bytes (same value, since the bytes are
+          // identical), and `uploaded-at` resets to now (no prior head exists
+          // yet at `newKey`, so `resolveUploadedAtMeta` can't preserve the
+          // original stamp). `putObject` also has its own additive
+          // content-hash-inheritance side effect here (files-core.ts): since
+          // these bytes already exist in the workspace under the OLD key,
+          // this call's own donor lookup can find that old key (or any other
+          // content-identical object) and write inheritable `file_metadata`
+          // rows (`repo`, `path`, `url`, …) onto `newKey` before this
+          // function's own rename below runs.
+          await putObject(env, ws, newKey, bytes, workspaceName, {
+            provenance: source.metadata,
+            visibility,
+            surface: "rotate",
+          });
 
-      // Rename in place: the queryable metadata and ingest-ledger rows keep
-      // their values, they just now point at the new key. Done BEFORE the
-      // delete below so `deleteObject`'s own `deleteFileMetadata` call finds
-      // nothing left at the old key to (redundantly) clean up.
-      await env.DB.prepare(
-        `UPDATE file_metadata SET object_key = ? WHERE workspace = ? AND object_key = ?`,
-      )
-        .bind(newKey, workspaceName, item.key)
-        .run();
-      await env.DB.prepare(`UPDATE github_ingested_assets SET object_key = ? WHERE object_key = ?`)
-        .bind(newKey, item.key)
-        .run();
+          // Wipe whatever's already at `newKey` before renaming onto it —
+          // `putObject`'s inheritance above may have just written donor rows
+          // there, and a second `sourceId` in this sweep can produce the same
+          // tail as an id already processed. Either way the OLD key (the one
+          // this iteration is actually moving) must be the sole source of
+          // truth for `newKey`'s resulting rows; a plain `UPDATE` into an
+          // already-occupied (workspace, object_key, meta_key) row would
+          // otherwise throw a UNIQUE constraint violation.
+          await deleteFileMetadata(env.DB, workspaceName, newKey);
+          await env.DB.prepare(
+            `UPDATE file_metadata SET object_key = ? WHERE workspace = ? AND object_key = ?`,
+          )
+            .bind(newKey, workspaceName, item.key)
+            .run();
 
-      // `deleteObject` (not a raw `store.delete`): it also releases the old
-      // key's usage-ledger bytes/object count, so a rotation doesn't inflate
-      // the workspace's storage usage by double-counting bytes that already
-      // existed under the old key.
-      await deleteObject(env, ws, item.key, workspaceName);
-      moved++;
+          // `file_content_hash` needs no rename/collision guard: `putObject`
+          // above already unconditionally upserted (INSERT ... ON CONFLICT
+          // DO UPDATE) a correct row for `newKey` via its own
+          // `recordContentHash` call, keyed by the same content hash (the
+          // bytes are identical). This only removes the now-stale OLD row so
+          // it can't linger as a dead inheritance donor pointing at a
+          // shortly-to-be-deleted key.
+          await env.DB.prepare(
+            `DELETE FROM file_content_hash WHERE workspace = ? AND object_key = ?`,
+          )
+            .bind(workspaceName, item.key)
+            .run();
 
-      const parsed = parseGhPrivateKey(newKey);
-      if (parsed)
-        targets.set(`${parsed.kind}:${parsed.num}`, { kind: parsed.kind, num: parsed.num });
+          await env.DB.prepare(
+            `UPDATE github_ingested_assets SET object_key = ? WHERE object_key = ?`,
+          )
+            .bind(newKey, item.key)
+            .run();
+          // Gallery items referencing this object follow the move too, so a
+          // rotated attachment doesn't quietly break a public gallery page.
+          await env.DB.prepare(`UPDATE gallery_items SET object_key = ? WHERE object_key = ?`)
+            .bind(newKey, item.key)
+            .run();
+
+          // `deleteObject` (not a raw `store.delete`): it also releases the
+          // old key's usage-ledger bytes/object count (and its poster, if
+          // any — `putObject` above already regenerated one for the new key
+          // when applicable), so a rotation doesn't inflate the workspace's
+          // storage usage or orphan a video's poster frame.
+          await deleteObject(env, ws, item.key, workspaceName);
+          moved++;
+
+          const parsed = parseGhPrivateKey(newKey);
+          if (parsed)
+            targets.set(`${parsed.kind}:${parsed.num}`, { kind: parsed.kind, num: parsed.num });
+        }
+        cursor = result.cursor ?? undefined;
+        if (!cursor) break;
+      }
     }
-    cursor = result.cursor ?? undefined;
-    if (!cursor) break;
-  }
-
-  for (const target of targets.values()) {
-    await postManagedComment(
-      env,
-      ws,
-      workspaceName,
-      mintingUserId,
-      { repo, kind: target.kind, num: target.num },
-      { resync: true },
-    );
+  } finally {
+    // Runs even when the loop above threw partway through: every target
+    // that was fully moved before the failure still gets its managed
+    // comment pointed at the new prefix, rather than staying stale until
+    // someone notices and retries the whole rotation.
+    for (const target of targets.values()) {
+      await postManagedComment(
+        env,
+        ws,
+        workspaceName,
+        mintingUserId,
+        { repo, kind: target.kind, num: target.num },
+        { resync: true },
+      );
+    }
   }
 
   return { rotated: true, prefixId: newId, moved };
