@@ -63,7 +63,7 @@ import { type R2Jurisdiction } from "@uploads/storage";
 import { Hono, type Context, type MiddlewareHandler } from "hono";
 import { usageWithLimits } from "../budget";
 import { previewFixtureItems } from "../comment-preview-fixtures";
-import { resolveSessionUserId } from "../dual-workspace-auth";
+import { hasPreresolvedSession, resolveSessionUserId } from "../dual-workspace-auth";
 import { respondError } from "../error-response";
 import { listObjects } from "../files-core";
 import { findRepoLink } from "../github-repo-links";
@@ -116,7 +116,11 @@ export type SettingsVars = {
  */
 function sessionMemberGate(): MiddlewareHandler<SettingsVars> {
   return async (c, next) => {
-    if (c.req.header("Authorization")?.startsWith("Bearer ")) {
+    // Preset check first: a forwarded `/me` request keeps its original
+    // headers, so a caller who authenticated there with a Better Auth bearer
+    // session must not be re-rejected here (same ordering as every other
+    // session gate — the #617 review's lesson).
+    if (!hasPreresolvedSession(c.req.raw) && c.req.header("Authorization")?.startsWith("Bearer ")) {
       throw new ForbiddenError("requires a session", { code: "billing_requires_session" });
     }
     const userId = await resolveSessionUserId(c as unknown as Context<SessionVars>);
@@ -140,7 +144,8 @@ function sessionMemberGate(): MiddlewareHandler<SettingsVars> {
  */
 function sessionAdminGate(): MiddlewareHandler<SettingsVars> {
   return async (c, next) => {
-    if (c.req.header("Authorization")?.startsWith("Bearer ")) {
+    // Preset-first ordering — see `sessionMemberGate` above.
+    if (!hasPreresolvedSession(c.req.raw) && c.req.header("Authorization")?.startsWith("Bearer ")) {
       throw new ForbiddenError("requires a session", { code: "settings_requires_session" });
     }
     const userId = await resolveSessionUserId(c as unknown as Context<SessionVars>);

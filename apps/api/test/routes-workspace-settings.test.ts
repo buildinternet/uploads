@@ -622,6 +622,30 @@ describe("/me alias forwards (issue #613 phase 3)", () => {
     expect(await alias.json()).toEqual(await canonical.json());
   });
 
+  // A Better Auth bearer session (device-flow token, no cookie) authenticates
+  // at /me; the forwarded request keeps its Authorization header, so the
+  // settings gates must honor the pre-resolved-session handoff instead of
+  // rejecting the bearer header (the #617 review's ordering lesson).
+  it("GET /me/workspaces/:name/summary works via a Better Auth bearer session", async () => {
+    const { env } = makeEnv({ sessionUser: MEMBER, role: "member", usage: { objects: 0 } });
+    const res = await app.request(
+      "/me/workspaces/acme/summary",
+      { headers: { Authorization: "Bearer ba-session-token" } },
+      env,
+    );
+    expect(res.status).toBe(200);
+  });
+
+  it("GET /me/workspaces/:name/comment-settings works via a Better Auth bearer session", async () => {
+    const { env } = makeEnv({ role: "admin" });
+    const res = await app.request(
+      "/me/workspaces/acme/comment-settings",
+      { headers: { Authorization: "Bearer ba-session-token" } },
+      env,
+    );
+    expect(res.status).toBe(200);
+  });
+
   it("PATCH /me/workspaces/:name/comment-settings still works via the forward", async () => {
     const { env } = makeEnv({ role: "admin" });
     const res = await app.request(
