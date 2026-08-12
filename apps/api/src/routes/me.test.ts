@@ -2265,7 +2265,11 @@ describe("GET /me/workspaces/:name/comment-preview", () => {
       }
       return new Response(null, { status: 404 });
     });
-    const sqlite = new SqliteD1(["migrations/20260720120000_github_repo_links.sql"]);
+    const sqlite = new SqliteD1([
+      "migrations/20260720120000_github_repo_links.sql",
+      // The preview now reads path/state metadata like the real comment.
+      "migrations/20260713210559_file_metadata.sql",
+    ]);
     const env = {
       AUTH: auth,
       DB: d1FromSqlite(sqlite),

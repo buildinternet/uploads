@@ -722,15 +722,17 @@ describe("/me alias forwards (issue #613 phase 3)", () => {
 
 describe("GET /v1/workspaces/:workspace/comment-preview (issue #613 final phase)", () => {
   function makePreviewEnv(opts: EnvOpts = {}) {
-    const { registry, db, env } = (() => {
+    const { registry, db, env, bucket } = (() => {
       const bucket = new FakeR2Bucket();
       const record = {
         ...SHARED_RECORD,
         binding: "UPLOADS_DEFAULT",
+        publicBaseUrl: "https://cdn.uploads.test",
       };
       const base = makeEnv({ ...opts, record });
       return {
         ...base,
+        bucket,
         env: {
           ...base.env,
           UPLOADS_DEFAULT: bucket,
@@ -738,7 +740,7 @@ describe("GET /v1/workspaces/:workspace/comment-preview (issue #613 final phase)
         } as unknown as Env,
       };
     })();
-    return { env, registry, db };
+    return { env, registry, db, bucket };
   }
 
   it("200s for an admin session with the fixture fallback when the workspace has no gh/ uploads", async () => {
@@ -752,6 +754,44 @@ describe("GET /v1/workspaces/:workspace/comment-preview (issue #613 final phase)
     const body = (await res.json()) as { sample: string; body: string };
     expect(body.sample).toBe("fixtures");
     expect(typeof body.body).toBe("string");
+  });
+
+  it("renders workspace attachments with their D1 path/state metadata (before/after pairing)", async () => {
+    const { env, db, bucket } = makePreviewEnv({ role: "admin" });
+    // Filenames deliberately carry no before/after stem token, so a paired
+    // render can only come from the D1 path/state metadata rows below.
+    await bucket.put("acme/gh/acme-web/pull-1/one.png", "a", {
+      httpMetadata: { contentType: "image/png" },
+    });
+    await bucket.put("acme/gh/acme-web/pull-1/two.png", "b", {
+      httpMetadata: { contentType: "image/png" },
+    });
+    db.fileMetadata.set(
+      "acme gh/acme-web/pull-1/one.png",
+      new Map([
+        ["path", "docs/hero.png"],
+        ["state", "before"],
+      ]),
+    );
+    db.fileMetadata.set(
+      "acme gh/acme-web/pull-1/two.png",
+      new Map([
+        ["path", "docs/hero.png"],
+        ["state", "after"],
+      ]),
+    );
+
+    const res = await app.request(
+      "/v1/workspaces/acme/comment-preview",
+      { headers: sessionHeaders },
+      env,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { sample: string; body: string };
+    expect(body.sample).toBe("workspace");
+    expect(body.body).toContain("<strong>Before</strong>");
+    expect(body.body).toContain("<strong>After</strong>");
+    expect(body.body).toContain("docs/hero.png");
   });
 
   it("403s a non-admin member session", async () => {
