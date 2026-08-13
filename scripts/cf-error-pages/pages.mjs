@@ -124,6 +124,17 @@ export const PAGES = [
  *   - api./auth./agents.uploads.sh answer with JSON error envelopes that
  *     clients parse (packages/errors), and must not be handed HTML.
  */
+/**
+ * The public storage hosts, in one place because more than one rule needs the
+ * same set and duplicating it is how `store.uploads.sh` got missed the first
+ * time. Keep in step with the "Dual public hosts" table in docs/ops.md.
+ */
+const STORAGE_HOSTS = ["storage.uploads.sh", "store.uploads.sh", "embed.uploads.sh"];
+
+/** Ruleset-engine host match over `STORAGE_HOSTS`, for a given response code. */
+const onStorageHosts = (code) =>
+  `(http.host in {${STORAGE_HOSTS.map((h) => `"${h}"`).join(" ")}} and http.response.code eq ${code})`;
+
 export const RULES = [
   {
     /** Asset name registered with Cloudflare, and the built file's basename. */
@@ -134,9 +145,31 @@ export const RULES = [
       "This link points at a file that isn’t on uploads.sh anymore. It may have been deleted, replaced by a newer upload, or the URL is wrong.",
     hint: "If this link used to work, the file or its workspace was removed.",
     token: null,
-    expression:
-      '(http.host in {"storage.uploads.sh" "store.uploads.sh" "embed.uploads.sh"} and http.response.code eq 404)',
+    expression: onStorageHosts(404),
     statusCode: 404,
     description: "Branded 404 for missing files on the R2 custom domains",
+  },
+  {
+    /*
+     * R2 rejects a malformed key (over-long, bad encoding) with a 400 before
+     * any lookup happens, which surfaced as a ~17 KB generic Cloudflare "Bad
+     * Request" page on a uploads.sh host (issue #658). Distinct copy from the
+     * 404 on purpose: nothing was deleted here, the URL itself is unusable, so
+     * "that file isn't here" would send people looking for the wrong problem.
+     *
+     * Deliberately not covered: 401 (needs a non-GET method, so a browser
+     * following an embedded image URL never sees it) and 416 (empty body —
+     * there is nothing to replace).
+     */
+    id: "bad_request",
+    label: "400",
+    title: "That link isn’t valid",
+    message:
+      "This URL isn’t a well-formed uploads.sh file link, so there’s no file to look up. It was most likely truncated or mangled on its way here.",
+    hint: "Check it against wherever you copied it from — the original may still work.",
+    token: null,
+    expression: onStorageHosts(400),
+    statusCode: 400,
+    description: "Branded 400 for malformed keys on the R2 custom domains",
   },
 ];
