@@ -66,6 +66,48 @@ attachments comment prefer `embedUrl` for `<img src>`.
 
 No Worker proxies image bytes — dual host is DNS + zone rules only.
 
+## Cloudflare error pages
+
+Errors Cloudflare produces itself never reach `apps/web`, so the Astro
+`404.astro` / `500.astro` pages cannot cover them. Without configuration those
+render as generic Cloudflare pages — including a 27 KB "Not Found" with a
+cloudflare.com favicon for any dead link on `storage.uploads.sh` /
+`embed.uploads.sh`, which are exactly the URLs the CLI hands out.
+
+Two mechanisms, both driven from `scripts/cf-error-pages/`:
+
+| Mechanism          | Covers                                                                                    | Where it lives         |
+| ------------------ | ----------------------------------------------------------------------------------------- | ---------------------- |
+| Error Pages        | Errors Cloudflare generates: 5xx/1xxx classes, WAF and IP blocks, rate limits, challenges | `PAGES` in `pages.mjs` |
+| Custom Error Rules | Errors an **origin** returns — the R2 404 on the two storage hosts                        | `RULES` in `pages.mjs` |
+
+```bash
+node scripts/cf-error-pages/build.mjs      # render dist/*.html (gitignored)
+node scripts/cf-error-pages/deploy.mjs --dry-run
+node scripts/cf-error-pages/deploy.mjs     # upload to R2 + configure the zone
+node scripts/cf-error-pages/deploy.mjs --revert   # back to Cloudflare defaults
+```
+
+Notes:
+
+- Pages are **self-contained** — no font, image, or stylesheet fetches. The
+  "origin is unreachable" page cannot depend on the origin. Design tokens are
+  inlined from `packages/ui`; keep them in sync by hand.
+- Each page carries its Cloudflare token (`::CLOUDFLARE_ERROR_500S_BOX::`,
+  `::CAPTCHA_BOX::`, …) verbatim; Cloudflare rejects the upload without it.
+- HTML is stored at content-addressed `_internal/cf-error-pages/` keys, so a
+  re-deploy of unchanged bytes is a no-op and Cloudflare never re-fetches a URL
+  whose contents moved underneath it (same discipline as the email mark).
+- The custom error rule is scoped to `storage.` / `store.` / `embed.uploads.sh`
+  on purpose: `uploads.sh` already serves its own branded 404, and the
+  `api.` / `auth.` / `agents.` hosts must keep returning JSON error envelopes.
+- `waf_challenge` (the legacy WAF captcha) is not settable on the Pro plan.
+  Cloudflare answers `success: true` and keeps the default; `deploy.mjs` reads
+  each page back and reports that as `SKIPPED` rather than a false success. The
+  challenge visitors actually get is `managed_challenge`, which is customized.
+- Token scopes: Zone → Custom Pages → Edit, Zone → Config Rules → Edit,
+  Account → Workers R2 Storage → Edit.
+
 ## Ledger + retention
 
 ```bash
