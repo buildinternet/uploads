@@ -98,7 +98,7 @@ Notes:
 - HTML is stored at content-addressed `_internal/cf-error-pages/` keys, so a
   re-deploy of unchanged bytes is a no-op and Cloudflare never re-fetches a URL
   whose contents moved underneath it (same discipline as the email mark).
-- The custom error rule is scoped to `storage.uploads.sh` / `embed.uploads.sh`
+- The custom error rule is scoped to `storage.` / `store.` / `embed.uploads.sh`
   on purpose: `uploads.sh` already serves its own branded 404, and the
   `api.` / `auth.` / `agents.` hosts must keep returning JSON error envelopes.
 - `waf_challenge` (the legacy WAF captcha) is not settable on the Pro plan.

@@ -107,14 +107,18 @@ export const PAGES = [
  * error responses that come back from an *origin*, which Error Pages above
  * deliberately do not cover.
  *
- * The case that matters here: storage.uploads.sh and embed.uploads.sh are R2
- * custom domains, so a link to a file that no longer exists is answered by R2
- * itself with a 27 KB generic Cloudflare "Not Found" page — complete with a
- * cloudflare.com favicon. Those are exactly the URLs the CLI hands out and
- * that end up embedded in GitHub comments, so a deleted file currently makes
- * uploads.sh look broken rather than empty.
+ * The case that matters here: the R2 custom domains answer a link to a file
+ * that no longer exists with a 27 KB generic Cloudflare "Not Found" page —
+ * complete with a cloudflare.com favicon. Those are exactly the URLs the CLI
+ * hands out and that end up embedded in GitHub comments, so a deleted file
+ * makes uploads.sh look broken rather than empty.
  *
- * Scoped to those two hosts on purpose:
+ * All three public storage hosts are listed. `store.uploads.sh` is the easy
+ * one to forget: docs/ops.md documents it as a durable public URL alongside
+ * `storage.uploads.sh`, and objects resolve on it identically. Keep this set
+ * in step with the "Dual public hosts" table in docs/ops.md.
+ *
+ * Scoped to those hosts on purpose:
  *   - uploads.sh already serves its own branded 404 from apps/web
  *     (src/pages/404.astro), and a rule here would override it;
  *   - api./auth./agents.uploads.sh answer with JSON error envelopes that
@@ -131,7 +135,7 @@ export const RULES = [
     hint: "If this link used to work, the file or its workspace was removed.",
     token: null,
     expression:
-      '(http.host in {"storage.uploads.sh" "embed.uploads.sh"} and http.response.code eq 404)',
+      '(http.host in {"storage.uploads.sh" "store.uploads.sh" "embed.uploads.sh"} and http.response.code eq 404)',
     statusCode: 404,
     description: "Branded 404 for missing files on the R2 custom domains",
   },
