@@ -79,7 +79,7 @@ Two mechanisms, both driven from `scripts/cf-error-pages/`:
 | Mechanism          | Covers                                                                                    | Where it lives         |
 | ------------------ | ----------------------------------------------------------------------------------------- | ---------------------- |
 | Error Pages        | Errors Cloudflare generates: 5xx/1xxx classes, WAF and IP blocks, rate limits, challenges | `PAGES` in `pages.mjs` |
-| Custom Error Rules | Errors an **origin** returns — the R2 404 on the two storage hosts                        | `RULES` in `pages.mjs` |
+| Custom Error Rules | Errors an **origin** returns — R2 404 and 400 on the three storage hosts                  | `RULES` in `pages.mjs` |
 
 ```bash
 node scripts/cf-error-pages/build.mjs      # render dist/*.html (gitignored)
@@ -98,7 +98,7 @@ Notes:
 - HTML is stored at content-addressed `_internal/cf-error-pages/` keys, so a
   re-deploy of unchanged bytes is a no-op and Cloudflare never re-fetches a URL
   whose contents moved underneath it (same discipline as the email mark).
-- The custom error rule is scoped to `storage.` / `store.` / `embed.uploads.sh`
+- The custom error rules are scoped to `storage.` / `store.` / `embed.uploads.sh`
   on purpose: `uploads.sh` already serves its own branded 404, and the
   `api.` / `auth.` / `agents.` hosts must keep returning JSON error envelopes.
 - `waf_challenge` (the legacy WAF captcha) is not settable on the Pro plan.
