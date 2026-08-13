@@ -1,5 +1,11 @@
 # @uploads/ui
 
+## 0.1.2
+
+### Patch Changes
+
+- 17f4034: Bump the files-sdk range to ^2.2.4 (>=2.2.4 for @uploads/ui) and drop the pinned patch. 2.2.4 ships both hunks upstream: the r2 `endpoint` override (files-sdk#133) and binding-path list() metadata (files-sdk#134).
+
 ## 0.1.1
 
 ### Patch Changes

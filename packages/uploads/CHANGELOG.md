@@ -1,5 +1,15 @@
 # @buildinternet/uploads
 
+## 0.42.0
+
+### Minor Changes
+
+- 539d685: `uploads screenshot --full-page` now caps capture height at 5000px by default (both the local and remote backends). A page over the cap is clipped, with a note to stderr and a `--format json` `hint`. Add `--max-height <px>` to raise the cap, or `--max-height 0` for the old uncapped behavior.
+
+### Patch Changes
+
+- 17f4034: Bump the files-sdk range to ^2.2.4 (>=2.2.4 for @uploads/ui) and drop the pinned patch. 2.2.4 ships both hunks upstream: the r2 `endpoint` override (files-sdk#133) and binding-path list() metadata (files-sdk#134).
+
 ## 0.41.1
 
 ### Patch Changes
