@@ -1494,6 +1494,7 @@ describe("modern-era (2026-07-28) requests", () => {
         destructiveHint?: boolean;
         openWorldHint?: boolean;
       };
+      outputSchema?: { type?: string };
     }>;
     for (const tool of listed) {
       expect(tool.annotations).toEqual({
@@ -1501,12 +1502,22 @@ describe("modern-era (2026-07-28) requests", () => {
         destructiveHint: expect.any(Boolean),
         openWorldHint: expect.any(Boolean),
       });
+      expect(tool.outputSchema?.type, `${tool.name} outputSchema`).toBe("object");
     }
     expect(listed.find((tool) => tool.name === "delete")?.annotations).toEqual({
       readOnlyHint: false,
       destructiveHint: true,
       openWorldHint: true,
     });
+    expect(
+      (listed.find((tool) => tool.name === "comment") as { outputSchema?: { properties?: object } })
+        .outputSchema?.properties,
+    ).toEqual(
+      expect.objectContaining({
+        posted: expect.anything(),
+        reason: expect.anything(),
+      }),
+    );
     expect(
       (listed.find((tool) => tool.name === "delete") as { _meta?: { securitySchemes?: unknown } })
         ._meta?.securitySchemes,

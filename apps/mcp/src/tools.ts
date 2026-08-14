@@ -45,6 +45,8 @@ import {
   mcpRead,
   mcpWriteInternal,
   mcpWritePublic,
+  hostedOutputSchemas,
+  withOutputSchemas,
 } from "@buildinternet/uploads/mcp";
 import { AppError, NotFoundError } from "@uploads/errors";
 import { badKey } from "@uploads/api/files";
@@ -330,7 +332,7 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
     );
   }
 
-  return [
+  const tools: McpTool[] = [
     {
       name: "gallery_create",
       title: "Create gallery",
@@ -1297,4 +1299,5 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
       },
     },
   ];
+  return withOutputSchemas(tools, hostedOutputSchemas, { required: true });
 }

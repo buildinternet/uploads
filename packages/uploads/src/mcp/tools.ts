@@ -70,6 +70,8 @@ import {
   mcpRead,
   mcpWriteInternal,
   mcpWritePublic,
+  stdioOutputSchemas,
+  withOutputSchemas,
   ToolBatchError,
   type McpTool,
 } from "./server.js";
@@ -221,7 +223,7 @@ export function createUploadsMcpTools(opts: {
     return { comment, commentError };
   };
 
-  return [
+  const tools: McpTool[] = [
     {
       name: "gallery_create",
       title: "Create gallery",
@@ -1608,4 +1610,5 @@ export function createUploadsMcpTools(opts: {
       },
     },
   ];
+  return withOutputSchemas(tools, stdioOutputSchemas, { required: false });
 }

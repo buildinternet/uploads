@@ -46,6 +46,26 @@ export {
 export { ToolBatchError, batchFailureMessage } from "./batch-error.js";
 export { mapBounded } from "../async.js";
 export { McpServer, type jsonSchemaValidator };
+export {
+  commentResultSchema,
+  deleteResultSchema,
+  findFilesResultSchema,
+  galleryFindResultSchema,
+  galleryResultSchema,
+  healthResultSchema,
+  hostedOutputSchemas,
+  listResultSchema,
+  metadataFacetsResultSchema,
+  metadataResultSchema,
+  promoteToolResultSchema,
+  purgeExpiredResultSchema,
+  putResultSchema,
+  reconcileResultSchema,
+  repoLinkStatusResultSchema,
+  stdioOutputSchemas,
+  usageResultSchema,
+  withOutputSchemas,
+} from "./output-schemas.js";
 
 /** MCP tool safety hints. Required so tools/list advertises them for review. */
 export interface McpToolAnnotations {
@@ -131,6 +151,11 @@ export interface McpTool {
   securitySchemes: McpSecurityScheme[];
   /** Hand-written JSON Schema for the tool's arguments. */
   inputSchema: Record<string, unknown>;
+  /**
+   * Hand-written JSON Schema for successful `structuredContent`. Required
+   * whenever the handler returns structured data (OpenAI Scan Tools).
+   */
+  outputSchema?: Record<string, unknown>;
   handler: (args: Record<string, unknown>) => Promise<unknown>;
 }
 
@@ -224,6 +249,9 @@ export function createMcpServer(opts: {
         ...(tool.title ? { title: tool.title } : {}),
         description: tool.description,
         inputSchema: fromJsonSchema<Record<string, unknown>>(tool.inputSchema, validator),
+        ...(tool.outputSchema
+          ? { outputSchema: fromJsonSchema<Record<string, unknown>>(tool.outputSchema, validator) }
+          : {}),
         annotations: tool.annotations,
         _meta: { securitySchemes: tool.securitySchemes },
       },

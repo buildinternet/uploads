@@ -470,6 +470,9 @@ describe("tools/list", () => {
         destructiveHint: expect.any(Boolean),
         openWorldHint: expect.any(Boolean),
       });
+      if (tool.outputSchema) {
+        expect(tool.outputSchema.type, `${tool.name} outputSchema`).toBe("object");
+      }
       expect(tool._meta.securitySchemes).toEqual([
         expect.objectContaining({ type: expect.stringMatching(/^(oauth2|noauth)$/) }),
       ]);
