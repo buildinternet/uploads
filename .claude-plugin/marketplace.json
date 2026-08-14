@@ -25,7 +25,7 @@
         "./skills/uploads-cli"
       ],
       "commands": "./plugins/claude/uploads/commands",
-      "mcpServers": "./plugins/claude/uploads/.mcp.json",
+      "mcpServers": "./.mcp.json",
       "hooks": "./hooks/hooks.json"
     }
   ]

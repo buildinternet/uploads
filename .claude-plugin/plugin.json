@@ -11,12 +11,8 @@
   "license": "Apache-2.0",
   "icon": "./assets/logo.png",
   "keywords": ["uploads", "screenshots", "github", "file-hosting", "images", "mcp"],
-  "skills": [
-    "./skills/github-screenshots",
-    "./skills/annotate-screenshots",
-    "./skills/uploads-cli"
-  ],
+  "skills": "./skills/",
   "commands": "./plugins/claude/uploads/commands",
-  "mcpServers": "./plugins/claude/uploads/.mcp.json",
+  "mcpServers": "./.mcp.json",
   "hooks": "./hooks/hooks.json"
 }

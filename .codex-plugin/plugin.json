@@ -10,21 +10,18 @@
   "repository": "https://github.com/buildinternet/uploads",
   "license": "Apache-2.0",
   "keywords": ["uploads", "screenshots", "github", "file-hosting", "images", "mcp"],
-  "skills": [
-    "./skills/github-screenshots",
-    "./skills/annotate-screenshots",
-    "./skills/uploads-cli"
-  ],
-  "mcpServers": "./plugins/claude/uploads/.mcp.json",
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
   "hooks": "./hooks/hooks.json",
   "interface": {
     "displayName": "uploads.sh",
-    "shortDescription": "Host files and attach them to GitHub PRs and issues",
+    "shortDescription": "Host files for GitHub PRs",
     "longDescription": "Host screenshots, GIFs, recordings, and files on uploads.sh and embed them in GitHub PRs and issues. Bundles the github-screenshots, annotate-screenshots, and uploads-cli skills, the hosted MCP server at agents.uploads.sh, and a pre-PR screenshot reminder hook.",
     "developerName": "Build Internet",
-    "category": "Productivity",
-    "capabilities": ["Read", "Write"],
+    "category": "Developer Tools",
+    "capabilities": ["Host files on a public CDN", "Attach media to GitHub PRs"],
     "websiteURL": "https://uploads.sh",
+    "supportURL": "https://github.com/buildinternet/uploads/issues",
     "privacyPolicyURL": "https://uploads.sh/privacy",
     "termsOfServiceURL": "https://uploads.sh/terms",
     "defaultPrompt": [

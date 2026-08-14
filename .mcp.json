@@ -1,0 +1,6 @@
+{
+  "uploads": {
+    "type": "http",
+    "url": "https://agents.uploads.sh/mcp"
+  }
+}

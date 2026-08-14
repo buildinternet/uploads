@@ -4,7 +4,8 @@ Claude Code plugin config for [uploads.sh](https://uploads.sh). The plugin
 manifest is [`.claude-plugin/plugin.json`](../../../.claude-plugin/plugin.json).
 The catalog that lists it is
 [`.claude-plugin/marketplace.json`](../../../.claude-plugin/marketplace.json)
-(`source: "./"`), so the whole repo is a one-plugin marketplace.
+(`source: "./"`), so the whole repo is a one-plugin marketplace. The hosted MCP
+server is declared in [`.mcp.json`](../../../.mcp.json).
 
 ## What it bundles
 
