@@ -15,5 +15,25 @@
     "./skills/annotate-screenshots",
     "./skills/uploads-cli"
   ],
-  "hooks": "./hooks/hooks.json"
+  "mcpServers": "./plugins/claude/uploads/.mcp.json",
+  "hooks": "./hooks/hooks.json",
+  "interface": {
+    "displayName": "uploads.sh",
+    "shortDescription": "Host files and attach them to GitHub PRs and issues",
+    "longDescription": "Host screenshots, GIFs, recordings, and files on uploads.sh and embed them in GitHub PRs and issues. Bundles the github-screenshots, annotate-screenshots, and uploads-cli skills, the hosted MCP server at agents.uploads.sh, and a pre-PR screenshot reminder hook.",
+    "developerName": "Build Internet",
+    "category": "Productivity",
+    "capabilities": ["Read", "Write"],
+    "websiteURL": "https://uploads.sh",
+    "privacyPolicyURL": "https://uploads.sh/privacy",
+    "termsOfServiceURL": "https://uploads.sh/terms",
+    "defaultPrompt": [
+      "Attach this screenshot to the current pull request",
+      "Stage a before/after of the settings page for this branch",
+      "Give me a public URL for this image"
+    ],
+    "brandColor": "#c27eff",
+    "composerIcon": "./assets/logo.png",
+    "logo": "./assets/logo.png"
+  }
 }

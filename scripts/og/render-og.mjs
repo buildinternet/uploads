@@ -5,6 +5,7 @@
 //   apps/web/public/og/home.png          1200x630  (og:image / twitter:image)
 //   apps/web/public/apple-touch-icon.png  180x180
 //   apps/web/public/favicon-32x32.png      32x32
+//   assets/logo.png                       512x512  (Codex / OpenAI plugin listing)
 import { existsSync } from "node:fs";
 import { mkdir, readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
@@ -73,6 +74,28 @@ try {
     await page.setContent(iconHtml(px));
     await writePng(page, path.join(pub, name));
   }
+
+  // Plugin listing mark: same SVG, pixel-scaled onto the brand ground.
+  // OpenAI requires a square raster ≥ 48px for logo / composerIcon.
+  const pluginLogo = path.join(root, "assets", "logo.png");
+  await mkdir(path.dirname(pluginLogo), { recursive: true });
+  const mark = await readFile(path.join(pub, "favicon.svg"));
+  await sharp({
+    create: { width: 512, height: 512, channels: 3, background: "#121214" },
+  })
+    .composite([
+      {
+        input: await sharp(mark)
+          .resize(32, 32, { fit: "fill" })
+          .resize(480, 480, { kernel: "nearest" })
+          .png()
+          .toBuffer(),
+        gravity: "center",
+      },
+    ])
+    .png({ palette: true, compressionLevel: 9 })
+    .toFile(pluginLogo);
+  console.log(`wrote ${path.relative(root, pluginLogo)}`);
 } finally {
   await browser.close();
 }

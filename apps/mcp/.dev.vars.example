@@ -7,3 +7,8 @@
 # port and apps/web's UPLOADS_AUTH_ORIGIN convention (cookies/redirect_uri
 # treat the two as different sites).
 AUTH_ORIGIN=http://127.0.0.1:8788
+
+# Optional. Public OpenAI plugin domain-verification token, served at
+# /.well-known/openai-apps-challenge. Leave unset locally unless you are
+# testing that route.
+# OPENAI_APPS_CHALLENGE=

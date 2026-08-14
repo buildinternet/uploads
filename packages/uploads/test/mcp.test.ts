@@ -465,7 +465,41 @@ describe("tools/list", () => {
       expect(tool.inputSchema.type).toBe("object");
       expect(tool.inputSchema.additionalProperties).toBe(false);
       expect(typeof tool.inputSchema.properties).toBe("object");
+      expect(tool.annotations).toEqual({
+        readOnlyHint: expect.any(Boolean),
+        destructiveHint: expect.any(Boolean),
+        openWorldHint: expect.any(Boolean),
+      });
+      expect(tool._meta.securitySchemes).toEqual([
+        expect.objectContaining({ type: expect.stringMatching(/^(oauth2|noauth)$/) }),
+      ]);
     }
+    const byName = Object.fromEntries(tools.map((t) => [t.name, t]));
+    expect(byName.list.annotations).toEqual({
+      readOnlyHint: true,
+      destructiveHint: false,
+      openWorldHint: false,
+    });
+    expect(byName.delete.annotations).toEqual({
+      readOnlyHint: false,
+      destructiveHint: true,
+      openWorldHint: true,
+    });
+    expect(byName.put.annotations).toEqual({
+      readOnlyHint: false,
+      destructiveHint: true,
+      openWorldHint: true,
+    });
+    expect(byName.reconcile.annotations).toEqual({
+      readOnlyHint: false,
+      destructiveHint: false,
+      openWorldHint: false,
+    });
+    expect(byName.delete._meta.securitySchemes).toEqual([
+      { type: "oauth2", scopes: ["files:delete"] },
+    ]);
+    expect(byName.list._meta.securitySchemes).toEqual([{ type: "oauth2", scopes: ["files:read"] }]);
+    expect(byName.health._meta.securitySchemes).toEqual([{ type: "noauth" }]);
   });
 });
 

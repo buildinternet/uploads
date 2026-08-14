@@ -36,6 +36,15 @@ import {
   optStringRecord,
   usage,
   type McpTool,
+  insufficientScopeError,
+  mcpDestroyPublic,
+  mcpOAuthAny,
+  mcpOAuthDelete,
+  mcpOAuthRead,
+  mcpOAuthWrite,
+  mcpRead,
+  mcpWriteInternal,
+  mcpWritePublic,
 } from "@buildinternet/uploads/mcp";
 import { AppError, NotFoundError } from "@uploads/errors";
 import { badKey } from "@uploads/api/files";
@@ -94,6 +103,11 @@ export interface RemoteToolContext {
   workspace: WorkspaceRecord;
   workspaceName: string;
   authScopes: readonly FileScope[];
+  /**
+   * RFC 9728 protected-resource metadata URL for this request's origin.
+   * Stamped into insufficient-scope tool errors so ChatGPT can re-consent.
+   */
+  resourceMetadataUrl: string;
   /**
    * Better Auth user id behind the presented credential (OAuth JWT's `sub`,
    * or an `up_` token's `minting_user_id`) — same id the REST API's
@@ -229,7 +243,9 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
 
   function requireScope(scope: FileScope): void {
     // Authorization failure, not a usage error — no (USAGE) suffix in the tool result.
-    if (!ctx.authScopes.includes(scope)) throw new Error(`forbidden: requires ${scope} scope`);
+    if (!ctx.authScopes.includes(scope)) {
+      throw insufficientScopeError(ctx.resourceMetadataUrl, scope);
+    }
   }
 
   async function requireWriteBudget(): Promise<void> {
@@ -317,6 +333,9 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
   return [
     {
       name: "gallery_create",
+      title: "Create gallery",
+      annotations: mcpWritePublic,
+      securitySchemes: mcpOAuthWrite,
       description:
         "Create a public ordered media gallery in this workspace. The returned canonical URL is suitable for an agent response, but anyone who knows it can view the gallery and its media.",
       inputSchema: {
@@ -349,6 +368,9 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
     },
     {
       name: "gallery_get",
+      title: "Get gallery",
+      annotations: mcpRead,
+      securitySchemes: mcpOAuthRead,
       description:
         "Get a workspace-owned gallery, including its ordered media and canonical public URL. Gallery media is public to anyone with the URL.",
       inputSchema: {
@@ -366,6 +388,9 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
     },
     {
       name: "gallery_add",
+      title: "Add gallery item",
+      annotations: mcpWritePublic,
+      securitySchemes: mcpOAuthWrite,
       description:
         "Add one existing, publicly served workspace object to a gallery. The tool reads the current version before writing and does not upload or delete the object.",
       inputSchema: {
@@ -433,6 +458,9 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
     },
     {
       name: "gallery_link",
+      title: "Link gallery",
+      annotations: mcpWritePublic,
+      securitySchemes: mcpOAuthWrite,
       description:
         "Link a gallery to an external reference. Uses provider-neutral fields; github currently accepts owner/repo#number or a strict GitHub issue/PR URL. No GitHub credentials or API calls are used.",
       inputSchema: {
@@ -470,6 +498,9 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
     },
     {
       name: "gallery_find_by_reference",
+      title: "Find galleries",
+      annotations: mcpRead,
+      securitySchemes: mcpOAuthRead,
       description:
         "Find galleries in this workspace linked to an external reference. Returns canonical public gallery URLs without contacting the provider.",
       inputSchema: {
@@ -511,6 +542,9 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
     },
     {
       name: "put",
+      title: "Upload file",
+      annotations: mcpDestroyPublic,
+      securitySchemes: mcpOAuthWrite,
       description:
         "Upload base64-encoded content to the workspace and get a public URL plus GitHub-ready embed markdown (the returned `markdown` is ready to paste into a PR or issue). Single file: pass `contentBase64` + `filename` (flat result). Multiple files: pass `files` (uploaded in parallel; returns `uploads` + `failures`, one bad item does not abort the rest). The key defaults to <prefix>/<repo>/<ref>/<name>-<hash>.<ext>; pass `key` for an explicit path instead (single-file only). With `pr`/`issue` (+ required `repo`) the key is stable instead (gh/…, always overwrites) and the managed attachments comment is synced by default as uploads-sh[bot] (bot-only on this hosted server, no local gh fallback; body honors the repo's `.uploads.yml` when present) — pass `comment: false` to skip it. With `branch` (+ required `repo`, no pr/issue) stages under gh/…/branch/… for pre-PR capture (CLI attach --branch parity); no comment yet. With `pr` + `branch`, also best-effort promotes that branch's staged files into the PR before the comment sync (CLI attach --pr auto-promote parity). Uploads are public regardless of GitHub repository visibility; explicit predictable keys must contain only non-sensitive media. The stored content type is sniffed from the bytes and restricted to the workspace's allowlist (images plus mp4/webm by default).",
       inputSchema: {
@@ -854,6 +888,9 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
     },
     {
       name: "list",
+      title: "List files",
+      annotations: mcpRead,
+      securitySchemes: mcpOAuthRead,
       description:
         "List uploaded objects in the workspace, optionally filtered by key prefix. Paginate with cursor; each item includes its public URL when the workspace has one.",
       inputSchema: {
@@ -882,6 +919,9 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
     },
     {
       name: "delete",
+      title: "Delete file",
+      annotations: mcpDestroyPublic,
+      securitySchemes: mcpOAuthDelete,
       description: "Delete an uploaded object in the workspace by key.",
       inputSchema: {
         type: "object",
@@ -901,6 +941,9 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
     },
     {
       name: "comment",
+      title: "Sync attachments comment",
+      annotations: mcpDestroyPublic,
+      securitySchemes: mcpOAuthRead,
       description:
         "Create or update the managed attachments comment on a GitHub PR or issue, listing everything this workspace has uploaded for it. Refreshes the comment WITHOUT re-uploading — use after deleting media to re-sync (e.g. it will show a neutral empty state once the last attachment is removed). Posts as uploads-sh[bot] via the uploads.sh GitHub App — bot-only on this hosted server, no local gh fallback; body honors the repo's `.uploads.yml` when present (same as the bot path). If the App isn't installed/authorized the decline is returned honestly. Requires repo (owner/name — no git context on this server) and exactly one of pr/issue.",
       inputSchema: {
@@ -939,6 +982,9 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
     },
     {
       name: "promote",
+      title: "Promote staged attachments",
+      annotations: mcpDestroyPublic,
+      securitySchemes: mcpOAuthWrite,
       description:
         "Copy this workspace's branch-staged attachments (gh/…/branch/… keys from put with branch, or CLI attach --branch) into a PR's stable gh/…/pull/… prefix, then optionally refresh the managed attachments comment. Hosted stand-in for `uploads attach --promote` — no git context, so repo, pr, and branch are all required. Does not delete staged originals. Promotion is a pure workspace-data copy (no GitHub API for the copy itself); the comment path is bot-only like the comment tool. Returns { promotion: { promoted, skipped }, comment?, commentError? }.",
       inputSchema: {
@@ -999,6 +1045,9 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
     },
     {
       name: "get_metadata",
+      title: "Get metadata",
+      annotations: mcpRead,
+      securitySchemes: mcpOAuthRead,
       description:
         "Read an object's queryable custom metadata (D1 key-value pairs, not R2 provenance). Returns `{ metadata }` (empty when none). Object must exist. Same as `uploads meta get`.",
       inputSchema: {
@@ -1017,6 +1066,9 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
     },
     {
       name: "set_metadata",
+      title: "Set metadata",
+      annotations: mcpWritePublic,
+      securitySchemes: mcpOAuthWrite,
       description:
         "Merge-set and/or delete an object's queryable custom metadata (D1 key-value pairs, not R2 provenance). `set` wins over `delete` for the same key. " +
         METADATA_DESCRIPTION +
@@ -1054,6 +1106,9 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
     },
     {
       name: "find_files",
+      title: "Find files",
+      annotations: mcpRead,
+      securitySchemes: mcpOAuthRead,
       description:
         "Find objects whose queryable custom metadata matches ALL of `filters` (ANDed equality) and/or whose key contains `name` (case-insensitive substring). At least one of `filters` or `name` is required. Returns each match's key, public URL, full metadata map, and optional `truncated`. Same as the CLI/local MCP's `find_files` tool.",
       inputSchema: {
@@ -1113,6 +1168,9 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
     },
     {
       name: "list_metadata_keys",
+      title: "List metadata keys",
+      annotations: mcpRead,
+      securitySchemes: mcpOAuthRead,
       description:
         "List the distinct queryable metadata keys present in the workspace, with file counts and distinct-value counts. Use this to discover what is filterable before calling find_files — keys are user/agent-defined, not a fixed schema. Same as the CLI's `uploads meta keys`. Pass optional `key` to list that key's values instead (`uploads meta values <key>`).",
       inputSchema: {
@@ -1133,6 +1191,9 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
     },
     {
       name: "repo_link_status",
+      title: "Check repo binding",
+      annotations: mcpRead,
+      securitySchemes: mcpOAuthRead,
       description:
         'Whether files staged for a repo will auto-attach into that repo\'s PRs from this workspace. Returns a tri-state `binding`: "self" (this repo is bound to this workspace — staged files will auto-attach), "other" (bound to a different workspace — they will not; the owning workspace is deliberately never disclosed), or "none" (unbound).',
       inputSchema: {
@@ -1156,6 +1217,9 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
     },
     {
       name: "usage",
+      title: "Show usage",
+      annotations: mcpRead,
+      securitySchemes: mcpOAuthRead,
       description:
         "Workspace storage and monthly upload counters (and remaining headroom when budgets are configured).",
       inputSchema: {
@@ -1171,6 +1235,9 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
     },
     {
       name: "reconcile",
+      title: "Reconcile usage",
+      annotations: mcpWriteInternal,
+      securitySchemes: mcpOAuthWrite,
       description:
         "Rebuild usage ledger bytes/objects from storage (source of truth). Preserves the monthly upload counter. Requires files:write.",
       inputSchema: {
@@ -1190,6 +1257,9 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
     },
     {
       name: "purge_expired",
+      title: "Purge expired files",
+      annotations: mcpDestroyPublic,
+      securitySchemes: mcpOAuthDelete,
       description:
         "Delete objects older than the workspace retentionDays setting, then reconcile. Skips if retention is unset. Requires files:delete.",
       inputSchema: {
@@ -1213,6 +1283,9 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
     },
     {
       name: "health",
+      title: "Check health",
+      annotations: mcpRead,
+      securitySchemes: mcpOAuthAny,
       description: "Check uploads.sh MCP server liveness. No scope required.",
       inputSchema: {
         type: "object",

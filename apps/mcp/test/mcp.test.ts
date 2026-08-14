@@ -104,6 +104,7 @@ async function makeEnv(
     rateLimitOk?: boolean;
     record?: Partial<WorkspaceRecord>;
     webOrigin?: string;
+    openaiAppsChallenge?: string;
   } = {},
 ): Promise<{
   env: Env;
@@ -318,6 +319,9 @@ async function makeEnv(
           headers: { "content-type": "application/json" },
         }),
     },
+    ...(options.openaiAppsChallenge === undefined
+      ? {}
+      : { OPENAI_APPS_CHALLENGE: options.openaiAppsChallenge }),
   } as unknown as Env;
   return { env, bucket, metadata };
 }
@@ -402,6 +406,7 @@ async function callTool(
       isError: boolean;
       structuredContent?: Record<string, unknown>;
       content: unknown[];
+      _meta?: { "mcp/www_authenticate"?: string[] };
     };
   };
   return body.result;
@@ -565,6 +570,28 @@ describe("mcp worker", () => {
       // issuer when AUTH_ORIGIN isn't set on the test env.
       expect(body.authorization_servers).toEqual(["https://auth.uploads.sh/api/auth"]);
     }
+  });
+
+  it("404s the OpenAI apps challenge when no token is configured", async () => {
+    const { env } = await makeEnv();
+    const response = await app.request(
+      "https://agents.uploads.sh/.well-known/openai-apps-challenge",
+      { method: "GET" },
+      env,
+    );
+    expect(response.status).toBe(404);
+  });
+
+  it("serves the OpenAI apps challenge as raw text, not JSON", async () => {
+    const { env } = await makeEnv({ openaiAppsChallenge: " openai-challenge-token \n" });
+    const response = await app.request(
+      "https://agents.uploads.sh/.well-known/openai-apps-challenge",
+      { method: "GET" },
+      env,
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Content-Type")).toMatch(/^text\/plain/);
+    expect(await response.text()).toBe("openai-challenge-token");
   });
 
   it("rejects a wrong token with a uniform 401 before any MCP handling", async () => {
@@ -1024,10 +1051,19 @@ describe("mcp worker", () => {
         scopes: JSON.stringify(["files:write"]),
       },
     });
-    const result = await callTool(env, "get_metadata", { key: "shots/x.png" }, token);
+    const result = await callTool(
+      env,
+      "get_metadata",
+      { key: "shots/x.png" },
+      token,
+      "https://agents.uploads.sh/test-ws/mcp",
+    );
     expect(result.isError).toBe(true);
     expect(result.content).toEqual([
       { type: "text", text: "forbidden: requires files:read scope" },
+    ]);
+    expect(result._meta?.["mcp/www_authenticate"]).toEqual([
+      'Bearer resource_metadata="https://agents.uploads.sh/.well-known/oauth-protected-resource", error="insufficient_scope", error_description="This tool requires the files:read scope"',
     ]);
   });
 
@@ -1437,13 +1473,44 @@ describe("modern-era (2026-07-28) requests", () => {
     expect(response.status).toBe(200);
     const body = (await response.json()) as {
       result: {
-        tools: { name: string }[];
+        tools: {
+          name: string;
+          annotations?: {
+            readOnlyHint?: boolean;
+            destructiveHint?: boolean;
+            openWorldHint?: boolean;
+          };
+        }[];
         resultType: string;
         ttlMs: number;
         cacheScope: string;
       };
     };
     expect(body.result.tools.map((tool) => tool.name)).toContain("put");
+    const listed = body.result.tools as Array<{
+      name: string;
+      annotations?: {
+        readOnlyHint?: boolean;
+        destructiveHint?: boolean;
+        openWorldHint?: boolean;
+      };
+    }>;
+    for (const tool of listed) {
+      expect(tool.annotations).toEqual({
+        readOnlyHint: expect.any(Boolean),
+        destructiveHint: expect.any(Boolean),
+        openWorldHint: expect.any(Boolean),
+      });
+    }
+    expect(listed.find((tool) => tool.name === "delete")?.annotations).toEqual({
+      readOnlyHint: false,
+      destructiveHint: true,
+      openWorldHint: true,
+    });
+    expect(
+      (listed.find((tool) => tool.name === "delete") as { _meta?: { securitySchemes?: unknown } })
+        ._meta?.securitySchemes,
+    ).toEqual([{ type: "oauth2", scopes: ["files:delete"] }]);
     expect(body.result.resultType).toBe("complete");
     expect(body.result.ttlMs).toBe(3_600_000);
     expect(body.result.cacheScope).toBe("private");

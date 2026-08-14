@@ -157,6 +157,7 @@ function buildServer(c: Context<WorkspaceVars>): McpServer {
       workspaceName: c.get("workspaceName"),
       authScopes: c.get("authScopes"),
       mintingUserId: c.get("mintingUserId") ?? null,
+      resourceMetadataUrl: `${requestOrigin(c.req.url)}/.well-known/oauth-protected-resource`,
     }),
     validator,
   });
@@ -305,6 +306,17 @@ const app = new Hono<WorkspaceVars>()
   // client derives from `resource` = `<origin>/mcp`.
   .get("/.well-known/oauth-protected-resource", respondProtectedResource)
   .get("/.well-known/oauth-protected-resource/mcp", respondProtectedResource)
+  // OpenAI plugin portal domain verification. Must return only the token as
+  // text/plain — no JSON, no extra bytes. 404 when the secret is unset so a
+  // draft that hasn't been issued a token yet doesn't serve an empty body.
+  .get("/.well-known/openai-apps-challenge", (c) => {
+    const token = c.env.OPENAI_APPS_CHALLENGE?.trim();
+    if (!token) throw new NotFoundError();
+    return c.text(token, 200, {
+      "Cache-Control": "public, max-age=60",
+      "Content-Type": "text/plain; charset=utf-8",
+    });
+  })
   // Primary endpoint: the workspace is inferred from the bearer token
   // (up_<workspace>_…) or, for a JWT-shaped bearer, the OAuth token's
   // `workspace` claim — so clients only need the URL and the token.

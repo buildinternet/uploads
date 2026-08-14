@@ -59,7 +59,20 @@ import {
   usage,
   type ToolArgs,
 } from "./args.js";
-import { batchFailureMessage, ToolBatchError, type McpTool } from "./server.js";
+import {
+  batchFailureMessage,
+  mcpDestroyPublic,
+  mcpNoAuth,
+  mcpOAuthAny,
+  mcpOAuthDelete,
+  mcpOAuthRead,
+  mcpOAuthWrite,
+  mcpRead,
+  mcpWriteInternal,
+  mcpWritePublic,
+  ToolBatchError,
+  type McpTool,
+} from "./server.js";
 import {
   attachmentFromText,
   buildReportPayload,
@@ -211,6 +224,9 @@ export function createUploadsMcpTools(opts: {
   return [
     {
       name: "gallery_create",
+      title: "Create gallery",
+      annotations: mcpWritePublic,
+      securitySchemes: mcpOAuthWrite,
       description:
         "Create a public ordered media gallery in the workspace. The returned canonical URL is safe to give users, but anyone who knows it can view the gallery and its media.",
       inputSchema: {
@@ -232,6 +248,9 @@ export function createUploadsMcpTools(opts: {
     },
     {
       name: "gallery_get",
+      title: "Get gallery",
+      annotations: mcpRead,
+      securitySchemes: mcpOAuthRead,
       description:
         "Get a workspace-owned gallery, including ordered media and its canonical public URL. Gallery media is public to anyone with the URL.",
       inputSchema: {
@@ -250,6 +269,9 @@ export function createUploadsMcpTools(opts: {
     },
     {
       name: "gallery_add",
+      title: "Add gallery item",
+      annotations: mcpWritePublic,
+      securitySchemes: mcpOAuthWrite,
       description:
         "Add one existing, publicly served workspace object to a gallery. Reads the latest gallery version before writing, so the optimistic API version is handled safely. Does not upload or delete the object.",
       inputSchema: {
@@ -279,6 +301,9 @@ export function createUploadsMcpTools(opts: {
     },
     {
       name: "gallery_link",
+      title: "Link gallery",
+      annotations: mcpWritePublic,
+      securitySchemes: mcpOAuthWrite,
       description:
         "Link a gallery to an external reference. References use provider-neutral fields; github currently accepts owner/repo#number or a strict GitHub issue/PR URL. No GitHub credentials or API calls are used.",
       inputSchema: {
@@ -307,6 +332,9 @@ export function createUploadsMcpTools(opts: {
     },
     {
       name: "gallery_find_by_reference",
+      title: "Find galleries",
+      annotations: mcpRead,
+      securitySchemes: mcpOAuthRead,
       description:
         "Find workspace galleries linked to an external reference. Returns gallery summaries and canonical public URLs without contacting the provider.",
       inputSchema: {
@@ -335,6 +363,9 @@ export function createUploadsMcpTools(opts: {
     },
     {
       name: "put",
+      title: "Upload file",
+      annotations: mcpDestroyPublic,
+      securitySchemes: mcpOAuthWrite,
       description:
         "Upload one or more files to uploads.sh and get public URL(s) plus GitHub-ready embed markdown. Single-file: pass `file` or `contentBase64`+`filename` (flat result with `url`/`embedUrl`/`markdown`). Multi-file: pass `files` (paths; parallel; returns `uploads`+`failures`). Prefer `embedUrl` in PR/issue markdown. With `pr`/`issue` keys are stable and `comment` syncs the managed attachments comment. All uploads are public; pr/issue keys are predictable — upload only non-sensitive media.",
       inputSchema: {
@@ -658,6 +689,9 @@ export function createUploadsMcpTools(opts: {
     },
     {
       name: "screenshot",
+      title: "Capture screenshot",
+      annotations: mcpDestroyPublic,
+      securitySchemes: mcpOAuthWrite,
       description:
         "Capture a URL or a local .html file and host it — a hosted, PR-embeddable image in one call. Backend `local` drives an already-installed Chrome/Chromium (dynamically loaded; unavailable in some runtimes); `remote` renders server-side via the workspace's render endpoint and counts against the monthly upload budget. Default via=auto prefers local when found, else remote. localhost/private-network URLs and .html files are local-only — via=remote (or auto falling back to remote) fails fast instead of a doomed request. Shares the put upload pipeline: optional frame, optimize-by-default, pr/issue attachment + comment, gallery, metadata. Uploads are public.",
       inputSchema: {
@@ -1016,6 +1050,9 @@ export function createUploadsMcpTools(opts: {
     },
     {
       name: "attach",
+      title: "Attach to GitHub",
+      annotations: mcpDestroyPublic,
+      securitySchemes: mcpOAuthWrite,
       description:
         "Upload one or more files as stable PR/issue attachments (in parallel) and maintain a managed GitHub comment. Returns `uploads` and `failures` (one bad file does not abort the batch). Each success has `url`, `embedUrl`, and `markdown` (prefer embedUrl for GitHub). With no pr/issue, targets the current branch PR. Attachments are public and keys are predictable; upload only non-sensitive media.",
       inputSchema: {
@@ -1121,6 +1158,9 @@ export function createUploadsMcpTools(opts: {
     },
     {
       name: "list",
+      title: "List files",
+      annotations: mcpRead,
+      securitySchemes: mcpOAuthRead,
       description:
         "List uploaded objects in the workspace, filtered by key prefix or by a PR/issue's attachments. Paginate with cursor, or set all to fetch every page.",
       inputSchema: {
@@ -1187,6 +1227,9 @@ export function createUploadsMcpTools(opts: {
     },
     {
       name: "staged",
+      title: "List staged files",
+      annotations: mcpRead,
+      securitySchemes: mcpOAuthRead,
       description:
         "Read-only view of what's staged for a git branch (attach --branch / bare put on a non-default branch) and whether it will auto-attach once a PR opens. One list call against the branch staging prefix plus a repo-binding check (files:read only). Returns { repo, branch, files, binding }; binding.state is self/other/none/unknown and binding.autoAttach is true only for self.",
       inputSchema: {
@@ -1213,6 +1256,9 @@ export function createUploadsMcpTools(opts: {
     },
     {
       name: "delete",
+      title: "Delete file",
+      annotations: mcpDestroyPublic,
+      securitySchemes: mcpOAuthDelete,
       description: "Delete an uploaded object by key. Set dryRun to preview without deleting.",
       inputSchema: {
         type: "object",
@@ -1237,6 +1283,9 @@ export function createUploadsMcpTools(opts: {
     },
     {
       name: "get_metadata",
+      title: "Get metadata",
+      annotations: mcpRead,
+      securitySchemes: mcpOAuthRead,
       description:
         "Read an object's queryable custom metadata (D1 key-value pairs, not R2 provenance). Returns `{ metadata }` (empty when none). Object must exist. Same as `uploads meta get`.",
       inputSchema: {
@@ -1256,6 +1305,9 @@ export function createUploadsMcpTools(opts: {
     },
     {
       name: "set_metadata",
+      title: "Set metadata",
+      annotations: mcpWritePublic,
+      securitySchemes: mcpOAuthWrite,
       description:
         "Merge-set and/or delete an object's queryable custom metadata (D1 key-value pairs, not R2 provenance). `set` wins over `delete` for the same key. " +
         METADATA_DESCRIPTION +
@@ -1290,6 +1342,9 @@ export function createUploadsMcpTools(opts: {
     },
     {
       name: "find_files",
+      title: "Find files",
+      annotations: mcpRead,
+      securitySchemes: mcpOAuthRead,
       description:
         "Find objects whose queryable custom metadata matches ALL of `filters` (ANDed equality) and/or whose key contains `name` (case-insensitive substring). At least one of `filters` or `name` is required. Returns each match's key, public URL, full metadata map, and optional `truncated`. Same as `uploads find k=v...` / `uploads find --name <term>`.",
       inputSchema: {
@@ -1332,6 +1387,9 @@ export function createUploadsMcpTools(opts: {
     },
     {
       name: "list_metadata_keys",
+      title: "List metadata keys",
+      annotations: mcpRead,
+      securitySchemes: mcpOAuthRead,
       description:
         "List the distinct queryable metadata keys present in the workspace, with file counts and distinct-value counts. Use this to discover what is filterable before calling find_files — keys are user/agent-defined, not a fixed schema. Same as `uploads meta keys`. Pass optional `key` to list that key's values instead (`uploads meta values <key>`).",
       inputSchema: {
@@ -1354,6 +1412,9 @@ export function createUploadsMcpTools(opts: {
     },
     {
       name: "usage",
+      title: "Show usage",
+      annotations: mcpRead,
+      securitySchemes: mcpOAuthRead,
       description:
         "Workspace storage and monthly upload counters (and remaining headroom when budgets are configured). Same as `uploads usage`.",
       inputSchema: {
@@ -1368,6 +1429,9 @@ export function createUploadsMcpTools(opts: {
     },
     {
       name: "reconcile",
+      title: "Reconcile usage",
+      annotations: mcpWriteInternal,
+      securitySchemes: mcpOAuthWrite,
       description:
         "Rebuild usage ledger bytes/objects from storage (source of truth). Preserves the monthly upload counter. Requires files:write. Same as `uploads reconcile`.",
       inputSchema: {
@@ -1382,6 +1446,9 @@ export function createUploadsMcpTools(opts: {
     },
     {
       name: "purge_expired",
+      title: "Purge expired files",
+      annotations: mcpDestroyPublic,
+      securitySchemes: mcpOAuthDelete,
       description:
         "Delete objects older than the workspace retentionDays setting, then reconcile. Skips if retention is unset. Requires files:delete. Same as `uploads purge-expired`.",
       inputSchema: {
@@ -1396,6 +1463,9 @@ export function createUploadsMcpTools(opts: {
     },
     {
       name: "comment",
+      title: "Sync attachments comment",
+      annotations: mcpDestroyPublic,
+      securitySchemes: mcpOAuthWrite,
       description:
         "Create or update the managed attachments comment on a GitHub PR or issue, listing everything uploaded for it. Posts as uploads-sh[bot] when the GitHub App is installed on the repo; otherwise via local gh auth. Edits its own prior comment in place and never touches other comments.",
       inputSchema: {
@@ -1419,6 +1489,9 @@ export function createUploadsMcpTools(opts: {
     },
     {
       name: "health",
+      title: "Check health",
+      annotations: mcpRead,
+      securitySchemes: mcpNoAuth,
       description: "Check uploads.sh API liveness. No auth or arguments required.",
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
       async handler(args) {
@@ -1429,6 +1502,9 @@ export function createUploadsMcpTools(opts: {
     },
     {
       name: "doctor",
+      title: "Diagnose setup",
+      annotations: mcpRead,
+      securitySchemes: mcpOAuthAny,
       description:
         "Diagnose the configuration: API health, token auth, and workspace/token alignment. Returns the same report as `uploads doctor --json`, including hints.",
       inputSchema: {
@@ -1443,6 +1519,9 @@ export function createUploadsMcpTools(opts: {
     },
     {
       name: "report",
+      title: "Send diagnostic report",
+      annotations: mcpWriteInternal,
+      securitySchemes: mcpOAuthWrite,
       description:
         "Send an explicit diagnostic report to the uploads team (message + optional text log). " +
         "Only call this when the user asked to submit feedback, a bug report, or error logs — " +

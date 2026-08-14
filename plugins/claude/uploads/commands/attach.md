@@ -37,5 +37,5 @@ and embed it in a GitHub PR or issue — or just get back a public URL.
    (keys, galleries, metadata, `put`/`attach`/`screenshot`), follow the
    `uploads:uploads-cli` skill.
 3. Hosting and lookups can also go through the bundled **uploads MCP server**
-   (`put`, `list`, `attach`, galleries), which runs the local `uploads mcp` and
-   reuses your `uploads login` session — see this plugin's README for setup.
+   (`put`, `list`, galleries) at `https://agents.uploads.sh/mcp` — see this
+   plugin's README for setup.
