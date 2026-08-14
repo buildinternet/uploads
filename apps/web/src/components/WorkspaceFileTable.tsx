@@ -37,7 +37,13 @@ import {
   type FileVisibility,
   type GithubTitleMap,
 } from "../lib/api-client";
-import { filePath, formatBytes } from "../lib/public-file";
+import { formatBytes } from "../lib/public-file";
+import {
+  makeFileOpener,
+  newTabLinkProps,
+  type FileOpener,
+  type OpenableFile,
+} from "../lib/file-opener";
 import {
   breadcrumbSegments,
   childName,
@@ -368,14 +374,47 @@ function FileActionsMenu({
   );
 }
 
+/**
+ * A control that opens one file. Renders a real anchor whenever the
+ * destination is known at render time, and falls back to a button for the
+ * private/BYO signed-URL path — see `lib/file-opener`.
+ */
+function FileOpenTrigger({
+  opener,
+  file,
+  className,
+  title,
+  children,
+  ...rest
+}: {
+  opener: FileOpener;
+  file: OpenableFile;
+  className: string;
+  title?: string;
+  children: ReactNode;
+  "aria-label"?: string;
+}) {
+  const href = opener.href(file);
+  const shared = { className, title, ...rest };
+  return href ? (
+    <a {...shared} {...newTabLinkProps} href={href}>
+      {children}
+    </a>
+  ) : (
+    <button {...shared} type="button" onClick={() => opener.activate(file)}>
+      {children}
+    </button>
+  );
+}
+
 function sizeLabel(size: number | undefined): string {
   return typeof size === "number" ? formatBytes(size) : "—";
 }
 
 // ── URL-resolution helpers (open-file / copy-link) ────────────────────────
-// Prefer API `pageUrl` (`/f/…` file page, issue #308), else same-origin
-// `/f/` when the workspace has a public domain (issue #135), else a
-// short-lived signed URL for private/BYO workspaces.
+// Open-file resolution lives in `lib/file-opener` (shared with
+// ScreenshotsByPath); copy-link keeps its own signed-URL call because it needs
+// the raw URL for the clipboard rather than a navigation.
 
 async function resolveSignedFileUrl(
   apiOrigin: string,
@@ -391,40 +430,9 @@ async function resolveSignedFileUrl(
   return result.response.ok && typeof body.url === "string" ? body.url : null;
 }
 
-function openInNewTab(url: string): void {
-  const tab = window.open(url, "_blank");
-  if (tab) tab.opener = null;
-}
-
 /** "1 file" / "2 files" — `plural` defaults to `${singular}s`, override for irregulars (e.g. "match" → "matches"). */
 function pluralCount(count: number, singular: string, plural = `${singular}s`): string {
   return `${count} ${count === 1 ? singular : plural}`;
-}
-
-function openFile(
-  apiOrigin: string,
-  workspace: string,
-  hasPublicUrl: boolean,
-  file: Pick<FileTableRow, "key" | "pageUrl">,
-): void {
-  if (file.pageUrl) {
-    openInNewTab(file.pageUrl);
-    return;
-  }
-  if (hasPublicUrl) {
-    openInNewTab(filePath(workspace, file.key));
-    return;
-  }
-  const tab = window.open("about:blank", "_blank");
-  if (tab) tab.opener = null;
-  void resolveSignedFileUrl(apiOrigin, workspace, file.key).then((url) => {
-    if (url) {
-      if (tab) tab.location.replace(url);
-      else window.location.assign(url);
-    } else {
-      tab?.close();
-    }
-  });
 }
 
 // ── Loading skeleton ───────────────────────────────────────────────────
@@ -884,6 +892,7 @@ export function WorkspaceFileTable({ apiOrigin, workspace }: WorkspaceFileTableP
     );
   }
 
+  const opener = makeFileOpener(apiOrigin, workspace, info.hasPublicUrl);
   const bareMatch: GhWorkItem | null = state.status === "ok" ? exactPrMatch(state.files) : null;
   const match = bareMatch && githubTitles ? applyGhTitles([bareMatch], githubTitles)[0] : bareMatch;
   // Folders only in browse mode (search has no prefix tree). Empty while loading/error.
@@ -1352,14 +1361,10 @@ export function WorkspaceFileTable({ apiOrigin, workspace }: WorkspaceFileTableP
 
             return (
               <div className="wft-row" key={file.key}>
-                <button
-                  type="button"
-                  className="wft-name wft-name--btn"
-                  onClick={() => openFile(apiOrigin, workspace, info.hasPublicUrl, file)}
-                >
+                <FileOpenTrigger opener={opener} file={file} className="wft-name wft-name--btn">
                   {thumb.kind !== "none" && <FileThumb thumb={thumb} />}
                   <span className="wft-filename">{name}</span>
-                </button>
+                </FileOpenTrigger>
                 <span className="wft-size">{sizeLabel(file.size)}</span>
                 <span className="wft-type">{type}</span>
                 <VisibilityBadge private={priv} />
@@ -1403,14 +1408,12 @@ export function WorkspaceFileTable({ apiOrigin, workspace }: WorkspaceFileTableP
             const thumb = pickThumbnail(file);
             const type = fileTypeLabel(file);
             const priv = isPrivateFile(file);
-            const open = () => openFile(apiOrigin, workspace, info.hasPublicUrl, file);
-
             return (
               <div className="wft-card" key={file.key}>
-                <button
-                  type="button"
+                <FileOpenTrigger
+                  opener={opener}
+                  file={file}
                   className="wft-card__media"
-                  onClick={open}
                   aria-label={`Open ${name}`}
                 >
                   {thumb.kind === "image" ? (
@@ -1426,12 +1429,17 @@ export function WorkspaceFileTable({ apiOrigin, workspace }: WorkspaceFileTableP
                       {thumb.kind === "none" && <span className="wft-card__ext">{type}</span>}
                     </span>
                   )}
-                </button>
+                </FileOpenTrigger>
                 <div className="wft-card__body">
                   <div className="wft-card__title">
-                    <button type="button" className="wft-card__name" title={name} onClick={open}>
+                    <FileOpenTrigger
+                      opener={opener}
+                      file={file}
+                      className="wft-card__name"
+                      title={name}
+                    >
                       {name}
-                    </button>
+                    </FileOpenTrigger>
                     <FileActionsMenu
                       open={openMenuKey === file.key}
                       busy={togglingKeys.has(file.key)}
