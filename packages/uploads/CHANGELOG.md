@@ -1,5 +1,12 @@
 # @buildinternet/uploads
 
+## 0.42.1
+
+### Patch Changes
+
+- 5f91ea5: Advertise an output schema on every hosted MCP tool (and matching stdio tools) so clients can validate structured results.
+- 590f245: Advertise safety hints and OAuth security schemes on every MCP tool, and return a www-authenticate challenge when a token is missing the required scope.
+
 ## 0.42.0
 
 ### Minor Changes
