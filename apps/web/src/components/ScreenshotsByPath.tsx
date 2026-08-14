@@ -176,7 +176,7 @@ function ShotThumb({
       )}
       {contextLabel && <span className="wsp-state">{contextLabel}</span>}
       {paired && (
-        <span className="wsp-pair" aria-hidden="true">
+        <span className="wsp-pair" aria-hidden="true" title="Has a before/after pair">
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
             <rect x="1" y="1" width="4.5" height="10" rx="1" fill="currentColor" opacity="0.45" />
             <rect
