@@ -32,6 +32,7 @@ const tip = {
     import { resolveActiveWorkspace } from "../../../../lib/workspace-browse-url";
     import { createElement } from "react";
     import { createRoot, type Root } from "react-dom/client";
+    import { withIslandBoundary } from "../../../../components/IslandErrorBoundary";
 
     let screenshotsRoot: Root | null = null;
 
@@ -70,7 +71,9 @@ const tip = {
       if (!document.contains(mount)) return;
       teardown();
       screenshotsRoot = createRoot(mount);
-      screenshotsRoot.render(createElement(ScreenshotsByPath, { apiOrigin, workspace }));
+      screenshotsRoot.render(
+        withIslandBoundary(createElement(ScreenshotsByPath, { apiOrigin, workspace })),
+      );
     }
 
     // astro:page-load fires on the initial load too (same as every sibling

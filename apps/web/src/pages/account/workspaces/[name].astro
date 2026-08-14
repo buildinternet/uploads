@@ -31,6 +31,7 @@ const tip = {
     import { resolveActiveWorkspace } from "../../../lib/workspace-browse-url";
     import { createElement } from "react";
     import { createRoot, type Root } from "react-dom/client";
+    import { withIslandBoundary } from "../../../components/IslandErrorBoundary";
 
     let filesTableRoot: Root | null = null;
 
@@ -69,7 +70,9 @@ const tip = {
       if (!document.contains(mount)) return;
       teardown();
       filesTableRoot = createRoot(mount);
-      filesTableRoot.render(createElement(WorkspaceFileTable, { apiOrigin, workspace }));
+      filesTableRoot.render(
+        withIslandBoundary(createElement(WorkspaceFileTable, { apiOrigin, workspace })),
+      );
     }
 
     // astro:page-load fires on the initial load too (same as every sibling

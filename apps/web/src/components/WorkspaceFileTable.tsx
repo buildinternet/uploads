@@ -214,13 +214,20 @@ function GridViewIcon({ className }: { className?: string }) {
 }
 
 function FileThumb({ thumb }: { thumb: ReturnType<typeof pickThumbnail> }) {
+  const [broken, setBroken] = useState(false);
   if (thumb.kind === "image") {
+    if (broken) return null;
     return (
-      <span
-        className="wft-thumb"
-        style={{ backgroundImage: `url(${thumb.src})` }}
-        aria-hidden="true"
-      />
+      <span className="wft-thumb" aria-hidden="true">
+        <img
+          className="wft-thumb__img"
+          src={thumb.src}
+          alt=""
+          loading="lazy"
+          decoding="async"
+          onError={() => setBroken(true)}
+        />
+      </span>
     );
   }
   return (

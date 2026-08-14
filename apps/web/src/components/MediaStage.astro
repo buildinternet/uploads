@@ -12,7 +12,9 @@
  * (issue #299) so the stage doesn't reflow when metadata loads.
  */
 import ImagePreview from "./ImagePreview.astro";
+import MediaFallback from "./MediaFallback.astro";
 import type { BeforeAfterState } from "../lib/before-after-view";
+import { mediaPreviewFailedBody, MEDIA_PREVIEW_FAILED_TITLE } from "../lib/media-load";
 import type { MediaKind } from "../lib/public-gallery";
 
 interface Props {
@@ -43,19 +45,6 @@ const {
   compare = null,
   railId,
 } = Astro.props;
-
-// Non-video, non-image states share one fallback shell.
-const fallback =
-  kind === "file" && url
-    ? { title: "Preview unavailable" }
-    : kind === "unsupported"
-      ? { title: "Unsupported media type", body: "This file cannot be previewed inline." }
-      : kind === "missing"
-        ? {
-            title: "Removed or expired",
-            body: "This item remains in the gallery to preserve its place.",
-          }
-        : null;
 ---
 
 <figure class="stage" style="margin:0" data-media-stage>
@@ -89,19 +78,28 @@ const fallback =
             >
               Your browser cannot play this video.
             </video>
+            <MediaFallback
+              pending
+              title={MEDIA_PREVIEW_FAILED_TITLE}
+              body={mediaPreviewFailedBody("video")}
+              href={url}
+            />
           </div>
         )}
-        {fallback && (
-          <div class="fallback">
-            <strong>{fallback.title}</strong>
-            {kind === "file" && url ? (
-              <a href={url} rel="noopener noreferrer">
-                Open {filename}
-              </a>
-            ) : (
-              <span>{fallback.body}</span>
-            )}
-          </div>
+        {kind === "file" && url && (
+          <MediaFallback title="Preview unavailable" href={url} filename={filename} />
+        )}
+        {kind === "unsupported" && (
+          <MediaFallback
+            title="Unsupported media type"
+            body="This file cannot be previewed inline."
+          />
+        )}
+        {kind === "missing" && (
+          <MediaFallback
+            title="Removed or expired"
+            body="This item remains in the gallery to preserve its place."
+          />
         )}
       </div>
     )
@@ -178,20 +176,15 @@ const fallback =
   .seek-toggle button:focus-visible {
     box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent);
   }
-  .fallback {
-    padding: 60px 30px;
-    text-align: center;
-    color: var(--muted);
-    font: 13px/1.6 var(--mono);
+  .video-wrap[data-failed="1"] {
+    width: 100%;
+    line-height: normal;
+    display: grid;
+    place-items: center;
   }
-  .fallback strong {
-    display: block;
-    color: var(--fg);
-    margin-bottom: 8px;
-  }
-  .fallback a {
-    color: var(--fg);
-    overflow-wrap: anywhere;
+  .video-wrap[data-failed="1"] video,
+  .video-wrap[data-failed="1"] .seek-toggle {
+    display: none;
   }
   /* Right rail: account-shell-like section gap; content is slotted (page-scoped). */
   .details {
@@ -228,6 +221,8 @@ const fallback =
 </style>
 
 <script>
+  import { bindMediaLoadError } from "../lib/media-load";
+
   // Skip ±10s for the native player. Progressive enhancement only — without
   // JS the buttons are inert and the native controls still work.
   function bootVideoStages() {
@@ -236,6 +231,7 @@ const fallback =
       wrap.dataset.bound = "1";
       const video = wrap.querySelector("video");
       if (!video) continue;
+      bindMediaLoadError(wrap, video);
       for (const button of wrap.querySelectorAll<HTMLButtonElement>("button[data-seek]")) {
         button.addEventListener("click", () => {
           const delta = Number(button.dataset.seek);

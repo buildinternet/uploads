@@ -10,8 +10,13 @@
  * view switch between this image alone and a draggable before/after slider
  * (`img-comparison-slider`, a custom element — the public file page ships no
  * framework runtime and must keep it that way).
+ *
+ * A failed load (404, corrupt bytes, decode error) hides the browser's
+ * broken-image chrome and reveals MediaFallback instead.
  */
 import { compareImages, type BeforeAfterState } from "../lib/before-after-view";
+import { mediaPreviewFailedBody, MEDIA_PREVIEW_FAILED_TITLE } from "../lib/media-load";
+import MediaFallback from "./MediaFallback.astro";
 /** Vendor FOUC guard (the `rendered` class + slot-hiding rules) — imported
  * rather than hand-copied so a future minor version can't silently drift out
  * from under a stale local copy (see Task 1's read of v8.0.7's dist/styles.css). */
@@ -48,6 +53,12 @@ const counterpartUrl = compare?.src ?? null;
     <button type="button" data-size="full" aria-pressed="false">Full width</button>
   </div>
   <img class="single-image" src={src} alt={alt} decoding="async" />
+  <MediaFallback
+    pending
+    title={MEDIA_PREVIEW_FAILED_TITLE}
+    body={mediaPreviewFailedBody("image")}
+    href={src}
+  />
   {
     pair && (
       <div class="compare-wrap">
@@ -90,6 +101,7 @@ const counterpartUrl = compare?.src ?? null;
 
 <script>
   import { resolvePreviewMode, type ImagePreviewMode } from "../lib/image-preview-mode";
+  import { bindMediaLoadError } from "../lib/media-load";
 
   type CompareView = "single" | "compare";
 
@@ -208,13 +220,17 @@ const counterpartUrl = compare?.src ?? null;
 
     void initCompare(root);
 
-    const img = root.querySelector("img");
+    const img = root.querySelector<HTMLImageElement>("img.single-image");
     if (!(img instanceof HTMLImageElement)) return;
+
+    bindMediaLoadError(root, img, () => applyView(root, "single"));
+    if (root.dataset.failed === "1") return;
 
     // Page-view only — no storage, so the next tall shot still auto-picks full.
     let override: ImagePreviewMode | null = null;
 
     const sync = () => {
+      if (root.dataset.failed === "1") return;
       applyMode(
         root,
         resolvePreviewMode({
@@ -237,6 +253,7 @@ const counterpartUrl = compare?.src ?? null;
     // Imgur-style click-to-zoom: the image itself is a supplementary toggle:
     // the pill buttons above remain the visible + accessible affordance.
     img.addEventListener("click", () => {
+      if (root.dataset.failed === "1") return;
       if (root.dataset.view === "compare") return;
       override = root.dataset.mode === "full" ? "fit" : "full";
       applyMode(root, override);
@@ -263,6 +280,18 @@ const counterpartUrl = compare?.src ?? null;
     display: grid;
     place-items: center;
     overflow: hidden;
+  }
+
+  .image-preview[data-failed="1"] > .size-toggle,
+  .image-preview[data-failed="1"] > .view-toggle,
+  .image-preview[data-failed="1"] > .single-image,
+  .image-preview[data-failed="1"] > .compare-wrap {
+    display: none;
+  }
+
+  .image-preview[data-failed="1"] {
+    max-height: var(--preview-max-h);
+    cursor: default;
   }
 
   .size-toggle,
