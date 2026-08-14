@@ -11,6 +11,8 @@
     "Divider": { "cardMode": "column" },
     "Field": { "cardMode": "column" },
     "GalleryTile": { "cardMode": "column" },
-    "Panel": { "cardMode": "column" }
+    "Panel": { "cardMode": "column" },
+    "Progress": { "cardMode": "column" },
+    "Select": { "cardMode": "column" }
   }
 }

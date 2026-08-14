@@ -32,7 +32,9 @@ Build every screen inside one.
 There is **no utility-class vocabulary to author**. Style two ways only:
 
 1. **Component props** carry the design language:
-   - `Button` — `variant` (`default | primary | ghost | danger`), `size` (`sm | md | lg`), `block`
+   - `Button` — `variant` (`default | primary | solid | ghost | danger`; `solid`
+     fills with the accent — at most one per surface), `size` (`sm | md | lg`),
+     `block`, `icon`
    - `Callout` — `tone` (`info | ready | error | muted`), `title`
    - `Badge` — `tone` (`neutral | accent | ok | danger`), `dot`
    - `Field` — `label`, `hint`, `invalid`
