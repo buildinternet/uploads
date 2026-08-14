@@ -1335,13 +1335,16 @@ button.wft-row {
   gap: 10px;
   min-width: 0;
 }
-button.wft-name--btn {
+/* Renders as <a> when the file's destination is known at render time, else as
+   a <button> for the signed-URL fallback — reset both chromes. */
+.wft-name--btn {
   background: none;
   border: 0;
   padding: 0;
   color: inherit;
   font: inherit;
   text-align: left;
+  text-decoration: none;
   cursor: pointer;
   width: 100%;
 }
@@ -1529,6 +1532,7 @@ button.wft-card:focus-visible {
   background: var(--bg);
   cursor: pointer;
   color: inherit;
+  text-decoration: none;
   overflow: hidden;
 }
 .wft-card__media:focus-visible {
@@ -1583,8 +1587,13 @@ button.wft-card:focus-visible {
   border: 0;
   padding: 0;
   text-align: left;
+  text-decoration: none;
   cursor: pointer;
 }
+/* Interactive only on file cards — a folder card's name is a plain span
+   inside the card button, and must not pick up the accent hover. */
+a.wft-card__name:hover,
+a.wft-card__name:focus-visible,
 button.wft-card__name:hover,
 button.wft-card__name:focus-visible {
   color: var(--accent);
@@ -1870,6 +1879,9 @@ button.wft-card__name:focus-visible {
   gap: 12px;
 }
 
+/* Renders as an <a> when the destination is known at render time, and as a
+   <button> only for the private/BYO signed-URL fallback — so the reset has to
+   neutralise both the button chrome and the inherited link styling. */
 .wsp-tile {
   position: relative;
   display: block;
@@ -1878,6 +1890,8 @@ button.wft-card__name:focus-visible {
   border: 0;
   padding: 0;
   cursor: pointer;
+  color: inherit;
+  text-decoration: none;
 }
 .wsp-strip .wsp-tile {
   width: 168px;

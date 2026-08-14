@@ -19,8 +19,7 @@ import {
 import { loadWorkspaces } from "../lib/workspaces-nav";
 import { resolveWorkspaceInfo, type WorkspaceInfoStatus } from "../lib/workspace-file-row";
 import { onSession } from "../lib/account-shell";
-import { filePath } from "../lib/public-file";
-import { fetchWithTimeout } from "../lib/request";
+import { makeFileOpener, newTabLinkProps, type FileOpener } from "../lib/file-opener";
 import {
   lastUpdatedLabel,
   pairedShotKeys,
@@ -53,56 +52,6 @@ type DrillState =
   | { status: "loading" }
   | { status: "error" }
   | { status: "ready"; items: SearchFileItem[]; truncated: boolean };
-
-// ── URL-resolution helpers (open-file) ────────────────────────────────────
-// Same shape as WorkspaceFileTable's private module helpers (Task 6 brief:
-// reimplement rather than export) — prefer a public `/f/` URL, else a
-// short-lived signed URL for private/BYO workspaces.
-
-async function resolveSignedFileUrl(
-  apiOrigin: string,
-  workspace: string,
-  key: string,
-): Promise<string | null> {
-  const result = await fetchWithTimeout(
-    `${apiOrigin.replace(/\/$/, "")}/v1/workspaces/${encodeURIComponent(workspace)}/files/file-url?key=${encodeURIComponent(key)}`,
-    { credentials: "include", cache: "no-store" },
-  );
-  if (result.kind === "unavailable") return null;
-  const body = (await result.response.json().catch(() => ({}))) as { url?: string };
-  return result.response.ok && typeof body.url === "string" ? body.url : null;
-}
-
-function openInNewTab(url: string): void {
-  const tab = window.open(url, "_blank");
-  if (tab) tab.opener = null;
-}
-
-function openFile(
-  apiOrigin: string,
-  workspace: string,
-  hasPublicUrl: boolean,
-  file: { key: string; pageUrl?: string },
-): void {
-  if (file.pageUrl) {
-    openInNewTab(file.pageUrl);
-    return;
-  }
-  if (hasPublicUrl) {
-    openInNewTab(filePath(workspace, file.key));
-    return;
-  }
-  const tab = window.open("about:blank", "_blank");
-  if (tab) tab.opener = null;
-  void resolveSignedFileUrl(apiOrigin, workspace, file.key).then((url) => {
-    if (url) {
-      if (tab) tab.location.replace(url);
-      else window.location.assign(url);
-    } else {
-      tab?.close();
-    }
-  });
-}
 
 /** Leaf name for an aria-label / alt text — "a/b/c.png" → "c.png". */
 function leafName(key: string): string {
@@ -137,6 +86,7 @@ function ShotThumb({
   item,
   paired,
   contextLabel,
+  href,
   onOpen,
 }: {
   item: { key: string; url: string | null; embedUrl: string | null; state?: string };
@@ -144,6 +94,8 @@ function ShotThumb({
   paired?: boolean;
   /** Optional pill (GitHub "PR #7 · author" context) — not the state. */
   contextLabel?: string;
+  /** Known destination; when null the tile falls back to a button + `onOpen`. */
+  href: string | null;
   onOpen: () => void;
 }) {
   const name = leafName(item.key);
@@ -155,14 +107,13 @@ function ShotThumb({
   // visual signal, and only when a counterpart actually exists.
   const stateSuffix = item.state ? ` (${item.state})` : "";
 
-  return (
-    <button
-      type="button"
-      className="wsp-tile"
-      aria-label={`Open ${name}${stateSuffix}${paired ? " — has before/after pair" : ""}`}
-      title={item.state ? `${name}${stateSuffix}` : undefined}
-      onClick={onOpen}
-    >
+  const shared = {
+    className: "wsp-tile",
+    "aria-label": `Open ${name}${stateSuffix}${paired ? " — has before/after pair" : ""}`,
+    title: item.state ? `${name}${stateSuffix}` : undefined,
+  };
+  const body = (
+    <>
       {showImage ? (
         <span
           className="wsp-thumb"
@@ -191,6 +142,16 @@ function ShotThumb({
           </svg>
         </span>
       )}
+    </>
+  );
+
+  return href ? (
+    <a {...shared} {...newTabLinkProps} href={href}>
+      {body}
+    </a>
+  ) : (
+    <button {...shared} type="button" onClick={onOpen}>
+      {body}
     </button>
   );
 }
@@ -378,8 +339,7 @@ export function ScreenshotsByPath({ apiOrigin, workspace }: ScreenshotsByPathPro
     );
   }
 
-  const open = (file: { key: string; pageUrl?: string }) =>
-    openFile(apiOrigin, workspace, info.hasPublicUrl, file);
+  const opener = makeFileOpener(apiOrigin, workspace, info.hasPublicUrl);
   const onDrill = (group: { project: string; path: string }) =>
     setView({ project: group.project, path: group.path });
 
@@ -446,7 +406,8 @@ export function ScreenshotsByPath({ apiOrigin, workspace }: ScreenshotsByPathPro
                     key={item.key}
                     item={{ ...item, state }}
                     paired={paired.has(item.key)}
-                    onOpen={() => open(item)}
+                    href={opener.href(item)}
+                    onOpen={() => opener.activate(item)}
                   />
                 ));
               })()}
@@ -506,9 +467,9 @@ export function ScreenshotsByPath({ apiOrigin, workspace }: ScreenshotsByPathPro
         ) : (
           <>
             {projectGroups.map((group) => (
-              <PathGroupSection key={group.path} group={group} onDrill={onDrill} onOpen={open} />
+              <PathGroupSection key={group.path} group={group} onDrill={onDrill} opener={opener} />
             ))}
-            {projectGh && <GitHubSection items={projectGh} onOpen={open} />}
+            {projectGh && <GitHubSection items={projectGh} opener={opener} />}
           </>
         )}
       </div>
@@ -551,7 +512,7 @@ export function ScreenshotsByPath({ apiOrigin, workspace }: ScreenshotsByPathPro
                 ghItems={ghItems}
                 onViewProject={() => setView({ project: label, path: "" })}
                 onDrill={onDrill}
-                onOpen={open}
+                opener={opener}
               />
             );
           })}
@@ -571,7 +532,7 @@ function ProjectSection({
   ghItems,
   onViewProject,
   onDrill,
-  onOpen,
+  opener,
 }: {
   label: string;
   summary: ProjectSummary | undefined;
@@ -579,7 +540,7 @@ function ProjectSection({
   ghItems: SearchFileItem[] | undefined;
   onViewProject: () => void;
   onDrill: (group: { project: string; path: string }) => void;
-  onOpen: (file: PathGroupItem | SearchFileItem) => void;
+  opener: FileOpener;
 }) {
   // A GH-only label (no by-path groups) has no ProjectSummary — fall back to
   // the GitHub items' count so the header still reads sensibly.
@@ -599,20 +560,14 @@ function ProjectSection({
         </button>
       </div>
       {groups.map((group) => (
-        <PathGroupSection key={group.path} group={group} onDrill={onDrill} onOpen={onOpen} />
+        <PathGroupSection key={group.path} group={group} onDrill={onDrill} opener={opener} />
       ))}
-      {ghItems && <GitHubSection items={ghItems} onOpen={onOpen} />}
+      {ghItems && <GitHubSection items={ghItems} opener={opener} />}
     </div>
   );
 }
 
-function GitHubSection({
-  items,
-  onOpen,
-}: {
-  items: SearchFileItem[];
-  onOpen: (file: SearchFileItem) => void;
-}) {
+function GitHubSection({ items, opener }: { items: SearchFileItem[]; opener: FileOpener }) {
   return (
     <div className="wsp-group">
       <div className="wsp-group__head">
@@ -627,7 +582,8 @@ function GitHubSection({
             key={item.key}
             item={item}
             contextLabel={ghLabel(item)}
-            onOpen={() => onOpen(item)}
+            href={opener.href(item)}
+            onOpen={() => opener.activate(item)}
           />
         ))}
       </div>
@@ -638,11 +594,11 @@ function GitHubSection({
 function PathGroupSection({
   group,
   onDrill,
-  onOpen,
+  opener,
 }: {
   group: FilesPathGroup;
   onDrill: (group: { project: string; path: string }) => void;
-  onOpen: (file: PathGroupItem) => void;
+  opener: FileOpener;
 }) {
   return (
     <div className="wsp-group">
@@ -662,7 +618,8 @@ function PathGroupSection({
               key={item.key}
               item={item}
               paired={paired.has(item.key)}
-              onOpen={() => onOpen(item)}
+              href={opener.href(item)}
+              onOpen={() => opener.activate(item)}
             />
           ));
         })()}
