@@ -64,6 +64,18 @@ restage by hand (or copy from main) in those worktrees.
 - `cfg.cssEntry` = `dist/uploads-ui.css` — one self-contained stylesheet carrying
   the `:root` token layer + `@font-face` + every `ul-` component class. No separate
   tokens package/glob; tokens are inline there and ship via the `styles.css` closure.
+- **No component-scoped custom-property *declarations* — thread per-instance
+  color through `color`/`currentColor` instead.** claude.ai/design's
+  `check_design_system` treats every `--*` declaration as a design token and
+  flags any declared outside a theme scope (`:root` / `[data-theme]`). A
+  component that needs one color knob shared across an element and its
+  pseudo-elements (e.g. Progress's fill + dither cap) must set `color:
+  var(--token)` on the element (overriding per `[data-*]`) and consume it as
+  `currentColor` — **not** declare a `--ul-*` custom property on a component
+  selector. Do **not** "fix" such a finding by hoisting the property to `:root`:
+  the value varies per instance, so hoisting breaks it. Consume-with-fallback
+  (`var(--ul-x, 116px)`, like `--ul-files-min-height`) is also fine — it's never
+  *declared*, so it isn't flagged.
 - **`@kind` token annotations are load-bearing — do not strip them.** The token
   declarations in `src/styles.css` / `src/tokens.css` carry trailing comments the
   claude.ai/design compiler reads to classify tokens: `--sans`/`--mono`/`--pixel`
