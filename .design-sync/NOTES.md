@@ -105,13 +105,24 @@ restage by hand (or copy from main) in those worktrees.
 - No `[RENDER_THIN]` / `variants-identical` warns to record — all cells graded good.
 - **Progress** and **Select** were added to `@uploads/ui` and authored on the
   2026-08-14 sync (`previews/Progress.tsx`, `previews/Select.tsx`) — 3 cells each,
-  all graded good, no grid override needed (default card width fits). Select is a
+  all graded good (both later needed `cardMode: "column"`, see above). Select is a
   new export from `Field.tsx` (`ul-select` / compact `ul-select--sm`); Progress is
   its own file (`ul-progress__*`, `data-level` fill bands). Both added to
   `conventions.md`. That brought the DS from 12 → 14 components.
 
 ## Re-sync risks
 
+- **Sync from an up-to-date `main`, and check before uploading.** A sync uploads
+  whatever the working tree builds, so a stale base silently *reverts* merged
+  design-system fixes in the Claude Design project — the anchor diff can't catch
+  it, because the bundle genuinely changed and looks like a legitimate update.
+  This bit us on 2026-08-14: a worktree branched at #663 re-synced ~1h after #664
+  merged and re-uploaded the pre-#664 stylesheet, restoring the exact
+  `--ul-progress-fill` declaration #664 removed. The design agent kept reporting
+  the finding and was correct. **Run `git fetch && git log --oneline -3
+  origin/main` before the build**, and after building grep the bundle for
+  whatever the most recent DS fix removed
+  (`grep -c 'ul-progress-fill' ds-bundle/_ds_bundle.css` → expect 0).
 - **Harness is not in git** — if `.ds-sync/` is missing, restage before build/
   validate (see "Converter harness" above). Worktrees only inherit it when main
   already has a staged copy.
