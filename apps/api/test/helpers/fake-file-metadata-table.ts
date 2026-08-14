@@ -114,13 +114,13 @@ export class FileMetadataTable {
       return { success: true, results: results as T[], meta: {} };
     }
     // findObjectsByMetadata: single equality, or multi-filter INTERSECT legs.
-    // Args: (workspace, key, value)×N, optional LIKE-escaped prefix, limit.
+    // Args: (workspace, key, value)×N, optional prefix (bound twice), limit.
     if (
       normalizedSql.startsWith("SELECT object_key FROM file_metadata WHERE workspace") ||
       normalizedSql.startsWith("SELECT object_key FROM (SELECT object_key FROM file_metadata")
     ) {
       const filterCount = (normalizedSql.match(/meta_key = \? AND meta_value = \?/g) ?? []).length;
-      const hasPrefix = normalizedSql.includes("object_key LIKE ? || '%'");
+      const hasPrefix = normalizedSql.includes("substr(object_key, 1, length(?)) = ?");
       const filters: Array<{ workspace: string; key: string; value: string }> = [];
       for (let i = 0; i < filterCount; i++) {
         const base = i * 3;
@@ -131,8 +131,9 @@ export class FileMetadataTable {
         });
       }
       let idx = filterCount * 3;
-      // Bound prefix is ESCAPE-quoted for SQL LIKE; strip escapes for startsWith.
-      const prefix = hasPrefix ? String(args[idx++]).replace(/\\([\\%_])/g, "$1") : undefined;
+      // substr prefix filter binds the raw prefix twice (length + comparison).
+      const prefix = hasPrefix ? String(args[idx]) : undefined;
+      if (hasPrefix) idx += 2;
       const limit = args[idx] as number;
       const workspace = filters[0]?.workspace;
       if (!workspace || filters.some((f) => f.workspace !== workspace)) {

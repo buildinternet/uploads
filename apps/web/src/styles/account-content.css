@@ -1918,3 +1918,23 @@ button.wft-card__name:focus-visible {
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
+
+/* Compact before/after pair indicator — shown only when the counterpart
+   actually sits in the same strip/grid (pairedShotKeys), replacing the old
+   full-width BEFORE/AFTER text pills that dominated 96px tiles. */
+.wsp-pair {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  color: var(--muted);
+}
+.wsp-pair svg {
+  display: block;
+}

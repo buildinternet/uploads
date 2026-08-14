@@ -54,6 +54,61 @@ export function projectLabelFromItemMeta(meta: Record<string, string> | undefine
   return "Other";
 }
 
+/**
+ * Which tiles in a collection have a real before/after counterpart sitting
+ * next to them. Client mirror of the API's pairing rules (before-after.ts):
+ * primary rule swaps the before/after filename token and looks for that exact
+ * sibling; fallback pairs a LONE before with a LONE after (the state metadata
+ * declares the pairing even when filenames carry no token). Anything
+ * ambiguous stays unpaired — the indicator must never claim a pair that the
+ * file page won't actually show.
+ */
+const PAIR_TOKEN_RE = /(^|[-_.])(before|after)(?=[-_.]|$)/i;
+
+function swapPairToken(key: string): string | null {
+  // Token boundaries are -_. or the FILENAME edges (same as the API's rule) —
+  // run the swap on the leaf name so a preceding `/` counts as a start.
+  const slash = key.lastIndexOf("/");
+  const dir = key.slice(0, slash + 1);
+  const leaf = key.slice(slash + 1);
+  const match = PAIR_TOKEN_RE.exec(leaf);
+  if (!match) return null;
+  const found = match[2]!;
+  const swapped = found.toLowerCase() === "before" ? "after" : "before";
+  let cased: string;
+  if (found === found.toUpperCase()) cased = swapped.toUpperCase();
+  else if (found[0] === found[0]!.toUpperCase())
+    cased = swapped[0]!.toUpperCase() + swapped.slice(1);
+  else cased = swapped;
+  const start = match.index + match[1]!.length;
+  return dir + leaf.slice(0, start) + cased + leaf.slice(start + found.length);
+}
+
+export function pairedShotKeys(items: Array<{ key: string; state?: string }>): Set<string> {
+  const paired = new Set<string>();
+  const stated = items.filter((i) => i.state === "before" || i.state === "after");
+  const byKey = new Set(stated.map((i) => i.key));
+
+  for (const item of stated) {
+    const counterpartKey = swapPairToken(item.key);
+    if (counterpartKey && byKey.has(counterpartKey)) paired.add(item.key);
+  }
+
+  // Token-less fallback: exactly one before and one after (neither already
+  // token-paired) is an unambiguous pair.
+  const loneBefore = stated.filter((i) => i.state === "before" && !paired.has(i.key));
+  const loneAfter = stated.filter((i) => i.state === "after" && !paired.has(i.key));
+  if (loneBefore.length === 1 && loneAfter.length === 1) {
+    // Only when neither carries a token that failed to match — a token that
+    // points at a missing sibling is a declared non-pair, not an ambiguity.
+    if (swapPairToken(loneBefore[0]!.key) === null && swapPairToken(loneAfter[0]!.key) === null) {
+      paired.add(loneBefore[0]!.key);
+      paired.add(loneAfter[0]!.key);
+    }
+  }
+  return paired;
+}
+
 /** `?project=` / `?path=` view state, "" when absent. */
 export function readScreenshotsView(search: string): { project: string; path: string } {
   const params = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search);
