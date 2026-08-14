@@ -5,9 +5,8 @@
  * Legacy query form (`?ws=`) is still parsed so old links and profile
  * bookmarks keep working; new writes prefer the path-based route.
  *
- * files-sdk's FileBrowser owns navigation in React state and only offers
- * `initialPrefix` / `onSelect` — no URL sync — so the account shell wires
- * folder location into the address bar itself.
+ * Folder location lives in React state, not the router, so the account shell
+ * wires it into the address bar itself.
  */
 
 /** Workspace slug shape used by the API (`apps/api` WS_NAME_RE). */

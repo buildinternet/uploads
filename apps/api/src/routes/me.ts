@@ -181,7 +181,7 @@ export const me = new Hono<SessionVars>()
   // lets the account UI decide, per workspace, whether opening a file should
   // navigate to the public /f/ page (issue #135) or resolve through the
   // signed-URL-capable /file-url endpoint (issue #123) — see
-  // apps/web's AccountFileBrowser. `plan` (issue #365 follow-up, purely
+  // apps/web's WorkspaceFileTable. `plan` (issue #365 follow-up, purely
   // additive) is the same catalog-id string `planResponse` returns for the
   // billing tab — "free" whenever the record has no plan applied (getPlan's
   // fail-open-to-free contract), so a legacy/unapplied record can never read
