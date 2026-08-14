@@ -27,11 +27,31 @@ description: >-
 GitHub's native image hosting (`github.com/user-attachments/…`) only works
 from an authenticated browser session — there is no `gh` CLI or REST endpoint
 for it. Any image URL in a PR/issue body written with `gh … --body-file` must
-already point at something publicly hosted. The **`uploads` CLI** provides
-that: it hosts the file on uploads.sh and returns a stable public URL plus
-ready-to-paste markdown.
+already point at something publicly hosted. The **`uploads` CLI** and the
+hosted MCP at `https://agents.uploads.sh/mcp` both host the file on uploads.sh
+and return a stable public URL plus ready-to-paste markdown.
+
+## Which surface
+
+Pick one transport and stay on it. This skill is the workflow. The
+**uploads-cli** skill owns flags and MCP tool contracts.
+
+| You have                                           | Use                                                                                                                                                                                |
+| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| No shell (ChatGPT, or any host without a checkout) | Hosted MCP `put` with `filename` + `contentBase64` + `repo` + (`pr` or `branch`). Embed the returned `markdown` / `embedUrl`. Never imply you can run `uploads attach ./shot.png`. |
+| A checkout and the `uploads` binary                | The CLI examples below. Git can fill `repo` / `branch`.                                                                                                                            |
+| A `localhost` page or a selector annotate          | CLI only (`uploads screenshot --via local`). Remote render cannot reach your machine.                                                                                              |
+| Neither MCP nor the CLI                            | Stop and say so. Do not treat `npm install -g` as the ChatGPT path.                                                                                                                |
+
+On the hosted MCP there is no `attach` tool and no git defaults. Stage with
+`put` + `branch` + `repo`. Once the PR exists, `promote` with `repo` + `pr` +
+`branch`, or `put` with `pr` + `repo` (optional `branch` also promotes). The
+managed comment is bot-only on that server.
 
 ## Step 1 — Capture the visual
+
+Skip this step if the visual is already in context (a ChatGPT attachment, a
+file the host already holds). Go straight to hosted MCP `put`.
 
 **Prefer `uploads screenshot <url|file.html>`** — it captures **and** hosts in
 one step (drives a local Chrome, or falls back to a server-side render), so you
@@ -120,16 +140,6 @@ no-op. If you can't confirm the repo is already bound (`uploads github link
 The zero-setup fallback that works regardless of binding history: once the PR
 exists, run `uploads attach --promote` (or any targeted `uploads attach`
 against that PR) to promote and post explicitly.
-
-**No local filesystem?** An agent driving the hosted MCP
-(`agents.uploads.sh/mcp`, no CLI, no git checkout) can still run the same loop
-with explicit `repo`/`branch`/`pr` (no git defaults on the server):
-
-- Stage as you go: `put` with `branch` + `repo` + base64 content
-- Once the PR exists: `promote` with `repo` + `pr` + `branch`, or `put` with
-  `pr` + `repo` (and optional `branch` to also promote staged files)
-- Managed comment is bot-only on this server — see the **uploads-cli** skill
-  for contracts and honest decline reasons
 
 **Pass `--state before`/`--state after` and `--meta path=/route` as a habit —
 both, every time.** Before/after is the whole point of most PR screenshots, and
@@ -258,12 +268,13 @@ handful of milestones reads better than a dumped folder.
 
 ## Setup and escalation
 
-- CLI missing? `npm install --global @buildinternet/uploads`
-- Not authenticated? `uploads login` (one-time, opens a browser), then
-  `uploads doctor` to verify.
-- Everything deeper — flags, key layouts, metadata and search, galleries,
-  config defaults, output formats, exit codes — lives in the **uploads-cli**
-  skill and `uploads <command> --help`.
+- No shell? Use the hosted MCP. Do not install the CLI.
+- CLI missing on a machine with a shell? `npm install --global @buildinternet/uploads`
+- Not authenticated on the CLI? `uploads login` (one-time, opens a browser),
+  then `uploads doctor` to verify. Hosted MCP uses OAuth on first tool call.
+- Everything deeper — flags, key layouts, MCP tool contracts, metadata and
+  search, galleries, config defaults, output formats, exit codes — lives in
+  the **uploads-cli** skill and `uploads <command> --help`.
 
 ## Cautions
 
