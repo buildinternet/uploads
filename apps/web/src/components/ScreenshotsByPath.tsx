@@ -100,8 +100,9 @@ function ShotThumb({
 }) {
   const name = leafName(item.key);
   const kind = shotKindFromKey(item.key);
+  const [broken, setBroken] = useState(false);
   const showLock = kind === "image" && item.url === null;
-  const showImage = kind === "image" && !!item.embedUrl;
+  const showImage = kind === "image" && !!item.embedUrl && !broken;
   // The state stays in the accessible name (and hover title) even though the
   // tile no longer wears a BEFORE/AFTER pill — the pair badge covers the
   // visual signal, and only when a counterpart actually exists.
@@ -115,11 +116,15 @@ function ShotThumb({
   const body = (
     <>
       {showImage ? (
-        <span
-          className="wsp-thumb"
-          style={{ backgroundImage: `url(${item.embedUrl})` }}
-          aria-hidden="true"
-        />
+        <span className="wsp-thumb" aria-hidden="true">
+          <img
+            src={item.embedUrl!}
+            alt=""
+            loading="lazy"
+            decoding="async"
+            onError={() => setBroken(true)}
+          />
+        </span>
       ) : (
         <span className="wsp-thumb wsp-thumb--tile" aria-hidden="true">
           {showLock ? "🔒" : extLabel(item.key)}

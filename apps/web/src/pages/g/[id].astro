@@ -3,6 +3,8 @@ import BaseHead from "../../components/BaseHead.astro";
 import GalleryReferences from "../../components/GalleryReferences.astro";
 import Brand from "../../components/Brand.astro";
 import Footer from "../../components/Footer.astro";
+import MediaFallback from "../../components/MediaFallback.astro";
+import { mediaPreviewFailedBody, MEDIA_PREVIEW_FAILED_TITLE } from "../../lib/media-load";
 import {
   applyPublicGalleryHeaders,
   fetchPublicGallery,
@@ -166,20 +168,10 @@ const oembedHref = gallery ? oembedDiscoveryHref(canonical, Astro.url.origin) : 
         object-fit: contain;
         display: block;
       }
-      .fallback {
-        padding: 30px;
-        text-align: center;
-        color: var(--muted);
-        font: 13px/1.6 var(--mono);
-      }
-      .fallback strong {
-        display: block;
-        color: var(--red);
-        margin-bottom: 8px;
-      }
-      .fallback a {
-        color: var(--fg);
-        overflow-wrap: anywhere;
+      .media[data-failed="1"] img,
+      .media[data-failed="1"] video,
+      .media[data-failed="1"] .media-link {
+        display: none;
       }
       figcaption {
         padding: 14px 16px 16px;
@@ -285,70 +277,85 @@ const oembedHref = gallery ? oembedDiscoveryHref(canonical, Astro.url.origin) : 
               </section>
             ) : (
               <section class="grid">
-                {gallery.items.map((item) => (
-                  <figure>
-                    <div class="media">
-                      {kind(item) === "image" && (
-                        <a
-                          class="media-link"
-                          href={itemPage(item)}
-                          aria-label={`View ${item.filename}`}
-                        >
-                          <img
-                            src={item.url!}
-                            alt={item.altText ?? item.caption ?? item.filename}
-                            loading="lazy"
-                            decoding="async"
-                          />
-                        </a>
-                      )}
-                      {kind(item) === "video" && (
-                        <video
-                          src={item.url!}
-                          poster={item.posterUrl ?? undefined}
-                          controls
-                          playsinline
-                          preload={item.posterUrl ? "none" : "metadata"}
-                          aria-describedby={`caption-${item.id}`}
-                        >
-                          Your browser cannot play this video.
-                        </video>
-                      )}
-                      {kind(item) === "file" && (
-                        <div class="fallback">
-                          <strong>Preview unavailable</strong>
-                          <a href={item.url!} rel="noopener noreferrer">
-                            Open {item.filename}
+                {gallery.items.map((item) => {
+                  const mediaKind = kind(item);
+                  const previewable = mediaKind === "image" || mediaKind === "video";
+                  return (
+                    <figure>
+                      <div class="media" data-media-load={previewable ? "" : undefined}>
+                        {mediaKind === "image" && (
+                          <a
+                            class="media-link"
+                            href={itemPage(item)}
+                            aria-label={`View ${item.filename}`}
+                          >
+                            <img
+                              src={item.url!}
+                              alt={item.altText ?? item.caption ?? item.filename}
+                              loading="lazy"
+                              decoding="async"
+                            />
                           </a>
-                        </div>
-                      )}
-                      {kind(item) === "unsupported" && (
-                        <div class="fallback">
-                          <strong>Unsupported media type</strong>
-                          <span>This item cannot be opened inline.</span>
-                        </div>
-                      )}
-                      {kind(item) === "missing" && (
-                        <div class="fallback">
-                          <strong>Removed or expired</strong>
-                          <span>This item remains in the gallery to preserve its place.</span>
-                        </div>
-                      )}
-                    </div>
-                    <figcaption id={`caption-${item.id}`}>
-                      <div class="filename">{item.filename}</div>
-                      {item.caption && <div class="caption">{item.caption}</div>}
-                      <a class="original" href={itemPage(item)}>
-                        View page
-                      </a>
-                      {item.status === "available" && kind(item) !== "unsupported" && (
-                        <a class="original" href={item.url!} rel="noopener noreferrer">
-                          Open original
+                        )}
+                        {mediaKind === "video" && (
+                          <video
+                            src={item.url!}
+                            poster={item.posterUrl ?? undefined}
+                            controls
+                            playsinline
+                            preload={item.posterUrl ? "none" : "metadata"}
+                            aria-describedby={`caption-${item.id}`}
+                          >
+                            Your browser cannot play this video.
+                          </video>
+                        )}
+                        {previewable && (
+                          <MediaFallback
+                            pending
+                            compact
+                            title={MEDIA_PREVIEW_FAILED_TITLE}
+                            body={mediaPreviewFailedBody(mediaKind === "video" ? "video" : "image")}
+                            href={item.url}
+                          />
+                        )}
+                        {mediaKind === "file" && (
+                          <MediaFallback
+                            compact
+                            title="Preview unavailable"
+                            href={item.url}
+                            filename={item.filename}
+                          />
+                        )}
+                        {mediaKind === "unsupported" && (
+                          <MediaFallback
+                            compact
+                            title="Unsupported media type"
+                            body="This item cannot be opened inline."
+                          />
+                        )}
+                        {mediaKind === "missing" && (
+                          <MediaFallback
+                            compact
+                            title="Removed or expired"
+                            body="This item remains in the gallery to preserve its place."
+                          />
+                        )}
+                      </div>
+                      <figcaption id={`caption-${item.id}`}>
+                        <div class="filename">{item.filename}</div>
+                        {item.caption && <div class="caption">{item.caption}</div>}
+                        <a class="original" href={itemPage(item)}>
+                          View page
                         </a>
-                      )}
-                    </figcaption>
-                  </figure>
-                ))}
+                        {item.status === "available" && mediaKind !== "unsupported" && (
+                          <a class="original" href={item.url!} rel="noopener noreferrer">
+                            Open original
+                          </a>
+                        )}
+                      </figcaption>
+                    </figure>
+                  );
+                })}
               </section>
             )}
             <GalleryReferences references={gallery.references} />
@@ -375,5 +382,13 @@ const oembedHref = gallery ? oembedDiscoveryHref(canonical, Astro.url.origin) : 
       }
     </main>
     <Footer />
+    <script>
+      import { bindMediaFallbacks } from "../../lib/media-load";
+      function boot(): void {
+        bindMediaFallbacks(document);
+      }
+      boot();
+      document.addEventListener("astro:page-load", boot);
+    </script>
   </body>
 </html>

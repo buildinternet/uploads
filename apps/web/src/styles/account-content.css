@@ -1354,8 +1354,15 @@ button.wft-row {
   border-radius: 2px;
   border: 1px solid var(--line);
   flex: none;
+  overflow: hidden;
   background-size: cover;
   background-position: center;
+}
+.wft-thumb__img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 .wft-thumb--tile {
   display: grid;
@@ -1903,8 +1910,15 @@ button.wft-card__name:focus-visible {
   aspect-ratio: 4 / 3;
   border-radius: 2px;
   border: 1px solid var(--line);
+  overflow: hidden;
   background-size: cover;
   background-position: center;
+}
+.wsp-thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 .wsp-thumb--tile {
   display: grid;

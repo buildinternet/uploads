@@ -2,11 +2,10 @@
 /**
  * Application error page — distinct from 404 (missing route).
  *
- * Astro builds this to dist/500.html. Today the site is fully static, so this is
- * a branded page at /500 (and a ready target if we ever map app failures here).
- * When pages move to on-demand rendering (admin dashboard, etc.), Astro will use
- * this file for SSR render failures and can pass an `error` prop — see
- * https://docs.astro.build/en/basics/astro-pages/#custom-500-error-page
+ * Astro builds this to dist/500.html (Workers ASSETS + `not_found_handling`
+ * still serve it at /500). SSR pages (`prerender = false`) also land here
+ * on a page throw. Copy stays generic — never interpolate the thrown error.
+ * @see https://docs.astro.build/en/basics/astro-pages/#custom-500-error-page
  */
 import ErrorLayout from "../layouts/ErrorLayout.astro";
 ---

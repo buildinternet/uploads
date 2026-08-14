@@ -1,4 +1,4 @@
-import type { ComponentPropsWithoutRef, ReactNode } from "react";
+import { useState, type ComponentPropsWithoutRef, type ReactNode } from "react";
 
 export interface GalleryTileProps extends Omit<ComponentPropsWithoutRef<"a">, "title"> {
   /** File / screenshot name shown under the thumbnail. */
@@ -34,14 +34,25 @@ export function GalleryTile({
   href = "#",
   ...rest
 }: GalleryTileProps) {
+  const [broken, setBroken] = useState(false);
+  const showImg = Boolean(src) && !broken;
   return (
     <a className={["ul-tile", className].filter(Boolean).join(" ")} href={href} {...rest}>
       <span
-        className={src ? "ul-tile__thumb" : "ul-tile__thumb ul-tile__thumb--empty"}
+        className={showImg ? "ul-tile__thumb" : "ul-tile__thumb ul-tile__thumb--empty"}
         aria-hidden="true"
       >
-        {src && <img className="ul-tile__img" src={src} alt="" loading="lazy" decoding="async" />}
-        {!src && (
+        {showImg && (
+          <img
+            className="ul-tile__img"
+            src={src}
+            alt=""
+            loading="lazy"
+            decoding="async"
+            onError={() => setBroken(true)}
+          />
+        )}
+        {!showImg && (
           <svg viewBox="0 0 32 32" fill="none" aria-hidden="true">
             <g stroke="currentColor" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M8 12.5 L16 5 L24 12.5" />

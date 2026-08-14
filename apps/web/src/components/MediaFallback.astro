@@ -1,0 +1,70 @@
+---
+/**
+ * Shared empty/error shell for a media stage (public file page, gallery
+ * item, gallery grid). Used both for known non-previewable kinds and as
+ * the hidden target ImagePreview / video reveal when a load fails.
+ */
+interface Props {
+  title: string;
+  body?: string;
+  href?: string | null;
+  filename?: string;
+  /** Start hidden until `applyMediaFailure` unhides it. */
+  pending?: boolean;
+  /** Tighter padding for gallery-grid tiles. */
+  compact?: boolean;
+}
+
+const { title, body, href = null, filename, pending = false, compact = false } = Astro.props;
+---
+
+<div
+  class:list={["media-fallback", compact && "media-fallback--compact"]}
+  data-media-fallback
+  hidden={pending || undefined}
+  role="status"
+>
+  <strong>{title}</strong>
+  {body ? <span class="media-fallback__body">{body}</span> : null}
+  {
+    href ? (
+      <a href={href} rel="noopener noreferrer">
+        {filename ? `Open ${filename}` : "Open original"}
+      </a>
+    ) : null
+  }
+</div>
+
+<style>
+  .media-fallback {
+    padding: 60px 30px;
+    text-align: center;
+    color: var(--muted);
+    font: 13px/1.6 var(--mono);
+    max-width: 28rem;
+    line-height: 1.6;
+  }
+  .media-fallback--compact {
+    padding: 30px 20px;
+  }
+  .media-fallback strong {
+    display: block;
+    color: var(--fg);
+    margin-bottom: 8px;
+    font-weight: 600;
+  }
+  .media-fallback__body {
+    display: block;
+    margin: 0 0 12px;
+    color: var(--body);
+    font: 0.92rem/1.55 var(--sans);
+    text-wrap: pretty;
+  }
+  .media-fallback a {
+    color: var(--fg);
+    overflow-wrap: anywhere;
+  }
+  .media-fallback[hidden] {
+    display: none;
+  }
+</style>
