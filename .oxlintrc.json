@@ -23,6 +23,7 @@
     "unicorn/prefer-set-has": "off",
     "unicorn/no-array-sort": "off",
     "unicorn/no-array-reverse": "off",
+    "oxc/no-async-endpoint-handlers": "off",
 
     "typescript/await-thenable": "error",
     "typescript/consistent-return": "off",

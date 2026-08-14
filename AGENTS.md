@@ -181,6 +181,10 @@ records; any future global secrets go through `wrangler secret put` (prod) or
   `--fix` flags are global, so there is no way to keep a rule's diagnostic
   while suppressing only its fix. If you re-enable any of them, re-check that
   `pnpm lint:fix` still leaves a clean tree.
+- `oxc/no-async-endpoint-handlers` is off because it is an Express 4 rule
+  (unhandled rejections from `async` route handlers). This repo is Hono on
+  Workers; Hono awaits handlers and `onError` catches throws. The diagnostic
+  is a false positive on every `app.post(..., async (c) => …)` middleware.
 - A Husky pre-commit hook runs `pnpm types` then `lint-staged` (oxlint + oxfmt
   on staged files; Prettier for `*.astro` — oxfmt has no Astro parser); it's
   installed via the `prepare` script on `pnpm install`.
