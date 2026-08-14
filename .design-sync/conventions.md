@@ -36,7 +36,10 @@ There is **no utility-class vocabulary to author**. Style two ways only:
    - `Callout` — `tone` (`info | ready | error | muted`), `title`
    - `Badge` — `tone` (`neutral | accent | ok | danger`), `dot`
    - `Field` — `label`, `hint`, `invalid`
+   - `Select` — a dark `<select>`; compact variant via `className="ul-select--sm"`
    - `Panel` — `title`, `description`, `roomy`
+   - `Progress` — `label`, `value`, `max`, `detail` (a labelled quota meter; the
+     fill goes quiet below 85%, warns near the cap, and turns `--accent` when full)
    - `Brand` — `size` (`md | lg`), `href`
 2. **Token overrides** for your own layout glue — set any `var(--*)` on a scope:
    - Surfaces: `--bg` (page), `--panel` (raised cards), `--line` (hairline borders)
@@ -58,7 +61,7 @@ for headings and body copy; `--pixel` only for brand moments.
 
 ## Components
 
-`Surface` · `Brand` · `Button` · `Panel` · `Field` / `Input` / `Label` ·
-`Callout` · `Badge` · `Divider` · `GalleryTile` (a hosted image / PR-screenshot
-tile — the product's core object) · `FileBrowser` (a read-only, folder-aware
-files-sdk browser).
+`Surface` · `Brand` · `Button` · `Panel` · `Field` / `Input` / `Select` / `Label` ·
+`Progress` (a labelled quota / usage meter) · `Callout` · `Badge` · `Divider` ·
+`GalleryTile` (a hosted image / PR-screenshot tile — the product's core object) ·
+`FileBrowser` (a read-only, folder-aware files-sdk browser).

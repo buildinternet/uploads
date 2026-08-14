@@ -79,7 +79,13 @@ restage by hand (or copy from main) in those worktrees.
 - 5 components use `cfg.overrides.<Name>.cardMode = "column"` (Button, Divider,
   Field, GalleryTile, Panel) to resolve `[GRID_OVERFLOW]` — their previews are wider
   than a grid cell. Not a warn once the override is applied.
-- No `[RENDER_THIN]` / `variants-identical` warns to record — all 22 cells graded good.
+- No `[RENDER_THIN]` / `variants-identical` warns to record — all cells graded good.
+- **Progress** and **Select** were added to `@uploads/ui` and authored on the
+  2026-08-14 sync (`previews/Progress.tsx`, `previews/Select.tsx`) — 3 cells each,
+  all graded good, no grid override needed (default card width fits). Select is a
+  new export from `Field.tsx` (`ul-select` / compact `ul-select--sm`); Progress is
+  its own file (`ul-progress__*`, `data-level` fill bands). Both added to
+  `conventions.md`. That brought the DS from 12 → 14 components.
 
 ## Re-sync risks
 
