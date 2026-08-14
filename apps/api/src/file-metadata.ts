@@ -494,15 +494,15 @@ const FIND_MAX_LIMIT = 500;
 const FIND_PROBE_MAX_LIMIT = FIND_MAX_LIMIT + 1;
 
 /**
- * Escapes SQL LIKE metacharacters (`%`, `_`, and the escape character itself)
- * so a prefix like `my_app/` matches only literal underscores — paired with
- * `ESCAPE '\'` in the query. Without this, `_` and `%` in `opts.prefix` are
- * interpreted as single-char/any-run wildcards and over-match (e.g. `my_app/`
- * would also match `myXapp/`).
+ * Prefix filter as a plain substring equality, NOT `LIKE ? || '%'`: D1 caps
+ * LIKE/GLOB patterns at 50 bytes, and real prefixes exceed that — a
+ * `gh/private/<32-hex>/pull/<n>/` attachment prefix is ~54 bytes and made
+ * every counterpart lookup (and with it the whole public file page) throw
+ * `D1_ERROR: LIKE or GLOB pattern too complex`. substr has no such cap and
+ * needs no wildcard escaping (`_`/`%` in the prefix stay literal). Binds the
+ * prefix twice: once for `length(?)`, once for the comparison.
  */
-function escapeLikePattern(raw: string): string {
-  return raw.replace(/[\\%_]/g, (ch) => `\\${ch}`);
-}
+const PREFIX_FILTER_SQL = `substr(object_key, 1, length(?)) = ?`;
 
 /**
  * Finds objects whose metadata matches ALL `filters` (ANDed equality), with
@@ -539,14 +539,14 @@ export async function findObjectsByMetadata(
   if (entries.length === 1) {
     sql = legs[0]!;
     if (opts.prefix) {
-      sql += ` AND object_key LIKE ? || '%' ESCAPE '\\'`;
-      params.push(escapeLikePattern(opts.prefix));
+      sql += ` AND ${PREFIX_FILTER_SQL}`;
+      params.push(opts.prefix, opts.prefix);
     }
   } else {
     sql = `SELECT object_key FROM (${legs.join(" INTERSECT ")})`;
     if (opts.prefix) {
-      sql += ` WHERE object_key LIKE ? || '%' ESCAPE '\\'`;
-      params.push(escapeLikePattern(opts.prefix));
+      sql += ` WHERE ${PREFIX_FILTER_SQL}`;
+      params.push(opts.prefix, opts.prefix);
     }
   }
   sql += ` ORDER BY object_key LIMIT ?`;

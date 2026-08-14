@@ -23,6 +23,7 @@ import { filePath } from "../lib/public-file";
 import { fetchWithTimeout } from "../lib/request";
 import {
   lastUpdatedLabel,
+  pairedShotKeys,
   projectLabelFromItemMeta,
   readScreenshotsView,
   screenshotsSearch,
@@ -134,18 +135,34 @@ function ghLabel(item: SearchFileItem): string {
 
 function ShotThumb({
   item,
+  paired,
+  contextLabel,
   onOpen,
 }: {
   item: { key: string; url: string | null; embedUrl: string | null; state?: string };
+  /** True when a before/after counterpart sits in the same strip/grid. */
+  paired?: boolean;
+  /** Optional pill (GitHub "PR #7 · author" context) — not the state. */
+  contextLabel?: string;
   onOpen: () => void;
 }) {
   const name = leafName(item.key);
   const kind = shotKindFromKey(item.key);
   const showLock = kind === "image" && item.url === null;
   const showImage = kind === "image" && !!item.embedUrl;
+  // The state stays in the accessible name (and hover title) even though the
+  // tile no longer wears a BEFORE/AFTER pill — the pair badge covers the
+  // visual signal, and only when a counterpart actually exists.
+  const stateSuffix = item.state ? ` (${item.state})` : "";
 
   return (
-    <button type="button" className="wsp-tile" aria-label={`Open ${name}`} onClick={onOpen}>
+    <button
+      type="button"
+      className="wsp-tile"
+      aria-label={`Open ${name}${stateSuffix}${paired ? " — has before/after pair" : ""}`}
+      title={item.state ? `${name}${stateSuffix}` : undefined}
+      onClick={onOpen}
+    >
       {showImage ? (
         <span
           className="wsp-thumb"
@@ -157,7 +174,23 @@ function ShotThumb({
           {showLock ? "🔒" : extLabel(item.key)}
         </span>
       )}
-      {item.state && <span className="wsp-state">{item.state}</span>}
+      {contextLabel && <span className="wsp-state">{contextLabel}</span>}
+      {paired && (
+        <span className="wsp-pair" aria-hidden="true" title="Has a before/after pair">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+            <rect x="1" y="1" width="4.5" height="10" rx="1" fill="currentColor" opacity="0.45" />
+            <rect
+              x="6.5"
+              y="1"
+              width="4.5"
+              height="10"
+              rx="1"
+              stroke="currentColor"
+              strokeWidth="1.2"
+            />
+          </svg>
+        </span>
+      )}
     </button>
   );
 }
@@ -400,13 +433,23 @@ export function ScreenshotsByPath({ apiOrigin, workspace }: ScreenshotsByPathPro
         {drill.status === "ready" && (
           <>
             <div className="wsp-grid">
-              {drillItems.map((item) => (
-                <ShotThumb
-                  key={item.key}
-                  item={{ ...item, state: item.metadata?.state }}
-                  onOpen={() => open(item)}
-                />
-              ))}
+              {(() => {
+                const withState = drillItems.map((item) => ({
+                  item,
+                  state: item.metadata?.state,
+                }));
+                const paired = pairedShotKeys(
+                  withState.map(({ item, state }) => ({ key: item.key, state })),
+                );
+                return withState.map(({ item, state }) => (
+                  <ShotThumb
+                    key={item.key}
+                    item={{ ...item, state }}
+                    paired={paired.has(item.key)}
+                    onOpen={() => open(item)}
+                  />
+                ));
+              })()}
             </div>
             {/* The project scope is applied client-side AFTER the search's
                 100-item cap (the origin-labeled fallback can't be expressed
@@ -582,7 +625,8 @@ function GitHubSection({
         {items.map((item) => (
           <ShotThumb
             key={item.key}
-            item={{ ...item, state: ghLabel(item) }}
+            item={item}
+            contextLabel={ghLabel(item)}
             onOpen={() => onOpen(item)}
           />
         ))}
@@ -611,9 +655,17 @@ function PathGroupSection({
         <span className="wsp-group__viewall">view all →</span>
       </button>
       <div className="wsp-strip">
-        {group.recent.map((item) => (
-          <ShotThumb key={item.key} item={item} onOpen={() => onOpen(item)} />
-        ))}
+        {(() => {
+          const paired = pairedShotKeys(group.recent);
+          return group.recent.map((item) => (
+            <ShotThumb
+              key={item.key}
+              item={item}
+              paired={paired.has(item.key)}
+              onOpen={() => onOpen(item)}
+            />
+          ));
+        })()}
       </div>
     </div>
   );

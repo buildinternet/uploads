@@ -194,6 +194,73 @@ describe("file metadata persistence against SQLite", () => {
     }
   });
 
+  it("matches a prefix longer than D1's 50-byte LIKE pattern cap (gh/private keys)", async () => {
+    // D1 rejects LIKE/GLOB patterns over 50 bytes ("LIKE or GLOB pattern too
+    // complex") — a gh/private/<32-hex>/pull/<n>/ attachment prefix is ~54
+    // bytes, which 500'd every public file page for private-prefix keys
+    // until the prefix filter moved off LIKE. Guard the substr-based filter.
+    const prefix = "gh/private/81b63c925cbe4387b7ee8b565c733358/pull/1060/";
+    expect(prefix.length).toBeGreaterThan(50);
+    const sqlite = new SqliteD1(MIGRATION);
+    try {
+      await setFileMetadata(database(sqlite), "alpha", `${prefix}before-500.webp`, {
+        path: "/500",
+        state: "before",
+      });
+      await setFileMetadata(database(sqlite), "alpha", "gh/other/before.webp", {
+        path: "/500",
+        state: "before",
+      });
+
+      // Single-filter and multi-filter legs both carry the prefix.
+      await expect(
+        findObjectsByMetadata(database(sqlite), "alpha", { state: "before" }, { prefix }),
+      ).resolves.toEqual([
+        { key: `${prefix}before-500.webp`, metadata: { path: "/500", state: "before" } },
+      ]);
+      await expect(
+        findObjectsByMetadata(
+          database(sqlite),
+          "alpha",
+          { path: "/500", state: "before" },
+          { prefix },
+        ),
+      ).resolves.toEqual([
+        { key: `${prefix}before-500.webp`, metadata: { path: "/500", state: "before" } },
+      ]);
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("never filters the key prefix with LIKE (D1's 50-byte pattern cap)", async () => {
+    // Local SQLite doesn't enforce D1's cap, so the behavior test above can't
+    // catch a regression back to `LIKE ? || '%'` — assert on the SQL itself.
+    const seen: string[] = [];
+    const probe = {
+      prepare(sql: string) {
+        seen.push(sql);
+        return {
+          bind() {
+            return this;
+          },
+          async all() {
+            return { success: true, results: [], meta: {} };
+          },
+        };
+      },
+    } as unknown as D1Database;
+    await findObjectsByMetadata(probe, "alpha", { state: "before" }, { prefix: "gh/" });
+    await findObjectsByMetadata(
+      probe,
+      "alpha",
+      { state: "before", path: "/500" },
+      { prefix: "gh/" },
+    );
+    expect(seen).toHaveLength(2);
+    for (const sql of seen) expect(sql).not.toMatch(/LIKE/i);
+  });
+
   it("respects a limit and returns an empty array for no filters or no matches", async () => {
     const sqlite = new SqliteD1(MIGRATION);
     try {

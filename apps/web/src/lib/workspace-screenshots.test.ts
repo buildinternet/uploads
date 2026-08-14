@@ -1,11 +1,68 @@
 import { describe, expect, it } from "vitest";
 import {
   lastUpdatedLabel,
+  pairedShotKeys,
   projectLabelFromItemMeta,
   readScreenshotsView,
   screenshotsSearch,
   shotKindFromKey,
 } from "./workspace-screenshots";
+
+describe("pairedShotKeys", () => {
+  it("marks a tile paired only when the opposite state exists in the same collection", () => {
+    const keys = pairedShotKeys([
+      { key: "p/1/after-500.webp", state: "after" },
+      { key: "p/1/before-500.webp", state: "before" },
+      { key: "p/1/after-404.webp", state: "after" },
+      { key: "p/1/plain.webp" },
+    ]);
+    expect(keys.has("p/1/after-500.webp")).toBe(true);
+    expect(keys.has("p/1/before-500.webp")).toBe(true);
+    // An after with no before still counts as paired at the collection level
+    // only when a before exists SOMEWHERE in the collection — pairing is
+    // stem-based so an unrelated before must not mark it.
+    expect(keys.has("p/1/after-404.webp")).toBe(false);
+    expect(keys.has("p/1/plain.webp")).toBe(false);
+  });
+
+  it("pairs by filename stem with the before/after token swapped", () => {
+    const keys = pairedShotKeys([
+      { key: "g/hero-after.png", state: "after" },
+      { key: "g/hero-before.png", state: "before" },
+      { key: "g/other-after.png", state: "after" },
+    ]);
+    expect(keys.has("g/hero-after.png")).toBe(true);
+    expect(keys.has("g/hero-before.png")).toBe(true);
+    expect(keys.has("g/other-after.png")).toBe(false);
+  });
+
+  it("falls back to lone-pair matching when stems don't carry the token", () => {
+    // Exactly one before and one after with token-less names: still a pair.
+    const keys = pairedShotKeys([
+      { key: "g/old.png", state: "before" },
+      { key: "g/new.png", state: "after" },
+    ]);
+    expect(keys.has("g/old.png")).toBe(true);
+    expect(keys.has("g/new.png")).toBe(true);
+    // Ambiguous (two afters, one before, no stems): no pairing claimed.
+    const ambiguous = pairedShotKeys([
+      { key: "g/a.png", state: "after" },
+      { key: "g/b.png", state: "after" },
+      { key: "g/c.png", state: "before" },
+    ]);
+    expect(ambiguous.size).toBe(0);
+  });
+
+  it("ignores non-before/after states and empty input", () => {
+    expect(pairedShotKeys([]).size).toBe(0);
+    expect(
+      pairedShotKeys([
+        { key: "a.png", state: "draft" },
+        { key: "b.png", state: "final" },
+      ]).size,
+    ).toBe(0);
+  });
+});
 
 describe("shotKindFromKey", () => {
   it("classifies by extension, case-insensitively", () => {
