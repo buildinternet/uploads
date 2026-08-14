@@ -1866,8 +1866,8 @@ button.wft-card__name:focus-visible {
 /* Responsive grid of a full path's items (drill-in). */
 .wsp-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
 }
 
 .wsp-tile {
@@ -1880,7 +1880,7 @@ button.wft-card__name:focus-visible {
   cursor: pointer;
 }
 .wsp-strip .wsp-tile {
-  width: 96px;
+  width: 168px;
 }
 
 .wsp-thumb {
