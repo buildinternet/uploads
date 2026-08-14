@@ -18,6 +18,9 @@
     // is the only true secret and must be set separately:
     //   wrangler secret put GITHUB_APP_PRIVATE_KEY --config apps/mcp/wrangler.jsonc
     // Without all three, comment: true degrades to { reason: "app_unconfigured" }.
+    // OpenAI plugin domain verification (optional until a directory draft
+    // exists): wrangler secret put OPENAI_APPS_CHALLENGE --config apps/mcp/wrangler.jsonc
+    // Served as text/plain at /.well-known/openai-apps-challenge.
     "GITHUB_APP_ID": "4346270",
     "GITHUB_APP_HOME_INSTALLATION_ID": "147814297",
   },

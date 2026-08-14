@@ -47,9 +47,88 @@ export { ToolBatchError, batchFailureMessage } from "./batch-error.js";
 export { mapBounded } from "../async.js";
 export { McpServer, type jsonSchemaValidator };
 
+/** MCP tool safety hints. Required so tools/list advertises them for review. */
+export interface McpToolAnnotations {
+  readOnlyHint: boolean;
+  destructiveHint: boolean;
+  openWorldHint: boolean;
+}
+
+/** Lookup / list / health. Does not change workspace or public state. */
+export const mcpRead: McpToolAnnotations = {
+  readOnlyHint: true,
+  destructiveHint: false,
+  openWorldHint: false,
+};
+
+/** Creates or updates a public object, gallery, or comment without deleting. */
+export const mcpWritePublic: McpToolAnnotations = {
+  readOnlyHint: false,
+  destructiveHint: false,
+  openWorldHint: true,
+};
+
+/** Deletes or overwrites a public object or a public GitHub comment. */
+export const mcpDestroyPublic: McpToolAnnotations = {
+  readOnlyHint: false,
+  destructiveHint: true,
+  openWorldHint: true,
+};
+
+/** Mutates first-party / internal state only (ledger, reports). */
+export const mcpWriteInternal: McpToolAnnotations = {
+  readOnlyHint: false,
+  destructiveHint: false,
+  openWorldHint: false,
+};
+
+/**
+ * Per-tool auth policy for ChatGPT / Codex plugin review. Advertised on
+ * tools/list as `_meta.securitySchemes` (the SDK has no first-class field).
+ */
+export type McpSecurityScheme = { type: "noauth" } | { type: "oauth2"; scopes: string[] };
+
+function oauth(scopes: string[]): McpSecurityScheme[] {
+  return [{ type: "oauth2", scopes }];
+}
+
+export const mcpOAuthRead = oauth(["files:read"]);
+export const mcpOAuthWrite = oauth(["files:write"]);
+export const mcpOAuthDelete = oauth(["files:delete"]);
+/** Authenticated, no particular file scope (hosted `health`). */
+export const mcpOAuthAny = oauth([]);
+/** Callable without a token (stdio `health`). */
+export const mcpNoAuth: McpSecurityScheme[] = [{ type: "noauth" }];
+
+/**
+ * Thrown when a presented token is missing a required scope. wrapHandler
+ * turns this into a tool error that carries `_meta["mcp/www_authenticate"]`
+ * so ChatGPT can prompt a re-consent.
+ */
+export class McpAuthError extends Error {
+  readonly challenge: string;
+  constructor(message: string, challenge: string) {
+    super(message);
+    this.name = "McpAuthError";
+    this.challenge = challenge;
+  }
+}
+
+/** Build an insufficient_scope challenge pointing at this resource's metadata. */
+export function insufficientScopeError(resourceMetadataUrl: string, scope: string): McpAuthError {
+  return new McpAuthError(
+    `forbidden: requires ${scope} scope`,
+    `Bearer resource_metadata="${resourceMetadataUrl}", error="insufficient_scope", error_description="This tool requires the ${scope} scope"`,
+  );
+}
+
 export interface McpTool {
   name: string;
   description: string;
+  /** Short label for tools/list. Falls back to `name` when omitted. */
+  title?: string;
+  annotations: McpToolAnnotations;
+  securitySchemes: McpSecurityScheme[];
   /** Hand-written JSON Schema for the tool's arguments. */
   inputSchema: Record<string, unknown>;
   handler: (args: Record<string, unknown>) => Promise<unknown>;
@@ -111,6 +190,13 @@ function wrapHandler(tool: McpTool, apiUrl: string | undefined) {
           isError: true,
         };
       }
+      if (err instanceof McpAuthError) {
+        return {
+          content: [{ type: "text", text: err.message }],
+          isError: true,
+          _meta: { "mcp/www_authenticate": [err.challenge] },
+        };
+      }
       return { content: [{ type: "text", text: toolErrorText(err) }], isError: true };
     }
   };
@@ -135,8 +221,11 @@ export function createMcpServer(opts: {
     server.registerTool(
       tool.name,
       {
+        ...(tool.title ? { title: tool.title } : {}),
         description: tool.description,
         inputSchema: fromJsonSchema<Record<string, unknown>>(tool.inputSchema, validator),
+        annotations: tool.annotations,
+        _meta: { securitySchemes: tool.securitySchemes },
       },
       wrapHandler(tool, apiUrl),
     );

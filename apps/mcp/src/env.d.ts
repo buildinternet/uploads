@@ -12,4 +12,9 @@ interface Env {
   GITHUB_APP_ID?: string;
   GITHUB_APP_PRIVATE_KEY?: string;
   GITHUB_APP_HOME_INSTALLATION_ID?: string;
+  // Public OpenAI plugin domain-verification token. Served as raw text at
+  // /.well-known/openai-apps-challenge. Set with `wrangler secret put
+  // OPENAI_APPS_CHALLENGE --config apps/mcp/wrangler.jsonc` when submitting
+  // the plugin; unset or blank → 404.
+  OPENAI_APPS_CHALLENGE?: string;
 }

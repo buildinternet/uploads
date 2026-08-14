@@ -161,7 +161,10 @@ REST routes are in [docs/api.md](docs/api.md).
 | `skills/uploads-cli/`          | Agent skill for driving the CLI                                                     |
 | `hooks/`                       | Shared pre-PR screenshot hook (`uploads hook pre-pr-screenshot`) for Claude + Codex |
 | `plugins/claude/`              | Claude Code plugin config (skills path, MCP, commands)                              |
-| `.codex-plugin/`               | Codex plugin manifest — same skills + shared hook                                   |
+| `.claude-plugin/`              | Claude marketplace catalog + plugin manifest                                        |
+| `.codex-plugin/`               | Codex plugin manifest — skills, hosted MCP, and shared hook                         |
+| `.mcp.json`                    | Hosted MCP server for both plugins (`https://agents.uploads.sh/mcp`)                |
+| `assets/logo.png`              | Pixel chevron mark for the Codex / OpenAI plugin listing                            |
 
 The workers and web app are separate deployables. All storage access goes
 through `createStorage()` in `packages/storage` — adding a provider is one new

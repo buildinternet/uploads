@@ -25,11 +25,29 @@ through an authenticated **browser session** — there is no `gh` CLI or REST en
 for it. So any image URL you put in a PR/issue body written with `gh … --body-file`
 must already point at something publicly hosted.
 
-This skill solves that with the **`uploads` CLI**: it PUTs a local file to the
-uploads.sh API, which returns a stable public URL you can drop straight into
-markdown. No browser, no repo bloat, no signing by hand. For PRs and issues it can
-also create and maintain a single "attachments" comment for you via your local
-`gh` auth.
+This skill covers both transports: the **`uploads` CLI** (local files, git,
+localhost) and the hosted MCP at `https://agents.uploads.sh/mcp` (bytes you
+already have, no checkout). Both PUT to the uploads.sh API and return a stable
+public URL plus ready-to-paste markdown. For PRs and issues the managed
+attachments comment is available on both — CLI via local `gh` as a fallback,
+hosted MCP bot-only.
+
+### MCP vs CLI
+
+Same product, two transports. Skills do not install a binary.
+
+| Need                                                  | Use                                             | Why                                                                                                                                                          |
+| ----------------------------------------------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Bytes already in context (ChatGPT attachment, base64) | Hosted MCP `put`                                | `files: [{ filename, contentBase64 }]`. Pass `repo` + (`pr` \| `branch`). No git inference.                                                                  |
+| List, find, metadata, comment, promote                | Either                                          | Hosted: `list`, `find_files`, `get_metadata` / `set_metadata`, `comment`, `promote`. CLI: `uploads list` / `find` / `meta` / `comment` / `attach --promote`. |
+| Local path or current-branch attach                   | CLI                                             | Hosted server has no filesystem and no `attach` tool. Use `put` instead.                                                                                     |
+| `localhost` / private-network screenshot              | CLI `uploads screenshot --via local`            | Remote render cannot reach your machine.                                                                                                                     |
+| Selector annotate on a live page                      | CLI `uploads screenshot --annotate --via local` | Remote backend rejects selector-bearing specs.                                                                                                               |
+| Neither transport                                     | Stop                                            | Do not treat `npm install -g` as the ChatGPT path. OAuth on `https://agents.uploads.sh/mcp` is the published remote path.                                    |
+
+CLI examples in the rest of this skill assume a checkout and the `uploads`
+binary. Hosted tool contracts live under **Notes and cautions** (the MCP
+bullet) below.
 
 For the common case, use `uploads attach <file...>`. It infers the current branch's
 PR, uploads every file under stable attachment keys (in parallel), and maintains
@@ -94,8 +112,8 @@ the two surfaces never drift.
 Local stdio MCP mirrors this as the `staged` tool (`branch`/`repo` args,
 same `{ repo, branch, files, binding }` shape). The hosted MCP has no
 dedicated `staged` tool (no git defaults) — list/find_files recipes and
-hosted `put`/`promote` with explicit `repo`/`branch` are under "Hosted MCP"
-below.
+hosted `put`/`promote` with explicit `repo`/`branch` are under **Notes and
+cautions** (the MCP bullet) below.
 
 Getting those files into the PR's attachments comment needs no extra step
 once a PR exists for that branch:
@@ -162,6 +180,8 @@ comment already prefer `embedUrl`. Override with `UPLOADS_EMBED_PUBLIC_BASE_URL`
 
 ## Prerequisites
 
+- **No shell / ChatGPT?** Skip this section. Use the hosted MCP
+  (`https://agents.uploads.sh/mcp`) and the table above. Do not install the CLI.
 - **Node.js ≥ 22.**
 - **The CLI.** Install globally for repeated agent use, or run it once with `npx`:
   ```bash

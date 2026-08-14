@@ -11,5 +11,6 @@ export const ROBOTS_TXT = `# https://agents.uploads.sh — MCP server only; do n
 # Public docs and marketing: https://uploads.sh
 
 User-agent: *
+Allow: /.well-known/openai-apps-challenge
 Disallow: /
 `;
