@@ -502,13 +502,16 @@ const tip = {
       display: flex;
       align-items: center;
       gap: 16px;
+      /* Sized to its contents — a compact centered pill, never the full
+         viewport width. The max-width only reins it in on very small screens,
+         where the row wraps instead of overflowing. */
+      width: max-content;
       max-width: calc(100vw - 32px);
       padding: 10px 10px 10px 18px;
       background: var(--panel);
       border: 1px solid var(--line);
       border-radius: var(--radius-md);
       box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
-      white-space: nowrap;
     }
     .cs-savebar__msg {
       font: 13px var(--sans);
