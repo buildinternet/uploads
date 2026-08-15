@@ -14,7 +14,7 @@ in one tidy comment that updates automatically on each revision. Built on
 
 <p>
   <a href="https://uploads.sh"><b>uploads.sh</b></a> &nbsp;·&nbsp;
-  <a href="docs/"><b>Docs</b></a> &nbsp;·&nbsp;
+  <a href="https://uploads.sh/docs"><b>Docs</b></a> &nbsp;·&nbsp;
   <a href="https://www.npmjs.com/package/@buildinternet/uploads"><b>npm →</b></a> &nbsp;·&nbsp;
   <a href="#use-it">Use it</a> &nbsp;·&nbsp;
   <a href="#what-it-looks-like">What it looks like</a> &nbsp;·&nbsp;
@@ -172,20 +172,15 @@ case plus peer deps, no API changes.
 
 ## Docs
 
+Product docs live at https://uploads.sh/docs. The map for this folder is [docs/README.md](docs/README.md).
+
 | Doc                                                | Contents                                             |
 | -------------------------------------------------- | ---------------------------------------------------- |
 | [cli](docs/cli.md)                                 | CLI usage, GitHub embeds, keys, galleries            |
 | [api](docs/api.md)                                 | REST routes                                          |
 | [local-dev](docs/local-dev.md)                     | Manual setup, dev stack, smoke tests                 |
-| [workspaces](docs/workspaces.md)                   | Multi-tenant model, budgets, key policy, BYO-bucket  |
 | [enrollment](docs/enrollment.md)                   | Agent login, scopes, expiry, and migration           |
-| [admin-tokens](docs/admin-tokens.md)               | Minting, listing, and revoking upload tokens         |
-| [deletion](docs/deletion.md)                       | Workspace soft delete, grace period, and restore     |
 | [private-attachments](docs/private-attachments.md) | Randomized private-repo attachment URLs and rotation |
-| [ops](docs/ops.md)                                 | Operator runbook (limits, retention, secrets)        |
-| [deploy](docs/deploy.md)                           | Cloudflare setup and production deploy               |
-| [releasing](docs/releasing.md)                     | Changesets and publishing the CLI to npm             |
-| [contract testing](docs/contract-testing.md)       | Deployed smoke checks and release gate               |
 | [roadmap](docs/roadmap.md)                         | Planned features                                     |
 
 How to set up, test, and open a pull request:

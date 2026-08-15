@@ -283,13 +283,6 @@ What agents get wrong most often, so it bears repeating here:
   into `wrangler.jsonc` `vars`; no secrets.
 - Never edit a user's `.env` / `.dev.vars` directly; template files only.
 
-## Roadmap (see docs/roadmap.md for detail)
+## Roadmap
 
-MCP server for agent access (primary users are agents); key/path governance
-(auto-prefix bare filenames; typed destinations `screenshots`/`gh`/`f` and
-optional `allowedKeyPrefixes`/`maxKeyDepth` — arbitrary paths remain an
-internal/BYO allowance when policy is unset); encrypt BYO-bucket S3 credentials
-in KV records before external tenants; presigned upload URLs (`POST /v1/sign`); web UI on
-files-sdk's `createFilesRouter` + browser client rather than more hand-rolled
-REST; more providers in `packages/storage`; point the `github-screenshots`
-skill at this API.
+See [docs/roadmap.md](docs/roadmap.md) for what is planned versus already shipped. Do not treat this file as the source of what exists.
