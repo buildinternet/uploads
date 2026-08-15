@@ -24,7 +24,38 @@ const REPO = "https://github.com/buildinternet/uploads";
       script, there is no drag-and-drop. uploads.sh fills that gap: it hosts your file at a stable
       public URL and posts it to the right place on GitHub for you.
     </p>
-    <p>The everyday flow is two commands:</p>
+    <p>
+      The everyday flow is one command, on the branch you are already on. No pull request required:
+    </p>
+    <div class="cmd">
+      <span class="text">uploads put ./after.png</span>
+      <button type="button" data-copy="uploads put ./after.png" aria-live="polite">copy</button>
+    </div>
+    <div class="block" aria-label="Example output">
+      <pre>&gt;&gt; uploading ./after.png
+note: staged for branch feat/nav — auto-comments to pull request when opened
+(or run: uploads attach --promote once it exists)</pre>
+    </div>
+    <p>
+      Keep doing that as you work. When the PR opens, staged files land in one managed comment — via
+      the GitHub App, or the next <code>uploads attach --promote</code>. Tag a pair with&#32;
+      <code>--state before</code> and <code>--state after</code> and they render side by side. See&#32;
+      <a href="/docs/attach-pull-request-images#staging">Attach &amp; share</a> for what is queued.
+    </p>
+  </section>
+
+  <section id="before-the-pr">
+    <h2>
+      Already have a PR open? <a
+        class="anchor"
+        href="#before-the-pr"
+        aria-label="Link to this section">#</a
+      >
+    </h2>
+    <p>
+      <code>attach</code> is the direct path. The CLI finds the pull request, uploads the files, and keeps
+      one comment up to date:
+    </p>
     <div class="cmd">
       <span class="text">uploads attach ./before.png ./after.png</span>
       <button type="button" data-copy="uploads attach ./before.png ./after.png" aria-live="polite"
@@ -38,36 +69,9 @@ const REPO = "https://github.com/buildinternet/uploads";
 <span class="ok">&gt;&gt; attachments comment updated</span></pre>
     </div>
     <p>
-      That's it. The CLI figures out which repo and pull request you're on, uploads the files, and
-      keeps one managed comment on the PR up to date. Tag a pair with&#32;
-      <code>--state before</code> and <code>--state after</code> and they render side by side in that
-      comment — see&#32;
+      Same pairing works here: <code>--state before</code> and <code>--state after</code> render side
+      by side — see&#32;
       <a href="/docs/attach-pull-request-images#before-after">pair a before and after</a>.
-    </p>
-  </section>
-
-  <section id="before-the-pr">
-    <h2>
-      Start before the PR exists <a
-        class="anchor"
-        href="#before-the-pr"
-        aria-label="Link to this section">#</a
-      >
-    </h2>
-    <p>You don't need a PR open to start uploading — on a branch, it stages automatically:</p>
-    <div class="cmd">
-      <span class="text">uploads put ./after.png</span>
-      <button type="button" data-copy="uploads put ./after.png" aria-live="polite">copy</button>
-    </div>
-    <div class="block" aria-label="Example output">
-      <pre>&gt;&gt; uploading ./after.png
-note: staged for branch feat/nav — auto-comments to pull request when opened
-(or run: uploads attach --promote once it exists)</pre>
-    </div>
-    <p>
-      Keep doing that as you work and the PR opens with screenshots already attached — see&#32;
-      <a href="/docs/attach-pull-request-images#staging">Attach &amp; share</a> for the staged view that
-      shows what's queued.
     </p>
   </section>
 
@@ -95,10 +99,10 @@ note: staged for branch feat/nav — auto-comments to pull request when opened
     </p>
     <p>Prefer not to install anything? Every command works as a one-off with <code>npx</code>:</p>
     <div class="cmd">
-      <span class="text">npx @buildinternet/uploads attach ./after.png</span>
+      <span class="text">npx @buildinternet/uploads put ./after.png</span>
       <button
         type="button"
-        data-copy="npx @buildinternet/uploads attach ./after.png"
+        data-copy="npx @buildinternet/uploads put ./after.png"
         aria-live="polite">copy</button
       >
     </div>

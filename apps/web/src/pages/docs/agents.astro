@@ -89,16 +89,18 @@ import DocsLayout from "../../layouts/DocsLayout.astro";
       Skill vs. MCP <a class="anchor" href="#skill-vs-mcp" aria-label="Link to this section">#</a>
     </h2>
     <p>
-      The <strong>skills</strong> teach the agent when and how to use the CLI — for example attaching
-      before/after screenshots to the PR it just opened, or baking callouts onto a capture with <code
+      The <strong>skills</strong> teach the agent when and how to use the CLI — for example staging a
+      before/after with <code>uploads put</code> as it works, or baking callouts onto a capture with <code
         >uploads screenshot --annotate</code
-      >. The&#32;
-      <strong>MCP server</strong> gives agents the same tools (<code>put</code>,&#32;
-      <code>attach</code>, <code>list</code>, <code>delete</code>, and more) over HTTP, using the
-      same token as the CLI. Hosted <code>put</code>/<code>comment</code> honor a repo's&#32;
-      <a href="/docs/comment-config"><code>.uploads.yml</code></a> the same way the bot does. There's
-      also a local stdio variant — register&#32;
-      <code>uploads mcp</code> with any MCP client, e.g.:
+      >. The local stdio MCP (<code>uploads mcp</code>) gives the same tools as the CLI, including
+      <code>attach</code>. The hosted MCP at <code>agents.uploads.sh</code> is for agents without a local
+      checkout: it has <code>put</code>, <code>list</code>, <code>delete</code>, and more — not <code
+        >attach</code
+      >, and no git defaults. Stage with <code>put</code> and pass the branch and repo. Hosted <code
+        >put</code
+      >/<code>comment</code> honor a repo's&#32;
+      <a href="/docs/comment-config"><code>.uploads.yml</code></a> the same way the bot does. Register
+      the local server with any MCP client, e.g.:
     </p>
     <div class="cmd">
       <span class="text">claude mcp add uploads -- uploads mcp</span>
@@ -108,7 +110,7 @@ import DocsLayout from "../../layouts/DocsLayout.astro";
     </div>
     <div class="note">
       Want the guided version? The <a href="/github-screenshots">agent walkthrough</a> takes a coding
-      agent from install to a first before/after attachment on a PR.
+      agent from install to a first staged before/after.
     </div>
   </section>
 
@@ -123,8 +125,7 @@ import DocsLayout from "../../layouts/DocsLayout.astro";
     <p>
       Any agent that can run a shell command can capture at each visual milestone and run a bare <code
         >uploads put ./shot.png --state before|after</code
-      > — on a branch it stages automatically (issue #403), no <code>--branch</code> flag required. A
-      bare&#32;
+      > — on a branch it stages automatically, no <code>--branch</code> flag required. A bare&#32;
       <code>uploads screenshot</code> stages the same way, carrying its derived&#32;
       <code>path</code>/<code>url</code>/<code>env</code>/<code>viewport</code> metadata through promotion.
       <code>--state</code> is still worth keeping as a habit; it's the one thing no tool can infer from
