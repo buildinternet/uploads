@@ -14,7 +14,12 @@
  *   so the next call retries instead of pinning a bad state for the TTL.
  */
 
-import { parseRepoCommentConfig, resolveCommentOptions } from "@uploads/comment-config";
+import {
+  parseRepoCommentConfig,
+  resolveCommentOptions,
+  REPO_CONFIG_PATHS,
+} from "@uploads/comment-config";
+export { REPO_CONFIG_PATHS } from "@uploads/comment-config";
 import type {
   OptionSource,
   RepoCommentConfig,
@@ -38,16 +43,6 @@ export interface RepoConfigFetchResult {
 }
 
 export const REPO_CONFIG_TTL_SECONDS = 300;
-
-/** Candidate paths, checked in this order — the first hit wins. */
-export const REPO_CONFIG_PATHS = [
-  ".uploads.yml",
-  ".uploads.yaml",
-  ".uploads.json",
-  ".github/uploads.yml",
-  ".github/uploads.yaml",
-  ".github/uploads.json",
-] as const;
 
 const NOT_FOUND: RepoConfigFetchResult = {
   found: false,

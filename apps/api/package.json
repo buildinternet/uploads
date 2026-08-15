@@ -40,6 +40,7 @@
   "dependencies": {
     "@uploads/billing": "workspace:^",
     "@uploads/comment-config": "workspace:^",
+    "@uploads/github-comment": "workspace:^",
     "@uploads/email": "workspace:^",
     "@uploads/errors": "workspace:^",
     "@uploads/storage": "workspace:^",
