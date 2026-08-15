@@ -334,6 +334,29 @@ describe("renderSwitcherMenuHtml", () => {
     expect(html).toContain("ws-switcher__sep");
   });
 
+  it("preserves the active tab in membership links so switching keeps context", () => {
+    const html = renderSwitcherMenuHtml(sample, {
+      active: "buildinternet",
+      activeTab: "screenshots",
+    });
+    expect(html).toContain('href="/account/workspaces/buildinternet/screenshots"');
+    expect(html).toContain('href="/account/workspaces/side/screenshots"');
+    // The create row never carries a tab suffix.
+    expect(html).toContain('href="/account/workspaces/new"');
+  });
+
+  it("maps settings (and its sub-pages) to the settings tab root when switching", () => {
+    const html = renderSwitcherMenuHtml(sample, { active: "buildinternet", activeTab: "settings" });
+    expect(html).toContain('href="/account/workspaces/side/settings"');
+  });
+
+  it("links the workspace root for the files tab and off-workspace routes", () => {
+    expect(
+      renderSwitcherMenuHtml(sample, { active: "buildinternet", activeTab: "files" }),
+    ).toContain('href="/account/workspaces/side"');
+    expect(renderSwitcherMenuHtml(sample, {})).toContain('href="/account/workspaces/side"');
+  });
+
   it("still shows + new workspace with an empty membership list", () => {
     const html = renderSwitcherMenuHtml([]);
     expect(html).toContain('href="/account/workspaces/new"');

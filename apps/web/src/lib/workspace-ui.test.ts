@@ -355,6 +355,10 @@ describe("renderGalleriesEmptyHtml", () => {
     expect(commandAt).toBeGreaterThan(headlineAt);
   });
 
+  it("renders as the centered CTA variant", () => {
+    expect(renderGalleriesEmptyHtml(cmd)).toContain("ws-empty-state--cta");
+  });
+
   it("carries the create command as the single primary action", () => {
     const html = renderGalleriesEmptyHtml(cmd);
     // `cmd` embeds double quotes (`--title "..."`), so the *safe* HTML must

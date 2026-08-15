@@ -455,14 +455,16 @@ export function renderUsagePlaceholderHtml(meters = 2): string {
  * workspace has no galleries, "you have none, here is how to make one" *is*
  * the content, and burying it under a command block inverted the hierarchy.
  *
- * No body sentence: the page-header note above this block and the "Working
- * with galleries" details block below it already explain what a gallery is —
- * a third restatement here was stacking, not informing. This stays down to
- * the state plus the one action that resolves it.
+ * No body sentence: the page-header note above this block already explains
+ * what a gallery is — a restatement here was stacking, not informing. This
+ * stays down to the state plus the one action that resolves it, centered as
+ * a CTA (`--cta` modifier) rather than left-set like a list row. The page
+ * hides its reference-commands details block while this is shown, so the
+ * create command appears exactly once.
  */
 export function renderGalleriesEmptyHtml(createCmd: string): string {
   const safe = escapeHtml(createCmd);
-  return `<div class="ws-empty-state">
+  return `<div class="ws-empty-state ws-empty-state--cta">
   <p class="ws-empty-state__title">No galleries yet</p>
   <div class="command ws-empty__command">
     <code>${safe}</code>

@@ -1766,6 +1766,23 @@ button.wft-card__name:focus-visible {
 .ws-empty-state .command {
   width: 100%;
 }
+/* CTA-focused variant (galleries): centered, generous air, the create
+   command shrink-wrapped as the one visible action. */
+.ws-empty-state--cta {
+  justify-items: center;
+  text-align: center;
+  gap: 14px;
+  padding: 40px 0 32px;
+}
+.ws-empty-state--cta .command {
+  width: auto;
+  /* min-width 0: without it the nowrap command sets the grid item's
+     min-content width and overflows the card on narrow screens — the code
+     element scrolls inside instead. */
+  min-width: 0;
+  max-width: 100%;
+  border: 1px solid var(--line);
+}
 
 /* Reference commands, demoted out of the primary reading path. */
 .ws-gallery-help {

@@ -331,15 +331,82 @@
   }
 }
 
-/* --bp-stack: single column. */
+/* --bp-stack: single column. The nav collapses to three compact rows —
+   one-line switcher, one horizontally scrollable tab row, personal links —
+   instead of the tall stacked menu, so content starts near the top of the
+   viewport on phones. */
 @media (max-width: 680px) {
-  .account-shell .layout {
-    grid-template-columns: 1fr;
-    gap: 24px;
+  .account-shell .shell {
+    padding-top: 16px;
   }
-  .account-shell nav.side .side-label,
+  /* minmax(0, …): a plain 1fr tracks min-content, so the no-wrap tab row
+     below would widen the whole page. align-content: start keeps the extra
+     viewport height (from the sticky-footer flex stretch) below the content
+     instead of distributed between nav and content as a large gap. */
+  .account-shell .layout {
+    grid-template-columns: minmax(0, 1fr);
+    align-content: start;
+    gap: 16px;
+  }
+  /* Beat signed-in-shell's chip grid: flex-wrap so the switcher and tab row
+     each take a full line while the personal links share one. */
+  .account-shell nav.side {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 2px;
+  }
+  /* One-line switcher: drop the "workspace" subtitle line and tighten. */
   .account-shell nav.side .ws-switcher {
-    grid-column: 1 / -1;
+    flex: 1 1 100%;
+    margin: 0 0 4px;
+  }
+  .account-shell nav.side .ws-switcher .ws-switcher__trigger {
+    padding: 7px 10px;
+  }
+  .account-shell nav.side .ws-switcher__subtitle {
+    display: none;
+  }
+  /* Eyebrow labels spend rows without adding meaning at this size. */
+  .account-shell nav.side .side-label {
+    display: none;
+  }
+  /* Workspace tabs: a single scrollable pill row, edge-to-edge bleed so the
+     cut-off pill hints at more. */
+  .account-shell nav.side .ws-section-nav {
+    /* Basis spans the column plus the bled-through shell padding; min-width
+       lets the row shrink so overflow-x scrolls instead of widening the page. */
+    flex: 0 0 calc(100% + 40px);
+    min-width: 0;
+    display: flex;
+    gap: 2px;
+    margin: 0 -20px;
+    padding: 0 20px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .account-shell nav.side .ws-section-nav::-webkit-scrollbar {
+    display: none;
+  }
+  .account-shell nav.side .ws-section-nav .side-link {
+    flex: none;
+    padding: 6px 10px;
+    white-space: nowrap;
+  }
+  /* Settings sub-links join the same row instead of an indented block. */
+  .account-shell nav.side .ws-settings-subnav {
+    display: contents;
+  }
+  .account-shell nav.side .ws-settings-subnav__link {
+    flex: none;
+    padding: 6px 10px;
+    white-space: nowrap;
+  }
+  /* Personal links (account / developers) share one compact row. */
+  .account-shell nav.side > .side-link {
+    flex: none;
+    padding: 6px 10px;
   }
   .account-shell aside.rail {
     position: static;

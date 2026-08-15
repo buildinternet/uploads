@@ -151,9 +151,7 @@ describe("attachmentsCommentBody (api copy)", () => {
         meta: { path: "src/app", state: "after" },
       },
     ]);
-    expect(body).toContain(
-      "<sub>▶ Play video · 0:14 · <code>src/app</code> · <code>after</code></sub>",
-    );
+    expect(body).toContain("▶ Play video · 0:14 · <code>src/app</code> · <code>after</code>");
   });
 
   it("caps inline images at 16, collapsing the rest into a details block", () => {
@@ -187,8 +185,8 @@ describe("attachmentsCommentBody (api copy)", () => {
     expect(body).toContain(
       "- [shot-17.png](https://uploads.sh/f/acme/shot-17.png) · `/a_b[c]*d~e~` · `after`",
     );
-    // HTML context: <sub> needs no markdown escaping, so the value is verbatim.
-    expect(body).toContain("<sub><code>/a_b[c]*d~e~</code> · <code>after</code></sub>");
+    // HTML context: <code> needs no markdown escaping, so the value is verbatim.
+    expect(body).toContain("<code>/a_b[c]*d~e~</code> · <code>after</code>");
   });
 
   describe("before/after pairing (issue #419)", () => {
@@ -359,7 +357,7 @@ describe("attachmentsCommentBody (api copy)", () => {
         },
       ]);
       expect(body).toContain('width="720"');
-      expect(body).toContain("<sub><code>/settings</code> · <code>after</code></sub>");
+      expect(body).toContain("<code>/settings</code> · <code>after</code>");
     });
 
     it("keeps dense historical widths once four or more images are inlined", () => {
@@ -481,7 +479,7 @@ describe("attachmentsCommentBody (api copy)", () => {
     it("metaState:false hides state but keeps path in captions", () => {
       const body = attachmentsCommentBody(metaItems, [], marker, base({ metaState: false }));
       expect(body).toContain("apps/web/src");
-      expect(body).not.toContain("<sub>apps/web/src · after</sub>");
+      expect(body).not.toContain("<code>after</code>");
       expect(body).not.toMatch(/·\s*after/);
     });
 

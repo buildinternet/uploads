@@ -478,7 +478,9 @@ function renderPairCell(
   const href = escapeHtmlAttr((link ?? src) as string);
   const imgSrc = escapeHtmlAttr(src as string);
   const caption = formatMetaCaption(item.meta, options, "html");
-  const captionHtml = caption ? `<br><sub>${caption}</sub>` : "";
+  // Caption at body size (issue: <sub> made paths unreadably small); the
+  // Before/After label keeps <sub> as a deliberate small header.
+  const captionHtml = caption ? `<br>${caption}` : "";
   return `<td align="center"><sub><strong>${label}</strong></sub><br><a href="${href}">${imgTag(w, alt, imgSrc)}</a>${captionHtml}</td>`;
 }
 
@@ -606,7 +608,7 @@ export function attachmentsCommentBody(
       }
       const metaCap = formatMetaCaption(item.meta, options, "html");
       if (metaCap) parts.push(metaCap);
-      lines.push(`<sub>${parts.join(" · ")}</sub>`, "");
+      lines.push(parts.join(" · "), "");
     } else if (isImage) {
       inlinedImages++;
       // Markdown ![]() has no width control — phone frames become full-column giants.
@@ -618,7 +620,8 @@ export function attachmentsCommentBody(
       const imgSrc = escapeHtmlAttr(src as string);
       lines.push(`<a href="${href}">${imgTag(w, alt, imgSrc)}</a>`);
       const caption = formatMetaCaption(item.meta, options, "html");
-      if (caption) lines.push(`<sub>${caption}</sub>`);
+      // Body-size caption — <sub> rendered path/state metadata too small.
+      if (caption) lines.push(caption);
       lines.push("");
     } else if (link) {
       const cap = formatMetaCaption(item.meta, options, "markdown");
@@ -647,11 +650,11 @@ export function attachmentsCommentBody(
   if (sorted.length === 0 && sortedGalleries.length === 0) {
     lines.push("_No attachments are currently associated with this pull request._", "");
   }
+  // Footer condensed to a single quiet line — the old two-line explainer
+  // ("re-uploading updates everywhere", full add-media flags) repeats on
+  // every PR and lost value with each appearance; details live in the docs.
   lines.push(
-    '<sub>Maintained by <a href="https://uploads.sh">uploads.sh</a> — re-uploading a file with the same name updates it everywhere it is embedded.</sub>',
-  );
-  lines.push(
-    '<sub>Add media: <code>uploads put &lt;file&gt; --pr &lt;N&gt; --comment</code> (or <code>--issue &lt;N&gt;</code>) · <a href="https://uploads.sh/docs/github-app">docs</a></sub>',
+    '<sub>Maintained by <a href="https://uploads.sh">uploads.sh</a> · add media: <code>uploads put &lt;file&gt; --pr &lt;N&gt;</code> · <a href="https://uploads.sh/docs/github-app">docs</a></sub>',
   );
   return lines.join("\n");
 }
