@@ -37,7 +37,11 @@ const tip = {
 
       <div id="ws-galleries" set:html={renderGalleriesPlaceholderHtml()} />
 
-      <details class="ws-gallery-help">
+      {
+        /* Hidden while the empty-state CTA is up — it repeats the create
+          command, and the empty page should carry exactly one action. */
+      }
+      <details class="ws-gallery-help" id="ws-gallery-help">
         <summary>Working with galleries</summary>
         <div class="command">
           <code>{createCmd}</code>
@@ -90,6 +94,7 @@ const tip = {
       const retryBtn = requireElement<HTMLButtonElement>("#ws-retry", page);
       const galleriesCard = requireElement<HTMLElement>("#ws-galleries-card", page);
       const galleriesEl = requireElement<HTMLElement>("#ws-galleries", page);
+      const helpEl = requireElement<HTMLElement>("#ws-gallery-help", page);
 
       bindCopyButtons(galleriesCard);
 
@@ -117,8 +122,12 @@ const tip = {
           galleriesEl.innerHTML = renderGalleriesEmptyHtml(
             'uploads gallery create --title "Release screenshots"',
           );
+          // The empty CTA carries the create command; the reference block
+          // would show it a second time.
+          helpEl.hidden = true;
           return;
         }
+        helpEl.hidden = false;
         galleriesEl.innerHTML = renderGalleriesTableHtml(galleries);
       }
 
