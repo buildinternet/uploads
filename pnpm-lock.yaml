@@ -56,15 +56,15 @@ importers:
       '@uploads/comment-config':
         specifier: workspace:^
         version: link:../../packages/comment-config
+      '@uploads/comment-render':
+        specifier: workspace:^
+        version: link:../../packages/comment-render
       '@uploads/email':
         specifier: workspace:^
         version: link:../../packages/email
       '@uploads/errors':
         specifier: workspace:^
         version: link:../../packages/errors
-      '@uploads/github-comment':
-        specifier: workspace:^
-        version: link:../../packages/github-comment
       '@uploads/storage':
         specifier: workspace:^
         version: link:../../packages/storage
@@ -251,6 +251,12 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.0)(vite@8.1.3(@types/node@26.1.0)(esbuild@0.28.1)(terser@5.49.0)(yaml@2.9.0))
 
+  packages/comment-render:
+    devDependencies:
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+
   packages/email:
     devDependencies:
       typescript:
@@ -268,12 +274,6 @@ importers:
       vitest:
         specifier: ^4.1.10
         version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.0)(vite@8.1.3(@types/node@26.1.0)(esbuild@0.28.1)(terser@5.49.0)(yaml@2.9.0))
-
-  packages/github-comment:
-    devDependencies:
-      typescript:
-        specifier: ^7.0.2
-        version: 7.0.2
 
   packages/storage:
     dependencies:
