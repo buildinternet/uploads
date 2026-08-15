@@ -29,6 +29,8 @@ try {
     "dist/mcp/server.js",
     "dist/mcp/server.d.ts",
     "dist/cli.js",
+    "dist/comment-render.generated.js",
+    "dist/comment-config.generated.js",
   ]) {
     assert(files.has(required), `packed artifact is missing ${required}`);
   }
@@ -56,6 +58,14 @@ try {
     manifest.bin?.uploads?.replace(/^\.\//, ""),
     "bin/uploads.js",
     "packed manifest must retain the uploads executable",
+  );
+  const privateUploads = Object.keys(manifest.dependencies ?? {}).filter((name) =>
+    name.startsWith("@uploads/"),
+  );
+  assert.equal(
+    privateUploads.length,
+    0,
+    "published CLI must not depend on private @uploads/* packages",
   );
   console.log(`Verified ${packed.filename} (${packed.files.length} files)`);
 } finally {
