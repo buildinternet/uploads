@@ -88,8 +88,7 @@ Two tiers, pick by whether a PR already exists:
   `uploads attach shot.png`, which infers the PR from the current branch) —
   one call, stable per-PR key, embed URLs back immediately, and the managed
   comment collects that PR's media as a side effect.
-- **Advanced — stage pre-PR, before there's anything to target.** `uploads
-attach shot.png --branch` (see below) — no PR/issue needed yet; promotion
+- **Advanced — stage pre-PR, before there's anything to target.** `uploads put shot.png` on a branch (see below) — no PR/issue needed yet; promotion
   and the comment happen automatically once the PR opens, **but only for a
   repo already bound to the workspace** (see the caveat below). Reach for the
   simple tier once the PR exists unless you're deliberately building up a
@@ -97,12 +96,11 @@ attach shot.png --branch` (see below) — no PR/issue needed yet; promotion
 
 **Default loop: stage as you go, from the first visual milestone.** Don't wait
 for a PR to exist. The moment you have something worth capturing — mid-task,
-still on a branch, no PR yet — attach it right then. As of issue #403, a
-**bare `uploads put`** already does this automatically whenever you're inside
+still on a branch, no PR yet — attach it right then. A **bare `uploads put`** already does this automatically whenever you're inside
 a git repo on a non-default branch with no `--pr`/`--issue`/`--key`/`--ref`/
 `--prefix` — it stages under the same branch-keyed path `attach --branch`
 would produce, so a plain `uploads put step1-before.png --meta path=/settings
---state before` is enough. As of issue #469, **`uploads screenshot`** (with no
+--state before` is enough. **`uploads screenshot`** (with no
 `--pr`/`--issue`/`--branch` target) stages the same way, so capturing directly
 from a URL before the PR exists carries every derived fact (path/url/env/
 viewport, plus `--state`) all the way through to the PR once it opens — no

@@ -151,7 +151,10 @@ const FAQ_JSON_LD = JSON.stringify({
         The local stdio <strong>MCP</strong> (<code>uploads mcp</code>) matches the CLI, including
         <code>attach</code>. Hosted MCP at <code>agents.uploads.sh</code> has <code>put</code>,
         <code>list</code>, <code>delete</code>, and more — not <code>attach</code>, and no git
-        defaults. Stage with <code>put</code> and pass the branch and repo.
+        defaults. Stage with <code>put</code> plus <code>repo</code> and <code>branch</code>. Once a
+        PR exists, <code>promote</code> with <code>repo</code>, <code>pr</code>, and <code
+          >branch</code
+        >.
       </li>
     </ul>
     <p>Or set up each piece yourself, for other agent runtimes:</p>

@@ -96,9 +96,11 @@ import DocsLayout from "../../layouts/DocsLayout.astro";
       <code>attach</code>. The hosted MCP at <code>agents.uploads.sh</code> is for agents without a local
       checkout: it has <code>put</code>, <code>list</code>, <code>delete</code>, and more — not <code
         >attach</code
-      >, and no git defaults. Stage with <code>put</code> and pass the branch and repo. Hosted <code
-        >put</code
-      >/<code>comment</code> honor a repo's&#32;
+      >, and no git defaults. Stage with <code>put</code> plus <code>repo</code> and <code
+        >branch</code
+      >. Once a PR exists, <code>promote</code> with <code>repo</code>, <code>pr</code>, and <code
+        >branch</code
+      >. Hosted <code>put</code>/<code>comment</code> honor a repo's&#32;
       <a href="/docs/comment-config"><code>.uploads.yml</code></a> the same way the bot does. Register
       the local server with any MCP client, e.g.:
     </p>

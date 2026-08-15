@@ -331,7 +331,7 @@ clean leaf. Use `--dry-run` to preview the exact public URL before uploading.
 
 Default `put` is the fast path; you don't need `--key`, `--prefix`, or `--repo`.
 **Inside a git repo, on a non-default branch, a bare `put` now stages
-automatically (issue #403)** — same key/metadata as `attach --branch`
+automatically** — same key/metadata as `attach --branch`
 (`gh/<owner>/<repo>/branch/<branch>/<filename>`), so it auto-attaches to that
 branch's PR when one opens. This fires whenever none of
 `--pr`/`--issue`/`--key`/`--ref`/`--prefix`/`--destination` is set and
@@ -354,7 +354,7 @@ uploads put ./shot.png --format markdown   # just the ![]()/<img> snippet
 uploads put ./shot.png --json              # {workspace,key,url,size,markdown}
 ```
 
-**The bare-put staging note (issue #403).** Since a bare `put` on a
+**The bare-put staging note.** Since a bare `put` on a
 non-default branch now stages by default (see above), it prints a one-line
 note confirming that instead of nudging you to do it yourself — human mode
 writes it to stderr, `--format json` adds it as an additive optional `hint`
@@ -447,11 +447,11 @@ Key options (`uploads screenshot --help` for all):
 | `--no-sidecar`                                       | Don't write the `<file>.uploads.json` sidecar alongside `--out`.                                                                                                                                                                                                                                                                                      |
 | `--no-upload`                                        | Skip hosting; requires `--out` (local file only).                                                                                                                                                                                                                                                                                                     |
 | `--key` / `--pr` / `--issue` / `--comment`           | Same destination and attachment options as `put` (see above); `--pr`/`--issue` also give a stable, hash-free key.                                                                                                                                                                                                                                     |
-| `--branch [name]`                                    | Stage against a branch, pre-PR — same key as `attach --branch` (see below); this is also what a bare `screenshot` on a non-default branch does automatically (issue #469).                                                                                                                                                                            |
+| `--branch [name]`                                    | Stage against a branch, pre-PR — same key as `attach --branch` (see below); this is also what a bare `screenshot` on a non-default branch does automatically.                                                                                                                                                                                         |
 | `--frame` / `--no-optimize` / `--gallery` / `--meta` | Same as `put` — reused from the shared upload pipeline.                                                                                                                                                                                                                                                                                               |
 
 **Inside a git repo, on a non-default branch, a bare `screenshot` now stages
-automatically too (issue #469, mirroring `put`'s issue #403 default)** — same
+automatically too** — same
 key/metadata as `--branch`/`attach --branch`
 (`gh/<owner>/<repo>/branch/<branch>/<filename>`), carrying every derived fact
 (`path`/`url`/`env`/`viewport`, plus `--state`) through to the PR once it
@@ -548,7 +548,7 @@ already-existing file have nothing to derive `path` from, so pass it
 explicitly with `--meta path=/route` — and `attach`/`put --pr`/`put --issue`
 print a `tip: add --meta path=/route so this shot is findable by page` on
 stderr (plus a JSON `hint` field) when an image lands with no `path` meta, as
-a reminder (issue #469 lever 3; respects `--quiet`).
+a reminder (respects `--quiet`).
 
 ```bash
 uploads screenshot https://app.example/settings --state before
@@ -953,7 +953,7 @@ uploads --api-url http://localhost:8787 doctor
   Claude and Codex ship the same pre-PR reminder via their plugins
   (`uploads hook pre-pr-screenshot`).
 
-  **Hosted MCP `put` comment parity (issue #392).** The hosted `put` tool
+  **Hosted MCP `put` comment parity.** The hosted `put` tool
   accepts `pr`/`issue` (mutually exclusive, mirroring the CLI's `--pr`/
   `--issue`) plus a required `repo` (`owner/name` — the hosted server has no
   git context to infer it from) to get the same stable `gh/…` key the CLI
@@ -987,7 +987,7 @@ uploads --api-url http://localhost:8787 doctor
   (same as the bot path — no separate MCP config; see
   https://uploads.sh/docs/comment-config).
 
-  **Hosted MCP: branch staging + promote.** There is still no `attach` tool
+  **Hosted MCP: branch staging + promote.** There is no `attach` tool
   on the hosted server (no filesystem paths) — use `put` instead:
 
   ```text
@@ -1003,7 +1003,7 @@ uploads --api-url http://localhost:8787 doctor
   put  { contentBase64, filename, repo: "owner/name", pr: 123, branch: "feature/x" }
   ```
 
-  **Hosted MCP: checking what's staged (issue #405).** There's no dedicated
+  **Hosted MCP: checking what's staged.** There's no dedicated
   `staged` tool on the hosted server — it has no local git context to default
   `branch` from, so it always needs the caller's own `repo`/`branch`. Answer
   "what's staged?" with the existing tools instead:

@@ -176,7 +176,7 @@ branch stage) and `promote` for the same outcomes.
 
 ### Why there is no hosted `staged` tool
 
-**Intentional (issue #405).** Local `staged` defaults branch/repo from git.
+**Intentional.** Local `staged` defaults branch/repo from git.
 Hosted has no git context. Answer the same questions with:
 
 ```text
