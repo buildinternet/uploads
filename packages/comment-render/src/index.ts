@@ -1,6 +1,6 @@
 /**
  * Shared managed-comment renderer and gh-key helpers.
- * API imports @uploads/github-comment; the published CLI inlines this file.
+ * API imports @uploads/comment-render; the published CLI inlines this file.
  */
 
 export type GhTargetKind = "pull" | "issues";

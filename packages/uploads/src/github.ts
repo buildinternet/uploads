@@ -7,7 +7,7 @@ import {
   parseGhPrivateKey,
   type GhTarget,
   type GhTargetKind,
-} from "./github-comment.generated.js";
+} from "./comment-render.generated.js";
 
 export {
   AUTO_RENDER_OPTIONS,
@@ -35,7 +35,7 @@ export {
   type GalleryCommentItem,
   type GhTarget,
   type GhTargetKind,
-} from "./github-comment.generated.js";
+} from "./comment-render.generated.js";
 
 /** A normalized GitHub issue/PR coordinate used for gallery references. */
 export interface GithubCoordinate {

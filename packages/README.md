@@ -7,7 +7,7 @@ Shared libraries consumed by `apps/api` and published/used from the CLI.
 | `email/`          | `@uploads/email`          | Shared invite / notify email card HTML (API enrollment + auth org) |
 | `errors/`         | `@uploads/errors`         | Shared error taxonomy + wire envelope (`AppError`, codes, types)   |
 | `comment-config/` | `@uploads/comment-config` | Shared `.uploads.yml` parser and resolver for managed comments     |
-| `github-comment/` | `@uploads/github-comment` | Shared managed-comment renderer and gh-key helpers                 |
+| `comment-render/` | `@uploads/comment-render` | Shared managed-comment renderer and gh-key helpers                 |
 | `storage/`        | `@uploads/storage`        | files-sdk adapter factory — single entry point for all storage I/O |
 | `uploads/`        | `@buildinternet/uploads`  | CLI (`uploads` bin) + programmatic client for GitHub image embeds  |
 

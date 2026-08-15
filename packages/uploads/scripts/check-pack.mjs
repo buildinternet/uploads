@@ -29,7 +29,7 @@ try {
     "dist/mcp/server.js",
     "dist/mcp/server.d.ts",
     "dist/cli.js",
-    "dist/github-comment.generated.js",
+    "dist/comment-render.generated.js",
     "dist/comment-config.generated.js",
   ]) {
     assert(files.has(required), `packed artifact is missing ${required}`);

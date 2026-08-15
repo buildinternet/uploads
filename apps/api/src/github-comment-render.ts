@@ -1,5 +1,5 @@
 /**
  * Re-export of the shared managed-comment renderer + gh-key helpers.
- * Canonical source: packages/github-comment.
+ * Canonical source: packages/comment-render.
  */
-export * from "@uploads/github-comment";
+export * from "@uploads/comment-render";

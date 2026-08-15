@@ -26,8 +26,8 @@ const HEADER = `/**
 
 const copies = [
   {
-    source: "packages/github-comment/src/index.ts",
-    dest: "packages/uploads/src/github-comment.generated.ts",
+    source: "packages/comment-render/src/index.ts",
+    dest: "packages/uploads/src/comment-render.generated.ts",
   },
   {
     source: "packages/comment-config/src/index.ts",

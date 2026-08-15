@@ -1,5 +1,5 @@
 {
-  "name": "@uploads/github-comment",
+  "name": "@uploads/comment-render",
   "version": "0.1.0",
   "private": true,
   "type": "module",
