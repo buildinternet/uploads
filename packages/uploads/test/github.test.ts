@@ -409,8 +409,8 @@ describe("attachmentsCommentBody", () => {
         meta: { path: "/", state: "before" },
       },
     ]);
-    expect(body).not.toContain("<sub>/</sub>");
+    expect(body).not.toContain("<code>/</code>");
     expect(body).not.toContain("/ · before");
-    expect(body).toContain("<sub><code>before</code></sub>");
+    expect(body).toContain("<code>before</code>");
   });
 });

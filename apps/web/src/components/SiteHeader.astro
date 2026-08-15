@@ -53,7 +53,7 @@ const stars = await githubStarCount();
             d="M8 .25a.75.75 0 0 1 .673.418l1.882 3.815 4.21.612a.75.75 0 0 1 .416 1.279l-3.046 2.97.719 4.192a.75.75 0 0 1-1.088.791L8 12.347l-3.766 1.98a.75.75 0 0 1-1.088-.79l.72-4.194L.818 6.374a.75.75 0 0 1 .416-1.28l4.21-.611L7.327.668A.75.75 0 0 1 8 .25Z"
           ></path>
         </svg>
-        Star on GitHub
+        <span class="star-cta__label">Star on GitHub</span>
         {stars === null ? null : <span class="count">{formatStars(stars)}</span>}
       </a>
       {authOrigin ? <AuthIndicator authOrigin={authOrigin} /> : null}
@@ -151,10 +151,21 @@ const stars = await githubStarCount();
     padding-left: 7px;
     font-variant-numeric: tabular-nums;
   }
-  @media (max-width: 420px) {
+  /* --bp-stack (680px, see signed-in-shell.css): the header competes with
+     content for a small screen — tighten padding and collapse the star CTA
+     to its icon so the bar stays a single row. */
+  @media (max-width: 680px) {
     .site-header__inner {
-      padding: 12px 16px;
+      padding: 10px 16px;
+      gap: 10px;
     }
+    .site-header__end {
+      gap: 10px;
+    }
+    .star-cta {
+      padding: 6px 8px;
+    }
+    .star-cta__label,
     .star-cta .count {
       display: none;
     }

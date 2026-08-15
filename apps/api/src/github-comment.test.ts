@@ -224,7 +224,7 @@ describe("gatherCommentBody attachment metadata (issue #365)", () => {
       kind: "pull",
     });
 
-    expect(result.body).toContain("<sub><code>/settings</code> · <code>before</code></sub>");
+    expect(result.body).toContain("<code>/settings</code> · <code>before</code>");
   });
 
   it("never fetches or renders EXIF-derived keys", async () => {
@@ -242,7 +242,7 @@ describe("gatherCommentBody attachment metadata (issue #365)", () => {
     });
 
     const body = result.body;
-    expect(body).toContain("<sub><code>/settings</code></sub>");
+    expect(body).toContain("<code>/settings</code>");
     expect(body).not.toContain("iPhone");
     expect(body).not.toContain("Photoshop");
   });
@@ -257,7 +257,7 @@ describe("gatherCommentBody attachment metadata (issue #365)", () => {
       kind: "pull",
     });
 
-    expect(result.body).not.toContain("<sub>/");
+    expect(result.body).not.toContain("<code>/");
   });
 
   it("skips the D1 read entirely when githubCommentShowMetadata is false", async () => {
@@ -283,7 +283,7 @@ describe("gatherCommentBody attachment metadata (issue #365)", () => {
     );
 
     expect(metadataQueries).toBe(0);
-    expect(result.body).not.toContain("<sub>/settings");
+    expect(result.body).not.toContain("<code>/settings");
   });
 
   it("does not leak another workspace's metadata for the same object key", async () => {
@@ -305,7 +305,7 @@ describe("gatherCommentBody attachment metadata (issue #365)", () => {
     });
 
     const body = result.body;
-    expect(body).toContain("<sub><code>/settings</code> · <code>before</code></sub>");
+    expect(body).toContain("<code>/settings</code> · <code>before</code>");
     expect(body).not.toContain("/intruder-path");
     expect(body).not.toContain("compromised");
   });

@@ -288,15 +288,25 @@ export function workspaceSettingsSubpageFromPathname(
   return "";
 }
 
-/** Switcher dropdown HTML. */
+/** Path suffix that keeps the current tab when switching workspaces ("" for
+ * files or off-workspace routes). Settings deliberately maps to the tab root,
+ * not the sub-page — sub-pages are workspace-specific detail views. */
+function tabPathSuffix(tab: WorkspaceNavTab | ""): string {
+  if (!tab) return "";
+  return WORKSPACE_NAV_TABS.find((t) => t.id === tab)?.path ?? "";
+}
+
+/** Switcher dropdown HTML. Rows preserve `activeTab` so switching workspaces
+ * lands on the same section instead of resetting to files. */
 export function renderSwitcherMenuHtml(
   workspaces: MyWorkspace[],
   options: WorkspacesNavOptions = {},
 ): string {
   const active = options.active ?? "";
+  const tabSuffix = tabPathSuffix(options.activeTab || "");
   const rows = workspaces
     .map((ws) => {
-      const href = `/account/workspaces/${encodeURIComponent(ws.workspace)}`;
+      const href = `/account/workspaces/${encodeURIComponent(ws.workspace)}${tabSuffix}`;
       const current = active === ws.workspace;
       const cls = current ? "ws-switcher__item is-current" : "ws-switcher__item";
       const aria = current ? ' aria-current="true"' : "";
@@ -421,7 +431,7 @@ function paint(els: SwitcherEls, workspaces: MyWorkspace[], opts: WorkspacesNavO
 
   els.label.textContent = switcherLabel(workspaces, active);
   paintTriggerBadge(els, workspaces, active);
-  els.menu.innerHTML = renderSwitcherMenuHtml(workspaces, { active, quota: opts.quota });
+  els.menu.innerHTML = renderSwitcherMenuHtml(workspaces, { active, activeTab, quota: opts.quota });
 
   // The "workspace" eyebrow above the section nav tracks it 1:1. Toggled
   // here (not via a `:has(+ …:not([hidden]))` rule in account-shell.css)

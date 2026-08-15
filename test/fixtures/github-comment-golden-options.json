@@ -5,21 +5,21 @@
       "options": {
         "imageWidth": "full"
       },
-      "expected": "<!-- uploads.sh:attachments -->\n- [build.log](https://uploads.sh/f/acme/gh/acme/web/pull/12/build.log)\n<a href=\"https://uploads.sh/f/acme/gh/acme/web/pull/12/hero.png\"><img alt=\"hero.png\" src=\"https://embed.uploads.sh/f/hero.png\"></a>\n\n<sub>Maintained by <a href=\"https://uploads.sh\">uploads.sh</a> — re-uploading a file with the same name updates it everywhere it is embedded.</sub>\n<sub>Add media: <code>uploads put &lt;file&gt; --pr &lt;N&gt; --comment</code> (or <code>--issue &lt;N&gt;</code>) · <a href=\"https://uploads.sh/docs/github-app\">docs</a></sub>"
+      "expected": "<!-- uploads.sh:attachments -->\n- [build.log](https://uploads.sh/f/acme/gh/acme/web/pull/12/build.log)\n<a href=\"https://uploads.sh/f/acme/gh/acme/web/pull/12/hero.png\"><img alt=\"hero.png\" src=\"https://embed.uploads.sh/f/hero.png\"></a>\n\n<sub>Maintained by <a href=\"https://uploads.sh\">uploads.sh</a> · add media: <code>uploads put &lt;file&gt; --pr &lt;N&gt;</code> · <a href=\"https://uploads.sh/docs/github-app\">docs</a></sub>"
     },
     {
       "name": "px500",
       "options": {
         "imageWidth": 500
       },
-      "expected": "<!-- uploads.sh:attachments -->\n- [build.log](https://uploads.sh/f/acme/gh/acme/web/pull/12/build.log)\n<a href=\"https://uploads.sh/f/acme/gh/acme/web/pull/12/hero.png\"><img width=\"500\" alt=\"hero.png\" src=\"https://embed.uploads.sh/f/hero.png\"></a>\n\n<sub>Maintained by <a href=\"https://uploads.sh\">uploads.sh</a> — re-uploading a file with the same name updates it everywhere it is embedded.</sub>\n<sub>Add media: <code>uploads put &lt;file&gt; --pr &lt;N&gt; --comment</code> (or <code>--issue &lt;N&gt;</code>) · <a href=\"https://uploads.sh/docs/github-app\">docs</a></sub>"
+      "expected": "<!-- uploads.sh:attachments -->\n- [build.log](https://uploads.sh/f/acme/gh/acme/web/pull/12/build.log)\n<a href=\"https://uploads.sh/f/acme/gh/acme/web/pull/12/hero.png\"><img width=\"500\" alt=\"hero.png\" src=\"https://embed.uploads.sh/f/hero.png\"></a>\n\n<sub>Maintained by <a href=\"https://uploads.sh\">uploads.sh</a> · add media: <code>uploads put &lt;file&gt; --pr &lt;N&gt;</code> · <a href=\"https://uploads.sh/docs/github-app\">docs</a></sub>"
     },
     {
       "name": "cap2",
       "options": {
         "maxInlineImages": 2
       },
-      "expected": "<!-- uploads.sh:attachments -->\n<a href=\"https://uploads.sh/f/acme/gh/acme/web/pull/12/checkout.png\"><img width=\"560\" alt=\"checkout.png\" src=\"https://embed.uploads.sh/f/checkout.png\"></a>\n\n<a href=\"https://uploads.sh/f/acme/gh/acme/web/pull/12/dashboard.png\"><img width=\"720\" alt=\"dashboard.png\" src=\"https://embed.uploads.sh/f/dashboard.png\"></a>\n\n<details><summary>1 more attachment</summary>\n\n- [hero.png](https://uploads.sh/f/acme/gh/acme/web/pull/12/hero.png)\n\n</details>\n\n<sub>Maintained by <a href=\"https://uploads.sh\">uploads.sh</a> — re-uploading a file with the same name updates it everywhere it is embedded.</sub>\n<sub>Add media: <code>uploads put &lt;file&gt; --pr &lt;N&gt; --comment</code> (or <code>--issue &lt;N&gt;</code>) · <a href=\"https://uploads.sh/docs/github-app\">docs</a></sub>",
+      "expected": "<!-- uploads.sh:attachments -->\n<a href=\"https://uploads.sh/f/acme/gh/acme/web/pull/12/checkout.png\"><img width=\"560\" alt=\"checkout.png\" src=\"https://embed.uploads.sh/f/checkout.png\"></a>\n\n<a href=\"https://uploads.sh/f/acme/gh/acme/web/pull/12/dashboard.png\"><img width=\"720\" alt=\"dashboard.png\" src=\"https://embed.uploads.sh/f/dashboard.png\"></a>\n\n<details><summary>1 more attachment</summary>\n\n- [hero.png](https://uploads.sh/f/acme/gh/acme/web/pull/12/hero.png)\n\n</details>\n\n<sub>Maintained by <a href=\"https://uploads.sh\">uploads.sh</a> · add media: <code>uploads put &lt;file&gt; --pr &lt;N&gt;</code> · <a href=\"https://uploads.sh/docs/github-app\">docs</a></sub>",
       "items": [
         {
           "key": "gh/acme/web/pull/12/hero.png",
@@ -46,7 +46,7 @@
       "options": {
         "metaPath": false
       },
-      "expected": "<!-- uploads.sh:attachments -->\n<a href=\"https://uploads.sh/f/acme/gh/acme/web/pull/12/meta-a.png\"><img width=\"720\" alt=\"meta-a.png\" src=\"https://embed.uploads.sh/f/meta-a.png\"></a>\n<sub><code>after</code></sub>\n\n<sub>Maintained by <a href=\"https://uploads.sh\">uploads.sh</a> — re-uploading a file with the same name updates it everywhere it is embedded.</sub>\n<sub>Add media: <code>uploads put &lt;file&gt; --pr &lt;N&gt; --comment</code> (or <code>--issue &lt;N&gt;</code>) · <a href=\"https://uploads.sh/docs/github-app\">docs</a></sub>",
+      "expected": "<!-- uploads.sh:attachments -->\n<a href=\"https://uploads.sh/f/acme/gh/acme/web/pull/12/meta-a.png\"><img width=\"720\" alt=\"meta-a.png\" src=\"https://embed.uploads.sh/f/meta-a.png\"></a>\n<code>after</code>\n\n<sub>Maintained by <a href=\"https://uploads.sh\">uploads.sh</a> · add media: <code>uploads put &lt;file&gt; --pr &lt;N&gt;</code> · <a href=\"https://uploads.sh/docs/github-app\">docs</a></sub>",
       "items": [
         {
           "key": "gh/acme/web/pull/12/meta-a.png",
@@ -65,7 +65,7 @@
       "options": {
         "note": "Staging only."
       },
-      "expected": "<!-- uploads.sh:attachments -->\nStaging only.\n\n- [build.log](https://uploads.sh/f/acme/gh/acme/web/pull/12/build.log)\n<a href=\"https://uploads.sh/f/acme/gh/acme/web/pull/12/hero.png\"><img width=\"720\" alt=\"hero.png\" src=\"https://embed.uploads.sh/f/hero.png\"></a>\n\n<sub>Maintained by <a href=\"https://uploads.sh\">uploads.sh</a> — re-uploading a file with the same name updates it everywhere it is embedded.</sub>\n<sub>Add media: <code>uploads put &lt;file&gt; --pr &lt;N&gt; --comment</code> (or <code>--issue &lt;N&gt;</code>) · <a href=\"https://uploads.sh/docs/github-app\">docs</a></sub>"
+      "expected": "<!-- uploads.sh:attachments -->\nStaging only.\n\n- [build.log](https://uploads.sh/f/acme/gh/acme/web/pull/12/build.log)\n<a href=\"https://uploads.sh/f/acme/gh/acme/web/pull/12/hero.png\"><img width=\"720\" alt=\"hero.png\" src=\"https://embed.uploads.sh/f/hero.png\"></a>\n\n<sub>Maintained by <a href=\"https://uploads.sh\">uploads.sh</a> · add media: <code>uploads put &lt;file&gt; --pr &lt;N&gt;</code> · <a href=\"https://uploads.sh/docs/github-app\">docs</a></sub>"
     }
   ]
 }
