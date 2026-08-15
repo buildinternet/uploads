@@ -14,7 +14,8 @@ const TOC = [
   { id: "problem", label: "The problem" },
   { id: "setup", label: "Install & sign in" },
   { id: "agents", label: "Teach your agent" },
-  { id: "attach", label: "Attach media" },
+  { id: "stage", label: "Stage as you go" },
+  { id: "attach", label: "PR already open" },
   { id: "video", label: "Video & everything else" },
   { id: "faq", label: "FAQ" },
 ];
@@ -34,7 +35,7 @@ const FAQ = [
   },
   {
     q: "How do I set up Claude Code to attach screenshots to its pull requests?",
-    a: "Run `uploads install` once. It installs the agent skills (attach workflow, CLI reference, and annotations) and registers the hosted MCP server with Claude Code. After that, the agent runs `uploads attach <files>` on its own when it changes something visual.",
+    a: "Run `uploads install` once. It installs the agent skills (stage-as-you-go workflow, CLI reference, and annotations) and registers the hosted MCP server with Claude Code. After that, the agent runs `uploads put <file>` on the branch as it works. When the PR opens, staged files land in one attachments comment.",
   },
   {
     q: "Can I mark up a screenshot before attaching it?",
@@ -42,7 +43,7 @@ const FAQ = [
   },
   {
     q: "Are uploaded files private?",
-    a: "No. Files are public to anyone with the URL, even media attached to private repos. Don't upload secrets or sensitive UI — use a solid redaction (`uploads annotate` / `screenshot --annotate`) when a capture shows credentials. Uploading itself requires an invite-issued workspace token.",
+    a: "No. Files are public to anyone with the URL, even media attached to private repos. Don't upload secrets or sensitive UI — use a solid redaction (`uploads annotate` / `screenshot --annotate`) when a capture shows credentials. Create your own workspace (GitHub-linked) or accept an invite from a workspace admin.",
   },
 ];
 
@@ -143,12 +144,14 @@ const FAQ_JSON_LD = JSON.stringify({
     </div>
     <ul>
       <li>
-        The <strong>agent skills</strong> teach when to attach screenshots (and when to annotate them
-        with callouts or redactions), plus the full CLI reference.
+        The <strong>agent skills</strong> teach when to capture as you go (and when to annotate with callouts
+        or redactions), plus the full CLI reference.
       </li>
       <li>
-        The <strong>MCP server</strong> offers the same tools (<code>put</code>, <code>attach</code
-        >, <code>list</code>, <code>delete</code>, …) for runtimes that prefer MCP.
+        The local stdio <strong>MCP</strong> (<code>uploads mcp</code>) matches the CLI, including
+        <code>attach</code>. Hosted MCP at <code>agents.uploads.sh</code> has <code>put</code>,
+        <code>list</code>, <code>delete</code>, and more — not <code>attach</code>, and no git
+        defaults. Stage with <code>put</code> and pass the branch and repo.
       </li>
     </ul>
     <p>Or set up each piece yourself, for other agent runtimes:</p>
@@ -172,29 +175,59 @@ const FAQ_JSON_LD = JSON.stringify({
     </div>
   </section>
 
-  <section id="attach">
+  <section id="stage">
     <h2>
-      Step 3: the agent attaches media with one command <a
+      Step 3: the agent stages screenshots as it works <a
         class="anchor"
-        href="#attach"
+        href="#stage"
         aria-label="Link to this section">#</a
       >
     </h2>
     <p>
-      From a branch with an open pull request, <code>attach</code> only needs the files. It finds the
-      PR through <code>gh</code>, uploads each file to a stable URL, and keeps one managed comment:
+      No pull request required. On a branch, a bare <code>put</code> stages the file automatically:
+    </p>
+    <div class="cmd">
+      <span class="text">uploads put ./after.png --state after</span>
+      <button type="button" data-copy="uploads put ./after.png --state after" aria-live="polite"
+        >copy</button
+      >
+    </div>
+    <div class="block" aria-label="Example output">
+      <pre>&gt;&gt; uploading ./after.png
+note: staged for branch feat/nav — auto-comments to pull request when opened
+(or run: uploads attach --promote once it exists)</pre>
+    </div>
+    <p>
+      Keep doing that at each visual milestone. Check the queue with <code>uploads staged</code>.
+      When the PR opens, staged files promote into one managed comment — via the GitHub App, or
+      <code>uploads attach --promote</code> without the App.
+    </p>
+    <p>
+      <code>uploads screenshot</code> captures and stages the same way. Tag a pair with&#32;
+      <code>--state before</code> and <code>--state after</code> and they render side by side.
+    </p>
+    <h3>Why the URLs matter</h3>
+    <p>
+      Keys are hash-free. Upload the same filename again and every embed shows the new image at the
+      same URL within a minute. No stale screenshots.
+    </p>
+  </section>
+
+  <section id="attach">
+    <h2>
+      Already have a PR open? <a class="anchor" href="#attach" aria-label="Link to this section"
+        >#</a
+      >
+    </h2>
+    <p>
+      <code>attach</code> is the direct path. It finds the PR through <code>gh</code>, uploads each
+      file, and keeps one managed comment:
     </p>
     <div class="cmd">
       <span class="text">uploads attach ./before.png ./after.png</span>
       <button type="button" data-copy="uploads attach ./before.png ./after.png" aria-live="polite"
         >copy</button
       >
-    </div>
-    <div class="block" aria-label="Example output">
-      <pre># optimizes each image, then keeps one comment on the PR up to date
-&gt;&gt; uploading ./before.png
-&gt;&gt; uploading ./after.png
-<span class="ok">&gt;&gt; attachments comment updated</span></pre>
     </div>
     <p>Not on a PR branch? Point it somewhere:</p>
     <div class="cmd">
@@ -213,14 +246,7 @@ const FAQ_JSON_LD = JSON.stringify({
     </div>
     <p>
       Want to place the image yourself, in a PR description or README?&#32;
-      <code>--no-comment</code> prints the URL and Markdown without posting anything.&#32;
-      <code>uploads put</code> gives full control over naming and output.
-    </p>
-    <h3>Why the URLs matter</h3>
-    <p>
-      Attachments get <strong>stable keys</strong>, like&#32;
-      <code>gh/owner/repo/pull/123/shot.webp</code>. Upload the same filename again and the PR shows
-      the new image at the same URL within a minute. No stale screenshots.
+      <code>--no-comment</code> prints the URL and Markdown without posting anything.
     </p>
   </section>
 
@@ -235,10 +261,9 @@ const FAQ_JSON_LD = JSON.stringify({
       logs all upload as-is:
     </p>
     <div class="cmd">
-      <span class="text"
-        >uploads attach ./demo.mp4 <span class="cm"># linked from the comment</span></span
+      <span class="text">uploads put ./demo.mp4 <span class="cm"># stages on the branch</span></span
       >
-      <button type="button" data-copy="uploads attach ./demo.mp4" aria-live="polite">copy</button>
+      <button type="button" data-copy="uploads put ./demo.mp4" aria-live="polite">copy</button>
     </div>
     <p>
       One caveat: GitHub only plays videos it hosts itself. Outside video shows up as a&#32;
