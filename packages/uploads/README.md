@@ -15,7 +15,7 @@ npx @buildinternet/uploads --help
 uploads setup
 uploads --version
 uploads attach ./before.png ./after.png
-uploads screenshot https://app.example --pr 123 --comment   # capture + host in one step
+uploads screenshot https://app.example --pr 123   # capture + host in one step
 uploads screenshot ./report.html --dark --selector "main"
 uploads screenshot http://localhost:3000 --via local --annotate ./callouts.json
 uploads annotate ./shot.png --spec ./callouts.json --out ./shot.marked.png
@@ -24,7 +24,7 @@ uploads put ./shot.png --destination screenshots
 uploads put ./shot.png --no-optimize
 uploads put ./mobile.png --frame phone
 uploads put ./ui.png --frame browser --frame-url "https://app.example"
-uploads put ./after.png --pr 123 --comment
+uploads put ./after.png --pr 123
 uploads put ./capture-2026-…Z.png --pr 123 --name hero.png   # clean leaf, stable path
 uploads put ./shot.png --pr 123 --name hero.png --dry-run --format url  # preview URL, no upload
 uploads gallery create --title "Release screenshots"
@@ -190,7 +190,7 @@ When adding several keys, `uploads gallery add` processes them sequentially and 
 individual failures in `--json` output. Gallery item updates use the API's current version to
 avoid overwriting concurrent changes.
 
-Link a gallery to a GitHub issue or pull request with `gallery link --github`. Run `uploads comment --pr <number>` (or use `put --comment`) to refresh that target’s one managed comment with every linked gallery and loose attachment. Coordinates and strict `https://github.com/<owner>/<repo>/issues|pull/<number>` URLs are accepted; `gallery list --github` performs the authenticated reverse lookup. Links never change gallery identity, and GitHub repository visibility does not make the public gallery private.
+Link a gallery to a GitHub issue or pull request with `gallery link --github`. Run `uploads comment --pr <number>` to refresh that target’s one managed comment with every linked gallery and loose attachment. Coordinates and strict `https://github.com/<owner>/<repo>/issues|pull/<number>` URLs are accepted; `gallery list --github` performs the authenticated reverse lookup. Links never change gallery identity, and GitHub repository visibility does not make the public gallery private.
 
 Config layers (first match wins): CLI flags → env vars → `--env-file` → `~/.config/buildinternet/config`. See `config.example` for keys.
 

@@ -393,7 +393,7 @@ Capture a URL or a local `.html` file and host it — no separate screenshot
 tool needed, and no browser install required for the default path:
 
 ```bash
-uploads screenshot https://uploads.sh --pr 128 --comment
+uploads screenshot https://uploads.sh --pr 128
 uploads screenshot ./card.html --out ./card.png
 uploads screenshot ./card.html --no-upload --out ./card.png
 ```

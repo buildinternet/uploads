@@ -42,9 +42,7 @@ Two paths, then `uploads login` as above:
   <https://uploads.sh/account/workspaces/new> and create a workspace. This
   requires a linked GitHub account and is capped at three self-serve
   workspaces per account.
-- **Be invited.** An uploads.sh administrator invites your email address to an
-  existing workspace's organization from the session-authenticated `/admin`
-  UI. Accept the invitation (GitHub or magic-link sign-in).
+- **Be invited.** A workspace admin invites your email from the workspace People tab or with `uploads invite create`. Accept the invitation (GitHub or magic-link sign-in).
 
 ## Using the credential
 
@@ -54,11 +52,11 @@ Send the workspace token on every protected request:
 Authorization: Bearer up_<workspace>_…
 ```
 
-| Scope          | Default on login | Use                               |
-| -------------- | ---------------- | --------------------------------- |
-| `files:read`   | yes              | list, metadata, usage             |
-| `files:write`  | yes              | upload, reconcile                 |
-| `files:delete` | no               | delete / purge (admin must grant) |
+| Scope          | Default on login | Use                                    |
+| -------------- | ---------------- | -------------------------------------- |
+| `files:read`   | yes              | list, metadata, usage                  |
+| `files:write`  | yes              | upload, reconcile                      |
+| `files:delete` | yes              | delete / purge. Narrow with `--scopes` |
 
 Tokens default to a 90-day lifetime. Hosted MCP at
 `https://agents.uploads.sh/mcp` uses the same bearer scheme (workspace is

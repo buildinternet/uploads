@@ -74,8 +74,8 @@ Routine path:
 2. `uploads login` → workspace bearer token `up_<workspace>_…`.
 3. Send `Authorization: Bearer <token>` on API and MCP calls.
 
-Default scopes on login: `files:read`, `files:write`. `files:delete` is not
-default — an admin must grant it. Tokens default to 90 days.
+Default scopes on login: `files:read`, `files:write`, `files:delete`.
+Pass `--scopes` to mint a narrower token. Tokens default to 90 days.
 
 Hosted MCP also accepts OAuth 2.1 from https://auth.uploads.sh (PKCE + dynamic
 client registration). REST API does **not** accept OAuth in v1 — workspace
