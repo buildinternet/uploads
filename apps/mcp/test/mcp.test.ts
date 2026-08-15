@@ -1509,6 +1509,11 @@ describe("modern-era (2026-07-28) requests", () => {
       destructiveHint: true,
       openWorldHint: true,
     });
+    expect(listed.find((tool) => tool.name === "set_metadata")?.annotations).toEqual({
+      readOnlyHint: false,
+      destructiveHint: true,
+      openWorldHint: true,
+    });
     expect(
       (listed.find((tool) => tool.name === "comment") as { outputSchema?: { properties?: object } })
         .outputSchema?.properties,

@@ -1069,12 +1069,12 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
     {
       name: "set_metadata",
       title: "Set metadata",
-      annotations: mcpWritePublic,
+      annotations: mcpDestroyPublic,
       securitySchemes: mcpOAuthWrite,
       description:
         "Merge-set and/or delete an object's queryable custom metadata (D1 key-value pairs, not R2 provenance). `set` wins over `delete` for the same key. " +
         METADATA_DESCRIPTION +
-        " Requires at least one of `set` or `delete`. Same as `uploads meta set`.",
+        " Metadata on public objects appears on the unauthenticated public file page, so do not store secrets or sensitive data. Requires at least one of `set` or `delete`. Same as `uploads meta set`.",
       inputSchema: {
         type: "object",
         properties: {
