@@ -259,10 +259,11 @@ uploads doctor                                 # version + health + auth + works
 uploads doctor --json
 ```
 
-Tokens encode their workspace (`up_<workspace>_…`), so the CLI infers `--workspace`
-when you don't set it. Legacy administrator-minted tokens remain valid. See "Config
-commands" for setting put defaults
-(default repo, prefix, image width) once instead of per-command.
+Workspace tokens encode their workspace (`up_<workspace>_…`), so the CLI infers
+`--workspace` when you don't set it. `/account/developers` mints the same
+token shape. Legacy administrator-minted tokens remain valid.
+See "Config commands" for setting put defaults (default repo, prefix, image
+width) once instead of per-command.
 
 ## Core workflow: `uploads put`
 

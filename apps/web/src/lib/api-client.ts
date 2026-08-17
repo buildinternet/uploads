@@ -1094,6 +1094,171 @@ export async function getSuggestedWorkspaceName(apiOrigin: string): Promise<stri
   return typeof body?.suggestedWorkspace === "string" ? body.suggestedWorkspace : "";
 }
 
+/** Matches `DEFAULT_TOKEN_SECONDS` / `MAX_TOKEN_SECONDS` in apps/api. */
+export const WORKSPACE_TOKEN_TTL_90_DAYS = 90 * 24 * 60 * 60;
+export const WORKSPACE_TOKEN_TTL_1_YEAR = 365 * 24 * 60 * 60;
+
+export interface MintableWorkspace {
+  workspace: string;
+  role: string;
+}
+
+export interface IssuedWorkspaceToken {
+  id: string;
+  workspace: string;
+  label: string | null;
+  scopes: string[];
+  createdAt: string;
+  expiresAt: string | null;
+}
+
+export type MintWorkspaceTokenResult =
+  | {
+      ok: true;
+      token: string;
+      workspace: string;
+      scopes: string[];
+      label: string | null;
+      expiresAt: string | null;
+    }
+  | { ok: false; message: string };
+
+function asMintableWorkspace(value: unknown): MintableWorkspace | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as Record<string, unknown>;
+  if (typeof row.workspace !== "string" || typeof row.role !== "string") return null;
+  return { workspace: row.workspace, role: row.role };
+}
+
+function asIssuedWorkspaceToken(value: unknown): IssuedWorkspaceToken | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as Record<string, unknown>;
+  if (typeof row.id !== "string" || typeof row.workspace !== "string") return null;
+  if (typeof row.createdAt !== "string") return null;
+  if (row.expiresAt !== null && typeof row.expiresAt !== "string") return null;
+  if (row.label !== null && typeof row.label !== "string") return null;
+  if (!Array.isArray(row.scopes) || !row.scopes.every((s) => typeof s === "string")) return null;
+  return {
+    id: row.id,
+    workspace: row.workspace,
+    label: row.label ?? null,
+    scopes: row.scopes,
+    createdAt: row.createdAt,
+    expiresAt: row.expiresAt ?? null,
+  };
+}
+
+/** Parse GET /v1/tokens — workspaces this session can mint for. */
+export function parseMintableWorkspaces(body: unknown): MintableWorkspace[] | null {
+  if (!body || typeof body !== "object") return null;
+  const rows = (body as { workspaces?: unknown }).workspaces;
+  if (!Array.isArray(rows)) return null;
+  const out: MintableWorkspace[] = [];
+  for (const row of rows) {
+    const parsed = asMintableWorkspace(row);
+    if (!parsed) return null;
+    out.push(parsed);
+  }
+  return out;
+}
+
+/** Parse GET /v1/tokens/issued. */
+export function parseIssuedWorkspaceTokens(body: unknown): IssuedWorkspaceToken[] | null {
+  if (!body || typeof body !== "object") return null;
+  const rows = (body as { tokens?: unknown }).tokens;
+  if (!Array.isArray(rows)) return null;
+  const out: IssuedWorkspaceToken[] = [];
+  for (const row of rows) {
+    const parsed = asIssuedWorkspaceToken(row);
+    if (!parsed) return null;
+    out.push(parsed);
+  }
+  return out;
+}
+
+/** GET /v1/tokens — workspaces the signed-in user can mint a token for. */
+export async function listMintableWorkspaces(
+  apiOrigin: string,
+): Promise<MintableWorkspace[] | null> {
+  const result = await fetchWithTimeout(`${trimOrigin(apiOrigin)}/v1/tokens`, {
+    credentials: "include",
+    cache: "no-store",
+  });
+  if (result.kind === "unavailable" || !result.response.ok) return null;
+  const body = await result.response.json().catch(() => undefined);
+  return parseMintableWorkspaces(body);
+}
+
+/** GET /v1/tokens/issued — tokens this session user minted. */
+export async function listIssuedWorkspaceTokens(
+  apiOrigin: string,
+): Promise<IssuedWorkspaceToken[] | null> {
+  const result = await fetchWithTimeout(`${trimOrigin(apiOrigin)}/v1/tokens/issued`, {
+    credentials: "include",
+    cache: "no-store",
+  });
+  if (result.kind === "unavailable" || !result.response.ok) return null;
+  const body = await result.response.json().catch(() => undefined);
+  return parseIssuedWorkspaceTokens(body);
+}
+
+/** POST /v1/tokens — mint a `up_<workspace>_` token. Secret is returned once. */
+export async function mintWorkspaceToken(
+  apiOrigin: string,
+  input: { workspace: string; label?: string; ttlSeconds?: number },
+): Promise<MintWorkspaceTokenResult> {
+  const result = await fetchWithTimeout(`${trimOrigin(apiOrigin)}/v1/tokens`, {
+    method: "POST",
+    credentials: "include",
+    cache: "no-store",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      grants: [{ workspace: input.workspace }],
+      ...(input.label ? { label: input.label } : {}),
+      ...(input.ttlSeconds ? { ttlSeconds: input.ttlSeconds } : {}),
+    }),
+  });
+  if (result.kind === "unavailable") {
+    return { ok: false, message: "The API is unreachable right now — try again shortly." };
+  }
+  const body = (await result.response.json().catch(() => null)) as {
+    token?: unknown;
+    workspace?: unknown;
+    scopes?: unknown;
+    label?: unknown;
+    expiresAt?: unknown;
+    error?: { message?: string };
+  } | null;
+  if (!result.response.ok) {
+    return { ok: false, message: body?.error?.message ?? "Could not create a workspace token." };
+  }
+  if (typeof body?.token !== "string" || typeof body.workspace !== "string") {
+    return { ok: false, message: "API returned a malformed workspace token." };
+  }
+  return {
+    ok: true,
+    token: body.token,
+    workspace: body.workspace,
+    scopes: Array.isArray(body.scopes)
+      ? body.scopes.filter((s): s is string => typeof s === "string")
+      : [],
+    label: typeof body.label === "string" ? body.label : null,
+    expiresAt: typeof body.expiresAt === "string" ? body.expiresAt : null,
+  };
+}
+
+/** DELETE /v1/tokens/:id — revoke a token this session user minted. */
+export async function revokeIssuedWorkspaceToken(
+  apiOrigin: string,
+  tokenId: string,
+): Promise<boolean> {
+  const result = await fetchWithTimeout(
+    `${trimOrigin(apiOrigin)}/v1/tokens/${encodeURIComponent(tokenId)}`,
+    { method: "DELETE", credentials: "include", cache: "no-store" },
+  );
+  return result.kind !== "unavailable" && result.response.ok;
+}
+
 export interface WorkspaceFolderFile {
   key: string;
   url: string | null;

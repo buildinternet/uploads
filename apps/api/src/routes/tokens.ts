@@ -8,15 +8,22 @@
  * AUTH service binding (`sessionAuth`), confirms the user is a member of the
  * org backing the requested workspace, then mints via the existing
  * `createToken` path — the same `auth_tokens` row `workspaceAuth` consumes.
+ * `/account/developers` uses the same mint over a session cookie.
  *
- * Wire format is grant-based for forward-compat (multi-workspace tokens,
- * user-generated API tokens): the request carries a `grants` array, but v1
- * accepts exactly one grant and rejects >1 with a clear "not yet supported".
+ * Wire format is grant-based for forward-compat (multi-workspace tokens):
+ * the request carries a `grants` array, but v1 accepts exactly one grant and
+ * rejects >1 with a clear "not yet supported".
  */
-import { ForbiddenError, RateLimitedError, ValidationError } from "@uploads/errors";
+import { ForbiddenError, NotFoundError, RateLimitedError, ValidationError } from "@uploads/errors";
 import { Hono } from "hono";
 import {
   createToken,
+  isFileScope,
+  isOperatorScope,
+  isWorkspaceScope,
+  findTokenForMintingUser,
+  listTokensForMintingUser,
+  revokeTokenForMintingUser,
   validateScopes,
   DEFAULT_TOKEN_SECONDS,
   MAX_TOKEN_SECONDS,
@@ -32,6 +39,19 @@ import {
 } from "../session-auth";
 import { loadWorkspaceRecord, WS_NAME_RE } from "../workspace";
 import { suggestWorkspaceName } from "../workspace-suggestion";
+
+/** Redacted scope list for the issued-token surface — never garbage entries. */
+function parseIssuedScopes(value: string): string[] {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (v): v is string => isFileScope(v) || isOperatorScope(v) || isWorkspaceScope(v),
+    );
+  } catch {
+    return [];
+  }
+}
 
 const MAX_BODY_BYTES = 4096;
 const MAX_LABEL_LEN = 200;
@@ -233,4 +253,42 @@ export const tokens = new Hono<SessionVars>()
       },
       201,
     );
+  })
+  // Tokens this session user minted. Distinct from GET / (workspace picker)
+  // and from GET /v1/workspaces/:name/tokens (workspace-admin list of every
+  // token on that workspace). Members only see their own rows.
+  .get("/issued", sessionAuth, requireSessionUser, async (c) => {
+    const user = c.get("sessionUser")!;
+    const issued = (await listTokensForMintingUser(c.env.DB, user.id)).map((token) => ({
+      id: token.id,
+      workspace: token.workspace,
+      label: token.label,
+      scopes: parseIssuedScopes(token.scopes),
+      createdAt: token.created_at,
+      expiresAt: token.expires_at,
+    }));
+    return c.json({ tokens: issued });
+  })
+  .delete("/:id", sessionAuth, requireSessionUser, async (c) => {
+    const user = c.get("sessionUser")!;
+    const id = c.req.param("id").trim();
+    if (!id) {
+      throw new NotFoundError("no matching token", { code: "token_not_found" });
+    }
+    const match = await findTokenForMintingUser(c.env.DB, user.id, id);
+    if (!match) {
+      throw new NotFoundError("no matching token", { code: "token_not_found" });
+    }
+    if (!(await allowWrite(c.env, match.workspace))) {
+      throw new RateLimitedError("token revoke rate limit exceeded");
+    }
+    const revoked = await revokeTokenForMintingUser(c.env.DB, user.id, id);
+    if (!revoked) {
+      throw new NotFoundError("no matching token", { code: "token_not_found" });
+    }
+    return c.json({
+      id: revoked.id,
+      workspace: revoked.workspace,
+      revoked: true,
+    });
   });

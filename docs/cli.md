@@ -51,6 +51,10 @@ access. Routine agents never receive `ADMIN_TOKEN` and don't need it. See
 For local development, `pnpm workspace:add` prints a bearer token once. Save it
 with `uploads setup --token <token>`, or into `.env` or user config.
 
+You can also mint a workspace token from `/account/developers` (no device
+login). Those tokens start with `up_<workspace>_` and last 90 days by default,
+or 1 year. The CLI reads the workspace from the token.
+
 Two things go stale independently: the npm package that provides the `uploads`
 binary, and the agent skills plus the MCP registration that `uploads install`
 writes. `uploads update` covers both. It upgrades the global package, then

@@ -58,7 +58,7 @@ function stubEnv(opts: EnvOpts = {}): Env {
     githubLogin,
   } = opts;
 
-  const auth = stubAuth((req) => {
+  const auth = stubAuth(async (req) => {
     const url = new URL(req.url);
     if (url.pathname === "/api/auth/get-session") {
       return new Response(JSON.stringify(user ? { session: {}, user } : null), { status: 200 });
@@ -464,5 +464,145 @@ describe("POST /v1/tokens workspace-governance scopes (#262)", () => {
     expect(bothPass.status).toBe(201);
     const body = (await bothPass.json()) as { scopes: string[] };
     expect(body.scopes).toEqual(["operator:read", "workspace:invite"]);
+  });
+});
+
+const OWN_TOKEN: {
+  id: string;
+  workspace: string;
+  token_hash: string;
+  label: string;
+  scopes: string;
+  created_at: string;
+  expires_at: string;
+  revoked_at: string | null;
+  minting_user_id: string;
+} = {
+  id: "tok-1",
+  workspace: "acme",
+  token_hash: "abc123",
+  label: "ci",
+  scopes: JSON.stringify(["files:read", "files:write"]),
+  created_at: "2026-08-01T00:00:00.000Z",
+  expires_at: "2026-11-01T00:00:00.000Z",
+  revoked_at: null,
+  minting_user_id: USER.id,
+};
+
+function issuedDb(tokens: (typeof OWN_TOKEN)[]) {
+  const rows = tokens.map((t) => ({ ...t }));
+  const db = {
+    prepare(sql: string) {
+      const normalized = sql.replace(/\s+/g, " ");
+      return {
+        bind(...values: unknown[]) {
+          return {
+            all: async () => {
+              const [userId, now] = values as [string, string];
+              return {
+                results: rows.filter(
+                  (row) =>
+                    row.minting_user_id === userId &&
+                    row.revoked_at === null &&
+                    (row.expires_at === null || row.expires_at > now),
+                ),
+              };
+            },
+            first: async () => {
+              const [id, userId] = values as [string, string];
+              return (
+                rows.find(
+                  (row) =>
+                    row.id === id && row.minting_user_id === userId && row.revoked_at === null,
+                ) ?? null
+              );
+            },
+            run: async () => {
+              if (!normalized.includes("UPDATE auth_tokens")) {
+                return { meta: { changes: 0 }, success: true };
+              }
+              const [, id, userId] = values as [string, string, string];
+              const row = rows.find(
+                (r) => r.id === id && r.minting_user_id === userId && r.revoked_at === null,
+              );
+              if (row) row.revoked_at = new Date().toISOString();
+              return { meta: { changes: row ? 1 : 0 }, success: true };
+            },
+          };
+        },
+      };
+    },
+  } as unknown as D1Database;
+  return { rows, db };
+}
+
+describe("GET /v1/tokens/issued", () => {
+  it("401s without a session", async () => {
+    const res = await app().request(
+      "/v1/tokens/issued",
+      { headers: { authorization: "Bearer x" } },
+      stubEnv({ user: null }),
+    );
+    expect(res.status).toBe(401);
+  });
+
+  it("lists only tokens this user minted", async () => {
+    const { db } = issuedDb([OWN_TOKEN]);
+    const res = await app().request(
+      "/v1/tokens/issued",
+      { headers: { authorization: "Bearer s" } },
+      stubEnv({ db }),
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      tokens: [
+        {
+          id: "tok-1",
+          workspace: "acme",
+          label: "ci",
+          scopes: ["files:read", "files:write"],
+          createdAt: OWN_TOKEN.created_at,
+          expiresAt: OWN_TOKEN.expires_at,
+        },
+      ],
+    });
+  });
+});
+
+describe("DELETE /v1/tokens/:id", () => {
+  it("404s for a token this user did not mint", async () => {
+    const { db } = issuedDb([{ ...OWN_TOKEN, minting_user_id: "other" }]);
+    const res = await app().request(
+      "/v1/tokens/tok-1",
+      { method: "DELETE", headers: { authorization: "Bearer s" } },
+      stubEnv({ db }),
+    );
+    expect(res.status).toBe(404);
+    expect((await res.json()) as { error: { code: string } }).toMatchObject({
+      error: { code: "token_not_found" },
+    });
+  });
+
+  it("revokes an owned token", async () => {
+    const { db, rows } = issuedDb([OWN_TOKEN]);
+    const res = await app().request(
+      "/v1/tokens/tok-1",
+      { method: "DELETE", headers: { authorization: "Bearer s" } },
+      stubEnv({ db }),
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ id: "tok-1", workspace: "acme", revoked: true });
+    expect(rows[0].revoked_at).toBeTruthy();
+  });
+
+  it("429s before revoking when the write limiter is exhausted", async () => {
+    const { db, rows } = issuedDb([OWN_TOKEN]);
+    const res = await app().request(
+      "/v1/tokens/tok-1",
+      { method: "DELETE", headers: { authorization: "Bearer s" } },
+      stubEnv({ db, writeLimitOk: false }),
+    );
+    expect(res.status).toBe(429);
+    expect(rows[0].revoked_at).toBeNull();
   });
 });

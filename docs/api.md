@@ -1,6 +1,9 @@
 # API
 
-All `/v1` routes require the workspace's `Authorization: Bearer <token>`.
+All `/v1` routes require `Authorization: Bearer <token>`. That is a workspace
+token (`up_<workspace>_…`) from `uploads login` or `/account/developers`.
+The workspace is always in the URL path. The CLI infers it from the token.
+
 Unknown workspaces and bad tokens are indistinguishable (both 401).
 
 ## Errors

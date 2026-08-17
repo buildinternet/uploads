@@ -5,6 +5,13 @@ flags, it opens a browser for a device sign-in (GitHub or a magic link). On
 approval, the CLI mints a scoped, expiring workspace token and saves it locally.
 Nobody needs the API's `ADMIN_TOKEN` to sign in.
 
+## Workspace tokens (no device login)
+
+`/account/developers` mints the same `up_<workspace>_` token `uploads login`
+does. Pick a workspace, a label, and 90 days or 1 year. The secret is shown
+once. The CLI reads the workspace from the token. Curl still puts the
+workspace in the path (`/v1/:workspace/…`).
+
 ## Everyday login (device flow)
 
 Install once for repeated use:

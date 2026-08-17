@@ -178,7 +178,7 @@ ${section(style, "Config")} ${style.muted("(first match wins, per key):")}
 ${section(style, "Workspace")} ${style.muted("(within config layers):")}
   --workspace, -w     override — global (before command) or per-command (after)
   UPLOADS_WORKSPACE   env / config file
-  (else inferred from token up_<name>_…, else "default")
+  (else inferred from token up_<name>_…, or the API key's only workspace)
 
 ${section(style, "Other globals")} ${style.muted("(before command):")}
   --api-url <url>     default: https://api.uploads.sh
