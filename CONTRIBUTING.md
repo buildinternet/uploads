@@ -198,7 +198,9 @@ For a branch environment, run `npx wrangler preview` from the app's directory
 `previews` block that re-points stateful bindings at preview-tier resources —
 previews never touch production KV/D1/R2. Preview secrets start unset and
 every secret-gated path fails closed. Cron triggers, queue consumers, and
-service-binding _targets_ stay production-only.
+service-binding _targets_ stay production-only. Preview URLs are gated by
+Cloudflare Access: sign in with a Cloudflare account that is a member of the
+Build Internet account and you pass straight through.
 
 Full setup is in [docs/deploy.md](docs/deploy.md); the operator runbook is
 [docs/ops.md](docs/ops.md).
