@@ -41,6 +41,7 @@ import {
   type CommandRunner,
 } from "../github-gh.js";
 import { deriveRepoSlugFromGit } from "../keys.js";
+import { noProjectContextNudge } from "../project-context-nudge.js";
 import { safeCaptureFacts } from "../capture-facts.js";
 import { parseMetaFlags, validateMetaMap } from "../metadata.js";
 import { mergeDerivedMeta } from "../metadata-vocab.js";
@@ -464,6 +465,11 @@ export async function runScreenshot(
     validateMetaMap(withFacts);
   }
 
+  // #692 follow-up: same advisory as put — a capture with no repo/app context
+  // and only a local origin lands in the screenshots page's fallback buckets.
+  const contextNudge =
+    !ctx.quiet && !putDefaults.noNudge && !noGit ? noProjectContextNudge(metadata) : undefined;
+
   const logHuman = !ctx.quiet && format === "human";
   if (logHuman) process.stderr.write(`>> capturing ${target}\n`);
 
@@ -653,6 +659,7 @@ export async function runScreenshot(
       }
     }
     if (bindingWarning) process.stderr.write(`${bindingWarning}\n`);
+    if (contextNudge) process.stderr.write(`${contextNudge}\n`);
     process.stderr.write("\n");
   }
 
@@ -669,7 +676,7 @@ export async function runScreenshot(
     result.replaced && explicitMeta.state
       ? `re-capture replaced the previous state=${explicitMeta.state} object at ${result.key} — expected for repeat captures of the same URL + state`
       : undefined;
-  const jsonHint = clipHint ?? bindingWarning ?? stagingNote ?? replacedHint;
+  const jsonHint = clipHint ?? bindingWarning ?? stagingNote ?? replacedHint ?? contextNudge;
 
   switch (format) {
     case "json":
