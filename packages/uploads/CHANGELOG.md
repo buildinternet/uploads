@@ -1,5 +1,12 @@
 # @buildinternet/uploads
 
+## 0.42.2
+
+### Patch Changes
+
+- 7a777f2: Drop the leftover `--comment` flag from help examples. Comment sync is already the default.
+- 4e0e355: Pre-PR screenshot hooks no-op silently when the `uploads` CLI is not on PATH.
+
 ## 0.42.1
 
 ### Patch Changes
