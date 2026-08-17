@@ -32,6 +32,37 @@ import {
 /** How many path groups a project section previews before "view project →". */
 const PREVIEW_PATHS_PER_PROJECT = 3;
 
+const EMPTY_CTA_CMD = "uploads screenshot https://app.example/settings";
+
+/**
+ * Gallery-style empty state (renderGalleriesEmptyHtml's markup, React-side):
+ * a title and ONE copyable command, nothing else competing for attention —
+ * the rail tip carries the how-grouping-works detail.
+ */
+function EmptyShotsCta({ title }: { title: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(EMPTY_CTA_CMD);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    } catch {
+      // clipboard blocked — leave the label
+    }
+  };
+  return (
+    <div className="ws-empty-state ws-empty-state--cta">
+      <p className="ws-empty-state__title">{title}</p>
+      <div className="command ws-empty__command">
+        <code>{EMPTY_CTA_CMD}</code>
+        <button type="button" aria-live="polite" onClick={() => void copy()}>
+          {copied ? "copied ✓" : "copy"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 interface ScreenshotsByPathProps {
   apiOrigin: string;
   workspace: string;
@@ -461,14 +492,7 @@ export function ScreenshotsByPath({ apiOrigin, workspace }: ScreenshotsByPathPro
         </button>
         <h2 className="wsp-drill__heading">{view.project}</h2>
         {isEmpty ? (
-          <div className="ws-empty-state">
-            <p className="ws-empty-state__title">No screenshots for this project</p>
-            <p className="ws-empty-state__body">
-              <code>uploads screenshot</code> records the page it captured automatically, and any
-              upload can pass <code>--meta path=/settings</code> to group here. See{" "}
-              <a href="/docs">the docs</a> for details.
-            </p>
-          </div>
+          <EmptyShotsCta title="No screenshots for this project" />
         ) : (
           <>
             {projectGroups.map((group) => (
@@ -494,14 +518,7 @@ export function ScreenshotsByPath({ apiOrigin, workspace }: ScreenshotsByPathPro
   return (
     <div className="wsp">
       {sectionLabels.length === 0 ? (
-        <div className="ws-empty-state">
-          <p className="ws-empty-state__title">No screenshots with a path yet</p>
-          <p className="ws-empty-state__body">
-            <code>uploads screenshot</code> records the page it captured automatically, and any
-            upload can pass <code>--meta path=/settings</code> to group here. See{" "}
-            <a href="/docs">the docs</a> for details.
-          </p>
-        </div>
+        <EmptyShotsCta title="No screenshots yet" />
       ) : (
         <>
           {sectionLabels.map((label) => {

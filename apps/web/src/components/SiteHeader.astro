@@ -40,11 +40,18 @@ const stars = await githubStarCount();
       <nav class="site-header__nav" aria-label="Site">
         {
           /*
-          Files is signed-in only. AuthIndicator toggles [data-header-files]
-          after the session check (optimistic paint from session cache).
+          Screenshots is signed-in only. AuthIndicator toggles
+          [data-header-files] after the session check (optimistic paint from
+          session cache). `?to=screenshots` makes the workspaces index's
+          auto-open land on the active workspace's screenshots tab.
         */
         }
-        <a class="site-header__link" data-header-files href="/account/workspaces" hidden>Files</a>
+        <a
+          class="site-header__link"
+          data-header-files
+          href="/account/workspaces?to=screenshots"
+          hidden>Screenshots</a
+        >
         <a class="site-header__link" href="/docs">Docs</a>
       </nav>
       <a class="star-cta" href={REPO} aria-label="Star buildinternet/uploads on GitHub">
