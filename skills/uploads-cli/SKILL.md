@@ -259,10 +259,13 @@ uploads doctor                                 # version + health + auth + works
 uploads doctor --json
 ```
 
-Tokens encode their workspace (`up_<workspace>_…`), so the CLI infers `--workspace`
-when you don't set it. Legacy administrator-minted tokens remain valid. See "Config
-commands" for setting put defaults
-(default repo, prefix, image width) once instead of per-command.
+Workspace tokens encode their workspace (`up_<workspace>_…`), so the CLI infers
+`--workspace` when you don't set it. User API keys from `/account/developers`
+(`upl_sk_…` on uploads.sh) do not encode a workspace. The CLI looks up your
+memberships and uses the only one; with several workspaces, pass `--workspace`
+or set `UPLOADS_WORKSPACE`. Legacy administrator-minted tokens remain valid.
+See "Config commands" for setting put defaults (default repo, prefix, image
+width) once instead of per-command.
 
 ## Core workflow: `uploads put`
 

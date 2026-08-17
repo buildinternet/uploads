@@ -1,6 +1,7 @@
 ---
 import { env } from "cloudflare:workers";
 import AccountLayout from "../../layouts/AccountLayout.astro";
+import { renderDetailListPlaceholderHtml } from "../../lib/workspace-ui";
 import { resolveShowConsoleLinks } from "../../lib/signed-in-page";
 
 export const prerender = false;
@@ -60,6 +61,59 @@ const showConsoleLinks = await resolveShowConsoleLinks(env);
     </div>
   </section>
 
+  <section class="card settings-page" id="api-keys">
+    <div class="settings-section">
+      <h2>API keys</h2>
+      <p class="settings-note muted">
+        For curl, CI, and scripts. The CLI uses your only workspace automatically; if you have
+        several, pass <code>--workspace</code>.
+      </p>
+
+      <form class="ws-form" id="api-key-form">
+        <div class="input-group">
+          <label class="input-group__field">
+            <span class="sr-only">Key name</span>
+            <input
+              name="name"
+              required
+              maxlength="32"
+              minlength="1"
+              placeholder="ci, local, agent…"
+              autocomplete="off"
+              spellcheck="false"
+            />
+          </label>
+          <button type="submit" class="input-group__action" id="api-key-create">Create</button>
+        </div>
+      </form>
+
+      <div class="ul-callout" id="api-key-created" role="status" hidden>
+        <p><strong>Copy this key now.</strong> It will not be shown again.</p>
+        <div class="command">
+          <code id="api-key-secret"></code>
+          <button type="button" id="api-key-secret-copy" data-copy="" aria-live="polite"
+            >copy</button
+          >
+        </div>
+        <div class="command">
+          <code id="api-key-exports"></code>
+          <button type="button" id="api-key-exports-copy" data-copy="" aria-live="polite"
+            >copy</button
+          >
+        </div>
+      </div>
+      <p class="muted cli-note" id="api-key-error" role="alert" hidden></p>
+
+      <div id="api-key-status" class="muted detail-status" hidden></div>
+      <ul
+        class="detail-list"
+        id="api-key-list"
+        aria-busy="true"
+        set:html={renderDetailListPlaceholderHtml()}
+      />
+    </div>
+  </section>
+
   <section class="card settings-page dev-page">
     <div class="settings-section">
       <h2>Developers</h2>
@@ -103,6 +157,15 @@ const showConsoleLinks = await resolveShowConsoleLinks(env);
       align-items: center;
       gap: 8px;
       margin: 0;
+    }
+    #api-key-created {
+      margin: 12px 0 0;
+    }
+    #api-key-created .command {
+      margin: 8px 0 0;
+    }
+    #api-key-exports {
+      white-space: pre-wrap;
     }
   </style>
 
@@ -219,6 +282,162 @@ const showConsoleLinks = await resolveShowConsoleLinks(env);
         void listSessions(authOrigin).then((sessions) => {
           applyCliSetup(sessions, user.cliOnboardedAt, true);
         });
+      });
+    });
+  </script>
+
+  <script>
+    import { onAstroPageLoad, onSession, requireElement } from "../../lib/account-shell";
+    import {
+      createApiKey,
+      deleteApiKey,
+      listApiKeys,
+      listOrganizations,
+      type DeveloperApiKey,
+    } from "../../lib/auth-client";
+    import { escapeHtml } from "../../lib/workspace-ui";
+
+    function formatApiKeyWhen(value: string | Date | null | undefined): string {
+      if (!value) return "";
+      const date = value instanceof Date ? value : new Date(value);
+      if (!Number.isFinite(date.getTime())) return "";
+      return date.toISOString().slice(0, 10);
+    }
+
+    onAstroPageLoad(() => {
+      if (!document.getElementById("api-keys")) return;
+
+      const authOrigin = (window as unknown as { __UPLOADS_AUTH_ORIGIN__: string })
+        .__UPLOADS_AUTH_ORIGIN__;
+
+      let workspaces: string[] = [];
+
+      function renderKeys(keys: DeveloperApiKey[] | null): void {
+        const list = requireElement<HTMLUListElement>("#api-key-list", "developers");
+        const status = requireElement<HTMLElement>("#api-key-status", "developers");
+        list.setAttribute("aria-busy", keys === null ? "true" : "false");
+        if (keys === null) {
+          status.hidden = false;
+          status.textContent = "Couldn’t load API keys.";
+          list.replaceChildren();
+          return;
+        }
+        status.hidden = true;
+        if (keys.length === 0) {
+          list.innerHTML = `<li><div class="detail-main"><div class="detail-title">No keys yet</div><div class="detail-meta">Create one above to start.</div></div></li>`;
+          return;
+        }
+        list.innerHTML = keys
+          .map((key) => {
+            const title = escapeHtml(key.name || "Untitled");
+            const start = key.start ? escapeHtml(key.start) : "key";
+            const created = formatApiKeyWhen(key.createdAt);
+            const used = formatApiKeyWhen(key.lastRequest);
+            const meta = [
+              start,
+              created ? `created ${created}` : "",
+              used ? `last used ${used}` : "never used",
+            ]
+              .filter(Boolean)
+              .join(" · ");
+            return `<li data-key-id="${escapeHtml(key.id)}"><div class="detail-main"><div class="detail-title">${title}</div><div class="detail-meta">${meta}</div></div><button type="button" class="text-btn" data-revoke="${escapeHtml(key.id)}">Revoke</button></li>`;
+          })
+          .join("");
+      }
+
+      function exportSnippet(token: string): string {
+        const workspace = workspaces.length === 1 ? workspaces[0] : "<workspace>";
+        return `export UPLOADS_TOKEN=${token}\nexport UPLOADS_WORKSPACE=${workspace}`;
+      }
+
+      async function refreshKeys(): Promise<void> {
+        renderKeys(await listApiKeys(authOrigin));
+      }
+
+      requireElement<HTMLFormElement>("#api-key-form", "developers").addEventListener(
+        "submit",
+        (event) => {
+          event.preventDefault();
+          const form = event.currentTarget as HTMLFormElement;
+          const input = form.elements.namedItem("name");
+          const name = input instanceof HTMLInputElement ? input.value.trim() : "";
+          if (!name) return;
+          const button = requireElement<HTMLButtonElement>("#api-key-create", "developers");
+          const error = requireElement<HTMLElement>("#api-key-error", "developers");
+          const created = requireElement<HTMLElement>("#api-key-created", "developers");
+          button.disabled = true;
+          error.hidden = true;
+          void createApiKey(authOrigin, name).then((result) => {
+            button.disabled = false;
+            if (!result.ok) {
+              error.hidden = false;
+              error.textContent = result.message;
+              return;
+            }
+            if (input instanceof HTMLInputElement) input.value = "";
+            const secret = requireElement<HTMLElement>("#api-key-secret", "developers");
+            const secretCopy = requireElement<HTMLButtonElement>(
+              "#api-key-secret-copy",
+              "developers",
+            );
+            const exportsEl = requireElement<HTMLElement>("#api-key-exports", "developers");
+            const exportsCopy = requireElement<HTMLButtonElement>(
+              "#api-key-exports-copy",
+              "developers",
+            );
+            secret.textContent = result.key;
+            secretCopy.dataset.copy = result.key;
+            const snippet = exportSnippet(result.key);
+            exportsEl.textContent = snippet;
+            exportsCopy.dataset.copy = snippet;
+            created.hidden = false;
+            void refreshKeys();
+          });
+        },
+      );
+
+      requireElement<HTMLElement>("#api-keys", "developers").addEventListener("click", (event) => {
+        void (async () => {
+          const target = event.target as HTMLElement;
+          const copy = target.closest<HTMLButtonElement>("button[data-copy]");
+          if (copy) {
+            const text = copy.dataset.copy ?? "";
+            if (!text) return;
+            try {
+              await navigator.clipboard.writeText(text);
+              const previous = copy.textContent;
+              copy.textContent = "copied ✓";
+              setTimeout(() => {
+                copy.textContent = previous;
+              }, 1500);
+            } catch {
+              // Clipboard blocked — leave the label.
+            }
+            return;
+          }
+          const revoke = target.closest<HTMLButtonElement>("[data-revoke]");
+          if (!revoke) return;
+          const id = revoke.dataset.revoke;
+          if (!id) return;
+          revoke.disabled = true;
+          const ok = await deleteApiKey(authOrigin, id);
+          if (!ok) {
+            const error = requireElement<HTMLElement>("#api-key-error", "developers");
+            error.hidden = false;
+            error.textContent = "Could not revoke that key.";
+            revoke.disabled = false;
+            return;
+          }
+          requireElement<HTMLElement>("#api-key-created", "developers").hidden = true;
+          await refreshKeys();
+        })();
+      });
+
+      onSession(() => {
+        void listOrganizations(authOrigin).then((orgs) => {
+          workspaces = (orgs ?? []).map((org) => org.slug).filter(Boolean);
+        });
+        void refreshKeys();
       });
     });
   </script>

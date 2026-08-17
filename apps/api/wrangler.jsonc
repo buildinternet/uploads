@@ -13,6 +13,9 @@
     // apps/auth's ENVIRONMENT convention: set to "production" here; unset in
     // local dev so miniflare keeps reflecting loopback origins.
     "ENVIRONMENT": "production",
+    // Must match apps/auth's AUTH_API_KEY_PREFIX so workspaceAuth recognizes
+    // Better Auth API keys. Self-hosted installs change both together.
+    "AUTH_API_KEY_PREFIX": "upl_sk_",
     // GitHub App identity for server-side PR/issue title resolution (#267).
     // Both ids are public (visible in GitHub URLs); the private key is the
     // only true secret (GITHUB_APP_PRIVATE_KEY, via wrangler secret).
@@ -264,6 +267,7 @@
       // Not "production": previews keep dev-only CORS origin reflection for
       // loopback origins, which only ever reflects localhost/127.0.0.1.
       "ENVIRONMENT": "preview",
+      "AUTH_API_KEY_PREFIX": "upl_sk_",
       "GITHUB_APP_ID": "4346270",
       "GITHUB_APP_HOME_INSTALLATION_ID": "147814297",
       "CLOUDFLARE_ACCOUNT_ID": "b082600d280d44fd5da3501bc1bffe2f",

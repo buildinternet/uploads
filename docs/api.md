@@ -1,6 +1,14 @@
 # API
 
-All `/v1` routes require the workspace's `Authorization: Bearer <token>`.
+All `/v1` routes require `Authorization: Bearer <token>`. That is either a
+workspace token (`up_<workspace>_…`) or a user API key from
+`/account/developers` (`upl_sk_…` on uploads.sh). The workspace is always in
+the URL path. The CLI infers it from a workspace token, or from an API key
+when the account has exactly one workspace.
+
+Self-hosted installs set `AUTH_API_KEY_PREFIX` on the auth, API, and MCP
+workers so generated keys use a different prefix.
+
 Unknown workspaces and bad tokens are indistinguishable (both 401).
 
 ## Errors

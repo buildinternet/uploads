@@ -58,10 +58,17 @@ function stubEnv(opts: EnvOpts = {}): Env {
     githubLogin,
   } = opts;
 
-  const auth = stubAuth((req) => {
+  const auth = stubAuth(async (req) => {
     const url = new URL(req.url);
     if (url.pathname === "/api/auth/get-session") {
       return new Response(JSON.stringify(user ? { session: {}, user } : null), { status: 200 });
+    }
+    if (url.pathname === "/internal/api-keys/verify") {
+      const body = (await req.json().catch(() => ({}))) as { key?: string };
+      if (typeof body.key === "string" && body.key.startsWith("upl_sk_")) {
+        return Response.json({ valid: true, userId: USER.id, permissions: { files: ["read"] } });
+      }
+      return Response.json({ valid: false });
     }
     if (url.pathname === "/internal/memberships") {
       return new Response(JSON.stringify(memberships), { status: 200 });
@@ -228,6 +235,18 @@ describe("GET /v1/tokens (workspace listing)", () => {
       stubEnv({ user: null }),
     );
     expect(res.status).toBe(401);
+  });
+
+  it("lists workspaces for a user API key", async () => {
+    const res = await app().request(
+      "/v1/tokens",
+      { headers: { authorization: "Bearer upl_sk_dev" } },
+      stubEnv({ user: null }),
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      workspaces: [{ workspace: "acme", role: "member" }],
+    });
   });
 
   // Issue #506: a name to prefill, offered only to an account with nothing to

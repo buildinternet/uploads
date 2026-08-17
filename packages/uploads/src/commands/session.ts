@@ -102,6 +102,12 @@ function formatWhoami(report: WhoamiReport): string {
   ];
   if (report.workspaceFromToken && report.workspaceFromToken !== report.workspace) {
     lines.push(`token ws:   ${report.workspaceFromToken} (encoded in token)`);
+  } else if (
+    report.signedIn &&
+    !report.workspaceFromToken &&
+    report.workspaceSource === "default"
+  ) {
+    lines.push("token ws:   (none encoded — commands look up your workspace, or pass --workspace)");
   }
   if (report.signedIn) {
     lines.push(`token:      ${report.token} (${report.tokenSource})`);

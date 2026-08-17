@@ -1,6 +1,8 @@
 import { ForbiddenError, InsufficientScopeError, UnauthorizedError } from "@uploads/errors";
 import type { MiddlewareHandler } from "hono";
 import type { R2Jurisdiction, StorageProvider } from "@uploads/storage";
+import { authenticateApiKey } from "./api-key-auth";
+import { isApiKeyToken, resolveApiKeyPrefix } from "./api-key-prefix";
 import {
   FILE_SCOPES,
   findActiveToken,
@@ -227,7 +229,7 @@ export type WorkspaceVars = {
     workspaceName: string;
     authScopes: FileScope[];
     /** "session" is set only by `dualWorkspaceAuth` (see dual-workspace-auth.ts). */
-    authSource: "d1" | "legacy" | "session";
+    authSource: "d1" | "legacy" | "session" | "api-key";
     /** Better Auth user behind the bearer token (issue #340), or null. */
     mintingUserId: string | null;
   };
@@ -369,6 +371,22 @@ function workspaceAuthWith(
 ): MiddlewareHandler<WorkspaceVars> {
   return async (c, next) => {
     const token = bearerToken(c.req.header("Authorization"));
+    const apiKeyPrefix = resolveApiKeyPrefix(c.env.AUTH_API_KEY_PREFIX);
+    if (isApiKeyToken(token, apiKeyPrefix)) {
+      const name = nameOf(c, token);
+      const record = await loadWorkspaceRecord(c.env, name);
+      if (!record || !name) throw new UnauthorizedError();
+      const verified = await authenticateApiKey(c.env, token, name);
+      if (!verified) throw new UnauthorizedError();
+      c.set("workspace", record);
+      c.set("workspaceName", name);
+      c.set("authScopes", verified.scopes);
+      c.set("authSource", "api-key");
+      c.set("mintingUserId", verified.userId);
+      await next();
+      return;
+    }
+
     const name = nameOf(c, token);
 
     const record = await loadWorkspaceRecord(c.env, name);

@@ -1,5 +1,6 @@
 import { createUploadsClient } from "./client.js";
 import { DEFAULT_API_URL, resolveApiUrl, resolveConfig } from "./config.js";
+import { inferWorkspaceFromCredential } from "./infer-workspace.js";
 import { UploadsError } from "./errors.js";
 import {
   commandWorkspace,
@@ -90,19 +91,21 @@ async function writeRootHelp(
   );
 }
 
-function createContext(
+async function createContext(
   globals: ReturnType<typeof parseArgv>["globals"],
   requireToken: boolean,
   commandArgs: string[],
-): CliContext {
+): Promise<CliContext> {
   const cmdWorkspace = commandWorkspace(parseCommandArgs(commandArgs).flags);
-  const config = resolveConfig({
-    apiUrl: globals.apiUrl,
-    workspace: cmdWorkspace ?? globals.workspace,
-    token: globals.token,
-    envFile: globals.envFile,
-    requireToken,
-  });
+  const config = await inferWorkspaceFromCredential(
+    resolveConfig({
+      apiUrl: globals.apiUrl,
+      workspace: cmdWorkspace ?? globals.workspace,
+      token: globals.token,
+      envFile: globals.envFile,
+      requireToken,
+    }),
+  );
   return {
     config,
     client: createUploadsClient(config),
@@ -385,7 +388,7 @@ export async function runCli(argv: string[]): Promise<number> {
       case "comment":
       case "github":
       case "ingest": {
-        const ctx = createContext(parsed.globals, !showHelp, cmdArgs);
+        const ctx = await createContext(parsed.globals, !showHelp, cmdArgs);
         switch (parsed.command) {
           case "attach":
             code = await runAttach(ctx, cmdArgs, showHelp);

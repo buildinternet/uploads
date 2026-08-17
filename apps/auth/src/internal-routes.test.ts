@@ -41,6 +41,24 @@ describe("GET /internal/memberships", () => {
   });
 });
 
+describe("POST /internal/api-keys/verify", () => {
+  it("400s when key is missing without creating an auth instance", async () => {
+    const res = await app().request(
+      "/internal/api-keys/verify",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({}),
+      },
+      env(),
+    );
+    expect(res.status).toBe(400);
+    expect((await res.json()) as { error: { code: string } }).toMatchObject({
+      error: { code: "invalid_key" },
+    });
+  });
+});
+
 describe("POST /internal/orgs", () => {
   it("400s when slug is missing", async () => {
     const res = await app().request(

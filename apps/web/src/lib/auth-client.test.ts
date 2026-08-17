@@ -5,6 +5,7 @@ import {
   getOAuthPublicClient,
   getSession,
   isBannedAuthError,
+  parseApiKeyList,
   linkGitHub,
   listAccounts,
   listAdminUsers,
@@ -90,6 +91,40 @@ describe("getSession", () => {
       kind: "unavailable",
       reason: "network",
     });
+  });
+});
+
+describe("parseApiKeyList", () => {
+  const row = {
+    id: "k1",
+    name: "ci",
+    start: "upl_sk_abcd",
+    prefix: "upl_sk_",
+    enabled: true,
+    createdAt: "2026-08-17T00:00:00.000Z",
+    expiresAt: null,
+    lastRequest: null,
+  };
+
+  it("accepts the plugin's { apiKeys } envelope and a bare array", () => {
+    expect(parseApiKeyList({ apiKeys: [row], total: 1 })).toEqual([
+      {
+        id: "k1",
+        name: "ci",
+        start: "upl_sk_abcd",
+        prefix: "upl_sk_",
+        enabled: true,
+        createdAt: "2026-08-17T00:00:00.000Z",
+        expiresAt: null,
+        lastRequest: null,
+      },
+    ]);
+    expect(parseApiKeyList([row])?.[0]?.id).toBe("k1");
+  });
+
+  it("returns null for a malformed payload", () => {
+    expect(parseApiKeyList({ apiKeys: [{ name: "no-id" }] })).toBeNull();
+    expect(parseApiKeyList(null)).toBeNull();
   });
 });
 

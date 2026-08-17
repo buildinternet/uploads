@@ -91,6 +91,18 @@ describe("buildWhoamiReport / runWhoami", () => {
     expect(io.out()).toMatch(/uploads login/);
   });
 
+  it("hints that an API key needs UPLOADS_WORKSPACE when workspace would default", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "uploads-whoami-"));
+    const path = join(dir, "config");
+    writeConfigKeys(path, { UPLOADS_TOKEN: "upl_sk_notaworkspacetoken" });
+    const report = buildWhoamiReport({ envFile: path });
+    expect(report.workspaceFromToken).toBeUndefined();
+    expect(report.workspaceSource).toBe("default");
+    const io = capture();
+    await expect(runWhoami([], { envFile: path })).resolves.toBe(0);
+    expect(io.out()).toMatch(/none encoded/);
+  });
+
   it("exits 0 and prints whoami when signed in", async () => {
     const dir = mkdtempSync(join(tmpdir(), "uploads-whoami-"));
     const path = join(dir, "config");

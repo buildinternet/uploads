@@ -5,6 +5,7 @@
  * after a redeploy, or a different D1 binding under `wrangler dev -c`) never
  * serves a stale instance.
  */
+import { apiKey } from "@better-auth/api-key";
 import { dash } from "@better-auth/infra";
 import { oauthProvider } from "@better-auth/oauth-provider";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
@@ -20,6 +21,7 @@ import {
   magicLink,
   organization,
 } from "better-auth/plugins";
+import { resolveApiKeyPrefix } from "./api-key-prefix";
 import { deviceWorkspacePlugin } from "./device-workspace";
 import { sendAuthEmail } from "./email";
 import { localDemoEnabled, localDemoPlugin } from "./local-demo";
@@ -206,8 +208,17 @@ async function getUserRoleState(
  *   or banning them via `data.banned`. Verified against better-auth 1.6.23's
  *   `plugins/admin/routes.mjs` (`setRole`, `adminUpdateUser`).
  */
-function lastAdminGuardHook(db: ReturnType<typeof drizzle<typeof schema>>) {
+function lastAdminGuardHook(db: ReturnType<typeof drizzle<typeof schema>>, apiKeyPrefix?: string) {
   return createAuthMiddleware(async (ctx) => {
+    if (ctx.path === "/api-key/create" && apiKeyPrefix) {
+      const body = ctx.body as { prefix?: unknown } | undefined;
+      if (body?.prefix !== undefined && body.prefix !== apiKeyPrefix) {
+        throw new APIError("BAD_REQUEST", {
+          message: "API key prefix is configured on the server",
+        });
+      }
+    }
+
     if (ctx.path === "/admin/remove-user" || ctx.path === "/admin/ban-user") {
       const userId = (ctx.body as { userId?: unknown } | undefined)?.userId;
       if (typeof userId !== "string" || !userId) return;
@@ -278,6 +289,11 @@ function lastAdminGuardHook(db: ReturnType<typeof drizzle<typeof schema>>) {
   });
 }
 
+/**
+ * Clients can pass `prefix` on `/api-key/create`. That would let someone mint
+ * a key that collides with `up_<workspace>_` tokens, so we only accept the
+ * server-configured prefix (or omit, which uses `defaultPrefix`).
+ */
 export type AuthEnv = GitHubCredentialsEnv &
   DashApiKeyEnv & {
     DB: D1Database;
@@ -298,6 +314,12 @@ export type AuthEnv = GitHubCredentialsEnv &
     STRIPE_SECRET_KEY?: string;
     STRIPE_WEBHOOK_SECRET?: string;
     STRIPE_PRO_PRICE_ID?: string;
+    /**
+     * Prefix stamped on Better Auth API keys (`upl_sk_` hosted default).
+     * Self-hosted installs override this so their keys don't look like
+     * uploads.sh keys. Must not collide with `up_<workspace>_` tokens.
+     */
+    AUTH_API_KEY_PREFIX?: string;
   };
 
 export type BetterAuthInstance = ReturnType<typeof buildAuth>;
@@ -395,6 +417,7 @@ function buildAuth(
   const webOrigin = env.WEB_ORIGIN || "https://uploads.sh";
   const cookieDomain = deriveCookieDomain(betterAuthUrl);
   const isProduction = env.ENVIRONMENT === "production";
+  const apiKeyPrefix = resolveApiKeyPrefix(env.AUTH_API_KEY_PREFIX);
 
   return betterAuth({
     appName: "uploads.sh",
@@ -663,6 +686,20 @@ function buildAuth(
       // an exact, development-only loopback configuration. It still creates a
       // standard Better Auth cookie and leaves membership checks to apps/api.
       ...(localDemoEnabled(env) ? [localDemoPlugin(env)] : []),
+      // User-owned developer API keys (`upl_sk_…` hosted; AUTH_API_KEY_PREFIX
+      // for self-hosted). Plugin rate-limit defaults to 10/day — unusable for
+      // file I/O — so it stays off; the API's WRITE_LIMITER still applies.
+      apiKey({
+        defaultPrefix: apiKeyPrefix,
+        requireName: true,
+        enableMetadata: true,
+        rateLimit: { enabled: false },
+        keyExpiration: { defaultExpiresIn: null },
+        startingCharactersConfig: { shouldStore: true, charactersLength: 12 },
+        permissions: {
+          defaultPermissions: { files: ["read", "write"] },
+        },
+      }),
     ],
     // Sticky "completed uploads login once" for account overview UX.
     user: {
@@ -698,7 +735,7 @@ function buildAuth(
     // Fail-closed last-admin guard for the admin() plugin's remove-user/
     // ban-user endpoints — see lastAdminGuardHook above.
     hooks: {
-      before: lastAdminGuardHook(db),
+      before: lastAdminGuardHook(db, apiKeyPrefix),
     },
     // Fail-closed in production, decoupled from secret resolution (D3/D7):
     // rate limiting is on whenever ENVIRONMENT === "production", regardless
@@ -748,6 +785,7 @@ function cacheKey(
     stripeSecretKey: env.STRIPE_SECRET_KEY,
     stripeWebhookSecret: env.STRIPE_WEBHOOK_SECRET,
     stripeProPriceId: env.STRIPE_PRO_PRICE_ID,
+    apiKeyPrefix: env.AUTH_API_KEY_PREFIX,
     signingSecret,
     githubClientId: github?.clientId ?? null,
     githubClientSecret: github?.clientSecret ?? null,

@@ -13,8 +13,15 @@
  * user-generated API tokens): the request carries a `grants` array, but v1
  * accepts exactly one grant and rejects >1 with a clear "not yet supported".
  */
-import { ForbiddenError, RateLimitedError, ValidationError } from "@uploads/errors";
-import { Hono } from "hono";
+import {
+  ForbiddenError,
+  RateLimitedError,
+  UnauthorizedError,
+  ValidationError,
+} from "@uploads/errors";
+import { Hono, type MiddlewareHandler } from "hono";
+import { verifyApiKey } from "../api-key-auth";
+import { isApiKeyToken, resolveApiKeyPrefix } from "../api-key-prefix";
 import {
   createToken,
   validateScopes,
@@ -32,6 +39,25 @@ import {
 } from "../session-auth";
 import { loadWorkspaceRecord, WS_NAME_RE } from "../workspace";
 import { suggestWorkspaceName } from "../workspace-suggestion";
+
+/**
+ * GET /v1/tokens lists workspaces for a session *or* a user API key, so the
+ * CLI can pick the only workspace an API key can see. POST stays session-only
+ * — minting still requires a live login.
+ */
+const sessionOrApiKey: MiddlewareHandler<SessionVars> = async (c, next) => {
+  const header = c.req.header("Authorization");
+  const token = header?.startsWith("Bearer ") ? header.slice(7) : "";
+  const prefix = resolveApiKeyPrefix(c.env.AUTH_API_KEY_PREFIX);
+  if (isApiKeyToken(token, prefix)) {
+    const verified = await verifyApiKey(c.env, token);
+    if (!verified) throw new UnauthorizedError();
+    c.set("sessionUser", { id: verified.userId, email: "", name: "" });
+    await next();
+    return;
+  }
+  return sessionAuth(c, next);
+};
 
 const MAX_BODY_BYTES = 4096;
 const MAX_LABEL_LEN = 200;
@@ -128,7 +154,7 @@ export const tokens = new Hono<SessionVars>()
   // this to auto-select when the account has exactly one, or to prompt/require
   // --workspace when it has several. Derived from org memberships (D4: org
   // slug === workspace name), filtered to workspaces that still exist in KV.
-  .get("/", sessionAuth, requireSessionUser, async (c) => {
+  .get("/", sessionOrApiKey, requireSessionUser, async (c) => {
     const user = c.get("sessionUser")!;
     const memberships = await membershipsForUser(c.env, user.id);
     const workspaces = (

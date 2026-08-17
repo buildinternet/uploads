@@ -18,6 +18,11 @@
     // email template both derive from this.
     "WEB_ORIGIN": "https://uploads.sh",
     "ENVIRONMENT": "production",
+    // Prefix stamped on Better Auth API keys. Hosted brand; self-hosted
+    // installs should change this (and the same var on apps/api + apps/mcp)
+    // so their keys don't look like uploads.sh keys. Must not match
+    // `up_<workspace>_` (workspace tokens).
+    "AUTH_API_KEY_PREFIX": "upl_sk_",
     // Makes Stripe Checkout require a Terms of Service checkbox before it
     // takes payment. Safe only because the Stripe Dashboard's Terms of
     // service URL is set (confirmed 2026-07-24) — Stripe rejects the whole
@@ -150,6 +155,7 @@
       "WEB_ORIGIN": "https://uploads.sh",
       "ENVIRONMENT": "preview",
       "STRIPE_CHECKOUT_TOS_CONSENT": "true",
+      "AUTH_API_KEY_PREFIX": "upl_sk_",
     },
     "d1_databases": [
       {

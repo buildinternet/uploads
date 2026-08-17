@@ -503,6 +503,47 @@ export const githubIdentity = sqliteTable("github_identity", {
 });
 
 /**
+ * Better Auth `@better-auth/api-key` table. Model name is fixed at
+ * `apikey` by the plugin. `referenceId` is the owning user id (`references:
+ * "user"` in src/auth.ts). The hashed secret lives in `key`; `start` is the
+ * leading characters shown in the UI. Paired migration:
+ * `migrations/20260817120000_api_key.sql`.
+ */
+export const apikey = sqliteTable(
+  "apikey",
+  {
+    id: text("id").primaryKey(),
+    configId: text("config_id").notNull().default("default"),
+    name: text("name"),
+    start: text("start"),
+    prefix: text("prefix"),
+    key: text("key").notNull(),
+    referenceId: text("reference_id").notNull(),
+    refillInterval: integer("refill_interval"),
+    refillAmount: integer("refill_amount"),
+    lastRefillAt: integer("last_refill_at", { mode: "timestamp" }),
+    enabled: integer("enabled", { mode: "boolean" }).default(true),
+    rateLimitEnabled: integer("rate_limit_enabled", { mode: "boolean" }).default(true),
+    rateLimitTimeWindow: integer("rate_limit_time_window"),
+    rateLimitMax: integer("rate_limit_max"),
+    requestCount: integer("request_count").default(0),
+    remaining: integer("remaining"),
+    lastRequest: integer("last_request", { mode: "timestamp" }),
+    expiresAt: integer("expires_at", { mode: "timestamp" }),
+    createdAt: timestampCol("created_at"),
+    updatedAt: timestampCol("updated_at"),
+    permissions: text("permissions"),
+    metadata: text("metadata"),
+  },
+  (t) => [
+    index("idx_apikey_config_id").on(t.configId),
+    index("idx_apikey_reference_id").on(t.referenceId),
+    index("idx_apikey_key").on(t.key),
+    index("idx_apikey_expires_at").on(t.expiresAt),
+  ],
+);
+
+/**
  * Drizzle relations for Better Auth `experimental.joins` (adapter needs these
  * on the same schema object as the tables). No SQL/migration impact.
  *
@@ -583,3 +624,4 @@ export type AuthOauthClient = typeof oauthClient.$inferSelect;
 export type AuthOauthWorkspaceChoice = typeof oauthWorkspaceChoice.$inferSelect;
 export type AuthSubscription = typeof subscription.$inferSelect;
 export type AuthBillingPlanOutbox = typeof billingPlanOutbox.$inferSelect;
+export type AuthApiKey = typeof apikey.$inferSelect;

@@ -52,7 +52,7 @@ describe("runAuthRetentionSweep", () => {
 
     const result = await runAuthRetentionSweep(env);
 
-    expect(result).toEqual({ verificationDeleted: 2, deviceCodeDeleted: 1 });
+    expect(result).toEqual({ verificationDeleted: 2, deviceCodeDeleted: 1, apiKeyDeleted: 0 });
 
     const dz = drizzle(db, { schema });
     const remainingVerification = await dz.select().from(schema.verification);
@@ -69,7 +69,47 @@ describe("runAuthRetentionSweep", () => {
 
     const result = await runAuthRetentionSweep(env);
 
-    expect(result).toEqual({ verificationDeleted: 0, deviceCodeDeleted: 0 });
+    expect(result).toEqual({ verificationDeleted: 0, deviceCodeDeleted: 0, apiKeyDeleted: 0 });
+  });
+
+  it("deletes expired API keys and keeps unexpired or non-expiring ones", async () => {
+    const past = new Date(Date.now() - 60_000);
+    const future = new Date(Date.now() + 60_000);
+    const dz = drizzle(db, { schema });
+    const now = new Date();
+    await dz.insert(schema.apikey).values([
+      {
+        id: "expired-key",
+        configId: "default",
+        key: "hash-expired",
+        referenceId: "user-1",
+        expiresAt: past,
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: "live-key",
+        configId: "default",
+        key: "hash-live",
+        referenceId: "user-1",
+        expiresAt: future,
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: "forever-key",
+        configId: "default",
+        key: "hash-forever",
+        referenceId: "user-1",
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+
+    const result = await runAuthRetentionSweep(env);
+    expect(result.apiKeyDeleted).toBe(1);
+    const remaining = await dz.select({ id: schema.apikey.id }).from(schema.apikey);
+    expect(remaining.map((r) => r.id).sort()).toEqual(["forever-key", "live-key"]);
   });
 
   it("batches beyond a single page of results", async () => {

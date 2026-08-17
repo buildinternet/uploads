@@ -12,6 +12,9 @@
     // .dev.vars (AUTH_ORIGIN=http://127.0.0.1:8788, matching apps/auth's
     // pinned dev port).
     "AUTH_ORIGIN": "https://auth.uploads.sh",
+    // Must match apps/auth's AUTH_API_KEY_PREFIX (workspaceAuth lives in
+    // @uploads/api and is reused here). Self-hosted installs change both.
+    "AUTH_API_KEY_PREFIX": "upl_sk_",
     // GitHub App identity for the hosted put/comment path (#392) — the same
     // App uploads-api uses; postManagedComment runs in-process on this
     // worker, so it needs its own copy of the config. GITHUB_APP_PRIVATE_KEY
@@ -115,6 +118,7 @@
     "vars": {
       "WEB_ORIGIN": "https://uploads.sh",
       "AUTH_ORIGIN": "https://auth.uploads.sh",
+      "AUTH_API_KEY_PREFIX": "upl_sk_",
       "GITHUB_APP_ID": "4346270",
       "GITHUB_APP_HOME_INSTALLATION_ID": "147814297",
     },

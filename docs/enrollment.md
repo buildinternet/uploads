@@ -5,6 +5,19 @@ flags, it opens a browser for a device sign-in (GitHub or a magic link). On
 approval, the CLI mints a scoped, expiring workspace token and saves it locally.
 Nobody needs the API's `ADMIN_TOKEN` to sign in.
 
+## API keys (no device login)
+
+`/account/developers` mints a Better Auth API key for curl, CI, and scripts.
+The secret is shown once (`upl_sk_…` on uploads.sh). It works on every
+workspace you belong to. The secret does not name a workspace: the CLI looks
+up your memberships and uses the only one, or asks you to pass `--workspace`
+when you have several. Curl always puts the workspace in the path
+(`/v1/:workspace/…`).
+
+Self-hosted installs set `AUTH_API_KEY_PREFIX` on the auth, API, and MCP
+workers so generated keys don't look like hosted uploads.sh keys. The prefix
+must not collide with workspace tokens (`up_<workspace>_…`).
+
 ## Everyday login (device flow)
 
 Install once for repeated use:

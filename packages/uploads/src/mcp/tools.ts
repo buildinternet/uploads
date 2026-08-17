@@ -23,6 +23,7 @@ import {
   uploadPuts,
 } from "../commands.js";
 import { resolveFrameId } from "../frame.js";
+import { inferWorkspaceFromCredential } from "../infer-workspace.js";
 import {
   resolveConfig,
   resolvePutDefaults,
@@ -197,17 +198,19 @@ export function createUploadsMcpTools(opts: {
   const run = opts.runner ?? execRunner;
   const clientFactory = opts.clientFactory ?? createUploadsClient;
 
-  function clientFor(
+  async function clientFor(
     args: ToolArgs,
     requireToken = true,
-  ): { config: ResolvedConfig; client: UploadsClient } {
-    const config = resolveConfig({
-      apiUrl: globals.apiUrl,
-      token: globals.token,
-      envFile: globals.envFile,
-      workspace: optString(args, "workspace") ?? globals.workspace,
-      requireToken,
-    });
+  ): Promise<{ config: ResolvedConfig; client: UploadsClient }> {
+    const config = await inferWorkspaceFromCredential(
+      resolveConfig({
+        apiUrl: globals.apiUrl,
+        token: globals.token,
+        envFile: globals.envFile,
+        workspace: optString(args, "workspace") ?? globals.workspace,
+        requireToken,
+      }),
+    );
     return { config, client: clientFactory(config) };
   }
 
@@ -244,7 +247,7 @@ export function createUploadsMcpTools(opts: {
       async handler(args) {
         const title = optString(args, "title");
         if (!title) usage("title is required");
-        const { client } = clientFor(args);
+        const { client } = await clientFor(args);
         return client.createGallery({ title, description: optString(args, "description") });
       },
     },
@@ -265,7 +268,7 @@ export function createUploadsMcpTools(opts: {
         additionalProperties: false,
       },
       async handler(args) {
-        const { client } = clientFor(args);
+        const { client } = await clientFor(args);
         return client.getGallery(galleryId(args));
       },
     },
@@ -291,7 +294,7 @@ export function createUploadsMcpTools(opts: {
       async handler(args) {
         const objectKey = optString(args, "objectKey");
         if (!objectKey) usage("objectKey is required");
-        const { client } = clientFor(args);
+        const { client } = await clientFor(args);
         const id = galleryId(args);
         const current = await client.getGallery(id);
         return client.addGalleryItem(id, objectKey, {
@@ -323,7 +326,7 @@ export function createUploadsMcpTools(opts: {
         additionalProperties: false,
       },
       async handler(args) {
-        const { client } = clientFor(args);
+        const { client } = await clientFor(args);
         const id = galleryId(args);
         const current = await client.getGallery(id);
         return client.linkGalleryExternalReference(id, {
@@ -355,7 +358,7 @@ export function createUploadsMcpTools(opts: {
         additionalProperties: false,
       },
       async handler(args) {
-        const { client } = clientFor(args);
+        const { client } = await clientFor(args);
         return client.findGalleriesByReference({
           ...galleryReference(args),
           limit: optPosInt(args, "limit"),
@@ -530,7 +533,7 @@ export function createUploadsMcpTools(opts: {
           usage(err instanceof Error ? err.message : String(err));
         }
 
-        const { config, client } = clientFor(args);
+        const { config, client } = await clientFor(args);
         const defaults = resolvePutDefaults({ envFile: globals.envFile });
         const frameOpts = mcpFrameOptions(args);
         const optimizeOpts = mcpOptimizeOptions(args, defaults);
@@ -856,7 +859,7 @@ export function createUploadsMcpTools(opts: {
         const metadata = metadataArgWithCanonical(args);
         if (metadata) validateMetaMap(metadata);
 
-        const { config, client } = clientFor(args);
+        const { config, client } = await clientFor(args);
         const defaults = resolvePutDefaults({ envFile: globals.envFile });
         const frameOpts = mcpFrameOptions(args);
         const optimizeOpts = mcpOptimizeOptions(args, defaults);
@@ -1115,7 +1118,7 @@ export function createUploadsMcpTools(opts: {
         const target =
           explicitTarget ??
           resolveCurrentPullRequest(resolveRepo(optString(args, "repo"), run), run);
-        const { config, client } = clientFor(args);
+        const { config, client } = await clientFor(args);
         const contentType = optString(args, "contentType");
         const defaults = resolvePutDefaults({ envFile: globals.envFile });
         const frameOpts = mcpFrameOptions(args);
@@ -1186,7 +1189,7 @@ export function createUploadsMcpTools(opts: {
         const prefixArg = optString(args, "prefix");
         let prefix = prefixArg ?? (defaults.prefix ? `${defaults.prefix}/` : undefined);
         const target = ghTargetFromArgs(args, run);
-        const { client } = clientFor(args);
+        const { client } = await clientFor(args);
         // Also list every active private prefix, if any (issue #631) —
         // mirrors syncAttachmentsComment's gh-fallback gather: a repo's
         // attachment history can be split across the plain shape and
@@ -1250,7 +1253,7 @@ export function createUploadsMcpTools(opts: {
         additionalProperties: false,
       },
       async handler(args) {
-        const { client } = clientFor(args);
+        const { client } = await clientFor(args);
         const repo = resolveRepo(optString(args, "repo"), run);
         const branch = optString(args, "branch") ?? resolveCurrentBranch(run);
         return resolveStaged({ client, repo, branch });
@@ -1279,7 +1282,7 @@ export function createUploadsMcpTools(opts: {
         const key = optString(args, "key");
         if (!key) usage("key is required");
         if (optBool(args, "dryRun")) return { key, deleted: false, dryRun: true };
-        const { client } = clientFor(args);
+        const { client } = await clientFor(args);
         return client.delete(key);
       },
     },
@@ -1302,7 +1305,7 @@ export function createUploadsMcpTools(opts: {
       async handler(args) {
         const key = optString(args, "key");
         if (!key) usage("key is required");
-        return clientFor(args).client.getMetadata(key);
+        return (await clientFor(args)).client.getMetadata(key);
       },
     },
     {
@@ -1338,7 +1341,7 @@ export function createUploadsMcpTools(opts: {
           usage("set_metadata requires set and/or delete");
         }
         if (set) validateMetaMap(set);
-        const { client } = clientFor(args);
+        const { client } = await clientFor(args);
         return client.patchMetadata(key, { set, delete: del });
       },
     },
@@ -1379,7 +1382,7 @@ export function createUploadsMcpTools(opts: {
           usage("find_files requires filters and/or name");
         }
         if (hasMeta) validateMetaMap(filters);
-        const { client } = clientFor(args);
+        const { client } = await clientFor(args);
         return client.findFiles(filters, {
           name,
           prefix: optString(args, "prefix"),
@@ -1407,7 +1410,7 @@ export function createUploadsMcpTools(opts: {
         additionalProperties: false,
       },
       async handler(args) {
-        const { client } = clientFor(args);
+        const { client } = await clientFor(args);
         const key = optString(args, "key");
         return key ? client.listMetadataValues(key) : client.listMetadataKeys();
       },
@@ -1425,7 +1428,7 @@ export function createUploadsMcpTools(opts: {
         additionalProperties: false,
       },
       async handler(args) {
-        const { client } = clientFor(args);
+        const { client } = await clientFor(args);
         return client.usage();
       },
     },
@@ -1442,7 +1445,7 @@ export function createUploadsMcpTools(opts: {
         additionalProperties: false,
       },
       async handler(args) {
-        const { client } = clientFor(args);
+        const { client } = await clientFor(args);
         return client.reconcile();
       },
     },
@@ -1459,7 +1462,7 @@ export function createUploadsMcpTools(opts: {
         additionalProperties: false,
       },
       async handler(args) {
-        const { client } = clientFor(args);
+        const { client } = await clientFor(args);
         return client.purgeExpired();
       },
     },
@@ -1481,7 +1484,7 @@ export function createUploadsMcpTools(opts: {
       async handler(args) {
         const target = ghTargetFromArgs(args, run);
         if (!target) usage("comment requires pr or issue");
-        const { config, client } = clientFor(args);
+        const { config, client } = await clientFor(args);
         // Explicit resync, same as `uploads comment` (issue #480).
         const result = await syncAttachmentsComment(client, target, run, config.workspace, {
           resync: true,
@@ -1497,7 +1500,7 @@ export function createUploadsMcpTools(opts: {
       description: "Check uploads.sh API liveness. No auth or arguments required.",
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
       async handler(args) {
-        const { config, client } = clientFor(args, false);
+        const { config, client } = await clientFor(args, false);
         const result = await client.health();
         return { ...result, apiUrl: config.apiUrl };
       },
@@ -1515,7 +1518,7 @@ export function createUploadsMcpTools(opts: {
         additionalProperties: false,
       },
       async handler(args) {
-        const { config, client } = clientFor(args);
+        const { config, client } = await clientFor(args);
         return buildDoctorReport(config, client);
       },
     },
