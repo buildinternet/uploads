@@ -152,18 +152,17 @@
         "service": "uploads-auth",
       },
     ],
-    "unsafe": {
-      "bindings": [
-        {
-          "name": "WRITE_LIMITER",
-          "type": "ratelimit",
-          "namespace_id": "1002",
-          "simple": {
-            "limit": 60,
-            "period": 60,
-          },
+    // Previews declare rate limiters via the dedicated `ratelimits` field
+    // (same values as the production `unsafe` entry above).
+    "ratelimits": [
+      {
+        "name": "WRITE_LIMITER",
+        "namespace_id": "1002",
+        "simple": {
+          "limit": 60,
+          "period": 60,
         },
-      ],
-    },
+      },
+    ],
   },
 }

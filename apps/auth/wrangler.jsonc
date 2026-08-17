@@ -188,18 +188,17 @@
         "service": "uploads-api",
       },
     ],
-    "unsafe": {
-      "bindings": [
-        {
-          "name": "AUTH_RATE_LIMITER",
-          "type": "ratelimit",
-          "namespace_id": "1003",
-          "simple": {
-            "limit": 60,
-            "period": 60,
-          },
+    // Previews declare rate limiters via the dedicated `ratelimits` field
+    // (same values as the production `unsafe` entry above).
+    "ratelimits": [
+      {
+        "name": "AUTH_RATE_LIMITER",
+        "namespace_id": "1003",
+        "simple": {
+          "limit": 60,
+          "period": 60,
         },
-      ],
-    },
+      },
+    ],
   },
 }

@@ -345,54 +345,50 @@
         "service": "uploads-auth",
       },
     ],
-    "unsafe": {
-      "bindings": [
-        {
-          "name": "WRITE_LIMITER",
-          "type": "ratelimit",
-          "namespace_id": "1001",
-          "simple": {
-            "limit": 60,
-            "period": 60,
-          },
+    // Previews declare rate limiters via the dedicated `ratelimits` field
+    // (same name/namespace_id/simple values as the production `unsafe`
+    // entries above); the runtime binding name comes from `name`.
+    "ratelimits": [
+      {
+        "name": "WRITE_LIMITER",
+        "namespace_id": "1001",
+        "simple": {
+          "limit": 60,
+          "period": 60,
         },
-        {
-          "name": "INVITE_LIMITER",
-          "type": "ratelimit",
-          "namespace_id": "1002",
-          "simple": {
-            "limit": 30,
-            "period": 60,
-          },
+      },
+      {
+        "name": "INVITE_LIMITER",
+        "namespace_id": "1002",
+        "simple": {
+          "limit": 30,
+          "period": 60,
         },
-        {
-          "name": "WS_CREATE_LIMITER",
-          "type": "ratelimit",
-          "namespace_id": "1003",
-          "simple": {
-            "limit": 3,
-            "period": 60,
-          },
+      },
+      {
+        "name": "WS_CREATE_LIMITER",
+        "namespace_id": "1003",
+        "simple": {
+          "limit": 3,
+          "period": 60,
         },
-        {
-          "name": "RENDER_LIMITER",
-          "type": "ratelimit",
-          "namespace_id": "1004",
-          "simple": {
-            "limit": 10,
-            "period": 60,
-          },
+      },
+      {
+        "name": "RENDER_LIMITER",
+        "namespace_id": "1004",
+        "simple": {
+          "limit": 10,
+          "period": 60,
         },
-        {
-          "name": "POSTER_LIMITER",
-          "type": "ratelimit",
-          "namespace_id": "1005",
-          "simple": {
-            "limit": 30,
-            "period": 60,
-          },
+      },
+      {
+        "name": "POSTER_LIMITER",
+        "namespace_id": "1005",
+        "simple": {
+          "limit": 30,
+          "period": 60,
         },
-      ],
-    },
+      },
+    ],
   },
 }
