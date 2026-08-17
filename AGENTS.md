@@ -91,9 +91,9 @@ also applies remote migrations when `apps/api/migrations/**` changes
 (secrets: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`). Production
 worker deploys normally happen via Workers Builds on push to main. For an
 isolated branch environment, `npx wrangler preview` from an app directory —
-see CONTRIBUTING's Deployment section; the Workers Builds bot's "Branch
-Preview URL" on PRs is a different, legacy mechanism that runs against
-production bindings.
+playbook in [docs/previews.md](docs/previews.md); the Workers Builds bot's
+"Branch Preview URL" on PRs is a different, legacy mechanism that runs
+against production bindings.
 
 Operator runbook: [docs/ops.md](docs/ops.md). Daily retention cron on the API
 worker; BYO secrets use `WORKSPACE_SECRETS_KEY`; bare upload keys get `f/<id>/…`.
