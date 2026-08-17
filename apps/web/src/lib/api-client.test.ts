@@ -999,10 +999,18 @@ describe("parseIssuedWorkspaceTokens", () => {
     scopes: ["files:read", "files:write"],
     createdAt: "2026-08-01T00:00:00.000Z",
     expiresAt: "2026-11-01T00:00:00.000Z",
+    lastUsedAt: "2026-08-17T12:00:00.000Z",
   };
 
   it("reads the GET /v1/tokens/issued envelope", () => {
     expect(parseIssuedWorkspaceTokens({ tokens: [row] })).toEqual([row]);
+  });
+
+  it("treats a missing lastUsedAt as null", () => {
+    const { lastUsedAt: _dropped, ...withoutUsed } = row;
+    expect(parseIssuedWorkspaceTokens({ tokens: [withoutUsed] })).toEqual([
+      { ...withoutUsed, lastUsedAt: null },
+    ]);
   });
 
   it("returns null for a malformed payload", () => {

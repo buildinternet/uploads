@@ -6,6 +6,7 @@ import {
   findActiveToken,
   isWorkspaceScope,
   parseScopes,
+  touchTokenLastUsed,
   type FileScope,
   type WorkspaceScope,
 } from "./auth-db";
@@ -423,6 +424,7 @@ function workspaceAuthWith(
     c.set("authSource", d1Token ? "d1" : "legacy");
     // Uploader attribution (issue #340) — null for legacy/enrollment tokens.
     c.set("mintingUserId", d1Token?.minting_user_id ?? null);
+    if (d1Token) await touchTokenLastUsed(c.env.DB, d1Token.id);
     await next();
   };
 }
@@ -530,6 +532,7 @@ export function workspaceGovernanceAuth(scope: WorkspaceScope): MiddlewareHandle
     if (!scopes.has(scope)) throw new ForbiddenError();
 
     c.set("governanceMintingUserId", record.minting_user_id);
+    await touchTokenLastUsed(c.env.DB, record.id);
     await next();
   };
 }

@@ -495,6 +495,7 @@ const OWN_TOKEN: {
   expires_at: string;
   revoked_at: string | null;
   minting_user_id: string;
+  last_used_at: string | null;
 } = {
   id: "tok-1",
   workspace: "acme",
@@ -505,6 +506,7 @@ const OWN_TOKEN: {
   expires_at: "2026-11-01T00:00:00.000Z",
   revoked_at: null,
   minting_user_id: USER.id,
+  last_used_at: "2026-08-17T12:00:00.000Z",
 };
 
 function issuedDb(tokens: (typeof OWN_TOKEN)[]) {
@@ -581,6 +583,7 @@ describe("GET /v1/tokens/issued", () => {
           scopes: ["files:read", "files:write"],
           createdAt: OWN_TOKEN.created_at,
           expiresAt: OWN_TOKEN.expires_at,
+          lastUsedAt: OWN_TOKEN.last_used_at,
         },
       ],
     });

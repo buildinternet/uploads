@@ -270,6 +270,7 @@ export const tokens = new Hono<SessionVars>()
       scopes: parseIssuedScopes(token.scopes),
       createdAt: token.created_at,
       expiresAt: token.expires_at,
+      lastUsedAt: token.last_used_at,
     }));
     return c.json({ tokens: issued });
   })

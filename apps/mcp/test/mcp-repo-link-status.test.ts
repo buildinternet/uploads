@@ -93,6 +93,9 @@ function makeDb(links: RepoLinksTable, scopedToken?: { tokenHash: string; scopes
           }
           return null as T;
         },
+        async run() {
+          return { success: true, meta: { changes: 1 }, results: [] };
+        },
       };
       return stmt;
     },

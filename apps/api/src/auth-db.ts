@@ -34,6 +34,11 @@ export function isWorkspaceScope(value: unknown): value is WorkspaceScope {
 export const DEFAULT_ENROLLMENT_SECONDS = 2 * 60 * 60;
 export const DEFAULT_TOKEN_SECONDS = 90 * 24 * 60 * 60;
 export const MAX_TOKEN_SECONDS = 365 * 24 * 60 * 60;
+/** How stale last_used_at must be before a successful auth rewrites it. */
+export const LAST_USED_TOUCH_SECONDS = 60 * 60;
+
+const TOKEN_COLUMNS = `id, workspace, token_hash, label, scopes, created_at, expires_at, revoked_at,
+              minting_user_id, last_used_at`;
 
 export interface AuthTokenRecord {
   id: string;
@@ -47,6 +52,7 @@ export interface AuthTokenRecord {
   // Better Auth user id that minted this token (POST /v1/tokens), or null for
   // enrollment-code tokens and rows created before the Phase 4 migration.
   minting_user_id: string | null;
+  last_used_at: string | null;
 }
 
 interface EnrollmentRecord {
@@ -118,8 +124,7 @@ export async function findActiveToken(
   const hash = await sha256Hex(rawToken);
   return db
     .prepare(
-      `SELECT id, workspace, token_hash, label, scopes, created_at, expires_at, revoked_at,
-              minting_user_id
+      `SELECT ${TOKEN_COLUMNS}
        FROM auth_tokens
        WHERE workspace = ? AND token_hash = ? AND revoked_at IS NULL
          AND (expires_at IS NULL OR expires_at > ?)
@@ -155,6 +160,7 @@ export async function createToken(
     expires_at: input.expiresAt?.toISOString() ?? null,
     revoked_at: null,
     minting_user_id: input.mintedByUserId ?? null,
+    last_used_at: null,
   };
   await db
     .prepare(
@@ -311,11 +317,9 @@ export async function listTokens(
   const result = await db
     .prepare(
       includeRevoked
-        ? `SELECT id, workspace, token_hash, label, scopes, created_at, expires_at, revoked_at,
-                  minting_user_id
+        ? `SELECT ${TOKEN_COLUMNS}
            FROM auth_tokens WHERE workspace = ? ORDER BY created_at ASC`
-        : `SELECT id, workspace, token_hash, label, scopes, created_at, expires_at, revoked_at,
-                  minting_user_id
+        : `SELECT ${TOKEN_COLUMNS}
            FROM auth_tokens WHERE workspace = ? AND revoked_at IS NULL ORDER BY created_at ASC`,
     )
     .bind(workspace)
@@ -380,8 +384,7 @@ export async function listTokensForMintingUser(
   if (!userId) return [];
   const result = await db
     .prepare(
-      `SELECT id, workspace, token_hash, label, scopes, created_at, expires_at, revoked_at,
-              minting_user_id
+      `SELECT ${TOKEN_COLUMNS}
        FROM auth_tokens
        WHERE minting_user_id = ? AND revoked_at IS NULL
          AND (expires_at IS NULL OR expires_at > ?)
@@ -406,8 +409,7 @@ export async function findTokenForMintingUser(
   const iso = now.toISOString();
   const match = await db
     .prepare(
-      `SELECT id, workspace, token_hash, label, scopes, created_at, expires_at, revoked_at,
-              minting_user_id
+      `SELECT ${TOKEN_COLUMNS}
        FROM auth_tokens
        WHERE id = ? AND minting_user_id = ? AND revoked_at IS NULL
        LIMIT 1`,
@@ -436,4 +438,26 @@ export async function revokeTokenForMintingUser(
     .bind(now.toISOString(), match.id, userId)
     .run();
   return match;
+}
+
+/**
+ * Stamp last_used_at on a successful auth. No-ops when the column was
+ * written in the last hour so a busy token does not pay a D1 write per request.
+ */
+export async function touchTokenLastUsed(
+  db: D1Database,
+  tokenId: string,
+  now = new Date(),
+): Promise<void> {
+  if (!tokenId) return;
+  const iso = now.toISOString();
+  const staleBefore = new Date(now.getTime() - LAST_USED_TOUCH_SECONDS * 1000).toISOString();
+  await db
+    .prepare(
+      `UPDATE auth_tokens SET last_used_at = ?
+       WHERE id = ? AND revoked_at IS NULL
+         AND (last_used_at IS NULL OR last_used_at < ?)`,
+    )
+    .bind(iso, tokenId, staleBefore)
+    .run();
 }

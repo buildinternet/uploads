@@ -7,6 +7,7 @@ import {
   findActiveToken,
   findEnrollmentPage,
   parseScopes,
+  touchTokenLastUsed,
 } from "../src/auth-db";
 
 type Row = Record<string, unknown>;
@@ -258,5 +259,30 @@ describe("D1 enrollment exchange", () => {
 
     expect(await exchangeEnrollment(database(fake), enrollment.code, later)).toBeNull();
     expect(await exchangeEnrollment(database(fake), "upe_unknown", later)).toBeNull();
+  });
+});
+
+describe("touchTokenLastUsed", () => {
+  it("stamps last_used_at when the row is stale or unused", async () => {
+    const updates: unknown[][] = [];
+    const db = {
+      prepare() {
+        return {
+          bind(...values: unknown[]) {
+            return {
+              run: async () => {
+                updates.push(values);
+                return { meta: { changes: 1 } };
+              },
+            };
+          },
+        };
+      },
+    } as unknown as D1Database;
+    const now = new Date("2026-08-17T12:00:00.000Z");
+    await touchTokenLastUsed(db, "tok-1", now);
+    expect(updates).toHaveLength(1);
+    expect(updates[0]?.[0]).toBe(now.toISOString());
+    expect(updates[0]?.[1]).toBe("tok-1");
   });
 });
