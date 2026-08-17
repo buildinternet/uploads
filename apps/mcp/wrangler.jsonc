@@ -106,10 +106,11 @@
   // Workers Previews (`npx wrangler preview` from a branch). Mirrors
   // apps/api's previews block — the two workers must resolve the same
   // registry, database, and buckets at the preview tier exactly as they do in
-  // production, so the TODO ids below are the SAME ids pasted into
-  // apps/api/wrangler.jsonc (create the resources once, from that file's
-  // instructions). The AUTH service binding inherits from above and always
-  // calls production uploads-auth; the rate limiter inherits too.
+  // production, so the ids below are the SAME ids as apps/api's previews
+  // block (the resources are created once, from that file's instructions).
+  // Bindings do NOT inherit from the production config — a preview gets only
+  // what this block lists — so the AUTH service binding (always calls
+  // production uploads-auth) and the rate limiter are repeated verbatim.
   "previews": {
     "vars": {
       "WEB_ORIGIN": "https://uploads.sh",
@@ -145,5 +146,24 @@
         "bucket_name": "uploads-preview-default",
       },
     ],
+    "services": [
+      {
+        "binding": "AUTH",
+        "service": "uploads-auth",
+      },
+    ],
+    "unsafe": {
+      "bindings": [
+        {
+          "name": "WRITE_LIMITER",
+          "type": "ratelimit",
+          "namespace_id": "1002",
+          "simple": {
+            "limit": 60,
+            "period": 60,
+          },
+        },
+      ],
+    },
   },
 }

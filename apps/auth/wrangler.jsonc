@@ -133,9 +133,12 @@
   // exercising auth flows. The GitHub OAuth app only registers production
   // callback URLs, so social login cannot work on a preview; magic-link and
   // session flows can once BETTER_AUTH_URL is set. Auth state must never be
-  // shared, so previews get their own D1. Secrets Store bindings and EMAIL
-  // inherit from above — note a preview CAN send real mail from
-  // noreply@uploads.sh, but only explicit flows (magic links) do.
+  // shared, so previews get their own D1. Bindings do NOT inherit from the
+  // production config — a preview gets only what this block lists — so the
+  // Secrets Store references, EMAIL, the API service binding (always calls
+  // production uploads-api), and the rate limiter are repeated verbatim.
+  // Note a preview CAN send real mail from noreply@uploads.sh, but only
+  // explicit flows (magic links) do.
   //
   // One-time setup (migrations go through wrangler.preview.jsonc — the
   // `d1 migrations` command cannot see databases declared inside `previews`):
@@ -156,5 +159,47 @@
         "migrations_dir": "migrations",
       },
     ],
+    "secrets_store_secrets": [
+      {
+        "binding": "UPL_BETTER_AUTH_SECRET",
+        "store_id": "a887a71cab084105b79706df23380723",
+        "secret_name": "UPL_BETTER_AUTH_SECRET",
+      },
+      {
+        "binding": "UPL_BETTER_AUTH_API_KEY",
+        "store_id": "a887a71cab084105b79706df23380723",
+        "secret_name": "UPL_BETTER_AUTH_API_KEY",
+      },
+      {
+        "binding": "UPL_GITHUB_CLIENT_ID",
+        "store_id": "a887a71cab084105b79706df23380723",
+        "secret_name": "UPL_GITHUB_CLIENT_ID",
+      },
+      {
+        "binding": "UPL_GITHUB_CLIENT_SECRET",
+        "store_id": "a887a71cab084105b79706df23380723",
+        "secret_name": "UPL_GITHUB_CLIENT_SECRET",
+      },
+    ],
+    "send_email": [{ "name": "EMAIL", "allowed_sender_addresses": ["noreply@uploads.sh"] }],
+    "services": [
+      {
+        "binding": "API",
+        "service": "uploads-api",
+      },
+    ],
+    "unsafe": {
+      "bindings": [
+        {
+          "name": "AUTH_RATE_LIMITER",
+          "type": "ratelimit",
+          "namespace_id": "1003",
+          "simple": {
+            "limit": 60,
+            "period": 60,
+          },
+        },
+      ],
+    },
   },
 }

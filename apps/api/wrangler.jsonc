@@ -234,11 +234,12 @@
       "bucket_name": "uploads-default",
     },
   ],
-  // Workers Previews (`npx wrangler preview` from a branch). A Preview starts
-  // from a copy of this config, so everything stateful is re-pointed here —
-  // without this block a preview of an API branch would write to production
-  // KV/D1/R2. Keys not listed inherit the production values above and are
-  // safe to share: BROWSER/MEDIA (metered, stateless), FLAGS (read-only),
+  // Workers Previews (`npx wrangler preview` from a branch). Bindings do NOT
+  // inherit from the production config — a preview gets only what this block
+  // lists — so everything is spelled out: stateful bindings re-pointed at
+  // preview-tier resources (without that, a preview of an API branch would
+  // write to production KV/D1/R2), and the stateless/shared-safe ones
+  // repeated verbatim: BROWSER/MEDIA (metered, stateless), FLAGS (read-only),
   // EMAIL, the rate limiters, and the AUTH service binding — service bindings
   // always call the bound Worker's *production* deployment, so a preview
   // verifies sessions against real auth. Cron triggers and queue consumers
@@ -320,5 +321,78 @@
         "dataset": "uploads_adoption_preview",
       },
     ],
+    // Everything below repeats the production bindings verbatim — stateless,
+    // account-level, or per-colo, so sharing is safe. See the notes on the
+    // top-level entries for what each does.
+    "browser": {
+      "binding": "BROWSER",
+      "remote": true,
+    },
+    "media": {
+      "binding": "MEDIA",
+      "remote": true,
+    },
+    "flagship": [
+      {
+        "binding": "FLAGS",
+        "app_id": "8371bfe7-9767-4b4d-b75a-37b94d2724f7",
+      },
+    ],
+    "send_email": [{ "name": "EMAIL" }],
+    "services": [
+      {
+        "binding": "AUTH",
+        "service": "uploads-auth",
+      },
+    ],
+    "unsafe": {
+      "bindings": [
+        {
+          "name": "WRITE_LIMITER",
+          "type": "ratelimit",
+          "namespace_id": "1001",
+          "simple": {
+            "limit": 60,
+            "period": 60,
+          },
+        },
+        {
+          "name": "INVITE_LIMITER",
+          "type": "ratelimit",
+          "namespace_id": "1002",
+          "simple": {
+            "limit": 30,
+            "period": 60,
+          },
+        },
+        {
+          "name": "WS_CREATE_LIMITER",
+          "type": "ratelimit",
+          "namespace_id": "1003",
+          "simple": {
+            "limit": 3,
+            "period": 60,
+          },
+        },
+        {
+          "name": "RENDER_LIMITER",
+          "type": "ratelimit",
+          "namespace_id": "1004",
+          "simple": {
+            "limit": 10,
+            "period": 60,
+          },
+        },
+        {
+          "name": "POSTER_LIMITER",
+          "type": "ratelimit",
+          "namespace_id": "1005",
+          "simple": {
+            "limit": 30,
+            "period": 60,
+          },
+        },
+      ],
+    },
   },
 }
