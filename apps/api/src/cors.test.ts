@@ -1,11 +1,11 @@
 /**
- * CORS mounting on the root app. The subtle one is `/v1/workspaces`: it is
- * the only `/v1/*` route authenticated by session COOKIE (self-serve creation
- * from the signed-in console at WEB_ORIGIN), so its preflight must be
- * credentialed — without `Access-Control-Allow-Credentials` the browser
- * drops the request entirely ("Failed to fetch") and self-serve creation
- * silently breaks in prod. The rest of `/v1/*` is bearer-token-authenticated
- * and deliberately stays uncredentialed.
+ * CORS mounting on the root app. The subtle ones are `/v1/workspaces` and
+ * `/v1/tokens`: both are authenticated by session COOKIE (self-serve creation
+ * and developer token mint from the signed-in console at WEB_ORIGIN), so
+ * their preflight must be credentialed — without
+ * `Access-Control-Allow-Credentials` the browser drops the request entirely
+ * ("Failed to fetch"). The rest of `/v1/*` is bearer-token-authenticated and
+ * deliberately stays uncredentialed.
  */
 import { describe, expect, it } from "vitest";
 import { app } from "./index";
@@ -53,8 +53,27 @@ describe("CORS preflights from the web origin", () => {
     expect(restore.headers.get("Access-Control-Allow-Credentials")).toBe("true");
   });
 
-  it("keeps bearer-token /v1 routes uncredentialed", async () => {
+  it("credentials the cookie-authenticated /v1/tokens mint surface", async () => {
     const res = await preflight("/v1/tokens");
+    expect(res.headers.get("Access-Control-Allow-Origin")).toBe("https://uploads.sh");
+    expect(res.headers.get("Access-Control-Allow-Credentials")).toBe("true");
+
+    const issued = await app.request(
+      "https://api.uploads.sh/v1/tokens/issued",
+      {
+        method: "OPTIONS",
+        headers: {
+          Origin: "https://uploads.sh",
+          "Access-Control-Request-Method": "GET",
+        },
+      },
+      env,
+    );
+    expect(issued.headers.get("Access-Control-Allow-Credentials")).toBe("true");
+  });
+
+  it("keeps bearer-token /v1 routes uncredentialed", async () => {
+    const res = await preflight("/v1/acme/files");
     expect(res.headers.get("Access-Control-Allow-Origin")).toBe("https://uploads.sh");
     expect(res.headers.get("Access-Control-Allow-Credentials")).toBeNull();
   });
@@ -171,6 +190,17 @@ describe("loopback origin reflection is gated by ENVIRONMENT", () => {
 
   it("reflects localhost on /v1/workspaces when ENVIRONMENT is unset (dev)", async () => {
     const res = await loopbackPreflight("/v1/workspaces", {});
+    expect(res.headers.get("Access-Control-Allow-Origin")).toBe("http://localhost:5173");
+    expect(res.headers.get("Access-Control-Allow-Credentials")).toBe("true");
+  });
+
+  it("does not reflect localhost on /v1/tokens in production", async () => {
+    const res = await loopbackPreflight("/v1/tokens", { ENVIRONMENT: "production" });
+    expect(res.headers.get("Access-Control-Allow-Origin")).toBeNull();
+  });
+
+  it("reflects localhost on /v1/tokens when ENVIRONMENT is unset (dev)", async () => {
+    const res = await loopbackPreflight("/v1/tokens", {});
     expect(res.headers.get("Access-Control-Allow-Origin")).toBe("http://localhost:5173");
     expect(res.headers.get("Access-Control-Allow-Credentials")).toBe("true");
   });

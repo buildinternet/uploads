@@ -5,6 +5,8 @@ import {
   getGithubInstalled,
   getMyWorkspaces,
   getSuggestedWorkspaceName,
+  parseIssuedWorkspaceTokens,
+  parseMintableWorkspaces,
   getWorkspaceFacets,
   getWorkspaceFacetValues,
   getWorkspaceFilesByPath,
@@ -970,6 +972,42 @@ describe("getSuggestedWorkspaceName", () => {
       }),
     );
     expect(await getSuggestedWorkspaceName("http://127.0.0.1:8787")).toBe("");
+  });
+});
+
+describe("parseMintableWorkspaces", () => {
+  it("reads the GET /v1/tokens envelope", () => {
+    expect(
+      parseMintableWorkspaces({
+        workspaces: [{ workspace: "acme", role: "owner" }],
+        suggestedWorkspace: "octocat",
+      }),
+    ).toEqual([{ workspace: "acme", role: "owner" }]);
+  });
+
+  it("returns null for a malformed payload", () => {
+    expect(parseMintableWorkspaces({ workspaces: [{ role: "owner" }] })).toBeNull();
+    expect(parseMintableWorkspaces(null)).toBeNull();
+  });
+});
+
+describe("parseIssuedWorkspaceTokens", () => {
+  const row = {
+    id: "tok-1",
+    workspace: "acme",
+    label: "ci",
+    scopes: ["files:read", "files:write"],
+    createdAt: "2026-08-01T00:00:00.000Z",
+    expiresAt: "2026-11-01T00:00:00.000Z",
+  };
+
+  it("reads the GET /v1/tokens/issued envelope", () => {
+    expect(parseIssuedWorkspaceTokens({ tokens: [row] })).toEqual([row]);
+  });
+
+  it("returns null for a malformed payload", () => {
+    expect(parseIssuedWorkspaceTokens({ tokens: [{ workspace: "acme" }] })).toBeNull();
+    expect(parseIssuedWorkspaceTokens(null)).toBeNull();
   });
 });
 

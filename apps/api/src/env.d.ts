@@ -3,12 +3,6 @@
 interface Env {
   ADMIN_TOKEN?: string;
   /**
-   * Prefix for Better Auth API keys. Must match apps/auth. Hosted default is
-   * `upl_sk_`. Also declared as a wrangler var; optional here so tests and
-   * apps/mcp (which type-checks this package) compile before `wrangler types`.
-   */
-  AUTH_API_KEY_PREFIX?: string;
-  /**
    * Shared secret gating POST /internal/billing/plan, sent by apps/auth's
    * billing bridge as x-internal-billing-key. Set via `wrangler secret put` on
    * both workers (the values must match). Unset/empty means the route 401s

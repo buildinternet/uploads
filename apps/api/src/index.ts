@@ -110,15 +110,18 @@ export const app = new Hono<WorkspaceVars>()
   .use("/admin/*", consoleCors)
   .use("/admin-ui/*", adminUiCors)
   .use("/me/*", adminUiCors)
-  // `/v1/workspaces` (and its `/:name` / `/:name/restore` lifecycle
-  // subroutes from #249) is the one `/v1/*` surface authenticated by session
-  // COOKIE, so its CORS must be credentialed like /me/* — the uncredentialed
+  // `/v1/workspaces` (lifecycle) and `/v1/tokens` (mint / issued list /
+  // own-token revoke) are the `/v1/*` surfaces authenticated by session
+  // COOKIE, so their CORS must be credentialed like /me/* — the uncredentialed
   // consoleCors preflight makes the browser drop the request entirely
-  // ("Failed to fetch"), which silently broke self-serve workspace creation
-  // from uploads.sh. Everything else under /v1/* stays uncredentialed:
-  // bearer tokens are the boundary there.
+  // ("Failed to fetch"). Everything else under /v1/* stays uncredentialed:
+  // bearer tokens are the boundary there. CLI callers of `/v1/tokens` still
+  // send `Authorization: Bearer <session>`; CORS does not apply to them.
   .use("/v1/*", (c, next) =>
-    (c.req.path === "/v1/workspaces" || c.req.path.startsWith("/v1/workspaces/")
+    (c.req.path === "/v1/workspaces" ||
+      c.req.path.startsWith("/v1/workspaces/") ||
+      c.req.path === "/v1/tokens" ||
+      c.req.path.startsWith("/v1/tokens/")
       ? adminUiCors
       : consoleCors)(c, next),
   )

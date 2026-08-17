@@ -7,7 +7,7 @@ import { isStripeBackingStatus } from "@uploads/billing";
 import { drizzle } from "drizzle-orm/d1";
 import { and, count, countDistinct, eq, gt, gte, isNull, max, sql } from "drizzle-orm";
 import { Hono } from "hono";
-import { createAuth, OAUTH_SCOPES, type AuthEnv } from "./auth";
+import { OAUTH_SCOPES, type AuthEnv } from "./auth";
 import { sendAuthEmail } from "./email";
 import { memberCapDenial } from "./member-cap";
 import * as schema from "./schema";
@@ -1008,34 +1008,6 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
       .where(and(eq(schema.account.userId, userId), eq(schema.account.providerId, "github")))
       .limit(1);
     return c.json({ githubLinked: Boolean(row) });
-  })
-  // Verify a Better Auth API key for apps/api's workspaceAuth. The plugin's
-  // `/api-key/verify` route is server-only (no public HTTP handler), so this
-  // binding-only endpoint is the one path the API worker can call.
-  .post("/api-keys/verify", async (c) => {
-    const body = await c.req.json<{ key?: unknown }>().catch(() => ({}) as { key?: unknown });
-    const key = typeof body.key === "string" ? body.key : "";
-    if (!key) {
-      return c.json(errorJson("invalid_key", "key is required"), 400);
-    }
-
-    const auth = await createAuth(c.env);
-    if (!auth) {
-      return c.json(errorJson("auth_unavailable", "auth is not configured yet"), 503);
-    }
-
-    const result = await auth.api.verifyApiKey({ body: { key } });
-    if (!result.valid || !result.key) {
-      return c.json({ valid: false });
-    }
-
-    return c.json({
-      valid: true,
-      userId: result.key.referenceId,
-      permissions: result.key.permissions ?? null,
-      id: result.key.id,
-      name: result.key.name,
-    });
   })
   // D9 fallback: ADMIN_TOKEN-gated promote endpoint on apps/api proxies here.
   // Looked up by email since that's the only identifier ops/CI reliably has;

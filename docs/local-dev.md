@@ -4,11 +4,6 @@
 `package.json` / `.nvmrc`). No Cloudflare account is required for the core
 local loop — `wrangler dev` simulates R2, KV, and D1 on disk.
 
-API keys created from `/account/developers` use `AUTH_API_KEY_PREFIX` (default
-`upl_sk_`, set in each worker's `wrangler.jsonc`). Local `pnpm bootstrap`
-applies the auth D1 migration that adds the `apikey` table. Self-hosted
-forks should change the prefix on auth, API, and MCP together.
-
 ```bash
 pnpm bootstrap        # tooling, deps, API/Auth vars, types, local D1 migrations, default workspace
 pnpm doctor           # diagnose the setup — reports what's missing and how to fix it

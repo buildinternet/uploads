@@ -196,10 +196,7 @@ records; any future global secrets go through `wrangler secret put` (prod) or
   own globals like `crypto.subtle.timingSafeEqual`).
 - Auth is per-workspace bearer tokens, hashed + timing-safe compare, with
   uniform 401s so workspace names can't be enumerated — see
-  `apps/api/src/workspace.ts`. User API keys (`upl_sk_…` hosted; configurable
-  via `AUTH_API_KEY_PREFIX`) are an extra path: `workspaceAuth` verifies them
-  over the AUTH binding (`POST /internal/api-keys/verify`) and checks org
-  membership.
+  `apps/api/src/workspace.ts`.
 - HTTP errors: throw `AppError` subclasses from `@uploads/errors` and let
   `respondError` / Hono `onError` serialize the nested envelope
   `{ error: { code, type, message, details? } }`. Never hand-roll

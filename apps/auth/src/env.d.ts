@@ -18,12 +18,6 @@ interface Env {
   /** Dev opt-out for Better Auth's fail-closed production rate limiting. */
   AUTH_RATE_LIMIT_DISABLED?: string;
   /**
-   * Prefix for Better Auth API keys. Hosted default is `upl_sk_`. Self-hosted
-   * installs set this so generated keys don't collide with uploads.sh keys
-   * or with `up_<workspace>_` tokens. Also set on apps/api and apps/mcp.
-   */
-  AUTH_API_KEY_PREFIX?: string;
-  /**
    * Service binding to apps/api (see wrangler.jsonc), used by
    * src/billing-bridge.ts to POST /internal/billing/plan. Optional: absent
    * in tests/local dev without both `wrangler dev` sessions running — the

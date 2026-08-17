@@ -366,3 +366,74 @@ export async function revokeTokensForMintingUser(
     .run();
   return result.meta?.changes ?? 0;
 }
+
+/**
+ * Active, unexpired tokens this user minted (POST /v1/tokens). Used by
+ * `/account/developers` so a member can list their own keys without the
+ * workspace-admin token list.
+ */
+export async function listTokensForMintingUser(
+  db: D1Database,
+  userId: string,
+  now = new Date(),
+): Promise<AuthTokenRecord[]> {
+  if (!userId) return [];
+  const result = await db
+    .prepare(
+      `SELECT id, workspace, token_hash, label, scopes, created_at, expires_at, revoked_at,
+              minting_user_id
+       FROM auth_tokens
+       WHERE minting_user_id = ? AND revoked_at IS NULL
+         AND (expires_at IS NULL OR expires_at > ?)
+       ORDER BY created_at DESC`,
+    )
+    .bind(userId, now.toISOString())
+    .all<AuthTokenRecord>();
+  return result.results;
+}
+
+/**
+ * One active, unexpired token this user minted. Missing / revoked / expired /
+ * someone else's id all return null so callers can collapse them to the same 404.
+ */
+export async function findTokenForMintingUser(
+  db: D1Database,
+  userId: string,
+  tokenId: string,
+  now = new Date(),
+): Promise<AuthTokenRecord | null> {
+  if (!userId || !tokenId) return null;
+  const iso = now.toISOString();
+  const match = await db
+    .prepare(
+      `SELECT id, workspace, token_hash, label, scopes, created_at, expires_at, revoked_at,
+              minting_user_id
+       FROM auth_tokens
+       WHERE id = ? AND minting_user_id = ? AND revoked_at IS NULL
+       LIMIT 1`,
+    )
+    .bind(tokenId, userId)
+    .first<AuthTokenRecord>();
+  if (!match) return null;
+  if (match.expires_at !== null && match.expires_at <= iso) return null;
+  return match;
+}
+
+/** Soft-revoke one token this user minted. Same null contract as find. */
+export async function revokeTokenForMintingUser(
+  db: D1Database,
+  userId: string,
+  tokenId: string,
+  now = new Date(),
+): Promise<AuthTokenRecord | null> {
+  const match = await findTokenForMintingUser(db, userId, tokenId, now);
+  if (!match) return null;
+  await db
+    .prepare(
+      `UPDATE auth_tokens SET revoked_at = ?
+       WHERE id = ? AND minting_user_id = ? AND revoked_at IS NULL`,
+    )
+    .bind(now.toISOString(), match.id, userId)
+    .run();
+  return match;
+}

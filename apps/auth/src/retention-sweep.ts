@@ -66,30 +66,9 @@ async function purgeExpiredDeviceCode(db: Db, now: Date): Promise<number> {
   return deleted;
 }
 
-/** Batched delete of expired `apikey` rows (Better Auth does not sweep these). */
-async function purgeExpiredApiKeys(db: Db, now: Date): Promise<number> {
-  let deleted = 0;
-  for (;;) {
-    const rows = await db
-      .select({ id: schema.apikey.id })
-      .from(schema.apikey)
-      .where(lt(schema.apikey.expiresAt, now))
-      .limit(BATCH_SIZE);
-    if (rows.length === 0) break;
-
-    const ids = rows.map((r) => r.id);
-    await db.delete(schema.apikey).where(inArray(schema.apikey.id, ids));
-    deleted += ids.length;
-
-    if (rows.length < BATCH_SIZE) break;
-  }
-  return deleted;
-}
-
 export interface RetentionSweepResult {
   verificationDeleted: number;
   deviceCodeDeleted: number;
-  apiKeyDeleted: number;
 }
 
 export async function runAuthRetentionSweep(env: AuthEnv): Promise<RetentionSweepResult> {
@@ -98,16 +77,14 @@ export async function runAuthRetentionSweep(env: AuthEnv): Promise<RetentionSwee
 
   const verificationDeleted = await purgeExpiredVerification(db, now);
   const deviceCodeDeleted = await purgeExpiredDeviceCode(db, now);
-  const apiKeyDeleted = await purgeExpiredApiKeys(db, now);
 
   console.log(
     JSON.stringify({
       message: "auth_retention_sweep",
       verificationDeleted,
       deviceCodeDeleted,
-      apiKeyDeleted,
     }),
   );
 
-  return { verificationDeleted, deviceCodeDeleted, apiKeyDeleted };
+  return { verificationDeleted, deviceCodeDeleted };
 }

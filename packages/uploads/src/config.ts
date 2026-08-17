@@ -105,14 +105,7 @@ function pickApiUrl(flags?: ConfigLayer & { apiUrl?: string; envFile?: string })
 }
 
 /** How the active workspace was chosen (for doctor hints). */
-export type WorkspaceSource =
-  | "override"
-  | "env"
-  | "file"
-  | "user-config"
-  | "token"
-  | "account"
-  | "default";
+export type WorkspaceSource = "override" | "env" | "file" | "user-config" | "token" | "default";
 
 export type ConfigValueSource = "flag" | "env" | "env-file" | "user-config" | "token" | "default";
 

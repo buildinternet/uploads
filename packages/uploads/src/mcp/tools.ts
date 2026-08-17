@@ -23,7 +23,6 @@ import {
   uploadPuts,
 } from "../commands.js";
 import { resolveFrameId } from "../frame.js";
-import { inferWorkspaceFromCredential } from "../infer-workspace.js";
 import {
   resolveConfig,
   resolvePutDefaults,
@@ -202,15 +201,13 @@ export function createUploadsMcpTools(opts: {
     args: ToolArgs,
     requireToken = true,
   ): Promise<{ config: ResolvedConfig; client: UploadsClient }> {
-    const config = await inferWorkspaceFromCredential(
-      resolveConfig({
-        apiUrl: globals.apiUrl,
-        token: globals.token,
-        envFile: globals.envFile,
-        workspace: optString(args, "workspace") ?? globals.workspace,
-        requireToken,
-      }),
-    );
+    const config = resolveConfig({
+      apiUrl: globals.apiUrl,
+      token: globals.token,
+      envFile: globals.envFile,
+      workspace: optString(args, "workspace") ?? globals.workspace,
+      requireToken,
+    });
     return { config, client: clientFactory(config) };
   }
 

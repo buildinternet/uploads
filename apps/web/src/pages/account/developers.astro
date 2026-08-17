@@ -61,20 +61,28 @@ const showConsoleLinks = await resolveShowConsoleLinks(env);
     </div>
   </section>
 
-  <section class="card settings-page" id="api-keys">
+  <section class="card settings-page" id="workspace-tokens">
     <div class="settings-section">
-      <h2>API keys</h2>
+      <h2>Workspace tokens</h2>
       <p class="settings-note muted">
-        For curl, CI, and scripts. The CLI uses your only workspace automatically; if you have
-        several, pass <code>--workspace</code>.
+        For curl, CI, and scripts. Tokens start with <code>up_&lt;workspace&gt;_</code> and last 90 days,
+        or 1 year. The CLI reads the workspace from the token.
       </p>
 
-      <form class="ws-form" id="api-key-form">
+      <p class="muted cli-note" id="token-empty" hidden>
+        Create a <a href="/account/workspaces/new">workspace</a> first, then mint a token for it.
+      </p>
+
+      <form class="ws-form" id="token-form" hidden>
+        <label class="token-field" id="token-workspace-field">
+          <span class="sr-only">Workspace</span>
+          <select name="workspace" class="ul-select" id="token-workspace" required></select>
+        </label>
         <div class="input-group">
           <label class="input-group__field">
-            <span class="sr-only">Key name</span>
+            <span class="sr-only">Label</span>
             <input
-              name="name"
+              name="label"
               required
               maxlength="32"
               minlength="1"
@@ -83,31 +91,35 @@ const showConsoleLinks = await resolveShowConsoleLinks(env);
               spellcheck="false"
             />
           </label>
-          <button type="submit" class="input-group__action" id="api-key-create">Create</button>
+          <label class="token-ttl">
+            <span class="sr-only">Expires</span>
+            <select name="ttl" class="ul-select" id="token-ttl">
+              <option value="7776000">90 days</option>
+              <option value="31536000">1 year</option>
+            </select>
+          </label>
+          <button type="submit" class="input-group__action" id="token-create">Create</button>
         </div>
       </form>
 
-      <div class="ul-callout" id="api-key-created" role="status" hidden>
-        <p><strong>Copy this key now.</strong> It will not be shown again.</p>
+      <div class="ul-callout" id="token-created" role="status" hidden>
+        <p><strong>Copy this token now.</strong> It will not be shown again.</p>
         <div class="command">
-          <code id="api-key-secret"></code>
-          <button type="button" id="api-key-secret-copy" data-copy="" aria-live="polite"
-            >copy</button
-          >
+          <code id="token-secret"></code>
+          <button type="button" id="token-secret-copy" data-copy="" aria-live="polite">copy</button>
         </div>
         <div class="command">
-          <code id="api-key-exports"></code>
-          <button type="button" id="api-key-exports-copy" data-copy="" aria-live="polite"
-            >copy</button
+          <code id="token-exports"></code>
+          <button type="button" id="token-exports-copy" data-copy="" aria-live="polite">copy</button
           >
         </div>
       </div>
-      <p class="muted cli-note" id="api-key-error" role="alert" hidden></p>
+      <p class="muted cli-note" id="token-error" role="alert" hidden></p>
 
-      <div id="api-key-status" class="muted detail-status" hidden></div>
+      <div id="token-status" class="muted detail-status" hidden></div>
       <ul
         class="detail-list"
-        id="api-key-list"
+        id="token-list"
         aria-busy="true"
         set:html={renderDetailListPlaceholderHtml()}
       />
@@ -158,14 +170,25 @@ const showConsoleLinks = await resolveShowConsoleLinks(env);
       gap: 8px;
       margin: 0;
     }
-    #api-key-created {
+    #token-created {
       margin: 12px 0 0;
     }
-    #api-key-created .command {
+    #token-created .command {
       margin: 8px 0 0;
     }
-    #api-key-exports {
+    #token-exports {
       white-space: pre-wrap;
+    }
+    .token-field {
+      display: block;
+      margin: 0 0 10px;
+    }
+    .token-ttl {
+      display: flex;
+      align-items: stretch;
+    }
+    .token-ttl .ul-select {
+      width: auto;
     }
   </style>
 
@@ -289,155 +312,164 @@ const showConsoleLinks = await resolveShowConsoleLinks(env);
   <script>
     import { onAstroPageLoad, onSession, requireElement } from "../../lib/account-shell";
     import {
-      createApiKey,
-      deleteApiKey,
-      listApiKeys,
-      listOrganizations,
-      type DeveloperApiKey,
-    } from "../../lib/auth-client";
-    import { escapeHtml } from "../../lib/workspace-ui";
+      WORKSPACE_TOKEN_TTL_1_YEAR,
+      WORKSPACE_TOKEN_TTL_90_DAYS,
+      listIssuedWorkspaceTokens,
+      listMintableWorkspaces,
+      mintWorkspaceToken,
+      revokeIssuedWorkspaceToken,
+      type IssuedWorkspaceToken,
+    } from "../../lib/api-client";
+    import { bindCopyButtons, escapeHtml } from "../../lib/workspace-ui";
 
-    function formatApiKeyWhen(value: string | Date | null | undefined): string {
+    function formatWhen(value: string | null | undefined): string {
       if (!value) return "";
-      const date = value instanceof Date ? value : new Date(value);
+      const date = new Date(value);
       if (!Number.isFinite(date.getTime())) return "";
       return date.toISOString().slice(0, 10);
     }
 
     onAstroPageLoad(() => {
-      if (!document.getElementById("api-keys")) return;
+      if (!document.getElementById("workspace-tokens")) return;
 
-      const authOrigin = (window as unknown as { __UPLOADS_AUTH_ORIGIN__: string })
-        .__UPLOADS_AUTH_ORIGIN__;
+      const apiOrigin = (window as unknown as { __UPLOADS_API_ORIGIN__: string })
+        .__UPLOADS_API_ORIGIN__;
 
-      let workspaces: string[] = [];
+      const ttl = requireElement<HTMLSelectElement>("#token-ttl", "developers");
+      ttl.options[0].value = String(WORKSPACE_TOKEN_TTL_90_DAYS);
+      ttl.options[1].value = String(WORKSPACE_TOKEN_TTL_1_YEAR);
 
-      function renderKeys(keys: DeveloperApiKey[] | null): void {
-        const list = requireElement<HTMLUListElement>("#api-key-list", "developers");
-        const status = requireElement<HTMLElement>("#api-key-status", "developers");
-        list.setAttribute("aria-busy", keys === null ? "true" : "false");
-        if (keys === null) {
+      function renderTokens(tokens: IssuedWorkspaceToken[] | null): void {
+        const list = requireElement<HTMLUListElement>("#token-list", "developers");
+        const status = requireElement<HTMLElement>("#token-status", "developers");
+        list.setAttribute("aria-busy", tokens === null ? "true" : "false");
+        if (tokens === null) {
           status.hidden = false;
-          status.textContent = "Couldn’t load API keys.";
+          status.textContent = "Couldn’t load workspace tokens.";
           list.replaceChildren();
           return;
         }
         status.hidden = true;
-        if (keys.length === 0) {
-          list.innerHTML = `<li><div class="detail-main"><div class="detail-title">No keys yet</div><div class="detail-meta">Create one above to start.</div></div></li>`;
+        if (tokens.length === 0) {
+          list.innerHTML = `<li><div class="detail-main"><div class="detail-title">No tokens yet</div><div class="detail-meta">Create one above to start.</div></div></li>`;
           return;
         }
-        list.innerHTML = keys
-          .map((key) => {
-            const title = escapeHtml(key.name || "Untitled");
-            const start = key.start ? escapeHtml(key.start) : "key";
-            const created = formatApiKeyWhen(key.createdAt);
-            const used = formatApiKeyWhen(key.lastRequest);
+        list.innerHTML = tokens
+          .map((token) => {
+            const title = escapeHtml(token.label || "Untitled");
+            const workspace = escapeHtml(token.workspace);
+            const created = formatWhen(token.createdAt);
+            const expires = formatWhen(token.expiresAt);
             const meta = [
-              start,
+              workspace,
               created ? `created ${created}` : "",
-              used ? `last used ${used}` : "never used",
+              expires ? `expires ${expires}` : "no expiry",
             ]
               .filter(Boolean)
               .join(" · ");
-            return `<li data-key-id="${escapeHtml(key.id)}"><div class="detail-main"><div class="detail-title">${title}</div><div class="detail-meta">${meta}</div></div><button type="button" class="text-btn" data-revoke="${escapeHtml(key.id)}">Revoke</button></li>`;
+            return `<li data-token-id="${escapeHtml(token.id)}"><div class="detail-main"><div class="detail-title">${title}</div><div class="detail-meta">${meta}</div></div><button type="button" class="text-btn" data-revoke="${escapeHtml(token.id)}">Revoke</button></li>`;
           })
           .join("");
       }
 
-      function exportSnippet(token: string): string {
-        const workspace = workspaces.length === 1 ? workspaces[0] : "<workspace>";
-        return `export UPLOADS_TOKEN=${token}\nexport UPLOADS_WORKSPACE=${workspace}`;
+      async function refreshTokens(): Promise<void> {
+        renderTokens(await listIssuedWorkspaceTokens(apiOrigin));
       }
 
-      async function refreshKeys(): Promise<void> {
-        renderKeys(await listApiKeys(authOrigin));
+      function applyWorkspaces(names: string[] | null): void {
+        const form = requireElement<HTMLFormElement>("#token-form", "developers");
+        const empty = requireElement<HTMLElement>("#token-empty", "developers");
+        const field = requireElement<HTMLElement>("#token-workspace-field", "developers");
+        const select = requireElement<HTMLSelectElement>("#token-workspace", "developers");
+        if (names === null || names.length === 0) {
+          form.hidden = true;
+          empty.hidden = names === null;
+          select.replaceChildren();
+          return;
+        }
+        empty.hidden = true;
+        form.hidden = false;
+        select.innerHTML = names
+          .map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`)
+          .join("");
+        field.hidden = names.length === 1;
       }
 
-      requireElement<HTMLFormElement>("#api-key-form", "developers").addEventListener(
+      requireElement<HTMLFormElement>("#token-form", "developers").addEventListener(
         "submit",
         (event) => {
           event.preventDefault();
           const form = event.currentTarget as HTMLFormElement;
-          const input = form.elements.namedItem("name");
-          const name = input instanceof HTMLInputElement ? input.value.trim() : "";
-          if (!name) return;
-          const button = requireElement<HTMLButtonElement>("#api-key-create", "developers");
-          const error = requireElement<HTMLElement>("#api-key-error", "developers");
-          const created = requireElement<HTMLElement>("#api-key-created", "developers");
+          const workspaceInput = form.elements.namedItem("workspace");
+          const labelInput = form.elements.namedItem("label");
+          const ttlInput = form.elements.namedItem("ttl");
+          const workspace =
+            workspaceInput instanceof HTMLSelectElement ? workspaceInput.value.trim() : "";
+          const label = labelInput instanceof HTMLInputElement ? labelInput.value.trim() : "";
+          const ttlSeconds =
+            ttlInput instanceof HTMLSelectElement ? Number(ttlInput.value) : undefined;
+          if (!workspace || !label) return;
+          const button = requireElement<HTMLButtonElement>("#token-create", "developers");
+          const error = requireElement<HTMLElement>("#token-error", "developers");
+          const created = requireElement<HTMLElement>("#token-created", "developers");
           button.disabled = true;
           error.hidden = true;
-          void createApiKey(authOrigin, name).then((result) => {
+          void mintWorkspaceToken(apiOrigin, { workspace, label, ttlSeconds }).then((result) => {
             button.disabled = false;
             if (!result.ok) {
               error.hidden = false;
               error.textContent = result.message;
               return;
             }
-            if (input instanceof HTMLInputElement) input.value = "";
-            const secret = requireElement<HTMLElement>("#api-key-secret", "developers");
+            if (labelInput instanceof HTMLInputElement) labelInput.value = "";
+            const secret = requireElement<HTMLElement>("#token-secret", "developers");
             const secretCopy = requireElement<HTMLButtonElement>(
-              "#api-key-secret-copy",
+              "#token-secret-copy",
               "developers",
             );
-            const exportsEl = requireElement<HTMLElement>("#api-key-exports", "developers");
+            const exportsEl = requireElement<HTMLElement>("#token-exports", "developers");
             const exportsCopy = requireElement<HTMLButtonElement>(
-              "#api-key-exports-copy",
+              "#token-exports-copy",
               "developers",
             );
-            secret.textContent = result.key;
-            secretCopy.dataset.copy = result.key;
-            const snippet = exportSnippet(result.key);
+            secret.textContent = result.token;
+            secretCopy.dataset.copy = result.token;
+            const snippet = `export UPLOADS_TOKEN=${result.token}`;
             exportsEl.textContent = snippet;
             exportsCopy.dataset.copy = snippet;
             created.hidden = false;
-            void refreshKeys();
+            void refreshTokens();
           });
         },
       );
 
-      requireElement<HTMLElement>("#api-keys", "developers").addEventListener("click", (event) => {
+      const card = requireElement<HTMLElement>("#workspace-tokens", "developers");
+      bindCopyButtons(card);
+      card.addEventListener("click", (event) => {
         void (async () => {
-          const target = event.target as HTMLElement;
-          const copy = target.closest<HTMLButtonElement>("button[data-copy]");
-          if (copy) {
-            const text = copy.dataset.copy ?? "";
-            if (!text) return;
-            try {
-              await navigator.clipboard.writeText(text);
-              const previous = copy.textContent;
-              copy.textContent = "copied ✓";
-              setTimeout(() => {
-                copy.textContent = previous;
-              }, 1500);
-            } catch {
-              // Clipboard blocked — leave the label.
-            }
-            return;
-          }
-          const revoke = target.closest<HTMLButtonElement>("[data-revoke]");
+          const revoke = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-revoke]");
           if (!revoke) return;
           const id = revoke.dataset.revoke;
           if (!id) return;
           revoke.disabled = true;
-          const ok = await deleteApiKey(authOrigin, id);
+          const ok = await revokeIssuedWorkspaceToken(apiOrigin, id);
           if (!ok) {
-            const error = requireElement<HTMLElement>("#api-key-error", "developers");
+            const error = requireElement<HTMLElement>("#token-error", "developers");
             error.hidden = false;
-            error.textContent = "Could not revoke that key.";
+            error.textContent = "Could not revoke that token.";
             revoke.disabled = false;
             return;
           }
-          requireElement<HTMLElement>("#api-key-created", "developers").hidden = true;
-          await refreshKeys();
+          requireElement<HTMLElement>("#token-created", "developers").hidden = true;
+          await refreshTokens();
         })();
       });
 
       onSession(() => {
-        void listOrganizations(authOrigin).then((orgs) => {
-          workspaces = (orgs ?? []).map((org) => org.slug).filter(Boolean);
+        void listMintableWorkspaces(apiOrigin).then((workspaces) => {
+          applyWorkspaces(workspaces ? workspaces.map((row) => row.workspace) : null);
         });
-        void refreshKeys();
+        void refreshTokens();
       });
     });
   </script>

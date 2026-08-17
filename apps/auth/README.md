@@ -10,12 +10,6 @@ The Better Auth Infrastructure dashboard (`@better-auth/infra` `dash()`) mounts
 when `UPL_BETTER_AUTH_API_KEY` or local `BETTER_AUTH_API_KEY` resolves. Point the
 project at `https://auth.uploads.sh`.
 
-User API keys (`@better-auth/api-key`) mint from `/account/developers`. The
-hosted prefix is `upl_sk_`. Self-hosted installs set `AUTH_API_KEY_PREFIX` on
-this worker and the same var on `apps/api` and `apps/mcp` so generated keys
-are recognized. The prefix must not collide with workspace tokens
-(`up_<workspace>_…`).
-
 ## First admin
 
 No one has the global `admin` role (Better Auth's `admin` plugin) until you

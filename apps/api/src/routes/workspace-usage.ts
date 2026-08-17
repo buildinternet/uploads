@@ -30,7 +30,7 @@ function scoped(scope: Parameters<typeof requireScope>[0]): MiddlewareHandler<Du
  * was already proven, existence was never in question.
  */
 const requireToken: MiddlewareHandler<DualAuthVars> = async (c, next) => {
-  // `authSource` is `"d1" | "legacy" | "session" | "api-key"` (see `workspace.ts` /
+  // `authSource` is `"d1" | "legacy" | "session"` (see `workspace.ts` /
   // `dual-workspace-auth.ts`) — the two bearer-token varieties vs. a session
   // cookie. Only a session caller is rejected here.
   if (c.get("authSource") === "session") {

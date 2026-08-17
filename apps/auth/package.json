@@ -13,7 +13,6 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@better-auth/api-key": "1.6.23",
     "@better-auth/infra": "^0.3.6",
     "@better-auth/oauth-provider": "^1.6.23",
     "@better-auth/stripe": "^1.6.23",

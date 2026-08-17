@@ -2,9 +2,8 @@
  * OAuth 2.0 Protected Resource Metadata (RFC 9728).
  *
  * uploads.sh's API and hosted MCP server are OAuth *resource servers*: they
- * accept opaque bearer tokens (`Authorization: Bearer up_<ws>_…` workspace
- * tokens, or user API keys such as `upl_sk_…`) with `files:*` scopes. This
- * document lets an agent discover that scheme
+ * accept opaque per-workspace bearer tokens (`Authorization: Bearer up_<ws>_…`)
+ * with `files:*` scopes. This document lets an agent discover that scheme
  * programmatically. It is served at `/.well-known/oauth-protected-resource`
  * on each resource origin (api.uploads.sh, agents.uploads.sh).
  *
