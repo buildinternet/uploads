@@ -1,12 +1,8 @@
 ---
-import { env } from "cloudflare:workers";
 import AccountLayout from "../../layouts/AccountLayout.astro";
 import { renderDetailListPlaceholderHtml } from "../../lib/workspace-ui";
-import { resolveShowConsoleLinks } from "../../lib/signed-in-page";
 
 export const prerender = false;
-
-const showConsoleLinks = await resolveShowConsoleLinks(env);
 ---
 
 <AccountLayout section="developers">
@@ -124,31 +120,6 @@ const showConsoleLinks = await resolveShowConsoleLinks(env);
         aria-busy="true"
         set:html={renderDetailListPlaceholderHtml()}
       />
-    </div>
-  </section>
-
-  <section class="card settings-page dev-page">
-    <div class="settings-section">
-      <h2>Developers</h2>
-      <p class="settings-note muted">API and CI. Day to day starts with the CLI setup above.</p>
-      <ul class="dev-links">
-        {
-          showConsoleLinks ? (
-            <li>
-              <a href="/console">Console</a>
-              <span class="slug">token-based ops</span>
-            </li>
-          ) : null
-        }
-        <li>
-          <a href="/docs">API docs</a>
-          <span class="slug">endpoints &amp; auth</span>
-        </li>
-        <li>
-          <a href="https://github.com/buildinternet/uploads">GitHub</a>
-          <span class="slug">source &amp; issues</span>
-        </li>
-      </ul>
     </div>
   </section>
 
