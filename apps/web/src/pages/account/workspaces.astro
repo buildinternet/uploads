@@ -13,10 +13,12 @@ export const prerender = false;
 
 const legacyWs = (Astro.url.searchParams.get("ws") ?? "").trim();
 if (isBrowseWorkspace(legacyWs)) {
-  const dest = new URL(`/account/workspaces/${encodeURIComponent(legacyWs)}`, Astro.url);
+  // Same `?to=<tab>` allowlist as the client-side auto-open below.
+  const suffix = Astro.url.searchParams.get("to") === "screenshots" ? "/screenshots" : "";
+  const dest = new URL(`/account/workspaces/${encodeURIComponent(legacyWs)}${suffix}`, Astro.url);
   dest.search = "";
   for (const [key, value] of Astro.url.searchParams) {
-    if (key !== "ws") dest.searchParams.append(key, value);
+    if (key !== "ws" && key !== "to") dest.searchParams.append(key, value);
   }
   return Astro.redirect(`${dest.pathname}${dest.search}${dest.hash}`);
 }
@@ -130,7 +132,12 @@ if (isBrowseWorkspace(legacyWs)) {
           list.removeAttribute("aria-busy");
           status.hidden = false;
           status.textContent = "Opening…";
-          location.replace(`/account/workspaces/${encodeURIComponent(open)}`);
+          // `?to=<tab>` lands the auto-open on a workspace sub-tab (the
+          // header's Screenshots link uses it). Allowlisted so a crafted
+          // query can't steer the redirect anywhere else.
+          const to = new URLSearchParams(location.search).get("to");
+          const suffix = to === "screenshots" ? "/screenshots" : "";
+          location.replace(`/account/workspaces/${encodeURIComponent(open)}${suffix}`);
           return;
         }
 

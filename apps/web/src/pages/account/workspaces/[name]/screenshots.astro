@@ -14,11 +14,13 @@ const workspace = isBrowseWorkspace(nameParam) ? nameParam : "";
 if (!workspace) return Astro.redirect("/account/workspaces");
 
 const tip = {
-  body: "capture with <code>uploads screenshot https://app.example/settings</code> — the page path is recorded automatically and groups shots here.",
+  body: "grouped by metadata: <code>path</code> makes the page groups and <code>repo</code> (or the <code>url</code> host) makes the project headings. Any upload joins with <code>uploads put shot.png --meta path=/settings</code>; <code>uploads screenshot</code> records all of it automatically.",
+  href: "/docs/attach-pull-request-images#put",
+  linkLabel: "how grouping works",
 };
 ---
 
-<WorkspaceLayout workspace={workspace} tip={tip}>
+<WorkspaceLayout workspace={workspace} tip={tip} showQuickActions={false}>
   {
     /* React (dynamic-imported below) replaces this wholesale on mount — no
       HTML-string placeholder builder exists for this page, so the gap before

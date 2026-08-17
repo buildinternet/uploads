@@ -42,9 +42,20 @@ interface Props {
    * gets the normal-width rail.
    */
   wideRail?: boolean;
+  /**
+   * Hide the rail's quick-actions section (GitHub App CTA + invite link) on
+   * tabs where those calls to action are noise (e.g. screenshots).
+   */
+  showQuickActions?: boolean;
 }
 
-const { workspace, showUsage = false, tip, wideRail = false } = Astro.props;
+const {
+  workspace,
+  showUsage = false,
+  tip,
+  wideRail = false,
+  showQuickActions = true,
+} = Astro.props;
 const hasPreview = Astro.slots.has("preview");
 
 const invitePath = `/account/workspaces/${encodeURIComponent(workspace)}/people`;
@@ -103,31 +114,38 @@ const invitePath = `/account/workspaces/${encodeURIComponent(workspace)}/people`
         )
       }
 
-      <section class="ws-rail__section">
-        <div class="ws-rail__head">
-          <span class="ws-rail__label">quick actions</span>
-          <span class="ws-rail__rule"></span>
-        </div>
-        <div class="ws-rail__actions">
-          {
-            /* Server-rendered visible, then hidden by `initWorkspaceRail` when
-              `/v1/workspaces/:name/github/status` reports the App installed
-              (issue #492). Shown on every other outcome — a workspace that has
-              it already sees one extra muted link; one that doesn't would
-              otherwise never learn the App exists. */
-          }
-          <a
-            class="ws-rail__cta"
-            data-rail-github-cta
-            href={GITHUB_APP_INSTALL_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            install github app<span class="ws-rail__cta-go" aria-hidden="true">→</span>
-          </a>
-          <a class="ws-rail__invite" href={invitePath}>invite teammate</a>
-        </div>
-      </section>
+      {
+        showQuickActions && (
+          <section class="ws-rail__section">
+            <div class="ws-rail__head">
+              <span class="ws-rail__label">quick actions</span>
+              <span class="ws-rail__rule" />
+            </div>
+            <div class="ws-rail__actions">
+              {/* Server-rendered visible, then hidden by `initWorkspaceRail` when
+                `/v1/workspaces/:name/github/status` reports the App installed
+                (issue #492). Shown on every other outcome — a workspace that has
+                it already sees one extra muted link; one that doesn't would
+                otherwise never learn the App exists. */}
+              <a
+                class="ws-rail__cta"
+                data-rail-github-cta
+                href={GITHUB_APP_INSTALL_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                install github app
+                <span class="ws-rail__cta-go" aria-hidden="true">
+                  →
+                </span>
+              </a>
+              <a class="ws-rail__invite" href={invitePath}>
+                invite teammate
+              </a>
+            </div>
+          </section>
+        )
+      }
     </div>
   </Fragment>
 </AccountLayout>
