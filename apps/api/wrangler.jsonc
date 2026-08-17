@@ -234,4 +234,89 @@
       "bucket_name": "uploads-default",
     },
   ],
+  // Workers Previews (`npx wrangler preview` from a branch). A Preview starts
+  // from a copy of this config, so everything stateful is re-pointed here —
+  // without this block a preview of an API branch would write to production
+  // KV/D1/R2. Keys not listed inherit the production values above and are
+  // safe to share: BROWSER/MEDIA (metered, stateless), FLAGS (read-only),
+  // EMAIL, the rate limiters, and the AUTH service binding — service bindings
+  // always call the bound Worker's *production* deployment, so a preview
+  // verifies sessions against real auth. Cron triggers and queue consumers
+  // never run in Previews. Secrets start unset per Preview (set base values
+  // with `wrangler preview secret put <NAME>`); every secret-gated path here
+  // fails closed or degrades, so an unset secret means a 401/no-op, not a
+  // fallback to production credentials.
+  //
+  // One-time setup before the first preview deploy — create the preview-tier
+  // resources and paste the ids over the TODO placeholders below (apps/mcp's
+  // previews block shares REGISTRY and DB — update it with the same ids):
+  //   wrangler kv namespace create UPLOADS_REGISTRY_PREVIEW
+  //   wrangler d1 create uploads-preview
+  //   wrangler d1 migrations apply uploads-preview --remote -c apps/api/wrangler.jsonc
+  //   wrangler r2 bucket create uploads-preview-default
+  //   wrangler queues create uploads-github-webhook-preview
+  "previews": {
+    "vars": {
+      "WEB_ORIGIN": "https://uploads.sh",
+      // Not "production": previews keep dev-only CORS origin reflection for
+      // loopback origins, which only ever reflects localhost/127.0.0.1.
+      "ENVIRONMENT": "preview",
+      "GITHUB_APP_ID": "4346270",
+      "GITHUB_APP_HOME_INSTALLATION_ID": "147814297",
+      "CLOUDFLARE_ACCOUNT_ID": "b082600d280d44fd5da3501bc1bffe2f",
+    },
+    "kv_namespaces": [
+      // Isolated: workspace records are the product's core state.
+      {
+        "binding": "REGISTRY",
+        "id": "TODO-paste-id-from-kv-namespace-create-UPLOADS_REGISTRY_PREVIEW",
+      },
+      // Shared with production on purpose: a TTL'd cache of public GitHub
+      // data (titles, logins) — sharing is harmless and keeps previews warm.
+      {
+        "binding": "GITHUB_CACHE",
+        "id": "8076084dae50495ab883ec79c1c5968f",
+      },
+    ],
+    "d1_databases": [
+      {
+        "binding": "DB",
+        "database_name": "uploads-preview",
+        "database_id": "TODO-paste-id-from-d1-create-uploads-preview",
+        "migrations_dir": "migrations",
+      },
+    ],
+    "r2_buckets": [
+      // buildinternet-dev is already the dev bucket; only the default-tier
+      // bucket needs a preview twin so preview uploads never land in
+      // uploads-default.
+      {
+        "binding": "UPLOADS",
+        "bucket_name": "buildinternet-dev",
+      },
+      {
+        "binding": "UPLOADS_DEFAULT",
+        "bucket_name": "uploads-preview-default",
+      },
+    ],
+    // Producer only — Previews cannot run queue consumers, so preview-enqueued
+    // messages simply expire. GitHub webhooks point at production anyway; this
+    // exists so a preview's enqueue path works without touching the prod queue.
+    "queues": {
+      "producers": [
+        {
+          "binding": "GITHUB_WEBHOOK_QUEUE",
+          "queue": "uploads-github-webhook-preview",
+        },
+      ],
+    },
+    // Datasets auto-create on first write; keeps preview traffic out of the
+    // adoption metrics the /admin/metrics rollups read.
+    "analytics_engine_datasets": [
+      {
+        "binding": "ANALYTICS",
+        "dataset": "uploads_adoption_preview",
+      },
+    ],
+  },
 }

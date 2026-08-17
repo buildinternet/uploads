@@ -103,4 +103,47 @@
       "bucket_name": "uploads-default",
     },
   ],
+  // Workers Previews (`npx wrangler preview` from a branch). Mirrors
+  // apps/api's previews block — the two workers must resolve the same
+  // registry, database, and buckets at the preview tier exactly as they do in
+  // production, so the TODO ids below are the SAME ids pasted into
+  // apps/api/wrangler.jsonc (create the resources once, from that file's
+  // instructions). The AUTH service binding inherits from above and always
+  // calls production uploads-auth; the rate limiter inherits too.
+  "previews": {
+    "vars": {
+      "WEB_ORIGIN": "https://uploads.sh",
+      "AUTH_ORIGIN": "https://auth.uploads.sh",
+      "GITHUB_APP_ID": "4346270",
+      "GITHUB_APP_HOME_INSTALLATION_ID": "147814297",
+    },
+    "kv_namespaces": [
+      {
+        "binding": "REGISTRY",
+        "id": "TODO-paste-id-from-kv-namespace-create-UPLOADS_REGISTRY_PREVIEW",
+      },
+      // Shared with production on purpose — see apps/api's previews block.
+      {
+        "binding": "GITHUB_CACHE",
+        "id": "8076084dae50495ab883ec79c1c5968f",
+      },
+    ],
+    "d1_databases": [
+      {
+        "binding": "DB",
+        "database_name": "uploads-preview",
+        "database_id": "TODO-paste-id-from-d1-create-uploads-preview",
+      },
+    ],
+    "r2_buckets": [
+      {
+        "binding": "UPLOADS",
+        "bucket_name": "buildinternet-dev",
+      },
+      {
+        "binding": "UPLOADS_DEFAULT",
+        "bucket_name": "uploads-preview-default",
+      },
+    ],
+  },
 }

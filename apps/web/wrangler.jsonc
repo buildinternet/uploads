@@ -57,4 +57,20 @@
       "custom_domain": true,
     },
   ],
+  // Workers Previews (`npx wrangler preview` from a branch — branch-scoped
+  // environments, distinct from the legacy `preview_urls` version URLs above).
+  // uploads-web holds no state of its own, so previews serve the branch's UI
+  // against production api/auth — session auth still applies, and that is
+  // exactly what UI review wants. Vars are spelled out in full rather than
+  // inherited so a preview's environment is completely described here. For a
+  // branch that spans apps, override these origins per-preview (dashboard →
+  // the Preview's settings) to point at the sibling workers' preview URLs.
+  // Keys not listed (assets, FLAGS, observability) carry over unchanged.
+  "previews": {
+    "vars": {
+      "UPLOADS_API_ORIGIN": "https://api.uploads.sh",
+      "UPLOADS_AUTH_ORIGIN": "https://auth.uploads.sh",
+      "CONSOLE_MODE": "linked-only",
+    },
+  },
 }

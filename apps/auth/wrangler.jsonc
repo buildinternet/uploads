@@ -126,4 +126,34 @@
       },
     ],
   },
+  // Workers Previews (`npx wrangler preview` from a branch). Deliberately
+  // narrow for this worker: BETTER_AUTH_URL must equal the preview's own
+  // origin, which is only known after the first preview deploy prints it —
+  // override it per-preview (dashboard → the Preview's settings) before
+  // exercising auth flows. The GitHub OAuth app only registers production
+  // callback URLs, so social login cannot work on a preview; magic-link and
+  // session flows can once BETTER_AUTH_URL is set. Auth state must never be
+  // shared, so previews get their own D1. Secrets Store bindings and EMAIL
+  // inherit from above — note a preview CAN send real mail from
+  // noreply@uploads.sh, but only explicit flows (magic links) do.
+  //
+  // One-time setup:
+  //   wrangler d1 create uploads-auth-preview
+  //   wrangler d1 migrations apply uploads-auth-preview --remote -c apps/auth/wrangler.jsonc
+  "previews": {
+    "vars": {
+      "BETTER_AUTH_URL": "https://auth.uploads.sh",
+      "WEB_ORIGIN": "https://uploads.sh",
+      "ENVIRONMENT": "preview",
+      "STRIPE_CHECKOUT_TOS_CONSENT": "true",
+    },
+    "d1_databases": [
+      {
+        "binding": "DB",
+        "database_name": "uploads-auth-preview",
+        "database_id": "TODO-paste-id-from-d1-create-uploads-auth-preview",
+        "migrations_dir": "migrations",
+      },
+    ],
+  },
 }

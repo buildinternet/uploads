@@ -193,6 +193,13 @@ migrations when `apps/api/migrations/**` changes. Manual deploys
 `deploy:auth`) need `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` in
 `.env`. Use `pnpm run deploy`, not bare `pnpm deploy` — that is pnpm's built-in.
 
+For a branch environment, run `npx wrangler preview` from the app's directory
+(Workers Previews; enabled on the account). Each app's `wrangler.jsonc` has a
+`previews` block that re-points stateful bindings at preview-tier resources —
+previews never touch production KV/D1/R2. Preview secrets start unset and
+every secret-gated path fails closed. Cron triggers, queue consumers, and
+service-binding _targets_ stay production-only.
+
 Full setup is in [docs/deploy.md](docs/deploy.md); the operator runbook is
 [docs/ops.md](docs/ops.md).
 
