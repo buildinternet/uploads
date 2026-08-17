@@ -62,8 +62,9 @@ npx wrangler preview        # preview name defaults to the git branch
 
 The output prints two URLs: the Preview URL (tracks the latest deployment for
 that name) and an immutable per-deployment URL. Clean up with
-`wrangler preview delete <name>` — the account caps active previews per
-worker, evicting the least-recently deployed first.
+`wrangler preview delete --name <name> -y` (the name is a flag, not a
+positional — bare `delete <name>` prints help) — the account caps active
+previews per worker, evicting the least-recently deployed first.
 
 **Schema-changing branches.** The shared `uploads-preview` D1 serves every
 open preview, so applying a branch's migration migrates it for all of them.
