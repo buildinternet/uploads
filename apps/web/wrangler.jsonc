@@ -57,4 +57,41 @@
       "custom_domain": true,
     },
   ],
+  // Workers Previews (`npx wrangler preview` from a branch — branch-scoped
+  // environments, distinct from the legacy `preview_urls` version URLs above).
+  // uploads-web holds no state of its own, so previews serve the branch's UI
+  // against production api/auth — session auth still applies, and that is
+  // exactly what UI review wants. Bindings do NOT inherit from the production
+  // config — a preview gets only what this block lists (wrangler warns about
+  // "diverged" bindings otherwise) — so vars and bindings are spelled out in
+  // full. For a branch that spans apps, override these origins per-preview
+  // (dashboard → the Preview's settings) to point at the sibling workers'
+  // preview URLs.
+  "previews": {
+    "vars": {
+      "UPLOADS_API_ORIGIN": "https://api.uploads.sh",
+      "UPLOADS_AUTH_ORIGIN": "https://auth.uploads.sh",
+      "CONSOLE_MODE": "linked-only",
+    },
+    // The Astro Cloudflare adapter's generated config (dist/server/wrangler.json,
+    // via the .wrangler/deploy redirect) injects an id-less SESSION KV binding.
+    // Wrangler normally auto-provisions an omitted id and writes it back to
+    // the config file, but a generated build artifact has no user config to
+    // write back to, so the provisioning never engages and the preview deploy
+    // fails with error 10021. Previews therefore pin an explicit,
+    // preview-only session namespace here.
+    "kv_namespaces": [
+      {
+        "binding": "SESSION",
+        "id": "e72efe1ae34b48aea469481595f38c3d",
+      },
+    ],
+    // Same read-only flag app as production.
+    "flagship": [
+      {
+        "binding": "FLAGS",
+        "app_id": "8371bfe7-9767-4b4d-b75a-37b94d2724f7",
+      },
+    ],
+  },
 }

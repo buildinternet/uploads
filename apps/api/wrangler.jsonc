@@ -234,4 +234,161 @@
       "bucket_name": "uploads-default",
     },
   ],
+  // Workers Previews (`npx wrangler preview` from a branch). Bindings do NOT
+  // inherit from the production config — a preview gets only what this block
+  // lists — so everything is spelled out: stateful bindings re-pointed at
+  // preview-tier resources (without that, a preview of an API branch would
+  // write to production KV/D1/R2), and the stateless/shared-safe ones
+  // repeated verbatim: BROWSER/MEDIA (metered, stateless), FLAGS (read-only),
+  // EMAIL, the rate limiters, and the AUTH service binding — service bindings
+  // always call the bound Worker's *production* deployment, so a preview
+  // verifies sessions against real auth. Cron triggers and queue consumers
+  // never run in Previews. Secrets start unset per Preview (set base values
+  // with `wrangler preview secret put <NAME>`); every secret-gated path here
+  // fails closed or degrades, so an unset secret means a 401/no-op, not a
+  // fallback to production credentials.
+  //
+  // One-time setup before the first preview deploy — create the preview-tier
+  // resources and paste the ids below (apps/mcp's previews block shares
+  // REGISTRY and DB — keep it on the same ids):
+  //   wrangler kv namespace create UPLOADS_REGISTRY_PREVIEW
+  //   wrangler d1 create uploads-preview
+  //   wrangler r2 bucket create uploads-preview-default
+  //   wrangler queues create uploads-github-webhook-preview
+  // Migrations for the preview D1 go through wrangler.preview.jsonc — the
+  // `d1 migrations` command cannot see databases declared inside `previews`:
+  //   wrangler d1 migrations apply uploads-preview --remote -c apps/api/wrangler.preview.jsonc
+  "previews": {
+    "vars": {
+      "WEB_ORIGIN": "https://uploads.sh",
+      // Not "production": previews keep dev-only CORS origin reflection for
+      // loopback origins, which only ever reflects localhost/127.0.0.1.
+      "ENVIRONMENT": "preview",
+      "GITHUB_APP_ID": "4346270",
+      "GITHUB_APP_HOME_INSTALLATION_ID": "147814297",
+      "CLOUDFLARE_ACCOUNT_ID": "b082600d280d44fd5da3501bc1bffe2f",
+    },
+    "kv_namespaces": [
+      // Isolated: workspace records are the product's core state.
+      {
+        "binding": "REGISTRY",
+        "id": "7bb5509c12f54fd7b238c75726e63c09",
+      },
+      // Shared with production on purpose: a TTL'd cache of public GitHub
+      // data (titles, logins) — sharing is harmless and keeps previews warm.
+      {
+        "binding": "GITHUB_CACHE",
+        "id": "8076084dae50495ab883ec79c1c5968f",
+      },
+    ],
+    "d1_databases": [
+      {
+        "binding": "DB",
+        "database_name": "uploads-preview",
+        "database_id": "b8c82095-b471-4e3a-8634-56e0861e43f1",
+        "migrations_dir": "migrations",
+      },
+    ],
+    "r2_buckets": [
+      // buildinternet-dev is already the dev bucket; only the default-tier
+      // bucket needs a preview twin so preview uploads never land in
+      // uploads-default.
+      {
+        "binding": "UPLOADS",
+        "bucket_name": "buildinternet-dev",
+      },
+      {
+        "binding": "UPLOADS_DEFAULT",
+        "bucket_name": "uploads-preview-default",
+      },
+    ],
+    // Producer only — Previews cannot run queue consumers, so preview-enqueued
+    // messages simply expire. GitHub webhooks point at production anyway; this
+    // exists so a preview's enqueue path works without touching the prod queue.
+    "queues": {
+      "producers": [
+        {
+          "binding": "GITHUB_WEBHOOK_QUEUE",
+          "queue": "uploads-github-webhook-preview",
+        },
+      ],
+    },
+    // Datasets auto-create on first write; keeps preview traffic out of the
+    // adoption metrics the /admin/metrics rollups read.
+    "analytics_engine_datasets": [
+      {
+        "binding": "ANALYTICS",
+        "dataset": "uploads_adoption_preview",
+      },
+    ],
+    // Everything below repeats the production bindings verbatim — stateless,
+    // account-level, or per-colo, so sharing is safe. See the notes on the
+    // top-level entries for what each does.
+    "browser": {
+      "binding": "BROWSER",
+      "remote": true,
+    },
+    "media": {
+      "binding": "MEDIA",
+      "remote": true,
+    },
+    "flagship": [
+      {
+        "binding": "FLAGS",
+        "app_id": "8371bfe7-9767-4b4d-b75a-37b94d2724f7",
+      },
+    ],
+    "send_email": [{ "name": "EMAIL" }],
+    "services": [
+      {
+        "binding": "AUTH",
+        "service": "uploads-auth",
+      },
+    ],
+    // Previews declare rate limiters via the dedicated `ratelimits` field
+    // (same name/namespace_id/simple values as the production `unsafe`
+    // entries above); the runtime binding name comes from `name`.
+    "ratelimits": [
+      {
+        "name": "WRITE_LIMITER",
+        "namespace_id": "1001",
+        "simple": {
+          "limit": 60,
+          "period": 60,
+        },
+      },
+      {
+        "name": "INVITE_LIMITER",
+        "namespace_id": "1002",
+        "simple": {
+          "limit": 30,
+          "period": 60,
+        },
+      },
+      {
+        "name": "WS_CREATE_LIMITER",
+        "namespace_id": "1003",
+        "simple": {
+          "limit": 3,
+          "period": 60,
+        },
+      },
+      {
+        "name": "RENDER_LIMITER",
+        "namespace_id": "1004",
+        "simple": {
+          "limit": 10,
+          "period": 60,
+        },
+      },
+      {
+        "name": "POSTER_LIMITER",
+        "namespace_id": "1005",
+        "simple": {
+          "limit": 30,
+          "period": 60,
+        },
+      },
+    ],
+  },
 }

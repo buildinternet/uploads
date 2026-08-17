@@ -103,4 +103,66 @@
       "bucket_name": "uploads-default",
     },
   ],
+  // Workers Previews (`npx wrangler preview` from a branch). Mirrors
+  // apps/api's previews block — the two workers must resolve the same
+  // registry, database, and buckets at the preview tier exactly as they do in
+  // production, so the ids below are the SAME ids as apps/api's previews
+  // block (the resources are created once, from that file's instructions).
+  // Bindings do NOT inherit from the production config — a preview gets only
+  // what this block lists — so the AUTH service binding (always calls
+  // production uploads-auth) and the rate limiter are repeated verbatim.
+  "previews": {
+    "vars": {
+      "WEB_ORIGIN": "https://uploads.sh",
+      "AUTH_ORIGIN": "https://auth.uploads.sh",
+      "GITHUB_APP_ID": "4346270",
+      "GITHUB_APP_HOME_INSTALLATION_ID": "147814297",
+    },
+    "kv_namespaces": [
+      {
+        "binding": "REGISTRY",
+        "id": "7bb5509c12f54fd7b238c75726e63c09",
+      },
+      // Shared with production on purpose — see apps/api's previews block.
+      {
+        "binding": "GITHUB_CACHE",
+        "id": "8076084dae50495ab883ec79c1c5968f",
+      },
+    ],
+    "d1_databases": [
+      {
+        "binding": "DB",
+        "database_name": "uploads-preview",
+        "database_id": "b8c82095-b471-4e3a-8634-56e0861e43f1",
+      },
+    ],
+    "r2_buckets": [
+      {
+        "binding": "UPLOADS",
+        "bucket_name": "buildinternet-dev",
+      },
+      {
+        "binding": "UPLOADS_DEFAULT",
+        "bucket_name": "uploads-preview-default",
+      },
+    ],
+    "services": [
+      {
+        "binding": "AUTH",
+        "service": "uploads-auth",
+      },
+    ],
+    // Previews declare rate limiters via the dedicated `ratelimits` field
+    // (same values as the production `unsafe` entry above).
+    "ratelimits": [
+      {
+        "name": "WRITE_LIMITER",
+        "namespace_id": "1002",
+        "simple": {
+          "limit": 60,
+          "period": 60,
+        },
+      },
+    ],
+  },
 }

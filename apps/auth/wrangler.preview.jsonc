@@ -1,0 +1,18 @@
+// Companion config for the preview-tier D1 only. `wrangler d1 migrations`
+// resolves databases from top-level `d1_databases` and cannot see the one
+// declared inside the main config's `previews` block, so migrations for the
+// preview database run against this file instead:
+//   npx wrangler d1 migrations apply uploads-auth-preview --remote -c apps/auth/wrangler.preview.jsonc
+// Keep database_id in sync with the `previews` block in wrangler.jsonc.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "uploads-auth",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "uploads-auth-preview",
+      "database_id": "8f581b6a-6238-4153-a846-a94b83cac86c",
+      "migrations_dir": "migrations",
+    },
+  ],
+}
