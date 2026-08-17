@@ -1349,6 +1349,52 @@ async function captureStdout(fn: () => Promise<unknown>): Promise<string> {
   }
 }
 
+describe("runPut no-project-context nudge (#692 follow-up)", () => {
+  it("fires on stderr for a path-tagged localhost upload outside a git repo", async () => {
+    const { client } = fakeClient();
+    const stderr = await captureStderr(() =>
+      runPut(
+        { ...ctxWith(client), quiet: false },
+        [tmpFile(), "--meta", "path=/admin", "--meta", "url=http://localhost:3000/admin"],
+        false,
+        nudgeRunner({}), // every git/gh stage throws → no repo context
+      ),
+    );
+    expect(stderr).toContain(
+      'note: no repo detected — the screenshots page will group this under "local dev"',
+    );
+  });
+
+  it("stays silent without path meta, and under --no-git", async () => {
+    const { client } = fakeClient();
+    const noPath = await captureStderr(() =>
+      runPut(
+        { ...ctxWith(client), quiet: false },
+        [tmpFile(), "--meta", "url=http://localhost:3000/admin"],
+        false,
+        nudgeRunner({}),
+      ),
+    );
+    expect(noPath).not.toContain("no repo detected");
+    const noGit = await captureStderr(() =>
+      runPut(
+        { ...ctxWith(client), quiet: false },
+        [
+          tmpFile(),
+          "--no-git",
+          "--meta",
+          "path=/admin",
+          "--meta",
+          "url=http://localhost:3000/admin",
+        ],
+        false,
+        nudgeRunner({}),
+      ),
+    );
+    expect(noGit).not.toContain("no repo detected");
+  });
+});
+
 describe("runPut bare-put nudge (issue #393)", () => {
   const allClear = {
     branch: "feature/thing",

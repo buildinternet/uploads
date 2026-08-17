@@ -43,15 +43,30 @@ export function lastUpdatedLabel(iso: string, now: Date): string {
 export function projectLabelFromItemMeta(meta: Record<string, string> | undefined): string {
   if (meta?.repo) return meta.repo;
   if (meta?.["gh.repo"]) return meta["gh.repo"];
+  let localOrigin = false;
   if (meta?.url) {
     try {
-      const host = new URL(meta.url).host;
-      if (host) return host;
+      const parsed = new URL(meta.url);
+      if (isLocalHostname(parsed.hostname)) localOrigin = true;
+      else if (parsed.host) return parsed.host;
     } catch {
       // unparseable url is just "no url"
     }
   }
-  return "Other";
+  if (meta?.app) return meta.app;
+  return localOrigin ? "local dev" : "Other";
+}
+
+/** Hosts that identify a dev machine, not an app: any port counts the same. */
+function isLocalHostname(hostname: string): boolean {
+  const bare = hostname.toLowerCase();
+  return (
+    bare === "localhost" ||
+    bare.endsWith(".localhost") ||
+    bare === "127.0.0.1" ||
+    bare === "0.0.0.0" ||
+    bare === "[::1]"
+  );
 }
 
 /**

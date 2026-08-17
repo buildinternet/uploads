@@ -194,6 +194,27 @@ describe("groupObjectsByPath", () => {
     expect(result.projects).toEqual([{ label: "Other", count: 3, lastUpdated: at(3) }]);
   });
 
+  it("reads app metadata so local-origin shots group by app, not host (#692)", async () => {
+    const result = await groupObjectsByPath(
+      timedDb([
+        {
+          workspace: "acme",
+          key: "a.png",
+          meta: { path: "/x", url: "http://localhost:3000/x", app: "web" },
+          at: at(1),
+        },
+        {
+          workspace: "acme",
+          key: "b.png",
+          meta: { path: "/x", url: "http://localhost:3000/x" },
+          at: at(2),
+        },
+      ]),
+      "acme",
+    );
+    expect(result.groups.map((g) => g.project)).toEqual(["local dev", "web"]);
+  });
+
   it("caps recent keys per group at BY_PATH_RECENT_LIMIT but counts all", async () => {
     const rows = Array.from({ length: BY_PATH_RECENT_LIMIT + 2 }, (_, i) => ({
       workspace: "acme",
@@ -293,10 +314,22 @@ describe("projectLabelFromMeta", () => {
     );
   });
   it("falls back to the url host, keeping the port", () => {
-    expect(projectLabelFromMeta({ url: "https://uploads.localhost/settings" })).toBe(
-      "uploads.localhost",
+    expect(projectLabelFromMeta({ url: "https://staging.x.dev:8443/p" })).toBe(
+      "staging.x.dev:8443",
     );
-    expect(projectLabelFromMeta({ url: "http://localhost:3000/admin" })).toBe("localhost:3000");
+  });
+  it("labels context-less local origins 'local dev' instead of the raw host (#692)", () => {
+    expect(projectLabelFromMeta({ url: "http://localhost:3000/admin" })).toBe("local dev");
+    expect(projectLabelFromMeta({ url: "https://uploads.localhost/settings" })).toBe("local dev");
+    expect(projectLabelFromMeta({ url: "http://127.0.0.1:8788/x" })).toBe("local dev");
+    expect(projectLabelFromMeta({ url: "http://0.0.0.0:4321/" })).toBe("local dev");
+    expect(projectLabelFromMeta({ url: "http://[::1]:3000/" })).toBe("local dev");
+  });
+  it("app metadata names local-origin and url-less groups, but never outranks a real host", () => {
+    expect(projectLabelFromMeta({ url: "http://localhost:3000/admin", app: "web" })).toBe("web");
+    expect(projectLabelFromMeta({ app: "ios" })).toBe("ios");
+    expect(projectLabelFromMeta({ url: "https://x.dev/p", app: "web" })).toBe("x.dev");
+    expect(projectLabelFromMeta({ repo: "acme/web", app: "ios" })).toBe("acme/web");
   });
   it("returns Other for missing or unparseable url", () => {
     expect(projectLabelFromMeta({})).toBe("Other");

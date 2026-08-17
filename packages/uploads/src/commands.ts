@@ -71,6 +71,7 @@ import {
   type CommandRunner,
 } from "./github-gh.js";
 import { deriveRepoFromGit, deriveRepoSlugFromGit } from "./keys.js";
+import { noProjectContextNudge } from "./project-context-nudge.js";
 import { resolvePutPrefix } from "./destinations.js";
 import {
   optimizeImageForUpload,
@@ -2403,6 +2404,13 @@ export async function runPut(
     if (slug) metadata = mergeDerivedMeta(metadata, { repo: slug });
   }
 
+  // #692 follow-up: a path-tagged upload with no repo/gh.repo/app context and
+  // no real (non-local) origin lands in the screenshots page's fallback
+  // buckets — one advisory line at the moment the context went missing.
+  // --no-git is an explicit choice, so it suppresses the nudge too.
+  const contextNudge =
+    !ctx.quiet && !defaults.noNudge && !noGit ? noProjectContextNudge(metadata) : undefined;
+
   // Bare-put nudge (issue #393): only relevant when staging didn't take over
   // — once `stagingTarget` resolves, staging IS the upgrade the nudge used to
   // point at, so this is skipped entirely rather than firing redundantly.
@@ -2493,7 +2501,7 @@ export async function runPut(
   // warning); stderr prints the nudge/staging-note and binding-warning lines
   // independently, below. pathHint only ever fires on the ghTarget path, so
   // it never competes with the other three.
-  const jsonHint = nudge ?? bindingWarning ?? stagingNote ?? pathHint;
+  const jsonHint = nudge ?? bindingWarning ?? stagingNote ?? pathHint ?? contextNudge;
 
   type GalleryOutcome = {
     id: string;
@@ -2591,6 +2599,7 @@ export async function runPut(
       if (stagingNote) process.stderr.write(`${stagingNote}\n`);
       if (bindingWarning) process.stderr.write(`${bindingWarning}\n`);
       if (pathHint) process.stderr.write(`${pathHint}\n`);
+      if (contextNudge) process.stderr.write(`${contextNudge}\n`);
     }
     return failures.length === 0 && !galleryHadError ? 0 : 1;
   }
@@ -2654,6 +2663,7 @@ export async function runPut(
   if (stagingNote && format !== "json") process.stderr.write(`${stagingNote}\n`);
   if (bindingWarning && format !== "json") process.stderr.write(`${bindingWarning}\n`);
   if (pathHint && format !== "json") process.stderr.write(`${pathHint}\n`);
+  if (contextNudge && format !== "json") process.stderr.write(`${contextNudge}\n`);
 
   return gallery?.error ? 1 : 0;
 }

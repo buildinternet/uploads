@@ -15,7 +15,7 @@ const workspace = isBrowseWorkspace(nameParam) ? nameParam : "";
 if (!workspace) return Astro.redirect("/account/workspaces");
 
 const tip = {
-  body: "groups come from metadata: <code>path</code> for pages, <code>repo</code> or the URL host for projects.",
+  body: "groups come from metadata: <code>path</code> for pages, <code>repo</code>, <code>app</code>, or the URL host for projects.",
   href: "/docs/attach-pull-request-images#put",
   linkLabel: "how grouping works",
 };

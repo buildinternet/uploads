@@ -815,6 +815,59 @@ describe("runScreenshot auto branch staging (issue #469 lever 1)", () => {
     expect(puts[0]?.key).toBeUndefined();
   });
 
+  describe("no-project-context nudge (#692 follow-up)", () => {
+    it("fires on stderr for a localhost capture with no derivable repo", async () => {
+      const { client } = fakeClient();
+      const stderr = await captureStderr(() =>
+        runScreenshot(
+          { ...ctxWith(client), quiet: false },
+          ["http://localhost:3000/admin"],
+          false,
+          noRun, // git derive throws → no repo context
+          fakeCapture("remote"),
+        ),
+      );
+      expect(stderr).toContain(
+        'note: no repo detected — the screenshots page will group this under "local dev"',
+      );
+      expect(stderr).toContain("--app <name>");
+    });
+
+    it("stays silent when --app supplies context, under --no-git, and in quiet mode", async () => {
+      const { client } = fakeClient();
+      const withApp = await captureStderr(() =>
+        runScreenshot(
+          { ...ctxWith(client), quiet: false },
+          ["http://localhost:3000/admin", "--app", "web"],
+          false,
+          noRun,
+          fakeCapture("remote"),
+        ),
+      );
+      expect(withApp).not.toContain("no repo detected");
+      const noGit = await captureStderr(() =>
+        runScreenshot(
+          { ...ctxWith(client), quiet: false },
+          ["http://localhost:3000/admin", "--no-git"],
+          false,
+          noRun,
+          fakeCapture("remote"),
+        ),
+      );
+      expect(noGit).not.toContain("no repo detected");
+      const quiet = await captureStderr(() =>
+        runScreenshot(
+          ctxWith(client),
+          ["http://localhost:3000/admin"],
+          false,
+          noRun,
+          fakeCapture("remote"),
+        ),
+      );
+      expect(quiet).not.toContain("no repo detected");
+    });
+  });
+
   describe("staging note: wording, suppression, JSON hint", () => {
     it("fires the exact staging-note wording on stderr", async () => {
       const { client } = fakeClient();

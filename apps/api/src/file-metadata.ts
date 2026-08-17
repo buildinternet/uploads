@@ -694,7 +694,8 @@ export async function groupObjectsByPath(
       `SELECT p.meta_value AS path, p.object_key AS object_key, p.updated_at AS updated_at,
               (SELECT meta_value FROM file_metadata m WHERE m.workspace = p.workspace AND m.object_key = p.object_key AND m.meta_key = 'repo') AS repo,
               (SELECT meta_value FROM file_metadata m WHERE m.workspace = p.workspace AND m.object_key = p.object_key AND m.meta_key = 'gh.repo') AS gh_repo,
-              (SELECT meta_value FROM file_metadata m WHERE m.workspace = p.workspace AND m.object_key = p.object_key AND m.meta_key = 'url') AS url
+              (SELECT meta_value FROM file_metadata m WHERE m.workspace = p.workspace AND m.object_key = p.object_key AND m.meta_key = 'url') AS url,
+              (SELECT meta_value FROM file_metadata m WHERE m.workspace = p.workspace AND m.object_key = p.object_key AND m.meta_key = 'app') AS app
        FROM file_metadata p
        WHERE p.workspace = ? AND p.meta_key = 'path'
        ORDER BY p.updated_at DESC, p.object_key ASC`,
@@ -707,13 +708,19 @@ export async function groupObjectsByPath(
       repo: string | null;
       gh_repo: string | null;
       url: string | null;
+      app: string | null;
     }>();
 
   const groups: PathGroup[] = [];
   const byKey = new Map<string, PathGroup>();
   let truncated = false;
   for (const row of result.results) {
-    const project = projectLabelFromMeta({ repo: row.repo, ghRepo: row.gh_repo, url: row.url });
+    const project = projectLabelFromMeta({
+      repo: row.repo,
+      ghRepo: row.gh_repo,
+      url: row.url,
+      app: row.app,
+    });
     const groupKey = `${project}\0${row.path}`;
     let group = byKey.get(groupKey);
     if (!group) {
@@ -752,7 +759,10 @@ export async function groupObjectsByPath(
 /**
  * Project label for the screenshots page (spec:
  * docs/superpowers/specs/2026-08-11-screenshots-project-grouping-design.md).
- * Coalesces repo → gh.repo → url origin → "Other". Display/grouping only —
+ * Coalesces repo → gh.repo → url origin → app → "Other". Local origins
+ * (localhost and friends) never label a group by host — the host says which
+ * dev server was up, not which app it was (#692) — so they fall through to
+ * `app` metadata, else a shared "local dev" bucket. Display/grouping only —
  * never stored. Mirrored (with identical cases) by
  * apps/web/src/lib/workspace-screenshots.ts.
  */
@@ -760,18 +770,34 @@ export function projectLabelFromMeta(meta: {
   repo?: string | null;
   ghRepo?: string | null;
   url?: string | null;
+  app?: string | null;
 }): string {
   if (meta.repo) return meta.repo;
   if (meta.ghRepo) return meta.ghRepo;
+  let localOrigin = false;
   if (meta.url) {
     try {
-      const host = new URL(meta.url).host;
-      if (host) return host;
+      const parsed = new URL(meta.url);
+      if (isLocalHostname(parsed.hostname)) localOrigin = true;
+      else if (parsed.host) return parsed.host;
     } catch {
       // fall through — an unparseable url is just "no url"
     }
   }
-  return "Other";
+  if (meta.app) return meta.app;
+  return localOrigin ? "local dev" : "Other";
+}
+
+/** Hosts that identify a dev machine, not an app: any port counts the same. */
+export function isLocalHostname(hostname: string): boolean {
+  const bare = hostname.toLowerCase();
+  return (
+    bare === "localhost" ||
+    bare.endsWith(".localhost") ||
+    bare === "127.0.0.1" ||
+    bare === "0.0.0.0" ||
+    bare === "[::1]"
+  );
 }
 
 export type FacetKeysResult = {

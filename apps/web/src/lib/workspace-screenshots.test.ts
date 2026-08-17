@@ -95,7 +95,26 @@ describe("projectLabelFromItemMeta", () => {
       projectLabelFromItemMeta({ repo: "acme/web", "gh.repo": "acme/api", url: "https://x.dev/p" }),
     ).toBe("acme/web");
     expect(projectLabelFromItemMeta({ "gh.repo": "acme/api" })).toBe("acme/api");
-    expect(projectLabelFromItemMeta({ url: "http://localhost:3000/admin" })).toBe("localhost:3000");
+    expect(projectLabelFromItemMeta({ url: "https://staging.x.dev:8443/p" })).toBe(
+      "staging.x.dev:8443",
+    );
+  });
+  it("labels context-less local origins 'local dev' instead of the raw host (#692)", () => {
+    expect(projectLabelFromItemMeta({ url: "http://localhost:3000/admin" })).toBe("local dev");
+    expect(projectLabelFromItemMeta({ url: "https://uploads.localhost/settings" })).toBe(
+      "local dev",
+    );
+    expect(projectLabelFromItemMeta({ url: "http://127.0.0.1:8788/x" })).toBe("local dev");
+    expect(projectLabelFromItemMeta({ url: "http://0.0.0.0:4321/" })).toBe("local dev");
+    expect(projectLabelFromItemMeta({ url: "http://[::1]:3000/" })).toBe("local dev");
+  });
+  it("app metadata names local-origin and url-less groups, but never outranks a real host", () => {
+    expect(projectLabelFromItemMeta({ url: "http://localhost:3000/admin", app: "web" })).toBe(
+      "web",
+    );
+    expect(projectLabelFromItemMeta({ app: "ios" })).toBe("ios");
+    expect(projectLabelFromItemMeta({ url: "https://x.dev/p", app: "web" })).toBe("x.dev");
+    expect(projectLabelFromItemMeta({ repo: "acme/web", app: "ios" })).toBe("acme/web");
   });
   it("returns Other for missing/unparseable", () => {
     expect(projectLabelFromItemMeta(undefined)).toBe("Other");
