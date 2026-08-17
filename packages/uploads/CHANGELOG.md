@@ -1,5 +1,18 @@
 # @buildinternet/uploads
 
+## 0.43.0
+
+### Minor Changes
+
+- 848a90a: GitHub attachment import is on by default for linked repos, with junk filters: attachments authored by `[bot]` accounts and images under 200px on either side are skipped. A new `.uploads.yml` key, `ingestBotAttachments: true`, re-admits bot media on the webhook path; `ingestGithubAttachments: false` turns importing off per repo or per workspace as before.
+- 3165daf: `put` and `screenshot` print an advisory stderr note when a path-tagged upload has no repo/app context and only a local origin — it would land in the screenshots page's "local dev" bucket. Suggests running from the project repo or passing `--app`. Suppressed by `--quiet`, `--no-git`, and the no-nudge config.
+
+### Patch Changes
+
+- 91fb44d: Mint a workspace token from `/account/developers`. Tokens start with `up_<workspace>_` and last 90 days by default (up to 1 year). The CLI reads the workspace from the token.
+- 4b23b5d: `uploads config` help no longer mentions a separate API key. Workspace tokens are `up_<workspace>_…`.
+- 6286ac2: `POST /v1/tokens` accepts `ttlSeconds: null` for a workspace token that does not expire. `/account/developers` offers that as **No expiry**. Revoke is the only off switch.
+
 ## 0.42.2
 
 ### Patch Changes
