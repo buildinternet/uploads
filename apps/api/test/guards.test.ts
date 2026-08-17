@@ -4,9 +4,11 @@ import {
   DEFAULT_ALLOWED_CONTENT_TYPES,
   DEFAULT_MAX_UPLOAD_BYTES,
   detectContentType,
+  detectImageDimensions,
   inspectUpload,
   resolveUploadPolicy,
 } from "../src/guards";
+import { gifOf, pngOf } from "./helpers/image-fixtures";
 
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]);
 const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0]);
@@ -45,6 +47,51 @@ describe("detectContentType", () => {
     expect(detectContentType(new TextEncoder().encode("<svg></svg>"))).toBeNull();
     expect(detectContentType(new Uint8Array([0x89]))).toBeNull();
     expect(detectContentType(new Uint8Array(0))).toBeNull();
+  });
+});
+
+describe("detectImageDimensions", () => {
+  it("reads PNG dimensions from the IHDR chunk", () => {
+    expect(detectImageDimensions(pngOf(800, 600), "image/png")).toEqual({
+      width: 800,
+      height: 600,
+    });
+  });
+
+  it("reads GIF dimensions from the logical screen descriptor", () => {
+    expect(detectImageDimensions(gifOf(128, 128), "image/gif")).toEqual({
+      width: 128,
+      height: 128,
+    });
+  });
+
+  it("reads JPEG dimensions from the first SOF marker", () => {
+    // FFD8, APP0 stub, then SOF0 with height 480 / width 640.
+    const bytes = new Uint8Array([
+      0xff, 0xd8, 0xff, 0xe0, 0x00, 0x04, 0x00, 0x00, 0xff, 0xc0, 0x00, 0x11, 0x08, 0x01, 0xe0,
+      0x02, 0x80, 0x03,
+    ]);
+    expect(detectImageDimensions(bytes, "image/jpeg")).toEqual({ width: 640, height: 480 });
+  });
+
+  it("reads WebP dimensions from a VP8X chunk", () => {
+    const bytes = new Uint8Array(30);
+    bytes.set([0x52, 0x49, 0x46, 0x46]); // RIFF
+    bytes.set([0x57, 0x45, 0x42, 0x50], 8); // WEBP
+    bytes.set([0x56, 0x50, 0x38, 0x58], 12); // VP8X
+    // canvas width-1 = 639, height-1 = 479 as 24-bit LE at offsets 24/27
+    bytes[24] = 0x7f;
+    bytes[25] = 0x02;
+    bytes[27] = 0xdf;
+    bytes[28] = 0x01;
+    expect(detectImageDimensions(bytes, "image/webp")).toEqual({ width: 640, height: 480 });
+  });
+
+  it("returns undefined for truncated headers and non-image types", () => {
+    expect(detectImageDimensions(new Uint8Array([0x89, 0x50]), "image/png")).toBeUndefined();
+    expect(detectImageDimensions(gifOf(128, 128).subarray(0, 7), "image/gif")).toBeUndefined();
+    expect(detectImageDimensions(new Uint8Array(30), "video/webm")).toBeUndefined();
+    expect(detectImageDimensions(new Uint8Array(0), "image/jpeg")).toBeUndefined();
   });
 });
 

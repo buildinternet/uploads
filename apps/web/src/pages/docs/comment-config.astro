@@ -33,8 +33,9 @@ const TOC = [
       >
     </h2>
     <p>
-      Every key is optional and lives under a top-level <code>comment:</code> map. All of it is presentation
-      only — it changes how the managed comment looks, never what gets uploaded or where.
+      Every key is optional and lives under a top-level <code>comment:</code> map. Most of it is presentation
+      — how the managed comment looks — plus two keys that control whether GitHub-posted attachments get
+      <a href="/docs/github-app#ingest">imported into the workspace</a>.
     </p>
     <ul>
       <li><strong>Image width</strong> for inline images, pair cells, and video posters.</li>
@@ -42,11 +43,15 @@ const TOC = [
       <li><strong>Caption metadata</strong> — the path and state labels under each image.</li>
       <li><strong>Whether images link</strong> to the file's share page.</li>
       <li><strong>A short note</strong> shown at the top of the comment.</li>
+      <li>
+        <strong>Whether GitHub-posted attachments are imported</strong>, and whether bot-authored
+        ones count.
+      </li>
     </ul>
     <p>
-      Nothing in the file can change which files get uploaded, where they're hosted, or which repo a
-      workspace can post to — it only reshapes the comment body for a repo that's already allowed to
-      receive one.
+      Nothing in the file can change where files are hosted or which repo a workspace can post to —
+      it reshapes the comment body for a repo that's already allowed to receive one, and gates
+      whether that repo's GitHub-posted attachments get mirrored in.
     </p>
   </section>
 
@@ -74,6 +79,15 @@ const TOC = [
   # Whether images link to the file's share page. Overrides the workspace
   # setting.
   linkToFilePage: true
+
+  # Whether images and video dropped directly on GitHub PRs and issues get
+  # imported into the workspace. On by default.
+  ingestGithubAttachments: true
+
+  # Whether attachments authored by [bot] accounts are imported too.
+  # Off by default — bot-posted media is usually noise (status GIFs, badges).
+  # Tiny images (under 200px on either side) are always skipped.
+  ingestBotAttachments: false
 
   # Optional short markdown at the top of the comment, before the media —
   # repo-specific context, a link to a contributing guide, and so on.

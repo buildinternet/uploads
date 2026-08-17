@@ -115,6 +115,82 @@ export function detectContentType(bytes: Uint8Array): string | null {
   return null;
 }
 
+export interface ImageDimensions {
+  width: number;
+  height: number;
+}
+
+/**
+ * Best-effort pixel dimensions read straight from an image's header —
+ * PNG (IHDR), GIF (logical screen descriptor), JPEG (first SOF marker),
+ * WebP (VP8X/VP8/VP8L chunk). Returns `undefined` for any other content
+ * type or a header it can't decode; callers that gate on dimensions must
+ * fail open on `undefined` rather than treating it as zero.
+ */
+export function detectImageDimensions(
+  bytes: Uint8Array,
+  contentType: string,
+): ImageDimensions | undefined {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const valid = (width: number, height: number) =>
+    width > 0 && height > 0 ? { width, height } : undefined;
+
+  if (contentType === "image/png") {
+    // 8-byte signature, 4-byte chunk length, "IHDR", then BE uint32 w/h.
+    if (bytes.length < 24 || !matches(bytes, [0x49, 0x48, 0x44, 0x52], 12)) return undefined;
+    return valid(view.getUint32(16, false), view.getUint32(20, false));
+  }
+  if (contentType === "image/gif") {
+    // "GIF8xa" then LE uint16 logical screen width/height.
+    if (bytes.length < 10) return undefined;
+    return valid(view.getUint16(6, true), view.getUint16(8, true));
+  }
+  if (contentType === "image/jpeg") {
+    // Walk marker segments to the first start-of-frame (SOF0–SOF15, minus
+    // the non-frame DHT/DAC/RST markers in that range).
+    let i = 2;
+    while (i + 9 < bytes.length) {
+      if (bytes[i] !== 0xff) return undefined;
+      const marker = bytes[i + 1]!;
+      if (marker === 0xd8 || (marker >= 0xd0 && marker <= 0xd9)) {
+        i += 2;
+        continue;
+      }
+      const isSof =
+        marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc;
+      if (isSof) {
+        return valid(view.getUint16(i + 7, false), view.getUint16(i + 5, false));
+      }
+      i += 2 + view.getUint16(i + 2, false);
+    }
+    return undefined;
+  }
+  if (contentType === "image/webp") {
+    if (bytes.length < 30) return undefined;
+    const chunk = asciiAt(bytes, 12, 4);
+    if (chunk === "VP8X") {
+      // 24-bit LE canvas width-1 / height-1 at payload offsets 4 and 7.
+      const w = bytes[24]! | (bytes[25]! << 8) | (bytes[26]! << 16);
+      const h = bytes[27]! | (bytes[28]! << 8) | (bytes[29]! << 16);
+      return valid(w + 1, h + 1);
+    }
+    if (chunk === "VP8 ") {
+      // Lossy bitstream: 14-bit LE dimensions after the 3-byte frame tag +
+      // 3-byte start code (9D 01 2A).
+      if (!matches(bytes, [0x9d, 0x01, 0x2a], 23)) return undefined;
+      return valid(view.getUint16(26, true) & 0x3fff, view.getUint16(28, true) & 0x3fff);
+    }
+    if (chunk === "VP8L") {
+      // Lossless bitstream: signature 0x2f then 14-bit width-1/height-1.
+      if (bytes[20] !== 0x2f) return undefined;
+      const bits = view.getUint32(21, true);
+      return valid((bits & 0x3fff) + 1, ((bits >> 14) & 0x3fff) + 1);
+    }
+    return undefined;
+  }
+  return undefined;
+}
+
 export type UploadRejection = {
   ok: false;
   status: 413 | 415;

@@ -27,6 +27,7 @@ import type { WorkspaceRecord } from "./workspace";
 import { FakeKv } from "../test/fake-kv";
 import { GITHUB_APP_CFG_ENV } from "../test/github-app-env";
 import { fakeFetch, pngRoute, withGlobalFetch } from "../test/helpers/github-fetch-fakes";
+import { gifOf } from "../test/helpers/image-fixtures";
 import { UsageFakeD1 } from "../test/usage-fake-d1";
 
 const REPO = "acme/app";
@@ -336,6 +337,90 @@ describe("reconcileIngestSource", () => {
     expect(summary.skipped).toEqual([{ url: ASSET_URL, reason: "unsupported_media_type" }]);
   });
 
+  it("bot filter: an asset authored by a [bot] login is skipped without fetching", async () => {
+    const { env } = baseEnv();
+    const ref: IngestSourceRef = { repo: REPO, kind: "issues", num: 3, source: "comment:9" };
+    const fetchImpl = vi.fn(fakeFetch({ [ASSET_ID]: pngRoute(PNG) }));
+    const { putImpl, calls } = spyPut();
+
+    const summary = await reconcileIngestSource(
+      env,
+      ws,
+      WS,
+      ref,
+      `see ${ASSET_URL}`,
+      "claude[bot]",
+      { fetchImpl, putImpl },
+    );
+
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(calls).toHaveLength(0);
+    expect(summary.skipped).toEqual([{ url: ASSET_URL, reason: "bot_author" }]);
+    expect(await ledgerRow(env.DB, REPO, ASSET_ID)).toBeNull();
+  });
+
+  it("bot filter: ingestBotAuthors deliberately re-admits bot-authored assets", async () => {
+    const { env } = baseEnv();
+    const ref: IngestSourceRef = { repo: REPO, kind: "issues", num: 3, source: "comment:9" };
+    const fetchImpl = fakeFetch({ [ASSET_ID]: pngRoute(PNG) });
+    const { putImpl, calls } = spyPut();
+
+    const summary = await reconcileIngestSource(
+      env,
+      ws,
+      WS,
+      ref,
+      `see ${ASSET_URL}`,
+      "claude[bot]",
+      { fetchImpl, putImpl, ingestBotAuthors: true },
+    );
+
+    expect(calls).toHaveLength(1);
+    expect(summary.skipped).toEqual([]);
+    expect(summary.ingested).toHaveLength(1);
+  });
+
+  it("small-image filter: an image under the minimum dimension is a permanent too_small skip", async () => {
+    const { env } = baseEnv();
+    const ref: IngestSourceRef = { repo: REPO, kind: "pull", num: 7, source: "body" };
+    // Real GIF89a header with a 128×128 logical screen — the emoji/badge
+    // junk this gate exists for.
+    const tinyGif = gifOf(128, 128);
+    const fetchImpl = fakeFetch({
+      [ASSET_ID]: () =>
+        new Response(tinyGif, { status: 200, headers: { "content-type": "image/gif" } }),
+    });
+    const { putImpl, calls } = spyPut();
+
+    const summary = await reconcileIngestSource(env, ws, WS, ref, `see ${ASSET_URL}`, "octocat", {
+      fetchImpl,
+      putImpl,
+    });
+
+    expect(calls).toHaveLength(0);
+    expect(summary.skipped).toEqual([{ url: ASSET_URL, reason: "too_small" }]);
+    expect(await ledgerRow(env.DB, REPO, ASSET_ID)).toBeNull();
+  });
+
+  it("small-image filter: an image at or above the minimum dimension ingests", async () => {
+    const { env } = baseEnv();
+    const ref: IngestSourceRef = { repo: REPO, kind: "pull", num: 7, source: "body" };
+    const bigGif = gifOf(800, 600);
+    const fetchImpl = fakeFetch({
+      [ASSET_ID]: () =>
+        new Response(bigGif, { status: 200, headers: { "content-type": "image/gif" } }),
+    });
+    const { putImpl, calls } = spyPut();
+
+    const summary = await reconcileIngestSource(env, ws, WS, ref, `see ${ASSET_URL}`, "octocat", {
+      fetchImpl,
+      putImpl,
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(summary.skipped).toEqual([]);
+  });
+
   it("guard skip: asset 404 is a permanent skip", async () => {
     const { env } = baseEnv();
     const ref: IngestSourceRef = { repo: REPO, kind: "pull", num: 7, source: "body" };
@@ -560,9 +645,13 @@ describe("ingestForWebhook", () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
-  it("link + workspace but knob false: resolves without fetching the issue body or asset", async () => {
+  it("link + workspace but knob explicitly false: resolves without fetching the issue body or asset", async () => {
     const { env: base } = baseEnv();
-    const env = withRegistry(base, { provider: "r2", bucket: "b" } as WorkspaceRecord);
+    const env = withRegistry(base, {
+      provider: "r2",
+      bucket: "b",
+      githubIngestAttachments: false,
+    } as WorkspaceRecord);
     await recordRepoLink(env.DB, REPO, WS, "test");
     const calls: string[] = [];
     const impl = ((url: string, init: RequestInit = {}) => {
@@ -576,13 +665,9 @@ describe("ingestForWebhook", () => {
     expect(calls.some((u) => u.includes("/issues/7") || u.includes(ASSET_ID))).toBe(false);
   });
 
-  it("knob true: fetches the issue body, puts, ledgers", async () => {
+  it("knob unset: ingestion is on by default — fetches the issue body, puts, ledgers", async () => {
     const { env: base } = baseEnv();
-    const env = withRegistry(base, {
-      provider: "r2",
-      bucket: "b",
-      githubIngestAttachments: true,
-    } as WorkspaceRecord);
+    const env = withRegistry(base, { provider: "r2", bucket: "b" } as WorkspaceRecord);
     await recordRepoLink(env.DB, REPO, WS, "test");
     const impl = fakeFetch({
       "/contents/": () => new Response("nf", { status: 404 }),
@@ -601,6 +686,47 @@ describe("ingestForWebhook", () => {
     expect(calls[0]!.key).toBe(KEY);
     const row = await ledgerRow(env.DB, REPO, ASSET_ID);
     expect(row).not.toBeNull();
+  });
+
+  it("passes the resolved ingestBotAttachments knob through: a repo config enabling it re-admits bot authors", async () => {
+    const { env: base } = baseEnv();
+    const env = withRegistry(base, { provider: "r2", bucket: "b" } as WorkspaceRecord);
+    await recordRepoLink(env.DB, REPO, WS, "test");
+    const impl = fakeFetch({
+      "/contents/": () => new Response("comment:\n  ingestBotAttachments: true\n", { status: 200 }),
+      "/repos/acme/app/issues/7": () =>
+        new Response(JSON.stringify({ body: `see ${ASSET_URL}`, user: { login: "claude[bot]" } }), {
+          status: 200,
+        }),
+      [ASSET_ID]: pngRoute(PNG),
+    });
+    const { putImpl, calls } = spyPut();
+    const ref: IngestSourceRef = { repo: REPO, kind: "pull", num: 7, source: "body" };
+
+    await withGlobalFetch(impl, () => ingestForWebhook(env, ref, { fetchImpl: impl, putImpl }));
+
+    expect(calls).toHaveLength(1);
+  });
+
+  it("filters a bot-authored body by default (no repo config)", async () => {
+    const { env: base } = baseEnv();
+    const env = withRegistry(base, { provider: "r2", bucket: "b" } as WorkspaceRecord);
+    await recordRepoLink(env.DB, REPO, WS, "test");
+    const impl = fakeFetch({
+      "/contents/": () => new Response("nf", { status: 404 }),
+      "/repos/acme/app/issues/7": () =>
+        new Response(JSON.stringify({ body: `see ${ASSET_URL}`, user: { login: "claude[bot]" } }), {
+          status: 200,
+        }),
+      [ASSET_ID]: pngRoute(PNG),
+    });
+    const { putImpl, calls } = spyPut();
+    const ref: IngestSourceRef = { repo: REPO, kind: "pull", num: 7, source: "body" };
+
+    await withGlobalFetch(impl, () => ingestForWebhook(env, ref, { fetchImpl: impl, putImpl }));
+
+    expect(calls).toHaveLength(0);
+    expect(await ledgerRow(env.DB, REPO, ASSET_ID)).toBeNull();
   });
 
   it("comment source 404: reconciles with text null (detach-all), not a throw", async () => {

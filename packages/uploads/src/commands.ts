@@ -3385,7 +3385,9 @@ Scans the PR/issue description and comments for github.com/user-attachments
 media, mirrors new ones into the workspace (indexed, not added to the managed
 comment), and detaches ones no longer referenced. Works on any repo linked to
 the workspace; the .uploads.yml ingestGithubAttachments knob only gates the
-automatic webhook path.
+automatic webhook path. Bot-authored attachments and images under 200px on
+either side are always skipped (the .uploads.yml ingestBotAttachments knob
+re-admits bot media on the webhook path only).
 
 Examples:
   uploads ingest --pr 123
