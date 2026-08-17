@@ -26,5 +26,7 @@ describe("renderIssuedTokenListHtml", () => {
     expect(html).toMatch(/no expiry/);
     expect(html).toMatch(/last used 2026-08-17/);
     expect(html).toMatch(/data-token-id="tok-1"/);
+    expect(html).toMatch(/data-revoke-label="ci"/);
+    expect(html).toMatch(/data-revoke-workspace="acme"/);
   });
 });

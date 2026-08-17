@@ -452,6 +452,11 @@ const tokensReady = initial.tokens !== null;
           if (!revoke) return;
           const id = revoke.dataset.revoke;
           if (!id) return;
+          const label = revoke.dataset.revokeLabel || "this token";
+          const workspace = revoke.dataset.revokeWorkspace || "this workspace";
+          if (!confirm(`Revoke “${label}” on ${workspace}? It will stop working immediately.`)) {
+            return;
+          }
           revoke.disabled = true;
           const ok = await revokeIssuedWorkspaceToken(apiOrigin, id);
           if (!ok) {

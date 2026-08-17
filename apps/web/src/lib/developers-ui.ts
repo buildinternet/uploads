@@ -57,7 +57,7 @@ export function renderIssuedTokenListHtml(tokens: IssuedWorkspaceToken[]): strin
       ]
         .filter(Boolean)
         .join(" · ");
-      return `<li data-token-id="${escapeHtml(token.id)}"><div class="detail-main"><div class="detail-title">${title}</div><div class="detail-meta">${meta}</div></div><button type="button" class="text-btn" data-revoke="${escapeHtml(token.id)}">Revoke</button></li>`;
+      return `<li data-token-id="${escapeHtml(token.id)}"><div class="detail-main"><div class="detail-title">${title}</div><div class="detail-meta">${meta}</div></div><button type="button" class="text-btn" data-revoke="${escapeHtml(token.id)}" data-revoke-label="${title}" data-revoke-workspace="${workspace}">Revoke</button></li>`;
     })
     .join("");
 }
