@@ -30,7 +30,7 @@ Subcommands:
 Keys:
   UPLOADS_API_URL           API base URL (default: ${DEFAULT_API_URL})
   UPLOADS_WORKSPACE         Workspace / bucket tenant (default: ${DEFAULT_WORKSPACE})
-  UPLOADS_TOKEN             Bearer token (up_<workspace>_… or an API key)
+  UPLOADS_TOKEN             Bearer token (up_<workspace>_…)
   UPLOADS_SESSION_TOKEN     Device-flow session (CLI version on account sessions)
   UPLOADS_DEFAULT_PREFIX    Default key prefix for put/list
   UPLOADS_DEFAULT_REPO      Default repo segment for put

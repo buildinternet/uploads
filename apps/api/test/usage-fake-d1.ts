@@ -281,6 +281,9 @@ export class UsageFakeD1 {
           });
           return { success: true as const, meta: { changes: 1 }, results: [] };
         }
+        if (normalized.startsWith("UPDATE auth_tokens SET last_used_at")) {
+          return { success: true as const, meta: { changes: 1 }, results: [] };
+        }
         throw new Error(`unsupported run: ${normalized}`);
       },
     };

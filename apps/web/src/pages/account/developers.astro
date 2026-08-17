@@ -1,8 +1,22 @@
 ---
+import { env } from "cloudflare:workers";
 import AccountLayout from "../../layouts/AccountLayout.astro";
+import {
+  loadDevelopersPageData,
+  renderIssuedTokenListHtml,
+  renderWorkspaceOptionsHtml,
+} from "../../lib/developers-ui";
+import { resolveSignedInOrigins } from "../../lib/signed-in-page";
 import { renderDetailListPlaceholderHtml } from "../../lib/workspace-ui";
 
 export const prerender = false;
+
+const { apiOrigin } = resolveSignedInOrigins(env);
+const initial = await loadDevelopersPageData(apiOrigin, Astro.request.headers.get("cookie") ?? "");
+const workspaceNames = initial.workspaces?.map((row) => row.workspace) ?? [];
+const hasWorkspaces = workspaceNames.length > 0;
+const knownEmpty = initial.workspaces !== null && !hasWorkspaces;
+const tokensReady = initial.tokens !== null;
 ---
 
 <AccountLayout section="developers">
@@ -30,7 +44,7 @@ export const prerender = false;
         <button type="button" class="text-btn" id="cli-upgrade-dismiss">Dismiss</button>
       </div>
     </div>
-    <div class="cli-steps" id="cli-steps">
+    <div class="cli-steps" id="cli-steps" hidden>
       <div class="command" id="cli-install-cmd">
         <code>npm install -g @buildinternet/uploads</code>
         <button type="button" data-copy="npm install -g @buildinternet/uploads" aria-live="polite"
@@ -42,11 +56,11 @@ export const prerender = false;
         <button type="button" data-copy="uploads login" aria-live="polite">copy</button>
       </div>
     </div>
-    <p class="muted cli-note" id="cli-setup-note">
+    <p class="muted cli-note" id="cli-setup-note" hidden>
       Or <code>npx @buildinternet/uploads login</code> —
       <a href="/docs#install">docs</a>.
     </p>
-    <div id="cli-agents">
+    <div id="cli-agents" hidden>
       <p class="muted cli-note">Agents (skill + MCP for Claude Code):</p>
       <div class="cli-steps cli-steps--solo">
         <div class="command">
@@ -65,14 +79,24 @@ export const prerender = false;
         1 year, or until you revoke them. The CLI reads the workspace from the token.
       </p>
 
-      <p class="muted cli-note" id="token-empty" hidden>
+      <p class="muted cli-note" id="token-empty" hidden={knownEmpty ? undefined : true}>
         Create a <a href="/account/workspaces/new">workspace</a> first, then mint a token for it.
       </p>
 
-      <form class="ws-form" id="token-form" hidden>
-        <label class="token-field" id="token-workspace-field">
+      <form class="ws-form" id="token-form" hidden={knownEmpty ? true : undefined}>
+        <label
+          class="token-field"
+          id="token-workspace-field"
+          hidden={hasWorkspaces && workspaceNames.length === 1 ? true : undefined}
+        >
           <span class="sr-only">Workspace</span>
-          <select name="workspace" class="ul-select" id="token-workspace" required></select>
+          <select
+            name="workspace"
+            class="ul-select"
+            id="token-workspace"
+            required
+            set:html={renderWorkspaceOptionsHtml(workspaceNames)}
+          />
         </label>
         <div class="input-group">
           <label class="input-group__field">
@@ -86,6 +110,13 @@ export const prerender = false;
               autocomplete="off"
               spellcheck="false"
             />
+          </label>
+          <label class="token-access">
+            <span class="sr-only">Access</span>
+            <select name="access" class="ul-select" id="token-access">
+              <option value="readwrite">Read &amp; write</option>
+              <option value="readonly">Read only</option>
+            </select>
           </label>
           <label class="token-ttl">
             <span class="sr-only">Expires</span>
@@ -117,8 +148,10 @@ export const prerender = false;
       <ul
         class="detail-list"
         id="token-list"
-        aria-busy="true"
-        set:html={renderDetailListPlaceholderHtml()}
+        aria-busy={tokensReady ? "false" : "true"}
+        set:html={tokensReady
+          ? renderIssuedTokenListHtml(initial.tokens ?? [])
+          : renderDetailListPlaceholderHtml()}
       />
     </div>
   </section>
@@ -155,11 +188,13 @@ export const prerender = false;
       display: block;
       margin: 0 0 10px;
     }
-    .token-ttl {
+    .token-ttl,
+    .token-access {
       display: flex;
       align-items: stretch;
     }
-    .token-ttl .ul-select {
+    .token-ttl .ul-select,
+    .token-access .ul-select {
       width: auto;
     }
   </style>
@@ -264,10 +299,13 @@ export const prerender = false;
         else delete status.dataset.state;
         status.textContent = statusText;
 
-        // ready: hide commands; reconnect: login only; setup/checking: full install.
-        steps.hidden = kind === "ready";
+        // Checking/ready stay compact (steps hidden). Setup reveals install;
+        // reconnect reveals login only. Expanding is better than collapsing.
+        const agents = requireElement<HTMLElement>("#cli-agents", "developers");
+        steps.hidden = kind === "ready" || kind === "checking";
         installCmd.hidden = kind === "reconnect";
-        note.hidden = kind === "ready" || kind === "reconnect";
+        note.hidden = kind !== "setup";
+        agents.hidden = kind !== "setup";
 
         if (loaded) void maybeShowCliUpgrade(sessions);
       }
@@ -292,14 +330,8 @@ export const prerender = false;
       revokeIssuedWorkspaceToken,
       type IssuedWorkspaceToken,
     } from "../../lib/api-client";
-    import { bindCopyButtons, escapeHtml } from "../../lib/workspace-ui";
-
-    function formatWhen(value: string | null | undefined): string {
-      if (!value) return "";
-      const date = new Date(value);
-      if (!Number.isFinite(date.getTime())) return "";
-      return date.toISOString().slice(0, 10);
-    }
+    import { renderIssuedTokenListHtml, renderWorkspaceOptionsHtml } from "../../lib/developers-ui";
+    import { bindCopyButtons } from "../../lib/workspace-ui";
 
     onAstroPageLoad(() => {
       if (!document.getElementById("workspace-tokens")) return;
@@ -328,26 +360,7 @@ export const prerender = false;
           return;
         }
         status.hidden = true;
-        if (tokens.length === 0) {
-          list.innerHTML = `<li><div class="detail-main"><div class="detail-title">No tokens yet</div><div class="detail-meta">Create one above to start.</div></div></li>`;
-          return;
-        }
-        list.innerHTML = tokens
-          .map((token) => {
-            const title = escapeHtml(token.label || "Untitled");
-            const workspace = escapeHtml(token.workspace);
-            const created = formatWhen(token.createdAt);
-            const expires = formatWhen(token.expiresAt);
-            const meta = [
-              workspace,
-              created ? `created ${created}` : "",
-              expires ? `expires ${expires}` : "no expiry",
-            ]
-              .filter(Boolean)
-              .join(" · ");
-            return `<li data-token-id="${escapeHtml(token.id)}"><div class="detail-main"><div class="detail-title">${title}</div><div class="detail-meta">${meta}</div></div><button type="button" class="text-btn" data-revoke="${escapeHtml(token.id)}">Revoke</button></li>`;
-          })
-          .join("");
+        list.innerHTML = renderIssuedTokenListHtml(tokens);
       }
 
       async function refreshTokens(): Promise<void> {
@@ -362,17 +375,19 @@ export const prerender = false;
           "#token-workspace",
           "developers",
         ) as unknown as HTMLSelectElement;
-        if (names === null || names.length === 0) {
+        if (names === null) {
+          // Keep whatever SSR painted. A fetch miss is not "no workspaces".
+          return;
+        }
+        if (names.length === 0) {
           form.hidden = true;
-          empty.hidden = names === null;
+          empty.hidden = false;
           select.replaceChildren();
           return;
         }
         empty.hidden = true;
         form.hidden = false;
-        select.innerHTML = names
-          .map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`)
-          .join("");
+        select.innerHTML = renderWorkspaceOptionsHtml(names);
         field.hidden = names.length === 1;
       }
 
@@ -389,38 +404,43 @@ export const prerender = false;
           const label = labelInput instanceof HTMLInputElement ? labelInput.value.trim() : "";
           const ttlRaw = ttlInput instanceof HTMLSelectElement ? ttlInput.value : "";
           const ttlSeconds = ttlRaw === "never" ? null : ttlRaw ? Number(ttlRaw) : undefined;
+          const accessInput = form.elements.namedItem("access");
+          const access = accessInput instanceof HTMLSelectElement ? accessInput.value : "readwrite";
+          const scopes = access === "readonly" ? ["files:read"] : undefined;
           if (!workspace || !label) return;
           const button = requireElement<HTMLButtonElement>("#token-create", "developers");
           const error = requireElement<HTMLElement>("#token-error", "developers");
           const created = requireElement<HTMLElement>("#token-created", "developers");
           button.disabled = true;
           error.hidden = true;
-          void mintWorkspaceToken(apiOrigin, { workspace, label, ttlSeconds }).then((result) => {
-            button.disabled = false;
-            if (!result.ok) {
-              error.hidden = false;
-              error.textContent = result.message;
-              return;
-            }
-            if (labelInput instanceof HTMLInputElement) labelInput.value = "";
-            const secret = requireElement<HTMLElement>("#token-secret", "developers");
-            const secretCopy = requireElement<HTMLButtonElement>(
-              "#token-secret-copy",
-              "developers",
-            );
-            const exportsEl = requireElement<HTMLElement>("#token-exports", "developers");
-            const exportsCopy = requireElement<HTMLButtonElement>(
-              "#token-exports-copy",
-              "developers",
-            );
-            secret.textContent = result.token;
-            secretCopy.dataset.copy = result.token;
-            const snippet = `export UPLOADS_TOKEN=${result.token}`;
-            exportsEl.textContent = snippet;
-            exportsCopy.dataset.copy = snippet;
-            created.hidden = false;
-            void refreshTokens();
-          });
+          void mintWorkspaceToken(apiOrigin, { workspace, label, ttlSeconds, scopes }).then(
+            (result) => {
+              button.disabled = false;
+              if (!result.ok) {
+                error.hidden = false;
+                error.textContent = result.message;
+                return;
+              }
+              if (labelInput instanceof HTMLInputElement) labelInput.value = "";
+              const secret = requireElement<HTMLElement>("#token-secret", "developers");
+              const secretCopy = requireElement<HTMLButtonElement>(
+                "#token-secret-copy",
+                "developers",
+              );
+              const exportsEl = requireElement<HTMLElement>("#token-exports", "developers");
+              const exportsCopy = requireElement<HTMLButtonElement>(
+                "#token-exports-copy",
+                "developers",
+              );
+              secret.textContent = result.token;
+              secretCopy.dataset.copy = result.token;
+              const snippet = `export UPLOADS_TOKEN=${result.token}`;
+              exportsEl.textContent = snippet;
+              exportsCopy.dataset.copy = snippet;
+              created.hidden = false;
+              void refreshTokens();
+            },
+          );
         },
       );
 

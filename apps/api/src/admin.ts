@@ -1,6 +1,6 @@
 import { ForbiddenError, UnauthorizedError } from "@uploads/errors";
 import type { MiddlewareHandler } from "hono";
-import { findActiveToken, isOperatorScope } from "./auth-db";
+import { findActiveToken, isOperatorScope, touchTokenLastUsed } from "./auth-db";
 import { hexToBytes, sha256Hex, workspaceNameFromToken } from "./workspace";
 
 const READ_METHODS = new Set(["GET", "HEAD"]);
@@ -41,6 +41,7 @@ export const adminAuth: MiddlewareHandler<{
 
   const record = await findActiveToken(c.env.DB, workspace, token);
   if (!record) throw new UnauthorizedError();
+  await touchTokenLastUsed(c.env.DB, record.id);
 
   // record.scopes is operator-token-or-file-token JSON; parseScopes (auth-db.ts)
   // is file-scope-only, so parse directly here and keep just the operator ones.

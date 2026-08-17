@@ -1110,6 +1110,7 @@ export interface IssuedWorkspaceToken {
   scopes: string[];
   createdAt: string;
   expiresAt: string | null;
+  lastUsedAt: string | null;
 }
 
 export type MintWorkspaceTokenResult =
@@ -1145,6 +1146,7 @@ function asIssuedWorkspaceToken(value: unknown): IssuedWorkspaceToken | null {
     scopes: row.scopes,
     createdAt: row.createdAt,
     expiresAt: row.expiresAt ?? null,
+    lastUsedAt: typeof row.lastUsedAt === "string" ? row.lastUsedAt : null,
   };
 }
 
@@ -1176,14 +1178,23 @@ export function parseIssuedWorkspaceTokens(body: unknown): IssuedWorkspaceToken[
   return out;
 }
 
+function sessionFetchInit(cookie?: string): RequestInit {
+  return {
+    credentials: "include",
+    cache: "no-store",
+    ...(cookie ? { headers: { cookie } } : {}),
+  };
+}
+
 /** GET /v1/tokens — workspaces the signed-in user can mint a token for. */
 export async function listMintableWorkspaces(
   apiOrigin: string,
+  opts?: { cookie?: string },
 ): Promise<MintableWorkspace[] | null> {
-  const result = await fetchWithTimeout(`${trimOrigin(apiOrigin)}/v1/tokens`, {
-    credentials: "include",
-    cache: "no-store",
-  });
+  const result = await fetchWithTimeout(
+    `${trimOrigin(apiOrigin)}/v1/tokens`,
+    sessionFetchInit(opts?.cookie),
+  );
   if (result.kind === "unavailable" || !result.response.ok) return null;
   const body = await result.response.json().catch(() => undefined);
   return parseMintableWorkspaces(body);
@@ -1192,11 +1203,12 @@ export async function listMintableWorkspaces(
 /** GET /v1/tokens/issued — tokens this session user minted. */
 export async function listIssuedWorkspaceTokens(
   apiOrigin: string,
+  opts?: { cookie?: string },
 ): Promise<IssuedWorkspaceToken[] | null> {
-  const result = await fetchWithTimeout(`${trimOrigin(apiOrigin)}/v1/tokens/issued`, {
-    credentials: "include",
-    cache: "no-store",
-  });
+  const result = await fetchWithTimeout(
+    `${trimOrigin(apiOrigin)}/v1/tokens/issued`,
+    sessionFetchInit(opts?.cookie),
+  );
   if (result.kind === "unavailable" || !result.response.ok) return null;
   const body = await result.response.json().catch(() => undefined);
   return parseIssuedWorkspaceTokens(body);
@@ -1205,7 +1217,12 @@ export async function listIssuedWorkspaceTokens(
 /** POST /v1/tokens — mint a `up_<workspace>_` token. Secret is returned once. */
 export async function mintWorkspaceToken(
   apiOrigin: string,
-  input: { workspace: string; label?: string; ttlSeconds?: number | null },
+  input: {
+    workspace: string;
+    label?: string;
+    ttlSeconds?: number | null;
+    scopes?: string[];
+  },
 ): Promise<MintWorkspaceTokenResult> {
   const result = await fetchWithTimeout(`${trimOrigin(apiOrigin)}/v1/tokens`, {
     method: "POST",
@@ -1213,7 +1230,12 @@ export async function mintWorkspaceToken(
     cache: "no-store",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      grants: [{ workspace: input.workspace }],
+      grants: [
+        {
+          workspace: input.workspace,
+          ...(input.scopes ? { scopes: input.scopes } : {}),
+        },
+      ],
       ...(input.label ? { label: input.label } : {}),
       ...(input.ttlSeconds !== undefined ? { ttlSeconds: input.ttlSeconds } : {}),
     }),
