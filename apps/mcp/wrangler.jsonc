@@ -120,7 +120,7 @@
     "kv_namespaces": [
       {
         "binding": "REGISTRY",
-        "id": "TODO-paste-id-from-kv-namespace-create-UPLOADS_REGISTRY_PREVIEW",
+        "id": "7bb5509c12f54fd7b238c75726e63c09",
       },
       // Shared with production on purpose — see apps/api's previews block.
       {
@@ -132,7 +132,7 @@
       {
         "binding": "DB",
         "database_name": "uploads-preview",
-        "database_id": "TODO-paste-id-from-d1-create-uploads-preview",
+        "database_id": "b8c82095-b471-4e3a-8634-56e0861e43f1",
       },
     ],
     "r2_buckets": [

@@ -248,13 +248,15 @@
   // fallback to production credentials.
   //
   // One-time setup before the first preview deploy — create the preview-tier
-  // resources and paste the ids over the TODO placeholders below (apps/mcp's
-  // previews block shares REGISTRY and DB — update it with the same ids):
+  // resources and paste the ids below (apps/mcp's previews block shares
+  // REGISTRY and DB — keep it on the same ids):
   //   wrangler kv namespace create UPLOADS_REGISTRY_PREVIEW
   //   wrangler d1 create uploads-preview
-  //   wrangler d1 migrations apply uploads-preview --remote -c apps/api/wrangler.jsonc
   //   wrangler r2 bucket create uploads-preview-default
   //   wrangler queues create uploads-github-webhook-preview
+  // Migrations for the preview D1 go through wrangler.preview.jsonc — the
+  // `d1 migrations` command cannot see databases declared inside `previews`:
+  //   wrangler d1 migrations apply uploads-preview --remote -c apps/api/wrangler.preview.jsonc
   "previews": {
     "vars": {
       "WEB_ORIGIN": "https://uploads.sh",
@@ -269,7 +271,7 @@
       // Isolated: workspace records are the product's core state.
       {
         "binding": "REGISTRY",
-        "id": "TODO-paste-id-from-kv-namespace-create-UPLOADS_REGISTRY_PREVIEW",
+        "id": "7bb5509c12f54fd7b238c75726e63c09",
       },
       // Shared with production on purpose: a TTL'd cache of public GitHub
       // data (titles, logins) — sharing is harmless and keeps previews warm.
@@ -282,7 +284,7 @@
       {
         "binding": "DB",
         "database_name": "uploads-preview",
-        "database_id": "TODO-paste-id-from-d1-create-uploads-preview",
+        "database_id": "b8c82095-b471-4e3a-8634-56e0861e43f1",
         "migrations_dir": "migrations",
       },
     ],

@@ -137,9 +137,10 @@
   // inherit from above — note a preview CAN send real mail from
   // noreply@uploads.sh, but only explicit flows (magic links) do.
   //
-  // One-time setup:
+  // One-time setup (migrations go through wrangler.preview.jsonc — the
+  // `d1 migrations` command cannot see databases declared inside `previews`):
   //   wrangler d1 create uploads-auth-preview
-  //   wrangler d1 migrations apply uploads-auth-preview --remote -c apps/auth/wrangler.jsonc
+  //   wrangler d1 migrations apply uploads-auth-preview --remote -c apps/auth/wrangler.preview.jsonc
   "previews": {
     "vars": {
       "BETTER_AUTH_URL": "https://auth.uploads.sh",
