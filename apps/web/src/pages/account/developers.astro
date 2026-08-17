@@ -335,7 +335,13 @@ const showConsoleLinks = await resolveShowConsoleLinks(env);
       const apiOrigin = (window as unknown as { __UPLOADS_API_ORIGIN__: string })
         .__UPLOADS_API_ORIGIN__;
 
-      const ttl = requireElement<HTMLSelectElement>("#token-ttl", "developers");
+      // Not requireElement<HTMLSelectElement>: worker-configuration.d.ts's
+      // HTMLRewriter ambient Element redeclares remove(), so HTMLSelectElement
+      // fails the T extends Element constraint. Fetch as HTMLElement and cast.
+      const ttl = requireElement<HTMLElement>(
+        "#token-ttl",
+        "developers",
+      ) as unknown as HTMLSelectElement;
       ttl.options[0].value = String(WORKSPACE_TOKEN_TTL_90_DAYS);
       ttl.options[1].value = String(WORKSPACE_TOKEN_TTL_1_YEAR);
 
@@ -380,7 +386,10 @@ const showConsoleLinks = await resolveShowConsoleLinks(env);
         const form = requireElement<HTMLFormElement>("#token-form", "developers");
         const empty = requireElement<HTMLElement>("#token-empty", "developers");
         const field = requireElement<HTMLElement>("#token-workspace-field", "developers");
-        const select = requireElement<HTMLSelectElement>("#token-workspace", "developers");
+        const select = requireElement<HTMLElement>(
+          "#token-workspace",
+          "developers",
+        ) as unknown as HTMLSelectElement;
         if (names === null || names.length === 0) {
           form.hidden = true;
           empty.hidden = names === null;
