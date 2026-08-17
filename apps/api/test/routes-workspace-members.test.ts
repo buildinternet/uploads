@@ -19,6 +19,7 @@ import { SqliteD1, database } from "./helpers/sqlite-d1";
 const MIGRATIONS = [
   "migrations/20260710120000_auth.sql",
   "migrations/20260712230000_token_minting_user.sql",
+  "migrations/20260817180000_token_last_used.sql",
 ];
 
 const ADMIN = { id: "u-admin", email: "admin@example.com", name: "Admin" };

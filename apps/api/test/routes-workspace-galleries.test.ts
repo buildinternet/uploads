@@ -143,6 +143,7 @@ beforeEach(async () => {
   db.exec(migration("20260710140000_workspace_usage.sql"));
   db.exec(migration("20260711180000_galleries.sql"));
   db.exec(migration("20260712230000_token_minting_user.sql"));
+  db.exec(migration("20260817180000_token_last_used.sql"));
   db.exec(migration("20260713210559_file_metadata.sql"));
   db.exec(migration("20260728120000_daily_metrics.sql"));
   bucket = new FakeR2Bucket();
