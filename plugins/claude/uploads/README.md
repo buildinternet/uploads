@@ -23,11 +23,10 @@ Plugin skills and commands are namespaced (`/uploads:…`).
 ## Pre-PR screenshot reminder
 
 Shared hook config: [`hooks/hooks.json`](../../../hooks/hooks.json). Runs
-`uploads hook pre-pr-screenshot` on shell `PreToolUse`. Fail-open; disable with
-`UPLOADS_HOOK_DISABLE=1`. Same file is used by the Codex plugin. Grok and Cursor
-get the same command via `uploads install hooks`.
-
-Requires the `uploads` CLI on `PATH`.
+`uploads hook pre-pr-screenshot` on shell `PreToolUse` when the CLI is on
+`PATH`. If `uploads` is missing, the hook exits 0 and stays silent. Fail-open;
+disable with `UPLOADS_HOOK_DISABLE=1`. Same file is used by the Codex plugin.
+Grok and Cursor get the same command via `uploads install hooks`.
 
 ## Install
 

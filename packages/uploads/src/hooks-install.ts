@@ -2,17 +2,26 @@
  * Install thin user-global hook manifests for Grok and Cursor.
  *
  * Claude and Codex ship the same PreToolUse hook via their plugins
- * (`hooks/hooks.json` → `uploads hook pre-pr-screenshot`). Do not also write
+ * (`hooks/hooks.json` → HOOK_COMMAND). Do not also write
  * ~/.codex/hooks.json here, or the reminder would fire twice.
  *
  * Idempotent: skip when our command string is already present.
+ * An older bare `uploads hook …` entry is upgraded in place.
  */
 
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-export const HOOK_COMMAND = "uploads hook pre-pr-screenshot";
+/** What the harness actually runs once `uploads` is on PATH. */
+export const HOOK_INVOCATION = "uploads hook pre-pr-screenshot";
+
+/**
+ * Fail-open shell used in every harness manifest.
+ * A missing `uploads` binary is a silent no-op (exit 0, no stderr) so plugin
+ * users without the CLI do not get a hook-failure annotation on every shell tool.
+ */
+export const HOOK_COMMAND = `if command -v uploads >/dev/null 2>&1; then ${HOOK_INVOCATION}; fi`;
 const TIMEOUT_SEC = 15;
 
 const GROK_PAYLOAD = {
@@ -47,6 +56,17 @@ function containsCommand(filePath: string): boolean {
   } catch {
     return false;
   }
+}
+
+function hookCommandOf(entry: unknown): string | undefined {
+  if (!entry || typeof entry !== "object") return undefined;
+  const command = (entry as { command?: unknown }).command;
+  return typeof command === "string" ? command : undefined;
+}
+
+function isOurHookEntry(entry: unknown): boolean {
+  const command = hookCommandOf(entry);
+  return Boolean(command?.includes(HOOK_INVOCATION));
 }
 
 function writeJson(filePath: string, value: unknown): void {
@@ -98,7 +118,16 @@ function mergeCursor(home: string, dryRun: boolean): HookWriteResult {
       ? ({ ...(existing.hooks as object) } as Record<string, unknown>)
       : {};
   const list = Array.isArray(hooks.beforeShellExecution) ? [...hooks.beforeShellExecution] : [];
-  list.push({ command: HOOK_COMMAND, timeout: TIMEOUT_SEC });
+  const ours = list.findIndex(isOurHookEntry);
+  const nextEntry = { command: HOOK_COMMAND, timeout: TIMEOUT_SEC };
+  if (ours >= 0) {
+    if (hookCommandOf(list[ours]) === HOOK_COMMAND) {
+      return { path: filePath, action: "skipped" };
+    }
+    list[ours] = { ...(list[ours] as object), ...nextEntry };
+  } else {
+    list.push(nextEntry);
+  }
   hooks.beforeShellExecution = list;
   existing.hooks = hooks;
   if (existing.version === undefined) existing.version = 1;
