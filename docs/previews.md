@@ -75,9 +75,12 @@ npx wrangler d1 migrations apply uploads-preview --remote -c apps/api/wrangler.p
 
 (The companion `wrangler.preview.jsonc` exists because `d1 migrations` cannot
 see databases declared inside a `previews` block.) Destructive or risky
-migrations: create a scratch database and point the branch's own `previews`
-block at it — that is the per-branch override doing its job. Revert the
-override before merge.
+migrations: give the branch a scratch database instead — in the branch's own
+`previews` block, remove the shared entry's identifier. For KV, D1, and R2,
+omitting the identifier (`id`, `database_name`, or `bucket_name`) makes
+`wrangler preview` create a fresh resource on first run and write the
+identifier back to the config. Revert the override before merge and delete
+the scratch resource.
 
 **Seeding.** The preview tier starts empty — no workspaces, no files. Mint a
 workspace against the preview api URL the same way you would against

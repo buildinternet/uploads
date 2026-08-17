@@ -74,10 +74,12 @@
       "CONSOLE_MODE": "linked-only",
     },
     // The Astro Cloudflare adapter's generated config (dist/server/wrangler.json,
-    // via the .wrangler/deploy redirect) injects an id-less SESSION KV binding
-    // and relies on wrangler's deploy-time auto-provisioning to fill it in.
-    // The Previews deployment API does not auto-provision (error 10021), so
-    // previews pin an explicit, preview-only session namespace here.
+    // via the .wrangler/deploy redirect) injects an id-less SESSION KV binding.
+    // Wrangler normally auto-provisions an omitted id and writes it back to
+    // the config file, but a generated build artifact has no user config to
+    // write back to, so the provisioning never engages and the preview deploy
+    // fails with error 10021. Previews therefore pin an explicit,
+    // preview-only session namespace here.
     "kv_namespaces": [
       {
         "binding": "SESSION",
