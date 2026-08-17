@@ -1,12 +1,8 @@
 ---
-import { env } from "cloudflare:workers";
 import AccountLayout from "../../layouts/AccountLayout.astro";
 import { renderDetailListPlaceholderHtml } from "../../lib/workspace-ui";
-import { resolveShowConsoleLinks } from "../../lib/signed-in-page";
 
 export const prerender = false;
-
-const showConsoleLinks = await resolveShowConsoleLinks(env);
 ---
 
 <AccountLayout section="developers">
@@ -63,10 +59,10 @@ const showConsoleLinks = await resolveShowConsoleLinks(env);
 
   <section class="card settings-page" id="workspace-tokens">
     <div class="settings-section">
-      <h2>Workspace tokens</h2>
+      <h2>API Tokens</h2>
       <p class="settings-note muted">
         For curl, CI, and scripts. Tokens start with <code>up_&lt;workspace&gt;_</code> and last 90 days,
-        or 1 year. The CLI reads the workspace from the token.
+        1 year, or until you revoke them. The CLI reads the workspace from the token.
       </p>
 
       <p class="muted cli-note" id="token-empty" hidden>
@@ -96,6 +92,7 @@ const showConsoleLinks = await resolveShowConsoleLinks(env);
             <select name="ttl" class="ul-select" id="token-ttl">
               <option value="7776000">90 days</option>
               <option value="31536000">1 year</option>
+              <option value="never">No expiry</option>
             </select>
           </label>
           <button type="submit" class="input-group__action" id="token-create">Create</button>
@@ -123,31 +120,6 @@ const showConsoleLinks = await resolveShowConsoleLinks(env);
         aria-busy="true"
         set:html={renderDetailListPlaceholderHtml()}
       />
-    </div>
-  </section>
-
-  <section class="card settings-page dev-page">
-    <div class="settings-section">
-      <h2>Developers</h2>
-      <p class="settings-note muted">API and CI. Day to day starts with the CLI setup above.</p>
-      <ul class="dev-links">
-        {
-          showConsoleLinks ? (
-            <li>
-              <a href="/console">Console</a>
-              <span class="slug">token-based ops</span>
-            </li>
-          ) : null
-        }
-        <li>
-          <a href="/docs">API docs</a>
-          <span class="slug">endpoints &amp; auth</span>
-        </li>
-        <li>
-          <a href="https://github.com/buildinternet/uploads">GitHub</a>
-          <span class="slug">source &amp; issues</span>
-        </li>
-      </ul>
     </div>
   </section>
 
@@ -351,7 +323,7 @@ const showConsoleLinks = await resolveShowConsoleLinks(env);
         list.setAttribute("aria-busy", tokens === null ? "true" : "false");
         if (tokens === null) {
           status.hidden = false;
-          status.textContent = "Couldn’t load workspace tokens.";
+          status.textContent = "Couldn’t load API tokens.";
           list.replaceChildren();
           return;
         }
@@ -415,8 +387,8 @@ const showConsoleLinks = await resolveShowConsoleLinks(env);
           const workspace =
             workspaceInput instanceof HTMLSelectElement ? workspaceInput.value.trim() : "";
           const label = labelInput instanceof HTMLInputElement ? labelInput.value.trim() : "";
-          const ttlSeconds =
-            ttlInput instanceof HTMLSelectElement ? Number(ttlInput.value) : undefined;
+          const ttlRaw = ttlInput instanceof HTMLSelectElement ? ttlInput.value : "";
+          const ttlSeconds = ttlRaw === "never" ? null : ttlRaw ? Number(ttlRaw) : undefined;
           if (!workspace || !label) return;
           const button = requireElement<HTMLButtonElement>("#token-create", "developers");
           const error = requireElement<HTMLElement>("#token-error", "developers");

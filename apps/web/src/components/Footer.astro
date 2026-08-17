@@ -46,10 +46,7 @@ const COLUMNS: FooterColumn[] = [
   {
     title: "Project",
     links: [
-      // "Source", not "GitHub" — it sits a column away from "GitHub App" and
-      // the two read as the same destination otherwise. Matches the compact
-      // variant below, which already says "source".
-      { label: "Source", href: REPO },
+      { label: "GitHub", href: REPO },
       { label: "Status", href: STATUS_URL },
       { label: "Terms", href: "/terms" },
       { label: "Privacy", href: "/privacy" },
@@ -62,7 +59,7 @@ const COLUMNS: FooterColumn[] = [
   compact ? (
     <footer class="site-footer compact">
       <div class="site-footer__inner">
-        a <a href="https://buildinternet.com">Build Internet</a> project · <a href={REPO}>source</a>{" "}
+        a <a href="https://buildinternet.com">Build Internet</a> project · <a href={REPO}>GitHub</a>{" "}
         · <a href="/docs">docs</a> · <a href={STATUS_URL}>status</a> · <a href="/terms">terms</a> ·{" "}
         <a href="/privacy">privacy</a>
       </div>

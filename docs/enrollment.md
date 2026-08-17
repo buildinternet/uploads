@@ -8,9 +8,10 @@ Nobody needs the API's `ADMIN_TOKEN` to sign in.
 ## Workspace tokens (no device login)
 
 `/account/developers` mints the same `up_<workspace>_` token `uploads login`
-does. Pick a workspace, a label, and 90 days or 1 year. The secret is shown
-once. The CLI reads the workspace from the token. Curl still puts the
-workspace in the path (`/v1/:workspace/…`).
+does. Pick a workspace, a label, and 90 days, 1 year, or no expiry. The
+secret is shown once. A token with no expiry lives until you revoke it. The
+CLI reads the workspace from the token. Curl still puts the workspace in the
+path (`/v1/:workspace/…`).
 
 ## Everyday login (device flow)
 

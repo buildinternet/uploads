@@ -218,6 +218,14 @@ describe("POST /v1/tokens request validation", () => {
       error: { code: "invalid_ttl" },
     });
   });
+
+  it("400s on ttlSeconds 0", async () => {
+    const res = await post(stubEnv(), { ...oneGrant, ttlSeconds: 0 });
+    expect(res.status).toBe(400);
+    expect((await res.json()) as { error: { code: string } }).toMatchObject({
+      error: { code: "invalid_ttl" },
+    });
+  });
 });
 
 describe("GET /v1/tokens (workspace listing)", () => {
@@ -305,6 +313,16 @@ describe("POST /v1/tokens mint", () => {
     // expires_at, minting_user_id — the last is the session user's id.
     expect(cap.insert?.[7]).toBe(USER.id);
     expect(cap.insert?.[1]).toBe("acme");
+  });
+
+  it("mints a never-expiring token when ttlSeconds is null", async () => {
+    const cap = captureDb();
+    const res = await post(stubEnv({ db: cap.db }), { ...oneGrant, ttlSeconds: null });
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { expiresAt: string | null };
+    expect(body.expiresAt).toBeNull();
+    // expires_at is the 7th INSERT bind (index 6).
+    expect(cap.insert?.[6]).toBeNull();
   });
 
   it("defaults scopes to read+write when the grant omits them", async () => {
