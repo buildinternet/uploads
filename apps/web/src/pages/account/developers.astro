@@ -59,7 +59,7 @@ export const prerender = false;
 
   <section class="card settings-page" id="workspace-tokens">
     <div class="settings-section">
-      <h2>Workspace tokens</h2>
+      <h2>API Tokens</h2>
       <p class="settings-note muted">
         For curl, CI, and scripts. Tokens start with <code>up_&lt;workspace&gt;_</code> and last 90 days,
         1 year, or until you revoke them. The CLI reads the workspace from the token.
@@ -323,7 +323,7 @@ export const prerender = false;
         list.setAttribute("aria-busy", tokens === null ? "true" : "false");
         if (tokens === null) {
           status.hidden = false;
-          status.textContent = "Couldn’t load workspace tokens.";
+          status.textContent = "Couldn’t load API tokens.";
           list.replaceChildren();
           return;
         }
