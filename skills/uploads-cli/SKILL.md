@@ -951,7 +951,8 @@ uploads --api-url http://localhost:8787 doctor
   per-item results. `uploads install` sets up this skill + hosted MCP +
   Grok/Cursor hooks (short progress; `--verbose` / `--dry-run` available).
   Claude and Codex ship the same pre-PR reminder via their plugins
-  (`uploads hook pre-pr-screenshot`).
+  (`uploads hook pre-pr-screenshot`). The hook is a silent no-op when the
+  CLI is not on `PATH`.
 
   **Hosted MCP `put` comment parity.** The hosted `put` tool
   accepts `pr`/`issue` (mutually exclusive, mirroring the CLI's `--pr`/

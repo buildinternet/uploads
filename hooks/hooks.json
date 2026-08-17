@@ -7,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uploads hook pre-pr-screenshot",
+            "command": "if command -v uploads >/dev/null 2>&1; then uploads hook pre-pr-screenshot; fi",
             "timeout": 15,
             "statusMessage": "Checking staged screenshots"
           }

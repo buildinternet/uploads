@@ -324,5 +324,6 @@ covers callouts and redaction (`uploads annotate` /
 The same install step also wires a fail-open pre-PR screenshot reminder for
 **Grok** and **Cursor** when those tools are present. **Claude Code** and
 **Codex** get that reminder from their plugins instead (both run
-`uploads hook pre-pr-screenshot`). Public walkthrough:
+`uploads hook pre-pr-screenshot` when the CLI is on `PATH`, and stay silent
+if it is not). Public walkthrough:
 [uploads.sh/docs/agents](https://uploads.sh/docs/agents).

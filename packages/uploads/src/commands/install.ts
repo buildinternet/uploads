@@ -8,7 +8,12 @@ import {
 import { resolveConfig } from "../config.js";
 import { execRunner, type CommandRunner } from "../github-gh.js";
 import { writeCommandHelp } from "../cli-style.js";
-import { HOOK_COMMAND, installHookManifests, type HookWriteResult } from "../hooks-install.js";
+import {
+  HOOK_COMMAND,
+  HOOK_INVOCATION,
+  installHookManifests,
+  type HookWriteResult,
+} from "../hooks-install.js";
 
 export const DEFAULT_MCP_URL = "https://agents.uploads.sh/mcp";
 const SKILL_SOURCE = "buildinternet/uploads";
@@ -23,7 +28,7 @@ hook for Grok / Cursor when those tools are present. The remote MCP endpoint
 infers your workspace from the bearer token, so only the token is needed.
 
 Claude Code and Codex ship the same reminder via their plugins (same command:
-\`${HOOK_COMMAND}\`) — install those plugins instead of relying on this step.
+\`${HOOK_INVOCATION}\`) — install those plugins instead of relying on this step.
 
 Safe to re-run. An MCP server already registered under this name is reported
 as \`already configured\` and left as-is — including the token it was created

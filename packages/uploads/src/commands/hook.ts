@@ -22,6 +22,7 @@ Usage:
   uploads hook pre-pr-screenshot
 
 Invoked by Claude Code / Codex / Grok / Cursor hooks. Never blocks.
+Harness manifests no-op (exit 0, no output) when this binary is not on PATH.
 
   pre-pr-screenshot
     If the shell command is \`gh pr create\`, the branch touches UI files, and

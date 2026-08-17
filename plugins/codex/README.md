@@ -8,7 +8,7 @@ Ships the checked-in skills, the hosted MCP server in
 pre-PR hook in [`hooks/hooks.json`](../../hooks/hooks.json)
 (`uploads hook pre-pr-screenshot`). Portal paste-ins (test cases, annotation
 justifications) live in [submission.md](submission.md).
-The hook requires the `uploads` CLI on `PATH`. After enabling the plugin, open
-`/hooks` once and trust the hook if Codex asks.
+If the `uploads` CLI is not on `PATH`, the hook exits 0 and stays silent.
+After enabling the plugin, open `/hooks` once and trust the hook if Codex asks.
 
 Disable the reminder with `UPLOADS_HOOK_DISABLE=1`.
