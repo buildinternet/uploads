@@ -763,7 +763,7 @@ export function mintWorkspaceToken(
     workspace: string;
     scopes?: Array<TokenScope>;
     label?: string;
-    ttlSeconds?: number;
+    ttlSeconds?: number | null;
   },
 ): Promise<MintTokenResult> {
   return jsonRequest(`${apiUrl.replace(/\/$/, "")}/v1/tokens`, {
@@ -772,7 +772,7 @@ export function mintWorkspaceToken(
     body: JSON.stringify({
       grants: [{ workspace: input.workspace, ...(input.scopes ? { scopes: input.scopes } : {}) }],
       ...(input.label ? { label: input.label } : {}),
-      ...(input.ttlSeconds ? { ttlSeconds: input.ttlSeconds } : {}),
+      ...(input.ttlSeconds !== undefined ? { ttlSeconds: input.ttlSeconds } : {}),
     }),
   });
 }

@@ -261,7 +261,8 @@ uploads doctor --json
 
 Workspace tokens encode their workspace (`up_<workspace>_…`), so the CLI infers
 `--workspace` when you don't set it. `/account/developers` mints the same
-token shape. Legacy administrator-minted tokens remain valid.
+token shape and can skip expiry (revoke is then the only off switch). Legacy
+administrator-minted tokens remain valid.
 See "Config commands" for setting put defaults (default repo, prefix, image
 width) once instead of per-command.
 

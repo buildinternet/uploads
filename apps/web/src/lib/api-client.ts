@@ -1205,7 +1205,7 @@ export async function listIssuedWorkspaceTokens(
 /** POST /v1/tokens — mint a `up_<workspace>_` token. Secret is returned once. */
 export async function mintWorkspaceToken(
   apiOrigin: string,
-  input: { workspace: string; label?: string; ttlSeconds?: number },
+  input: { workspace: string; label?: string; ttlSeconds?: number | null },
 ): Promise<MintWorkspaceTokenResult> {
   const result = await fetchWithTimeout(`${trimOrigin(apiOrigin)}/v1/tokens`, {
     method: "POST",
@@ -1215,7 +1215,7 @@ export async function mintWorkspaceToken(
     body: JSON.stringify({
       grants: [{ workspace: input.workspace }],
       ...(input.label ? { label: input.label } : {}),
-      ...(input.ttlSeconds ? { ttlSeconds: input.ttlSeconds } : {}),
+      ...(input.ttlSeconds !== undefined ? { ttlSeconds: input.ttlSeconds } : {}),
     }),
   });
   if (result.kind === "unavailable") {

@@ -53,7 +53,7 @@ with `uploads setup --token <token>`, or into `.env` or user config.
 
 You can also mint a workspace token from `/account/developers` (no device
 login). Those tokens start with `up_<workspace>_` and last 90 days by default,
-or 1 year. The CLI reads the workspace from the token.
+1 year, or until you revoke them. The CLI reads the workspace from the token.
 
 Two things go stale independently: the npm package that provides the `uploads`
 binary, and the agent skills plus the MCP registration that `uploads install`

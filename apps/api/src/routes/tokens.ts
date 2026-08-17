@@ -80,7 +80,8 @@ interface RawGrant {
 function parseMintRequest(parsed: unknown): {
   grant: RawGrant;
   label?: string;
-  ttlSeconds: number;
+  /** `null` means never expire. Omit in the request to get the 90-day default. */
+  ttlSeconds: number | null;
 } {
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
     throw new ValidationError("request body must be a JSON object", { code: "invalid_request" });
@@ -122,22 +123,25 @@ function parseMintRequest(parsed: unknown): {
     label = trimmed || undefined;
   }
 
-  let ttlSeconds = DEFAULT_TOKEN_SECONDS;
+  let ttlSeconds: number | null = DEFAULT_TOKEN_SECONDS;
   if (body.ttlSeconds !== undefined) {
-    if (
+    if (body.ttlSeconds === null) {
+      ttlSeconds = null;
+    } else if (
       typeof body.ttlSeconds !== "number" ||
       !Number.isInteger(body.ttlSeconds) ||
       body.ttlSeconds < 1 ||
       body.ttlSeconds > MAX_TOKEN_SECONDS
     ) {
       throw new ValidationError(
-        `ttlSeconds must be an integer between 1 and ${MAX_TOKEN_SECONDS}`,
+        `ttlSeconds must be null or an integer between 1 and ${MAX_TOKEN_SECONDS}`,
         {
           code: "invalid_ttl",
         },
       );
+    } else {
+      ttlSeconds = body.ttlSeconds;
     }
-    ttlSeconds = body.ttlSeconds;
   }
 
   return { grant: { workspace, rawScopes: grantObj.scopes }, label, ttlSeconds };
@@ -234,7 +238,7 @@ export const tokens = new Hono<SessionVars>()
       throw new RateLimitedError("token minting rate limit exceeded");
     }
 
-    const expiresAt = new Date(Date.now() + ttlSeconds * 1000);
+    const expiresAt = ttlSeconds === null ? undefined : new Date(Date.now() + ttlSeconds * 1000);
     const { token, record: tokenRecord } = await createToken(c.env.DB, {
       workspace: grant.workspace,
       label,

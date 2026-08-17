@@ -3,6 +3,8 @@
 All `/v1` routes require `Authorization: Bearer <token>`. That is a workspace
 token (`up_<workspace>_…`) from `uploads login` or `/account/developers`.
 The workspace is always in the URL path. The CLI infers it from the token.
+`POST /v1/tokens` defaults to 90 days; `ttlSeconds: null` mints a token that
+does not expire.
 
 Unknown workspaces and bad tokens are indistinguishable (both 401).
 
