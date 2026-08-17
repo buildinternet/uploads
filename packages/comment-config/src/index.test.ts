@@ -116,6 +116,17 @@ describe("parseRepoCommentConfig", () => {
     expect(parseRepoCommentConfig("- a\n- b\n", "yaml").config).toBeNull();
     expect(parseRepoCommentConfig("other: 1\n", "yaml").config).toBeNull();
   });
+  it("parses ingestBotAttachments as a boolean, warns on other types", () => {
+    expect(
+      parseRepoCommentConfig("comment:\n  ingestBotAttachments: true\n", "yaml").config,
+    ).toEqual({ ingestBotAttachments: true });
+    const { config, warnings } = parseRepoCommentConfig(
+      'comment:\n  ingestBotAttachments: "yes"\n',
+      "yaml",
+    );
+    expect(config).toEqual({});
+    expect(warnings[0]).toContain("ingestBotAttachments");
+  });
   it("never throws on hostile input", () => {
     for (const text of ["", "\0", "!!js/function 'x'", "{", "comment: 3"]) {
       expect(() => parseRepoCommentConfig(text, "yaml")).not.toThrow();
@@ -151,6 +162,22 @@ describe("resolveCommentOptions", () => {
     const { options } = resolveCommentOptions({ metaPath: true }, { showMetadata: false });
     expect(options.metaPath).toBe(true);
     expect(options.metaState).toBe(false);
+  });
+  it("defaults ingestGithubAttachments on and ingestBotAttachments off", () => {
+    const { options } = resolveCommentOptions(null, null);
+    expect(options.ingestGithubAttachments).toBe(true);
+    expect(options.ingestBotAttachments).toBe(false);
+  });
+  it("resolves ingestBotAttachments with repo > workspace precedence", () => {
+    const { options, source } = resolveCommentOptions(
+      { ingestBotAttachments: true },
+      { ingestBotAttachments: false },
+    );
+    expect(options.ingestBotAttachments).toBe(true);
+    expect(source.ingestBotAttachments).toBe("repo");
+    const ws = resolveCommentOptions(null, { ingestBotAttachments: true });
+    expect(ws.options.ingestBotAttachments).toBe(true);
+    expect(ws.source.ingestBotAttachments).toBe("workspace");
   });
 });
 

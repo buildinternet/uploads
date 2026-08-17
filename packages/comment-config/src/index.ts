@@ -17,6 +17,7 @@ export interface RepoCommentConfig {
   linkToFilePage?: boolean;
   note?: string;
   ingestGithubAttachments?: boolean;
+  ingestBotAttachments?: boolean;
 }
 export interface WorkspaceCommentDefaults {
   imageWidth?: "full" | number;
@@ -25,6 +26,7 @@ export interface WorkspaceCommentDefaults {
   linkToFilePage?: boolean;
   note?: string;
   ingestGithubAttachments?: boolean;
+  ingestBotAttachments?: boolean;
 }
 export interface ResolvedCommentOptions {
   imageWidth: "auto" | "full" | number;
@@ -34,6 +36,7 @@ export interface ResolvedCommentOptions {
   linkToFilePage: boolean;
   note: string | null;
   ingestGithubAttachments: boolean;
+  ingestBotAttachments: boolean;
 }
 export type OptionSource = "repo" | "workspace" | "auto";
 
@@ -44,7 +47,8 @@ export const AUTO_COMMENT_OPTIONS: ResolvedCommentOptions = {
   metaState: true,
   linkToFilePage: true,
   note: null,
-  ingestGithubAttachments: false,
+  ingestGithubAttachments: true,
+  ingestBotAttachments: false,
 };
 
 export const NOTE_MAX_CHARS = 500;
@@ -107,6 +111,13 @@ export function parseRepoCommentConfig(
     else warnings.push(`ingestGithubAttachments: expected a boolean; dropped`);
   }
 
+  // ingestBotAttachments: boolean
+  if ("ingestBotAttachments" in c) {
+    const v = c.ingestBotAttachments;
+    if (typeof v === "boolean") config.ingestBotAttachments = v;
+    else warnings.push(`ingestBotAttachments: expected a boolean; dropped`);
+  }
+
   // meta.path / meta.state: booleans nested under `meta`
   if ("meta" in c) {
     const v = c.meta;
@@ -160,6 +171,9 @@ export function resolveCommentOptions(
     ...(ws?.ingestGithubAttachments !== undefined
       ? { ingestGithubAttachments: ws.ingestGithubAttachments }
       : {}),
+    ...(ws?.ingestBotAttachments !== undefined
+      ? { ingestBotAttachments: ws.ingestBotAttachments }
+      : {}),
   };
   const options = { ...AUTO_COMMENT_OPTIONS };
   const source = Object.fromEntries(
@@ -173,6 +187,7 @@ export function resolveCommentOptions(
       "metaState",
       "linkToFilePage",
       "ingestGithubAttachments",
+      "ingestBotAttachments",
     ] as const) {
       if (cfg[key] !== undefined && source[key] === "auto") {
         (options as Record<string, unknown>)[key] = cfg[key];

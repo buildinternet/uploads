@@ -188,7 +188,9 @@
       "text": "comment:\n  ingestGithubAttachments: true\n",
       "format": "yaml",
       "expected": {
-        "config": { "ingestGithubAttachments": true },
+        "config": {
+          "ingestGithubAttachments": true
+        },
         "warnings": []
       }
     },
@@ -199,6 +201,17 @@
       "expected": {
         "config": {},
         "warnings": ["ingestGithubAttachments: expected a boolean; dropped"]
+      }
+    },
+    {
+      "name": "ingestBotAttachments boolean parses; non-boolean dropped with warning",
+      "text": "comment:\n  ingestBotAttachments: true\n",
+      "format": "yaml",
+      "expected": {
+        "config": {
+          "ingestBotAttachments": true
+        },
+        "warnings": []
       }
     }
   ],
@@ -215,7 +228,8 @@
           "metaState": true,
           "linkToFilePage": true,
           "note": null,
-          "ingestGithubAttachments": false
+          "ingestGithubAttachments": true,
+          "ingestBotAttachments": false
         },
         "source": {
           "imageWidth": "auto",
@@ -224,7 +238,8 @@
           "metaState": "auto",
           "linkToFilePage": "auto",
           "note": "auto",
-          "ingestGithubAttachments": "auto"
+          "ingestGithubAttachments": "auto",
+          "ingestBotAttachments": "auto"
         }
       }
     },
@@ -245,7 +260,8 @@
           "metaState": true,
           "linkToFilePage": true,
           "note": null,
-          "ingestGithubAttachments": false
+          "ingestGithubAttachments": true,
+          "ingestBotAttachments": false
         },
         "source": {
           "imageWidth": "repo",
@@ -254,7 +270,8 @@
           "metaState": "auto",
           "linkToFilePage": "auto",
           "note": "auto",
-          "ingestGithubAttachments": "auto"
+          "ingestGithubAttachments": "auto",
+          "ingestBotAttachments": "auto"
         }
       }
     },
@@ -272,7 +289,8 @@
           "metaState": false,
           "linkToFilePage": true,
           "note": null,
-          "ingestGithubAttachments": false
+          "ingestGithubAttachments": true,
+          "ingestBotAttachments": false
         },
         "source": {
           "imageWidth": "auto",
@@ -281,7 +299,8 @@
           "metaState": "workspace",
           "linkToFilePage": "auto",
           "note": "auto",
-          "ingestGithubAttachments": "auto"
+          "ingestGithubAttachments": "auto",
+          "ingestBotAttachments": "auto"
         }
       }
     },
@@ -301,7 +320,8 @@
           "metaState": false,
           "linkToFilePage": true,
           "note": null,
-          "ingestGithubAttachments": false
+          "ingestGithubAttachments": true,
+          "ingestBotAttachments": false
         },
         "source": {
           "imageWidth": "auto",
@@ -310,14 +330,19 @@
           "metaState": "workspace",
           "linkToFilePage": "auto",
           "note": "auto",
-          "ingestGithubAttachments": "auto"
+          "ingestGithubAttachments": "auto",
+          "ingestBotAttachments": "auto"
         }
       }
     },
     {
       "name": "ingest knob repo over workspace",
-      "repo": { "ingestGithubAttachments": true },
-      "workspace": { "ingestGithubAttachments": false },
+      "repo": {
+        "ingestGithubAttachments": true
+      },
+      "workspace": {
+        "ingestGithubAttachments": false
+      },
       "expected": {
         "options": {
           "imageWidth": "auto",
@@ -326,7 +351,8 @@
           "metaState": true,
           "linkToFilePage": true,
           "note": null,
-          "ingestGithubAttachments": true
+          "ingestGithubAttachments": true,
+          "ingestBotAttachments": false
         },
         "source": {
           "imageWidth": "auto",
@@ -335,7 +361,39 @@
           "metaState": "auto",
           "linkToFilePage": "auto",
           "note": "auto",
-          "ingestGithubAttachments": "repo"
+          "ingestGithubAttachments": "repo",
+          "ingestBotAttachments": "auto"
+        }
+      }
+    },
+    {
+      "name": "bot-ingest knob repo over workspace; ingest default is on",
+      "repo": {
+        "ingestBotAttachments": true
+      },
+      "workspace": {
+        "ingestBotAttachments": false
+      },
+      "expected": {
+        "options": {
+          "imageWidth": "auto",
+          "maxInlineImages": 16,
+          "metaPath": true,
+          "metaState": true,
+          "linkToFilePage": true,
+          "note": null,
+          "ingestGithubAttachments": true,
+          "ingestBotAttachments": true
+        },
+        "source": {
+          "imageWidth": "auto",
+          "maxInlineImages": "auto",
+          "metaPath": "auto",
+          "metaState": "auto",
+          "linkToFilePage": "auto",
+          "note": "auto",
+          "ingestGithubAttachments": "auto",
+          "ingestBotAttachments": "repo"
         }
       }
     }

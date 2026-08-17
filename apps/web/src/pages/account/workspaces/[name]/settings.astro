@@ -176,7 +176,7 @@ const tip = {
             </div>
             <p class="cs-row__desc">
               Mirror manually added images and video on pull requests and issues into this
-              workspace.
+              workspace. On by default; bot-authored and tiny images are filtered out.
             </p>
           </div>
           <div class="cs-row__control">
@@ -931,7 +931,9 @@ const tip = {
         // default on, import defaults off.
         paintToggle(metaToggle, settings.showMetadata ?? true);
         paintToggle(linkToggle, settings.linkToFilePage ?? true);
-        paintToggle(ingestToggle, settings.ingestGithubAttachments ?? false);
+        // Unset means the platform default, which is ON (issue #690) — paint
+        // the toggle the way ingestion will actually behave.
+        paintToggle(ingestToggle, settings.ingestGithubAttachments ?? true);
         noteInput.value = settings.note ?? "";
         noteCount.textContent = String(noteInput.value.length);
         // Baseline off the painted form, not `settings`: the toggles normalise

@@ -2313,7 +2313,8 @@ describe("GET /me/workspaces/:name/comment-preview", () => {
       metaState: true,
       linkToFilePage: true,
       note: null,
-      ingestGithubAttachments: false,
+      ingestGithubAttachments: true,
+      ingestBotAttachments: false,
     });
     expect(body.source).toMatchObject({ imageWidth: "auto" });
     expect(typeof body.body).toBe("string");

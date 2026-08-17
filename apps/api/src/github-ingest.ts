@@ -43,7 +43,12 @@ import {
   setLedgerSource,
 } from "./github-ingest-ledger";
 import { updateFileMetadataValue } from "./file-metadata";
-import { detectContentType, maxBytesForContentType, resolveUploadPolicy } from "./guards";
+import {
+  detectContentType,
+  detectImageDimensions,
+  maxBytesForContentType,
+  resolveUploadPolicy,
+} from "./guards";
 import { putObject } from "./files-core";
 import { findRepoLinkStrict } from "./github-repo-links";
 import { resolveRepoCommentOptions } from "./repo-comment-config";
@@ -88,7 +93,23 @@ export interface IngestDeps {
    * today's behavior.
    */
   mode?: GhKeyMode;
+  /**
+   * Re-admit attachments authored by `*[bot]` logins (issue #690 junk
+   * filter). Absent/false — the default — skips them permanently
+   * (`bot_author`); webhook ingestion threads the resolved
+   * `ingestBotAttachments` knob through here.
+   */
+  ingestBotAuthors?: boolean;
 }
+
+/**
+ * Floor on either pixel dimension for ingested images (issue #690): the
+ * emoji, badge, and tracking-pixel junk bots embed is far below it, real
+ * screenshots are far above. Applies only when the header's dimensions are
+ * decodable — an undecodable header fails open, since this is an index tier
+ * whose originals stay on GitHub either way.
+ */
+const MIN_INGEST_IMAGE_DIMENSION = 200;
 
 function emptySummary(): IngestSummary {
   return { ingested: [], reattached: [], detached: [], skipped: [] };
@@ -235,6 +256,14 @@ async function fetchAndStore(
     return { kind: "skip", reason: "too_large" };
   }
 
+  const dims = detectImageDimensions(bytes, sniffed);
+  if (
+    dims &&
+    (dims.width < MIN_INGEST_IMAGE_DIMENSION || dims.height < MIN_INGEST_IMAGE_DIMENSION)
+  ) {
+    return { kind: "skip", reason: "too_small" };
+  }
+
   const mode: GhKeyMode = deps.mode ?? { mode: "plain" };
   const key = ingestKeyForMode(mode, ref, attachment.id, extensionForContentType(sniffed));
   try {
@@ -303,6 +332,12 @@ export async function reconcileIngestSource(
     await Promise.all(found.map(async (a) => [a.id, await ledgerRow(db, ref.repo, a.id)] as const)),
   );
 
+  // Bot-author gate applies only to NEW assets: an already-ledgered asset was
+  // admitted under whatever policy held when it was fetched, so reattach/
+  // source-move bookkeeping below still runs for it — junk never enters the
+  // ledger in the first place, and this loop never re-fetches ledgered rows.
+  const skipBotAuthor = author !== null && author.endsWith("[bot]") && !deps.ingestBotAuthors;
+
   for (const attachment of found) {
     const row = rows.get(attachment.id) ?? null;
     if (row) {
@@ -327,6 +362,11 @@ export async function reconcileIngestSource(
       await updateFileMetadataValue(db, row.workspace, row.objectKey, "gh.detached", "false");
       await setLedgerDetached(db, ref.repo, attachment.id, null);
       summary.reattached.push(row.objectKey);
+      continue;
+    }
+
+    if (skipBotAuthor) {
+      summary.skipped.push({ url: attachment.url, reason: "bot_author" });
       continue;
     }
 
@@ -416,6 +456,7 @@ export async function ingestForWebhook(
     ...deps,
     token,
     mode,
+    ingestBotAuthors: options.ingestBotAttachments,
   });
 }
 

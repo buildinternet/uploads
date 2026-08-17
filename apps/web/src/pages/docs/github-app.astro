@@ -9,6 +9,7 @@ const TOC = [
   { id: "what-it-adds", label: "What it adds" },
   { id: "install", label: "Install it" },
   { id: "staging", label: "Staging before a PR exists" },
+  { id: "ingest", label: "Imported attachments" },
   { id: "permissions", label: "Permissions & events" },
   { id: "bindings", label: "Repo bindings" },
   { id: "self-healing", label: "Self-healing comments" },
@@ -49,7 +50,7 @@ const TOC = [
     </h2>
     <p>
       Installing <a href={GITHUB_APP_URL}>the App</a> is the recommended setup — it's what makes the staged
-      loop hands-off. Four things change:
+      loop hands-off. Five things change:
     </p>
     <ul>
       <li>
@@ -68,6 +69,11 @@ const TOC = [
       <li>
         <strong>Screenshots staged before the PR exists get promoted automatically.</strong>&#32;
         See <a href="#staging">Staging before a PR exists</a>.
+      </li>
+      <li>
+        <strong>Images dropped directly on GitHub get mirrored in.</strong> Attachments people drag into
+        PR and issue text are imported into the workspace so they survive GitHub's own attachment lifecycle.
+        See <a href="#ingest">Imported attachments</a>.
       </li>
     </ul>
     <p>
@@ -133,6 +139,39 @@ const TOC = [
       The one caveat: a file staged more than 30 days before its PR opens won't auto-promote (it's
       still there, just not attached automatically).
     </p>
+  </section>
+
+  <section id="ingest">
+    <h2>
+      Imported attachments <a class="anchor" href="#ingest" aria-label="Link to this section">#</a>
+    </h2>
+    <p>
+      When someone drags an image or video into a PR or issue on GitHub itself, the App imports it
+      into the workspace automatically. Imported files carry the same <code>gh.*</code> metadata as CLI
+      uploads, so they show up in search and on the "From GitHub" rail of file pages — and they survive
+      even if GitHub's own attachment copy goes away. They never appear in the managed attachments comment;
+      they're an index, not a source of truth.
+    </p>
+    <p>
+      Importing is <strong>on by default</strong> for linked repos. Turn it off per workspace on the workspace's
+      <a href="/account">comment settings</a> page, or per repo with&#32;
+      <code>ingestGithubAttachments: false</code> in <a href="/docs/comment-config"
+        ><code>.uploads.yml</code></a
+      >.
+    </p>
+    <p>Two filters keep low-value files out:</p>
+    <ul>
+      <li>
+        <strong>Bot authors are skipped.</strong> An attachment in a body or comment authored by a&#32;
+        <code>[bot]</code> account — CI status GIFs, badge images, and the like — is not imported. Repos
+        that genuinely want bot-posted media can re-admit it with&#32;
+        <code>ingestBotAttachments: true</code> in <code>.uploads.yml</code>.
+      </li>
+      <li>
+        <strong>Tiny images are skipped.</strong> An image under 200 pixels on either side (emoji, badges,
+        tracking pixels) is not imported. The original still renders on GitHub either way.
+      </li>
+    </ul>
   </section>
 
   <section id="permissions">
