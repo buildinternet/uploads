@@ -503,6 +503,21 @@ export function renderGalleriesPlaceholderHtml(rows = 3): string {
 }
 
 /**
+ * Screenshots-page placeholder — byte-for-byte the markup of
+ * `OverviewLoadingSkeleton` in components/ScreenshotsByPath.tsx, so the
+ * server-rendered gap before the React island's dynamic import resolves
+ * shows the same skeleton the component then renders: no dead space, no
+ * layout jump. Change the two together.
+ */
+export function renderScreenshotsPlaceholderHtml(rows = 3, thumbs = 4): string {
+  const group = `<div class="wsp-group">
+  <div class="wsp-group__head">${skeletonBarHtml("140px")}</div>
+  <div class="wsp-strip">${`<span class="wsp-thumb wsp-thumb--skel" aria-hidden="true"></span>`.repeat(thumbs)}</div>
+</div>`;
+  return `<div class="wsp" aria-busy="true">${group.repeat(rows)}</div>`;
+}
+
+/**
  * Workspaces-index placeholder — same `ul.dev-links li` row (link + role
  * slug) the real list renders, so the swap from placeholder to data doesn't
  * change row count or height, only content.

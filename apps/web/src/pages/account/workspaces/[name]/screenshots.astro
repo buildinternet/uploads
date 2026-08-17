@@ -6,6 +6,7 @@
  */
 import WorkspaceLayout from "../../../../layouts/WorkspaceLayout.astro";
 import { isBrowseWorkspace } from "../../../../lib/workspace-browse-url";
+import { renderScreenshotsPlaceholderHtml } from "../../../../lib/workspace-ui";
 
 export const prerender = false;
 
@@ -22,12 +23,12 @@ const tip = {
 
 <WorkspaceLayout workspace={workspace} tip={tip} showQuickActions={false}>
   {
-    /* React (dynamic-imported below) replaces this wholesale on mount — no
-      HTML-string placeholder builder exists for this page, so the gap before
-      that import resolves is empty; the component's own loading skeleton
-      renders immediately after mount. */
+    /* React (dynamic-imported below) replaces this wholesale on mount. The
+      placeholder mirrors the component's own OverviewLoadingSkeleton, so the
+      gap before that import resolves shows the same skeleton the component
+      renders next — no dead space, no jump. */
   }
-  <div id="ws-screenshots"></div>
+  <div id="ws-screenshots" set:html={renderScreenshotsPlaceholderHtml()} />
 
   <script>
     import { onAstroPageLoad } from "../../../../lib/account-shell";
