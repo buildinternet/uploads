@@ -402,6 +402,74 @@ function reconcileAfterCreate(
   }
 }
 
+// --- link adoption (issue #708, local-gh fallback parity with the bot's
+// #701/apps/api/src/github-link-adopt.ts) ---
+
+/** Cheap, regex-only reject: no http(s) URL at all means nothing to scan for.
+ * Mirrors `hasLinkCandidate` in apps/api/src/github-link-adopt.ts. */
+export function hasLinkCandidate(text: string): boolean {
+  return /https?:\/\//i.test(text);
+}
+
+const URL_RE = /https?:\/\/[^\s)"'<>\]]+/gi;
+
+/**
+ * Distinct http(s) URLs found in `text`, trailing prose punctuation
+ * stripped, order preserved, first occurrence wins on duplicates. Ported
+ * verbatim from apps/api/src/github-link-adopt.ts's `extractCandidateUrls`
+ * so the two paths recognize the same URL spellings — resolution itself
+ * (storage host / embed host / `/f/` page → key, and the bound-workspace
+ * check) happens server-side inside `POST .../github/attach`, so this file
+ * doesn't need its own copy of that logic.
+ */
+export function extractCandidateUrls(text: string): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const m of text.matchAll(URL_RE)) {
+    const url = m[0].replace(/[.,;:]+$/, "");
+    if (seen.has(url)) continue;
+    seen.add(url);
+    out.push(url);
+  }
+  return out;
+}
+
+/**
+ * Best-effort concatenation of a PR/issue's current body plus every comment's
+ * current body, for link-adoption scanning. Returns "" on any `gh` failure
+ * (not authenticated, network, repo/number not found) — adoption degrades to
+ * a no-op rather than blocking the comment sync it rides along with.
+ *
+ * Unlike the webhook path (which re-scans one specific body/comment ref per
+ * event), the CLI has no per-event ref to key off of — `uploads comment` is
+ * one ad-hoc invocation — so this scans the PR/issue body and every comment
+ * on the thread in one pass every time it runs. That's a documented
+ * divergence: harmless (adoption is idempotent) but does mean a link posted
+ * in comment #1 gets rescanned on every later `uploads comment` run too.
+ */
+export function fetchAdoptionCandidateText(target: GhTarget, run: CommandRunner): string {
+  let body = "";
+  try {
+    body = run("gh", ["api", `repos/${target.repo}/issues/${target.num}`, "--jq", '.body // ""']);
+  } catch {
+    // Not found / no access — fall through with an empty body; comments may
+    // still be readable.
+  }
+  let comments = "";
+  try {
+    comments = run("gh", [
+      "api",
+      `repos/${target.repo}/issues/${target.num}/comments?per_page=100`,
+      "--paginate",
+      "--jq",
+      '[.[].body] | join("\\n")',
+    ]);
+  } catch {
+    // Same degrade — an empty comments blob just means nothing more to scan.
+  }
+  return `${body}\n${comments}`;
+}
+
 /** PATCH one comment's body via stdin, so the body is never shell-interpolated. */
 function patchComment(target: GhTarget, run: CommandRunner, id: number, body: string): void {
   run(

@@ -69,6 +69,9 @@ import {
   timedExecRunner,
   ghMetadataFromTargetWithTitle,
   upsertAttachmentsComment,
+  hasLinkCandidate,
+  extractCandidateUrls,
+  fetchAdoptionCandidateText,
   type CommandRunner,
 } from "./github-gh.js";
 import { deriveRepoFromGit, deriveRepoSlugFromGit } from "./keys.js";
@@ -833,6 +836,58 @@ export async function syncAttachmentsComment(
     }
   }
 
+  // Link adoption (issue #708): local-gh fallback parity with the bot's own
+  // adoption (issue #701, apps/api/src/github-link-adopt.ts). When the bot
+  // already handled this target the server already adopted for us, so this
+  // only runs once we've fallen through to gh. Scans the PR/issue body and
+  // every comment for pasted uploads.sh URLs and adopts each one that
+  // resolves (server-side, inside `POST .../github/attach`) to a file in
+  // THIS workspace's own bound-repo attachment prefix — copy, never move,
+  // same as the bot path. Best-effort end to end: any failure (not a git
+  // repo, `gh` unavailable/unauthenticated, config unreadable) degrades to
+  // "adopt nothing" rather than blocking the comment sync it rides along
+  // with.
+  let adoptedCount = 0;
+  let preAdoptionAttachmentCount: number | undefined;
+  try {
+    const root = run("git", ["rev-parse", "--show-toplevel"]).trim();
+    const { config: adoptConfig } = readLocalRepoCommentConfig(root);
+    const { options: adoptOptions } = resolveCommentOptions(adoptConfig, null);
+    if (adoptOptions.adoptLinkedFiles) {
+      const text = fetchAdoptionCandidateText(target, run);
+      if (hasLinkCandidate(text)) {
+        const urls = extractCandidateUrls(text);
+        if (urls.length > 0) {
+          // Baseline BEFORE this pass's adoptions land (mirrors the bot
+          // path's `gatherCommentBody` call before its own copies) — feeds
+          // the noise guard below without a lone adoption inflating its own
+          // count. Plain prefix only (not the private-prefix listing done
+          // for the final render below) — good enough for a guard decision.
+          preAdoptionAttachmentCount = (await client.listAll({ prefix: ghKeyPrefix(target) }))
+            .length;
+          for (const url of urls) {
+            try {
+              await client.attachExisting({
+                source: url,
+                repo: target.repo,
+                ...(target.kind === "pull" ? { pr: target.num } : { issue: target.num }),
+              });
+              adoptedCount++;
+            } catch {
+              // Not a resolvable uploads.sh URL, belongs to a different
+              // workspace, or the source was deleted — silently dropped,
+              // matching the bot path's contract (a throw from
+              // `resolveAttachSourceKey` is caught per-URL there too).
+            }
+          }
+        }
+      }
+    }
+  } catch {
+    // Not a git repo, `.uploads.yml` unreadable, or `gh` unavailable for the
+    // PR/comments fetch — degrade to no adoption this pass.
+  }
+
   // gh fallback: gather from this workspace's own data and post via local `gh`.
   // Note (issues #304, #365): this CLI process has no server-side
   // WorkspaceRecord in scope, so it cannot honor a workspace's
@@ -939,11 +994,21 @@ export async function syncAttachmentsComment(
   // bot identity, so this note would be wrong there.
   const body = `${attachmentsCommentBody(items, previewGalleries, marker, renderOptions, target)}\n${GH_FALLBACK_AUTHOR_NOTE}`;
   const count = items.length + previewGalleries.length;
+  // Noise guard (issue #708, mirrors the bot's `shouldSyncAfterAdopt`): a
+  // lone adopted link with nothing else already attached is already fully
+  // visible inline in the PR/comment — don't create a brand-new comment just
+  // to repeat it. `upsertAttachmentsComment` still PATCHes an existing
+  // managed comment unconditionally (its own `if (existing)` branch runs
+  // regardless of `createIfMissing`), so "a managed comment already exists"
+  // and "other attachments are already present" both heal/sync for free
+  // here without any extra condition — this only ever suppresses a fresh
+  // create.
+  const skipLoneAdoptionCreate = adoptedCount === 1 && (preAdoptionAttachmentCount ?? 0) === 0;
   // Empty (count 0) renders the neutral empty-state body but must not create a
   // comment — it only rewrites one that already exists (`action: "skipped"`
   // when none does).
   const { action } = upsertAttachmentsComment(target, body, run, marker, {
-    createIfMissing: count > 0,
+    createIfMissing: count > 0 && !skipLoneAdoptionCreate,
   });
   return { action, count, via: "gh" };
 }
