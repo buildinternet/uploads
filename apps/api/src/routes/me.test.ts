@@ -2315,6 +2315,7 @@ describe("GET /me/workspaces/:name/comment-preview", () => {
       note: null,
       ingestGithubAttachments: true,
       ingestBotAttachments: false,
+      adoptLinkedFiles: true,
     });
     expect(body.source).toMatchObject({ imageWidth: "auto" });
     expect(typeof body.body).toBe("string");

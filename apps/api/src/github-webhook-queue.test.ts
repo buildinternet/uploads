@@ -14,9 +14,14 @@ import {
   handleGithubWebhookBatch,
 } from "./github-webhook-queue";
 import { ingestForWebhook } from "./github-ingest";
+import { adoptLinkedFilesForWebhook } from "./github-link-adopt";
 import { FakeKv } from "../test/fake-kv";
 
 vi.mock("./github-ingest", () => ({ ingestForWebhook: vi.fn() }));
+vi.mock("./github-link-adopt", () => ({
+  adoptLinkedFilesForWebhook: vi.fn(),
+  hasLinkCandidate: (text: string) => /https?:\/\//i.test(text),
+}));
 
 class FakeQueue {
   sent: WebhookEvent[] = [];
@@ -206,6 +211,67 @@ describe("extractWebhookEvent", () => {
     });
     expect(deletedPlainText?.ingest).toBeUndefined();
   });
+
+  const UPLOADS_URL = "https://storage.uploads.sh/acme/f/shot.png";
+
+  it("pull_request opened with a link sets adopt", () => {
+    const ev = extractWebhookEvent("pull_request", {
+      action: "opened",
+      repository: { full_name: "acme/app" },
+      pull_request: { number: 7, body: `screenshot: ${UPLOADS_URL}` },
+    });
+    expect(ev?.adopt).toEqual({ repo: "acme/app", kind: "pull", num: 7, source: "body" });
+  });
+
+  it("pull_request opened without any link sets no adopt", () => {
+    const ev = extractWebhookEvent("pull_request", {
+      action: "opened",
+      repository: { full_name: "acme/app" },
+      pull_request: { number: 7, body: "hi" },
+    });
+    expect(ev?.adopt).toBeUndefined();
+  });
+
+  it("issues edited with a body change always sets adopt (removal case)", () => {
+    const ev = extractWebhookEvent("issues", {
+      action: "edited",
+      changes: { body: { from: "old" } },
+      repository: { full_name: "acme/app" },
+      issue: { number: 3, body: "no links anymore" },
+    });
+    expect(ev?.adopt).toEqual({ repo: "acme/app", kind: "issues", num: 3, source: "body" });
+  });
+
+  it("issue_comment created with a link sets adopt with comment source", () => {
+    const ev = extractWebhookEvent("issue_comment", {
+      action: "created",
+      repository: { full_name: "acme/app" },
+      issue: { number: 7, pull_request: {} },
+      comment: { id: 44, body: UPLOADS_URL, user: { login: "octocat", type: "User" } },
+    });
+    expect(ev?.adopt).toEqual({ repo: "acme/app", kind: "pull", num: 7, source: "comment:44" });
+  });
+
+  it("issue_comment deleted never sets adopt (nothing left to rescan)", () => {
+    const ev = extractWebhookEvent("issue_comment", {
+      action: "deleted",
+      repository: { full_name: "acme/app" },
+      issue: { number: 7, pull_request: {} },
+      comment: { id: 44, body: UPLOADS_URL, user: { login: "octocat", type: "User" } },
+    });
+    expect(ev?.adopt).toBeUndefined();
+  });
+
+  it("issue_comment edited by our own bot sets no adopt (loop guard)", () => {
+    const ev = extractWebhookEvent("issue_comment", {
+      action: "edited",
+      repository: { full_name: "acme/app" },
+      issue: { number: 7, pull_request: {} },
+      comment: { id: 44, body: "our own write", user: { login: "our-bot", type: "Bot" } },
+      sender: { login: "our-bot", type: "Bot" },
+    });
+    expect(ev?.adopt).toBeUndefined();
+  });
 });
 
 describe("handleWebhook producer path", () => {
@@ -295,6 +361,24 @@ describe("handleGithubWebhookBatch", () => {
     vi.mocked(ingestForWebhook).mockRejectedValueOnce(new Error("transient"));
     const ref = { repo: "acme/app", kind: "pull" as const, num: 7, source: "body" };
     const m = msg({ keys: [], ingest: ref });
+    await handleGithubWebhookBatch(batch(GITHUB_WEBHOOK_QUEUE, [m]), envWith(new FakeKv()));
+    expect(m.retried).toBe(true);
+  });
+
+  it("dispatches adopt events to adoptLinkedFilesForWebhook and acks", async () => {
+    vi.mocked(adoptLinkedFilesForWebhook).mockResolvedValueOnce(undefined);
+    const ref = { repo: "acme/app", kind: "pull" as const, num: 7, source: "body" };
+    const m = msg({ keys: [], adopt: ref });
+    await handleGithubWebhookBatch(batch(GITHUB_WEBHOOK_QUEUE, [m]), envWith(new FakeKv()));
+    expect(adoptLinkedFilesForWebhook).toHaveBeenCalledWith(expect.anything(), ref);
+    expect(m.acked).toBe(true);
+    expect(m.retried).toBe(false);
+  });
+
+  it("retries a message whose adoptLinkedFilesForWebhook throws", async () => {
+    vi.mocked(adoptLinkedFilesForWebhook).mockRejectedValueOnce(new Error("transient"));
+    const ref = { repo: "acme/app", kind: "pull" as const, num: 7, source: "body" };
+    const m = msg({ keys: [], adopt: ref });
     await handleGithubWebhookBatch(batch(GITHUB_WEBHOOK_QUEUE, [m]), envWith(new FakeKv()));
     expect(m.retried).toBe(true);
     expect(m.acked).toBe(false);

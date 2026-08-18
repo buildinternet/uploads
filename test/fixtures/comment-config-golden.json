@@ -94,7 +94,7 @@
       }
     },
     {
-      "name": "drops an over-500-char note whole, with a warning — never truncates",
+      "name": "drops an over-500-char note whole, with a warning \u2014 never truncates",
       "text": "comment:\n  note: \"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"\n",
       "format": "yaml",
       "expected": {
@@ -213,6 +213,17 @@
         },
         "warnings": []
       }
+    },
+    {
+      "name": "adoptLinkedFiles boolean parses; non-boolean dropped with warning",
+      "text": "comment:\n  adoptLinkedFiles: false\n",
+      "format": "yaml",
+      "expected": {
+        "config": {
+          "adoptLinkedFiles": false
+        },
+        "warnings": []
+      }
     }
   ],
   "resolveCases": [
@@ -229,7 +240,8 @@
           "linkToFilePage": true,
           "note": null,
           "ingestGithubAttachments": true,
-          "ingestBotAttachments": false
+          "ingestBotAttachments": false,
+          "adoptLinkedFiles": true
         },
         "source": {
           "imageWidth": "auto",
@@ -239,7 +251,8 @@
           "linkToFilePage": "auto",
           "note": "auto",
           "ingestGithubAttachments": "auto",
-          "ingestBotAttachments": "auto"
+          "ingestBotAttachments": "auto",
+          "adoptLinkedFiles": "auto"
         }
       }
     },
@@ -261,7 +274,8 @@
           "linkToFilePage": true,
           "note": null,
           "ingestGithubAttachments": true,
-          "ingestBotAttachments": false
+          "ingestBotAttachments": false,
+          "adoptLinkedFiles": true
         },
         "source": {
           "imageWidth": "repo",
@@ -271,7 +285,8 @@
           "linkToFilePage": "auto",
           "note": "auto",
           "ingestGithubAttachments": "auto",
-          "ingestBotAttachments": "auto"
+          "ingestBotAttachments": "auto",
+          "adoptLinkedFiles": "auto"
         }
       }
     },
@@ -290,7 +305,8 @@
           "linkToFilePage": true,
           "note": null,
           "ingestGithubAttachments": true,
-          "ingestBotAttachments": false
+          "ingestBotAttachments": false,
+          "adoptLinkedFiles": true
         },
         "source": {
           "imageWidth": "auto",
@@ -300,7 +316,8 @@
           "linkToFilePage": "auto",
           "note": "auto",
           "ingestGithubAttachments": "auto",
-          "ingestBotAttachments": "auto"
+          "ingestBotAttachments": "auto",
+          "adoptLinkedFiles": "auto"
         }
       }
     },
@@ -321,7 +338,8 @@
           "linkToFilePage": true,
           "note": null,
           "ingestGithubAttachments": true,
-          "ingestBotAttachments": false
+          "ingestBotAttachments": false,
+          "adoptLinkedFiles": true
         },
         "source": {
           "imageWidth": "auto",
@@ -331,7 +349,8 @@
           "linkToFilePage": "auto",
           "note": "auto",
           "ingestGithubAttachments": "auto",
-          "ingestBotAttachments": "auto"
+          "ingestBotAttachments": "auto",
+          "adoptLinkedFiles": "auto"
         }
       }
     },
@@ -352,7 +371,8 @@
           "linkToFilePage": true,
           "note": null,
           "ingestGithubAttachments": true,
-          "ingestBotAttachments": false
+          "ingestBotAttachments": false,
+          "adoptLinkedFiles": true
         },
         "source": {
           "imageWidth": "auto",
@@ -362,7 +382,8 @@
           "linkToFilePage": "auto",
           "note": "auto",
           "ingestGithubAttachments": "repo",
-          "ingestBotAttachments": "auto"
+          "ingestBotAttachments": "auto",
+          "adoptLinkedFiles": "auto"
         }
       }
     },
@@ -383,7 +404,8 @@
           "linkToFilePage": true,
           "note": null,
           "ingestGithubAttachments": true,
-          "ingestBotAttachments": true
+          "ingestBotAttachments": true,
+          "adoptLinkedFiles": true
         },
         "source": {
           "imageWidth": "auto",
@@ -393,7 +415,41 @@
           "linkToFilePage": "auto",
           "note": "auto",
           "ingestGithubAttachments": "auto",
-          "ingestBotAttachments": "repo"
+          "ingestBotAttachments": "repo",
+          "adoptLinkedFiles": "auto"
+        }
+      }
+    },
+    {
+      "name": "adoptLinkedFiles repo over workspace",
+      "repo": {
+        "adoptLinkedFiles": false
+      },
+      "workspace": {
+        "adoptLinkedFiles": true
+      },
+      "expected": {
+        "options": {
+          "imageWidth": "auto",
+          "maxInlineImages": 16,
+          "metaPath": true,
+          "metaState": true,
+          "linkToFilePage": true,
+          "note": null,
+          "ingestGithubAttachments": true,
+          "ingestBotAttachments": false,
+          "adoptLinkedFiles": false
+        },
+        "source": {
+          "imageWidth": "auto",
+          "maxInlineImages": "auto",
+          "metaPath": "auto",
+          "metaState": "auto",
+          "linkToFilePage": "auto",
+          "note": "auto",
+          "ingestGithubAttachments": "auto",
+          "ingestBotAttachments": "auto",
+          "adoptLinkedFiles": "repo"
         }
       }
     }

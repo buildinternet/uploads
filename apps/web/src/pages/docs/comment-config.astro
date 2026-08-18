@@ -47,6 +47,10 @@ const TOC = [
         <strong>Whether GitHub-posted attachments are imported</strong>, and whether bot-authored
         ones count.
       </li>
+      <li>
+        <strong>Whether uploads.sh links pasted into a PR or comment are adopted</strong> into that PR/issue's
+        attachment context.
+      </li>
     </ul>
     <p>
       Nothing in the file can change where files are hosted or which repo a workspace can post to —
@@ -88,6 +92,13 @@ const TOC = [
   # Off by default — bot-posted media is usually noise (status GIFs, badges).
   # Tiny images (under 200px on either side) are always skipped.
   ingestBotAttachments: false
+
+  # Whether uploads.sh file links pasted directly into a PR body or comment
+  # (bypassing --pr/attach context — a bare paste, or a raw curl upload) get
+  # adopted into that PR/issue's attachment context. Only links to files
+  # already in this repo's own bound workspace are adopted; links to any
+  # other workspace's files are ignored. On by default for bound repos.
+  adoptLinkedFiles: true
 
   # Optional short markdown at the top of the comment, before the media —
   # repo-specific context, a link to a contributing guide, and so on.

@@ -43,6 +43,11 @@ import { commentCacheKey, gatherCommentBody, upsertBotComment } from "./github-c
 import { ATTACHMENTS_MARKER } from "./github-comment-render";
 import type { GhTarget } from "./github-comment-render";
 import { ingestForWebhook, type IngestSourceRef } from "./github-ingest";
+import {
+  adoptLinkedFilesForWebhook,
+  hasLinkCandidate,
+  type AdoptSourceRef,
+} from "./github-link-adopt";
 import { promoteBranchAttachments } from "./github-promote";
 // Strict lookup on purpose (#287): a D1 outage must THROW so the queue
 // consumer retries the event, not read as "repo not linked" and ack-drop it.
@@ -304,6 +309,10 @@ export interface WebhookEvent {
   /** Opt-in GitHub-native attachment ingest (spec 2026-08-11). Source ref only —
    * the consumer re-fetches current text, so this stays queue-compact. */
   ingest?: IngestSourceRef;
+  /** Opt-in uploads.sh link adoption (issue #701). Same "source ref only,
+   * consumer re-fetches current text" shape as `ingest` above, so this stays
+   * queue-compact. */
+  adopt?: AdoptSourceRef;
   /** Write-through for `repoIsPrivate`'s KV cache (issue #631) — present
    * whenever the delivery's `repository.private` field is a boolean, so a
    * webhook primes the private-prefix decision flow without an extra GitHub
@@ -350,6 +359,19 @@ export function extractWebhookEvent(eventType: string, payload: unknown): Webhoo
         const changes = p.changes as { body?: unknown } | undefined;
         if (changes && "body" in changes) {
           ev.ingest = { repo: fullName, kind, num: item.number, source: "body" };
+        }
+      }
+
+      // Adopt gating (issue #701): same opened/edited shape as ingest above,
+      // just gated on ANY http(s) link rather than specifically a
+      // github.com/user-attachments one — the consumer re-fetches current
+      // text and does the real (workspace-scoped) URL resolution.
+      if (action === "opened" && typeof item.body === "string" && hasLinkCandidate(item.body)) {
+        ev.adopt = { repo: fullName, kind, num: item.number, source: "body" };
+      } else if (action === "edited") {
+        const changes = p.changes as { body?: unknown } | undefined;
+        if (changes && "body" in changes) {
+          ev.adopt = { repo: fullName, kind, num: item.number, source: "body" };
         }
       }
     }
@@ -406,11 +428,25 @@ export function extractWebhookEvent(eventType: string, payload: unknown): Webhoo
       if (gated) {
         ev.ingest = { repo, kind, num, source };
       }
+
+      // Adopt gating (issue #701): mirrors the ingest gate above, but a
+      // "deleted" comment has nothing left to (re-)scan for uploads.sh links
+      // — adoption has no ledger to detach from, so unlike ingest there's no
+      // work to do on delete.
+      const hasLinkUrl = typeof body === "string" && hasLinkCandidate(body);
+      const adoptGated =
+        (ip.action === "created" && hasLinkUrl) ||
+        (ip.action === "edited" && ip.sender?.type !== "Bot");
+      if (adoptGated) {
+        ev.adopt = { repo, kind, num, source };
+      }
     }
   }
   // ping and unknown events fall through with no work.
 
-  return ev.keys.length || ev.promote || ev.reconcile || ev.ingest || ev.privacy ? ev : null;
+  return ev.keys.length || ev.promote || ev.reconcile || ev.ingest || ev.adopt || ev.privacy
+    ? ev
+    : null;
 }
 
 /**
@@ -450,6 +486,9 @@ export async function processWebhookEvent(env: Env, ev: WebhookEvent): Promise<v
   if (ev.ingest) {
     await ingestForWebhook(env, ev.ingest);
   }
+  if (ev.adopt) {
+    await adoptLinkedFilesForWebhook(env, ev.adopt);
+  }
 }
 
 /** `processWebhookEvent` with every failure caught and logged — the inline
@@ -464,6 +503,7 @@ async function processInline(env: Env, ev: WebhookEvent): Promise<void> {
         promote: ev.promote ?? null,
         reconcile: ev.reconcile ?? null,
         ingest: ev.ingest ?? null,
+        adopt: ev.adopt ?? null,
         error: err instanceof Error ? err.message : String(err),
       }),
     );
