@@ -869,6 +869,74 @@ describe("tools/call put branch staging (issue #403)", () => {
   });
 });
 
+/** branchStagingRunner + a `gh pr view <branch>` stub for the #700 auto-PR lookup. */
+function autoPrRunner(opts: {
+  branch?: string;
+  defaultBranch?: string;
+  originUrl?: string;
+  repo?: string;
+  pr?: number;
+}): CommandRunner {
+  return (cmd, args) => {
+    if (cmd === "gh" && args[0] === "pr" && args[1] === "view") {
+      if (opts.pr === undefined) throw new Error("no pull request found");
+      return `${opts.pr}\n`;
+    }
+    return branchStagingRunner(opts)(cmd, args);
+  };
+}
+
+describe("tools/call put auto-PR context (issue #700)", () => {
+  const withPr = {
+    branch: "feature/thing",
+    defaultBranch: "main",
+    originUrl: "git@github.com:o/r.git",
+    repo: "o/r",
+    pr: 1250,
+  };
+
+  it("behaves as if pr had been passed when the branch maps to exactly one open PR", async () => {
+    const { server, puts } = serverWith({ runner: autoPrRunner(withPr) });
+    const res = await rpc(server, "tools/call", {
+      name: "put",
+      arguments: { contentBase64: PNG_B64, filename: "shot.png" },
+    });
+    expect(res.result.isError).toBe(false);
+    expect(puts[0].key).toBe("gh/o/r/pull/1250/shot.png");
+    expect(res.result.structuredContent.hint).toContain("branch maps to open PR #1250");
+  });
+
+  it("opts out with noPr, falling back to branch staging", async () => {
+    const { server, puts } = serverWith({ runner: autoPrRunner(withPr) });
+    const res = await rpc(server, "tools/call", {
+      name: "put",
+      arguments: { contentBase64: PNG_B64, filename: "shot.png", noPr: true },
+    });
+    expect(res.result.isError).toBe(false);
+    expect(puts[0].key).toBe("gh/o/r/branch/feature-thing/shot.png");
+  });
+
+  it("never fires when an explicit destination is set", async () => {
+    const { server, puts } = serverWith({ runner: autoPrRunner(withPr) });
+    const res = await rpc(server, "tools/call", {
+      name: "put",
+      arguments: { contentBase64: PNG_B64, filename: "shot.png", destination: "screenshots" },
+    });
+    expect(res.result.isError).toBe(false);
+    expect(puts[0].key).toBe("generated/key.png");
+  });
+
+  it("falls back to staging when there is no open PR for the branch", async () => {
+    const { server, puts } = serverWith({ runner: autoPrRunner({ ...withPr, pr: undefined }) });
+    const res = await rpc(server, "tools/call", {
+      name: "put",
+      arguments: { contentBase64: PNG_B64, filename: "shot.png" },
+    });
+    expect(res.result.isError).toBe(false);
+    expect(puts[0].key).toBe("gh/o/r/branch/feature-thing/shot.png");
+  });
+});
+
 describe("tools/call attach", () => {
   it("infers the current PR and uploads stable keys with markdown", async () => {
     const { run, calls } = ghRunner();

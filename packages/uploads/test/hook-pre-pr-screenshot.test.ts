@@ -92,13 +92,54 @@ describe("runPrePrScreenshot", () => {
     expect(out).toBeNull();
   });
 
-  it("is silent when screenshots are already staged", async () => {
+  it("suggests promoting when screenshots are already staged (issue #700)", async () => {
     const out = await runPrePrScreenshot({
       stdin: JSON.stringify({ tool_input: { command: "gh pr create" } }),
       git,
       countStaged: async () => 2,
+      isFork: () => false,
     });
-    expect(out).toBeNull();
+    expect(out).toBeTruthy();
+    const parsed = JSON.parse(out!);
+    expect(parsed.hookSpecificOutput.additionalContext).toMatch(/2 files staged/);
+    expect(parsed.hookSpecificOutput.additionalContext).toMatch(/feat\/ui/);
+    expect(parsed.hookSpecificOutput.additionalContext).toMatch(
+      /uploads attach --promote --pr <num>/,
+    );
+  });
+
+  it("singularizes the promote suggestion for exactly one staged file", async () => {
+    const out = await runPrePrScreenshot({
+      stdin: JSON.stringify({ tool_input: { command: "gh pr create" } }),
+      git,
+      countStaged: async () => 1,
+      isFork: () => false,
+    });
+    const parsed = JSON.parse(out!);
+    expect(parsed.hookSpecificOutput.additionalContext).toMatch(/1 file staged/);
+    expect(parsed.hookSpecificOutput.additionalContext).toMatch(/isn't attached/);
+  });
+
+  it("appends the fork note to the promote suggestion", async () => {
+    const out = await runPrePrScreenshot({
+      stdin: JSON.stringify({ tool_input: { command: "gh pr create" } }),
+      git,
+      countStaged: async () => 2,
+      isFork: () => true,
+    });
+    expect(out).toMatch(/fork branch/);
+    expect(out).toMatch(/#317/);
+  });
+
+  it("promote suggestion fires even when the diff has no UI files", async () => {
+    const out = await runPrePrScreenshot({
+      stdin: JSON.stringify({ tool_input: { command: "gh pr create" } }),
+      git: { ...git, changedFiles: () => ["packages/api/src/index.ts"] },
+      countStaged: async () => 1,
+      isFork: () => false,
+    });
+    expect(out).toBeTruthy();
+    expect(out).toMatch(/uploads attach --promote/);
   });
 
   it("is silent when find fails open", async () => {

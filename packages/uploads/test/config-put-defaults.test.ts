@@ -42,3 +42,27 @@ describe("resolvePutDefaults noNudge (issue #393)", () => {
     expect(resolvePutDefaults(undefined, { fromEnvFile: {}, fromUser }).noNudge).toBe(true);
   });
 });
+
+describe("resolvePutDefaults noAutoPr (issue #700)", () => {
+  const prev = process.env.UPLOADS_NO_AUTO_PR;
+  afterEach(() => {
+    if (prev === undefined) delete process.env.UPLOADS_NO_AUTO_PR;
+    else process.env.UPLOADS_NO_AUTO_PR = prev;
+  });
+
+  it("is undefined by default (auto-PR stays on)", () => {
+    delete process.env.UPLOADS_NO_AUTO_PR;
+    expect(resolvePutDefaults({}).noAutoPr).toBeUndefined();
+  });
+
+  it("reads UPLOADS_NO_AUTO_PR=1 from env", () => {
+    process.env.UPLOADS_NO_AUTO_PR = "1";
+    expect(resolvePutDefaults({}).noAutoPr).toBe(true);
+  });
+
+  it("reads UPLOADS_NO_AUTO_PR=1 from a config/env-file layer (same key, put config path)", () => {
+    delete process.env.UPLOADS_NO_AUTO_PR;
+    const fromUser = { UPLOADS_NO_AUTO_PR: "1" } as const;
+    expect(resolvePutDefaults(undefined, { fromEnvFile: {}, fromUser }).noAutoPr).toBe(true);
+  });
+});
