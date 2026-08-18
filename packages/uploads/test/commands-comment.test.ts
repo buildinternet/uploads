@@ -468,6 +468,216 @@ describe("syncAttachmentsComment", () => {
     expect(calls.some((c) => c.args.includes("repos/acme/web/issues/12/comments"))).toBe(false);
   });
 
+  describe("link adoption (issue #708, local-gh fallback parity)", () => {
+    /**
+     * gh+git runner for adoption tests: `git rev-parse --show-toplevel`
+     * resolves to a scratch dir (no `.uploads.yml`, so the knob's default
+     * "on" applies), the issue/PR body call returns `prBody`, the comments
+     * call returns `[]` (no comments to scan), the marker hunt finds no
+     * existing comment, and any create/patch just records its body.
+     */
+    function adoptionRunner(prBody: string): { run: CommandRunner; calls: string[][] } {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "uploads-commands-comment-adopt-"));
+      const calls: string[][] = [];
+      const run: CommandRunner = (cmd, args) => {
+        calls.push([cmd, ...args]);
+        if (cmd === "git" && args.includes("--show-toplevel")) return `${dir}\n`;
+        if (cmd !== "gh") throw new Error(`unexpected command: ${cmd}`);
+        if (args[0] === "api" && args[1]?.startsWith("repos/") && args[1]?.includes("/comments?")) {
+          return "[]";
+        }
+        if (args[0] === "api" && args[1]?.match(/^repos\/[^/]+\/[^/]+\/issues\/\d+$/)) {
+          return prBody;
+        }
+        if (args[1]?.includes("per_page=100")) return "[]"; // marker hunt: no existing comment
+        return JSON.stringify({ id: 9 }); // create
+      };
+      return { run, calls };
+    }
+
+    it("adopts a pasted uploads.sh URL and syncs when other attachments already exist", async () => {
+      const { run } = adoptionRunner("see https://uploads.sh/f/acme/other-workspace-image.png");
+      const attachExisting = vi.fn(async () => ({
+        key: "gh/acme/web/pull/12/other-workspace-image.png",
+        url: "u",
+        embedUrl: null,
+        moved: false,
+        source: { key: "f/acme/other-workspace-image.png" },
+        comment: { posted: false, reason: "not_installed" },
+      }));
+      const client = fakeClient({
+        attachExisting,
+        listAll: async () => [{ key: "gh/acme/web/pull/12/a.png", url: "u", embedUrl: null }],
+        findGalleriesByReference: async () => ({ galleries: [], nextCursor: null }),
+      } as never);
+      const res = await syncAttachmentsComment(
+        client,
+        { repo: "acme/web", num: 12, kind: "pull" },
+        run,
+      );
+      expect(attachExisting).toHaveBeenCalledWith({
+        source: "https://uploads.sh/f/acme/other-workspace-image.png",
+        repo: "acme/web",
+        pr: 12,
+      });
+      expect(res.via).toBe("gh");
+      expect(res.action).toBe("created");
+    });
+
+    it("does not create a comment for a lone adoption with nothing else attached (noise guard)", async () => {
+      const { run } = adoptionRunner("see https://uploads.sh/f/acme/solo.png");
+      const attachExisting = vi.fn(async () => ({
+        key: "gh/acme/web/pull/12/solo.png",
+        url: "u",
+        embedUrl: null,
+        moved: false,
+        source: { key: "f/acme/solo.png" },
+        comment: { posted: false, reason: "not_installed" },
+      }));
+      // First listAll() (baseline, before adoption) reports empty; the second
+      // listAll() (post-adoption gather for rendering) reports the newly
+      // adopted file — mirroring how a real workspace would look either side
+      // of the copy this pass makes.
+      let listCalls = 0;
+      const client = fakeClient({
+        attachExisting,
+        listAll: async () => {
+          listCalls++;
+          return listCalls === 1
+            ? []
+            : [{ key: "gh/acme/web/pull/12/solo.png", url: "u", embedUrl: null }];
+        },
+        findGalleriesByReference: async () => ({ galleries: [], nextCursor: null }),
+      } as never);
+      const res = await syncAttachmentsComment(
+        client,
+        { repo: "acme/web", num: 12, kind: "pull" },
+        run,
+      );
+      expect(attachExisting).toHaveBeenCalledTimes(1);
+      // Copy still happened, but no NEW comment was created for it.
+      expect(res.action).toBe("skipped");
+    });
+
+    it("heals an existing managed comment even for a lone adoption", async () => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "uploads-commands-comment-adopt-"));
+      const calls: string[][] = [];
+      const run: CommandRunner = (cmd, args) => {
+        calls.push([cmd, ...args]);
+        if (cmd === "git" && args.includes("--show-toplevel")) return `${dir}\n`;
+        if (cmd !== "gh") throw new Error(`unexpected command: ${cmd}`);
+        // The adoption comments-scan and the marker hunt share the same URL
+        // shape (`.../comments?per_page=100`) — the adoption call is the one
+        // carrying `--jq`, so check that first.
+        if (args[0] === "api" && args[1]?.includes("/comments?") && args.includes("--jq")) {
+          return "[]"; // no comments to scan for links
+        }
+        if (args[0] === "api" && args[1]?.match(/^repos\/[^/]+\/[^/]+\/issues\/\d+$/)) {
+          return "see https://uploads.sh/f/acme/solo.png";
+        }
+        if (args[1]?.includes("per_page=100")) {
+          // The marker hunt (no --jq) finds an existing comment.
+          return JSON.stringify([{ id: 7, body: `${ATTACHMENTS_MARKER}\nold` }]);
+        }
+        return JSON.stringify({ id: 7 });
+      };
+      const attachExisting = vi.fn(async () => ({
+        key: "gh/acme/web/pull/12/solo.png",
+        url: "u",
+        embedUrl: null,
+        moved: false,
+        source: { key: "f/acme/solo.png" },
+        comment: { posted: false, reason: "not_installed" },
+      }));
+      // Baseline (before adoption) is empty — the noise guard alone would
+      // suppress a fresh create — but a managed comment already exists, so
+      // it must still heal via PATCH regardless of `createIfMissing`.
+      let listCalls = 0;
+      const client = fakeClient({
+        attachExisting,
+        listAll: async () => {
+          listCalls++;
+          return listCalls === 1
+            ? []
+            : [{ key: "gh/acme/web/pull/12/solo.png", url: "u", embedUrl: null }];
+        },
+        findGalleriesByReference: async () => ({ galleries: [], nextCursor: null }),
+      } as never);
+      const res = await syncAttachmentsComment(
+        client,
+        { repo: "acme/web", num: 12, kind: "pull" },
+        run,
+      );
+      expect(attachExisting).toHaveBeenCalledTimes(1);
+      expect(res.action).toBe("updated");
+      expect(calls.some((c) => c[0] === "gh" && c.includes("PATCH"))).toBe(true);
+    });
+
+    it("skips an unresolvable candidate URL without failing the sync", async () => {
+      const { run } = adoptionRunner("see https://example.com/not-uploads.png");
+      const attachExisting = vi.fn(async () => {
+        throw new Error("source_not_found");
+      });
+      const client = fakeClient({
+        attachExisting,
+        listAll: async () => [],
+        findGalleriesByReference: async () => ({ galleries: [], nextCursor: null }),
+      } as never);
+      const res = await syncAttachmentsComment(
+        client,
+        { repo: "acme/web", num: 12, kind: "pull" },
+        run,
+      );
+      // A non-uploads.sh URL is still a "candidate" by the cheap regex, so
+      // attachExisting is called and this asserts the per-URL catch: the
+      // failure is swallowed, not thrown.
+      expect(attachExisting).toHaveBeenCalled();
+      expect(res.action).toBe("skipped");
+    });
+
+    it("honors adoptLinkedFiles: false in .uploads.yml", async () => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "uploads-commands-comment-adopt-off-"));
+      fs.writeFileSync(path.join(dir, ".uploads.yml"), "comment:\n  adoptLinkedFiles: false\n");
+      const run: CommandRunner = (cmd, args) => {
+        if (cmd === "git" && args.includes("--show-toplevel")) return `${dir}\n`;
+        if (cmd !== "gh") throw new Error(`unexpected command: ${cmd}`);
+        if (args[1]?.includes("per_page=100")) return "[]";
+        return JSON.stringify({ id: 9 });
+      };
+      const attachExisting = vi.fn();
+      const client = fakeClient({
+        attachExisting,
+        listAll: async () => [],
+        findGalleriesByReference: async () => ({ galleries: [], nextCursor: null }),
+      } as never);
+      const res = await syncAttachmentsComment(
+        client,
+        { repo: "acme/web", num: 12, kind: "pull" },
+        run,
+      );
+      expect(attachExisting).not.toHaveBeenCalled();
+      expect(res.action).toBe("skipped");
+    });
+
+    it("does not scan for adoption when the bot posts successfully", async () => {
+      const attachExisting = vi.fn();
+      const client = fakeClient({
+        attachExisting,
+        upsertGithubComment: async () => ({ posted: true, action: "created", count: 1 }),
+      } as never);
+      const run: CommandRunner = () => {
+        throw new Error("gh must not be called on the bot success path");
+      };
+      const res = await syncAttachmentsComment(
+        client,
+        { repo: "acme/web", num: 12, kind: "pull" },
+        run,
+      );
+      expect(res.via).toBe("bot");
+      expect(attachExisting).not.toHaveBeenCalled();
+    });
+  });
+
   describe("repo comment config (.uploads.yml)", () => {
     let dirs: string[] = [];
 
