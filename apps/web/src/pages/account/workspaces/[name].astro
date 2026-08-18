@@ -2,10 +2,38 @@
 /**
  * Workspace files — `WorkspaceLayout` + file table. Sibling routes under
  * `[name]/` cover galleries / people / settings.
+ *
+ * SSR-first (plan 005, Phase B): when the request carries a session and the
+ * URL is the plain unfiltered root browse (no `?path=`, `meta.*`, or
+ * `name=`), server-fetch the workspace summary + default folder listing so
+ * first paint has real rows instead of the loading skeleton.
+ * `WorkspaceFileTable` itself renders here with no `client:*` directive, so
+ * Astro emits it as plain static HTML (no `astro-island`, no hydration
+ * bootstrap) — the seeded rows are real, visible markup even before any JS
+ * runs. A companion JSON `<script>` carries the same props, and a manual
+ * `hydrateRoot` mount (below, off `astro:page-load`/`astro:before-swap`,
+ * same shape every sibling workspace-tab page already uses) attaches
+ * interactivity to that exact markup afterwards.
+ *
+ * Phase A prototyped `client:load` instead and rejected it: it hydrates
+ * fine in a production build, but in `astro dev` it 404s fetching
+ * `@astrojs/react`'s Fast-Refresh bootstrap before hydration ever starts —
+ * the exact class of bug this file's `astro.config.mjs` already documents
+ * and works around by keeping `client:*` out of this codebase entirely
+ * (`vite.server.hmr = false` only dodges it for the manual-mount path this
+ * page is back to using). `client:load` also opts out of the
+ * `astro:before-swap` teardown every sibling tab relies on for clean
+ * ClientRouter re-mounts. See plan 005's review-gate notes for the full
+ * writeup.
  */
+import { env } from "cloudflare:workers";
 import WorkspaceLayout from "../../../layouts/WorkspaceLayout.astro";
-import { isBrowseWorkspace } from "../../../lib/workspace-browse-url";
-import { renderFilesPlaceholderHtml } from "../../../lib/workspace-ui";
+import { WorkspaceFileTable, type ListingState } from "../../../components/WorkspaceFileTable";
+import { getWorkspaceSummary, listWorkspaceFolder } from "../../../lib/api-client";
+import { resolveSignedInOrigins } from "../../../lib/signed-in-page";
+import { isBrowseWorkspace, readBrowseLocation } from "../../../lib/workspace-browse-url";
+import { readSearchFilters, readSearchName } from "../../../lib/workspace-search-url";
+import type { WorkspaceInfoStatus } from "../../../lib/workspace-file-row";
 
 export const prerender = false;
 
@@ -16,22 +44,84 @@ if (!workspace) return Astro.redirect("/account/workspaces");
 const tip = {
   body: "attach uploads to a pull request with <code>uploads put ./shot.png --pr 123</code> — they collect into one managed comment.",
 };
+
+const { apiOrigin } = resolveSignedInOrigins(env);
+const cookie = Astro.request.headers.get("cookie") ?? "";
+const initialSearch = Astro.url.search;
+
+let initialInfo: WorkspaceInfoStatus | undefined;
+let initialListing: ListingState | undefined;
+
+if (cookie.trim()) {
+  // Only seed the listing for the plain root browse — a deep link into a
+  // folder or an active search needs a *different* fetch than "default,
+  // unfiltered, root", and seeding the wrong data would show rows that don't
+  // match the breadcrumbs/chips the same URL seeds on the client. The
+  // workspace-info seed has no such constraint (its render is identical
+  // regardless of URL), so it's fetched unconditionally below.
+  const isDefaultBrowse =
+    readBrowseLocation(initialSearch, Astro.url.pathname).path === "" &&
+    readSearchFilters(initialSearch).length === 0 &&
+    !readSearchName(initialSearch);
+
+  const [summary, listing] = await Promise.all([
+    getWorkspaceSummary(apiOrigin, workspace, { cookie }),
+    isDefaultBrowse ? listWorkspaceFolder(apiOrigin, workspace, { cookie }) : Promise.resolve(null),
+  ]);
+
+  if (summary.kind === "success") {
+    initialInfo = { status: "ready", hasPublicUrl: summary.workspace.hasPublicUrl };
+    if (listing) {
+      initialListing = {
+        status: "ok",
+        files: listing.files,
+        prefixes: listing.prefixes,
+        cursor: listing.cursor,
+      };
+    }
+  }
+}
+
+// Carries the exact same props into the client mount script below (plain
+// `<script>`, not `client:*` — see the file-level doc comment for why).
+// `<`-escaped so a filename/metadata value containing `</script>` can't
+// break out of the tag; this is the same data `WorkspaceFileTable` above
+// already rendered, so nothing here is newly untrusted.
+const filesSeedJson = JSON.stringify({
+  apiOrigin,
+  workspace,
+  initialSearch,
+  initialListing,
+  initialInfo,
+}).replace(/</g, "\\u003c");
 ---
 
 <WorkspaceLayout workspace={workspace} tip={tip}>
-  {
-    /* React (dynamic-imported below) replaces this wholesale on mount — it
-      exists only to fill the gap before that import resolves, so it mirrors
-      WorkspaceFileTable's own `info.status === "loading"` render exactly. */
-  }
-  <div id="ws-files-table" set:html={renderFilesPlaceholderHtml()} />
+  <div id="ws-files-table">
+    <WorkspaceFileTable
+      apiOrigin={apiOrigin}
+      workspace={workspace}
+      initialSearch={initialSearch}
+      initialListing={initialListing}
+      initialInfo={initialInfo}
+    />
+  </div>
+  <script type="application/json" id="ws-files-seed" set:html={filesSeedJson} />
 
   <script>
     import { onAstroPageLoad } from "../../../lib/account-shell";
-    import { resolveActiveWorkspace } from "../../../lib/workspace-browse-url";
     import { createElement } from "react";
-    import { createRoot, type Root } from "react-dom/client";
-    import { withIslandBoundary } from "../../../components/IslandErrorBoundary";
+    import { hydrateRoot, type Root } from "react-dom/client";
+    import type { ListingState } from "../../../components/WorkspaceFileTable";
+    import type { WorkspaceInfoStatus } from "../../../lib/workspace-file-row";
+
+    interface FilesSeed {
+      apiOrigin: string;
+      workspace: string;
+      initialSearch: string;
+      initialListing?: ListingState;
+      initialInfo?: WorkspaceInfoStatus;
+    }
 
     let filesTableRoot: Root | null = null;
 
@@ -45,34 +135,37 @@ const tip = {
       filesTableRoot = null;
     }
 
+    function readSeed(): FilesSeed | null {
+      const el = document.getElementById("ws-files-seed");
+      if (!el?.textContent) return null;
+      try {
+        return JSON.parse(el.textContent) as FilesSeed;
+      } catch {
+        return null;
+      }
+    }
+
     async function boot(): Promise<void> {
       const mount = document.getElementById("ws-files-table");
-      if (!mount) return;
+      const seed = readSeed();
+      if (!mount || !seed) return;
 
       // Tear down the previous mount before Astro swaps this page's body away
       // (registered once per boot() call — {once:true} auto-clears itself so
       // repeated astro:page-load events from ClientRouter never stack listeners).
       document.addEventListener("astro:before-swap", teardown, { once: true });
 
-      const w = window as unknown as {
-        __UPLOADS_API_ORIGIN__: string;
-        __UPLOADS_ACTIVE_WORKSPACE__: string;
-      };
-      const apiOrigin = w.__UPLOADS_API_ORIGIN__;
-      // Pathname wins when the boot global is empty/stale after ClientRouter
-      // sibling navigation (same convention as WorkspaceLayout's own script).
-      const workspace = resolveActiveWorkspace(
-        window.location.pathname,
-        w.__UPLOADS_ACTIVE_WORKSPACE__ || "",
-      );
-
+      // Lazy, not a static top-level import: keeps a Fast-Refresh/HMR dev
+      // glitch in this component from blocking the rest of the page's
+      // scripts — same reasoning every sibling workspace-tab mount uses.
       const { WorkspaceFileTable } = await import("../../../components/WorkspaceFileTable");
       if (!document.contains(mount)) return;
       teardown();
-      filesTableRoot = createRoot(mount);
-      filesTableRoot.render(
-        withIslandBoundary(createElement(WorkspaceFileTable, { apiOrigin, workspace })),
-      );
+      // `WorkspaceFileTable` already composes `IslandErrorBoundary`
+      // internally (plan 005 Phase A) — mounting it directly, with no extra
+      // wrapper, matches the SSR'd tree exactly, so `hydrateRoot` reconciles
+      // without warnings.
+      filesTableRoot = hydrateRoot(mount, createElement(WorkspaceFileTable, seed));
     }
 
     // astro:page-load fires on the initial load too (same as every sibling

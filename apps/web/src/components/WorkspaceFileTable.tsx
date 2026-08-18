@@ -20,6 +20,7 @@
 import { Callout } from "@uploads/ui";
 import "@uploads/ui/styles.css";
 import { Fragment, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { IslandErrorBoundary } from "./IslandErrorBoundary";
 import type { ConnectedWorkSetter } from "../lib/workspace-rail";
 import { applyGhTitles, connectedWork, exactPrMatch, type GhWorkItem } from "../lib/gh-context";
 import {
@@ -84,10 +85,22 @@ import { onSession } from "../lib/account-shell";
 interface WorkspaceFileTableProps {
   apiOrigin: string;
   workspace: string;
+  /**
+   * `location.search` at server-render time (plan 005) — seeds `prefix`,
+   * `filters`, `nameTerm`, and `view` the same way `window.location.search`
+   * does client-side. Pass `Astro.url.search` from the frontmatter so the
+   * server's render and the client's very first render agree; omit for the
+   * pre-existing client-only-mount behavior (falls back to `window`).
+   */
+  initialSearch?: string;
+  /** Server-fetched default (unfiltered, root) folder listing, when available. */
+  initialListing?: ListingState;
+  /** Server-resolved workspace-info status, when available. */
+  initialInfo?: WorkspaceInfoStatus;
 }
 
 /** Unified row shape both `listWorkspaceFolder` and `searchWorkspaceFiles` satisfy. */
-interface FileTableRow {
+export interface FileTableRow {
   key: string;
   url: string | null;
   embedUrl: string | null;
@@ -99,7 +112,7 @@ interface FileTableRow {
   pageUrl?: string;
 }
 
-type ListingState =
+export type ListingState =
   | { status: "loading" }
   | { status: "error" }
   | {
@@ -447,10 +460,16 @@ function pluralCount(count: number, singular: string, plural = `${singular}s`): 
 // loading, PR #526): occupy the exact box the real content will occupy so
 // landing data doesn't shift the page. Kept as JSX here (not the HTML-string
 // builders) because this component's loading states render mid-tree, not as
-// a `set:html` swap — but `renderFilesPlaceholderHtml` in workspace-ui.ts
-// mirrors this markup 1:1 for the pre-mount gap in `[name].astro`, so the
-// two hand-offs (static HTML → this component's own loading render → real
-// data) are visually seamless throughout.
+// a `set:html` swap.
+//
+// Plan 005 (Phase A): `[name].astro` now renders this component itself
+// (server-side, via its own `initialInfo`/`initialListing` props) instead of
+// a separate `set:html` placeholder — so this is also what a cookie-less or
+// non-default-browse request's *server* render shows, not just the client's
+// pre-fetch gap. `renderFilesPlaceholderHtml` in workspace-ui.ts (still
+// tested, no longer wired into this page) mirrored this markup 1:1 for that
+// old hand-off; if Phase B keeps this architecture, it's a candidate for
+// removal — left alone here since `workspace-ui.ts` is out of this plan's scope.
 
 /** One masked bar — `--ws-skel-w` drives width, same custom property `.ws-skel` reads. */
 function SkelBar({ width }: { width: string }) {
@@ -536,37 +555,62 @@ function FilesLoadingSkeleton() {
 
 // ── Component ──────────────────────────────────────────────────────────
 
-export function WorkspaceFileTable({ apiOrigin, workspace }: WorkspaceFileTableProps) {
-  const [info, setInfo] = useState<WorkspaceInfoStatus | { status: "loading" }>({
-    status: "loading",
-  });
+/**
+ * The actual interactive table. Not exported directly — see
+ * `WorkspaceFileTable` below for why.
+ */
+function WorkspaceFileTableInner({
+  apiOrigin,
+  workspace,
+  initialSearch,
+  initialListing,
+  initialInfo,
+}: WorkspaceFileTableProps) {
+  // Seed source for URL-derived initial state: the server-fetched
+  // `initialSearch` prop when present (SSR, and the client's first
+  // hydration-parity render), else the live location for the pre-existing
+  // client-only-mount path. `window` doesn't exist during SSR, so this must
+  // never be read unconditionally at the top of the component body.
+  const seedSearch = initialSearch ?? (typeof window !== "undefined" ? window.location.search : "");
+  // `readBrowseLocation` resolves workspace identity from the pathname; when
+  // there's no `window` yet, synthesize this route's own pathname from the
+  // `workspace` prop (this component only ever mounts on
+  // `/account/workspaces/:name`) so the server's parse agrees with the
+  // client's.
+  const seedPathname =
+    typeof window !== "undefined" ? window.location.pathname : `/account/workspaces/${workspace}`;
+
+  const [info, setInfo] = useState<WorkspaceInfoStatus | { status: "loading" }>(
+    () => initialInfo ?? { status: "loading" },
+  );
   // Bumped by the "Try again" affordance on the unavailable state to re-run
   // the workspace-info effect below without a full page reload.
   const [infoRetryNonce, setInfoRetryNonce] = useState(0);
 
-  const [prefix, setPrefix] = useState(
-    () => readBrowseLocation(window.location.search, window.location.pathname).path,
-  );
-  const [filters, setFilters] = useState<MetaFilter[]>(() =>
-    readSearchFilters(window.location.search),
-  );
+  const [prefix, setPrefix] = useState(() => readBrowseLocation(seedSearch, seedPathname).path);
+  const [filters, setFilters] = useState<MetaFilter[]>(() => readSearchFilters(seedSearch));
   const [draft, setDraft] = useState("");
   const [filterError, setFilterError] = useState<string | null>(null);
-  const [nameTerm, setNameTerm] = useState<string>(
-    () => readSearchName(window.location.search) ?? "",
-  );
+  const [nameTerm, setNameTerm] = useState<string>(() => readSearchName(seedSearch) ?? "");
   const [menuOpen, setMenuOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const [facets, setFacets] = useState<FacetKey[] | null>(null);
   const [facetsTruncated, setFacetsTruncated] = useState(false);
   const [facetValues, setFacetValues] = useState<Record<string, FacetValue[]>>({});
   const [facetValuesTruncated, setFacetValuesTruncated] = useState<Record<string, boolean>>({});
-  const [state, setState] = useState<ListingState>({ status: "loading" });
+  const [state, setState] = useState<ListingState>(() => initialListing ?? { status: "loading" });
   const [openMenuKey, setOpenMenuKey] = useState<string | null>(null);
   const [togglingKeys, setTogglingKeys] = useState<ReadonlySet<string>>(new Set());
   const [actionError, setActionError] = useState<string | null>(null);
   const [githubTitles, setGithubTitles] = useState<GithubTitleMap | null>(null);
-  const [view, setView] = useState<FilesView>(() => resolveFilesView(window.location.search));
+  // `null` for `stored`, not `resolveFilesView`'s own localStorage-reading
+  // default: the server has no `localStorage`, so its render always resolves
+  // "URL-param-or-list" — passing `null` here makes the client's first
+  // render (pre-hydration-effect) match that exactly, whether server-rendered
+  // or client-only-mounted. Reading the *real* stored preference is deferred
+  // to the mount-once effect below, once hydration has already reconciled
+  // against markup neither side disagrees on.
+  const [view, setView] = useState<FilesView>(() => resolveFilesView(seedSearch, null));
   const githubTitlesGeneration = useRef(0);
   // In-flight guards (refs, not state — must not trigger re-renders) so a
   // second call issued while the first is still pending (every keystroke on
@@ -614,6 +658,21 @@ export function WorkspaceFileTable({ apiOrigin, workspace }: WorkspaceFileTableP
       facetValuesInFlightRef.current.delete(key);
     }
   };
+
+  // Apply the real stored view preference once, after hydration has already
+  // reconciled against the server-parity ("URL-param-or-list") render above —
+  // this is a client-only *update*, not a hydration input, so it can safely
+  // read localStorage. A `?view=` URL param still wins inside
+  // `resolveFilesView` itself, and browse/search URL writers already leave
+  // `view` untouched, so this can't fight folder/filter navigation. Mount-only
+  // by design (`[]`): re-applying on every `seedSearch` change would fire on
+  // every folder/filter navigation too, clobbering a mid-session toggle back
+  // to the stored preference's opposite.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const stored = resolveFilesView(seedSearch);
+    setView((prev) => (prev === stored ? prev : stored));
+  }, []);
 
   // Resolve workspace-level facts once (public-domain-configured),
   // gated behind the layout's session resolution like the rail (workspace-rail.ts).
@@ -1482,5 +1541,26 @@ export function WorkspaceFileTable({ apiOrigin, workspace }: WorkspaceFileTableP
         </button>
       )}
     </div>
+  );
+}
+
+/**
+ * The exported island. Wraps `WorkspaceFileTableInner` in `IslandErrorBoundary`
+ * *inside* this same component's own render, rather than as a separate JSX
+ * child in `[name].astro`'s template — nesting a plain (no client directive)
+ * framework component inside another as astro-template JSX only serializes
+ * the inner one to static, never-hydrated HTML (verified empirically: it
+ * renders zero `<astro-island>` for the inner component). Composing the
+ * boundary here means Astro sees exactly one island (this function), so
+ * `<WorkspaceFileTable client:load .../>` hydrates the whole subtree,
+ * boundary included, as a single React root — the same effective tree the
+ * pre-plan-005 manual `withIslandBoundary(createElement(WorkspaceFileTable,
+ * …))` mount produced.
+ */
+export function WorkspaceFileTable(props: WorkspaceFileTableProps) {
+  return (
+    <IslandErrorBoundary>
+      <WorkspaceFileTableInner {...props} />
+    </IslandErrorBoundary>
   );
 }
