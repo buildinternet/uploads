@@ -88,6 +88,16 @@ const COMMENT_META_KEYS = [
   "video.height",
 ];
 
+/**
+ * Fetched unconditionally (unlike `COMMENT_META_KEYS`, which is skipped
+ * entirely when neither `metaPath` nor `metaState` is on): a link-adopted
+ * copy that's been detached (issue #709 — the source link was edited out of
+ * the PR/comment it was adopted from) must never render, regardless of the
+ * repo's meta display settings. The object is never deleted on detach, only
+ * hidden here.
+ */
+const DETACH_META_KEY = "gh.detached";
+
 /** The workspace's own objects under the stable gh key prefix. */
 async function gatherAttachments(
   env: Env,
@@ -140,12 +150,26 @@ async function gatherAttachments(
       return prefixItems;
     }),
   );
-  const items: AttachmentItem[] = perPrefixItems.flat();
+  let items: AttachmentItem[] = perPrefixItems.flat();
+
+  if (items.length === 0) return items;
+
+  // Detach filter (issue #709) runs unconditionally — D1 rows are
+  // tenant-scoped by `workspaceName` (the caller's own slug), not by
+  // anything derived from `ws`, same trust boundary as gatherGalleries. The
+  // path/state/video.* fetch below is skipped when the repo's meta display
+  // settings are both off, but this one always runs since a detached copy
+  // must never render regardless.
+  const detachByKey = await getMetadataForKeys(
+    env.DB,
+    workspaceName,
+    items.map((item) => item.key),
+    { metaKeys: [DETACH_META_KEY] },
+  );
+  items = items.filter((item) => detachByKey.get(item.key)?.[DETACH_META_KEY] !== "true");
 
   if (!showMetadata || items.length === 0) return items;
 
-  // D1 rows are tenant-scoped by `workspaceName` (the caller's own slug), not
-  // by anything derived from `ws` — same trust boundary as gatherGalleries.
   const metaByKey = await getMetadataForKeys(
     env.DB,
     workspaceName,

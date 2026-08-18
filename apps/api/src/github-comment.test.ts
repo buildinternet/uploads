@@ -271,7 +271,7 @@ describe("gatherCommentBody attachment metadata (issue #365)", () => {
     expect(result.body).not.toContain("<code>/");
   });
 
-  it("skips the D1 read entirely when githubCommentShowMetadata is false", async () => {
+  it("skips the path/state D1 read when githubCommentShowMetadata is false (issue #709: the gh.detached filter read still runs)", async () => {
     const { env, ws, workspaceName, bucket } = makeTestEnv();
     await seed(env, bucket, { path: "/settings", state: "before" });
 
@@ -293,7 +293,9 @@ describe("gatherCommentBody attachment metadata (issue #365)", () => {
       { repo: "acme/web", num: 12, kind: "pull" },
     );
 
-    expect(metadataQueries).toBe(0);
+    // One query: the unconditional gh.detached filter (issue #709) — the
+    // path/state fetch itself is still skipped, since neither renders here.
+    expect(metadataQueries).toBe(1);
     expect(result.body).not.toContain("<code>/settings");
   });
 

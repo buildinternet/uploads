@@ -225,7 +225,7 @@ describe("adoptLinkedFiles", () => {
     expect(summary.synced).toBe(true);
   });
 
-  it("resolving to no keys is a pure no-op (no workspace load, no sync)", async () => {
+  it("resolving to no keys is a no-op when nothing was ever adopted from this source", async () => {
     const seeded = await seededEnv();
     const summary = await adoptLinkedFiles(
       seeded.env,
@@ -234,10 +234,16 @@ describe("adoptLinkedFiles", () => {
       { repo: REPO, kind: "pull", num: NUM },
       "nothing to see here",
     );
-    expect(summary).toEqual({ adopted: [], skipped: [], synced: false });
+    expect(summary).toEqual({
+      adopted: [],
+      reattached: [],
+      detached: [],
+      skipped: [],
+      synced: false,
+    });
   });
 
-  it("is idempotent: re-adopting the same source overwrites the same destination key", async () => {
+  it("is idempotent: re-scanning the same source is a cheap skip, no re-copy (issue #709)", async () => {
     const seeded = await seededEnv();
     await seedSource(seeded, "f/shot.png");
     const first = await adoptLinkedFiles(
@@ -254,8 +260,100 @@ describe("adoptLinkedFiles", () => {
       { repo: REPO, kind: "pull", num: NUM },
       "https://storage.uploads.sh/acme/f/shot.png",
     );
-    expect(first.adopted).toEqual(second.adopted);
+    expect(first.adopted).toEqual([`gh/acme/web/pull/${NUM}/shot.png`]);
+    // Ledgered on the first pass — the second pass finds the row and skips
+    // re-attaching entirely, rather than re-copying an idempotent overwrite.
+    expect(second.adopted).toEqual([]);
+    expect(second.reattached).toEqual([]);
+    expect(second.detached).toEqual([]);
     expect(seeded.bucket.store.size).toBe(2); // source + the one dest key, not two dest copies
+  });
+
+  it("PIN (issue #709): two links pasted in two separate comments each trip the noise guard on the second", async () => {
+    const seeded = await seededEnv();
+    await seedSource(seeded, "f/a.png");
+    await seedSource(seeded, "f/b.png");
+    seeded.kv.store.set("ghinst:acme/web", { value: "1" });
+
+    const pass1 = await adoptLinkedFiles(
+      seeded.env,
+      WS,
+      null,
+      { repo: REPO, kind: "pull", num: NUM },
+      "https://storage.uploads.sh/acme/f/a.png",
+      "comment:1",
+    );
+    // A lone adoption with nothing else staged is noise — no sync yet.
+    expect(pass1.adopted).toEqual([`gh/acme/web/pull/${NUM}/a.png`]);
+    expect(pass1.synced).toBe(false);
+
+    const pass2 = await adoptLinkedFiles(
+      seeded.env,
+      WS,
+      null,
+      { repo: REPO, kind: "pull", num: NUM },
+      "https://storage.uploads.sh/acme/f/b.png",
+      "comment:2",
+    );
+    // The target now has two currently-adopted files total (ledger count),
+    // deterministically — not just "this pass's own copy count" — so this
+    // trips the guard even though only one link was scanned this pass.
+    expect(pass2.adopted).toEqual([`gh/acme/web/pull/${NUM}/b.png`]);
+    expect(pass2.synced).toBe(true);
+  });
+
+  it("un-adopts a link edited out of its source, then re-adopts it without a re-copy on re-paste", async () => {
+    const seeded = await seededEnv();
+    await seedSource(seeded, "f/a.png");
+    await seedSource(seeded, "f/b.png");
+    seeded.kv.store.set("ghinst:acme/web", { value: "1" });
+
+    // Both links land in the SAME comment so the target starts at 2 adopted
+    // (trips the guard), then one gets edited out.
+    const posted = await adoptLinkedFiles(
+      seeded.env,
+      WS,
+      null,
+      { repo: REPO, kind: "pull", num: NUM },
+      "https://storage.uploads.sh/acme/f/a.png and https://storage.uploads.sh/acme/f/b.png",
+      "comment:1",
+    );
+    expect(posted.adopted.length).toBe(2);
+    expect(posted.synced).toBe(true);
+
+    // Edited: the comment now only references b.png — a.png drops out.
+    const edited = await adoptLinkedFiles(
+      seeded.env,
+      WS,
+      null,
+      { repo: REPO, kind: "pull", num: NUM },
+      "https://storage.uploads.sh/acme/f/b.png",
+      "comment:1",
+    );
+    expect(edited.adopted).toEqual([]);
+    expect(edited.detached).toEqual([`gh/acme/web/pull/${NUM}/a.png`]);
+    expect(edited.synced).toBe(true); // comment re-synced to drop it
+
+    const aMeta = await getFileMetadata(seeded.env.DB, WS, `gh/acme/web/pull/${NUM}/a.png`);
+    expect(aMeta["gh.detached"]).toBe("true");
+    // Deletion is not required — the copy stays in storage.
+    expect(seeded.bucket.store.has(`${PREFIX}gh/acme/web/pull/${NUM}/a.png`)).toBe(true);
+
+    // Re-pasted: un-detaches without a re-copy (no new attachExistingObject
+    // call, verified indirectly via a still-untouched source key + the same
+    // dest key coming back as `reattached`, not `adopted`).
+    const rePasted = await adoptLinkedFiles(
+      seeded.env,
+      WS,
+      null,
+      { repo: REPO, kind: "pull", num: NUM },
+      "https://storage.uploads.sh/acme/f/a.png and https://storage.uploads.sh/acme/f/b.png",
+      "comment:1",
+    );
+    expect(rePasted.adopted).toEqual([]);
+    expect(rePasted.reattached).toEqual([`gh/acme/web/pull/${NUM}/a.png`]);
+    const aMetaAfter = await getFileMetadata(seeded.env.DB, WS, `gh/acme/web/pull/${NUM}/a.png`);
+    expect(aMetaAfter["gh.detached"]).toBe("false");
   });
 });
 
