@@ -152,6 +152,8 @@ export interface WorkspaceRecord {
   githubCommentNote?: string;
   /** Workspace default for the repo `ingestGithubAttachments` knob (issue-spec 2026-08-11). */
   githubIngestAttachments?: boolean;
+  /** Workspace default for the repo `adoptLinkedFiles` knob (issue #701). */
+  githubAdoptLinkedFiles?: boolean;
   /**
    * Per-workspace opt-out for video poster generation (issue #299). Default
    * (undefined/true) generates. The surgical kill switch between "all

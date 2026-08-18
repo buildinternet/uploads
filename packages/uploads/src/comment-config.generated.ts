@@ -16,6 +16,7 @@ export interface RepoCommentConfig {
   note?: string;
   ingestGithubAttachments?: boolean;
   ingestBotAttachments?: boolean;
+  adoptLinkedFiles?: boolean;
 }
 export interface WorkspaceCommentDefaults {
   imageWidth?: "full" | number;
@@ -25,6 +26,7 @@ export interface WorkspaceCommentDefaults {
   note?: string;
   ingestGithubAttachments?: boolean;
   ingestBotAttachments?: boolean;
+  adoptLinkedFiles?: boolean;
 }
 export interface ResolvedCommentOptions {
   imageWidth: "auto" | "full" | number;
@@ -35,6 +37,7 @@ export interface ResolvedCommentOptions {
   note: string | null;
   ingestGithubAttachments: boolean;
   ingestBotAttachments: boolean;
+  adoptLinkedFiles: boolean;
 }
 export type OptionSource = "repo" | "workspace" | "auto";
 
@@ -47,6 +50,9 @@ export const AUTO_COMMENT_OPTIONS: ResolvedCommentOptions = {
   note: null,
   ingestGithubAttachments: true,
   ingestBotAttachments: false,
+  // Default ON for bound repos (issue #701) — binding is already an
+  // explicit opt-in relationship, same posture as ingestGithubAttachments.
+  adoptLinkedFiles: true,
 };
 
 export const NOTE_MAX_CHARS = 500;
@@ -116,6 +122,13 @@ export function parseRepoCommentConfig(
     else warnings.push(`ingestBotAttachments: expected a boolean; dropped`);
   }
 
+  // adoptLinkedFiles: boolean
+  if ("adoptLinkedFiles" in c) {
+    const v = c.adoptLinkedFiles;
+    if (typeof v === "boolean") config.adoptLinkedFiles = v;
+    else warnings.push(`adoptLinkedFiles: expected a boolean; dropped`);
+  }
+
   // meta.path / meta.state: booleans nested under `meta`
   if ("meta" in c) {
     const v = c.meta;
@@ -172,6 +185,7 @@ export function resolveCommentOptions(
     ...(ws?.ingestBotAttachments !== undefined
       ? { ingestBotAttachments: ws.ingestBotAttachments }
       : {}),
+    ...(ws?.adoptLinkedFiles !== undefined ? { adoptLinkedFiles: ws.adoptLinkedFiles } : {}),
   };
   const options = { ...AUTO_COMMENT_OPTIONS };
   const source = Object.fromEntries(
@@ -186,6 +200,7 @@ export function resolveCommentOptions(
       "linkToFilePage",
       "ingestGithubAttachments",
       "ingestBotAttachments",
+      "adoptLinkedFiles",
     ] as const) {
       if (cfg[key] !== undefined && source[key] === "auto") {
         (options as Record<string, unknown>)[key] = cfg[key];

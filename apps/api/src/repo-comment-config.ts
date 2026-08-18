@@ -133,6 +133,8 @@ export function workspaceCommentDefaults(ws: WorkspaceRecord): WorkspaceCommentD
   if (ws.githubCommentNote !== undefined) defaults.note = ws.githubCommentNote;
   if (ws.githubIngestAttachments !== undefined)
     defaults.ingestGithubAttachments = ws.githubIngestAttachments;
+  if (ws.githubAdoptLinkedFiles !== undefined)
+    defaults.adoptLinkedFiles = ws.githubAdoptLinkedFiles;
   return defaults;
 }
 
