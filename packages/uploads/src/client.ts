@@ -343,6 +343,32 @@ export interface PromoteBranchAttachmentsResult {
   skipped: PromoteSkip[];
 }
 
+/**
+ * `POST /v1/workspaces/:workspace/github/attach` request/response (server
+ * contract, issue #702). `source` is a raw object key or an uploads.sh URL
+ * (storage host, embed host, or `/f/` page). Exactly one of `pr`/`issue` is
+ * required. Copy by default; `move: true` deletes the source object after a
+ * successful copy.
+ */
+export interface AttachExistingOptions {
+  source: string;
+  repo: string;
+  pr?: number;
+  issue?: number;
+  move?: boolean;
+  filename?: string;
+}
+
+export interface AttachExistingResult {
+  key: string;
+  url: string | null;
+  embedUrl: string | null;
+  pageUrl?: string;
+  moved: boolean;
+  source: { key: string };
+  comment: GithubCommentResult;
+}
+
 /** `GET`/`POST /v1/workspaces/:workspace/github/link` result (server contract, phase 4b). */
 export interface GithubLinkResult {
   repo: string;
@@ -1321,6 +1347,25 @@ export function createUploadsClient(config: UploadsClientConfig) {
       return request<PromoteBranchAttachmentsResult>(
         "POST",
         `${config.apiUrl}/v1/workspaces/${encodeURIComponent(config.workspace)}/github/promote`,
+        {
+          body: new TextEncoder().encode(JSON.stringify(opts)),
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+    },
+
+    /**
+     * Attach an already-uploaded object to a PR/issue via a server-side copy
+     * (issue #702) — see `AttachExistingOptions`. Throws `UploadsError` on
+     * any failure (including a 404 from an older/self-hosted server without
+     * this route, or `source_not_found`) — unlike the degrade-safe promote/
+     * comment calls, this is the CLI's only way to move the object, so a
+     * failure must be visible, not silently swallowed.
+     */
+    async attachExisting(opts: AttachExistingOptions): Promise<AttachExistingResult> {
+      return request<AttachExistingResult>(
+        "POST",
+        `${config.apiUrl}/v1/workspaces/${encodeURIComponent(config.workspace)}/github/attach`,
         {
           body: new TextEncoder().encode(JSON.stringify(opts)),
           headers: { "Content-Type": "application/json" },

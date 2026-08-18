@@ -23,6 +23,7 @@
     "./github-comment-service": "./src/github-comment-service.ts",
     "./github-comment-render": "./src/github-comment-render.ts",
     "./github-promote-service": "./src/github-promote-service.ts",
+    "./github-attach-service": "./src/github-attach-service.ts",
     "./github-repo-binding": "./src/github-repo-binding.ts"
   },
   "scripts": {

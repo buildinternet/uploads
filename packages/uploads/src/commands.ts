@@ -3,6 +3,7 @@ import { basename, extname } from "node:path";
 import { mapBounded } from "./async.js";
 import {
   createUploadsClient,
+  type AttachExistingResult,
   type GalleryItem,
   type GithubCommentResult,
   type GithubHealthResult,
@@ -965,6 +966,15 @@ derived metadata (path/url/env/viewport/state) is merged in automatically —
 explicit --meta/--state always win. A regenerated or edited file loses its
 sidecar silently (hash no longer matches).
 
+An argument that doesn't exist on disk but resolves as an already-uploaded
+object — a bare key (e.g. "f/AbC123/shot.webp") or an uploads.sh URL (storage
+host, embed host, or /f/ page) — attaches via a server-side copy instead of a
+re-upload: the source's own derived metadata (path/url/viewport/state/…)
+rides along, and gh.repo/gh.kind/gh.number/gh.ref are stamped fresh. Copy by
+default; --move deletes the source after a successful copy. A path that
+exists on disk always wins as a local file, even if it also happens to look
+like a key.
+
 Branch staging (pre-PR): --branch [name] stages files against a git branch
 before a pull request exists, e.g. for a coding agent working a branch that
 hasn't opened a PR yet. Key: gh/<owner>/<repo>/branch/<branch>/<filename>
@@ -996,6 +1006,8 @@ Options:
                         resolved PR and refresh the comment; not with
                         --branch/--issue/--no-promote
   --no-promote          Skip auto-promoting branch-staged attachments (default path only)
+  --move                With an already-uploaded key/URL argument: delete the source
+                        object after a successful server-side copy (default: copy)
   --repo <owner/repo>   Repository (default: gh/git inference)
   --no-comment          Upload only; don't create/update the managed comment
   --content-type <mime> Override Content-Type (applied to every file; ignored when optimize rewrites)
@@ -1073,6 +1085,63 @@ export type AttachFailure = {
   file: string;
   error: { message: string; code?: string; status?: number };
 };
+
+/**
+ * Bounded fan-out for `uploads attach`'s already-uploaded-object args (issue
+ * #702) — attach args are independent server calls (no shared batch state
+ * like `uploadAttachments`'s optimize/frame prep), so this stays a thin
+ * wrapper rather than a variant of that function.
+ */
+const ATTACH_EXISTING_CONCURRENCY = 4;
+
+async function attachExistingBatch(
+  client: UploadsClient,
+  target: GhTarget,
+  sources: readonly string[],
+  move: boolean,
+): Promise<{ results: AttachExistingResult[]; failures: AttachFailure[]; firstError?: unknown }> {
+  const outcomes = await mapBounded(sources, ATTACH_EXISTING_CONCURRENCY, async (source) => {
+    try {
+      const result = await client.attachExisting({
+        source,
+        repo: target.repo,
+        pr: target.kind === "pull" ? target.num : undefined,
+        issue: target.kind === "issues" ? target.num : undefined,
+        move,
+      });
+      return { ok: true as const, source, result };
+    } catch (err) {
+      const message =
+        err instanceof UploadsError && err.code === "NOT_FOUND"
+          ? `not a local file, and no such object in this workspace: ${source}`
+          : err instanceof Error
+            ? err.message
+            : String(err);
+      return {
+        ok: false as const,
+        source,
+        cause: err,
+        error: {
+          message,
+          code: err instanceof UploadsError ? err.code : undefined,
+          status: err instanceof UploadsError ? err.status : undefined,
+        },
+      };
+    }
+  });
+  const results: AttachExistingResult[] = [];
+  const failures: AttachFailure[] = [];
+  let firstError: unknown;
+  for (const outcome of outcomes) {
+    if (outcome.ok) {
+      results.push(outcome.result);
+    } else {
+      failures.push({ file: outcome.source, error: outcome.error });
+      firstError ??= outcome.cause;
+    }
+  }
+  return { results, failures, firstError };
+}
 
 /** Shared shape of every prepare + put batch (`uploadPuts`/`uploadAttachments`). */
 export interface UploadBatchResult<T> {
@@ -1489,6 +1558,9 @@ export async function runAttach(
   if (parsed.flags.has("--no-promote") && typeof parsed.flags.get("--no-promote") === "string") {
     throw new UsageError("--no-promote takes no value — place it after the file arguments");
   }
+  if (parsed.flags.has("--move") && typeof parsed.flags.get("--move") === "string") {
+    throw new UsageError("--move takes no value — place it after the file arguments");
+  }
 
   if (parsed.flags.has("--promote")) {
     if (parsed.positionals.length > 0) {
@@ -1548,25 +1620,70 @@ export async function runAttach(
   };
   if (Object.keys(metadata).length > 0) validateMetaMap(metadata);
 
+  // Args that exist on disk are always local files, even if they'd also
+  // parse as a key/URL. Everything else is a candidate for the server-side
+  // attach-existing path (issue #702) — resolved/validated server-side, so a
+  // typo'd path and a genuinely-missing object key report the same way.
+  const localFiles = parsed.positionals.filter((p) => existsSync(p));
+  const remoteArgs = parsed.positionals.filter((p) => !existsSync(p));
+  const moveExisting = parsed.flags.has("--move");
+  if (moveExisting && remoteArgs.length === 0) {
+    throw new UsageError("--move only applies to already-uploaded key/URL arguments");
+  }
+
   const logHuman = !ctx.quiet && !ctx.json;
-  if (logHuman) {
-    const n = parsed.positionals.length;
+  if (logHuman && localFiles.length > 0) {
+    const n = localFiles.length;
     process.stderr.write(`>> uploading ${n} file${n === 1 ? "" : "s"}\n`);
   }
 
-  const { uploads, failures, firstError, sentMetadata } = await uploadAttachments({
-    client: ctx.client,
-    target,
-    files: parsed.positionals,
-    contentType: contentTypeOverride,
-    optimize: optimizeOpts,
-    frame: frameOpts,
-    metadata,
-    deriveImageFacts: derivedMetaEnabled(parsed.flags, defaults),
-  });
+  const uploadResult =
+    localFiles.length > 0
+      ? await uploadAttachments({
+          client: ctx.client,
+          target,
+          files: localFiles,
+          contentType: contentTypeOverride,
+          optimize: optimizeOpts,
+          frame: frameOpts,
+          metadata,
+          deriveImageFacts: derivedMetaEnabled(parsed.flags, defaults),
+        })
+      : { uploads: [], failures: [], firstError: undefined, sentMetadata: [] };
+  const { uploads, sentMetadata } = uploadResult;
+  const localFailures = uploadResult.failures;
 
-  // Single-file total failure: rethrow so CLI exit codes stay auth/network-aware.
-  if (uploads.length === 0 && failures.length === 1 && parsed.positionals.length === 1) {
+  if (logHuman && remoteArgs.length > 0) {
+    const n = remoteArgs.length;
+    process.stderr.write(`>> attaching ${n} existing object${n === 1 ? "" : "s"}\n`);
+  }
+  const remoteResult =
+    remoteArgs.length > 0
+      ? await attachExistingBatch(ctx.client, target, remoteArgs, moveExisting)
+      : {
+          results: [] as AttachExistingResult[],
+          failures: [] as AttachFailure[],
+          firstError: undefined,
+        };
+  const { results: attachedExisting, failures: remoteFailures } = remoteResult;
+
+  const failures = [...localFailures, ...remoteFailures];
+  const firstError = localFailures.length > 0 ? uploadResult.firstError : remoteResult.firstError;
+
+  // Single-arg total failure: rethrow so CLI exit codes stay auth/network-aware.
+  // The remote-attach path's friendlier not-found message (attachExistingBatch)
+  // wins over the raw client error text, but the original error's class/code
+  // (UploadsError) is preserved so exit-code mapping stays unaffected.
+  if (
+    uploads.length === 0 &&
+    attachedExisting.length === 0 &&
+    failures.length === 1 &&
+    parsed.positionals.length === 1
+  ) {
+    const only = failures[0]!;
+    if (firstError instanceof UploadsError && firstError.message !== only.error.message) {
+      throw new UploadsError(only.error.message, firstError.code, firstError.status);
+    }
     throw firstError instanceof Error ? firstError : new Error(String(firstError));
   }
 
@@ -1613,6 +1730,7 @@ export async function runAttach(
     await writeJson({
       target,
       uploads,
+      attachedExisting,
       failures,
       comment,
       commentError,
@@ -1633,6 +1751,15 @@ export async function runAttach(
       }
       const embedLine = result.embedUrl ? `EMBED: ${result.embedUrl}\n` : "";
       await writeStdout(`URL: ${result.url}\n${embedLine}MARKDOWN: ${result.markdown}\n`);
+    }
+    for (const attached of attachedExisting) {
+      if (logHuman) {
+        process.stderr.write(
+          `>> ${attached.source.key}: attached${attached.moved ? " (moved)" : ""} as ${attached.key}\n`,
+        );
+      }
+      const embedLine = attached.embedUrl ? `EMBED: ${attached.embedUrl}\n` : "";
+      await writeStdout(`URL: ${attached.url}\n${embedLine}`);
     }
     for (const failure of failures) {
       process.stderr.write(`warning: could not upload ${failure.file}: ${failure.error.message}\n`);

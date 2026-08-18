@@ -63,6 +63,36 @@ const promoteResultSchema: JsonSchema = objectSchema(
   ["promoted", "skipped"],
 );
 
+/** Hosted `promote` tool's `attached[]` entry (issue #702, `AttachExistingResponse`). */
+const attachExistingResultSchema: JsonSchema = objectSchema(
+  {
+    key: { type: "string" },
+    url: nullableString,
+    embedUrl: nullableString,
+    pageUrl: { type: "string" },
+    moved: { type: "boolean" },
+    source: objectSchema({ key: { type: "string" } }, ["key"]),
+    comment: commentResultSchema,
+  },
+  ["key", "url", "embedUrl", "moved", "source", "comment"],
+);
+
+/** Hosted `promote` tool's `attachFailures[]` entry — one per bad `keys` source. */
+const attachFailureSchema: JsonSchema = objectSchema(
+  {
+    key: { type: "string" },
+    error: objectSchema(
+      {
+        message: { type: "string" },
+        code: { type: "string" },
+        status: { type: "number" },
+      },
+      ["message"],
+    ),
+  },
+  ["key", "error"],
+);
+
 const putObjectFields: Record<string, JsonSchema> = {
   key: { type: "string" },
   url: nullableString,
@@ -264,14 +294,15 @@ export const healthResultSchema: JsonSchema = objectSchema({
   apiUrl: { type: "string" },
 });
 
-export const promoteToolResultSchema: JsonSchema = objectSchema(
-  {
-    promotion: promoteResultSchema,
-    comment: commentResultSchema,
-    commentError: { type: "string" },
-  },
-  ["promotion"],
-);
+export const promoteToolResultSchema: JsonSchema = objectSchema({
+  // `promotion` is optional (issue #702): a `keys`-only call (no `branch`)
+  // never runs the branch sweep, so there's nothing to report under it.
+  promotion: promoteResultSchema,
+  attached: { type: "array", items: attachExistingResultSchema },
+  attachFailures: { type: "array", items: attachFailureSchema },
+  comment: commentResultSchema,
+  commentError: { type: "string" },
+});
 
 const galleryItemSchema: JsonSchema = objectSchema({
   id: { type: "string" },
