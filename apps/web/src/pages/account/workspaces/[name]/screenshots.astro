@@ -3,10 +3,36 @@
  * Screenshots grouped by `path` metadata — `WorkspaceLayout` + the
  * `ScreenshotsByPath` island. Sibling route to `[name].astro` (files);
  * cloned structure, own mount id.
+ *
+ * SSR-first (plan 006, following plan 005's `WorkspaceFileTable`/`[name].astro`
+ * shape): when the request carries a session, server-fetch the workspace
+ * summary + by-path overview so first paint has real groups instead of the
+ * loading skeleton. `ScreenshotsByPath` itself renders here with no
+ * `client:*` directive, so Astro emits it as plain static HTML (no
+ * `astro-island`, no hydration bootstrap) — the seeded groups are real,
+ * visible markup even before any JS runs. A companion JSON `<script>` carries
+ * the same props, and a manual `hydrateRoot` mount (below, off
+ * `astro:page-load`/`astro:before-swap`, same shape every sibling
+ * workspace-tab page already uses) attaches interactivity to that exact
+ * markup afterwards. See `[name].astro`'s doc comment for why this codebase
+ * uses a manual mount instead of `client:load`.
+ *
+ * Unlike the files tab's `listWorkspaceFolder` (which depends on the current
+ * folder, so plan 005 only seeds it for the plain root browse),
+ * `getWorkspaceFilesByPath` always returns the same complete by-path overview
+ * regardless of the URL — `?project=`/`?path=` only change how
+ * `ScreenshotsByPath` filters/renders that same data (project view) or
+ * switches to a *different* client-side fetch (drill-in search). So the
+ * overview seed below is unconditional, not gated to a "default view" URL
+ * the way plan 005's listing seed is.
  */
+import { env } from "cloudflare:workers";
 import WorkspaceLayout from "../../../../layouts/WorkspaceLayout.astro";
+import { ScreenshotsByPath, type OverviewState } from "../../../../components/ScreenshotsByPath";
+import { getWorkspaceFilesByPath, getWorkspaceSummary } from "../../../../lib/api-client";
+import { resolveSignedInOrigins } from "../../../../lib/signed-in-page";
 import { isBrowseWorkspace } from "../../../../lib/workspace-browse-url";
-import { renderScreenshotsPlaceholderHtml } from "../../../../lib/workspace-ui";
+import type { WorkspaceInfoStatus } from "../../../../lib/workspace-file-row";
 
 export const prerender = false;
 
@@ -19,23 +45,73 @@ const tip = {
   href: "/docs/attach-pull-request-images#put",
   linkLabel: "how grouping works",
 };
+
+const { apiOrigin } = resolveSignedInOrigins(env);
+const cookie = Astro.request.headers.get("cookie") ?? "";
+const initialSearch = Astro.url.search;
+
+let initialInfo: WorkspaceInfoStatus | undefined;
+let initialOverview: OverviewState | undefined;
+
+if (cookie.trim()) {
+  const [summary, overview] = await Promise.all([
+    getWorkspaceSummary(apiOrigin, workspace, { cookie }),
+    getWorkspaceFilesByPath(apiOrigin, workspace, { cookie }),
+  ]);
+
+  if (summary.kind === "success") {
+    initialInfo = { status: "ready", hasPublicUrl: summary.workspace.hasPublicUrl };
+  }
+  if (overview.kind === "ok") {
+    initialOverview = {
+      status: "ready",
+      groups: overview.groups,
+      projects: overview.projects,
+      truncated: overview.truncated,
+    };
+  }
+}
+
+// Carries the exact same props into the client mount script below (plain
+// `<script>`, not `client:*` — see the file-level doc comment for why).
+// `<`-escaped so a filename/metadata value containing `</script>` can't
+// break out of the tag; this is the same data `ScreenshotsByPath` above
+// already rendered, so nothing here is newly untrusted.
+const screenshotsSeedJson = JSON.stringify({
+  apiOrigin,
+  workspace,
+  initialSearch,
+  initialOverview,
+  initialInfo,
+}).replace(/</g, "\\u003c");
 ---
 
 <WorkspaceLayout workspace={workspace} tip={tip} showQuickActions={false}>
-  {
-    /* React (dynamic-imported below) replaces this wholesale on mount. The
-      placeholder mirrors the component's own OverviewLoadingSkeleton, so the
-      gap before that import resolves shows the same skeleton the component
-      renders next — no dead space, no jump. */
-  }
-  <div id="ws-screenshots" set:html={renderScreenshotsPlaceholderHtml()} />
+  <div id="ws-screenshots">
+    <ScreenshotsByPath
+      apiOrigin={apiOrigin}
+      workspace={workspace}
+      initialSearch={initialSearch}
+      initialOverview={initialOverview}
+      initialInfo={initialInfo}
+    />
+  </div>
+  <script type="application/json" id="ws-screenshots-seed" set:html={screenshotsSeedJson} />
 
   <script>
     import { onAstroPageLoad } from "../../../../lib/account-shell";
-    import { resolveActiveWorkspace } from "../../../../lib/workspace-browse-url";
     import { createElement } from "react";
-    import { createRoot, type Root } from "react-dom/client";
-    import { withIslandBoundary } from "../../../../components/IslandErrorBoundary";
+    import { hydrateRoot, type Root } from "react-dom/client";
+    import type { OverviewState } from "../../../../components/ScreenshotsByPath";
+    import type { WorkspaceInfoStatus } from "../../../../lib/workspace-file-row";
+
+    interface ScreenshotsSeed {
+      apiOrigin: string;
+      workspace: string;
+      initialSearch: string;
+      initialOverview?: OverviewState;
+      initialInfo?: WorkspaceInfoStatus;
+    }
 
     let screenshotsRoot: Root | null = null;
 
@@ -49,34 +125,36 @@ const tip = {
       screenshotsRoot = null;
     }
 
+    function readSeed(): ScreenshotsSeed | null {
+      const el = document.getElementById("ws-screenshots-seed");
+      if (!el?.textContent) return null;
+      try {
+        return JSON.parse(el.textContent) as ScreenshotsSeed;
+      } catch {
+        return null;
+      }
+    }
+
     async function boot(): Promise<void> {
       const mount = document.getElementById("ws-screenshots");
-      if (!mount) return;
+      const seed = readSeed();
+      if (!mount || !seed) return;
 
       // Tear down the previous mount before Astro swaps this page's body away
       // (registered once per boot() call — {once:true} auto-clears itself so
       // repeated astro:page-load events from ClientRouter never stack listeners).
       document.addEventListener("astro:before-swap", teardown, { once: true });
 
-      const w = window as unknown as {
-        __UPLOADS_API_ORIGIN__: string;
-        __UPLOADS_ACTIVE_WORKSPACE__: string;
-      };
-      const apiOrigin = w.__UPLOADS_API_ORIGIN__;
-      // Pathname wins when the boot global is empty/stale after ClientRouter
-      // sibling navigation (same convention as WorkspaceLayout's own script).
-      const workspace = resolveActiveWorkspace(
-        window.location.pathname,
-        w.__UPLOADS_ACTIVE_WORKSPACE__ || "",
-      );
-
+      // Lazy, not a static top-level import: keeps a Fast-Refresh/HMR dev
+      // glitch in this component from blocking the rest of the page's
+      // scripts — same reasoning every sibling workspace-tab mount uses.
       const { ScreenshotsByPath } = await import("../../../../components/ScreenshotsByPath");
       if (!document.contains(mount)) return;
       teardown();
-      screenshotsRoot = createRoot(mount);
-      screenshotsRoot.render(
-        withIslandBoundary(createElement(ScreenshotsByPath, { apiOrigin, workspace })),
-      );
+      // `ScreenshotsByPath` already composes `IslandErrorBoundary` internally
+      // (plan 006) — mounting it directly, with no extra wrapper, matches the
+      // SSR'd tree exactly, so `hydrateRoot` reconciles without warnings.
+      screenshotsRoot = hydrateRoot(mount, createElement(ScreenshotsByPath, seed));
     }
 
     // astro:page-load fires on the initial load too (same as every sibling
