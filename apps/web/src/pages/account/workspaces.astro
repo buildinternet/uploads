@@ -5,7 +5,10 @@
  * Auto-opens a workspace (last-used, else first owned) so a signed-in user
  * lands somewhere; `?manage=1` asks for the list itself instead.
  */
+import { env } from "cloudflare:workers";
 import AccountLayout from "../../layouts/AccountLayout.astro";
+import { getMyWorkspaces } from "../../lib/api-client";
+import { resolveSignedInOrigins } from "../../lib/signed-in-page";
 import { isBrowseWorkspace } from "../../lib/workspace-browse-url";
 import { renderWorkspacesPlaceholderHtml } from "../../lib/workspace-ui";
 
@@ -21,6 +24,25 @@ if (isBrowseWorkspace(legacyWs)) {
     if (key !== "ws" && key !== "to") dest.searchParams.append(key, value);
   }
   return Astro.redirect(`${dest.pathname}${dest.search}${dest.hash}`);
+}
+
+// Server-side auto-open: for a single-workspace user (the common case),
+// 302 straight to their workspace so login reaches content without a client
+// fetch + redirect hop. Multi-workspace (last-used lives client-side),
+// ?manage=1, empty, and unavailable all fall through to the client script.
+const managing = new URLSearchParams(Astro.url.search).get("manage") === "1";
+if (!managing) {
+  const { apiOrigin } = resolveSignedInOrigins(env);
+  const cookie = Astro.request.headers.get("cookie") ?? "";
+  if (cookie.trim()) {
+    const result = await getMyWorkspaces(apiOrigin, { cookie });
+    if (result.kind === "success" && result.workspaces.length === 1) {
+      const only = result.workspaces[0].workspace;
+      const to = new URLSearchParams(Astro.url.search).get("to");
+      const suffix = to === "screenshots" ? "/screenshots" : "";
+      return Astro.redirect(`/account/workspaces/${encodeURIComponent(only)}${suffix}`);
+    }
+  }
 }
 ---
 
