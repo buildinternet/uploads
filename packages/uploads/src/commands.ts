@@ -927,7 +927,7 @@ export async function syncAttachmentsComment(
   }
   // Append only on the local-gh path: bot posts already carry the uploads-sh
   // bot identity, so this note would be wrong there.
-  const body = `${attachmentsCommentBody(items, previewGalleries, marker, renderOptions)}\n${GH_FALLBACK_AUTHOR_NOTE}`;
+  const body = `${attachmentsCommentBody(items, previewGalleries, marker, renderOptions, target)}\n${GH_FALLBACK_AUTHOR_NOTE}`;
   const count = items.length + previewGalleries.length;
   // Empty (count 0) renders the neutral empty-state body but must not create a
   // comment — it only rewrites one that already exists (`action: "skipped"`

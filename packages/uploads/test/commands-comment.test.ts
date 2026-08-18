@@ -127,6 +127,7 @@ describe("runComment", () => {
     // uses the namespaced marker (phase 4b).
     expect(create!.input).toContain(attachmentsMarker("test"));
     expect(create!.input).toContain("after.png");
+    expect(create!.input).toContain("<code>uploads put &lt;file&gt; --pr 5</code>");
     // Gh-fallback only: explain why the comment is under a human account.
     expect(create!.input).toContain(GH_FALLBACK_AUTHOR_NOTE);
   });

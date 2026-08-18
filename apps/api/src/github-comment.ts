@@ -70,7 +70,7 @@ export async function gatherCommentBody(
   };
   // count may be 0 — attachmentsCommentBody renders a neutral empty state.
   // Callers gate create-vs-patch on count (see upsertBotComment createIfMissing).
-  return { body: attachmentsCommentBody(items, galleries, marker, renderOptions), count };
+  return { body: attachmentsCommentBody(items, galleries, marker, renderOptions, target), count };
 }
 
 /**
