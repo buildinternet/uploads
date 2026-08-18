@@ -241,6 +241,7 @@ Options:
   --no-git              Don't derive --repo from git (or UPLOADS_NO_GIT=1)
   --auto                Resolve current PR/issue and stamp gh.* metadata (default on)
   --no-auto             Skip gh.* auto-resolution (also skipped by --no-git or UPLOADS_NO_AUTO_META=1)
+  --no-pr               Skip auto-PR context (or UPLOADS_NO_AUTO_PR=1) — see below
   --workspace, -w <name>  Override workspace (wins over UPLOADS_WORKSPACE and token inference)
   --format human|url|markdown|json
   --pr <num>            Attach to a pull request: key gh/<owner>/<repo>/pull/<num>/<name> (stable URL, no hash)
@@ -264,9 +265,17 @@ Options:
   --dry-run             Print key + public URL without uploading; reports if the key would replace
                         (or, on a strict key, be refused). Not with --gallery
 
-A bare put (no --pr/--issue/--key) on a non-default git branch prints a one-line
-nudge toward --pr/attach --branch (stderr in human mode, a "hint" field in
---format json). Suppress with --quiet, UPLOADS_NO_NUDGE=1, or config UPLOADS_NO_NUDGE=1.
+A bare put (no --pr/--issue/--key/--ref/--prefix/--destination) on a git branch
+that maps to exactly one open PR now behaves as if --pr <n> had been passed
+(issue #700): stable gh/ key, managed comment sync — instead of the #403
+branch-staging default. A one-line note announces this (stderr in human mode,
+the "hint" field in --format json). Opt out with --no-pr, UPLOADS_NO_AUTO_PR=1,
+or config UPLOADS_NO_AUTO_PR=1; never fires outside a git repo, on the default
+branch, with --no-git, or when no single open PR can be resolved (falls back to
+branch staging, then the plain dated layout). When it doesn't fire and the
+upload lands on the dated layout with a detectable PR, a similar one-line nudge
+names the PR and a ready-made follow-up (uploads attach --pr <n> <key>...).
+Suppress either note with --quiet, UPLOADS_NO_NUDGE=1, or config UPLOADS_NO_NUDGE=1.
 
 Exit codes: 0 ok · 2 usage/token/file · 3 auth/policy · 4 network · 1 other (incl. partial multi-file failure).
 Scripted formats (json|url|markdown) also print failures on stdout.
@@ -1992,45 +2001,67 @@ async function runAttachPromoteOnly(
 const PUT_NUDGE_GH_TIMEOUT_MS = 3000;
 
 /**
- * The bare-put nudge's wording (issue #393): teaches `--pr`/`attach --branch`
- * as an upgrade from a targetless `put`. `pr` present → names the PR;
- * otherwise a generic variant that still points at `--pr <num>`. Used
- * verbatim for both the human-mode stderr line and the JSON `hint` field.
+ * The bare-put nudge's wording (issue #393, made concrete by issue #700):
+ * teaches `--pr`/`attach --branch` as an upgrade from a targetless `put`.
+ * `pr` present → names the PR and, once upload `keys` are known, appends a
+ * ready-made follow-up command naming them verbatim (e.g. `uploads attach
+ * --pr 1250 f/abc123.webp`); otherwise a generic variant that still points
+ * at `--pr <num>`. Used verbatim for both the human-mode stderr line and the
+ * JSON `hint` field.
  */
-function putNudgeText(branch: string, pr: number | undefined): string {
+export function putNudgeText(branch: string, pr: number | undefined, keys: string[] = []): string {
   const prClause =
     pr !== undefined ? ` (PR #${pr} open) — rerun with --pr ${pr}` : ` — rerun with --pr <num>`;
-  return (
+  const base =
     `note: on branch ${branch}${prClause} for a stable key plus a managed comment ` +
-    `that collects this PR's media, or stage pre-PR files with: uploads attach <file> --branch`
+    `that collects this PR's media, or stage pre-PR files with: uploads attach <file> --branch`;
+  if (pr === undefined || keys.length === 0) return base;
+  return `${base}. Already uploaded? uploads attach --pr ${pr} ${keys.join(" ")}`;
+}
+
+/**
+ * Auto-PR note (issue #700): announces at the moment it fires that a bare
+ * put/screenshot on this branch was auto-attached to `pr` — the default
+ * behavior change this issue introduces — and how to opt out.
+ */
+export function autoPrNoteText(pr: number): string {
+  return (
+    `note: branch maps to open PR #${pr} — auto-attached (stable key + managed comment sync). ` +
+    `Opt out with --no-pr or UPLOADS_NO_AUTO_PR=1.`
   );
 }
 
 /**
- * Best-effort bare-put nudge (issue #393): fires only when `put` has no
- * targeting flag at all (`--pr`/`--issue`/`--key`; `--branch` too, though
+ * Best-effort bare-put/screenshot nudge context (issue #393): resolves the
+ * branch and, when detectable, the open PR for it — fires only when there is
+ * no targeting flag at all (`--pr`/`--issue`/`--key`; `--branch` too, though
  * `put` doesn't currently accept it — defensive parity with `attach`), is
  * inside a git repo (reusing `deriveRepoFromGit`, the same detection the
  * default screenshot key's repo segment uses), and the current branch isn't
  * the default one. Never throws — any failure (not a repo, detached HEAD,
  * `gh` missing/unauthenticated/timed out) degrades to "no nudge" or, once a
- * branch is already known, to the generic no-PR wording. Must never affect
- * put's exit code, stdout, or upload behavior.
+ * branch is already known, to a context with `pr: undefined` (the generic
+ * no-PR wording). Must never affect put's exit code, stdout, or upload
+ * behavior. Callers turn the result into text via `putNudgeText`, once any
+ * upload keys are known.
  */
-function resolvePutNudge(opts: {
-  ctx: CliContext;
-  flags: CommandFlags["flags"];
+export function resolvePutNudgeContext(opts: {
+  quiet: boolean;
+  noNudge: boolean;
   ghTarget: GhTarget | undefined;
   keyHint: string | undefined;
+  /** True when an explicit `--branch`-style flag was given (CLI `attach`
+   * parity; `put`/MCP `put` don't accept one — pass false there). */
+  hasBranchFlag?: boolean;
   noGit: boolean;
-  defaults: PutDefaults;
+  repoArg: string | undefined;
   run: CommandRunner;
-}): string | undefined {
-  const { ctx, flags, ghTarget, keyHint, noGit, defaults, run } = opts;
-  if (ctx.quiet) return undefined;
-  if (defaults.noNudge) return undefined;
+}): { branch: string; pr: number | undefined } | undefined {
+  const { quiet, noNudge, ghTarget, keyHint, hasBranchFlag, noGit, repoArg, run } = opts;
+  if (quiet) return undefined;
+  if (noNudge) return undefined;
   if (ghTarget || keyHint || noGit) return undefined;
-  if (flags.has("--branch")) return undefined; // not a real put flag today; defensive only
+  if (hasBranchFlag) return undefined; // not a real put flag today; defensive only
   try {
     if (deriveRepoFromGit(run) === undefined) return undefined; // not a (usable) git repo
     let branch: string;
@@ -2052,15 +2083,84 @@ function resolvePutNudge(opts: {
       // fast/fake, and execFileSync's `timeout` option is meaningless
       // against anything that isn't actually shelling out.
       const timed = run === execRunner ? timedExecRunner(PUT_NUDGE_GH_TIMEOUT_MS) : run;
-      const repoArg = flagString(flags, "--repo") ?? defaults.repo;
       const repo = resolveRepo(repoArg, timed);
       pr = resolveCurrentPullRequest(repo, timed).num;
     } catch {
       pr = undefined; // gh missing/unauthenticated/timed out/no open PR — generic wording
     }
-    return putNudgeText(branch, pr);
+    return { branch, pr };
   } catch {
     return undefined;
+  }
+}
+
+/**
+ * Auto-PR context (issue #700): when a bare put/screenshot has no explicit
+ * destination flag at all (`--pr`/`--issue`/`--key`/`--ref`/`--prefix`/
+ * `--destination`, and for `screenshot` no explicit `--branch`) and runs on a
+ * branch that maps to exactly one open PR, this resolves that PR so the
+ * caller can behave as if `--pr <n>` had been passed — stable key + managed
+ * comment sync — instead of the #403/#469 staging default or the plain dated
+ * layout. `resolveCurrentPullRequest`'s `gh pr view <branch>` lookup is
+ * already the unambiguous case: it names the single open PR whose head is
+ * that branch, or fails (no open PR, or `gh` unavailable/unauthenticated) —
+ * there is no "ambiguous, more than one" state to further disambiguate.
+ * Opt-out: `noAutoPr` (the caller folds in `--no-pr` and
+ * `UPLOADS_NO_AUTO_PR=1`/config). Never fires outside a git checkout, on the
+ * default branch, or with `--no-git`; any failure (not a repo, detached
+ * HEAD, gh missing/unauthenticated/timed out, no open PR) degrades to
+ * undefined so the caller falls back to its normal staging/dated behavior.
+ */
+export function resolveAutoPrTarget(opts: {
+  ghTarget: GhTarget | undefined;
+  keyHint: string | undefined;
+  refArg: string | undefined;
+  prefixArg: string | undefined;
+  destinationArg: string | undefined;
+  /** Explicit `--branch` (screenshot only) also opts out — put has no
+   * `--branch` flag today, so callers pass undefined there. */
+  branchArg?: string | undefined;
+  noGit: boolean;
+  noAutoPr: boolean;
+  repoArg: string | undefined;
+  run: CommandRunner;
+}): GhTarget | undefined {
+  const {
+    ghTarget,
+    keyHint,
+    refArg,
+    prefixArg,
+    destinationArg,
+    branchArg,
+    noGit,
+    noAutoPr,
+    repoArg,
+    run,
+  } = opts;
+  if (noAutoPr) return undefined;
+  if (ghTarget || keyHint || noGit) return undefined;
+  if (refArg || prefixArg || destinationArg || branchArg !== undefined) return undefined;
+  try {
+    if (deriveRepoFromGit(run) === undefined) return undefined; // not a (usable) git repo
+    let branch: string;
+    try {
+      branch = resolveCurrentBranch(run);
+    } catch {
+      return undefined; // detached HEAD, or git unavailable
+    }
+    const defaultBranch = resolveDefaultBranch(run);
+    const onDefaultBranch = defaultBranch
+      ? branch === defaultBranch
+      : branch === "main" || branch === "master"; // undetermined: err toward the old default
+    if (onDefaultBranch) return undefined;
+
+    // Same bounded-timeout treatment as the #393 nudge's `gh pr view` call —
+    // this must never be felt as a hang.
+    const timed = run === execRunner ? timedExecRunner(PUT_NUDGE_GH_TIMEOUT_MS) : run;
+    const repo = resolveRepo(repoArg, timed);
+    return resolveCurrentPullRequest(repo, timed);
+  } catch {
+    return undefined; // gh/git unavailable, no open PR, or repo unresolvable
   }
 }
 
@@ -2354,10 +2454,40 @@ export async function runPut(
   }
   const multi = files.length > 1;
 
+  // Resolved early (issue #700): both the auto-PR opt-out default and the
+  // `--no-git`-gated staging/auto-PR detection below need it before the rest
+  // of put's flag parsing.
+  const defaults = resolvePutDefaults({ envFile: ctx.envFile });
+  const noGit = flagBool(parsed.flags, "--no-git") || defaults.noGit === true;
+
   const keyHint = flagString(parsed.flags, "--key");
   const destFlag = flagString(parsed.flags, "--destination");
   const prefixFlag = flagString(parsed.flags, "--prefix");
   const ghTarget = ghTargetFromFlags(parsed.flags, run);
+  if (parsed.flags.has("--no-pr") && typeof parsed.flags.get("--no-pr") === "string") {
+    throw new UsageError("--no-pr takes no value");
+  }
+  const noAutoPr = flagBool(parsed.flags, "--no-pr") || defaults.noAutoPr === true;
+  // Auto-PR context (issue #700): a bare put (no --pr/--issue/--key/--ref/
+  // --prefix/--destination, not --no-git/--no-pr) on a branch that maps to
+  // exactly one open PR behaves as if `--pr <n>` had been passed — see
+  // resolveAutoPrTarget. Supersedes both the #403 staging default and the
+  // #393 nudge for this case; computed before the gh.* metadata resolution
+  // below since it takes over that resolution entirely.
+  const autoPrTarget: GhTarget | undefined = ghTarget
+    ? undefined
+    : resolveAutoPrTarget({
+        ghTarget,
+        keyHint,
+        refArg: flagString(parsed.flags, "--ref"),
+        prefixArg: prefixFlag,
+        destinationArg: destFlag,
+        noGit,
+        noAutoPr,
+        repoArg: flagString(parsed.flags, "--repo") ?? defaults.repo,
+        run,
+      });
+  const effectiveGhTarget = ghTarget ?? autoPrTarget;
   // Comment sync runs by default with --pr/--issue (matches `attach`); opt
   // out with --no-comment. --comment is accepted as a redundant no-op for
   // back-compat with scripts written before this default flipped (#537).
@@ -2391,7 +2521,7 @@ export async function runPut(
   if (parsed.flags.has("--no-auto") && typeof parsed.flags.get("--no-auto") === "string") {
     throw new UsageError("--no-auto takes no value");
   }
-  if (parsed.flags.has("--no-comment") && !ghTarget) {
+  if (parsed.flags.has("--no-comment") && !effectiveGhTarget) {
     throw new UsageError("--no-comment requires --pr or --issue");
   }
   if (multi) {
@@ -2426,7 +2556,7 @@ export async function runPut(
       destination: destFlag,
       prefix: prefixFlag,
       key: keyHint,
-      ghAttachment: Boolean(ghTarget),
+      ghAttachment: Boolean(effectiveGhTarget),
     });
   } catch (err) {
     throw new UsageError(err instanceof Error ? err.message : String(err));
@@ -2441,7 +2571,6 @@ export async function runPut(
         throw new UsageError(`invalid --format: ${raw}`);
       })();
 
-  const defaults = resolvePutDefaults({ envFile: ctx.envFile });
   const optimizeOpts = optimizeOptionsFromFlags(parsed.flags, defaults);
   const frameOpts = frameOptionsFromFlags(parsed.flags);
   const contentTypeOverride = flagString(parsed.flags, "--content-type");
@@ -2456,17 +2585,16 @@ export async function runPut(
           })()
         : defaults.width;
 
-  const noGit = flagBool(parsed.flags, "--no-git") || defaults.noGit === true;
-
   // Bare-put branch staging (issue #403): a bare put (no --pr/--issue/--key/
   // --ref/--prefix/--destination, not --no-git) on a non-default git branch
   // stages to the branch prefix — identical key/metadata to `attach
   // --branch` — instead of the dated layout. Computed before gh.* metadata
   // resolution below since it takes over that resolution entirely (branch
   // metadata, not PR/issue metadata) and supersedes the #393 nudge for this
-  // case.
+  // case. `effectiveGhTarget` (explicit --pr/--issue OR the #700 auto-PR
+  // match) wins over staging, same as it wins over the dated layout.
   const stagingTarget = resolvePutStagingTarget({
-    ghTarget,
+    ghTarget: effectiveGhTarget,
     keyHint,
     refArg: flagString(parsed.flags, "--ref"),
     prefixArg: prefixFlag,
@@ -2476,15 +2604,16 @@ export async function runPut(
     run,
   });
 
-  // gh.* metadata: explicit --pr/--issue target wins over --meta; staging
-  // wins over --meta the same way (matches attach --branch); otherwise
-  // best-effort auto resolution (on by default) where --meta wins. --no-git,
-  // --no-auto, or UPLOADS_NO_AUTO_META disable auto; --auto forces past the
-  // config default but never past --no-git (no repo to resolve).
+  // gh.* metadata: explicit --pr/--issue target (or the #700 auto-PR match)
+  // wins over --meta; staging wins over --meta the same way (matches attach
+  // --branch); otherwise best-effort auto resolution (on by default) where
+  // --meta wins. --no-git, --no-auto, or UPLOADS_NO_AUTO_META disable auto;
+  // --auto forces past the config default but never past --no-git (no repo
+  // to resolve).
   let metadata = userMeta;
   let attachedRef: string | undefined;
-  if (ghTarget) {
-    const merged = { ...userMeta, ...ghMetadataFromTargetWithTitle(ghTarget, run) };
+  if (effectiveGhTarget) {
+    const merged = { ...userMeta, ...ghMetadataFromTargetWithTitle(effectiveGhTarget, run) };
     validateMetaMap(merged); // enforce 24-key/8KB caps on the merged map (matches attach)
     metadata = merged;
     attachedRef = merged["gh.ref"];
@@ -2538,25 +2667,29 @@ export async function runPut(
   const contextNudge =
     !ctx.quiet && !defaults.noNudge && !noGit ? noProjectContextNudge(metadata) : undefined;
 
-  // Bare-put nudge (issue #393): only relevant when staging didn't take over
-  // — once `stagingTarget` resolves, staging IS the upgrade the nudge used to
-  // point at, so this is skipped entirely rather than firing redundantly.
-  // Still fires as before for a bare put that lands on the dated layout with
-  // a detectable PR (e.g. an explicit --ref/--prefix opts out of staging).
-  // Computed once, used for both the trailing stderr line (human mode) and
-  // the JSON `hint` field below. Best-effort — see resolvePutNudge; never
-  // affects exit code, stdout, or the upload.
-  const nudge = stagingTarget
-    ? undefined
-    : resolvePutNudge({
-        ctx,
-        flags: parsed.flags,
-        ghTarget,
-        keyHint,
-        noGit,
-        defaults,
-        run,
-      });
+  // Bare-put nudge (issue #393): only relevant when neither auto-PR nor
+  // staging took over — once `effectiveGhTarget`/`stagingTarget` resolves,
+  // that IS the upgrade the nudge used to point at, so this is skipped
+  // entirely rather than firing redundantly. Still fires as before for a
+  // bare put that lands on the dated layout with a detectable PR (e.g. an
+  // explicit --ref/--prefix opts out of staging AND auto-PR, or --no-pr/
+  // UPLOADS_NO_AUTO_PR opts out of auto-PR specifically). The concrete
+  // key-naming text (issue #700) is finished below, once upload keys exist.
+  // Best-effort — see resolvePutNudgeContext; never affects exit code,
+  // stdout, or the upload.
+  const nudgeContext =
+    effectiveGhTarget || stagingTarget
+      ? undefined
+      : resolvePutNudgeContext({
+          quiet: ctx.quiet,
+          noNudge: defaults.noNudge === true,
+          ghTarget,
+          keyHint,
+          hasBranchFlag: parsed.flags.has("--branch"),
+          noGit,
+          repoArg: flagString(parsed.flags, "--repo") ?? defaults.repo,
+          run,
+        });
 
   // Staging note (issue #403): same suppression as the #393 nudge
   // (--quiet, UPLOADS_NO_NUDGE=1 env/config); staging itself is NOT gated by
@@ -2565,6 +2698,14 @@ export async function runPut(
     stagingTarget && !ctx.quiet && !defaults.noNudge
       ? putStagingNoteText(stagingTarget.branch)
       : undefined;
+
+  // Auto-PR note (issue #700): announces the default-behavior change at the
+  // moment it fires, so a bare put that silently became a --pr attach isn't
+  // a surprise — names the PR and how to opt out. Same suppression as the
+  // other advisories (--quiet, UPLOADS_NO_NUDGE=1); NOT gated by --no-pr/
+  // UPLOADS_NO_AUTO_PR since those are what prevent it from firing at all.
+  const autoPrNote =
+    autoPrTarget && !ctx.quiet && !defaults.noNudge ? autoPrNoteText(autoPrTarget.num) : undefined;
 
   const logHuman = !ctx.quiet && format === "human";
   if (logHuman) {
@@ -2584,7 +2725,7 @@ export async function runPut(
     files,
     nameOverride: nameFlag,
     explicitKey: keyHint,
-    ghTarget,
+    ghTarget: effectiveGhTarget,
     ghBranchTarget: stagingTarget,
     prefix: resolvedPrefix ?? defaults.prefix,
     repo: flagString(parsed.flags, "--repo") ?? defaults.repo,
@@ -2606,6 +2747,19 @@ export async function runPut(
     throw firstError instanceof Error ? firstError : new Error(String(firstError));
   }
 
+  // Concrete bare-put nudge text (issue #700): built once upload keys exist,
+  // so the ready-made follow-up names them, e.g.
+  // "uploads attach --pr 1250 f/abc123.webp". Falls back to the plain
+  // #393 wording when there are no successful uploads to name.
+  const nudge =
+    nudgeContext && uploads.length > 0
+      ? putNudgeText(
+          nudgeContext.branch,
+          nudgeContext.pr,
+          uploads.map((u) => u.key),
+        )
+      : undefined;
+
   // Stage-time binding warning (issue #398/#400): same check `attach
   // --branch` runs, now also on the bare-put staging path. Best-effort — see
   // resolveStageBindingWarning; never affects exit code or the upload.
@@ -2614,21 +2768,20 @@ export async function runPut(
       ? await resolveStageBindingWarning({ ctx, defaults, repo: stagingTarget.repo })
       : undefined;
   // Lever 3 (issue #469): tip when a --pr/--issue put lands an image with no
-  // `path` meta. Only relevant on the ghTarget path — the bare-put paths
-  // above (staging/auto/dated) aren't attached to a PR/issue yet, so there's
-  // nothing to look up from a page later.
+  // `path` meta. Only relevant on the (explicit or auto) gh target path — the
+  // bare-put staging/dated paths aren't attached to a PR/issue yet, so
+  // there's nothing to look up from a page later.
   const pathHint =
-    ghTarget && uploads.length > 0 && !ctx.quiet
+    effectiveGhTarget && uploads.length > 0 && !ctx.quiet
       ? pathMetaHintFor(uploads, sentMetadata)
       : undefined;
-  // One JSON `hint` slot, shared with the #393 nudge (mutually exclusive with
-  // it — nudge is undefined whenever staging took over). When staging fires,
-  // prefer the more actionable binding warning over the generic staging note
-  // (mirrors attach --branch, whose only JSON hint content IS the binding
-  // warning); stderr prints the nudge/staging-note and binding-warning lines
-  // independently, below. pathHint only ever fires on the ghTarget path, so
-  // it never competes with the other three.
-  const jsonHint = nudge ?? bindingWarning ?? stagingNote ?? pathHint ?? contextNudge;
+  // One JSON `hint` slot, shared across every advisory this command can
+  // surface. `autoPrNote` and `nudge` are mutually exclusive with each other
+  // and with `stagingNote` (each corresponds to a different destination the
+  // upload landed on); pathHint only ever fires on the gh-target path, so it
+  // never competes with the other three. Same precedence stderr prints,
+  // below.
+  const jsonHint = autoPrNote ?? nudge ?? bindingWarning ?? stagingNote ?? pathHint ?? contextNudge;
 
   type GalleryOutcome = {
     id: string;
@@ -2658,9 +2811,14 @@ export async function runPut(
 
   let comment: AttachmentsCommentResult | undefined;
   let commentError: string | undefined;
-  if (wantComment && ghTarget && !dryRun && uploads.length > 0) {
+  if (wantComment && effectiveGhTarget && !dryRun && uploads.length > 0) {
     try {
-      comment = await syncAttachmentsComment(ctx.client, ghTarget, run, ctx.config.workspace);
+      comment = await syncAttachmentsComment(
+        ctx.client,
+        effectiveGhTarget,
+        run,
+        ctx.config.workspace,
+      );
       if (logHuman)
         process.stderr.write(
           `>> attachments comment ${comment.action}${commentViaSuffix(comment.via)}\n`,
@@ -2722,6 +2880,7 @@ export async function runPut(
           `warning: could not upload ${failure.file}: ${failure.error.message}\n`,
         );
       }
+      if (autoPrNote) process.stderr.write(`${autoPrNote}\n`);
       if (nudge) process.stderr.write(`${nudge}\n`);
       if (stagingNote) process.stderr.write(`${stagingNote}\n`);
       if (bindingWarning) process.stderr.write(`${bindingWarning}\n`);
@@ -2786,6 +2945,7 @@ export async function runPut(
       `warning: upload succeeded but adding it to gallery ${gallery.id} failed: ${gallery.error.message}\n`,
     );
   }
+  if (autoPrNote && format !== "json") process.stderr.write(`${autoPrNote}\n`);
   if (nudge && format !== "json") process.stderr.write(`${nudge}\n`);
   if (stagingNote && format !== "json") process.stderr.write(`${stagingNote}\n`);
   if (bindingWarning && format !== "json") process.stderr.write(`${bindingWarning}\n`);

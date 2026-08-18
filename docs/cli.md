@@ -139,6 +139,42 @@ uploads put ./after.png --pr 123 --alt "Dashboard after"
 # key: gh/<owner>/<repo>/pull/123/after.webp  (PNG optimized to WebP; extension follows the output)
 ```
 
+**Auto-PR context** (issue #700). A bare `put`/`screenshot` — no
+`--pr`/`--issue`/`--branch`/`--key`/`--ref`/`--prefix`/`--destination` — on a
+git branch that maps to exactly one open PR now behaves as if `--pr <n>` had
+been passed: stable `gh/` key, managed comment sync, same as the explicit
+form above. A one-line note announces it:
+
+```bash
+uploads put ./after.png
+# note: branch maps to open PR #1250 — auto-attached (stable key + managed comment sync).
+# key: gh/<owner>/<repo>/pull/1250/after.webp
+```
+
+This is a default-behavior change from the previous "stage to the branch
+prefix" default (still issue #403's behavior — see below) whenever a PR
+already exists for the branch. Opt out per-call with `--no-pr`, or globally
+with `UPLOADS_NO_AUTO_PR=1` (env or config file). It never fires outside a
+git checkout, on the default branch, with `--no-git`, or when no single open
+PR can be resolved for the branch — those cases fall back to branch staging,
+then the plain dated layout, unchanged. When it doesn't fire and the upload
+still lands on the dated layout with a detectable PR (e.g. an explicit `--ref`
+opts out of both staging and auto-PR), a similar one-line nudge names the PR
+and a ready-made follow-up naming the actual uploaded key(s):
+
+```bash
+uploads put ./after.png --ref manual
+# note: on branch feature/thing (PR #1250 open) — rerun with --pr 1250 for a
+# stable key plus a managed comment that collects this PR's media, or stage
+# pre-PR files with: uploads attach <file> --branch. Already uploaded?
+# uploads attach --pr 1250 f/<key>.webp
+```
+
+Both notes appear in the `hint` field for `--format json` and in the stdio
+MCP `put`/`screenshot` tool responses, not only on stderr — suppress either
+with `--quiet`, `UPLOADS_NO_NUDGE=1` (env or config), or the MCP tools'
+`noPr`/`noGit` arguments as appropriate.
+
 **Managed attachments comment** creates or updates a single comment listing
 every file attached to that PR or issue. `put --pr`/`--issue` syncs it by
 default (posts via the GitHub App bot, falling back to local `gh` when the
@@ -326,6 +362,21 @@ reference it defers to.
 [`skills/annotate-screenshots/SKILL.md`](../skills/annotate-screenshots/SKILL.md)
 covers callouts and redaction (`uploads annotate` /
 `uploads screenshot --annotate`). See [api.md](api.md) for the REST routes.
+
+`uploads hook pre-pr-screenshot` is a `gh pr create` PreToolUse hook
+(installed by `uploads install`/`hooks-install`). It's non-blocking and
+fail-open (silent when unconfigured or on any error). Two mutually exclusive
+advisories:
+
+- staged-but-unattached files already exist for the branch (`gh.status=staged`)
+  → a promote suggestion (issue #700): `uploads attach --promote --pr <num>`
+  once the PR this command is about to open exists (or a bare
+  `uploads attach --promote`, which infers the PR from the branch).
+- nothing is staged, but the branch touches UI files (`.astro`/`.tsx`/`.jsx`/
+  `.vue`/`.svelte`/`.html`/`.css`/`.scss`/`.less`, or an `/email/` path) →
+  the original (issue #379) suggestion to stage screenshots first.
+
+Disable with `UPLOADS_HOOK_DISABLE=1`.
 
 The same install step also wires a fail-open pre-PR screenshot reminder for
 **Grok** and **Cursor** when those tools are present. **Claude Code** and

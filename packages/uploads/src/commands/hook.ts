@@ -1,7 +1,11 @@
 /**
  * `uploads hook pre-pr-screenshot` — agent PreToolUse / beforeShellExecution
- * handler. When the shell command is `gh pr create`, the branch touches UI
- * files, and nothing is staged on uploads.sh, emit a non-blocking advisory.
+ * handler, triggered on `gh pr create`. Two advisories, mutually exclusive:
+ *  - staged-but-unattached files exist for the branch (any reason they got
+ *    there) → a promote suggestion (issue #700): `uploads attach --promote`
+ *    once the PR this command is about to open exists.
+ *  - nothing is staged, but the branch touches UI files → the original
+ *    (issue #379) "consider staging screenshots" advisory.
  *
  * Always fail-open. Disable with UPLOADS_HOOK_DISABLE=1.
  */
@@ -25,9 +29,12 @@ Invoked by Claude Code / Codex / Grok / Cursor hooks. Never blocks.
 Harness manifests no-op (exit 0, no output) when this binary is not on PATH.
 
   pre-pr-screenshot
-    If the shell command is \`gh pr create\`, the branch touches UI files, and
-    no screenshots are staged for the branch, emit an advisory to stage with
-    \`uploads attach … --branch\`.
+    If the shell command is \`gh pr create\`:
+      - staged-but-unattached files exist for the branch → suggest promoting
+        them into the PR's managed comment once it exists (issue #700):
+        \`uploads attach --promote --pr <num>\`.
+      - otherwise, if the branch touches UI files → suggest staging with
+        \`uploads attach … --branch\`.
 
 Disable with UPLOADS_HOOK_DISABLE=1.
 `;
@@ -177,20 +184,37 @@ export async function runPrePrScreenshot(deps: HookDeps): Promise<string | null>
   const branch = git.branch();
   if (!branch) return null;
 
+  const staged = await (deps.countStaged ?? defaultCountStaged)(branch);
+  if (staged === null) return null; // error/unconfigured → fail open
+
+  // Promote suggestion (issue #700): staged-but-unattached files already
+  // exist for this branch right as its PR is about to open. The PR doesn't
+  // exist yet at this PreToolUse point, so its number isn't knowable here —
+  // the wording still gives the exact command shape, and a bare
+  // `attach --promote` (which infers the PR from the branch) works too.
+  if (staged > 0) {
+    const fork = (deps.isFork ?? (() => defaultIsFork(cwd)))();
+    const forkNote =
+      fork === true
+        ? " Note: this looks like a fork branch, so staged screenshots won't auto-promote into the PR comment yet (see issue #317) — attach them manually if you use uploads."
+        : "";
+    const message =
+      `${staged} file${staged === 1 ? "" : "s"} staged for branch '${branch}' on uploads.sh ` +
+      `${staged === 1 ? "isn't" : "aren't"} attached to a pull request yet. Once this PR opens, run ` +
+      "`uploads attach --promote --pr <num>` (or a bare `uploads attach --promote`, which infers " +
+      `the PR from the branch) to collect ${staged === 1 ? "it" : "them"} into the managed attachments comment.${forkNote}`;
+    return formatAdvisory(message, isCursorHookInput(raw));
+  }
+
   const testFiles = deps.testFiles ?? process.env.UPLOADS_HOOK_TEST_FILES;
   const changed = testFiles ? testFiles.split("\n").filter(Boolean) : git.changedFiles();
   if (!anyVisual(changed)) return null;
-
-  const staged = await (deps.countStaged ?? defaultCountStaged)(branch);
-  // null = error/unconfigured → fail open; >0 = already staged
-  if (staged === null || staged > 0) return null;
 
   const fork = (deps.isFork ?? (() => defaultIsFork(cwd)))();
   const forkNote =
     fork === true
       ? " Note: this looks like a fork branch, so staged screenshots won't auto-promote into the PR comment yet (see issue #317) — attach them manually if you use uploads."
       : "";
-
   const message =
     `This PR touches UI files (astro/tsx/jsx/vue/svelte/html/css/scss/less or an /email/ path) but no screenshots are staged for branch '${branch}' on uploads.sh. ` +
     `Consider running \`uploads attach <shot.png> --branch --state after\` (and a --state before if useful) before or after opening the PR — the managed attachments comment assembles from staged files automatically.${forkNote}`;

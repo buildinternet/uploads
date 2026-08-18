@@ -13,10 +13,14 @@ import {
   ghMergedList,
   makeGhTarget,
   mergeStagingMeta,
+  resolveAutoPrTarget,
   resolveGhPrefixSafe,
+  resolvePutNudgeContext,
   resolvePutStagingTarget,
   resolveStaged,
   syncAttachmentsComment,
+  autoPrNoteText,
+  putNudgeText,
   type AttachmentsCommentResult,
   uploadAttachments,
   uploadPreparedImage,
@@ -452,10 +456,15 @@ export function createUploadsMcpTools(opts: {
           },
           ...frameProps,
           noGit: { type: "boolean", description: "Don't derive the repo segment from git." },
+          noPr: {
+            type: "boolean",
+            description:
+              "Skip auto-PR context (issue #700): without pr/issue/key/ref/prefix/destination, a call on a branch mapping to exactly one open PR otherwise behaves as if pr had been passed (stable key + managed comment sync when comment is set). Also opts out via UPLOADS_NO_AUTO_PR=1.",
+          },
           comment: {
             type: "boolean",
             description:
-              "With pr/issue: create or update the managed attachments comment. Posts as uploads-sh[bot] when the GitHub App is installed on the repo; otherwise via local gh auth (best-effort).",
+              "With pr/issue (or auto-detected PR context): create or update the managed attachments comment. Posts as uploads-sh[bot] when the GitHub App is installed on the repo; otherwise via local gh auth (best-effort).",
           },
           dryRun: {
             type: "boolean",
@@ -535,17 +544,41 @@ export function createUploadsMcpTools(opts: {
         const frameOpts = mcpFrameOptions(args);
         const optimizeOpts = mcpOptimizeOptions(args, defaults);
         const noGit = optBool(args, "noGit") || defaults.noGit === true;
+        const noAutoPr = optBool(args, "noPr") || defaults.noAutoPr === true;
         const alt = optString(args, "alt");
         const width = optPosInt(args, "width") ?? defaults.width;
         const contentType = optString(args, "contentType");
+
+        // Auto-PR context (issue #700): local stdio MCP put mirrors the CLI
+        // default — no pr/issue/key/ref/prefix/destination, not noGit/noPr,
+        // on a branch that maps to exactly one open PR behaves as if `pr`
+        // had been passed (stable key + managed comment sync) instead of
+        // the #403 staging default below. Never throws — see
+        // resolveAutoPrTarget.
+        const autoPrTarget = target
+          ? undefined
+          : resolveAutoPrTarget({
+              ghTarget: target,
+              keyHint: keyArg,
+              refArg,
+              prefixArg,
+              destinationArg: destArg,
+              noGit,
+              noAutoPr,
+              repoArg: optString(args, "repo") ?? defaults.repo,
+              run,
+            });
+        const effectiveTarget = target ?? autoPrTarget;
 
         // Bare-put branch staging (issue #403): local stdio MCP put mirrors
         // the CLI default — no pr/issue/key/ref/prefix/destination, not
         // noGit, on a non-default git branch stages to the branch prefix
         // (identical key/metadata to `attach --branch`) instead of the
         // dated layout. Never throws — see resolvePutStagingTarget.
+        // effectiveTarget (explicit pr/issue OR the #700 auto-PR match)
+        // wins over staging, same as it wins over the dated layout.
         const stagingTarget = resolvePutStagingTarget({
-          ghTarget: target,
+          ghTarget: effectiveTarget,
           keyHint: keyArg,
           refArg,
           prefixArg,
@@ -554,6 +587,24 @@ export function createUploadsMcpTools(opts: {
           repoArg: optString(args, "repo") ?? defaults.repo,
           run,
         });
+
+        // Bare-put nudge context (issue #393/#700): only relevant when
+        // neither auto-PR nor staging took over. Finished into a hint once
+        // upload keys exist, below.
+        const nudgeCtx =
+          effectiveTarget || stagingTarget
+            ? undefined
+            : resolvePutNudgeContext({
+                quiet: false,
+                noNudge: defaults.noNudge === true,
+                ghTarget: target,
+                keyHint: keyArg,
+                noGit,
+                repoArg: optString(args, "repo") ?? defaults.repo,
+                run,
+              });
+        const autoPrHint = autoPrTarget ? autoPrNoteText(autoPrTarget.num) : undefined;
+
         // Derived `repo` metadata (spec: 2026-08-11-screenshots-project-grouping-design.md).
         // Same derivation the CLI does; MCP always derives (no --no-auto), so
         // this is only suppressed by noGit. metadataProp's contract: omitting
@@ -575,7 +626,7 @@ export function createUploadsMcpTools(opts: {
 
         const putShared = {
           client,
-          ghTarget: target,
+          ghTarget: effectiveTarget,
           ghBranchTarget: stagingTarget,
           prefix: resolvedPrefix ?? defaults.prefix,
           repo: optString(args, "repo") ?? defaults.repo,
@@ -604,11 +655,24 @@ export function createUploadsMcpTools(opts: {
           if (uploads.length === 0 && failures.length > 0) {
             throw new ToolBatchError(batchFailureMessage(failures), { uploads, failures });
           }
-          if (wantComment && target && uploads.length > 0) {
-            const { comment, commentError } = await syncComment(client, target, config.workspace);
-            return { uploads, failures, comment, commentError };
+          const hint =
+            autoPrHint ??
+            (nudgeCtx && uploads.length > 0
+              ? putNudgeText(
+                  nudgeCtx.branch,
+                  nudgeCtx.pr,
+                  uploads.map((u) => u.key),
+                )
+              : undefined);
+          if (wantComment && effectiveTarget && uploads.length > 0) {
+            const { comment, commentError } = await syncComment(
+              client,
+              effectiveTarget,
+              config.workspace,
+            );
+            return { uploads, failures, comment, commentError, ...(hint ? { hint } : {}) };
           }
-          return { uploads, failures };
+          return { uploads, failures, ...(hint ? { hint } : {}) };
         }
 
         // Single-file: contentBase64 still supported; paths go through uploadPuts.
@@ -622,7 +686,7 @@ export function createUploadsMcpTools(opts: {
             {
               frame: frameOpts,
               optimize: optimizeOpts,
-              ghTarget: target,
+              ghTarget: effectiveTarget,
               ghBranchTarget: stagingTarget,
               key: keyArg,
               prefix: resolvedPrefix ?? defaults.prefix,
@@ -645,9 +709,24 @@ export function createUploadsMcpTools(opts: {
             outputBytes: prepared.outputBytes,
             filename: prepared.filename,
           };
-          if (wantComment && target) {
-            const { comment, commentError } = await syncComment(client, target, config.workspace);
-            return { ...result, markdown, optimize, frame: prepared.frame, comment, commentError };
+          const hint =
+            autoPrHint ??
+            (nudgeCtx ? putNudgeText(nudgeCtx.branch, nudgeCtx.pr, [result.key]) : undefined);
+          if (wantComment && effectiveTarget) {
+            const { comment, commentError } = await syncComment(
+              client,
+              effectiveTarget,
+              config.workspace,
+            );
+            return {
+              ...result,
+              markdown,
+              optimize,
+              frame: prepared.frame,
+              comment,
+              commentError,
+              ...(hint ? { hint } : {}),
+            };
           }
           return {
             ...result,
@@ -655,6 +734,7 @@ export function createUploadsMcpTools(opts: {
             optimize,
             frame: prepared.frame,
             ...(dryRun ? { dryRun: true } : {}),
+            ...(hint ? { hint } : {}),
           };
         }
 
@@ -668,6 +748,9 @@ export function createUploadsMcpTools(opts: {
           throw firstError instanceof Error ? firstError : new Error(String(firstError));
         }
         const u = uploads[0]!;
+        const hint =
+          autoPrHint ??
+          (nudgeCtx ? putNudgeText(nudgeCtx.branch, nudgeCtx.pr, [u.key]) : undefined);
         const flat = {
           workspace: u.workspace,
           key: u.key,
@@ -681,9 +764,14 @@ export function createUploadsMcpTools(opts: {
           optimize: u.optimize,
           frame: u.frame,
           ...(dryRun ? { dryRun: true } : {}),
+          ...(hint ? { hint } : {}),
         };
-        if (wantComment && target) {
-          const { comment, commentError } = await syncComment(client, target, config.workspace);
+        if (wantComment && effectiveTarget) {
+          const { comment, commentError } = await syncComment(
+            client,
+            effectiveTarget,
+            config.workspace,
+          );
           return { ...flat, comment, commentError };
         }
         return flat;
@@ -798,10 +886,15 @@ export function createUploadsMcpTools(opts: {
           keepExif: { type: "boolean", description: "Keep EXIF/XMP/ICC when optimizing." },
           ...frameProps,
           noGit: { type: "boolean", description: "Don't derive the repo segment from git." },
+          noPr: {
+            type: "boolean",
+            description:
+              "Skip auto-PR context (issue #700): without pr/issue/key/ref/prefix/destination, a call on a branch mapping to exactly one open PR otherwise behaves as if pr had been passed. Also opts out via UPLOADS_NO_AUTO_PR=1.",
+          },
           comment: {
             type: "boolean",
             description:
-              "With pr/issue: create/update the managed attachments comment (best-effort).",
+              "With pr/issue (or auto-detected PR context): create/update the managed attachments comment (best-effort).",
           },
           galleryId: {
             type: "string",
@@ -861,17 +954,40 @@ export function createUploadsMcpTools(opts: {
         const frameOpts = mcpFrameOptions(args);
         const optimizeOpts = mcpOptimizeOptions(args, defaults);
         const noGit = optBool(args, "noGit") || defaults.noGit === true;
+        const noAutoPr = optBool(args, "noPr") || defaults.noAutoPr === true;
         const alt = optString(args, "alt");
         const width = optPosInt(args, "width") ?? defaults.width;
+
+        // Auto-PR context (issue #700): mirrors the CLI screenshot command
+        // and the put tool above — no pr/issue/key/ref/prefix/destination,
+        // not noGit/noPr, on a branch that maps to exactly one open PR
+        // behaves as if `pr` had been passed (stable key + managed comment
+        // sync) instead of the #469 auto-staging default below. Never
+        // throws — see resolveAutoPrTarget.
+        const autoPrTarget = target
+          ? undefined
+          : resolveAutoPrTarget({
+              ghTarget: target,
+              keyHint: keyArg,
+              refArg,
+              prefixArg,
+              destinationArg: destArg,
+              noGit,
+              noAutoPr,
+              repoArg: optString(args, "repo") ?? defaults.repo,
+              run,
+            });
+        const effectiveTarget = target ?? autoPrTarget;
 
         // Auto branch staging (issue #469 lever 1): mirrors the CLI screenshot
         // command and the put tool above (issue #403) — no pr/issue/key/ref/
         // prefix/destination, not noGit, on a non-default git branch stages
         // to the branch prefix (identical key/metadata to `attach --branch`)
         // instead of the dated `screenshots/<repo>/<date>/...` layout. Never
-        // throws — see resolvePutStagingTarget.
+        // throws — see resolvePutStagingTarget. effectiveTarget (explicit
+        // pr/issue OR the #700 auto-PR match) wins over staging.
         const stagingTarget = resolvePutStagingTarget({
-          ghTarget: target,
+          ghTarget: effectiveTarget,
           keyHint: keyArg,
           refArg,
           prefixArg,
@@ -881,13 +997,29 @@ export function createUploadsMcpTools(opts: {
           run,
         });
 
+        // Bare-screenshot nudge context (issue #393/#700): only relevant
+        // when neither auto-PR nor staging took over.
+        const nudgeCtx =
+          effectiveTarget || stagingTarget
+            ? undefined
+            : resolvePutNudgeContext({
+                quiet: false,
+                noNudge: defaults.noNudge === true,
+                ghTarget: target,
+                keyHint: keyArg,
+                noGit,
+                repoArg: optString(args, "repo") ?? defaults.repo,
+                run,
+              });
+        const autoPrHint = autoPrTarget ? autoPrNoteText(autoPrTarget.num) : undefined;
+
         let resolvedPrefix: string | undefined;
         try {
           resolvedPrefix = resolvePutPrefix({
             destination: destArg,
             prefix: prefixArg,
             key: keyArg,
-            ghAttachment: Boolean(target) || stagingTarget !== undefined,
+            ghAttachment: Boolean(effectiveTarget) || stagingTarget !== undefined,
           });
         } catch (err) {
           usage(err instanceof Error ? err.message : String(err));
@@ -970,10 +1102,10 @@ export function createUploadsMcpTools(opts: {
 
         // Resolved once (issue #631), only now that upload is actually
         // about to happen — never per file (screenshot uploads exactly one).
-        const ghPrefix = target
+        const ghPrefix = effectiveTarget
           ? await resolveGhPrefixSafe(client, {
-              repo: target.repo,
-              target: { kind: target.kind, num: target.num },
+              repo: effectiveTarget.repo,
+              target: { kind: effectiveTarget.kind, num: effectiveTarget.num },
             })
           : stagingTarget
             ? await resolveGhPrefixSafe(client, {
@@ -989,7 +1121,7 @@ export function createUploadsMcpTools(opts: {
           {
             frame: frameOpts,
             optimize: optimizeOpts,
-            ghTarget: target,
+            ghTarget: effectiveTarget,
             ghBranchTarget: stagingTarget,
             ghPrefix,
             key: keyArg,
@@ -1037,14 +1169,23 @@ export function createUploadsMcpTools(opts: {
           frame: prepared.frame,
           gallery,
           ...(dryRun ? { dryRun: true } : {}),
-          // Full-page height cap note (issue #652), mirrors the CLI's stderr
-          // note + `hint` field.
+          // Hint precedence (mirrors the CLI): the full-page height cap note
+          // (issue #652) is about the just-captured image itself, more
+          // immediately actionable than the #700 auto-PR/nudge notes below.
           ...(captured.capped?.clipped
             ? { hint: screenshotModule.clipHintText(captured.capped.maxHeightPx, "maxHeight") }
-            : {}),
+            : autoPrHint
+              ? { hint: autoPrHint }
+              : nudgeCtx
+                ? { hint: putNudgeText(nudgeCtx.branch, nudgeCtx.pr, [result.key]) }
+                : {}),
         };
-        if (wantComment && target) {
-          const { comment, commentError } = await syncComment(client, target, config.workspace);
+        if (wantComment && effectiveTarget) {
+          const { comment, commentError } = await syncComment(
+            client,
+            effectiveTarget,
+            config.workspace,
+          );
           return { ...flat, comment, commentError };
         }
         return flat;

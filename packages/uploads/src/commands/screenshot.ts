@@ -29,6 +29,10 @@ import {
   mergeStagingMeta,
   writeReplacedNote,
   resolveGhPrefixSafe,
+  resolveAutoPrTarget,
+  resolvePutNudgeContext,
+  putNudgeText,
+  autoPrNoteText,
   type BranchTarget,
 } from "../commands.js";
 import { resolvePutDefaults } from "../config.js";
@@ -105,9 +109,18 @@ sets the whole object key verbatim (no folding).
 After capture, screenshots share the put upload pipeline: optional --frame,
 optimize-by-default, --pr/--issue attachment + --comment, --gallery, --meta.
 
-Branch staging by default (pre-PR): with no --pr/--issue/--branch/--key/--ref/
---prefix/--destination, a screenshot taken on a non-default git branch stages
-under gh/<owner>/<repo>/branch/<branch>/<name> instead of the dated
+Auto-PR context (issue #700): with no --pr/--issue/--branch/--key/--ref/
+--prefix/--destination, a screenshot taken on a branch that maps to exactly
+one open PR behaves as if --pr <n> had been passed — stable gh/ key, managed
+comment sync (with --comment) — instead of branch staging below. A one-line
+note announces this. Opt out with --no-pr, UPLOADS_NO_AUTO_PR=1, or config
+UPLOADS_NO_AUTO_PR=1; never fires outside a git repo, on the default branch,
+with --no-git, or when no single open PR can be resolved.
+
+Branch staging by default (pre-PR): when auto-PR above doesn't apply and none
+of --pr/--issue/--branch/--key/--ref/--prefix/--destination is given, a
+screenshot taken on a non-default git branch stages under
+gh/<owner>/<repo>/branch/<branch>/<name> instead of the dated
 screenshots/<repo>/<date>/... layout — same key/metadata as an explicit
 --branch, carrying every derived fact (path/url/env/viewport, --state) along.
 Staged files auto-attach with full metadata the first time you attach to that
@@ -163,6 +176,7 @@ Options:
   --optimize-max-edge <px>  Max long edge when optimizing (default: 2400)
   --optimize-quality <1-100> WebP quality (default: 85)
   --keep-exif               Keep EXIF/XMP/ICC when optimizing
+  --no-pr                   Skip auto-PR context (or UPLOADS_NO_AUTO_PR=1) — see above
   --pr <num>                Attach to a pull request (stable URL, no hash)
   --issue <num>             Attach to an issue
   --branch [name]           Stage against a branch, pre-PR (default: current git branch):
@@ -390,9 +404,36 @@ export async function runScreenshot(
 
   const putDefaults = resolvePutDefaults({ envFile: ctx.envFile }, rawDefaults);
   const noGit = flagBool(parsed.flags, "--no-git") || putDefaults.noGit === true;
+  if (parsed.flags.has("--no-pr") && typeof parsed.flags.get("--no-pr") === "string") {
+    throw new UsageError("--no-pr takes no value");
+  }
+  const noAutoPr = flagBool(parsed.flags, "--no-pr") || putDefaults.noAutoPr === true;
 
   const branchRepo =
     branchArg !== undefined ? resolveRepo(flagString(parsed.flags, "--repo"), run) : undefined;
+
+  // Auto-PR context (issue #700): when no --branch/--pr/--issue/--key/--ref/
+  // --prefix/--destination is given, git use isn't disabled, and --no-pr/
+  // UPLOADS_NO_AUTO_PR hasn't opted out, a screenshot taken on a branch that
+  // maps to exactly one open PR behaves as if --pr <n> had been passed —
+  // stable key + managed comment sync — instead of the #469 auto-staging
+  // default below. Mirrors put's #700 handling exactly (resolveAutoPrTarget).
+  const autoPrTarget =
+    ghTarget || branchArg !== undefined
+      ? undefined
+      : resolveAutoPrTarget({
+          ghTarget,
+          keyHint,
+          refArg: flagString(parsed.flags, "--ref"),
+          prefixArg: prefixFlag,
+          destinationArg: destFlag,
+          branchArg,
+          noGit,
+          noAutoPr,
+          repoArg: flagString(parsed.flags, "--repo") ?? putDefaults.repo,
+          run,
+        });
+  const effectiveGhTarget = ghTarget ?? autoPrTarget;
 
   // Auto branch staging (issue #469 lever 1): mirrors bare `put`'s auto-staging
   // (issue #403). When no --branch/--pr/--issue/--key/--ref/--prefix/--destination
@@ -402,11 +443,12 @@ export async function runScreenshot(
   // `screenshots/<repo>/<date>/...` layout. This is what lets derived
   // metadata (path/url/env/viewport, --state) ride through to PR-open
   // promotion when the capture happens before the PR exists. Skipped
-  // entirely when --branch was given explicitly (already handled above).
+  // entirely when --branch was given explicitly (already handled above), or
+  // when the #700 auto-PR match above already took over.
   const autoStagingTarget: BranchTarget | undefined =
     branchArg === undefined
       ? resolvePutStagingTarget({
-          ghTarget,
+          ghTarget: effectiveGhTarget,
           keyHint,
           refArg: flagString(parsed.flags, "--ref"),
           prefixArg: prefixFlag,
@@ -425,7 +467,7 @@ export async function runScreenshot(
       destination: destFlag,
       prefix: prefixFlag,
       key: keyHint,
-      ghAttachment: Boolean(ghTarget) || stagingTarget !== undefined,
+      ghAttachment: Boolean(effectiveGhTarget) || stagingTarget !== undefined,
     });
   } catch (err) {
     throw new UsageError(err instanceof Error ? err.message : String(err));
@@ -456,8 +498,8 @@ export async function runScreenshot(
   });
 
   let metadata: Record<string, string> | undefined = withFacts;
-  if (ghTarget) {
-    metadata = { ...withFacts, ...ghMetadataFromTargetWithTitle(ghTarget, run) };
+  if (effectiveGhTarget) {
+    metadata = { ...withFacts, ...ghMetadataFromTargetWithTitle(effectiveGhTarget, run) };
     validateMetaMap(metadata);
   } else if (stagingTarget !== undefined) {
     metadata = mergeStagingMeta(withFacts, stagingTarget);
@@ -552,16 +594,37 @@ export async function runScreenshot(
   // Resolved once (issue #631), only when it's actually needed for the
   // upload about to happen (never for the noUpload/no-target bailouts
   // above) — never per file (screenshot only ever uploads one).
-  const ghPrefix = ghTarget
+  const ghPrefix = effectiveGhTarget
     ? await resolveGhPrefixSafe(ctx.client, {
-        repo: ghTarget.repo,
-        target: { kind: ghTarget.kind, num: ghTarget.num },
+        repo: effectiveGhTarget.repo,
+        target: { kind: effectiveGhTarget.kind, num: effectiveGhTarget.num },
       })
     : stagingTarget !== undefined
       ? await resolveGhPrefixSafe(ctx.client, {
           repo: stagingTarget.repo,
           branch: stagingTarget.branch,
         })
+      : undefined;
+
+  // Bare-screenshot nudge context (issue #393/#700): only relevant when
+  // neither auto-PR nor staging took over — mirrors put's handling exactly.
+  // Resolved before upload; finished into text below once the key is known.
+  const nudgeContext =
+    effectiveGhTarget || stagingTarget
+      ? undefined
+      : resolvePutNudgeContext({
+          quiet: ctx.quiet,
+          noNudge: putDefaults.noNudge === true,
+          ghTarget,
+          keyHint,
+          hasBranchFlag: branchArg !== undefined,
+          noGit,
+          repoArg: flagString(parsed.flags, "--repo") ?? putDefaults.repo,
+          run,
+        });
+  const autoPrNote =
+    autoPrTarget && !ctx.quiet && !putDefaults.noNudge
+      ? autoPrNoteText(autoPrTarget.num)
       : undefined;
 
   const alt = altFlag ?? basename(captured.filename);
@@ -572,7 +635,7 @@ export async function runScreenshot(
     {
       frame: frameOpts,
       optimize: optimizeOpts,
-      ghTarget,
+      ghTarget: effectiveGhTarget,
       ghBranchTarget: stagingTarget,
       ghPrefix,
       key: keyHint,
@@ -619,11 +682,22 @@ export async function runScreenshot(
     }
   }
 
+  // Concrete bare-screenshot nudge text (issue #700): built once the upload
+  // key exists, so the ready-made follow-up names it verbatim.
+  const nudge = nudgeContext
+    ? putNudgeText(nudgeContext.branch, nudgeContext.pr, [result.key])
+    : undefined;
+
   let comment: AttachmentsCommentResult | undefined;
   let commentError: string | undefined;
-  if (wantComment && ghTarget) {
+  if (wantComment && effectiveGhTarget) {
     try {
-      comment = await syncAttachmentsComment(ctx.client, ghTarget, run, ctx.config.workspace);
+      comment = await syncAttachmentsComment(
+        ctx.client,
+        effectiveGhTarget,
+        run,
+        ctx.config.workspace,
+      );
       if (logHuman)
         process.stderr.write(
           `>> attachments comment ${comment.action}${commentViaSuffix(comment.via)}\n`,
@@ -658,6 +732,8 @@ export async function runScreenshot(
         );
       }
     }
+    if (autoPrNote) process.stderr.write(`${autoPrNote}\n`);
+    if (nudge) process.stderr.write(`${nudge}\n`);
     if (bindingWarning) process.stderr.write(`${bindingWarning}\n`);
     if (contextNudge) process.stderr.write(`${contextNudge}\n`);
     process.stderr.write("\n");
@@ -666,17 +742,25 @@ export async function runScreenshot(
   // One JSON `hint` slot (mirrors bare put): the clip note (issue #652) wins
   // first — it's about the just-captured image itself, more immediately
   // actionable than the other three, which are about upload/staging
-  // mechanics. Then the binding warning, more actionable than the generic
-  // staging note; a replaced-object note (issue #618) is lowest priority —
-  // it only surfaces when nothing else already claimed the slot. Since state
-  // folds into the derived key, replaced + state means a same-side re-capture,
+  // mechanics. Then the auto-PR note and the #393/#700 nudge (issue #700),
+  // then the binding warning, more actionable than the generic staging note;
+  // a replaced-object note (issue #618) is lowest priority — it only
+  // surfaces when nothing else already claimed the slot. Since state folds
+  // into the derived key, replaced + state means a same-side re-capture,
   // which is the intended replace-in-place flow — word it as informational,
   // not as a problem.
   const replacedHint =
     result.replaced && explicitMeta.state
       ? `re-capture replaced the previous state=${explicitMeta.state} object at ${result.key} — expected for repeat captures of the same URL + state`
       : undefined;
-  const jsonHint = clipHint ?? bindingWarning ?? stagingNote ?? replacedHint ?? contextNudge;
+  const jsonHint =
+    clipHint ??
+    autoPrNote ??
+    nudge ??
+    bindingWarning ??
+    stagingNote ??
+    replacedHint ??
+    contextNudge;
 
   switch (format) {
     case "json":

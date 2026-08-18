@@ -932,6 +932,119 @@ describe("runScreenshot auto branch staging (issue #469 lever 1)", () => {
   });
 });
 
+/** stagingRunner + a `gh pr view <branch>` stub for the #700 auto-PR lookup. */
+function autoPrRunner(opts: {
+  branch?: string;
+  defaultBranch?: string;
+  originUrl?: string;
+  repo?: string;
+  pr?: number;
+}): CommandRunner {
+  return (cmd, args) => {
+    if (cmd === "gh" && args[0] === "pr" && args[1] === "view") {
+      if (opts.pr === undefined) throw new Error("no pull request found");
+      return `${opts.pr}\n`;
+    }
+    return stagingRunner(opts)(cmd, args);
+  };
+}
+
+describe("runScreenshot auto-PR context (issue #700)", () => {
+  const withPr = {
+    branch: "feature/thing",
+    defaultBranch: "main",
+    originUrl: "git@github.com:o/r.git",
+    repo: "o/r",
+    pr: 1250,
+  };
+
+  it("behaves as if --pr <n> had been passed when the branch maps to exactly one open PR", async () => {
+    const { client, puts } = fakeClient();
+    const stderr = await captureStderr(() =>
+      runScreenshot(
+        { ...ctxWith(client), quiet: false },
+        ["https://example.com"],
+        false,
+        autoPrRunner(withPr),
+        fakeCapture("remote"),
+      ),
+    );
+    expect(puts[0]?.key).toBe("gh/o/r/pull/1250/example-com.png");
+    expect(puts[0]?.metadata?.["gh.number"]).toBe("1250");
+    expect(stderr).toContain("branch maps to open PR #1250");
+  });
+
+  it("opts out with --no-pr, falling back to branch staging", async () => {
+    const { client, puts } = fakeClient();
+    const code = await runScreenshot(
+      ctxWith(client),
+      ["https://example.com", "--no-pr"],
+      false,
+      autoPrRunner(withPr),
+      fakeCapture("remote"),
+    );
+    expect(code).toBe(0);
+    expect(puts[0]?.key).toBe("gh/o/r/branch/feature-thing/example-com.png");
+  });
+
+  it("opts out with UPLOADS_NO_AUTO_PR=1, falling back to branch staging", async () => {
+    const { client, puts } = fakeClient();
+    const prev = process.env.UPLOADS_NO_AUTO_PR;
+    process.env.UPLOADS_NO_AUTO_PR = "1";
+    try {
+      await runScreenshot(
+        ctxWith(client),
+        ["https://example.com"],
+        false,
+        autoPrRunner(withPr),
+        fakeCapture("remote"),
+      );
+    } finally {
+      if (prev === undefined) delete process.env.UPLOADS_NO_AUTO_PR;
+      else process.env.UPLOADS_NO_AUTO_PR = prev;
+    }
+    expect(puts[0]?.key).toBe("gh/o/r/branch/feature-thing/example-com.png");
+  });
+
+  it("never fires with an explicit --branch (staging wins)", async () => {
+    const { client, puts } = fakeClient();
+    const code = await runScreenshot(
+      ctxWith(client),
+      ["https://example.com", "--branch"],
+      false,
+      autoPrRunner(withPr),
+      fakeCapture("remote"),
+    );
+    expect(code).toBe(0);
+    expect(puts[0]?.key).toBe("gh/o/r/branch/feature-thing/example-com.png");
+  });
+
+  it("never fires on the default branch", async () => {
+    const { client, puts } = fakeClient();
+    await runScreenshot(
+      ctxWith(client),
+      ["https://example.com"],
+      false,
+      autoPrRunner({ ...withPr, branch: "main" }),
+      fakeCapture("remote"),
+    );
+    expect(puts[0]?.key).toBeUndefined();
+  });
+
+  it("falls back to staging when there is no open PR for the branch", async () => {
+    const { client, puts } = fakeClient();
+    const { pr: _pr, ...noPr } = withPr;
+    await runScreenshot(
+      ctxWith(client),
+      ["https://example.com"],
+      false,
+      autoPrRunner(noPr),
+      fakeCapture("remote"),
+    );
+    expect(puts[0]?.key).toBe("gh/o/r/branch/feature-thing/example-com.png");
+  });
+});
+
 describe("runScreenshot gh.title metadata (issue #267)", () => {
   it("stamps gh.title alongside the base gh.* pairs when the title resolves", async () => {
     const { client, puts } = fakeClient();

@@ -2073,6 +2073,96 @@ describe("runPut branch staging (issue #403)", () => {
   });
 });
 
+describe("runPut auto-PR context (issue #700)", () => {
+  const withPr = {
+    branch: "feature/thing",
+    defaultBranch: "main",
+    originUrl: "git@github.com:o/r.git",
+    repo: "o/r",
+    pr: 1250,
+  };
+
+  it("behaves as if --pr <n> had been passed when the branch maps to exactly one open PR", async () => {
+    const { client, puts } = fakeClient();
+    const stderr = await captureStderr(() =>
+      runPut({ ...ctxWith(client), quiet: false }, [tmpFile()], false, nudgeRunner(withPr)),
+    );
+    expect(puts[0]?.key).toBe("gh/o/r/pull/1250/shot.png");
+    expect(puts[0]?.metadata?.["gh.number"]).toBe("1250");
+    expect(stderr).toContain("branch maps to open PR #1250");
+    expect(stderr).toContain("--no-pr");
+  });
+
+  it("skips staging and lands on the stable gh/ key, not the branch-staging prefix", async () => {
+    const { client, puts } = fakeClient();
+    await runPut(ctxWith(client), [tmpFile()], false, nudgeRunner(withPr));
+    expect(puts[0]?.key).not.toContain("/branch/");
+  });
+
+  it("includes an additive JSON hint field naming the PR", async () => {
+    const { client } = fakeClient();
+    const stdout = await captureStdout(() =>
+      runPut(
+        { ...ctxWith(client), quiet: false, json: true },
+        [tmpFile()],
+        false,
+        nudgeRunner(withPr),
+      ),
+    );
+    const payload = JSON.parse(stdout) as { hint?: string };
+    expect(payload.hint).toContain("PR #1250");
+  });
+
+  it("opts out with --no-pr, falling back to branch staging", async () => {
+    const { client, puts } = fakeClient();
+    await runPut(ctxWith(client), [tmpFile(), "--no-pr"], false, nudgeRunner(withPr));
+    expect(puts[0]?.key).toBe("gh/o/r/branch/feature-thing/shot.png");
+  });
+
+  it("opts out with UPLOADS_NO_AUTO_PR=1, falling back to branch staging", async () => {
+    const { client, puts } = fakeClient();
+    const prev = process.env.UPLOADS_NO_AUTO_PR;
+    process.env.UPLOADS_NO_AUTO_PR = "1";
+    try {
+      await runPut(ctxWith(client), [tmpFile()], false, nudgeRunner(withPr));
+    } finally {
+      if (prev === undefined) delete process.env.UPLOADS_NO_AUTO_PR;
+      else process.env.UPLOADS_NO_AUTO_PR = prev;
+    }
+    expect(puts[0]?.key).toBe("gh/o/r/branch/feature-thing/shot.png");
+  });
+
+  it("never fires when an explicit --pr/--issue/--key/--ref/--prefix/--destination is set", async () => {
+    const { client, puts } = fakeClient();
+    await runPut(
+      ctxWith(client),
+      [tmpFile(), "--key", "screenshots/explicit.png"],
+      false,
+      nudgeRunner(withPr),
+    );
+    expect(puts[0]?.key).toBe("screenshots/explicit.png");
+  });
+
+  it("never fires on the default branch", async () => {
+    const { client, puts } = fakeClient();
+    await runPut(ctxWith(client), [tmpFile()], false, nudgeRunner({ ...withPr, branch: "main" }));
+    expect(puts[0]?.key).toBeUndefined();
+  });
+
+  it("never fires with --no-git", async () => {
+    const { client, puts } = fakeClient();
+    await runPut(ctxWith(client), [tmpFile(), "--no-git"], false, noRun);
+    expect(puts[0]?.key).toBeUndefined();
+  });
+
+  it("falls back to staging when there is no open PR for the branch", async () => {
+    const { client, puts } = fakeClient();
+    const { pr: _pr, ...noPr } = withPr;
+    await runPut(ctxWith(client), [tmpFile()], false, nudgeRunner(noPr));
+    expect(puts[0]?.key).toBe("gh/o/r/branch/feature-thing/shot.png");
+  });
+});
+
 describe("put promotes EXIF facts", () => {
   async function retinaPng(): Promise<Buffer> {
     const sharp = (await import("sharp")).default;

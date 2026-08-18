@@ -334,3 +334,61 @@ describe("mcp screenshot tool auto branch staging (issue #469 lever 1)", () => {
     expect(puts[0]?.key).toBeUndefined();
   });
 });
+
+/** branchStagingRunner + a `gh pr view <branch>` stub for the #700 auto-PR lookup. */
+function autoPrRunner(opts: {
+  branch?: string;
+  defaultBranch?: string;
+  originUrl?: string;
+  repo?: string;
+  pr?: number;
+}): CommandRunner {
+  return (cmd, args) => {
+    if (cmd === "gh" && args[0] === "pr" && args[1] === "view") {
+      if (opts.pr === undefined) throw new Error("no pull request found");
+      return `${opts.pr}\n`;
+    }
+    return branchStagingRunner(opts)(cmd, args);
+  };
+}
+
+describe("mcp screenshot tool auto-PR context (issue #700)", () => {
+  const withPr = {
+    branch: "feature/thing",
+    defaultBranch: "main",
+    originUrl: "git@github.com:o/r.git",
+    repo: "o/r",
+    pr: 1250,
+  };
+
+  it("behaves as if pr had been passed when the branch maps to exactly one open PR", async () => {
+    const { server, puts } = serverWith({ runner: autoPrRunner(withPr) });
+    const res = await rpc(server, "tools/call", {
+      name: "screenshot",
+      arguments: { target: "https://example.com" },
+    });
+    expect(res.result.isError).toBe(false);
+    expect(puts[0]?.key).toBe("gh/o/r/pull/1250/example-com.png");
+    expect(res.result.structuredContent.hint).toContain("branch maps to open PR #1250");
+  });
+
+  it("opts out with noPr, falling back to auto branch staging", async () => {
+    const { server, puts } = serverWith({ runner: autoPrRunner(withPr) });
+    const res = await rpc(server, "tools/call", {
+      name: "screenshot",
+      arguments: { target: "https://example.com", noPr: true },
+    });
+    expect(res.result.isError).toBe(false);
+    expect(puts[0]?.key).toBe("gh/o/r/branch/feature-thing/example-com.png");
+  });
+
+  it("falls back to staging when there is no open PR for the branch", async () => {
+    const { server, puts } = serverWith({ runner: autoPrRunner({ ...withPr, pr: undefined }) });
+    const res = await rpc(server, "tools/call", {
+      name: "screenshot",
+      arguments: { target: "https://example.com" },
+    });
+    expect(res.result.isError).toBe(false);
+    expect(puts[0]?.key).toBe("gh/o/r/branch/feature-thing/example-com.png");
+  });
+});
