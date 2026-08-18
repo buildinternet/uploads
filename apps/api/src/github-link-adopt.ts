@@ -35,12 +35,33 @@
  *
  * Noise guard: a lone adopted image that's already visible inline in the
  * PR/comment doesn't warrant a managed comment repeating it — see
- * `shouldSyncAfterAdopt`.
+ * `shouldSyncAfterAdopt`. The guard's adopted-count comes from the ledger
+ * (`github-link-adopt-ledger.ts`, issue #709) — the TOTAL non-detached rows
+ * for this target, not the current pass's copy count — so two links pasted
+ * in two separate comments correctly trip the threshold on the second one
+ * regardless of which comment either link landed in.
+ *
+ * The ledger is also the idempotency/un-adoption backbone, mirroring
+ * `github-ingest.ts`'s reconcile shape exactly: a source key already
+ * ledgered under this exact (target, source) is a cheap skip (no re-copy);
+ * a source key no longer found when this SOURCE (body or one comment) is
+ * rescanned is marked detached — the copy is never deleted, only hidden
+ * from the managed comment render (`gh.detached` metadata, same convention
+ * ingest uses) — and reappearing un-detaches it without a re-copy.
  */
 import { attachExistingObject, resolveAttachSourceKey } from "./github-attach";
 import { commentCacheKey, gatherCommentBody } from "./github-comment";
 import type { GhTarget } from "./github-comment-render";
 import { postManagedComment } from "./github-comment-service";
+import { setFileMetadata } from "./file-metadata";
+import {
+  adoptLedgerRow,
+  adoptLedgerRowsForSource,
+  adoptLedgerRowsForTarget,
+  recordAdoptedLink,
+  setAdoptLedgerDetached,
+  setAdoptLedgerSource,
+} from "./github-link-adopt-ledger";
 import { findRepoLinkStrict } from "./github-repo-links";
 import { resolveRepoCommentOptions } from "./repo-comment-config";
 import { storageConfig } from "./storage";
@@ -63,9 +84,16 @@ export interface AdoptSourceRef {
 }
 
 export interface AdoptSummary {
-  /** Destination keys copied/refreshed this pass (may already have existed —
-   * adoption always re-copies, an idempotent overwrite). */
+  /** Destination keys newly copied this pass (a ledgered key is a cheap
+   * skip, never re-copied — see the module doc-comment). */
   adopted: string[];
+  /** Destination keys whose ledger row un-detached this pass (reappeared
+   * after having been edited out) — no re-copy, just a metadata/ledger flip. */
+  reattached: string[];
+  /** Destination keys whose ledger row detached this pass (no longer
+   * referenced from this exact source) — the copy stays in storage, only
+   * hidden from the managed comment render. */
+  detached: string[];
   /** Candidate URLs that looked like uploads.sh links but didn't resolve to
    * an object in this workspace (wrong workspace, unknown key, deleted). */
   skipped: string[];
@@ -136,9 +164,15 @@ export async function resolveAdoptableKeys(
  * other attachments already staged/attached for this target, and no managed
  * comment yet, is already fully visible inline — posting a comment that just
  * repeats it is noise. Sync fires when:
- *   - two or more links resolved this pass, or
- *   - at least one resolved AND the target already has other attachments
- *     (staged/attached/previously-adopted) under its comment prefix, or
+ *   - the target now has two or more currently-adopted links total (ledger
+ *     count, issue #709 — deterministic across passes/sources, not just
+ *     this pass's copy count), or
+ *   - at least one link is adopted AND the target already has other
+ *     attachments (staged/attached/non-ledger-adopted) under its comment
+ *     prefix, or
+ *   - a link detached this pass (the comment needs to drop it, even if that
+ *     leaves fewer than two attachments — an emptying comment is exactly
+ *     the "heal/refresh, don't leave it stale" case below), or
  *   - a managed comment already exists for this target (heal/refresh it
  *     rather than leave it stale).
  */
@@ -146,11 +180,13 @@ async function shouldSyncAfterAdopt(
   env: Env,
   workspaceName: string,
   target: GhTarget,
-  adoptedCount: number,
+  totalAdoptedCount: number,
   preexistingCount: number,
+  hadDetach: boolean,
 ): Promise<boolean> {
-  if (adoptedCount === 0) return false;
-  if (adoptedCount >= 2) return true;
+  if (hadDetach) return true;
+  if (totalAdoptedCount === 0) return false;
+  if (totalAdoptedCount >= 2) return true;
   if (preexistingCount > 0) return true;
 
   const cachedCommentId = await env.GITHUB_CACHE.get(commentCacheKey(workspaceName, target));
@@ -158,13 +194,19 @@ async function shouldSyncAfterAdopt(
 }
 
 /**
- * Copy every resolved-key adoption into `target`'s attachment prefix (via
- * #702's `attachExistingObject`), then sync the managed comment only when
- * `shouldSyncAfterAdopt` says there's something worth consolidating. The
- * "does this target already have other attachments" check that feeds the
- * noise guard is a `gatherCommentBody` call BEFORE any copy this pass makes,
- * so a single lone adoption is judged against the PRE-adoption state, not
- * inflated by its own copy.
+ * Reconciles ONE source (a PR/issue body or one comment) against `text`:
+ * resolved keys not yet ledgered for this exact (target, source) are copied
+ * into `target`'s attachment prefix (via #702's `attachExistingObject`) and
+ * recorded; an already-ledgered, non-detached key is a cheap skip (no
+ * re-copy); a previously-detached key that's referenced again is
+ * un-detached without a re-copy; a ledgered, non-detached key for this
+ * source that's no longer found in `text` is detached. The managed comment
+ * is synced only when `shouldSyncAfterAdopt` says there's something worth
+ * consolidating.
+ *
+ * `source` is the ledger's source pointer ("body" or "comment:<id>") —
+ * defaults to "body" for direct callers (tests, and any future non-webhook
+ * entry point) that don't care about per-comment scoping.
  */
 export async function adoptLinkedFiles(
   env: Env,
@@ -172,23 +214,65 @@ export async function adoptLinkedFiles(
   mintingUserId: string | null,
   target: GhTarget,
   text: string,
+  source = "body",
 ): Promise<AdoptSummary> {
   const { keys, skipped } = await resolveAdoptableKeys(env, workspaceName, text);
-  const summary: AdoptSummary = { adopted: [], skipped, synced: false };
-  if (keys.length === 0) return summary;
+  const summary: AdoptSummary = {
+    adopted: [],
+    reattached: [],
+    detached: [],
+    skipped,
+    synced: false,
+  };
 
   const ws = await loadWorkspaceRecord(env, workspaceName);
   if (!ws) return summary;
 
-  // Baseline BEFORE this pass's copies land, so a lone adoption isn't judged
-  // against a prefix count its own copy just inflated.
+  const db = env.DB;
+  const { repo, kind, num } = target;
+  const foundKeys = new Set(keys);
+
+  // Baseline BEFORE this pass's copies land, so a lone FIRST-time adoption
+  // isn't judged against a prefix count its own copy just inflated. Legacy
+  // attachments outside the ledger (manual `attach --pr`, pre-#709 adoptions)
+  // still count here; ledgered adoptions feed the guard separately below.
   const before = await gatherCommentBody(env, ws, workspaceName, target);
 
   for (const key of keys) {
+    const row = await adoptLedgerRow(db, repo, kind, num, key);
+    if (row) {
+      if (row.detachedAt === null) {
+        // Already adopted and currently attached under some source — cheap
+        // skip, never re-copies. If the link moved between sources (e.g. an
+        // edit relocated it from the body into a comment), the ledger's
+        // source pointer follows.
+        if (row.source !== source) await setAdoptLedgerSource(db, repo, kind, num, key, source);
+        continue;
+      }
+      // Previously detached, now referenced again — un-detach without a
+      // re-copy; the object is still in storage untouched.
+      await setFileMetadata(db, workspaceName, row.objectKey, { "gh.detached": "false" });
+      await setAdoptLedgerDetached(db, repo, kind, num, key, null);
+      if (row.source !== source) await setAdoptLedgerSource(db, repo, kind, num, key, source);
+      summary.reattached.push(row.objectKey);
+      continue;
+    }
+
     try {
       const result = await attachExistingObject(env, ws, workspaceName, {
         source: key,
         target: { repo: target.repo, kind: target.kind, num: target.num },
+      });
+      await setFileMetadata(db, workspaceName, result.key, { "gh.detached": "false" });
+      await recordAdoptedLink(db, {
+        repo,
+        kind,
+        num,
+        sourceKey: key,
+        workspace: workspaceName,
+        objectKey: result.key,
+        source,
+        createdAt: new Date().toISOString(),
       });
       summary.adopted.push(result.key);
     } catch (err) {
@@ -207,14 +291,35 @@ export async function adoptLinkedFiles(
       summary.skipped.push(key);
     }
   }
-  if (summary.adopted.length === 0) return summary;
+
+  // Un-adoption: a ledgered, non-detached key for THIS source that's no
+  // longer found when this source is rescanned. Scoped by source (not the
+  // whole target) so a link still referenced from a different comment isn't
+  // detached just because this particular comment stopped mentioning it.
+  const existingForSource = await adoptLedgerRowsForSource(db, repo, kind, num, source);
+  for (const row of existingForSource) {
+    if (row.detachedAt !== null) continue;
+    if (foundKeys.has(row.sourceKey)) continue;
+    await setFileMetadata(db, workspaceName, row.objectKey, { "gh.detached": "true" });
+    await setAdoptLedgerDetached(db, repo, kind, num, row.sourceKey, new Date().toISOString());
+    summary.detached.push(row.objectKey);
+  }
+
+  const changed =
+    summary.adopted.length > 0 || summary.reattached.length > 0 || summary.detached.length > 0;
+  if (!changed) return summary;
+
+  const totalAdopted = (await adoptLedgerRowsForTarget(db, repo, kind, num)).filter(
+    (r) => r.detachedAt === null,
+  ).length;
 
   const sync = await shouldSyncAfterAdopt(
     env,
     workspaceName,
     target,
-    summary.adopted.length,
+    totalAdopted,
     before.count,
+    summary.detached.length > 0,
   );
   if (sync) {
     await postManagedComment(env, ws, workspaceName, mintingUserId, target, {});
@@ -273,13 +378,19 @@ export async function adoptLinkedFilesForWebhook(
   if (!token) throw new Error("github installation token mint failed");
 
   const text = await fetchSourceText(fetchImpl, token, ref);
-  if (text === null || !hasLinkCandidate(text)) return;
-
+  // `text === null` (source deleted, e.g. a comment removed) still needs to
+  // reconcile — any links previously adopted from it must detach — so it
+  // scans as empty text rather than short-circuiting. A merely-linkless
+  // text is the same case (nothing new to adopt, but a prior adoption from
+  // this exact source may need to detach), so `hasLinkCandidate` is no
+  // longer a valid early-return here — only a cheap presort in the caller
+  // that decided `ev.adopt` was worth building at all.
   await adoptLinkedFiles(
     env,
     link.workspaceName,
     null,
     { repo: ref.repo, kind: ref.kind, num: ref.num },
-    text,
+    text ?? "",
+    ref.source,
   );
 }

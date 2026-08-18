@@ -3,6 +3,7 @@
  * and optional no-op auth_tokens lookups for route tests.
  */
 
+import { AdoptLedgerTable } from "./helpers/fake-adopt-ledger-table";
 import { DeleteUsageClaimsTable } from "./helpers/fake-delete-usage-claims-table";
 import { FileMetadataTable } from "./helpers/fake-file-metadata-table";
 import { IngestLedgerTable } from "./helpers/fake-ingest-ledger-table";
@@ -57,6 +58,12 @@ export class UsageFakeD1 {
   get privatePrefixes() {
     return this.privatePrefixesTable.rows;
   }
+  // Backs `github_adopted_links` — the link-adoption noise guard's
+  // idempotency backbone (issue #709).
+  private adoptLedgerTable = new AdoptLedgerTable();
+  get adoptLedger() {
+    return this.adoptLedgerTable.rows;
+  }
 
   prepare = (sql: string) => {
     const normalized = sql.replace(/\s+/g, " ").trim();
@@ -78,6 +85,8 @@ export class UsageFakeD1 {
         if (ledgerFirstResult !== undefined) return ledgerFirstResult;
         const prefixFirstResult = this.privatePrefixesTable.tryFirst(normalized, values);
         if (prefixFirstResult !== undefined) return prefixFirstResult;
+        const adoptFirstResult = this.adoptLedgerTable.tryFirst(normalized, values);
+        if (adoptFirstResult !== undefined) return adoptFirstResult;
         throw new Error(`unsupported first: ${normalized}`);
       },
       all: async <T>() => {
@@ -91,6 +100,8 @@ export class UsageFakeD1 {
         if (ledgerAllResult) return ledgerAllResult;
         const prefixAllResult = this.privatePrefixesTable.tryAll<T>(normalized, values);
         if (prefixAllResult) return prefixAllResult;
+        const adoptAllResult = this.adoptLedgerTable.tryAll<T>(normalized, values);
+        if (adoptAllResult) return adoptAllResult;
         // Galleries aren't modeled by this fake (route/gallery-specific tests
         // bring their own D1 stand-in) — an empty page is a safe, honest
         // default for callers (e.g. the webhook auto-promote gather) that
@@ -111,6 +122,8 @@ export class UsageFakeD1 {
         if (ledgerRunResult) return ledgerRunResult;
         const prefixRunResult = this.privatePrefixesTable.tryRun(normalized, values);
         if (prefixRunResult) return prefixRunResult;
+        const adoptRunResult = this.adoptLedgerTable.tryRun(normalized, values);
+        if (adoptRunResult) return adoptRunResult;
         const claimResult = this.deleteUsageClaimsTable.tryRun(normalized, values);
         if (claimResult) return claimResult;
         if (normalized.startsWith("INSERT OR IGNORE INTO workspace_usage")) {
