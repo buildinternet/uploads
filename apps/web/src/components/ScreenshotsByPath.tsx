@@ -4,10 +4,20 @@
  * Overview = one `files/by-path` fetch; drill-in (?path=) = the existing
  * `files/search?meta.path=…` route. Files without `path` metadata never
  * appear here — the empty state says how to get them.
+ *
+ * SSR-first (plan 006, following plan 005's `WorkspaceFileTable` shape):
+ * when the request carries a session, `screenshots.astro` server-fetches the
+ * by-path overview + workspace summary and renders this component with no
+ * `client:*` directive, so first paint has real groups instead of the
+ * loading skeleton. A manual `hydrateRoot` mount (same lifecycle every
+ * sibling workspace tab uses) attaches interactivity afterwards. Only the
+ * OVERVIEW is server-seeded — the GitHub-mirrored section and the `?path=`
+ * drill-in still fetch client-side, unchanged.
  */
 import { Callout } from "@uploads/ui";
 import "@uploads/ui/styles.css";
 import { useEffect, useState, type CSSProperties } from "react";
+import { IslandErrorBoundary } from "./IslandErrorBoundary";
 import {
   getWorkspaceFilesByPath,
   searchWorkspaceFiles,
@@ -66,9 +76,21 @@ function EmptyShotsCta({ title }: { title: string }) {
 interface ScreenshotsByPathProps {
   apiOrigin: string;
   workspace: string;
+  /**
+   * `location.search` at server-render time (plan 006) — seeds the
+   * `?project=`/`?path=` `view` state the same way `window.location.search`
+   * does client-side. Pass `Astro.url.search` from the frontmatter so the
+   * server's render and the client's very first render agree; omit for the
+   * pre-existing client-only-mount behavior (falls back to `window`).
+   */
+  initialSearch?: string;
+  /** Server-fetched by-path overview, when available. */
+  initialOverview?: OverviewState;
+  /** Server-resolved workspace-info status, when available. */
+  initialInfo?: WorkspaceInfoStatus;
 }
 
-type OverviewState =
+export type OverviewState =
   | { status: "loading" }
   | { status: "error" }
   | {
@@ -193,6 +215,15 @@ function ShotThumb({
 }
 
 // ── Loading skeleton ───────────────────────────────────────────────────
+//
+// Plan 006: `screenshots.astro` now renders this component itself
+// (server-side, via its own `initialInfo`/`initialOverview` props) instead of
+// a separate `set:html` placeholder — so this is also what a cookie-less
+// request's *server* render shows, not just the client's pre-fetch gap.
+// `renderScreenshotsPlaceholderHtml` in workspace-ui.ts (still tested, no
+// longer wired into this page) mirrors this markup 1:1 for that old
+// hand-off — left alone here since `workspace-ui.ts` is out of this plan's
+// scope.
 
 function SkelBar({ width }: { width: string }) {
   return (
@@ -225,15 +256,39 @@ function OverviewLoadingSkeleton() {
 
 // ── Component ──────────────────────────────────────────────────────────
 
-export function ScreenshotsByPath({ apiOrigin, workspace }: ScreenshotsByPathProps) {
-  const [info, setInfo] = useState<WorkspaceInfoStatus | { status: "loading" }>({
-    status: "loading",
-  });
+/**
+ * The actual interactive overview + drill-in. Not exported directly — see
+ * `ScreenshotsByPath` below for why.
+ */
+function ScreenshotsByPathInner({
+  apiOrigin,
+  workspace,
+  initialSearch,
+  initialOverview,
+  initialInfo,
+}: ScreenshotsByPathProps) {
+  // Seed source for URL-derived initial state: the server-fetched
+  // `initialSearch` prop when present (SSR, and the client's first
+  // hydration-parity render), else the live location for the pre-existing
+  // client-only-mount path. `window` doesn't exist during SSR, so this must
+  // never be read unconditionally at the top of the component body.
+  const seedSearch = initialSearch ?? (typeof window !== "undefined" ? window.location.search : "");
+
+  const [info, setInfo] = useState<WorkspaceInfoStatus | { status: "loading" }>(
+    () => initialInfo ?? { status: "loading" },
+  );
   const [infoRetryNonce, setInfoRetryNonce] = useState(0);
-  const [overview, setOverview] = useState<OverviewState>({ status: "loading" });
+  const [overview, setOverview] = useState<OverviewState>(
+    () => initialOverview ?? { status: "loading" },
+  );
   const [overviewRetryNonce, setOverviewRetryNonce] = useState(0);
+  // `readScreenshotsView` derives purely from the URL search string (no
+  // localStorage involved anywhere in this module — unlike the files tab's
+  // `resolveFilesView`), so there's no stored-preference divergence to guard
+  // against here: the server and the client's first render already agree as
+  // long as both read the same `seedSearch`, which is exactly what this does.
   const [view, setView] = useState<{ project: string; path: string }>(() =>
-    readScreenshotsView(window.location.search),
+    readScreenshotsView(seedSearch),
   );
   const [drill, setDrill] = useState<DrillState>({ status: "idle" });
   const [drillRetryNonce, setDrillRetryNonce] = useState(0);
@@ -544,6 +599,24 @@ export function ScreenshotsByPath({ apiOrigin, workspace }: ScreenshotsByPathPro
         </>
       )}
     </div>
+  );
+}
+
+/**
+ * The exported island. Wraps `ScreenshotsByPathInner` in `IslandErrorBoundary`
+ * *inside* this same component's own render (plan 006, following plan 005's
+ * `WorkspaceFileTable`) — composing the boundary here means Astro sees
+ * exactly one component when `screenshots.astro` renders `<ScreenshotsByPath
+ * ... />` with no client directive, so the manual `hydrateRoot` mount (which
+ * imports this same exported name) hydrates the whole subtree, boundary
+ * included, as a single React root that matches the server-rendered tree
+ * exactly — no extra wrapper the server didn't also render.
+ */
+export function ScreenshotsByPath(props: ScreenshotsByPathProps) {
+  return (
+    <IslandErrorBoundary>
+      <ScreenshotsByPathInner {...props} />
+    </IslandErrorBoundary>
   );
 }
 
