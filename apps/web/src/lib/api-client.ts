@@ -1351,11 +1351,20 @@ function toWorkspaceFolderFile(raw: Record<string, unknown>): WorkspaceFolderFil
  * The API returns `cursor` as `string | null`; normalized here to
  * `string | undefined`. Likewise `prefixes` defaults to `[]` when the API
  * omits it (non-delimited listings).
+ *
+ * `opts.cookie` (plan 005): lets an Astro frontmatter server-fetch the
+ * default folder listing with the incoming request's session cookie —
+ * `credentials: "include"` alone only rides a browser's own cookie jar and
+ * does nothing for a server-to-server fetch. Same `sessionFetchInit`
+ * convention plan 001 added to the other `/v1/workspaces/:name/*` reads
+ * below; this is the one plan 001 didn't touch, added here narrowly because
+ * it's the actual data source `WorkspaceFileTable`'s default (unfiltered)
+ * browse view uses, not `getMyWorkspaceFiles`.
  */
 export async function listWorkspaceFolder(
   apiOrigin: string,
   workspace: string,
-  opts: { prefix?: string; cursor?: string; limit?: number } = {},
+  opts: { prefix?: string; cursor?: string; limit?: number; cookie?: string } = {},
 ): Promise<WorkspaceFolderListing> {
   const params = new URLSearchParams();
   // Always list one folder level at a time — without the delimiter the API
@@ -1367,7 +1376,7 @@ export async function listWorkspaceFolder(
   const query = params.toString();
   const url = `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(workspace)}/files${query ? `?${query}` : ""}`;
 
-  const result = await fetchWithTimeout(url, { credentials: "include", cache: "no-store" });
+  const result = await fetchWithTimeout(url, sessionFetchInit(opts.cookie));
   if (result.kind === "unavailable" || !result.response.ok) return emptyFolderListing();
 
   const body = (await result.response.json().catch(() => null)) as {
