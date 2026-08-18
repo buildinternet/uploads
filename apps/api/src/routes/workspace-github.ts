@@ -78,6 +78,7 @@ import { adminWorkspaceOr403, memberWorkspaceOr404 } from "../org-workspaces";
 import type { SessionVars } from "../session-auth";
 import { requireScope } from "../workspace";
 import { githubActivityHandler } from "./github-activity";
+import { githubAttachHandler } from "./github-attach";
 import { githubCommentHandler } from "./github-comment";
 import {
   githubLinkDeleteHandler,
@@ -288,6 +289,18 @@ export const workspaceGithub = new Hono<DualAuthVars>()
     scoped("files:write"),
     requireToken,
     githubPromoteHandler as unknown as MiddlewareHandler<DualAuthVars>,
+  )
+  .post(
+    "/:workspace/github/attach",
+    dualWorkspaceAuth(),
+    rateLimited,
+    // New route (issue #702) — canonical surface only, no legacy bearer-path
+    // twin (unlike comment/promote, which predate the canonical vertical).
+    // Same token-only posture as comment/promote: a session caller gets a
+    // 403 `github_requires_token`.
+    scoped("files:write"),
+    requireToken,
+    githubAttachHandler as unknown as MiddlewareHandler<DualAuthVars>,
   )
   .post(
     "/:workspace/github/private-prefix",

@@ -377,18 +377,17 @@ describe("hosted promote tool", () => {
     });
   });
 
-  it("usage errors: missing branch", async () => {
+  it("usage errors: neither branch nor keys (issue #702)", async () => {
     const { env } = await makeEnv();
     const result = await callTool(env, "promote", {
       repo: "acme/widgets",
       pr: 12,
     });
     expect(result.isError).toBe(true);
-    // Schema required-property check fires before the handler.
     expect(result.content).toEqual([
       {
         type: "text",
-        text: expect.stringMatching(/required property ["']branch["']|branch is required/),
+        text: expect.stringContaining("at least one of branch or keys is required"),
       },
     ]);
   });
@@ -432,6 +431,66 @@ describe("hosted promote tool", () => {
     } finally {
       restore();
     }
+  });
+
+  it("accepts explicit source keys (issue #702), independent of the branch sweep", async () => {
+    const { env, bucket } = await makeEnv({ boundTo: WS });
+    // A plain (non-staged) upload — any already-uploaded object is a valid
+    // attach source, not just a gh/…/branch/… staged one.
+    const source = await callTool(env, "put", {
+      contentBase64: PNG_B64,
+      filename: "hero.png",
+      key: "f/abc123/hero.png",
+    });
+    expect(source.isError).toBe(false);
+
+    const result = await callTool(env, "promote", {
+      repo: "acme/widgets",
+      pr: 12,
+      keys: ["f/abc123/hero.png"],
+      comment: false,
+    });
+    expect(result.isError).toBe(false);
+    expect(result.structuredContent).toMatchObject({
+      attached: [
+        expect.objectContaining({
+          key: "gh/acme/widgets/pull/12/hero.png",
+          moved: false,
+          source: { key: "f/abc123/hero.png" },
+        }),
+      ],
+      attachFailures: [],
+    });
+    expect(result.structuredContent).not.toHaveProperty("promotion");
+    expect(bucket.store.has("gh/acme/widgets/pull/12/hero.png")).toBe(true);
+    // Copy, not move — source stays put.
+    expect(bucket.store.has("f/abc123/hero.png")).toBe(true);
+  });
+
+  it("degrades one bad key into attachFailures without aborting the rest", async () => {
+    const { env, bucket } = await makeEnv({ boundTo: WS });
+    await callTool(env, "put", {
+      contentBase64: PNG_B64,
+      filename: "hero.png",
+      key: "f/abc123/hero.png",
+    });
+
+    const result = await callTool(env, "promote", {
+      repo: "acme/widgets",
+      pr: 12,
+      keys: ["f/abc123/hero.png", "f/nope/missing.png"],
+      comment: false,
+    });
+    expect(result.isError).toBe(false);
+    const content = result.structuredContent as {
+      attached: { key: string }[];
+      attachFailures: { key: string; error: { code?: string } }[];
+    };
+    expect(content.attached).toHaveLength(1);
+    expect(content.attachFailures).toEqual([
+      { key: "f/nope/missing.png", error: expect.objectContaining({ code: "source_not_found" }) },
+    ]);
+    expect(bucket.store.has("gh/acme/widgets/pull/12/hero.png")).toBe(true);
   });
 });
 

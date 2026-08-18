@@ -62,6 +62,21 @@ uploads attach ./shot.png --issue 45 --repo buildinternet/uploads
 Pass `--no-comment` when only stable URLs are wanted. Use `put` for lower-level
 naming and output control.
 
+**Attach an already-uploaded object (issue #702).** An `attach` argument that
+doesn't exist on disk but resolves as a workspace object key (e.g.
+`f/AbC123/shot.webp`) or an uploads.sh URL (storage host, embed host, or
+`/f/` page) attaches via a server-side copy instead of erroring
+`file not found` — no re-download/re-upload round trip. The source's own
+derived metadata (`path`/`url`/`viewport`/`state`/…) rides along; `gh.repo`/
+`gh.kind`/`gh.number`/`gh.ref` are stamped fresh. Copy by default; `--move`
+deletes the source after a successful copy. A path that exists on disk always
+wins as a local file, even if it would also parse as a key.
+
+```bash
+uploads attach f/AbC123/shot.webp --pr 123
+uploads attach https://storage.uploads.sh/<workspace>/f/AbC123/shot.webp --pr 123 --move
+```
+
 **Stage as you go, before a PR exists.** `uploads attach ./shot.png --branch
 [name]` stages files under `gh/<owner>/<repo>/branch/<branch>/<filename>`
 instead of a PR/issue number — same upload path, no target flags, no comment

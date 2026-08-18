@@ -56,6 +56,10 @@ import {
   type PromoteResult,
 } from "@uploads/api/github-promote-service";
 import {
+  postAttachExisting,
+  type AttachExistingResponse,
+} from "@uploads/api/github-attach-service";
+import {
   getFileMetadata,
   listFacets,
   META_MAX_KEYS,
@@ -988,7 +992,7 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
       annotations: mcpDestroyPublic,
       securitySchemes: mcpOAuthWrite,
       description:
-        "Copy this workspace's branch-staged attachments (gh/…/branch/… keys from put with branch, or CLI attach --branch) into a PR's stable gh/…/pull/… prefix, then optionally refresh the managed attachments comment. Hosted stand-in for `uploads attach --promote` — no git context, so repo, pr, and branch are all required. Does not delete staged originals. Promotion is a pure workspace-data copy (no GitHub API for the copy itself); the comment path is bot-only like the comment tool. Returns { promotion: { promoted, skipped }, comment?, commentError? }.",
+        "Copy attachments into a PR's stable gh/…/pull/… prefix, then optionally refresh the managed attachments comment. Two independent sources, either or both: `branch` sweeps this workspace's branch-staged attachments (gh/…/branch/… keys from put with branch, or CLI attach --branch); `keys` (issue #702) copies explicit already-uploaded objects instead — a raw object key or an uploads.sh URL (storage host, embed host, or /f/ page), each attached with additive metadata merge (the source's own metadata rides along; gh.repo/gh.kind/gh.number/gh.ref are stamped fresh). Hosted stand-in for `uploads attach --promote` / `uploads attach <key-or-url> --pr` — no git context, so repo and pr are always required, and at least one of branch/keys is required. Does not delete staged/source originals unless `move: true` (keys only). Copies are pure workspace-data operations (no GitHub API); the comment path is bot-only like the comment tool. Returns { promotion?: { promoted, skipped }, attached?: { key, url, embedUrl, moved, source }[], attachFailures?, comment?, commentError? }.",
       inputSchema: {
         type: "object",
         properties: {
@@ -999,20 +1003,33 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
           },
           pr: {
             type: "number",
-            description: "Pull request number to promote into. Promotion never applies to issues.",
+            description: "Pull request number to promote/attach into. Never applies to issues.",
           },
           branch: {
             type: "string",
             description:
               "Git branch whose staged prefix (gh/…/branch/<branch>/) should be copied into the PR.",
           },
+          keys: {
+            type: "array",
+            items: { type: "string" },
+            minItems: 1,
+            maxItems: 20,
+            description:
+              "Explicit already-uploaded sources to attach (issue #702): object keys or uploads.sh URLs (storage host, embed host, or /f/ page). Each is copied independently; one bad source does not abort the rest — see attachFailures.",
+          },
+          move: {
+            type: "boolean",
+            description:
+              "For `keys` only: delete each source object after a successful copy (default false — copy, not move). Ignored for the branch sweep, which never deletes staged originals.",
+          },
           comment: {
             type: "boolean",
             description:
-              "After a successful promote, create or update the managed attachments comment (default true when files:read is on the token; pass false to skip). A comment failure never fails the promote; see commentError.",
+              "After a successful promote/attach, create or update the managed attachments comment (default true when files:read is on the token; pass false to skip). A comment failure never fails the promote/attach; see commentError.",
           },
         },
-        required: ["repo", "pr", "branch"],
+        required: ["repo", "pr"],
         additionalProperties: false,
       },
       async handler(args) {
@@ -1022,27 +1039,69 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
         if (!validRepoGrammar(repo)) usage("repo must be owner/name");
         const pr = optPosInt(args, "pr");
         if (pr === undefined) usage("pr is required");
-        const branch = branchFromArgs(args) ?? usage("branch is required");
-        // Validate branch is stageable (metadata rules) before the copy.
-        branchMetadata(repo, branch);
+        const branch = branchFromArgs(args);
+        const keys = optStringArray(args, "keys");
+        if (branch === undefined && (keys === undefined || keys.length === 0)) {
+          usage("at least one of branch or keys is required");
+        }
+        if (branch !== undefined) {
+          // Validate branch is stageable (metadata rules) before the copy.
+          branchMetadata(repo, branch);
+        }
+        const move = optBool(args, "move") ?? false;
 
         const commentArg = args.comment == null ? undefined : optBool(args, "comment");
         if (commentArg === true) requireScope("files:read");
         const wantComment = commentArg ?? ctx.authScopes.includes("files:read");
 
         // Primary job — failures throw (isError), unlike put's best-effort promote.
-        const promotion = await postPromoteBranchAttachments(
-          env,
-          workspace,
-          workspaceName,
-          ctx.mintingUserId,
-          { repo, num: pr, branch },
-        );
+        const promotion =
+          branch !== undefined
+            ? await postPromoteBranchAttachments(env, workspace, workspaceName, ctx.mintingUserId, {
+                repo,
+                num: pr,
+                branch,
+              })
+            : undefined;
+
+        // Explicit keys (issue #702): each copy is independent — one bad
+        // source degrades to attachFailures rather than aborting the batch,
+        // same "one bad item doesn't abort the rest" posture as put/attach's
+        // multi-file paths. Each successful attach already syncs its own
+        // comment server-side (postAttachExisting), so `comment`/`wantComment`
+        // below only covers the branch-sweep promotion path.
+        let attached: AttachExistingResponse[] | undefined;
+        let attachFailures: { key: string; error: ReturnType<typeof errorDetail> }[] | undefined;
+        if (keys !== undefined && keys.length > 0) {
+          attached = [];
+          attachFailures = [];
+          for (const source of keys) {
+            try {
+              attached.push(
+                await postAttachExisting(env, workspace, workspaceName, ctx.mintingUserId, {
+                  source,
+                  target: { repo, kind: "pull", num: pr },
+                  move,
+                }),
+              );
+            } catch (err) {
+              attachFailures.push({ key: source, error: errorDetail(err) });
+            }
+          }
+        }
 
         const commentResult = wantComment
           ? await attachComment({ repo, kind: "pull", num: pr })
           : undefined;
-        return { promotion, ...commentResult };
+        // Explicit-undefined values (not just absent keys) trip the SDK's
+        // structured-content validator ("Instances of \"undefined\" type are
+        // not supported") — omit rather than include-as-undefined.
+        return {
+          ...(promotion !== undefined ? { promotion } : {}),
+          ...(attached !== undefined ? { attached } : {}),
+          ...(attachFailures !== undefined ? { attachFailures } : {}),
+          ...commentResult,
+        };
       },
     },
     {

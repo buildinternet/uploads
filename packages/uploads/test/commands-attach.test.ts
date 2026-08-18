@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { UsageError } from "../src/cli-args.js";
 import type {
+  AttachExistingOptions,
+  AttachExistingResult,
   GithubRepoLinkResult,
   PromoteBranchAttachmentsResult,
   ResolveGhPrefixOptions,
@@ -47,12 +49,21 @@ function fakeClient(opts?: {
   resolveGhPrefix?:
     | ResolveGhPrefixResult
     | ((opts: ResolveGhPrefixOptions) => ResolveGhPrefixResult);
+  /**
+   * `client.attachExisting` behavior (issue #702). Omitted → method is
+   * absent (older-server simulation, same convention as `promote` above).
+   */
+  attachExisting?:
+    | AttachExistingResult
+    | Error
+    | ((opts: AttachExistingOptions) => AttachExistingResult | Promise<AttachExistingResult>);
 }) {
   const puts: string[] = [];
   const metadataByKey: Record<string, Record<string, string> | undefined> = {};
   const promoteCalls: { repo: string; num: number; branch: string }[] = [];
   const callOrder: string[] = [];
   const resolveGhPrefixCalls: ResolveGhPrefixOptions[] = [];
+  const attachExistingCalls: AttachExistingOptions[] = [];
   const list = async ({ prefix }: { prefix?: string } = {}) => ({
     items: puts
       .filter((key) => key.startsWith(prefix ?? ""))
@@ -130,8 +141,27 @@ function fakeClient(opts?: {
           },
         }
       : {}),
+    ...(opts?.attachExisting !== undefined
+      ? {
+          attachExisting: async (attachOpts: AttachExistingOptions) => {
+            attachExistingCalls.push(attachOpts);
+            if (opts.attachExisting instanceof Error) throw opts.attachExisting;
+            return typeof opts.attachExisting === "function"
+              ? opts.attachExisting(attachOpts)
+              : opts.attachExisting!;
+          },
+        }
+      : {}),
   } as unknown as UploadsClient;
-  return { client, puts, metadataByKey, promoteCalls, callOrder, resolveGhPrefixCalls };
+  return {
+    client,
+    puts,
+    metadataByKey,
+    promoteCalls,
+    callOrder,
+    resolveGhPrefixCalls,
+    attachExistingCalls,
+  };
 }
 
 function ctxWith(client: UploadsClient): CliContext {
@@ -1360,5 +1390,89 @@ describe("runAttach path-meta tip (issue #469 lever 3)", () => {
     }
     const payload = JSON.parse(chunks.join("")) as { hint?: string };
     expect(payload.hint).toContain("tip: add --meta path=/route");
+  });
+});
+
+describe("runAttach existing-object args (issue #702)", () => {
+  it("attaches a non-local key via the server-side copy instead of erroring file not found", async () => {
+    const { client, attachExistingCalls } = fakeClient({
+      attachExisting: (opts) => ({
+        key: `gh/buildinternet/uploads/pull/123/${opts.source.split("/").pop()}`,
+        url: `https://storage.uploads.sh/test/gh/buildinternet/uploads/pull/123/hero.webp`,
+        embedUrl: null,
+        moved: false,
+        comment: { posted: true, action: "updated", count: 1 },
+        source: { key: opts.source },
+      }),
+    });
+    const { run } = ghRunner();
+    const exitCode = await runAttach(ctxWith(client), ["f/AbC123/hero.webp"], false, run);
+    expect(exitCode).toBe(0);
+    expect(attachExistingCalls).toEqual([
+      {
+        source: "f/AbC123/hero.webp",
+        repo: "buildinternet/uploads",
+        pr: 123,
+        issue: undefined,
+        move: false,
+      },
+    ]);
+  });
+
+  it("passes --move through to the server call", async () => {
+    const { client, attachExistingCalls } = fakeClient({
+      attachExisting: (opts) => ({
+        key: "gh/buildinternet/uploads/pull/123/hero.webp",
+        url: "https://storage.uploads.sh/test/gh/buildinternet/uploads/pull/123/hero.webp",
+        embedUrl: null,
+        moved: true,
+        comment: { posted: true, action: "updated", count: 1 },
+        source: { key: opts.source },
+      }),
+    });
+    const { run } = ghRunner();
+    expect(await runAttach(ctxWith(client), ["f/AbC123/hero.webp", "--move"], false, run)).toBe(0);
+    expect(attachExistingCalls[0]?.move).toBe(true);
+  });
+
+  it("rejects --move with no key/URL arguments", async () => {
+    const { client } = fakeClient();
+    const { run } = ghRunner();
+    await expect(
+      runAttach(ctxWith(client), [...files("after.png"), "--move"], false, run),
+    ).rejects.toThrow(UsageError);
+  });
+
+  it("reports a not-found source with an updated error message, not the local file-not-found one", async () => {
+    const { client } = fakeClient({
+      attachExisting: new UploadsError("source object not found.", "NOT_FOUND", 404),
+    });
+    const { run } = ghRunner();
+    await expect(
+      runAttach(ctxWith(client), ["f/does-not-exist/nope.webp"], false, run),
+    ).rejects.toThrow(/not a local file, and no such object in this workspace/);
+  });
+
+  it("handles a mix of a local file and an existing-object key in one call", async () => {
+    const { client, puts, attachExistingCalls } = fakeClient({
+      attachExisting: (opts) => ({
+        key: "gh/buildinternet/uploads/pull/123/hero.webp",
+        url: "https://storage.uploads.sh/test/gh/buildinternet/uploads/pull/123/hero.webp",
+        embedUrl: null,
+        moved: false,
+        comment: { posted: true, action: "updated", count: 1 },
+        source: { key: opts.source },
+      }),
+    });
+    const { run } = ghRunner();
+    const exitCode = await runAttach(
+      ctxWith(client),
+      [...files("local.png"), "f/AbC123/hero.webp"],
+      false,
+      run,
+    );
+    expect(exitCode).toBe(0);
+    expect(puts).toEqual(["gh/buildinternet/uploads/pull/123/local.png"]);
+    expect(attachExistingCalls).toHaveLength(1);
   });
 });
