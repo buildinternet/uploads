@@ -3,9 +3,15 @@
  * Workspace galleries tab: explainer, create command, and table (name, items,
  * linked PR/issues, updated) from GET /me/workspaces/:name/galleries.
  */
+import { env } from "cloudflare:workers";
 import WorkspaceLayout from "../../../../layouts/WorkspaceLayout.astro";
+import { getMyWorkspaceGalleries, getWorkspaceSummary } from "../../../../lib/api-client";
+import { resolveSignedInOrigins } from "../../../../lib/signed-in-page";
 import { isBrowseWorkspace } from "../../../../lib/workspace-browse-url";
-import { renderGalleriesPlaceholderHtml } from "../../../../lib/workspace-ui";
+import {
+  renderGalleriesPlaceholderHtml,
+  renderGalleriesTableHtml,
+} from "../../../../lib/workspace-ui";
 
 export const prerender = false;
 
@@ -18,6 +24,24 @@ const createCmd = 'uploads gallery create --title "Release screenshots"';
 const tip = {
   body: "link a gallery to a PR and the public link stays current as you add shots.",
 };
+
+// SSR-first: when the request carries a session and the workspace resolves,
+// fetch galleries server-side so first paint has real rows. Only render the
+// table when there IS data — getMyWorkspaceGalleries conflates empty and error,
+// so an empty/failed result falls back to the placeholder and the client script
+// paints the correct empty-state or error.
+const { apiOrigin } = resolveSignedInOrigins(env);
+const cookie = Astro.request.headers.get("cookie") ?? "";
+let ssrGalleriesHtml: string | null = null;
+if (cookie.trim()) {
+  const [summary, galleries] = await Promise.all([
+    getWorkspaceSummary(apiOrigin, workspace, { cookie }),
+    getMyWorkspaceGalleries(apiOrigin, workspace, { cookie }),
+  ]);
+  if (summary.kind === "success" && galleries.length > 0) {
+    ssrGalleriesHtml = renderGalleriesTableHtml(galleries);
+  }
+}
 ---
 
 <WorkspaceLayout workspace={workspace} tip={tip}>
@@ -35,7 +59,7 @@ const tip = {
         </div>
       </div>
 
-      <div id="ws-galleries" set:html={renderGalleriesPlaceholderHtml()} />
+      <div id="ws-galleries" set:html={ssrGalleriesHtml ?? renderGalleriesPlaceholderHtml()} />
 
       {
         /* Hidden while the empty-state CTA is up — it repeats the create

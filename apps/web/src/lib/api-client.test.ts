@@ -3,6 +3,8 @@ import {
   deleteWorkspaceFile,
   deleteWorkspaceStorage,
   getGithubInstalled,
+  getMyWorkspaceFiles,
+  getMyWorkspaceGalleries,
   getMyWorkspaces,
   getSuggestedWorkspaceName,
   parseIssuedWorkspaceTokens,
@@ -12,7 +14,9 @@ import {
   getWorkspaceFilesByPath,
   getWorkspaceInvites,
   getWorkspaceMembers,
+  getWorkspacePeople,
   getWorkspaceStorageStatus,
+  getWorkspaceSummary,
   inviteToWorkspace,
   listWorkspaceFolder,
   putWorkspaceStorage,
@@ -171,6 +175,180 @@ describe("getMyWorkspaces", () => {
       ["acme", "pro"],
       ["byo", undefined],
     ]);
+  });
+
+  it("forwards an opts.cookie as the outgoing cookie header (issue #365 follow-up)", async () => {
+    let seenInit: RequestInit | undefined;
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      seenInit = init;
+      return Response.json({ workspaces: [] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await getMyWorkspaces("http://127.0.0.1:8787", { cookie: "better-auth.session=abc" });
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect((seenInit?.headers as Record<string, string> | undefined)?.cookie).toBe(
+      "better-auth.session=abc",
+    );
+  });
+
+  it("sends no cookie header without opts (issue #365 follow-up)", async () => {
+    let seenInit: RequestInit | undefined;
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      seenInit = init;
+      return Response.json({ workspaces: [] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await getMyWorkspaces("http://127.0.0.1:8787");
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(seenInit?.headers).toBeUndefined();
+  });
+});
+
+describe("getWorkspaceSummary opts.cookie", () => {
+  const BODY = {
+    workspace: "acme",
+    role: "owner",
+    organization: { id: "org1", slug: "acme", name: "Acme Inc" },
+  };
+
+  it("forwards an opts.cookie as the outgoing cookie header (issue #365 follow-up)", async () => {
+    let seenInit: RequestInit | undefined;
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      seenInit = init;
+      return Response.json(BODY);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await getWorkspaceSummary("http://127.0.0.1:8787", "acme", {
+      cookie: "better-auth.session=abc",
+    });
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect((seenInit?.headers as Record<string, string> | undefined)?.cookie).toBe(
+      "better-auth.session=abc",
+    );
+  });
+
+  it("sends no cookie header without opts (issue #365 follow-up)", async () => {
+    let seenInit: RequestInit | undefined;
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      seenInit = init;
+      return Response.json(BODY);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await getWorkspaceSummary("http://127.0.0.1:8787", "acme");
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(seenInit?.headers).toBeUndefined();
+  });
+});
+
+describe("getWorkspacePeople opts.cookie", () => {
+  const BODY = { role: "owner", members: [] };
+
+  it("forwards an opts.cookie as the outgoing cookie header (issue #365 follow-up)", async () => {
+    let seenInit: RequestInit | undefined;
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      seenInit = init;
+      return Response.json(BODY);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await getWorkspacePeople("http://127.0.0.1:8787", "acme", {
+      cookie: "better-auth.session=abc",
+    });
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect((seenInit?.headers as Record<string, string> | undefined)?.cookie).toBe(
+      "better-auth.session=abc",
+    );
+  });
+
+  it("sends no cookie header without opts (issue #365 follow-up)", async () => {
+    let seenInit: RequestInit | undefined;
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      seenInit = init;
+      return Response.json(BODY);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await getWorkspacePeople("http://127.0.0.1:8787", "acme");
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(seenInit?.headers).toBeUndefined();
+  });
+});
+
+describe("getMyWorkspaceGalleries opts.cookie", () => {
+  it("forwards an opts.cookie as the outgoing cookie header (issue #365 follow-up)", async () => {
+    let seenInit: RequestInit | undefined;
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      seenInit = init;
+      return Response.json({ galleries: [] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await getMyWorkspaceGalleries("http://127.0.0.1:8787", "acme", {
+      cookie: "better-auth.session=abc",
+    });
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect((seenInit?.headers as Record<string, string> | undefined)?.cookie).toBe(
+      "better-auth.session=abc",
+    );
+  });
+
+  it("sends no cookie header without opts (issue #365 follow-up)", async () => {
+    let seenInit: RequestInit | undefined;
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      seenInit = init;
+      return Response.json({ galleries: [] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await getMyWorkspaceGalleries("http://127.0.0.1:8787", "acme");
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(seenInit?.headers).toBeUndefined();
+  });
+});
+
+describe("getMyWorkspaceFiles opts.cookie", () => {
+  it("forwards an opts.cookie as the outgoing cookie header (issue #365 follow-up)", async () => {
+    let seenInit: RequestInit | undefined;
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      seenInit = init;
+      return Response.json({ files: [] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await getMyWorkspaceFiles("http://127.0.0.1:8787", "acme", {
+      cookie: "better-auth.session=abc",
+    });
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect((seenInit?.headers as Record<string, string> | undefined)?.cookie).toBe(
+      "better-auth.session=abc",
+    );
+  });
+
+  it("sends no cookie header without opts (issue #365 follow-up)", async () => {
+    let seenInit: RequestInit | undefined;
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      seenInit = init;
+      return Response.json({ files: [] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await getMyWorkspaceFiles("http://127.0.0.1:8787", "acme");
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(seenInit?.headers).toBeUndefined();
   });
 });
 
@@ -378,6 +556,38 @@ describe("getWorkspaceFilesByPath", () => {
     );
     const result = await getWorkspaceFilesByPath("https://api.uploads.sh", "acme");
     expect(result.kind).toBe("unavailable");
+  });
+
+  it("forwards an opts.cookie as the outgoing cookie header (issue #365 follow-up)", async () => {
+    let seenInit: RequestInit | undefined;
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      seenInit = init;
+      return Response.json({ groups: [], projects: [], truncated: false });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await getWorkspaceFilesByPath("https://api.uploads.sh", "acme", {
+      cookie: "better-auth.session=abc",
+    });
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect((seenInit?.headers as Record<string, string> | undefined)?.cookie).toBe(
+      "better-auth.session=abc",
+    );
+  });
+
+  it("sends no cookie header without opts (issue #365 follow-up)", async () => {
+    let seenInit: RequestInit | undefined;
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      seenInit = init;
+      return Response.json({ groups: [], projects: [], truncated: false });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await getWorkspaceFilesByPath("https://api.uploads.sh", "acme");
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(seenInit?.headers).toBeUndefined();
   });
 });
 

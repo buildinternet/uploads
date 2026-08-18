@@ -110,11 +110,14 @@ export function parseWorkspaceCreateQuota(value: unknown): WorkspaceCreateQuota 
 }
 
 /** GET /me/workspaces, preserving an outage rather than rendering it as an empty account. */
-export async function getMyWorkspaces(apiOrigin: string): Promise<WorkspacesResult> {
-  const result = await fetchWithTimeout(`${trimOrigin(apiOrigin)}/me/workspaces`, {
-    credentials: "include",
-    cache: "no-store",
-  });
+export async function getMyWorkspaces(
+  apiOrigin: string,
+  opts?: { cookie?: string },
+): Promise<WorkspacesResult> {
+  const result = await fetchWithTimeout(
+    `${trimOrigin(apiOrigin)}/me/workspaces`,
+    sessionFetchInit(opts?.cookie),
+  );
   if (result.kind === "unavailable") return result;
   const { response } = result;
   if (!response.ok) return { kind: "unavailable", reason: "server" };
@@ -183,10 +186,11 @@ export type WorkspaceSummaryResult =
 export async function getWorkspaceSummary(
   apiOrigin: string,
   name: string,
+  opts?: { cookie?: string },
 ): Promise<WorkspaceSummaryResult> {
   const result = await fetchWithTimeout(
     `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(name)}/summary`,
-    { credentials: "include", cache: "no-store" },
+    sessionFetchInit(opts?.cookie),
   );
   if (result.kind === "unavailable") return result;
   const { response } = result;
@@ -213,10 +217,11 @@ async function fetchWorkspaceList<T>(
   segment: string,
   key: string,
   isValid: (value: unknown) => value is T,
+  opts?: { cookie?: string },
 ): Promise<T[]> {
   const result = await fetchWithTimeout(
     `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(name)}/${segment}`,
-    { credentials: "include", cache: "no-store" },
+    sessionFetchInit(opts?.cookie),
   );
   if (result.kind === "unavailable" || !result.response.ok) return [];
   const body = (await result.response.json().catch(() => null)) as Record<string, unknown> | null;
@@ -274,8 +279,9 @@ function isGallerySummary(value: unknown): value is GallerySummary {
 export function getMyWorkspaceGalleries(
   apiOrigin: string,
   name: string,
+  opts?: { cookie?: string },
 ): Promise<GallerySummary[]> {
-  return fetchWorkspaceList(apiOrigin, name, "galleries", "galleries", isGallerySummary);
+  return fetchWorkspaceList(apiOrigin, name, "galleries", "galleries", isGallerySummary, opts);
 }
 
 export interface WorkspaceFile {
@@ -303,10 +309,11 @@ function isWorkspaceFile(value: unknown): value is WorkspaceFile {
 export async function getMyWorkspaceFiles(
   apiOrigin: string,
   name: string,
+  opts?: { cookie?: string },
 ): Promise<WorkspaceFile[]> {
   const result = await fetchWithTimeout(
     `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(name)}/files`,
-    { credentials: "include", cache: "no-store" },
+    sessionFetchInit(opts?.cookie),
   );
   if (result.kind === "unavailable" || !result.response.ok) return [];
   const body = (await result.response.json().catch(() => null)) as Record<string, unknown> | null;
@@ -464,10 +471,11 @@ export type WorkspacePeopleResult =
 export async function getWorkspacePeople(
   apiOrigin: string,
   name: string,
+  opts?: { cookie?: string },
 ): Promise<WorkspacePeopleResult> {
   const result = await fetchWithTimeout(
     `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(name)}/people`,
-    { credentials: "include", cache: "no-store" },
+    sessionFetchInit(opts?.cookie),
   );
   if (result.kind === "unavailable") return result;
   const { response } = result;
@@ -903,9 +911,10 @@ function isProjectSummary(value: unknown): value is ProjectSummary {
 export async function getWorkspaceFilesByPath(
   apiOrigin: string,
   name: string,
+  opts?: { cookie?: string },
 ): Promise<FilesByPathResult> {
   const url = `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(name)}/files/by-path`;
-  const result = await fetchWithTimeout(url, { credentials: "include", cache: "no-store" });
+  const result = await fetchWithTimeout(url, sessionFetchInit(opts?.cookie));
   if (result.kind === "unavailable") return result;
   const { response } = result;
   if (!response.ok) return { kind: "unavailable", reason: "server" };
