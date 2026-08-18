@@ -506,14 +506,30 @@ function countInlinableMedia(sorted: AttachmentItem[], maxInlineImages: number):
 }
 
 /**
+ * Quiet add-media footer. When `target` is a real PR/issue, the command
+ * uses that number (`--pr 12` / `--issue 45`) so anyone reading the comment
+ * can copy it. Without a target the generic `--pr <N>` placeholder stays.
+ */
+function addMediaFooter(target?: Pick<GhTarget, "kind" | "num">): string {
+  const flag = target?.kind === "issues" ? "--issue" : "--pr";
+  const n =
+    target && Number.isInteger(target.num) && target.num > 0 ? String(target.num) : "&lt;N&gt;";
+  return `<sub>Maintained by <a href="https://uploads.sh">uploads.sh</a> · add media: <code>uploads put &lt;file&gt; ${flag} ${n}</code> · <a href="https://uploads.sh/docs/github-app">docs</a></sub>`;
+}
+
+/**
  * Render the one marker-owned GitHub comment. When there are no galleries this
  * intentionally preserves the legacy attachment-only body byte-for-byte.
+ *
+ * `target` is optional so goldens, the settings preview, and other callers
+ * without a PR/issue stay on the generic `--pr <N>` hint.
  */
 export function attachmentsCommentBody(
   items: AttachmentItem[],
   galleries: GalleryCommentItem[] = [],
   marker: string = ATTACHMENTS_MARKER,
   options: CommentRenderOptions = AUTO_RENDER_OPTIONS,
+  target?: Pick<GhTarget, "kind" | "num">,
 ): string {
   // Non-mutating sort (equivalent to Array#toSorted) — the api worker's
   // tsconfig targets lib ES2022, which predates Array#toSorted (ES2023);
@@ -650,8 +666,6 @@ export function attachmentsCommentBody(
   // Footer condensed to a single quiet line — the old two-line explainer
   // ("re-uploading updates everywhere", full add-media flags) repeats on
   // every PR and lost value with each appearance; details live in the docs.
-  lines.push(
-    '<sub>Maintained by <a href="https://uploads.sh">uploads.sh</a> · add media: <code>uploads put &lt;file&gt; --pr &lt;N&gt;</code> · <a href="https://uploads.sh/docs/github-app">docs</a></sub>',
-  );
+  lines.push(addMediaFooter(target));
   return lines.join("\n");
 }

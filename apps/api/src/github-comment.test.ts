@@ -78,6 +78,17 @@ describe("gatherCommentBody", () => {
     });
     expect(result.count).toBe(0);
     expect(result.body).toContain("_No attachments are currently associated");
+    expect(result.body).toContain("<code>uploads put &lt;file&gt; --pr 12</code>");
+  });
+
+  it("uses --issue <num> in the add-media hint for issue targets", async () => {
+    const { env, ws, workspaceName } = makeTestEnv();
+    const result = await gatherCommentBody(env, ws, workspaceName, {
+      repo: "acme/web",
+      num: 45,
+      kind: "issues",
+    });
+    expect(result.body).toContain("<code>uploads put &lt;file&gt; --issue 45</code>");
   });
 
   it("renders the workspace's own attachments under the gh prefix", async () => {

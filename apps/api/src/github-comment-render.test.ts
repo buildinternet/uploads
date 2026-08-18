@@ -5,6 +5,7 @@ import {
   attachmentDensityForCount,
   attachmentImageWidth,
   attachmentPairWidth,
+  ATTACHMENTS_MARKER,
   attachmentsCommentBody,
   AUTO_RENDER_OPTIONS,
   GH_PRIVATE_ROOT,
@@ -498,6 +499,30 @@ describe("attachmentsCommentBody (api copy)", () => {
           ...c.options,
         }),
       ).toBe(c.expected);
+    });
+  });
+
+  describe("attachmentsCommentBody add-media hint", () => {
+    it("keeps the generic --pr <N> placeholder when no target is passed", () => {
+      const body = attachmentsCommentBody([]);
+      expect(body).toContain("<code>uploads put &lt;file&gt; --pr &lt;N&gt;</code>");
+    });
+
+    it("fills the PR number into the copy-paste command", () => {
+      const body = attachmentsCommentBody([], [], ATTACHMENTS_MARKER, AUTO_RENDER_OPTIONS, {
+        kind: "pull",
+        num: 12,
+      });
+      expect(body).toContain("<code>uploads put &lt;file&gt; --pr 12</code>");
+      expect(body).not.toContain("--pr &lt;N&gt;");
+    });
+
+    it("uses --issue <num> for issue targets", () => {
+      const body = attachmentsCommentBody([], [], ATTACHMENTS_MARKER, AUTO_RENDER_OPTIONS, {
+        kind: "issues",
+        num: 45,
+      });
+      expect(body).toContain("<code>uploads put &lt;file&gt; --issue 45</code>");
     });
   });
 });
