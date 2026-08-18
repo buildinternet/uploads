@@ -1,5 +1,36 @@
 # @buildinternet/uploads
 
+## 0.44.0
+
+### Minor Changes
+
+- faa961c: `uploads attach --pr <num> <key-or-url>...` now accepts already-uploaded objects, not just local paths: an argument that doesn't exist on disk but resolves as a workspace object key or an uploads.sh URL (storage host, embed host, or `/f/` page) is attached via a server-side copy instead of erroring `file not found`. The source's own derived metadata (`path`/`url`/`viewport`/`state`/…) rides along; `gh.repo`/`gh.kind`/`gh.number`/`gh.ref` are stamped fresh. Copy by default; `--move` deletes the source after a successful copy. A path that exists on disk always wins as a local file. The hosted MCP `promote` tool gained a matching `keys` argument alongside its existing branch-staged sweep.
+- cdb6505: `.uploads.yml` gained an `adoptLinkedFiles` key (on by default for bound repos): when a PR body or comment references an uploads.sh file URL that was pasted in directly — rather than uploaded via `--pr`/`attach --branch` — the webhook now adopts it into that PR/issue's attachment context, so it gets pairing, dedupe, and screenshots-page grouping automatically. Only files already in the repo's own bound workspace are adopted; links to any other workspace's files are silently ignored. A lone adopted image with nothing else to consolidate doesn't trigger a managed comment on its own.
+- e62b445: Make bare `put`/`screenshot` PR-aware (issue #700). Three changes:
+
+  - The bare-upload nudge (issue #393) is now concrete: it names the actual open
+    PR and a ready-made follow-up naming the actual uploaded key(s), e.g.
+    `uploads attach --pr 1250 f/abc123.webp`. It's now surfaced in the `hint`
+    field for `--format json` and in the local stdio MCP `put`/`screenshot`
+    tool responses, not only on stderr.
+  - Default behavior change: a bare `put`/`screenshot` on a git branch that
+    maps to exactly one open PR now behaves as if `--pr <n>` had been passed —
+    stable key, managed comment sync — instead of the previous branch-staging
+    default. Opt out per-call with `--no-pr`, or globally with
+    `UPLOADS_NO_AUTO_PR=1` (env or config file). Never fires outside a git
+    checkout, on the default branch, with `--no-git`, when any explicit
+    destination flag is set, or when no single open PR can be resolved — those
+    cases fall back to the existing branch-staging/dated-layout behavior
+    unchanged.
+  - `uploads hook pre-pr-screenshot` now also suggests promoting
+    staged-but-unattached files (`uploads attach --promote --pr <num>`) when it
+    detects them ahead of `gh pr create`, alongside its existing "stage
+    screenshots first" advisory.
+
+### Patch Changes
+
+- 365e29f: Managed GitHub comment "add media" hint now uses the real PR or issue number (`uploads put <file> --pr 12`) instead of a `<N>` placeholder.
+
 ## 0.43.0
 
 ### Minor Changes
