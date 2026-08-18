@@ -4,9 +4,12 @@
  * Pending invites render in the same people list (not a separate section).
  * Operator ADMIN_TOKEN enrollment lives under /admin, not here.
  */
+import { env } from "cloudflare:workers";
 import WorkspaceLayout from "../../../../layouts/WorkspaceLayout.astro";
+import { getWorkspacePeople } from "../../../../lib/api-client";
+import { resolveSignedInOrigins } from "../../../../lib/signed-in-page";
 import { isBrowseWorkspace } from "../../../../lib/workspace-browse-url";
-import { renderMembersPlaceholderHtml } from "../../../../lib/workspace-ui";
+import { renderMembersHtml, renderMembersPlaceholderHtml } from "../../../../lib/workspace-ui";
 
 export const prerender = false;
 
@@ -17,6 +20,23 @@ if (!workspace) return Astro.redirect("/account/workspaces");
 const tip = {
   body: "invites are workspace-scoped — teammates see every file, not just their own.",
 };
+
+// SSR-first: render the member rows read-only on the server so first paint has
+// real teammates. Controls, the "you" badge, and pending invites are added by
+// the client re-render (they need viewer identity, which the server gate does
+// not expose). Rows are identical between the two renders → no layout jump.
+const { apiOrigin } = resolveSignedInOrigins(env);
+const cookie = Astro.request.headers.get("cookie") ?? "";
+let ssrMembersHtml: string | null = null;
+if (cookie.trim()) {
+  const people = await getWorkspacePeople(apiOrigin, workspace, { cookie });
+  if (people.kind === "ok" && people.members.length > 0) {
+    ssrMembersHtml = renderMembersHtml(people.members, {
+      canManage: false,
+      viewerRole: people.role,
+    });
+  }
+}
 ---
 
 <WorkspaceLayout workspace={workspace} tip={tip}>
@@ -35,8 +55,8 @@ const tip = {
       <div
         id="ws-members"
         class="member-list"
-        aria-busy="true"
-        set:html={renderMembersPlaceholderHtml()}
+        aria-busy={ssrMembersHtml ? "false" : "true"}
+        set:html={ssrMembersHtml ?? renderMembersPlaceholderHtml()}
       />
     </div>
 
