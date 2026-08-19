@@ -48,9 +48,28 @@ const counterpartUrl = compare?.src ?? null;
       </div>
     )
   }
-  <div class="size-toggle" role="group" aria-label="Preview size">
-    <button type="button" data-size="fit" aria-pressed="true">Fit</button>
-    <button type="button" data-size="full" aria-pressed="false">Full width</button>
+  <div class="stage-controls">
+    <div class="size-toggle" role="group" aria-label="Preview size">
+      <button type="button" data-size="fit" aria-pressed="true">Fit</button>
+      <button type="button" data-size="full" aria-pressed="false">Full width</button>
+    </div>
+    <button
+      type="button"
+      class="expand-btn"
+      data-expand
+      aria-label="View full size"
+      aria-haspopup="dialog"
+    >
+      <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
+        <circle cx="7" cy="7" r="4.2" fill="none" stroke="currentColor" stroke-width="1.3"></circle>
+        <path
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.3"
+          stroke-linecap="round"
+          d="M10.2 10.2L14 14M7 5.2v3.6M5.2 7h3.6"></path>
+      </svg>
+    </button>
   </div>
   <img class="single-image" src={src} alt={alt} decoding="async" />
   <MediaFallback
@@ -59,6 +78,34 @@ const counterpartUrl = compare?.src ?? null;
     body={mediaPreviewFailedBody("image")}
     href={src}
   />
+  <div
+    class="lightbox"
+    data-lightbox
+    data-zoom="fit"
+    role="dialog"
+    aria-modal="true"
+    aria-label={`Full size: ${alt}`}
+    hidden
+  >
+    <button
+      type="button"
+      class="lightbox-close"
+      data-lightbox-close
+      aria-label="Close full size view"
+    >
+      <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+        <path
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.6"
+          stroke-linecap="round"
+          d="M4 4l8 8M12 4l-8 8"></path>
+      </svg>
+    </button>
+    <div class="lightbox-scroll" data-lightbox-scroll>
+      <img class="lightbox-image" data-lightbox-image alt={alt} decoding="async" />
+    </div>
+  </div>
   {
     pair && (
       <div class="compare-wrap">
@@ -214,6 +261,130 @@ const counterpartUrl = compare?.src ?? null;
     }
   }
 
+  // One lightbox controller per preview, built lazily on first open. The
+  // controller portals the overlay to <body> (so no ancestor's overflow or
+  // containing block clips the fixed layer) and returns an `open(src)`.
+  const lightboxControllers = new WeakMap<HTMLElement, (src: string) => void>();
+
+  function initLightbox(root: HTMLElement, src: string): void {
+    let open = lightboxControllers.get(root);
+    if (!open) {
+      const box = root.querySelector<HTMLElement>("[data-lightbox]");
+      if (!box) return;
+      open = buildLightbox(box);
+      lightboxControllers.set(root, open);
+    }
+    open(src);
+  }
+
+  function buildLightbox(box: HTMLElement): (src: string) => void {
+    const scroll = box.querySelector<HTMLElement>("[data-lightbox-scroll]");
+    const img = box.querySelector<HTMLImageElement>("[data-lightbox-image]");
+    const closeBtn = box.querySelector<HTMLButtonElement>("[data-lightbox-close]");
+    document.body.appendChild(box);
+
+    let lastFocused: HTMLElement | null = null;
+    let prevBodyOverflow = "";
+    // A pointer drag on the zoomed image pans it; suppress the zoom toggle the
+    // trailing click would otherwise fire.
+    let panMoved = false;
+
+    const setZoom = (zoom: "fit" | "actual") => {
+      box.dataset.zoom = zoom;
+      if (scroll) {
+        scroll.scrollTop = 0;
+        scroll.scrollLeft = 0;
+      }
+    };
+
+    const close = () => {
+      if (box.hidden) return;
+      box.hidden = true;
+      document.body.style.overflow = prevBodyOverflow;
+      document.removeEventListener("keydown", onKeydown, true);
+      // Drop the src so a large decode isn't retained; re-set on next open.
+      img?.removeAttribute("src");
+      if (lastFocused && document.contains(lastFocused)) lastFocused.focus();
+    };
+
+    // Close button is the only focusable control, so the trap simply pins Tab
+    // to it — enough to keep keyboard focus from escaping to the page behind.
+    const onKeydown = (e: KeyboardEvent) => {
+      if (box.hidden) return;
+      if (e.key === "Escape") {
+        e.preventDefault();
+        close();
+      } else if (e.key === "Tab") {
+        e.preventDefault();
+        closeBtn?.focus();
+      }
+    };
+
+    const open = (src: string) => {
+      if (img) img.src = src;
+      setZoom("fit");
+      lastFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      prevBodyOverflow = document.body.style.overflow;
+      document.body.style.overflow = "hidden";
+      box.hidden = false;
+      document.addEventListener("keydown", onKeydown, true);
+      closeBtn?.focus();
+    };
+
+    closeBtn?.addEventListener("click", close);
+    // A click anywhere that isn't the image (backdrop, letterbox margin) closes.
+    box.addEventListener("click", (e) => {
+      if (e.target !== img) close();
+    });
+    img?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (panMoved) {
+        panMoved = false;
+        return;
+      }
+      setZoom(box.dataset.zoom === "actual" ? "fit" : "actual");
+    });
+
+    // Drag-to-pan while zoomed. Native scroll (wheel / trackpad / scrollbar)
+    // still works; this just adds grab-and-drag on top.
+    if (scroll && img) {
+      let dragging = false;
+      let startX = 0;
+      let startY = 0;
+      let startLeft = 0;
+      let startTop = 0;
+      const overflowing = () =>
+        scroll.scrollWidth > scroll.clientWidth || scroll.scrollHeight > scroll.clientHeight;
+      scroll.addEventListener("pointerdown", (e) => {
+        if (e.target !== img || !overflowing()) return;
+        dragging = true;
+        panMoved = false;
+        startX = e.clientX;
+        startY = e.clientY;
+        startLeft = scroll.scrollLeft;
+        startTop = scroll.scrollTop;
+        scroll.setPointerCapture(e.pointerId);
+      });
+      scroll.addEventListener("pointermove", (e) => {
+        if (!dragging) return;
+        const dx = e.clientX - startX;
+        const dy = e.clientY - startY;
+        if (Math.abs(dx) > 3 || Math.abs(dy) > 3) panMoved = true;
+        scroll.scrollLeft = startLeft - dx;
+        scroll.scrollTop = startTop - dy;
+      });
+      const endDrag = (e: PointerEvent) => {
+        if (!dragging) return;
+        dragging = false;
+        if (scroll.hasPointerCapture(e.pointerId)) scroll.releasePointerCapture(e.pointerId);
+      };
+      scroll.addEventListener("pointerup", endDrag);
+      scroll.addEventListener("pointercancel", endDrag);
+    }
+
+    return open;
+  }
+
   function initPreview(root: HTMLElement): void {
     if (root.dataset.previewReady === "1") return;
     root.dataset.previewReady = "1";
@@ -250,14 +421,19 @@ const counterpartUrl = compare?.src ?? null;
       });
     }
 
-    // Imgur-style click-to-zoom: the image itself is a supplementary toggle:
-    // the pill buttons above remain the visible + accessible affordance.
-    img.addEventListener("click", () => {
+    // Clicking the image (or the expand pill) opens a full-screen lightbox —
+    // the Fit / Full width pills stay the in-page sizing control. Skipped in
+    // compare view, where the click belongs to the slider.
+    const openLightbox = () => {
       if (root.dataset.failed === "1") return;
       if (root.dataset.view === "compare") return;
-      override = root.dataset.mode === "full" ? "fit" : "full";
-      applyMode(root, override);
-    });
+      const currentSrc = img.currentSrc || img.src;
+      if (currentSrc) initLightbox(root, currentSrc);
+    };
+    img.addEventListener("click", openLightbox);
+    root
+      .querySelector<HTMLButtonElement>("button[data-expand]")
+      ?.addEventListener("click", openLightbox);
 
     if (img.complete && img.naturalWidth > 0) sync();
     else img.addEventListener("load", sync, { once: true });
@@ -282,7 +458,7 @@ const counterpartUrl = compare?.src ?? null;
     overflow: hidden;
   }
 
-  .image-preview[data-failed="1"] > .size-toggle,
+  .image-preview[data-failed="1"] > .stage-controls,
   .image-preview[data-failed="1"] > .view-toggle,
   .image-preview[data-failed="1"] > .single-image,
   .image-preview[data-failed="1"] > .compare-wrap {
@@ -294,12 +470,29 @@ const counterpartUrl = compare?.src ?? null;
     cursor: default;
   }
 
-  .size-toggle,
-  .view-toggle {
+  /* Top-right cluster: sizing pills + the expand button, laid out side by side.
+     The compare view-toggle keeps its own top-left anchor. */
+  .stage-controls {
     position: absolute;
     top: 10px;
     right: 10px;
     z-index: 2;
+    display: inline-flex;
+    gap: 6px;
+  }
+
+  .view-toggle {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    z-index: 2;
+  }
+
+  /* Shared pill shell for the sizing group, the compare group, and the
+     expand button. */
+  .size-toggle,
+  .view-toggle,
+  .expand-btn {
     display: inline-flex;
     padding: 3px;
     gap: 2px;
@@ -307,6 +500,31 @@ const counterpartUrl = compare?.src ?? null;
     border-radius: 999px;
     background: color-mix(in srgb, var(--panel) 92%, transparent);
     backdrop-filter: blur(8px);
+  }
+
+  .expand-btn {
+    appearance: none;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    color: var(--muted);
+    cursor: pointer;
+  }
+
+  .expand-btn:hover,
+  .expand-btn:focus-visible {
+    color: var(--fg);
+    outline: none;
+  }
+
+  .expand-btn:focus-visible {
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent);
+  }
+
+  /* The lightbox is single-image only; in compare view the click belongs to the
+     slider, so the expand affordance would be a dead control — hide it. */
+  .image-preview[data-view="compare"] .expand-btn {
+    display: none;
   }
 
   .size-toggle button,
@@ -341,11 +559,6 @@ const counterpartUrl = compare?.src ?? null;
   .view-toggle button[aria-pressed="true"] {
     background: color-mix(in srgb, var(--accent) 22%, var(--panel));
     color: var(--fg);
-  }
-
-  .view-toggle {
-    right: auto;
-    left: 10px;
   }
 
   .compare-wrap {
@@ -490,12 +703,11 @@ const counterpartUrl = compare?.src ?? null;
     object-fit: contain;
   }
 
-  .image-preview[data-mode="fit"] .single-image {
-    cursor: zoom-in;
-  }
-
+  /* The image opens the lightbox in either sizing mode, so it always reads as
+     zoom-in; the Fit / Full width pills own in-page sizing. */
+  .image-preview[data-mode="fit"] .single-image,
   .image-preview[data-mode="full"] .single-image {
-    cursor: zoom-out;
+    cursor: zoom-in;
   }
 
   .image-preview[data-mode="fit"] {
@@ -537,6 +749,10 @@ const counterpartUrl = compare?.src ?? null;
      band across the image. Shrink padding/gap/font rather than change the
      settled button copy ("This image" / "Compare" / "Fit" / "Full width"). */
   @media (max-width: 480px) {
+    .stage-controls {
+      gap: 4px;
+    }
+
     .size-toggle,
     .view-toggle {
       padding: 2px;
@@ -549,5 +765,96 @@ const counterpartUrl = compare?.src ?? null;
       font-size: 9.5px;
       letter-spacing: 0.01em;
     }
+
+    .expand-btn {
+      width: 26px;
+      padding: 2px;
+    }
+  }
+
+  /* Full-screen lightbox — portaled to <body> at runtime, so it sits above the
+     page and no ancestor's overflow clips it. Hidden via the `hidden` attribute
+     until first opened. */
+  .lightbox[hidden] {
+    display: none;
+  }
+
+  .lightbox {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+    background: color-mix(in srgb, #000 82%, transparent);
+    backdrop-filter: blur(4px);
+    /* Above the page's own scroll; the scroll container inside handles panning. */
+    overscroll-behavior: contain;
+  }
+
+  .lightbox-close {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    z-index: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    border: 1px solid color-mix(in srgb, #fff 22%, transparent);
+    border-radius: 999px;
+    background: color-mix(in srgb, #000 45%, transparent);
+    color: #fff;
+    cursor: pointer;
+  }
+
+  .lightbox-close:hover,
+  .lightbox-close:focus-visible {
+    background: color-mix(in srgb, #000 62%, transparent);
+    outline: none;
+  }
+
+  .lightbox-close:focus-visible {
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 70%, transparent);
+  }
+
+  .lightbox-scroll {
+    max-width: 100%;
+    max-height: 100%;
+    display: grid;
+    place-items: center;
+    overflow: auto;
+    overscroll-behavior: contain;
+  }
+
+  /* Fit: the image is capped to the padded viewport and centered. */
+  .lightbox[data-zoom="fit"] .lightbox-image {
+    max-width: min(92vw, 100%);
+    max-height: 92vh;
+    width: auto;
+    height: auto;
+    object-fit: contain;
+    cursor: zoom-in;
+  }
+
+  /* Actual pixels: intrinsic size; the scroll container pans when it overflows. */
+  .lightbox[data-zoom="actual"] .lightbox-scroll {
+    width: 100%;
+    height: 100%;
+  }
+
+  .lightbox[data-zoom="actual"] .lightbox-image {
+    max-width: none;
+    max-height: none;
+    cursor: zoom-out;
+  }
+
+  .lightbox-image {
+    display: block;
+    /* No text selection / native drag ghost while pan-dragging. */
+    user-select: none;
+    -webkit-user-drag: none;
   }
 </style>
