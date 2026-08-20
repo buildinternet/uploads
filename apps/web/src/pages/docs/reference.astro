@@ -46,6 +46,41 @@ const REPO = "https://github.com/buildinternet/uploads";
     </div>
   </section>
 
+  <section id="browsing">
+    <h2>
+      Browsing your screenshots <a class="anchor" href="#browsing" aria-label="Link to this section"
+        >#</a
+      >
+    </h2>
+    <p class="browsing-lead">
+      Everything you upload shows up in your workspace, grouped by where it came from — pages by
+      <code>path</code>, projects by <code>repo</code> or <code>app</code>. Open any file to get its
+      share page: copy-ready embeds, the raw URL, and a delete button.
+    </p>
+    <div class="shots">
+      <figure>
+        <img
+          src="/reference/screenshots-view.webp"
+          width="1436"
+          height="1021"
+          loading="lazy"
+          alt="The screenshots view in a workspace, with uploads grouped into collapsible sections by project and path."
+        />
+        <figcaption>The screenshots view groups uploads by project and path.</figcaption>
+      </figure>
+      <figure>
+        <img
+          src="/reference/file-page.webp"
+          width="1276"
+          height="740"
+          loading="lazy"
+          alt="A file share page showing the media preview, a Copy-as embed menu, file details, and a Delete file action."
+        />
+        <figcaption>Each file's share page: copy-ready embeds, details, and delete.</figcaption>
+      </figure>
+    </div>
+  </section>
+
   <section id="good-to-know">
     <h2>
       Good to know <a class="anchor" href="#good-to-know" aria-label="Link to this section">#</a>
@@ -104,4 +139,31 @@ const REPO = "https://github.com/buildinternet/uploads";
     <a class="prev" href="/docs/agents"><span class="dir">← Back</span>Set up your agent</a>
     <a class="next" href="/docs/limits"><span class="dir">Next →</span>Plans &amp; limits</a>
   </nav>
+
+  <style>
+    .browsing-lead {
+      color: var(--muted);
+      margin: 0 0 18px;
+    }
+    .shots {
+      display: grid;
+      gap: 20px;
+      margin: 0;
+    }
+    .shots figure {
+      margin: 0;
+    }
+    .shots img {
+      display: block;
+      width: 100%;
+      height: auto;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-md);
+    }
+    .shots figcaption {
+      font: 12px var(--mono);
+      color: var(--muted);
+      margin-top: 8px;
+    }
+  </style>
 </DocsLayout>
