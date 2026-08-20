@@ -27,6 +27,7 @@ import {
 import { oembedDiscoveryHref } from "../../../lib/oembed";
 import { OG_DEFAULT_IMAGE, OG_SITE_NAME, ogImageFor } from "../../../lib/og";
 import { env } from "cloudflare:workers";
+import { workspaceHomePath } from "../../../lib/workspaces-nav";
 
 export const prerender = false;
 
@@ -634,8 +635,8 @@ const ogImage = file
               <code>file.deleted</code>
               <h1>File deleted</h1>
               <p>This file has been permanently removed.</p>
-              <a class="signin" href={`/account/workspaces/${workspace}`}>
-                Workspace files
+              <a class="signin" href={workspaceHomePath(workspace)}>
+                Workspace
               </a>
             </section>
           </>

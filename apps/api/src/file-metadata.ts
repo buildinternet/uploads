@@ -659,6 +659,11 @@ export async function facetValues(
 export const BY_PATH_GROUP_LIMIT = 50;
 /** Recent object keys returned per path group. */
 export const BY_PATH_RECENT_LIMIT = 6;
+/**
+ * Max unique (project, path) pairs in the screenshots catalog. Larger than
+ * the thumbed-group cap so the filter bar can still name older paths.
+ */
+export const BY_PATH_CATALOG_LIMIT = 500;
 
 export type PathGroup = {
   project: string;
@@ -668,14 +673,19 @@ export type PathGroup = {
   recent: string[];
 };
 
+/** Unique (project, path) without thumbs — same fields as a group minus `recent`. */
+export type PathCatalogEntry = Omit<PathGroup, "recent">;
+
 export type ProjectSummary = { label: string; count: number; lastUpdated: string };
 
 /**
  * Recent uploads grouped by (project, path) — the screenshots page's one
  * query (spec: docs/superpowers/specs/2026-08-11-screenshots-project-grouping-design.md).
  * Groups come back most-recently-active first, each carrying its newest
- * BY_PATH_RECENT_LIMIT keys and total count. `projects` summarizes the same
- * data by project label alone, most-recent first.
+ * BY_PATH_RECENT_LIMIT keys and total count. `catalog` is the same unique
+ * pairs without thumbs, up to BY_PATH_CATALOG_LIMIT, so the page can filter
+ * by path without a second query. `projects` summarizes the catalog by
+ * project label, most-recent first.
  *
  * One flat scan of the `path` rows (seeked via `file_metadata_lookup_idx
  * (workspace, meta_key, meta_value)`), with the three project-label keys
@@ -688,7 +698,13 @@ export type ProjectSummary = { label: string; count: number; lastUpdated: string
 export async function groupObjectsByPath(
   db: D1Database,
   workspace: string,
-): Promise<{ groups: PathGroup[]; projects: ProjectSummary[]; truncated: boolean }> {
+): Promise<{
+  groups: PathGroup[];
+  catalog: PathCatalogEntry[];
+  projects: ProjectSummary[];
+  truncated: boolean;
+  catalogTruncated: boolean;
+}> {
   const result = await db
     .prepare(
       `SELECT p.meta_value AS path, p.object_key AS object_key, p.updated_at AS updated_at,
@@ -713,7 +729,10 @@ export async function groupObjectsByPath(
 
   const groups: PathGroup[] = [];
   const byKey = new Map<string, PathGroup>();
+  const catalog: PathCatalogEntry[] = [];
+  const catalogByKey = new Map<string, PathCatalogEntry>();
   let truncated = false;
+  let catalogTruncated = false;
   for (const row of result.results) {
     const project = projectLabelFromMeta({
       repo: row.repo,
@@ -722,6 +741,19 @@ export async function groupObjectsByPath(
       app: row.app,
     });
     const groupKey = `${project}\0${row.path}`;
+
+    let entry = catalogByKey.get(groupKey);
+    if (!entry) {
+      if (catalog.length === BY_PATH_CATALOG_LIMIT) {
+        catalogTruncated = true;
+      } else {
+        entry = { project, path: row.path, count: 0, lastUpdated: row.updated_at };
+        catalogByKey.set(groupKey, entry);
+        catalog.push(entry);
+      }
+    }
+    if (entry) entry.count += 1;
+
     let group = byKey.get(groupKey);
     if (!group) {
       if (groups.length === BY_PATH_GROUP_LIMIT) {
@@ -737,23 +769,23 @@ export async function groupObjectsByPath(
   }
 
   const projectByLabel = new Map<string, ProjectSummary>();
-  for (const group of groups) {
-    const existing = projectByLabel.get(group.project);
+  for (const entry of catalog) {
+    const existing = projectByLabel.get(entry.project);
     if (existing) {
-      existing.count += group.count;
-      if (group.lastUpdated > existing.lastUpdated) existing.lastUpdated = group.lastUpdated;
+      existing.count += entry.count;
+      if (entry.lastUpdated > existing.lastUpdated) existing.lastUpdated = entry.lastUpdated;
     } else {
-      projectByLabel.set(group.project, {
-        label: group.project,
-        count: group.count,
-        lastUpdated: group.lastUpdated,
+      projectByLabel.set(entry.project, {
+        label: entry.project,
+        count: entry.count,
+        lastUpdated: entry.lastUpdated,
       });
     }
   }
   const projects = [...projectByLabel.values()].sort((a, b) =>
     b.lastUpdated.localeCompare(a.lastUpdated),
   );
-  return { groups, projects, truncated };
+  return { groups, catalog, projects, truncated, catalogTruncated };
 }
 
 /**

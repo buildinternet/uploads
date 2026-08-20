@@ -42,15 +42,11 @@ const stars = await githubStarCount();
           /*
           Screenshots is signed-in only. AuthIndicator toggles
           [data-header-files] after the session check (optimistic paint from
-          session cache). `?to=screenshots` makes the workspaces index's
-          auto-open land on the active workspace's screenshots tab.
+          session cache). The workspaces index auto-opens on screenshots.
         */
         }
-        <a
-          class="site-header__link"
-          data-header-files
-          href="/account/workspaces?to=screenshots"
-          hidden>Screenshots</a
+        <a class="site-header__link" data-header-files href="/account/workspaces" hidden
+          >Screenshots</a
         >
         <a class="site-header__link" href="/docs">Docs</a>
       </nav>

@@ -48,14 +48,14 @@ describe("resolveFilesView", () => {
 
 describe("applyFilesView", () => {
   it("sets view without clobbering other params", () => {
-    const base = new URL("https://uploads.sh/account/workspaces/acme?path=screenshots/");
+    const base = new URL("https://uploads.sh/account/workspaces/acme/files?path=screenshots/");
     const next = applyFilesView(base, "grid");
     expect(next.searchParams.get("view")).toBe("grid");
     expect(next.searchParams.get("path")).toBe("screenshots/");
   });
 
   it("can override a prior view value", () => {
-    const base = new URL("https://uploads.sh/account/workspaces/acme?view=grid");
+    const base = new URL("https://uploads.sh/account/workspaces/acme/files?view=grid");
     expect(applyFilesView(base, "list").searchParams.get("view")).toBe("list");
   });
 });

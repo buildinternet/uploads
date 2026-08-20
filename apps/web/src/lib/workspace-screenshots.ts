@@ -124,17 +124,105 @@ export function pairedShotKeys(items: Array<{ key: string; state?: string }>): S
   return paired;
 }
 
-/** `?project=` / `?path=` view state, "" when absent. */
-export function readScreenshotsView(search: string): { project: string; path: string } {
+/** `?project=` / `?path=` / `?q=` view state, "" when absent. */
+export function readScreenshotsView(search: string): { project: string; path: string; q: string } {
   const params = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search);
-  return { project: params.get("project") ?? "", path: params.get("path") ?? "" };
+  return {
+    project: params.get("project") ?? "",
+    path: params.get("path") ?? "",
+    q: params.get("q") ?? "",
+  };
 }
 
-/** Search string for a view ("" for both clears back to the overview). */
-export function screenshotsSearch(project: string, path: string): string {
+/** Search string for a view ("" for all three clears back to the overview). */
+export function screenshotsSearch(project: string, path: string, q = ""): string {
   const params = new URLSearchParams();
   if (project) params.set("project", project);
   if (path) params.set("path", path);
+  if (q) params.set("q", q);
   const qs = params.toString();
   return qs ? `?${qs}` : "";
+}
+
+/**
+ * Live path filter. A query that starts with `/` is a path-segment prefix
+ * (`/catalog` matches `/catalog` and `/catalog/families`, not `/catalogue`).
+ * Anything else is a case-insensitive substring.
+ */
+export function pathQueryMatches(path: string, query: string): boolean {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return true;
+  const haystack = path.toLowerCase();
+  if (needle.startsWith("/")) {
+    const prefix = needle.endsWith("/") ? needle.slice(0, -1) : needle;
+    return haystack === prefix || haystack.startsWith(`${prefix}/`);
+  }
+  return haystack.includes(needle);
+}
+
+export function filterCatalog<T extends { project: string; path: string }>(
+  catalog: T[],
+  opts: { project: string; q: string },
+): T[] {
+  return catalog.filter((entry) => {
+    if (opts.project && entry.project !== opts.project) return false;
+    return pathQueryMatches(entry.path, opts.q);
+  });
+}
+
+type PathCatalogFields = {
+  project: string;
+  path: string;
+  count: number;
+  lastUpdated: string;
+};
+
+/**
+ * Join filtered catalog entries with thumbed groups. Catalog-only paths
+ * (beyond the thumbed cap) render as empty `recent` strips.
+ */
+export function groupsFromCatalog<TRecent>(
+  catalog: PathCatalogFields[],
+  groups: Array<PathCatalogFields & { recent: TRecent[] }>,
+): Array<PathCatalogFields & { recent: TRecent[] }> {
+  const byKey = new Map(groups.map((group) => [`${group.project}\0${group.path}`, group]));
+  return catalog.map((entry) => {
+    const group = byKey.get(`${entry.project}\0${entry.path}`);
+    if (group) return group;
+    return { ...entry, recent: [] };
+  });
+}
+
+/** Viewport box used to place the thumbnail hover preview. */
+export type ShotPreviewBox = { left: number; top: number; right: number; bottom: number };
+
+/**
+ * Place a hover preview next to a thumbnail, flipping if it would clip the
+ * viewport. Prefers the right side, then left, then below; clamps to an
+ * 8px inset.
+ */
+export function shotPreviewPosition(
+  thumb: ShotPreviewBox,
+  viewport: { width: number; height: number },
+  preview: { width: number; height: number },
+  gap = 12,
+): { left: number; top: number } {
+  const inset = 8;
+  const roomRight = viewport.width - inset - (thumb.right + gap);
+  const roomLeft = thumb.left - gap - inset;
+  let left: number;
+  if (roomRight >= preview.width) left = thumb.right + gap;
+  else if (roomLeft >= preview.width) left = thumb.left - gap - preview.width;
+  else left = Math.max(inset, Math.min(thumb.left, viewport.width - inset - preview.width));
+
+  let top = thumb.top;
+  if (top + preview.height > viewport.height - inset) {
+    top = Math.max(inset, viewport.height - inset - preview.height);
+  }
+  if (top < inset) top = inset;
+  if (left < inset) left = inset;
+  if (left + preview.width > viewport.width - inset) {
+    left = Math.max(inset, viewport.width - inset - preview.width);
+  }
+  return { left, top };
 }

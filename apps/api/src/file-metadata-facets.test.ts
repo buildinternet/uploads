@@ -7,6 +7,7 @@ import {
   facetValues,
   groupObjectsByPath,
   projectLabelFromMeta,
+  BY_PATH_CATALOG_LIMIT,
   BY_PATH_GROUP_LIMIT,
   BY_PATH_RECENT_LIMIT,
 } from "./file-metadata";
@@ -181,6 +182,7 @@ describe("groupObjectsByPath", () => {
       "acme",
     );
     expect(result.truncated).toBe(false);
+    expect(result.catalogTruncated).toBe(false);
     expect(result.groups).toEqual([
       {
         project: "Other",
@@ -190,6 +192,10 @@ describe("groupObjectsByPath", () => {
         recent: ["c.png", "a.png"],
       },
       { project: "Other", path: "/home", count: 1, lastUpdated: at(2), recent: ["b.png"] },
+    ]);
+    expect(result.catalog).toEqual([
+      { project: "Other", path: "/settings", count: 2, lastUpdated: at(3) },
+      { project: "Other", path: "/home", count: 1, lastUpdated: at(2) },
     ]);
     expect(result.projects).toEqual([{ label: "Other", count: 3, lastUpdated: at(3) }]);
   });
@@ -244,6 +250,44 @@ describe("groupObjectsByPath", () => {
     expect(result.truncated).toBe(true);
     // Group cap keeps the most recently active groups, drops the oldest.
     expect(result.groups.map((g) => g.path)).not.toContain("/page-0");
+    // Catalog keeps the dropped path so the filter bar can still name it.
+    expect(result.catalog).toHaveLength(BY_PATH_GROUP_LIMIT + 1);
+    expect(result.catalogTruncated).toBe(false);
+    expect(result.catalog.map((e) => e.path)).toContain("/page-0");
+  });
+
+  it("keeps a catalog-only project that missed the thumbed-group cap", async () => {
+    const rows = [
+      ...Array.from({ length: BY_PATH_GROUP_LIMIT }, (_, i) => ({
+        workspace: "acme",
+        key: `web-${i}.png`,
+        meta: { path: `/web-${i}`, repo: "acme/web" },
+        at: at(i + 1),
+      })),
+      {
+        workspace: "acme",
+        key: "api-old.png",
+        meta: { path: "/admin", repo: "acme/api" },
+        at: at(0),
+      },
+    ];
+    const result = await groupObjectsByPath(timedDb(rows), "acme");
+    expect(result.groups.every((g) => g.project === "acme/web")).toBe(true);
+    expect(result.catalog.some((e) => e.project === "acme/api" && e.path === "/admin")).toBe(true);
+    expect(result.projects.map((p) => p.label).sort()).toEqual(["acme/api", "acme/web"]);
+    expect(result.projects.find((p) => p.label === "acme/api")?.count).toBe(1);
+  });
+
+  it("caps the catalog at BY_PATH_CATALOG_LIMIT", async () => {
+    const rows = Array.from({ length: BY_PATH_CATALOG_LIMIT + 1 }, (_, i) => ({
+      workspace: "acme",
+      key: `shot-${i}.png`,
+      meta: { path: `/page-${i}` },
+      at: new Date(Date.UTC(2026, 7, 1, 0, 0, i)).toISOString(),
+    }));
+    const result = await groupObjectsByPath(timedDb(rows), "acme");
+    expect(result.catalog).toHaveLength(BY_PATH_CATALOG_LIMIT);
+    expect(result.catalogTruncated).toBe(true);
   });
 
   it("ignores other workspaces and other meta keys", async () => {
@@ -262,7 +306,13 @@ describe("groupObjectsByPath", () => {
 
   it("returns empty groups for a workspace with no path metadata", async () => {
     const result = await groupObjectsByPath(timedDb([]), "acme");
-    expect(result).toEqual({ groups: [], projects: [], truncated: false });
+    expect(result).toEqual({
+      groups: [],
+      catalog: [],
+      projects: [],
+      truncated: false,
+      catalogTruncated: false,
+    });
   });
 
   it("splits the same path across projects and summarizes projects", async () => {

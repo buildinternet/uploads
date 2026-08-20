@@ -623,11 +623,15 @@ export function renderGalleriesPlaceholderForView(view: GalleriesLayout): string
  * layout jump. Change the two together.
  */
 export function renderScreenshotsPlaceholderHtml(rows = 3, thumbs = 4): string {
+  const filter = `<div class="wsp-filter">
+  <span class="wsp-filter__project wsp-filter__skel">${skeletonBarHtml("120px")}</span>
+  <span class="wsp-filter__q wsp-filter__skel">${skeletonBarHtml("60%")}</span>
+</div>`;
   const group = `<div class="wsp-group">
   <div class="wsp-group__head">${skeletonBarHtml("140px")}</div>
   <div class="wsp-strip">${`<span class="wsp-thumb wsp-thumb--skel" aria-hidden="true"></span>`.repeat(thumbs)}</div>
 </div>`;
-  return `<div class="wsp" aria-busy="true">${group.repeat(rows)}</div>`;
+  return `<div class="wsp" aria-busy="true">${filter}${group.repeat(rows)}</div>`;
 }
 
 /**

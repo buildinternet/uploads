@@ -575,10 +575,12 @@ function WorkspaceFileTableInner({
   // `readBrowseLocation` resolves workspace identity from the pathname; when
   // there's no `window` yet, synthesize this route's own pathname from the
   // `workspace` prop (this component only ever mounts on
-  // `/account/workspaces/:name`) so the server's parse agrees with the
+  // `/account/workspaces/:name/files`) so the server's parse agrees with the
   // client's.
   const seedPathname =
-    typeof window !== "undefined" ? window.location.pathname : `/account/workspaces/${workspace}`;
+    typeof window !== "undefined"
+      ? window.location.pathname
+      : `/account/workspaces/${encodeURIComponent(workspace)}/files`;
 
   const [info, setInfo] = useState<WorkspaceInfoStatus | { status: "loading" }>(
     () => initialInfo ?? { status: "loading" },

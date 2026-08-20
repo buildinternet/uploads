@@ -2085,3 +2085,86 @@ button.wft-card__name:focus-visible {
 .wsp-pair svg {
   display: block;
 }
+
+/* Path/project filter — compact row above the grouped feed. Native select
+   + search input, same 36px box as the files tab filter so the two tabs
+   sit in one system. 16px type on small viewports so iOS doesn't zoom. */
+.wsp-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: stretch;
+}
+.wsp-filter .wsp-filter__project {
+  width: auto;
+  flex: 0 1 16rem;
+  min-width: 12rem;
+  max-width: 100%;
+  min-height: 36px;
+  font-size: 16px;
+  box-sizing: border-box;
+}
+.wsp-filter .wsp-filter__q {
+  flex: 1 1 16rem;
+  min-width: 0;
+  min-height: 36px;
+  padding: 6px 12px;
+  font-size: 16px;
+  border-radius: 6px;
+  box-sizing: border-box;
+}
+.wsp-filter__skel {
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  box-sizing: border-box;
+}
+@media (min-width: 640px) {
+  .wsp-filter .wsp-filter__project,
+  .wsp-filter .wsp-filter__q {
+    font-size: 12.5px;
+  }
+}
+
+/* Hover preview — hover-capable pointers only. pointer-events none so
+   scanning the strip doesn't get stuck on the popover. */
+.wsp-preview {
+  position: fixed;
+  z-index: 40;
+  pointer-events: none;
+  padding: 6px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 12px 32px color-mix(in srgb, #000 45%, transparent);
+}
+.wsp-preview img {
+  display: block;
+  max-width: min(560px, calc(100vw - 24px));
+  max-height: 70vh;
+  width: auto;
+  height: auto;
+  border-radius: 2px;
+  outline: 1px solid oklch(1 0 0 / 0.1);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .wsp-preview {
+    animation: wsp-preview-in 150ms ease-out;
+  }
+}
+@keyframes wsp-preview-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@media (hover: none) {
+  .wsp-preview {
+    display: none;
+  }
+}

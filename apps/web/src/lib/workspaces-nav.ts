@@ -36,16 +36,36 @@ export type WorkspaceNavTab =
 export const WORKSPACE_NAV_TABS: {
   id: WorkspaceNavTab;
   label: string;
-  /** Path suffix after `/account/workspaces/:name` — empty for files. */
+  /** Path suffix after `/account/workspaces/:name`. */
   path: string;
 }[] = [
-  { id: "files", label: "files", path: "" },
   { id: "screenshots", label: "screenshots", path: "/screenshots" },
+  { id: "files", label: "files", path: "/files" },
   { id: "galleries", label: "galleries", path: "/galleries" },
   { id: "people", label: "people", path: "/people" },
   { id: "billing", label: "billing", path: "/billing" },
   { id: "settings", label: "settings", path: "/settings" },
 ];
+
+/** Workspace home — the screenshots tab. */
+export function workspaceHomePath(workspace: string): string {
+  return workspacePath(workspace, "screenshots");
+}
+
+/** Path for a workspace tab. Unknown/empty tab falls through to screenshots. */
+export function workspacePath(
+  workspace: string,
+  tab: WorkspaceNavTab | "" = "screenshots",
+): string {
+  const base = `/account/workspaces/${encodeURIComponent(workspace)}`;
+  const suffix = tabPathSuffix(tab);
+  return `${base}${suffix}`;
+}
+
+/** `?to=` allowlist for the workspaces index auto-open. Anything else is home. */
+export function workspaceOpenTab(to: string | null | undefined): "files" | "screenshots" {
+  return to === "files" ? "files" : "screenshots";
+}
 
 export type WorkspacesNavOptions = {
   active?: string;
@@ -261,8 +281,9 @@ export function workspaceTabFromPathname(pathname: string): WorkspaceNavTab | ""
   const slug = decodeURIComponent(match[1] ?? "");
   if (!slug || slug === "new") return "";
   const segment = match[2] ?? "";
-  if (!segment) return "files";
+  if (!segment) return "screenshots";
   if (segment === "screenshots") return "screenshots";
+  if (segment === "files") return "files";
   if (segment === "galleries") return "galleries";
   if (segment === "people" || segment === "invite") return "people";
   if (segment === "billing") return "billing";
@@ -288,25 +309,26 @@ export function workspaceSettingsSubpageFromPathname(
   return "";
 }
 
-/** Path suffix that keeps the current tab when switching workspaces ("" for
- * files or off-workspace routes). Settings deliberately maps to the tab root,
- * not the sub-page — sub-pages are workspace-specific detail views. */
+/** Path suffix that keeps the current tab when switching workspaces.
+ * Off-workspace routes (empty tab) land on screenshots, the workspace home.
+ * Settings deliberately maps to the tab root, not the sub-page — sub-pages
+ * are workspace-specific detail views. */
 function tabPathSuffix(tab: WorkspaceNavTab | ""): string {
-  if (!tab) return "";
-  return WORKSPACE_NAV_TABS.find((t) => t.id === tab)?.path ?? "";
+  if (!tab) return "/screenshots";
+  return WORKSPACE_NAV_TABS.find((t) => t.id === tab)?.path ?? "/screenshots";
 }
 
 /** Switcher dropdown HTML. Rows preserve `activeTab` so switching workspaces
- * lands on the same section instead of resetting to files. */
+ * lands on the same section instead of resetting to screenshots. */
 export function renderSwitcherMenuHtml(
   workspaces: MyWorkspace[],
   options: WorkspacesNavOptions = {},
 ): string {
   const active = options.active ?? "";
-  const tabSuffix = tabPathSuffix(options.activeTab || "");
+  const activeTab = options.activeTab || "";
   const rows = workspaces
     .map((ws) => {
-      const href = `/account/workspaces/${encodeURIComponent(ws.workspace)}${tabSuffix}`;
+      const href = workspacePath(ws.workspace, activeTab);
       const current = active === ws.workspace;
       const cls = current ? "ws-switcher__item is-current" : "ws-switcher__item";
       const aria = current ? ' aria-current="true"' : "";
@@ -359,9 +381,8 @@ export function renderWorkspaceSectionNavHtml(
   settingsSubpage: WorkspaceSettingsSubpage | "" = "",
 ): string {
   if (!workspace) return "";
-  const base = `/account/workspaces/${encodeURIComponent(workspace)}`;
   return WORKSPACE_NAV_TABS.map((tab) => {
-    const href = `${base}${tab.path}`;
+    const href = workspacePath(workspace, tab.id);
     const current = activeTab === tab.id ? ' aria-current="page"' : "";
     const link = `<a href="${escapeHtml(href)}" class="side-link"${current}>${escapeHtml(tab.label)}</a>`;
     const subnav =

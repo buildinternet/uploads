@@ -91,25 +91,36 @@ export function readBrowseLocation(search: string, pathname = ""): BrowseLocatio
 }
 
 /**
+ * True when the query is a files-tab deep link (folder `path`, filename
+ * `name`, `meta.*` filters, or `view=`). Used to send the workspace root
+ * URL to `/files` instead of the screenshots home.
+ */
+export function isFilesBrowseSearch(search: string): boolean {
+  const raw = search.startsWith("?") ? search.slice(1) : search;
+  const params = new URLSearchParams(raw);
+  if (params.has("path") || params.has("name") || params.has("view")) return true;
+  for (const key of params.keys()) {
+    if (key.startsWith("meta.")) return true;
+  }
+  return false;
+}
+
+/**
  * Apply browse location onto a URL. When already under
- * `/account/workspaces/:name` (or navigating to one), the workspace lives in
- * the pathname and `ws` is stripped from the query. Returns a new URL for
- * `history.replaceState`.
+ * `/account/workspaces/:name/files` (or navigating to one), the workspace
+ * lives in the pathname and `ws` is stripped from the query. Returns a new
+ * URL for `history.replaceState`.
  */
 export function applyBrowseLocation(current: URL, location: BrowseLocation): URL {
   const next = new URL(current.href);
   const workspace = isBrowseWorkspace(location.workspace) ? location.workspace : "";
   const path = workspace ? normalizeBrowsePath(location.path) : "";
-  const pathWorkspace = workspaceFromPathname(next.pathname);
 
   if (workspace) {
-    if (pathWorkspace !== workspace) {
-      next.pathname = `/account/workspaces/${encodeURIComponent(workspace)}`;
-    }
-    next.searchParams.delete("ws");
-  } else {
-    next.searchParams.delete("ws");
+    const filesPath = `/account/workspaces/${encodeURIComponent(workspace)}/files`;
+    if (next.pathname !== filesPath) next.pathname = filesPath;
   }
+  next.searchParams.delete("ws");
   if (path) next.searchParams.set("path", path);
   else next.searchParams.delete("path");
   return next;

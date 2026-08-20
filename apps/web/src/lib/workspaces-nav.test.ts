@@ -14,6 +14,9 @@ import {
   resolveSidebarWorkspace,
   shouldShowTriggerBadge,
   switcherLabel,
+  workspaceHomePath,
+  workspaceOpenTab,
+  workspacePath,
   workspaceTabFromPathname,
   writeCachedActiveWorkspace,
   readCachedQuota,
@@ -101,8 +104,9 @@ describe("workspaces cache", () => {
 
 describe("workspaceTabFromPathname", () => {
   it("maps workspace shell paths to tab ids", () => {
-    expect(workspaceTabFromPathname("/account/workspaces/buildinternet")).toBe("files");
-    expect(workspaceTabFromPathname("/account/workspaces/buildinternet/")).toBe("files");
+    expect(workspaceTabFromPathname("/account/workspaces/buildinternet")).toBe("screenshots");
+    expect(workspaceTabFromPathname("/account/workspaces/buildinternet/")).toBe("screenshots");
+    expect(workspaceTabFromPathname("/account/workspaces/buildinternet/files")).toBe("files");
     expect(workspaceTabFromPathname("/account/workspaces/buildinternet/galleries")).toBe(
       "galleries",
     );
@@ -114,6 +118,15 @@ describe("workspaceTabFromPathname", () => {
 
   it("maps /screenshots to the screenshots tab", () => {
     expect(workspaceTabFromPathname("/account/workspaces/acme/screenshots")).toBe("screenshots");
+  });
+
+  it("builds the screenshots home and files tab paths", () => {
+    expect(workspaceHomePath("acme")).toBe("/account/workspaces/acme/screenshots");
+    expect(workspacePath("acme", "files")).toBe("/account/workspaces/acme/files");
+    expect(workspacePath("acme", "")).toBe("/account/workspaces/acme/screenshots");
+    expect(workspaceOpenTab("files")).toBe("files");
+    expect(workspaceOpenTab("screenshots")).toBe("screenshots");
+    expect(workspaceOpenTab(null)).toBe("screenshots");
   });
 
   it("returns empty outside the workspace shell", () => {
@@ -325,10 +338,12 @@ describe("shouldShowTriggerBadge", () => {
 describe("renderSwitcherMenuHtml", () => {
   it("lists memberships, marks the active one, and includes new workspace", () => {
     const html = renderSwitcherMenuHtml(sample, { active: "buildinternet" });
-    expect(html).toContain('href="/account/workspaces/buildinternet"');
-    expect(html).toContain('href="/account/workspaces/side"');
-    expect(html).toMatch(/href="\/account\/workspaces\/buildinternet"[^>]*aria-current="true"/);
-    expect(html).not.toMatch(/href="\/account\/workspaces\/side"[^>]*aria-current/);
+    expect(html).toContain('href="/account/workspaces/buildinternet/screenshots"');
+    expect(html).toContain('href="/account/workspaces/side/screenshots"');
+    expect(html).toMatch(
+      /href="\/account\/workspaces\/buildinternet\/screenshots"[^>]*aria-current="true"/,
+    );
+    expect(html).not.toMatch(/href="\/account\/workspaces\/side\/screenshots"[^>]*aria-current/);
     expect(html).toContain('href="/account/workspaces/new"');
     expect(html).toContain("+ new workspace");
     expect(html).toContain("ws-switcher__sep");
@@ -350,11 +365,13 @@ describe("renderSwitcherMenuHtml", () => {
     expect(html).toContain('href="/account/workspaces/side/settings"');
   });
 
-  it("links the workspace root for the files tab and off-workspace routes", () => {
+  it("links the files tab and defaults off-workspace routes to screenshots", () => {
     expect(
       renderSwitcherMenuHtml(sample, { active: "buildinternet", activeTab: "files" }),
-    ).toContain('href="/account/workspaces/side"');
-    expect(renderSwitcherMenuHtml(sample, {})).toContain('href="/account/workspaces/side"');
+    ).toContain('href="/account/workspaces/side/files"');
+    expect(renderSwitcherMenuHtml(sample, {})).toContain(
+      'href="/account/workspaces/side/screenshots"',
+    );
   });
 
   it("still shows + new workspace with an empty membership list", () => {
@@ -371,7 +388,7 @@ describe("renderSwitcherMenuHtml", () => {
     ];
     const html = renderSwitcherMenuHtml(withPlans, { active: "buildinternet" });
     expect(html).toMatch(/buildinternet[\s\S]*?<span class="pro-badge">Pro<\/span>/);
-    const sideItem = html.slice(html.indexOf('href="/account/workspaces/side"'));
+    const sideItem = html.slice(html.indexOf('href="/account/workspaces/side/screenshots"'));
     expect(sideItem).not.toContain("pro-badge");
   });
 
@@ -410,7 +427,8 @@ describe("renderSwitcherMenuHtml", () => {
 describe("renderWorkspaceSectionNavHtml", () => {
   it("renders section links for an active workspace and marks the tab", () => {
     const html = renderWorkspaceSectionNavHtml("buildinternet", "galleries");
-    expect(html).toContain('href="/account/workspaces/buildinternet"');
+    expect(html).toContain('href="/account/workspaces/buildinternet/screenshots"');
+    expect(html).toContain('href="/account/workspaces/buildinternet/files"');
     expect(html).toContain('href="/account/workspaces/buildinternet/galleries"');
     expect(html).toContain('href="/account/workspaces/buildinternet/people"');
     expect(html).toContain('href="/account/workspaces/buildinternet/billing"');
@@ -421,11 +439,12 @@ describe("renderWorkspaceSectionNavHtml", () => {
     expect(html).toContain('class="side-link"');
   });
 
-  it("renders a screenshots link between files and galleries", () => {
+  it("renders screenshots first, then files, then galleries", () => {
     const html = renderWorkspaceSectionNavHtml("acme", "screenshots");
     expect(html).toContain('href="/account/workspaces/acme/screenshots"');
-    expect(html.indexOf("screenshots")).toBeGreaterThan(html.indexOf("files"));
-    expect(html.indexOf("screenshots")).toBeLessThan(html.indexOf("galleries"));
+    expect(html).toContain('href="/account/workspaces/acme/files"');
+    expect(html.indexOf("screenshots")).toBeLessThan(html.indexOf(">files<"));
+    expect(html.indexOf(">files<")).toBeLessThan(html.indexOf("galleries"));
     expect(html).toContain('aria-current="page"');
   });
 
@@ -436,6 +455,6 @@ describe("renderWorkspaceSectionNavHtml", () => {
   it("marks no tab current when activeTab is empty (personal routes)", () => {
     const html = renderWorkspaceSectionNavHtml("buildinternet", "");
     expect(html).not.toContain('aria-current="page"');
-    expect(html).toContain('href="/account/workspaces/buildinternet"');
+    expect(html).toContain('href="/account/workspaces/buildinternet/screenshots"');
   });
 });

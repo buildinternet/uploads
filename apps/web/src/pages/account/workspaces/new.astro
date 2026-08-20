@@ -109,6 +109,7 @@ export const prerender = false;
       clearCachedWorkspaces,
       loadWorkspaces,
       readCachedQuota,
+      workspaceHomePath,
     } from "../../../lib/workspaces-nav";
     import { workspaceCapMessage } from "@uploads/billing";
     import {
@@ -250,7 +251,7 @@ export const prerender = false;
             }
             input.value = "";
             createdName.textContent = name;
-            openLink.href = `/account/workspaces/${encodeURIComponent(name)}`;
+            openLink.href = workspaceHomePath(name);
             successEl.hidden = false;
             return;
           }

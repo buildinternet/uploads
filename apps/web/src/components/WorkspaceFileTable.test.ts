@@ -34,7 +34,7 @@ import { resolveFilesView } from "../lib/workspace-files-view";
 describe("WorkspaceFileTable seed contract — initialSearch provided", () => {
   it("a default root browse (empty search) seeds an empty prefix, no filters, no name, list view", () => {
     const seedSearch = "";
-    const seedPathname = "/account/workspaces/acme";
+    const seedPathname = "/account/workspaces/acme/files";
     expect(readBrowseLocation(seedSearch, seedPathname).path).toBe("");
     expect(readSearchFilters(seedSearch)).toEqual([]);
     expect(readSearchName(seedSearch) ?? "").toBe("");
@@ -43,7 +43,7 @@ describe("WorkspaceFileTable seed contract — initialSearch provided", () => {
 
   it("a deep-linked folder path seeds that prefix", () => {
     const seedSearch = "?path=screenshots%2Freleases%2F";
-    const seedPathname = "/account/workspaces/acme";
+    const seedPathname = "/account/workspaces/acme/files";
     expect(readBrowseLocation(seedSearch, seedPathname).path).toBe("screenshots/releases/");
   });
 
