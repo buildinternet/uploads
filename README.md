@@ -79,6 +79,25 @@ Pairing is by `--meta path=…` when several pairs share a comment (one `before`
 and one `after` per path), and falls back to filenames that differ only by a
 `before`/`after` token — `hero-before.webp` with `hero-after.webp`.
 
+Everything you attach also lands in your workspace, grouped by where it came
+from — pages by `path`, projects by `repo` or `app` — and browsable from one
+place.
+
+<div align="center">
+  <img src="docs/assets/readme-screenshots.png" alt="The screenshots view in a workspace, with uploads grouped into collapsible sections by project and path" width="760">
+</div>
+
+<sub>The screenshots view groups uploads by project and path.</sub>
+
+Open any file for a share page: copy-ready embeds (Markdown, HTML, and more),
+the raw URL, and a delete button.
+
+<div align="center">
+  <img src="docs/assets/readme-file-page.png" alt="A file share page showing the media preview, a Copy-as embed menu, file details, and a Delete file action" width="760">
+</div>
+
+<sub>Each file's share page — copy-ready embeds, details, and delete.</sub>
+
 ## Use it
 
 Install the CLI and sign in once:

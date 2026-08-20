@@ -797,11 +797,16 @@ const ogImage = file
           deleteInFlight = true;
           stepBtn.disabled = true;
           try {
+            // Canonical path-keyed dual-auth delete (session cookie or bearer).
+            // Twin of deleteWorkspaceFile() in src/lib/api-client.ts — this
+            // public/no-framework page can't import the helper, so keep the two
+            // in sync. The old query-param form (?key=) matched no /v1 route and
+            // fell through to the bearer-only guard, 401ing session users.
+            const keyPath = key.split("/").map(encodeURIComponent).join("/");
             const target = new URL(
-              `/v1/workspaces/${encodeURIComponent(workspace)}/files`,
+              `/v1/workspaces/${encodeURIComponent(workspace)}/files/${keyPath}`,
               apiOrigin,
             );
-            target.searchParams.set("key", key);
             const response = await fetch(target, { method: "DELETE", credentials: "include" });
             if (!response.ok) throw new Error(String(response.status));
             // Swap the page to the deleted state.
