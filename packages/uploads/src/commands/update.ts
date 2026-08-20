@@ -12,8 +12,9 @@ const UPDATE_HELP = `uploads update — update the CLI and refresh agent integra
 Upgrades the globally installed npm package, then re-runs \`uploads install\` so
 the agent skills match the new version. Skills drift on their own, so this
 refreshes them even when the CLI is already current. An MCP server already
-registered is left as-is (\`already configured\`) — \`claude mcp add\` never
-overwrites an existing entry.
+registered is left as-is (\`already configured\`) — \`claude mcp add\` (and the
+Codex/Grok equivalents) never overwrite an existing entry. A missing agent CLI
+is skipped so it does not fail the rest of the refresh.
 
 Usage:
   uploads update [options]
