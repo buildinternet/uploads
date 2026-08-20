@@ -8,8 +8,12 @@ import {
   renderDetailListPlaceholderHtml,
   renderFilesPlaceholderHtml,
   renderGalleriesEmptyHtml,
+  renderGalleriesGridHtml,
+  renderGalleriesGridPlaceholderHtml,
+  renderGalleriesHtml,
   renderGalleriesPlaceholderHtml,
   renderGalleriesTableHtml,
+  renderGalleriesViewToggleHtml,
   renderInvitesHtml,
   renderMembersHtml,
   renderMembersPlaceholderHtml,
@@ -277,6 +281,128 @@ describe("renderGalleriesTableHtml", () => {
     expect(html).toContain("org/repo#3");
     expect(html).not.toContain("org/repo#4");
     expect(html).toContain("+2");
+  });
+});
+
+describe("renderGalleriesGridHtml", () => {
+  it("returns empty string for no galleries", () => {
+    expect(renderGalleriesGridHtml([])).toBe("");
+  });
+
+  it("renders a cover image, title, item count, and linked refs as cards", () => {
+    const html = renderGalleriesGridHtml([
+      {
+        url: "https://uploads.sh/g/gal_1",
+        title: "Launch media",
+        description: "Ship shots",
+        updatedAt: "2026-07-03T00:00:00.000Z",
+        itemCount: 2,
+        previewUrl: "https://embed.uploads.sh/acme/one.png",
+        references: [
+          {
+            coordinate: "buildinternet/uploads#58",
+            canonicalUrl: "https://github.com/buildinternet/uploads/pull/58",
+          },
+        ],
+      },
+    ]);
+    expect(html).toContain("ws-gallery-grid");
+    expect(html).toContain("ws-gallery-card");
+    expect(html).toContain('src="https://embed.uploads.sh/acme/one.png"');
+    expect(html).toContain('loading="lazy"');
+    expect(html).toContain("Launch media");
+    expect(html).toContain("2 items");
+    expect(html).toContain("buildinternet/uploads#58");
+    // Cover opts into media-load's broken-image fallback: a data-media-load
+    // root with a hidden glyph the binder reveals on a failed load.
+    expect(html).toContain("data-media-load");
+    expect(html).toContain("data-media-fallback");
+    expect(html).toContain("ws-gallery-card__glyph");
+  });
+
+  it("uses a placeholder glyph and 'empty' label when there is no preview", () => {
+    const html = renderGalleriesGridHtml([
+      {
+        url: "https://uploads.sh/g/gal_2",
+        title: "No cover",
+        description: null,
+        updatedAt: "2026-07-01T00:00:00.000Z",
+        itemCount: 0,
+        previewUrl: null,
+        references: [],
+      },
+    ]);
+    expect(html).toContain("ws-gallery-card__cover--empty");
+    expect(html).toContain("ws-gallery-card__glyph");
+    expect(html).not.toContain("<img");
+    expect(html).toContain("empty");
+  });
+
+  it("singularizes a one-item gallery", () => {
+    const html = renderGalleriesGridHtml([
+      {
+        url: "https://uploads.sh/g/gal_3",
+        title: "Solo",
+        description: null,
+        updatedAt: "2026-07-01T00:00:00.000Z",
+        itemCount: 1,
+        previewUrl: "https://embed.uploads.sh/acme/solo.png",
+        references: [],
+      },
+    ]);
+    expect(html).toContain("1 item");
+    expect(html).not.toContain("1 items");
+  });
+
+  it("escapes a hostile title and preview URL", () => {
+    const html = renderGalleriesGridHtml([
+      {
+        url: "https://uploads.sh/g/gal_4",
+        title: "<img src=x onerror=alert(1)>",
+        description: null,
+        updatedAt: "2026-07-01T00:00:00.000Z",
+        itemCount: 1,
+        previewUrl: 'https://e.test/a.png" onerror="alert(1)',
+        references: [],
+      },
+    ]);
+    expect(html).not.toContain("<img src=x");
+    // The preview URL lands in a double-quoted attribute; an embedded quote
+    // must be escaped so it can't break out into an `onerror` handler.
+    expect(html).not.toContain('.png" onerror=');
+    expect(html).toContain("&lt;img");
+  });
+});
+
+describe("renderGalleriesHtml / renderGalleriesViewToggleHtml", () => {
+  const row = {
+    url: "https://uploads.sh/g/gal_1",
+    title: "Launch media",
+    description: null,
+    updatedAt: "2026-07-03T00:00:00.000Z",
+    itemCount: 1,
+    previewUrl: "https://embed.uploads.sh/acme/one.png",
+    references: [],
+  };
+
+  it("dispatches to the grid for grid view and the table for list view", () => {
+    expect(renderGalleriesHtml([row], "grid")).toContain("ws-gallery-grid");
+    expect(renderGalleriesHtml([row], "list")).toContain("ws-table");
+  });
+
+  it("marks the active layout pressed in the toggle", () => {
+    const grid = renderGalleriesViewToggleHtml("grid");
+    expect(grid).toContain('data-gallery-view="grid" aria-pressed="true"');
+    expect(grid).toContain('data-gallery-view="list" aria-pressed="false"');
+    const list = renderGalleriesViewToggleHtml("list");
+    expect(list).toContain('data-gallery-view="list" aria-pressed="true"');
+  });
+
+  it("grid placeholder reuses the grid card classes and is busy", () => {
+    const html = renderGalleriesGridPlaceholderHtml(3);
+    expect(html).toContain('aria-busy="true"');
+    expect(html).toContain("ws-gallery-card--skel");
+    expect(html.match(/ws-gallery-card /g)?.length).toBe(3);
   });
 });
 

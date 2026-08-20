@@ -265,7 +265,7 @@ export function createErrorCopy(code: string): string {
   }
 }
 
-/** Fields the account galleries table needs (extra API fields are fine). */
+/** Fields the account galleries table/grid needs (extra API fields are fine). */
 export interface GalleryTableRow {
   url: string;
   title: string;
@@ -273,6 +273,8 @@ export interface GalleryTableRow {
   updatedAt: string;
   itemCount?: number;
   references?: Array<{ coordinate: string; canonicalUrl: string | null }>;
+  /** Cover thumbnail URL for grid view; null/absent → placeholder tile. */
+  previewUrl?: string | null;
 }
 
 /** Short table-cell date (e.g. "Jul 3, 2026"). Invalid ISO falls back to the raw string. */
@@ -338,6 +340,98 @@ export function renderGalleriesTableHtml(galleries: GalleryTableRow[]): string {
   <tbody>${rows}</tbody>
 </table>
 </div>`;
+}
+
+export type GalleriesLayout = "grid" | "list";
+
+const GALLERY_VIEW_ICONS: Record<GalleriesLayout, string> = {
+  list: `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M2.5 4h11M2.5 8h11M2.5 12h11"/></svg>`,
+  grid: `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><rect x="2.5" y="2.5" width="4.5" height="4.5" rx="0.5"/><rect x="9" y="2.5" width="4.5" height="4.5" rx="0.5"/><rect x="2.5" y="9" width="4.5" height="4.5" rx="0.5"/><rect x="9" y="9" width="4.5" height="4.5" rx="0.5"/></svg>`,
+};
+
+/** Photos glyph for a gallery with no still-image cover (empty, or video/other cover). */
+const GALLERY_COVER_GLYPH = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="6" width="13" height="10" rx="1.5"/><path d="M3.5 13l3-2.6 2.8 2.2 3-3.4 4.2 4.2"/><path d="M7.5 19.5H18a2.5 2.5 0 0 0 2.5-2.5V9.5"/></svg>`;
+
+/** The empty-cover glyph tile (visible; the image variant's fallback adds its own attrs). */
+function galleryCoverGlyphHtml(): string {
+  return `<span class="ws-gallery-card__glyph">${GALLERY_COVER_GLYPH}</span>`;
+}
+
+/**
+ * Grid/list segmented toggle. Reuses the files-table `.wft-view` chrome so the
+ * two tabs' controls look identical. `view` is the pressed one; buttons carry
+ * `data-gallery-view` for the page script to read.
+ */
+export function renderGalleriesViewToggleHtml(view: GalleriesLayout): string {
+  const button = (id: GalleriesLayout, label: string): string =>
+    `<button type="button" class="wft-view__btn" data-gallery-view="${id}" aria-pressed="${
+      view === id ? "true" : "false"
+    }" aria-label="${label}" title="${label}">${GALLERY_VIEW_ICONS[id]}</button>`;
+  return `<div class="wft-view ws-gallery-viewtoggle" role="group" aria-label="Gallery layout">${button(
+    "grid",
+    "Grid view",
+  )}${button("list", "List view")}</div>`;
+}
+
+/** "1 item" / "N items" / "empty" for a gallery's cover count line. */
+function galleryItemsLabel(count: number | undefined): string {
+  if (!count) return "empty";
+  return count === 1 ? "1 item" : `${count} items`;
+}
+
+/**
+ * Cover cell: a lazy `<img>` when a still-image preview exists, else a glyph
+ * tile. The image variant is a `data-media-load` root with a hidden
+ * `[data-media-fallback]` glyph, so `bindMediaFallbacks` (media-load.ts) swaps
+ * to the glyph when the bytes 404 — including the already-failed/cached case a
+ * plain `error` listener would miss. Same wiring the public `/g/` grid uses.
+ */
+function renderGalleryCoverHtml(g: GalleryTableRow): string {
+  const href = escapeHtml(g.url);
+  const label = `Open ${escapeHtml(g.title)}`;
+  if (g.previewUrl) {
+    return `<a class="ws-gallery-card__cover" data-media-load href="${href}" target="_blank" rel="noopener noreferrer" aria-label="${label}"><img class="ws-gallery-card__img" src="${escapeHtml(
+      g.previewUrl,
+    )}" alt="" loading="lazy" decoding="async" /><span class="ws-gallery-card__glyph" data-media-fallback hidden>${GALLERY_COVER_GLYPH}</span></a>`;
+  }
+  return `<a class="ws-gallery-card__cover ws-gallery-card__cover--empty" href="${href}" target="_blank" rel="noopener noreferrer" aria-label="${label}">${galleryCoverGlyphHtml()}</a>`;
+}
+
+/** Account galleries grid HTML. Empty list → "" (caller paints the empty state). */
+export function renderGalleriesGridHtml(galleries: GalleryTableRow[]): string {
+  if (!galleries.length) return "";
+  const cards = galleries
+    .map((g) => {
+      const desc = g.description?.trim()
+        ? `<p class="muted ws-gallery-card__desc">${escapeHtml(g.description.trim())}</p>`
+        : "";
+      const links = renderGalleryLinksHtml(g.references ?? []);
+      const linksBlock =
+        g.references && g.references.length
+          ? `<div class="ws-gallery-card__links">${links}</div>`
+          : "";
+      return `<article class="ws-gallery-card">
+  ${renderGalleryCoverHtml(g)}
+  <div class="ws-gallery-card__body">
+    <a class="ws-gallery-card__title" href="${escapeHtml(
+      g.url,
+    )}" target="_blank" rel="noopener noreferrer">${escapeHtml(g.title)}</a>
+    ${desc}
+    <div class="ws-gallery-card__meta">
+      <span class="ws-gallery-card__count">${escapeHtml(galleryItemsLabel(g.itemCount))}</span>
+      <span class="muted ws-gallery-card__updated">${escapeHtml(formatGalleryDate(g.updatedAt))}</span>
+    </div>
+    ${linksBlock}
+  </div>
+</article>`;
+    })
+    .join("");
+  return `<div class="ws-gallery-grid" aria-label="Galleries">${cards}</div>`;
+}
+
+/** Galleries body for the current layout — grid (default) or list table. */
+export function renderGalleriesHtml(galleries: GalleryTableRow[], view: GalleriesLayout): string {
+  return view === "list" ? renderGalleriesTableHtml(galleries) : renderGalleriesGridHtml(galleries);
 }
 
 /**
@@ -500,6 +594,25 @@ export function renderGalleriesPlaceholderHtml(rows = 3): string {
   <tbody>${body}</tbody>
 </table>
 </div>`;
+}
+
+/** Galleries grid placeholder — same card chrome as `renderGalleriesGridHtml`. */
+export function renderGalleriesGridPlaceholderHtml(cards = 6): string {
+  const widths = ["62%", "48%", "70%"];
+  const card = (i: number): string => `<article class="ws-gallery-card ws-gallery-card--skel">
+  <span class="ws-gallery-card__cover ws-gallery-card__cover--empty" aria-hidden="true"></span>
+  <div class="ws-gallery-card__body">
+    <span class="ws-gallery-card__title">${skeletonBarHtml(widths[i % widths.length])}</span>
+    <div class="ws-gallery-card__meta">${skeletonBarHtml("48px")}${skeletonBarHtml("64px")}</div>
+  </div>
+</article>`;
+  const body = Array.from({ length: cards }, (_, i) => card(i)).join("");
+  return `<div class="ws-gallery-grid" aria-busy="true">${body}</div>`;
+}
+
+/** Loading placeholder for the current galleries layout — grid (default) or list. */
+export function renderGalleriesPlaceholderForView(view: GalleriesLayout): string {
+  return view === "list" ? renderGalleriesPlaceholderHtml() : renderGalleriesGridPlaceholderHtml();
 }
 
 /**

@@ -48,8 +48,9 @@ import {
 
 /**
  * `GET /:workspace/galleries` — canonical list, enriched with `itemCount`/
- * `references` per gallery (`galleryListSummaries`, `gallery-service.ts`) for
- * EVERY caller, bearer and session alike (issue #613 final phase). Body is
+ * `references`/`previewUrl` (cover thumbnail) per gallery
+ * (`galleryListSummaries`, `gallery-service.ts`) for EVERY caller, bearer and
+ * session alike (issue #613 final phase). Body is
  * otherwise identical to `listGalleriesHandler` (`routes/galleries.ts`):
  * same `limit`/`cursor` query contract, same `nextCursor` envelope —
  * `GalleryListSummaryDto` extends `GallerySummaryDto` with additive fields
@@ -69,7 +70,9 @@ async function listGalleriesEnrichedHandler(c: Context<WorkspaceVars>) {
     cursor: decodeGalleryCursor(c.req.query("cursor")),
   });
   return c.json({
-    galleries: await galleryListSummaries(c.env, name, page.galleries),
+    // The workspace record (not just the name) so `galleryListSummaries` can
+    // resolve storage for each row's cover `previewUrl` (additive field).
+    galleries: await galleryListSummaries(c.env, c.get("workspace"), page.galleries),
     nextCursor: page.nextCursor ? encodeGalleryCursor(page.nextCursor) : null,
   });
 }

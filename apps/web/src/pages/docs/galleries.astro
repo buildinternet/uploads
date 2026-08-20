@@ -1,0 +1,95 @@
+---
+// uploads.sh — docs / galleries. Ordered sets of media behind one public
+// link at /g/<id>, optionally linked to a pull request or issue.
+import DocsLayout from "../../layouts/DocsLayout.astro";
+
+const TOC = [
+  { id: "what", label: "What a gallery is" },
+  { id: "workflow", label: "CLI workflow" },
+  { id: "linking", label: "Link to a PR or issue" },
+];
+---
+
+<DocsLayout
+  title="Galleries"
+  description="Create an ordered set of media behind one public link at /g/<id>, add files with uploads put --gallery, and link the gallery to a PR or issue."
+  path="/docs/galleries"
+  heading="Galleries"
+  tagline="An ordered set of media behind one public link, linkable to a pull request or issue."
+  active="galleries"
+  toc={TOC}
+>
+  <section class="lead" id="what">
+    <h2>
+      What a gallery is <a class="anchor" href="#what" aria-label="Link to this section">#</a>
+    </h2>
+    <p>
+      A gallery is an ordered set of media behind one public link. You get a durable URL that stays
+      current as you add shots, instead of scattering individual file links. Each gallery has a
+      public share page at <code>/g/&lt;id&gt;</code>.
+    </p>
+  </section>
+
+  <section id="workflow">
+    <h2>
+      CLI workflow <a class="anchor" href="#workflow" aria-label="Link to this section">#</a>
+    </h2>
+    <p>Create a gallery, then add files to it as you capture them:</p>
+    <div class="cmd">
+      <span class="text"
+        >uploads gallery create --title "Release screenshots" <span class="cm"
+          ># returns a gallery id</span
+        ></span
+      >
+      <button
+        type="button"
+        data-copy='uploads gallery create --title "Release screenshots"'
+        aria-live="polite">copy</button
+      >
+    </div>
+    <div class="cmd">
+      <span class="text"
+        >uploads put ./shot.png --gallery &lt;id&gt; <span class="cm"
+          ># add a file to the gallery</span
+        ></span
+      >
+      <button type="button" data-copy="uploads put ./shot.png --gallery" aria-live="polite"
+        >copy</button
+      >
+    </div>
+    <p>
+      The create command prints a gallery id. Pass that id to <code>--gallery</code> on later uploads.
+      The public page at <code>/g/&lt;id&gt;</code> updates as items are added.
+    </p>
+  </section>
+
+  <section id="linking">
+    <h2>
+      Link to a PR or issue <a class="anchor" href="#linking" aria-label="Link to this section">#</a
+      >
+    </h2>
+    <p>
+      Linking a gallery to a pull request or issue keeps the public link associated with that work.
+      It is metadata only — the gallery stays public at the same <code>/g/&lt;id&gt;</code> URL.
+    </p>
+    <div class="cmd">
+      <span class="text"
+        >uploads gallery link &lt;id&gt; --github owner/repo#123 <span class="cm"
+          ># associate with a PR or issue</span
+        ></span
+      >
+      <button
+        type="button"
+        data-copy="uploads gallery link --github owner/repo#123"
+        aria-live="polite">copy</button
+      >
+    </div>
+  </section>
+
+  <nav class="page-nav" aria-label="More docs">
+    <a class="prev" href="/docs/attach-pull-request-images"
+      ><span class="dir">← Back</span>Attach &amp; share</a
+    >
+    <a class="next" href="/docs/github-app"><span class="dir">Next →</span>GitHub App</a>
+  </nav>
+</DocsLayout>

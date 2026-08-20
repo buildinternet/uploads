@@ -248,6 +248,7 @@ staged files are promoted into the PR's attachments comment automatically.
 - Docs hub: https://uploads.sh/docs
 - Changelog: https://uploads.sh/changelog (Atom feed at https://uploads.sh/changelog.xml)
 - Attach & share: https://uploads.sh/docs/attach-pull-request-images
+- Galleries: https://uploads.sh/docs/galleries
 - GitHub App: https://uploads.sh/docs/github-app
 - Comment config (`.uploads.yml`): https://uploads.sh/docs/comment-config
 - Agents: https://uploads.sh/docs/agents

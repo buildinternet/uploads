@@ -247,6 +247,12 @@ export interface GallerySummary {
   /** Omitted on older API deployments. */
   itemCount?: number;
   references?: GalleryReferenceSummary[];
+  /**
+   * Public URL of the gallery's cover image for a list/grid thumbnail. `null`
+   * when the gallery is empty or its cover isn't a still image; omitted on
+   * older API deployments that predate the field.
+   */
+  previewUrl?: string | null;
 }
 
 function isGalleryReferenceSummary(value: unknown): value is GalleryReferenceSummary {
@@ -267,6 +273,9 @@ function isGallerySummary(value: unknown): value is GallerySummary {
     return false;
   }
   if (g.itemCount !== undefined && typeof g.itemCount !== "number") return false;
+  if (g.previewUrl !== undefined && g.previewUrl !== null && typeof g.previewUrl !== "string") {
+    return false;
+  }
   if (g.references !== undefined) {
     if (!Array.isArray(g.references) || !g.references.every(isGalleryReferenceSummary)) {
       return false;

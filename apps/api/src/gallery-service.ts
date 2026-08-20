@@ -16,11 +16,14 @@ import {
   type MutationResult,
   type PublicGallery,
   countItemsForGalleries,
+  firstItemKeyForGalleries,
+  itemKeysByIds,
   listExternalReferencesForGalleries,
   projectPublicGallery,
 } from "./galleries";
 import { resolveTitles, withPublicTitleBudget, type TitleInfo } from "./github-titles";
 import { objectPublicUrls, storage, storageConfig } from "./storage";
+import type { StorageConfig } from "@uploads/storage";
 import { objectVisibility } from "./visibility";
 import { webOrigin } from "./web-url";
 import type { WorkspaceRecord } from "./workspace";
@@ -107,6 +110,14 @@ export interface GallerySummaryDto {
 export interface GalleryListSummaryDto extends GallerySummaryDto {
   itemCount: number;
   references: ExternalReferenceDto[];
+  /**
+   * Public URL of the gallery's cover image, for a list/grid thumbnail. Resolves
+   * the explicit `cover_item_id`, else the first item. `null` when the gallery
+   * is empty, its cover isn't a still image (videos/other are skipped — no head
+   * or poster lookup on the list path), or the workspace has no public domain.
+   * Additive: absent on the cheaper bearer `gallerySummary` projection.
+   */
+  previewUrl: string | null;
 }
 export type PublicGalleryDto = PublicGallery & {
   items: PublicGalleryItemDto[];
@@ -378,23 +389,77 @@ export function gallerySummary(env: Env, record: GalleryRecord): GallerySummaryD
   };
 }
 
-/** Attach item counts and external refs via two batch queries. */
+/** Still-image extensions we'll preview inline; videos/other fall back to a placeholder tile. */
+const PREVIEW_IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif", "webp", "avif"]);
+
+/** True when `key`'s extension is a still image safe to render as an `<img>` thumbnail. */
+function isPreviewImageKey(key: string): boolean {
+  const dot = key.lastIndexOf(".");
+  if (dot < 0) return false;
+  return PREVIEW_IMAGE_EXTS.has(key.slice(dot + 1).toLowerCase());
+}
+
+/**
+ * Storage config for building preview URLs, or `null` when it can't be
+ * resolved. The list endpoint historically needed no storage at all, so a
+ * misconfigured/undecryptable workspace must degrade to no thumbnails rather
+ * than 503 the whole list (unlike `hydrateGalleryItems`, which does hard-fail).
+ */
+async function galleryPreviewConfig(env: Env, ws: WorkspaceRecord): Promise<StorageConfig | null> {
+  try {
+    return await storageConfig(env, ws);
+  } catch {
+    return null;
+  }
+}
+
+/** Cover URL for one gallery: pure key→URL, no head. `null` unless it's a still image on a public workspace. */
+function previewUrlForKey(
+  env: Env,
+  config: StorageConfig | null,
+  key: string | null,
+): string | null {
+  if (!config || !key || !isPreviewImageKey(key)) return null;
+  const { url, embedUrl } = objectPublicUrls(env, config, key);
+  return embedUrl ?? url;
+}
+
+/**
+ * Attach item counts, external refs, and a cover preview URL via batch queries.
+ * Takes the `WorkspaceRecord` (not just the name) so it can resolve storage for
+ * the preview; the DB queries key off `workspace.name`, falling back to the
+ * records' own workspace when a hand-built record omits it.
+ */
 export async function galleryListSummaries(
   env: Env,
-  workspace: string,
+  workspace: WorkspaceRecord,
   records: GalleryRecord[],
 ): Promise<GalleryListSummaryDto[]> {
   if (!records.length) return [];
+  const name = workspace.name ?? records[0].workspace;
   const ids = records.map((record) => record.id);
-  const [itemCounts, refsByGallery] = await Promise.all([
-    countItemsForGalleries(env.DB, workspace, ids),
-    listExternalReferencesForGalleries(env.DB, workspace, ids),
+  const coverIds = records
+    .map((record) => record.cover_item_id)
+    .filter((id): id is string => id !== null);
+  const [itemCounts, refsByGallery, firstKeys, coverKeys, config] = await Promise.all([
+    countItemsForGalleries(env.DB, name, ids),
+    listExternalReferencesForGalleries(env.DB, name, ids),
+    firstItemKeyForGalleries(env.DB, name, ids),
+    itemKeysByIds(env.DB, name, coverIds),
+    galleryPreviewConfig(env, workspace),
   ]);
-  return records.map((record) => ({
-    ...gallerySummary(env, record),
-    itemCount: itemCounts.get(record.id) ?? 0,
-    references: (refsByGallery.get(record.id) ?? []).map(referenceDto),
-  }));
+  return records.map((record) => {
+    const coverKey =
+      (record.cover_item_id ? coverKeys.get(record.cover_item_id) : undefined) ??
+      firstKeys.get(record.id) ??
+      null;
+    return {
+      ...gallerySummary(env, record),
+      itemCount: itemCounts.get(record.id) ?? 0,
+      references: (refsByGallery.get(record.id) ?? []).map(referenceDto),
+      previewUrl: previewUrlForKey(env, config, coverKey),
+    };
+  });
 }
 
 export async function hydrateOwnerGallery(

@@ -1,16 +1,22 @@
 ---
 /**
- * Workspace galleries tab: explainer, create command, and table (name, items,
- * linked PR/issues, updated) from GET /me/workspaces/:name/galleries.
+ * Workspace galleries tab: explainer, a grid/list of galleries (cover
+ * thumbnail, name, items, linked PR/issues, updated) from
+ * GET /me/workspaces/:name/galleries, and a layout toggle. Grid is the
+ * default — a cover thumbnail per gallery makes contents scannable in a way
+ * the text table can't. CLI help moved to /docs/galleries, linked from the
+ * rail tip.
  */
 import { env } from "cloudflare:workers";
 import WorkspaceLayout from "../../../../layouts/WorkspaceLayout.astro";
 import { getMyWorkspaceGalleries, getWorkspaceSummary } from "../../../../lib/api-client";
 import { resolveSignedInOrigins } from "../../../../lib/signed-in-page";
 import { isBrowseWorkspace } from "../../../../lib/workspace-browse-url";
+import { resolveGalleriesView } from "../../../../lib/workspace-galleries-view";
 import {
-  renderGalleriesPlaceholderHtml,
-  renderGalleriesTableHtml,
+  renderGalleriesHtml,
+  renderGalleriesPlaceholderForView,
+  renderGalleriesViewToggleHtml,
 } from "../../../../lib/workspace-ui";
 
 export const prerender = false;
@@ -19,15 +25,20 @@ const nameParam = Astro.params.name ?? "";
 const workspace = isBrowseWorkspace(nameParam) ? nameParam : "";
 if (!workspace) return Astro.redirect("/account/workspaces");
 
-const createCmd = 'uploads gallery create --title "Release screenshots"';
+// SSR has no localStorage, so only the URL `?view=` can steer first paint;
+// storage (a return visitor's stored choice) is applied client-side. Absent
+// both, this is the module default, "grid".
+const ssrView = resolveGalleriesView(Astro.url.search, null);
 
 const tip = {
   body: "link a gallery to a PR and the public link stays current as you add shots.",
+  href: "/docs/galleries",
+  linkLabel: "Working with galleries",
 };
 
 // SSR-first: when the request carries a session and the workspace resolves,
 // fetch galleries server-side so first paint has real rows. Only render the
-// table when there IS data — getMyWorkspaceGalleries conflates empty and error,
+// list when there IS data — getMyWorkspaceGalleries conflates empty and error,
 // so an empty/failed result falls back to the placeholder and the client script
 // paints the correct empty-state or error.
 const { apiOrigin } = resolveSignedInOrigins(env);
@@ -39,12 +50,12 @@ if (cookie.trim()) {
     getMyWorkspaceGalleries(apiOrigin, workspace, { cookie }),
   ]);
   if (summary.kind === "success" && galleries.length > 0) {
-    ssrGalleriesHtml = renderGalleriesTableHtml(galleries);
+    ssrGalleriesHtml = renderGalleriesHtml(galleries, ssrView);
   }
 }
 ---
 
-<WorkspaceLayout workspace={workspace} tip={tip}>
+<WorkspaceLayout workspace={workspace} tip={tip} showQuickActions={false}>
   <div id="ws-status" class="ul-callout status" role="status" hidden></div>
   <button id="ws-retry" type="button" hidden>Try again</button>
 
@@ -53,29 +64,23 @@ if (cookie.trim()) {
       <div class="ws-page-header">
         <div class="ws-title-block">
           <h2>Galleries</h2>
-          <p class="settings-note muted">
-            Ordered sets of media behind one public link, linkable to a pull request or issue.
-          </p>
+          <p class="settings-note muted">Ordered sets of media behind one public link.</p>
         </div>
+        {
+          /* Layout toggle. Hidden by the client script while the empty-state
+            CTA is up (nothing to lay out). */
+        }
+        <div
+          id="ws-gallery-viewtoggle"
+          class="ws-gallery-header-actions"
+          set:html={renderGalleriesViewToggleHtml(ssrView)}
+        />
       </div>
 
-      <div id="ws-galleries" set:html={ssrGalleriesHtml ?? renderGalleriesPlaceholderHtml()} />
-
-      {
-        /* Hidden while the empty-state CTA is up — it repeats the create
-          command, and the empty page should carry exactly one action. */
-      }
-      <details class="ws-gallery-help" id="ws-gallery-help">
-        <summary>Working with galleries</summary>
-        <div class="command">
-          <code>{createCmd}</code>
-          <button type="button" data-copy={createCmd} aria-live="polite">copy</button>
-        </div>
-        <p class="muted cli-note">
-          Add files with <code>uploads put ./shot.png --gallery &lt;id&gt;</code>. Link a PR with
-          <code>uploads gallery link &lt;id&gt; --github owner/repo#123</code>.
-        </p>
-      </details>
+      <div
+        id="ws-galleries"
+        set:html={ssrGalleriesHtml ?? renderGalleriesPlaceholderForView(ssrView)}
+      />
     </div>
   </section>
 
@@ -89,11 +94,17 @@ if (cookie.trim()) {
     } from "../../../../lib/account-shell";
     import { getMyWorkspaceGalleries, type GallerySummary } from "../../../../lib/api-client";
     import { resolveActiveWorkspace } from "../../../../lib/workspace-browse-url";
+    import {
+      resolveGalleriesView,
+      replaceGalleriesView,
+      type GalleriesView,
+    } from "../../../../lib/workspace-galleries-view";
     import { loadWorkspaceSummary } from "../../../../lib/workspace-summary-source";
+    import { bindMediaFallbacks } from "../../../../lib/media-load";
     import {
       bindCopyButtons,
       renderGalleriesEmptyHtml,
-      renderGalleriesTableHtml,
+      renderGalleriesHtml,
     } from "../../../../lib/workspace-ui";
 
     onAstroPageLoad(() => {
@@ -118,9 +129,34 @@ if (cookie.trim()) {
       const retryBtn = requireElement<HTMLButtonElement>("#ws-retry", page);
       const galleriesCard = requireElement<HTMLElement>("#ws-galleries-card", page);
       const galleriesEl = requireElement<HTMLElement>("#ws-galleries", page);
-      const helpEl = requireElement<HTMLElement>("#ws-gallery-help", page);
+      const toggleEl = requireElement<HTMLElement>("#ws-gallery-viewtoggle", page);
 
+      // Copy button in the empty-state CTA (bound once on the card root; the
+      // grid/list rows carry no copy buttons of their own).
       bindCopyButtons(galleriesCard);
+
+      // Wire broken-cover fallbacks on the SSR-painted grid (its images may
+      // have already 404'd before this script ran — `bindMediaFallbacks`
+      // handles the already-failed case, unlike a plain `error` listener).
+      // `document` scope (not `galleriesEl`): matches the public `/g/` grid and
+      // sidesteps the wrangler-types `HTMLElement`→`ParentNode` drift; the
+      // per-root `data-mediaBound` guard keeps repeat scans idempotent.
+      bindMediaFallbacks(document);
+
+      // URL + localStorage; the toggle rewrites both. Held in-memory so the
+      // toggle can re-render the last-loaded rows without a refetch.
+      let currentView: GalleriesView = resolveGalleriesView(window.location.search);
+      let lastGalleries: GallerySummary[] | null = null;
+
+      function syncTogglePressed(): void {
+        for (const btn of toggleEl.querySelectorAll<HTMLButtonElement>("[data-gallery-view]")) {
+          btn.setAttribute(
+            "aria-pressed",
+            btn.dataset.galleryView === currentView ? "true" : "false",
+          );
+        }
+      }
+      syncTogglePressed();
 
       function showError(message: string, retry = true): void {
         if (!stillHere()) return;
@@ -128,32 +164,47 @@ if (cookie.trim()) {
         statusEl.textContent = message;
         statusEl.dataset.state = "error";
         // The card stays on screen. A failed galleries fetch does not
-        // invalidate the heading, the explainer or the create command, and
-        // blanking them was the single largest shift on this page. This
-        // innerHTML assignment also discards the placeholder's `aria-busy`
-        // wrapper wholesale, so there is nothing left to un-busy.
+        // invalidate the heading or the explainer. This innerHTML assignment
+        // also discards the placeholder's `aria-busy` wrapper wholesale, so
+        // there is nothing left to un-busy.
         galleriesEl.innerHTML = "";
+        toggleEl.hidden = true;
         retryBtn.hidden = !retry;
+      }
+
+      function paint(): void {
+        if (!lastGalleries) return;
+        if (!lastGalleries.length) {
+          galleriesEl.innerHTML = renderGalleriesEmptyHtml(
+            'uploads gallery create --title "Release screenshots"',
+          );
+          // Nothing to lay out — the toggle would be inert.
+          toggleEl.hidden = true;
+          return;
+        }
+        toggleEl.hidden = false;
+        galleriesEl.innerHTML = renderGalleriesHtml(lastGalleries, currentView);
+        // Grid covers are fresh DOM each paint — (re)bind their fallbacks.
+        bindMediaFallbacks(document);
       }
 
       function renderGalleries(galleries: GallerySummary[]): void {
         if (!stillHere()) return;
-        // Same as `showError`: the assignment below replaces the placeholder
-        // markup — including its `aria-busy` wrapper — in one step, so there
-        // is no separate busy flag to clear on `galleriesEl` itself (it never
-        // carried the attribute; the placeholder's child did).
-        if (!galleries.length) {
-          galleriesEl.innerHTML = renderGalleriesEmptyHtml(
-            'uploads gallery create --title "Release screenshots"',
-          );
-          // The empty CTA carries the create command; the reference block
-          // would show it a second time.
-          helpEl.hidden = true;
-          return;
-        }
-        helpEl.hidden = false;
-        galleriesEl.innerHTML = renderGalleriesTableHtml(galleries);
+        lastGalleries = galleries;
+        paint();
       }
+
+      toggleEl.addEventListener("click", (event) => {
+        const btn = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-gallery-view]");
+        if (!btn) return;
+        const next = btn.dataset.galleryView as GalleriesView;
+        if (next !== "grid" && next !== "list") return;
+        if (next === currentView) return;
+        currentView = next;
+        replaceGalleriesView(next);
+        syncTogglePressed();
+        paint();
+      });
 
       async function loadGalleries(): Promise<void> {
         if (!stillHere()) return;

@@ -749,6 +749,108 @@ section.card .ws-note {
   white-space: nowrap;
   font-size: 12px;
 }
+
+/* Galleries grid view ─────────────────────────────────────────────────────
+   Cover-thumbnail cards, the default layout for the galleries tab. Reuses the
+   files-table `.wft-view` toggle chrome for the grid/list switch (rendered by
+   `renderGalleriesViewToggleHtml`). */
+.ws-gallery-header-actions {
+  flex: none;
+}
+.ws-gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 14px;
+  margin-top: 16px;
+}
+.ws-gallery-card {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  overflow: hidden;
+}
+.ws-gallery-card:not(.ws-gallery-card--skel):hover {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+}
+.ws-gallery-card__cover {
+  display: block;
+  aspect-ratio: 16 / 10;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+}
+.ws-gallery-card__img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.ws-gallery-card__cover--empty,
+.ws-gallery-card__cover[data-failed="1"] {
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+}
+/* A cover whose image 404s: media-load flips data-failed + reveals the glyph. */
+.ws-gallery-card__cover[data-failed="1"] .ws-gallery-card__img {
+  display: none;
+}
+.ws-gallery-card__glyph svg {
+  width: 30px;
+  height: 30px;
+}
+.ws-gallery-card__body {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px 12px;
+}
+.ws-gallery-card__title {
+  color: var(--fg);
+  font-weight: 600;
+  font-size: 13.5px;
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ws-gallery-card__title:hover,
+.ws-gallery-card__title:focus-visible {
+  color: var(--accent);
+  outline: none;
+}
+.ws-gallery-card__desc {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.ws-gallery-card__meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 2px;
+  font-size: 12px;
+}
+.ws-gallery-card__count {
+  color: var(--body);
+}
+.ws-gallery-card__updated {
+  white-space: nowrap;
+}
+.ws-gallery-card__links {
+  margin-top: 8px;
+}
+/* Skeleton cards: no hover, muted cover, and the same footprint as a real card. */
+.ws-gallery-card--skel .ws-gallery-card__cover {
+  background: var(--bg);
+}
+
 /* Search bar breathing room above the file list. */
 .ws-page-card .ws-search-bar {
   margin: 0;

@@ -460,6 +460,72 @@ export async function listExternalReferencesForGalleries(
   return byGallery;
 }
 
+/**
+ * Lowest-position item's object_key for many galleries in one query — the
+ * cover preview fallback on the account galleries list (issue #613 follow-up).
+ * The correlated subquery picks each gallery's first item by the same
+ * `position, id` order `listGalleryItems` uses, so "first item" here matches
+ * what the gallery page shows first. Galleries with no items are absent from
+ * the map. Callers resolve an explicit `cover_item_id` first (see
+ * `itemKeysByIds`) and only fall back to this.
+ */
+export async function firstItemKeyForGalleries(
+  db: D1Database,
+  workspace: string,
+  galleryIds: string[],
+): Promise<Map<string, string>> {
+  const keys = new Map<string, string>();
+  if (!galleryIds.length) return keys;
+  for (const chunk of chunkIds(galleryIds, 1)) {
+    const placeholders = chunk.map(() => "?").join(", ");
+    const result = await db
+      .prepare(
+        `SELECT i.gallery_id AS gallery_id, i.object_key AS object_key
+       FROM gallery_items i
+       JOIN galleries g ON g.id = i.gallery_id
+       WHERE g.workspace = ? AND g.deleted_at IS NULL AND i.gallery_id IN (${placeholders})
+         AND i.id = (
+           SELECT i2.id FROM gallery_items i2
+           WHERE i2.gallery_id = i.gallery_id
+           ORDER BY i2.position, i2.id LIMIT 1
+         )`,
+      )
+      .bind(workspace, ...chunk)
+      .all<{ gallery_id: string; object_key: string }>();
+    for (const row of result.results) keys.set(row.gallery_id, row.object_key);
+  }
+  return keys;
+}
+
+/**
+ * Object keys for specific item ids in one query — resolves each gallery's
+ * chosen cover (`cover_item_id`) to its key. Scoped to the workspace and
+ * non-deleted galleries so a stale/foreign id yields nothing rather than
+ * leaking another workspace's key. Returns a Map keyed by item id.
+ */
+export async function itemKeysByIds(
+  db: D1Database,
+  workspace: string,
+  itemIds: string[],
+): Promise<Map<string, string>> {
+  const keys = new Map<string, string>();
+  if (!itemIds.length) return keys;
+  for (const chunk of chunkIds(itemIds, 1)) {
+    const placeholders = chunk.map(() => "?").join(", ");
+    const result = await db
+      .prepare(
+        `SELECT i.id AS id, i.object_key AS object_key
+       FROM gallery_items i
+       JOIN galleries g ON g.id = i.gallery_id
+       WHERE g.workspace = ? AND g.deleted_at IS NULL AND i.id IN (${placeholders})`,
+      )
+      .bind(workspace, ...chunk)
+      .all<{ id: string; object_key: string }>();
+    for (const row of result.results) keys.set(row.id, row.object_key);
+  }
+  return keys;
+}
+
 /** Persistence primitive: callers must first verify objectKey exists and has a public URL. */
 export async function addGalleryItem(
   db: D1Database,
