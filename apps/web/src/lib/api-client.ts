@@ -547,10 +547,11 @@ export type WorkspaceBillingResult =
 export async function getWorkspaceBilling(
   apiOrigin: string,
   name: string,
+  opts?: { cookie?: string },
 ): Promise<WorkspaceBillingResult> {
   const result = await fetchWithTimeout(
     `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(name)}/billing`,
-    { credentials: "include", cache: "no-store" },
+    sessionFetchInit(opts?.cookie),
   );
   if (result.kind === "unavailable") return result;
   const { response } = result;

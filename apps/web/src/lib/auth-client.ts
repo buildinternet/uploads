@@ -103,11 +103,21 @@ type LocalDemoSessionStart =
  * GET /api/auth/get-session. A valid no-session response is distinct from an
  * auth timeout, network failure, 503, or malformed response so protected
  * pages never send a user to sign in when the service is merely unavailable.
+ *
+ * `opts.cookie` lets an Astro frontmatter resolve the session during the
+ * server render by forwarding the incoming request's cookie header — a
+ * server-to-server fetch has no cookie jar, so `credentials: "include"` alone
+ * does nothing there (same pattern as `sessionFetchInit` in api-client.ts).
+ * Omitted in the browser, where the ambient session cookie rides along.
  */
-export async function getSession(origin: string): Promise<SessionResult> {
+export async function getSession(
+  origin: string,
+  opts?: { cookie?: string },
+): Promise<SessionResult> {
   const result = await fetchWithTimeout(`${authOrigin(origin)}/api/auth/get-session`, {
     credentials: "include",
     cache: "no-store",
+    ...(opts?.cookie ? { headers: { cookie: opts.cookie } } : {}),
   });
   if (result.kind === "unavailable") return result;
   const { response } = result;
@@ -456,20 +466,36 @@ export async function acceptInvitation(
 /**
  * GET a JSON array from the auth worker. Returns null on outage/auth/malformed
  * so callers can distinguish "couldn't load" from an empty list.
+ *
+ * `opts.cookie` forwards a caller-supplied cookie header for a server-side
+ * fetch (same pattern as getSession's doc comment) — omitted in the browser,
+ * where the ambient session cookie rides along via `credentials: "include"`.
  */
-async function getAuthArray(origin: string, path: string): Promise<unknown[] | null> {
+async function getAuthArray(
+  origin: string,
+  path: string,
+  opts?: { cookie?: string },
+): Promise<unknown[] | null> {
   const result = await fetchWithTimeout(`${authOrigin(origin)}${path}`, {
     credentials: "include",
     cache: "no-store",
+    ...(opts?.cookie ? { headers: { cookie: opts.cookie } } : {}),
   });
   if (result.kind === "unavailable" || !result.response.ok) return null;
   const body = (await result.response.json().catch(() => undefined)) as unknown;
   return Array.isArray(body) ? body : null;
 }
 
-/** GET /api/auth/list-sessions — active sessions (browser + CLI device flow). */
-export async function listSessions(origin: string): Promise<AuthSession[] | null> {
-  const body = await getAuthArray(origin, "/api/auth/list-sessions");
+/**
+ * GET /api/auth/list-sessions — active sessions (browser + CLI device flow).
+ * `opts.cookie` lets an Astro frontmatter resolve this during the server
+ * render by forwarding the incoming request's cookie header (see getSession).
+ */
+export async function listSessions(
+  origin: string,
+  opts?: { cookie?: string },
+): Promise<AuthSession[] | null> {
+  const body = await getAuthArray(origin, "/api/auth/list-sessions", opts);
   if (!body) return null;
   return body.filter((row): row is AuthSession => {
     if (!row || typeof row !== "object") return false;
@@ -668,9 +694,16 @@ export function isBannedAuthError(input: {
   );
 }
 
-/** GET /api/auth/list-accounts — linked identity providers (e.g. GitHub). */
-export async function listAccounts(origin: string): Promise<LinkedAccount[] | null> {
-  const body = await getAuthArray(origin, "/api/auth/list-accounts");
+/**
+ * GET /api/auth/list-accounts — linked identity providers (e.g. GitHub).
+ * `opts.cookie` lets an Astro frontmatter resolve this during the server
+ * render by forwarding the incoming request's cookie header (see getSession).
+ */
+export async function listAccounts(
+  origin: string,
+  opts?: { cookie?: string },
+): Promise<LinkedAccount[] | null> {
+  const body = await getAuthArray(origin, "/api/auth/list-accounts", opts);
   if (!body) return null;
   const accounts: LinkedAccount[] = [];
   for (const row of body) {
@@ -703,10 +736,12 @@ export async function listAccounts(origin: string): Promise<LinkedAccount[] | nu
  * GET /api/auth/account-info — live profile from the linked OAuth provider
  * (uses the stored access token). Pass accountId from list-accounts; without
  * it Better Auth only resolves via an account cookie we do not enable.
+ * `opts.cookie` lets an Astro frontmatter resolve this during the server
+ * render by forwarding the incoming request's cookie header (see getSession).
  */
 export async function getAccountInfo(
   origin: string,
-  opts: { providerId: string; accountId: string },
+  opts: { providerId: string; accountId: string; cookie?: string },
 ): Promise<ProviderAccountInfo | null> {
   const params = new URLSearchParams({
     providerId: opts.providerId,
@@ -715,6 +750,7 @@ export async function getAccountInfo(
   const result = await fetchWithTimeout(`${authOrigin(origin)}/api/auth/account-info?${params}`, {
     credentials: "include",
     cache: "no-store",
+    ...(opts.cookie ? { headers: { cookie: opts.cookie } } : {}),
   });
   if (result.kind === "unavailable" || !result.response.ok) return null;
   const body = (await result.response.json().catch(() => undefined)) as
