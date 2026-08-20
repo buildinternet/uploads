@@ -147,7 +147,16 @@ Options:
   --no-hide-dev-tools       Don't auto-hide framework dev toolbars (auto-hidden on localhost/private)
   --reduced-motion          Emulate prefers-reduced-motion: reduce so animations settle (best-effort
                             on --via remote — neutralizes animations via injected CSS)
-  --eval <js>               Run JS in the page after settle, before capture (--via local only)
+  --wait-for <js>           Poll this JS expression in the page until truthy before --eval and
+                            capture (--via local only). Bridges framework hydration: load/
+                            networkidle settle before React/Next attach handlers, so a synthetic
+                            click in --eval hits the inert server-rendered DOM. Express the app's
+                            own "interactive" signal, e.g. --wait-for 'window.__hydrated===true' or
+                            --wait-for 'document.querySelector("[data-hydrated]")'. Times out with
+                            the capture timeout if it never becomes truthy.
+  --eval <js>               Run JS in the page after settle, before capture (--via local only).
+                            Note: synthetic events (el.click()) won't reach framework handlers
+                            until the app hydrates — pair with --wait-for on React/Next apps.
   --init-script <file>      Inject a JS file before navigation (--via local only)
   --annotate <file|->       Bake hand-drawn boxes, arrows, labels, and redactions from a JSON
                             annotation spec onto the capture before upload (file path or - for
@@ -291,6 +300,7 @@ export async function runScreenshot(
   // lets captureScreenshot apply its localhost-aware default.
   const hideDevTools = flagBool(parsed.flags, "--no-hide-dev-tools") ? false : undefined;
   const reducedMotion = flagBool(parsed.flags, "--reduced-motion");
+  const waitForExpr = flagString(parsed.flags, "--wait-for");
   const evalJs = flagString(parsed.flags, "--eval");
   const initScriptPath = flagString(parsed.flags, "--init-script");
   let initScript: string | undefined;
@@ -529,6 +539,7 @@ export async function runScreenshot(
     hide,
     hideDevTools,
     reducedMotion,
+    waitForExpr,
     evalJs,
     initScript,
     // Skip folding when an explicit --key was given — --key sets the whole

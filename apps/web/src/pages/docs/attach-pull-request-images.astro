@@ -425,6 +425,14 @@ MARKDOWN: ![app.example](https://storage.uploads.sh/gh/app/example/pull/123/app.
       (repeatable), or run setup JS first with <code>--eval &lt;js&gt;</code> /
       <code>--init-script &lt;file&gt;</code> (local backend).
     </p>
+    <p>
+      Capturing a clicked or selected state of a React/Next app? A synthetic <code>el.click()</code>
+      in <code>--eval</code> fires before the framework hydrates — the element is in the server-rendered
+      HTML but no handler is attached yet, so it silently does nothing. Gate on the app's own &ldquo;interactive&rdquo;
+      signal with <code>--wait-for &lt;js&gt;</code> (local backend), which polls that expression until
+      truthy before <code>--eval</code> runs — e.g.
+      <code>--wait-for 'document.querySelector("[data-hydrated]")'</code>.
+    </p>
   </section>
 
   <section id="annotate">

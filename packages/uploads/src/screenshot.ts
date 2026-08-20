@@ -234,6 +234,13 @@ export interface CaptureScreenshotOptions {
   hideDevTools?: boolean;
   /** Emulate prefers-reduced-motion: reduce so CSS/JS animations settle. */
   reducedMotion?: boolean;
+  /**
+   * JS expression polled in the page until truthy after settle, before
+   * `evalJs` and capture — the caller's "app is interactive" signal so a
+   * synthetic click in `evalJs` lands after framework hydration (issue #715).
+   * Local backend only — throws if the resolved backend is remote.
+   */
+  waitForExpr?: string;
   /** Run this JS in the page after settle, before capture (local backend only). */
   evalJs?: string;
   /** Inject this JS as an init script before navigation (local backend only). */
@@ -262,6 +269,7 @@ export interface CaptureScreenshotOptions {
     waitUntil: WaitUntil;
     hide?: string[];
     reducedMotion?: boolean;
+    waitForExpr?: string;
     evalJs?: string;
     initScript?: string;
     measureSelectors?: string[];
@@ -447,6 +455,13 @@ export async function captureScreenshot(
     throw new UploadsError("--eval and --init-script are local-only — use --via local", "USAGE");
   }
 
+  // --wait-for polls a JS predicate via the live local page (page.waitForFunction);
+  // the remote renderer has no eval escape hatch to evaluate it. Fail fast
+  // rather than silently ignore the caller's readiness signal.
+  if (backend === "remote" && opts.waitForExpr !== undefined) {
+    throw new UploadsError("--wait-for is local-only — use --via local", "USAGE");
+  }
+
   // Selector-based annotation measurement needs a live local page — the
   // remote render endpoint has no eval escape hatch to run
   // getBoundingClientRect. Covers both explicit --via remote and auto
@@ -474,6 +489,7 @@ export async function captureScreenshot(
       waitUntil,
       hide,
       reducedMotion: opts.reducedMotion,
+      waitForExpr: opts.waitForExpr,
       evalJs: opts.evalJs,
       initScript: opts.initScript,
       measureSelectors: opts.measureSelectors,
