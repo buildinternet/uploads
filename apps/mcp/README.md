@@ -87,7 +87,8 @@ The workspace is inferred from the bearer token, so clients only need the URL
 and the token. `https://agents.uploads.sh/<workspace>/mcp` remains as a
 workspace-prefixed alternate, and `mcp.uploads.sh` as an alternate hostname.
 
-Claude Code (or run `uploads install` to do this for you):
+Claude Code, Codex, and Grok (`uploads install` registers whichever of these
+are on PATH, and skips the rest):
 
 ```bash
 claude mcp add --transport http uploads https://agents.uploads.sh/mcp \

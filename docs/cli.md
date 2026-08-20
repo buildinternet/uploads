@@ -28,7 +28,7 @@ A mistyped command suggests the closest real one —
 ```bash
 uploads login          # sign in via browser; saves your workspace token, then runs doctor
 uploads whoami         # show the active workspace + token (alias: uploads status)
-uploads install        # skills + hosted MCP + hooks for Grok/Cursor (Claude/Codex use plugins)
+uploads install        # skills + hosted MCP (skips missing agent CLIs) + hooks for Grok/Cursor
 uploads update         # update the CLI, then refresh skills / hooks (MCP left as-is)
 uploads put ./shot.png # stdout: public URL + ready-to-paste markdown; stderr: human summary
 ```
@@ -63,11 +63,13 @@ still refreshes the skills, because those drift on their own. Run
 `uploads update --dry-run` first to see the plan.
 
 Re-running `install` (directly or through `update`) is safe. The skills are
-reinstalled each time; an MCP server already registered under that name is
+reinstalled each time. MCP registration tries Claude Code, Codex, and Grok;
+a CLI that is not on PATH is skipped and does not fail the rest of the
+install. An MCP server already registered under that name in a given client is
 reported as `already configured` and left untouched, because `claude mcp add`
-never overwrites an existing entry. That also means a registration keeps the
-bearer token it was created with — after `uploads login` with a new token,
-remove and re-add it:
+(and the Codex/Grok equivalents) never overwrite an existing entry. That also
+means a registration keeps the bearer token it was created with — after
+`uploads login` with a new token, remove and re-add it:
 
 ```bash
 claude mcp remove uploads && uploads install mcp
@@ -92,7 +94,7 @@ command to run by hand, rather than overwriting your build.
 | `gallery …`                | Create and organize public media galleries                                                                               |
 | `delete <key>`             | Delete an object                                                                                                         |
 | `usage`                    | Workspace storage / upload counters                                                                                      |
-| `install`                  | Skills + remote MCP + hooks (Grok/Cursor); see plugins for Claude/Codex                                                  |
+| `install`                  | Skills + remote MCP (Claude/Codex/Grok; skips missing CLIs) + hooks (Grok/Cursor)                                        |
 | `hook`                     | Agent harness handlers (e.g. pre-PR screenshot reminder)                                                                 |
 | `update`                   | Update the CLI, then refresh skills / MCP / hooks                                                                        |
 | `login` / `logout`         | Sign in (browser or enrollment code) / clear saved token                                                                 |

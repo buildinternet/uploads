@@ -595,7 +595,7 @@ export async function runLogin(
     );
     if (doctor.ok)
       process.stdout.write(
-        "\nusing a coding agent? run `uploads install` to add the uploads skill + MCP server to Claude Code\n",
+        "\nusing a coding agent? run `uploads install` to add the uploads skill + MCP server\n",
       );
   }
   return doctor.ok ? 0 : 1;

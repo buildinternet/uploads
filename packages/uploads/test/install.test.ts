@@ -6,6 +6,7 @@ import type { CommandRunner } from "../src/github-gh.js";
 import {
   runInstall,
   DEFAULT_MCP_URL,
+  MCP_CLIENTS,
   missingBinaryHint,
   npmTooOldHint,
   probeSkillTooling,
@@ -127,17 +128,7 @@ describe("uploads install", () => {
         "-a",
         "*",
       ],
-      [
-        "claude",
-        "mcp",
-        "add",
-        "--transport",
-        "http",
-        "uploads",
-        DEFAULT_MCP_URL,
-        "--header",
-        "Authorization: Bearer up_acme_secret",
-      ],
+      ...MCP_CLIENTS.map((client) => client.command("uploads", DEFAULT_MCP_URL, "up_acme_secret")),
     ]);
   });
 
@@ -152,7 +143,9 @@ describe("uploads install", () => {
     expect(printed).toMatch(/skill:uploads-cli: ok/);
     expect(printed).toMatch(/skill:github-screenshots: ok/);
     expect(printed).toMatch(/skill:annotate-screenshots: ok/);
-    expect(printed).toMatch(/mcp: ok/);
+    expect(printed).toMatch(/mcp:claude: ok/);
+    expect(printed).toMatch(/mcp:codex: ok/);
+    expect(printed).toMatch(/mcp:grok: ok/);
     expect(printed).toMatch(/hooks: ok/);
     // Child process noise stays out of the happy path.
     expect(printed).not.toContain("multi-line child output");
@@ -193,8 +186,12 @@ describe("uploads install", () => {
       runner: run,
     });
     expect(code).toBe(0);
+    expect(calls).toHaveLength(MCP_CLIENTS.length);
     expect(calls[0]).toContain("https://mcp.uploads.sh/mcp");
     expect(calls[0]).toContain("up");
+    expect(calls.every((c) => c.includes("https://mcp.uploads.sh/mcp") && c.includes("up"))).toBe(
+      true,
+    );
   });
 
   it("install hooks writes manifests when harness dirs exist", async () => {
@@ -260,20 +257,53 @@ describe("uploads install", () => {
     expect(err.join("")).not.toMatch(/error:/i);
   });
 
-  it("reports a missing claude binary with install guidance, redacted, and exits 1", async () => {
+  it("skips MCP when no agent CLI is on PATH, redacts the token, and exits 0", async () => {
     const enoent: CommandRunner = () => {
       throw makeEnoent("spawn claude ENOENT");
     };
-    const { err } = captureStreams();
+    const { out, err } = captureStreams();
     const code = await install(["mcp"], { globals: GLOBALS, runner: enoent });
-    expect(code).toBe(1);
-    const printed = err.join("");
-    expect(printed).toContain("claude not found on PATH");
-    expect(printed).toMatch(/Claude Code CLI/i);
-    expect(printed).toMatch(/uploads install mcp/);
+    expect(code).toBe(0);
+    const printed = out.join("");
+    expect(printed).toMatch(/mcp: skipped/);
+    expect(printed).toMatch(/no agent CLI on PATH \(claude, codex, grok\)/);
+    expect(printed).not.toMatch(/mcp: failed/);
     expect(printed).not.toContain("up_acme_secret");
     expect(printed).not.toContain("Bearer up_acme");
     expect(printed).not.toMatch(/run manually:/i);
+    expect(err.join("")).not.toMatch(/error:/i);
+  });
+
+  it("a real MCP add error fails that client but still registers the others", async () => {
+    const run: CommandRunner = (cmd) => {
+      if (cmd === "claude") throw new Error("network down");
+      return "ok\n";
+    };
+    const { out, err } = captureStreams();
+    const code = await install(["mcp"], { globals: GLOBALS, runner: run });
+    expect(code).toBe(1);
+    expect(err.join("")).toMatch(/mcp:claude: failed — network down/);
+    expect(out.join("")).toMatch(/mcp:codex: ok/);
+    expect(out.join("")).toMatch(/mcp:grok: ok/);
+  });
+
+  it("registers MCP with the CLIs that are present and skips missing ones", async () => {
+    const calls: string[][] = [];
+    const run: CommandRunner = (cmd, args) => {
+      calls.push([cmd, ...args]);
+      if (cmd === "claude") throw makeEnoent("spawn claude ENOENT");
+      return "ok\n";
+    };
+    const { out, err } = captureStreams();
+    const code = await install(["mcp"], { globals: GLOBALS, runner: run });
+    expect(code).toBe(0);
+    expect(calls.map((c) => c[0])).toEqual(MCP_CLIENTS.map((c) => c.id));
+    const printed = out.join("");
+    expect(printed).toMatch(/mcp:claude: skipped — claude not found on PATH/);
+    expect(printed).toMatch(/mcp:codex: ok/);
+    expect(printed).toMatch(/mcp:grok: ok/);
+    expect(printed).not.toMatch(/mcp: failed/);
+    expect(err.join("")).toBe("");
   });
 
   it("missing npx short-circuits all skills with one collapsed human error", async () => {
@@ -355,7 +385,7 @@ describe("uploads install", () => {
     const code = await install([], { globals: GLOBALS, runner: run });
     expect(code).toBe(0);
     const printed = out.join("");
-    expect(printed).toMatch(/mcp: already configured/);
+    expect(printed).toMatch(/mcp:claude: already configured/);
     expect(printed).toMatch(/claude mcp remove uploads/);
     expect(printed).not.toMatch(/mcp: failed/);
     expect(printed).not.toMatch(/Fix the MCP step above/);
@@ -382,8 +412,10 @@ describe("uploads install", () => {
     expect(code).toBe(0);
     const parsed = JSON.parse(out.join(""));
     expect(parsed.ok).toBe(true);
-    expect(parsed.steps.mcp.ok).toBe(true);
-    expect(parsed.steps.mcp.skipped).toBe("already-configured");
+    expect(parsed.steps["mcp:claude"].ok).toBe(true);
+    expect(parsed.steps["mcp:claude"].skipped).toBe("already-configured");
+    expect(parsed.steps["mcp:codex"].ok).toBe(true);
+    expect(parsed.steps["mcp:grok"].ok).toBe(true);
   });
 
   it("rejects unknown targets", async () => {
@@ -428,19 +460,39 @@ describe("uploads install", () => {
     expect(out.join("")).toMatch(/uploads install skill/);
   });
 
-  it("missing claude after successful skills points at Claude Code install", async () => {
+  it("missing agent CLIs after successful skills skip MCP without failing the run", async () => {
+    const run: CommandRunner = (cmd, args) => {
+      const probe = skillProbeOk(cmd, args);
+      if (probe !== undefined) return probe;
+      if (MCP_CLIENTS.some((c) => c.id === cmd)) throw makeEnoent(`spawn ${cmd} ENOENT`);
+      return "ok\n";
+    };
+    const { out, err } = captureStreams();
+    const code = await install([], { globals: GLOBALS, runner: run });
+    expect(code).toBe(0);
+    expect(out.join("")).toMatch(/skill:uploads-cli: ok/);
+    expect(out.join("")).toMatch(/mcp: skipped/);
+    expect(out.join("")).toMatch(/no agent CLI on PATH/);
+    expect(out.join("")).toMatch(/Done — skills and hooks ready/);
+    expect(out.join("")).not.toMatch(/mcp: failed/);
+    expect(err.join("")).not.toMatch(/claude not found on PATH/);
+  });
+
+  it("--json marks a missing agent CLI as skipped, not failed", async () => {
     const run: CommandRunner = (cmd, args) => {
       const probe = skillProbeOk(cmd, args);
       if (probe !== undefined) return probe;
       if (cmd === "claude") throw makeEnoent("spawn claude ENOENT");
       return "ok\n";
     };
-    const { out, err } = captureStreams();
-    const code = await install([], { globals: GLOBALS, runner: run });
-    expect(code).toBe(1);
-    expect(out.join("")).toMatch(/skill:uploads-cli: ok/);
-    expect(err.join("")).toMatch(/claude not found on PATH/);
-    expect(out.join("")).toMatch(/Skills are installed/);
-    expect(out.join("")).toMatch(/Claude Code CLI/);
+    const { out } = captureStreams();
+    const code = await install(["mcp"], { globals: GLOBALS, json: true, runner: run });
+    expect(code).toBe(0);
+    const parsed = JSON.parse(out.join(""));
+    expect(parsed.ok).toBe(true);
+    expect(parsed.steps["mcp:claude"].ok).toBe(true);
+    expect(parsed.steps["mcp:claude"].skipped).toBe("missing-cli");
+    expect(parsed.steps["mcp:codex"].ok).toBe(true);
+    expect(parsed.steps["mcp:codex"].skipped).toBeUndefined();
   });
 });

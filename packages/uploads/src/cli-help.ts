@@ -214,9 +214,10 @@ ${section(style, "Examples:")}
   ${style.command("uploads logout")}
   ${style.command("uploads --version")}
 
-${section(style, "Agent/MCP:")} ${style.body("`uploads install` sets up skills, hosted MCP, and hooks for")}
-${style.body("Grok/Cursor. Claude and Codex use their plugins for the same PR-screenshot")}
-${style.body("hook. Run `uploads mcp` for local stdio.")}
+${section(style, "Agent/MCP:")} ${style.body("`uploads install` sets up skills, hosted MCP (Claude/Codex/Grok;")}
+${style.body("skips any CLI that is not on PATH), and hooks for Grok/Cursor. Claude and")}
+${style.body("Codex use their plugins for the same PR-screenshot hook. Run `uploads mcp`")}
+${style.body("for local stdio.")}
 
 ${style.muted("Tip: uploads help          essentials only")}
 ${style.muted("     uploads help --all    this full listing")}

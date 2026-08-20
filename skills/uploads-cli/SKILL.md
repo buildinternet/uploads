@@ -967,7 +967,8 @@ uploads --api-url http://localhost:8787 doctor
   — stdio takes `files` as paths, hosted takes
   `files: [{ filename, contentBase64, alt? }]` (max 20/call; per-item `alt`
   overrides the top-level one) — returning `{ uploads, failures }` with
-  per-item results. `uploads install` sets up this skill + hosted MCP +
+  per-item results. `uploads install` sets up this skill + hosted MCP
+  (Claude Code, Codex, and Grok; each missing CLI is skipped) +
   Grok/Cursor hooks (short progress; `--verbose` / `--dry-run` available).
   Claude and Codex ship the same pre-PR reminder via their plugins
   (`uploads hook pre-pr-screenshot`). The hook is a silent no-op when the

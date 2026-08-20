@@ -229,7 +229,7 @@ export const ROOT_COMMANDS: readonly CatalogCommand[] = [
     essential: true,
     subcommands: [
       { name: "skill", summary: "Install the agent skills only" },
-      { name: "mcp", summary: "Register the remote MCP server only" },
+      { name: "mcp", summary: "Register the remote MCP server (skips missing agent CLIs)" },
       { name: "hooks", summary: "Install PR screenshot hooks for Grok/Cursor" },
       { name: "all", summary: "Install skills, MCP, and hooks (default)" },
     ],
