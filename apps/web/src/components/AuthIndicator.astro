@@ -45,12 +45,12 @@ const MENU_ITEMS = [
     readCachedSessionUser,
     writeCachedSessionUser,
   } from "../lib/account-shell";
-  import { readCachedActiveWorkspace } from "../lib/workspaces-nav";
+  import { readCachedActiveWorkspace, workspaceHomePath } from "../lib/workspaces-nav";
 
-  /** Last-used workspace files, else the workspaces list (same as home CTA). */
+  /** Last-used workspace home (screenshots), else the workspaces list (same as home CTA). */
   function filesHref(): string {
     const ws = readCachedActiveWorkspace();
-    return ws ? `/account/workspaces/${encodeURIComponent(ws)}` : "/account/workspaces";
+    return ws ? workspaceHomePath(ws) : "/account/workspaces";
   }
 
   /** SiteHeader's signed-in-only Files link (absent on pages without the header). */

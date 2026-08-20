@@ -57,7 +57,7 @@ const pageHeading = title ?? (workspace || titles[section]);
 const docTitle = `${pageHeading} · uploads.sh`;
 
 const activeTab: WorkspaceNavTab | "" = workspace
-  ? workspaceTabFromPathname(Astro.url.pathname) || "files"
+  ? workspaceTabFromPathname(Astro.url.pathname) || "screenshots"
   : "";
 const settingsSubpage =
   activeTab === "settings" ? workspaceSettingsSubpageFromPathname(Astro.url.pathname) : "";

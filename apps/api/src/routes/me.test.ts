@@ -1821,12 +1821,18 @@ describe("GET /me/workspaces/:name/files/by-path", () => {
         lastUpdated: string;
         recent: { key: string; url: string | null; state?: string }[];
       }[];
+      catalog: { project: string; path: string; count: number; lastUpdated: string }[];
       projects: { label: string; count: number; lastUpdated: string }[];
       truncated: boolean;
+      catalogTruncated: boolean;
     };
     expect(body.truncated).toBe(false);
+    expect(body.catalogTruncated).toBe(false);
     expect(body.groups).toHaveLength(1);
     expect(body.groups[0]).toMatchObject({ project: "Other", path: "/settings", count: 2 });
+    expect(body.catalog).toEqual([
+      expect.objectContaining({ project: "Other", path: "/settings", count: 2 }),
+    ]);
     const byKey = Object.fromEntries(body.groups[0]!.recent.map((r) => [r.key, r]));
     expect(byKey["shots/a.png"]).toMatchObject({
       url: "https://storage.uploads.sh/acme/shots/a.png",
@@ -1861,7 +1867,13 @@ describe("GET /me/workspaces/:name/files/by-path", () => {
     });
     const res = await app().request("/me/workspaces/acme/files/by-path", {}, env);
     expect(res.status).toBe(200);
-    expect((await res.json()) as unknown).toEqual({ groups: [], projects: [], truncated: false });
+    expect((await res.json()) as unknown).toEqual({
+      groups: [],
+      catalog: [],
+      projects: [],
+      truncated: false,
+      catalogTruncated: false,
+    });
   });
 
   it("404s for a workspace the caller is not a member of", async () => {

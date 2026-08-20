@@ -511,21 +511,69 @@ describe("getWorkspaceFilesByPath", () => {
   };
   const PROJECT = { label: "acme/web", count: 2, lastUpdated: "2026-08-09T21:14:03.000Z" };
 
-  it("returns groups and projects on a well-formed response", async () => {
+  const CATALOG = {
+    project: "acme/web",
+    path: "/settings",
+    count: 2,
+    lastUpdated: "2026-08-09T21:14:03.000Z",
+  };
+
+  it("returns groups, catalog, and projects on a well-formed response", async () => {
     const fetchMock = vi.fn(async (_input: RequestInfo | URL) =>
-      Response.json({ groups: [GROUP], projects: [PROJECT], truncated: false }),
+      Response.json({
+        groups: [GROUP],
+        catalog: [CATALOG],
+        projects: [PROJECT],
+        truncated: false,
+        catalogTruncated: false,
+      }),
     );
     vi.stubGlobal("fetch", fetchMock);
     const result = await getWorkspaceFilesByPath("https://api.uploads.sh", "acme");
     expect(result).toEqual({
       kind: "ok",
       groups: [GROUP],
+      catalog: [CATALOG],
       projects: [PROJECT],
       truncated: false,
+      catalogTruncated: false,
     });
     expect(fetchMock.mock.calls[0]![0]).toBe(
       "https://api.uploads.sh/v1/workspaces/acme/files/by-path",
     );
+  });
+
+  it("synthesizes a catalog from groups when an older API omits it", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ groups: [GROUP], projects: [PROJECT], truncated: true })),
+    );
+    const result = await getWorkspaceFilesByPath("https://api.uploads.sh", "acme");
+    expect(result).toEqual({
+      kind: "ok",
+      groups: [GROUP],
+      catalog: [CATALOG],
+      projects: [PROJECT],
+      truncated: true,
+      catalogTruncated: true,
+    });
+  });
+
+  it("is unavailable on a malformed catalog", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({
+          groups: [GROUP],
+          catalog: [{ path: 1 }],
+          projects: [PROJECT],
+          truncated: false,
+        }),
+      ),
+    );
+    const result = await getWorkspaceFilesByPath("https://api.uploads.sh", "acme");
+    expect(result.kind).toBe("unavailable");
+    expect((result as { reason: string }).reason).toBe("malformed");
   });
 
   it("is unavailable on a malformed body", async () => {

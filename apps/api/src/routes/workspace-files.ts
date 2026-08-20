@@ -171,14 +171,18 @@ export const workspaceFiles = new Hono<DualAuthVars>()
   // Recent uploads grouped by their `path` metadata value — the screenshots
   // page's single overview query (spec: docs/superpowers/specs/
   // 2026-08-10-screenshots-by-path-design.md). Drill-in reuses the sibling
-  // `files/search?meta.path=…` route; this one only answers "which paths,
-  // how recent, first few keys". `state` is the one metadata key enriched —
-  // the page badges before/after and nothing else, so no other keys leak
-  // into the payload.
+  // `files/search?meta.path=…` route; this one answers "which paths, how
+  // recent, first few keys" plus a thumbless `catalog` of every unique
+  // (project, path) so the page can filter without a second query. `state`
+  // is the one metadata key enriched — the page badges before/after and
+  // nothing else, so no other keys leak into the payload.
   .get("/:workspace/files/by-path", dualWorkspaceAuth(), scoped("files:read"), async (c) => {
     const record = c.get("workspace");
     const name = c.get("workspaceName");
-    const { groups, projects, truncated } = await groupObjectsByPath(c.env.DB, name);
+    const { groups, catalog, projects, truncated, catalogTruncated } = await groupObjectsByPath(
+      c.env.DB,
+      name,
+    );
     const metaByKey = await getMetadataForKeys(
       c.env.DB,
       name,
@@ -204,8 +208,10 @@ export const workspaceFiles = new Hono<DualAuthVars>()
           };
         }),
       })),
+      catalog,
       projects,
       truncated,
+      catalogTruncated,
     });
   })
 

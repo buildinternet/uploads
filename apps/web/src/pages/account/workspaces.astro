@@ -1,7 +1,7 @@
 ---
 /**
  * Workspaces index.
- * Legacy `?ws=` deep links redirect to `/account/workspaces/<name>`.
+ * Legacy `?ws=` deep links redirect to the workspace home (screenshots).
  * Auto-opens a workspace (last-used, else first owned) so a signed-in user
  * lands somewhere; `?manage=1` asks for the list itself instead.
  */
@@ -11,14 +11,17 @@ import { getMyWorkspaces } from "../../lib/api-client";
 import { resolveSignedInOrigins } from "../../lib/signed-in-page";
 import { isBrowseWorkspace } from "../../lib/workspace-browse-url";
 import { renderWorkspacesPlaceholderHtml } from "../../lib/workspace-ui";
+import { workspaceOpenTab, workspacePath } from "../../lib/workspaces-nav";
 
 export const prerender = false;
 
 const legacyWs = (Astro.url.searchParams.get("ws") ?? "").trim();
 if (isBrowseWorkspace(legacyWs)) {
   // Same `?to=<tab>` allowlist as the client-side auto-open below.
-  const suffix = Astro.url.searchParams.get("to") === "screenshots" ? "/screenshots" : "";
-  const dest = new URL(`/account/workspaces/${encodeURIComponent(legacyWs)}${suffix}`, Astro.url);
+  const dest = new URL(
+    workspacePath(legacyWs, workspaceOpenTab(Astro.url.searchParams.get("to"))),
+    Astro.url,
+  );
   dest.search = "";
   for (const [key, value] of Astro.url.searchParams) {
     if (key !== "ws" && key !== "to") dest.searchParams.append(key, value);
@@ -39,8 +42,7 @@ if (!managing) {
     if (result.kind === "success" && result.workspaces.length === 1) {
       const only = result.workspaces[0].workspace;
       const to = new URLSearchParams(Astro.url.search).get("to");
-      const suffix = to === "screenshots" ? "/screenshots" : "";
-      return Astro.redirect(`/account/workspaces/${encodeURIComponent(only)}${suffix}`);
+      return Astro.redirect(workspacePath(only, workspaceOpenTab(to)));
     }
   }
 }
@@ -75,6 +77,9 @@ if (!managing) {
       loadWorkspaces,
       readCachedActiveWorkspace,
       resolveDefaultWorkspace,
+      workspaceHomePath,
+      workspaceOpenTab,
+      workspacePath,
     } from "../../lib/workspaces-nav";
     import { workspaceCapMessage } from "@uploads/billing";
     import { shouldShowProBadge } from "../../lib/plan-badge";
@@ -154,12 +159,11 @@ if (!managing) {
           list.removeAttribute("aria-busy");
           status.hidden = false;
           status.textContent = "Opening…";
-          // `?to=<tab>` lands the auto-open on a workspace sub-tab (the
-          // header's Screenshots link uses it). Allowlisted so a crafted
-          // query can't steer the redirect anywhere else.
+          // `?to=<tab>` lands the auto-open on a workspace sub-tab.
+          // Default is screenshots (the workspace home). Allowlisted so a
+          // crafted query can't steer the redirect anywhere else.
           const to = new URLSearchParams(location.search).get("to");
-          const suffix = to === "screenshots" ? "/screenshots" : "";
-          location.replace(`/account/workspaces/${encodeURIComponent(open)}${suffix}`);
+          location.replace(workspacePath(open, workspaceOpenTab(to)));
           return;
         }
 
@@ -169,7 +173,7 @@ if (!managing) {
         list.innerHTML = workspaces
           .map((ws) => {
             const name = ws.organization.name || ws.workspace;
-            const href = `/account/workspaces/${encodeURIComponent(ws.workspace)}`;
+            const href = workspaceHomePath(ws.workspace);
             const badge = shouldShowProBadge(ws.plan) ? ` <span class="pro-badge">Pro</span>` : "";
             return `<li>
               <a href="${escapeHtml(href)}">${escapeHtml(name)}</a>${badge}

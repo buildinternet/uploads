@@ -302,7 +302,13 @@ describe("canonical file catch-all route ordering", () => {
       env,
     );
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ groups: [], projects: [], truncated: false });
+    expect(await res.json()).toEqual({
+      groups: [],
+      catalog: [],
+      projects: [],
+      truncated: false,
+      catalogTruncated: false,
+    });
   });
 
   it("keeps files/file-url on the static URL handler", async () => {

@@ -43,14 +43,15 @@ import { readScreenshotsView } from "../lib/workspace-screenshots";
  * verbatim, with no parsing or URL-dependence to pin.
  */
 describe("ScreenshotsByPath seed contract — initialSearch provided", () => {
-  it("a default overview (empty search) seeds an empty project and path", () => {
-    expect(readScreenshotsView("")).toEqual({ project: "", path: "" });
+  it("a default overview (empty search) seeds an empty project, path, and q", () => {
+    expect(readScreenshotsView("")).toEqual({ project: "", path: "", q: "" });
   });
 
   it("a deep-linked project view seeds that project, no path", () => {
     expect(readScreenshotsView("?project=acme%2Fweb")).toEqual({
       project: "acme/web",
       path: "",
+      q: "",
     });
   });
 
@@ -58,6 +59,15 @@ describe("ScreenshotsByPath seed contract — initialSearch provided", () => {
     expect(readScreenshotsView("?project=acme%2Fweb&path=%2Fadmin")).toEqual({
       project: "acme/web",
       path: "/admin",
+      q: "",
+    });
+  });
+
+  it("a deep-linked path query seeds q without entering drill-in", () => {
+    expect(readScreenshotsView("?q=%2Fcatalog")).toEqual({
+      project: "",
+      path: "",
+      q: "/catalog",
     });
   });
 });
@@ -72,6 +82,6 @@ describe("ScreenshotsByPath seed contract — no initialSearch prop (props-less 
 
   it("resolves to the same defaults today's props-less behavior always had", () => {
     expect(seedSearch).toBe("");
-    expect(readScreenshotsView(seedSearch)).toEqual({ project: "", path: "" });
+    expect(readScreenshotsView(seedSearch)).toEqual({ project: "", path: "", q: "" });
   });
 });

@@ -1,11 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
+  filterCatalog,
+  groupsFromCatalog,
   lastUpdatedLabel,
   pairedShotKeys,
+  pathQueryMatches,
   projectLabelFromItemMeta,
   readScreenshotsView,
   screenshotsSearch,
   shotKindFromKey,
+  shotPreviewPosition,
 } from "./workspace-screenshots";
 
 describe("pairedShotKeys", () => {
@@ -124,17 +128,108 @@ describe("projectLabelFromItemMeta", () => {
 });
 
 describe("screenshots view URL state", () => {
-  it("round-trips project and path", () => {
-    expect(readScreenshotsView("?project=acme%2Fweb&path=%2Fadmin")).toEqual({
+  it("round-trips project, path, and q", () => {
+    expect(readScreenshotsView("?project=acme%2Fweb&path=%2Fadmin&q=%2Fcat")).toEqual({
       project: "acme/web",
       path: "/admin",
+      q: "/cat",
     });
-    expect(screenshotsSearch("acme/web", "/admin")).toBe("?project=acme%2Fweb&path=%2Fadmin");
+    expect(screenshotsSearch("acme/web", "/admin", "/cat")).toBe(
+      "?project=acme%2Fweb&path=%2Fadmin&q=%2Fcat",
+    );
     expect(screenshotsSearch("acme/web", "")).toBe("?project=acme%2Fweb");
     expect(screenshotsSearch("", "")).toBe("");
+    expect(screenshotsSearch("", "", "/catalog")).toBe("?q=%2Fcatalog");
   });
   it("keeps legacy bare ?path= links working", () => {
-    expect(readScreenshotsView("?path=%2Fadmin")).toEqual({ project: "", path: "/admin" });
+    expect(readScreenshotsView("?path=%2Fadmin")).toEqual({
+      project: "",
+      path: "/admin",
+      q: "",
+    });
     expect(screenshotsSearch("", "/admin")).toBe("?path=%2Fadmin");
+  });
+});
+
+describe("pathQueryMatches", () => {
+  it("treats a leading slash as a path-segment prefix", () => {
+    expect(pathQueryMatches("/catalog", "/catalog")).toBe(true);
+    expect(pathQueryMatches("/catalog/families/ezel", "/catalog")).toBe(true);
+    expect(pathQueryMatches("/catalog/families/ezel", "/catalog/")).toBe(true);
+    expect(pathQueryMatches("/catalogue", "/catalog")).toBe(false);
+    expect(pathQueryMatches("/admin/catalog", "/catalog")).toBe(false);
+  });
+  it("treats a slash-less query as a case-insensitive substring", () => {
+    expect(pathQueryMatches("/Catalog/Families", "famil")).toBe(true);
+    expect(pathQueryMatches("/admin/oauth", "OAuth")).toBe(true);
+    expect(pathQueryMatches("/home", "zzz")).toBe(false);
+  });
+  it("matches everything when the query is empty", () => {
+    expect(pathQueryMatches("/home", "")).toBe(true);
+    expect(pathQueryMatches("/home", "  ")).toBe(true);
+  });
+});
+
+describe("filterCatalog", () => {
+  const catalog = [
+    { project: "acme/web", path: "/catalog/families/ezel", count: 6, lastUpdated: "2" },
+    { project: "acme/web", path: "/admin", count: 2, lastUpdated: "1" },
+    { project: "local dev", path: "/catalog", count: 1, lastUpdated: "3" },
+  ];
+  it("filters by project and path query together", () => {
+    expect(
+      filterCatalog(catalog, { project: "acme/web", q: "/catalog" }).map((e) => e.path),
+    ).toEqual(["/catalog/families/ezel"]);
+    expect(filterCatalog(catalog, { project: "", q: "/catalog" }).map((e) => e.project)).toEqual([
+      "acme/web",
+      "local dev",
+    ]);
+    expect(filterCatalog(catalog, { project: "acme/web", q: "" })).toHaveLength(2);
+  });
+});
+
+describe("groupsFromCatalog", () => {
+  it("keeps thumbed groups and fills catalog-only paths with empty recent", () => {
+    const catalog = [
+      { project: "acme/web", path: "/admin", count: 2, lastUpdated: "2" },
+      { project: "acme/web", path: "/older", count: 1, lastUpdated: "1" },
+    ];
+    const groups = [
+      {
+        project: "acme/web",
+        path: "/admin",
+        count: 2,
+        lastUpdated: "2",
+        recent: [{ key: "a.png", url: null, embedUrl: null }],
+      },
+    ];
+    expect(groupsFromCatalog(catalog, groups)).toEqual([
+      groups[0],
+      { project: "acme/web", path: "/older", count: 1, lastUpdated: "1", recent: [] },
+    ]);
+  });
+});
+
+describe("shotPreviewPosition", () => {
+  const preview = { width: 480, height: 300 };
+  const viewport = { width: 1200, height: 800 };
+  it("prefers the right side when there is room", () => {
+    expect(
+      shotPreviewPosition({ left: 20, top: 40, right: 188, bottom: 166 }, viewport, preview),
+    ).toEqual({ left: 200, top: 40 });
+  });
+  it("flips to the left when the right side would clip", () => {
+    expect(
+      shotPreviewPosition({ left: 900, top: 40, right: 1068, bottom: 166 }, viewport, preview),
+    ).toEqual({ left: 408, top: 40 });
+  });
+  it("clamps vertically when the preview would run off the bottom", () => {
+    const pos = shotPreviewPosition(
+      { left: 20, top: 700, right: 188, bottom: 826 },
+      viewport,
+      preview,
+    );
+    expect(pos.top).toBe(492); // 800 - 8 - 300
+    expect(pos.left).toBe(200);
   });
 });

@@ -872,6 +872,14 @@ export interface FilesPathGroup {
   recent: PathGroupItem[];
 }
 
+/** One unique (project, path) pair without thumbs — the filter-bar catalog. */
+export interface PathCatalogEntry {
+  project: string;
+  path: string;
+  count: number;
+  lastUpdated: string;
+}
+
 /** One project bucket summary alongside the by-path groups. */
 export interface ProjectSummary {
   label: string;
@@ -880,7 +888,14 @@ export interface ProjectSummary {
 }
 
 export type FilesByPathResult =
-  | { kind: "ok"; groups: FilesPathGroup[]; projects: ProjectSummary[]; truncated: boolean }
+  | {
+      kind: "ok";
+      groups: FilesPathGroup[];
+      catalog: PathCatalogEntry[];
+      projects: ProjectSummary[];
+      truncated: boolean;
+      catalogTruncated: boolean;
+    }
   | { kind: "unavailable"; reason: RequestFailure | "server" | "malformed" };
 
 function isPathGroupItem(value: unknown): value is PathGroupItem {
@@ -917,6 +932,27 @@ function isProjectSummary(value: unknown): value is ProjectSummary {
   );
 }
 
+function isPathCatalogEntry(value: unknown): value is PathCatalogEntry {
+  if (!value || typeof value !== "object") return false;
+  const entry = value as Record<string, unknown>;
+  return (
+    typeof entry.project === "string" &&
+    typeof entry.path === "string" &&
+    typeof entry.count === "number" &&
+    typeof entry.lastUpdated === "string"
+  );
+}
+
+/** Derive a catalog from thumbed groups when an older API omitted it. */
+function catalogFromGroups(groups: FilesPathGroup[]): PathCatalogEntry[] {
+  return groups.map(({ project, path, count, lastUpdated }) => ({
+    project,
+    path,
+    count,
+    lastUpdated,
+  }));
+}
+
 /** GET /v1/workspaces/:name/files/by-path — recent uploads grouped by `path` metadata. */
 export async function getWorkspaceFilesByPath(
   apiOrigin: string,
@@ -930,8 +966,10 @@ export async function getWorkspaceFilesByPath(
   if (!response.ok) return { kind: "unavailable", reason: "server" };
   const body = (await response.json().catch(() => null)) as {
     groups?: unknown;
+    catalog?: unknown;
     projects?: unknown;
     truncated?: unknown;
+    catalogTruncated?: unknown;
   } | null;
   if (
     !body ||
@@ -943,7 +981,30 @@ export async function getWorkspaceFilesByPath(
   ) {
     return { kind: "unavailable", reason: "malformed" };
   }
-  return { kind: "ok", groups: body.groups, projects: body.projects, truncated: body.truncated };
+  // Catalog is additive: an older API (web/API deploy separately) omitted it.
+  // Fall back to the thumbed groups so the filter bar still has something
+  // to search, and treat `truncated` as the catalog cap in that case.
+  if (body.catalog === undefined) {
+    return {
+      kind: "ok",
+      groups: body.groups,
+      catalog: catalogFromGroups(body.groups),
+      projects: body.projects,
+      truncated: body.truncated,
+      catalogTruncated: body.truncated,
+    };
+  }
+  if (!Array.isArray(body.catalog) || !body.catalog.every(isPathCatalogEntry)) {
+    return { kind: "unavailable", reason: "malformed" };
+  }
+  return {
+    kind: "ok",
+    groups: body.groups,
+    catalog: body.catalog,
+    projects: body.projects,
+    truncated: body.truncated,
+    catalogTruncated: typeof body.catalogTruncated === "boolean" ? body.catalogTruncated : false,
+  };
 }
 
 /** One metadata key present in a workspace, with its file and value counts. */

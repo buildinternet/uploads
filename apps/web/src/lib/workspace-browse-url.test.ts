@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyBrowseLocation,
   isBrowseWorkspace,
+  isFilesBrowseSearch,
   normalizeBrowsePath,
   readBrowseLocation,
   resolveActiveWorkspace,
@@ -94,7 +95,7 @@ describe("applyBrowseLocation", () => {
       workspace: "buildinternet",
       path: "screenshots/",
     });
-    expect(withPath.pathname).toBe("/account/workspaces/buildinternet");
+    expect(withPath.pathname).toBe("/account/workspaces/buildinternet/files");
     expect(withPath.searchParams.get("ws")).toBeNull();
     expect(withPath.searchParams.get("path")).toBe("screenshots/");
     expect(withPath.searchParams.get("tab")).toBe("1");
@@ -114,8 +115,19 @@ describe("applyBrowseLocation", () => {
       workspace: "buildinternet",
       path: "screenshots/",
     });
-    expect(next.pathname).toBe("/account/workspaces/buildinternet");
+    expect(next.pathname).toBe("/account/workspaces/buildinternet/files");
     expect(next.searchParams.get("path")).toBe("screenshots/");
+  });
+});
+
+describe("isFilesBrowseSearch", () => {
+  it("detects files-tab query keys", () => {
+    expect(isFilesBrowseSearch("?path=screenshots/")).toBe(true);
+    expect(isFilesBrowseSearch("?name=hero")).toBe(true);
+    expect(isFilesBrowseSearch("?view=grid")).toBe(true);
+    expect(isFilesBrowseSearch("?meta.app=web")).toBe(true);
+    expect(isFilesBrowseSearch("?project=acme")).toBe(false);
+    expect(isFilesBrowseSearch("")).toBe(false);
   });
 });
 

@@ -21,6 +21,7 @@ import { resolveBillingCta, type BillingCtaState } from "../../../../lib/billing
 import { formatPrice } from "../../../../lib/plan-prices";
 import { resolveSignedInOrigins } from "../../../../lib/signed-in-page";
 import { isBrowseWorkspace } from "../../../../lib/workspace-browse-url";
+import { workspaceHomePath } from "../../../../lib/workspaces-nav";
 
 export const prerender = false;
 
@@ -59,7 +60,7 @@ const cta: BillingCtaState = billing
           <h2>Billing</h2>
           <p class="muted" id="ws-slug"></p>
         </div>
-        <a class="text-btn" id="ws-back" href={`/account/workspaces/${workspace}`}>← Workspace</a>
+        <a class="text-btn" id="ws-back" href={workspaceHomePath(workspace)}>← Workspace</a>
       </div>
 
       <div

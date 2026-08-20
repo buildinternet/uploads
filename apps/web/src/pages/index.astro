@@ -823,12 +823,12 @@ Source (and where to look if something breaks): https://github.com/buildinternet
         readCachedSessionUser,
         writeCachedSessionUser,
       } from "../lib/account-shell";
-      import { readCachedActiveWorkspace } from "../lib/workspaces-nav";
+      import { readCachedActiveWorkspace, workspaceHomePath } from "../lib/workspaces-nav";
 
       /** Signed-in landing CTA: last-used workspace when known, else the list. */
       function workspaceHref(): string {
         const ws = readCachedActiveWorkspace();
-        return ws ? `/account/workspaces/${encodeURIComponent(ws)}` : "/account/workspaces";
+        return ws ? workspaceHomePath(ws) : "/account/workspaces";
       }
 
       function paintHomeCta(signedIn: boolean): void {

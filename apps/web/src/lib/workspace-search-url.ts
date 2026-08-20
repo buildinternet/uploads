@@ -97,8 +97,9 @@ export function replaceSearchLocation(
   next.searchParams.delete("path");
   const ws = isBrowseWorkspace(workspace) ? workspace : "";
   if (ws) {
-    if (workspaceFromPathname(next.pathname) !== ws) {
-      next.pathname = `/account/workspaces/${encodeURIComponent(ws)}`;
+    const filesPath = `/account/workspaces/${encodeURIComponent(ws)}/files`;
+    if (next.pathname !== filesPath) {
+      next.pathname = filesPath;
     }
     next.searchParams.delete("ws");
   } else {

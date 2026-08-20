@@ -10,6 +10,7 @@ import { getWorkspacePeople } from "../../../../lib/api-client";
 import { resolveSignedInOrigins } from "../../../../lib/signed-in-page";
 import { isBrowseWorkspace } from "../../../../lib/workspace-browse-url";
 import { renderMembersHtml, renderMembersPlaceholderHtml } from "../../../../lib/workspace-ui";
+import { workspaceHomePath } from "../../../../lib/workspaces-nav";
 
 export const prerender = false;
 
@@ -50,7 +51,7 @@ if (cookie.trim()) {
           <h2>People</h2>
           <p class="muted" id="ws-slug"></p>
         </div>
-        <a class="text-btn" id="ws-back" href={`/account/workspaces/${workspace}`}>← Workspace</a>
+        <a class="text-btn" id="ws-back" href={workspaceHomePath(workspace)}>← Workspace</a>
       </div>
       <div
         id="ws-members"
