@@ -19,7 +19,7 @@ const workspace = isBrowseWorkspace(nameParam) ? nameParam : "";
 if (!workspace) return Astro.redirect("/account/workspaces");
 
 const tip = {
-  body: "invites are workspace-scoped — teammates see every file, not just their own.",
+  body: "Invites are workspace-scoped — teammates see every file, not just their own.",
 };
 
 // SSR-first: render the member rows read-only on the server so first paint has

@@ -305,6 +305,7 @@ describe("canonical file catch-all route ordering", () => {
     expect(await res.json()).toEqual({
       groups: [],
       catalog: [],
+      latest: [],
       projects: [],
       truncated: false,
       catalogTruncated: false,

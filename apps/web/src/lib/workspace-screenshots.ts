@@ -152,24 +152,75 @@ export function pairedShotKeys(items: Array<{ key: string; state?: string }>): S
   return paired;
 }
 
-/** `?project=` / `?path=` / `?q=` view state, "" when absent. */
-export function readScreenshotsView(search: string): { project: string; path: string; q: string } {
+/** Overview layout: grouped by project/path, or one flat newest-first feed. */
+export type ScreenshotsFeed = "grouped" | "recent";
+
+export interface ScreenshotsView {
+  project: string;
+  path: string;
+  q: string;
+  feed: ScreenshotsFeed;
+}
+
+/** `?project=` / `?path=` / `?q=` / `?view=` state, ""/grouped when absent. */
+export function readScreenshotsView(search: string): ScreenshotsView {
   const params = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search);
   return {
     project: params.get("project") ?? "",
     path: params.get("path") ?? "",
     q: params.get("q") ?? "",
+    feed: params.get("view") === "recent" ? "recent" : "grouped",
   };
 }
 
-/** Search string for a view ("" for all three clears back to the overview). */
-export function screenshotsSearch(project: string, path: string, q = ""): string {
+/** Search string for a view (all defaults clears back to the overview). */
+export function screenshotsSearch(
+  project: string,
+  path: string,
+  q = "",
+  feed: ScreenshotsFeed = "grouped",
+): string {
   const params = new URLSearchParams();
   if (project) params.set("project", project);
   if (path) params.set("path", path);
   if (q) params.set("q", q);
+  if (feed === "recent") params.set("view", "recent");
   const qs = params.toString();
   return qs ? `?${qs}` : "";
+}
+
+/**
+ * True when a project label names a GitHub repo. Labels come from
+ * projectLabelFromMeta's coalesce, where only the repo branches
+ * (`repo`/`gh.repo`, always "owner/name") ever contain a slash — URL hosts,
+ * app names, "local dev", and "Other" never do.
+ */
+export function isRepoLabel(label: string): boolean {
+  return label.includes("/");
+}
+
+/**
+ * Autocomplete suggestions for the path filter: catalog paths matching the
+ * current project + query, deduped across projects (counts summed), in the
+ * catalog's own recency order. Matching is a plain substring — looser than
+ * `pathQueryMatches`'s segment-prefix rule on purpose, so a half-typed
+ * segment ("/ca") still surfaces "/catalog/families" to complete into.
+ */
+export function pathSuggestions(
+  catalog: Array<{ project: string; path: string; count: number }>,
+  opts: { project: string; q: string },
+  limit = 8,
+): Array<{ path: string; count: number }> {
+  const needle = opts.q.trim().toLowerCase();
+  const byPath = new Map<string, { path: string; count: number }>();
+  for (const entry of catalog) {
+    if (opts.project && entry.project !== opts.project) continue;
+    if (needle && !entry.path.toLowerCase().includes(needle)) continue;
+    const existing = byPath.get(entry.path);
+    if (existing) existing.count += entry.count;
+    else byPath.set(entry.path, { path: entry.path, count: entry.count });
+  }
+  return [...byPath.values()].slice(0, limit);
 }
 
 /**

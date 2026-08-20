@@ -180,17 +180,30 @@ export const workspaceFiles = new Hono<DualAuthVars>()
   .get("/:workspace/files/by-path", dualWorkspaceAuth(), scoped("files:read"), async (c) => {
     const record = c.get("workspace");
     const name = c.get("workspaceName");
-    const { groups, catalog, projects, truncated, catalogTruncated } = await groupObjectsByPath(
-      c.env.DB,
-      name,
-    );
+    const { groups, catalog, projects, latest, truncated, catalogTruncated } =
+      await groupObjectsByPath(c.env.DB, name);
     const metaByKey = await getMetadataForKeys(
       c.env.DB,
       name,
-      groups.flatMap((group) => group.recent),
+      [...groups.flatMap((group) => group.recent), ...latest.map((item) => item.key)],
       { metaKeys: ["state", "gh.kind", "gh.number"] },
     );
     const cfg = await storageConfig(c.env, record);
+    const shotItem = (key: string) => {
+      const urls = objectPublicUrls(c.env, cfg, key);
+      const meta = metaByKey.get(key);
+      const state = meta?.state;
+      const ghKind = meta?.["gh.kind"];
+      const ghNumber = meta?.["gh.number"];
+      return {
+        key,
+        url: urls.url,
+        embedUrl: urls.embedUrl,
+        ...(state !== undefined ? { state } : {}),
+        ...(ghKind !== undefined ? { ghKind } : {}),
+        ...(ghNumber !== undefined ? { ghNumber } : {}),
+      };
+    };
 
     return c.json({
       groups: groups.map((group) => ({
@@ -198,24 +211,18 @@ export const workspaceFiles = new Hono<DualAuthVars>()
         path: group.path,
         count: group.count,
         lastUpdated: group.lastUpdated,
-        recent: group.recent.map((key) => {
-          const urls = objectPublicUrls(c.env, cfg, key);
-          const meta = metaByKey.get(key);
-          const state = meta?.state;
-          const ghKind = meta?.["gh.kind"];
-          const ghNumber = meta?.["gh.number"];
-          return {
-            key,
-            url: urls.url,
-            embedUrl: urls.embedUrl,
-            ...(state !== undefined ? { state } : {}),
-            ...(ghKind !== undefined ? { ghKind } : {}),
-            ...(ghNumber !== undefined ? { ghNumber } : {}),
-          };
-        }),
+        recent: group.recent.map(shotItem),
       })),
       catalog,
       projects,
+      // Flat newest-first feed (the "Recent" view) — same item shape as
+      // `recent`, plus which (project, path) each shot belongs to.
+      latest: latest.map((item) => ({
+        ...shotItem(item.key),
+        project: item.project,
+        path: item.path,
+        uploadedAt: item.uploadedAt,
+      })),
       truncated,
       catalogTruncated,
     });

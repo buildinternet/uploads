@@ -17,12 +17,20 @@
  */
 import { Callout, Input, Select } from "@uploads/ui";
 import "@uploads/ui/styles.css";
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
+} from "react";
 import { IslandErrorBoundary } from "./IslandErrorBoundary";
 import {
   getWorkspaceFilesByPath,
   searchWorkspaceFiles,
   type FilesPathGroup,
+  type LatestShotItem,
   type PathCatalogEntry,
   type ProjectSummary,
   type SearchFileItem,
@@ -34,15 +42,20 @@ import { makeFileOpener, newTabLinkProps, type FileOpener } from "../lib/file-op
 import {
   filterCatalog,
   groupsFromCatalog,
+  isRepoLabel,
   lastUpdatedLabel,
   leafName,
   pairedShotKeys,
+  pathQueryMatches,
+  pathSuggestions,
   projectLabelFromItemMeta,
   readScreenshotsView,
   screenshotsSearch,
   shotKindFromKey,
   shotPreviewCaption,
   shotPreviewPosition,
+  type ScreenshotsFeed,
+  type ScreenshotsView,
 } from "../lib/workspace-screenshots";
 
 /** How many path groups a project section previews before "view project →". */
@@ -104,6 +117,7 @@ export type OverviewState =
       groups: FilesPathGroup[];
       catalog: PathCatalogEntry[];
       projects: ProjectSummary[];
+      latest: LatestShotItem[];
       truncated: boolean;
       catalogTruncated: boolean;
     };
@@ -118,6 +132,57 @@ type DrillState =
 function extLabel(key: string): string {
   const match = /\.([a-z0-9]{1,8})$/i.exec(key);
   return match ? match[1].toLowerCase() : "file";
+}
+
+// ── Small GitHub glyphs (Octicons, 16-grid paths at 12px) ──────────────
+
+function GitHubMark({ size = 12 }: { size?: number }) {
+  return (
+    <svg
+      className="wsp-ghicon"
+      width={size}
+      height={size}
+      viewBox="0 0 16 16"
+      fill="currentColor"
+      aria-hidden="true"
+    >
+      <path d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z" />
+    </svg>
+  );
+}
+
+/** Pull-request or issue-opened Octicon for a `gh.kind` value; null otherwise. */
+function GhKindIcon({ kind, size = 10 }: { kind: string | undefined; size?: number }) {
+  if (kind === "pull") {
+    return (
+      <svg
+        className="wsp-ghicon"
+        width={size}
+        height={size}
+        viewBox="0 0 16 16"
+        fill="currentColor"
+        aria-hidden="true"
+      >
+        <path d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354ZM3.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0 9.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm8.25.75a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Z" />
+      </svg>
+    );
+  }
+  if (kind === "issue" || kind === "issues") {
+    return (
+      <svg
+        className="wsp-ghicon"
+        width={size}
+        height={size}
+        viewBox="0 0 16 16"
+        fill="currentColor"
+        aria-hidden="true"
+      >
+        <path d="M8 9.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z" />
+        <path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Z" />
+      </svg>
+    );
+  }
+  return null;
 }
 
 /** "PR #7" / "Issue #3", plus the author when present. */
@@ -163,11 +228,11 @@ function ShotThumb({
   /** True when a before/after counterpart sits in the same strip/grid. */
   paired?: boolean;
   /** Optional pill (GitHub "PR #7 · author" context) — not the state. */
-  contextLabel?: string;
+  contextLabel?: ReactNode;
   /** Known destination; when null the tile falls back to a button + `onOpen`. */
   href: string | null;
   onOpen: () => void;
-  onPreviewEnter?: (el: HTMLElement, src: string, caption: { name: string; pr?: string }) => void;
+  onPreviewEnter?: (el: HTMLElement, src: string, caption: PreviewCaption) => void;
   onPreviewLeave?: () => void;
 }) {
   const name = leafName(item.key);
@@ -178,7 +243,9 @@ function ShotThumb({
   // State stays in the accessible name, not a native `title` tooltip — that
   // tooltip sat on top of the hover preview.
   const stateSuffix = item.state ? ` (${item.state})` : "";
-  const caption = shotPreviewCaption(item);
+  const ghKindValue = item.ghKind ?? item.metadata?.["gh.kind"];
+  const base = shotPreviewCaption(item);
+  const caption: PreviewCaption = base.pr ? { ...base, kind: ghKindValue } : base;
 
   const previewSrc = showImage ? item.embedUrl : null;
   const shared = {
@@ -291,19 +358,66 @@ function FilterBar({
   project,
   q,
   path,
+  feed,
   projects,
+  catalog,
   onProject,
   onQuery,
+  onFeed,
+  onPickPath,
 }: {
   project: string;
   q: string;
   /** Exact drill-in path, shown in the input so editing it widens the filter. */
   path: string;
+  feed: ScreenshotsFeed;
   projects: string[];
+  /** Path catalog backing the input's autocomplete suggestions. */
+  catalog: PathCatalogEntry[];
   onProject: (project: string) => void;
   onQuery: (q: string) => void;
+  onFeed: (feed: ScreenshotsFeed) => void;
+  onPickPath: (path: string) => void;
 }) {
   const options = project && !projects.includes(project) ? [...projects, project] : projects;
+  const [suggestOpen, setSuggestOpen] = useState(false);
+  const [active, setActive] = useState(-1);
+  const value = path || q;
+  // Exact drill-in state means the value already IS a suggestion — nothing
+  // useful to offer until the user edits it back into a query.
+  const suggestions = path ? [] : pathSuggestions(catalog, { project, q });
+  const open = suggestOpen && suggestions.length > 0;
+
+  const pick = (picked: string) => {
+    setSuggestOpen(false);
+    setActive(-1);
+    onPickPath(picked);
+  };
+
+  const onKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (!open) {
+      if (event.key === "ArrowDown" && suggestions.length > 0) {
+        event.preventDefault();
+        setSuggestOpen(true);
+        setActive(0);
+      }
+      return;
+    }
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setActive((i) => (i + 1) % suggestions.length);
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setActive((i) => (i <= 0 ? suggestions.length - 1 : i - 1));
+    } else if (event.key === "Enter" && active >= 0 && suggestions[active]) {
+      event.preventDefault();
+      pick(suggestions[active].path);
+    } else if (event.key === "Escape") {
+      setSuggestOpen(false);
+      setActive(-1);
+    }
+  };
+
   return (
     <div className="wsp-filter">
       <Select
@@ -319,25 +433,84 @@ function FilterBar({
           </option>
         ))}
       </Select>
-      <Input
-        id="wsp-path-filter"
-        type="search"
-        className="wsp-filter__q"
-        aria-label="Filter by path"
-        aria-keyshortcuts="Meta+K Control+K Slash"
-        placeholder="Filter path  e.g. /catalog"
-        value={path || q}
-        spellCheck={false}
-        autoComplete="off"
-        autoCorrect="off"
-        autoCapitalize="off"
-        onChange={(event) => onQuery(event.target.value)}
-      />
+      <div className="wsp-filter__qwrap">
+        <Input
+          id="wsp-path-filter"
+          type="search"
+          className="wsp-filter__q"
+          aria-label="Filter by path"
+          aria-keyshortcuts="Meta+K Control+K Slash"
+          aria-expanded={open}
+          aria-controls="wsp-path-suggest"
+          aria-activedescendant={active >= 0 ? `wsp-path-suggest-${active}` : undefined}
+          role="combobox"
+          placeholder="Filter path  e.g. /catalog"
+          value={value}
+          spellCheck={false}
+          autoComplete="off"
+          autoCorrect="off"
+          autoCapitalize="off"
+          onChange={(event) => {
+            setSuggestOpen(true);
+            setActive(-1);
+            onQuery(event.target.value);
+          }}
+          onFocus={() => setSuggestOpen(true)}
+          onBlur={() => {
+            // Delay so a mousedown on an option can land first.
+            window.setTimeout(() => setSuggestOpen(false), 120);
+          }}
+          onKeyDown={onKeyDown}
+        />
+        {open && (
+          <ul className="wsp-suggest" id="wsp-path-suggest" role="listbox" aria-label="Paths">
+            {suggestions.map((entry, index) => (
+              <li key={entry.path} role="presentation">
+                <button
+                  type="button"
+                  role="option"
+                  id={`wsp-path-suggest-${index}`}
+                  aria-selected={index === active}
+                  className={index === active ? "wsp-suggest__opt is-active" : "wsp-suggest__opt"}
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    pick(entry.path);
+                  }}
+                  onMouseEnter={() => setActive(index)}
+                >
+                  <span className="wsp-suggest__path">{entry.path}</span>
+                  <span className="wsp-suggest__count">
+                    {entry.count} {entry.count === 1 ? "file" : "files"}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+      <div className="wsp-toggle" role="group" aria-label="Layout">
+        <button
+          type="button"
+          className="wsp-toggle__opt"
+          aria-pressed={feed === "grouped"}
+          onClick={() => onFeed("grouped")}
+        >
+          Grouped
+        </button>
+        <button
+          type="button"
+          className="wsp-toggle__opt"
+          aria-pressed={feed === "recent"}
+          onClick={() => onFeed("recent")}
+        >
+          Recent
+        </button>
+      </div>
     </div>
   );
 }
 
-type PreviewCaption = { name: string; pr?: string };
+type PreviewCaption = { name: string; pr?: string; kind?: string };
 
 type PreviewHandlers = {
   onPreviewEnter: (el: HTMLElement, src: string, caption: PreviewCaption) => void;
@@ -377,9 +550,7 @@ function ScreenshotsByPathInner({
   // `resolveFilesView`), so there's no stored-preference divergence to guard
   // against here: the server and the client's first render already agree as
   // long as both read the same `seedSearch`, which is exactly what this does.
-  const [view, setView] = useState<{ project: string; path: string; q: string }>(() =>
-    readScreenshotsView(seedSearch),
-  );
+  const [view, setView] = useState<ScreenshotsView>(() => readScreenshotsView(seedSearch));
   const previewTimer = useRef<number | null>(null);
   const [preview, setPreview] = useState<{
     src: string;
@@ -387,6 +558,7 @@ function ScreenshotsByPathInner({
     top: number;
     name: string;
     pr?: string;
+    kind?: string;
   } | null>(null);
   const [drill, setDrill] = useState<DrillState>({ status: "idle" });
   const [drillRetryNonce, setDrillRetryNonce] = useState(0);
@@ -422,6 +594,7 @@ function ScreenshotsByPathInner({
                 groups: result.groups,
                 catalog: result.catalog,
                 projects: result.projects,
+                latest: result.latest,
                 truncated: result.truncated,
                 catalogTruncated: result.catalogTruncated,
               }
@@ -465,7 +638,7 @@ function ScreenshotsByPathInner({
     history.replaceState(
       null,
       "",
-      window.location.pathname + screenshotsSearch(view.project, view.path, view.q),
+      window.location.pathname + screenshotsSearch(view.project, view.path, view.q, view.feed),
     );
     if (!view.path) {
       setDrill({ status: "idle" });
@@ -488,7 +661,7 @@ function ScreenshotsByPathInner({
     return () => {
       cancelled = true;
     };
-  }, [apiOrigin, workspace, view.project, view.path, drillRetryNonce]);
+  }, [apiOrigin, workspace, view.project, view.path, view.q, view.feed, drillRetryNonce]);
 
   useEffect(() => {
     const dismiss = () => {
@@ -551,7 +724,14 @@ function ScreenshotsByPathInner({
         { width: window.innerWidth, height: window.innerHeight },
         { width, height },
       );
-      setPreview({ src, left: pos.left, top: pos.top, name: caption.name, pr: caption.pr });
+      setPreview({
+        src,
+        left: pos.left,
+        top: pos.top,
+        name: caption.name,
+        pr: caption.pr,
+        kind: caption.kind,
+      });
     }, delay);
   };
   const previewHandlers: PreviewHandlers = { onPreviewEnter, onPreviewLeave };
@@ -598,9 +778,10 @@ function ScreenshotsByPathInner({
 
   const opener = makeFileOpener(apiOrigin, workspace, info.hasPublicUrl);
   const onDrill = (group: { project: string; path: string }) =>
-    setView({ project: group.project, path: group.path, q: view.q });
-  const setProject = (project: string) => setView({ project, path: "", q: view.q });
-  const setQuery = (q: string) => setView({ project: view.project, path: "", q });
+    setView({ ...view, project: group.project, path: group.path });
+  const setProject = (project: string) => setView({ ...view, project, path: "" });
+  const setQuery = (q: string) => setView({ ...view, path: "", q });
+  const setFeed = (feed: ScreenshotsFeed) => setView({ ...view, path: "", feed });
 
   // GitHub items bucketed by project label, for both the overview's
   // per-project strips and the project view's full "From GitHub" section.
@@ -622,9 +803,13 @@ function ScreenshotsByPathInner({
       project={view.project}
       q={view.q}
       path={view.path}
+      feed={view.feed}
       projects={projectLabels}
+      catalog={overview.catalog}
       onProject={setProject}
       onQuery={setQuery}
+      onFeed={setFeed}
+      onPickPath={(path) => setView({ ...view, path })}
     />
   ) : null;
   const previewLayer = preview ? (
@@ -636,7 +821,11 @@ function ScreenshotsByPathInner({
       <img src={preview.src} alt="" />
       <div className="wsp-preview__meta">
         <div className="wsp-preview__name">{preview.name}</div>
-        {preview.pr && <div className="wsp-preview__pr">{preview.pr}</div>}
+        {preview.pr && (
+          <div className="wsp-preview__pr">
+            <GhKindIcon kind={preview.kind} /> {preview.pr}
+          </div>
+        )}
       </div>
     </div>
   ) : null;
@@ -665,11 +854,7 @@ function ScreenshotsByPathInner({
     return (
       <div className="wsp">
         {filterBar}
-        <button
-          type="button"
-          className="text-btn"
-          onClick={() => setView({ project: view.project, path: "", q: view.q })}
-        >
+        <button type="button" className="text-btn" onClick={() => setView({ ...view, path: "" })}>
           {view.project ? `← ${view.project}` : "← all projects"}
         </button>
         <h2 className="wsp-drill__heading">{view.path}</h2>
@@ -719,6 +904,60 @@ function ScreenshotsByPathInner({
                   : "Showing the first 100 — narrow the path to see more."}
               </p>
             )}
+          </>
+        )}
+        {previewLayer}
+      </div>
+    );
+  }
+
+  // Flat newest-first feed (?view=recent) — same filters, no grouping.
+  if (view.feed === "recent") {
+    const qTrimmed = view.q.trim();
+    const latestItems = overview.latest.filter((item) => {
+      if (view.project && item.project !== view.project) return false;
+      return pathQueryMatches(item.path, qTrimmed);
+    });
+    const latestPaired = pairedShotKeys(latestItems);
+    return (
+      <div className="wsp">
+        {filterBar}
+        {latestItems.length === 0 ? (
+          overview.latest.length === 0 && overview.catalog.length === 0 ? (
+            <EmptyShotsCta title="No screenshots yet" />
+          ) : (
+            <p className="wft-end">
+              {overview.latest.length === 0
+                ? "No recent uploads to show."
+                : "No recent uploads match this filter."}
+            </p>
+          )
+        ) : (
+          <>
+            <div className="wsp-grid">
+              {latestItems.map((item) => (
+                <ShotThumb
+                  key={item.key}
+                  item={item}
+                  paired={latestPaired.has(item.key)}
+                  contextLabel={
+                    item.ghNumber ? (
+                      <>
+                        <GhKindIcon kind={item.ghKind} />{" "}
+                        {item.ghKind === "pull" ? `PR #${item.ghNumber}` : `#${item.ghNumber}`}
+                      </>
+                    ) : undefined
+                  }
+                  href={opener.href(item)}
+                  onOpen={() => opener.activate(item)}
+                  {...previewHandlers}
+                />
+              ))}
+            </div>
+            <p className="wft-end">
+              Showing the {latestItems.length === 1 ? "newest upload" : "newest uploads"} — switch
+              to Grouped to browse by page.
+            </p>
           </>
         )}
         {previewLayer}
@@ -780,7 +1019,7 @@ function ScreenshotsByPathInner({
                 groups={previewGroups}
                 ghItems={ghItems}
                 showViewProject={!view.project}
-                onViewProject={() => setView({ project: label, path: "", q: view.q })}
+                onViewProject={() => setView({ ...view, project: label, path: "" })}
                 onDrill={onDrill}
                 opener={opener}
                 preview={previewHandlers}
@@ -847,7 +1086,10 @@ function ProjectSection({
   return (
     <div className="wsp-project">
       <div className="wsp-project__head">
-        <span className="wsp-project__label">{label}</span>
+        <span className="wsp-project__label">
+          {isRepoLabel(label) && <GitHubMark />}
+          {label}
+        </span>
         <span className="wsp-group__meta">
           {count} {count === 1 ? "file" : "files"}
           {lastUpdated ? ` · ${lastUpdatedLabel(lastUpdated, new Date())}` : ""}
@@ -894,7 +1136,11 @@ function GitHubSection({
           <ShotThumb
             key={item.key}
             item={item}
-            contextLabel={ghLabel(item)}
+            contextLabel={
+              <>
+                <GhKindIcon kind={item.metadata["gh.kind"]} /> {ghLabel(item)}
+              </>
+            }
             href={opener.href(item)}
             onOpen={() => opener.activate(item)}
             {...preview}

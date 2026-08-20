@@ -352,6 +352,7 @@ describe("GET /v1/workspaces/:workspace/files/by-path (dual auth)", () => {
     expect(await res.json()).toEqual({
       groups: [],
       catalog: [],
+      latest: [],
       projects: [],
       truncated: false,
       catalogTruncated: false,
@@ -370,6 +371,7 @@ describe("GET /v1/workspaces/:workspace/files/by-path (dual auth)", () => {
     expect(await res.json()).toEqual({
       groups: [],
       catalog: [],
+      latest: [],
       projects: [],
       truncated: false,
       catalogTruncated: false,

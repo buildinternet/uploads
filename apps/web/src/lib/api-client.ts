@@ -883,6 +883,13 @@ export interface PathCatalogEntry {
   lastUpdated: string;
 }
 
+/** One shot in the flat newest-first feed (the "Recent" view). */
+export interface LatestShotItem extends PathGroupItem {
+  project: string;
+  path: string;
+  uploadedAt: string;
+}
+
 /** One project bucket summary alongside the by-path groups. */
 export interface ProjectSummary {
   label: string;
@@ -896,6 +903,7 @@ export type FilesByPathResult =
       groups: FilesPathGroup[];
       catalog: PathCatalogEntry[];
       projects: ProjectSummary[];
+      latest: LatestShotItem[];
       truncated: boolean;
       catalogTruncated: boolean;
     }
@@ -948,6 +956,16 @@ function isPathCatalogEntry(value: unknown): value is PathCatalogEntry {
   );
 }
 
+function isLatestShotItem(value: unknown): value is LatestShotItem {
+  if (!isPathGroupItem(value)) return false;
+  const item = value as unknown as Record<string, unknown>;
+  return (
+    typeof item.project === "string" &&
+    typeof item.path === "string" &&
+    typeof item.uploadedAt === "string"
+  );
+}
+
 /** Derive a catalog from thumbed groups when an older API omitted it. */
 function catalogFromGroups(groups: FilesPathGroup[]): PathCatalogEntry[] {
   return groups.map(({ project, path, count, lastUpdated }) => ({
@@ -973,6 +991,7 @@ export async function getWorkspaceFilesByPath(
     groups?: unknown;
     catalog?: unknown;
     projects?: unknown;
+    latest?: unknown;
     truncated?: unknown;
     catalogTruncated?: unknown;
   } | null;
@@ -989,12 +1008,17 @@ export async function getWorkspaceFilesByPath(
   // Catalog is additive: an older API (web/API deploy separately) omitted it.
   // Fall back to the thumbed groups so the filter bar still has something
   // to search, and treat `truncated` as the catalog cap in that case.
+  // `latest` is additive too (older API deploys omit it) — the toggle just
+  // has an empty Recent view until the API catches up.
+  const latest =
+    Array.isArray(body.latest) && body.latest.every(isLatestShotItem) ? body.latest : [];
   if (body.catalog === undefined) {
     return {
       kind: "ok",
       groups: body.groups,
       catalog: catalogFromGroups(body.groups),
       projects: body.projects,
+      latest,
       truncated: body.truncated,
       catalogTruncated: body.truncated,
     };
@@ -1007,6 +1031,7 @@ export async function getWorkspaceFilesByPath(
     groups: body.groups,
     catalog: body.catalog,
     projects: body.projects,
+    latest,
     truncated: body.truncated,
     catalogTruncated: typeof body.catalogTruncated === "boolean" ? body.catalogTruncated : false,
   };

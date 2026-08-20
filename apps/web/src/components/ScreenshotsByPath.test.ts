@@ -44,7 +44,7 @@ import { readScreenshotsView } from "../lib/workspace-screenshots";
  */
 describe("ScreenshotsByPath seed contract — initialSearch provided", () => {
   it("a default overview (empty search) seeds an empty project, path, and q", () => {
-    expect(readScreenshotsView("")).toEqual({ project: "", path: "", q: "" });
+    expect(readScreenshotsView("")).toEqual({ project: "", path: "", q: "", feed: "grouped" });
   });
 
   it("a deep-linked project view seeds that project, no path", () => {
@@ -52,6 +52,7 @@ describe("ScreenshotsByPath seed contract — initialSearch provided", () => {
       project: "acme/web",
       path: "",
       q: "",
+      feed: "grouped",
     });
   });
 
@@ -60,6 +61,7 @@ describe("ScreenshotsByPath seed contract — initialSearch provided", () => {
       project: "acme/web",
       path: "/admin",
       q: "",
+      feed: "grouped",
     });
   });
 
@@ -68,6 +70,7 @@ describe("ScreenshotsByPath seed contract — initialSearch provided", () => {
       project: "",
       path: "",
       q: "/catalog",
+      feed: "grouped",
     });
   });
 });
@@ -82,6 +85,11 @@ describe("ScreenshotsByPath seed contract — no initialSearch prop (props-less 
 
   it("resolves to the same defaults today's props-less behavior always had", () => {
     expect(seedSearch).toBe("");
-    expect(readScreenshotsView(seedSearch)).toEqual({ project: "", path: "", q: "" });
+    expect(readScreenshotsView(seedSearch)).toEqual({
+      project: "",
+      path: "",
+      q: "",
+      feed: "grouped",
+    });
   });
 });

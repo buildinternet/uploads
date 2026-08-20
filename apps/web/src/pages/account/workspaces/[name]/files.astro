@@ -44,7 +44,7 @@ const workspace = isBrowseWorkspace(nameParam) ? nameParam : "";
 if (!workspace) return Astro.redirect("/account/workspaces");
 
 const tip = {
-  body: "attach uploads to a pull request with <code>uploads put ./shot.png --pr 123</code> — they collect into one managed comment.",
+  body: "Attach uploads to a pull request with <code>uploads put ./shot.png --pr 123</code> — they collect into one managed comment.",
 };
 
 const { apiOrigin } = resolveSignedInOrigins(env);
