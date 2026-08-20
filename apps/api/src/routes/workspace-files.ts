@@ -174,8 +174,9 @@ export const workspaceFiles = new Hono<DualAuthVars>()
   // `files/search?meta.path=…` route; this one answers "which paths, how
   // recent, first few keys" plus a thumbless `catalog` of every unique
   // (project, path) so the page can filter without a second query. `state`
-  // is the one metadata key enriched — the page badges before/after and
-  // nothing else, so no other keys leak into the payload.
+  // and `gh.kind`/`gh.number` are the metadata keys enriched — the page
+  // badges before/after and names the PR in the hover preview, and nothing
+  // else leaks into the payload.
   .get("/:workspace/files/by-path", dualWorkspaceAuth(), scoped("files:read"), async (c) => {
     const record = c.get("workspace");
     const name = c.get("workspaceName");
@@ -187,7 +188,7 @@ export const workspaceFiles = new Hono<DualAuthVars>()
       c.env.DB,
       name,
       groups.flatMap((group) => group.recent),
-      { metaKeys: ["state"] },
+      { metaKeys: ["state", "gh.kind", "gh.number"] },
     );
     const cfg = await storageConfig(c.env, record);
 
@@ -199,12 +200,17 @@ export const workspaceFiles = new Hono<DualAuthVars>()
         lastUpdated: group.lastUpdated,
         recent: group.recent.map((key) => {
           const urls = objectPublicUrls(c.env, cfg, key);
-          const state = metaByKey.get(key)?.state;
+          const meta = metaByKey.get(key);
+          const state = meta?.state;
+          const ghKind = meta?.["gh.kind"];
+          const ghNumber = meta?.["gh.number"];
           return {
             key,
             url: urls.url,
             embedUrl: urls.embedUrl,
             ...(state !== undefined ? { state } : {}),
+            ...(ghKind !== undefined ? { ghKind } : {}),
+            ...(ghNumber !== undefined ? { ghNumber } : {}),
           };
         }),
       })),

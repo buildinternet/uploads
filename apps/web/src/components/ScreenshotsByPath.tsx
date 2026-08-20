@@ -35,11 +35,13 @@ import {
   filterCatalog,
   groupsFromCatalog,
   lastUpdatedLabel,
+  leafName,
   pairedShotKeys,
   projectLabelFromItemMeta,
   readScreenshotsView,
   screenshotsSearch,
   shotKindFromKey,
+  shotPreviewCaption,
   shotPreviewPosition,
 } from "../lib/workspace-screenshots";
 
@@ -112,13 +114,6 @@ type DrillState =
   | { status: "error" }
   | { status: "ready"; items: SearchFileItem[]; truncated: boolean };
 
-/** Leaf name for an aria-label / alt text — "a/b/c.png" → "c.png". */
-function leafName(key: string): string {
-  const trimmed = key.replace(/\/$/, "");
-  const slash = trimmed.lastIndexOf("/");
-  return (slash === -1 ? trimmed : trimmed.slice(slash + 1)) || key;
-}
-
 /** Extension label for a generic (non-image, non-embeddable) tile. */
 function extLabel(key: string): string {
   const match = /\.([a-z0-9]{1,8})$/i.exec(key);
@@ -141,6 +136,12 @@ function ghLabel(item: SearchFileItem): string {
 
 // ── Thumb tile ─────────────────────────────────────────────────────────
 
+/** Strip thumbs size from the image's intrinsic ratio (cached + onLoad). */
+function applyShotThumbAspect(img: HTMLImageElement | null) {
+  if (!img?.naturalWidth || !img.naturalHeight) return;
+  img.parentElement?.style.setProperty("--wsp-ar", `${img.naturalWidth} / ${img.naturalHeight}`);
+}
+
 function ShotThumb({
   item,
   paired,
@@ -150,7 +151,15 @@ function ShotThumb({
   onPreviewEnter,
   onPreviewLeave,
 }: {
-  item: { key: string; url: string | null; embedUrl: string | null; state?: string };
+  item: {
+    key: string;
+    url: string | null;
+    embedUrl: string | null;
+    state?: string;
+    ghKind?: string;
+    ghNumber?: string;
+    metadata?: Record<string, string>;
+  };
   /** True when a before/after counterpart sits in the same strip/grid. */
   paired?: boolean;
   /** Optional pill (GitHub "PR #7 · author" context) — not the state. */
@@ -158,7 +167,7 @@ function ShotThumb({
   /** Known destination; when null the tile falls back to a button + `onOpen`. */
   href: string | null;
   onOpen: () => void;
-  onPreviewEnter?: (el: HTMLElement, src: string) => void;
+  onPreviewEnter?: (el: HTMLElement, src: string, caption: { name: string; pr?: string }) => void;
   onPreviewLeave?: () => void;
 }) {
   const name = leafName(item.key);
@@ -166,18 +175,17 @@ function ShotThumb({
   const [broken, setBroken] = useState(false);
   const showLock = kind === "image" && item.url === null;
   const showImage = kind === "image" && !!item.embedUrl && !broken;
-  // The state stays in the accessible name (and hover title) even though the
-  // tile no longer wears a BEFORE/AFTER pill — the pair badge covers the
-  // visual signal, and only when a counterpart actually exists.
+  // State stays in the accessible name, not a native `title` tooltip — that
+  // tooltip sat on top of the hover preview.
   const stateSuffix = item.state ? ` (${item.state})` : "";
+  const caption = shotPreviewCaption(item);
 
   const previewSrc = showImage ? item.embedUrl : null;
   const shared = {
     className: "wsp-tile",
-    "aria-label": `Open ${name}${stateSuffix}${paired ? " — has before/after pair" : ""}`,
-    title: item.state ? `${name}${stateSuffix}` : undefined,
+    "aria-label": `Open ${name}${stateSuffix}${caption.pr ? ` — ${caption.pr}` : ""}${paired ? " — has before/after pair" : ""}`,
     onMouseEnter: (event: { currentTarget: HTMLElement }) => {
-      if (previewSrc) onPreviewEnter?.(event.currentTarget, previewSrc);
+      if (previewSrc) onPreviewEnter?.(event.currentTarget, previewSrc, caption);
     },
     onMouseLeave: () => onPreviewLeave?.(),
   };
@@ -190,6 +198,8 @@ function ShotThumb({
             alt=""
             loading="lazy"
             decoding="async"
+            ref={applyShotThumbAspect}
+            onLoad={(event) => applyShotThumbAspect(event.currentTarget)}
             onError={() => setBroken(true)}
           />
         </span>
@@ -310,9 +320,11 @@ function FilterBar({
         ))}
       </Select>
       <Input
+        id="wsp-path-filter"
         type="search"
         className="wsp-filter__q"
         aria-label="Filter by path"
+        aria-keyshortcuts="Meta+K Control+K Slash"
         placeholder="Filter path  e.g. /catalog"
         value={path || q}
         spellCheck={false}
@@ -325,8 +337,10 @@ function FilterBar({
   );
 }
 
+type PreviewCaption = { name: string; pr?: string };
+
 type PreviewHandlers = {
-  onPreviewEnter: (el: HTMLElement, src: string) => void;
+  onPreviewEnter: (el: HTMLElement, src: string, caption: PreviewCaption) => void;
   onPreviewLeave: () => void;
 };
 
@@ -371,6 +385,8 @@ function ScreenshotsByPathInner({
     src: string;
     left: number;
     top: number;
+    name: string;
+    pr?: string;
   } | null>(null);
   const [drill, setDrill] = useState<DrillState>({ status: "idle" });
   const [drillRetryNonce, setDrillRetryNonce] = useState(0);
@@ -480,8 +496,33 @@ function ScreenshotsByPathInner({
       previewTimer.current = null;
       setPreview(null);
     };
+    const typingInField = (event: KeyboardEvent) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return false;
+      return Boolean(target.closest("input, textarea, select") || target.isContentEditable);
+    };
+    const focusPathFilter = () => {
+      const input = document.getElementById("wsp-path-filter");
+      if (!(input instanceof HTMLInputElement)) return;
+      input.focus();
+      input.select();
+    };
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") dismiss();
+      if (event.key === "Escape") {
+        dismiss();
+        return;
+      }
+      if (event.isComposing) return;
+      if ((event.key === "k" || event.key === "K") && (event.metaKey || event.ctrlKey)) {
+        event.preventDefault();
+        focusPathFilter();
+        return;
+      }
+      if (event.key === "/" && !event.metaKey && !event.ctrlKey && !event.altKey) {
+        if (typingInField(event)) return;
+        event.preventDefault();
+        focusPathFilter();
+      }
     };
     window.addEventListener("scroll", dismiss, true);
     window.addEventListener("keydown", onKey);
@@ -497,20 +538,20 @@ function ScreenshotsByPathInner({
     previewTimer.current = null;
     setPreview(null);
   };
-  const onPreviewEnter = (el: HTMLElement, src: string) => {
+  const onPreviewEnter = (el: HTMLElement, src: string, caption: PreviewCaption) => {
     if (!window.matchMedia("(hover: hover) and (pointer: fine)").matches) return;
     if (previewTimer.current !== null) window.clearTimeout(previewTimer.current);
     const delay = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 250;
     previewTimer.current = window.setTimeout(() => {
       const rect = el.getBoundingClientRect();
       const width = Math.min(560, window.innerWidth - 24);
-      const height = Math.min(width * 0.7, window.innerHeight * 0.7);
+      const height = Math.min(width * 0.7, window.innerHeight * 0.7) + 40;
       const pos = shotPreviewPosition(
         { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom },
         { width: window.innerWidth, height: window.innerHeight },
         { width, height },
       );
-      setPreview({ src, left: pos.left, top: pos.top });
+      setPreview({ src, left: pos.left, top: pos.top, name: caption.name, pr: caption.pr });
     }, delay);
   };
   const previewHandlers: PreviewHandlers = { onPreviewEnter, onPreviewLeave };
@@ -593,6 +634,10 @@ function ScreenshotsByPathInner({
       role="presentation"
     >
       <img src={preview.src} alt="" />
+      <div className="wsp-preview__meta">
+        <div className="wsp-preview__name">{preview.name}</div>
+        {preview.pr && <div className="wsp-preview__pr">{preview.pr}</div>}
+      </div>
     </div>
   ) : null;
 

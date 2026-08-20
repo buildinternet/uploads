@@ -861,6 +861,9 @@ export interface PathGroupItem {
   embedUrl: string | null;
   /** Present only when the file carries `state` metadata (e.g. before/after). */
   state?: string;
+  /** Present only when the file is attached to a GitHub PR/issue. */
+  ghKind?: string;
+  ghNumber?: string;
 }
 
 /** One `path` metadata value with its recent uploads. */
@@ -905,7 +908,9 @@ function isPathGroupItem(value: unknown): value is PathGroupItem {
     typeof item.key === "string" &&
     (item.url === null || typeof item.url === "string") &&
     (item.embedUrl === null || typeof item.embedUrl === "string") &&
-    (item.state === undefined || typeof item.state === "string")
+    (item.state === undefined || typeof item.state === "string") &&
+    (item.ghKind === undefined || typeof item.ghKind === "string") &&
+    (item.ghNumber === undefined || typeof item.ghNumber === "string")
   );
 }
 

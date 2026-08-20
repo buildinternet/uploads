@@ -99,6 +99,34 @@ function swapPairToken(key: string): string | null {
   return dir + leaf.slice(0, start) + cased + leaf.slice(start + found.length);
 }
 
+/** Leaf name for captions / aria-labels — "a/b/c.png" → "c.png". */
+export function leafName(key: string): string {
+  const trimmed = key.replace(/\/$/, "");
+  const slash = trimmed.lastIndexOf("/");
+  return (slash === -1 ? trimmed : trimmed.slice(slash + 1)) || key;
+}
+
+/**
+ * Hover-preview caption: filename, plus a compact PR/issue line when the
+ * file carries GitHub attachment metadata. Mirrors the file page's
+ * filename + byline split without the native `title` tooltip.
+ */
+export function shotPreviewCaption(item: {
+  key: string;
+  ghKind?: string;
+  ghNumber?: string;
+  metadata?: Record<string, string>;
+}): { name: string; pr?: string } {
+  const kind = item.ghKind ?? item.metadata?.["gh.kind"];
+  const number = item.ghNumber ?? item.metadata?.["gh.number"];
+  let pr: string | undefined;
+  if (number) {
+    if (kind === "pull") pr = `PR #${number}`;
+    else if (kind === "issue" || kind === "issues") pr = `Issue #${number}`;
+  }
+  return pr ? { name: leafName(item.key), pr } : { name: leafName(item.key) };
+}
+
 export function pairedShotKeys(items: Array<{ key: string; state?: string }>): Set<string> {
   const paired = new Set<string>();
   const stated = items.filter((i) => i.state === "before" || i.state === "after");
