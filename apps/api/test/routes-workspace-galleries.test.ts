@@ -353,3 +353,67 @@ describe("old-path /me/workspaces/:name/galleries now forwards to the canonical 
     expect(oldBody).toEqual(await canonical.json());
   });
 });
+
+describe("GET /v1/workspaces/:workspace/galleries — cover previewUrl (issue #613 follow-up)", () => {
+  async function addItem(
+    env: Parameters<typeof app.request>[2],
+    galleryId: string,
+    objectKey: string,
+    expectedVersion: number,
+  ) {
+    const res = await app.request(
+      `/v1/workspaces/acme/galleries/${galleryId}/items`,
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ expectedVersion, objectKey }),
+      },
+      env,
+    );
+    expect(res.status).toBe(201);
+    return res.json() as Promise<{ id: string }>;
+  }
+
+  async function listGalleries(env: Parameters<typeof app.request>[2]) {
+    const res = await app.request(
+      "/v1/workspaces/acme/galleries",
+      { headers: { Authorization: `Bearer ${TOKEN}` } },
+      env,
+    );
+    expect(res.status).toBe(200);
+    return (await res.json()) as {
+      galleries: Array<{ id: string; itemCount: number; previewUrl: string | null }>;
+    };
+  }
+
+  it("resolves a gallery's first item to its public cover URL, and leaves an empty gallery null", async () => {
+    const env = await makeEnv();
+    // `acme/screenshots/one.png` is seeded in beforeEach; prefix is `acme/`.
+    const withCover = await createViaCanonical(env);
+    await addItem(env, withCover.id, "screenshots/one.png", 1);
+    const empty = await createViaCanonical(env);
+
+    const body = await listGalleries(env);
+    const covered = body.galleries.find((g) => g.id === withCover.id);
+    const bare = body.galleries.find((g) => g.id === empty.id);
+
+    // Embed-twin host (`embed.uploads.sh`) — the CDN thumbnail variant, same
+    // mapping the screenshots view uses; `storage.uploads.sh` is the stable base.
+    expect(covered?.previewUrl).toBe("https://embed.uploads.sh/acme/screenshots/one.png");
+    expect(bare?.previewUrl).toBeNull();
+    // previewUrl is additive alongside the existing enrichment.
+    expect(covered).toHaveProperty("itemCount", 1);
+  });
+
+  it("skips a non-image cover (video) — no head/poster lookup on the list path", async () => {
+    const env = await makeEnv();
+    await bucket.put("acme/screenshots/clip.mp4", PNG, {
+      httpMetadata: { contentType: "video/mp4" },
+    });
+    const gallery = await createViaCanonical(env);
+    await addItem(env, gallery.id, "screenshots/clip.mp4", 1);
+
+    const body = await listGalleries(env);
+    expect(body.galleries.find((g) => g.id === gallery.id)?.previewUrl).toBeNull();
+  });
+});
