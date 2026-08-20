@@ -170,7 +170,9 @@ export function renderSignInMethodsHtml(
  */
 export function renderSessionsHtml(sessions: AuthSession[], currentToken: string | null): string {
   if (!sessions.length) return "";
-  const ordered = sessions.toSorted((a, b) => {
+  // Copy-then-sort (not `toSorted`) so this shared renderer stays non-mutating
+  // without depending on ES2023 array methods in either runtime (#714 review).
+  const ordered = [...sessions].sort((a, b) => {
     if (currentToken && a.token === currentToken) return -1;
     if (currentToken && b.token === currentToken) return 1;
     return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();

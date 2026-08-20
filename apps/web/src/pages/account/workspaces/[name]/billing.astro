@@ -76,6 +76,7 @@ const cta: BillingCtaState = billing
         <div
           id="ws-plan-cards"
           class="plan-cards"
+          data-organization-id={billing ? billing.organization.id : undefined}
           set:html={billing ? renderPlanCardsGridHtml(billing, proPriceCopy) : ""}
         />
         <p
@@ -177,7 +178,10 @@ const cta: BillingCtaState = billing
         retryBtn.hidden = !retry;
       }
 
-      let organizationId = "";
+      // Seed from the SSR plan grid so a click on a server-rendered
+      // upgrade/manage button works before the client reconcile lands
+      // (#714 review). loadPlan() sets it authoritatively once billing loads.
+      let organizationId = planCardsEl.dataset.organizationId ?? "";
 
       async function handleBillingActionClick(cta: "upgrade" | "manage"): Promise<void> {
         if (!organizationId) {
