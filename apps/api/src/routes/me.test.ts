@@ -1806,7 +1806,11 @@ describe("GET /me/workspaces/:name/files/search", () => {
 describe("GET /me/workspaces/:name/files/by-path", () => {
   it("groups path-tagged files with urls and state badges", async () => {
     const db = metadataDb([
-      { workspace: "acme", key: "shots/a.png", meta: { path: "/settings", state: "after" } },
+      {
+        workspace: "acme",
+        key: "shots/a.png",
+        meta: { path: "/settings", state: "after", "gh.kind": "pull", "gh.number": "42" },
+      },
       { workspace: "acme", key: "shots/b.png", meta: { path: "/settings" } },
       { workspace: "acme", key: "shots/c.png", meta: { app: "web" } },
     ]);
@@ -1819,7 +1823,13 @@ describe("GET /me/workspaces/:name/files/by-path", () => {
         path: string;
         count: number;
         lastUpdated: string;
-        recent: { key: string; url: string | null; state?: string }[];
+        recent: {
+          key: string;
+          url: string | null;
+          state?: string;
+          ghKind?: string;
+          ghNumber?: string;
+        }[];
       }[];
       catalog: { project: string; path: string; count: number; lastUpdated: string }[];
       projects: { label: string; count: number; lastUpdated: string }[];
@@ -1837,9 +1847,13 @@ describe("GET /me/workspaces/:name/files/by-path", () => {
     expect(byKey["shots/a.png"]).toMatchObject({
       url: "https://storage.uploads.sh/acme/shots/a.png",
       state: "after",
+      ghKind: "pull",
+      ghNumber: "42",
     });
-    // `state` is present only when set — no empty-string placeholder.
+    // `state` / gh fields are present only when set — no empty-string placeholder.
     expect(byKey["shots/b.png"]).not.toHaveProperty("state");
+    expect(byKey["shots/b.png"]).not.toHaveProperty("ghKind");
+    expect(byKey["shots/b.png"]).not.toHaveProperty("ghNumber");
   });
 
   it("labels groups with a project and returns the projects summary", async () => {

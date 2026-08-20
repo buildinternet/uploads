@@ -2135,7 +2135,9 @@ button.wft-card__name:focus-visible {
   position: fixed;
   z-index: 40;
   pointer-events: none;
-  padding: 6px;
+  display: grid;
+  gap: 8px;
+  padding: 6px 6px 8px;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -2149,6 +2151,23 @@ button.wft-card__name:focus-visible {
   height: auto;
   border-radius: 2px;
   outline: 1px solid oklch(1 0 0 / 0.1);
+}
+.wsp-preview__meta {
+  display: grid;
+  gap: 2px;
+  padding: 0 2px;
+  min-width: 0;
+}
+.wsp-preview__name {
+  color: var(--fg);
+  font: 600 12px var(--mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wsp-preview__pr {
+  color: var(--muted);
+  font: 11.5px var(--mono);
 }
 @media (prefers-reduced-motion: no-preference) {
   .wsp-preview {

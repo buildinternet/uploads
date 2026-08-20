@@ -3,12 +3,14 @@ import {
   filterCatalog,
   groupsFromCatalog,
   lastUpdatedLabel,
+  leafName,
   pairedShotKeys,
   pathQueryMatches,
   projectLabelFromItemMeta,
   readScreenshotsView,
   screenshotsSearch,
   shotKindFromKey,
+  shotPreviewCaption,
   shotPreviewPosition,
 } from "./workspace-screenshots";
 
@@ -207,6 +209,25 @@ describe("groupsFromCatalog", () => {
       groups[0],
       { project: "acme/web", path: "/older", count: 1, lastUpdated: "1", recent: [] },
     ]);
+  });
+});
+
+describe("shotPreviewCaption", () => {
+  it("uses the leaf filename and a compact PR/issue line", () => {
+    expect(leafName("shots/typical-modal-stage.webp")).toBe("typical-modal-stage.webp");
+    expect(
+      shotPreviewCaption({ key: "shots/typical-modal-stage.webp", ghKind: "pull", ghNumber: "42" }),
+    ).toEqual({ name: "typical-modal-stage.webp", pr: "PR #42" });
+    expect(
+      shotPreviewCaption({
+        key: "shots/a.png",
+        metadata: { "gh.kind": "issue", "gh.number": "7" },
+      }),
+    ).toEqual({ name: "a.png", pr: "Issue #7" });
+  });
+  it("omits the PR line when GitHub metadata is missing", () => {
+    expect(shotPreviewCaption({ key: "shots/plain.webp" })).toEqual({ name: "plain.webp" });
+    expect(shotPreviewCaption({ key: "shots/a.png", ghKind: "pull" })).toEqual({ name: "a.png" });
   });
 });
 
