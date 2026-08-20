@@ -94,6 +94,14 @@ export type SessionResult =
 const LOCAL_STACK_AUTH_ORIGIN = "http://127.0.0.1:8788";
 const LOCAL_STACK_WEB_ORIGIN = "http://127.0.0.1:4321";
 
+/** True only on the exact loopback pair that may mint a local demo session. */
+export function isLocalDemoStack(authOriginValue: string, pageOrigin: string): boolean {
+  return (
+    authOrigin(authOriginValue) === LOCAL_STACK_AUTH_ORIGIN &&
+    pageOrigin.replace(/\/$/, "") === LOCAL_STACK_WEB_ORIGIN
+  );
+}
+
 type LocalDemoSessionStart =
   | { kind: "started" }
   | { kind: "not_enabled" }
@@ -143,7 +151,7 @@ export async function startLocalDemoSession(
   pageOrigin: string,
 ): Promise<LocalDemoSessionStart> {
   const normalizedOrigin = authOrigin(origin);
-  if (normalizedOrigin !== LOCAL_STACK_AUTH_ORIGIN || pageOrigin !== LOCAL_STACK_WEB_ORIGIN) {
+  if (!isLocalDemoStack(normalizedOrigin, pageOrigin)) {
     return { kind: "not_enabled" };
   }
 

@@ -17,7 +17,7 @@ function element(): HTMLElement {
   return { hidden: false, textContent: "" } as HTMLElement;
 }
 
-type TestGate = SessionGateOptions & { who: HTMLElement };
+type TestGate = SessionGateOptions & { who: HTMLElement; denied: HTMLElement };
 
 function gate(): TestGate {
   return {
@@ -36,7 +36,12 @@ function installBrowser() {
     dispatchEvent: vi.fn(),
   };
   vi.stubGlobal("window", fakeWindow);
-  vi.stubGlobal("location", { origin: "http://127.0.0.1:4321" });
+  vi.stubGlobal("location", {
+    origin: "http://127.0.0.1:4321",
+    pathname: "/account",
+    search: "",
+    replace: vi.fn(),
+  });
   vi.stubGlobal("sessionStorage", {
     getItem: (key: string) => values.get(key) ?? null,
     removeItem: (key: string) => values.delete(key),
@@ -115,6 +120,32 @@ describe("resolveSessionGate", () => {
     // Optional #who email paint (legacy); avatar menu no longer needs it.
     expect(options.who.textContent).toBe(session.user.email);
     expect(window.dispatchEvent).toHaveBeenCalledOnce();
+  });
+
+  it("sends a signed-out visit to login with the current path as callbackURL", async () => {
+    const replace = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal("location", {
+      origin: "https://uploads.sh",
+      pathname: "/account/workspaces/acme/screenshots",
+      search: "?path=/settings",
+      replace,
+    });
+    vi.stubGlobal("sessionStorage", {
+      getItem: () => null,
+      removeItem: () => undefined,
+      setItem: () => undefined,
+    });
+    const options = gate();
+    auth.getSession.mockResolvedValue({ kind: "signed_out" });
+    auth.startLocalDemoSession.mockResolvedValue({ kind: "not_enabled" });
+
+    await expect(resolveSessionGate(options)).resolves.toBeNull();
+    expect(replace).toHaveBeenCalledWith(
+      "/login?callbackURL=%2Faccount%2Fworkspaces%2Facme%2Fscreenshots%3Fpath%3D%2Fsettings",
+    );
+    expect(options.denied.hidden).toBe(true);
+    expect(options.app.hidden).toBe(true);
   });
 
   it("shows the app without a who node when the header owns session UI", async () => {

@@ -15,6 +15,7 @@ import {
   getOAuthWorkspaceChoice,
   repairOAuthQuery,
   setOAuthWorkspaceChoice,
+  isLocalDemoStack,
   startLocalDemoSession,
   submitOAuthConsent,
   unbanUser,
@@ -689,6 +690,16 @@ describe("setOAuthWorkspaceChoice", () => {
       }),
     );
     await expect(setOAuthWorkspaceChoice("https://auth.uploads.sh", "acme")).resolves.toBe(false);
+  });
+});
+
+describe("isLocalDemoStack", () => {
+  it("matches only the exact loopback pair", () => {
+    expect(isLocalDemoStack("http://127.0.0.1:8788", "http://127.0.0.1:4321")).toBe(true);
+    expect(isLocalDemoStack("http://127.0.0.1:8788/", "http://127.0.0.1:4321/")).toBe(true);
+    expect(isLocalDemoStack("http://localhost:8788", "http://127.0.0.1:4321")).toBe(false);
+    expect(isLocalDemoStack("http://127.0.0.1:8788", "http://localhost:4321")).toBe(false);
+    expect(isLocalDemoStack("https://auth.uploads.sh", "https://uploads.sh")).toBe(false);
   });
 });
 
