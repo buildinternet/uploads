@@ -5,8 +5,10 @@
  * Session gate UX: after a successful check we cache the user in sessionStorage.
  * On the next navigation the layout applies that cache synchronously (inline
  * script + here) so the chrome does not flash "Checking your session…", then
- * revalidates in the background. Cache is a UX affordance only — every API
- * call still enforces the real session server-side.
+ * revalidates in the background. A signed-out result replaces the page with
+ * /login?callbackURL=… (the original path) instead of a dead-end. Cache is a
+ * UX affordance only — every API call still enforces the real session
+ * server-side.
  */
 import {
   getSession,
@@ -16,6 +18,7 @@ import {
   type SessionUser,
 } from "./auth-client";
 import { markPageLoad } from "./page-visit";
+import { loginHref } from "./signed-in-page";
 import { clearWorkspaceSnapshots } from "./workspace-cache";
 
 export { getPageVisit, isCurrentPageVisit } from "./page-visit";
@@ -80,7 +83,7 @@ function showApp(
   options: Pick<SessionGateOptions, "checking" | "denied" | "app" | "who">,
 ): void {
   options.checking.hidden = true;
-  options.denied.hidden = true;
+  if (options.denied) options.denied.hidden = true;
   options.app.hidden = false;
   if (options.who) options.who.textContent = user.email;
 }
@@ -88,14 +91,19 @@ function showApp(
 function showDenied(options: Pick<SessionGateOptions, "checking" | "denied" | "app">): void {
   options.checking.hidden = true;
   options.app.hidden = true;
-  options.denied.hidden = false;
+  if (options.denied) options.denied.hidden = false;
+}
+
+/** Replace this page with /login carrying the current path as callbackURL. */
+function redirectToSignIn(): void {
+  location.replace(loginHref(`${location.pathname}${location.search}`));
 }
 
 function showUnavailable(
   options: Pick<SessionGateOptions, "checking" | "denied" | "unavailable" | "app">,
 ): void {
   options.checking.hidden = true;
-  options.denied.hidden = true;
+  if (options.denied) options.denied.hidden = true;
   options.app.hidden = true;
   options.unavailable.hidden = false;
 }
@@ -140,7 +148,8 @@ export function onAstroPageLoad(callback: () => void): void {
 export type SessionGateOptions = {
   authOrigin: string;
   checking: HTMLElement;
-  denied: HTMLElement;
+  /** Role-mismatch UI (admin). Unsigned-in visits redirect to login instead. */
+  denied?: HTMLElement;
   unavailable: HTMLElement;
   app: HTMLElement;
   who?: HTMLElement | null;
@@ -180,10 +189,15 @@ export async function resolveSessionGate(
     showUnavailable(options);
     return null;
   }
-  if (
-    result.kind === "signed_out" ||
-    (options.requireRole && result.session.user.role !== options.requireRole)
-  ) {
+  if (result.kind === "signed_out") {
+    clearCachedSessionUser();
+    options.checking.hidden = true;
+    options.app.hidden = true;
+    if (options.denied) options.denied.hidden = true;
+    redirectToSignIn();
+    return null;
+  }
+  if (options.requireRole && result.session.user.role !== options.requireRole) {
     clearCachedSessionUser();
     showDenied(options);
     return null;

@@ -246,7 +246,10 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
       if (rawCallback) {
         try {
           const url = new URL(rawCallback, location.origin);
-          if (url.origin === location.origin) callbackURL = url.href;
+          // Same-origin only, and never /login itself (avoids a bounce loop).
+          if (url.origin === location.origin && url.pathname !== "/login") {
+            callbackURL = url.href;
+          }
         } catch {
           // keep default
         }

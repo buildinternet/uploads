@@ -7,11 +7,90 @@ import {
   authPageCsp,
   devicePageCsp,
   INVITE_CSP,
+  loginHref,
+  loginReturnPath,
   signedInCsp,
+  signedInShellLoginRedirect,
 } from "./signed-in-page";
 
 const AUTH = "https://auth.uploads.sh";
 const API = "https://api.uploads.sh";
+
+describe("signedInShellLoginRedirect", () => {
+  const search = "?path=/settings";
+  const pathname = "/account/workspaces/acme/screenshots";
+
+  it("redirects cookie-less account and admin visits", () => {
+    expect(
+      signedInShellLoginRedirect({
+        pathname,
+        search,
+        allowLocalDemo: false,
+        hasCookie: false,
+        sessionKind: null,
+      }),
+    ).toBe("/login?callbackURL=%2Faccount%2Fworkspaces%2Facme%2Fscreenshots%3Fpath%3D%2Fsettings");
+    expect(
+      signedInShellLoginRedirect({
+        pathname: "/admin/users",
+        allowLocalDemo: false,
+        hasCookie: false,
+        sessionKind: null,
+      }),
+    ).toBe("/login?callbackURL=%2Fadmin%2Fusers");
+  });
+
+  it("leaves public pages, local demo, live sessions, and auth outages alone", () => {
+    const base = {
+      pathname,
+      search,
+      allowLocalDemo: false,
+      hasCookie: false,
+      sessionKind: null,
+    } as const;
+    expect(signedInShellLoginRedirect({ ...base, pathname: "/login" })).toBeNull();
+    expect(signedInShellLoginRedirect({ ...base, pathname: "/docs" })).toBeNull();
+    expect(signedInShellLoginRedirect({ ...base, allowLocalDemo: true })).toBeNull();
+    expect(
+      signedInShellLoginRedirect({ ...base, hasCookie: true, sessionKind: "signed_in" }),
+    ).toBeNull();
+    expect(
+      signedInShellLoginRedirect({ ...base, hasCookie: true, sessionKind: "unavailable" }),
+    ).toBeNull();
+  });
+
+  it("redirects an expired cookie once session resolution says signed_out", () => {
+    expect(
+      signedInShellLoginRedirect({
+        pathname,
+        search,
+        allowLocalDemo: false,
+        hasCookie: true,
+        sessionKind: "signed_out",
+      }),
+    ).toBe("/login?callbackURL=%2Faccount%2Fworkspaces%2Facme%2Fscreenshots%3Fpath%3D%2Fsettings");
+  });
+});
+
+describe("loginHref / loginReturnPath", () => {
+  it("keeps a same-origin account path and query", () => {
+    expect(loginReturnPath("/account/workspaces/acme/screenshots?path=/settings")).toBe(
+      "/account/workspaces/acme/screenshots?path=/settings",
+    );
+    expect(loginHref("/account/workspaces/acme/screenshots?path=/settings")).toBe(
+      "/login?callbackURL=%2Faccount%2Fworkspaces%2Facme%2Fscreenshots%3Fpath%3D%2Fsettings",
+    );
+  });
+
+  it("drops /login itself and off-origin values", () => {
+    expect(loginReturnPath("/login")).toBeNull();
+    expect(loginReturnPath("/login?callbackURL=/account")).toBeNull();
+    expect(loginHref("/login")).toBe("/login");
+    expect(loginHref("https://evil.example/x")).toBe("/login");
+    expect(loginHref("//evil.example")).toBe("/login");
+    expect(loginHref(null)).toBe("/login");
+  });
+});
 
 describe("signed-in / auth CSP builders", () => {
   it("signedInCsp locks down and allows session + API + RUM", () => {

@@ -37,6 +37,17 @@ describe("ClientRouter boot scripts", () => {
     expect(src).toContain("JSON.stringify");
   });
 
+  it("unsigned-in account and admin shells redirect to login instead of a dead-end", () => {
+    const account = readSrc("layouts/AccountLayout.astro");
+    const admin = readSrc("layouts/AdminLayout.astro");
+    const middleware = readSrc("middleware.ts");
+    expect(account).not.toContain("You're not signed in.");
+    expect(admin).toContain("You need admin access to view this page.");
+    expect(middleware).toContain("signedInShellLoginRedirect");
+    expect(middleware).toContain("Cache-Control");
+    expect(middleware).toContain("Location");
+  });
+
   /** Layouts / chrome that soft-nav under ClientRouter. */
   const pageLoadBoot = [
     {

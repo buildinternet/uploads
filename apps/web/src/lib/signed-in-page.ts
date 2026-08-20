@@ -9,11 +9,55 @@
  */
 import { resolveConsoleMode } from "./console-mode";
 import { CF_RUM_CONNECT_SRC, CF_RUM_SCRIPT_SRC, STYLE_SRC_SELF_AND_INLINE } from "./csp";
+import { safeSameOriginPath } from "./workspace-ui";
 
 type OriginEnv = {
   UPLOADS_AUTH_ORIGIN?: string;
   UPLOADS_API_ORIGIN?: string;
 };
+
+/**
+ * Same-origin path we'll send the user back to after login. Rejects `/login`
+ * itself so a bounce can't loop, and anything `safeSameOriginPath` already
+ * refuses (absolute URLs, protocol-relative, embedded schemes).
+ */
+export function loginReturnPath(raw: string | null | undefined): string | null {
+  const path = safeSameOriginPath(raw);
+  if (!path) return null;
+  const bare = path.split(/[?#]/, 1)[0] ?? path;
+  if (bare === "/login") return null;
+  return path;
+}
+
+/** `/login`, or `/login?callbackURL=` when `returnTo` is a safe in-app path. */
+export function loginHref(returnTo?: string | null): string {
+  const path = loginReturnPath(returnTo);
+  if (!path) return "/login";
+  return `/login?callbackURL=${encodeURIComponent(path)}`;
+}
+
+export function isSignedInShellPath(pathname: string): boolean {
+  return pathname.startsWith("/account") || pathname.startsWith("/admin");
+}
+
+/**
+ * Login path for an unsigned-in visitor to a signed-in shell, or null to
+ * render the page (local demo, live session, or auth unavailable).
+ */
+export function signedInShellLoginRedirect(opts: {
+  pathname: string;
+  search?: string;
+  allowLocalDemo: boolean;
+  hasCookie: boolean;
+  sessionKind: "signed_in" | "signed_out" | "unavailable" | null;
+}): string | null {
+  if (!isSignedInShellPath(opts.pathname) || opts.allowLocalDemo) return null;
+  if (opts.sessionKind === "signed_in" || opts.sessionKind === "unavailable") return null;
+  if (!opts.hasCookie || opts.sessionKind === "signed_out") {
+    return loginHref(`${opts.pathname}${opts.search ?? ""}`);
+  }
+  return null;
+}
 
 export function resolveSignedInOrigins(env: OriginEnv): {
   authOrigin: string;
