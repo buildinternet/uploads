@@ -136,6 +136,12 @@ function ghLabel(item: SearchFileItem): string {
 
 // ── Thumb tile ─────────────────────────────────────────────────────────
 
+/** Strip thumbs size from the image's intrinsic ratio (cached + onLoad). */
+function applyShotThumbAspect(img: HTMLImageElement | null) {
+  if (!img?.naturalWidth || !img.naturalHeight) return;
+  img.parentElement?.style.setProperty("--wsp-ar", `${img.naturalWidth} / ${img.naturalHeight}`);
+}
+
 function ShotThumb({
   item,
   paired,
@@ -192,6 +198,8 @@ function ShotThumb({
             alt=""
             loading="lazy"
             decoding="async"
+            ref={applyShotThumbAspect}
+            onLoad={(event) => applyShotThumbAspect(event.currentTarget)}
             onError={() => setBroken(true)}
           />
         </span>

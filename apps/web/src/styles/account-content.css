@@ -1987,15 +1987,25 @@ button.wft-card__name:focus-visible {
   font-weight: 600;
 }
 
-/* Horizontal strip of a group's recent thumbs (overview). */
+/* Horizontal strip of a group's recent thumbs (overview). Shared height,
+   width follows each shot's aspect ratio (set as --wsp-ar on load; 4/3
+   until then). Min/max width keep a tap target without letting one
+   ultra-wide capture eat the row — object-fit: cover only crops then. */
 .wsp-strip {
   display: flex;
+  align-items: flex-start;
   gap: 8px;
   overflow-x: auto;
   padding-bottom: 2px;
+  --wsp-strip-h: 126px;
 }
 .wsp-strip .wsp-tile {
+  box-sizing: border-box;
   flex: none;
+  width: max-content;
+  height: var(--wsp-strip-h);
+  min-width: 56px;
+  max-width: min(280px, 72vw);
 }
 
 /* Responsive grid of a full path's items (drill-in). */
@@ -2019,9 +2029,6 @@ button.wft-card__name:focus-visible {
   color: inherit;
   text-decoration: none;
 }
-.wsp-strip .wsp-tile {
-  width: 168px;
-}
 
 .wsp-thumb {
   display: block;
@@ -2033,11 +2040,22 @@ button.wft-card__name:focus-visible {
   background-size: cover;
   background-position: center;
 }
+.wsp-strip .wsp-thumb {
+  box-sizing: border-box;
+  height: var(--wsp-strip-h);
+  width: auto;
+  min-width: 56px;
+  max-width: min(280px, 72vw);
+  aspect-ratio: var(--wsp-ar, 4 / 3);
+}
 .wsp-thumb img {
   display: block;
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+.wsp-strip .wsp-thumb img {
+  object-position: top center;
 }
 .wsp-thumb--tile {
   display: grid;
@@ -2049,6 +2067,11 @@ button.wft-card__name:focus-visible {
 }
 .wsp-thumb--skel {
   background: var(--panel);
+}
+.wsp-strip .wsp-thumb--skel,
+.wsp-strip .wsp-thumb--tile {
+  width: calc(var(--wsp-strip-h) * 4 / 3);
+  aspect-ratio: 4 / 3;
 }
 
 .wsp-state {
