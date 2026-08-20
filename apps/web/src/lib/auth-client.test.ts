@@ -91,6 +91,29 @@ describe("getSession", () => {
       reason: "network",
     });
   });
+
+  it("forwards a caller-supplied cookie so an Astro frontmatter can resolve the session (issue #698)", async () => {
+    const user = { id: "u1", email: "a@b.com", name: "A" };
+    const fetcher = vi.fn(async () => Response.json({ session: {}, user }));
+    vi.stubGlobal("fetch", fetcher);
+
+    await expect(
+      getSession("http://127.0.0.1:8788", { cookie: "better-auth.session_token=abc" }),
+    ).resolves.toEqual({ kind: "signed_in", session: { session: {}, user } });
+    expect(fetcher).toHaveBeenCalledWith(
+      "http://127.0.0.1:8788/api/auth/get-session",
+      expect.objectContaining({ headers: { cookie: "better-auth.session_token=abc" } }),
+    );
+  });
+
+  it("omits the cookie header on the browser path where the ambient cookie rides along", async () => {
+    const fetcher = vi.fn<typeof fetch>(async () => Response.json(null));
+    vi.stubGlobal("fetch", fetcher);
+
+    await getSession("http://127.0.0.1:8788");
+    const init = fetcher.mock.calls[0]?.[1];
+    expect(init && "headers" in init ? init.headers : undefined).toBeUndefined();
+  });
 });
 
 describe("listSessions / listAccounts", () => {
@@ -151,6 +174,32 @@ describe("listSessions / listAccounts", () => {
         scopes: ["read:user", "user:email"],
       },
     ]);
+  });
+
+  it("forwards a caller-supplied cookie so an Astro frontmatter can resolve them (issue #699)", async () => {
+    const fetcher = vi.fn(async () => Response.json([]));
+    vi.stubGlobal("fetch", fetcher);
+
+    await listSessions("http://127.0.0.1:8788", { cookie: "better-auth.session_token=abc" });
+    expect(fetcher).toHaveBeenCalledWith(
+      "http://127.0.0.1:8788/api/auth/list-sessions",
+      expect.objectContaining({ headers: { cookie: "better-auth.session_token=abc" } }),
+    );
+
+    await listAccounts("http://127.0.0.1:8788", { cookie: "better-auth.session_token=abc" });
+    expect(fetcher).toHaveBeenCalledWith(
+      "http://127.0.0.1:8788/api/auth/list-accounts",
+      expect.objectContaining({ headers: { cookie: "better-auth.session_token=abc" } }),
+    );
+  });
+
+  it("omits the cookie header on the browser path where the ambient cookie rides along", async () => {
+    const fetcher = vi.fn<typeof fetch>(async () => Response.json([]));
+    vi.stubGlobal("fetch", fetcher);
+
+    await listSessions("http://127.0.0.1:8788");
+    const init = fetcher.mock.calls[0]?.[1];
+    expect(init && "headers" in init ? init.headers : undefined).toBeUndefined();
   });
 });
 
@@ -352,6 +401,30 @@ describe("getAccountInfo", () => {
         accountId: "1",
       }),
     ).resolves.toBeNull();
+  });
+
+  it("forwards a caller-supplied cookie so an Astro frontmatter can resolve it (issue #699)", async () => {
+    const fetcher = vi.fn(async () => Response.json({ user: { email: "a@b.com" } }));
+    vi.stubGlobal("fetch", fetcher);
+
+    await getAccountInfo("https://auth.uploads.sh", {
+      providerId: "github",
+      accountId: "1",
+      cookie: "better-auth.session_token=abc",
+    });
+    expect(fetcher).toHaveBeenCalledWith(
+      expect.stringContaining("https://auth.uploads.sh/api/auth/account-info?"),
+      expect.objectContaining({ headers: { cookie: "better-auth.session_token=abc" } }),
+    );
+  });
+
+  it("omits the cookie header on the browser path where the ambient cookie rides along", async () => {
+    const fetcher = vi.fn<typeof fetch>(async () => Response.json({ user: { email: "a@b.com" } }));
+    vi.stubGlobal("fetch", fetcher);
+
+    await getAccountInfo("https://auth.uploads.sh", { providerId: "github", accountId: "1" });
+    const init = fetcher.mock.calls[0]?.[1];
+    expect(init && "headers" in init ? init.headers : undefined).toBeUndefined();
   });
 });
 

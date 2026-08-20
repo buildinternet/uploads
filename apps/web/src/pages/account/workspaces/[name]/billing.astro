@@ -8,15 +8,44 @@
  * whatever `limits` says (often unlimited/custom) rather than free-tier
  * marketing caps — see apps/api/src/routes/me.ts's billing route.
  */
+import { env } from "cloudflare:workers";
+import { PLANS } from "@uploads/billing";
 import WorkspaceLayout from "../../../../layouts/WorkspaceLayout.astro";
+import {
+  loadBillingPageData,
+  renderPlanCardBodyHtml,
+  renderPlanCardPlaceholderHtml,
+  renderPlanCardsGridHtml,
+} from "../../../../lib/billing-ui";
+import { resolveBillingCta, type BillingCtaState } from "../../../../lib/billing-cta";
+import { formatPrice } from "../../../../lib/plan-prices";
+import { resolveSignedInOrigins } from "../../../../lib/signed-in-page";
 import { isBrowseWorkspace } from "../../../../lib/workspace-browse-url";
-import { skeletonBarHtml } from "../../../../lib/workspace-ui";
 
 export const prerender = false;
 
 const nameParam = Astro.params.name ?? "";
 const workspace = isBrowseWorkspace(nameParam) ? nameParam : "";
 if (!workspace) return Astro.redirect("/account/workspaces");
+
+// SSR-first (issue #699): fetch billing + the live Pro price server-side so
+// first paint has the real current-plan card and plan-cards grid instead of
+// skeleton bars. Only render real content when the server fetch actually
+// succeeded — a failed/absent fetch falls back to the same skeleton as
+// before and the client script paints the correct real/error state (same
+// "own region" rule as the galleries/people pages).
+const { authOrigin, apiOrigin } = resolveSignedInOrigins(env);
+const cookie = Astro.request.headers.get("cookie") ?? "";
+const initial = await loadBillingPageData(apiOrigin, authOrigin, workspace, cookie);
+const { billing } = initial;
+const proPriceCopy = formatPrice(initial.proPrice);
+const cta: BillingCtaState = billing
+  ? resolveBillingCta({
+      proAvailable: PLANS.pro.available,
+      plan: billing.plan,
+      planSource: billing.planSource,
+    })
+  : { kind: "unavailable" };
 ---
 
 <WorkspaceLayout workspace={workspace} showUsage>
@@ -33,24 +62,39 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         <a class="text-btn" id="ws-back" href={`/account/workspaces/${workspace}`}>← Workspace</a>
       </div>
 
-      <div id="ws-plan-card" class="ul-callout" aria-busy="true">
-        <p><strong id="ws-plan-name" set:html={skeletonBarHtml("72px")} /></p>
-        <p class="muted" id="ws-plan-blurb" set:html={skeletonBarHtml("80%")} />
-        <p class="muted" id="ws-plan-file-limits" set:html={skeletonBarHtml("60%")} />
-        <p id="ws-subscription-status" role="status" hidden></p>
-      </div>
+      <div
+        id="ws-plan-card"
+        class="ul-callout"
+        aria-busy={billing ? undefined : "true"}
+        set:html={billing
+          ? renderPlanCardBodyHtml(billing, proPriceCopy)
+          : renderPlanCardPlaceholderHtml()}
+      />
 
       <div class="settings-section">
         <h3>Plans</h3>
-        <div id="ws-plan-cards" class="plan-cards"></div>
-        <p class="muted" id="ws-manage-billing-note" hidden>
+        <div
+          id="ws-plan-cards"
+          class="plan-cards"
+          data-organization-id={billing ? billing.organization.id : undefined}
+          set:html={billing ? renderPlanCardsGridHtml(billing, proPriceCopy) : ""}
+        />
+        <p
+          class="muted"
+          id="ws-manage-billing-note"
+          hidden={cta.kind === "manage" ? undefined : true}
+        >
           To cancel or downgrade, use “Manage billing” below to open the billing portal.
         </p>
       </div>
 
       <div class="settings-section">
-        <button type="button" id="ws-manage-billing-btn" hidden>Manage billing</button>
-        <p class="muted" id="ws-comped-note" hidden>
+        <button
+          type="button"
+          id="ws-manage-billing-btn"
+          hidden={cta.kind === "manage" ? undefined : true}>Manage billing</button
+        >
+        <p class="muted" id="ws-comped-note" hidden={cta.kind === "comped" ? undefined : true}>
           This plan is comped for your workspace, so there’s no self-serve billing to manage.
           Contact support to make changes.
         </p>
@@ -60,7 +104,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
   </section>
 
   <script>
-    import { PLANS, type PlanDefinition } from "@uploads/billing";
+    import { PLANS } from "@uploads/billing";
     import {
       getPageVisit,
       isCurrentPageVisit,
@@ -68,15 +112,14 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       onSession,
       requireElement,
     } from "../../../../lib/account-shell";
-    import { getWorkspaceBilling, type WorkspaceBilling } from "../../../../lib/api-client";
+    import { getWorkspaceBilling } from "../../../../lib/api-client";
     import {
       openOrganizationBillingPortal,
       upgradeOrganizationSubscription,
     } from "../../../../lib/auth-client";
     import { resolveBillingCta } from "../../../../lib/billing-cta";
+    import { renderPlanCardBodyHtml, renderPlanCardsGridHtml } from "../../../../lib/billing-ui";
     import { fetchProPrice, formatPrice } from "../../../../lib/plan-prices";
-    import { resolveSubscriptionCopy } from "../../../../lib/subscription-copy";
-    import { escapeHtml, formatBytes, formatMarketedBytes } from "../../../../lib/workspace-ui";
     import { resolveActiveWorkspace } from "../../../../lib/workspace-browse-url";
     import { loadWorkspaceSummary } from "../../../../lib/workspace-summary-source";
 
@@ -106,14 +149,10 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       const retryBtn = requireElement<HTMLButtonElement>("#ws-retry", page);
       const slugEl = requireElement<HTMLElement>("#ws-slug", page);
       const planCardEl = requireElement<HTMLElement>("#ws-plan-card", page);
-      const planNameEl = requireElement<HTMLElement>("#ws-plan-name", page);
-      const planBlurbEl = requireElement<HTMLElement>("#ws-plan-blurb", page);
-      const planFileLimitsEl = requireElement<HTMLElement>("#ws-plan-file-limits", page);
       const planCardsEl = requireElement<HTMLElement>("#ws-plan-cards", page);
       const manageBillingNoteEl = requireElement<HTMLElement>("#ws-manage-billing-note", page);
       const manageBillingBtn = requireElement<HTMLButtonElement>("#ws-manage-billing-btn", page);
       const compedNoteEl = requireElement<HTMLElement>("#ws-comped-note", page);
-      const subscriptionStatusEl = requireElement<HTMLElement>("#ws-subscription-status", page);
       const billingErrorEl = requireElement<HTMLElement>("#ws-billing-error", page);
 
       function showError(message: string, retry = true): void {
@@ -124,16 +163,12 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         // The card stays on screen — the heading and back link aren't
         // invalidated by a failed billing fetch, so only the plan card's own
         // data is cleared (same "own region" rule as the people/galleries
-        // pages). `aria-busy` lives on the surviving `#ws-plan-card`
-        // container, not on markup an innerHTML swap would discard, so it's
-        // cleared here too: loading has concluded, even though it failed.
+        // pages). This also discards `#ws-plan-card`'s markup (SSR content
+        // or placeholder) wholesale, so `aria-busy` — which lives on the
+        // surviving container, not on the cleared markup — is removed here
+        // too: loading has concluded, even though it failed.
+        planCardEl.innerHTML = "";
         planCardEl.removeAttribute("aria-busy");
-        planNameEl.textContent = "";
-        planBlurbEl.textContent = "";
-        planBlurbEl.hidden = true;
-        planFileLimitsEl.textContent = "";
-        subscriptionStatusEl.hidden = true;
-        subscriptionStatusEl.textContent = "";
         planCardsEl.innerHTML = "";
         manageBillingBtn.hidden = true;
         manageBillingNoteEl.hidden = true;
@@ -143,169 +178,10 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         retryBtn.hidden = !retry;
       }
 
-      function planLabel(plan: string): string {
-        return plan.charAt(0).toUpperCase() + plan.slice(1);
-      }
-
-      /**
-       * The current-plan card's one line that isn't already covered by the
-       * workspace rail (which shows storage + uploads-this-month usage) —
-       * the enforced max file/video size, so that information isn't lost
-       * when the standalone "Limits & usage" section is removed.
-       */
-      function paintFileLimits(billing: WorkspaceBilling): void {
-        const { limits } = billing;
-        const parts: string[] = [];
-
-        if (limits.maxUploadBytes !== null) {
-          parts.push(`files up to ${formatBytes(limits.maxUploadBytes)}`);
-        }
-        if (
-          limits.maxVideoUploadBytes !== null &&
-          limits.maxVideoUploadBytes !== limits.maxUploadBytes
-        ) {
-          parts.push(`videos up to ${formatBytes(limits.maxVideoUploadBytes)}`);
-        }
-
-        planFileLimitsEl.textContent = parts.length ? `Max upload size: ${parts.join(", ")}.` : "";
-      }
-
-      /** Paints (or hides) the subscription status line inside the
-       * current-plan card — issue #445's remaining billing-tab surface.
-       * `resolveSubscriptionCopy` is the pure state→copy mapping
-       * (subscription-copy.ts); this is just the DOM glue. */
-      function paintSubscriptionStatus(
-        billing: WorkspaceBilling,
-        proPriceCopy: string | null,
-      ): void {
-        const state = resolveSubscriptionCopy({
-          planSource: billing.planSource,
-          subscription: billing.subscription,
-          priceText: proPriceCopy,
-        });
-        if (!state) {
-          subscriptionStatusEl.hidden = true;
-          subscriptionStatusEl.textContent = "";
-          subscriptionStatusEl.removeAttribute("data-state");
-          subscriptionStatusEl.removeAttribute("role");
-          return;
-        }
-        subscriptionStatusEl.hidden = false;
-        subscriptionStatusEl.textContent = state.text;
-        subscriptionStatusEl.className = "muted";
-        if (state.tone === "alert") {
-          subscriptionStatusEl.dataset.state = "error";
-          subscriptionStatusEl.setAttribute("role", "alert");
-        } else {
-          subscriptionStatusEl.removeAttribute("data-state");
-          subscriptionStatusEl.setAttribute("role", "status");
-        }
-      }
-
-      let organizationId = "";
-
-      /** Marketed limits for a plan card — storage + max file size for every
-       * plan, plus free's separate video ceiling (see plans.ts's comment:
-       * on pro the video ceiling equals the upload ceiling, so it isn't
-       * worth a separate line there) and the member cap. `maxUploadsPerPeriod`
-       * is an internal abuse guard and is deliberately never marketed here. */
-      function planCardLimitRows(plan: PlanDefinition): string {
-        const { defaultLimits } = plan;
-        const rows = [
-          `<li>${
-            defaultLimits.maxStorageBytes === undefined
-              ? "Unlimited storage"
-              : `${formatMarketedBytes(defaultLimits.maxStorageBytes)} storage`
-          }</li>`,
-          `<li>${
-            defaultLimits.maxUploadBytes === undefined
-              ? "Unlimited file size"
-              : `Files up to ${formatMarketedBytes(defaultLimits.maxUploadBytes)}`
-          }</li>`,
-        ];
-        // A separate video line only when the plan actually carves a distinct
-        // video ceiling out of its upload cap — catalog-driven, not per-plan.
-        if (
-          defaultLimits.maxVideoUploadBytes !== undefined &&
-          defaultLimits.maxVideoUploadBytes !== defaultLimits.maxUploadBytes
-        ) {
-          rows.push(
-            `<li>Videos up to ${formatMarketedBytes(defaultLimits.maxVideoUploadBytes)}</li>`,
-          );
-        }
-        // Members: free markets its cap ("3 members"); pro's maxMembers is an
-        // unmarketed abuse guard, so its card says "Unlimited members" and the
-        // seatless positioning holds. Driven by the catalog's marketsMemberCap
-        // flag rather than a plan-id special case (issue #450).
-        rows.push(
-          `<li>${
-            plan.marketsMemberCap && defaultLimits.maxMembers !== undefined
-              ? `${defaultLimits.maxMembers} member${defaultLimits.maxMembers === 1 ? "" : "s"}`
-              : "Unlimited members"
-          }</li>`,
-        );
-        return rows.join("");
-      }
-
-      function planCardPriceLine(plan: PlanDefinition, proPriceCopy: string | null): string {
-        if (plan.id === "free") return "$0";
-        // Live price fetched from the auth origin; omitted gracefully (no
-        // placeholder, no "$NaN") until it's known.
-        return proPriceCopy ?? "";
-      }
-
-      /** Renders one card per catalog plan that's `available`, plus the
-       * workspace's current plan even if it's since been marked
-       * unavailable (e.g. a legacy/custom plan) so the tab never hides
-       * where the workspace actually stands. */
-      function renderPlanCards(billing: WorkspaceBilling, proPriceCopy: string | null): void {
-        const currentPlanId = billing.plan;
-        const cardPlans = Object.values(PLANS).filter(
-          (plan) => plan.available || plan.id === currentPlanId,
-        );
-
-        const cta = resolveBillingCta({
-          proAvailable: PLANS.pro.available,
-          plan: billing.plan,
-          planSource: billing.planSource,
-        });
-
-        const cardsHtml = cardPlans
-          .map((plan) => {
-            const isCurrent = plan.id === currentPlanId;
-            const priceLine = planCardPriceLine(plan, proPriceCopy);
-            // The current card already carries the "Current plan" badge —
-            // no footer button, so the label doesn't appear twice.
-            let footer = "";
-            if (!isCurrent && plan.id === "pro") {
-              footer =
-                cta.kind === "unavailable"
-                  ? `<button type="button" class="plan-card__cta" disabled>Coming soon</button>`
-                  : `<button type="button" class="plan-card__cta" data-cta="upgrade" data-plan="pro">Upgrade to Pro</button>`;
-            }
-            return `
-              <div class="plan-card${isCurrent ? " is-current" : ""}" data-plan="${plan.id}">
-                ${isCurrent ? `<span class="plan-card__badge">Current plan</span>` : ""}
-                <p class="plan-card__name">${escapeHtml(plan.name)}</p>
-                ${priceLine ? `<p class="plan-card__price">${escapeHtml(priceLine)}</p>` : ""}
-                <p class="muted plan-card__blurb">${escapeHtml(plan.blurb)}</p>
-                <ul class="plan-card__limits muted">${planCardLimitRows(plan)}</ul>
-                ${footer}
-              </div>`;
-          })
-          .join("");
-
-        planCardsEl.innerHTML = cardsHtml;
-
-        // "Manage billing" (also the downgrade/cancel path) only makes sense
-        // once a live Stripe subscription backs the plan. A comped/admin plan
-        // has no Stripe customer, so the portal 404s — show the comped note
-        // instead of a button that can only error.
-        manageBillingBtn.hidden = cta.kind !== "manage";
-        manageBillingBtn.disabled = false;
-        manageBillingNoteEl.hidden = cta.kind !== "manage";
-        compedNoteEl.hidden = cta.kind !== "comped";
-      }
+      // Seed from the SSR plan grid so a click on a server-rendered
+      // upgrade/manage button works before the client reconcile lands
+      // (#714 review). loadPlan() sets it authoritatively once billing loads.
+      let organizationId = planCardsEl.dataset.organizationId ?? "";
 
       async function handleBillingActionClick(cta: "upgrade" | "manage"): Promise<void> {
         if (!organizationId) {
@@ -369,38 +245,29 @@ if (!workspace) return Astro.redirect("/account/workspaces");
 
         const { billing } = result;
         organizationId = billing.organization.id;
-        planNameEl.textContent = `${planLabel(billing.plan)} plan`;
-        // Honest copy: a record with no plan actually applied isn't on
-        // free-tier marketing caps — it's running whatever `limits` says.
-        // When a subscription status line will render ("Included with your
-        // workspace." / "Renews on …"), it already says the plan is active,
-        // so the generic blurb stays empty rather than repeating it.
-        const hasStatusLine =
-          resolveSubscriptionCopy({
-            planSource: billing.planSource,
-            subscription: billing.subscription,
-            priceText: null,
-          }) !== null;
-        planBlurbEl.textContent = billing.planApplied
-          ? billing.available
-            ? hasStatusLine
-              ? ""
-              : "This plan is active on your workspace."
-            : "This plan isn’t available for self-serve upgrade yet."
-          : "Your current limits are shown below.";
-        planBlurbEl.hidden = planBlurbEl.textContent === "";
-        paintFileLimits(billing);
+        const proPriceCopy = formatPrice(proPrice);
         billingErrorEl.hidden = true;
         billingErrorEl.textContent = "";
-        const proPriceCopy = formatPrice(proPrice);
-        renderPlanCards(billing, proPriceCopy);
-        paintSubscriptionStatus(billing, proPriceCopy);
-        // Unlike the innerHTML-based regions on the galleries/people pages,
-        // the plan card's fields are painted field-by-field above rather
-        // than replaced wholesale, so `#ws-plan-card`'s own `aria-busy`
-        // never gets discarded along with placeholder markup — it has to be
-        // cleared explicitly once real data lands.
+        // The same pure renderers billing.astro's frontmatter uses for SSR
+        // — the client reconcile paints byte-identical markup rather than
+        // drifting from the server-rendered first paint.
+        planCardEl.innerHTML = renderPlanCardBodyHtml(billing, proPriceCopy);
         planCardEl.removeAttribute("aria-busy");
+        planCardsEl.innerHTML = renderPlanCardsGridHtml(billing, proPriceCopy);
+
+        // "Manage billing" (also the downgrade/cancel path) only makes sense
+        // once a live Stripe subscription backs the plan. A comped/admin plan
+        // has no Stripe customer, so the portal 404s — show the comped note
+        // instead of a button that can only error.
+        const cta = resolveBillingCta({
+          proAvailable: PLANS.pro.available,
+          plan: billing.plan,
+          planSource: billing.planSource,
+        });
+        manageBillingBtn.hidden = cta.kind !== "manage";
+        manageBillingBtn.disabled = false;
+        manageBillingNoteEl.hidden = cta.kind !== "manage";
+        compedNoteEl.hidden = cta.kind !== "comped";
       }
 
       async function loadBillingPage(): Promise<void> {

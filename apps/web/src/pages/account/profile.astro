@@ -1,8 +1,25 @@
 ---
+import { env } from "cloudflare:workers";
 import AccountLayout from "../../layouts/AccountLayout.astro";
+import {
+  loadProfilePageData,
+  renderSessionsHtml,
+  renderSignInMethodsHtml,
+} from "../../lib/account-profile-ui";
+import { resolveSignedInOrigins } from "../../lib/signed-in-page";
 import { renderDetailListPlaceholderHtml } from "../../lib/workspace-ui";
 
 export const prerender = false;
+
+const { authOrigin } = resolveSignedInOrigins(env);
+const initial = await loadProfilePageData(authOrigin, Astro.request.headers.get("cookie") ?? "");
+const accountsReady = initial.accounts !== null;
+const sessionsReady = initial.sessions !== null;
+// A signed-in profile view always has at least the current session, so this
+// is a defensive edge, not the common case — kept in parity with the
+// client's original branching (hide the list, show status text) rather than
+// letting an empty <ul> render.
+const sessionsEmpty = sessionsReady && (initial.sessions?.length ?? 0) === 0;
 ---
 
 <AccountLayout section="profile">
@@ -11,9 +28,9 @@ export const prerender = false;
     <div class="settings-section">
       <h2>Account</h2>
       <dl class="kv">
-        <dt>Email</dt><dd id="acct-email"></dd>
-        <dt>Name</dt><dd id="acct-name"></dd>
-        <dt>Role</dt><dd id="acct-role"></dd>
+        <dt>Email</dt><dd id="acct-email">{initial.user?.email ?? ""}</dd>
+        <dt>Name</dt><dd id="acct-name">{initial.user ? initial.user.name || "—" : ""}</dd>
+        <dt>Role</dt><dd id="acct-role">{initial.user ? initial.user.role || "member" : ""}</dd>
       </dl>
       <p class="muted settings-note">From your sign-in provider.</p>
     </div>
@@ -24,8 +41,10 @@ export const prerender = false;
       <ul
         class="detail-list"
         id="accounts-list"
-        aria-busy="true"
-        set:html={renderDetailListPlaceholderHtml()}
+        aria-busy={accountsReady ? "false" : "true"}
+        set:html={accountsReady
+          ? renderSignInMethodsHtml(initial.accounts ?? [], initial.githubInfo)
+          : renderDetailListPlaceholderHtml()}
       />
       <p id="accounts-error" class="detail-error" role="alert" hidden></p>
     </div>
@@ -44,12 +63,21 @@ export const prerender = false;
           <button type="button" class="text-btn" id="cli-upgrade-dismiss">Dismiss</button>
         </div>
       </div>
-      <div id="sessions-status" class="muted detail-status" hidden></div>
+      <div
+        id="sessions-status"
+        class="muted detail-status"
+        hidden={sessionsEmpty ? undefined : true}
+      >
+        {sessionsEmpty ? "No active sessions." : ""}
+      </div>
       <ul
         class="detail-list"
         id="sessions-list"
-        aria-busy="true"
-        set:html={renderDetailListPlaceholderHtml()}
+        aria-busy={sessionsReady ? "false" : "true"}
+        hidden={sessionsEmpty ? true : undefined}
+        set:html={sessionsReady
+          ? renderSessionsHtml(initial.sessions ?? [], initial.currentToken)
+          : renderDetailListPlaceholderHtml()}
       />
       <div id="sessions-recover" class="sessions-recover" hidden>
         <p class="muted">Couldn’t load sessions — sign in again to refresh.</p>
@@ -105,6 +133,7 @@ export const prerender = false;
 
   <script>
     import { onAstroPageLoad, onSession, requireElement } from "../../lib/account-shell";
+    import { renderSessionsHtml, renderSignInMethodsHtml } from "../../lib/account-profile-ui";
     import {
       getAccountInfo,
       getSession,
@@ -113,17 +142,13 @@ export const prerender = false;
       listSessions,
       revokeSession,
       type AuthSession,
-      type LinkedAccount,
-      type ProviderAccountInfo,
     } from "../../lib/auth-client";
-    import { githubMarkSvg } from "../../lib/brand-icons";
     import {
       bestCliVersion,
       dismissUpgrade,
       isUpgradeDismissed,
       resolveUpgradePrompt,
     } from "../../lib/cli-upgrade";
-    import { deviceLabel, formatSessionTime, isCliUserAgent } from "../../lib/session-device";
     import { renderDetailListPlaceholderHtml } from "../../lib/workspace-ui";
 
     onAstroPageLoad(() => {
@@ -131,13 +156,6 @@ export const prerender = false;
 
       const authOrigin = (window as unknown as { __UPLOADS_AUTH_ORIGIN__: string })
         .__UPLOADS_AUTH_ORIGIN__;
-
-      const escapeHtml = (value: string) =>
-        value.replace(
-          /[&<>"']/g,
-          (ch) =>
-            ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch] ?? ch,
-        );
 
       function showStatus(
         el: HTMLElement,
@@ -152,38 +170,11 @@ export const prerender = false;
         }
       }
 
-      function asNonEmptyString(value: unknown): string | null {
-        return typeof value === "string" && value.length > 0 ? value : null;
-      }
-
       function setAccountsError(message: string | null): void {
         const error = requireElement<HTMLElement>("#accounts-error", "account profile");
         error.textContent = message ?? "";
         error.hidden = !message;
       }
-
-      // Official GitHub mark (same path as releases AccountIcon) — not a Lucide
-      // brand icon; Lucide dropped brand logos.
-      const GITHUB_ICON = githubMarkSvg({ size: 14, className: "detail-icon" });
-
-      function githubDetail(account: LinkedAccount, info: ProviderAccountInfo | null): string {
-        const parts: string[] = [];
-        const login = asNonEmptyString(info?.data?.login);
-        if (login) parts.push(`@${login}`);
-        const email = asNonEmptyString(info?.user?.email) ?? asNonEmptyString(info?.data?.email);
-        if (email) parts.push(email);
-        parts.push(`id ${account.accountId}`);
-        if (account.scopes?.length) parts.push(`scopes ${account.scopes.join(", ")}`);
-        return parts.join(" · ");
-      }
-
-      type MethodRow = {
-        title: string;
-        detail: string;
-        ok: boolean;
-        icon?: string;
-        connectGithub?: boolean;
-      };
 
       async function loadAccounts(): Promise<void> {
         const status = requireElement<HTMLElement>("#accounts-status", "account profile");
@@ -210,61 +201,10 @@ export const prerender = false;
             })
           : null;
 
-        const rows: MethodRow[] =
-          accounts.length > 0
-            ? accounts.map((a) => {
-                if (a.providerId === "github") {
-                  return {
-                    title: "GitHub",
-                    detail: githubDetail(a, githubInfo),
-                    ok: true,
-                    icon: GITHUB_ICON,
-                  };
-                }
-                return {
-                  title: a.providerId,
-                  detail: a.createdAt ? `Linked ${formatSessionTime(a.createdAt)}` : "Connected",
-                  ok: true,
-                };
-              })
-            : [{ title: "Email", detail: "Magic link sign-in", ok: true }];
-
-        if (!github) {
-          rows.push({
-            title: "GitHub",
-            detail: "Not connected",
-            ok: false,
-            icon: GITHUB_ICON,
-            connectGithub: true,
-          });
-        }
-
         status.hidden = true;
         list.hidden = false;
         list.removeAttribute("aria-busy");
-        list.innerHTML = rows
-          .map((row) => {
-            const action = row.connectGithub
-              ? `<div class="detail-action">
-                <button type="button" class="text-btn text-btn--boxed" data-connect-github>Connect</button>
-              </div>`
-              : "";
-            // Unconnected rows carry no badge: the meta line already says
-            // "Not connected", and the boxed Connect button is the state cue.
-            const badge = row.ok ? `<span class="ul-badge ul-badge--ok">Connected</span>` : "";
-            return `<li>
-            <div class="detail-main">
-              <div class="detail-title">
-                ${row.icon ?? ""}
-                <span>${escapeHtml(row.title)}</span>
-                ${badge}
-              </div>
-              <div class="detail-meta">${escapeHtml(row.detail)}</div>
-            </div>
-            ${action}
-          </li>`;
-          })
-          .join("");
+        list.innerHTML = renderSignInMethodsHtml(accounts, githubInfo);
       }
 
       let currentToken: string | undefined;
@@ -341,44 +281,10 @@ export const prerender = false;
           return;
         }
 
-        const ordered = sessions.toSorted((a, b) => {
-          if (currentToken && a.token === currentToken) return -1;
-          if (currentToken && b.token === currentToken) return 1;
-          return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
-        });
-
         status.hidden = true;
         list.hidden = false;
         list.removeAttribute("aria-busy");
-        list.innerHTML = ordered
-          .map((s) => {
-            const current = currentToken != null && s.token === currentToken;
-            const badge = current
-              ? `<span class="ul-badge ul-badge--accent">This device</span>`
-              : isCliUserAgent(s.userAgent)
-                ? `<span class="ul-badge">CLI</span>`
-                : "";
-            const meta = [
-              s.ipAddress ? escapeHtml(s.ipAddress) : null,
-              `Active ${escapeHtml(formatSessionTime(s.updatedAt))}`,
-            ]
-              .filter(Boolean)
-              .join(" · ");
-            const action = current
-              ? `<span class="detail-current">Current</span>`
-              : `<button type="button" class="text-btn" data-revoke="${escapeHtml(s.token)}">Sign out</button>`;
-            return `<li>
-            <div class="detail-main">
-              <div class="detail-title">
-                <span>${escapeHtml(deviceLabel(s.userAgent, { cliVersion: s.cliVersion }))}</span>
-                ${badge}
-              </div>
-              <div class="detail-meta">${meta}</div>
-            </div>
-            <div class="detail-action">${action}</div>
-          </li>`;
-          })
-          .join("");
+        list.innerHTML = renderSessionsHtml(sessions, currentToken ?? null);
 
         void maybeShowCliUpgrade(sessions);
       }

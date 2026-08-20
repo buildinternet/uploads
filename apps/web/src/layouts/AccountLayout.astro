@@ -10,6 +10,7 @@
  * re-boot on `astro:page-load` (ClientRouter).
  */
 import { env } from "cloudflare:workers";
+import { getSession } from "../lib/auth-client";
 import {
   applyAuthSecurityHeaders,
   resolveSignedInOrigins,
@@ -64,8 +65,41 @@ const workspaceBase = workspace ? `/account/workspaces/${encodeURIComponent(work
 const switcherHeading = workspace || "workspaces";
 
 const { authOrigin, apiOrigin } = resolveSignedInOrigins(env);
-// Header (not meta): frame-ancestors is ignored on meta CSP.
+// Header (not meta): frame-ancestors is ignored on meta CSP. Also sets
+// Cache-Control: no-store, so the per-request session reveal below is never
+// cached and served to another visitor.
 applyAuthSecurityHeaders(Astro.response.headers, signedInCsp(authOrigin, apiOrigin));
+
+// SSR-first session gate (issue #698). The web worker already receives the
+// cross-subdomain `.uploads.sh` session cookie (it's what the per-page /me
+// data fetches authenticate with), so resolve it during the server render and
+// paint `#app` visible on first paint — making cold loads as snappy as the
+// warm SPA navigations the optimistic-cache script already reveals instantly.
+//
+// This only ever *reveals* for a confirmed session; every other outcome
+// (no cookie, invalid/expired, or auth unavailable) falls through to the
+// existing client gate, which still owns the signed-out state, the auth
+// "try again" retry, and the local-demo dev fallback in account-shell.ts —
+// none of which can be short-circuited server-side. The client always
+// revalidates in the background regardless, so a session revoked between this
+// render and hydration still flips to the signed-out shell.
+const sessionCookie = Astro.request.headers.get("cookie") ?? "";
+let serverSessionUserJson: string | null = null;
+if (sessionCookie.trim()) {
+  const session = await getSession(authOrigin, { cookie: sessionCookie });
+  if (session.kind === "signed_in") {
+    // Serialized as a JS object literal (not a quoted string) so names/emails
+    // with apostrophes need no quote-escaping; `<` is escaped so a stray
+    // "</script" or "<!--" in a value can't break out of the inline seed, and
+    // U+2028/U+2029 (legal in JSON, historically line terminators in JS) are
+    // escaped so the literal always parses.
+    serverSessionUserJson = JSON.stringify(session.session.user).replace(
+      /[<\u2028\u2029]/g,
+      (ch) => "\\u" + ch.charCodeAt(0).toString(16).padStart(4, "0"),
+    );
+  }
+}
+const serverSignedIn = serverSessionUserJson !== null;
 ---
 
 <html lang="en" transition:animate="none">
@@ -76,7 +110,7 @@ applyAuthSecurityHeaders(Astro.response.headers, signedInCsp(authOrigin, apiOrig
   </head>
   <body>
     <h1 class="sr-only">{pageHeading}</h1>
-    <div id="checking" class="shell-status">
+    <div id="checking" class="shell-status" hidden={serverSignedIn}>
       <div class="ul-callout status" role="status">Checking your session…</div>
     </div>
 
@@ -92,7 +126,7 @@ applyAuthSecurityHeaders(Astro.response.headers, signedInCsp(authOrigin, apiOrig
       <button class="button" type="button" id="session-retry">Try again</button>
     </div>
 
-    <div id="app" class="account-shell" hidden>
+    <div id="app" class="account-shell" hidden={!serverSignedIn}>
       <SiteHeader authOrigin={authOrigin} />
 
       <div class="shell">
@@ -209,6 +243,25 @@ applyAuthSecurityHeaders(Astro.response.headers, signedInCsp(authOrigin, apiOrig
       {/* Sibling of .shell so the footer centers on the viewport. */}
       <Footer />
     </div>
+
+    {
+      /* Issue #698: seed the session cache from the server-resolved session so
+    the optimistic script below reveals `#app` and page scripts' onSession fire
+    immediately on cold loads — the same cache the client would populate after
+    its first getSession. Emitted only when the server confirmed a session; the
+    signed-out path is left entirely to the client gate. Placed BEFORE the
+    optimistic script so it reads the freshly-seeded cache. data-astro-rerun:
+    re-seed after each ClientRouter body swap. */
+    }
+    {
+      serverSignedIn ? (
+        <script
+          is:inline
+          data-astro-rerun
+          set:html={`window.__uploadsSessionUser=${serverSessionUserJson};try{sessionStorage.setItem("uploads:sessionUser",JSON.stringify(window.__uploadsSessionUser));}catch(e){}`}
+        />
+      ) : null
+    }
 
     {
       /* Optimistic shell + workspace section nav before deferred modules run.
