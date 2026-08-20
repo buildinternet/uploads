@@ -65,6 +65,18 @@ takes `--reduced-motion` to settle animations — no manual DOM surgery. Use
 `--init-script <file>` (local backend) as an escape hatch to dismiss a banner or
 freeze a specific animation.
 
+Capturing a **clicked/selected state of a React/Next (or other hydrating) app**?
+A synthetic `el.click()` in `--eval` fires before the framework hydrates — the
+element is in the SSR HTML but no handler is attached yet, so it silently does
+nothing. Gate on the app's own "interactive" signal with `--wait-for <js>`
+(local backend), which polls that expression until truthy before `--eval` runs:
+
+```bash
+uploads screenshot http://localhost:3000 --via local \
+  --wait-for 'document.querySelector("[data-hydrated]")' \
+  --eval 'document.querySelector(".tab-settings").click()' --out settings.png
+```
+
 ```bash
 uploads screenshot http://localhost:4321 --viewport 1520x960@1x --out home.png --reduced-motion
 uploads screenshot https://uploads.sh --selector main --dark

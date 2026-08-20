@@ -286,6 +286,23 @@ describe("runScreenshot flag validation", () => {
     expect(code).toBe(0);
     expect(seenMaxHeight).toBe(0);
   });
+
+  it("threads --wait-for through to the capture backend (issue #715)", async () => {
+    const { client } = fakeClient();
+    let seenWaitFor: unknown = "unset";
+    const code = await runScreenshot(
+      ctxWith(client),
+      ["https://example.com", "--wait-for", "window.__hydrated === true"],
+      false,
+      noRun,
+      async (opts) => {
+        seenWaitFor = (opts as { waitForExpr?: string }).waitForExpr;
+        return { png, filename: "example-com.png", backend: "local" };
+      },
+    );
+    expect(code).toBe(0);
+    expect(seenWaitFor).toBe("window.__hydrated === true");
+  });
 });
 
 describe("runScreenshot upload tail", () => {

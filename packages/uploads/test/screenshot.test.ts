@@ -559,6 +559,64 @@ describe("captureScreenshot backend selection", () => {
     expect(usedRemote).toBe(false);
   });
 
+  it("forwards --wait-for to the local backend", async () => {
+    let seenWaitFor: unknown;
+    await captureScreenshot({
+      target: "https://example.com",
+      via: "local",
+      waitForExpr: "window.__hydrated === true",
+      apiUrl: "https://api.uploads.sh",
+      token: "t",
+      captureLocalImpl: async (opts) => {
+        seenWaitFor = opts.waitForExpr;
+        return { png };
+      },
+    });
+    expect(seenWaitFor).toBe("window.__hydrated === true");
+  });
+
+  it("rejects --wait-for on the remote backend (local-only) before any request", async () => {
+    let usedRemote = false;
+    await expect(
+      captureScreenshot({
+        target: "https://example.com",
+        via: "remote",
+        waitForExpr: "window.__hydrated === true",
+        apiUrl: "https://api.uploads.sh",
+        token: "t",
+        captureRemoteImpl: async () => {
+          usedRemote = true;
+          return { png, clipped: false };
+        },
+      }),
+    ).rejects.toMatchObject({ code: "USAGE" });
+    expect(usedRemote).toBe(false);
+  });
+
+  it("rejects --wait-for when auto resolves to remote (no local browser)", async () => {
+    let usedRemote = false;
+    await expect(
+      captureScreenshot({
+        target: "https://example.com",
+        via: "auto",
+        waitForExpr: "window.__hydrated === true",
+        apiUrl: "https://api.uploads.sh",
+        token: "t",
+        detectRoots: {
+          env: {},
+          systemCandidates: [],
+          playwrightCacheDir: "/nonexistent/ms-playwright",
+          puppeteerCacheDir: "/nonexistent/puppeteer",
+        },
+        captureRemoteImpl: async () => {
+          usedRemote = true;
+          return { png, clipped: false };
+        },
+      }),
+    ).rejects.toMatchObject({ code: "USAGE" });
+    expect(usedRemote).toBe(false);
+  });
+
   it("auto on a localhost target errors clearly when no local browser is found (no doomed remote request)", async () => {
     let usedRemote = false;
     await expect(

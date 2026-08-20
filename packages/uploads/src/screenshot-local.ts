@@ -333,6 +333,15 @@ export interface LocalCaptureOptions {
   hide?: string[];
   /** Emulate prefers-reduced-motion: reduce so animations settle deterministically. */
   reducedMotion?: boolean;
+  /**
+   * JS expression polled in the page (page.waitForFunction) after settle and
+   * before `evalJs`/capture — the caller's "app is interactive" signal. Lets a
+   * synthetic click in `evalJs` land after a framework (React/Next/…) has
+   * hydrated and attached its handlers, instead of firing on the still-inert
+   * server-rendered DOM. Throws `RENDER_FAILED` if it never becomes truthy
+   * within the capture timeout.
+   */
+  waitForExpr?: string;
   /** JS run via page.evaluate after settle, before capture. */
   evalJs?: string;
   /** JS injected via addInitScript before navigation. */
@@ -544,8 +553,30 @@ export async function captureLocal(
     }
 
     const waitUntil = typeof opts.waitUntil === "string" ? opts.waitUntil : "load";
-    await page.goto(opts.url, { waitUntil, timeout: opts.timeoutMs ?? 30_000 });
+    const timeoutMs = opts.timeoutMs ?? 30_000;
+    await page.goto(opts.url, { waitUntil, timeout: timeoutMs });
     if (typeof opts.waitUntil === "number") await page.waitForTimeout(opts.waitUntil);
+
+    // Hydration-aware gate (issue #715): poll the caller's "app is interactive"
+    // predicate before running any eval or capturing. The load/networkidle
+    // settle strategies fire before a framework hydrates, so a synthetic
+    // click in `evalJs` would hit the inert server-rendered DOM with no
+    // handler attached. Waiting for the caller's own signal (e.g.
+    // `window.__hydrated === true`, or a class/attribute the app sets once
+    // interactive) closes that gap. A timeout means the predicate never
+    // became truthy — surface it clearly rather than capturing the un-ready
+    // page silently.
+    if (opts.waitForExpr) {
+      try {
+        await page.waitForFunction(opts.waitForExpr, undefined, { timeout: timeoutMs });
+      } catch (err) {
+        throw new UploadsError(
+          `--wait-for expression never became truthy within ${timeoutMs}ms: ${opts.waitForExpr}` +
+            ` (${err instanceof Error ? err.message : String(err)})`,
+          "RENDER_FAILED",
+        );
+      }
+    }
 
     // Hide overlays first, then run any user eval (which may depend on, or
     // deliberately override, the hidden state).
