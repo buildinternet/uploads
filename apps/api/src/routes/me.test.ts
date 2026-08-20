@@ -1872,6 +1872,41 @@ describe("GET /me/workspaces/:name/files/by-path", () => {
     expect(body.projects.map((p) => p.label).sort()).toEqual(["acme/web", "x.dev"]);
   });
 
+  it("returns a flat latest feed with project, path, and upload time per shot", async () => {
+    const db = metadataDb([
+      {
+        workspace: "acme",
+        key: "shots/a.png",
+        meta: { path: "/settings", repo: "acme/web", "gh.kind": "pull", "gh.number": "42" },
+      },
+      { workspace: "acme", key: "shots/b.png", meta: { path: "/home", repo: "acme/web" } },
+    ]);
+    const env = memberEnv({ workspace: "acme", db, bucket: new FakeR2Bucket(), record: R2_RECORD });
+    const res = await app().request("/me/workspaces/acme/files/by-path", {}, env);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      latest: {
+        key: string;
+        url: string | null;
+        project: string;
+        path: string;
+        uploadedAt: string;
+        ghKind?: string;
+        ghNumber?: string;
+      }[];
+    };
+    expect(body.latest).toHaveLength(2);
+    const a = body.latest.find((l) => l.key === "shots/a.png");
+    expect(a).toMatchObject({
+      url: "https://storage.uploads.sh/acme/shots/a.png",
+      project: "acme/web",
+      path: "/settings",
+      ghKind: "pull",
+      ghNumber: "42",
+    });
+    expect(typeof a?.uploadedAt).toBe("string");
+  });
+
   it("returns empty groups for a workspace with no path metadata", async () => {
     const env = memberEnv({
       workspace: "acme",
@@ -1885,6 +1920,7 @@ describe("GET /me/workspaces/:name/files/by-path", () => {
       groups: [],
       catalog: [],
       projects: [],
+      latest: [],
       truncated: false,
       catalogTruncated: false,
     });

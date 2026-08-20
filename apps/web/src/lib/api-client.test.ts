@@ -535,12 +535,45 @@ describe("getWorkspaceFilesByPath", () => {
       groups: [GROUP],
       catalog: [CATALOG],
       projects: [PROJECT],
+      latest: [],
       truncated: false,
       catalogTruncated: false,
     });
     expect(fetchMock.mock.calls[0]![0]).toBe(
       "https://api.uploads.sh/v1/workspaces/acme/files/by-path",
     );
+  });
+
+  it("passes a well-formed latest feed through, and drops a malformed one", async () => {
+    const LATEST = {
+      key: "shots/a.png",
+      url: "https://s.example/a.png",
+      embedUrl: "https://s.example/a.png",
+      project: "acme/web",
+      path: "/settings",
+      uploadedAt: "2026-08-09T21:14:03.000Z",
+    };
+    const respond = (latest: unknown) =>
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () =>
+          Response.json({
+            groups: [GROUP],
+            catalog: [CATALOG],
+            projects: [PROJECT],
+            latest,
+            truncated: false,
+            catalogTruncated: false,
+          }),
+        ),
+      );
+    respond([LATEST]);
+    let result = await getWorkspaceFilesByPath("https://api.uploads.sh", "acme");
+    expect(result.kind === "ok" && result.latest).toEqual([LATEST]);
+    // Malformed latest degrades to an empty feed instead of failing the page.
+    respond([{ key: "x.png" }]);
+    result = await getWorkspaceFilesByPath("https://api.uploads.sh", "acme");
+    expect(result.kind === "ok" && result.latest).toEqual([]);
   });
 
   it("synthesizes a catalog from groups when an older API omits it", async () => {
@@ -554,6 +587,7 @@ describe("getWorkspaceFilesByPath", () => {
       groups: [GROUP],
       catalog: [CATALOG],
       projects: [PROJECT],
+      latest: [],
       truncated: true,
       catalogTruncated: true,
     });

@@ -664,6 +664,8 @@ export const BY_PATH_RECENT_LIMIT = 6;
  * the thumbed-group cap so the filter bar can still name older paths.
  */
 export const BY_PATH_CATALOG_LIMIT = 500;
+/** Newest keys returned in the flat `latest` feed alongside the groups. */
+export const BY_PATH_LATEST_LIMIT = 30;
 
 export type PathGroup = {
   project: string;
@@ -675,6 +677,14 @@ export type PathGroup = {
 
 /** Unique (project, path) without thumbs — same fields as a group minus `recent`. */
 export type PathCatalogEntry = Omit<PathGroup, "recent">;
+
+/** One entry in the flat newest-first feed (the "Recent" view). */
+export type LatestPathObject = {
+  key: string;
+  project: string;
+  path: string;
+  uploadedAt: string;
+};
 
 export type ProjectSummary = { label: string; count: number; lastUpdated: string };
 
@@ -702,6 +712,7 @@ export async function groupObjectsByPath(
   groups: PathGroup[];
   catalog: PathCatalogEntry[];
   projects: ProjectSummary[];
+  latest: LatestPathObject[];
   truncated: boolean;
   catalogTruncated: boolean;
 }> {
@@ -731,6 +742,7 @@ export async function groupObjectsByPath(
   const byKey = new Map<string, PathGroup>();
   const catalog: PathCatalogEntry[] = [];
   const catalogByKey = new Map<string, PathCatalogEntry>();
+  const latest: LatestPathObject[] = [];
   let truncated = false;
   let catalogTruncated = false;
   for (const row of result.results) {
@@ -741,6 +753,11 @@ export async function groupObjectsByPath(
       app: row.app,
     });
     const groupKey = `${project}\0${row.path}`;
+
+    // Rows arrive newest-first, so the first N are the flat recent feed.
+    if (latest.length < BY_PATH_LATEST_LIMIT) {
+      latest.push({ key: row.object_key, project, path: row.path, uploadedAt: row.updated_at });
+    }
 
     let entry = catalogByKey.get(groupKey);
     if (!entry) {
@@ -785,7 +802,7 @@ export async function groupObjectsByPath(
   const projects = [...projectByLabel.values()].sort((a, b) =>
     b.lastUpdated.localeCompare(a.lastUpdated),
   );
-  return { groups, catalog, projects, truncated, catalogTruncated };
+  return { groups, catalog, projects, latest, truncated, catalogTruncated };
 }
 
 /**

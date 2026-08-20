@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   filterCatalog,
   groupsFromCatalog,
+  isRepoLabel,
   lastUpdatedLabel,
   leafName,
   pairedShotKeys,
   pathQueryMatches,
+  pathSuggestions,
   projectLabelFromItemMeta,
   readScreenshotsView,
   screenshotsSearch,
@@ -135,6 +137,7 @@ describe("screenshots view URL state", () => {
       project: "acme/web",
       path: "/admin",
       q: "/cat",
+      feed: "grouped",
     });
     expect(screenshotsSearch("acme/web", "/admin", "/cat")).toBe(
       "?project=acme%2Fweb&path=%2Fadmin&q=%2Fcat",
@@ -143,13 +146,67 @@ describe("screenshots view URL state", () => {
     expect(screenshotsSearch("", "")).toBe("");
     expect(screenshotsSearch("", "", "/catalog")).toBe("?q=%2Fcatalog");
   });
+  it("round-trips the recent-feed toggle, defaulting to grouped", () => {
+    expect(readScreenshotsView("?view=recent").feed).toBe("recent");
+    expect(readScreenshotsView("?view=nonsense").feed).toBe("grouped");
+    expect(readScreenshotsView("").feed).toBe("grouped");
+    expect(screenshotsSearch("", "", "", "recent")).toBe("?view=recent");
+    expect(screenshotsSearch("acme/web", "", "", "recent")).toBe("?project=acme%2Fweb&view=recent");
+    expect(screenshotsSearch("", "", "", "grouped")).toBe("");
+  });
   it("keeps legacy bare ?path= links working", () => {
     expect(readScreenshotsView("?path=%2Fadmin")).toEqual({
       project: "",
       path: "/admin",
       q: "",
+      feed: "grouped",
     });
     expect(screenshotsSearch("", "/admin")).toBe("?path=%2Fadmin");
+  });
+});
+
+describe("isRepoLabel", () => {
+  it("flags owner/name labels and nothing else", () => {
+    expect(isRepoLabel("acme/web")).toBe(true);
+    expect(isRepoLabel("app.example.com")).toBe(false);
+    expect(isRepoLabel("local dev")).toBe(false);
+    expect(isRepoLabel("Other")).toBe(false);
+  });
+});
+
+describe("pathSuggestions", () => {
+  const catalog = [
+    { project: "acme/web", path: "/admin", count: 3 },
+    { project: "acme/api", path: "/admin", count: 2 },
+    { project: "acme/web", path: "/catalog/families", count: 5 },
+  ];
+  it("dedupes the same path across projects, summing counts", () => {
+    expect(pathSuggestions(catalog, { project: "", q: "" })).toEqual([
+      { path: "/admin", count: 5 },
+      { path: "/catalog/families", count: 5 },
+    ]);
+  });
+  it("respects the project scope and path query", () => {
+    expect(pathSuggestions(catalog, { project: "acme/web", q: "/admin" })).toEqual([
+      { path: "/admin", count: 3 },
+    ]);
+    expect(pathSuggestions(catalog, { project: "", q: "cat" })).toEqual([
+      { path: "/catalog/families", count: 5 },
+    ]);
+  });
+
+  it("matches a half-typed segment by substring, unlike pathQueryMatches", () => {
+    expect(pathSuggestions(catalog, { project: "", q: "/ca" })).toEqual([
+      { path: "/catalog/families", count: 5 },
+    ]);
+  });
+  it("caps the list", () => {
+    const many = Array.from({ length: 12 }, (_, i) => ({
+      project: "acme/web",
+      path: `/page-${i}`,
+      count: 1,
+    }));
+    expect(pathSuggestions(many, { project: "", q: "" })).toHaveLength(8);
   });
 });
 

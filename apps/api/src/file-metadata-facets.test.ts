@@ -9,6 +9,7 @@ import {
   projectLabelFromMeta,
   BY_PATH_CATALOG_LIMIT,
   BY_PATH_GROUP_LIMIT,
+  BY_PATH_LATEST_LIMIT,
   BY_PATH_RECENT_LIMIT,
 } from "./file-metadata";
 
@@ -304,12 +305,33 @@ describe("groupObjectsByPath", () => {
     ]);
   });
 
+  it("returns a flat newest-first latest feed across groups, capped", async () => {
+    const rows = Array.from({ length: BY_PATH_LATEST_LIMIT + 2 }, (_, i) => ({
+      workspace: "acme",
+      key: `shot-${i}.png`,
+      meta: { path: i % 2 === 0 ? "/home" : "/settings", repo: "acme/web" },
+      at: at(i),
+    }));
+    const result = await groupObjectsByPath(timedDb(rows), "acme");
+    expect(result.latest).toHaveLength(BY_PATH_LATEST_LIMIT);
+    expect(result.latest[0]).toEqual({
+      key: `shot-${BY_PATH_LATEST_LIMIT + 1}.png`,
+      project: "acme/web",
+      path: BY_PATH_LATEST_LIMIT % 2 === 0 ? "/settings" : "/home",
+      uploadedAt: at(BY_PATH_LATEST_LIMIT + 1),
+    });
+    // The two oldest fell off the cap.
+    expect(result.latest.map((l) => l.key)).not.toContain("shot-0.png");
+    expect(result.latest.map((l) => l.key)).not.toContain("shot-1.png");
+  });
+
   it("returns empty groups for a workspace with no path metadata", async () => {
     const result = await groupObjectsByPath(timedDb([]), "acme");
     expect(result).toEqual({
       groups: [],
       catalog: [],
       projects: [],
+      latest: [],
       truncated: false,
       catalogTruncated: false,
     });
