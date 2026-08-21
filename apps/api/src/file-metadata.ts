@@ -518,6 +518,22 @@ const PREFIX_FILTER_SQL = `substr(object_key, 1, length(?)) = ?`;
 const PROMOTED_SHADOW_STATUS_SQL = `s.meta_key = 'gh.status' AND s.meta_value = 'promoted'`;
 
 /**
+ * Predicate matching an object stamped `gh.merged=true` — written by
+ * github-webhook.ts's `pull_request` `closed` handling when the PR's
+ * `merged` field is true. A merge is a terminal, durable fact (unlike
+ * open/closed, which stay transient and are already resolved live by the KV
+ * title cache in github-titles.ts), so `gh.merged` is the only PR
+ * lifecycle fact this codebase persists as metadata — there is deliberately
+ * no `gh.pr-state` key that would imply the full lifecycle is tracked.
+ * Mirrors `PROMOTED_SHADOW_STATUS_SQL`'s shape but as an EXISTS (not NOT
+ * EXISTS) predicate; written against a subquery alias `s2` (distinct from
+ * `PROMOTED_SHADOW_STATUS_SQL`'s `s` so both can be composed in one query,
+ * as `groupObjectsByPath`'s opt-in `mergedOnly` filter does) — the caller
+ * supplies how to reach the outer row.
+ */
+const MERGED_STATUS_SQL = `s2.meta_key = 'gh.merged' AND s2.meta_value = 'true'`;
+
+/**
  * Finds objects whose metadata matches ALL `filters` (ANDed equality), with
  * an optional key-prefix and result limit. Returns each match's key plus its
  * full metadata map (not just the matched pairs).
@@ -740,10 +756,17 @@ export type ProjectSummary = { label: string; count: number; lastUpdated: string
  * original is never deleted, so without this filter every promoted shot would
  * show twice — once from `branch/<b>/` and once from `pull/<n>/`. Still-staged
  * (`gh.status=staged`) branch shots have no pull twin yet and are kept.
+ *
+ * `opts.mergedOnly` (opt-in, off by default — issue "persisted PR merge-state
+ * tagging") adds an EXISTS counterpart to the NOT EXISTS promoted-shadow
+ * clause above, keeping only objects stamped `gh.merged=true`
+ * (`MERGED_STATUS_SQL`). Applies to the single underlying query, so `groups`,
+ * `catalog`, `projects`, and `latest` all reflect the same filtered rows.
  */
 export async function groupObjectsByPath(
   db: D1Database,
   workspace: string,
+  opts: { mergedOnly?: boolean } = {},
 ): Promise<{
   groups: PathGroup[];
   catalog: PathCatalogEntry[];
@@ -752,6 +775,13 @@ export async function groupObjectsByPath(
   truncated: boolean;
   catalogTruncated: boolean;
 }> {
+  const mergedFilterSql = opts.mergedOnly
+    ? `AND EXISTS (
+           SELECT 1 FROM file_metadata s2
+           WHERE s2.workspace = p.workspace AND s2.object_key = p.object_key
+             AND ${MERGED_STATUS_SQL}
+         )`
+    : "";
   const result = await db
     .prepare(
       `SELECT p.meta_value AS path, p.object_key AS object_key, p.updated_at AS updated_at,
@@ -766,6 +796,7 @@ export async function groupObjectsByPath(
            WHERE s.workspace = p.workspace AND s.object_key = p.object_key
              AND ${PROMOTED_SHADOW_STATUS_SQL}
          )
+         ${mergedFilterSql}
        ORDER BY p.updated_at DESC, p.object_key ASC`,
     )
     .bind(workspace)

@@ -1664,6 +1664,28 @@ describe("GET /me/workspaces/:name/files/search", () => {
     expect(typeof body.items[0]!.updatedAt).toBe("string");
   });
 
+  // Persisted PR merge-state tagging: gh.merged is a normal queryable value —
+  // meta.gh.merged=true must filter like any other meta.* equality filter.
+  it("filters by meta.gh.merged=true like any other metadata filter", async () => {
+    const db = metadataDb([
+      {
+        workspace: "acme",
+        key: "shots/merged.png",
+        meta: { "gh.kind": "pull", "gh.merged": "true" },
+      },
+      { workspace: "acme", key: "shots/open.png", meta: { "gh.kind": "pull" } },
+    ]);
+    const env = memberEnv({ workspace: "acme", db, bucket: new FakeR2Bucket(), record: R2_RECORD });
+    const res = await app().request(
+      "/me/workspaces/acme/files/search?meta.gh.merged=true",
+      {},
+      env,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { items: { key: string }[] };
+    expect(body.items.map((i) => i.key)).toEqual(["shots/merged.png"]);
+  });
+
   it("rejects a repeated filter key with file_metadata_duplicate_filter", async () => {
     const env = memberEnv({ workspace: "acme", db: metadataDb([]), record: R2_RECORD });
     const res = await app().request(
@@ -1946,6 +1968,40 @@ describe("GET /me/workspaces/:name/files/by-path", () => {
     const res = await app().request("/me/workspaces/other/files/by-path", {}, env);
     expect(res.status).toBe(404);
   });
+
+  // Persisted PR merge-state tagging: the opt-in `?merged=1` param filters to
+  // objects stamped `gh.merged=true`, without changing the default (no-param)
+  // response — the flag is opt-in only, general by-path browsing is unfiltered.
+  it("returns every path-tagged shot without ?merged, and only gh.merged=true ones with it", async () => {
+    const db = metadataDb([
+      {
+        workspace: "acme",
+        key: "shots/merged.png",
+        meta: { path: "/settings", "gh.kind": "pull", "gh.merged": "true" },
+      },
+      {
+        workspace: "acme",
+        key: "shots/open.png",
+        meta: { path: "/settings", "gh.kind": "pull" },
+      },
+    ]);
+    const env = memberEnv({ workspace: "acme", db, bucket: new FakeR2Bucket(), record: R2_RECORD });
+
+    const unfiltered = await app().request("/me/workspaces/acme/files/by-path", {}, env);
+    expect(unfiltered.status).toBe(200);
+    const unfilteredBody = (await unfiltered.json()) as { groups: { count: number }[] };
+    expect(unfilteredBody.groups).toHaveLength(1);
+    expect(unfilteredBody.groups[0]).toMatchObject({ count: 2 });
+
+    const filtered = await app().request("/me/workspaces/acme/files/by-path?merged=1", {}, env);
+    expect(filtered.status).toBe(200);
+    const filteredBody = (await filtered.json()) as {
+      groups: { count: number; recent: { key: string }[] }[];
+    };
+    expect(filteredBody.groups).toHaveLength(1);
+    expect(filteredBody.groups[0]).toMatchObject({ count: 1 });
+    expect(filteredBody.groups[0]!.recent.map((r) => r.key)).toEqual(["shots/merged.png"]);
+  });
 });
 
 describe("GET /me/workspaces/:name/files/facets", () => {
@@ -1962,6 +2018,37 @@ describe("GET /me/workspaces/:name/files/facets", () => {
         { key: "gh.repo", count: 2, distinctValues: 1 },
         { key: "app", count: 1, distinctValues: 1 },
       ],
+      truncated: false,
+    });
+  });
+
+  // Persisted PR merge-state tagging: gh.merged is a plain, client-visible
+  // metadata key — it must show up as a facet like any other, with its one
+  // stored value ("true").
+  it("lists gh.merged as a facet key and its value", async () => {
+    const db = metadataDb([
+      { workspace: "acme", key: "a.png", meta: { "gh.kind": "pull", "gh.merged": "true" } },
+    ]);
+    const env = memberEnv({ workspace: "acme", db, record: R2_RECORD });
+    const keysRes = await app().request("/me/workspaces/acme/files/facets", {}, env);
+    expect(keysRes.status).toBe(200);
+    expect(await keysRes.json()).toEqual({
+      keys: [
+        { key: "gh.kind", count: 1, distinctValues: 1 },
+        { key: "gh.merged", count: 1, distinctValues: 1 },
+      ],
+      truncated: false,
+    });
+
+    const valuesRes = await app().request(
+      "/me/workspaces/acme/files/facets?key=gh.merged",
+      {},
+      env,
+    );
+    expect(valuesRes.status).toBe(200);
+    expect(await valuesRes.json()).toEqual({
+      key: "gh.merged",
+      values: [{ value: "true", count: 1 }],
       truncated: false,
     });
   });

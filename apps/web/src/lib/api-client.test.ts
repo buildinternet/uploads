@@ -671,6 +671,25 @@ describe("getWorkspaceFilesByPath", () => {
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(seenInit?.headers).toBeUndefined();
   });
+
+  // Persisted PR merge-state tagging: opts.merged is opt-in — sent as
+  // `?merged=1` only when true, omitted (not `merged=0`) otherwise.
+  it("appends ?merged=1 only when opts.merged is true", async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL) =>
+      Response.json({ groups: [], projects: [], truncated: false }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await getWorkspaceFilesByPath("https://api.uploads.sh", "acme", { merged: true });
+    expect(fetchMock.mock.calls[0]![0]).toBe(
+      "https://api.uploads.sh/v1/workspaces/acme/files/by-path?merged=1",
+    );
+
+    await getWorkspaceFilesByPath("https://api.uploads.sh", "acme", { merged: false });
+    expect(fetchMock.mock.calls[1]![0]).toBe(
+      "https://api.uploads.sh/v1/workspaces/acme/files/by-path",
+    );
+  });
 });
 
 describe("getWorkspaceFacets", () => {

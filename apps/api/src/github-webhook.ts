@@ -25,6 +25,22 @@
  * gather+upsert. Same `ctx.waitUntil`/degrade-safe doctrine as above; never
  * creates a repo binding, only consumes `findRepoLink`.
  *
+ * Merge tagging (`pull_request` `closed` with `merged: true` — persisted
+ * PR merge-state tagging, 2026-08-21): stamps every one of the merged PR's
+ * already-tagged screenshots with `gh.merged=true` (found via metadata —
+ * `gh.ref`/`gh.kind` — not by key prefix, so this also covers private-repo
+ * `gh/private/<hex>/...` keys). A merge is a terminal, durable fact — unlike
+ * open/closed, which stay transient and are already resolved live by the KV
+ * title cache (github-titles.ts) — so `gh.merged` is deliberately the ONLY
+ * PR lifecycle fact this codebase persists as metadata; there is no
+ * `gh.pr-state` key, which would wrongly imply the full lifecycle is
+ * tracked. `closed` with `merged: false` (closed without merging) is a
+ * no-op. Same repo→workspace binding resolution, stale-link cleanup, and
+ * fork guard as auto-promotion; per-shot tagging failures are logged and
+ * swallowed (mirrors `promoteBranchAttachments`'s tagging doctrine), while a
+ * D1 outage resolving the binding still throws so the queue consumer
+ * retries.
+ *
  * Queue ingestion (issue #287): payload parsing is split into a pure
  * `extractWebhookEvent` (delivery → compact `WebhookEvent` or null) and an
  * effectful `processWebhookEvent` (KV deletes + promote/reconcile). When the
@@ -41,6 +57,7 @@ import { hasUserAttachmentUrl } from "./github-attachment-extract";
 import { cacheRepoPrivacy, githubAppConfig, installationForRepo } from "./github-app";
 import { commentCacheKey, gatherCommentBody, upsertBotComment } from "./github-comment";
 import { ATTACHMENTS_MARKER } from "./github-comment-render";
+import { findObjectsByMetadata, setFileMetadata } from "./file-metadata";
 import type { GhTarget } from "./github-comment-render";
 import { ingestForWebhook, type IngestSourceRef } from "./github-ingest";
 import {
@@ -134,6 +151,9 @@ interface PullRequestPayload {
   repository?: { full_name?: unknown; private?: unknown };
   pull_request?: {
     number?: unknown;
+    /** Only meaningful on `action: "closed"` — true iff the PR was merged
+     * (vs. closed without merging). */
+    merged?: unknown;
     head?: { ref?: unknown; repo?: { full_name?: unknown } };
   };
 }
@@ -221,6 +241,52 @@ async function autoPromoteAndComment(
   await gatherAndUpsert(env, link, target);
 }
 
+/**
+ * Webhook-driven merge tagging for one bound repo/PR (see the module doc
+ * above for the `gh.merged`-only, no-`gh.pr-state` rationale). No-ops on: no
+ * repo link or a missing/tombstoned linked workspace — same binding
+ * resolution and stale-link cleanup as `autoPromoteAndComment`. Finds the
+ * PR's screenshots by metadata (`gh.ref`/`gh.kind`), not by key prefix, so
+ * this covers private-repo `gh/private/<hex>/...` keys too. Stamping is
+ * best-effort per shot (log, never throw) — mirrors
+ * `promoteBranchAttachments`'s tagging-failure doctrine — but a D1 outage
+ * resolving the binding or listing matches still throws, same as
+ * `autoPromoteAndComment`, so the queue consumer retries the event.
+ */
+async function stampMergedScreenshots(env: Env, repo: string, num: number): Promise<void> {
+  const link = await findRepoLinkStrict(env.DB, repo);
+  if (!link) return;
+
+  const ws = await loadWorkspaceRecord(env, link.workspaceName);
+  if (!ws) {
+    await deleteRepoLink(env.DB, repo);
+    return;
+  }
+
+  const [owner, name] = repo.split("/");
+  const ref = `${owner}/${name}#${num}`.toLowerCase();
+  const matches = await findObjectsByMetadata(env.DB, link.workspaceName, {
+    "gh.ref": ref,
+    "gh.kind": "pull",
+  });
+
+  for (const match of matches) {
+    try {
+      await setFileMetadata(env.DB, link.workspaceName, match.key, { "gh.merged": "true" });
+    } catch (err) {
+      console.error(
+        JSON.stringify({
+          message: "webhook: failed to stamp gh.merged",
+          repo,
+          num,
+          key: match.key,
+          error: err instanceof Error ? err.message : String(err),
+        }),
+      );
+    }
+  }
+}
+
 /** Substring shared by every managed-comment marker variant (legacy + the
  * per-workspace `ws=<slug>` namespaced form) — cheap to test for without
  * parsing which marker it is. Derived from `ATTACHMENTS_MARKER` so there is
@@ -306,6 +372,9 @@ export interface WebhookEvent {
   promote?: { repo: string; num: number; branch: string };
   /** Gated issue_comment edited/deleted → heal the managed comment. */
   reconcile?: { repo: string; num: number; kind: GhTarget["kind"] };
+  /** Same-repo PR closed with `merged: true` → stamp its screenshots
+   * `gh.merged=true` (persisted PR merge-state tagging). */
+  merge?: { repo: string; num: number };
   /** Opt-in GitHub-native attachment ingest (spec 2026-08-11). Source ref only —
    * the consumer re-fetches current text, so this stays queue-compact. */
   ingest?: IngestSourceRef;
@@ -396,6 +465,20 @@ export function extractWebhookEvent(eventType: string, payload: unknown): Webhoo
       pr.head.repo.full_name.toLowerCase() === repo.toLowerCase()
     ) {
       ev.promote = { repo, num: pr.number, branch: pr.head.ref };
+    } else if (
+      // Merge tagging (persisted PR merge-state, 2026-08-21): closed WITHOUT
+      // `merged: true` (i.e. closed without merging) is deliberately a no-op
+      // — only a real merge is a terminal, durable fact worth persisting.
+      action === "closed" &&
+      pr?.merged === true &&
+      typeof repo === "string" &&
+      typeof pr.number === "number" &&
+      typeof pr.head?.repo?.full_name === "string" &&
+      // Same fork guard as promote above: a fork PR's screenshots (if any)
+      // live under the fork's own workspace context, not this repo's binding.
+      pr.head.repo.full_name.toLowerCase() === repo.toLowerCase()
+    ) {
+      ev.merge = { repo, num: pr.number };
     }
   } else if (eventType === "issue_comment") {
     // isReconcilableCommentEvent's cheap payload-only check runs here, before
@@ -444,7 +527,13 @@ export function extractWebhookEvent(eventType: string, payload: unknown): Webhoo
   }
   // ping and unknown events fall through with no work.
 
-  return ev.keys.length || ev.promote || ev.reconcile || ev.ingest || ev.adopt || ev.privacy
+  return ev.keys.length ||
+    ev.promote ||
+    ev.reconcile ||
+    ev.ingest ||
+    ev.adopt ||
+    ev.merge ||
+    ev.privacy
     ? ev
     : null;
 }
@@ -489,6 +578,9 @@ export async function processWebhookEvent(env: Env, ev: WebhookEvent): Promise<v
   if (ev.adopt) {
     await adoptLinkedFilesForWebhook(env, ev.adopt);
   }
+  if (ev.merge) {
+    await stampMergedScreenshots(env, ev.merge.repo, ev.merge.num);
+  }
 }
 
 /** `processWebhookEvent` with every failure caught and logged — the inline
@@ -504,6 +596,7 @@ async function processInline(env: Env, ev: WebhookEvent): Promise<void> {
         reconcile: ev.reconcile ?? null,
         ingest: ev.ingest ?? null,
         adopt: ev.adopt ?? null,
+        merge: ev.merge ?? null,
         error: err instanceof Error ? err.message : String(err),
       }),
     );
