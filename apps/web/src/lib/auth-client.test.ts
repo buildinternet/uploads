@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  authOrigin,
   banUser,
   getAccountInfo,
   getOAuthPublicClient,
@@ -35,6 +36,21 @@ const timeoutFetch: typeof fetch = async (_input, init) =>
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
+});
+
+describe("authOrigin", () => {
+  it("treats an empty string as same-origin (#731 phase B), not a fallback trigger", () => {
+    expect(authOrigin("")).toBe("");
+  });
+
+  it("still falls back to the auth worker's public origin when unset", () => {
+    expect(authOrigin()).toBe("https://auth.uploads.sh");
+    expect(authOrigin(undefined)).toBe("https://auth.uploads.sh");
+  });
+
+  it("strips a trailing slash from a configured origin", () => {
+    expect(authOrigin("https://auth.uploads.sh/")).toBe("https://auth.uploads.sh");
+  });
 });
 
 describe("fetchWithTimeout", () => {
@@ -114,6 +130,17 @@ describe("getSession", () => {
     await getSession("http://127.0.0.1:8788");
     const init = fetcher.mock.calls[0]?.[1];
     expect(init && "headers" in init ? init.headers : undefined).toBeUndefined();
+  });
+
+  it('hits the same-origin relative path when authOrigin resolves to "" (#731 phase B)', async () => {
+    const fetcher = vi.fn(async () => Response.json(null));
+    vi.stubGlobal("fetch", fetcher);
+
+    await expect(getSession("")).resolves.toEqual({ kind: "signed_out" });
+    expect(fetcher).toHaveBeenCalledWith(
+      "/api/auth/get-session",
+      expect.objectContaining({ cache: "no-store", credentials: "include" }),
+    );
   });
 });
 

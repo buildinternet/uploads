@@ -31,9 +31,9 @@ interface Props {
 }
 const { title, description, path, heading, tagline, active, toc, ogType = "website" } = Astro.props;
 
-// Static page (no `prerender = false`) — auth origin is baked at build time,
-// not read from request-time env. See src/lib/auth-client.ts.
-const authOrigin = import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ?? "https://auth.uploads.sh";
+// Same-origin (#731 phase B): browser auth traffic goes through this origin's
+// /api/auth proxy, not a configured auth-worker origin.
+const authOrigin = "";
 
 // Left-nav sections. The four subject pages plus the standalone agent guide.
 const DOCS_NAV = [

@@ -14,8 +14,9 @@ const pageTitle = "Changelog";
 const pageDescription =
   "What's new in uploads.sh — platform updates and CLI releases, newest first.";
 
-// Static page — auth origin is baked at build time (see src/lib/auth-client.ts).
-const authOrigin = import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ?? "https://auth.uploads.sh";
+// Same-origin (#731 phase B): browser auth traffic goes through this origin's
+// /api/auth proxy, not a configured auth-worker origin.
+const authOrigin = "";
 
 const formatDate = (iso: string) =>
   new Date(iso).toLocaleDateString("en-US", {

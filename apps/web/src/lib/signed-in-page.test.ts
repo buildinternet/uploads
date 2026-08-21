@@ -9,12 +9,29 @@ import {
   INVITE_CSP,
   loginHref,
   loginReturnPath,
+  resolveSignedInOrigins,
   signedInCsp,
   signedInShellLoginRedirect,
 } from "./signed-in-page";
 
 const AUTH = "https://auth.uploads.sh";
 const API = "https://api.uploads.sh";
+
+describe("resolveSignedInOrigins", () => {
+  it("always resolves the auth origin to same-origin (#731 phase B), regardless of env", () => {
+    expect(resolveSignedInOrigins({}).authOrigin).toBe("");
+    expect(
+      resolveSignedInOrigins({ UPLOADS_API_ORIGIN: "https://api.uploads.sh" }).authOrigin,
+    ).toBe("");
+  });
+
+  it("leaves apiOrigin resolution untouched (flips in phase D, not now)", () => {
+    expect(resolveSignedInOrigins({}).apiOrigin).toBe("https://api.uploads.sh");
+    expect(resolveSignedInOrigins({ UPLOADS_API_ORIGIN: "https://api.uploads.sh" }).apiOrigin).toBe(
+      "https://api.uploads.sh",
+    );
+  });
+});
 
 describe("signedInShellLoginRedirect", () => {
   const search = "?path=/settings";
@@ -135,6 +152,28 @@ describe("signed-in / auth CSP builders", () => {
     const authCsp = authPageCsp(AUTH);
     const expectedDeviceCsp = authCsp.replace(`connect-src ${AUTH}`, `connect-src ${AUTH} ${API}`);
     expect(devicePageCsp(AUTH, API)).toBe(expectedDeviceCsp);
+  });
+
+  it("authPageCsp collapses a same-origin auth origin to 'self' (#731 phase B)", () => {
+    const csp = authPageCsp("");
+    expect(csp).toContain("connect-src 'self' https://cloudflareinsights.com");
+    expect(csp).not.toContain("connect-src  ");
+  });
+
+  it("devicePageCsp collapses a same-origin auth origin to 'self', keeps the API origin", () => {
+    const csp = devicePageCsp("", API);
+    expect(csp).toContain(`connect-src 'self' ${API} https://cloudflareinsights.com`);
+  });
+
+  it("signedInCsp collapses a same-origin auth origin to 'self', keeps the API origin", () => {
+    const csp = signedInCsp("", API);
+    expect(csp).toContain(`connect-src 'self' ${API} https://cloudflareinsights.com`);
+  });
+
+  it("de-dupes connect-src to a single 'self' when both origins are same-origin", () => {
+    const csp = signedInCsp("", "");
+    expect(csp).toContain("connect-src 'self' https://cloudflareinsights.com");
+    expect(csp).not.toContain("'self' 'self'");
   });
 
   it("INVITE_CSP targets prod API and keeps frame-ancestors", () => {

@@ -59,7 +59,12 @@ const stars = await githubStarCount();
         <span class="star-cta__label">Star on GitHub</span>
         {stars === null ? null : <span class="count">{formatStars(stars)}</span>}
       </a>
-      {authOrigin ? <AuthIndicator authOrigin={authOrigin} /> : null}
+      {
+        // `authOrigin` can legitimately be `""` (same-origin, #731 phase B) —
+        // check for the prop's absence explicitly rather than truthiness, or
+        // every same-origin page would silently drop its AuthIndicator.
+        authOrigin !== undefined ? <AuthIndicator authOrigin={authOrigin} /> : null
+      }
       <slot name="end" />
     </div>
   </div>

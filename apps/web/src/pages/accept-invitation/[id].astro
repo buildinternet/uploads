@@ -1,5 +1,4 @@
 ---
-import { env } from "cloudflare:workers";
 import { applyAuthSecurityHeaders, authPageCsp } from "../../lib/signed-in-page";
 import BaseHead from "../../components/BaseHead.astro";
 import Brand from "../../components/Brand.astro";
@@ -8,10 +7,9 @@ import LegalConsent from "../../components/LegalConsent.astro";
 
 export const prerender = false;
 
-const authOrigin =
-  env.UPLOADS_AUTH_ORIGIN ??
-  import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ??
-  "https://auth.uploads.sh";
+// Same-origin (#731 phase B): browser auth traffic goes through this origin's
+// /api/auth proxy, not a configured auth-worker origin.
+const authOrigin = "";
 
 const { id } = Astro.params;
 

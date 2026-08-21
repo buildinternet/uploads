@@ -74,9 +74,12 @@ const MENU_ITEMS = [
     if (!root || !slot || root.dataset.booted === "1") return;
     root.dataset.booted = "1";
 
-    const origin =
-      (window as unknown as { __UPLOADS_AUTH_ORIGIN__: string }).__UPLOADS_AUTH_ORIGIN__ ||
-      "https://auth.uploads.sh";
+    // Same-origin (#731 phase B): "" is a deliberate value meaning
+    // window.__UPLOADS_AUTH_ORIGIN__ was explicitly set to same-origin, not
+    // "unset" — so this must not `||`-fallback over an empty string.
+    const injectedOrigin = (window as unknown as { __UPLOADS_AUTH_ORIGIN__: string })
+      .__UPLOADS_AUTH_ORIGIN__;
+    const origin = injectedOrigin === undefined ? "https://auth.uploads.sh" : injectedOrigin;
     const menuItems =
       (
         window as unknown as {
