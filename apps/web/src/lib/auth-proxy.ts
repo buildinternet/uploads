@@ -79,3 +79,42 @@ export async function serverGetSession(env: AuthProxyEnv, request: Request): Pro
   });
   return proxyAuthRequest(env, getSessionRequest);
 }
+
+/**
+ * SSR helper (#731 phase D follow-up): resolves one auth-client call from
+ * Astro frontmatter over the same transport as `proxyAuthRequest`.
+ * `pathAndQuery` is resolved against the incoming request's own origin, so a
+ * relative auth-client URL (`authOrigin("")` → `/api/auth/...`) becomes an
+ * absolute one a Worker can actually fetch — plain `fetch("/api/auth/...")`
+ * has no ambient origin to resolve against outside a browser.
+ *
+ * Forwards the incoming request's `cookie` header only when `init` doesn't
+ * already carry one — auth-client's `opts.cookie` callers already set it
+ * themselves (mirrors `getSession`'s own conditional-header shape), so this
+ * only fills the gap for a caller that didn't.
+ */
+export async function serverAuthFetch(
+  env: AuthProxyEnv,
+  request: Request,
+  pathAndQuery: string,
+  init: RequestInit = {},
+): Promise<Response> {
+  const target = new URL(pathAndQuery, request.url);
+  const headers = new Headers(init.headers);
+  if (!headers.has("cookie")) {
+    headers.set("cookie", request.headers.get("cookie") ?? "");
+  }
+  return proxyAuthRequest(env, new Request(target, { ...init, headers }));
+}
+
+/**
+ * A `fetch`-shaped adapter over {@link serverAuthFetch}, for auth-client.ts's
+ * `opts.fetchImpl` (mirrors `api-proxy.ts`'s `serverApiFetchImpl`) — every
+ * auth-client URL is already the same relative `"/api/auth/..."` string
+ * `serverAuthFetch` expects when `authOrigin("")` resolves to `""`, so no
+ * path translation is needed here.
+ */
+export function serverAuthFetchImpl(env: AuthProxyEnv, request: Request): typeof fetch {
+  return ((input: RequestInfo | URL, init?: RequestInit) =>
+    serverAuthFetch(env, request, String(input), init)) as typeof fetch;
+}
