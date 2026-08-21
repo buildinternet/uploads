@@ -24,6 +24,14 @@
     // see src/lib/console-mode.ts for the resolution order.
     "CONSOLE_MODE": "linked-only",
   },
+  // Same-origin auth proxy (#731 phase A): lets server code call the auth
+  // and api workers directly instead of over the public internet. Astro dev
+  // has no service bindings to sibling wrangler processes, so proxy code
+  // falls back to UPLOADS_AUTH_ORIGIN (vars above) when these are absent.
+  "services": [
+    { "binding": "AUTH", "service": "uploads-auth" },
+    { "binding": "API", "service": "uploads-api" },
+  ],
   // Flagship feature flags (app "uploads"). Runtime override for CONSOLE_MODE
   // without a redeploy. Self-hosters without Flagship can delete this block —
   // everything falls back to the CONSOLE_MODE var above.
@@ -73,6 +81,15 @@
       "UPLOADS_AUTH_ORIGIN": "https://auth.uploads.sh",
       "CONSOLE_MODE": "linked-only",
     },
+    // Same-origin auth proxy (#731 phase A), duplicated here because bindings
+    // do not inherit into the previews block (see the top-level "services"
+    // comment above). Points at the same production auth/api workers as
+    // production, matching this block's existing "vars-only against prod"
+    // stance.
+    "services": [
+      { "binding": "AUTH", "service": "uploads-auth" },
+      { "binding": "API", "service": "uploads-api" },
+    ],
     // The Astro Cloudflare adapter's generated config (dist/server/wrangler.json,
     // via the .wrangler/deploy redirect) injects an id-less SESSION KV binding.
     // Wrangler normally auto-provisions an omitted id and writes it back to
