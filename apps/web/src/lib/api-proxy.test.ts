@@ -1,0 +1,177 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { proxyApiRequest, serverApiFetch } from "./api-proxy";
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+/** Minimal binding fake — records the forwarded request and returns a canned response. */
+function fakeApiBinding(response: Response) {
+  const fetch = vi.fn(async (_req: Request) => response);
+  return { API: { fetch }, fetchMock: fetch };
+}
+
+describe("proxyApiRequest — binding transport", () => {
+  it("strips the leading /api and forwards over env.API with redirect: manual", async () => {
+    const { API, fetchMock } = fakeApiBinding(Response.json({ ok: true }));
+    const request = new Request("https://uploads.sh/api/me/workspaces", {
+      headers: { cookie: "better-auth.session_token=abc" },
+    });
+
+    await proxyApiRequest({ API }, request);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const forwarded = fetchMock.mock.calls[0]?.[0] as Request;
+    expect(forwarded.url).toBe("https://uploads.sh/me/workspaces");
+    expect(forwarded.redirect).toBe("manual");
+    expect(forwarded.headers.get("cookie")).toBe("better-auth.session_token=abc");
+  });
+
+  it("preserves the query string", async () => {
+    const { API, fetchMock } = fakeApiBinding(Response.json({ ok: true }));
+    const request = new Request("https://uploads.sh/api/v1/workspaces/acme/files?prefix=a%2Fb");
+
+    await proxyApiRequest({ API }, request);
+
+    const forwarded = fetchMock.mock.calls[0]?.[0] as Request;
+    expect(forwarded.url).toBe("https://uploads.sh/v1/workspaces/acme/files?prefix=a%2Fb");
+  });
+
+  it("forwards method and body untouched", async () => {
+    const { API, fetchMock } = fakeApiBinding(Response.json({ ok: true }));
+    const request = new Request("https://uploads.sh/api/v1/tokens", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: '{"grants":[]}',
+    });
+
+    await proxyApiRequest({ API }, request);
+
+    const forwarded = fetchMock.mock.calls[0]?.[0] as Request;
+    expect(forwarded.method).toBe("POST");
+    expect(forwarded.headers.get("content-type")).toBe("application/json");
+    expect(await forwarded.text()).toBe('{"grants":[]}');
+  });
+
+  it("passes the upstream response through untouched", async () => {
+    const upstream = Response.json({ hello: "world" }, { status: 201 });
+    const { API } = fakeApiBinding(upstream);
+    const request = new Request("https://uploads.sh/api/v1/tokens", { method: "POST" });
+
+    const response = await proxyApiRequest({ API }, request);
+
+    expect(response.status).toBe(201);
+    expect(await response.json()).toEqual({ hello: "world" });
+  });
+
+  it("404s a stripped path starting with /auth, never reaching env.API", async () => {
+    const { API, fetchMock } = fakeApiBinding(Response.json({ ok: true }));
+    const request = new Request("https://uploads.sh/api/auth/enrollments/xyz");
+
+    const response = await proxyApiRequest({ API }, request);
+
+    expect(response.status).toBe(404);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("proxyApiRequest — HTTP fallback transport", () => {
+  it("rewrites only the origin, stripping /api and keeping path/query/method/headers/body", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const req = input as Request;
+      expect(req.url).toBe("http://127.0.0.1:8787/v1/workspaces/acme/files?prefix=x");
+      expect(req.method).toBe("POST");
+      expect(req.redirect).toBe("manual");
+      expect(req.headers.get("content-type")).toBe("application/json");
+      expect(await req.text()).toBe('{"name":"acme"}');
+      return Response.json({ ok: true });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const request = new Request("https://uploads.sh/api/v1/workspaces/acme/files?prefix=x", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: '{"name":"acme"}',
+    });
+
+    await proxyApiRequest({}, request);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("defaults to http://127.0.0.1:8787 when UPLOADS_API_ORIGIN is unset", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      expect((input as Request).url).toMatch(/^http:\/\/127\.0\.0\.1:8787\//);
+      return Response.json(null);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await proxyApiRequest({}, new Request("https://uploads.sh/api/me/workspaces"));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses UPLOADS_API_ORIGIN when provided", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      expect((input as Request).url).toBe("https://api.uploads.localhost/me/workspaces");
+      return Response.json(null);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await proxyApiRequest(
+      { UPLOADS_API_ORIGIN: "https://api.uploads.localhost" },
+      new Request("https://uploads.localhost/api/me/workspaces"),
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("404s a stripped path starting with /auth without touching the network", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await proxyApiRequest(
+      {},
+      new Request("https://uploads.sh/api/auth/enrollments/xyz"),
+    );
+
+    expect(response.status).toBe(404);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("serverApiFetch", () => {
+  it("targets the given path on the request's own origin and forwards its cookie header", async () => {
+    const { API, fetchMock } = fakeApiBinding(Response.json({ workspaces: [] }));
+    const request = new Request("https://uploads.sh/account/workspaces", {
+      headers: { cookie: "better-auth.session_token=abc" },
+    });
+
+    await serverApiFetch({ API }, request, "/api/me/workspaces");
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const forwarded = fetchMock.mock.calls[0]?.[0] as Request;
+    expect(forwarded.url).toBe("https://uploads.sh/me/workspaces");
+    expect(forwarded.headers.get("cookie")).toBe("better-auth.session_token=abc");
+  });
+
+  it("sends an empty cookie header when the incoming request has none", async () => {
+    const { API, fetchMock } = fakeApiBinding(Response.json(null));
+    const request = new Request("https://uploads.sh/account/workspaces");
+
+    await serverApiFetch({ API }, request, "/api/me/workspaces");
+
+    const forwarded = fetchMock.mock.calls[0]?.[0] as Request;
+    expect(forwarded.headers.get("cookie")).toBe("");
+  });
+
+  it("passes method/init through", async () => {
+    const { API, fetchMock } = fakeApiBinding(Response.json({ ok: true }));
+    const request = new Request("https://uploads.sh/account/workspaces/acme/settings");
+
+    await serverApiFetch({ API }, request, "/api/v1/workspaces/acme/storage", {
+      method: "DELETE",
+    });
+
+    const forwarded = fetchMock.mock.calls[0]?.[0] as Request;
+    expect(forwarded.method).toBe("DELETE");
+    expect(forwarded.url).toBe("https://uploads.sh/v1/workspaces/acme/storage");
+  });
+});

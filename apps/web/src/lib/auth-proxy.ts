@@ -16,6 +16,8 @@
  * 302s must reach the browser unfollowed, not be resolved inside the worker.
  */
 
+import { rewriteOrigin } from "./proxy-transport";
+
 export interface AuthProxyEnv {
   AUTH?: { fetch(req: Request): Promise<Response> };
   UPLOADS_AUTH_ORIGIN?: string;
@@ -40,15 +42,6 @@ export async function proxyAuthRequest(env: AuthProxyEnv, request: Request): Pro
     ? await env.AUTH.fetch(forwarded)
     : await fetch(rewriteOrigin(forwarded, env.UPLOADS_AUTH_ORIGIN ?? LOCAL_AUTH_ORIGIN_DEFAULT));
   return withLegacyCookieCleared(upstream, request);
-}
-
-/** Rebuilds `request` against `origin`, keeping method/headers/body/redirect. */
-function rewriteOrigin(request: Request, origin: string): Request {
-  const url = new URL(request.url);
-  const target = new URL(origin.replace(/\/$/, ""));
-  url.protocol = target.protocol;
-  url.host = target.host;
-  return new Request(url.toString(), request);
 }
 
 /**
