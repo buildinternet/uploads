@@ -656,16 +656,16 @@ function ScreenshotsByPathInner({
     let cancelled = false;
     setDrill({ status: "loading" });
     onSession(() => {
-      void searchWorkspaceFiles(apiOrigin, workspace, [{ key: "path", value: view.path }]).then(
-        (result) => {
-          if (cancelled) return;
-          setDrill(
-            result.kind === "ok"
-              ? { status: "ready", items: result.items, truncated: result.truncated }
-              : { status: "error" },
-          );
-        },
-      );
+      void searchWorkspaceFiles(apiOrigin, workspace, [{ key: "path", value: view.path }], {
+        collapsePromoted: true,
+      }).then((result) => {
+        if (cancelled) return;
+        setDrill(
+          result.kind === "ok"
+            ? { status: "ready", items: result.items, truncated: result.truncated }
+            : { status: "error" },
+        );
+      });
     });
     return () => {
       cancelled = true;
@@ -696,21 +696,21 @@ function ScreenshotsByPathInner({
     }
     onSession(() => {
       for (const [path, projects] of projectsByPath) {
-        void searchWorkspaceFiles(apiOrigin, workspace, [{ key: "path", value: path }]).then(
-          (result) => {
-            // No cancellation guard: the cache is keyed by (project, path)
-            // independent of the current view, so a late response is never
-            // stale — dropping it would strand its group (started, no strip).
-            const items = result.kind === "ok" ? result.items : [];
-            setBackfill((prev) => {
-              const next = { ...prev };
-              for (const project of projects) {
-                next[`${project}\0${path}`] = shotsFromSearchItems(items, project);
-              }
-              return next;
-            });
-          },
-        );
+        void searchWorkspaceFiles(apiOrigin, workspace, [{ key: "path", value: path }], {
+          collapsePromoted: true,
+        }).then((result) => {
+          // No cancellation guard: the cache is keyed by (project, path)
+          // independent of the current view, so a late response is never
+          // stale — dropping it would strand its group (started, no strip).
+          const items = result.kind === "ok" ? result.items : [];
+          setBackfill((prev) => {
+            const next = { ...prev };
+            for (const project of projects) {
+              next[`${project}\0${path}`] = shotsFromSearchItems(items, project);
+            }
+            return next;
+          });
+        });
       }
     });
     // `backfill` in the deps chains passes: each resolved batch re-runs the

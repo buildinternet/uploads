@@ -830,10 +830,14 @@ export async function searchWorkspaceFiles(
   apiOrigin: string,
   name: string,
   filters: MetaFilter[],
-  opts: { name?: string } = {},
+  opts: { name?: string; collapsePromoted?: boolean } = {},
 ): Promise<SearchFilesResult> {
   const params = new URLSearchParams(buildSearchQuery(filters));
   if (opts.name) params.set("name", opts.name);
+  // Collapse promoted branch originals into their canonical pull/<n> copy so a
+  // screenshot isn't listed twice (server-side; the API leaves general search
+  // untouched).
+  if (opts.collapsePromoted) params.set("collapse", "promoted");
   const url = `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(name)}/files/search?${params.toString()}`;
   const result = await fetchWithTimeout(url, { credentials: "include", cache: "no-store" });
   if (result.kind === "unavailable") return result;

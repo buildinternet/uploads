@@ -505,6 +505,19 @@ const FIND_PROBE_MAX_LIMIT = FIND_MAX_LIMIT + 1;
 const PREFIX_FILTER_SQL = `substr(object_key, 1, length(?)) = ?`;
 
 /**
+ * Predicate matching a branch-staged screenshot that has been promoted
+ * (`gh.status=promoted`). Promotion copies such a shot to a canonical
+ * `pull/<n>/` key — which inherits its `path`/`state` via content-hash
+ * inheritance — and never deletes the branch original, so a promoted shot
+ * carries the same `path` under both keys. The screenshots surfaces collapse
+ * the branch original (`groupObjectsByPath`, and the opt-in `collapsePromotedShadows`
+ * search below) so it isn't listed twice. General metadata search leaves it
+ * in — `find_files({ "gh.status": "promoted" })` must still return it. Written
+ * against a subquery alias `s`; the caller supplies how to reach the outer row.
+ */
+const PROMOTED_SHADOW_STATUS_SQL = `s.meta_key = 'gh.status' AND s.meta_value = 'promoted'`;
+
+/**
  * Finds objects whose metadata matches ALL `filters` (ANDed equality), with
  * an optional key-prefix and result limit. Returns each match's key plus its
  * full metadata map (not just the matched pairs).
@@ -514,12 +527,16 @@ const PREFIX_FILTER_SQL = `substr(object_key, 1, length(?)) = ?`;
  * - multi-filter → INTERSECT of per-filter key sets (each leg uses the index)
  *   rather than OR + GROUP BY HAVING, which over-reads when any filter value
  *   is common (e.g. `gh.kind=pull`).
+ *
+ * `collapsePromotedShadows` (opt-in, off by default) drops promoted branch
+ * originals (`PROMOTED_SHADOW_STATUS_SQL`) so the screenshots drill-in doesn't
+ * show a shot twice; general search keeps them.
  */
 export async function findObjectsByMetadata(
   db: D1Database,
   workspace: string,
   filters: Record<string, string>,
-  opts: { prefix?: string; limit?: number } = {},
+  opts: { prefix?: string; limit?: number; collapsePromotedShadows?: boolean } = {},
 ): Promise<Array<{ key: string; metadata: Record<string, string> }>> {
   const entries = Object.entries(filters);
   if (entries.length === 0) return [];
@@ -548,6 +565,18 @@ export async function findObjectsByMetadata(
       sql += ` WHERE ${PREFIX_FILTER_SQL}`;
       params.push(opts.prefix, opts.prefix);
     }
+  }
+  // Wrap once (after prefix, before ORDER BY/LIMIT) so the exclusion applies to
+  // both the single-leg and INTERSECT forms. The derived set projects only
+  // `object_key`, so the correlated NOT EXISTS binds the workspace explicitly.
+  if (opts.collapsePromotedShadows) {
+    sql = `SELECT object_key FROM (${sql}) AS f
+           WHERE NOT EXISTS (
+             SELECT 1 FROM file_metadata s
+             WHERE s.workspace = ? AND s.object_key = f.object_key
+               AND ${PROMOTED_SHADOW_STATUS_SQL}
+           )`;
+    params.push(workspace);
   }
   sql += ` ORDER BY object_key LIMIT ?`;
   params.push(limit);
@@ -704,6 +733,13 @@ export type ProjectSummary = { label: string; count: number; lastUpdated: string
  * whole metadata table. Grouping/windowing moves to JS because the group key
  * (project label) is a coalesce SQL can't express cleanly — rows arrive
  * newest-first, so first-seen order is the recency order.
+ *
+ * A branch-staged original that has been promoted (`gh.status=promoted`) is
+ * excluded: promotion copies it to the canonical `pull/<n>/` key (which
+ * inherits its `path`/`state` via content-hash inheritance), and the promoted
+ * original is never deleted, so without this filter every promoted shot would
+ * show twice — once from `branch/<b>/` and once from `pull/<n>/`. Still-staged
+ * (`gh.status=staged`) branch shots have no pull twin yet and are kept.
  */
 export async function groupObjectsByPath(
   db: D1Database,
@@ -725,6 +761,11 @@ export async function groupObjectsByPath(
               (SELECT meta_value FROM file_metadata m WHERE m.workspace = p.workspace AND m.object_key = p.object_key AND m.meta_key = 'app') AS app
        FROM file_metadata p
        WHERE p.workspace = ? AND p.meta_key = 'path'
+         AND NOT EXISTS (
+           SELECT 1 FROM file_metadata s
+           WHERE s.workspace = p.workspace AND s.object_key = p.object_key
+             AND ${PROMOTED_SHADOW_STATUS_SQL}
+         )
        ORDER BY p.updated_at DESC, p.object_key ASC`,
     )
     .bind(workspace)

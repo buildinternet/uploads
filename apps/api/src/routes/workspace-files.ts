@@ -146,11 +146,17 @@ export const workspaceFiles = new Hono<DualAuthVars>()
     const rawLimit = Number(c.req.query("limit") ?? SEARCH_LIMIT) || SEARCH_LIMIT;
     const pageSize = Math.min(Math.max(1, Math.floor(rawLimit)), SEARCH_LIMIT);
     const cfg = await storageConfig(c.env, record);
+    // `collapse=promoted` drops promoted branch originals so the screenshots
+    // drill-in (?path=…) doesn't list a shot twice — once from its `branch/<b>/`
+    // key and once from the promoted `pull/<n>/` copy. Opt-in: a bare search
+    // (and the `find_files` tool) still returns every matching object.
+    const collapsePromotedShadows = c.req.query("collapse") === "promoted";
     const { matches, truncated } = await searchFilesByNameAndMeta(c.env, record, name, {
       filters: hasMeta ? filters : undefined,
       nameTerm,
       prefix: query.prefix,
       pageSize,
+      collapsePromotedShadows,
     });
 
     return c.json({

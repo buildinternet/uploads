@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   facetKeys,
   facetValues,
+  findObjectsByMetadata,
   groupObjectsByPath,
   projectLabelFromMeta,
   BY_PATH_CATALOG_LIMIT,
@@ -305,6 +306,66 @@ describe("groupObjectsByPath", () => {
     ]);
   });
 
+  it("hides a promoted branch original in favor of its pull copy (dedupe)", async () => {
+    const result = await groupObjectsByPath(
+      timedDb([
+        {
+          workspace: "acme",
+          key: "gh/o/r/pull/703/shot-after.webp",
+          meta: { path: "/x", repo: "o/r", "gh.kind": "pull", state: "after" },
+          at: at(2),
+        },
+        {
+          workspace: "acme",
+          key: "gh/o/r/branch/feat/shot-after.webp",
+          meta: {
+            path: "/x",
+            repo: "o/r",
+            "gh.kind": "branch",
+            "gh.status": "promoted",
+            "gh.promoted-to": "o/r#703",
+            state: "after",
+          },
+          at: at(1),
+        },
+      ]),
+      "acme",
+    );
+    expect(result.groups).toEqual([
+      {
+        project: "o/r",
+        path: "/x",
+        count: 1,
+        lastUpdated: at(2),
+        recent: ["gh/o/r/pull/703/shot-after.webp"],
+      },
+    ]);
+    expect(result.latest.map((l) => l.key)).toEqual(["gh/o/r/pull/703/shot-after.webp"]);
+  });
+
+  it("still shows a staged branch shot that has no promoted pull copy yet", async () => {
+    const result = await groupObjectsByPath(
+      timedDb([
+        {
+          workspace: "acme",
+          key: "gh/o/r/branch/feat/shot-after.webp",
+          meta: { path: "/x", repo: "o/r", "gh.kind": "branch", "gh.status": "staged" },
+          at: at(1),
+        },
+      ]),
+      "acme",
+    );
+    expect(result.groups).toEqual([
+      {
+        project: "o/r",
+        path: "/x",
+        count: 1,
+        lastUpdated: at(1),
+        recent: ["gh/o/r/branch/feat/shot-after.webp"],
+      },
+    ]);
+  });
+
   it("returns a flat newest-first latest feed across groups, capped", async () => {
     const rows = Array.from({ length: BY_PATH_LATEST_LIMIT + 2 }, (_, i) => ({
       workspace: "acme",
@@ -373,6 +434,77 @@ describe("groupObjectsByPath", () => {
       "acme",
     );
     expect(result.groups[0]).toMatchObject({ project: "acme/web", path: "/p" });
+  });
+});
+
+describe("findObjectsByMetadata", () => {
+  const promotedPair = () =>
+    db([
+      {
+        workspace: "acme",
+        key: "gh/o/r/pull/703/shot.webp",
+        meta: { path: "/x", "gh.kind": "pull" },
+      },
+      {
+        workspace: "acme",
+        key: "gh/o/r/branch/feat/shot.webp",
+        meta: { path: "/x", "gh.kind": "branch", "gh.status": "promoted" },
+      },
+    ]);
+
+  it("returns both branch and pull copies by default (general search unchanged)", async () => {
+    const found = await findObjectsByMetadata(promotedPair(), "acme", { path: "/x" });
+    expect(found.map((f) => f.key).sort()).toEqual([
+      "gh/o/r/branch/feat/shot.webp",
+      "gh/o/r/pull/703/shot.webp",
+    ]);
+  });
+
+  it("drops the promoted branch original when collapsePromotedShadows is set", async () => {
+    const found = await findObjectsByMetadata(
+      promotedPair(),
+      "acme",
+      { path: "/x" },
+      { collapsePromotedShadows: true },
+    );
+    expect(found.map((f) => f.key)).toEqual(["gh/o/r/pull/703/shot.webp"]);
+  });
+
+  it("keeps a still-staged branch shot even with collapsePromotedShadows", async () => {
+    const found = await findObjectsByMetadata(
+      db([
+        {
+          workspace: "acme",
+          key: "gh/o/r/branch/feat/shot.webp",
+          meta: { path: "/x", "gh.kind": "branch", "gh.status": "staged" },
+        },
+      ]),
+      "acme",
+      { path: "/x" },
+      { collapsePromotedShadows: true },
+    );
+    expect(found.map((f) => f.key)).toEqual(["gh/o/r/branch/feat/shot.webp"]);
+  });
+
+  it("collapses across an INTERSECT of multiple filters too", async () => {
+    const found = await findObjectsByMetadata(
+      db([
+        {
+          workspace: "acme",
+          key: "gh/o/r/pull/703/shot.webp",
+          meta: { path: "/x", repo: "o/r", "gh.kind": "pull" },
+        },
+        {
+          workspace: "acme",
+          key: "gh/o/r/branch/feat/shot.webp",
+          meta: { path: "/x", repo: "o/r", "gh.kind": "branch", "gh.status": "promoted" },
+        },
+      ]),
+      "acme",
+      { path: "/x", repo: "o/r" },
+      { collapsePromotedShadows: true },
+    );
+    expect(found.map((f) => f.key)).toEqual(["gh/o/r/pull/703/shot.webp"]);
   });
 });
 
