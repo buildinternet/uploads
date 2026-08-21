@@ -8,10 +8,13 @@
     "WEB_ORIGIN": "https://uploads.sh",
     // OAuth 2.1 authorization server this worker verifies access-token JWTs
     // against (issue #224) — issuer is `${AUTH_ORIGIN}/api/auth`, JWKS at
-    // `${AUTH_ORIGIN}/api/auth/jwks`. See src/oauth.ts. Override locally via
-    // .dev.vars (AUTH_ORIGIN=http://127.0.0.1:8788, matching apps/auth's
-    // pinned dev port).
-    "AUTH_ORIGIN": "https://auth.uploads.sh",
+    // `${AUTH_ORIGIN}/api/auth/jwks`. See src/oauth.ts. #731 phase C: this is
+    // the WEB origin — the issuer now lives at uploads.sh/api/auth (served
+    // same-origin through apps/web's proxy), matching BETTER_AUTH_URL in
+    // apps/auth/wrangler.jsonc. Override locally via .dev.vars
+    // (AUTH_ORIGIN=http://127.0.0.1:8788, matching apps/auth's pinned dev
+    // port).
+    "AUTH_ORIGIN": "https://uploads.sh",
     // GitHub App identity for the hosted put/comment path (#392) — the same
     // App uploads-api uses; postManagedComment runs in-process on this
     // worker, so it needs its own copy of the config. GITHUB_APP_PRIVATE_KEY
@@ -114,7 +117,7 @@
   "previews": {
     "vars": {
       "WEB_ORIGIN": "https://uploads.sh",
-      "AUTH_ORIGIN": "https://auth.uploads.sh",
+      "AUTH_ORIGIN": "https://uploads.sh",
       "GITHUB_APP_ID": "4346270",
       "GITHUB_APP_HOME_INSTALLATION_ID": "147814297",
     },

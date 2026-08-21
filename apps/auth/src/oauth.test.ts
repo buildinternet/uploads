@@ -17,7 +17,7 @@ function dbEnv(overrides: Partial<AuthEnv> = {}): AuthEnv {
   return {
     DB: createFakeD1(),
     WEB_ORIGIN: "https://uploads.sh",
-    BETTER_AUTH_URL: "https://auth.uploads.sh",
+    BETTER_AUTH_URL: "https://uploads.sh",
     ENVIRONMENT: "development",
     BETTER_AUTH_SECRET_DEV: "test-signing-secret-at-least-32-chars-long",
     ...overrides,
@@ -80,17 +80,33 @@ describe("root discovery aliases", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("access-control-allow-origin")).toBe("*");
     const body = (await res.json()) as { issuer?: string };
-    expect(body.issuer).toBe("https://auth.uploads.sh/api/auth");
+    expect(body.issuer).toBe("https://uploads.sh/api/auth");
   });
 
   it("serves the RFC 8414 path-inserted form", async () => {
     // The path a client actually derives from our issuer
-    // (https://auth.uploads.sh/api/auth) per RFC 8414 §3.1.
+    // (https://uploads.sh/api/auth) per RFC 8414 §3.1.
     const res = await app.request("/.well-known/oauth-authorization-server/api/auth", {}, dbEnv());
     expect(res.status).toBe(200);
     expect(res.headers.get("access-control-allow-origin")).toBe("*");
     const body = (await res.json()) as { issuer?: string };
-    expect(body.issuer).toBe("https://auth.uploads.sh/api/auth");
+    expect(body.issuer).toBe("https://uploads.sh/api/auth");
+  });
+
+  // #731 phase C: auth.uploads.sh keeps serving this alias for old clients
+  // that never migrate off it — but the issuer it returns follows
+  // BETTER_AUTH_URL, so it now points them at the NEW (uploads.sh) issuer.
+  // This is the deprecation path, not a bug: an old client's discovery still
+  // resolves, and lands on the same authorization server as everyone else.
+  it("the root discovery alias serves the new issuer once BETTER_AUTH_URL is uploads.sh (deprecation path for old clients hitting auth.uploads.sh)", async () => {
+    const res = await app.request(
+      "/.well-known/oauth-authorization-server",
+      {},
+      dbEnv({ BETTER_AUTH_URL: "https://uploads.sh" }),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { issuer?: string };
+    expect(body.issuer).toBe("https://uploads.sh/api/auth");
   });
 
   it("forwards /.well-known/openid-configuration with CORS * (404: no `openid` scope, no OIDC id_token — honest metadata)", async () => {

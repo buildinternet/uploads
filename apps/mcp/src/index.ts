@@ -55,7 +55,10 @@ const OAUTH_AUDIENCES = ["https://agents.uploads.sh/mcp", "https://mcp.uploads.s
 const validator = new CfWorkerJsonSchemaValidator();
 
 function authOriginOf(env: Env): string {
-  return (env.AUTH_ORIGIN || "https://auth.uploads.sh").replace(/\/+$/, "");
+  // #731 phase C: falls back to the WEB origin (issuer now lives at
+  // uploads.sh/api/auth) — kept in lockstep with the AUTH_ORIGIN var in
+  // wrangler.jsonc.
+  return (env.AUTH_ORIGIN || "https://uploads.sh").replace(/\/+$/, "");
 }
 
 function bearerFrom(header: string | undefined): string {

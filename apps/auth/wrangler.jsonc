@@ -12,8 +12,14 @@
   // cookies consistent.
   "dev": { "port": 8788 },
   "vars": {
-    // Better Auth's own baseURL — also this worker's public origin.
-    "BETTER_AUTH_URL": "https://auth.uploads.sh",
+    // Better Auth's own baseURL. #731 phase C: set to the WEB origin, not
+    // this worker's own public origin — auth is served same-origin through
+    // apps/web's /api/auth proxy, and this is what makes deriveCookieDomain
+    // (auth.ts) emit a host-only session cookie and the OAuth issuer resolve
+    // to https://uploads.sh/api/auth. auth.uploads.sh keeps serving (CLI
+    // bearer flows, the old-issuer discovery alias) — it just isn't the
+    // value baked into cookies/tokens anymore.
+    "BETTER_AUTH_URL": "https://uploads.sh",
     // Web app origin; credentialed CORS on /api/auth/* and the magic-link
     // email template both derive from this.
     "WEB_ORIGIN": "https://uploads.sh",
@@ -146,7 +152,10 @@
   //   wrangler d1 migrations apply uploads-auth-preview --remote -c apps/auth/wrangler.preview.jsonc
   "previews": {
     "vars": {
-      "BETTER_AUTH_URL": "https://auth.uploads.sh",
+      // #731 phase C: mirrors the top-level flip above (previews blocks do
+      // not inherit). A preview build can override this to the preview
+      // web origin instead — see docs/previews.md.
+      "BETTER_AUTH_URL": "https://uploads.sh",
       "WEB_ORIGIN": "https://uploads.sh",
       "ENVIRONMENT": "preview",
       "STRIPE_CHECKOUT_TOS_CONSENT": "true",

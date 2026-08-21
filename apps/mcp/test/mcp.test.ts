@@ -11,7 +11,7 @@ const TOKEN = "up_test-ws_legacy-token-value";
 const ALPHA_TOKEN = "up_alpha_gallery-test";
 const BETA_TOKEN = "up_beta_gallery-test";
 
-const OAUTH_ISSUER = "https://auth.uploads.sh/api/auth";
+const OAUTH_ISSUER = "https://uploads.sh/api/auth";
 const OAUTH_AUDIENCE = "https://agents.uploads.sh/mcp";
 const OAUTH_KID = "test-key";
 
@@ -568,7 +568,7 @@ describe("mcp worker", () => {
       // Only apps/mcp advertises an AS (issue #224) — it's the only resource
       // server that verifies uploads-auth OAuth JWTs. Defaults to the prod
       // issuer when AUTH_ORIGIN isn't set on the test env.
-      expect(body.authorization_servers).toEqual(["https://auth.uploads.sh/api/auth"]);
+      expect(body.authorization_servers).toEqual(["https://uploads.sh/api/auth"]);
     }
   });
 
