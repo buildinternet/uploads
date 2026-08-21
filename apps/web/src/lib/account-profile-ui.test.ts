@@ -149,6 +149,29 @@ describe("loadProfilePageData", () => {
     }
   });
 
+  it("routes every fetch through a caller-supplied fetchImpl (SSR binding transport)", async () => {
+    const user = { id: "u1", email: "z@example.com", name: "Zach", role: "member" };
+    const fetchImpl = vi.fn<typeof fetch>(async (input) => {
+      const url = String(input);
+      if (url.includes("get-session")) return Response.json({ user, session: {} });
+      if (url.includes("list-accounts")) return Response.json([]);
+      if (url.includes("list-sessions")) return Response.json([]);
+      throw new Error(`unexpected fetch ${url}`);
+    });
+    const globalFetch = vi.fn();
+    vi.stubGlobal("fetch", globalFetch);
+
+    const data = await loadProfilePageData(
+      "https://auth.uploads.sh",
+      "better-auth.session_token=abc",
+      fetchImpl,
+    );
+
+    expect(data.user).toEqual(user);
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+    expect(globalFetch).not.toHaveBeenCalled();
+  });
+
   it("skips the account-info lookup when no github account is linked", async () => {
     const fetcher = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);

@@ -151,13 +151,18 @@ export async function sessionResultFromResponse(response: Response): Promise<Ses
  */
 export async function getSession(
   origin: string,
-  opts?: { cookie?: string },
+  opts?: { cookie?: string; fetchImpl?: typeof fetch },
 ): Promise<SessionResult> {
-  const result = await fetchWithTimeout(`${authOrigin(origin)}/api/auth/get-session`, {
-    credentials: "include",
-    cache: "no-store",
-    ...(opts?.cookie ? { headers: { cookie: opts.cookie } } : {}),
-  });
+  const result = await fetchWithTimeout(
+    `${authOrigin(origin)}/api/auth/get-session`,
+    {
+      credentials: "include",
+      cache: "no-store",
+      ...(opts?.cookie ? { headers: { cookie: opts.cookie } } : {}),
+    },
+    undefined,
+    opts?.fetchImpl,
+  );
   if (result.kind === "unavailable") return result;
   return sessionResultFromResponse(result.response);
 }
@@ -504,13 +509,18 @@ export async function acceptInvitation(
 async function getAuthArray(
   origin: string,
   path: string,
-  opts?: { cookie?: string },
+  opts?: { cookie?: string; fetchImpl?: typeof fetch },
 ): Promise<unknown[] | null> {
-  const result = await fetchWithTimeout(`${authOrigin(origin)}${path}`, {
-    credentials: "include",
-    cache: "no-store",
-    ...(opts?.cookie ? { headers: { cookie: opts.cookie } } : {}),
-  });
+  const result = await fetchWithTimeout(
+    `${authOrigin(origin)}${path}`,
+    {
+      credentials: "include",
+      cache: "no-store",
+      ...(opts?.cookie ? { headers: { cookie: opts.cookie } } : {}),
+    },
+    undefined,
+    opts?.fetchImpl,
+  );
   if (result.kind === "unavailable" || !result.response.ok) return null;
   const body = (await result.response.json().catch(() => undefined)) as unknown;
   return Array.isArray(body) ? body : null;
@@ -523,7 +533,7 @@ async function getAuthArray(
  */
 export async function listSessions(
   origin: string,
-  opts?: { cookie?: string },
+  opts?: { cookie?: string; fetchImpl?: typeof fetch },
 ): Promise<AuthSession[] | null> {
   const body = await getAuthArray(origin, "/api/auth/list-sessions", opts);
   if (!body) return null;
@@ -731,7 +741,7 @@ export function isBannedAuthError(input: {
  */
 export async function listAccounts(
   origin: string,
-  opts?: { cookie?: string },
+  opts?: { cookie?: string; fetchImpl?: typeof fetch },
 ): Promise<LinkedAccount[] | null> {
   const body = await getAuthArray(origin, "/api/auth/list-accounts", opts);
   if (!body) return null;
@@ -771,17 +781,22 @@ export async function listAccounts(
  */
 export async function getAccountInfo(
   origin: string,
-  opts: { providerId: string; accountId: string; cookie?: string },
+  opts: { providerId: string; accountId: string; cookie?: string; fetchImpl?: typeof fetch },
 ): Promise<ProviderAccountInfo | null> {
   const params = new URLSearchParams({
     providerId: opts.providerId,
     accountId: opts.accountId,
   });
-  const result = await fetchWithTimeout(`${authOrigin(origin)}/api/auth/account-info?${params}`, {
-    credentials: "include",
-    cache: "no-store",
-    ...(opts.cookie ? { headers: { cookie: opts.cookie } } : {}),
-  });
+  const result = await fetchWithTimeout(
+    `${authOrigin(origin)}/api/auth/account-info?${params}`,
+    {
+      credentials: "include",
+      cache: "no-store",
+      ...(opts.cookie ? { headers: { cookie: opts.cookie } } : {}),
+    },
+    undefined,
+    opts.fetchImpl,
+  );
   if (result.kind === "unavailable" || !result.response.ok) return null;
   const body = (await result.response.json().catch(() => undefined)) as
     | { user?: unknown; data?: unknown }
