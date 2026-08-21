@@ -61,6 +61,19 @@ function authOriginOf(env: Env): string {
   return (env.AUTH_ORIGIN || "https://uploads.sh").replace(/\/+$/, "");
 }
 
+/**
+ * The pre-#731-phase-C issuer — tokens minted before the cookie/issuer flip
+ * still carry this `iss` and remain valid until they expire naturally.
+ * `oauthAuth` accepts both this and the current issuer so those tokens keep
+ * working through the migration window; RFC 9728 discovery
+ * (`respondProtectedResource`) advertises ONLY the current issuer — new
+ * authorizations always mint against the new one. Remove this constant (and
+ * the array in `oauthAuth`) once phase E confirms no live legacy-issued
+ * tokens remain (they carry a bounded expiry, so this is safe to drop after
+ * one token lifetime has passed since the flip).
+ */
+const LEGACY_OAUTH_ISSUER = "https://auth.uploads.sh/api/auth";
+
 function bearerFrom(header: string | undefined): string {
   // RFC 9110 §11.1: auth scheme names are case-insensitive.
   return header?.match(/^Bearer +(.+)$/i)?.[1] ?? "";
@@ -88,8 +101,12 @@ async function oauthAuth(
   token: string,
   pathWorkspace: string | undefined,
 ): Promise<Response | null> {
+  const currentIssuer = `${authOriginOf(c.env)}/api/auth`;
   const verified = await verifyOAuthJwt(token, {
-    issuer: `${authOriginOf(c.env)}/api/auth`,
+    // Accept both the current and the legacy pre-flip issuer during the
+    // #731 phase C migration window — see LEGACY_OAUTH_ISSUER's comment.
+    // De-duped for the (non-prod) case where they happen to coincide.
+    issuer: [...new Set([currentIssuer, LEGACY_OAUTH_ISSUER])],
     audience: OAUTH_AUDIENCES,
   });
   if (!verified) return invalidTokenChallenge(c.req.url);

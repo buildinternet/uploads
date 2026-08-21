@@ -1824,6 +1824,39 @@ describe("OAuth JWT bearer (issue #224)", () => {
     );
   });
 
+  // #731 phase C (C-1): the issuer moved from auth.uploads.sh to uploads.sh —
+  // tokens minted under the old issuer before the flip must keep working
+  // until they expire naturally.
+  it("accepts a JWT minted under the legacy pre-flip issuer (auth.uploads.sh)", async () => {
+    const { env } = await makeEnv();
+    const jwt = await signOAuthToken(
+      { sub: "user-1", workspace: "test-ws", workspaces: ["test-ws"], scope: "files:read" },
+      { issuer: "https://auth.uploads.sh/api/auth" },
+    );
+    const response = await rpc(
+      env,
+      { jsonrpc: "2.0", id: 1, method: "initialize" },
+      jwt,
+      "https://agents.uploads.sh/mcp",
+    );
+    expect(response.status).toBe(200);
+  });
+
+  it("still accepts a JWT minted under the current issuer (uploads.sh)", async () => {
+    const { env } = await makeEnv();
+    const jwt = await signOAuthToken(
+      { sub: "user-1", workspace: "test-ws", workspaces: ["test-ws"], scope: "files:read" },
+      { issuer: OAUTH_ISSUER },
+    );
+    const response = await rpc(
+      env,
+      { jsonrpc: "2.0", id: 1, method: "initialize" },
+      jwt,
+      "https://agents.uploads.sh/mcp",
+    );
+    expect(response.status).toBe(200);
+  });
+
   it("401s with a discovery challenge for a bad-audience JWT", async () => {
     const { env } = await makeEnv();
     const jwt = await signOAuthToken(
