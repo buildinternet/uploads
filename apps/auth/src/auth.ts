@@ -83,11 +83,15 @@ export const OAUTH_SCOPES = ["files:read", "files:write", "files:delete"] as con
 const OAUTH_CLIENT_REGISTRATION_DEFAULT_SCOPES = ["files:read", "files:write"] as const;
 
 /**
- * Resource servers that accept this AS's JWT access tokens (design doc:
- * "Accepted audiences"). Mirrored into apps/mcp's JWT verification config —
- * keep both in lockstep.
+ * Protected resources this AS issues access tokens for (Better Auth 1.7's
+ * first-class `resources` model, which replaced the 1.6 `validAudiences`
+ * list). Each identifier becomes an `oauth_resource` row (seeded at boot,
+ * `resourceSeedMode: "insertOnly"`) and is the RFC 8707 `resource` value a
+ * client requests; the minted token's `aud` is bound to it. Mirrored into
+ * apps/mcp's JWT verification config (`OAUTH_AUDIENCES`) — keep both in
+ * lockstep.
  */
-const OAUTH_VALID_AUDIENCES = ["https://agents.uploads.sh/mcp", "https://mcp.uploads.sh/mcp"];
+const OAUTH_RESOURCES = ["https://agents.uploads.sh/mcp", "https://mcp.uploads.sh/mcp"];
 
 /**
  * Workspace claims embedded in every OAuth access-token JWT
@@ -430,9 +434,6 @@ function buildAuth(
       provider: "sqlite",
       schema,
     }),
-    // Fetch related rows in one query (session→user, org→members, …). Requires
-    // drizzle `relations()` on the schema object — see schema.ts.
-    experimental: { joins: true },
     // D3: gate GitHub on both id+secret resolving; adding a provider later is
     // just another resolved secret pair, no code change here.
     //
@@ -600,9 +601,13 @@ function buildAuth(
         consentPage: `${webOrigin}/oauth/consent`,
         scopes: [...OAUTH_SCOPES],
         clientRegistrationDefaultScopes: [...OAUTH_CLIENT_REGISTRATION_DEFAULT_SCOPES],
-        validAudiences: OAUTH_VALID_AUDIENCES,
-        // Root /.well-known aliases are served by src/index.ts.
-        silenceWarnings: { oauthAuthServerConfig: true, openidConfig: true },
+        // Better Auth 1.7: `validAudiences` → the persisted `resources` model.
+        // String form (plugin-level defaults) preserves the 1.6 accepted-audience
+        // behavior; `resourceSeedMode` defaults to the safe "insertOnly".
+        // (`silenceWarnings` was removed in 1.7 — the well-known warnings it
+        // suppressed are gone; root /.well-known aliases are still served by
+        // src/index.ts.)
+        resources: OAUTH_RESOURCES,
         allowDynamicClientRegistration: true,
         allowUnauthenticatedClientRegistration: true,
         // Explicit abuse ceiling on the public /oauth2/register endpoint —
@@ -734,6 +739,11 @@ function buildAuth(
       return isTrustedOrigin(origin, env) ? [origin] : [];
     },
     advanced: {
+      // Better Auth 1.7 promoted database joins out of `experimental` into the
+      // stable `advanced.database.joins`. Fetches related rows in one query
+      // (session→user, org→members, …); requires drizzle `relations()` on the
+      // schema object — see schema.ts.
+      database: { joins: true },
       useSecureCookies: isProduction,
       ipAddress: {
         ipAddressHeaders: ["cf-connecting-ip", "x-forwarded-for"],

@@ -57,7 +57,8 @@ describe("dynamic client registration", () => {
       },
       dbEnv(),
     );
-    expect(res.status).toBe(200);
+    // Better Auth 1.7 returns RFC 7591-compliant 201 Created for DCR (was 200).
+    expect(res.status).toBe(201);
     const body = (await res.json()) as { client_id?: string; redirect_uris?: string[] };
     expect(typeof body.client_id).toBe("string");
     expect(body.redirect_uris).toEqual(["https://client.example.com/callback"]);

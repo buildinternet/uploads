@@ -11,11 +11,11 @@
  * ⚠ footgun: this file and ./migrations/*.sql are hand-synced — there is no
  * generator wired into CI. Each table below is annotated with the migration
  * file that created it; keep that comment current when the schema changes.
- * Drizzle `relations()` below are TS-only (for experimental.joins) and do not
- * need a migration.
+ * Drizzle `relations()` below are TS-only (for `advanced.database.joins`) and
+ * do not need a migration.
  */
 import { relations } from "drizzle-orm";
-import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 /** Non-null integer `timestamp` column with a JS-side default of "now". */
 const timestampCol = (name: string) =>
@@ -93,7 +93,14 @@ export const session = sqliteTable(
  * `password` stays unused (email/password is explicitly out of scope, see D3)
  * but is part of Better Auth's canonical account shape.
  *
- * Paired migration: `migrations/20260712200000_better_auth_core.sql`.
+ * Better Auth 1.7 scopes account identity by `(issuer, accountId)` — every row
+ * carries a synthetic `issuer` (`local:oauth:github` for our GitHub accounts,
+ * per `createOAuthAccountIssuer`). Nullable at the DB level (added + backfilled
+ * by migration 20260821120000; SQLite can't add a NOT NULL column to a
+ * populated table), but Better Auth always populates it on insert.
+ *
+ * Paired migrations: `migrations/20260712200000_better_auth_core.sql`,
+ * `migrations/20260821120000_better_auth_1_7.sql` (`issuer` + lookup index).
  */
 export const account = sqliteTable(
   "account",
@@ -104,6 +111,8 @@ export const account = sqliteTable(
       .references(() => user.id, { onDelete: "cascade" }),
     accountId: text("account_id").notNull(),
     providerId: text("provider_id").notNull(),
+    /** Better Auth 1.7 account-identity issuer (see table doc). */
+    issuer: text("issuer"),
     accessToken: text("access_token"),
     refreshToken: text("refresh_token"),
     accessTokenExpiresAt: integer("access_token_expires_at", { mode: "timestamp" }),
@@ -114,7 +123,12 @@ export const account = sqliteTable(
     createdAt: timestampCol("created_at"),
     updatedAt: timestampCol("updated_at"),
   },
-  (t) => [index("idx_account_user_id").on(t.userId)],
+  (t) => [
+    index("idx_account_user_id").on(t.userId),
+    // findAccountByKey({ issuer, accountId }) — Better Auth 1.7. Non-unique
+    // pending a prod dedup audit before tightening to UNIQUE.
+    index("idx_account_issuer_account_id").on(t.issuer, t.accountId),
+  ],
 );
 
 /**
@@ -269,8 +283,10 @@ export const deviceCode = sqliteTable(
     scope: text("scope"),
   },
   (t) => [
-    index("idx_device_code_device_code").on(t.deviceCode),
-    index("idx_device_code_user_code").on(t.userCode),
+    // Better Auth 1.7 made these unique lookup indexes (migration
+    // 20260821120000 dedups first, then recreates them UNIQUE).
+    uniqueIndex("idx_device_code_device_code").on(t.deviceCode),
+    uniqueIndex("idx_device_code_user_code").on(t.userCode),
     // Retention sweep: expires_at < now. Migration: 20260722180000_retention_expires_at_idx.sql
     index("idx_device_code_expires_at").on(t.expiresAt),
   ],
@@ -280,9 +296,11 @@ export const deviceCode = sqliteTable(
  * `jwt()` plugin keyset (issue #224, Lane A): the signing keypair for OAuth
  * access-token JWTs, encrypted at rest under the Better Auth secret. Model
  * name is fixed at "jwks" by the plugin. `expiresAt` is optional (key
- * rotation, unused for now).
+ * rotation, unused for now). Better Auth 1.7 added `alg`/`crv` (the signing
+ * algorithm and curve persisted alongside each key).
  *
- * Paired migration: `migrations/20260717000000_oauth_provider.sql`.
+ * Paired migrations: `migrations/20260717000000_oauth_provider.sql`,
+ * `migrations/20260821120000_better_auth_1_7.sql` (`alg`, `crv`).
  */
 export const jwks = sqliteTable("jwks", {
   id: text("id").primaryKey(),
@@ -290,6 +308,8 @@ export const jwks = sqliteTable("jwks", {
   privateKey: text("private_key").notNull(),
   createdAt: timestampCol("created_at"),
   expiresAt: integer("expires_at", { mode: "timestamp" }),
+  alg: text("alg"),
+  crv: text("crv"),
 });
 
 /**
@@ -317,6 +337,9 @@ export const oauthClient = sqliteTable(
     responseTypes: text("response_types", { mode: "json" }).$type<string[]>(),
     contacts: text("contacts", { mode: "json" }).$type<string[]>(),
     tokenEndpointAuthMethod: text("token_endpoint_auth_method"),
+    /** Deprecated in Better Auth 1.7 (superseded by tokenEndpointAuthMethod /
+     * applicationType). Columns retained rather than dropped — the plugin
+     * ignores them and dropping is destructive on D1. */
     type: text("type"),
     public: integer("public", { mode: "boolean" }),
     requirePKCE: integer("require_pkce", { mode: "boolean" }),
@@ -332,6 +355,17 @@ export const oauthClient = sqliteTable(
     userId: text("user_id"),
     referenceId: text("reference_id"),
     metadata: text("metadata", { mode: "json" }),
+    // Better Auth 1.7 additions (migration 20260821120000).
+    clientDiscoveryId: text("client_discovery_id"),
+    clientCredentialsScopes: text("client_credentials_scopes", { mode: "json" }).$type<string[]>(),
+    backchannelLogoutUri: text("backchannel_logout_uri"),
+    backchannelLogoutSessionRequired: integer("backchannel_logout_session_required", {
+      mode: "boolean",
+    }),
+    applicationType: text("application_type"),
+    jwks: text("jwks"),
+    jwksUri: text("jwks_uri"),
+    dpopBoundAccessTokens: integer("dpop_bound_access_tokens", { mode: "boolean" }),
     createdAt: timestampCol("created_at"),
     updatedAt: timestampCol("updated_at"),
   },
@@ -351,6 +385,13 @@ export const oauthAccessToken = sqliteTable(
     userId: text("user_id"),
     referenceId: text("reference_id"),
     scopes: text("scopes", { mode: "json" }).$type<string[]>().notNull(),
+    // Better Auth 1.7 additions (migration 20260821120000): RFC 8707 resource
+    // binding, requested UserInfo claims, DPoP confirmation, revocation stamp.
+    authorizationCodeId: text("authorization_code_id"),
+    resources: text("resources", { mode: "json" }).$type<string[]>(),
+    requestedUserInfoClaims: text("requested_user_info_claims", { mode: "json" }).$type<string[]>(),
+    confirmation: text("confirmation", { mode: "json" }),
+    revoked: integer("revoked", { mode: "timestamp" }),
     createdAt: timestampCol("created_at"),
     expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
   },
@@ -376,6 +417,15 @@ export const oauthRefreshToken = sqliteTable(
     // Revocation timestamp, not a boolean: a Date when revoked, null while active.
     revoked: integer("revoked", { mode: "timestamp" }),
     authTime: integer("auth_time", { mode: "timestamp" }),
+    // Better Auth 1.7 additions (migration 20260821120000): resource binding,
+    // requested claims, refresh-token rotation-replay window, DPoP confirmation.
+    authorizationCodeId: text("authorization_code_id"),
+    resources: text("resources", { mode: "json" }).$type<string[]>(),
+    requestedUserInfoClaims: text("requested_user_info_claims", { mode: "json" }).$type<string[]>(),
+    rotatedAt: integer("rotated_at", { mode: "timestamp" }),
+    rotationReplayResponse: text("rotation_replay_response"),
+    rotationReplayExpiresAt: integer("rotation_replay_expires_at", { mode: "timestamp" }),
+    confirmation: text("confirmation", { mode: "json" }),
     createdAt: timestampCol("created_at"),
     expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
   },
@@ -394,11 +444,78 @@ export const oauthConsent = sqliteTable(
     clientId: text("client_id").notNull(),
     referenceId: text("reference_id"),
     scopes: text("scopes", { mode: "json" }).$type<string[]>().notNull(),
+    // Better Auth 1.7 additions (migration 20260821120000).
+    resources: text("resources", { mode: "json" }).$type<string[]>(),
+    requestedUserInfoClaims: text("requested_user_info_claims", { mode: "json" }).$type<string[]>(),
     createdAt: timestampCol("created_at"),
     updatedAt: timestampCol("updated_at"),
   },
   (t) => [index("idx_oauth_consent_user_client").on(t.userId, t.clientId)],
 );
+
+/**
+ * `@better-auth/oauth-provider` 1.7 protected-resource model (replaces the
+ * 1.6 `validAudiences` list). Rows are seeded at boot from
+ * `oauthProvider({ resources })` in src/auth.ts (`resourceSeedMode:
+ * "insertOnly"`, the safe default — boot never overwrites admin CRUD edits).
+ * `identifier` is the RFC 8707 `resource` value; a minted access token's `aud`
+ * is bound to it.
+ *
+ * Paired migration: `migrations/20260821120000_better_auth_1_7.sql`.
+ */
+export const oauthResource = sqliteTable("oauth_resource", {
+  id: text("id").primaryKey(),
+  identifier: text("identifier").notNull().unique(),
+  name: text("name").notNull(),
+  accessTokenTtl: integer("access_token_ttl"),
+  refreshTokenTtl: integer("refresh_token_ttl"),
+  signingAlgorithm: text("signing_algorithm"),
+  signingKeyId: text("signing_key_id"),
+  allowedScopes: text("allowed_scopes", { mode: "json" }).$type<string[]>(),
+  customClaims: text("custom_claims", { mode: "json" }),
+  dpopBoundAccessTokensRequired: integer("dpop_bound_access_tokens_required", { mode: "boolean" }),
+  disabled: integer("disabled", { mode: "boolean" }),
+  policyVersion: integer("policy_version"),
+  metadata: text("metadata", { mode: "json" }),
+  createdAt: integer("created_at", { mode: "timestamp" }),
+  updatedAt: integer("updated_at", { mode: "timestamp" }),
+});
+
+/**
+ * Client ⋈ resource binding for `@better-auth/oauth-provider` 1.7. Authoritative
+ * only when `enforcePerClientResources` is enabled (this worker leaves it off,
+ * so the table is present for schema parity but unused). Compound-unique on
+ * `(clientId, resourceId)`.
+ *
+ * Paired migration: `migrations/20260821120000_better_auth_1_7.sql`.
+ */
+export const oauthClientResource = sqliteTable(
+  "oauth_client_resource",
+  {
+    id: text("id").primaryKey(),
+    clientId: text("client_id")
+      .notNull()
+      .references(() => oauthClient.clientId),
+    resourceId: text("resource_id")
+      .notNull()
+      .references(() => oauthResource.identifier),
+    metadata: text("metadata", { mode: "json" }),
+    createdAt: integer("created_at", { mode: "timestamp" }),
+  },
+  (t) => [uniqueIndex("idx_oauth_client_resource_client_resource").on(t.clientId, t.resourceId)],
+);
+
+/**
+ * Single-use `private_key_jwt` client-assertion `jti` store for
+ * `@better-auth/oauth-provider` 1.7 (RFC 7523). `id` is the `jti`; `expiresAt`
+ * bounds the replay window so expired rows can be swept.
+ *
+ * Paired migration: `migrations/20260821120000_better_auth_1_7.sql`.
+ */
+export const oauthClientAssertion = sqliteTable("oauth_client_assertion", {
+  id: text("id").primaryKey(),
+  expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
+});
 
 /**
  * Per-grant workspace choice (issue #231, auth side): the user's last
@@ -503,7 +620,7 @@ export const githubIdentity = sqliteTable("github_identity", {
 });
 
 /**
- * Drizzle relations for Better Auth `experimental.joins` (adapter needs these
+ * Drizzle relations for Better Auth `advanced.database.joins` (adapter needs these
  * on the same schema object as the tables). No SQL/migration impact.
  *
  * session has two FKs to user (`userId`, `impersonatedBy`) so both sides use
@@ -580,6 +697,9 @@ export type AuthInvitation = typeof invitation.$inferSelect;
 export type AuthDeviceCode = typeof deviceCode.$inferSelect;
 export type GithubIdentity = typeof githubIdentity.$inferSelect;
 export type AuthOauthClient = typeof oauthClient.$inferSelect;
+export type AuthOauthResource = typeof oauthResource.$inferSelect;
+export type AuthOauthClientResource = typeof oauthClientResource.$inferSelect;
+export type AuthOauthClientAssertion = typeof oauthClientAssertion.$inferSelect;
 export type AuthOauthWorkspaceChoice = typeof oauthWorkspaceChoice.$inferSelect;
 export type AuthSubscription = typeof subscription.$inferSelect;
 export type AuthBillingPlanOutbox = typeof billingPlanOutbox.$inferSelect;
