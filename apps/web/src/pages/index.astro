@@ -319,26 +319,12 @@ Source (and where to look if something breaks): https://github.com/buildinternet
          faintest, smallest text inside their own section — below the lede they
          introduced. They now read at heading rank; the shell-comment `#` stays
          and carries the terminal voice, tinted rather than shouted. */
-      /* The shell-comment `#` is voice, not a word in the sentence. At label
-         size it read as a comment marker; blown up to heading size it read as a
-         stray character. It is now a real marker: mono (it is terminal syntax),
-         muted, and optically smaller than the heading it introduces. */
       .sect-head {
-        display: flex;
-        align-items: baseline;
-        gap: 0.45em;
         color: var(--fg);
         font: var(--weight-semibold) var(--text-h2) / var(--leading-heading) var(--sans);
         letter-spacing: var(--tracking-heading);
         text-wrap: balance;
         margin: 0 0 10px 2px;
-      }
-      .sect-head .hash {
-        flex: none;
-        font: var(--weight-regular) var(--text-h3) / 1 var(--mono);
-        color: var(--muted);
-        letter-spacing: 0;
-        user-select: none;
       }
       .sect-lede {
         font: var(--text-body) / var(--leading-body) var(--sans);
@@ -725,9 +711,7 @@ Source (and where to look if something breaks): https://github.com/buildinternet
       </p>
 
       <section class="features" aria-label="Features">
-        <h2 class="sect-head">
-          <span class="hash" aria-hidden="true">#</span>“Which page was that?”
-        </h2>
+        <h2 class="sect-head">“Which page was that?”</h2>
         <p class="sect-lede">
           Attach a path (or anything else) with&#32;
           <code>--meta</code>, then <code>uploads find</code> brings it back.
@@ -759,19 +743,17 @@ Source (and where to look if something breaks): https://github.com/buildinternet
           </p>
         </div>
 
-        <h2 class="sect-head later">
-          <span class="hash" aria-hidden="true">#</span>more than file-hosting
-        </h2>
+        <h2 class="sect-head later">More than file-hosting</h2>
         <div class="grid">
           <div class="feature">
-            <h3>capture and host</h3>
+            <h3>Capture and host</h3>
             <p>
               <code>uploads screenshot &lt;url&gt;</code> captures and hosts in one step, with both local
               and remote browser support.
             </p>
           </div>
           <div class="feature">
-            <h3>point at the change</h3>
+            <h3>Point at the change</h3>
             <p>
               Bake hand-drawn boxes, arrows, labels, and solid redactions into a capture with&#32;
               <code>screenshot --annotate</code> or <code>uploads annotate</code> — so reviewers see what
@@ -779,7 +761,7 @@ Source (and where to look if something breaks): https://github.com/buildinternet
             </p>
           </div>
           <div class="feature">
-            <h3>device frames</h3>
+            <h3>Device frames</h3>
             <p>
               Wrap a raw screenshot in device chrome — phone, browser, or a specific iPhone — with <code
                 >--frame</code
@@ -787,7 +769,7 @@ Source (and where to look if something breaks): https://github.com/buildinternet
             </p>
           </div>
           <div class="feature">
-            <h3>group into a gallery</h3>
+            <h3>Group into a gallery</h3>
             <p>
               Group uploads into a gallery that can live across multiple PRs — one link for the
               whole set that shows linked issues and pull requests.
@@ -797,7 +779,7 @@ Source (and where to look if something breaks): https://github.com/buildinternet
       </section>
 
       <section class="install" aria-label="Install commands">
-        <h2 class="sect-head"><span class="hash" aria-hidden="true">#</span>get set up</h2>
+        <h2 class="sect-head">Get set up</h2>
         <div class="rows">
           <div class="cmdrow">
             <span class="tag">cli</span>
@@ -832,7 +814,7 @@ Source (and where to look if something breaks): https://github.com/buildinternet
             <span data-home-cta-icon aria-hidden="true">
               <GitHubMark size={15} />
             </span>
-            <span data-home-cta-label>sign in with GitHub</span>
+            <span data-home-cta-label>Sign in with GitHub</span>
           </a>
           <span class="cta-note" data-home-cta-note
             >free to start in the cloud · open source to self-host</span
@@ -873,12 +855,12 @@ Source (and where to look if something breaks): https://github.com/buildinternet
         if (signedIn) {
           cta.href = workspaceHref();
           if (icon) icon.hidden = true;
-          if (label) label.textContent = "go to workspace";
+          if (label) label.textContent = "Go to workspace";
           if (note) note.hidden = true;
         } else {
           cta.href = "/login";
           if (icon) icon.hidden = false;
-          if (label) label.textContent = "sign in with GitHub";
+          if (label) label.textContent = "Sign in with GitHub";
           if (note) note.hidden = false;
         }
       }
