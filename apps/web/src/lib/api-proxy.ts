@@ -9,10 +9,14 @@
  * more specific `/api/auth/[...path]` static segment), but the guard below
  * 404s it anyway rather than trusting routing order — the api worker has its
  * own unrelated `/auth/enrollments/*` surface (console enroll codes) that a
- * misrouted `/api/auth/*` request must never reach.
+ * misrouted `/api/auth/*` request must never reach. The guard checks the
+ * percent-decoded pathname (see `decodedStrippedPathForGuard`) so an
+ * encoded `/auth` (`/api/%61uth/...`, `/api%2Fauth/...`) can't slip past it
+ * only to be decoded and routed to `/auth/...` by the api worker's Hono
+ * router upstream.
  */
 
-import { rewriteOrigin } from "./proxy-transport";
+import { rewriteOrigin, withInheritedCookie } from "./proxy-transport";
 
 export interface ApiProxyEnv {
   API?: { fetch(req: Request): Promise<Response> };
@@ -27,14 +31,38 @@ function stripApiPrefix(pathname: string): string {
   return stripped === "" ? "/" : stripped;
 }
 
+/**
+ * Decodes the FULL pathname (not just the part after `/api`) for the
+ * `/auth` guard check below — a bypass can hide in the `/api` boundary
+ * itself (`/api%2Fauth/...`, the encoded slash decoding to the one
+ * `stripApiPrefix`'s regex expects) just as easily as further down the path
+ * (`/api/%61uth/...`). Hono (the api worker's router) decodes
+ * percent-escapes when matching routes, so either shape reaches `/auth/...`
+ * upstream even though the raw, still-encoded pathname doesn't literally
+ * contain it. Guarding on the fully-decoded, then re-stripped form closes
+ * both. Returns `null` for a malformed escape sequence — treated as 404 by
+ * the caller rather than guessing.
+ */
+function decodedStrippedPathForGuard(pathname: string): string | null {
+  try {
+    return stripApiPrefix(decodeURIComponent(pathname));
+  } catch {
+    return null;
+  }
+}
+
 /** Forwards `request` to the api worker (binding, else HTTP fallback), `/api` prefix stripped. */
 export async function proxyApiRequest(env: ApiProxyEnv, request: Request): Promise<Response> {
   const url = new URL(request.url);
-  const strippedPath = stripApiPrefix(url.pathname);
-  if (strippedPath === "/auth" || strippedPath.startsWith("/auth/")) {
+  const decodedPath = decodedStrippedPathForGuard(url.pathname);
+  if (decodedPath === null || decodedPath === "/auth" || decodedPath.startsWith("/auth/")) {
     return new Response("Not found", { status: 404 });
   }
 
+  // The guard runs on the decoded form above; the request forwarded
+  // upstream keeps the original (still-encoded where applicable) pathname
+  // unchanged, `/api` prefix stripped literally rather than re-encoded.
+  const strippedPath = stripApiPrefix(url.pathname);
   const manual = new Request(request, { redirect: "manual" });
   url.pathname = strippedPath;
   const forwarded = new Request(url.toString(), manual);
@@ -47,9 +75,12 @@ export async function proxyApiRequest(env: ApiProxyEnv, request: Request): Promi
 /**
  * SSR helper (Task D2): resolves one api call from Astro frontmatter over the
  * same transport as `proxyApiRequest`, forwarding the incoming request's
- * `cookie` header — a server-to-server fetch has no cookie jar of its own.
- * `pathAndQuery` is the same `/api/...`-prefixed path the browser would hit
- * (e.g. `/api/v1/workspaces/acme/summary`); `init` carries method/body/etc.
+ * `cookie` header when `init` doesn't already carry one (see
+ * `withInheritedCookie` in `proxy-transport.ts` — the same rule
+ * `serverAuthFetch` applies) — a server-to-server fetch has no cookie jar of
+ * its own. `pathAndQuery` is the same `/api/...`-prefixed path the browser
+ * would hit (e.g. `/api/v1/workspaces/acme/summary`); `init` carries
+ * method/body/etc.
  */
 export async function serverApiFetch(
   env: ApiProxyEnv,
@@ -58,8 +89,7 @@ export async function serverApiFetch(
   init: RequestInit = {},
 ): Promise<Response> {
   const target = new URL(pathAndQuery, request.url);
-  const headers = new Headers(init.headers);
-  headers.set("cookie", request.headers.get("cookie") ?? "");
+  const headers = withInheritedCookie(new Headers(init.headers), request);
   return proxyApiRequest(env, new Request(target, { ...init, headers }));
 }
 

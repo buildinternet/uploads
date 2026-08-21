@@ -16,7 +16,7 @@
  * 302s must reach the browser unfollowed, not be resolved inside the worker.
  */
 
-import { rewriteOrigin } from "./proxy-transport";
+import { rewriteOrigin, withInheritedCookie } from "./proxy-transport";
 
 export interface AuthProxyEnv {
   AUTH?: { fetch(req: Request): Promise<Response> };
@@ -100,10 +100,7 @@ export async function serverAuthFetch(
   init: RequestInit = {},
 ): Promise<Response> {
   const target = new URL(pathAndQuery, request.url);
-  const headers = new Headers(init.headers);
-  if (!headers.has("cookie")) {
-    headers.set("cookie", request.headers.get("cookie") ?? "");
-  }
+  const headers = withInheritedCookie(new Headers(init.headers), request);
   return proxyAuthRequest(env, new Request(target, { ...init, headers }));
 }
 
