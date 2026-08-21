@@ -16,9 +16,9 @@ export interface ButtonProps extends ComponentPropsWithoutRef<"button"> {
 }
 
 /**
- * The uploads.sh button — a monospace, developer-console control. Neutral by
- * default with a border that lights up to the accent on hover/focus; `primary`
- * tints the label violet for the main action on a surface.
+ * The uploads.sh button — a compact, developer-console control set in sans.
+ * Neutral by default with a border that lights up to the accent on hover/focus;
+ * `primary` tints the label violet for the main action on a surface.
  *
  * @example
  * <Button variant="primary">Create workspace</Button>
