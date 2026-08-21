@@ -144,11 +144,15 @@ converted responses matches `robots.txt` (`search=yes`, `ai-input=yes`,
 
 ### Intentionally not implemented (yet)
 
-| Item                                  | Why                                                                                                                    |
-| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| OAuth/OIDC well-known on `uploads.sh` | Discovery lives on the auth worker (`https://auth.uploads.sh/.well-known/oauth-authorization-server`), not this origin |
-| DNS-AID SVCB records                  | DNS / DNSSEC operator work, not this deployable                                                                        |
-| WebMCP `navigator.modelContext`       | Experimental browser API; no product tools on the landing page yet                                                     |
+| Item                            | Why                                                                |
+| ------------------------------- | ------------------------------------------------------------------ |
+| DNS-AID SVCB records            | DNS / DNSSEC operator work, not this deployable                    |
+| WebMCP `navigator.modelContext` | Experimental browser API; no product tools on the landing page yet |
+
+OAuth 2.1 discovery (`/.well-known/oauth-authorization-server`) IS served on
+this origin as of #731: it's proxied through to the auth worker, and
+`uploads.sh` is the canonical issuer. There's still no OIDC surface —
+`/.well-known/openid-configuration` intentionally 404s.
 
 ## Error pages
 

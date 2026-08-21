@@ -1,10 +1,10 @@
 /**
- * Same-origin auth proxy (#731 phase A).
+ * Same-origin auth proxy (#731).
  *
- * Web serves `uploads.sh/api/auth/*` and forwards to the auth worker, so a
- * later phase can move browser auth traffic off `auth.uploads.sh` onto this
- * origin (killing the cross-subdomain cookie). This phase only stands the
- * transport up — nothing calls it yet, so the deploy is inert.
+ * Web serves `uploads.sh/api/auth/*` and forwards to the auth worker, so
+ * browser auth traffic (and the OAuth issuer) lives on `uploads.sh` instead
+ * of `auth.uploads.sh`, with a host-only session cookie instead of a
+ * cross-subdomain one.
  *
  * Two transports:
  *  - `env.AUTH` service binding (production/preview): a direct worker-to-
