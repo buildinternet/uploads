@@ -608,13 +608,18 @@ function buildAuth(
         // suppressed are gone; root /.well-known aliases are still served by
         // src/index.ts.)
         resources: OAUTH_RESOURCES,
-        // 1.7 gates which resources a DCR client may request at registration:
-        // with neither `clientRegistration{Default,Allowed}Resources` set, a
-        // register request that carries `resources` is rejected `invalid_target`.
-        // Mark our resources as *allowed* (client selects) rather than *default*
-        // (force-attached to every client), matching the 1.6 behavior where any
-        // client could target these audiences.
-        clientRegistrationAllowedResources: OAUTH_RESOURCES,
+        // `enforcePerClientResources` defaults to `true` in 1.7 (RFC 8707 §3):
+        // /oauth2/authorize + /oauth2/token then require the client to be linked
+        // to every requested resource via `oauth_client_resource`, else they
+        // return `invalid_target`. Standard MCP clients request `resource` at
+        // authorize/token time (not as a DCR field), so they never get linked
+        // and would be rejected. We have no mechanism to link third-party
+        // clients, and in 1.6 (`validAudiences`) any client could target these
+        // audiences. `false` restores that — all *enabled* resources are
+        // requestable by any client — while tokens stay aud-bound to the
+        // requested resource. (Per-client enforcement would need an admin flow
+        // to link clients to resources, which we don't have.)
+        enforcePerClientResources: false,
         allowDynamicClientRegistration: true,
         allowUnauthenticatedClientRegistration: true,
         // Explicit abuse ceiling on the public /oauth2/register endpoint —
