@@ -56,6 +56,12 @@ describe("public file headers", () => {
     expect(headers.get("Cache-Control")).toBe("no-store");
   });
 
+  it("publicFileCsp collapses the same-origin '/api' prefix to 'self' (#731 phase D)", () => {
+    const csp = publicFileCsp("/api");
+    expect(csp).toContain("connect-src 'self' https://cloudflareinsights.com");
+    expect(csp).not.toContain("/api");
+  });
+
   it("widens script-src on the ok branch for copy + report controls", () => {
     expect(PUBLIC_FILE_CSP).toContain(
       "script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com",

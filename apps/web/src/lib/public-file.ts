@@ -106,8 +106,17 @@ export function fileDownloadUrl(origin: string, workspace: string, key: string):
 /**
  * File-page CSP. Inline script for Copy-as / Report; `connect-src` includes
  * the API origin for `/v1/abuse` and the auth_required session probe.
+ *
+ * `apiOrigin` is either an absolute origin or the same-origin `"/api"` prefix
+ * (#731 phase D, `resolveSignedInOrigins`'s `SAME_ORIGIN_API_BASE`) — the
+ * latter collapses to `'self'` here, same rule as `signed-in-page.ts`'s
+ * `connectSrcToken`.
  */
 export function publicFileCsp(apiOrigin: string): string {
+  const connectApiToken = apiOrigin === "" || apiOrigin.startsWith("/") ? "'self'" : apiOrigin;
+  // CF_RUM_CONNECT_SRC already carries its own 'self' — de-dupe rather than
+  // emit "'self' 'self'" when the api origin also collapses to 'self'.
+  const connectTokens = [...new Set([connectApiToken, ...CF_RUM_CONNECT_SRC.split(" ")])].join(" ");
   return [
     "default-src 'none'",
     "img-src https: data:",
@@ -115,7 +124,7 @@ export function publicFileCsp(apiOrigin: string): string {
     "font-src 'self'",
     `style-src ${STYLE_SRC_SELF_AND_INLINE}`,
     `script-src 'self' 'unsafe-inline' ${CF_RUM_SCRIPT_SRC}`,
-    `connect-src ${apiOrigin} ${CF_RUM_CONNECT_SRC}`,
+    `connect-src ${connectTokens}`,
     "base-uri 'none'",
     "form-action 'none'",
     "frame-ancestors 'none'",
