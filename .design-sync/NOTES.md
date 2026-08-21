@@ -110,6 +110,40 @@ restage by hand (or copy from main) in those worktrees.
   its own file (`ul-progress__*`, `data-level` fill bands). Both added to
   `conventions.md`. That brought the DS from 12 → 14 components.
 
+## Sync log
+
+- **2026-08-21 (#745 type scale).** First sync after the type-scale/mono-rule
+  change. Three things had to be fixed in the repo *before* building, because
+  they are the prose the design agent reads and a sync would have republished
+  them: `conventions.md`'s type section (it still told the reader to use
+  `--mono` for "controls, labels, and metadata"), and the JSDoc on `Badge`,
+  `Button`, and `Input`/`Select` in `Field.tsx`, all of which described their
+  component as "monospace". Those JSDoc blocks become `<Name>.prompt.md`
+  verbatim, so stale prose there is worse than a stale card — it is an
+  instruction. 74 files uploaded; 14/14 rendered clean; tokens went 34 → 57
+  defined with the new `--text-*`, `--leading-*`, `--tracking-*`, `--weight-*`,
+  `--measure`, and `--mono-optical` roles.
+- **2026-08-21, second pass — templates + a Foundations card.** Cleared what
+  the first pass left owed.
+  - All three `templates/*.dc.html` page comps were re-typed onto the scale by
+    hand. They are project-side only (not in this repo) because the app lets
+    people edit them in place, and a repo copy would silently drift; to change
+    one, `DesignSync get_file` it, edit, and write it back. The landing comp
+    also picked up the shipped footer regroup (Resources / Open source / Legal,
+    no Sign in) and the `Files` → `Screenshots` header rename, so it matches
+    production again.
+  - Commands, file keys, and figures inside the comps needed **explicit**
+    `var(--mono)`: they used to inherit it from the page's mono base, and
+    flipping that base to sans would otherwise have set every terminal line in
+    Geist. The landing comp grew `.cmd` / `.code-inline` helper classes for
+    exactly this.
+  - New `foundations/typography/Typography.html` card, `@dsCard
+    group="Foundations"` — the ramp with token names and real sizes, the
+    sans-vs-mono rule shown side by side, and a measure demo. Source is kept at
+    `.design-sync/foundations/Typography.html` so an in-app edit cannot lose it.
+    It is static HTML (no React), so the component capture harness does not
+    touch it; verify it by opening the file against a built `ds-bundle/`.
+
 ## Re-sync risks
 
 - **Sync from an up-to-date `main`, and check before uploading.** A sync uploads

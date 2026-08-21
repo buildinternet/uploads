@@ -9,8 +9,10 @@ export interface BadgeProps extends ComponentPropsWithoutRef<"span"> {
 }
 
 /**
- * A small pill tag in the monospace idiom — used for workspace names, content
- * types, visibility, and status markers. `dot` adds a leading status dot.
+ * A small pill tag — used for workspace names, content types, visibility, and
+ * status markers. Set in sans at the 12px floor; reach for `--mono` on the
+ * label only when the badge carries a key or an identifier rather than a word.
+ * `dot` adds a leading status dot.
  *
  * @example
  * <Badge tone="accent">acme-web</Badge>

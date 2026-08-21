@@ -1,7 +1,7 @@
 # uploads.sh design system — how to build with it
 
-A dark, developer-console UI language. Three typefaces do specific jobs and the
-palette is dark by construction. Build screens by composing the components below
+A dark, developer-console UI language. Three typefaces do specific jobs, sizes
+are roles rather than numbers, and the palette is dark by construction. Build screens by composing the components below
 and choosing their props — you do not write CSS classes yourself.
 
 ## Setup — wrap everything in `Surface`
@@ -47,12 +47,40 @@ There is **no utility-class vocabulary to author**. Style two ways only:
    - Surfaces: `--bg` (page), `--panel` (raised cards), `--line` (hairline borders)
    - Text: `--fg` (headings), `--body` (copy), `--muted` (metadata)
    - Accents: `--accent` (violet), `--green` (ready), `--red` (error)
-   - Type: `--sans`, `--mono` (console chrome — buttons/labels/metadata), `--pixel`
-     (the Geist Pixel display face; set its shape with `--pixel-shape`, 0–100)
+   - Families: `--sans` (the interface voice), `--mono` (keys, code, and
+     measurements), `--pixel` (the Geist Pixel display face; set its shape with
+     `--pixel-shape`, 0–100)
+   - Sizes: `--text-display|h1|h2|h3|h4|body|ui|meta|micro`
+   - `--leading-*`, `--tracking-*`, `--weight-*`, `--measure`, `--mono-optical`
    - `--radius-sm|md|lg`, `--space-1…6`
 
-Use `--mono` (Geist Mono) for controls, labels, and metadata; `--sans` (Geist)
-for headings and body copy; `--pixel` only for brand moments.
+### The mono rule
+
+`--sans` (Geist) is the interface voice: prose, headings, buttons, labels,
+navigation, metadata. `--pixel` is for brand moments only.
+
+Reach for `--mono` (Geist Mono) when the characters are something the reader
+**transcribes or compares column-to-column** — a command, a code sample, a file
+key, a URL, a hash, or a figure in a table. Never to make a word look technical.
+The terminal character of this system comes from Geist Pixel, the chevron motif,
+and the density, not from setting every label in a typewriter.
+
+Two helpers exist for the edges: `ul-input--key` puts a form field's value in
+mono, and `--mono-optical` scales inline code down one step so it sits on the
+baseline of the sans around it.
+
+### Sizes
+
+Never hardcode a pixel value — every size is a role:
+
+| Token | Size | For |
+| --- | --- | --- |
+| `--text-body` | 16px | prose and reading copy |
+| `--text-ui` | 14px | buttons, nav, labels, inputs |
+| `--text-meta` | 13px | metadata, captions, dense table cells |
+| `--text-micro` | 12px | badges and uppercase pills — the floor |
+
+Nothing in this system renders below 12px. Cap prose at `--measure` (68ch).
 
 ## Where the truth lives
 

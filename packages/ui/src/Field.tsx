@@ -10,9 +10,10 @@ import {
 export interface InputProps extends ComponentPropsWithoutRef<"input"> {}
 
 /**
- * A single dark form input in the monospace console idiom — `--bg` fill, hairline
- * border that turns accent on focus. Usually composed inside `Field`, but valid on
- * its own.
+ * A single dark form input — `--bg` fill, hairline border that turns accent on
+ * focus. Usually composed inside `Field`, but valid on its own. The value is set
+ * in sans; add `className="ul-input--key"` when the field holds a key, path,
+ * token, or URL, where character-by-character transcription matters.
  *
  * @example
  * <Input placeholder="my-workspace" />
@@ -24,7 +25,7 @@ export function Input({ className, ...rest }: InputProps) {
 export interface SelectProps extends ComponentPropsWithoutRef<"select"> {}
 
 /**
- * A single dark `<select>` in the monospace console idiom — same box as `Input`,
+ * A single dark `<select>` — same box as `Input`,
  * with a drawn caret standing in for native browser chrome. Usually composed
  * inside `Field`, but valid on its own. Pass `className="ul-select--sm"` for
  * the compact variant used in dense rows and tables.
