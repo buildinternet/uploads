@@ -48,7 +48,7 @@ const tip = {
   body: "Attach uploads to a pull request with <code>uploads put ./shot.png --pr 123</code> — they collect into one managed comment.",
 };
 
-const { apiOrigin } = resolveSignedInOrigins(env);
+const { apiOrigin } = resolveSignedInOrigins();
 const cookie = Astro.request.headers.get("cookie") ?? "";
 const initialSearch = Astro.url.search;
 

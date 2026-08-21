@@ -12,7 +12,7 @@ import { renderDetailListPlaceholderHtml } from "../../lib/workspace-ui";
 
 export const prerender = false;
 
-const { authOrigin } = resolveSignedInOrigins(env);
+const { authOrigin } = resolveSignedInOrigins();
 const initial = await loadProfilePageData(
   authOrigin,
   Astro.request.headers.get("cookie") ?? "",

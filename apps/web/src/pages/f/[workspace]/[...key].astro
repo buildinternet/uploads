@@ -45,7 +45,7 @@ const result = await fetchPublicFile(workspace, key, { origin });
 // Browser-facing: the delete/file-url probe below and ReportAbuse's fetch are
 // credentialed(-ish) calls a real visitor's browser makes, so they go through
 // the same-origin /api proxy rather than api.uploads.sh directly (#731 phase D).
-const { apiOrigin: browserApiOrigin } = resolveSignedInOrigins(env);
+const { apiOrigin: browserApiOrigin } = resolveSignedInOrigins();
 
 applyPublicFileHeaders(Astro.response.headers, { csp: publicFileCsp(browserApiOrigin) });
 
@@ -693,6 +693,14 @@ const ogImage = file
         authRequired: result.status === "auth_required",
       }}
     >
+      // Base `/v1/workspaces/:name/files` endpoint (apiOrigin/workspace come
+      // in via define:vars above) shared by the three call sites below —
+      // this inline script can't import api-client.ts's trimOrigin/URL
+      // builders, so the one local helper stands in for it.
+      function filesEndpoint(suffix) {
+        return `${apiOrigin.replace(/\/$/, "")}/v1/workspaces/${encodeURIComponent(workspace)}/files${suffix}`;
+      }
+
       // Progressive-enhancement, client-side authorization path — a second
       // gate parallel to the server-side one this page already applied via
       // fetchPublicFile()/objectVisibility (apps/api's GET /public/files/...,
@@ -704,9 +712,7 @@ const ogImage = file
         if (!authRequired) return;
         const checking = document.getElementById("auth-checking");
         try {
-          const endpoint =
-            `${apiOrigin.replace(/\/$/, "")}/v1/workspaces/${encodeURIComponent(workspace)}/files/file-url` +
-            `?key=${encodeURIComponent(key)}`;
+          const endpoint = filesEndpoint(`/file-url?key=${encodeURIComponent(key)}`);
           if (checking) checking.hidden = false;
           const response = await fetch(endpoint, {
             credentials: "include",
@@ -734,9 +740,7 @@ const ogImage = file
       (async function () {
         const zone = document.getElementById("delete-zone");
         if (!zone) return;
-        const endpoint =
-          `${apiOrigin.replace(/\/$/, "")}/v1/workspaces/${encodeURIComponent(workspace)}/files/file-url` +
-          `?key=${encodeURIComponent(key)}`;
+        const endpoint = filesEndpoint(`/file-url?key=${encodeURIComponent(key)}`);
         try {
           const probe = await fetch(endpoint, {
             credentials: "include",
@@ -808,7 +812,7 @@ const ogImage = file
             // in sync. The old query-param form (?key=) matched no /v1 route and
             // fell through to the bearer-only guard, 401ing session users.
             const keyPath = key.split("/").map(encodeURIComponent).join("/");
-            const target = `${apiOrigin.replace(/\/$/, "")}/v1/workspaces/${encodeURIComponent(workspace)}/files/${keyPath}`;
+            const target = filesEndpoint(`/${keyPath}`);
             const response = await fetch(target, { method: "DELETE", credentials: "include" });
             if (!response.ok) throw new Error(String(response.status));
             // Swap the page to the deleted state.

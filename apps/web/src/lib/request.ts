@@ -6,12 +6,17 @@ export type RequestResult =
   | { kind: "response"; response: Response }
   | { kind: "unavailable"; reason: RequestFailure };
 
+export interface FetchWithTimeoutOptions {
+  timeoutMs?: number;
+  fetchImpl?: typeof fetch;
+}
+
 export async function fetchWithTimeout(
   input: RequestInfo | URL,
   init: RequestInit = {},
-  timeoutMs = BROWSER_REQUEST_TIMEOUT_MS,
-  fetchImpl: typeof fetch = fetch,
+  opts: FetchWithTimeoutOptions = {},
 ): Promise<RequestResult> {
+  const { timeoutMs = BROWSER_REQUEST_TIMEOUT_MS, fetchImpl = fetch } = opts;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {

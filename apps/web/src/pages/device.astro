@@ -15,7 +15,7 @@ export const prerender = false;
 
 // The API origin is needed because a first-run account can create its
 // workspace inline here (issue #362).
-const { authOrigin, apiOrigin } = resolveSignedInOrigins(env);
+const { authOrigin, apiOrigin } = resolveSignedInOrigins();
 
 // Header (not meta): frame-ancestors is ignored on meta CSP.
 applyAuthSecurityHeaders(Astro.response.headers, devicePageCsp(authOrigin, apiOrigin));
