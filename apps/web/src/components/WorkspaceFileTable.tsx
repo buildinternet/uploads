@@ -615,6 +615,10 @@ function WorkspaceFileTableInner({
   // against markup neither side disagrees on.
   const [view, setView] = useState<FilesView>(() => resolveFilesView(seedSearch, null));
   const githubTitlesGeneration = useRef(0);
+  // SSR already fetched the default-browse listing for this workspace.
+  // Skip the first client fetch so hydrate doesn't swap the seeded rows
+  // for the in-table skeleton. Folder/filter changes still refetch.
+  const skipSeededListingFetch = useRef(initialListing?.status === "ok");
   // In-flight guards (refs, not state — must not trigger re-renders) so a
   // second call issued while the first is still pending (every keystroke on
   // a `key=` draft, or a rapid blur/refocus) doesn't re-request the same key.
@@ -681,7 +685,9 @@ function WorkspaceFileTableInner({
   // gated behind the layout's session resolution like the rail (workspace-rail.ts).
   useEffect(() => {
     let cancelled = false;
-    setInfo({ status: "loading" });
+    // Don't flash the full-page skeleton over SSR-seeded info on hydrate.
+    // Retry (nonce) still goes through loading because prev is not ready.
+    setInfo((prev) => (prev.status === "ready" ? prev : { status: "loading" }));
     onSession(() => {
       void getMyWorkspaces(apiOrigin).then((result) => {
         if (cancelled) return;
@@ -697,6 +703,10 @@ function WorkspaceFileTableInner({
   // lost-access status renders in place of the table instead — see below).
   useEffect(() => {
     if (info.status !== "ready") return;
+    if (skipSeededListingFetch.current) {
+      skipSeededListingFetch.current = false;
+      return;
+    }
     let cancelled = false;
     githubTitlesGeneration.current += 1;
     setGithubTitles(null);
@@ -732,8 +742,10 @@ function WorkspaceFileTableInner({
     // filtersKey stands in for `filters` (serialized): the array identity
     // changes on every render, so depending on it directly would refetch in a
     // loop. The serialized key changes only when a filter actually changes.
+    // `info.status` (not `info`) so a same-status identity change after the
+    // hydrate refetch does not drop the seeded rows into the row skeleton.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [apiOrigin, workspace, info, filtered, filtersKey, nameTerm, prefix]);
+  }, [apiOrigin, workspace, info.status, filtered, filtersKey, nameTerm, prefix]);
 
   // Resolve connected-work titles once per listing. The generation guard keeps
   // a slower, superseded listing from repainting the current banner or rail.

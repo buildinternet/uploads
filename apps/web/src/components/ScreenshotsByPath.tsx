@@ -579,6 +579,10 @@ function ScreenshotsByPathInner({
     () => initialOverview ?? { status: "loading" },
   );
   const [overviewRetryNonce, setOverviewRetryNonce] = useState(0);
+  // In-place refetch (Merged only) — keeps the last ready overview so the
+  // filter bar stays mounted. Distinct from `overview.status === "loading"`,
+  // which is the full-page skeleton for workspace/retry.
+  const [overviewRefreshing, setOverviewRefreshing] = useState(false);
   // `readScreenshotsView` derives purely from the URL search string (no
   // localStorage involved anywhere in this module — unlike the files tab's
   // `resolveFilesView`), so there's no stored-preference divergence to guard
@@ -609,12 +613,24 @@ function ScreenshotsByPathInner({
   // doesn't fire a duplicate search.
   const [backfill, setBackfill] = useState<Record<string, PathGroupItem[]>>({});
   const backfillStarted = useRef(new Set<string>());
+  // Scope of the last overview fetch that is allowed to replace the page with
+  // the full-page skeleton. `view.merged` is deliberately excluded: toggling
+  // Merged only refetches the same workspace, and dropping a ready overview
+  // unmounts the filter bar (Grouped/Recent is a client-side layout switch
+  // on the same payload, so it never hits this path).
+  const overviewScopeRef = useRef(`${apiOrigin}\0${workspace}\0${overviewRetryNonce}`);
+  // SSR already fetched the overview for this search string (including
+  // `?merged=1`). Skip the first client fetch so hydrate doesn't mark the
+  // seeded groups busy and immediately replace them with the same payload.
+  const skipSeededOverviewFetch = useRef(initialOverview?.status === "ready");
 
   // Workspace-level facts (hasPublicUrl), gated behind session resolution —
   // same pattern as WorkspaceFileTable.
   useEffect(() => {
     let cancelled = false;
-    setInfo({ status: "loading" });
+    // Don't flash the full-page skeleton over SSR-seeded info on hydrate.
+    // Retry (nonce) still goes through loading because prev is not ready.
+    setInfo((prev) => (prev.status === "ready" ? prev : { status: "loading" }));
     onSession(() => {
       void loadWorkspaces(apiOrigin).then((result) => {
         if (cancelled) return;
@@ -629,10 +645,23 @@ function ScreenshotsByPathInner({
   // Overview fetch, once per mount/workspace/retry/merged-toggle.
   useEffect(() => {
     let cancelled = false;
-    setOverview({ status: "loading" });
+    const scope = `${apiOrigin}\0${workspace}\0${overviewRetryNonce}`;
+    const scopeChanged = overviewScopeRef.current !== scope;
+    overviewScopeRef.current = scope;
+    if (skipSeededOverviewFetch.current) {
+      skipSeededOverviewFetch.current = false;
+      return;
+    }
+    if (scopeChanged) {
+      setOverview({ status: "loading" });
+      setOverviewRefreshing(false);
+    } else {
+      setOverviewRefreshing(true);
+    }
     onSession(() => {
       void getWorkspaceFilesByPath(apiOrigin, workspace, { merged: view.merged }).then((result) => {
         if (cancelled) return;
+        setOverviewRefreshing(false);
         setOverview(
           result.kind === "ok"
             ? {
@@ -996,7 +1025,7 @@ function ScreenshotsByPathInner({
     }
 
     return (
-      <div className="wsp">
+      <div className="wsp" aria-busy={overviewRefreshing || undefined}>
         {filterBar}
         <button type="button" className="text-btn" onClick={() => setView({ ...view, path: "" })}>
           {view.project ? `← ${view.project}` : "← all projects"}
@@ -1064,7 +1093,7 @@ function ScreenshotsByPathInner({
     });
     const latestPaired = pairedShotKeys(latestItems);
     return (
-      <div className="wsp">
+      <div className="wsp" aria-busy={overviewRefreshing || undefined}>
         {filterBar}
         {latestItems.length === 0 ? (
           !view.merged && overview.latest.length === 0 && overview.catalog.length === 0 ? (
@@ -1153,7 +1182,7 @@ function ScreenshotsByPathInner({
   }
 
   return (
-    <div className="wsp">
+    <div className="wsp" aria-busy={overviewRefreshing || undefined}>
       {filterBar}
       {isEmptyWorkspace ? (
         <EmptyShotsCta title="No screenshots yet" />

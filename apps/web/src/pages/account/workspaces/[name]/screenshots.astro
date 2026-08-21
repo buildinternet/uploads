@@ -19,12 +19,12 @@
  *
  * Unlike the files tab's `listWorkspaceFolder` (which depends on the current
  * folder, so plan 005 only seeds it for the plain root browse),
- * `getWorkspaceFilesByPath` always returns the same complete by-path overview
- * regardless of the URL — `?project=`/`?q=` only change how
- * `ScreenshotsByPath` filters that same data (project + path query), and
- * `?path=` switches to a *different* client-side fetch (drill-in search).
- * So the overview seed below is unconditional, not gated to a "default
- * view" URL the way plan 005's listing seed is.
+ * `getWorkspaceFilesByPath` returns the by-path overview for the current
+ * merge filter (`?merged=1` or the default unfiltered catalog). `?project=`
+ * and `?q=` only change how `ScreenshotsByPath` filters that same payload,
+ * and `?path=` switches to a *different* client-side fetch (drill-in search).
+ * The seed below always runs when a session cookie is present, not gated to
+ * a "default view" URL the way plan 005's listing seed is.
  */
 import { env } from "cloudflare:workers";
 import WorkspaceLayout from "../../../../layouts/WorkspaceLayout.astro";
@@ -34,6 +34,7 @@ import { serverApiFetchImpl } from "../../../../lib/api-proxy";
 import { resolveSignedInOrigins } from "../../../../lib/signed-in-page";
 import { isBrowseWorkspace } from "../../../../lib/workspace-browse-url";
 import type { WorkspaceInfoStatus } from "../../../../lib/workspace-file-row";
+import { readScreenshotsView } from "../../../../lib/workspace-screenshots";
 
 export const prerender = false;
 
@@ -50,6 +51,7 @@ const tip = {
 const { apiOrigin } = resolveSignedInOrigins();
 const cookie = Astro.request.headers.get("cookie") ?? "";
 const initialSearch = Astro.url.search;
+const { merged: mergedOnly } = readScreenshotsView(initialSearch);
 
 let initialInfo: WorkspaceInfoStatus | undefined;
 let initialOverview: OverviewState | undefined;
@@ -58,7 +60,11 @@ if (cookie.trim()) {
   const fetchImpl = serverApiFetchImpl(env, Astro.request);
   const [summary, overview] = await Promise.all([
     getWorkspaceSummary(apiOrigin, workspace, { cookie, fetchImpl }),
-    getWorkspaceFilesByPath(apiOrigin, workspace, { cookie, fetchImpl }),
+    getWorkspaceFilesByPath(apiOrigin, workspace, {
+      cookie,
+      fetchImpl,
+      merged: mergedOnly,
+    }),
   ]);
 
   if (summary.kind === "success") {
