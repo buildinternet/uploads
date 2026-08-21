@@ -43,10 +43,95 @@ async function discoveryAlias(
   }
   const url = new URL(c.req.raw.url);
   url.pathname = pathname;
-  const res = await auth.handler(new Request(url.toString(), c.req.raw));
+  const aliasReq = new Request(url.toString(), c.req.raw);
+  const res = await rewriteDiscoveryEndpoints(url.toString(), await auth.handler(aliasReq), c.env);
   const headers = new Headers(res.headers);
   headers.set("Access-Control-Allow-Origin", "*");
   return new Response(res.body, { status: res.status, headers });
+}
+
+/**
+ * OAuth discovery metadata paths whose form-POST endpoints need the direct
+ * auth origin (see `rewriteDiscoveryEndpoints`).
+ */
+function isDiscoveryMetadataPath(pathname: string): boolean {
+  return (
+    pathname.endsWith("/.well-known/oauth-authorization-server") ||
+    pathname.endsWith("/.well-known/openid-configuration")
+  );
+}
+
+/**
+ * The OAuth 2.1 token, introspection, and revocation endpoints are
+ * machine-to-machine, non-cookie form POSTs (RFC 6749 §3.2 / 7662 / 7009). When
+ * this worker is reached through the web origin's same-origin `/api` proxy
+ * (#731), Astro's `checkOrigin` CSRF guard 403s those cross-site form POSTs
+ * ("Cross-site POST form submissions are forbidden"). So we advertise them on
+ * the worker's DIRECT origin (`AUTH_DIRECT_ORIGIN`, e.g. https://auth.uploads.sh),
+ * which bypasses the proxy entirely. Browser-facing (`authorization_endpoint`)
+ * and JSON/GET endpoints (`registration_endpoint`, `jwks_uri`, `issuer`) stay on
+ * the same-origin issuer so session cookies and discovery are unaffected. See
+ * issue #749.
+ *
+ * No-op unless `AUTH_DIRECT_ORIGIN` is set and differs from the issuer origin —
+ * dev/preview reach the worker directly, so they skip this. Only rewrites the
+ * two discovery documents; every other `/api/auth/*` response passes straight
+ * through (the path check short-circuits before the body is ever read).
+ */
+const FORM_POST_ENDPOINT_KEYS = [
+  "token_endpoint",
+  "introspection_endpoint",
+  "revocation_endpoint",
+] as const;
+
+export async function rewriteDiscoveryEndpoints(
+  requestUrl: string,
+  res: Response,
+  env: AuthEnv,
+): Promise<Response> {
+  const authOrigin = env.AUTH_DIRECT_ORIGIN;
+  if (!authOrigin || !res.ok) return res;
+  if (!isDiscoveryMetadataPath(new URL(requestUrl).pathname)) return res;
+
+  let issuerOrigin: string;
+  let directOrigin: string;
+  try {
+    issuerOrigin = new URL(env.BETTER_AUTH_URL || "https://auth.uploads.sh").origin;
+    directOrigin = new URL(authOrigin).origin;
+  } catch {
+    return res;
+  }
+  if (issuerOrigin === directOrigin) return res;
+
+  let json: Record<string, unknown>;
+  try {
+    json = (await res.clone().json()) as Record<string, unknown>;
+  } catch {
+    return res;
+  }
+
+  let changed = false;
+  for (const key of FORM_POST_ENDPOINT_KEYS) {
+    const value = json[key];
+    if (typeof value !== "string") continue;
+    let endpoint: URL;
+    try {
+      endpoint = new URL(value);
+    } catch {
+      continue; // preserve malformed / non-URL values unchanged
+    }
+    // Exact origin match — a `startsWith` prefix check would also rewrite a
+    // lookalike host like `https://uploads.sh.evil/…` (CodeRabbit, #750).
+    if (endpoint.origin === issuerOrigin) {
+      json[key] = `${directOrigin}${endpoint.pathname}${endpoint.search}${endpoint.hash}`;
+      changed = true;
+    }
+  }
+  if (!changed) return res;
+
+  const headers = new Headers(res.headers);
+  headers.delete("content-length");
+  return new Response(JSON.stringify(json), { status: res.status, headers });
 }
 
 // Public, non-credentialed CORS for /billing/prices — the web app fetches
@@ -122,7 +207,12 @@ export const app = new Hono<{ Bindings: AuthEnv }>()
     // awaits its own DB writes before returning a response, so there is
     // nothing here that needs `c.executionCtx.waitUntil`; revisit if a future
     // better-auth version adds one.
-    return auth.handler(c.req.raw);
+    //
+    // The discovery-metadata rewrite (#749) advertises the OAuth form-POST
+    // endpoints on AUTH_DIRECT_ORIGIN; it no-ops for every non-metadata path
+    // (the path check short-circuits before the body is read), so it doesn't
+    // touch the actual /oauth2/token request itself.
+    return rewriteDiscoveryEndpoints(c.req.raw.url, await auth.handler(c.req.raw), c.env);
   })
   .notFound((c) => c.json({ error: { code: "not_found", message: "Not found" } }, 404));
 

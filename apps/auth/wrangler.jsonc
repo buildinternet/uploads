@@ -31,6 +31,12 @@
     // Web app origin; credentialed CORS on /api/auth/* and the magic-link
     // email template both derive from this.
     "WEB_ORIGIN": "https://uploads.sh",
+    // This worker's own direct custom-domain origin (see the `routes` block).
+    // Discovery advertises the OAuth token/introspection/revocation endpoints
+    // here so machine form-POSTs bypass the web origin's same-origin `/api`
+    // proxy and its Astro `checkOrigin` CSRF guard (issue #749). Unset in the
+    // previews block / dev — those reach the worker directly.
+    "AUTH_DIRECT_ORIGIN": "https://auth.uploads.sh",
     "ENVIRONMENT": "production",
     // Makes Stripe Checkout require a Terms of Service checkbox before it
     // takes payment. Safe only because the Stripe Dashboard's Terms of
