@@ -1,0 +1,187 @@
+<!-- @dsCard group="Foundations" -->
+<!doctype html>
+<html><head><meta charset="utf-8">
+  <title>Typography — uploads.sh</title>
+  <link rel="stylesheet" href="../../fonts/fonts.css">
+  <link rel="stylesheet" href="../../styles.css">
+  <link rel="stylesheet" href="../../_ds_bundle.css">
+  <style>
+    /* This card is set in the system it documents: sans for every word, mono
+       only where the characters are a token name, a size, or a command — which
+       is the rule the card is here to teach. */
+    body {
+      margin: 0;
+      padding: 32px;
+      background: var(--bg);
+      color: var(--fg);
+      font: var(--text-ui) / var(--leading-ui) var(--sans);
+      letter-spacing: var(--tracking-ui);
+      -webkit-font-smoothing: antialiased;
+    }
+    .wrap { display: grid; gap: 40px; max-width: 900px; }
+    h2 {
+      margin: 0 0 4px;
+      font: var(--weight-semibold) var(--text-h3) / var(--leading-tight) var(--sans);
+      letter-spacing: var(--tracking-heading);
+      color: var(--fg);
+    }
+    .note {
+      margin: 0;
+      max-width: var(--measure);
+      font: var(--text-ui) / var(--leading-body) var(--sans);
+      color: var(--body);
+    }
+    .eyebrow {
+      display: block;
+      margin: 0 0 10px;
+      font-size: var(--text-micro);
+      font-weight: var(--weight-medium);
+      letter-spacing: var(--tracking-caps);
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    /* A token name is a key: you transcribe it into code, so it is mono. */
+    code, .tok {
+      font-family: var(--mono);
+      font-size: var(--mono-optical);
+      font-variant-ligatures: none;
+      color: var(--fg);
+    }
+
+    /* ── the ramp ── */
+    .ramp { display: grid; gap: 0; border-top: 1px solid var(--line); }
+    .row {
+      display: grid;
+      grid-template-columns: 180px 92px minmax(0, 1fr);
+      gap: 24px;
+      align-items: baseline;
+      padding: 18px 0;
+      border-bottom: 1px solid var(--line);
+    }
+    .row .tok { color: var(--accent); font-size: var(--text-meta); }
+    .row .val {
+      font-family: var(--mono);
+      font-size: var(--text-meta);
+      font-variant-numeric: tabular-nums;
+      color: var(--muted);
+    }
+    .row .spec { min-width: 0; color: var(--fg); overflow: hidden; text-overflow: ellipsis; }
+    .s-display { font: var(--text-display) / var(--leading-display) var(--sans); letter-spacing: var(--tracking-display); font-weight: var(--weight-semibold); }
+    .s-h1 { font: var(--weight-semibold) var(--text-h1) / var(--leading-heading) var(--sans); letter-spacing: var(--tracking-heading); }
+    .s-h2 { font: var(--weight-semibold) var(--text-h2) / var(--leading-heading) var(--sans); letter-spacing: var(--tracking-heading); }
+    .s-h3 { font: var(--weight-semibold) var(--text-h3) / var(--leading-tight) var(--sans); letter-spacing: var(--tracking-heading); }
+    .s-h4 { font: var(--weight-semibold) var(--text-h4) / var(--leading-tight) var(--sans); }
+    .s-body { font: var(--text-body) / var(--leading-body) var(--sans); letter-spacing: var(--tracking-body); }
+    .s-ui { font: var(--text-ui) / var(--leading-ui) var(--sans); letter-spacing: var(--tracking-ui); }
+    .s-meta { font: var(--text-meta) / var(--leading-ui) var(--sans); color: var(--muted); }
+    .s-micro { font: var(--weight-medium) var(--text-micro) / 1 var(--sans); letter-spacing: var(--tracking-caps); text-transform: uppercase; color: var(--muted); }
+
+    /* ── the mono rule ── */
+    .rule { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; }
+    .card {
+      border: 1px solid var(--line);
+      border-radius: var(--radius-md);
+      background: var(--panel);
+      padding: 16px 18px;
+    }
+    .card h3 {
+      margin: 0 0 10px;
+      font: var(--weight-semibold) var(--text-h4) / var(--leading-tight) var(--sans);
+      color: var(--fg);
+    }
+    .card p { margin: 0 0 12px; font: var(--text-meta) / var(--leading-body) var(--sans); color: var(--muted); }
+    .card ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 7px; }
+    .card li { font-size: var(--text-meta); color: var(--body); }
+    .sample-mono { font-family: var(--mono); font-variant-numeric: tabular-nums; color: var(--fg); }
+    .sample-sans { color: var(--fg); }
+
+    /* ── measure ── */
+    .measure-demo {
+      max-width: var(--measure);
+      font: var(--text-body) / var(--leading-body) var(--sans);
+      letter-spacing: var(--tracking-body);
+      color: var(--body);
+      border-left: 1px solid var(--line);
+      padding-left: 18px;
+    }
+    @media (max-width: 620px) {
+      body { padding: 20px; }
+      .row { grid-template-columns: 1fr; gap: 6px; }
+    }
+  </style>
+</head><body>
+  <div class="wrap">
+
+    <section>
+      <span class="eyebrow">Foundations</span>
+      <h2>Type scale</h2>
+      <p class="note">
+        Sizes are roles, not numbers. Never hardcode a pixel value — pick the role that matches the
+        job and the scale stays coherent when it changes. Nothing in this system renders below 12px.
+      </p>
+      <div class="ramp" style="margin-top:20px">
+        <div class="row"><span class="tok">--text-display</span><span class="val">34→56px</span><span class="spec s-display">Evidence</span></div>
+        <div class="row"><span class="tok">--text-h1</span><span class="val">27→36px</span><span class="spec s-h1">Page title</span></div>
+        <div class="row"><span class="tok">--text-h2</span><span class="val">21→26px</span><span class="spec s-h2">Section heading</span></div>
+        <div class="row"><span class="tok">--text-h3</span><span class="val">19px</span><span class="spec s-h3">Subsection heading</span></div>
+        <div class="row"><span class="tok">--text-h4</span><span class="val">16px</span><span class="spec s-h4">Body-size heading — weight carries it</span></div>
+        <div class="row"><span class="tok">--text-body</span><span class="val">16px</span><span class="spec s-body">Prose and reading copy</span></div>
+        <div class="row"><span class="tok">--text-ui</span><span class="val">14px</span><span class="spec s-ui">Interface chrome: buttons, nav, labels, inputs</span></div>
+        <div class="row"><span class="tok">--text-meta</span><span class="val">13px</span><span class="spec s-meta">Metadata, captions, dense table cells</span></div>
+        <div class="row"><span class="tok">--text-micro</span><span class="val">12px</span><span class="spec s-micro">Badges and pills — the floor</span></div>
+      </div>
+    </section>
+
+    <section>
+      <h2>The mono rule</h2>
+      <p class="note" style="margin-bottom:20px">
+        Reach for <code>--mono</code> when the characters are something the reader transcribes or
+        compares column-to-column. Never to make a word look technical. The terminal character of
+        this system comes from Geist Pixel, the chevron motif, and the density.
+      </p>
+      <div class="rule">
+        <div class="card">
+          <h3>Sans — the interface voice</h3>
+          <p>Words a person reads.</p>
+          <ul>
+            <li class="sample-sans">Create workspace</li>
+            <li class="sample-sans">Storage used this month</li>
+            <li class="sample-sans">That workspace token has expired.</li>
+            <li class="sample-sans">Files are visible to your team</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>Mono — what it measures</h3>
+          <p>Characters a person transcribes or lines up.</p>
+          <ul>
+            <li class="sample-mono">uploads put ./after.png</li>
+            <li class="sample-mono">gh/acme/app/pull/123/hero.webp</li>
+            <li class="sample-mono">1440×900 · 214 KB</li>
+            <li class="sample-mono">upl_9f30bbf62a1b4050</li>
+          </ul>
+        </div>
+      </div>
+      <p class="note" style="margin-top:16px">
+        Two escape hatches: <code>ul-input--key</code> puts a form field's value in mono, and
+        <code>--mono-optical</code> scales inline code down one step so it sits on the baseline of
+        the sans around it.
+      </p>
+    </section>
+
+    <section>
+      <h2>Leading, tracking, measure</h2>
+      <p class="note" style="margin-bottom:18px">
+        Light text on a dark ground needs more air than the same face on white, so body sits at
+        <code>--leading-body</code> (1.65) rather than the usual 1.5, and text sizes carry a hair of
+        positive tracking to counter dark-mode bloom. Display sizes go negative to close optical gaps.
+      </p>
+      <div class="measure-demo">
+        Prose is capped at <code>--measure</code> — 68 characters. Past roughly 75 the eye loses the
+        start of the next line and reading slows; this paragraph is set at the cap so you can see
+        where the limit falls. Cap the prose, not the column: code blocks, tables, and figures still
+        get the full width they need.
+      </div>
+    </section>
+
+  </div>
+</body></html>
