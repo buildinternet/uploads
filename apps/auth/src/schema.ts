@@ -399,6 +399,9 @@ export const oauthAccessToken = sqliteTable(
     index("idx_oauth_access_token_token").on(t.token),
     index("idx_oauth_access_client_id").on(t.clientId),
     index("idx_oauth_access_session_id").on(t.sessionId),
+    // Better Auth 1.7 marks authorizationCodeId indexed (code-replay revocation
+    // looks tokens up by it). Migration 20260821120000.
+    index("idx_oauth_access_authorization_code_id").on(t.authorizationCodeId),
   ],
 );
 
@@ -433,6 +436,8 @@ export const oauthRefreshToken = sqliteTable(
     index("idx_oauth_refresh_token_token").on(t.token),
     index("idx_oauth_refresh_client_id").on(t.clientId),
     index("idx_oauth_refresh_session_id").on(t.sessionId),
+    // Better Auth 1.7 marks authorizationCodeId indexed. Migration 20260821120000.
+    index("idx_oauth_refresh_authorization_code_id").on(t.authorizationCodeId),
   ],
 );
 

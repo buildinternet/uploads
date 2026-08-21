@@ -608,6 +608,13 @@ function buildAuth(
         // suppressed are gone; root /.well-known aliases are still served by
         // src/index.ts.)
         resources: OAUTH_RESOURCES,
+        // 1.7 gates which resources a DCR client may request at registration:
+        // with neither `clientRegistration{Default,Allowed}Resources` set, a
+        // register request that carries `resources` is rejected `invalid_target`.
+        // Mark our resources as *allowed* (client selects) rather than *default*
+        // (force-attached to every client), matching the 1.6 behavior where any
+        // client could target these audiences.
+        clientRegistrationAllowedResources: OAUTH_RESOURCES,
         allowDynamicClientRegistration: true,
         allowUnauthenticatedClientRegistration: true,
         // Explicit abuse ceiling on the public /oauth2/register endpoint —

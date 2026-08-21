@@ -58,6 +58,7 @@ ALTER TABLE oauth_access_token ADD COLUMN resources TEXT;
 ALTER TABLE oauth_access_token ADD COLUMN requested_user_info_claims TEXT;
 ALTER TABLE oauth_access_token ADD COLUMN confirmation TEXT;
 ALTER TABLE oauth_access_token ADD COLUMN revoked INTEGER;
+CREATE INDEX idx_oauth_access_authorization_code_id ON oauth_access_token (authorization_code_id);
 
 -- ── (5) oauth_refresh_token: resource binding + rotation-replay + confirmation ──
 ALTER TABLE oauth_refresh_token ADD COLUMN authorization_code_id TEXT;
@@ -67,6 +68,7 @@ ALTER TABLE oauth_refresh_token ADD COLUMN rotated_at INTEGER;
 ALTER TABLE oauth_refresh_token ADD COLUMN rotation_replay_response TEXT;
 ALTER TABLE oauth_refresh_token ADD COLUMN rotation_replay_expires_at INTEGER;
 ALTER TABLE oauth_refresh_token ADD COLUMN confirmation TEXT;
+CREATE INDEX idx_oauth_refresh_authorization_code_id ON oauth_refresh_token (authorization_code_id);
 
 -- ── (5b) jwks: signing algorithm + curve persisted per key (1.7) ──
 ALTER TABLE jwks ADD COLUMN alg TEXT;
