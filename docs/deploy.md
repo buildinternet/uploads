@@ -55,10 +55,23 @@ Check in every migration under `apps/api/migrations/`.
 Sign-in (`uploads login`, `/admin`, `/accept-invitation`) is served by a
 separate Better Auth worker, `apps/auth`, deploying to `auth.uploads.sh` with
 its own D1 database (`uploads-auth`) and migrations under
-`apps/auth/migrations/`. It needs a GitHub OAuth app, a signing secret, and
-(for `apps/api` to verify sessions) a `services` binding named `AUTH` from
-`apps/api` → the `uploads-auth` worker. See `apps/auth/README.md` for setup,
-including the first-admin bootstrap.
+`apps/auth/migrations/`. The browser never talks to `auth.uploads.sh`
+directly, though: `apps/web` proxies `/api/auth/*` to this worker over a
+`services` binding named `AUTH`, so all browser-facing auth traffic — sign-in,
+session checks, the OAuth discovery and token endpoints — is served
+same-origin from `https://uploads.sh`. `auth.uploads.sh` stays the worker's
+own deploy target and is still used for CLI device/bearer flows and other
+machine-to-machine calls.
+
+Set `BETTER_AUTH_URL` to the **web** origin (`https://uploads.sh`), not the
+worker's own origin — Better Auth derives cookie scope, the OAuth issuer, and
+redirect URIs from it, and the production GitHub OAuth app's callback is
+registered at `https://uploads.sh/api/auth/callback/github`. It needs a
+GitHub OAuth app, a signing secret, and (for `apps/api` to verify sessions) a
+`services` binding named `AUTH` from `apps/api` → the `uploads-auth` worker.
+`apps/web` also needs `AUTH` and `API` service bindings so it can proxy
+`/api/auth/*` and `/api/*` to the auth and api workers. See
+`apps/auth/README.md` for setup, including the first-admin bootstrap.
 
 ### CI: migrations on merge
 

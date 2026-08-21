@@ -82,17 +82,22 @@ inferred from the `up_<workspace>_…` token form).
 ## OAuth for the hosted MCP
 
 `https://agents.uploads.sh/mcp` also accepts OAuth 2.1 bearer tokens issued by
-our authorization server at `https://auth.uploads.sh` (issuer
-`https://auth.uploads.sh/api/auth`). It supports PKCE and dynamic client
+our authorization server at `https://uploads.sh` (issuer
+`https://uploads.sh/api/auth`). It supports PKCE and dynamic client
 registration (RFC 7591) — an MCP client can register itself, no manual setup.
 Discovery:
 
 ```bash
-curl -s https://auth.uploads.sh/.well-known/oauth-authorization-server
+curl -s https://uploads.sh/.well-known/oauth-authorization-server
 ```
 
 (There is no OIDC surface — `/.well-known/openid-configuration` intentionally
 returns 404.)
+
+The old `auth.uploads.sh` origin still serves the same discovery document as a
+deprecated alias, and tokens minted under the old issuer are still accepted
+for a migration window. New clients should discover and mint against
+`uploads.sh`.
 
 Scopes are the same three as the workspace-token table above: `files:read`,
 `files:write`, `files:delete`. A human authorizing a client signs in and

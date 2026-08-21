@@ -81,10 +81,11 @@ PORTLESS_TLD=dev PORTLESS_NAME=uploads.local.buildinternet pnpm dev:stack
 #    https://api.uploads.local.buildinternet.dev
 ```
 
-The zone is deliberately NOT under uploads.sh: prod sets its session cookie
-with `Domain=.uploads.sh`, so a `local.uploads.sh` zone would leak prod
-cookies into local dev stacks (and let local software set cookies scoped to
-prod). The infra domain has no production cookies to overlap.
+The zone is deliberately NOT under uploads.sh: even though prod's session
+cookie is host-only (scoped to `uploads.sh` itself, not a shared parent
+domain), keeping local dev off `uploads.sh` entirely avoids any local stack
+ever sharing an origin — or being confused for one — with prod. The infra
+domain has no production cookies to overlap.
 
 DNS: `local.buildinternet.dev` + `*.local.buildinternet.dev` are public
 DNS-only A records → `127.0.0.1` (never proxy them), so the names resolve to

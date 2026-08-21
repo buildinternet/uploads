@@ -77,9 +77,10 @@ Routine path:
 Default scopes on login: `files:read`, `files:write`, `files:delete`.
 Pass `--scopes` to mint a narrower token. Tokens default to 90 days.
 
-Hosted MCP also accepts OAuth 2.1 from https://auth.uploads.sh (PKCE + dynamic
-client registration). REST API does **not** accept OAuth in v1 — workspace
-bearer only. Full detail: https://uploads.sh/auth.md
+Hosted MCP also accepts OAuth 2.1 from https://uploads.sh (issuer
+https://uploads.sh/api/auth; PKCE + dynamic client registration). REST API
+does **not** accept OAuth in v1 — workspace bearer only. Full detail:
+https://uploads.sh/auth.md
 
 Never put `ADMIN_TOKEN` in agent configs. It is break-glass operator access.
 

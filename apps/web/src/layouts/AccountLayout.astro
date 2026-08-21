@@ -72,7 +72,7 @@ const { authOrigin, apiOrigin } = resolveSignedInOrigins();
 applyAuthSecurityHeaders(Astro.response.headers, signedInCsp(authOrigin, apiOrigin));
 
 // SSR-first session gate (issue #698). The web worker already receives the
-// cross-subdomain `.uploads.sh` session cookie (it's what the per-page /me
+// host-only `uploads.sh` session cookie (it's what the per-page /me
 // data fetches authenticate with), so resolve it during the server render and
 // paint `#app` visible on first paint — making cold loads as snappy as the
 // warm SPA navigations the optimistic-cache script already reveals instantly.

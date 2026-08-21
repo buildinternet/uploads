@@ -1,5 +1,10 @@
 # OAuth 2.1 authorization server for agents.uploads.sh (issue #224)
 
+_Note: the issuer described below moved from `https://auth.uploads.sh/api/auth`
+to `https://uploads.sh/api/auth` in #731 (2026-08-21). This spec is kept as
+written for historical context; see `apps/web/public/auth.md` and
+`docs/deploy.md` for the current state._
+
 Status: approved design, implementing on `claude/oauth-agents-implementation-0fefce`.
 
 ## Goal
