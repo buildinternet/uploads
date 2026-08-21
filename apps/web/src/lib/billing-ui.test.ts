@@ -103,6 +103,43 @@ describe("loadBillingPageData", () => {
     expect(result.billing).toBeNull();
     expect(result.proPrice).toBeNull();
   });
+
+  it("passes the given authFetchImpl through to the price fetch only (#731 phase B)", async () => {
+    const globalFetch = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            workspace: "acme",
+            organization: { id: "org_1", slug: "acme", name: "Acme" },
+            plan: "free",
+            available: true,
+            planApplied: true,
+            limits: {},
+            usage: null,
+            planSource: "none",
+            subscription: null,
+          }),
+          { headers: { "content-type": "application/json" } },
+        ),
+    );
+    vi.stubGlobal("fetch", globalFetch);
+    const authFetchImpl = vi.fn(async () =>
+      Response.json({ prices: { pro: { unitAmount: 1000, currency: "usd", interval: "month" } } }),
+    );
+
+    const result = await loadBillingPageData(
+      "https://api.uploads.sh",
+      "",
+      "acme",
+      "better-auth.session=abc",
+      authFetchImpl,
+    );
+
+    expect(authFetchImpl).toHaveBeenCalledWith("/billing/prices", expect.anything());
+    expect(result.proPrice).toEqual({ unitAmount: 1000, currency: "usd", interval: "month" });
+    // getWorkspaceBilling still goes through global fetch, not authFetchImpl.
+    expect(globalFetch).toHaveBeenCalled();
+  });
 });
 
 describe("planLabel", () => {
