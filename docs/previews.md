@@ -9,6 +9,25 @@ the Build Internet account (Cloudflare docs:
 Preview URLs are gated by Cloudflare Access. Sign in with a Cloudflare account
 that is a member of the Build Internet account and you pass straight through.
 
+`uploads-web` previews resolve at two URLs: the workers.dev one, and — since
+#684 — a custom domain, `<preview-name>.preview.uploads.sh`. The custom
+domain is safe post-#731: the production session cookie is host-only on
+`uploads.sh`, so no `*.preview.uploads.sh` hostname ever receives it, and
+previews stay signed out either way (see the GitHub-login/dev-session note
+below). The wildcard DNS record and certificate for `*.preview.uploads.sh`
+are auto-provisioned by Cloudflare on the first preview deploy after this
+merges — certificate issuance can lag the DNS record by a few minutes, so a
+brand-new preview name may fail TLS briefly before it's usable.
+
+Access must stay in front of both preview URL forms. Cloudflare's docs say
+the auto-created per-worker Access application covers workers.dev preview
+URLs and custom-domain preview URLs alike, but treat that as unverified until
+checked: after the first deploy under `*.preview.uploads.sh`, confirm in Zero
+Trust → Access → Applications that the wildcard is actually gated. If it
+isn't, add an Access app for `*.preview.uploads.sh` matching the existing
+preview setup (Cloudflare IdP, restricted to Build Internet account members,
+instant auth).
+
 Do not confuse a Preview with the Workers Builds bot's "Branch Preview URL"
 comment on PRs. That URL is the legacy aliased-version mechanism
 (`preview_urls: true`) and runs against **production bindings**. Only
@@ -97,8 +116,15 @@ the preview base config.
 
 ## Decisions of record
 
-- Previews stay on workers.dev URLs. Hostnames under `uploads.sh` would
-  receive the `.uploads.sh`-scoped production session cookie, handing live
-  sessions to unreviewed branch code. Revisit tracked in
-  [issue #684](https://github.com/buildinternet/uploads/issues/684).
+- `uploads-web` previews resolve at `*.preview.uploads.sh` (custom domain,
+  `previews_enabled` in `apps/web/wrangler.jsonc`) as well as workers.dev
+  (#684). This was on hold until #731 made the session cookie host-only on
+  `uploads.sh` — before that, a `uploads.sh` subdomain would have received
+  the production session cookie. Only the web worker has this; `uploads-api`
+  and `uploads-auth` stay workers.dev-only previews.
+- Previews stay signed out regardless of URL form: GitHub OAuth's callback is
+  pinned to the production origin (won't complete against a preview URL),
+  and the dev-session escape hatch doesn't exist outside local dev. This is
+  by design, not a gap to fix — see the "Which app to preview" table above
+  for what "realistic, signed out" means for UI review.
 - The legacy `preview_urls: true` flags stay during the transition.

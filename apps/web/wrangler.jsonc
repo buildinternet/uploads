@@ -64,6 +64,22 @@
       "pattern": "uploads.sh",
       "custom_domain": true,
     },
+    // Preview custom domain (#684, unblocked by #731's host-only session
+    // cookie: uploads.sh no longer shares the cookie with subdomains, so a
+    // preview origin under it receives no session). Dedicated
+    // `preview.uploads.sh` subdomain rather than a `previews_enabled` flag on
+    // the production route above — the apex already carries real subdomains
+    // (auth., api., storage., …), so Cloudflare's "wildcard would collide"
+    // guidance points at the dedicated-subdomain form. `previews_enabled`
+    // here provisions the wildcard DNS + cert for `<branch>.preview.uploads.sh`
+    // (see docs/previews.md); it does NOT itself gate access — Cloudflare
+    // Access must stay in front of the wildcard, same as the workers.dev
+    // preview tier today.
+    {
+      "pattern": "preview.uploads.sh",
+      "custom_domain": true,
+      "previews_enabled": true,
+    },
   ],
   // Workers Previews (`npx wrangler preview` from a branch — branch-scoped
   // environments, distinct from the legacy `preview_urls` version URLs above).

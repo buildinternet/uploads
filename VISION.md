@@ -115,6 +115,11 @@ these normal.
   spirit of Better Auth or OpenRouter. This also means avoiding user-seat
   limitations wherever possible: agents are the primary user, and agents
   support workspaces, not seats.
+- **Sign in with uploads.sh.** The hosted service as an identity provider —
+  for self-hosted deployments that would rather not run their own auth, and
+  for signed-in features on a customer's own custom domain. A companion
+  idea: narrow, short-lived review sessions for preview and review surfaces,
+  scoped to those surfaces alone and never a production session.
 - **Release management.** From per-PR evidence to per-release narrative:
   assembling the captures from a stream of merged PRs into the raw material
   for release notes, changelogs, and launch visuals.
