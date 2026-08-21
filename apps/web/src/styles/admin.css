@@ -21,14 +21,14 @@
 }
 .admin-page-header h2 {
   margin: 0;
-  font-size: 0.95rem;
-  font-weight: 600;
+  font-size: var(--text-body);
+  font-weight: var(--weight-semibold);
   color: var(--fg);
 }
 .admin-page-header p {
   margin: 0;
   color: var(--body);
-  font-size: 13px;
+  font-size: var(--text-meta);
   line-height: 1.55;
   text-wrap: pretty;
 }
@@ -39,7 +39,7 @@
 }
 .admin-subsection-label {
   margin: 0 0 10px;
-  font: 500 11px var(--mono);
+  font: var(--weight-medium) var(--text-micro) / 1 var(--sans);
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--muted);
@@ -47,7 +47,7 @@
 
 /* ── Status / controls ─────────────────────────────────────────────────── */
 .admin-status {
-  font-size: 13px;
+  font-size: var(--text-meta);
   color: var(--muted);
 }
 .admin-status[data-state="error"] {
@@ -65,7 +65,7 @@
   max-width: 480px;
 }
 .admin-field label {
-  font: 11px var(--mono);
+  font: var(--text-micro) var(--sans);
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -79,7 +79,7 @@
   border-radius: var(--radius-sm);
   color: var(--fg);
   padding: 7px 9px;
-  font: 12px var(--mono);
+  font: var(--text-micro) var(--sans);
 }
 .admin-toolbar input:focus-visible,
 .admin-field input:focus-visible {
@@ -93,7 +93,7 @@
 .workspace .plan-form button,
 .workspace .limits-form button,
 .workspace .invite-link-row button {
-  font: 11px var(--mono);
+  font: var(--text-micro) var(--sans);
   color: var(--accent);
   background: transparent;
   border: 1px solid var(--line);
@@ -138,7 +138,7 @@
   cursor: not-allowed;
 }
 .admin-back {
-  font-size: 12px;
+  font-size: var(--text-micro);
   color: var(--muted);
   text-decoration: none;
   width: fit-content;
@@ -164,12 +164,12 @@
 .admin-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: var(--text-meta);
   line-height: 1.4;
 }
 .admin-table th {
   text-align: left;
-  font: 500 11px var(--mono);
+  font: var(--weight-medium) var(--text-micro) / 1 var(--sans);
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--muted);
@@ -209,16 +209,16 @@
 }
 .admin-table .primary {
   color: var(--fg);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
 }
 .admin-table .email,
 .admin-table .mono {
   font-family: var(--mono);
-  font-weight: 500;
+  font-weight: var(--weight-medium);
 }
 .admin-table .muted {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-micro);
 }
 .admin-table a.admin-row-link {
   color: inherit;
@@ -241,7 +241,7 @@
 .admin-table .admin-expand {
   width: 18px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--text-micro);
   line-height: 1;
   transition: transform 0.15s ease;
   user-select: none;
@@ -269,8 +269,8 @@
 .workspace .limits-heading,
 .workspace .github-links-heading {
   margin: 0 0 8px;
-  font-size: 12px;
-  font-weight: 600;
+  font-size: var(--text-micro);
+  font-weight: var(--weight-semibold);
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--fg);
@@ -285,7 +285,7 @@
 .admin-detail-kv {
   display: grid;
   gap: 6px;
-  font-size: 12px;
+  font-size: var(--text-micro);
   color: var(--body);
 }
 .admin-detail-kv div {
@@ -298,7 +298,7 @@
   min-width: 7rem;
 }
 .admin-detail-kv code {
-  font: 11px var(--mono);
+  font: var(--text-micro) var(--mono);
   color: var(--fg);
   word-break: break-all;
 }
@@ -313,7 +313,7 @@
   display: flex;
   justify-content: space-between;
   gap: 8px;
-  font-size: 12px;
+  font-size: var(--text-micro);
   color: var(--body);
 }
 .admin-mini-list .role {
@@ -338,7 +338,7 @@
   display: grid;
   gap: 4px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--text-micro);
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
@@ -360,7 +360,7 @@
   border-radius: var(--radius-sm);
   color: var(--fg);
   padding: 7px 9px;
-  font: 12px var(--mono);
+  font: var(--text-micro) var(--sans);
   text-transform: none;
   letter-spacing: normal;
 }
@@ -386,7 +386,7 @@
 }
 .users-self-note {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--text-micro);
   color: var(--muted);
 }
 .user-row.is-banned .email {
@@ -416,18 +416,18 @@
 }
 .admin-dl dt {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--text-micro);
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 .admin-dl dd {
   margin: 4px 0 0;
   color: var(--body);
-  font-size: 13px;
+  font-size: var(--text-meta);
   overflow-wrap: anywhere;
 }
 .admin-dl code {
-  font: 12px var(--mono);
+  font: var(--text-micro) var(--mono);
 }
 
 @media (max-width: 680px) {

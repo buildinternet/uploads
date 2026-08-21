@@ -166,7 +166,7 @@ const invitePath = `/account/workspaces/${encodeURIComponent(workspace)}/people`
     border: 0;
     color: var(--muted);
     font: inherit;
-    font-size: 11.5px;
+    font-size: var(--text-micro);
     cursor: pointer;
   }
   :global(.account-shell) .ws-rail :global(.ws-rail__more:hover),
@@ -201,8 +201,8 @@ const invitePath = `/account/workspaces/${encodeURIComponent(workspace)}/people`
   }
   :global(.account-shell) .ws-rail :global(.ws-rail__connected-meta a) {
     color: var(--fg);
-    font-weight: 600;
-    font-size: 12.5px;
+    font-weight: var(--weight-semibold);
+    font-size: var(--text-meta);
     text-decoration: none;
   }
   :global(.account-shell) .ws-rail :global(.ws-rail__connected-meta a:hover),
@@ -234,18 +234,18 @@ const invitePath = `/account/workspaces/${encodeURIComponent(workspace)}/people`
   .ws-rail__tip-body {
     margin: 0;
     color: var(--muted);
-    font-size: 12.5px;
+    font-size: var(--text-meta);
     line-height: 1.55;
     text-wrap: pretty;
   }
   .ws-rail__tip-body :global(code) {
-    font-size: 11.5px;
+    font-size: var(--text-micro);
   }
   .ws-rail__tip-link {
     display: inline-block;
     margin-top: 6px;
     color: var(--fg);
-    font-size: 12px;
+    font-size: var(--text-micro);
     text-decoration: none;
   }
   .ws-rail__tip-link:hover,
@@ -272,7 +272,7 @@ const invitePath = `/account/workspaces/${encodeURIComponent(workspace)}/people`
     border-radius: 4px;
     color: var(--fg);
     text-decoration: none;
-    font-size: 12px;
+    font-size: var(--text-micro);
   }
   /* The class sets `display`, which outranks the UA `[hidden]` rule — without
      this, the rail's install-status suppression would have no visible effect. */
@@ -295,7 +295,7 @@ const invitePath = `/account/workspaces/${encodeURIComponent(workspace)}/people`
   .ws-rail__invite {
     color: var(--muted);
     text-decoration: none;
-    font-size: 12px;
+    font-size: var(--text-micro);
   }
   .ws-rail__invite:hover,
   .ws-rail__invite:focus-visible {

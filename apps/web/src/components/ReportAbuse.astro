@@ -172,7 +172,7 @@ const REASONS = [
     padding: 0;
     margin: 0;
     color: var(--muted);
-    font: 12px var(--mono);
+    font: var(--text-micro) var(--sans);
     text-decoration: underline;
     text-underline-offset: 3px;
     text-decoration-color: color-mix(in srgb, var(--muted) 55%, transparent);
@@ -205,7 +205,7 @@ const REASONS = [
   .report-lead {
     margin: 0;
     color: var(--muted);
-    font: 12px/1.45 var(--mono);
+    font: var(--text-micro)/1.45 var(--sans);
   }
   .field {
     display: flex;
@@ -215,7 +215,7 @@ const REASONS = [
   }
   .field-label {
     color: var(--muted);
-    font: 11px var(--mono);
+    font: var(--text-micro) var(--sans);
     letter-spacing: 0.06em;
     text-transform: uppercase;
   }
@@ -235,7 +235,7 @@ const REASONS = [
     border-radius: var(--radius-md);
     background: var(--panel);
     color: var(--body);
-    font: 12px/1.45 var(--mono);
+    font: var(--text-micro)/1.45 var(--sans);
   }
   .field textarea {
     resize: vertical;
@@ -256,7 +256,7 @@ const REASONS = [
   .report-cancel {
     appearance: none;
     border-radius: var(--radius-md);
-    font: 12px var(--mono);
+    font: var(--text-micro) var(--sans);
     cursor: pointer;
     padding: 8px 12px;
   }
@@ -288,7 +288,7 @@ const REASONS = [
   .report-status,
   .report-done {
     margin: 0;
-    font: 12px/1.4 var(--mono);
+    font: var(--text-micro)/1.4 var(--sans);
     color: var(--muted);
   }
   .report-status[data-tone="error"] {

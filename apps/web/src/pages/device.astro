@@ -37,7 +37,8 @@ applyAuthSecurityHeaders(Astro.response.headers, devicePageCsp(authOrigin, apiOr
         padding: 28px;
         background: var(--bg);
         color: var(--fg);
-        font: 14.5px/1.65 var(--mono);
+        font: var(--text-body) / var(--leading-body) var(--sans);
+        letter-spacing: var(--tracking-body);
       }
       main {
         width: min(var(--width-card, 480px), 100%);
@@ -53,8 +54,8 @@ applyAuthSecurityHeaders(Astro.response.headers, devicePageCsp(authOrigin, apiOr
       }
       h1 {
         margin: 0 0 8px;
-        font-size: clamp(21px, 5vw, 26px);
-        font-weight: 600;
+        font-size: var(--text-h2);
+        font-weight: var(--weight-semibold);
         letter-spacing: -0.015em;
         line-height: 1.25;
       }
@@ -66,9 +67,9 @@ applyAuthSecurityHeaders(Astro.response.headers, devicePageCsp(authOrigin, apiOr
         margin: 16px 0;
       }
       .code {
-        font-size: clamp(24px, 7vw, 32px);
+        font-size: var(--text-h1);
         letter-spacing: 0.28em;
-        font-weight: 600;
+        font-weight: var(--weight-semibold);
         color: var(--fg);
         text-align: center;
         padding: 16px 10px;
@@ -83,7 +84,7 @@ applyAuthSecurityHeaders(Astro.response.headers, devicePageCsp(authOrigin, apiOr
         align-items: center;
         justify-content: center;
         gap: 10px;
-        font: 14px var(--mono);
+        font: var(--text-ui) var(--sans);
         letter-spacing: 0.02em;
         color: var(--fg);
         background: var(--bg);
@@ -103,7 +104,7 @@ applyAuthSecurityHeaders(Astro.response.headers, devicePageCsp(authOrigin, apiOr
         gap: 12px;
         margin: 22px 0;
         color: var(--muted);
-        font-size: 11px;
+        font-size: var(--text-micro);
         letter-spacing: 0.08em;
         text-transform: uppercase;
       }
@@ -122,7 +123,7 @@ applyAuthSecurityHeaders(Astro.response.headers, devicePageCsp(authOrigin, apiOr
         display: grid;
         gap: 6px;
         color: var(--muted);
-        font-size: 10.5px;
+        font-size: var(--text-micro);
         letter-spacing: 0.1em;
         text-transform: uppercase;
       }
@@ -132,7 +133,7 @@ applyAuthSecurityHeaders(Astro.response.headers, devicePageCsp(authOrigin, apiOr
         border-radius: var(--radius-md);
         color: var(--fg);
         padding: 10px 12px;
-        font: 14px var(--mono);
+        font: var(--text-ui) var(--sans);
       }
       input:focus-visible {
         border-color: var(--accent);
@@ -148,13 +149,13 @@ applyAuthSecurityHeaders(Astro.response.headers, devicePageCsp(authOrigin, apiOr
       .ws label {
         display: block;
         color: var(--muted);
-        font-size: 10.5px;
+        font-size: var(--text-micro);
         letter-spacing: 0.1em;
         text-transform: uppercase;
         margin-bottom: 6px;
       }
       .ws .fixed {
-        font: 14px var(--mono);
+        font: var(--text-ui) var(--mono);
         color: var(--fg);
         background: var(--bg);
         border: 1px solid var(--line);
@@ -163,7 +164,7 @@ applyAuthSecurityHeaders(Astro.response.headers, devicePageCsp(authOrigin, apiOr
       }
       .ws .note {
         color: var(--muted);
-        font-size: 12px;
+        font-size: var(--text-micro);
         margin: 6px 0 0;
       }
       .ws-new {
@@ -182,7 +183,7 @@ applyAuthSecurityHeaders(Astro.response.headers, devicePageCsp(authOrigin, apiOr
       button.secondary,
       button[type="submit"] {
         flex: 1;
-        font: 12px var(--mono);
+        font: var(--text-micro) var(--sans);
         letter-spacing: 0.04em;
         color: var(--accent);
         background: var(--bg);

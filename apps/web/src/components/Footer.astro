@@ -32,22 +32,30 @@ type FooterLink = { label: string; href: string };
 type FooterColumn = { title: string; links: FooterLink[] };
 
 // Adding a future link is a one-line edit here — no markup changes needed.
+// Grouped the way a reader scans a footer: what helps you use it, what the
+// project itself is, and the fine print. Sign in lives in the header only —
+// AuthIndicator already renders a primary CTA there when signed out, so a
+// second entry point down here was redundant.
 const COLUMNS: FooterColumn[] = [
   {
-    title: "Product",
+    title: "Resources",
     links: [
       { label: "Docs", href: "/docs" },
-      { label: "Changelog", href: "/changelog" },
-      { label: "GitHub App", href: "/docs/github-app" },
       { label: "Agent guide", href: "/github-screenshots" },
-      { label: "Sign in", href: "/login" },
+      { label: "GitHub App", href: "/docs/github-app" },
+      { label: "Changelog", href: "/changelog" },
     ],
   },
   {
-    title: "Project",
+    title: "Open source",
     links: [
       { label: "GitHub", href: REPO },
       { label: "Status", href: STATUS_URL },
+    ],
+  },
+  {
+    title: "Legal",
+    links: [
       { label: "Terms", href: "/terms" },
       { label: "Privacy", href: "/privacy" },
     ],
@@ -113,7 +121,7 @@ const COLUMNS: FooterColumn[] = [
     margin-top: auto;
     border-top: 1px solid var(--line, #232327);
     color: var(--muted, #7d7d77);
-    font: 12px var(--mono, ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace);
+    font: var(--text-micro) var(--sans);
     letter-spacing: 0.01em;
     line-height: 1.7;
   }
@@ -133,7 +141,7 @@ const COLUMNS: FooterColumn[] = [
   }
   .site-footer.compact {
     margin-top: 26px;
-    font-size: 11.5px;
+    font-size: var(--text-micro);
   }
   .site-footer a {
     color: var(--muted, #7d7d77);
@@ -146,13 +154,14 @@ const COLUMNS: FooterColumn[] = [
   }
 
   /* ---- columned (default) variant ---- */
+  /* Brand blurb + one track per link column. */
   .cols {
     display: grid;
-    grid-template-columns: 1.4fr 1fr 1fr;
+    grid-template-columns: 1.4fr repeat(3, 1fr);
     gap: 24px 32px;
   }
   .wordmark {
-    font-weight: 600;
+    font-weight: var(--weight-semibold);
     color: var(--fg, #e8e8e3);
   }
   .site-footer a.wordmark {
@@ -167,7 +176,7 @@ const COLUMNS: FooterColumn[] = [
     max-width: 30ch;
   }
   .col-title {
-    font-size: 10.5px;
+    font-size: var(--text-micro);
     letter-spacing: 0.12em;
     text-transform: uppercase;
     margin-bottom: 12px;
@@ -187,10 +196,20 @@ const COLUMNS: FooterColumn[] = [
     border-top: 1px solid var(--line, #232327);
     margin-top: 28px;
     padding: 16px 0 0;
-    font-size: 11.5px;
+    font-size: var(--text-micro);
   }
   .family p {
     margin: 0;
+  }
+  /* Four tracks get tight before the stack breakpoint: drop the brand onto its
+     own row first and let the three link columns keep full width. */
+  @media (max-width: 900px) {
+    .cols {
+      grid-template-columns: repeat(3, 1fr);
+    }
+    .brand {
+      grid-column: 1 / -1;
+    }
   }
   @media (max-width: 560px) {
     .cols {

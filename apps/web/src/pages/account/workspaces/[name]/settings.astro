@@ -287,7 +287,7 @@ const tip = {
     /* ---------- Comment settings rows ---------- */
     .cs-repo-banner {
       margin: 0 0 16px;
-      font-size: 12.5px;
+      font-size: var(--text-meta);
     }
 
     /* Install-App prompt: shown only when the workspace has no GitHub App
@@ -307,7 +307,7 @@ const tip = {
     .cs-install__body {
       margin: 0;
       max-width: 44ch;
-      font: 12.5px/1.55 var(--sans);
+      font: var(--text-meta)/1.55 var(--sans);
       color: var(--body);
       text-wrap: pretty;
     }
@@ -318,7 +318,7 @@ const tip = {
       border-radius: var(--radius-sm);
       background: var(--bg);
       color: var(--fg);
-      font: 600 12.5px var(--sans);
+      font: 600 var(--text-meta) var(--sans);
       text-decoration: none;
       white-space: nowrap;
     }
@@ -400,12 +400,12 @@ const tip = {
       flex-wrap: wrap;
     }
     .cs-row__label {
-      font: 600 13px var(--sans);
+      font: 600 var(--text-meta) var(--sans);
       color: var(--fg);
     }
     .cs-row__desc {
       margin: 4px 0 0;
-      font-size: 12.5px;
+      font-size: var(--text-meta);
       line-height: 1.55;
       color: var(--muted);
       max-width: 44ch;
@@ -439,14 +439,14 @@ const tip = {
     .cs-row__note-count {
       margin-left: auto;
       color: var(--muted);
-      font-size: 11px;
+      font-size: var(--text-micro);
     }
     .cs-row--note textarea {
       margin-top: 8px;
       width: 100%;
       box-sizing: border-box;
       resize: vertical;
-      font-size: 13px;
+      font-size: var(--text-meta);
       line-height: 1.5;
     }
 
@@ -458,7 +458,7 @@ const tip = {
       overflow: hidden;
     }
     .cs-seg__btn {
-      font: 12.5px var(--sans);
+      font: var(--text-meta) var(--sans);
       padding: 7px 13px;
       background: transparent;
       color: var(--muted);
@@ -514,7 +514,7 @@ const tip = {
       box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
     }
     .cs-savebar__msg {
-      font: 13px var(--sans);
+      font: var(--text-meta) var(--sans);
       color: var(--fg);
     }
     .cs-savebar__msg[data-state="ok"] {
@@ -528,7 +528,7 @@ const tip = {
       border: 0;
       background: none;
       color: var(--muted);
-      font: 12.5px var(--sans);
+      font: var(--text-meta) var(--sans);
       cursor: pointer;
     }
     .cs-savebar__reset:hover,
@@ -559,7 +559,7 @@ const tip = {
       background: var(--panel);
       border: 1px solid var(--line);
       border-radius: 7px;
-      font: 12.5px var(--mono);
+      font: var(--text-meta) var(--mono);
     }
     .cs-preview-footnote {
       margin-top: 10px;
@@ -598,14 +598,14 @@ const tip = {
       border-bottom: 1px solid var(--line);
       padding: 8px 14px;
       color: var(--muted);
-      font-size: 13px;
+      font-size: var(--text-meta);
     }
     .cs-ghc-user {
       color: var(--fg);
-      font-weight: 600;
+      font-weight: var(--weight-semibold);
     }
     .cs-ghc-bot-chip {
-      font-size: 10px;
+      font-size: var(--text-micro);
       letter-spacing: 0.02em;
       color: var(--muted);
       border: 1px solid var(--line);
@@ -615,7 +615,7 @@ const tip = {
 
     .cs-preview-body {
       padding: 14px 16px;
-      font-size: 13px;
+      font-size: var(--text-meta);
       line-height: 1.6;
       overflow-x: auto;
     }

@@ -9,7 +9,7 @@
  * apps/web/src, so spacing here matches admin.css's raw-px convention (its
  * numbers are all literal px, not a token scale) and colors read the real
  * tokens — var(--line), var(--fg), var(--body), var(--muted), var(--accent),
- * var(--panel), var(--bg), var(--mono), var(--radius-sm), var(--radius-md).
+ * var(--panel), var(--bg), var(--sans), var(--radius-sm), var(--radius-md).
  */
 
 .metrics-tiles {
@@ -33,7 +33,7 @@
 .metrics-tile dt {
   margin: 0;
   color: var(--muted);
-  font: 11px var(--mono);
+  font: var(--text-micro) var(--sans);
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
@@ -41,8 +41,8 @@
 .metrics-tile dd {
   margin: 6px 0 0;
   color: var(--fg);
-  font-size: 20px;
-  font-weight: 600;
+  font-size: var(--text-h3);
+  font-weight: var(--weight-semibold);
   /* Tabular figures so the numbers don't jitter on refresh. */
   font-variant-numeric: tabular-nums;
 }
@@ -75,8 +75,8 @@
 
 .metrics-section h3 {
   margin: 0 0 14px;
-  font-size: 12px;
-  font-weight: 600;
+  font-size: var(--text-micro);
+  font-weight: var(--weight-semibold);
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--fg);
@@ -135,7 +135,7 @@
 
 .metrics-chart .metrics-axis-label {
   fill: var(--muted);
-  font: 9px var(--mono);
+  font: var(--text-micro) var(--mono);
 }
 
 .metrics-chart .metrics-bar-fill {
@@ -164,7 +164,7 @@
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   padding: 5px 8px;
-  font-size: 11px;
+  font-size: var(--text-micro);
   line-height: 1.4;
   white-space: nowrap;
   opacity: 0;
@@ -178,7 +178,7 @@
 
 .metrics-chart-tooltip .value {
   color: var(--fg);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   font-variant-numeric: tabular-nums;
 }
 
@@ -210,14 +210,14 @@
 .admin-hint {
   margin: 0 0 12px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--text-meta);
   line-height: 1.5;
 }
 
 #breakdown-panel label {
   display: inline-block;
   margin: 0 8px 12px 0;
-  font-size: 13px;
+  font-size: var(--text-meta);
   color: var(--body);
 }
 

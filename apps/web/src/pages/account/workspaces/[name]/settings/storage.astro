@@ -271,11 +271,11 @@ if (!workspace) return Astro.redirect("/account/workspaces");
     .storage-summary__num {
       flex: none;
       color: var(--accent);
-      font-size: 12px;
+      font-size: var(--text-micro);
     }
     .storage-summary__body {
       min-width: 0;
-      font-size: 13px;
+      font-size: var(--text-meta);
     }
     .storage-summary__title {
       color: var(--fg);
@@ -283,7 +283,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
     .storage-summary__sub {
       margin-top: 2px;
       color: var(--muted);
-      font-size: 12px;
+      font-size: var(--text-micro);
     }
 
     .storage-instructions {
@@ -292,7 +292,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       display: flex;
       flex-direction: column;
       gap: 10px;
-      font-size: 13px;
+      font-size: var(--text-meta);
       line-height: 1.6;
       color: var(--muted);
     }
@@ -327,7 +327,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       gap: 8px;
     }
     .storage-check-hint {
-      font-size: 12px;
+      font-size: var(--text-micro);
       color: var(--muted);
     }
   </style>

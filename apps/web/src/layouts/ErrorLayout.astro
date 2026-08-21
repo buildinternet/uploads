@@ -37,7 +37,8 @@ const authOrigin = SAME_ORIGIN_AUTH_BASE;
         min-height: 100dvh;
         background: var(--bg);
         color: var(--fg);
-        font: 14.5px/1.65 var(--mono);
+        font: var(--text-body) / var(--leading-body) var(--sans);
+        letter-spacing: var(--tracking-body);
         display: flex;
         flex-direction: column;
       }
@@ -66,7 +67,7 @@ const authOrigin = SAME_ORIGIN_AUTH_BASE;
         color: var(--muted);
         font-family: var(--pixel);
         font-variation-settings: "ELSH" var(--pixel-shape, 1);
-        font-size: 11px;
+        font-size: var(--text-micro);
         letter-spacing: 0.05em;
       }
       .body {
@@ -74,23 +75,24 @@ const authOrigin = SAME_ORIGIN_AUTH_BASE;
       }
       .status {
         margin: 0 0 6px;
-        font: 600 clamp(2.2rem, 8vw, 2.8rem)/1.1 var(--sans);
+        font: var(--weight-semibold) var(--text-display) / var(--leading-display) var(--sans);
+        letter-spacing: var(--tracking-display);
         letter-spacing: -0.015em;
         color: var(--accent);
       }
       h1 {
         margin: 0 0 12px;
-        font: 600 1rem/1.4 var(--sans);
+        font: 600 var(--text-body)/1.4 var(--sans);
         color: var(--fg);
       }
       p {
         margin: 0;
         color: var(--body);
-        font: 0.92rem/1.6 var(--sans);
+        font: var(--text-body)/1.6 var(--sans);
       }
       .hint {
         margin-top: 10px;
-        font-size: 0.85rem;
+        font-size: var(--text-ui);
         color: var(--muted);
       }
       .actions {
@@ -98,7 +100,7 @@ const authOrigin = SAME_ORIGIN_AUTH_BASE;
       }
       .home {
         display: inline-block;
-        font: 12px var(--mono);
+        font: var(--text-micro) var(--sans);
         color: var(--muted);
         background: var(--bg);
         border: 1px solid var(--line);

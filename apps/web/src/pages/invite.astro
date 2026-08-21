@@ -24,7 +24,8 @@ import Footer from "../components/Footer.astro";
         padding: 28px;
         background: var(--bg);
         color: var(--fg);
-        font: 14.5px/1.65 var(--mono);
+        font: var(--text-body) / var(--leading-body) var(--sans);
+        letter-spacing: var(--tracking-body);
       }
       main {
         /* deliberately wider than --width-card (480px): this card carries setup instructions, not just a form */
@@ -41,8 +42,8 @@ import Footer from "../components/Footer.astro";
       }
       h1 {
         margin: 0 0 8px;
-        font-size: clamp(23px, 5vw, 30px);
-        font-weight: 600;
+        font-size: var(--text-h1);
+        font-weight: var(--weight-semibold);
         letter-spacing: -0.015em;
         line-height: 1.25;
       }
@@ -94,7 +95,7 @@ import Footer from "../components/Footer.astro";
         flex-shrink: 0;
       }
       button {
-        font-size: 11px;
+        font-size: var(--text-micro);
         letter-spacing: 0.06em;
         border: 1px solid var(--line);
         border-radius: 6px;
@@ -113,7 +114,7 @@ import Footer from "../components/Footer.astro";
         margin-top: 26px;
         padding-top: 18px;
         border-top: 1px solid var(--line);
-        font-size: 13px;
+        font-size: var(--text-meta);
         color: var(--muted);
       }
       [hidden] {

@@ -32,7 +32,8 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
         padding: 28px;
         background: var(--bg);
         color: var(--fg);
-        font: 14.5px/1.65 var(--mono);
+        font: var(--text-body) / var(--leading-body) var(--sans);
+        letter-spacing: var(--tracking-body);
       }
       main {
         width: min(var(--width-card, 480px), 100%);
@@ -48,8 +49,8 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
       }
       h1 {
         margin: 0 0 8px;
-        font-size: clamp(21px, 5vw, 26px);
-        font-weight: 600;
+        font-size: var(--text-h2);
+        font-weight: var(--weight-semibold);
         letter-spacing: -0.015em;
         line-height: 1.25;
       }
@@ -66,7 +67,7 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
         align-items: center;
         justify-content: center;
         gap: 10px;
-        font: 14px var(--mono);
+        font: var(--text-ui) var(--sans);
         letter-spacing: 0.02em;
         color: var(--fg);
         background: var(--bg);
@@ -86,7 +87,7 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
         gap: 12px;
         margin: 22px 0;
         color: var(--muted);
-        font-size: 11px;
+        font-size: var(--text-micro);
         letter-spacing: 0.08em;
         text-transform: uppercase;
       }
@@ -105,7 +106,7 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
         display: grid;
         gap: 6px;
         color: var(--muted);
-        font-size: 10.5px;
+        font-size: var(--text-micro);
         letter-spacing: 0.1em;
         text-transform: uppercase;
       }
@@ -115,7 +116,7 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
         border-radius: var(--radius-md);
         color: var(--fg);
         padding: 10px 12px;
-        font: 14px var(--mono);
+        font: var(--text-ui) var(--sans);
       }
       input:focus-visible {
         border-color: var(--accent);
@@ -123,7 +124,7 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
       }
       button[type="submit"],
       button#accept-btn {
-        font: 12px var(--mono);
+        font: var(--text-micro) var(--sans);
         letter-spacing: 0.04em;
         color: var(--accent);
         background: var(--bg);

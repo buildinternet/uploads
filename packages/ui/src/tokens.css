@@ -65,6 +65,49 @@
   /* Geist Pixel element-shape axis (0 Regular · 1 Square · 20 Circle · 40 Grid · 60 Triangle · 80 Line) */
   --pixel-shape: 1;
 
+  /* ── Type scale ──────────────────────────────────────────────────────
+     Roles, not values. Sans is the interface voice; mono is reserved for
+     what it actually measures — commands, code, file keys, URLs, hashes,
+     and tabular figures. Reach for var(--mono) when the characters must
+     line up or be transcribed, never to make a label look technical. */
+  --text-display: clamp(34px, 6vw, 56px); /* landing hero only */
+  --text-h1: clamp(27px, 4.2vw, 36px); /* page title */
+  --text-h2: clamp(21px, 3vw, 26px); /* section heading */
+  --text-h3: 19px; /* subsection heading */
+  --text-h4: 16px; /* body-size heading — weight carries it, not size */
+  --text-body: 16px; /* prose and reading copy */
+  --text-ui: 14px; /* interface chrome: buttons, nav, labels, inputs */
+  --text-meta: 13px; /* metadata, captions, dense table cells */
+  --text-micro: 12px; /* badges and uppercase pills — the absolute floor */
+
+  /* Leading. Light-on-dark needs more air than the same face on white, so
+     body sits at 1.65 rather than the usual 1.5. */
+  --leading-display: 1.04;
+  --leading-heading: 1.22;
+  --leading-body: 1.65;
+  --leading-ui: 1.5;
+  --leading-tight: 1.3;
+
+  /* Tracking. Negative at display sizes to close optical gaps; a hair
+     positive at text sizes to counter dark-mode bloom. */
+  --tracking-display: -0.03em;
+  --tracking-heading: -0.015em;
+  --tracking-body: 0.004em;
+  --tracking-ui: 0.006em;
+  --tracking-caps: 0.08em; /* uppercase micro-labels only */
+
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+
+  /* Reading measure — pair with `max-width: var(--measure)` on prose. */
+  --measure: 68ch;
+
+  /* Mono runs optically large next to Geist at the same px; scale inline
+     code and keys by this factor so the baseline rhythm survives. */
+  --mono-optical: 0.94em;
+
   /* Radii */
   --radius-sm: 7px;
   --radius-md: 8px;

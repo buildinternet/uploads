@@ -32,7 +32,7 @@
 .account-shell nav.side {
   --side-inset: 8px;
   gap: 2px;
-  font-size: 13px;
+  font-size: var(--text-meta);
 }
 .account-shell nav.side .side-link {
   display: block;
@@ -66,7 +66,7 @@
   margin: 20px 0 6px;
   padding: 0 var(--side-inset);
   color: var(--muted);
-  font-size: 10.5px;
+  font-size: var(--text-micro);
   letter-spacing: 0.14em;
   text-transform: uppercase;
 }
@@ -125,12 +125,12 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--fg);
-  font-size: 13px;
-  font-weight: 600;
+  font-size: var(--text-meta);
+  font-weight: var(--weight-semibold);
 }
 .account-shell nav.side .ws-switcher__subtitle {
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--text-micro);
   letter-spacing: 0.1em;
   text-transform: uppercase;
 }
@@ -140,7 +140,7 @@
    label, so it stays on the name line rather than pushed to the subtitle. */
 .account-shell nav.side .ws-switcher .ws-switcher__trigger .pro-badge {
   flex: none;
-  font-size: 9px;
+  font-size: var(--text-micro);
   padding: 0 5px;
 }
 /* Visible switcher affordance — boxed chevron, not tiny label-tracking text. */
@@ -154,7 +154,7 @@
   border: 1px solid color-mix(in srgb, var(--line) 90%, var(--muted));
   border-radius: 3px;
   color: var(--fg);
-  font-size: 10px;
+  font-size: var(--text-micro);
   line-height: 1;
   letter-spacing: 0;
 }
@@ -196,7 +196,7 @@
   padding: 8px 10px;
   border-radius: 6px;
   color: var(--fg);
-  font-size: 13px;
+  font-size: var(--text-meta);
   letter-spacing: 0;
   text-transform: none;
   text-decoration: none;
@@ -218,7 +218,7 @@
 .account-shell nav.side .ws-switcher__item--new,
 .account-shell nav.side .ws-switcher__item--manage {
   color: color-mix(in srgb, var(--muted) 70%, var(--accent));
-  font-size: 12px;
+  font-size: var(--text-micro);
 }
 .account-shell nav.side .ws-switcher__sep {
   height: 1px;
@@ -248,7 +248,7 @@
   padding: 5px 8px;
   border-radius: 6px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-micro);
   text-decoration: none;
 }
 .account-shell nav.side .ws-settings-subnav__link:hover,
@@ -276,7 +276,7 @@
 .account-shell aside.rail {
   display: grid;
   gap: 22px;
-  font-size: 12.5px;
+  font-size: var(--text-meta);
   position: sticky;
   top: 28px;
   min-width: 0;
@@ -289,7 +289,7 @@
   display: contents;
 }
 .account-shell .ws-rail__section {
-  font-size: 12.5px;
+  font-size: var(--text-meta);
 }
 .account-shell .ws-rail__head {
   display: flex;
@@ -299,7 +299,7 @@
 }
 .account-shell .ws-rail__label {
   color: var(--muted);
-  font-size: 10.5px;
+  font-size: var(--text-micro);
   letter-spacing: 0.14em;
   text-transform: uppercase;
   white-space: nowrap;

@@ -191,10 +191,10 @@ const refsClass = isByline ? "refs refs--byline" : isHeaderMulti ? "refs refs--h
   .refs h2 {
     margin: 0 0 10px;
     color: var(--muted);
-    font: 11px var(--mono);
+    font: var(--text-micro) var(--sans);
     letter-spacing: 0.14em;
     text-transform: uppercase;
-    font-weight: 600;
+    font-weight: var(--weight-semibold);
   }
 
   .rail-head {
@@ -206,7 +206,7 @@ const refsClass = isByline ? "refs refs--byline" : isHeaderMulti ? "refs refs--h
 
   .rail-label {
     color: var(--muted);
-    font-size: 10.5px;
+    font-size: var(--text-micro);
     letter-spacing: 0.14em;
     text-transform: uppercase;
     white-space: nowrap;
@@ -242,7 +242,7 @@ const refsClass = isByline ? "refs refs--byline" : isHeaderMulti ? "refs refs--h
     row-gap: 2px;
     max-width: 100%;
     color: var(--muted);
-    font: 12.5px / 1.45 var(--mono);
+    font: var(--text-meta) / 1.45 var(--sans);
     text-decoration: none;
   }
 
@@ -288,7 +288,7 @@ const refsClass = isByline ? "refs refs--byline" : isHeaderMulti ? "refs refs--h
     border-radius: var(--radius-md);
     background: var(--panel);
     color: var(--fg);
-    font: 12px var(--mono);
+    font: var(--text-micro) var(--mono);
     text-decoration: none;
     max-width: 100%;
   }
@@ -317,12 +317,12 @@ const refsClass = isByline ? "refs refs--byline" : isHeaderMulti ? "refs refs--h
 
   .gh-chip-title {
     overflow-wrap: anywhere;
-    font-weight: 600;
+    font-weight: var(--weight-semibold);
   }
 
   .gh-chip-ref {
     color: var(--muted);
-    font-size: 11px;
+    font-size: var(--text-micro);
     overflow-wrap: anywhere;
   }
 
@@ -332,7 +332,7 @@ const refsClass = isByline ? "refs refs--byline" : isHeaderMulti ? "refs refs--h
 
   .provider {
     color: var(--muted);
-    font: 11px var(--mono);
+    font: var(--text-micro) var(--sans);
     text-transform: lowercase;
   }
 </style>
