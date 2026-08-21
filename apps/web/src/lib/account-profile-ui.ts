@@ -39,15 +39,16 @@ export interface ProfilePageData {
 export async function loadProfilePageData(
   authOrigin: string,
   cookie: string,
+  fetchImpl?: typeof fetch,
 ): Promise<ProfilePageData> {
   if (!cookie.trim()) {
     return { user: null, currentToken: null, accounts: null, githubInfo: null, sessions: null };
   }
 
   const [sessionResult, accounts, sessions] = await Promise.all([
-    getSession(authOrigin, { cookie }),
-    listAccounts(authOrigin, { cookie }),
-    listSessions(authOrigin, { cookie }),
+    getSession(authOrigin, { cookie, fetchImpl }),
+    listAccounts(authOrigin, { cookie, fetchImpl }),
+    listSessions(authOrigin, { cookie, fetchImpl }),
   ]);
 
   const user = sessionResult.kind === "signed_in" ? sessionResult.session.user : null;
@@ -62,6 +63,7 @@ export async function loadProfilePageData(
         providerId: "github",
         accountId: github.accountId,
         cookie,
+        fetchImpl,
       })
     : null;
 

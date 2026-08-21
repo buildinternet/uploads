@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { proxyAuthRequest, serverGetSession } from "./auth-proxy";
+import {
+  proxyAuthRequest,
+  serverAuthFetch,
+  serverAuthFetchImpl,
+  serverGetSession,
+} from "./auth-proxy";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -195,5 +200,73 @@ describe("serverGetSession", () => {
 
     const forwarded = fetchMock.mock.calls[0]?.[0] as Request;
     expect(forwarded.headers.get("cookie")).toBe("");
+  });
+});
+
+describe("serverAuthFetch", () => {
+  it("resolves a relative path against the request's own origin and forwards its cookie header", async () => {
+    const { AUTH, fetchMock } = fakeAuthBinding(Response.json(null));
+    const request = new Request("https://uploads.sh/account/profile", {
+      headers: { cookie: "better-auth.session_token=abc" },
+    });
+
+    await serverAuthFetch({ AUTH }, request, "/api/auth/list-sessions");
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const forwarded = fetchMock.mock.calls[0]?.[0] as Request;
+    expect(forwarded.url).toBe("https://uploads.sh/api/auth/list-sessions");
+    expect(forwarded.headers.get("cookie")).toBe("better-auth.session_token=abc");
+  });
+
+  it("sends an empty cookie header when the incoming request has none", async () => {
+    const { AUTH, fetchMock } = fakeAuthBinding(Response.json(null));
+    const request = new Request("https://uploads.sh/account/profile");
+
+    await serverAuthFetch({ AUTH }, request, "/api/auth/list-accounts");
+
+    const forwarded = fetchMock.mock.calls[0]?.[0] as Request;
+    expect(forwarded.headers.get("cookie")).toBe("");
+  });
+
+  it("does not overwrite a cookie header the caller's init already set", async () => {
+    const { AUTH, fetchMock } = fakeAuthBinding(Response.json(null));
+    const request = new Request("https://uploads.sh/account/profile", {
+      headers: { cookie: "better-auth.session_token=from-request" },
+    });
+
+    await serverAuthFetch({ AUTH }, request, "/api/auth/get-session", {
+      headers: { cookie: "better-auth.session_token=from-caller" },
+    });
+
+    const forwarded = fetchMock.mock.calls[0]?.[0] as Request;
+    expect(forwarded.headers.get("cookie")).toBe("better-auth.session_token=from-caller");
+  });
+
+  it("passes method/init through", async () => {
+    const { AUTH, fetchMock } = fakeAuthBinding(Response.json({ ok: true }));
+    const request = new Request("https://uploads.sh/account/profile");
+
+    await serverAuthFetch({ AUTH }, request, "/api/auth/sign-out", { method: "POST" });
+
+    const forwarded = fetchMock.mock.calls[0]?.[0] as Request;
+    expect(forwarded.method).toBe("POST");
+    expect(forwarded.url).toBe("https://uploads.sh/api/auth/sign-out");
+  });
+});
+
+describe("serverAuthFetchImpl", () => {
+  it("adapts serverAuthFetch to a fetch(input, init) shape for auth-client's fetchImpl", async () => {
+    const { AUTH, fetchMock } = fakeAuthBinding(Response.json({ user: { id: "1" } }));
+    const request = new Request("https://uploads.sh/account/profile", {
+      headers: { cookie: "better-auth.session_token=abc" },
+    });
+
+    const fetchImpl = serverAuthFetchImpl({ AUTH }, request);
+    const response = await fetchImpl("/api/auth/get-session", { cache: "no-store" });
+
+    expect(await response.json()).toEqual({ user: { id: "1" } });
+    const forwarded = fetchMock.mock.calls[0]?.[0] as Request;
+    expect(forwarded.url).toBe("https://uploads.sh/api/auth/get-session");
+    expect(forwarded.headers.get("cookie")).toBe("better-auth.session_token=abc");
   });
 });
