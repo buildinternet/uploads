@@ -37,7 +37,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
 // succeeded — a failed/absent fetch falls back to the same skeleton as
 // before and the client script paints the correct real/error state (same
 // "own region" rule as the galleries/people pages).
-const { authOrigin, apiOrigin } = resolveSignedInOrigins(env);
+const { authOrigin, apiOrigin } = resolveSignedInOrigins();
 const cookie = Astro.request.headers.get("cookie") ?? "";
 // `fetchProPrice`'s relative `/billing/prices` URL (authOrigin === "", #731
 // phase B) has no ambient origin for a Workers SSR `fetch` to resolve

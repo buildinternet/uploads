@@ -39,7 +39,7 @@ const titles: Record<AdminSection, string> = {
 const docTitle = `${titles[section]} · uploads.sh`;
 
 const showConsoleLinks = await resolveShowConsoleLinks(env);
-const { authOrigin, apiOrigin } = resolveSignedInOrigins(env);
+const { authOrigin, apiOrigin } = resolveSignedInOrigins();
 // Header (not meta): frame-ancestors is ignored on meta CSP.
 applyAuthSecurityHeaders(Astro.response.headers, signedInCsp(authOrigin, apiOrigin));
 

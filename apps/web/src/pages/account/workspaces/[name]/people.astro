@@ -27,7 +27,7 @@ const tip = {
 // real teammates. Controls, the "you" badge, and pending invites are added by
 // the client re-render (they need viewer identity, which the server gate does
 // not expose). Rows are identical between the two renders → no layout jump.
-const { apiOrigin } = resolveSignedInOrigins(env);
+const { apiOrigin } = resolveSignedInOrigins();
 const cookie = Astro.request.headers.get("cookie") ?? "";
 let ssrMembersHtml: string | null = null;
 if (cookie.trim()) {

@@ -18,18 +18,12 @@ const AUTH = "https://auth.uploads.sh";
 const API = "https://api.uploads.sh";
 
 describe("resolveSignedInOrigins", () => {
-  it("always resolves the auth origin to same-origin (#731 phase B), regardless of env", () => {
-    expect(resolveSignedInOrigins({}).authOrigin).toBe("");
-    expect(
-      resolveSignedInOrigins({ UPLOADS_API_ORIGIN: "https://api.uploads.sh" }).authOrigin,
-    ).toBe("");
+  it("always resolves the auth origin to same-origin (#731 phase B)", () => {
+    expect(resolveSignedInOrigins().authOrigin).toBe("");
   });
 
-  it("always resolves the api origin to the same-origin '/api' prefix (#731 phase D), regardless of env", () => {
-    expect(resolveSignedInOrigins({}).apiOrigin).toBe("/api");
-    expect(resolveSignedInOrigins({ UPLOADS_API_ORIGIN: "https://api.uploads.sh" }).apiOrigin).toBe(
-      "/api",
-    );
+  it("always resolves the api origin to the same-origin '/api' prefix (#731 phase D)", () => {
+    expect(resolveSignedInOrigins().apiOrigin).toBe("/api");
   });
 });
 

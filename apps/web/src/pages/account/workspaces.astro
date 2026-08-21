@@ -36,7 +36,7 @@ if (isBrowseWorkspace(legacyWs)) {
 // ?manage=1, empty, and unavailable all fall through to the client script.
 const managing = new URLSearchParams(Astro.url.search).get("manage") === "1";
 if (!managing) {
-  const { apiOrigin } = resolveSignedInOrigins(env);
+  const { apiOrigin } = resolveSignedInOrigins();
   const cookie = Astro.request.headers.get("cookie") ?? "";
   if (cookie.trim()) {
     const result = await getMyWorkspaces(apiOrigin, {

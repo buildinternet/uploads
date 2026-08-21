@@ -19,15 +19,25 @@
 import { fetchWithTimeout, type RequestFailure } from "./request";
 
 /**
+ * Same-origin (#731 phase B): browser auth traffic goes through this
+ * origin's `/api/auth` proxy, not a configured auth-worker origin. Every
+ * page that injects a browser-facing auth origin (layouts, login, device,
+ * console, oauth/consent, accept-invitation, the static-layout fallbacks)
+ * uses this constant rather than a copy-pasted `const authOrigin = "";` so
+ * the one same-origin decision lives in one place.
+ */
+export const SAME_ORIGIN_AUTH_BASE = "";
+
+/**
  * Public origin of the auth worker. Falls back to the documented local dev
  * origin (apps/auth's pinned wrangler dev port — see apps/auth/wrangler.jsonc
  * and .dev.vars.example) when unset (`undefined`/omitted).
  *
- * `""` is a distinct, deliberate value (#731 phase B): same-origin. Every
- * caller in this file templates `` `${authOrigin(origin)}/api/auth/...` ``,
- * so `""` turns that into a same-origin relative URL (`/api/auth/...`) that
- * hits this origin's `/api/auth/[...path]` proxy instead of the auth worker
- * directly.
+ * `""` (`SAME_ORIGIN_AUTH_BASE`) is a distinct, deliberate value (#731 phase
+ * B): same-origin. Every caller in this file templates
+ * `` `${authOrigin(origin)}/api/auth/...` ``, so `""` turns that into a
+ * same-origin relative URL (`/api/auth/...`) that hits this origin's
+ * `/api/auth/[...path]` proxy instead of the auth worker directly.
  */
 export function authOrigin(configuredOrigin?: string): string {
   if (configuredOrigin === "") return "";
@@ -160,8 +170,7 @@ export async function getSession(
       cache: "no-store",
       ...(opts?.cookie ? { headers: { cookie: opts.cookie } } : {}),
     },
-    undefined,
-    opts?.fetchImpl,
+    { fetchImpl: opts?.fetchImpl },
   );
   if (result.kind === "unavailable") return result;
   return sessionResultFromResponse(result.response);
@@ -518,8 +527,7 @@ async function getAuthArray(
       cache: "no-store",
       ...(opts?.cookie ? { headers: { cookie: opts.cookie } } : {}),
     },
-    undefined,
-    opts?.fetchImpl,
+    { fetchImpl: opts?.fetchImpl },
   );
   if (result.kind === "unavailable" || !result.response.ok) return null;
   const body = (await result.response.json().catch(() => undefined)) as unknown;
@@ -794,8 +802,7 @@ export async function getAccountInfo(
       cache: "no-store",
       ...(opts.cookie ? { headers: { cookie: opts.cookie } } : {}),
     },
-    undefined,
-    opts.fetchImpl,
+    { fetchImpl: opts.fetchImpl },
   );
   if (result.kind === "unavailable" || !result.response.ok) return null;
   const body = (await result.response.json().catch(() => undefined)) as

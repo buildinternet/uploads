@@ -65,7 +65,7 @@ const settingsSubpage =
 const workspaceBase = workspace ? `/account/workspaces/${encodeURIComponent(workspace)}` : "";
 const switcherHeading = workspace || "workspaces";
 
-const { authOrigin, apiOrigin } = resolveSignedInOrigins(env);
+const { authOrigin, apiOrigin } = resolveSignedInOrigins();
 // Header (not meta): frame-ancestors is ignored on meta CSP. Also sets
 // Cache-Control: no-store, so the per-request session reveal below is never
 // cached and served to another visitor.

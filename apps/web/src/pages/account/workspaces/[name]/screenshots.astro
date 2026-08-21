@@ -47,7 +47,7 @@ const tip = {
   linkLabel: "How grouping works",
 };
 
-const { apiOrigin } = resolveSignedInOrigins(env);
+const { apiOrigin } = resolveSignedInOrigins();
 const cookie = Astro.request.headers.get("cookie") ?? "";
 const initialSearch = Astro.url.search;
 

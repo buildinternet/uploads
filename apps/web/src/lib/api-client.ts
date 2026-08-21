@@ -128,8 +128,7 @@ export async function getMyWorkspaces(
   const result = await fetchWithTimeout(
     `${trimOrigin(apiOrigin)}/me/workspaces`,
     sessionFetchInit(opts?.cookie),
-    undefined,
-    opts?.fetchImpl,
+    { fetchImpl: opts?.fetchImpl },
   );
   if (result.kind === "unavailable") return result;
   const { response } = result;
@@ -204,8 +203,7 @@ export async function getWorkspaceSummary(
   const result = await fetchWithTimeout(
     `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(name)}/summary`,
     sessionFetchInit(opts?.cookie),
-    undefined,
-    opts?.fetchImpl,
+    { fetchImpl: opts?.fetchImpl },
   );
   if (result.kind === "unavailable") return result;
   const { response } = result;
@@ -237,8 +235,7 @@ async function fetchWorkspaceList<T>(
   const result = await fetchWithTimeout(
     `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(name)}/${segment}`,
     sessionFetchInit(opts?.cookie),
-    undefined,
-    opts?.fetchImpl,
+    { fetchImpl: opts?.fetchImpl },
   );
   if (result.kind === "unavailable" || !result.response.ok) return [];
   const body = (await result.response.json().catch(() => null)) as Record<string, unknown> | null;
@@ -502,8 +499,7 @@ export async function getWorkspacePeople(
   const result = await fetchWithTimeout(
     `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(name)}/people`,
     sessionFetchInit(opts?.cookie),
-    undefined,
-    opts?.fetchImpl,
+    { fetchImpl: opts?.fetchImpl },
   );
   if (result.kind === "unavailable") return result;
   const { response } = result;
@@ -580,8 +576,7 @@ export async function getWorkspaceBilling(
   const result = await fetchWithTimeout(
     `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(name)}/billing`,
     sessionFetchInit(opts?.cookie),
-    undefined,
-    opts?.fetchImpl,
+    { fetchImpl: opts?.fetchImpl },
   );
   if (result.kind === "unavailable") return result;
   const { response } = result;
@@ -1021,12 +1016,9 @@ export async function getWorkspaceFilesByPath(
   // is unchanged.
   const query = opts?.merged ? "?merged=1" : "";
   const url = `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(name)}/files/by-path${query}`;
-  const result = await fetchWithTimeout(
-    url,
-    sessionFetchInit(opts?.cookie),
-    undefined,
-    opts?.fetchImpl,
-  );
+  const result = await fetchWithTimeout(url, sessionFetchInit(opts?.cookie), {
+    fetchImpl: opts?.fetchImpl,
+  });
   if (result.kind === "unavailable") return result;
   const { response } = result;
   if (!response.ok) return { kind: "unavailable", reason: "server" };
@@ -1347,8 +1339,7 @@ export async function listMintableWorkspaces(
   const result = await fetchWithTimeout(
     `${trimOrigin(apiOrigin)}/v1/tokens`,
     sessionFetchInit(opts?.cookie),
-    undefined,
-    opts?.fetchImpl,
+    { fetchImpl: opts?.fetchImpl },
   );
   if (result.kind === "unavailable" || !result.response.ok) return null;
   const body = await result.response.json().catch(() => undefined);
@@ -1363,8 +1354,7 @@ export async function listIssuedWorkspaceTokens(
   const result = await fetchWithTimeout(
     `${trimOrigin(apiOrigin)}/v1/tokens/issued`,
     sessionFetchInit(opts?.cookie),
-    undefined,
-    opts?.fetchImpl,
+    { fetchImpl: opts?.fetchImpl },
   );
   if (result.kind === "unavailable" || !result.response.ok) return null;
   const body = await result.response.json().catch(() => undefined);
@@ -1530,12 +1520,9 @@ export async function listWorkspaceFolder(
   const query = params.toString();
   const url = `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(workspace)}/files${query ? `?${query}` : ""}`;
 
-  const result = await fetchWithTimeout(
-    url,
-    sessionFetchInit(opts.cookie),
-    undefined,
-    opts.fetchImpl,
-  );
+  const result = await fetchWithTimeout(url, sessionFetchInit(opts.cookie), {
+    fetchImpl: opts.fetchImpl,
+  });
   if (result.kind === "unavailable" || !result.response.ok) return emptyFolderListing();
 
   const body = (await result.response.json().catch(() => null)) as {

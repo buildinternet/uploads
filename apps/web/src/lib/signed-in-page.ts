@@ -11,11 +11,6 @@ import { resolveConsoleMode } from "./console-mode";
 import { CF_RUM_CONNECT_SRC, CF_RUM_SCRIPT_SRC, STYLE_SRC_SELF_AND_INLINE } from "./csp";
 import { safeSameOriginPath } from "./workspace-ui";
 
-// UPLOADS_AUTH_ORIGIN isn't read here (auth is same-origin, #731 phase B).
-type OriginEnv = {
-  UPLOADS_API_ORIGIN?: string;
-};
-
 /**
  * Same-origin sentinel `resolveSignedInOrigins` returns for `apiOrigin`
  * (#731 phase D). Unlike `authOrigin("")` → `""` (auth's own templates
@@ -74,7 +69,7 @@ export function signedInShellLoginRedirect(opts: {
   return null;
 }
 
-export function resolveSignedInOrigins(env: OriginEnv): {
+export function resolveSignedInOrigins(): {
   authOrigin: string;
   apiOrigin: string;
 } {
@@ -99,17 +94,20 @@ export function resolveSignedInOrigins(env: OriginEnv): {
  * same-origin (#731 phases B/D), which CSP expresses as `'self'` rather than
  * an origin literal — any other relative (`/`-leading) path is same-origin
  * too, so treat that generally rather than hard-coding just these two.
+ * Exported for `public-file.ts`'s `publicFileCsp`, which applies the same
+ * rule to its own (single) api origin rather than duplicating it.
  */
-function connectSrcToken(origin: string): string {
+export function connectSrcToken(origin: string): string {
   return origin === "" || origin.startsWith("/") ? "'self'" : origin;
 }
 
 /**
  * Builds a `connect-src` directive from one or more origins plus the RUM
  * allowance, de-duping tokens — `origin === ""` and `CF_RUM_CONNECT_SRC`'s own
- * `'self'` would otherwise both land in the list.
+ * `'self'` would otherwise both land in the list. Exported for the same
+ * reason as `connectSrcToken`.
  */
-function connectSrc(...origins: string[]): string {
+export function connectSrc(...origins: string[]): string {
   const tokens = [...origins.map(connectSrcToken), ...CF_RUM_CONNECT_SRC.split(" ")];
   return `connect-src ${[...new Set(tokens)].join(" ")}`;
 }

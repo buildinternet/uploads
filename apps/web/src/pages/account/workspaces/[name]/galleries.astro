@@ -42,7 +42,7 @@ const tip = {
 // list when there IS data — getMyWorkspaceGalleries conflates empty and error,
 // so an empty/failed result falls back to the placeholder and the client script
 // paints the correct empty-state or error.
-const { apiOrigin } = resolveSignedInOrigins(env);
+const { apiOrigin } = resolveSignedInOrigins();
 const cookie = Astro.request.headers.get("cookie") ?? "";
 let ssrGalleriesHtml: string | null = null;
 if (cookie.trim()) {
