@@ -236,3 +236,20 @@ describe("serverApiFetchImpl", () => {
     expect(forwarded.headers.get("cookie")).toBe("better-auth.session_token=abc");
   });
 });
+
+describe("serverApiFetchImpl", () => {
+  it("adapts serverApiFetch to a fetch(input, init) shape for api-client's fetchImpl", async () => {
+    const { API, fetchMock } = fakeApiBinding(Response.json({ workspaces: [] }));
+    const request = new Request("https://uploads.sh/account/workspaces", {
+      headers: { cookie: "better-auth.session_token=abc" },
+    });
+
+    const fetchImpl = serverApiFetchImpl({ API }, request);
+    const response = await fetchImpl("/api/me/workspaces", { cache: "no-store" });
+
+    expect(await response.json()).toEqual({ workspaces: [] });
+    const forwarded = fetchMock.mock.calls[0]?.[0] as Request;
+    expect(forwarded.url).toBe("https://uploads.sh/me/workspaces");
+    expect(forwarded.headers.get("cookie")).toBe("better-auth.session_token=abc");
+  });
+});
