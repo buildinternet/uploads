@@ -62,3 +62,15 @@ export async function serverApiFetch(
   headers.set("cookie", request.headers.get("cookie") ?? "");
   return proxyApiRequest(env, new Request(target, { ...init, headers }));
 }
+
+/**
+ * A `fetch`-shaped adapter over {@link serverApiFetch}, for api-client.ts's
+ * `opts.fetchImpl` — every api-client URL is already the same
+ * `"/api/..."`-prefixed string `serverApiFetch` expects (api-client's
+ * `apiOrigin` is `resolveSignedInOrigins`'s `"/api"` sentinel in this same
+ * request), so no path translation is needed here.
+ */
+export function serverApiFetchImpl(env: ApiProxyEnv, request: Request): typeof fetch {
+  return ((input: RequestInfo | URL, init?: RequestInit) =>
+    serverApiFetch(env, request, String(input), init)) as typeof fetch;
+}

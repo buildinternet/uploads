@@ -10,6 +10,7 @@
 import { env } from "cloudflare:workers";
 import WorkspaceLayout from "../../../../layouts/WorkspaceLayout.astro";
 import { getMyWorkspaceGalleries, getWorkspaceSummary } from "../../../../lib/api-client";
+import { serverApiFetchImpl } from "../../../../lib/api-proxy";
 import { resolveSignedInOrigins } from "../../../../lib/signed-in-page";
 import { isBrowseWorkspace } from "../../../../lib/workspace-browse-url";
 import { resolveGalleriesView } from "../../../../lib/workspace-galleries-view";
@@ -45,9 +46,10 @@ const { apiOrigin } = resolveSignedInOrigins(env);
 const cookie = Astro.request.headers.get("cookie") ?? "";
 let ssrGalleriesHtml: string | null = null;
 if (cookie.trim()) {
+  const fetchImpl = serverApiFetchImpl(env, Astro.request);
   const [summary, galleries] = await Promise.all([
-    getWorkspaceSummary(apiOrigin, workspace, { cookie }),
-    getMyWorkspaceGalleries(apiOrigin, workspace, { cookie }),
+    getWorkspaceSummary(apiOrigin, workspace, { cookie, fetchImpl }),
+    getMyWorkspaceGalleries(apiOrigin, workspace, { cookie, fetchImpl }),
   ]);
   if (summary.kind === "success" && galleries.length > 0) {
     ssrGalleriesHtml = renderGalleriesHtml(galleries, ssrView);

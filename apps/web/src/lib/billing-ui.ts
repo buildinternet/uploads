@@ -35,11 +35,12 @@ export async function loadBillingPageData(
   authOrigin: string,
   workspace: string,
   cookie: string,
+  apiFetchImpl?: typeof fetch,
   authFetchImpl?: typeof fetch,
 ): Promise<BillingPageData> {
   if (!cookie.trim()) return { billing: null, proPrice: null };
   const [billingResult, proPrice] = await Promise.all([
-    getWorkspaceBilling(apiOrigin, workspace, { cookie }),
+    getWorkspaceBilling(apiOrigin, workspace, { cookie, fetchImpl: apiFetchImpl }),
     fetchProPrice(authOrigin, authFetchImpl),
   ]);
   return {

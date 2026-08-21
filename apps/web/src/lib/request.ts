@@ -10,11 +10,12 @@ export async function fetchWithTimeout(
   input: RequestInfo | URL,
   init: RequestInit = {},
   timeoutMs = BROWSER_REQUEST_TIMEOUT_MS,
+  fetchImpl: typeof fetch = fetch,
 ): Promise<RequestResult> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(input, { ...init, signal: controller.signal });
+    const response = await fetchImpl(input, { ...init, signal: controller.signal });
     return { kind: "response", response };
   } catch (err) {
     return {
