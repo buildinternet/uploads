@@ -73,6 +73,36 @@ describe("proxyApiRequest — binding transport", () => {
     expect(response.status).toBe(404);
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it("404s an encoded /auth further down the path (/api/%61uth/...), never reaching env.API", async () => {
+    const { API, fetchMock } = fakeApiBinding(Response.json({ ok: true }));
+    const request = new Request("https://uploads.sh/api/%61uth/enrollments/xyz");
+
+    const response = await proxyApiRequest({ API }, request);
+
+    expect(response.status).toBe(404);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("404s an encoded /api boundary slash (/api%2Fauth/...), never reaching env.API", async () => {
+    const { API, fetchMock } = fakeApiBinding(Response.json({ ok: true }));
+    const request = new Request("https://uploads.sh/api%2Fauth/enrollments/xyz");
+
+    const response = await proxyApiRequest({ API }, request);
+
+    expect(response.status).toBe(404);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("404s a malformed percent-escape rather than guessing", async () => {
+    const { API, fetchMock } = fakeApiBinding(Response.json({ ok: true }));
+    const request = new Request("https://uploads.sh/api/v1/workspaces/acme/files/%");
+
+    const response = await proxyApiRequest({ API }, request);
+
+    expect(response.status).toBe(404);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });
 
 describe("proxyApiRequest — HTTP fallback transport", () => {
@@ -173,6 +203,20 @@ describe("serverApiFetch", () => {
     const forwarded = fetchMock.mock.calls[0]?.[0] as Request;
     expect(forwarded.method).toBe("DELETE");
     expect(forwarded.url).toBe("https://uploads.sh/v1/workspaces/acme/storage");
+  });
+
+  it("does not overwrite a cookie header the caller's init already set (matches serverAuthFetch)", async () => {
+    const { API, fetchMock } = fakeApiBinding(Response.json({ ok: true }));
+    const request = new Request("https://uploads.sh/account/workspaces", {
+      headers: { cookie: "better-auth.session_token=incoming" },
+    });
+
+    await serverApiFetch({ API }, request, "/api/me/workspaces", {
+      headers: { cookie: "better-auth.session_token=caller-set" },
+    });
+
+    const forwarded = fetchMock.mock.calls[0]?.[0] as Request;
+    expect(forwarded.headers.get("cookie")).toBe("better-auth.session_token=caller-set");
   });
 });
 
