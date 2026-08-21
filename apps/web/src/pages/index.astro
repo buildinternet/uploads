@@ -151,6 +151,8 @@ Source (and where to look if something breaks): https://github.com/buildinternet
       }
       .screen {
         padding: 20px 20px 24px;
+        font-family: var(--mono);
+        font-variant-ligatures: none;
         font-size: var(--text-meta);
       }
       .line {
@@ -317,15 +319,26 @@ Source (and where to look if something breaks): https://github.com/buildinternet
          faintest, smallest text inside their own section — below the lede they
          introduced. They now read at heading rank; the shell-comment `#` stays
          and carries the terminal voice, tinted rather than shouted. */
+      /* The shell-comment `#` is voice, not a word in the sentence. At label
+         size it read as a comment marker; blown up to heading size it read as a
+         stray character. It is now a real marker: mono (it is terminal syntax),
+         muted, and optically smaller than the heading it introduces. */
       .sect-head {
+        display: flex;
+        align-items: baseline;
+        gap: 0.45em;
         color: var(--fg);
         font: var(--weight-semibold) var(--text-h2) / var(--leading-heading) var(--sans);
         letter-spacing: var(--tracking-heading);
         text-wrap: balance;
         margin: 0 0 10px 2px;
       }
-      .sect-head::first-letter {
-        color: var(--accent);
+      .sect-head .hash {
+        flex: none;
+        font: var(--weight-regular) var(--text-h3) / 1 var(--mono);
+        color: var(--muted);
+        letter-spacing: 0;
+        user-select: none;
       }
       .sect-lede {
         font: var(--text-body) / var(--leading-body) var(--sans);
@@ -401,15 +414,19 @@ Source (and where to look if something breaks): https://github.com/buildinternet
         display: grid;
         gap: 10px;
       }
+      /* Padded for mono: the command sets in Geist Mono, which runs optically
+         larger than the sans around it, so the row needs a little more air than
+         a sans row of the same size would. The label column is sized to the
+         longest label (PROMPT) rather than left at a round number. */
       .cmdrow {
         display: grid;
-        grid-template-columns: 74px 1fr auto;
+        grid-template-columns: 62px 1fr auto;
         align-items: center;
-        gap: 12px;
+        gap: 14px;
         background: var(--panel);
         border: 1px solid var(--line);
         border-radius: var(--radius-md);
-        padding: 10px 12px;
+        padding: 13px 14px;
       }
       /* Snippet pattern: whole row is the hit target; the real <button>
          keeps keyboard + screen-reader affordance. */
@@ -425,8 +442,12 @@ Source (and where to look if something breaks): https://github.com/buildinternet
         letter-spacing: 0.1em;
         text-transform: uppercase;
       }
+      /* A command you copy and run: mono, explicitly. These used to inherit it
+         from the page body and lost it when the body became sans. */
       .cmdrow .cmdtext {
         color: var(--fg);
+        font-family: var(--mono);
+        font-variant-ligatures: none;
         overflow-x: auto;
         white-space: nowrap;
         scrollbar-width: none;
@@ -704,7 +725,9 @@ Source (and where to look if something breaks): https://github.com/buildinternet
       </p>
 
       <section class="features" aria-label="Features">
-        <h2 class="sect-head"># "Which page was that?"</h2>
+        <h2 class="sect-head">
+          <span class="hash" aria-hidden="true">#</span>“Which page was that?”
+        </h2>
         <p class="sect-lede">
           Attach a path (or anything else) with&#32;
           <code>--meta</code>, then <code>uploads find</code> brings it back.
@@ -736,7 +759,9 @@ Source (and where to look if something breaks): https://github.com/buildinternet
           </p>
         </div>
 
-        <h2 class="sect-head later"># more than file-hosting</h2>
+        <h2 class="sect-head later">
+          <span class="hash" aria-hidden="true">#</span>more than file-hosting
+        </h2>
         <div class="grid">
           <div class="feature">
             <h3>capture and host</h3>
@@ -772,7 +797,7 @@ Source (and where to look if something breaks): https://github.com/buildinternet
       </section>
 
       <section class="install" aria-label="Install commands">
-        <h2 class="sect-head"># get set up</h2>
+        <h2 class="sect-head"><span class="hash" aria-hidden="true">#</span>get set up</h2>
         <div class="rows">
           <div class="cmdrow">
             <span class="tag">cli</span>
