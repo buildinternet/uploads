@@ -27,9 +27,11 @@ import {
 } from "react";
 import { IslandErrorBoundary } from "./IslandErrorBoundary";
 import {
+  getGithubTitles,
   getWorkspaceFilesByPath,
   searchWorkspaceFiles,
   type FilesPathGroup,
+  type GithubTitleMap,
   type LatestShotItem,
   type PathCatalogEntry,
   type PathGroupItem,
@@ -227,6 +229,9 @@ function ShotThumb({
     state?: string;
     ghKind?: string;
     ghNumber?: string;
+    ghRef?: string;
+    updatedAt?: string;
+    uploadedAt?: string;
     metadata?: Record<string, string>;
   };
   /** True when a before/after counterpart sits in the same strip/grid. */
@@ -514,7 +519,15 @@ function FilterBar({
   );
 }
 
-type PreviewCaption = { name: string; pr?: string; kind?: string };
+type PreviewCaption = {
+  name: string;
+  pr?: string;
+  kind?: string;
+  /** `owner/repo#n` — key into the resolved titles map for live PR status. */
+  ref?: string;
+  /** ISO upload time, rendered as a relative "uploaded …" line. */
+  uploadedAt?: string;
+};
 
 type PreviewHandlers = {
   onPreviewEnter: (el: HTMLElement, src: string, caption: PreviewCaption) => void;
@@ -563,7 +576,14 @@ function ScreenshotsByPathInner({
     name: string;
     pr?: string;
     kind?: string;
+    ref?: string;
+    uploadedAt?: string;
   } | null>(null);
+  // Live PR/issue status (open/closed/merged + title) keyed by `owner/repo#n`,
+  // resolved lazily the first time a shot with that ref is hovered. A miss
+  // stays recorded so a null/outage isn't re-fetched on every hover.
+  const [titles, setTitles] = useState<GithubTitleMap>({});
+  const titleFetches = useRef(new Set<string>());
   const [drill, setDrill] = useState<DrillState>({ status: "idle" });
   const [drillRetryNonce, setDrillRetryNonce] = useState(0);
   const [ghState, setGhState] = useState<DrillState>({ status: "loading" });
@@ -766,9 +786,21 @@ function ScreenshotsByPathInner({
     previewTimer.current = null;
     setPreview(null);
   };
+  // Resolve a ref's live PR/issue status once; the pop-over reads `titles`.
+  const ensureTitle = (ref: string | undefined) => {
+    if (!ref || ref in titles || titleFetches.current.has(ref)) return;
+    titleFetches.current.add(ref);
+    void getGithubTitles(apiOrigin, workspace, [ref]).then((map) => {
+      const info = map?.[ref];
+      if (info) setTitles((prev) => ({ ...prev, [ref]: info }));
+    });
+  };
   const onPreviewEnter = (el: HTMLElement, src: string, caption: PreviewCaption) => {
     if (!window.matchMedia("(hover: hover) and (pointer: fine)").matches) return;
     if (previewTimer.current !== null) window.clearTimeout(previewTimer.current);
+    // Prefetch the title now (not inside the timeout) so it's likely resolved
+    // by the time the pop-over appears.
+    ensureTitle(caption.ref);
     const delay = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 250;
     previewTimer.current = window.setTimeout(() => {
       const rect = el.getBoundingClientRect();
@@ -786,6 +818,8 @@ function ScreenshotsByPathInner({
         name: caption.name,
         pr: caption.pr,
         kind: caption.kind,
+        ref: caption.ref,
+        uploadedAt: caption.uploadedAt,
       });
     }, delay);
   };
@@ -867,6 +901,8 @@ function ScreenshotsByPathInner({
       onPickPath={(path) => setView({ ...view, path })}
     />
   ) : null;
+  const previewTitle = preview?.ref ? titles[preview.ref] : undefined;
+  const previewState = previewTitle?.state;
   const previewLayer = preview ? (
     <div
       className="wsp-preview"
@@ -878,7 +914,18 @@ function ScreenshotsByPathInner({
         <div className="wsp-preview__name">{preview.name}</div>
         {preview.pr && (
           <div className="wsp-preview__pr">
+            {previewState && (
+              <span className={`wsp-preview__status wsp-preview__status--${previewState}`}>
+                {previewState}
+              </span>
+            )}
             <GhKindIcon kind={preview.kind} /> {preview.pr}
+          </div>
+        )}
+        {previewTitle?.title && <div className="wsp-preview__title">{previewTitle.title}</div>}
+        {preview.uploadedAt && (
+          <div className="wsp-preview__time">
+            uploaded {lastUpdatedLabel(preview.uploadedAt, new Date())}
           </div>
         )}
       </div>

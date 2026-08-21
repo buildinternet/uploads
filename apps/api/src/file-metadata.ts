@@ -994,6 +994,41 @@ export async function getMetadataForKeys(
 }
 
 /**
+ * Newest `updated_at` per object key (its `MAX(updated_at)` across all metadata
+ * rows) — a stand-in for "when this object was last written". A screenshot
+ * writes all its metadata in one shot at capture (and promotion rewrites its
+ * `path`/`state`/`gh.*` rows together), so this matches the `path`-row time the
+ * by-path `latest` feed already reports as `uploadedAt`. Keys with no metadata
+ * rows are simply absent. Chunked like `getMetadataForKeys` to stay under D1's
+ * bound-parameter limit.
+ */
+export async function getObjectUpdatedAt(
+  db: D1Database,
+  workspace: string,
+  keys: string[],
+): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (keys.length === 0) return out;
+
+  const chunkSize = metadataLookupChunk(1); // workspace bind rides along
+  for (let i = 0; i < keys.length; i += chunkSize) {
+    const chunk = keys.slice(i, i + chunkSize);
+    const placeholders = chunk.map(() => "?").join(", ");
+    const result = await db
+      .prepare(
+        `SELECT object_key, MAX(updated_at) AS updated_at FROM file_metadata
+         WHERE workspace = ? AND object_key IN (${placeholders})
+         GROUP BY object_key`,
+      )
+      .bind(workspace, ...chunk)
+      .all<{ object_key: string; updated_at: string }>();
+    for (const row of result.results) out.set(row.object_key, row.updated_at);
+  }
+
+  return out;
+}
+
+/**
  * Upsert server-owned metadata (`video.*`) without touching user rows.
  * Deliberately not `replaceFileMetadata`: that is delete-then-insert, and this
  * runs *after* it on the upload path — a full replace here would wipe the

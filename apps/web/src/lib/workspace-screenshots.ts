@@ -115,16 +115,31 @@ export function shotPreviewCaption(item: {
   key: string;
   ghKind?: string;
   ghNumber?: string;
+  ghRef?: string;
+  updatedAt?: string;
+  uploadedAt?: string;
   metadata?: Record<string, string>;
-}): { name: string; pr?: string } {
+}): { name: string; pr?: string; ref?: string; uploadedAt?: string } {
   const kind = item.ghKind ?? item.metadata?.["gh.kind"];
   const number = item.ghNumber ?? item.metadata?.["gh.number"];
+  const repo = item.metadata?.["gh.repo"];
+  // Prefer the stored `gh.ref` (already `owner/repo#n`); fall back to
+  // reconstructing it so a shot with only repo+number still resolves a title.
+  const ref =
+    item.ghRef ?? item.metadata?.["gh.ref"] ?? (repo && number ? `${repo}#${number}` : undefined);
+  const uploadedAt = item.updatedAt ?? item.uploadedAt;
   let pr: string | undefined;
   if (number) {
     if (kind === "pull") pr = `PR #${number}`;
     else if (kind === "issue" || kind === "issues") pr = `Issue #${number}`;
   }
-  return pr ? { name: leafName(item.key), pr } : { name: leafName(item.key) };
+  const caption: { name: string; pr?: string; ref?: string; uploadedAt?: string } = {
+    name: leafName(item.key),
+  };
+  if (pr) caption.pr = pr;
+  if (pr && ref) caption.ref = ref;
+  if (uploadedAt) caption.uploadedAt = uploadedAt;
+  return caption;
 }
 
 export function pairedShotKeys(items: Array<{ key: string; state?: string }>): Set<string> {

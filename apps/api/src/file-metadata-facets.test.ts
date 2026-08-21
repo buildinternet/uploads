@@ -6,6 +6,7 @@ import {
   facetKeys,
   facetValues,
   findObjectsByMetadata,
+  getObjectUpdatedAt,
   groupObjectsByPath,
   projectLabelFromMeta,
   BY_PATH_CATALOG_LIMIT,
@@ -505,6 +506,40 @@ describe("findObjectsByMetadata", () => {
       { collapsePromotedShadows: true },
     );
     expect(found.map((f) => f.key)).toEqual(["gh/o/r/pull/703/shot.webp"]);
+  });
+});
+
+describe("getObjectUpdatedAt", () => {
+  it("returns the newest updated_at per object key", async () => {
+    const database = new DatabaseSync(":memory:");
+    database.exec(
+      readFileSync(
+        fileURLToPath(
+          new NodeURL("../migrations/20260713210559_file_metadata.sql", import.meta.url),
+        ),
+        "utf8",
+      ),
+    );
+    const insert = database.prepare(
+      "INSERT INTO file_metadata (workspace, object_key, meta_key, meta_value, updated_at) VALUES (?, ?, ?, ?, ?)",
+    );
+    // Two rows for a.png with different times — MAX wins.
+    insert.run("acme", "a.png", "path", "/x", "2026-08-01T00:00:01.000Z");
+    insert.run("acme", "a.png", "gh.ref", "o/r#7", "2026-08-01T00:00:05.000Z");
+    insert.run("acme", "b.png", "path", "/y", "2026-08-01T00:00:03.000Z");
+    insert.run("other", "c.png", "path", "/z", "2026-08-01T00:00:09.000Z");
+    const dbh = new SQLiteD1(database) as unknown as D1Database;
+
+    const map = await getObjectUpdatedAt(dbh, "acme", ["a.png", "b.png", "c.png"]);
+    expect(map.get("a.png")).toBe("2026-08-01T00:00:05.000Z");
+    expect(map.get("b.png")).toBe("2026-08-01T00:00:03.000Z");
+    // Other workspace's key is never returned; a missing key is simply absent.
+    expect(map.has("c.png")).toBe(false);
+  });
+
+  it("returns an empty map for no keys", async () => {
+    const map = await getObjectUpdatedAt(db([]), "acme", []);
+    expect(map.size).toBe(0);
   });
 });
 

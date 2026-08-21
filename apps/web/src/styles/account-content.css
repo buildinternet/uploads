@@ -2289,6 +2289,48 @@ button.wft-card__name:focus-visible {
   color: var(--muted);
   font: 11.5px var(--mono);
 }
+/* Live PR/issue status pill (open/merged/closed) with a leading dot. */
+.wsp-preview__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, currentColor 35%, transparent);
+  font: 600 10px var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  vertical-align: 1px;
+}
+.wsp-preview__status::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.wsp-preview__status--open {
+  color: oklch(0.72 0.17 150);
+}
+.wsp-preview__status--merged {
+  color: oklch(0.66 0.18 300);
+}
+.wsp-preview__status--closed {
+  color: oklch(0.65 0.2 25);
+}
+.wsp-preview__title {
+  color: var(--fg);
+  font: 11.5px var(--body);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: min(560px, calc(100vw - 24px));
+}
+.wsp-preview__time {
+  color: var(--muted);
+  font: 11px var(--mono);
+}
 @media (prefers-reduced-motion: no-preference) {
   .wsp-preview {
     animation: wsp-preview-in 150ms ease-out;
