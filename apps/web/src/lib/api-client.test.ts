@@ -33,6 +33,29 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+describe("apiOrigin same-origin contract (#731 phase D)", () => {
+  it("builds a same-origin /api/... URL when apiOrigin is the '/api' sentinel", async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL) => Response.json({ workspaces: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await getMyWorkspaces("/api");
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/me/workspaces");
+  });
+
+  it("routes the fetch through a caller-supplied fetchImpl (SSR binding transport)", async () => {
+    const fetchImpl = vi.fn(async (_input: RequestInfo | URL) => Response.json({ workspaces: [] }));
+    const globalFetch = vi.fn();
+    vi.stubGlobal("fetch", globalFetch);
+
+    await getMyWorkspaces("/api", { fetchImpl });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(fetchImpl.mock.calls[0]?.[0]).toBe("/api/me/workspaces");
+    expect(globalFetch).not.toHaveBeenCalled();
+  });
+});
+
 describe("getMyWorkspaces", () => {
   it("preserves a successful empty workspace list", async () => {
     vi.stubGlobal(

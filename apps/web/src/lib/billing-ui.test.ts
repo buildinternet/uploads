@@ -132,6 +132,7 @@ describe("loadBillingPageData", () => {
       "",
       "acme",
       "better-auth.session=abc",
+      undefined,
       authFetchImpl,
     );
 

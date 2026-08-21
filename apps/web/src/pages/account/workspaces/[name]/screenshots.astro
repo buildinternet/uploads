@@ -30,6 +30,7 @@ import { env } from "cloudflare:workers";
 import WorkspaceLayout from "../../../../layouts/WorkspaceLayout.astro";
 import { ScreenshotsByPath, type OverviewState } from "../../../../components/ScreenshotsByPath";
 import { getWorkspaceFilesByPath, getWorkspaceSummary } from "../../../../lib/api-client";
+import { serverApiFetchImpl } from "../../../../lib/api-proxy";
 import { resolveSignedInOrigins } from "../../../../lib/signed-in-page";
 import { isBrowseWorkspace } from "../../../../lib/workspace-browse-url";
 import type { WorkspaceInfoStatus } from "../../../../lib/workspace-file-row";
@@ -46,7 +47,7 @@ const tip = {
   linkLabel: "How grouping works",
 };
 
-const { apiOrigin } = resolveSignedInOrigins(env);
+const { apiOrigin } = resolveSignedInOrigins();
 const cookie = Astro.request.headers.get("cookie") ?? "";
 const initialSearch = Astro.url.search;
 
@@ -54,9 +55,10 @@ let initialInfo: WorkspaceInfoStatus | undefined;
 let initialOverview: OverviewState | undefined;
 
 if (cookie.trim()) {
+  const fetchImpl = serverApiFetchImpl(env, Astro.request);
   const [summary, overview] = await Promise.all([
-    getWorkspaceSummary(apiOrigin, workspace, { cookie }),
-    getWorkspaceFilesByPath(apiOrigin, workspace, { cookie }),
+    getWorkspaceSummary(apiOrigin, workspace, { cookie, fetchImpl }),
+    getWorkspaceFilesByPath(apiOrigin, workspace, { cookie, fetchImpl }),
   ]);
 
   if (summary.kind === "success") {

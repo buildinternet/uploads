@@ -5,6 +5,7 @@
 import BaseHead from "../components/BaseHead.astro";
 import Footer from "../components/Footer.astro";
 import SiteHeader from "../components/SiteHeader.astro";
+import { SAME_ORIGIN_AUTH_BASE } from "../lib/auth-client";
 
 interface Props {
   title: string;
@@ -13,9 +14,7 @@ interface Props {
 }
 const { title, description, path } = Astro.props;
 
-// Same-origin (#731 phase B): browser auth traffic goes through this origin's
-// /api/auth proxy, not a configured auth-worker origin.
-const authOrigin = "";
+const authOrigin = SAME_ORIGIN_AUTH_BASE;
 ---
 
 <html lang="en">

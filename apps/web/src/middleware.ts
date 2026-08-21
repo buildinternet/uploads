@@ -8,13 +8,12 @@
  * resolves the session for first paint).
  */
 import { defineMiddleware } from "astro:middleware";
-import { env } from "cloudflare:workers";
 import { isLocalDemoStack } from "./lib/auth-client";
 import { resolveSignedInOrigins, signedInShellLoginRedirect } from "./lib/signed-in-page";
 
 export const onRequest = defineMiddleware(async (context, next) => {
   const { pathname, search, origin } = context.url;
-  const { authOrigin } = resolveSignedInOrigins(env);
+  const { authOrigin } = resolveSignedInOrigins();
   const target = signedInShellLoginRedirect({
     pathname,
     search,

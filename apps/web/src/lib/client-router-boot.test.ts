@@ -82,7 +82,7 @@ describe("Error page chrome", () => {
     // Full footer (not compact-only under the card) — same chrome as legal pages.
     expect(src).not.toMatch(/<Footer\s+compact/);
     // Same-origin (#731 phase B): no configured-origin fallback chain anymore.
-    expect(src).toContain('const authOrigin = "";');
+    expect(src).toContain("const authOrigin = SAME_ORIGIN_AUTH_BASE;");
   });
 
   it("404 and 500 use ErrorLayout", () => {

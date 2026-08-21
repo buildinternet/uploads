@@ -6,13 +6,18 @@ import {
   renderSessionsHtml,
   renderSignInMethodsHtml,
 } from "../../lib/account-profile-ui";
+import { serverAuthFetchImpl } from "../../lib/auth-proxy";
 import { resolveSignedInOrigins } from "../../lib/signed-in-page";
 import { renderDetailListPlaceholderHtml } from "../../lib/workspace-ui";
 
 export const prerender = false;
 
-const { authOrigin } = resolveSignedInOrigins(env);
-const initial = await loadProfilePageData(authOrigin, Astro.request.headers.get("cookie") ?? "");
+const { authOrigin } = resolveSignedInOrigins();
+const initial = await loadProfilePageData(
+  authOrigin,
+  Astro.request.headers.get("cookie") ?? "",
+  serverAuthFetchImpl(env, Astro.request),
+);
 const accountsReady = initial.accounts !== null;
 const sessionsReady = initial.sessions !== null;
 // A signed-in profile view always has at least the current session, so this

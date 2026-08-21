@@ -1,4 +1,5 @@
-import { CF_RUM_CONNECT_SRC, CF_RUM_SCRIPT_SRC, STYLE_SRC_SELF_AND_INLINE } from "./csp";
+import { CF_RUM_SCRIPT_SRC, STYLE_SRC_SELF_AND_INLINE } from "./csp";
+import { connectSrc } from "./signed-in-page";
 
 // Client model for the standalone public file page (issue #135). Fetched
 // server-side from the API's `GET /public/files/:workspace/:key` — apps/web has
@@ -106,6 +107,12 @@ export function fileDownloadUrl(origin: string, workspace: string, key: string):
 /**
  * File-page CSP. Inline script for Copy-as / Report; `connect-src` includes
  * the API origin for `/v1/abuse` and the auth_required session probe.
+ *
+ * `apiOrigin` is either an absolute origin or the same-origin `"/api"` prefix
+ * (#731 phase D, `resolveSignedInOrigins`'s `SAME_ORIGIN_API_BASE`) — the
+ * latter collapses to `'self'` via `connectSrc`, same rule
+ * `signed-in-page.ts`'s own CSP builders apply (shared rather than
+ * duplicated here).
  */
 export function publicFileCsp(apiOrigin: string): string {
   return [
@@ -115,7 +122,7 @@ export function publicFileCsp(apiOrigin: string): string {
     "font-src 'self'",
     `style-src ${STYLE_SRC_SELF_AND_INLINE}`,
     `script-src 'self' 'unsafe-inline' ${CF_RUM_SCRIPT_SRC}`,
-    `connect-src ${apiOrigin} ${CF_RUM_CONNECT_SRC}`,
+    connectSrc(apiOrigin),
     "base-uri 'none'",
     "form-action 'none'",
     "frame-ancestors 'none'",
