@@ -56,6 +56,7 @@ import {
   resolveWorkspaceInfo,
   type WorkspaceInfoStatus,
 } from "../lib/workspace-file-row";
+import { thumbUrl } from "../lib/thumb-url";
 import {
   normalizeBrowsePath,
   readBrowseLocation,
@@ -234,7 +235,7 @@ function FileThumb({ thumb }: { thumb: ReturnType<typeof pickThumbnail> }) {
       <span className="wft-thumb" aria-hidden="true">
         <img
           className="wft-thumb__img"
-          src={thumb.src}
+          src={thumbUrl(thumb.src, 64)}
           alt=""
           loading="lazy"
           decoding="async"
@@ -1487,7 +1488,7 @@ function WorkspaceFileTableInner({
                   {thumb.kind === "image" ? (
                     <span
                       className="wft-card__img"
-                      style={{ backgroundImage: `url(${thumb.src})` }}
+                      style={{ backgroundImage: `url(${thumbUrl(thumb.src, 560)})` }}
                       aria-hidden="true"
                     />
                   ) : (
