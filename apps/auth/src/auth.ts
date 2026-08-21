@@ -290,6 +290,11 @@ export type AuthEnv = GitHubCredentialsEnv &
     BETTER_AUTH_SECRET_DEV?: string;
     UPL_BETTER_AUTH_SECRET?: import("./secrets").SecretLike;
     WEB_ORIGIN?: string;
+    /** The auth worker's own direct origin (e.g. https://auth.uploads.sh),
+     * used to advertise the OAuth form-POST endpoints off the same-origin
+     * `/api` proxy so Astro's checkOrigin can't 403 them (see #749, and the
+     * discovery-metadata rewrite in src/index.ts). Unset in dev/preview. */
+    AUTH_DIRECT_ORIGIN?: string;
     ENVIRONMENT?: string;
     BETTER_AUTH_TRUSTED_ORIGINS?: string;
     AUTH_RATE_LIMIT_DISABLED?: string;

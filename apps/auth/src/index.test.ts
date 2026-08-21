@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { app } from "./index";
+import { app, rewriteDiscoveryEndpoints } from "./index";
 import { ROBOTS_TXT } from "./robots";
 import type { AuthEnv } from "./auth";
 import { LOCAL_STACK_WEB_ORIGIN } from "./local-demo";
@@ -208,5 +208,79 @@ describe("local demo session", () => {
         .prepare("SELECT role FROM member WHERE organization_id = 'local-dev-demo-org'")
         .all(),
     ).toEqual([{ role: "member" }]);
+  });
+});
+
+const DISCOVERY_META_URL = "https://uploads.sh/api/auth/.well-known/oauth-authorization-server";
+const discoveryMetadata = () => ({
+  issuer: "https://uploads.sh/api/auth",
+  authorization_endpoint: "https://uploads.sh/api/auth/oauth2/authorize",
+  token_endpoint: "https://uploads.sh/api/auth/oauth2/token",
+  registration_endpoint: "https://uploads.sh/api/auth/oauth2/register",
+  introspection_endpoint: "https://uploads.sh/api/auth/oauth2/introspect",
+  revocation_endpoint: "https://uploads.sh/api/auth/oauth2/revoke",
+  jwks_uri: "https://uploads.sh/api/auth/jwks",
+});
+const discoveryEnv = (overrides: Partial<AuthEnv> = {}): AuthEnv => ({
+  DB: {} as unknown as D1Database,
+  BETTER_AUTH_URL: "https://uploads.sh",
+  WEB_ORIGIN: "https://uploads.sh",
+  AUTH_DIRECT_ORIGIN: "https://auth.uploads.sh",
+  ENVIRONMENT: "production",
+  ...overrides,
+});
+const jsonResponse = (body: unknown) =>
+  new Response(JSON.stringify(body), { headers: { "content-type": "application/json" } });
+
+describe("rewriteDiscoveryEndpoints (#749)", () => {
+  const META_URL = DISCOVERY_META_URL;
+  const metadata = discoveryMetadata;
+  const metaEnv = discoveryEnv;
+  const jsonRes = jsonResponse;
+
+  it("moves only the form-POST endpoints to the direct auth origin", async () => {
+    const out = await rewriteDiscoveryEndpoints(META_URL, jsonRes(metadata()), metaEnv());
+    const j = (await out.json()) as Record<string, string>;
+    // Form-POST endpoints move to auth.uploads.sh …
+    expect(j.token_endpoint).toBe("https://auth.uploads.sh/api/auth/oauth2/token");
+    expect(j.introspection_endpoint).toBe("https://auth.uploads.sh/api/auth/oauth2/introspect");
+    expect(j.revocation_endpoint).toBe("https://auth.uploads.sh/api/auth/oauth2/revoke");
+    // … while issuer and the browser/JSON/GET endpoints stay same-origin.
+    expect(j.issuer).toBe("https://uploads.sh/api/auth");
+    expect(j.authorization_endpoint).toBe("https://uploads.sh/api/auth/oauth2/authorize");
+    expect(j.registration_endpoint).toBe("https://uploads.sh/api/auth/oauth2/register");
+    expect(j.jwks_uri).toBe("https://uploads.sh/api/auth/jwks");
+  });
+
+  it("is a no-op when AUTH_DIRECT_ORIGIN is unset (dev/preview)", async () => {
+    const out = await rewriteDiscoveryEndpoints(
+      META_URL,
+      jsonRes(metadata()),
+      metaEnv({ AUTH_DIRECT_ORIGIN: undefined }),
+    );
+    expect(((await out.json()) as Record<string, string>).token_endpoint).toBe(
+      "https://uploads.sh/api/auth/oauth2/token",
+    );
+  });
+
+  it("is a no-op for non-discovery paths (never reads the body)", async () => {
+    const res = jsonRes({ access_token: "x" });
+    const out = await rewriteDiscoveryEndpoints(
+      "https://uploads.sh/api/auth/oauth2/token",
+      res,
+      metaEnv(),
+    );
+    expect(out).toBe(res); // same Response instance, untouched
+  });
+
+  it("is a no-op when the direct origin equals the issuer origin", async () => {
+    const out = await rewriteDiscoveryEndpoints(
+      META_URL,
+      jsonRes(metadata()),
+      metaEnv({ AUTH_DIRECT_ORIGIN: "https://uploads.sh" }),
+    );
+    expect(((await out.json()) as Record<string, string>).token_endpoint).toBe(
+      "https://uploads.sh/api/auth/oauth2/token",
+    );
   });
 });
