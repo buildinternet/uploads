@@ -8,6 +8,7 @@
 import { env } from "cloudflare:workers";
 import AccountLayout from "../../layouts/AccountLayout.astro";
 import { getMyWorkspaces } from "../../lib/api-client";
+import { serverApiFetchImpl } from "../../lib/api-proxy";
 import { resolveSignedInOrigins } from "../../lib/signed-in-page";
 import { isBrowseWorkspace } from "../../lib/workspace-browse-url";
 import { renderWorkspacesPlaceholderHtml } from "../../lib/workspace-ui";
@@ -38,7 +39,10 @@ if (!managing) {
   const { apiOrigin } = resolveSignedInOrigins(env);
   const cookie = Astro.request.headers.get("cookie") ?? "";
   if (cookie.trim()) {
-    const result = await getMyWorkspaces(apiOrigin, { cookie });
+    const result = await getMyWorkspaces(apiOrigin, {
+      cookie,
+      fetchImpl: serverApiFetchImpl(env, Astro.request),
+    });
     if (result.kind === "success" && result.workspaces.length === 1) {
       const only = result.workspaces[0].workspace;
       const to = new URLSearchParams(Astro.url.search).get("to");

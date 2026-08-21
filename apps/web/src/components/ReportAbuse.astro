@@ -4,6 +4,11 @@
  * Posts to POST /v1/abuse on the API origin.
  */
 interface Props {
+  /**
+   * Absolute origin, or the same-origin "/api" prefix (#731 phase D) — either
+   * way a bare string prefix, never fed through `new URL(path, apiOrigin)`
+   * (that constructor requires an absolute base and would throw on "/api").
+   */
   apiOrigin: string;
   pageUrl: string;
   workspace: string;
@@ -120,7 +125,7 @@ const REASONS = [
       status.textContent = "Sending…";
 
       try {
-        const res = await fetch(new URL("/v1/abuse", apiOrigin), {
+        const res = await fetch(apiOrigin.replace(/\/$/, "") + "/v1/abuse", {
           method: "POST",
           headers: { "content-type": "application/json", accept: "application/json" },
           body: JSON.stringify({

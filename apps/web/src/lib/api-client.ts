@@ -9,6 +9,17 @@
 import { fetchWithTimeout, type RequestFailure } from "./request";
 import { buildSearchQuery, type MetaFilter } from "./workspace-search-url";
 
+/**
+ * `apiOrigin` is either an absolute origin (`https://api.uploads.sh`, or a
+ * dev override) or the same-origin path prefix `"/api"` that
+ * `resolveSignedInOrigins` returns in-app (#731 phase D — `signed-in-
+ * page.ts`). Unlike `authOrigin("")` → `""` (auth's templates already bake
+ * in `/api/auth/...`), every template here is a bare `${trimOrigin(apiOrigin)}/v1/...`
+ * with no prefix of its own, so the same-origin sentinel has to carry the
+ * `/api` prefix itself — an empty string would build a request against this
+ * origin's own `/v1/...` route, not the proxy. `trimOrigin` only strips a
+ * trailing slash either way, so `"/api"` needs no special-casing here.
+ */
 function trimOrigin(origin: string): string {
   return origin.replace(/\/$/, "");
 }
@@ -112,11 +123,13 @@ export function parseWorkspaceCreateQuota(value: unknown): WorkspaceCreateQuota 
 /** GET /me/workspaces, preserving an outage rather than rendering it as an empty account. */
 export async function getMyWorkspaces(
   apiOrigin: string,
-  opts?: { cookie?: string },
+  opts?: { cookie?: string; fetchImpl?: typeof fetch },
 ): Promise<WorkspacesResult> {
   const result = await fetchWithTimeout(
     `${trimOrigin(apiOrigin)}/me/workspaces`,
     sessionFetchInit(opts?.cookie),
+    undefined,
+    opts?.fetchImpl,
   );
   if (result.kind === "unavailable") return result;
   const { response } = result;
@@ -186,11 +199,13 @@ export type WorkspaceSummaryResult =
 export async function getWorkspaceSummary(
   apiOrigin: string,
   name: string,
-  opts?: { cookie?: string },
+  opts?: { cookie?: string; fetchImpl?: typeof fetch },
 ): Promise<WorkspaceSummaryResult> {
   const result = await fetchWithTimeout(
     `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(name)}/summary`,
     sessionFetchInit(opts?.cookie),
+    undefined,
+    opts?.fetchImpl,
   );
   if (result.kind === "unavailable") return result;
   const { response } = result;
@@ -217,11 +232,13 @@ async function fetchWorkspaceList<T>(
   segment: string,
   key: string,
   isValid: (value: unknown) => value is T,
-  opts?: { cookie?: string },
+  opts?: { cookie?: string; fetchImpl?: typeof fetch },
 ): Promise<T[]> {
   const result = await fetchWithTimeout(
     `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(name)}/${segment}`,
     sessionFetchInit(opts?.cookie),
+    undefined,
+    opts?.fetchImpl,
   );
   if (result.kind === "unavailable" || !result.response.ok) return [];
   const body = (await result.response.json().catch(() => null)) as Record<string, unknown> | null;
@@ -288,7 +305,7 @@ function isGallerySummary(value: unknown): value is GallerySummary {
 export function getMyWorkspaceGalleries(
   apiOrigin: string,
   name: string,
-  opts?: { cookie?: string },
+  opts?: { cookie?: string; fetchImpl?: typeof fetch },
 ): Promise<GallerySummary[]> {
   return fetchWorkspaceList(apiOrigin, name, "galleries", "galleries", isGallerySummary, opts);
 }
@@ -480,11 +497,13 @@ export type WorkspacePeopleResult =
 export async function getWorkspacePeople(
   apiOrigin: string,
   name: string,
-  opts?: { cookie?: string },
+  opts?: { cookie?: string; fetchImpl?: typeof fetch },
 ): Promise<WorkspacePeopleResult> {
   const result = await fetchWithTimeout(
     `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(name)}/people`,
     sessionFetchInit(opts?.cookie),
+    undefined,
+    opts?.fetchImpl,
   );
   if (result.kind === "unavailable") return result;
   const { response } = result;
@@ -556,11 +575,13 @@ export type WorkspaceBillingResult =
 export async function getWorkspaceBilling(
   apiOrigin: string,
   name: string,
-  opts?: { cookie?: string },
+  opts?: { cookie?: string; fetchImpl?: typeof fetch },
 ): Promise<WorkspaceBillingResult> {
   const result = await fetchWithTimeout(
     `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(name)}/billing`,
     sessionFetchInit(opts?.cookie),
+    undefined,
+    opts?.fetchImpl,
   );
   if (result.kind === "unavailable") return result;
   const { response } = result;
@@ -993,14 +1014,19 @@ function catalogFromGroups(groups: FilesPathGroup[]): PathCatalogEntry[] {
 export async function getWorkspaceFilesByPath(
   apiOrigin: string,
   name: string,
-  opts?: { cookie?: string; merged?: boolean },
+  opts?: { cookie?: string; merged?: boolean; fetchImpl?: typeof fetch },
 ): Promise<FilesByPathResult> {
   // Opt-in "Merged only" filter (persisted PR merge-state tagging) — omitted
   // entirely rather than sent as `merged=0`/`false`, so a default call's URL
   // is unchanged.
   const query = opts?.merged ? "?merged=1" : "";
   const url = `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(name)}/files/by-path${query}`;
-  const result = await fetchWithTimeout(url, sessionFetchInit(opts?.cookie));
+  const result = await fetchWithTimeout(
+    url,
+    sessionFetchInit(opts?.cookie),
+    undefined,
+    opts?.fetchImpl,
+  );
   if (result.kind === "unavailable") return result;
   const { response } = result;
   if (!response.ok) return { kind: "unavailable", reason: "server" };
@@ -1316,11 +1342,13 @@ function sessionFetchInit(cookie?: string): RequestInit {
 /** GET /v1/tokens — workspaces the signed-in user can mint a token for. */
 export async function listMintableWorkspaces(
   apiOrigin: string,
-  opts?: { cookie?: string },
+  opts?: { cookie?: string; fetchImpl?: typeof fetch },
 ): Promise<MintableWorkspace[] | null> {
   const result = await fetchWithTimeout(
     `${trimOrigin(apiOrigin)}/v1/tokens`,
     sessionFetchInit(opts?.cookie),
+    undefined,
+    opts?.fetchImpl,
   );
   if (result.kind === "unavailable" || !result.response.ok) return null;
   const body = await result.response.json().catch(() => undefined);
@@ -1330,11 +1358,13 @@ export async function listMintableWorkspaces(
 /** GET /v1/tokens/issued — tokens this session user minted. */
 export async function listIssuedWorkspaceTokens(
   apiOrigin: string,
-  opts?: { cookie?: string },
+  opts?: { cookie?: string; fetchImpl?: typeof fetch },
 ): Promise<IssuedWorkspaceToken[] | null> {
   const result = await fetchWithTimeout(
     `${trimOrigin(apiOrigin)}/v1/tokens/issued`,
     sessionFetchInit(opts?.cookie),
+    undefined,
+    opts?.fetchImpl,
   );
   if (result.kind === "unavailable" || !result.response.ok) return null;
   const body = await result.response.json().catch(() => undefined);
@@ -1482,7 +1512,13 @@ function toWorkspaceFolderFile(raw: Record<string, unknown>): WorkspaceFolderFil
 export async function listWorkspaceFolder(
   apiOrigin: string,
   workspace: string,
-  opts: { prefix?: string; cursor?: string; limit?: number; cookie?: string } = {},
+  opts: {
+    prefix?: string;
+    cursor?: string;
+    limit?: number;
+    cookie?: string;
+    fetchImpl?: typeof fetch;
+  } = {},
 ): Promise<WorkspaceFolderListing> {
   const params = new URLSearchParams();
   // Always list one folder level at a time — without the delimiter the API
@@ -1494,7 +1530,12 @@ export async function listWorkspaceFolder(
   const query = params.toString();
   const url = `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(workspace)}/files${query ? `?${query}` : ""}`;
 
-  const result = await fetchWithTimeout(url, sessionFetchInit(opts.cookie));
+  const result = await fetchWithTimeout(
+    url,
+    sessionFetchInit(opts.cookie),
+    undefined,
+    opts.fetchImpl,
+  );
   if (result.kind === "unavailable" || !result.response.ok) return emptyFolderListing();
 
   const body = (await result.response.json().catch(() => null)) as {

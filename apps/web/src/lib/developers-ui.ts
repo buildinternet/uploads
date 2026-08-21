@@ -13,11 +13,12 @@ import { escapeHtml } from "./workspace-ui";
 export async function loadDevelopersPageData(
   apiOrigin: string,
   cookie: string,
+  fetchImpl?: typeof fetch,
 ): Promise<{ workspaces: MintableWorkspace[] | null; tokens: IssuedWorkspaceToken[] | null }> {
   if (!cookie.trim()) return { workspaces: null, tokens: null };
   const [workspaces, tokens] = await Promise.all([
-    listMintableWorkspaces(apiOrigin, { cookie }),
-    listIssuedWorkspaceTokens(apiOrigin, { cookie }),
+    listMintableWorkspaces(apiOrigin, { cookie, fetchImpl }),
+    listIssuedWorkspaceTokens(apiOrigin, { cookie, fetchImpl }),
   ]);
   return { workspaces, tokens };
 }

@@ -25,10 +25,10 @@ describe("resolveSignedInOrigins", () => {
     ).toBe("");
   });
 
-  it("leaves apiOrigin resolution untouched (flips in phase D, not now)", () => {
-    expect(resolveSignedInOrigins({}).apiOrigin).toBe("https://api.uploads.sh");
+  it("always resolves the api origin to the same-origin '/api' prefix (#731 phase D), regardless of env", () => {
+    expect(resolveSignedInOrigins({}).apiOrigin).toBe("/api");
     expect(resolveSignedInOrigins({ UPLOADS_API_ORIGIN: "https://api.uploads.sh" }).apiOrigin).toBe(
-      "https://api.uploads.sh",
+      "/api",
     );
   });
 });
@@ -172,6 +172,18 @@ describe("signed-in / auth CSP builders", () => {
 
   it("de-dupes connect-src to a single 'self' when both origins are same-origin", () => {
     const csp = signedInCsp("", "");
+    expect(csp).toContain("connect-src 'self' https://cloudflareinsights.com");
+    expect(csp).not.toContain("'self' 'self'");
+  });
+
+  it("collapses the same-origin api '/api' prefix to 'self' too (#731 phase D)", () => {
+    const csp = devicePageCsp("", "/api");
+    expect(csp).toContain("connect-src 'self' https://cloudflareinsights.com");
+    expect(csp).not.toContain("/api");
+  });
+
+  it("de-dupes connect-src to one 'self' when authOrigin is '' and apiOrigin is '/api'", () => {
+    const csp = signedInCsp("", "/api");
     expect(csp).toContain("connect-src 'self' https://cloudflareinsights.com");
     expect(csp).not.toContain("'self' 'self'");
   });

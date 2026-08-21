@@ -32,6 +32,7 @@ import { env } from "cloudflare:workers";
 import WorkspaceLayout from "../../../../layouts/WorkspaceLayout.astro";
 import { WorkspaceFileTable, type ListingState } from "../../../../components/WorkspaceFileTable";
 import { getWorkspaceSummary, listWorkspaceFolder } from "../../../../lib/api-client";
+import { serverApiFetchImpl } from "../../../../lib/api-proxy";
 import { resolveSignedInOrigins } from "../../../../lib/signed-in-page";
 import { isBrowseWorkspace, readBrowseLocation } from "../../../../lib/workspace-browse-url";
 import { readSearchFilters, readSearchName } from "../../../../lib/workspace-search-url";
@@ -66,9 +67,12 @@ if (cookie.trim()) {
     readSearchFilters(initialSearch).length === 0 &&
     !readSearchName(initialSearch);
 
+  const fetchImpl = serverApiFetchImpl(env, Astro.request);
   const [summary, listing] = await Promise.all([
-    getWorkspaceSummary(apiOrigin, workspace, { cookie }),
-    isDefaultBrowse ? listWorkspaceFolder(apiOrigin, workspace, { cookie }) : Promise.resolve(null),
+    getWorkspaceSummary(apiOrigin, workspace, { cookie, fetchImpl }),
+    isDefaultBrowse
+      ? listWorkspaceFolder(apiOrigin, workspace, { cookie, fetchImpl })
+      : Promise.resolve(null),
   ]);
 
   if (summary.kind === "success") {

@@ -12,6 +12,7 @@ import { env } from "cloudflare:workers";
 import { PLANS } from "@uploads/billing";
 import WorkspaceLayout from "../../../../layouts/WorkspaceLayout.astro";
 import { proxyAuthRequest, type AuthProxyEnv } from "../../../../lib/auth-proxy";
+import { serverApiFetchImpl } from "../../../../lib/api-proxy";
 import {
   loadBillingPageData,
   renderPlanCardBodyHtml,
@@ -49,7 +50,14 @@ const authFetchImpl: typeof fetch = (input, init) =>
     env as AuthProxyEnv,
     new Request(new URL(String(input), Astro.request.url), init),
   );
-const initial = await loadBillingPageData(apiOrigin, authOrigin, workspace, cookie, authFetchImpl);
+const initial = await loadBillingPageData(
+  apiOrigin,
+  authOrigin,
+  workspace,
+  cookie,
+  serverApiFetchImpl(env, Astro.request),
+  authFetchImpl,
+);
 const { billing } = initial;
 const proPriceCopy = formatPrice(initial.proPrice);
 const cta: BillingCtaState = billing
