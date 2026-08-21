@@ -98,6 +98,9 @@ export async function searchFilesByNameAndMeta(
     nameTerm?: string;
     prefix?: string;
     pageSize: number;
+    /** Drop promoted branch originals — the screenshots drill-in (see the
+     * `files/search?collapse=promoted` route). Only affects the metadata path. */
+    collapsePromotedShadows?: boolean;
   },
 ): Promise<{ matches: FileSearchMatch[]; truncated: boolean }> {
   const { nameTerm, pageSize, prefix } = opts;
@@ -109,6 +112,7 @@ export async function searchFilesByNameAndMeta(
     const found = await findObjectsByMetadata(env.DB, workspaceName, filters, {
       prefix,
       limit: fetchLimit,
+      collapsePromotedShadows: opts.collapsePromotedShadows,
     });
     // Truncation is about the D1 window, not the post-name-filter count —
     // a name term can drop every row in the window while more matching-meta
