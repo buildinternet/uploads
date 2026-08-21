@@ -1,5 +1,11 @@
 # @buildinternet/uploads
 
+## 0.46.1
+
+### Patch Changes
+
+- a8b1826: `uploads install` registers the hosted MCP server with Claude Code, Codex, and Grok independently. A CLI that is not installed is skipped instead of failing the MCP step, so the rest of the install still completes.
+
 ## 0.46.0
 
 ### Minor Changes
