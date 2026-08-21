@@ -133,8 +133,9 @@ and creates or updates that same one comment. Both commands run under `npx
 
 Sign in with GitHub or a magic link, then create your own workspace or accept
 an invite into one — see [enrollment](docs/enrollment.md). Hosted files are
-public, including media attached to private repositories. Do not upload secrets
-or sensitive UI.
+public URLs — private-repo attachments get non-guessable links
+([how that works](docs/private-attachments.md)), but anyone holding a URL can
+view the file. Do not upload secrets or sensitive UI.
 
 **Teach your agent the loop.** `uploads install` wires in the agent skills and
 the MCP server, so future sessions capture at each visual milestone on their
@@ -163,50 +164,29 @@ REST routes are in [docs/api.md](docs/api.md).
 
 ## What's in this repo
 
-| Path                           | What                                                                                |
-| ------------------------------ | ----------------------------------------------------------------------------------- |
-| `apps/api/`                    | Hono worker — REST API, deploys to `api.uploads.sh`                                 |
-| `apps/auth/`                   | Better Auth worker — sessions, enrollment, device flow                              |
-| `apps/mcp/`                    | Remote MCP server                                                                   |
-| `apps/web/`                    | Astro site — uploads.sh, account and admin UI                                       |
-| `packages/storage/`            | `@uploads/storage` — files-sdk adapter factory                                      |
-| `packages/uploads/`            | `@buildinternet/uploads` — CLI + client, publishes to npm                           |
-| `packages/ui/`                 | `@uploads/ui` — shared design system                                                |
-| `packages/billing/`            | `@uploads/billing` — plans and limit resolution                                     |
-| `packages/email/`              | `@uploads/email` — transactional email templates                                    |
-| `packages/errors/`             | `@uploads/errors` — shared error codes and wire format                              |
-| `skills/github-screenshots/`   | Workflow skill — visuals into PRs/issues/share links                                |
-| `skills/annotate-screenshots/` | Callouts and redaction — `uploads annotate` / `screenshot --annotate`               |
-| `skills/uploads-cli/`          | Agent skill for driving the CLI                                                     |
-| `hooks/`                       | Shared pre-PR screenshot hook (`uploads hook pre-pr-screenshot`) for Claude + Codex |
-| `plugins/claude/`              | Claude Code plugin config (skills path, MCP, commands)                              |
-| `.claude-plugin/`              | Claude marketplace catalog + plugin manifest                                        |
-| `.codex-plugin/`               | Codex plugin manifest — skills, hosted MCP, and shared hook                         |
-| `.mcp.json`                    | Hosted MCP server for both plugins (`https://agents.uploads.sh/mcp`)                |
-| `assets/logo.png`              | Pixel chevron mark for the Codex / OpenAI plugin listing                            |
+| Path                              | What                                                                                                                                                            |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/`                           | The deployables: the REST API worker (`api.uploads.sh`), the auth worker, the remote MCP server, and the Astro site at uploads.sh                               |
+| `packages/`                       | Shared code — most notably `@buildinternet/uploads` (the CLI, published to npm) and `@uploads/storage` (the files-sdk adapter factory all storage goes through) |
+| `skills/`                         | The three agent skills that ship to users                                                                                                                       |
+| `hooks/`, `plugins/`, `.mcp.json` | Agent-runtime wiring: the shared pre-PR screenshot hook and the Claude / Codex plugin manifests                                                                 |
 
-The workers and web app are separate deployables. All storage access goes
-through `createStorage()` in `packages/storage` — adding a provider is one new
-case plus peer deps, no API changes.
+Each worker and the web app deploy separately. All storage access goes through
+`createStorage()` in `packages/storage` — adding a provider is one new case
+plus peer deps, no API changes.
 
 ## Docs
 
-Product docs live at https://uploads.sh/docs. The map for this folder is [docs/README.md](docs/README.md).
+Product docs — install, the staged loop, the GitHub App, limits — live at
+https://uploads.sh/docs. The docs in this repo are the companion: CLI and API
+reference, contributor setup, and operator material, all mapped from
+[docs/README.md](docs/README.md).
 
-| Doc                                                | Contents                                             |
-| -------------------------------------------------- | ---------------------------------------------------- |
-| [cli](docs/cli.md)                                 | CLI usage, GitHub embeds, keys, galleries            |
-| [api](docs/api.md)                                 | REST routes                                          |
-| [local-dev](docs/local-dev.md)                     | Manual setup, dev stack, smoke tests                 |
-| [enrollment](docs/enrollment.md)                   | Agent login, scopes, expiry, and migration           |
-| [private-attachments](docs/private-attachments.md) | Randomized private-repo attachment URLs and rotation |
-| [roadmap](docs/roadmap.md)                         | Planned features                                     |
-
-How to set up, test, and open a pull request:
-[CONTRIBUTING.md](CONTRIBUTING.md). Agent working conventions live in
-[AGENTS.md](AGENTS.md). Agents that land on this repo should start at
-[llms.txt](llms.txt) (product use vs monorepo contribute). The product site
-serves https://uploads.sh/llms.txt and https://uploads.sh/llms-full.txt.
+How to set up, test, and open a pull request: [CONTRIBUTING.md](CONTRIBUTING.md).
+Where the project is headed: [VISION.md](VISION.md). Agent working conventions
+live in [AGENTS.md](AGENTS.md), and agents that land on this repo should start
+at [llms.txt](llms.txt). The product site serves https://uploads.sh/llms.txt
+and https://uploads.sh/llms-full.txt.
 
 ## Local development
 

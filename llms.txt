@@ -86,7 +86,8 @@ Layout summary (full table in [README.md](README.md#whats-in-this-repo)):
 
 ## Cautions
 
-- Hosted files are **public**, including media attached to private repos.
+- Hosted files are **public URLs**. Private-repo attachments use non-guessable
+  links (docs/private-attachments.md), but anyone holding a URL can view the file.
 - Do not upload secrets, tokens, or sensitive UI.
 - APIs may change while the project is in active development.
 - Operator break-glass `ADMIN_TOKEN` is never for routine agent configs.
