@@ -25,9 +25,13 @@
 ALTER TABLE account ADD COLUMN issuer TEXT;
 UPDATE account SET issuer = 'local:credential' WHERE issuer IS NULL AND provider_id = 'credential';
 UPDATE account SET issuer = 'local:oauth:' || provider_id WHERE issuer IS NULL;
--- Lookup index for findAccountByKey({ issuer, accountId }). Non-unique: a
--- prod dedup audit is required before tightening to UNIQUE (see PR notes).
-CREATE INDEX IF NOT EXISTS idx_account_issuer_account_id ON account (issuer, account_id);
+-- Unique lookup index for findAccountByKey({ issuer, accountId }) — 1.7 keys
+-- account identity on this pair. UNIQUE is safe: a read-only prod audit
+-- (2026-08-21) found all 12 account rows are provider_id='github' with zero
+-- duplicate (provider_id, account_id) pairs, so the backfilled
+-- (issuer, account_id) is already unique. The backfill above runs first, so
+-- no row reaches the index with a NULL issuer.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_account_issuer_account_id ON account (issuer, account_id);
 
 -- ── (2) Device authorization: unique lookup indexes on code columns ──
 -- Dedup first so the UNIQUE indexes can never fail on auto-apply. device_code

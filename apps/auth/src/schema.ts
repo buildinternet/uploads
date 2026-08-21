@@ -125,9 +125,10 @@ export const account = sqliteTable(
   },
   (t) => [
     index("idx_account_user_id").on(t.userId),
-    // findAccountByKey({ issuer, accountId }) — Better Auth 1.7. Non-unique
-    // pending a prod dedup audit before tightening to UNIQUE.
-    index("idx_account_issuer_account_id").on(t.issuer, t.accountId),
+    // findAccountByKey({ issuer, accountId }) — Better Auth 1.7 keys account
+    // identity on this pair. Unique: a prod audit confirmed zero collisions
+    // (migration 20260821120000).
+    uniqueIndex("idx_account_issuer_account_id").on(t.issuer, t.accountId),
   ],
 );
 
