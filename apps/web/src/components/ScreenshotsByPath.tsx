@@ -37,6 +37,7 @@ import {
 } from "../lib/api-client";
 import { loadWorkspaces } from "../lib/workspaces-nav";
 import { resolveWorkspaceInfo, type WorkspaceInfoStatus } from "../lib/workspace-file-row";
+import { thumbUrl } from "../lib/thumb-url";
 import { onSession } from "../lib/account-shell";
 import { makeFileOpener, newTabLinkProps, type FileOpener } from "../lib/file-opener";
 import {
@@ -247,7 +248,7 @@ function ShotThumb({
   const base = shotPreviewCaption(item);
   const caption: PreviewCaption = base.pr ? { ...base, kind: ghKindValue } : base;
 
-  const previewSrc = showImage ? item.embedUrl : null;
+  const previewSrc = showImage ? thumbUrl(item.embedUrl!, 1120) : null;
   const shared = {
     className: "wsp-tile",
     "aria-label": `Open ${name}${stateSuffix}${caption.pr ? ` — ${caption.pr}` : ""}${paired ? " — has before/after pair" : ""}`,
@@ -261,7 +262,7 @@ function ShotThumb({
       {showImage ? (
         <span className="wsp-thumb" aria-hidden="true">
           <img
-            src={item.embedUrl!}
+            src={thumbUrl(item.embedUrl!, 560)}
             alt=""
             loading="lazy"
             decoding="async"
