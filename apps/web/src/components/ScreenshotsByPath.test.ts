@@ -82,6 +82,16 @@ describe("ScreenshotsByPath seed contract — initialSearch provided", () => {
       merged: false,
     });
   });
+
+  it("a deep-linked merged-only view seeds merged true (SSR overview uses this)", () => {
+    expect(readScreenshotsView("?merged=1")).toEqual({
+      project: "",
+      path: "",
+      q: "",
+      feed: "grouped",
+      merged: true,
+    });
+  });
 });
 
 describe("ScreenshotsByPath seed contract — no initialSearch prop (props-less mount)", () => {
