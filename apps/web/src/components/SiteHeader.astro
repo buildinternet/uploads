@@ -7,7 +7,11 @@
  *
  * Left: <Brand /> + optional badge.
  * Right (consistent on every surface): Screenshots (signed-in only) · Docs ·
- * Changelog · Star on GitHub · <AuthIndicator /> (Sign in CTA, or avatar menu).
+ * Star on GitHub · <AuthIndicator /> (Sign in CTA, or avatar menu).
+ *
+ * The nav stays this short on purpose. Changelog lives in the footer under
+ * Resources; it is a thing you go read occasionally, not a place you navigate
+ * to mid-task.
  *
  * The nav marks its own current section with aria-current="page", matching the
  * docs sidebar and the account rail — the header was the one nav on the site
@@ -66,11 +70,6 @@ const inSection = (base: string) => path === base || path.startsWith(base + "/")
           class="site-header__link"
           href="/docs"
           aria-current={inSection("/docs") ? "page" : undefined}>Docs</a
-        >
-        <a
-          class="site-header__link"
-          href="/changelog"
-          aria-current={inSection("/changelog") ? "page" : undefined}>Changelog</a
         >
       </nav>
       <a class="star-cta" href={REPO} aria-label="Star buildinternet/uploads on GitHub">
