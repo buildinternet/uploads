@@ -108,10 +108,12 @@
   border-color: var(--accent);
   outline: none;
 }
+/* One line now: the trigger names the workspace, and the `workspace` section
+   label directly beneath it in the nav already says what kind of thing it is —
+   the trigger's own uppercase subtitle just said it twice. */
 .account-shell nav.side .ws-switcher__body {
   min-width: 0;
   display: grid;
-  gap: 2px;
 }
 .account-shell nav.side .ws-switcher__line1 {
   display: flex;
@@ -127,12 +129,6 @@
   color: var(--fg);
   font-size: var(--text-meta);
   font-weight: var(--weight-semibold);
-}
-.account-shell nav.side .ws-switcher__subtitle {
-  color: var(--muted);
-  font-size: var(--text-micro);
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
 }
 /* Trigger's own Pro badge (workspaces-nav.ts paintTriggerBadge, inserted as
    `label`'s next sibling) — same `.pro-badge` idiom as the menu rows
@@ -363,9 +359,6 @@
   }
   .account-shell nav.side .ws-switcher .ws-switcher__trigger {
     padding: 7px 10px;
-  }
-  .account-shell nav.side .ws-switcher__subtitle {
-    display: none;
   }
   /* Eyebrow labels spend rows without adding meaning at this size. */
   .account-shell nav.side .side-label {

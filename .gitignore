@@ -20,6 +20,12 @@ coverage/
 # and worktree agrees on what is intentionally ignored.
 .impeccable/*
 !.impeccable/config.json
+# Impeccable's setup also writes a GitHub Copilot-flavoured hook registration
+# (see docs/superpowers/specs/2026-07-24-multi-harness-hooks-design.md — the
+# `.github/hooks/` adapter). This repo does not use Copilot hooks; its own live
+# in hooks/hooks.json, and the script that file points at is not installed here,
+# so it is inert. Ignored so a context.mjs run does not dirty the tree.
+.github/hooks/impeccable.json
 # Local agent notes, private plans, pricing scratch (not for the public repo)
 .context/
 .superpowers/

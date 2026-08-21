@@ -151,6 +151,8 @@ Source (and where to look if something breaks): https://github.com/buildinternet
       }
       .screen {
         padding: 20px 20px 24px;
+        font-family: var(--mono);
+        font-variant-ligatures: none;
         font-size: var(--text-meta);
       }
       .line {
@@ -324,9 +326,6 @@ Source (and where to look if something breaks): https://github.com/buildinternet
         text-wrap: balance;
         margin: 0 0 10px 2px;
       }
-      .sect-head::first-letter {
-        color: var(--accent);
-      }
       .sect-lede {
         font: var(--text-body) / var(--leading-body) var(--sans);
         color: var(--body);
@@ -401,15 +400,19 @@ Source (and where to look if something breaks): https://github.com/buildinternet
         display: grid;
         gap: 10px;
       }
+      /* Padded for mono: the command sets in Geist Mono, which runs optically
+         larger than the sans around it, so the row needs a little more air than
+         a sans row of the same size would. The label column is sized to the
+         longest label (PROMPT) rather than left at a round number. */
       .cmdrow {
         display: grid;
-        grid-template-columns: 74px 1fr auto;
+        grid-template-columns: 62px 1fr auto;
         align-items: center;
-        gap: 12px;
+        gap: 14px;
         background: var(--panel);
         border: 1px solid var(--line);
         border-radius: var(--radius-md);
-        padding: 10px 12px;
+        padding: 13px 14px;
       }
       /* Snippet pattern: whole row is the hit target; the real <button>
          keeps keyboard + screen-reader affordance. */
@@ -425,8 +428,12 @@ Source (and where to look if something breaks): https://github.com/buildinternet
         letter-spacing: 0.1em;
         text-transform: uppercase;
       }
+      /* A command you copy and run: mono, explicitly. These used to inherit it
+         from the page body and lost it when the body became sans. */
       .cmdrow .cmdtext {
         color: var(--fg);
+        font-family: var(--mono);
+        font-variant-ligatures: none;
         overflow-x: auto;
         white-space: nowrap;
         scrollbar-width: none;
@@ -704,7 +711,7 @@ Source (and where to look if something breaks): https://github.com/buildinternet
       </p>
 
       <section class="features" aria-label="Features">
-        <h2 class="sect-head"># "Which page was that?"</h2>
+        <h2 class="sect-head">“Which page was that?”</h2>
         <p class="sect-lede">
           Attach a path (or anything else) with&#32;
           <code>--meta</code>, then <code>uploads find</code> brings it back.
@@ -736,17 +743,17 @@ Source (and where to look if something breaks): https://github.com/buildinternet
           </p>
         </div>
 
-        <h2 class="sect-head later"># more than file-hosting</h2>
+        <h2 class="sect-head later">More than file-hosting</h2>
         <div class="grid">
           <div class="feature">
-            <h3>capture and host</h3>
+            <h3>Capture and host</h3>
             <p>
               <code>uploads screenshot &lt;url&gt;</code> captures and hosts in one step, with both local
               and remote browser support.
             </p>
           </div>
           <div class="feature">
-            <h3>point at the change</h3>
+            <h3>Point at the change</h3>
             <p>
               Bake hand-drawn boxes, arrows, labels, and solid redactions into a capture with&#32;
               <code>screenshot --annotate</code> or <code>uploads annotate</code> — so reviewers see what
@@ -754,7 +761,7 @@ Source (and where to look if something breaks): https://github.com/buildinternet
             </p>
           </div>
           <div class="feature">
-            <h3>device frames</h3>
+            <h3>Device frames</h3>
             <p>
               Wrap a raw screenshot in device chrome — phone, browser, or a specific iPhone — with <code
                 >--frame</code
@@ -762,7 +769,7 @@ Source (and where to look if something breaks): https://github.com/buildinternet
             </p>
           </div>
           <div class="feature">
-            <h3>group into a gallery</h3>
+            <h3>Group into a gallery</h3>
             <p>
               Group uploads into a gallery that can live across multiple PRs — one link for the
               whole set that shows linked issues and pull requests.
@@ -772,7 +779,7 @@ Source (and where to look if something breaks): https://github.com/buildinternet
       </section>
 
       <section class="install" aria-label="Install commands">
-        <h2 class="sect-head"># get set up</h2>
+        <h2 class="sect-head">Get set up</h2>
         <div class="rows">
           <div class="cmdrow">
             <span class="tag">cli</span>
@@ -807,7 +814,7 @@ Source (and where to look if something breaks): https://github.com/buildinternet
             <span data-home-cta-icon aria-hidden="true">
               <GitHubMark size={15} />
             </span>
-            <span data-home-cta-label>sign in with GitHub</span>
+            <span data-home-cta-label>Sign in with GitHub</span>
           </a>
           <span class="cta-note" data-home-cta-note
             >free to start in the cloud · open source to self-host</span
@@ -848,12 +855,12 @@ Source (and where to look if something breaks): https://github.com/buildinternet
         if (signedIn) {
           cta.href = workspaceHref();
           if (icon) icon.hidden = true;
-          if (label) label.textContent = "go to workspace";
+          if (label) label.textContent = "Go to workspace";
           if (note) note.hidden = true;
         } else {
           cta.href = "/login";
           if (icon) icon.hidden = false;
-          if (label) label.textContent = "sign in with GitHub";
+          if (label) label.textContent = "Sign in with GitHub";
           if (note) note.hidden = false;
         }
       }
