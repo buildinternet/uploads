@@ -44,6 +44,28 @@ describe("fetchProPrice", () => {
     await expect(fetchProPrice("https://auth.uploads.sh")).resolves.toBeNull();
   });
 
+  it("uses the provided fetchImpl instead of global fetch when given (#731 phase B SSR)", async () => {
+    const globalFetch = vi.fn();
+    vi.stubGlobal("fetch", globalFetch);
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        prices: { pro: { unitAmount: 500, currency: "usd", interval: "month" } },
+      }),
+    });
+
+    await expect(fetchProPrice("", fetchImpl)).resolves.toEqual({
+      unitAmount: 500,
+      currency: "usd",
+      interval: "month",
+    });
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "/billing/prices",
+      expect.not.objectContaining({ credentials: "include" }),
+    );
+    expect(globalFetch).not.toHaveBeenCalled();
+  });
+
   it("returns null on a malformed body", async () => {
     vi.stubGlobal(
       "fetch",

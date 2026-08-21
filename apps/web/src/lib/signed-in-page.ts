@@ -11,8 +11,9 @@ import { resolveConsoleMode } from "./console-mode";
 import { CF_RUM_CONNECT_SRC, CF_RUM_SCRIPT_SRC, STYLE_SRC_SELF_AND_INLINE } from "./csp";
 import { safeSameOriginPath } from "./workspace-ui";
 
+// UPLOADS_AUTH_ORIGIN isn't read here (auth is same-origin, #731 phase B) —
+// only the API origin still varies by environment.
 type OriginEnv = {
-  UPLOADS_AUTH_ORIGIN?: string;
   UPLOADS_API_ORIGIN?: string;
 };
 
@@ -69,14 +70,13 @@ export function resolveSignedInOrigins(env: OriginEnv): {
   // supervisor's values in dev so the CSP and clients point at the workers
   // that are actually running; production is untouched (PUBLIC_* is unset
   // there, so the runtime-env chain below still decides).
-  const devAuth = import.meta.env.DEV ? import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN : undefined;
   const devApi = import.meta.env.DEV ? import.meta.env.PUBLIC_UPLOADS_API_ORIGIN : undefined;
   return {
-    authOrigin:
-      devAuth ??
-      env.UPLOADS_AUTH_ORIGIN ??
-      import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ??
-      "https://auth.uploads.sh",
+    // Same-origin (#731 phase B): browser auth traffic goes through this
+    // origin's /api/auth proxy, not a configured auth-worker origin. The
+    // cookie's Domain scope is unchanged in this phase — only where the
+    // browser sends requests.
+    authOrigin: "",
     apiOrigin:
       devApi ??
       env.UPLOADS_API_ORIGIN ??
@@ -85,11 +85,29 @@ export function resolveSignedInOrigins(env: OriginEnv): {
   };
 }
 
+/**
+ * `origin` for a `connect-src` token: `""` means same-origin (#731 phase B),
+ * which CSP expresses as `'self'` rather than an origin literal.
+ */
+function connectSrcToken(origin: string): string {
+  return origin === "" ? "'self'" : origin;
+}
+
+/**
+ * Builds a `connect-src` directive from one or more origins plus the RUM
+ * allowance, de-duping tokens — `origin === ""` and `CF_RUM_CONNECT_SRC`'s own
+ * `'self'` would otherwise both land in the list.
+ */
+function connectSrc(...origins: string[]): string {
+  const tokens = [...origins.map(connectSrcToken), ...CF_RUM_CONNECT_SRC.split(" ")];
+  return `connect-src ${[...new Set(tokens)].join(" ")}`;
+}
+
 /** Strict CSP used by /account/* and /admin/* (session + API fetches only). */
 export function signedInCsp(authOrigin: string, apiOrigin: string): string {
   return [
     "default-src 'none'",
-    `connect-src ${authOrigin} ${apiOrigin} ${CF_RUM_CONNECT_SRC}`,
+    connectSrc(authOrigin, apiOrigin),
     `script-src 'self' 'unsafe-inline' ${CF_RUM_SCRIPT_SRC}`,
     `style-src ${STYLE_SRC_SELF_AND_INLINE}`,
     "font-src 'self'",
@@ -108,7 +126,7 @@ export function signedInCsp(authOrigin: string, apiOrigin: string): string {
 export function authPageCsp(authOrigin: string): string {
   return [
     "default-src 'none'",
-    `connect-src ${authOrigin} ${CF_RUM_CONNECT_SRC}`,
+    connectSrc(authOrigin),
     // 'self' covers Astro-bundled /_astro/*.js; CF RUM is edge-injected.
     `script-src 'self' 'unsafe-inline' ${CF_RUM_SCRIPT_SRC}`,
     `style-src ${STYLE_SRC_SELF_AND_INLINE}`,
@@ -130,7 +148,7 @@ export function authPageCsp(authOrigin: string): string {
 export function devicePageCsp(authOrigin: string, apiOrigin: string): string {
   return [
     "default-src 'none'",
-    `connect-src ${authOrigin} ${apiOrigin} ${CF_RUM_CONNECT_SRC}`,
+    connectSrc(authOrigin, apiOrigin),
     `script-src 'self' 'unsafe-inline' ${CF_RUM_SCRIPT_SRC}`,
     `style-src ${STYLE_SRC_SELF_AND_INLINE}`,
     "font-src 'self'",

@@ -10,7 +10,8 @@
  * re-boot on `astro:page-load` (ClientRouter).
  */
 import { env } from "cloudflare:workers";
-import { getSession } from "../lib/auth-client";
+import { sessionResultFromResponse, type SessionResult } from "../lib/auth-client";
+import { serverGetSession } from "../lib/auth-proxy";
 import {
   applyAuthSecurityHeaders,
   resolveSignedInOrigins,
@@ -85,7 +86,13 @@ applyAuthSecurityHeaders(Astro.response.headers, signedInCsp(authOrigin, apiOrig
 const sessionCookie = Astro.request.headers.get("cookie") ?? "";
 let serverSessionUserJson: string | null = null;
 if (sessionCookie.trim()) {
-  const session = await getSession(authOrigin, { cookie: sessionCookie });
+  // #731 phase B: resolved over the AUTH binding (env.AUTH, or the HTTP
+  // fallback in astro dev) instead of a fetch to the auth origin — the
+  // binding forwards this request's cookie header itself (see
+  // serverGetSession), so no cookie option is passed here.
+  const session = await serverGetSession(env, Astro.request)
+    .then(sessionResultFromResponse)
+    .catch((): SessionResult => ({ kind: "unavailable", reason: "network" }));
   if (session.kind === "signed_in") {
     // Serialized as a JS object literal (not a quoted string) so names/emails
     // with apostrophes need no quote-escaping; `<` is escaped so a stray

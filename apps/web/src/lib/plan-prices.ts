@@ -8,6 +8,14 @@
  * `unitAmount` in minor units (e.g. cents). This endpoint is being added by a
  * concurrent lane and may 404 until that lands — treated identically to a
  * `null` price so the page never blocks on it or shows a lie ("$NaN").
+ *
+ * `authOrigin` is the same-origin sentinel from `resolveSignedInOrigins`
+ * (#731 phase B) — `""` in the browser (relative `/billing/prices`, served
+ * by this app's own `pages/billing/prices.ts` proxy) or an absolute origin
+ * for any other caller. A browser's own `fetch` resolves a relative URL
+ * against the page origin fine, but a Workers SSR `fetch` has no ambient
+ * origin to resolve against, so SSR callers must pass `fetchImpl` (e.g. a
+ * `proxyAuthRequest`-backed adapter) rather than rely on the default.
  */
 
 export interface PlanPrice {
@@ -47,9 +55,12 @@ function isPlanPrice(value: unknown): value is PlanPrice {
  * it outright, which silently produced this exact "Pro card never shows a
  * price" bug.
  */
-export async function fetchProPrice(authOrigin: string): Promise<PlanPrice | null> {
+export async function fetchProPrice(
+  authOrigin: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<PlanPrice | null> {
   try {
-    const res = await fetch(`${authOrigin.replace(/\/$/, "")}/billing/prices`, {
+    const res = await fetchImpl(`${authOrigin.replace(/\/$/, "")}/billing/prices`, {
       cache: "no-store",
     });
     if (!res.ok) return null;

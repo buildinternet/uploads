@@ -11,6 +11,7 @@
 import { env } from "cloudflare:workers";
 import { PLANS } from "@uploads/billing";
 import WorkspaceLayout from "../../../../layouts/WorkspaceLayout.astro";
+import { proxyAuthRequest, type AuthProxyEnv } from "../../../../lib/auth-proxy";
 import {
   loadBillingPageData,
   renderPlanCardBodyHtml,
@@ -37,7 +38,18 @@ if (!workspace) return Astro.redirect("/account/workspaces");
 // "own region" rule as the galleries/people pages).
 const { authOrigin, apiOrigin } = resolveSignedInOrigins(env);
 const cookie = Astro.request.headers.get("cookie") ?? "";
-const initial = await loadBillingPageData(apiOrigin, authOrigin, workspace, cookie);
+// `fetchProPrice`'s relative `/billing/prices` URL (authOrigin === "", #731
+// phase B) has no ambient origin for a Workers SSR `fetch` to resolve
+// against, unlike a browser's own `fetch`. Route the SSR call through the
+// same auth-proxy transport the browser hits (`pages/billing/prices.ts`)
+// by resolving the relative path against this request's own origin and
+// forwarding it over `proxyAuthRequest`.
+const authFetchImpl: typeof fetch = (input, init) =>
+  proxyAuthRequest(
+    env as AuthProxyEnv,
+    new Request(new URL(String(input), Astro.request.url), init),
+  );
+const initial = await loadBillingPageData(apiOrigin, authOrigin, workspace, cookie, authFetchImpl);
 const { billing } = initial;
 const proPriceCopy = formatPrice(initial.proPrice);
 const cta: BillingCtaState = billing

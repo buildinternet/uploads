@@ -18,10 +18,19 @@
  */
 import { fetchWithTimeout, type RequestFailure } from "./request";
 
-/** Public origin of the auth worker. Falls back to the documented local dev
+/**
+ * Public origin of the auth worker. Falls back to the documented local dev
  * origin (apps/auth's pinned wrangler dev port — see apps/auth/wrangler.jsonc
- * and .dev.vars.example) when UPLOADS_AUTH_ORIGIN isn't set. */
+ * and .dev.vars.example) when unset (`undefined`/omitted).
+ *
+ * `""` is a distinct, deliberate value (#731 phase B): same-origin. Every
+ * caller in this file templates `` `${authOrigin(origin)}/api/auth/...` ``,
+ * so `""` turns that into a same-origin relative URL (`/api/auth/...`) that
+ * hits this origin's `/api/auth/[...path]` proxy instead of the auth worker
+ * directly.
+ */
 export function authOrigin(configuredOrigin?: string): string {
+  if (configuredOrigin === "") return "";
   return (configuredOrigin || "https://auth.uploads.sh").replace(/\/$/, "");
 }
 
@@ -108,9 +117,31 @@ type LocalDemoSessionStart =
   | { kind: "unavailable"; reason: RequestFailure | "server" };
 
 /**
- * GET /api/auth/get-session. A valid no-session response is distinct from an
- * auth timeout, network failure, 503, or malformed response so protected
+ * Parses a get-session HTTP response into the `SessionResult` union: a valid
+ * no-session response (`401`, or a `200` with a `null` body) is distinct from
+ * an outage (non-2xx server error) or a malformed `200` body, so protected
  * pages never send a user to sign in when the service is merely unavailable.
+ *
+ * Shared by `getSession` (browser path, over `fetchWithTimeout`) and
+ * `serverSessionFromRequest` (SSR path, over the `AUTH` binding via
+ * `serverGetSession` — see auth-proxy.ts) so both keep this distinction
+ * identically rather than each parsing the response their own way.
+ */
+export async function sessionResultFromResponse(response: Response): Promise<SessionResult> {
+  if (response.status === 401) return { kind: "signed_out" };
+  if (!response.ok) return { kind: "unavailable", reason: "server" };
+  const body = (await response.json().catch(() => undefined)) as SessionResponse | null | undefined;
+  if (body === null) return { kind: "signed_out" };
+  if (!body || !body.user) return { kind: "unavailable", reason: "malformed" };
+  // Ban clears sessions; if a banned flag still appears, treat as signed out
+  // so shells never paint account chrome for a deactivated user.
+  if (body.user.banned === true) return { kind: "signed_out" };
+  return { kind: "signed_in", session: body };
+}
+
+/**
+ * GET /api/auth/get-session. See `sessionResultFromResponse` for the result
+ * shape and why "no session" and "unavailable" stay distinct.
  *
  * `opts.cookie` lets an Astro frontmatter resolve the session during the
  * server render by forwarding the incoming request's cookie header — a
@@ -128,16 +159,7 @@ export async function getSession(
     ...(opts?.cookie ? { headers: { cookie: opts.cookie } } : {}),
   });
   if (result.kind === "unavailable") return result;
-  const { response } = result;
-  if (response.status === 401) return { kind: "signed_out" };
-  if (!response.ok) return { kind: "unavailable", reason: "server" };
-  const body = (await response.json().catch(() => undefined)) as SessionResponse | null | undefined;
-  if (body === null) return { kind: "signed_out" };
-  if (!body || !body.user) return { kind: "unavailable", reason: "malformed" };
-  // Ban clears sessions; if a banned flag still appears, treat as signed out
-  // so shells never paint account chrome for a deactivated user.
-  if (body.user.banned === true) return { kind: "signed_out" };
-  return { kind: "signed_in", session: body };
+  return sessionResultFromResponse(result.response);
 }
 
 /**
