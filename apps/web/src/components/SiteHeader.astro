@@ -37,9 +37,13 @@ const REPO = "https://github.com/buildinternet/uploads";
 const stars = await githubStarCount();
 
 // Section match, not exact match: /docs/agents should light up "Docs", and
-// /account/workspaces/acme/screenshots should light up "Screenshots". Trailing
-// slashes are normalized so /docs and /docs/ agree.
-const path = Astro.url.pathname.replace(/\/+$/, "") || "/";
+// /account/workspaces/acme/screenshots should light up "Screenshots".
+//
+// Normalize before comparing. Prerendered routes build to files, so at build
+// time this reads "/docs.html" rather than "/docs" — without stripping the
+// extension the section root is the one page that fails to mark itself, while
+// its own children match fine via the startsWith arm.
+const path = Astro.url.pathname.replace(/(?:\/index)?\.html$/, "").replace(/\/+$/, "") || "/";
 const inSection = (base: string) => path === base || path.startsWith(base + "/");
 ---
 
