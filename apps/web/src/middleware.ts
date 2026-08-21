@@ -9,15 +9,17 @@
  */
 import { defineMiddleware } from "astro:middleware";
 import { isLocalDemoStack } from "./lib/auth-client";
-import { resolveSignedInOrigins, signedInShellLoginRedirect } from "./lib/signed-in-page";
+import { signedInShellLoginRedirect } from "./lib/signed-in-page";
 
 export const onRequest = defineMiddleware(async (context, next) => {
   const { pathname, search, origin } = context.url;
-  const { authOrigin } = resolveSignedInOrigins();
   const target = signedInShellLoginRedirect({
     pathname,
     search,
-    allowLocalDemo: isLocalDemoStack(authOrigin, origin),
+    // #731 phase C: same-origin mode means the browser never learns the
+    // auth worker's own origin (authOrigin is always "") — gate on the
+    // request's own origin instead (see isLocalDemoStack's doc comment).
+    allowLocalDemo: isLocalDemoStack(origin),
     hasCookie: Boolean(context.request.headers.get("cookie")?.trim()),
     sessionKind: null,
   });

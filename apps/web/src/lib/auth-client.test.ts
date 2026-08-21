@@ -721,25 +721,39 @@ describe("setOAuthWorkspaceChoice", () => {
 });
 
 describe("isLocalDemoStack", () => {
-  it("matches only the exact loopback pair", () => {
-    expect(isLocalDemoStack("http://127.0.0.1:8788", "http://127.0.0.1:4321")).toBe(true);
-    expect(isLocalDemoStack("http://127.0.0.1:8788/", "http://127.0.0.1:4321/")).toBe(true);
-    expect(isLocalDemoStack("http://localhost:8788", "http://127.0.0.1:4321")).toBe(false);
-    expect(isLocalDemoStack("http://127.0.0.1:8788", "http://localhost:4321")).toBe(false);
-    expect(isLocalDemoStack("https://auth.uploads.sh", "https://uploads.sh")).toBe(false);
+  // #731 phase C: gates on the PAGE origin alone — same-origin mode means
+  // the browser never learns the auth worker's own origin (authOrigin is
+  // always "" post Phase B), so the old auth-origin+page-origin pair check
+  // was permanently false. See the function's doc comment.
+  it("matches the raw stack's pinned loopback web origin", () => {
+    expect(isLocalDemoStack("http://127.0.0.1:4321")).toBe(true);
+    expect(isLocalDemoStack("http://127.0.0.1:4321/")).toBe(true);
+    expect(isLocalDemoStack("http://localhost:4321")).toBe(false);
+  });
+
+  it("matches a portless *.localhost web origin, including worktree-prefixed", () => {
+    expect(isLocalDemoStack("https://uploads.localhost")).toBe(true);
+    expect(isLocalDemoStack("https://fix-ui.uploads.localhost")).toBe(true);
+    expect(isLocalDemoStack("http://uploads.localhost:1355")).toBe(true);
+  });
+
+  it("rejects production and other non-local-stack origins", () => {
+    expect(isLocalDemoStack("https://uploads.sh")).toBe(false);
+    expect(isLocalDemoStack("https://auth.uploads.sh")).toBe(false);
+    expect(isLocalDemoStack("not-a-url")).toBe(false);
   });
 });
 
 describe("startLocalDemoSession", () => {
-  it("uses the gated loopback endpoint only for the exact local stack", async () => {
+  it("uses the gated loopback endpoint only for a recognized local-stack page origin", async () => {
     const fetcher = vi.fn(async () => new Response(null, { status: 200 }));
     vi.stubGlobal("fetch", fetcher);
 
-    await expect(
-      startLocalDemoSession("http://127.0.0.1:8788", "http://127.0.0.1:4321"),
-    ).resolves.toEqual({ kind: "started" });
+    await expect(startLocalDemoSession("", "http://127.0.0.1:4321")).resolves.toEqual({
+      kind: "started",
+    });
     expect(fetcher).toHaveBeenCalledWith(
-      "http://127.0.0.1:8788/api/auth/dev-session",
+      "/api/auth/dev-session",
       expect.objectContaining({
         credentials: "include",
         method: "POST",
@@ -748,9 +762,9 @@ describe("startLocalDemoSession", () => {
       }),
     );
 
-    await expect(
-      startLocalDemoSession("http://localhost:8788", "http://127.0.0.1:4321"),
-    ).resolves.toEqual({ kind: "not_enabled" });
+    await expect(startLocalDemoSession("", "http://localhost:4321")).resolves.toEqual({
+      kind: "not_enabled",
+    });
     expect(fetcher).toHaveBeenCalledOnce();
   });
 
@@ -760,9 +774,10 @@ describe("startLocalDemoSession", () => {
       vi.fn(async () => new Response(null, { status: 503 })),
     );
 
-    await expect(
-      startLocalDemoSession("http://127.0.0.1:8788", "http://127.0.0.1:4321"),
-    ).resolves.toEqual({ kind: "unavailable", reason: "server" });
+    await expect(startLocalDemoSession("", "http://127.0.0.1:4321")).resolves.toEqual({
+      kind: "unavailable",
+      reason: "server",
+    });
   });
 });
 

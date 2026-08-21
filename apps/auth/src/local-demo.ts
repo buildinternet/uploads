@@ -12,34 +12,35 @@ import { and, eq } from "drizzle-orm";
 import type { AuthEnv } from "./auth";
 import * as schema from "./schema";
 
-export const LOCAL_STACK_AUTH_ORIGIN = "http://127.0.0.1:8788";
+/**
+ * The raw (non-portless) local stack's pinned loopback web origin
+ * (scripts/dev-stack.mjs, `PORTLESS=0`). #731 phase C: the auth worker's own
+ * `LOCAL_STACK_AUTH_ORIGIN` (http://127.0.0.1:8788) constant is gone — the
+ * stack now runs the auth worker's `BETTER_AUTH_URL` as this same web
+ * origin (same-origin mode), even though the worker process itself still
+ * listens on its own pinned port. See `isLocalStackWebOrigin` below.
+ */
 export const LOCAL_STACK_WEB_ORIGIN = "http://127.0.0.1:4321";
 
 /**
- * Portless dev origins (see the `portless` skill): the stack runs at
- * https://auth.<name>.localhost / https://<name>.localhost (optionally
- * worktree-prefixed, optionally on the sudo-less proxy port, e.g.
- * http://uploads.localhost:1355). Accept the pair only when the auth host has
- * a shareable `.<name>.localhost` parent and the web host lives under that
- * same parent — the exact property the shared session cookie depends on.
- * `.localhost` names resolve to loopback by spec, so this stays as local-only
- * as the IP-literal pair above.
+ * True for a local-stack WEB origin shape: the raw stack's pinned loopback
+ * port, or a portless `*.localhost` origin (see the `portless` skill —
+ * optionally worktree-prefixed, optionally on the sudo-less proxy port, e.g.
+ * `http://uploads.localhost:1355`). `.localhost` names resolve to loopback
+ * by spec, so this stays as local-only as the IP-literal case.
  */
-function portlessLocalStackOrigins(authUrl: string | undefined, webOrigin: string | undefined) {
-  if (!authUrl || !webOrigin) return false;
-  let auth: URL;
+function isLocalStackWebOrigin(webOrigin: string | undefined): boolean {
+  if (!webOrigin) return false;
+  if (webOrigin === LOCAL_STACK_WEB_ORIGIN) return true;
   let web: URL;
   try {
-    auth = new URL(authUrl);
     web = new URL(webOrigin);
   } catch {
     return false;
   }
-  if (!/^https?:$/.test(auth.protocol) || !/^https?:$/.test(web.protocol)) return false;
-  const parts = auth.hostname.split(".");
-  if (parts.length < 3 || parts.at(-1) !== "localhost") return false;
-  const base = parts.slice(-2).join(".");
-  return web.hostname === base || web.hostname.endsWith("." + base);
+  if (!/^https?:$/.test(web.protocol)) return false;
+  const parts = web.hostname.split(".");
+  return parts.length >= 2 && parts.at(-1) === "localhost";
 }
 
 const DEMO_USER = {
@@ -51,19 +52,18 @@ const DEMO_ORGANIZATION = { id: "local-dev-demo-org", slug: "dev-demo", name: "D
 
 /**
  * The route is deliberately unavailable unless the lifecycle runner explicitly
- * opts in. Loopback-only origin shapes (exact IP-literal pair, or a matched
- * portless `*.localhost` pair) avoid accidentally enabling an identity bypass
- * on a public preview, a real-TLD alias, or a partially configured environment.
+ * opts in. #731 phase C: the dev stack now always runs the auth worker in
+ * same-origin mode (`BETTER_AUTH_URL === WEB_ORIGIN`, mirroring production —
+ * see scripts/dev-stack.mjs), so this requires that equality PLUS a
+ * recognized local-stack web-origin shape (the raw stack's pinned loopback
+ * port, or a portless `*.localhost` origin) — a real-TLD or otherwise
+ * unrecognized origin never enables the bypass, even if it happens to be
+ * same-origin.
  */
 export function localDemoEnabled(env: AuthEnv): boolean {
   if (env.LOCAL_STACK !== "true" || env.ENVIRONMENT !== "development") return false;
-  if (
-    env.BETTER_AUTH_URL === LOCAL_STACK_AUTH_ORIGIN &&
-    env.WEB_ORIGIN === LOCAL_STACK_WEB_ORIGIN
-  ) {
-    return true;
-  }
-  return portlessLocalStackOrigins(env.BETTER_AUTH_URL, env.WEB_ORIGIN);
+  if (!env.BETTER_AUTH_URL || env.BETTER_AUTH_URL !== env.WEB_ORIGIN) return false;
+  return isLocalStackWebOrigin(env.WEB_ORIGIN);
 }
 
 async function ensureDemoIdentity(env: AuthEnv) {

@@ -21,20 +21,24 @@ pnpm typecheck        # wrangler types + tsc across workspaces
 `pnpm dev:stack` runs through [portless](https://npmjs.com/portless), so the
 stack gets stable named `.localhost` origins instead of bare ports:
 
-| Service | URL                              |
-| ------- | -------------------------------- |
-| web     | `https://uploads.localhost`      |
-| auth    | `https://auth.uploads.localhost` |
-| api     | `https://api.uploads.localhost`  |
+| Service | URL                              | Browser-visible?                                            |
+| ------- | -------------------------------- | ----------------------------------------------------------- |
+| web     | `https://uploads.localhost`      | yes — the only origin the browser talks to                  |
+| auth    | `https://auth.uploads.localhost` | no — internal upstream behind web's `/api/auth` proxy       |
+| api     | `https://api.uploads.localhost`  | not yet (phase D moves browser api traffic same-origin too) |
 
-The shared `.uploads.localhost` parent makes local auth work like prod. The
-auth worker sets a Better Auth session cookie, and the browser sends it to web
-and api the same way it sends `.uploads.sh` cookies. So signed-in pages
-(`/account/*`, `/admin/*`) just work in a local browser, including agent browser
-panels. In a linked git worktree, portless prefixes the branch name
-(`fix-ui.uploads.localhost` / `fix-ui.auth.uploads.localhost`); the cookie
-parent still anchors on the last two labels, so nothing else changes.
-`dev:stack` prints the resolved `previewUrl` when ready, and
+All three processes still run — auth and api each get their own named origin
+— but since #731 phase C the browser only ever talks to `uploads.localhost`:
+auth is served same-origin through web's `/api/auth` proxy (mirroring
+production), so `auth.uploads.localhost` is now an internal upstream the web
+worker forwards to, not something a signed-in page's own requests hit
+directly. The Better Auth session cookie is host-only on `uploads.localhost`
+(no shared `.uploads.localhost` parent needed anymore — same shape as prod's
+host-only `uploads.sh` cookie), and signed-in pages (`/account/*`, `/admin/*`)
+just work in a local browser, including agent browser panels. In a linked git
+worktree, portless prefixes the branch name (`fix-ui.uploads.localhost` /
+`fix-ui.auth.uploads.localhost` for the internal upstream); nothing else
+changes. `dev:stack` prints the resolved `previewUrl` when ready, and
 `pnpm dev:stack:check --json` reports it too.
 
 Notes:
@@ -44,16 +48,25 @@ Notes:
   handles both. `pnpm exec portless doctor` diagnoses routing/CA issues, and
   `pnpm exec portless service install` keeps the proxy across reboots.
 - `pnpm dev:stack:raw` (or `PORTLESS=0 pnpm dev:stack`) restores the legacy
-  pinned loopback ports (`127.0.0.1:4321/8787/8788`). This is also the path
-  to use when testing the dev GitHub OAuth app, whose callback is pinned to
-  `http://127.0.0.1:8788/api/auth/callback/github`. The `stack-raw` launch
-  config (.claude/launch.json) boots the same thing with a port-based
-  preview; in portless mode the web port is dynamic, so open the printed
-  `previewUrl` directly instead.
+  pinned loopback ports (`127.0.0.1:4321/8787/8788`) — same-origin mode there
+  too (the auth worker's `BETTER_AUTH_URL` is set to the web origin,
+  `http://127.0.0.1:4321`, even though the worker process itself still
+  listens on its own pinned `:8788`). This raw mode is also the path to use
+  when testing the dev GitHub OAuth app, whose callback is pinned to
+  `http://127.0.0.1:8788/api/auth/callback/github` — note that pinned
+  callback is now a DIFFERENT origin than `BETTER_AUTH_URL`
+  (`http://127.0.0.1:4321`), so Better Auth's derived `redirect_uri` won't
+  match it; day-to-day GitHub sign-in testing should stay on the
+  `dev-session` bypass below, or temporarily point `BETTER_AUTH_URL` back at
+  `http://127.0.0.1:8788` (see `apps/auth/.dev.vars.example`) to exercise the
+  real GitHub OAuth flow. The `stack-raw` launch config (.claude/launch.json)
+  boots the same thing with a port-based preview; in portless mode the web
+  port is dynamic, so open the printed `previewUrl` directly instead.
 - `pnpm dev:stack:oauth` is the named alias for the real-TLD mode below.
 - The zero-input `/api/auth/dev-session` bypass stays fail-closed: it only
-  enables for the exact loopback pair or a matched `*.localhost` pair — never
-  for real-TLD origins.
+  enables for a recognized local-stack web-origin shape (the exact loopback
+  pair or a matched `*.localhost` origin) — never for real-TLD origins, even
+  when they happen to be same-origin.
 
 ### Real-TLD mode for OAuth (`*.uploads.local.buildinternet.dev`)
 
@@ -86,8 +99,12 @@ both TLDs: `sudo portless proxy stop && sudo portless proxy start --https
 `portless service install --tld localhost --tld dev`).
 
 These origins are trusted by the auth worker outside production (https only).
-Register the provider's redirect URI as
-`https://auth.uploads.local.buildinternet.dev/api/auth/callback/<provider>`.
+Same-origin mode applies here too (`BETTER_AUTH_URL` is the web origin), so
+register the provider's redirect URI as
+`https://uploads.local.buildinternet.dev/api/auth/callback/<provider>` — NOT
+the `auth.` subdomain, even though that's where the auth worker's own process
+listens; `auth.uploads.local.buildinternet.dev` is now only the internal
+upstream web forwards `/api/auth/*` to.
 Note the `dev-session` bypass is intentionally unavailable in this mode —
 sign in through the real provider flow you're testing. GitHub accepts
 loopback callbacks, so day-to-day GitHub testing can stay on `PORTLESS=0`

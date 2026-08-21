@@ -110,15 +110,37 @@ export type SessionResult =
   | { kind: "signed_out" }
   | { kind: "unavailable"; reason: RequestFailure | "server" | "malformed" };
 
-const LOCAL_STACK_AUTH_ORIGIN = "http://127.0.0.1:8788";
 const LOCAL_STACK_WEB_ORIGIN = "http://127.0.0.1:4321";
 
-/** True only on the exact loopback pair that may mint a local demo session. */
-export function isLocalDemoStack(authOriginValue: string, pageOrigin: string): boolean {
-  return (
-    authOrigin(authOriginValue) === LOCAL_STACK_AUTH_ORIGIN &&
-    pageOrigin.replace(/\/$/, "") === LOCAL_STACK_WEB_ORIGIN
-  );
+/**
+ * True only when `pageOrigin` is a recognized local-stack web origin: the
+ * raw stack's pinned loopback port, or a portless `*.localhost` origin
+ * (optionally worktree-prefixed, e.g. `https://fix-ui.uploads.localhost`).
+ *
+ * #731 phase C: this used to compare the injected auth origin against its
+ * own pinned loopback port, but Phase B made every injected auth origin `""`
+ * (same-origin) in every environment — that comparison was permanently
+ * false, silently disabling the local demo session everywhere. Same-origin
+ * mode means the browser never learns the auth worker's own origin at all,
+ * so the only signal left to gate on is the PAGE's origin. This is a
+ * convenience check to avoid probing the endpoint outside dev; the auth
+ * worker's `/api/auth/dev-session` route (`apps/auth/src/index.ts`) is the
+ * real, authoritative enforcement — it re-validates the request `Origin`
+ * against `env.WEB_ORIGIN` and `localDemoEnabled`'s own env gate
+ * server-side regardless of what this returns.
+ */
+export function isLocalDemoStack(pageOrigin: string): boolean {
+  const normalized = pageOrigin.replace(/\/$/, "");
+  if (normalized === LOCAL_STACK_WEB_ORIGIN) return true;
+  let url: URL;
+  try {
+    url = new URL(normalized);
+  } catch {
+    return false;
+  }
+  if (!/^https?:$/.test(url.protocol)) return false;
+  const parts = url.hostname.split(".");
+  return parts.length >= 2 && parts.at(-1) === "localhost";
 }
 
 type LocalDemoSessionStart =
@@ -187,7 +209,7 @@ export async function startLocalDemoSession(
   pageOrigin: string,
 ): Promise<LocalDemoSessionStart> {
   const normalizedOrigin = authOrigin(origin);
-  if (!isLocalDemoStack(normalizedOrigin, pageOrigin)) {
+  if (!isLocalDemoStack(pageOrigin)) {
     return { kind: "not_enabled" };
   }
 
