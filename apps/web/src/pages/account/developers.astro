@@ -1,6 +1,7 @@
 ---
 import { env } from "cloudflare:workers";
 import AccountLayout from "../../layouts/AccountLayout.astro";
+import { serverApiFetchImpl } from "../../lib/api-proxy";
 import {
   loadDevelopersPageData,
   renderIssuedTokenListHtml,
@@ -12,7 +13,11 @@ import { renderDetailListPlaceholderHtml } from "../../lib/workspace-ui";
 export const prerender = false;
 
 const { apiOrigin } = resolveSignedInOrigins(env);
-const initial = await loadDevelopersPageData(apiOrigin, Astro.request.headers.get("cookie") ?? "");
+const initial = await loadDevelopersPageData(
+  apiOrigin,
+  Astro.request.headers.get("cookie") ?? "",
+  serverApiFetchImpl(env, Astro.request),
+);
 const workspaceNames = initial.workspaces?.map((row) => row.workspace) ?? [];
 const hasWorkspaces = workspaceNames.length > 0;
 const knownEmpty = initial.workspaces !== null && !hasWorkspaces;

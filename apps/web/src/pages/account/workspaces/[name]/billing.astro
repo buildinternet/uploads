@@ -11,6 +11,7 @@
 import { env } from "cloudflare:workers";
 import { PLANS } from "@uploads/billing";
 import WorkspaceLayout from "../../../../layouts/WorkspaceLayout.astro";
+import { serverApiFetchImpl } from "../../../../lib/api-proxy";
 import {
   loadBillingPageData,
   renderPlanCardBodyHtml,
@@ -37,7 +38,13 @@ if (!workspace) return Astro.redirect("/account/workspaces");
 // "own region" rule as the galleries/people pages).
 const { authOrigin, apiOrigin } = resolveSignedInOrigins(env);
 const cookie = Astro.request.headers.get("cookie") ?? "";
-const initial = await loadBillingPageData(apiOrigin, authOrigin, workspace, cookie);
+const initial = await loadBillingPageData(
+  apiOrigin,
+  authOrigin,
+  workspace,
+  cookie,
+  serverApiFetchImpl(env, Astro.request),
+);
 const { billing } = initial;
 const proPriceCopy = formatPrice(initial.proPrice);
 const cta: BillingCtaState = billing
