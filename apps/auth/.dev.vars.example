@@ -7,15 +7,28 @@
 # Without it, /api/auth/* answers 503 locally. Any string >= 32 chars works.
 BETTER_AUTH_SECRET_DEV=
 
-# Local origin for this worker (port pinned in wrangler.jsonc). Use the
-# 127.0.0.1 IP literal, not localhost: GitHub's OAuth docs recommend loopback
-# IP literals for redirect URLs, and Better Auth derives redirect_uri from
-# this value — the dev GitHub app's callback is
-# http://127.0.0.1:8788/api/auth/callback/github. localhost and 127.0.0.1 are
-# also *different sites* for cookies, so keep the web app on 127.0.0.1 too
+# #731 phase C: this worker's own origin is pinned in wrangler.jsonc (dev
+# port 8788), but BETTER_AUTH_URL is set to the WEB app's origin, not this
+# worker's — same-origin mode, mirroring production (auth served through
+# web's /api/auth proxy). This is what makes deriveCookieDomain (src/auth.ts)
+# emit a host-only cookie locally instead of a `.uploads.sh`-style shared
+# domain. `pnpm dev:stack` also passes this explicitly at runtime, so this
+# value only matters when running `wrangler dev` on this worker directly.
+#
+# Use the 127.0.0.1 IP literal, not localhost: localhost and 127.0.0.1 are
+# *different sites* for cookies, so keep the web app on 127.0.0.1 too
 # (browse http://127.0.0.1:4321, not localhost:4321) or the session cookie
 # becomes cross-site.
-BETTER_AUTH_URL=http://127.0.0.1:8788
+#
+# Caveat: Better Auth derives GitHub's redirect_uri from BETTER_AUTH_URL, so
+# with this value GitHub sign-in would redirect to
+# http://127.0.0.1:4321/api/auth/callback/github — NOT the dev GitHub OAuth
+# app's actual registered callback (http://127.0.0.1:8788/api/auth/callback/
+# github, GitHub OAuth apps allow only one). Rarely exercised locally because
+# the dev-session bypass (LOCAL_STACK, set only by `pnpm dev:stack`) covers
+# most sign-in testing; to exercise real GitHub OAuth locally, temporarily
+# override this back to http://127.0.0.1:8788 (see docs/local-dev.md).
+BETTER_AUTH_URL=http://127.0.0.1:4321
 
 # Web app origin this worker trusts for CORS + magic-link emails.
 WEB_ORIGIN=http://127.0.0.1:4321

@@ -18,13 +18,19 @@ describe("isCliSessionUserAgent", () => {
 });
 
 describe("deriveCookieDomain", () => {
+  // Legacy (differing-host) derivation — pinned with an explicit webOrigin
+  // that differs from betterAuthUrl, so these keep covering the
+  // cross-subdomain-sharing behavior untouched by the #731 same-origin
+  // short-circuit below.
   it("shares the whole apex host for a 2-label domain (no public-suffix leak)", () => {
-    expect(deriveCookieDomain("https://uploads.sh")).toBe(".uploads.sh");
+    expect(deriveCookieDomain("https://uploads.sh", "https://web.uploads.sh")).toBe(".uploads.sh");
   });
 
   it("strips the first label for a 3+-label host", () => {
-    expect(deriveCookieDomain("https://auth.uploads.sh")).toBe(".uploads.sh");
-    expect(deriveCookieDomain("https://api.auth.uploads.sh")).toBe(".auth.uploads.sh");
+    expect(deriveCookieDomain("https://auth.uploads.sh", "https://uploads.sh")).toBe(".uploads.sh");
+    expect(deriveCookieDomain("https://api.auth.uploads.sh", "https://uploads.sh")).toBe(
+      ".auth.uploads.sh",
+    );
   });
 
   it("returns undefined for localhost", () => {
@@ -36,18 +42,30 @@ describe("deriveCookieDomain", () => {
   });
 
   it("anchors the real-TLD portless zone parent across worktree prefixes", () => {
-    expect(deriveCookieDomain("https://auth.uploads.local.buildinternet.dev")).toBe(
-      ".uploads.local.buildinternet.dev",
-    );
-    expect(deriveCookieDomain("https://fix-ui.auth.uploads.local.buildinternet.dev")).toBe(
-      ".uploads.local.buildinternet.dev",
-    );
+    expect(
+      deriveCookieDomain(
+        "https://auth.uploads.local.buildinternet.dev",
+        "https://uploads.local.buildinternet.dev",
+      ),
+    ).toBe(".uploads.local.buildinternet.dev");
+    expect(
+      deriveCookieDomain(
+        "https://fix-ui.auth.uploads.local.buildinternet.dev",
+        "https://uploads.local.buildinternet.dev",
+      ),
+    ).toBe(".uploads.local.buildinternet.dev");
   });
 
   it("shares the last-two-label parent for portless *.localhost hosts", () => {
-    expect(deriveCookieDomain("https://auth.uploads.localhost")).toBe(".uploads.localhost");
-    expect(deriveCookieDomain("http://auth.uploads.localhost:1355")).toBe(".uploads.localhost");
-    expect(deriveCookieDomain("https://fix-ui.auth.uploads.localhost")).toBe(".uploads.localhost");
+    expect(deriveCookieDomain("https://auth.uploads.localhost", "https://uploads.localhost")).toBe(
+      ".uploads.localhost",
+    );
+    expect(
+      deriveCookieDomain("http://auth.uploads.localhost:1355", "http://uploads.localhost:1355"),
+    ).toBe(".uploads.localhost");
+    expect(
+      deriveCookieDomain("https://fix-ui.auth.uploads.localhost", "https://uploads.localhost"),
+    ).toBe(".uploads.localhost");
   });
 
   it("returns undefined for an IP host", () => {
@@ -60,6 +78,22 @@ describe("deriveCookieDomain", () => {
 
   it("returns undefined when the URL is undefined", () => {
     expect(deriveCookieDomain(undefined)).toBeUndefined();
+  });
+
+  // #731 Phase C: same-origin short-circuit.
+  it("returns undefined (host-only) when auth and web share a host", () => {
+    expect(deriveCookieDomain("https://uploads.sh", "https://uploads.sh")).toBeUndefined();
+    expect(
+      deriveCookieDomain("https://uploads.localhost", "https://uploads.localhost"),
+    ).toBeUndefined();
+  });
+
+  it("keeps cross-subdomain behavior when hosts differ", () => {
+    expect(deriveCookieDomain("https://auth.uploads.sh", "https://uploads.sh")).toBe(".uploads.sh");
+  });
+
+  it("ignores an unparseable webOrigin and falls through to legacy derivation", () => {
+    expect(deriveCookieDomain("https://auth.uploads.sh", "not-a-url")).toBe(".uploads.sh");
   });
 });
 

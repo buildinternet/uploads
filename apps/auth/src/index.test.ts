@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { app } from "./index";
 import { ROBOTS_TXT } from "./robots";
 import type { AuthEnv } from "./auth";
-import { LOCAL_STACK_AUTH_ORIGIN, LOCAL_STACK_WEB_ORIGIN } from "./local-demo";
+import { LOCAL_STACK_WEB_ORIGIN } from "./local-demo";
 import { createFakeD1 } from "./test/fake-d1";
 
 function envWithoutSecret(): AuthEnv {
@@ -14,13 +14,17 @@ function envWithoutSecret(): AuthEnv {
   };
 }
 
+// #731 phase C: the dev stack always runs the auth worker in same-origin
+// mode now (BETTER_AUTH_URL === WEB_ORIGIN, mirroring production — see
+// scripts/dev-stack.mjs), so the default local-stack shape here is the raw
+// stack's pinned loopback web origin used for BOTH fields.
 function localEnv(overrides: Partial<AuthEnv> = {}): AuthEnv {
   return {
     DB: createFakeD1(),
     BETTER_AUTH_SECRET_DEV: "x".repeat(32),
     LOCAL_STACK: "true",
     ENVIRONMENT: "development",
-    BETTER_AUTH_URL: LOCAL_STACK_AUTH_ORIGIN,
+    BETTER_AUTH_URL: LOCAL_STACK_WEB_ORIGIN,
     WEB_ORIGIN: LOCAL_STACK_WEB_ORIGIN,
     ...overrides,
   };
@@ -120,7 +124,8 @@ describe("local demo session", () => {
     for (const env of [
       localEnv({ LOCAL_STACK: undefined }),
       localEnv({ ENVIRONMENT: "production" }),
-      localEnv({ BETTER_AUTH_URL: "http://localhost:8788" }),
+      // #731 phase C: same-origin mode requires BETTER_AUTH_URL === WEB_ORIGIN.
+      localEnv({ BETTER_AUTH_URL: "http://localhost:4321" }),
       localEnv({ WEB_ORIGIN: "http://localhost:4321" }),
     ]) {
       const res = await app.request(
@@ -139,20 +144,16 @@ describe("local demo session", () => {
     expect(wrongOrigin.status).toBe(404);
   });
 
-  it("is absent for non-loopback or mismatched portless-style origins", async () => {
+  it("is absent for a same-origin pair that isn't a recognized local-stack web-origin shape", async () => {
     for (const env of [
-      // Real TLD, not `.localhost` — never enables the bypass.
+      // Real TLD, not `.localhost` and not the pinned loopback port — never
+      // enables the bypass, even though BETTER_AUTH_URL === WEB_ORIGIN here.
       localEnv({
-        BETTER_AUTH_URL: "https://auth.local.uploads.sh",
+        BETTER_AUTH_URL: "https://local.uploads.sh",
         WEB_ORIGIN: "https://local.uploads.sh",
       }),
-      // Bare `.localhost` auth host has no shareable parent.
-      localEnv({ BETTER_AUTH_URL: "https://auth.localhost", WEB_ORIGIN: "https://web.localhost" }),
-      // Web host outside the auth host's `.uploads.localhost` parent.
-      localEnv({
-        BETTER_AUTH_URL: "https://auth.uploads.localhost",
-        WEB_ORIGIN: "https://other.localhost",
-      }),
+      // Bare `.localhost` (no subdomain) doesn't match the portless shape.
+      localEnv({ BETTER_AUTH_URL: "https://localhost", WEB_ORIGIN: "https://localhost" }),
     ]) {
       const res = await app.request(
         "/api/auth/dev-session",
@@ -163,17 +164,16 @@ describe("local demo session", () => {
     }
   });
 
-  it("is available for a matched portless *.localhost pair", async () => {
-    const env = localEnv({
-      BETTER_AUTH_URL: "https://auth.uploads.localhost",
-      WEB_ORIGIN: "https://uploads.localhost",
-    });
-    const res = await app.request(
-      "/api/auth/dev-session",
-      { method: "POST", headers: { Origin: "https://uploads.localhost" } },
-      env,
-    );
-    expect(res.status).toBe(200);
+  it("is available for a same-origin portless *.localhost pair, including worktree-prefixed", async () => {
+    for (const webOrigin of ["https://uploads.localhost", "https://fix-ui.uploads.localhost"]) {
+      const env = localEnv({ BETTER_AUTH_URL: webOrigin, WEB_ORIGIN: webOrigin });
+      const res = await app.request(
+        "/api/auth/dev-session",
+        { method: "POST", headers: { Origin: webOrigin } },
+        env,
+      );
+      expect(res.status).toBe(200);
+    }
   });
 
   it("seeds an ordinary member and issues a standard Better Auth session", async () => {

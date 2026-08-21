@@ -40,12 +40,12 @@ diverged.
 Cross-service references (service bindings, origin vars) point at production
 by default, so one preview usually suffices:
 
-| Change                | Preview                | Everything else                                                                                                              |
-| --------------------- | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| Web UI                | `uploads-web` only     | Talks to prod api/auth — realistic, signed out                                                                               |
-| API                   | `uploads-api` only     | Hit its URL with curl or the CLI; writes land in the preview tier; sessions verify against prod auth                         |
-| Cross-app (web + api) | Both                   | Override the web preview's `UPLOADS_API_ORIGIN` var to the api preview's URL                                                 |
-| Auth                  | `uploads-auth`, rarely | Needs a per-preview `BETTER_AUTH_URL` override; magic-link flows only — GitHub OAuth callbacks only cover production origins |
+| Change                | Preview                | Everything else                                                                                                                                                                                                  |
+| --------------------- | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Web UI                | `uploads-web` only     | Talks to prod api/auth — realistic, signed out                                                                                                                                                                   |
+| API                   | `uploads-api` only     | Hit its URL with curl or the CLI; writes land in the preview tier; sessions verify against prod auth                                                                                                             |
+| Cross-app (web + api) | Both                   | Override the web preview's `UPLOADS_API_ORIGIN` var to the api preview's URL                                                                                                                                     |
+| Auth                  | `uploads-auth`, rarely | Needs a per-preview `BETTER_AUTH_URL` override to the WEB preview's origin (#731: same-origin mode — see apps/auth/wrangler.jsonc); magic-link flows only — GitHub OAuth callbacks only cover production origins |
 
 Platform rules that shape this: service bindings always call the bound
 worker's production deployment, and cron triggers, queue consumers, and

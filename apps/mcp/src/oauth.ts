@@ -121,18 +121,29 @@ export interface VerifiedOAuthToken {
 }
 
 export interface OAuthJwtConfig {
-  /** Expected `iss` — `${AUTH_ORIGIN}/api/auth`. jose does an exact match. */
-  issuer: string;
+  /**
+   * Expected `iss` — `${AUTH_ORIGIN}/api/auth`. jose does an exact match
+   * against any of the given values when an array is passed (used during
+   * the #731 phase C migration window to accept both the current and the
+   * legacy pre-flip issuer — see `LEGACY_OAUTH_ISSUER` in index.ts).
+   */
+  issuer: string | string[];
   /** Acceptable `aud` values — this resource's canonical URIs. */
   audience: string[];
-  /** JWKS endpoint. Defaults to `${issuer origin}/api/auth/jwks`. */
+  /** JWKS endpoint. Defaults to `${primary issuer origin}/api/auth/jwks`. */
   jwksUrl?: string;
   /** Test seam: skip the network fetch and cache, verify against this fetcher. */
   jwksFetcher?: JwksFetcher;
 }
 
-function defaultJwksUrl(issuer: string): string {
-  return new URL("/api/auth/jwks", issuer).href;
+/**
+ * JWKS lives at the primary (current) issuer's origin — the signing key
+ * material is shared regardless of which origin minted a given token, so a
+ * legacy-issuer token still verifies against the current JWKS endpoint.
+ */
+function defaultJwksUrl(issuer: string | string[]): string {
+  const primary = Array.isArray(issuer) ? issuer[0] : issuer;
+  return new URL("/api/auth/jwks", primary).href;
 }
 
 /**

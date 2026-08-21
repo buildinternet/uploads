@@ -350,9 +350,29 @@ export async function upsertGithubLogin(
  * A 2-label apex host (e.g. `uploads.sh`) shares the whole host instead of
  * stripping the first label — stripping would yield a bare public suffix
  * (`.sh`), which browsers reject as a cookie domain.
+ *
+ * #731 Phase C: `webOrigin` is the web app's origin (env.WEB_ORIGIN). When it
+ * resolves to the SAME hostname as `betterAuthUrl` — auth is being served
+ * through the web origin's same-origin proxy — the cookie needs no domain
+ * scoping at all; a host-only cookie is both sufficient and strictly safer.
+ * This short-circuits before all the legacy derivation below, which still
+ * governs every differing-host case (auth.uploads.sh serving uploads.sh, the
+ * portless dev stack, etc).
  */
-export function deriveCookieDomain(betterAuthUrl: string | undefined): string | undefined {
+export function deriveCookieDomain(
+  betterAuthUrl: string | undefined,
+  webOrigin?: string,
+): string | undefined {
   if (!betterAuthUrl) return undefined;
+  if (webOrigin) {
+    try {
+      if (new URL(betterAuthUrl).hostname === new URL(webOrigin).hostname) {
+        return undefined; // same-origin mode: host-only session cookie
+      }
+    } catch {
+      // Unparseable webOrigin — fall through to legacy derivation below.
+    }
+  }
   let host: string;
   try {
     host = new URL(betterAuthUrl).hostname;
@@ -393,7 +413,7 @@ function buildAuth(
   const db = drizzle(env.DB, { schema });
   const betterAuthUrl = env.BETTER_AUTH_URL || "https://auth.uploads.sh";
   const webOrigin = env.WEB_ORIGIN || "https://uploads.sh";
-  const cookieDomain = deriveCookieDomain(betterAuthUrl);
+  const cookieDomain = deriveCookieDomain(betterAuthUrl, webOrigin);
   const isProduction = env.ENVIRONMENT === "production";
 
   return betterAuth({

@@ -192,6 +192,27 @@ export async function runSmoke() {
     throw new Error("demo membership did not resolve only the expected dev-demo workspace");
   }
 
+  // #731 phase C (C-2): the two direct-origin checks above prove the
+  // workers themselves are healthy; these two cheaply prove the same-origin
+  // proxy routes web actually serves in prod (uploads.sh/api/auth/*,
+  // uploads.sh/api/*) also work, using the same cookie jar — a regression in
+  // either proxy route wouldn't otherwise be caught by this smoke.
+  const proxiedSession = await request(`${WEB_ORIGIN}/api/auth/get-session`, {}, jar);
+  await requireOk(proxiedSession, "web /api/auth/get-session proxy");
+  const proxiedSessionBody = await proxiedSession.json();
+  if (proxiedSessionBody?.user?.email !== "dev-demo@uploads.local") {
+    throw new Error("web's /api/auth proxy did not return the local demo user");
+  }
+
+  const proxiedWorkspaces = await request(`${WEB_ORIGIN}/api/me/workspaces`, {}, jar);
+  await requireOk(proxiedWorkspaces, "web /api/me/workspaces proxy");
+  const proxiedNames = (await proxiedWorkspaces.json())?.workspaces?.map(
+    (workspace) => workspace.workspace,
+  );
+  if (!Array.isArray(proxiedNames) || !proxiedNames.includes(DEMO_WORKSPACE)) {
+    throw new Error("web's /api proxy did not resolve the expected dev-demo workspace");
+  }
+
   const files = await request(
     `${API_ORIGIN}/me/workspaces/${DEMO_WORKSPACE}/files`,
     { headers: { Origin: WEB_ORIGIN } },

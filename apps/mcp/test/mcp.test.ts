@@ -11,7 +11,7 @@ const TOKEN = "up_test-ws_legacy-token-value";
 const ALPHA_TOKEN = "up_alpha_gallery-test";
 const BETA_TOKEN = "up_beta_gallery-test";
 
-const OAUTH_ISSUER = "https://auth.uploads.sh/api/auth";
+const OAUTH_ISSUER = "https://uploads.sh/api/auth";
 const OAUTH_AUDIENCE = "https://agents.uploads.sh/mcp";
 const OAUTH_KID = "test-key";
 
@@ -568,7 +568,7 @@ describe("mcp worker", () => {
       // Only apps/mcp advertises an AS (issue #224) — it's the only resource
       // server that verifies uploads-auth OAuth JWTs. Defaults to the prod
       // issuer when AUTH_ORIGIN isn't set on the test env.
-      expect(body.authorization_servers).toEqual(["https://auth.uploads.sh/api/auth"]);
+      expect(body.authorization_servers).toEqual(["https://uploads.sh/api/auth"]);
     }
   });
 
@@ -1822,6 +1822,39 @@ describe("OAuth JWT bearer (issue #224)", () => {
     expect(response.headers.get("WWW-Authenticate")).toBe(
       'Bearer error="invalid_token", resource_metadata="https://agents.uploads.sh/.well-known/oauth-protected-resource"',
     );
+  });
+
+  // #731 phase C (C-1): the issuer moved from auth.uploads.sh to uploads.sh —
+  // tokens minted under the old issuer before the flip must keep working
+  // until they expire naturally.
+  it("accepts a JWT minted under the legacy pre-flip issuer (auth.uploads.sh)", async () => {
+    const { env } = await makeEnv();
+    const jwt = await signOAuthToken(
+      { sub: "user-1", workspace: "test-ws", workspaces: ["test-ws"], scope: "files:read" },
+      { issuer: "https://auth.uploads.sh/api/auth" },
+    );
+    const response = await rpc(
+      env,
+      { jsonrpc: "2.0", id: 1, method: "initialize" },
+      jwt,
+      "https://agents.uploads.sh/mcp",
+    );
+    expect(response.status).toBe(200);
+  });
+
+  it("still accepts a JWT minted under the current issuer (uploads.sh)", async () => {
+    const { env } = await makeEnv();
+    const jwt = await signOAuthToken(
+      { sub: "user-1", workspace: "test-ws", workspaces: ["test-ws"], scope: "files:read" },
+      { issuer: OAUTH_ISSUER },
+    );
+    const response = await rpc(
+      env,
+      { jsonrpc: "2.0", id: 1, method: "initialize" },
+      jwt,
+      "https://agents.uploads.sh/mcp",
+    );
+    expect(response.status).toBe(200);
   });
 
   it("401s with a discovery challenge for a bad-audience JWT", async () => {

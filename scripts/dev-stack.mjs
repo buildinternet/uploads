@@ -127,9 +127,15 @@ async function main() {
   const portlessWrap = (name, script) =>
     USE_PORTLESS ? ["exec", "portless", "run", "--name", name, "sh", "-c", script] : null;
 
+  // #731 phase C: BETTER_AUTH_URL is the WEB origin, not this worker's own
+  // AUTH_ORIGIN — the auth worker still binds/listens on AUTH_ORIGIN (see
+  // waitFor below and UPLOADS_AUTH_ORIGIN passed to web further down), but
+  // Better Auth is configured as if it's served through web's same-origin
+  // proxy, so deriveCookieDomain (auth.ts) emits a host-only cookie locally
+  // the same way it will in production.
   const authVars =
     `--var LOCAL_STACK:true --var ENVIRONMENT:development ` +
-    `--var BETTER_AUTH_URL:${AUTH_ORIGIN} --var WEB_ORIGIN:${WEB_ORIGIN}`;
+    `--var BETTER_AUTH_URL:${WEB_ORIGIN} --var WEB_ORIGIN:${WEB_ORIGIN}`;
   start(
     "auth",
     portlessWrap(
@@ -151,7 +157,7 @@ async function main() {
       "--var",
       "ENVIRONMENT:development",
       "--var",
-      `BETTER_AUTH_URL:${AUTH_ORIGIN}`,
+      `BETTER_AUTH_URL:${WEB_ORIGIN}`,
       "--var",
       `WEB_ORIGIN:${WEB_ORIGIN}`,
     ],
