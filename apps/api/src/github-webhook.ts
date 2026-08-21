@@ -209,6 +209,32 @@ async function gatherAndUpsert(env: Env, link: RepoLink, target: GhTarget): Prom
 }
 
 /**
+ * Resolve a repo's bound workspace, or null after cleaning up a stale link —
+ * the shared front half of `autoPromoteAndComment` and
+ * `stampMergedScreenshots` (#326 read/delete-only policy). No link → null; a
+ * missing/tombstoned linked workspace → delete the stale link (so
+ * first-claim-wins never blocks a future claim forever) and return null.
+ * Never creates a link.
+ */
+async function resolveLinkedWorkspaceOrCleanup(
+  env: Env,
+  repo: string,
+): Promise<{
+  link: RepoLink;
+  ws: NonNullable<Awaited<ReturnType<typeof loadWorkspaceRecord>>>;
+} | null> {
+  const link = await findRepoLinkStrict(env.DB, repo);
+  if (!link) return null;
+
+  const ws = await loadWorkspaceRecord(env, link.workspaceName);
+  if (!ws) {
+    await deleteRepoLink(env.DB, repo);
+    return null;
+  }
+  return { link, ws };
+}
+
+/**
  * Webhook-driven auto-promotion for one bound repo/PR. No-ops on: no repo
  * link or a missing/tombstoned linked workspace. Downstream promote/gather/
  * comment failures THROW — the caller decides whether that means a queue
@@ -223,14 +249,9 @@ async function autoPromoteAndComment(
   num: number,
   branch: string,
 ): Promise<void> {
-  const link = await findRepoLinkStrict(env.DB, repo);
-  if (!link) return;
-
-  const ws = await loadWorkspaceRecord(env, link.workspaceName);
-  if (!ws) {
-    await deleteRepoLink(env.DB, repo);
-    return;
-  }
+  const resolved = await resolveLinkedWorkspaceOrCleanup(env, repo);
+  if (!resolved) return;
+  const { link, ws } = resolved;
 
   await promoteBranchAttachments(env, ws, link.workspaceName, { repo, num, branch });
 
@@ -244,8 +265,8 @@ async function autoPromoteAndComment(
 /**
  * Webhook-driven merge tagging for one bound repo/PR (see the module doc
  * above for the `gh.merged`-only, no-`gh.pr-state` rationale). No-ops on: no
- * repo link or a missing/tombstoned linked workspace — same binding
- * resolution and stale-link cleanup as `autoPromoteAndComment`. Finds the
+ * repo link or a missing/tombstoned linked workspace — shares
+ * `resolveLinkedWorkspaceOrCleanup` with `autoPromoteAndComment`. Finds the
  * PR's screenshots by metadata (`gh.ref`/`gh.kind`), not by key prefix, so
  * this covers private-repo `gh/private/<hex>/...` keys too. Stamping is
  * best-effort per shot (log, never throw) — mirrors
@@ -254,14 +275,9 @@ async function autoPromoteAndComment(
  * `autoPromoteAndComment`, so the queue consumer retries the event.
  */
 async function stampMergedScreenshots(env: Env, repo: string, num: number): Promise<void> {
-  const link = await findRepoLinkStrict(env.DB, repo);
-  if (!link) return;
-
-  const ws = await loadWorkspaceRecord(env, link.workspaceName);
-  if (!ws) {
-    await deleteRepoLink(env.DB, repo);
-    return;
-  }
+  const resolved = await resolveLinkedWorkspaceOrCleanup(env, repo);
+  if (!resolved) return;
+  const { link } = resolved;
 
   const [owner, name] = repo.split("/");
   const ref = `${owner}/${name}#${num}`.toLowerCase();
