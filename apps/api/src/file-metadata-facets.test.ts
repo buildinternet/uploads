@@ -399,6 +399,27 @@ describe("groupObjectsByPath", () => {
     });
   });
 
+  // Persisted PR merge-state tagging: opts.mergedOnly keeps only objects
+  // stamped gh.merged=true, and leaves the default (no opts) response
+  // unfiltered — mirrors the promoted-shadow NOT EXISTS clause's shape as an
+  // EXISTS counterpart.
+  it("opts.mergedOnly keeps only gh.merged=true objects; omitted returns all", async () => {
+    const rows = db([
+      { workspace: "acme", key: "a.png", meta: { path: "/p", "gh.merged": "true" } },
+      { workspace: "acme", key: "b.png", meta: { path: "/p" } },
+    ]);
+
+    const unfiltered = await groupObjectsByPath(rows, "acme");
+    expect(unfiltered.groups).toHaveLength(1);
+    expect(unfiltered.groups[0]).toMatchObject({ path: "/p", count: 2 });
+
+    const filtered = await groupObjectsByPath(rows, "acme", { mergedOnly: true });
+    expect(filtered.groups).toHaveLength(1);
+    expect(filtered.groups[0]).toMatchObject({ path: "/p", count: 1 });
+    expect(filtered.groups[0]!.recent).toEqual(["a.png"]);
+    expect(filtered.catalog).toEqual([expect.objectContaining({ path: "/p", count: 1 })]);
+  });
+
   it("splits the same path across projects and summarizes projects", async () => {
     const result = await groupObjectsByPath(
       db([

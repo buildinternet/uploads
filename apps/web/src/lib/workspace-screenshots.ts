@@ -175,9 +175,13 @@ export interface ScreenshotsView {
   path: string;
   q: string;
   feed: ScreenshotsFeed;
+  /** "Merged only" toggle (persisted PR merge-state tagging) — filters both
+   * the grouped overview (`?merged=1` on files/by-path) and the drill-in
+   * (`meta.gh.merged=true`). */
+  merged: boolean;
 }
 
-/** `?project=` / `?path=` / `?q=` / `?view=` state, ""/grouped when absent. */
+/** `?project=` / `?path=` / `?q=` / `?view=` / `?merged=` state, ""/grouped/false when absent. */
 export function readScreenshotsView(search: string): ScreenshotsView {
   const params = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search);
   return {
@@ -185,6 +189,7 @@ export function readScreenshotsView(search: string): ScreenshotsView {
     path: params.get("path") ?? "",
     q: params.get("q") ?? "",
     feed: params.get("view") === "recent" ? "recent" : "grouped",
+    merged: params.get("merged") === "1",
   };
 }
 
@@ -194,12 +199,14 @@ export function screenshotsSearch(
   path: string,
   q = "",
   feed: ScreenshotsFeed = "grouped",
+  merged = false,
 ): string {
   const params = new URLSearchParams();
   if (project) params.set("project", project);
   if (path) params.set("path", path);
   if (q) params.set("q", q);
   if (feed === "recent") params.set("view", "recent");
+  if (merged) params.set("merged", "1");
   const qs = params.toString();
   return qs ? `?${qs}` : "";
 }

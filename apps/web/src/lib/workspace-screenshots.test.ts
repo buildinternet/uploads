@@ -184,6 +184,7 @@ describe("screenshots view URL state", () => {
       path: "/admin",
       q: "/cat",
       feed: "grouped",
+      merged: false,
     });
     expect(screenshotsSearch("acme/web", "/admin", "/cat")).toBe(
       "?project=acme%2Fweb&path=%2Fadmin&q=%2Fcat",
@@ -206,8 +207,20 @@ describe("screenshots view URL state", () => {
       path: "/admin",
       q: "",
       feed: "grouped",
+      merged: false,
     });
     expect(screenshotsSearch("", "/admin")).toBe("?path=%2Fadmin");
+  });
+
+  it("round-trips the merged-only toggle, defaulting to false", () => {
+    expect(readScreenshotsView("?merged=1").merged).toBe(true);
+    expect(readScreenshotsView("?merged=0").merged).toBe(false);
+    expect(readScreenshotsView("").merged).toBe(false);
+    expect(screenshotsSearch("", "", "", "grouped", true)).toBe("?merged=1");
+    expect(screenshotsSearch("", "", "", "grouped", false)).toBe("");
+    expect(screenshotsSearch("acme/web", "", "", "recent", true)).toBe(
+      "?project=acme%2Fweb&view=recent&merged=1",
+    );
   });
 });
 

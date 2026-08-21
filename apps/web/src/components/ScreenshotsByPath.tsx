@@ -368,18 +368,22 @@ function FilterBar({
   q,
   path,
   feed,
+  merged,
   projects,
   catalog,
   onProject,
   onQuery,
   onFeed,
   onPickPath,
+  onMerged,
 }: {
   project: string;
   q: string;
   /** Exact drill-in path, shown in the input so editing it widens the filter. */
   path: string;
   feed: ScreenshotsFeed;
+  /** "Merged only" toggle (persisted PR merge-state tagging). */
+  merged: boolean;
   projects: string[];
   /** Path catalog backing the input's autocomplete suggestions. */
   catalog: PathCatalogEntry[];
@@ -387,6 +391,7 @@ function FilterBar({
   onQuery: (q: string) => void;
   onFeed: (feed: ScreenshotsFeed) => void;
   onPickPath: (path: string) => void;
+  onMerged: (merged: boolean) => void;
 }) {
   const options = project && !projects.includes(project) ? [...projects, project] : projects;
   const [suggestOpen, setSuggestOpen] = useState(false);
@@ -515,6 +520,18 @@ function FilterBar({
           Recent
         </button>
       </div>
+      {/* Persisted PR merge-state tagging: filters both the drill-in
+          (meta.gh.merged=true) and the grouped overview (?merged=1). */}
+      <div className="wsp-toggle" role="group" aria-label="Merge filter">
+        <button
+          type="button"
+          className="wsp-toggle__opt"
+          aria-pressed={merged}
+          onClick={() => onMerged(!merged)}
+        >
+          Merged only
+        </button>
+      </div>
     </div>
   );
 }
@@ -609,12 +626,12 @@ function ScreenshotsByPathInner({
     };
   }, [apiOrigin, workspace, infoRetryNonce]);
 
-  // Overview fetch, once per mount/workspace/retry.
+  // Overview fetch, once per mount/workspace/retry/merged-toggle.
   useEffect(() => {
     let cancelled = false;
     setOverview({ status: "loading" });
     onSession(() => {
-      void getWorkspaceFilesByPath(apiOrigin, workspace).then((result) => {
+      void getWorkspaceFilesByPath(apiOrigin, workspace, { merged: view.merged }).then((result) => {
         if (cancelled) return;
         setOverview(
           result.kind === "ok"
@@ -634,7 +651,7 @@ function ScreenshotsByPathInner({
     return () => {
       cancelled = true;
     };
-  }, [apiOrigin, workspace, overviewRetryNonce]);
+  }, [apiOrigin, workspace, overviewRetryNonce, view.merged]);
 
   // GitHub-mirrored screenshots ("From GitHub" section), fetched in parallel
   // with the by-path overview. A failure here must never block or break the
@@ -667,7 +684,8 @@ function ScreenshotsByPathInner({
     history.replaceState(
       null,
       "",
-      window.location.pathname + screenshotsSearch(view.project, view.path, view.q, view.feed),
+      window.location.pathname +
+        screenshotsSearch(view.project, view.path, view.q, view.feed, view.merged),
     );
     if (!view.path) {
       setDrill({ status: "idle" });
@@ -676,9 +694,17 @@ function ScreenshotsByPathInner({
     let cancelled = false;
     setDrill({ status: "loading" });
     onSession(() => {
-      void searchWorkspaceFiles(apiOrigin, workspace, [{ key: "path", value: view.path }], {
-        collapsePromoted: true,
-      }).then((result) => {
+      void searchWorkspaceFiles(
+        apiOrigin,
+        workspace,
+        [
+          { key: "path", value: view.path },
+          // "Merged only" toggle (persisted PR merge-state tagging): gh.merged
+          // is a normal ANDed metadata filter, same as any other meta.* term.
+          ...(view.merged ? [{ key: "gh.merged", value: "true" }] : []),
+        ],
+        { collapsePromoted: true },
+      ).then((result) => {
         if (cancelled) return;
         setDrill(
           result.kind === "ok"
@@ -690,7 +716,16 @@ function ScreenshotsByPathInner({
     return () => {
       cancelled = true;
     };
-  }, [apiOrigin, workspace, view.project, view.path, view.q, view.feed, drillRetryNonce]);
+  }, [
+    apiOrigin,
+    workspace,
+    view.project,
+    view.path,
+    view.q,
+    view.feed,
+    view.merged,
+    drillRetryNonce,
+  ]);
 
   // Thumb backfill for groups past the overview's 50-group thumbed cap:
   // filtering (especially by project) surfaces catalog paths whose group got
@@ -871,6 +906,7 @@ function ScreenshotsByPathInner({
   const setProject = (project: string) => setView({ ...view, project, path: "" });
   const setQuery = (q: string) => setView({ ...view, path: "", q });
   const setFeed = (feed: ScreenshotsFeed) => setView({ ...view, path: "", feed });
+  const setMerged = (merged: boolean) => setView({ ...view, merged });
 
   // GitHub items bucketed by project label, for both the overview's
   // per-project strips and the project view's full "From GitHub" section.
@@ -886,19 +922,25 @@ function ScreenshotsByPathInner({
     (label) => !overview.projects.some((p) => p.label === label),
   );
   const projectLabels = [...overview.projects.map((p) => p.label), ...ghOnlyLabels];
-  const showFilter = projectLabels.length > 0 || overview.catalog.length > 0;
+  // `view.merged` keeps the bar (and its toggle) visible even when the
+  // merged-only filter itself narrows the catalog to nothing — otherwise a
+  // workspace with no merged shots would hide the only control that can turn
+  // the filter back off.
+  const showFilter = projectLabels.length > 0 || overview.catalog.length > 0 || view.merged;
   const filterBar = showFilter ? (
     <FilterBar
       project={view.project}
       q={view.q}
       path={view.path}
       feed={view.feed}
+      merged={view.merged}
       projects={projectLabels}
       catalog={overview.catalog}
       onProject={setProject}
       onQuery={setQuery}
       onFeed={setFeed}
       onPickPath={(path) => setView({ ...view, path })}
+      onMerged={setMerged}
     />
   ) : null;
   const previewTitle = preview?.ref ? titles[preview.ref] : undefined;
@@ -1025,12 +1067,14 @@ function ScreenshotsByPathInner({
       <div className="wsp">
         {filterBar}
         {latestItems.length === 0 ? (
-          overview.latest.length === 0 && overview.catalog.length === 0 ? (
+          !view.merged && overview.latest.length === 0 && overview.catalog.length === 0 ? (
             <EmptyShotsCta title="No screenshots yet" />
           ) : (
             <p className="wft-end">
               {overview.latest.length === 0
-                ? "No recent uploads to show."
+                ? view.merged
+                  ? "No merged uploads to show."
+                  : "No recent uploads to show."
                 : "No recent uploads match this filter."}
             </p>
           )
@@ -1094,9 +1138,14 @@ function ScreenshotsByPathInner({
     ].filter(sectionHasContent);
   }
 
-  const isEmptyWorkspace = overview.catalog.length === 0 && ghByProject.size === 0;
+  // `view.merged` excluded from `isEmptyWorkspace`: an empty catalog under
+  // the merged-only filter means "no merged shots yet", not "no screenshots
+  // ever uploaded" — that's the filtered-empty message below, not the CLI CTA.
+  const isEmptyWorkspace = !view.merged && overview.catalog.length === 0 && ghByProject.size === 0;
   const isEmptyFilter = !isEmptyWorkspace && sectionLabels.length === 0;
-  let emptyFilterMessage = "No screenshots for this project.";
+  let emptyFilterMessage = view.merged
+    ? "No merged screenshots for this project yet."
+    : "No screenshots for this project.";
   if (qTrim) {
     emptyFilterMessage = overview.catalogTruncated
       ? `No paths matching ${qTrim} in the most active set.`

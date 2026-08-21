@@ -205,8 +205,12 @@ export const workspaceFiles = new Hono<DualAuthVars>()
   .get("/:workspace/files/by-path", dualWorkspaceAuth(), scoped("files:read"), async (c) => {
     const record = c.get("workspace");
     const name = c.get("workspaceName");
+    // Opt-in "Merged only" filter (Screenshots page toggle) — leaves the
+    // default (unfiltered) overview and general `meta.gh.merged=` search
+    // semantics untouched.
+    const mergedOnly = c.req.query("merged") === "1";
     const { groups, catalog, projects, latest, truncated, catalogTruncated } =
-      await groupObjectsByPath(c.env.DB, name);
+      await groupObjectsByPath(c.env.DB, name, { mergedOnly });
     const shotKeys = [
       ...groups.flatMap((group) => group.recent),
       ...latest.map((item) => item.key),

@@ -44,7 +44,13 @@ import { readScreenshotsView } from "../lib/workspace-screenshots";
  */
 describe("ScreenshotsByPath seed contract — initialSearch provided", () => {
   it("a default overview (empty search) seeds an empty project, path, and q", () => {
-    expect(readScreenshotsView("")).toEqual({ project: "", path: "", q: "", feed: "grouped" });
+    expect(readScreenshotsView("")).toEqual({
+      project: "",
+      path: "",
+      q: "",
+      feed: "grouped",
+      merged: false,
+    });
   });
 
   it("a deep-linked project view seeds that project, no path", () => {
@@ -53,6 +59,7 @@ describe("ScreenshotsByPath seed contract — initialSearch provided", () => {
       path: "",
       q: "",
       feed: "grouped",
+      merged: false,
     });
   });
 
@@ -62,6 +69,7 @@ describe("ScreenshotsByPath seed contract — initialSearch provided", () => {
       path: "/admin",
       q: "",
       feed: "grouped",
+      merged: false,
     });
   });
 
@@ -71,6 +79,7 @@ describe("ScreenshotsByPath seed contract — initialSearch provided", () => {
       path: "",
       q: "/catalog",
       feed: "grouped",
+      merged: false,
     });
   });
 });
@@ -90,6 +99,7 @@ describe("ScreenshotsByPath seed contract — no initialSearch prop (props-less 
       path: "",
       q: "",
       feed: "grouped",
+      merged: false,
     });
   });
 });
