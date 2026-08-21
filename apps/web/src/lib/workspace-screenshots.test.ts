@@ -98,6 +98,50 @@ describe("lastUpdatedLabel", () => {
   });
 });
 
+describe("shotPreviewCaption", () => {
+  it("returns just the filename for a non-GitHub shot", () => {
+    expect(shotPreviewCaption({ key: "gh/o/r/pull/7/home.webp" })).toEqual({ name: "home.webp" });
+  });
+
+  it("adds a PR line + ref + upload time from top-level fields", () => {
+    expect(
+      shotPreviewCaption({
+        key: "gh/o/r/pull/7/home.webp",
+        ghKind: "pull",
+        ghNumber: "7",
+        ghRef: "o/r#7",
+        updatedAt: "2026-08-01T00:00:00.000Z",
+      }),
+    ).toEqual({
+      name: "home.webp",
+      pr: "PR #7",
+      ref: "o/r#7",
+      uploadedAt: "2026-08-01T00:00:00.000Z",
+    });
+  });
+
+  it("reads gh.* from metadata and reconstructs a missing ref from repo+number", () => {
+    expect(
+      shotPreviewCaption({
+        key: "gh/o/r/pull/7/home.webp",
+        metadata: { "gh.kind": "pull", "gh.number": "7", "gh.repo": "o/r" },
+      }),
+    ).toMatchObject({ pr: "PR #7", ref: "o/r#7" });
+  });
+
+  it("prefers updatedAt over uploadedAt, and omits ref when there is no PR", () => {
+    const cap = shotPreviewCaption({
+      key: "shot.webp",
+      ghRef: "o/r#7",
+      updatedAt: "2026-08-02T00:00:00.000Z",
+      uploadedAt: "2026-08-01T00:00:00.000Z",
+    });
+    expect(cap.uploadedAt).toBe("2026-08-02T00:00:00.000Z");
+    expect(cap.ref).toBeUndefined();
+    expect(cap.pr).toBeUndefined();
+  });
+});
+
 describe("projectLabelFromItemMeta", () => {
   // Pinned to the same cases as apps/api projectLabelFromMeta — keep in sync.
   it("prefers repo over gh.repo over url origin", () => {

@@ -806,6 +806,8 @@ export interface SearchFileItem {
   metadata: Record<string, string>;
   /** Public `/f/` file-page URL when present (issue #308). */
   pageUrl?: string;
+  /** Newest metadata-write time — the shot's upload time for the pop-over. */
+  updatedAt?: string;
 }
 
 export type SearchFilesResult =
@@ -821,7 +823,8 @@ function isSearchFileItem(value: unknown): value is SearchFileItem {
     (item.embedUrl === null || typeof item.embedUrl === "string") &&
     typeof item.metadata === "object" &&
     item.metadata !== null &&
-    (item.pageUrl === undefined || typeof item.pageUrl === "string")
+    (item.pageUrl === undefined || typeof item.pageUrl === "string") &&
+    (item.updatedAt === undefined || typeof item.updatedAt === "string")
   );
 }
 
@@ -868,6 +871,10 @@ export interface PathGroupItem {
   /** Present only when the file is attached to a GitHub PR/issue. */
   ghKind?: string;
   ghNumber?: string;
+  /** `owner/repo#n` — lets the pop-over resolve live PR/issue status. */
+  ghRef?: string;
+  /** Newest metadata-write time — the shot's upload time for the pop-over. */
+  updatedAt?: string;
 }
 
 /** One `path` metadata value with its recent uploads. */
@@ -922,7 +929,9 @@ function isPathGroupItem(value: unknown): value is PathGroupItem {
     (item.embedUrl === null || typeof item.embedUrl === "string") &&
     (item.state === undefined || typeof item.state === "string") &&
     (item.ghKind === undefined || typeof item.ghKind === "string") &&
-    (item.ghNumber === undefined || typeof item.ghNumber === "string")
+    (item.ghNumber === undefined || typeof item.ghNumber === "string") &&
+    (item.ghRef === undefined || typeof item.ghRef === "string") &&
+    (item.updatedAt === undefined || typeof item.updatedAt === "string")
   );
 }
 

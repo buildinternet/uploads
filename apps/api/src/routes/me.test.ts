@@ -1651,7 +1651,7 @@ describe("GET /me/workspaces/:name/files/search", () => {
     );
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
-      items: { key: string; url: string; metadata: Record<string, string> }[];
+      items: { key: string; url: string; metadata: Record<string, string>; updatedAt?: string }[];
       truncated: boolean;
     };
     expect(body.truncated).toBe(false);
@@ -1660,6 +1660,8 @@ describe("GET /me/workspaces/:name/files/search", () => {
       key: "f/x/shot.png",
       url: "https://storage.uploads.sh/acme/f/x/shot.png",
     });
+    // Upload time rides along so the screenshots drill-in pop-over can show it.
+    expect(typeof body.items[0]!.updatedAt).toBe("string");
   });
 
   it("rejects a repeated filter key with file_metadata_duplicate_filter", async () => {
@@ -1809,7 +1811,13 @@ describe("GET /me/workspaces/:name/files/by-path", () => {
       {
         workspace: "acme",
         key: "shots/a.png",
-        meta: { path: "/settings", state: "after", "gh.kind": "pull", "gh.number": "42" },
+        meta: {
+          path: "/settings",
+          state: "after",
+          "gh.kind": "pull",
+          "gh.number": "42",
+          "gh.ref": "acme/web#42",
+        },
       },
       { workspace: "acme", key: "shots/b.png", meta: { path: "/settings" } },
       { workspace: "acme", key: "shots/c.png", meta: { app: "web" } },
@@ -1829,6 +1837,8 @@ describe("GET /me/workspaces/:name/files/by-path", () => {
           state?: string;
           ghKind?: string;
           ghNumber?: string;
+          ghRef?: string;
+          updatedAt?: string;
         }[];
       }[];
       catalog: { project: string; path: string; count: number; lastUpdated: string }[];
@@ -1849,11 +1859,16 @@ describe("GET /me/workspaces/:name/files/by-path", () => {
       state: "after",
       ghKind: "pull",
       ghNumber: "42",
+      ghRef: "acme/web#42",
     });
+    // Every shot carries an upload time for the pop-over.
+    expect(typeof byKey["shots/a.png"]!.updatedAt).toBe("string");
+    expect(typeof byKey["shots/b.png"]!.updatedAt).toBe("string");
     // `state` / gh fields are present only when set — no empty-string placeholder.
     expect(byKey["shots/b.png"]).not.toHaveProperty("state");
     expect(byKey["shots/b.png"]).not.toHaveProperty("ghKind");
     expect(byKey["shots/b.png"]).not.toHaveProperty("ghNumber");
+    expect(byKey["shots/b.png"]).not.toHaveProperty("ghRef");
   });
 
   it("labels groups with a project and returns the projects summary", async () => {

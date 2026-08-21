@@ -38,7 +38,12 @@ import {
 } from "../dual-workspace-auth";
 import { respondError } from "../error-response";
 import { badKey, deleteObject, listObjects, setObjectVisibility } from "../files-core";
-import { getMetadataForKeys, groupObjectsByPath, listFacets } from "../file-metadata";
+import {
+  getMetadataForKeys,
+  getObjectUpdatedAt,
+  groupObjectsByPath,
+  listFacets,
+} from "../file-metadata";
 import {
   normalizeSearchName,
   parseMetaQueryFilters,
@@ -158,11 +163,25 @@ export const workspaceFiles = new Hono<DualAuthVars>()
       pageSize,
       collapsePromotedShadows,
     });
+    // Upload time per match so the screenshots drill-in pop-over can show it
+    // (the grouped by-path route surfaces the same via `updatedAt`).
+    const updatedByKey = await getObjectUpdatedAt(
+      c.env.DB,
+      name,
+      matches.map((m) => m.key),
+    );
 
     return c.json({
       items: matches.map((match) => {
         const urls = objectPublicUrls(c.env, cfg, match.key);
-        return { key: match.key, url: urls.url, embedUrl: urls.embedUrl, metadata: match.metadata };
+        const updatedAt = updatedByKey.get(match.key);
+        return {
+          key: match.key,
+          url: urls.url,
+          embedUrl: urls.embedUrl,
+          metadata: match.metadata,
+          ...(updatedAt !== undefined ? { updatedAt } : {}),
+        };
       }),
       truncated,
     });
@@ -188,12 +207,17 @@ export const workspaceFiles = new Hono<DualAuthVars>()
     const name = c.get("workspaceName");
     const { groups, catalog, projects, latest, truncated, catalogTruncated } =
       await groupObjectsByPath(c.env.DB, name);
-    const metaByKey = await getMetadataForKeys(
-      c.env.DB,
-      name,
-      [...groups.flatMap((group) => group.recent), ...latest.map((item) => item.key)],
-      { metaKeys: ["state", "gh.kind", "gh.number"] },
-    );
+    const shotKeys = [
+      ...groups.flatMap((group) => group.recent),
+      ...latest.map((item) => item.key),
+    ];
+    // `gh.ref` lets the pop-over resolve live PR/issue status via /github/titles;
+    // `updatedAt` gives it the shot's upload time (the `latest` feed already
+    // carries `uploadedAt`, this brings the same to the grouped `recent` strips).
+    const metaByKey = await getMetadataForKeys(c.env.DB, name, shotKeys, {
+      metaKeys: ["state", "gh.kind", "gh.number", "gh.ref"],
+    });
+    const updatedByKey = await getObjectUpdatedAt(c.env.DB, name, shotKeys);
     const cfg = await storageConfig(c.env, record);
     const shotItem = (key: string) => {
       const urls = objectPublicUrls(c.env, cfg, key);
@@ -201,6 +225,8 @@ export const workspaceFiles = new Hono<DualAuthVars>()
       const state = meta?.state;
       const ghKind = meta?.["gh.kind"];
       const ghNumber = meta?.["gh.number"];
+      const ghRef = meta?.["gh.ref"];
+      const updatedAt = updatedByKey.get(key);
       return {
         key,
         url: urls.url,
@@ -208,6 +234,8 @@ export const workspaceFiles = new Hono<DualAuthVars>()
         ...(state !== undefined ? { state } : {}),
         ...(ghKind !== undefined ? { ghKind } : {}),
         ...(ghNumber !== undefined ? { ghNumber } : {}),
+        ...(ghRef !== undefined ? { ghRef } : {}),
+        ...(updatedAt !== undefined ? { updatedAt } : {}),
       };
     };
 
