@@ -13,20 +13,20 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@better-auth/infra": "^0.3.6",
-    "@better-auth/oauth-provider": "^1.6.23",
-    "@better-auth/stripe": "^1.6.23",
+    "@better-auth/infra": "^0.4.1",
+    "@better-auth/oauth-provider": "^1.7.1",
+    "@better-auth/stripe": "^1.7.1",
     "@uploads/billing": "workspace:^",
     "@uploads/email": "workspace:^",
-    "better-auth": "^1.6.23",
+    "better-auth": "^1.7.1",
     "drizzle-orm": "^0.45.2",
-    "hono": "^4.12.28",
+    "hono": "^4.13.3",
     "stripe": "^22.3.2"
   },
   "devDependencies": {
     "@types/node": "^26.1.0",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10",
-    "wrangler": "^4.110.0"
+    "wrangler": "^4.125.0"
   }
 }

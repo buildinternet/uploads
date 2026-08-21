@@ -20,13 +20,13 @@
     "@uploads/api": "workspace:^",
     "@uploads/errors": "workspace:^",
     "@uploads/storage": "workspace:^",
-    "hono": "^4.12.28",
+    "hono": "^4.13.3",
     "jose": "^6.2.3"
   },
   "devDependencies": {
     "@types/node": "^26.1.0",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10",
-    "wrangler": "^4.107.0"
+    "wrangler": "^4.125.0"
   }
 }
