@@ -41,7 +41,8 @@ body {
   flex-direction: column;
   background: var(--bg);
   color: var(--fg);
-  font: 14px/1.6 var(--mono);
+  font: var(--text-ui) / var(--leading-ui) var(--sans);
+  letter-spacing: var(--tracking-ui);
   font-variant-ligatures: none;
   font-feature-settings:
     "calt" 0,
@@ -64,7 +65,8 @@ code {
   border: 1px solid var(--line);
   border-radius: 5px;
   padding: 1px 6px;
-  font-size: 0.9em;
+  font-family: var(--mono);
+  font-size: var(--mono-optical);
 }
 [hidden] {
   display: none !important;
@@ -123,7 +125,7 @@ code {
 a.button {
   display: inline-block;
   margin-top: 12px;
-  font: 12px var(--mono);
+  font: var(--text-micro) var(--sans);
   color: var(--accent);
   text-decoration: none;
   border: 1px solid var(--line);
@@ -156,7 +158,7 @@ nav.side a {
   border: 1px solid transparent;
   color: var(--muted);
   text-decoration: none;
-  font-size: 13px;
+  font-size: var(--text-meta);
 }
 nav.side a:hover {
   color: var(--fg);
@@ -175,7 +177,7 @@ nav.side .side-label {
   display: block;
   padding: 8px 12px 4px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--text-micro);
   letter-spacing: 0.08em;
   text-transform: uppercase;
   user-select: none;
@@ -210,7 +212,7 @@ nav.side .side-nested-item {
   border: 1px solid transparent;
   color: var(--muted);
   text-decoration: none;
-  font-size: 12px;
+  font-size: var(--text-micro);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -225,7 +227,7 @@ nav.side .side-nested-item[aria-current="true"] {
   border-color: var(--line);
 }
 nav.side .side-nested-item.side-nested-subitem {
-  font-size: 11px;
+  font-size: var(--text-micro);
   padding: 5px 9px;
 }
 nav.side .side-nested-item.side-new {
@@ -244,11 +246,11 @@ nav.side .side-foot {
   gap: 4px;
 }
 nav.side .side-foot a {
-  font-size: 12px;
+  font-size: var(--text-micro);
 }
 nav.side button {
   text-align: left;
-  font: 12px var(--mono);
+  font: var(--text-micro) var(--sans);
   color: var(--muted);
   background: none;
   border: 1px solid transparent;
@@ -275,13 +277,13 @@ section.card {
 }
 section.card h2 {
   margin: 0 0 6px;
-  font-size: 0.95rem;
-  font-weight: 600;
+  font-size: var(--text-body);
+  font-weight: var(--weight-semibold);
 }
 section.card p {
   color: var(--body);
   margin: 8px 0 0;
-  font-size: 13px;
+  font-size: var(--text-meta);
 }
 p.muted,
 span.muted {
@@ -289,7 +291,7 @@ span.muted {
 }
 .pill {
   display: inline-block;
-  font-size: 11px;
+  font-size: var(--text-micro);
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--accent);

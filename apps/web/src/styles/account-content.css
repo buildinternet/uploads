@@ -24,15 +24,15 @@
   border-radius: 999px;
   background: var(--fg);
   color: var(--bg);
-  font-size: 11px;
-  font-weight: 600;
+  font-size: var(--text-micro);
+  font-weight: var(--weight-semibold);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
 .plan-card__name {
   margin: 0;
-  font-size: 15px;
-  font-weight: 600;
+  font-size: var(--text-body);
+  font-weight: var(--weight-semibold);
 }
 
 /* Compact "Pro" marker shown outside the billing tab (issue #365 follow-up)
@@ -45,20 +45,20 @@
   border-radius: 999px;
   border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--line));
   color: var(--accent);
-  font-size: 10px;
-  font-weight: 600;
+  font-size: var(--text-micro);
+  font-weight: var(--weight-semibold);
   text-transform: uppercase;
   letter-spacing: 0.04em;
   line-height: 1.4;
 }
 .plan-card__price {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--text-meta);
   color: var(--muted);
 }
 .plan-card__blurb {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--text-meta);
 }
 .plan-card__limits {
   margin: 4px 0 0;
@@ -66,7 +66,7 @@
   list-style: none;
   display: grid;
   gap: 4px;
-  font-size: 12px;
+  font-size: var(--text-micro);
 }
 .plan-card__cta {
   margin-top: auto;
@@ -76,7 +76,7 @@
    (same recipe as the invite-form submit) instead of native browser chrome. */
 .plan-card__cta,
 #ws-manage-billing-btn {
-  font: 12px var(--mono);
+  font: var(--text-micro) var(--sans);
   letter-spacing: 0.03em;
   color: var(--accent);
   border: 1px solid var(--line);
@@ -119,7 +119,7 @@ section.card.settings-page h2 {
 .settings-note {
   margin: 0 0 12px;
   max-width: 36rem;
-  font-size: 13px;
+  font-size: var(--text-meta);
   text-wrap: pretty;
 }
 .settings-section > .settings-note:last-child {
@@ -150,12 +150,12 @@ ul.dev-links li {
   border-right: 0;
   border-bottom: 0;
   border-radius: 0;
-  font-size: 13px;
+  font-size: var(--text-meta);
 }
 ul.dev-links a {
   color: var(--fg);
   text-decoration: none;
-  font-weight: 500;
+  font-weight: var(--weight-medium);
 }
 ul.dev-links a:hover,
 ul.dev-links a:focus-visible {
@@ -164,7 +164,7 @@ ul.dev-links a:focus-visible {
 }
 ul.dev-links .slug {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-micro);
 }
 .settings-note a {
   text-underline-offset: 0.15em;
@@ -175,14 +175,14 @@ ul.dev-links .slug {
   grid-template-columns: max-content 1fr;
   gap: 6px 18px;
   margin: 0;
-  font-size: 13px;
+  font-size: var(--text-meta);
 }
 .settings-section .kv + .settings-note {
   margin-top: 12px;
 }
 .kv dt {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--text-micro);
   letter-spacing: 0.1em;
   text-transform: uppercase;
   align-self: center;
@@ -207,7 +207,7 @@ ul.plain li {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--bg);
-  font-size: 13px;
+  font-size: var(--text-meta);
 }
 /* Workspace blocks flatten: the surrounding .card is the only box. Each
    workspace is a borderless region, hairline-separated from the next. */
@@ -233,7 +233,7 @@ ul.plain .slug {
 }
 ul.plain .usage {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-micro);
   display: grid;
   gap: 6px;
   min-height: 1.2em;
@@ -243,7 +243,7 @@ ul.plain .usage .usage-meta {
   line-height: 1.35;
 }
 ul.plain .usage .usage-meta {
-  font-size: 11px;
+  font-size: var(--text-micro);
   opacity: 0.9;
 }
 ul.plain .ws-detail {
@@ -254,7 +254,7 @@ ul.plain .ws-detail {
   border-top: 1px solid var(--line);
 }
 ul.plain .ws-section-head {
-  font-size: 11px;
+  font-size: var(--text-micro);
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--muted);
@@ -273,16 +273,16 @@ ul.plain .ws-items li {
   border: 0;
   border-radius: 0;
   background: none;
-  font-size: 12px;
+  font-size: var(--text-micro);
 }
 ul.plain .ws-empty {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-micro);
   margin: 0;
 }
 ul.plain .ws-note {
   color: var(--body);
-  font-size: 12px;
+  font-size: var(--text-micro);
   margin: 0;
 }
 /* Invite command: a light inset code row, not a raised bordered panel. The
@@ -307,11 +307,11 @@ ul.plain .command code {
   border: 0;
   background: none;
   padding: 0;
-  font-size: 12px;
+  font-size: var(--text-micro);
 }
 ul.plain .command button {
   flex-shrink: 0;
-  font: 11px var(--mono);
+  font: var(--text-micro) var(--sans);
   letter-spacing: 0.05em;
   color: var(--accent);
   border: 1px solid var(--line);
@@ -327,7 +327,7 @@ ul.plain .command button:focus-visible {
 }
 ul.plain .cli-note {
   margin: 7px 0 0;
-  font-size: 11px;
+  font-size: var(--text-micro);
 }
 ul.plain .invite-form {
   display: flex;
@@ -349,7 +349,7 @@ ul.plain .invite-form input[type="email"] {
   border-radius: var(--radius-sm);
   color: var(--fg);
   padding: 8px 10px;
-  font: 13px var(--mono);
+  font: var(--text-meta) var(--sans);
 }
 ul.plain .invite-form input[type="email"]:focus-visible {
   border-color: var(--accent);
@@ -357,7 +357,7 @@ ul.plain .invite-form input[type="email"]:focus-visible {
 }
 ul.plain .invite-form button[type="submit"] {
   flex-shrink: 0;
-  font: 12px var(--mono);
+  font: var(--text-micro) var(--sans);
   letter-spacing: 0.03em;
   color: var(--accent);
   border: 1px solid var(--line);
@@ -386,7 +386,7 @@ section.card.is-pending {
 section.card .settings-note {
   margin: 6px 0 0;
   max-width: 36rem;
-  font-size: 13px;
+  font-size: var(--text-meta);
   text-wrap: pretty;
   color: var(--body);
 }
@@ -420,11 +420,11 @@ section.card .command code {
   border: 0;
   background: none;
   padding: 0;
-  font-size: 12px;
+  font-size: var(--text-micro);
 }
 section.card .command button {
   flex-shrink: 0;
-  font: 11px var(--mono);
+  font: var(--text-micro) var(--sans);
   letter-spacing: 0.05em;
   color: var(--accent);
   border: 1px solid var(--line);
@@ -440,7 +440,7 @@ section.card .command button:focus-visible {
 }
 section.card .cli-note {
   margin: 12px 0 0;
-  font-size: 12px;
+  font-size: var(--text-micro);
 }
 
 /* Profile sign-in methods + sessions ──────────────────────────────────── */
@@ -456,11 +456,11 @@ section.card .cli-note {
 
 .detail-status {
   margin-top: 4px;
-  font-size: 13px;
+  font-size: var(--text-meta);
 }
 .detail-error {
   margin: 10px 0 0;
-  font-size: 12px;
+  font-size: var(--text-micro);
   color: var(--red);
 }
 /* Flat rows — no nested panel inside the settings card. */
@@ -479,7 +479,7 @@ ul.detail-list li {
   justify-content: space-between;
   gap: 12px;
   padding: 11px 0;
-  font-size: 13px;
+  font-size: var(--text-meta);
 }
 ul.detail-list li + li {
   border-top: 1px solid var(--line);
@@ -512,7 +512,7 @@ ul.detail-list .detail-title a:focus-visible {
 }
 a.text-btn,
 button.text-btn {
-  font: 12px var(--mono);
+  font: var(--text-micro) var(--sans);
   letter-spacing: 0.03em;
   color: var(--muted);
   background: none;
@@ -554,13 +554,13 @@ button.text-btn--boxed:focus-visible {
 }
 ul.detail-list .detail-meta {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--text-micro);
 }
 ul.detail-list .detail-action {
   flex-shrink: 0;
 }
 ul.detail-list .detail-current {
-  font-size: 11px;
+  font-size: var(--text-micro);
   color: var(--muted);
   letter-spacing: 0.04em;
 }
@@ -590,8 +590,8 @@ ul.detail-list .detail-current {
 }
 .ws-page-header h2 {
   margin: 0;
-  font-size: 1.05rem;
-  font-weight: 600;
+  font-size: var(--text-h3);
+  font-weight: var(--weight-semibold);
   text-wrap: balance;
 }
 .ws-page-header .ws-role {
@@ -600,7 +600,7 @@ ul.detail-list .detail-current {
 .ws-page-header .usage {
   width: 100%;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-micro);
   display: grid;
   gap: 10px;
   min-height: 1.2em;
@@ -611,7 +611,7 @@ ul.detail-list .detail-current {
   line-height: 1.35;
 }
 .ws-page-header .usage .usage-meta {
-  font-size: 11px;
+  font-size: var(--text-micro);
   opacity: 0.9;
 }
 /* Stacked regions inside the single card. */
@@ -627,7 +627,7 @@ ul.detail-list .detail-current {
 }
 .ws-page-card .ws-section-head,
 section.card .ws-section-head {
-  font-size: 11px;
+  font-size: var(--text-micro);
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--muted);
@@ -648,14 +648,14 @@ section.card .ws-items {
 }
 .ws-page-card .ws-items li,
 section.card .ws-items li {
-  font-size: 13px;
+  font-size: var(--text-meta);
 }
 .ws-page-card .ws-empty,
 .ws-page-card .ws-note,
 section.card .ws-empty,
 section.card .ws-note {
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--text-meta);
   margin: 0;
 }
 .ws-page-card .ws-note,
@@ -673,12 +673,12 @@ section.card .ws-note {
 .ws-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: var(--text-meta);
   line-height: 1.4;
 }
 .ws-table th {
   text-align: left;
-  font: 500 11px var(--mono);
+  font: var(--weight-medium) var(--text-micro) / 1 var(--sans);
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--muted);
@@ -707,7 +707,7 @@ section.card .ws-note {
 }
 .ws-table .ws-gallery-title {
   color: var(--fg);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   text-decoration: none;
 }
 .ws-table .ws-gallery-title:hover,
@@ -717,7 +717,7 @@ section.card .ws-note {
 }
 .ws-table .ws-gallery-desc {
   margin-top: 3px;
-  font-size: 12px;
+  font-size: var(--text-micro);
   max-width: 28rem;
 }
 .ws-gallery-links {
@@ -728,7 +728,7 @@ section.card .ws-note {
 }
 .ws-gallery-link {
   color: var(--fg);
-  font-size: 12px;
+  font-size: var(--text-micro);
   font-family: var(--mono);
   text-decoration: none;
   text-underline-offset: 0.15em;
@@ -743,11 +743,11 @@ section.card .ws-note {
   color: var(--muted);
 }
 .ws-gallery-link-more {
-  font-size: 12px;
+  font-size: var(--text-micro);
 }
 .ws-table .ws-gallery-updated {
   white-space: nowrap;
-  font-size: 12px;
+  font-size: var(--text-micro);
 }
 
 /* Galleries grid view ─────────────────────────────────────────────────────
@@ -807,8 +807,8 @@ section.card .ws-note {
 }
 .ws-gallery-card__title {
   color: var(--fg);
-  font-weight: 600;
-  font-size: 13.5px;
+  font-weight: var(--weight-semibold);
+  font-size: var(--text-meta);
   text-decoration: none;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -821,7 +821,7 @@ section.card .ws-note {
 }
 .ws-gallery-card__desc {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--text-micro);
   line-height: 1.45;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -835,7 +835,7 @@ section.card .ws-note {
   align-items: baseline;
   gap: 8px;
   margin-top: 2px;
-  font-size: 12px;
+  font-size: var(--text-micro);
 }
 .ws-gallery-card__count {
   color: var(--body);
@@ -869,7 +869,7 @@ section.card .ws-note {
 }
 .ws-status {
   margin-top: 12px;
-  font-size: 13px;
+  font-size: var(--text-meta);
 }
 .ws-form {
   margin-top: 12px;
@@ -911,7 +911,7 @@ section.card .ws-note {
   background: transparent;
   color: var(--fg);
   padding: 10px 12px;
-  font: 13px var(--mono);
+  font: var(--text-meta) var(--mono);
   outline: none;
 }
 .input-group__field input::placeholder {
@@ -928,7 +928,7 @@ section.card .ws-note {
   background: var(--panel);
   color: var(--accent);
   padding: 0 14px;
-  font: 12px var(--mono);
+  font: var(--text-micro) var(--sans);
   letter-spacing: 0.03em;
   cursor: pointer;
 }
@@ -950,7 +950,7 @@ section.card .ws-note {
 }
 .ws-hint {
   margin: 8px 0 0;
-  font-size: 11px;
+  font-size: var(--text-micro);
 }
 .ws-messages {
   display: grid;
@@ -999,7 +999,7 @@ section.card .ws-messages .command {
 .ws-search-error {
   margin: 0 0 10px;
   color: var(--red);
-  font: 12px var(--mono);
+  font: var(--text-micro) var(--sans);
 }
 .ws-search-chips {
   display: flex;
@@ -1018,12 +1018,12 @@ section.card .ws-messages .command {
 }
 .ws-search-status {
   color: var(--muted);
-  font: 13px var(--mono);
+  font: var(--text-meta) var(--sans);
   margin: 8px 0;
 }
 .ws-search-truncated {
   color: var(--muted);
-  font: 12px var(--mono);
+  font: var(--text-micro) var(--sans);
   margin: 0 0 8px;
 }
 .ws-search-list {
@@ -1060,7 +1060,7 @@ section.card .ws-messages .command {
 }
 .ws-search-glyph {
   color: var(--muted);
-  font-size: 18px;
+  font-size: var(--text-h3);
 }
 .ws-search-body {
   flex: 1;
@@ -1070,7 +1070,7 @@ section.card .ws-messages .command {
   gap: 4px;
 }
 .ws-search-name {
-  font: 600 13px var(--mono);
+  font: var(--weight-semibold) var(--text-meta) / 1 var(--mono);
   overflow-wrap: anywhere;
 }
 .ws-search-meta {
@@ -1097,7 +1097,7 @@ section.card .ws-messages .command {
 }
 .wft-status {
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--text-meta);
   margin: 0;
 }
 /* Workspace-info "unavailable" state — error text + a retry affordance. */
@@ -1120,7 +1120,7 @@ section.card .ws-messages .command {
   position: relative;
 }
 .wft-filterbar .input-group__field input {
-  font-size: 12.5px;
+  font-size: var(--text-meta);
 }
 /* Loading-skeleton stand-in for the filter input/button (workspace-ui.ts's
    `renderFilesPlaceholderHtml`, mirrored in WorkspaceFileTable's own loading
@@ -1172,23 +1172,23 @@ section.card .ws-messages .command {
   background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
 .wft-suggest__label {
-  font: 12px var(--mono);
+  font: var(--text-micro) var(--sans);
   color: var(--fg);
 }
 .wft-suggest__meta {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--text-micro);
   white-space: nowrap;
 }
 .wft-suggest__hint {
   padding: 6px 8px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--text-micro);
 }
 .wft-error {
   margin: 8px 0 0;
   color: var(--red);
-  font: 12px var(--mono);
+  font: var(--text-micro) var(--sans);
 }
 
 .wft-sectionhead {
@@ -1208,14 +1208,14 @@ section.card .ws-messages .command {
 }
 .wft-sectionhead__label {
   color: var(--muted);
-  font-size: 10.5px;
+  font-size: var(--text-micro);
   letter-spacing: 0.14em;
   text-transform: uppercase;
   white-space: nowrap;
 }
 .wft-sectionhead__count {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-micro);
 }
 
 /* List / grid layout toggle — sits after the file count in the section head. */
@@ -1271,7 +1271,7 @@ section.card .ws-messages .command {
   border-radius: 2px;
   background: var(--panel);
   padding: 4px 5px 4px 9px;
-  font-size: 12px;
+  font-size: var(--text-micro);
 }
 .wft-chip__icon {
   width: 12px;
@@ -1287,7 +1287,7 @@ section.card .ws-messages .command {
   color: var(--fg);
 }
 .wft-chip__remove {
-  font: 12px var(--mono);
+  font: var(--text-micro) var(--sans);
   color: var(--muted);
   background: none;
   border: 0;
@@ -1302,7 +1302,7 @@ section.card .ws-messages .command {
 }
 .wft-clearall {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-micro);
 }
 .wft-clearall button {
   color: var(--muted);
@@ -1324,7 +1324,7 @@ section.card .ws-messages .command {
   align-items: center;
   gap: 2px;
   margin-top: 10px;
-  font-size: 12.5px;
+  font-size: var(--text-meta);
 }
 .wft-crumbs button {
   color: var(--muted);
@@ -1365,9 +1365,9 @@ section.card .ws-messages .command {
   flex: none;
 }
 .wft-banner__ref {
-  font-size: 12.5px;
+  font-size: var(--text-meta);
   color: var(--fg);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   text-decoration: none;
 }
 .wft-banner__ref:hover,
@@ -1380,7 +1380,7 @@ section.card .ws-messages .command {
 }
 .wft-banner__open {
   flex: none;
-  font-size: 11.5px;
+  font-size: var(--text-micro);
   color: var(--muted);
   text-decoration: none;
 }
@@ -1407,7 +1407,7 @@ section.card .ws-messages .command {
 .wft-head {
   padding: 7px 2px;
   color: var(--muted);
-  font-size: 10.5px;
+  font-size: var(--text-micro);
   letter-spacing: 0.12em;
   text-transform: uppercase;
 }
@@ -1417,7 +1417,7 @@ section.card .ws-messages .command {
 .wft-row {
   padding: 8px 2px;
   border-top: 1px solid var(--line);
-  font-size: 12.5px;
+  font-size: var(--text-meta);
 }
 button.wft-row {
   width: 100%;
@@ -1516,7 +1516,7 @@ button.wft-row {
   justify-self: end;
 }
 .wft-menu__trigger {
-  font: 600 13px var(--mono);
+  font: var(--weight-medium) var(--text-meta) / 1 var(--sans);
   color: var(--muted);
   background: none;
   border: 1px solid transparent;
@@ -1549,7 +1549,7 @@ button.wft-row {
   display: block;
   width: 100%;
   text-align: left;
-  font: 12px var(--mono);
+  font: var(--text-micro) var(--sans);
   color: var(--fg);
   background: none;
   border: 0;
@@ -1576,7 +1576,7 @@ button.wft-row {
 }
 .wft-confirm__text {
   margin: 0 0 8px;
-  font-size: 12px;
+  font-size: var(--text-micro);
   line-height: 1.5;
   color: var(--body);
   overflow-wrap: anywhere;
@@ -1591,7 +1591,7 @@ button.wft-row {
   border-top: 1px solid var(--line);
   padding: 9px 2px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-micro);
 }
 .wft-loadmore {
   margin-top: 10px;
@@ -1667,7 +1667,7 @@ button.wft-card:focus-visible {
   height: 22px;
 }
 .wft-card__ext {
-  font: 11px var(--mono);
+  font: var(--text-micro) var(--mono);
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--muted);
@@ -1690,7 +1690,7 @@ button.wft-card:focus-visible {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font: 12.5px var(--mono);
+  font: var(--text-meta) var(--mono);
   color: var(--fg);
   background: none;
   border: 0;
@@ -1716,7 +1716,7 @@ button.wft-card__name:focus-visible {
   align-items: center;
   gap: 8px;
   min-width: 0;
-  font: 11px var(--mono);
+  font: var(--text-micro) var(--mono);
   color: var(--muted);
 }
 .wft-card__meta > span:first-child {
@@ -1732,7 +1732,7 @@ button.wft-card__name:focus-visible {
   flex: none;
 }
 .wft-card .wft-vis {
-  font-size: 11px;
+  font-size: var(--text-micro);
 }
 
 @media (max-width: 560px) {
@@ -1753,7 +1753,7 @@ button.wft-card__name:focus-visible {
   gap: 14px;
   padding: 9px 2px;
   border-top: 1px solid var(--line);
-  font-size: 12.5px;
+  font-size: var(--text-meta);
 }
 .member-row:first-child {
   border-top: 0;
@@ -1765,14 +1765,14 @@ button.wft-card__name:focus-visible {
   min-width: 0;
 }
 .member-row__name {
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .member-row__email {
   color: var(--muted);
-  font-size: 11.5px;
+  font-size: var(--text-micro);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1790,7 +1790,7 @@ button.wft-card__name:focus-visible {
    <span>, not a <select>, so the caret/background-image would be wrong. */
 .member-row__role {
   flex: none;
-  font: 12px var(--mono);
+  font: var(--text-micro) var(--sans);
   padding: 5px 9px;
   border: 1px solid transparent;
   border-radius: 6px;
@@ -1842,7 +1842,7 @@ button.wft-card__name:focus-visible {
   color: var(--accent);
 }
 .member-row--pending .member-row__name {
-  font-weight: 500;
+  font-weight: var(--weight-medium);
   color: var(--muted);
 }
 
@@ -1856,14 +1856,14 @@ button.wft-card__name:focus-visible {
 .ws-empty-state__title {
   margin: 0;
   color: var(--fg);
-  font-size: 14px;
-  font-weight: 600;
+  font-size: var(--text-ui);
+  font-weight: var(--weight-semibold);
 }
 .ws-empty-state__body {
   margin: 0;
   max-width: 46ch;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--text-meta);
 }
 .ws-empty-state .command {
   width: 100%;
@@ -1894,7 +1894,7 @@ button.wft-card__name:focus-visible {
   cursor: pointer;
   list-style: none;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--text-micro);
   letter-spacing: 0.1em;
   text-transform: uppercase;
   margin-bottom: 12px;
@@ -1929,13 +1929,13 @@ button.wft-card__name:focus-visible {
   width: 100%;
 }
 .wsp-project__label {
-  font-weight: 600;
-  font-size: 15px;
+  font-weight: var(--weight-semibold);
+  font-size: var(--text-body);
 }
 .wsp-project__viewall {
   margin-left: auto;
   color: var(--muted);
-  font-size: 11.5px;
+  font-size: var(--text-micro);
   white-space: nowrap;
   padding: 0;
 }
@@ -1962,18 +1962,18 @@ button.wft-card__name:focus-visible {
   cursor: pointer;
 }
 .wsp-group__path {
-  font-weight: 600;
-  font-size: 13px;
+  font-weight: var(--weight-semibold);
+  font-size: var(--text-meta);
 }
 .wsp-group__meta {
   color: var(--muted);
-  font-size: 11.5px;
+  font-size: var(--text-micro);
   white-space: nowrap;
 }
 .wsp-group__viewall {
   margin-left: auto;
   color: var(--muted);
-  font-size: 11.5px;
+  font-size: var(--text-micro);
   white-space: nowrap;
 }
 .wsp-group__head:hover .wsp-group__viewall,
@@ -1983,8 +1983,8 @@ button.wft-card__name:focus-visible {
 
 .wsp-drill__heading {
   margin: 10px 0 4px;
-  font-size: 15px;
-  font-weight: 600;
+  font-size: var(--text-body);
+  font-weight: var(--weight-semibold);
 }
 
 /* Horizontal strip of a group's recent thumbs (overview). Shared height,
@@ -2062,7 +2062,7 @@ button.wft-card__name:focus-visible {
   place-items: center;
   color: var(--muted);
   background: var(--panel);
-  font: 11px var(--mono);
+  font: var(--text-micro) var(--sans);
   text-transform: lowercase;
 }
 .wsp-thumb--skel {
@@ -2083,7 +2083,7 @@ button.wft-card__name:focus-visible {
   background: var(--panel);
   border: 1px solid var(--line);
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--text-micro);
   line-height: 1.4;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -2124,7 +2124,7 @@ button.wft-card__name:focus-visible {
   min-width: 12rem;
   max-width: 100%;
   min-height: 36px;
-  font-size: 16px;
+  font-size: var(--text-body);
   box-sizing: border-box;
 }
 .wsp-filter .wsp-filter__qwrap {
@@ -2138,7 +2138,7 @@ button.wft-card__name:focus-visible {
   min-width: 0;
   min-height: 36px;
   padding: 6px 12px;
-  font-size: 16px;
+  font-size: var(--text-body);
   border-radius: 6px;
   box-sizing: border-box;
 }
@@ -2179,14 +2179,14 @@ button.wft-card__name:focus-visible {
   background: var(--bg);
 }
 .wsp-suggest__path {
-  font-size: 12.5px;
-  font-weight: 600;
+  font-size: var(--text-meta);
+  font-weight: var(--weight-semibold);
   overflow-wrap: anywhere;
 }
 .wsp-suggest__count {
   margin-left: auto;
   color: var(--muted);
-  font-size: 11.5px;
+  font-size: var(--text-micro);
   white-space: nowrap;
 }
 
@@ -2206,7 +2206,7 @@ button.wft-card__name:focus-visible {
   border: 0;
   color: var(--muted);
   font: inherit;
-  font-size: 12.5px;
+  font-size: var(--text-meta);
   cursor: pointer;
   white-space: nowrap;
 }
@@ -2245,7 +2245,7 @@ button.wft-card__name:focus-visible {
 @media (min-width: 640px) {
   .wsp-filter .wsp-filter__project,
   .wsp-filter .wsp-filter__q {
-    font-size: 12.5px;
+    font-size: var(--text-meta);
   }
 }
 
@@ -2280,14 +2280,14 @@ button.wft-card__name:focus-visible {
 }
 .wsp-preview__name {
   color: var(--fg);
-  font: 600 12px var(--mono);
+  font: var(--weight-semibold) var(--text-micro) / 1 var(--mono);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .wsp-preview__pr {
   color: var(--muted);
-  font: 11.5px var(--mono);
+  font: var(--text-micro) var(--mono);
 }
 /* Live PR/issue status pill (open/merged/closed) with a leading dot. */
 .wsp-preview__status {
@@ -2298,7 +2298,7 @@ button.wft-card__name:focus-visible {
   padding: 1px 6px;
   border-radius: 999px;
   border: 1px solid color-mix(in srgb, currentColor 35%, transparent);
-  font: 600 10px var(--mono);
+  font: var(--weight-medium) var(--text-micro) / 1 var(--sans);
   text-transform: uppercase;
   letter-spacing: 0.02em;
   vertical-align: 1px;
@@ -2321,7 +2321,7 @@ button.wft-card__name:focus-visible {
 }
 .wsp-preview__title {
   color: var(--fg);
-  font: 11.5px var(--body);
+  font: var(--text-micro) var(--body);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2329,7 +2329,7 @@ button.wft-card__name:focus-visible {
 }
 .wsp-preview__time {
   color: var(--muted);
-  font: 11px var(--mono);
+  font: var(--text-micro) var(--mono);
 }
 @media (prefers-reduced-motion: no-preference) {
   .wsp-preview {

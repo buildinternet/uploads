@@ -53,6 +53,49 @@
     "Geist Mono Variable", ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace; /* @kind font */
   --pixel: "Geist Pixel", "Geist Mono Variable", ui-monospace, monospace; /* @kind font */
   --pixel-shape: 1; /* @kind other */
+
+  /* ── Type scale ──────────────────────────────────────────────────────
+     Roles, not values. Sans is the interface voice; mono is reserved for
+     what it actually measures — commands, code, file keys, URLs, hashes,
+     and tabular figures. Reach for var(--mono) when the characters must
+     line up or be transcribed, never to make a label look technical. */
+  --text-display: clamp(34px, 6vw, 56px); /* landing hero only */
+  --text-h1: clamp(27px, 4.2vw, 36px); /* page title */
+  --text-h2: clamp(21px, 3vw, 26px); /* section heading */
+  --text-h3: 19px; /* subsection heading */
+  --text-h4: 16px; /* body-size heading — weight carries it, not size */
+  --text-body: 16px; /* prose and reading copy */
+  --text-ui: 14px; /* interface chrome: buttons, nav, labels, inputs */
+  --text-meta: 13px; /* metadata, captions, dense table cells */
+  --text-micro: 12px; /* badges and uppercase pills — the absolute floor */
+
+  /* Leading. Light-on-dark needs more air than the same face on white, so
+     body sits at 1.65 rather than the usual 1.5. */
+  --leading-display: 1.04;
+  --leading-heading: 1.22;
+  --leading-body: 1.65;
+  --leading-ui: 1.5;
+  --leading-tight: 1.3;
+
+  /* Tracking. Negative at display sizes to close optical gaps; a hair
+     positive at text sizes to counter dark-mode bloom. */
+  --tracking-display: -0.03em;
+  --tracking-heading: -0.015em;
+  --tracking-body: 0.004em;
+  --tracking-ui: 0.006em;
+  --tracking-caps: 0.08em; /* uppercase micro-labels only */
+
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+
+  /* Reading measure — pair with `max-width: var(--measure)` on prose. */
+  --measure: 68ch;
+
+  /* Mono runs optically large next to Geist at the same px; scale inline
+     code and keys by this factor so the baseline rhythm survives. */
+  --mono-optical: 0.94em;
   --radius-sm: 7px;
   --radius-md: 8px;
   --radius-lg: 10px;
@@ -73,14 +116,17 @@
 /* ── Surface (theme root) ──────────────────────────────────────────────── */
 /*
  * Wrap product UI in <Surface> (class .ul-surface) so components sit on the
- * dark canvas with the tokens in scope. The body face is mono: uploads.sh is
- * CLI-first and the interface reads terminal-native by intent, not default.
- * Reach for var(--sans) deliberately (long prose), not as the base.
+ * dark canvas with the tokens in scope. The base face is sans — the terminal
+ * character comes from Geist Pixel, the chevron motif, and the density, not
+ * from setting every label in a typewriter. Reach for var(--mono) when the
+ * characters are a key, path, size, count, or timestamp: something the reader
+ * transcribes or compares column-to-column. Never to make a word look technical.
  */
 .ul-surface {
   background: var(--bg);
   color: var(--fg);
-  font: 14px/1.7 var(--mono);
+  font: var(--text-ui) / var(--leading-ui) var(--sans);
+  letter-spacing: var(--tracking-ui);
   -webkit-font-smoothing: antialiased;
 }
 
@@ -139,8 +185,9 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
-  font-family: var(--mono);
-  letter-spacing: 0.03em;
+  font-family: var(--sans);
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-ui);
   color: var(--fg);
   background: var(--bg);
   border: 1px solid var(--line);
@@ -165,16 +212,16 @@
 }
 /* sizes */
 .ul-btn--sm {
-  font-size: 12px;
+  font-size: var(--text-meta);
   padding: 9px 12px;
   border-radius: var(--radius-sm);
 }
 .ul-btn--md {
-  font-size: 14px;
+  font-size: var(--text-ui);
   padding: 11px 15px;
 }
 .ul-btn--lg {
-  font-size: 15px;
+  font-size: var(--text-h4);
   padding: 13px 20px;
 }
 /* variants */
@@ -200,7 +247,7 @@
   color: var(--bg);
   background: var(--accent);
   border-color: var(--accent);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
 }
 .ul-btn--solid:hover,
 .ul-btn--solid:focus-visible {
@@ -234,16 +281,16 @@
   margin: 0 0 var(--space-2);
   color: var(--fg);
   font-family: var(--sans);
-  font-size: 17px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  line-height: 1.3;
+  font-size: var(--text-h3);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-heading);
+  line-height: var(--leading-tight);
 }
 .ul-panel__desc {
   margin: 0 0 var(--space-4);
   color: var(--body);
-  font-size: 13.5px;
-  line-height: 1.6;
+  font-size: var(--text-ui);
+  line-height: var(--leading-body);
 }
 .ul-panel__desc:last-child {
   margin-bottom: 0;
@@ -256,9 +303,10 @@
 }
 .ul-label {
   color: var(--muted);
-  font-family: var(--mono);
-  font-size: 10.5px;
-  letter-spacing: 0.1em;
+  font-family: var(--sans);
+  font-size: var(--text-micro);
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-caps);
   text-transform: uppercase;
 }
 .ul-input {
@@ -267,7 +315,7 @@
   border-radius: var(--radius-md);
   color: var(--fg);
   padding: 10px 12px;
-  font: 14px var(--mono);
+  font: var(--text-ui) / var(--leading-ui) var(--sans);
   width: 100%;
 }
 .ul-input::placeholder {
@@ -306,7 +354,7 @@
   border-radius: var(--radius-md);
   color: var(--fg);
   padding: 10px 34px 10px 12px;
-  font: 14px var(--mono);
+  font: var(--text-ui) / var(--leading-ui) var(--sans);
   width: 100%;
 }
 .ul-select:focus-visible {
@@ -320,7 +368,7 @@
 /* Compact variant — matches .text-btn's box (account-content.css) so a
    member row's height converges on its own Remove button without a pin. */
 .ul-select--sm {
-  font: 12px var(--mono);
+  font: var(--text-meta) / var(--leading-ui) var(--sans);
   padding: 5px 22px 5px 9px;
   border-radius: 6px;
   background-position: right 8px center;
@@ -328,8 +376,15 @@
 }
 .ul-field__hint {
   color: var(--muted);
-  font: 11px var(--mono);
-  letter-spacing: 0.01em;
+  font: var(--text-meta) / var(--leading-ui) var(--sans);
+  letter-spacing: var(--tracking-ui);
+}
+/* Opt-in for fields whose value is a key, path, token, or URL — the places
+   where character-by-character transcription actually matters. */
+.ul-input--key,
+.ul-input--key::placeholder {
+  font-family: var(--mono);
+  letter-spacing: 0;
 }
 .ul-field--invalid .ul-input {
   border-color: var(--red);
@@ -351,7 +406,7 @@
   padding: 10px 14px 10px 36px;
   background: color-mix(in srgb, var(--callout-tone) 5%, transparent);
   color: var(--fg);
-  font: 13px/1.55 var(--mono);
+  font: var(--text-ui) / var(--leading-body) var(--sans);
   border: 1px solid color-mix(in srgb, var(--callout-tone) 26%, var(--line));
   border-radius: var(--radius-md);
 }
@@ -379,8 +434,9 @@
 .ul-callout__title {
   display: block;
   margin-bottom: 3px;
-  font-size: 10.5px;
-  letter-spacing: 0.08em;
+  font-size: var(--text-micro);
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-caps);
   text-transform: uppercase;
   color: var(--muted);
 }
@@ -390,8 +446,9 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font: 11px var(--mono);
-  letter-spacing: 0.02em;
+  font: var(--text-micro) / 1 var(--sans);
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-ui);
   color: var(--body);
   background: var(--bg);
   border: 1px solid var(--line);
@@ -425,8 +482,9 @@
   align-items: center;
   gap: 12px;
   color: var(--muted);
-  font: 11px var(--mono);
-  letter-spacing: 0.08em;
+  font: var(--text-micro) / 1 var(--sans);
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-caps);
   text-transform: uppercase;
 }
 .ul-divider::before,
@@ -473,17 +531,21 @@
   justify-content: space-between;
   align-items: baseline;
   gap: 12px;
-  font: 12px/1.35 var(--mono);
+  font: var(--text-meta) / var(--leading-tight) var(--sans);
   color: var(--muted);
 }
 .ul-progress__label {
   min-width: 0;
   color: var(--body);
 }
+/* The value is a measurement: mono keeps the digits from dancing as the
+   number ticks up, and tabular figures keep the column still. */
 .ul-progress__value {
   flex: none;
   text-align: right;
   white-space: nowrap;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
 }
 .ul-progress__track {
   height: 3px;
@@ -586,9 +648,9 @@
   gap: 6px;
 }
 .ul-tile__name {
-  font: 13px var(--mono);
+  font: var(--text-meta) / var(--leading-tight) var(--mono);
   color: var(--fg);
-  letter-spacing: 0.01em;
+  letter-spacing: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -597,7 +659,8 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font: 11px var(--mono);
+  font: var(--text-micro) / 1 var(--mono);
+  font-variant-numeric: tabular-nums;
   color: var(--muted);
 }
 .ul-tile__meta > * {
@@ -620,7 +683,7 @@
 }
 .ul-files__crumbs button,
 .ul-files__more {
-  font: 12px var(--mono);
+  font: var(--text-meta) / var(--leading-tight) var(--mono);
   color: var(--muted);
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
@@ -684,7 +747,7 @@
   align-items: center;
   gap: 9px;
   text-align: left;
-  font: 12.5px var(--mono);
+  font: var(--text-meta) / var(--leading-tight) var(--mono);
   color: var(--fg);
   border: 0;
   border-radius: var(--radius-sm);
@@ -745,7 +808,8 @@
 }
 .ul-files__name small {
   color: var(--muted);
-  font: 11px var(--mono);
+  font: var(--text-micro) / 1 var(--mono);
+  font-variant-numeric: tabular-nums;
 }
 /* Loading / empty / error states fill the reserved viewport so they neither
    grow the container nor leave it collapsed. */
@@ -757,7 +821,7 @@
   justify-content: center;
   gap: 7px;
   color: var(--muted);
-  font: 12px var(--mono);
+  font: var(--text-meta) / var(--leading-ui) var(--sans);
   padding: 12px;
 }
 .ul-files__spin {

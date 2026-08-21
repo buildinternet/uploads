@@ -40,7 +40,7 @@ const { title, body, href = null, filename, pending = false, compact = false } =
     padding: 60px 30px;
     text-align: center;
     color: var(--muted);
-    font: 13px/1.6 var(--mono);
+    font: var(--text-meta)/1.6 var(--sans);
     max-width: 28rem;
     line-height: 1.6;
   }
@@ -51,13 +51,13 @@ const { title, body, href = null, filename, pending = false, compact = false } =
     display: block;
     color: var(--fg);
     margin-bottom: 8px;
-    font-weight: 600;
+    font-weight: var(--weight-semibold);
   }
   .media-fallback__body {
     display: block;
     margin: 0 0 12px;
     color: var(--body);
-    font: 0.92rem/1.55 var(--sans);
+    font: var(--text-body)/1.55 var(--sans);
     text-wrap: pretty;
   }
   .media-fallback a {

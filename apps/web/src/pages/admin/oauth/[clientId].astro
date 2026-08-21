@@ -59,7 +59,7 @@ if (!clientId) return Astro.redirect("/admin/oauth");
         <button type="button" class="admin-btn" id="oauth-disable-toggle"></button>
         <button type="button" class="admin-btn admin-btn--danger" id="oauth-delete">Delete</button>
       </div>
-      <p id="oauth-delete-hint" class="muted" style="font-size:12px;margin:0" hidden>
+      <p id="oauth-delete-hint" class="muted" style="font-size:var(--text-micro);margin:0" hidden>
         Remove the official flag to enable deletion.
       </p>
       <div id="oauth-action-status" class="admin-status" role="status" hidden></div>

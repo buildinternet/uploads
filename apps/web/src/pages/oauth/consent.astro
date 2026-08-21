@@ -29,7 +29,8 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
         padding: 28px;
         background: var(--bg);
         color: var(--fg);
-        font: 14.5px/1.65 var(--mono);
+        font: var(--text-body) / var(--leading-body) var(--sans);
+        letter-spacing: var(--tracking-body);
       }
       main {
         width: min(var(--width-card, 480px), 100%);
@@ -45,8 +46,8 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
       }
       h1 {
         margin: 0 0 8px;
-        font-size: clamp(21px, 5vw, 26px);
-        font-weight: 600;
+        font-size: var(--text-h2);
+        font-weight: var(--weight-semibold);
         letter-spacing: -0.015em;
         line-height: 1.25;
       }
@@ -59,7 +60,7 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
       }
       .client-host {
         color: var(--muted);
-        font-size: 12.5px;
+        font-size: var(--text-meta);
         margin: -14px 0 20px;
         word-break: break-all;
       }
@@ -72,7 +73,7 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
       .workspace-picker label {
         display: block;
         color: var(--muted);
-        font-size: 11px;
+        font-size: var(--text-micro);
         letter-spacing: 0.08em;
         text-transform: uppercase;
         margin-bottom: 6px;
@@ -107,7 +108,7 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
       .scopes :global(.id) {
         display: block;
         color: var(--muted);
-        font-size: 11px;
+        font-size: var(--text-micro);
         letter-spacing: 0.02em;
       }
       .actions {
@@ -118,7 +119,7 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
         display: block;
         text-align: center;
         text-decoration: none;
-        font: 12px var(--mono);
+        font: var(--text-micro) var(--sans);
         letter-spacing: 0.04em;
         color: var(--accent);
         background: var(--bg);
@@ -134,7 +135,7 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
       button.primary,
       button.secondary {
         flex: 1;
-        font: 12px var(--mono);
+        font: var(--text-micro) var(--sans);
         letter-spacing: 0.04em;
         color: var(--accent);
         background: var(--bg);
@@ -211,7 +212,7 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
             Create a workspace
           </a>
         </div>
-        <p class="muted" style="margin:14px 0 0;font-size:12.5px">
+        <p class="muted" style="margin:14px 0 0;font-size:var(--text-meta)">
           Have a workspace under another email? Link it from
           <a class="linklike" href="/account/profile">your profile</a> instead of creating a new one.
         </p>

@@ -40,7 +40,8 @@ const authOrigin = SAME_ORIGIN_AUTH_BASE;
         min-height: 100dvh;
         background: var(--bg);
         color: var(--fg);
-        font: 14px/1.5 var(--mono);
+        font: var(--text-ui) / var(--leading-ui) var(--sans);
+        letter-spacing: var(--tracking-ui);
         font-variant-ligatures: none;
         font-feature-settings:
           "calt" 0,
@@ -59,20 +60,20 @@ const authOrigin = SAME_ORIGIN_AUTH_BASE;
         box-sizing: border-box;
       }
       h1 {
-        font-size: 1.15rem;
-        font-weight: 600;
+        font-size: var(--text-h3);
+        font-weight: var(--weight-semibold);
         margin: 0;
       }
       p.muted {
         color: var(--muted);
         margin: 0;
-        font-size: 0.9rem;
+        font-size: var(--text-ui);
       }
       label {
         display: grid;
         gap: 6px;
         color: var(--muted);
-        font-size: 11px;
+        font-size: var(--text-micro);
         letter-spacing: 0.1em;
         text-transform: uppercase;
       }
@@ -82,7 +83,7 @@ const authOrigin = SAME_ORIGIN_AUTH_BASE;
         border-radius: var(--radius-md);
         color: var(--fg);
         padding: 10px 12px;
-        font: 14px var(--mono);
+        font: var(--text-ui) var(--sans);
       }
       input:focus-visible {
         border-color: var(--accent);
@@ -94,7 +95,7 @@ const authOrigin = SAME_ORIGIN_AUTH_BASE;
         gap: 10px;
       }
       button {
-        font: 12px var(--mono);
+        font: var(--text-micro) var(--sans);
         letter-spacing: 0.04em;
         color: var(--accent);
         background: var(--panel);
@@ -119,7 +120,7 @@ const authOrigin = SAME_ORIGIN_AUTH_BASE;
         white-space: pre-wrap;
         word-break: break-word;
         color: var(--body);
-        font-size: 12px;
+        font-size: var(--text-micro);
       }
       a {
         color: var(--fg);
@@ -144,7 +145,7 @@ const authOrigin = SAME_ORIGIN_AUTH_BASE;
       }
       .sect-head {
         color: var(--muted);
-        font-size: 11px;
+        font-size: var(--text-micro);
         letter-spacing: 0.14em;
         text-transform: uppercase;
         margin: 0;
@@ -176,7 +177,7 @@ const authOrigin = SAME_ORIGIN_AUTH_BASE;
         gap: 9px;
       }
       .pill {
-        font-size: 11px;
+        font-size: var(--text-micro);
         letter-spacing: 0.08em;
         text-transform: uppercase;
         color: var(--accent);
@@ -186,10 +187,10 @@ const authOrigin = SAME_ORIGIN_AUTH_BASE;
         background: var(--bg);
       }
       .session-bar a {
-        font-size: 12px;
+        font-size: var(--text-micro);
       }
       .session-bar button {
-        font: 12px var(--mono);
+        font: var(--text-micro) var(--sans);
         color: var(--accent);
         background: var(--panel);
         border: 1px solid var(--line);

@@ -273,15 +273,18 @@ const MENU_ITEMS = [
     background: var(--panel, #121214);
     border: 1px solid var(--line, #232327);
   }
-  .auth-indicator__muted {
-    font: 12px var(--mono, ui-monospace, monospace);
+  /* Injected by the client script (see the innerHTML above), so it needs the
+     same :global() escape every other injected class here uses — scoped, it
+     never matched and the text silently inherited the page body size. */
+  .auth-indicator :global(.auth-indicator__muted) {
+    font: var(--text-micro) / 1 var(--sans);
     color: var(--muted, #8a8a83);
   }
   .auth-indicator :global(.auth-indicator__signin) {
     text-decoration: none;
     white-space: nowrap;
     /* ul-btn--sm (9px vertical padding, 1.65 line-height) stands ~9px taller
-       than the sibling .star-cta (12.5px font + 6px padding + normal line
+       than the sibling .star-cta (--text-meta + 6px padding + normal line
        height, SiteHeader.astro) — match its vertical rhythm so the header
        controls read as one row. */
     padding-top: 6px;
@@ -316,7 +319,7 @@ const MENU_ITEMS = [
     background: var(--panel, #121214);
     border: 1px solid var(--line, #232327);
     color: var(--accent, #c27eff);
-    font: 600 11px/1 var(--mono, ui-monospace, monospace);
+    font: var(--weight-semibold) var(--text-micro) / 1 var(--sans);
     letter-spacing: 0.04em;
     user-select: none;
   }
@@ -345,7 +348,7 @@ const MENU_ITEMS = [
   }
   .auth-indicator :global(.auth-menu__email) {
     display: block;
-    font: 12px var(--mono, ui-monospace, monospace);
+    font: var(--text-micro) var(--sans);
     color: var(--muted, #8a8a83);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -372,7 +375,7 @@ const MENU_ITEMS = [
     border-radius: 6px;
     background: transparent;
     color: var(--fg, #ececea);
-    font: 13px var(--sans, system-ui, sans-serif);
+    font: var(--text-meta) var(--sans, system-ui, sans-serif);
     text-decoration: none;
     cursor: pointer;
   }

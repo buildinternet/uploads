@@ -136,15 +136,22 @@ Name is **uploads** / **uploads.sh**; the bot and GitHub App are referred to in
 prose as the "`uploads-sh` bot".
 
 Terminal-native, precise, quietly playful. A developer's tool that takes craft
-seriously — mono-first typography, dark by construction, with one genuinely
-distinctive asset: Geist Pixel and its variable ELSH (element-shape) axis, used
-as the brand's signature rather than a wordmark-only garnish. Personality shows
-up in small, exact moments (pixel morphs, the chevron/upload motif), never in
-loudness.
+seriously — dark by construction, with one genuinely distinctive asset: Geist
+Pixel and its variable ELSH (element-shape) axis, used as the brand's signature
+rather than a wordmark-only garnish. Personality shows up in small, exact
+moments (pixel morphs, the chevron/upload motif), never in loudness.
 
-Three faces, defined once in `packages/ui/src/tokens.css`: Geist (sans, body and
-headings), Geist Mono (developer-console chrome — buttons, labels, metadata),
-Geist Pixel (display and brand moments).
+Three faces, defined once in `packages/ui/src/tokens.css`: Geist (sans — the
+interface voice: prose, headings, buttons, labels, navigation), Geist Mono
+(reserved for what it measures — commands, code, file keys, URLs, hashes, and
+tabular figures), Geist Pixel (display and brand moments).
+
+**The mono rule, decided 2026-08-21:** reach for mono when the characters are
+something a reader transcribes or compares column-to-column, never to make a
+word look technical. The terminal character comes from Geist Pixel, the chevron
+motif, and the density — not from setting every label in a typewriter. This
+replaces the earlier "mono-first typography" framing, under which Geist Mono was
+the base face for all product UI.
 
 Voice: purpose-first and concrete. Legal and marketing copy never overpromises —
 no access-control claims about public URLs, no durability or uptime guarantees

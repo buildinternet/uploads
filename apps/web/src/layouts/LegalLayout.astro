@@ -32,7 +32,7 @@ const authOrigin = SAME_ORIGIN_AUTH_BASE;
         min-height: 100dvh;
         background: var(--bg);
         color: var(--fg);
-        font: 15.5px/1.7 var(--sans);
+        font: var(--text-body)/1.7 var(--sans);
         display: flex;
         flex-direction: column;
       }
@@ -44,34 +44,35 @@ const authOrigin = SAME_ORIGIN_AUTH_BASE;
         box-sizing: border-box;
       }
       h1 {
-        font-size: clamp(26px, 5vw, 34px);
-        font-weight: 600;
+        font-size: var(--text-h1);
+        font-weight: var(--weight-semibold);
         letter-spacing: -0.015em;
         line-height: 1.25;
         margin: 8px 0 4px;
       }
       .effective {
         color: var(--muted);
-        font-size: 13px;
+        font-size: var(--text-meta);
         margin: 0 0 36px;
       }
       article h2 {
-        font-size: 19px;
-        font-weight: 600;
+        font-size: var(--text-h3);
+        font-weight: var(--weight-semibold);
         letter-spacing: -0.01em;
         margin: 40px 0 10px;
         padding-top: 22px;
         border-top: 1px solid var(--line);
       }
       article h3 {
-        font-size: 15px;
-        font-weight: 600;
+        font-size: var(--text-body);
+        font-weight: var(--weight-semibold);
         color: var(--fg);
         margin: 24px 0 6px;
       }
       article p,
       article li {
         color: var(--body);
+        max-width: var(--measure);
       }
       article strong {
         color: var(--fg);
@@ -98,7 +99,7 @@ const authOrigin = SAME_ORIGIN_AUTH_BASE;
         border: 1px solid var(--line);
         border-radius: 5px;
         padding: 1px 6px;
-        font: 0.88em var(--mono);
+        font: var(--mono-optical) var(--mono);
         font-variant-ligatures: none;
         font-feature-settings:
           "calt" 0,

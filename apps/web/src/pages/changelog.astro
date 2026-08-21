@@ -61,7 +61,7 @@ const formatDate = (iso: string) =>
         min-height: 100dvh;
         background: var(--bg);
         color: var(--fg);
-        font: 15.5px/1.7 var(--sans);
+        font: var(--text-body)/1.7 var(--sans);
         display: flex;
         flex-direction: column;
       }
@@ -72,20 +72,20 @@ const formatDate = (iso: string) =>
         flex: 1;
       }
       h1 {
-        font-size: clamp(26px, 5vw, 34px);
-        font-weight: 600;
+        font-size: var(--text-h1);
+        font-weight: var(--weight-semibold);
         letter-spacing: -0.015em;
         line-height: 1.25;
         margin: 8px 0 4px;
       }
       .lede {
         color: var(--muted);
-        font-size: 14px;
+        font-size: var(--text-ui);
         margin: 0 0 12px;
       }
       .feed-link {
         color: var(--muted);
-        font-size: 13px;
+        font-size: var(--text-meta);
         text-decoration: underline;
         text-underline-offset: 3px;
       }
@@ -97,14 +97,14 @@ const formatDate = (iso: string) =>
       .entry time {
         display: block;
         color: var(--muted);
-        font: 12px var(--mono);
+        font: var(--text-micro) var(--mono);
         letter-spacing: 0.02em;
         text-transform: uppercase;
         margin-bottom: 6px;
       }
       .entry h2 {
-        font-size: 20px;
-        font-weight: 600;
+        font-size: var(--text-h3);
+        font-weight: var(--weight-semibold);
         letter-spacing: -0.01em;
         margin: 0 0 12px;
       }
@@ -117,7 +117,7 @@ const formatDate = (iso: string) =>
         text-underline-offset: 3px;
       }
       .entry--cli h2 {
-        font-size: 16px;
+        font-size: var(--text-body);
         color: var(--body);
       }
       .entry--cli .body {
@@ -139,7 +139,7 @@ const formatDate = (iso: string) =>
         border-radius: 8px;
       }
       .body :global(h3) {
-        font-size: 13px;
+        font-size: var(--text-meta);
         text-transform: uppercase;
         letter-spacing: 0.04em;
         color: var(--muted);
@@ -156,7 +156,7 @@ const formatDate = (iso: string) =>
         border: 1px solid var(--line);
         border-radius: 5px;
         padding: 1px 6px;
-        font: 0.88em var(--mono);
+        font: var(--mono-optical) var(--mono);
         font-variant-ligatures: none;
       }
       .body :global(pre) {

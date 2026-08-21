@@ -99,7 +99,7 @@ const fullTitle = `${title} · uploads.sh`;
         min-height: 100dvh;
         background: var(--bg);
         color: var(--fg);
-        font: 15.5px/1.7 var(--sans);
+        font: var(--text-body)/1.7 var(--sans);
         padding: 0;
         display: flex;
         flex-direction: column;
@@ -129,15 +129,15 @@ const fullTitle = `${title} · uploads.sh`;
         max-width: 720px;
       }
       main.docs-main > h1 {
-        font-size: clamp(26px, 5vw, 34px);
-        font-weight: 600;
+        font-size: var(--text-h1);
+        font-weight: var(--weight-semibold);
         letter-spacing: -0.015em;
         line-height: 1.25;
         margin: 4px 0 4px;
       }
       main.docs-main > .tagline {
         color: var(--muted);
-        font-size: 14px;
+        font-size: var(--text-ui);
         margin: 0 0 8px;
       }
 
@@ -156,7 +156,7 @@ const fullTitle = `${title} · uploads.sh`;
         margin-bottom: 0;
       }
       .docs-nav-title {
-        font: 11px var(--mono);
+        font: var(--text-micro) var(--sans);
         letter-spacing: 0.14em;
         text-transform: uppercase;
         color: var(--muted);
@@ -175,7 +175,7 @@ const fullTitle = `${title} · uploads.sh`;
       .docs-side a,
       .docs-nav-m .panel a {
         display: block;
-        font: 13.5px/1.5 var(--sans);
+        font: var(--text-meta)/1.5 var(--sans);
         color: var(--muted);
         text-decoration: none;
         padding: 3px 0;
@@ -190,7 +190,7 @@ const fullTitle = `${title} · uploads.sh`;
       .docs-side a[aria-current="page"],
       .docs-nav-m .panel a[aria-current="page"] {
         color: var(--accent);
-        font-weight: 600;
+        font-weight: var(--weight-semibold);
       }
 
       /* mobile: the left nav collapses to a dropdown (hidden on wider screens) */
@@ -207,7 +207,7 @@ const fullTitle = `${title} · uploads.sh`;
         align-self: flex-start;
       }
       .docs-toc .head {
-        font: 11px var(--mono);
+        font: var(--text-micro) var(--sans);
         letter-spacing: 0.14em;
         text-transform: uppercase;
         color: var(--muted);
@@ -227,7 +227,7 @@ const fullTitle = `${title} · uploads.sh`;
         border-left: 1px solid transparent;
         margin-left: -1px;
         padding: 3px 0 3px 14px;
-        font: 13px/1.45 var(--sans);
+        font: var(--text-meta)/1.45 var(--sans);
         color: var(--muted);
         text-decoration: none;
       }
@@ -270,7 +270,7 @@ const fullTitle = `${title} · uploads.sh`;
           justify-content: space-between;
           gap: 8px;
           padding: 10px 14px;
-          font: 13.5px var(--sans);
+          font: var(--text-meta) var(--sans);
           color: var(--fg);
           cursor: pointer;
           list-style: none;
@@ -316,8 +316,8 @@ const fullTitle = `${title} · uploads.sh`;
       }
 
       .doc section h2 {
-        font-size: 19px;
-        font-weight: 600;
+        font-size: var(--text-h3);
+        font-weight: var(--weight-semibold);
         letter-spacing: -0.01em;
         margin: 40px 0 10px;
         padding-top: 24px;
@@ -329,7 +329,7 @@ const fullTitle = `${title} · uploads.sh`;
         color: color-mix(in srgb, var(--accent) 55%, transparent);
         text-decoration: none;
         margin-left: 8px;
-        font-weight: 400;
+        font-weight: var(--weight-regular);
       }
       .doc section h2 .anchor:hover,
       .doc section h2 .anchor:focus-visible {
@@ -343,13 +343,14 @@ const fullTitle = `${title} · uploads.sh`;
         margin-top: 22px;
       }
       .doc h3 {
-        font: 600 15px/1.4 var(--sans);
+        font: 600 var(--text-body)/1.4 var(--sans);
         margin: 22px 0 6px;
         color: var(--fg);
       }
       .doc p,
       .doc li {
         color: var(--body);
+        max-width: var(--measure);
       }
       .doc strong {
         color: var(--fg);
@@ -360,7 +361,7 @@ const fullTitle = `${title} · uploads.sh`;
         width: 100%;
         border-collapse: collapse;
         margin: 16px 0;
-        font-size: 14px;
+        font-size: var(--text-ui);
       }
       .doc table th,
       .doc table td {
@@ -372,11 +373,11 @@ const fullTitle = `${title} · uploads.sh`;
       .doc table thead th {
         background: var(--panel);
         color: var(--fg);
-        font-weight: 600;
+        font-weight: var(--weight-semibold);
       }
       .doc table tbody th[scope="row"] {
         color: var(--fg);
-        font-weight: 600;
+        font-weight: var(--weight-semibold);
         white-space: nowrap;
       }
 
@@ -386,7 +387,7 @@ const fullTitle = `${title} · uploads.sh`;
       }
       .doc .faq dt {
         color: var(--fg);
-        font-weight: 600;
+        font-weight: var(--weight-semibold);
         margin-top: 18px;
       }
       .doc .faq dd {
@@ -404,7 +405,7 @@ const fullTitle = `${title} · uploads.sh`;
         border: 1px solid var(--line);
         border-radius: 5px;
         padding: 1px 6px;
-        font: 0.88em var(--mono);
+        font: var(--mono-optical) var(--mono);
       }
 
       /* copyable command rows */
@@ -418,7 +419,7 @@ const fullTitle = `${title} · uploads.sh`;
         border-radius: var(--radius-md);
         padding: 10px 12px;
         margin: 12px 0;
-        font: 13px var(--mono);
+        font: var(--text-meta) var(--mono);
       }
       .doc .cmd .text {
         color: var(--fg);
@@ -442,7 +443,7 @@ const fullTitle = `${title} · uploads.sh`;
         color: var(--muted);
       }
       .doc .cmd button {
-        font: 11px var(--mono);
+        font: var(--text-micro) var(--sans);
         letter-spacing: 0.06em;
         color: var(--accent);
         background: none;
@@ -468,7 +469,7 @@ const fullTitle = `${title} · uploads.sh`;
         border-radius: var(--radius-md);
         padding: 12px 14px;
         margin: 12px 0;
-        font: 12.5px/1.6 var(--mono);
+        font: var(--text-meta)/1.6 var(--mono);
         color: var(--muted);
         overflow-x: auto;
       }
@@ -504,12 +505,12 @@ const fullTitle = `${title} · uploads.sh`;
         outline: none;
       }
       .doc .card h3 {
-        font: 600 14px var(--sans);
+        font: 600 var(--text-ui) var(--sans);
         color: var(--fg);
         margin: 0 0 4px;
       }
       .doc .card p {
-        font-size: 13px;
+        font-size: var(--text-meta);
         color: var(--muted);
         margin: 0;
       }
@@ -530,7 +531,7 @@ const fullTitle = `${title} · uploads.sh`;
         margin: 40px 0 0;
         padding-top: 20px;
         border-top: 1px solid var(--line);
-        font: 13px var(--sans);
+        font: var(--text-meta) var(--sans);
       }
       .doc .page-nav a {
         color: var(--body);
@@ -546,7 +547,7 @@ const fullTitle = `${title} · uploads.sh`;
       }
       .doc .page-nav .dir {
         color: var(--muted);
-        font-size: 11px;
+        font-size: var(--text-micro);
         letter-spacing: 0.08em;
         text-transform: uppercase;
         display: block;
@@ -558,7 +559,7 @@ const fullTitle = `${title} · uploads.sh`;
         grid-template-columns: 40px 1fr;
         gap: 12px;
         margin: 18px 0;
-        font: 13px/1.5 var(--sans);
+        font: var(--text-meta)/1.5 var(--sans);
       }
       .doc .ghc .avatar {
         width: 40px;
@@ -604,10 +605,10 @@ const fullTitle = `${title} · uploads.sh`;
       }
       .doc .ghc .head .user {
         color: #e6edf3;
-        font-weight: 600;
+        font-weight: var(--weight-semibold);
       }
       .doc .ghc .head .bot-chip {
-        font: 10px var(--sans);
+        font: var(--text-micro) var(--sans);
         letter-spacing: 0.02em;
         color: #8b949e;
         border: 1px solid #30363d;
@@ -616,7 +617,7 @@ const fullTitle = `${title} · uploads.sh`;
         background: transparent;
       }
       .doc .ghc .head .badge {
-        font: 11px var(--mono);
+        font: var(--text-micro) var(--sans);
         color: #8b949e;
         border: 1px solid #30363d;
         border-radius: 999px;
@@ -628,7 +629,7 @@ const fullTitle = `${title} · uploads.sh`;
       }
       .doc .ghc .md-title {
         color: #e6edf3;
-        font-weight: 600;
+        font-weight: var(--weight-semibold);
         margin: 0 0 10px;
       }
       .doc .ghc .imgs {
@@ -658,7 +659,7 @@ const fullTitle = `${title} · uploads.sh`;
         height: 42px;
       }
       .doc .ghc figcaption {
-        font: 11px var(--mono);
+        font: var(--text-micro) var(--sans);
         color: #8b949e;
         margin-top: 6px;
         display: flex;
@@ -692,7 +693,7 @@ const fullTitle = `${title} · uploads.sh`;
         border: 1px solid color-mix(in srgb, var(--green) 35%, transparent);
         border-radius: 8px;
         background: color-mix(in srgb, var(--green) 8%, transparent);
-        font-size: 14px;
+        font-size: var(--text-ui);
         line-height: 1.6;
       }
       .doc .installed strong {
@@ -705,7 +706,7 @@ const fullTitle = `${title} · uploads.sh`;
         border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
         border-radius: 8px;
         background: color-mix(in srgb, var(--accent) 6%, transparent);
-        font-size: 14px;
+        font-size: var(--text-ui);
         line-height: 1.6;
       }
       .doc .callout strong {
@@ -714,7 +715,7 @@ const fullTitle = `${title} · uploads.sh`;
       .doc .note {
         margin: 20px 0 0;
         color: var(--muted);
-        font-size: 13.5px;
+        font-size: var(--text-meta);
       }
       .doc .note a {
         color: var(--muted);

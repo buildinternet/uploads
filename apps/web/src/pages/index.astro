@@ -89,7 +89,8 @@ Source (and where to look if something breaks): https://github.com/buildinternet
         min-height: 100dvh;
         background: var(--bg);
         color: var(--fg);
-        font: 14.5px/1.65 var(--mono);
+        font: var(--text-body) / var(--leading-body) var(--sans);
+        letter-spacing: var(--tracking-body);
         display: flex;
         flex-direction: column;
         padding: 0;
@@ -115,8 +116,8 @@ Source (and where to look if something breaks): https://github.com/buildinternet
 
       /* ---------- headline ---------- */
       h1 {
-        font: 600 clamp(24px, 5vw, 32px)/1.25 var(--sans);
-        letter-spacing: -0.015em;
+        font: var(--weight-semibold) var(--text-h1) / var(--leading-heading) var(--sans);
+        letter-spacing: var(--tracking-heading);
         margin: 6px 0 0;
         text-wrap: balance;
       }
@@ -124,17 +125,17 @@ Source (and where to look if something breaks): https://github.com/buildinternet
         white-space: nowrap;
       }
       .byline {
-        font: 500 16px/1.4 var(--sans);
+        font: 500 var(--text-body)/1.4 var(--sans);
         color: var(--fg);
         margin: 0;
       }
       .lede {
-        font: 15px/1.65 var(--sans);
+        font: var(--text-body)/1.65 var(--sans);
         color: var(--body);
         margin: 0 0 8px;
       }
       .lede code {
-        font: 0.9em var(--mono);
+        font: var(--mono-optical) var(--mono);
         background: var(--panel);
         border: 1px solid var(--line);
         border-radius: 5px;
@@ -150,7 +151,7 @@ Source (and where to look if something breaks): https://github.com/buildinternet
       }
       .screen {
         padding: 20px 20px 24px;
-        font-size: 13px;
+        font-size: var(--text-meta);
       }
       .line {
         white-space: pre-wrap;
@@ -180,7 +181,7 @@ Source (and where to look if something breaks): https://github.com/buildinternet
 
       /* ---------- connector ---------- */
       .flow-note {
-        font-size: 12px;
+        font-size: var(--text-micro);
         color: var(--muted);
         padding-left: 20px;
         margin: -6px 0;
@@ -190,7 +191,7 @@ Source (and where to look if something breaks): https://github.com/buildinternet
       }
       /* Sits under the comment wireframe, indented to the bubble column. */
       .ghc-note {
-        font-size: 12px;
+        font-size: var(--text-micro);
         color: var(--muted);
         margin: -6px 0 0;
         padding-left: 52px; /* avatar 40 + gap 12 */
@@ -201,7 +202,7 @@ Source (and where to look if something breaks): https://github.com/buildinternet
         display: grid;
         grid-template-columns: 40px 1fr;
         gap: 12px;
-        font: 13px/1.5 var(--sans);
+        font: var(--text-meta)/1.5 var(--sans);
       }
       .ghc .avatar {
         width: 40px;
@@ -247,10 +248,10 @@ Source (and where to look if something breaks): https://github.com/buildinternet
       }
       .ghc .head .user {
         color: #e6edf3;
-        font-weight: 600;
+        font-weight: var(--weight-semibold);
       }
       .ghc .head .bot-chip {
-        font: 10px var(--sans);
+        font: var(--text-micro) var(--sans);
         letter-spacing: 0.02em;
         color: #8b949e;
         border: 1px solid #30363d;
@@ -263,7 +264,7 @@ Source (and where to look if something breaks): https://github.com/buildinternet
       }
       .ghc .md-title {
         color: #e6edf3;
-        font-weight: 600;
+        font-weight: var(--weight-semibold);
         margin: 0 0 10px;
       }
       .ghc .imgs {
@@ -286,7 +287,7 @@ Source (and where to look if something breaks): https://github.com/buildinternet
         background: #1c2128;
       }
       .ghc figcaption {
-        font: 11px var(--mono);
+        font: var(--text-micro) var(--sans);
         color: #8b949e;
         margin-top: 6px;
         display: flex;
@@ -312,20 +313,28 @@ Source (and where to look if something breaks): https://github.com/buildinternet
       }
 
       /* ---------- section headers ---------- */
+      /* These are real <h2>s. Set as 12px uppercase muted they were the
+         faintest, smallest text inside their own section — below the lede they
+         introduced. They now read at heading rank; the shell-comment `#` stays
+         and carries the terminal voice, tinted rather than shouted. */
       .sect-head {
-        color: var(--muted);
-        font-size: 11px;
-        letter-spacing: 0.14em;
-        text-transform: uppercase;
+        color: var(--fg);
+        font: var(--weight-semibold) var(--text-h2) / var(--leading-heading) var(--sans);
+        letter-spacing: var(--tracking-heading);
+        text-wrap: balance;
         margin: 0 0 10px 2px;
       }
+      .sect-head::first-letter {
+        color: var(--accent);
+      }
       .sect-lede {
-        font: 13px/1.6 var(--sans);
+        font: var(--text-body) / var(--leading-body) var(--sans);
         color: var(--body);
+        max-width: var(--measure);
         margin: 0 0 12px 2px;
       }
       .sect-lede code {
-        font: 11.5px var(--mono);
+        font: var(--text-micro) var(--mono);
         color: var(--fg);
         background: var(--panel);
         border: 1px solid var(--line);
@@ -350,17 +359,17 @@ Source (and where to look if something breaks): https://github.com/buildinternet
         padding-top: 12px;
       }
       .feature h3 {
-        font: 600 13px/1.4 var(--mono);
+        font: var(--weight-semibold) var(--text-h4) / var(--leading-tight) var(--sans);
         color: var(--fg);
         margin: 0 0 4px;
       }
       .feature p {
-        font: 13px/1.6 var(--sans);
+        font: var(--text-meta)/1.6 var(--sans);
         color: var(--body);
         margin: 0;
       }
       .feature code {
-        font: 11.5px var(--mono);
+        font: var(--text-micro) var(--mono);
         color: var(--fg);
         background: var(--panel);
         border: 1px solid var(--line);
@@ -380,12 +389,12 @@ Source (and where to look if something breaks): https://github.com/buildinternet
         border: 1px solid var(--line);
         border-radius: var(--radius-md);
         padding: 12px 14px;
-        font-size: 12.5px;
+        font-size: var(--text-meta);
       }
 
       /* ---------- install panel ---------- */
       .install {
-        font-size: 13px;
+        font-size: var(--text-meta);
         margin-top: 14px;
       }
       .install .rows {
@@ -412,7 +421,7 @@ Source (and where to look if something breaks): https://github.com/buildinternet
       }
       .cmdrow .tag {
         color: var(--muted);
-        font-size: 10.5px;
+        font-size: var(--text-micro);
         letter-spacing: 0.1em;
         text-transform: uppercase;
       }
@@ -428,24 +437,24 @@ Source (and where to look if something breaks): https://github.com/buildinternet
       }
       .cmdrow .agent-desc {
         color: var(--body);
-        font: 12.5px/1.65 var(--sans);
+        font: var(--text-meta)/1.65 var(--sans);
       }
       .cmdrow .agent-desc strong {
         color: var(--fg);
-        font-weight: 600;
+        font-weight: var(--weight-semibold);
       }
       .agent-byline {
         display: flex;
         align-items: center;
         justify-content: center;
         gap: 10px;
-        font: 12.5px/1.5 var(--sans);
+        font: var(--text-meta)/1.5 var(--sans);
         color: var(--muted);
         margin: -6px 0 0;
       }
       .cmdrow button,
       .agent-byline button {
-        font: 11px var(--mono);
+        font: var(--text-micro) var(--sans);
         letter-spacing: 0.06em;
         color: var(--accent);
         background: none;
@@ -467,7 +476,7 @@ Source (and where to look if something breaks): https://github.com/buildinternet
         border-color: var(--green);
       }
       .prompt-note {
-        font: 12px/1.5 var(--sans);
+        font: var(--text-micro)/1.5 var(--sans);
         color: var(--muted);
         margin: -2px 0 0 2px;
       }
@@ -478,19 +487,19 @@ Source (and where to look if something breaks): https://github.com/buildinternet
       /* The one loudest action on the page: the install row. Accent-washed
          panel, solid accent copy button. */
       .hero-install {
-        font-size: 14px;
+        font-size: var(--text-ui);
         margin-bottom: 2px;
         border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
         background: color-mix(in srgb, var(--accent) 7%, var(--panel));
       }
       .hero-install .cmdtext {
-        font-weight: 500;
+        font-weight: var(--weight-medium);
       }
       .hero-install button {
         color: var(--bg);
         background: var(--accent);
         border-color: var(--accent);
-        font-weight: 600;
+        font-weight: var(--weight-semibold);
       }
       .hero-install:hover {
         border-color: color-mix(in srgb, var(--accent) 70%, var(--line));
@@ -523,7 +532,7 @@ Source (and where to look if something breaks): https://github.com/buildinternet
         display: inline-flex;
         align-items: center;
         gap: 8px;
-        font: 600 13.5px var(--mono);
+        font: var(--weight-medium) var(--text-ui) / 1 var(--sans);
         letter-spacing: 0.02em;
         color: var(--bg);
         background: var(--accent);
@@ -534,7 +543,7 @@ Source (and where to look if something breaks): https://github.com/buildinternet
       }
       .cta-note {
         color: var(--muted);
-        font-size: 12.5px;
+        font-size: var(--text-meta);
       }
       /* Scope to main so header auth menu hover/active paint is not overridden
          (global `a` styles were bleeding into the avatar dropdown). */

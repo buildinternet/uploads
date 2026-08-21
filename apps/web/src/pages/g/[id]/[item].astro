@@ -146,12 +146,12 @@ const footnoteLine = footnoteParts.join(" · ");
         align-items: center;
         justify-content: space-between;
         margin-bottom: 32px;
-        font: 13px var(--mono);
+        font: var(--text-meta) var(--mono);
         letter-spacing: 0.02em;
       }
       .public {
         color: var(--muted);
-        font-size: 11px;
+        font-size: var(--text-micro);
         letter-spacing: 0.1em;
         text-transform: uppercase;
         border: 1px solid var(--line);
@@ -191,7 +191,7 @@ const footnoteLine = footnoteParts.join(" · ");
       .crumbs {
         margin-bottom: 12px;
         color: var(--muted);
-        font: 13px var(--mono);
+        font: var(--text-meta) var(--mono);
         overflow-wrap: anywhere;
       }
       .crumbs .count {
@@ -204,7 +204,7 @@ const footnoteLine = footnoteParts.join(" · ");
       .filetitle {
         margin: 0;
         color: var(--fg);
-        font: 600 17px var(--mono);
+        font: 600 var(--text-h3) var(--mono);
         letter-spacing: -0.01em;
         overflow-wrap: anywhere;
       }
@@ -212,7 +212,7 @@ const footnoteLine = footnoteParts.join(" · ");
       .caption {
         margin: 0;
         color: var(--body);
-        font-size: 15px;
+        font-size: var(--text-body);
         line-height: 1.6;
         white-space: pre-wrap;
       }
@@ -221,7 +221,7 @@ const footnoteLine = footnoteParts.join(" · ");
       .footnote {
         margin: auto 0 0;
         color: var(--muted);
-        font: 11.5px/1.5 var(--mono);
+        font: var(--text-micro)/1.5 var(--sans);
       }
       .pager {
         display: flex;
@@ -229,7 +229,7 @@ const footnoteLine = footnoteParts.join(" · ");
         justify-content: space-between;
         gap: 12px;
         margin: 22px 0 0;
-        font: 13px var(--mono);
+        font: var(--text-meta) var(--sans);
       }
       .pager a,
       .pager span.disabled {
