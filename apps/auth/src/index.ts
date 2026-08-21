@@ -113,8 +113,17 @@ export async function rewriteDiscoveryEndpoints(
   let changed = false;
   for (const key of FORM_POST_ENDPOINT_KEYS) {
     const value = json[key];
-    if (typeof value === "string" && value.startsWith(issuerOrigin)) {
-      json[key] = directOrigin + value.slice(issuerOrigin.length);
+    if (typeof value !== "string") continue;
+    let endpoint: URL;
+    try {
+      endpoint = new URL(value);
+    } catch {
+      continue; // preserve malformed / non-URL values unchanged
+    }
+    // Exact origin match — a `startsWith` prefix check would also rewrite a
+    // lookalike host like `https://uploads.sh.evil/…` (CodeRabbit, #750).
+    if (endpoint.origin === issuerOrigin) {
+      json[key] = `${directOrigin}${endpoint.pathname}${endpoint.search}${endpoint.hash}`;
       changed = true;
     }
   }

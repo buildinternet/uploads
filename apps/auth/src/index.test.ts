@@ -273,6 +273,21 @@ describe("rewriteDiscoveryEndpoints (#749)", () => {
     expect(out).toBe(res); // same Response instance, untouched
   });
 
+  it("does not rewrite a lookalike host that only shares the issuer prefix", async () => {
+    const out = await rewriteDiscoveryEndpoints(
+      DISCOVERY_META_URL,
+      jsonResponse({
+        ...discoveryMetadata(),
+        token_endpoint: "https://uploads.sh.evil/api/auth/oauth2/token",
+      }),
+      discoveryEnv(),
+    );
+    const j = (await out.json()) as Record<string, string>;
+    // The lookalike is left untouched; the genuine endpoints still move.
+    expect(j.token_endpoint).toBe("https://uploads.sh.evil/api/auth/oauth2/token");
+    expect(j.revocation_endpoint).toBe("https://auth.uploads.sh/api/auth/oauth2/revoke");
+  });
+
   it("is a no-op when the direct origin equals the issuer origin", async () => {
     const out = await rewriteDiscoveryEndpoints(
       META_URL,
