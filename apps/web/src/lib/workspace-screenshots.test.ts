@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  backfillTargets,
   filterCatalog,
   groupsFromCatalog,
   isRepoLabel,
@@ -14,6 +15,7 @@ import {
   shotKindFromKey,
   shotPreviewCaption,
   shotPreviewPosition,
+  shotsFromSearchItems,
 } from "./workspace-screenshots";
 
 describe("pairedShotKeys", () => {
@@ -309,5 +311,76 @@ describe("shotPreviewPosition", () => {
     );
     expect(pos.top).toBe(492); // 800 - 8 - 300
     expect(pos.left).toBe(200);
+  });
+});
+
+describe("shotsFromSearchItems", () => {
+  const item = (key: string, metadata: Record<string, string>) => ({
+    key,
+    url: `https://s/${key}`,
+    embedUrl: `https://e/${key}`,
+    metadata,
+  });
+  it("keeps only items whose metadata resolves to the group's project", () => {
+    const items = [
+      item("shots/a.png", { repo: "acme/api", path: "/billing" }),
+      item("shots/b.png", { repo: "acme/web", path: "/billing" }),
+      item("shots/c.png", { path: "/billing" }),
+    ];
+    expect(shotsFromSearchItems(items, "acme/api")).toEqual([
+      { key: "shots/a.png", url: "https://s/shots/a.png", embedUrl: "https://e/shots/a.png" },
+    ]);
+    expect(shotsFromSearchItems(items, "Other").map((shot) => shot.key)).toEqual(["shots/c.png"]);
+  });
+  it("carries state and gh metadata into the shot shape", () => {
+    const shots = shotsFromSearchItems(
+      [
+        item("shots/a.png", {
+          repo: "acme/api",
+          state: "after",
+          "gh.kind": "pull",
+          "gh.number": "12",
+        }),
+      ],
+      "acme/api",
+    );
+    expect(shots).toEqual([
+      {
+        key: "shots/a.png",
+        url: "https://s/shots/a.png",
+        embedUrl: "https://e/shots/a.png",
+        state: "after",
+        ghKind: "pull",
+        ghNumber: "12",
+      },
+    ]);
+  });
+  it("caps the result at the strip limit", () => {
+    const items = Array.from({ length: 9 }, (_, i) => item(`shots/${i}.png`, { repo: "a/b" }));
+    expect(shotsFromSearchItems(items, "a/b")).toHaveLength(6);
+    expect(shotsFromSearchItems(items, "a/b", 2)).toHaveLength(2);
+  });
+});
+
+describe("backfillTargets", () => {
+  const group = (project: string, path: string, recent: number) => ({
+    project,
+    path,
+    count: 1,
+    lastUpdated: "2026-08-01T00:00:00Z",
+    recent: Array.from({ length: recent }, (_, i) => ({
+      key: `${path}/${i}`,
+      url: null,
+      embedUrl: null,
+    })),
+  });
+  it("targets only thumbless groups that are not already cached", () => {
+    const groups = [group("a/b", "/x", 2), group("a/b", "/y", 0), group("a/b", "/z", 0)];
+    expect(backfillTargets(groups, new Set(["a/b\0/z"]))).toEqual([{ project: "a/b", path: "/y" }]);
+  });
+  it("caps how many groups are backfilled per pass", () => {
+    const groups = Array.from({ length: 20 }, (_, i) => group("a/b", `/p${i}`, 0));
+    expect(backfillTargets(groups, new Set())).toHaveLength(12);
+    expect(backfillTargets(groups, new Set(), 3)).toHaveLength(3);
   });
 });

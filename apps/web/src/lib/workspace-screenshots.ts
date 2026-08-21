@@ -272,6 +272,70 @@ export function groupsFromCatalog<TRecent>(
   });
 }
 
+type BackfillShot = {
+  key: string;
+  url: string | null;
+  embedUrl: string | null;
+  state?: string;
+  ghKind?: string;
+  ghNumber?: string;
+};
+
+/**
+ * Thumb strip for a group past the overview's thumbed cap, built from the
+ * drill-in search route's items: keep the group's own project (labels via
+ * projectLabelFromItemMeta, same as the drill-in view) and reshape to the
+ * by-path `recent` item, capped at the server's strip length.
+ */
+export function shotsFromSearchItems(
+  items: Array<{
+    key: string;
+    url: string | null;
+    embedUrl: string | null;
+    metadata?: Record<string, string>;
+  }>,
+  project: string,
+  limit = 6,
+): BackfillShot[] {
+  const shots: BackfillShot[] = [];
+  for (const item of items) {
+    if (projectLabelFromItemMeta(item.metadata) !== project) continue;
+    const state = item.metadata?.state;
+    const ghKind = item.metadata?.["gh.kind"];
+    const ghNumber = item.metadata?.["gh.number"];
+    shots.push({
+      key: item.key,
+      url: item.url,
+      embedUrl: item.embedUrl,
+      ...(state !== undefined ? { state } : {}),
+      ...(ghKind !== undefined ? { ghKind } : {}),
+      ...(ghNumber !== undefined ? { ghNumber } : {}),
+    });
+    if (shots.length === limit) break;
+  }
+  return shots;
+}
+
+/**
+ * Which rendered groups still need a thumb backfill: no `recent` strip and
+ * not already fetched (`cached` keys are `project\0path`). Capped per pass so
+ * a broad filter never fans out into dozens of search requests at once.
+ */
+export function backfillTargets(
+  groups: Array<{ project: string; path: string; recent: unknown[] }>,
+  cached: Set<string>,
+  limit = 12,
+): Array<{ project: string; path: string }> {
+  const targets: Array<{ project: string; path: string }> = [];
+  for (const group of groups) {
+    if (group.recent.length > 0) continue;
+    if (cached.has(`${group.project}\0${group.path}`)) continue;
+    targets.push({ project: group.project, path: group.path });
+    if (targets.length === limit) break;
+  }
+  return targets;
+}
+
 /** Viewport box used to place the thumbnail hover preview. */
 export type ShotPreviewBox = { left: number; top: number; right: number; bottom: number };
 
