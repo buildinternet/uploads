@@ -392,7 +392,11 @@ it before killing it as described below.
 
 ## Local Wrangler gotchas
 
-`wrangler … --local` starts miniflare against `apps/api/.wrangler/state`. That is
+`wrangler … --local` starts miniflare against `apps/api/.wrangler/state`. Since
+uploads#754 item 1, `apps/auth`'s local `wrangler dev` (see `pnpm dev:stack` /
+`scripts/dev-stack.mjs`) is started with `--persist-to ../api/.wrangler/state`
+so it points at this same directory instead of getting its own empty local
+D1 — both workers' local dev shares the one merged database. That is
 fine for short interactive use, but:
 
 1. **Agent timeouts orphan the process.** If a coding agent kills only the shell
@@ -479,6 +483,80 @@ pnpm exec wrangler secret put WORKSPACE_SECRETS_KEY
    ```
 
 Do **not** delete PREVIOUS before re-encrypt completes.
+
+### Auth worker: dedicated D1 → merged D1 cutover (uploads#754 item 1)
+
+Two changes landed in sequence:
+
+- **Phase 1** (#755): a consolidated migration folding Better Auth's schema
+  into `apps/api/migrations` (idempotent — safe on prod's main DB, where
+  those tables didn't exist yet), plus test/tooling updates. `apps/auth`
+  kept running against its own dedicated `uploads-auth` D1 in production; the
+  new tables sat empty and unused in `uploads-production` until cutover.
+- **Phase 3 (this cutover)**: `apps/auth/wrangler.jsonc`'s D1 binding (both
+  the top-level block and the `previews` block) now points at the same
+  database `apps/api` uses (`uploads-production` / `uploads-preview`).
+  `apps/auth/migrations/` and the auth-only `d1-migrations-auth.yml` workflow
+  are deleted — `apps/api/migrations` plus `d1-migrations.yml` is the only
+  migration chain and workflow left in the repo. The code in this cutover is
+  safe to merge on its own (an empty-of-real-rows deploy would just mean a
+  signed-out worker until the data move runs), but the **operator sequence
+  below must happen close together** so there is no window where the worker
+  is live against a database that doesn't have the real rows yet.
+
+**Operator sequence** (weekend / low-usage window recommended):
+
+1. **Back up both databases** before touching anything:
+
+   ```bash
+   wrangler d1 export uploads-auth --remote --output=uploads-auth-backup-$(date +%Y%m%d).sql
+   wrangler d1 export uploads-production --remote --output=uploads-production-backup-$(date +%Y%m%d).sql
+   ```
+
+2. **Confirm the Phase 1 migration already applied** to `uploads-production`
+   (it did automatically, on #755 merging to main — `wrangler d1 migrations
+list uploads-production --remote` should show
+   `20260822120000_auth_tables.sql` as applied, nothing pending).
+
+3. **Merge this cutover PR to main.** `d1-migrations.yml` re-runs (a no-op —
+   nothing new to apply) and Workers Builds deploys `apps/auth` with its new
+   D1 binding. From this point until step 4 finishes, the auth worker is live
+   against `uploads-production`'s (still-empty) auth tables — sign-in/sessions
+   are effectively down for that window. Merge and immediately run step 4;
+   don't let time pass between them.
+
+4. **Run the data move**, from a repo checkout with both databases'
+   credentials available:
+
+   ```bash
+   node scripts/auth-d1-data-move.mjs --remote
+   ```
+
+   Confirm the printed primary-key verification is `OK` for every table
+   before considering the cutover complete. If any table reports `MISMATCH`,
+   stop and investigate before doing anything else — do not repeat the run
+   blindly (see the script's `oauth_client` seed-row handling before assuming
+   a second run is harmless for that one table).
+
+5. **Smoke-test** sign-in (magic link and GitHub), device-code CLI login, and
+   one OAuth flow against production immediately after.
+
+6. Once confidence is high (a few days of clean operation), decommission the
+   old `uploads-auth` and `uploads-auth-preview` D1 databases
+   (`wrangler d1 delete`).
+
+**Rollback.** If the deploy in step 3 misbehaves before step 4 completes,
+revert `apps/auth/wrangler.jsonc`'s D1 binding back to the dedicated
+`uploads-auth` database (`database_id: 24eb8b7f-5dff-46bc-a1a5-fa436810805d`,
+`database_name: uploads-auth`, `migrations_dir: migrations` — restore
+`apps/auth/migrations/` from git history) and redeploy; that database still
+has every row it had before the move (the data-move script only ever reads
+from it, never deletes). Any writes that land against the merged DB during
+the time the worker was pointed at it are lost on rollback — this is the
+same risk profile as any cutover, which is why the merge (step 3) and the
+data move (step 4) need to happen back-to-back rather than with a gap. There
+is no rollback path that recovers writes made against both databases during
+a split-brain window.
 
 ### Auth worker: Secrets Store → plain secret cutover (uploads#754 item 2)
 

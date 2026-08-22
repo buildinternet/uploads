@@ -5,15 +5,20 @@
  * schema (apps/api/migrations/20260822120000_auth_tables.sql) is live on the
  * destination.
  *
- * This is a Phase 1 deliverable: it is written and tested against LOCAL D1
- * (both `--local` simulators are just files under .wrangler/state — no
- * network calls), and is NOT wired into any CI workflow. Running it against
- * `--remote` is the actual prod cutover step described in
- * .context/754-auth-d1-merge-plan.md — do that as a deliberate, supervised
- * action (maintenance window, fresh `wrangler d1 export` backup of both
- * databases first, apps/auth's wrangler.jsonc D1 binding flipped to the main
- * DB in the same change so nothing writes to the old DB after the copy)
- * rather than by running this script on a whim.
+ * This is a single-purpose script for the 2026-08 cutover: it exists to be
+ * run once, `--remote`, as step 4 of the operator sequence in docs/ops.md
+ * ("Auth worker: dedicated D1 → merged D1 cutover"), right after
+ * `apps/auth/wrangler.jsonc`'s D1 binding flips over. It is kept in the repo
+ * afterward as a record of exactly what the cutover did and how it verified
+ * itself, not because it is expected to run again — once `uploads-auth` is
+ * decommissioned there is nothing left for it to read from.
+ *
+ * It was written and tested against LOCAL D1 (both `--local` simulators are
+ * just files under .wrangler/state — no network calls), and is NOT wired
+ * into any CI workflow. Running it against `--remote` outside that
+ * documented sequence — e.g. before the destination has the merged schema,
+ * or after `uploads-auth` has already been decommissioned — will fail loudly
+ * or do nothing useful; do not run it on a whim.
  *
  * What it does, per table (in FK-safe order):
  *   1. `wrangler d1 execute <source> --json --command "SELECT * FROM <table>"`
