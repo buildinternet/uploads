@@ -55,7 +55,7 @@
   "devDependencies": {
     "@types/node": "^26.1.0",
     "ai": "^6.0.0",
-    "files-sdk": "^2.2.4",
+    "files-sdk": "^2.2.5",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10"
   },

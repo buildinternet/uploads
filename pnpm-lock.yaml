@@ -192,8 +192,8 @@ importers:
         specifier: ^7.2.4
         version: 7.2.4(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.2)(@types/node@26.1.0)(aws4fetch@1.0.20)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.0)
       files-sdk:
-        specifier: ^2.2.4
-        version: 2.2.4(@aws-sdk/client-s3@3.1080.0)(@aws-sdk/s3-presigned-post@3.1080.0)(@aws-sdk/s3-request-presigner@3.1080.0)(@opentelemetry/api@1.9.1)(ai@6.0.220(zod@4.4.3))(astro@7.2.4(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.2)(@types/node@26.1.0)(aws4fetch@1.0.20)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.0))(h3@1.15.11)(hono@4.12.28)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.4.3)
+        specifier: ^2.2.5
+        version: 2.2.5(@aws-sdk/client-s3@3.1080.0)(@aws-sdk/s3-presigned-post@3.1080.0)(@aws-sdk/s3-request-presigner@3.1080.0)(@opentelemetry/api@1.9.1)(ai@6.0.220(zod@4.4.3))(astro@7.2.4(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.2)(@types/node@26.1.0)(aws4fetch@1.0.20)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.0))(h3@1.15.11)(hono@4.12.28)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.4.3)
       img-comparison-slider:
         specifier: ^8.0.7
         version: 8.0.7
@@ -296,8 +296,8 @@ importers:
         specifier: ^3.1080.0
         version: 3.1080.0
       files-sdk:
-        specifier: ^2.2.4
-        version: 2.2.4(@aws-sdk/client-s3@3.1080.0)(@aws-sdk/s3-presigned-post@3.1080.0)(@aws-sdk/s3-request-presigner@3.1080.0)(@opentelemetry/api@1.9.1)(ai@6.0.220(zod@4.4.3))(h3@1.15.11)(hono@4.13.3)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.4.3)
+        specifier: ^2.2.5
+        version: 2.2.5(@aws-sdk/client-s3@3.1080.0)(@aws-sdk/s3-presigned-post@3.1080.0)(@aws-sdk/s3-request-presigner@3.1080.0)(@opentelemetry/api@1.9.1)(ai@6.0.220(zod@4.4.3))(h3@1.15.11)(hono@4.13.3)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.4.3)
     devDependencies:
       '@cloudflare/workers-types':
         specifier: ^5.20260706.1
@@ -328,8 +328,8 @@ importers:
         specifier: ^19.2.3
         version: 19.2.3(@types/react@19.2.17)
       files-sdk:
-        specifier: ^2.2.4
-        version: 2.2.4(@aws-sdk/client-s3@3.1080.0)(@aws-sdk/s3-presigned-post@3.1080.0)(@aws-sdk/s3-request-presigner@3.1080.0)(@opentelemetry/api@1.9.1)(ai@6.0.220(zod@4.4.3))(h3@1.15.11)(hono@4.13.3)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.4.3)
+        specifier: ^2.2.5
+        version: 2.2.5(@aws-sdk/client-s3@3.1080.0)(@aws-sdk/s3-presigned-post@3.1080.0)(@aws-sdk/s3-request-presigner@3.1080.0)(@opentelemetry/api@1.9.1)(ai@6.0.220(zod@4.4.3))(h3@1.15.11)(hono@4.13.3)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.4.3)
       react:
         specifier: ^19.2.7
         version: 19.2.7
@@ -374,8 +374,8 @@ importers:
         specifier: ^6.0.0
         version: 6.0.220(zod@4.4.3)
       files-sdk:
-        specifier: ^2.2.4
-        version: 2.2.4(@aws-sdk/client-s3@3.1080.0)(@aws-sdk/s3-presigned-post@3.1080.0)(@aws-sdk/s3-request-presigner@3.1080.0)(@opentelemetry/api@1.9.1)(ai@6.0.220(zod@4.4.3))(h3@1.15.11)(hono@4.13.3)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.4.3)
+        specifier: ^2.2.5
+        version: 2.2.5(@aws-sdk/client-s3@3.1080.0)(@aws-sdk/s3-presigned-post@3.1080.0)(@aws-sdk/s3-request-presigner@3.1080.0)(@opentelemetry/api@1.9.1)(ai@6.0.220(zod@4.4.3))(h3@1.15.11)(hono@4.13.3)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.4.3)
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
@@ -4091,8 +4091,11 @@ packages:
       picomatch:
         optional: true
 
-  files-sdk@2.2.4:
-    resolution: {integrity: sha512-9eEayQDd+/+uh6NgGwyj7hXGL+01gjW05S9WuetvuoF4cOYne8wQ4ZSICcegtE2VLsj73L0WVSNyVK5rVukD7Q==}
+  fflate@0.8.3:
+    resolution: {integrity: sha512-tbZNuJrLwGUp3zshBtdy4W+ORxZuIh8a5ilyIEQDC5rY1f3U20JMry0Ll3WBzU58EZKsEuJFXhb5gwv8CsPvgA==}
+
+  files-sdk@2.2.5:
+    resolution: {integrity: sha512-5aFnCgNaT7UXHAd2HJ9szNQru9u19rYePZ6wX6Y0Rk3gpbpv1yQvQVBwCabRiiF1T/xn/h8Nt9firzS6fLgyPw==}
     hasBin: true
     peerDependencies:
       '@anthropic-ai/claude-agent-sdk': ^0.3.0
@@ -4804,6 +4807,11 @@ packages:
     resolution: {integrity: sha512-Lbgzdk0h4juoQ9fCKXW4by0UJqj+nOOrI9MJ1sSj4nI8aI2eo1qmvQEie4VD1glsS250n15LsWsYtCugiStS5A==}
     engines: {node: '>=18'}
 
+  mime@4.1.0:
+    resolution: {integrity: sha512-X5ju04+cAzsojXKes0B/S4tcYtFAJ6tTMuSPBEn9CPGlrWr8Fiw7qYeLT0XyH80HSoAoqWCaz+MWKh22P7G1cw==}
+    engines: {node: '>=16'}
+    hasBin: true
+
   mimic-fn@2.1.0:
     resolution: {integrity: sha512-OqbOk5oEQeAZ8WXWydlu9HJjz9WVdEIvamMCcXmuqUYjTknH/sqsWvhQ3vgwKFRR1HpjvNBKQ37nbJgYzGqGcg==}
     engines: {node: '>=6'}
@@ -4990,6 +4998,10 @@ packages:
   p-map@2.1.0:
     resolution: {integrity: sha512-y3b8Kpd8OAN444hxfBbFfj1FY/RjtTd8tzYwhUqNYXx0fXx2iX4maP4Qr6qhIKbQXI02wTLAda4fYUbDagTUFw==}
     engines: {node: '>=6'}
+
+  p-map@7.0.6:
+    resolution: {integrity: sha512-I4Prw6ivkd6p8PiYR1tXASOAOBzIJwu0TB7fqaX0c/8c3QAehNYmX57EijyGGGBt3c/BIowGwV03RVBtXvHEVg==}
+    engines: {node: '>=18'}
 
   p-queue@9.3.1:
     resolution: {integrity: sha512-POWdiIPmsUPGwb4FeQ4OBg46aqmcInSWe45CKDsGHiOBiVQM9chqfQTuqhuTzcg2Vz9faTI65at0KkVyVEiCHw==}
@@ -9657,10 +9669,15 @@ snapshots:
     optionalDependencies:
       picomatch: 4.0.5
 
-  files-sdk@2.2.4(@aws-sdk/client-s3@3.1080.0)(@aws-sdk/s3-presigned-post@3.1080.0)(@aws-sdk/s3-request-presigner@3.1080.0)(@opentelemetry/api@1.9.1)(ai@6.0.220(zod@4.4.3))(astro@7.2.4(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.2)(@types/node@26.1.0)(aws4fetch@1.0.20)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.0))(h3@1.15.11)(hono@4.12.28)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.4.3):
+  fflate@0.8.3: {}
+
+  files-sdk@2.2.5(@aws-sdk/client-s3@3.1080.0)(@aws-sdk/s3-presigned-post@3.1080.0)(@aws-sdk/s3-request-presigner@3.1080.0)(@opentelemetry/api@1.9.1)(ai@6.0.220(zod@4.4.3))(astro@7.2.4(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.2)(@types/node@26.1.0)(aws4fetch@1.0.20)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.0))(h3@1.15.11)(hono@4.12.28)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.4.3):
     dependencies:
       aws4fetch: 1.0.20
       commander: 15.0.0
+      fflate: 0.8.3
+      mime: 4.1.0
+      p-map: 7.0.6
       picomatch: 4.0.5
       safe-regex2: 5.1.1
     optionalDependencies:
@@ -9680,10 +9697,13 @@ snapshots:
       - '@cfworker/json-schema'
       - supports-color
 
-  files-sdk@2.2.4(@aws-sdk/client-s3@3.1080.0)(@aws-sdk/s3-presigned-post@3.1080.0)(@aws-sdk/s3-request-presigner@3.1080.0)(@opentelemetry/api@1.9.1)(ai@6.0.220(zod@4.4.3))(h3@1.15.11)(hono@4.13.3)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.4.3):
+  files-sdk@2.2.5(@aws-sdk/client-s3@3.1080.0)(@aws-sdk/s3-presigned-post@3.1080.0)(@aws-sdk/s3-request-presigner@3.1080.0)(@opentelemetry/api@1.9.1)(ai@6.0.220(zod@4.4.3))(h3@1.15.11)(hono@4.13.3)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.4.3):
     dependencies:
       aws4fetch: 1.0.20
       commander: 15.0.0
+      fflate: 0.8.3
+      mime: 4.1.0
+      p-map: 7.0.6
       picomatch: 4.0.5
       safe-regex2: 5.1.1
     optionalDependencies:
@@ -10235,6 +10255,8 @@ snapshots:
       mime-db: 1.54.0
     optional: true
 
+  mime@4.1.0: {}
+
   mimic-fn@2.1.0: {}
 
   mimic-function@5.0.1: {}
@@ -10446,6 +10468,8 @@ snapshots:
       p-limit: 2.3.0
 
   p-map@2.1.0: {}
+
+  p-map@7.0.6: {}
 
   p-queue@9.3.1:
     dependencies:
