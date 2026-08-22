@@ -70,6 +70,16 @@ export const UPLOAD_CACHE_CONTROL = "public, max-age=60";
 /** Server-only first-upload stamp (Files SDK object metadata). Not client provenance. */
 export const UPLOADED_AT_META_KEY = "uploaded-at";
 
+/**
+ * Server-only provenance key naming which storage lane this object was
+ * written to (two-lane storage). "lane_origin" marks an upload made before
+ * `WorkspaceRecord.storageLaneId` existed. Zero read-path dependency today —
+ * resolution stays fallback-based (`resolveObjectLane`) — this is a cheap
+ * forward hook for future per-file routing/migration tooling (#630/#594).
+ */
+export const STORAGE_LANE_META_KEY = "storage-lane";
+const STORAGE_LANE_ORIGIN = "lane_origin";
+
 const KEY_RE = /^[\w!*'()./-]+$/;
 
 /**
@@ -489,6 +499,7 @@ export async function putObject(
     // matching the historical shape of objects uploaded before this existed.
     ...(storedVisibility ? { [VISIBILITY_META_KEY]: storedVisibility } : {}),
     [UPLOADED_AT_META_KEY]: uploadedAt,
+    [STORAGE_LANE_META_KEY]: ws.storageLaneId ?? STORAGE_LANE_ORIGIN,
   };
 
   try {
