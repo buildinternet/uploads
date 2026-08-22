@@ -16,9 +16,15 @@
  * never touch them.
  *
  * `apps/auth/migrations/*.sql` still exists and still drives the OLD
- * dedicated auth D1 in production until the item-1 cutover lands; it is
- * intentionally no longer the source this harness reads from, since new auth
- * schema changes should land in apps/api/migrations going forward.
+ * dedicated auth D1 that production actually runs against, until the item-1
+ * cutover lands; it is intentionally no longer the source this harness reads
+ * from. Transitional policy until cutover: a schema change affecting this
+ * worker MUST land in BOTH chains — `apps/api/migrations` (so the future
+ * merged layout and this test harness stay correct) AND
+ * `apps/auth/migrations` (so the live `uploads-auth` database production
+ * actually reads from gets the change too). Landing it in only one chain
+ * either leaves prod's real database out of date or leaves the future
+ * merged schema/tests silently behind.
  *
  * Deliberately NOT a full D1 emulator: no `.dump()`, no `sessions`/bookmark
  * API, and `meta` fields are minimal stubs. Good enough for drizzle+Better
