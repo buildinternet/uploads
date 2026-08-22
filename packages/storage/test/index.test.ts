@@ -19,6 +19,22 @@ const base: StorageConfig = {
   secretAccessKey: "secret",
 };
 
+describe("createStorage client selection", () => {
+  it("pure HTTP mode uses the aws4fetch client, not the aws-sdk one", () => {
+    // The default aws-sdk client parses S3 XML with DOMParser in
+    // Workers-style bundles, which workerd doesn't provide — every HTTP
+    // list()/error-body parse would throw "DOMParser is not defined" at
+    // runtime (hit by BYO bucket verify, the first HTTP-mode read in prod).
+    const files = createStorage(base);
+    expect(files.adapter.name).toBe("r2-http-fetch");
+  });
+
+  it("binding mode keeps the binding adapter", () => {
+    const files = createStorage({ ...base, r2Binding: new FakeR2Bucket() as unknown as R2Bucket });
+    expect(files.adapter.name).not.toBe("r2-http-fetch");
+  });
+});
+
 describe("createStorage prefix", () => {
   it("applies the prefix to the Files instance (normalized, no trailing slash)", () => {
     const files = createStorage({ ...base, prefix: "myws/" });
