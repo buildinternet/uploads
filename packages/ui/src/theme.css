@@ -1,0 +1,54 @@
+/*
+ * Tailwind v4 theme for the signed-in React surfaces — phase 1 of the
+ * Tailwind + shadcn migration (.context/2026-08-22-tailwind-shadcn-migration-plan.md).
+ *
+ * Deliberately imports Tailwind WITHOUT preflight: phase 1's bar is
+ * pixel-identical, and preflight's resets would fight the existing `ul-*`
+ * styles. Preflight arrives with the shadcn restyle in phase 2, scoped to
+ * migrated pages. Utilities are available immediately; the theme is fed by
+ * the existing brand tokens in tokens.css (`@theme inline` references the
+ * var(--*) values rather than duplicating them).
+ *
+ * Spacing keeps Tailwind's default 4px scale (p-1 = 4px … matches the
+ * --space-* steps at 1/2/3/4/6/10).
+ */
+
+@import "./tokens.css";
+
+@layer theme, base, components, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+
+/* Scan both the shared package and the web app for class usage. */
+@source "./";
+@source "../../../apps/web/src";
+
+@theme inline {
+  /* Surfaces */
+  --color-bg: var(--bg);
+  --color-panel: var(--panel);
+  --color-line: var(--line);
+
+  /* Text */
+  --color-fg: var(--fg);
+  --color-body: var(--body);
+  --color-muted: var(--muted);
+
+  /* Accents */
+  --color-accent: var(--accent);
+  --color-success: var(--green);
+  --color-destructive: var(--red);
+
+  /* Type families */
+  --font-sans: var(--sans);
+  --font-mono: var(--mono);
+  --font-pixel: var(--pixel);
+
+  /* Radii — Tailwind's rounded-sm/md/lg resolve to the brand radii.
+     Literal values, not var(--radius-*): the theme token shares the name
+     with the tokens.css custom property, so referencing it would cycle.
+     Keep in sync with tokens.css. */
+  --radius-sm: 7px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+}
