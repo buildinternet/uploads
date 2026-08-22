@@ -47,6 +47,7 @@ import { makeFileOpener, newTabLinkProps, type FileOpener } from "../lib/file-op
 import {
   backfillTargets,
   filterCatalog,
+  focusIsKeyboardDriven,
   groupsFromCatalog,
   isRepoLabel,
   lastUpdatedLabel,
@@ -63,6 +64,7 @@ import {
   shotsFromSearchItems,
   type ScreenshotsFeed,
   type ScreenshotsView,
+  type ShotPreviewBox,
 } from "../lib/workspace-screenshots";
 
 /** How many path groups a project section previews before "view project →". */
@@ -242,7 +244,12 @@ function ShotThumb({
   /** Known destination; when null the tile falls back to a button + `onOpen`. */
   href: string | null;
   onOpen: () => void;
-  onPreviewEnter?: (el: HTMLElement, src: string, caption: PreviewCaption) => void;
+  onPreviewEnter?: (
+    el: HTMLElement,
+    src: string,
+    caption: PreviewCaption,
+    opts?: { immediate?: boolean },
+  ) => void;
   onPreviewLeave?: () => void;
 }) {
   const name = leafName(item.key);
@@ -265,6 +272,17 @@ function ShotThumb({
       if (previewSrc) onPreviewEnter?.(event.currentTarget, previewSrc, caption);
     },
     onMouseLeave: () => onPreviewLeave?.(),
+    // Keyboard-focus parity for the hover preview: `:focus-visible` gates
+    // this to genuine keyboard navigation, so tapping a tile on a touch
+    // device (which also focuses it) never opens a preview it can't hover
+    // away from. Escape (handled globally below) dismisses it either way,
+    // and dismissal never moves focus, so tab order is untouched.
+    onFocus: (event: { currentTarget: HTMLElement }) => {
+      if (previewSrc && focusIsKeyboardDriven(event.currentTarget)) {
+        onPreviewEnter?.(event.currentTarget, previewSrc, caption, { immediate: true });
+      }
+    },
+    onBlur: () => onPreviewLeave?.(),
   };
   const body = (
     <>
@@ -553,7 +571,12 @@ type PreviewCaption = {
 };
 
 type PreviewHandlers = {
-  onPreviewEnter: (el: HTMLElement, src: string, caption: PreviewCaption) => void;
+  onPreviewEnter: (
+    el: HTMLElement,
+    src: string,
+    caption: PreviewCaption,
+    opts?: { immediate?: boolean },
+  ) => void;
   onPreviewLeave: () => void;
 };
 
@@ -598,6 +621,10 @@ function ScreenshotsByPathInner({
   const previewTimer = useRef<number | null>(null);
   const [preview, setPreview] = useState<{
     src: string;
+    /** Trigger tile's viewport box, kept around so a re-measure (image load,
+     * resolved title) can re-run `shotPreviewPosition` without re-reading a
+     * DOM node that may have scrolled or unmounted. */
+    thumb: ShotPreviewBox;
     left: number;
     top: number;
     name: string;
@@ -851,20 +878,33 @@ function ScreenshotsByPathInner({
     };
   }, []);
 
-  // `shotPreviewPosition` places the pop-over from an ESTIMATED height, so a
-  // tall capture (or the async PR-title/meta lines) can run past the viewport
-  // bottom. Clamp the rendered box back inside after layout, and again when
-  // the full-size image or the resolved title changes its real height.
+  // Flip-aware placement, measured rather than estimated: `shotPreviewPosition`
+  // needs the pop-over's real box (the image's intrinsic aspect ratio and the
+  // meta block's line count are both unknown before mount — a PR title can
+  // add a line, an error state adds none), so this measures the ACTUAL
+  // rendered element and only then decides which side/edge to place it on.
+  // Runs in a layout effect, which lands the corrected position before the
+  // browser paints — no visible jump — and re-runs whenever the full-size
+  // image finishes loading or a resolved title changes the box's height.
   const previewRef = useRef<HTMLDivElement | null>(null);
-  const clampPreview = () => {
+  const positionPreview = () => {
     const el = previewRef.current;
     if (!el) return;
-    const margin = 12;
     const rect = el.getBoundingClientRect();
-    el.style.left = `${Math.max(margin, Math.min(rect.left, window.innerWidth - rect.width - margin))}px`;
-    el.style.top = `${Math.max(margin, Math.min(rect.top, window.innerHeight - rect.height - margin))}px`;
+    setPreview((prev) => {
+      if (!prev) return prev;
+      const pos = shotPreviewPosition(
+        prev.thumb,
+        { width: window.innerWidth, height: window.innerHeight },
+        { width: rect.width, height: rect.height },
+      );
+      // Bail out to the same object when nothing moved — an unstable object
+      // identity here would re-trigger this effect every render.
+      if (pos.left === prev.left && pos.top === prev.top) return prev;
+      return { ...prev, left: pos.left, top: pos.top };
+    });
   };
-  useLayoutEffect(clampPreview, [preview, titles]);
+  useLayoutEffect(positionPreview, [preview, titles]);
 
   const onPreviewLeave = () => {
     if (previewTimer.current !== null) window.clearTimeout(previewTimer.current);
@@ -880,33 +920,49 @@ function ScreenshotsByPathInner({
       if (info) setTitles((prev) => ({ ...prev, [ref]: info }));
     });
   };
-  const onPreviewEnter = (el: HTMLElement, src: string, caption: PreviewCaption) => {
-    if (!window.matchMedia("(hover: hover) and (pointer: fine)").matches) return;
+  const onPreviewEnter = (
+    el: HTMLElement,
+    src: string,
+    caption: PreviewCaption,
+    opts?: { immediate?: boolean },
+  ) => {
+    // Keyboard focus (`opts.immediate`) opens regardless of hover capability
+    // — `focusIsKeyboardDriven` at the call site already excludes touch taps.
+    if (!opts?.immediate && !window.matchMedia("(hover: hover) and (pointer: fine)").matches) {
+      return;
+    }
     if (previewTimer.current !== null) window.clearTimeout(previewTimer.current);
     // Prefetch the title now (not inside the timeout) so it's likely resolved
     // by the time the pop-over appears.
     ensureTitle(caption.ref);
-    const delay = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 250;
-    previewTimer.current = window.setTimeout(() => {
+    const open = () => {
       const rect = el.getBoundingClientRect();
-      const width = Math.min(560, window.innerWidth - 24);
-      const height = Math.min(width * 0.7, window.innerHeight * 0.7) + 40;
-      const pos = shotPreviewPosition(
-        { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom },
-        { width: window.innerWidth, height: window.innerHeight },
-        { width, height },
-      );
+      const thumb: ShotPreviewBox = {
+        left: rect.left,
+        top: rect.top,
+        right: rect.right,
+        bottom: rect.bottom,
+      };
       setPreview({
         src,
-        left: pos.left,
-        top: pos.top,
+        thumb,
+        // Placeholder until the layout effect above measures the real box
+        // and repositions before paint.
+        left: thumb.right + 12,
+        top: thumb.top,
         name: caption.name,
         pr: caption.pr,
         kind: caption.kind,
         ref: caption.ref,
         uploadedAt: caption.uploadedAt,
       });
-    }, delay);
+    };
+    if (opts?.immediate) {
+      open();
+      return;
+    }
+    const delay = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 250;
+    previewTimer.current = window.setTimeout(open, delay);
   };
   const previewHandlers: PreviewHandlers = { onPreviewEnter, onPreviewLeave };
 
@@ -1004,7 +1060,7 @@ function ScreenshotsByPathInner({
     >
       {/* onLoad: the real image height is only known once bytes arrive —
           re-clamp so a tall capture doesn't push the meta off-screen. */}
-      <img src={preview.src} alt="" onLoad={clampPreview} />
+      <img src={preview.src} alt="" onLoad={positionPreview} />
       <div className="wsp-preview__meta">
         <div className="wsp-preview__name">{preview.name}</div>
         {preview.pr && (
