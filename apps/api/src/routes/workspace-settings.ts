@@ -524,7 +524,9 @@ export async function storageDeleteHandler(c: Context<SettingsVars>) {
   const userId = c.get("settingsUserId");
   const record = await loadWorkspaceRecord(c.env, name);
   if (!record) throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
-  if (!byoBucketAllowed(record)) {
+  // Detach must stay available after the flag is revoked, otherwise the
+  // workspace is stranded on the customer bucket (#619).
+  if (!byoBucketAllowed(record) && !record.storageConfiguredAt) {
     throw new ForbiddenError("BYO storage is not enabled for this workspace", {
       code: "byo_bucket_disabled",
     });
