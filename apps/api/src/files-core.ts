@@ -32,6 +32,7 @@ import {
 import { recordPrActivityFromMetadata } from "./github-pr-activity";
 import { DEFAULT_MAX_UPLOAD_BYTES, inspectUpload, resolveUploadPolicy } from "./guards";
 import { checkKeyPolicy, resolveKeyPolicy } from "./key-policy";
+import { decodeLaneCursor, encodeLaneCursor, mergeBounded } from "./lane-list";
 import {
   makePoster,
   mediabunnyProbe,
@@ -808,6 +809,78 @@ export function filePageUrl(env: Env, workspace: string, key: string): string {
   return `${webOrigin(env)}/f/${encodeURIComponent(workspace)}/${encodedKey}`;
 }
 
+/** A provider-list item shape, before projection to the API's `ListedObject`. */
+interface RawListedItem {
+  key: string;
+  size?: number;
+  type?: string;
+  lastModified?: number;
+  metadata?: Record<string, string>;
+}
+
+/** Shared HEAD/list projection, parameterized on which lane's config to derive URLs from — the single-lane and multi-lane `listObjects` paths both funnel through this. */
+function projectListedObject(
+  env: Env,
+  ws: WorkspaceRecord,
+  cfg: Awaited<ReturnType<typeof storageConfig>>,
+  item: RawListedItem,
+): ListedObject {
+  const visibility = objectVisibility(item.metadata ?? undefined);
+  const urls = objectPublicUrls(env, cfg, item.key);
+  return {
+    key: item.key,
+    url: urls.url,
+    embedUrl: urls.embedUrl,
+    ...storedMetaJson(item),
+    ...(visibility ? { visibility } : {}),
+    ...(urls.url && ws.name ? { pageUrl: filePageUrl(env, ws.name, item.key) } : {}),
+  };
+}
+
+/**
+ * Packs a lane's next-fetch state into one opaque string: how many items to
+ * skip past a batch already fetched from `cursor` (a lane whose merged page
+ * didn't consume its whole fetched batch must resume mid-batch — providers
+ * only support resuming at a *batch* boundary, so the leftover is re-fetched
+ * and re-skipped rather than lost), plus the underlying provider cursor to
+ * fetch that batch from (`undefined` = start of listing). Internal to
+ * `listObjects`'s multi-lane fan-out — `LaneCursorMap`'s value type is just
+ * `string`, so this format is a private implementation detail of this file.
+ */
+function encodeLaneResumeState(skip: number, cursor: string | undefined): string {
+  return `${skip}:${cursor ?? ""}`;
+}
+
+function decodeLaneResumeState(raw: string | undefined): {
+  skip: number;
+  cursor: string | undefined;
+} {
+  const sep = raw?.indexOf(":") ?? -1;
+  if (raw === undefined || sep < 0) return { skip: 0, cursor: undefined };
+  const skip = Number(raw.slice(0, sep));
+  const cursor = raw.slice(sep + 1);
+  return {
+    skip: Number.isFinite(skip) && skip >= 0 ? skip : 0,
+    cursor: cursor.length > 0 ? cursor : undefined,
+  };
+}
+
+/** One lane's fetched-and-filtered batch, tagged with enough state to resume it next page. */
+interface LaneFetch {
+  laneKeyStr: string;
+  cfg: Awaited<ReturnType<typeof storageConfig>>;
+  /** This batch's items after dropping the portion already emitted on an earlier page. */
+  remaining: RawListedItem[];
+  /** How many of this batch's items were already skipped before this fetch (for the next page's bookkeeping). */
+  skipBase: number;
+  /** The provider cursor this fetch itself used (re-used verbatim if `remaining` isn't fully consumed this page). */
+  providerCursorUsed: string | undefined;
+  /** The provider's own next-cursor for this batch, if it was truncated. */
+  providerNextCursor: string | undefined;
+}
+
+const ACTIVE_LANE_CURSOR_KEY = "active";
+
 export async function listObjects(
   env: Env,
   ws: WorkspaceRecord,
@@ -819,39 +892,99 @@ export async function listObjects(
   } = {},
 ): Promise<{ items: ListedObject[]; cursor: string | null; prefixes?: string[] }> {
   const limit = Math.min(Math.max(opts.limit ?? 100, 1), 1000);
-  const store = await storage(env, ws);
-  const result = await store.list({
-    prefix: opts.prefix,
-    delimiter: opts.delimiter,
-    limit,
-    cursor: opts.cursor,
+  const configs = await storageConfigs(env, ws);
+
+  if (configs.length === 1) {
+    // Single-lane record (the entire fleet until a second lane exists):
+    // exactly today's path — one provider call, today's raw opaque cursor,
+    // no composite envelope. Backward compatible with an in-flight cursor.
+    const cfg = configs[0].config;
+    const store = createStorage(cfg);
+    const result = await store.list({
+      prefix: opts.prefix,
+      delimiter: opts.delimiter,
+      limit,
+      cursor: opts.cursor,
+    });
+    return {
+      // Server-owned derived artifacts (issue #299 posters, CLI report
+      // uploads) are not user objects and must never appear as rows. Caveat:
+      // `limit` applies to the underlying page *before* this filter, so a
+      // page can come back shorter than `limit` while `cursor` is still
+      // non-null — callers that paginate must follow the cursor, not stop on
+      // a short page.
+      items: result.items
+        .filter((item) => !item.key.startsWith(INTERNAL_KEY_PREFIX))
+        .map((item) => projectListedObject(env, ws, cfg, item)),
+      cursor: result.cursor ?? null,
+      ...(result.prefixes ? { prefixes: result.prefixes } : {}),
+    };
+  }
+
+  // Multi-lane fan-out + merge (spec: "Listing: merged fan-out"). Garbage or
+  // a plain (pre-lanes) cursor decodes to `null` — treated as a fresh start
+  // rather than an error.
+  const cursorMap = decodeLaneCursor(opts.cursor) ?? { v: 1, lanes: {} };
+  const laneCursorKey = (laneId: string | null) => laneId ?? ACTIVE_LANE_CURSOR_KEY;
+
+  const prefixesSeen: string[] = [];
+  const fetches: LaneFetch[] = await Promise.all(
+    configs.map(async (lc): Promise<LaneFetch> => {
+      const laneKeyStr = laneCursorKey(lc.laneId);
+      const { skip, cursor: providerCursor } = decodeLaneResumeState(cursorMap.lanes[laneKeyStr]);
+      const store = createStorage(lc.config);
+      const result = await store.list({
+        prefix: opts.prefix,
+        delimiter: opts.delimiter,
+        limit,
+        cursor: providerCursor,
+      });
+      for (const p of result.prefixes ?? []) if (!prefixesSeen.includes(p)) prefixesSeen.push(p);
+      const filtered = result.items.filter((item) => !item.key.startsWith(INTERNAL_KEY_PREFIX));
+      return {
+        laneKeyStr,
+        cfg: lc.config,
+        remaining: filtered.slice(skip),
+        skipBase: skip,
+        providerCursorUsed: providerCursor,
+        providerNextCursor: result.cursor,
+      };
+    }),
+  );
+
+  // Tag each raw item with the config it came from (by object identity) so
+  // the merge result can still be projected to a `ListedObject` per its
+  // owning lane, without threading lane info through `mergeBounded`'s
+  // generic `{ key }` constraint.
+  const taggedPages = fetches.map((fetch, laneOrder) => ({
+    laneOrder,
+    items: fetch.remaining.map((raw) => ({ ...raw, __cfg: fetch.cfg })),
+  }));
+  const merged = mergeBounded(taggedPages, limit);
+
+  const nextLanes: Record<string, string> = {};
+  fetches.forEach((fetch, i) => {
+    const consumedCount = merged.consumed[i] ?? 0;
+    if (consumedCount >= fetch.remaining.length) {
+      // This batch is fully spent. More to come only if the provider itself
+      // wasn't exhausted — advance to its next batch, skip reset to 0.
+      if (fetch.providerNextCursor) {
+        nextLanes[fetch.laneKeyStr] = encodeLaneResumeState(0, fetch.providerNextCursor);
+      }
+    } else {
+      // Trimmed mid-batch: re-fetch the same provider cursor next page and
+      // skip further ahead — providers only resume at a batch boundary.
+      nextLanes[fetch.laneKeyStr] = encodeLaneResumeState(
+        fetch.skipBase + consumedCount,
+        fetch.providerCursorUsed,
+      );
+    }
   });
-  const cfg = await storageConfig(env, ws);
-  // files-sdk returns rich StoredFile items (size, type, lastModified); project
-  // each to the shared HEAD/list subset (`storedMetaJson`) rather than spreading
-  // the StoredFile, which carries reader methods and a raw epoch timestamp.
+
   return {
-    // Server-owned derived artifacts (issue #299 posters, CLI report uploads)
-    // are not user objects and must never appear as rows. Caveat: `limit`
-    // applies to the underlying page *before* this filter, so a page can come
-    // back shorter than `limit` while `cursor` is still non-null — callers
-    // that paginate must follow the cursor, not stop on a short page.
-    items: result.items
-      .filter((item) => !item.key.startsWith(INTERNAL_KEY_PREFIX))
-      .map((item) => {
-        const visibility = objectVisibility(item.metadata ?? undefined);
-        const urls = objectPublicUrls(env, cfg, item.key);
-        return {
-          key: item.key,
-          url: urls.url,
-          embedUrl: urls.embedUrl,
-          ...storedMetaJson(item),
-          ...(visibility ? { visibility } : {}),
-          ...(urls.url && ws.name ? { pageUrl: filePageUrl(env, ws.name, item.key) } : {}),
-        };
-      }),
-    cursor: result.cursor ?? null,
-    ...(result.prefixes ? { prefixes: result.prefixes } : {}),
+    items: merged.items.map((raw) => projectListedObject(env, ws, raw.__cfg, raw)),
+    cursor: Object.keys(nextLanes).length > 0 ? encodeLaneCursor({ v: 1, lanes: nextLanes }) : null,
+    ...(prefixesSeen.length > 0 ? { prefixes: prefixesSeen } : {}),
   };
 }
 

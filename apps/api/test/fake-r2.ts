@@ -110,7 +110,7 @@ export class FakeR2Bucket {
     for (const k of Array.isArray(keys) ? keys : [keys]) this.store.delete(k);
   }
 
-  async list(opts?: { prefix?: string; delimiter?: string }) {
+  async list(opts?: { prefix?: string; delimiter?: string; limit?: number; cursor?: string }) {
     this.listCalls++;
     const prefix = opts?.prefix ?? "";
     // oxlint-disable-next-line unicorn/no-array-sort -- mirror R2's ordered listing in an ES2022 test fake
@@ -125,9 +125,19 @@ export class FakeR2Bucket {
           return false;
         })
       : keys;
+    // `cursor` is just the index to resume from in this fake — opaque to
+    // callers, stable only within one `list()` call chain, matching the only
+    // contract R2's real (opaque) cursor promises.
+    const start = opts?.cursor ? Number(opts.cursor) || 0 : 0;
+    const page =
+      opts?.limit !== undefined
+        ? objectKeys.slice(start, start + opts.limit)
+        : objectKeys.slice(start);
+    const truncated = opts?.limit !== undefined && start + opts.limit < objectKeys.length;
     return {
-      objects: objectKeys.map((k) => this.meta(k, this.store.get(k)!)),
-      truncated: false as const,
+      objects: page.map((k) => this.meta(k, this.store.get(k)!)),
+      truncated,
+      cursor: truncated ? String(start + opts!.limit!) : undefined,
       delimitedPrefixes: [...delimitedPrefixes],
     };
   }

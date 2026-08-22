@@ -22,7 +22,7 @@ import {
   projectPublicGallery,
 } from "./galleries";
 import { resolveTitles, withPublicTitleBudget, type TitleInfo } from "./github-titles";
-import { objectPublicUrls, storage, storageConfig } from "./storage";
+import { objectPublicUrls, resolveObjectLane, storageConfig } from "./storage";
 import type { StorageConfig } from "@uploads/storage";
 import { objectVisibility } from "./visibility";
 import { webOrigin } from "./web-url";
@@ -281,25 +281,36 @@ export async function hydrateGalleryItems(
   items: GalleryItemRecord[],
   opts: { audience: "owner" | "public" } = { audience: "owner" },
 ): Promise<Omit<GalleryItemDto, "pageUrl">[]> {
-  let store: Awaited<ReturnType<typeof storage>>;
-  let config: Awaited<ReturnType<typeof storageConfig>>;
+  // Two-lane storage (PR C audit): each item resolves its OWN lane —
+  // `resolveObjectLane` rather than a single shared store/config — since a
+  // gallery can reference objects uploaded before a storage switch. Confirm
+  // the active lane itself resolves up front so a misconfigured workspace
+  // still fails fast with the same error as before, rather than failing
+  // per-item deep inside `mapBounded`.
   try {
-    [store, config] = await Promise.all([storage(env, workspace), storageConfig(env, workspace)]);
+    await storageConfig(env, workspace);
   } catch (cause) {
     throw new ServiceUnavailableError("Gallery storage unavailable.", {
       code: "gallery_storage_unavailable",
       cause,
     });
   }
+  const laneConfigByKey = new Map<string, StorageConfig>();
   const hydrated = await mapBounded(
     items,
     8,
     async (item): Promise<Omit<GalleryItemDto, "pageUrl">> => {
       let meta: GalleryObjectHead | null;
+      let itemConfig: StorageConfig | null = null;
       try {
-        meta = (await store.exists(item.object_key))
-          ? ((await store.head(item.object_key)) as GalleryObjectHead)
-          : null;
+        const lane = await resolveObjectLane(env, workspace, item.object_key);
+        if (lane) {
+          itemConfig = lane.config;
+          laneConfigByKey.set(item.object_key, lane.config);
+          meta = (await lane.store.head(item.object_key)) as GalleryObjectHead;
+        } else {
+          meta = null;
+        }
       } catch (cause) {
         throw new ServiceUnavailableError("Gallery storage unavailable.", {
           code: "gallery_storage_unavailable",
@@ -309,8 +320,8 @@ export async function hydrateGalleryItems(
       const isPrivate = meta ? objectVisibility(meta.metadata) === "private" : false;
       const withheld = opts.audience === "public" && isPrivate;
       const urls =
-        meta && !withheld
-          ? objectPublicUrls(env, config, item.object_key)
+        meta && !withheld && itemConfig
+          ? objectPublicUrls(env, itemConfig, item.object_key)
           : { url: null, embedUrl: null };
       if (meta && !withheld && urls.url === null)
         throw new ServiceUnavailableError("Gallery object is not publicly served.", {
@@ -349,10 +360,14 @@ export async function hydrateGalleryItems(
       });
       for (const item of hydrated) {
         const metadata = metadataByKey.get(item.objectKey);
-        if (!metadata) continue;
+        // Same lane the primary object resolved from above — posters are
+        // written alongside their video at upload time, so they live in the
+        // same lane by construction.
+        const itemConfig = laneConfigByKey.get(item.objectKey);
+        if (!metadata || !itemConfig) continue;
         const { posterUrl, videoDimensions } = videoPresentation(
           env,
-          config,
+          itemConfig,
           item.objectKey,
           metadata,
         );

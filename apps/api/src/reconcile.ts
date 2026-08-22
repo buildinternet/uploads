@@ -42,6 +42,12 @@ export async function reconcileWorkspaceUsage(
   now = new Date(),
 ): Promise<ReconcileResult> {
   const previous = await getWorkspaceUsage(env.DB, workspaceName, now);
+  // PR D: walks the active lane only. Two-lane storage (PR C) means a
+  // workspace can also have fallback lanes holding objects, which this scan
+  // does not see — reconcile stays active-lane-only until PR D's
+  // `shared_bytes` ledger work makes it lane-aware (spec: "Usage / budget
+  // attribution"). Not a regression: this function's only caller today is
+  // on-demand, single-workspace, and always was active-lane-only.
   const store = await storage(env, ws);
   const unprefixedBucket = isUnprefixedDedicatedBucket(ws);
   if (unprefixedBucket) {
