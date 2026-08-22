@@ -111,7 +111,7 @@ describe("DB-backed behavior", () => {
       DB: db,
       WEB_ORIGIN: "https://uploads.sh",
       ENVIRONMENT: "development",
-      BETTER_AUTH_SECRET_DEV: "test-signing-secret-at-least-32-chars-long",
+      BETTER_AUTH_SECRET: "test-signing-secret-at-least-32-chars-long",
       ...overrides,
     };
   }

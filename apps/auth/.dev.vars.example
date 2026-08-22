@@ -1,11 +1,10 @@
 # Copy to .dev.vars for local dev.
 
-# Dev-only signing secret fallback. The Secrets Store binding
-# (UPL_BETTER_AUTH_SECRET) exists locally too under `wrangler dev`, but an
-# unpopulated store entry does NOT get overridden by a same-named .dev.vars
-# value (see src/secrets.ts) — that's why this is a distinctly-named var.
-# Without it, /api/auth/* answers 503 locally. Any string >= 32 chars works.
-BETTER_AUTH_SECRET_DEV=
+# Better Auth signing secret. Plain secret, preferred over the transitional
+# UPL_BETTER_AUTH_SECRET Secrets Store binding (see src/secrets.ts and
+# uploads#754 item 2). Without it, /api/auth/* answers 503 locally. Any
+# string >= 32 chars works.
+BETTER_AUTH_SECRET=
 
 # #731 phase C: this worker's own origin is pinned in wrangler.jsonc (dev
 # port 8788), but BETTER_AUTH_URL is set to the WEB app's origin, not this
@@ -44,11 +43,10 @@ ENVIRONMENT=development
 # it locally (see src/auth.ts).
 AUTH_RATE_LIMIT_DISABLED=true
 
-# Optional: infra dashboard API key (plain fallback for UPL_BETTER_AUTH_API_KEY).
+# Optional: infra dashboard API key (mounts dash() when set).
 # BETTER_AUTH_API_KEY=
 
-# Optional: dev-only GitHub OAuth plain fallbacks (same store-vs-dev-var
-# footgun as the signing secret above). Leave unset to keep GitHub gated off
+# Optional: GitHub OAuth credentials. Leave unset to keep GitHub gated off
 # locally — magic link alone is enough for most dev flows.
 # GITHUB_CLIENT_ID=
 # GITHUB_CLIENT_SECRET=

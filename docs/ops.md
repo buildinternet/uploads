@@ -480,6 +480,50 @@ pnpm exec wrangler secret put WORKSPACE_SECRETS_KEY
 
 Do **not** delete PREVIOUS before re-encrypt completes.
 
+### Auth worker: Secrets Store → plain secret cutover (uploads#754 item 2)
+
+`apps/auth`'s four secrets are moving off the account-level Cloudflare
+Secrets Store onto plain per-worker secrets. `src/secrets.ts` prefers the
+plain secret and only falls back to the (still-declared) store binding when
+the plain one is unset, so **the code change is safe to merge before this
+cutover runs** — the worker keeps answering out of the store until these are
+set.
+
+| Plain secret           | Replaces store binding     |
+| ---------------------- | -------------------------- |
+| `BETTER_AUTH_SECRET`   | `UPL_BETTER_AUTH_SECRET`   |
+| `BETTER_AUTH_API_KEY`  | `UPL_BETTER_AUTH_API_KEY`  |
+| `GITHUB_CLIENT_ID`     | `UPL_GITHUB_CLIENT_ID`     |
+| `GITHUB_CLIENT_SECRET` | `UPL_GITHUB_CLIENT_SECRET` |
+
+Set all four on the production worker (from `apps/auth`), pasting the same
+values already live in the Secrets Store:
+
+```bash
+pnpm exec wrangler secret put BETTER_AUTH_SECRET
+pnpm exec wrangler secret put BETTER_AUTH_API_KEY
+pnpm exec wrangler secret put GITHUB_CLIENT_ID
+pnpm exec wrangler secret put GITHUB_CLIENT_SECRET
+```
+
+Each takes effect on the next request after `wrangler secret put` completes —
+no redeploy needed. Verify `/api/auth/*` still answers (magic link + GitHub
+login) and the infra dashboard (if used) still mounts.
+
+Workers Previews (`apps/auth`'s `previews` block, see
+[previews.md](previews.md)) are rarely used for auth and have no shared
+plain-secret mechanism of their own — a preview would need its own
+`wrangler preview secret put NAME --name <preview>` per branch. Leave them on
+the store fallback for now; nothing forces the previews cutover to happen in
+the same pass as prod.
+
+**Follow-up removal PR** (only after confirming the plain secrets are live
+everywhere they're used): delete the `secrets_store_secrets` blocks from
+`apps/auth/wrangler.jsonc` (both the top-level and `previews` blocks) and the
+`UPL_*` fallback branches in `apps/auth/src/secrets.ts`. There's no rush —
+the store entries stay valid and harmless in the meantime — but the account-
+level store dependency should not outlive this transition.
+
 ## Presign
 
 `POST /v1/:ws/files/sign` — workspace needs HTTP S3 credentials (not binding-only).

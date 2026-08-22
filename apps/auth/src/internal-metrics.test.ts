@@ -24,7 +24,7 @@ describe("GET /internal/metrics", () => {
       DB: db,
       WEB_ORIGIN: "https://uploads.sh",
       ENVIRONMENT: "development",
-      BETTER_AUTH_SECRET_DEV: "test-signing-secret-at-least-32-chars-long",
+      BETTER_AUTH_SECRET: "test-signing-secret-at-least-32-chars-long",
     } as AuthEnv;
   }
 

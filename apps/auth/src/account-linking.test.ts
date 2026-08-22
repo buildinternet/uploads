@@ -23,7 +23,7 @@ function dbEnv(db: FakeD1Database, overrides: Partial<AuthEnv> = {}): AuthEnv {
     WEB_ORIGIN: "https://uploads.sh",
     BETTER_AUTH_URL: "https://auth.uploads.sh",
     ENVIRONMENT: "development",
-    BETTER_AUTH_SECRET_DEV: "test-signing-secret-at-least-32-chars-long",
+    BETTER_AUTH_SECRET: "test-signing-secret-at-least-32-chars-long",
     GITHUB_CLIENT_ID: "test-github-client-id",
     GITHUB_CLIENT_SECRET: "test-github-client-secret",
     ...overrides,
