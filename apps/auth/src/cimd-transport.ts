@@ -36,7 +36,13 @@ import { validateClientIdUrl } from "@better-auth/cimd";
 import type { ClientMetadataResourceFetch } from "@better-auth/oauth-provider";
 
 export const fetchClientMetadataResource: ClientMetadataResourceFetch = async (input, init) => {
-  const request = new Request(input, init);
+  // The plugin calls this with `redirect: "error"`, which workerd's Request
+  // constructor REJECTS outright ("won't be implemented... use manual and
+  // check the response status"). Pin "manual" at construction time — the
+  // plugin already treats any non-200 (including 3xx) as a failed fetch, so
+  // returned redirects are refused either way. Caught in prod smoke, not by
+  // vitest: Node's undici accepts `redirect: "error"`.
+  const request = new Request(input, { ...init, redirect: "manual" });
   const url = new URL(request.url);
   if (url.protocol !== "https:") {
     throw new TypeError("CIMD Workers transport requires an HTTPS URL");
@@ -52,5 +58,5 @@ export const fetchClientMetadataResource: ClientMetadataResourceFetch = async (i
   if (urlError) {
     throw new TypeError(`metadata URL rejected: ${urlError}`);
   }
-  return fetch(new Request(request, { redirect: "manual" }));
+  return fetch(request);
 };

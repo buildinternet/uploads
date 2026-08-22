@@ -157,13 +157,17 @@ describe("Workers CIMD transport", () => {
     }
   });
 
-  it("performs the fetch with manual redirect handling", async () => {
+  it("pins manual redirect handling even when called with redirect: 'error'", async () => {
+    // The plugin passes `redirect: "error"`, which workerd's Request
+    // constructor rejects — the transport must replace it with "manual"
+    // BEFORE constructing the Request (caught by prod smoke; Node's undici
+    // accepts "error" so this test can only pin the replacement behavior).
     const impl = vi.fn(async (req: Request) => {
       expect(req.redirect).toBe("manual");
       return Response.json(metadataDocument());
     });
     vi.stubGlobal("fetch", impl);
-    const res = await fetchClientMetadataResource(CLIENT_ID_URL);
+    const res = await fetchClientMetadataResource(CLIENT_ID_URL, { redirect: "error" });
     expect(res.status).toBe(200);
     expect(impl).toHaveBeenCalledOnce();
   });
