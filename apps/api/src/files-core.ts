@@ -6,7 +6,7 @@
  * `message` in the tool error.
  */
 import { ConflictError, NotFoundError, ValidationError } from "@uploads/errors";
-import type { Files } from "@uploads/storage";
+import { createStorage, type Files } from "@uploads/storage";
 import { recordAdoptionSafe, type UploadSurface } from "./adoption";
 import {
   budgetDenialError,
@@ -45,7 +45,7 @@ import {
   sanitizeProvenance,
   type ProvenanceMap,
 } from "./provenance";
-import { objectPublicUrls, storage, storageConfig } from "./storage";
+import { objectPublicUrls, storage, storageConfig, storageConfigs } from "./storage";
 import {
   claimDeleteUsageSafe,
   clearDeleteUsageClaimSafe,
@@ -855,6 +855,31 @@ export async function listObjects(
   };
 }
 
+/**
+ * Delete `key` from every lane's store that actually holds it and return the
+ * size reported by the first lane hit (active-first order) — `null` if no
+ * lane had it. Two-lane storage: a key can exist in more than one lane after
+ * a detach/re-attach cycle, and every copy must go so the file actually
+ * disappears (spec: "Read path" — deletion). Single-lane records take the
+ * exact path this always has: one lane, one `existingSize` + `delete` call.
+ */
+async function deleteFromEveryLane(
+  env: Env,
+  ws: WorkspaceRecord,
+  key: string,
+): Promise<number | null> {
+  const configs = await storageConfigs(env, ws);
+  let prev: number | null = null;
+  for (const lc of configs) {
+    const store = createStorage(lc.config);
+    const size = await existingSize(store, key);
+    if (size === null) continue;
+    if (prev === null) prev = size;
+    await store.delete(key);
+  }
+  return prev;
+}
+
 /** Delete an object (and its D1 custom metadata) and decrement the workspace ledger when size was known. */
 export async function deleteObject(
   env: Env,
@@ -864,10 +889,7 @@ export async function deleteObject(
 ): Promise<{ key: string; deleted: true }> {
   if (badKey(key)) throw new ValidationError("invalid key", { code: "invalid_key" });
 
-  const store = await storage(env, ws);
-  const prev = await existingSize(store, key);
-
-  await store.delete(key);
+  const prev = await deleteFromEveryLane(env, ws, key);
   await deleteFileMetadata(env.DB, workspaceName, key);
 
   if (prev !== null) {
@@ -895,15 +917,15 @@ export async function deleteObject(
 
   // Derived poster (issue #299), best-effort: a missing one is the norm for
   // every non-video object. Guarded so a transient poster-cleanup failure
-  // never fails a delete whose primary work already succeeded.
+  // never fails a delete whose primary work already succeeded. Same
+  // every-lane-that-has-it treatment as the primary object above.
   const posterKey = posterKeyFor(key);
   try {
-    const posterSize = await existingSize(store, posterKey);
-    if (posterSize !== null) {
-      await store.delete(posterKey);
+    const posterPrev = await deleteFromEveryLane(env, ws, posterKey);
+    if (posterPrev !== null) {
       if (await claimDeleteUsageSafe(env.DB, workspaceName, posterKey)) {
         await recordUsageSafe(env.DB, workspaceName, {
-          bytes: -posterSize,
+          bytes: -posterPrev,
           objects: -1,
           uploads: 0,
         });
