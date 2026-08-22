@@ -482,47 +482,57 @@ Do **not** delete PREVIOUS before re-encrypt completes.
 
 ### Auth worker: Secrets Store → plain secret cutover (uploads#754 item 2)
 
-`apps/auth`'s four secrets are moving off the account-level Cloudflare
-Secrets Store onto plain per-worker secrets. `src/secrets.ts` prefers the
-plain secret and only falls back to the (still-declared) store binding when
-the plain one is unset, so **the code change is safe to merge before this
-cutover runs** — the worker keeps answering out of the store until these are
-set.
+**Done.** `apps/auth`'s four auth secrets moved off the account-level
+Cloudflare Secrets Store onto plain per-worker secrets in two steps: #756
+added a dual-read accessor (plain preferred, store fallback) so the code
+change was safe to merge before an operator ran `wrangler secret put`; once
+the operator set all four plain values on the prod worker and confirmed
+GitHub sign-in and sessions stayed healthy, a follow-up change removed the
+`secrets_store_secrets` blocks from `apps/auth/wrangler.jsonc` (both the
+top-level and `previews` blocks) and the store-fallback branches in
+`apps/auth/src/secrets.ts`. `src/secrets.ts` now reads all four straight off
+`env` like every other secret in this repo — no store, no fallback branch.
 
-| Plain secret           | Replaces store binding     |
-| ---------------------- | -------------------------- |
-| `BETTER_AUTH_SECRET`   | `UPL_BETTER_AUTH_SECRET`   |
-| `BETTER_AUTH_API_KEY`  | `UPL_BETTER_AUTH_API_KEY`  |
-| `GITHUB_CLIENT_ID`     | `UPL_GITHUB_CLIENT_ID`     |
-| `GITHUB_CLIENT_SECRET` | `UPL_GITHUB_CLIENT_SECRET` |
+`apps/auth/wrangler.jsonc` also declares a `secrets` configuration property
+now, covering all eight of the worker's secrets (the four above plus the
+pre-existing plain Stripe/billing pair):
 
-Set all four on the production worker (from `apps/auth`), pasting the same
-values already live in the Secrets Store:
-
-```bash
-pnpm exec wrangler secret put BETTER_AUTH_SECRET
-pnpm exec wrangler secret put BETTER_AUTH_API_KEY
-pnpm exec wrangler secret put GITHUB_CLIENT_ID
-pnpm exec wrangler secret put GITHUB_CLIENT_SECRET
+```jsonc
+"secrets": {
+  "required": [
+    "BETTER_AUTH_SECRET",
+    "BETTER_AUTH_API_KEY",
+    "GITHUB_CLIENT_ID",
+    "GITHUB_CLIENT_SECRET",
+    "STRIPE_SECRET_KEY",
+    "STRIPE_WEBHOOK_SECRET",
+    "STRIPE_PRO_PRICE_ID",
+    "BILLING_INTERNAL_KEY",
+  ],
+}
 ```
 
-Each takes effect on the next request after `wrangler secret put` completes —
-no redeploy needed. Verify `/api/auth/*` still answers (magic link + GitHub
-login) and the infra dashboard (if used) still mounts.
+This makes `wrangler deploy`/`wrangler versions upload` fail with a clear
+error instead of shipping a 503-on-everything build if any of the eight are
+missing from the target worker, and is now the source of truth `wrangler
+types` reads for these names (see apps/auth's `src/env.d.ts`, which
+deliberately keeps its own optional overrides for each — the app code treats
+every one of them as fail-soft at runtime; `secrets.required` is a
+deploy-time guarantee, not a type-level one).
 
-Workers Previews (`apps/auth`'s `previews` block, see
-[previews.md](previews.md)) are rarely used for auth and have no shared
-plain-secret mechanism of their own — a preview would need its own
-`wrangler preview secret put NAME --name <preview>` per branch. Leave them on
-the store fallback for now; nothing forces the previews cutover to happen in
-the same pass as prod.
+**Rotating any of the eight going forward** is a plain `wrangler secret put
+<NAME>` from `apps/auth` — no store, no binding, takes effect on the next
+request.
 
-**Follow-up removal PR** (only after confirming the plain secrets are live
-everywhere they're used): delete the `secrets_store_secrets` blocks from
-`apps/auth/wrangler.jsonc` (both the top-level and `previews` blocks) and the
-`UPL_*` fallback branches in `apps/auth/src/secrets.ts`. There's no rush —
-the store entries stay valid and harmless in the meantime — but the account-
-level store dependency should not outlive this transition.
+**Previews.** This validates the same underlying `uploads-auth` Worker
+script's secrets that production uses, not a separate `previews`-scoped set.
+The automatic per-branch "Branch Preview URL" that Workers Builds deploys for
+every PR runs against production bindings (see
+[previews.md](previews.md#the-two-layers) — it is not the
+`npx wrangler preview` / `previews` block flow), so it already sees the same
+eight secrets and needed no changes here. A manual `wrangler preview`
+inherits the same worker-level secrets too, unless a branch explicitly
+overrides one with `wrangler preview secret put`.
 
 ## Presign
 

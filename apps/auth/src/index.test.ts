@@ -10,7 +10,7 @@ function envWithoutSecret(): AuthEnv {
     DB: {} as unknown as D1Database,
     WEB_ORIGIN: "https://uploads.sh",
     ENVIRONMENT: "development",
-    // No UPL_BETTER_AUTH_SECRET, no BETTER_AUTH_SECRET: unresolvable.
+    // No BETTER_AUTH_SECRET: unresolvable.
   };
 }
 

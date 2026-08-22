@@ -14,10 +14,9 @@ target and direct machine origin — used for CLI device/bearer flows and
 internal service-binding calls, not for browser traffic.
 
 The Better Auth Infrastructure dashboard (`@better-auth/infra` `dash()`) mounts
-when `BETTER_AUTH_API_KEY` resolves (plain secret; a transitional
-`UPL_BETTER_AUTH_API_KEY` Secrets Store fallback still exists — see
-src/secrets.ts and uploads#754 item 2). Point the project's Base URL at
-`https://uploads.sh` with Base Path `/api/auth`.
+when `BETTER_AUTH_API_KEY` resolves (plain secret — see src/secrets.ts).
+Point the project's Base URL at `https://uploads.sh` with Base Path
+`/api/auth`.
 
 ## First admin
 
