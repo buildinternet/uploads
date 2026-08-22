@@ -2704,6 +2704,7 @@ describe("workspace storage routes (self-serve BYO bucket, issue #583 Task 1.1)"
         mode: "shared",
         byoBucketEnabled: false,
         bucket: "uploads-default",
+        lanes: [],
       });
     });
 
@@ -2730,6 +2731,7 @@ describe("workspace storage routes (self-serve BYO bucket, issue #583 Task 1.1)"
         accessKeyIdLast4: "1234",
         configuredAt: "2026-01-01T00:00:00.000Z",
         verifiedAt: "2026-01-01T00:00:00.000Z",
+        lanes: [],
       });
     });
   });
@@ -2840,14 +2842,13 @@ describe("workspace storage routes (self-serve BYO bucket, issue #583 Task 1.1)"
       expect(registry.record("acme")).toEqual(before);
     });
 
-    it("rejects when the workspace already has files and adoptExistingContents wasn't set", async () => {
+    it("saves a standby lane even when the workspace already has files — saving never changes routing", async () => {
       const { env, registry } = storageEnv({
         role: "owner",
         record: { ...SHARED_RECORD, byoBucketEnabled: true },
         usage: { objects: 3 },
       });
       setStorageVerifyForTests(async () => okVerifyResult);
-      const before = registry.record("acme");
       const res = await app().request(
         "/me/workspaces/acme/storage",
         {
@@ -2857,14 +2858,13 @@ describe("workspace storage routes (self-serve BYO bucket, issue #583 Task 1.1)"
         },
         env,
       );
-      expect(res.status).toBe(409);
-      expect((await res.json()) as { error: { code: string } }).toMatchObject({
-        error: { code: "workspace_storage_not_empty" },
-      });
-      expect(registry.record("acme")).toEqual(before);
+      expect(res.status).toBe(200);
+      // Top-level (active-lane) fields untouched.
+      expect(registry.record<{ bucket?: string }>("acme")?.bucket).toBe("uploads-default");
+      expect(registry.record<{ storageLanes?: unknown[] }>("acme")?.storageLanes).toHaveLength(1);
     });
 
-    it("saves on a passing verify: seals credentials, drops prefix/binding, stamps provenance", async () => {
+    it("saves on a passing verify: seals credentials into a standby lane, top-level fields untouched", async () => {
       const { env, registry } = storageEnv({
         role: "owner",
         record: { ...SHARED_RECORD, byoBucketEnabled: true },
@@ -2881,68 +2881,56 @@ describe("workspace storage routes (self-serve BYO bucket, issue #583 Task 1.1)"
         env,
       );
       expect(res.status).toBe(200);
-      const body = (await res.json()) as { mode: string; verify: { ok: boolean } };
-      expect(body.mode).toBe("byo");
+      const body = (await res.json()) as {
+        mode: string;
+        verify: { ok: boolean };
+        lanes: Array<{ laneId: string; role: string; accessKeyIdLast4?: string }>;
+      };
+      // Not switched — the active lane is still shared.
+      expect(body.mode).toBe("shared");
       expect(body.verify).toEqual(okVerifyResult);
+      expect(body.lanes).toHaveLength(1);
+      expect(body.lanes[0]).toMatchObject({ role: "standby", accessKeyIdLast4: "1234" });
 
       const saved = registry.record<{
         prefix?: string;
         binding?: string;
         bucket?: string;
-        accountId?: string;
-        accessKeyId?: string;
-        secretAccessKey?: string;
-        storageConfiguredAt?: string;
-        storageVerifiedAt?: string;
-        storageConfiguredBy?: string;
-        storageAccessKeyIdLast4?: string;
+        storageLanes?: Array<{
+          id: string;
+          bucket?: string;
+          accountId?: string;
+          accessKeyId?: string;
+          secretAccessKey?: string;
+          storageConfiguredAt?: string;
+          verifiedAt?: string;
+          storageConfiguredBy?: string;
+          storageAccessKeyIdLast4?: string;
+        }>;
       }>("acme");
-      expect(saved?.prefix).toBeUndefined();
-      expect(saved?.binding).toBeUndefined();
-      expect(saved?.bucket).toBe("customer-bucket");
-      expect(saved?.accountId).toBe("a".repeat(32));
-      expect(saved?.accessKeyId).toMatch(/^enc:v1:/);
-      expect(saved?.secretAccessKey).toMatch(/^enc:v1:/);
-      expect(saved?.storageConfiguredAt).toBeTruthy();
-      expect(saved?.storageVerifiedAt).toBeTruthy();
-      expect(saved?.storageConfiguredBy).toBe("u-plain");
+      // Top-level fields untouched — still the shared record.
+      expect(saved?.bucket).toBe("uploads-default");
+      expect(saved?.prefix).toBe("acme/");
+      const lane = saved?.storageLanes?.[0];
+      expect(lane?.bucket).toBe("customer-bucket");
+      expect(lane?.accountId).toBe("a".repeat(32));
+      expect(lane?.accessKeyId).toMatch(/^enc:v1:/);
+      expect(lane?.secretAccessKey).toMatch(/^enc:v1:/);
+      expect(lane?.storageConfiguredAt).toBeTruthy();
+      expect(lane?.verifiedAt).toBeTruthy();
+      expect(lane?.storageConfiguredBy).toBe("u-plain");
       // Plaintext display fragment, not the tail of the sealed blob.
-      expect(saved?.storageAccessKeyIdLast4).toBe("1234");
-      const body2 = body as unknown as { accessKeyIdLast4?: string };
-      expect(body2.accessKeyIdLast4).toBe("1234");
+      expect(lane?.storageAccessKeyIdLast4).toBe("1234");
     });
 
-    it("allows attaching to a non-empty workspace when adoptExistingContents is set, and reconciles the ledger from the adopted bucket", async () => {
+    it("saving again for the same bucket replaces the standby lane in place rather than appending a duplicate", async () => {
       const { env, registry } = storageEnv({
-        role: "owner",
-        record: { ...SHARED_RECORD, byoBucketEnabled: true },
-        usage: { objects: 5 },
-      });
-      setStorageVerifyForTests(async () => okVerifyResult);
-      const reconciled = spyStorageReconcile();
-      const res = await app().request(
-        "/me/workspaces/acme/storage",
-        {
-          method: "PUT",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ ...CANDIDATE_BODY, adoptExistingContents: true }),
-        },
-        env,
-      );
-      expect(res.status).toBe(200);
-      expect(registry.record<{ bucket?: string }>("acme")?.bucket).toBe("customer-bucket");
-      expect(reconciled).toEqual(["acme"]);
-    });
-
-    it("does not reconcile the ledger on a plain empty-workspace save", async () => {
-      const { env } = storageEnv({
         role: "owner",
         record: { ...SHARED_RECORD, byoBucketEnabled: true },
         usage: { objects: 0 },
       });
       setStorageVerifyForTests(async () => okVerifyResult);
-      const reconciled = spyStorageReconcile();
-      const res = await app().request(
+      await app().request(
         "/me/workspaces/acme/storage",
         {
           method: "PUT",
@@ -2951,11 +2939,20 @@ describe("workspace storage routes (self-serve BYO bucket, issue #583 Task 1.1)"
         },
         env,
       );
+      const res = await app().request(
+        "/me/workspaces/acme/storage",
+        {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ ...CANDIDATE_BODY, accessKeyId: "AKIDROTATED0000" }),
+        },
+        env,
+      );
       expect(res.status).toBe(200);
-      expect(reconciled).toEqual([]);
+      expect(registry.record<{ storageLanes?: unknown[] }>("acme")?.storageLanes).toHaveLength(1);
     });
 
-    it("stamps jurisdiction on save, and GET status echoes it", async () => {
+    it("stamps jurisdiction on the saved standby lane", async () => {
       const { env, registry } = storageEnv({
         role: "owner",
         record: { ...SHARED_RECORD, byoBucketEnabled: true },
@@ -2972,13 +2969,10 @@ describe("workspace storage routes (self-serve BYO bucket, issue #583 Task 1.1)"
         env,
       );
       expect(res.status).toBe(200);
-      expect(registry.record<{ jurisdiction?: string }>("acme")?.jurisdiction).toBe("eu");
-
-      const statusRes = await app().request("/me/workspaces/acme/storage", {}, env);
-      expect(statusRes.status).toBe(200);
-      expect((await statusRes.json()) as { jurisdiction?: string }).toMatchObject({
-        jurisdiction: "eu",
-      });
+      expect(
+        registry.record<{ storageLanes?: Array<{ jurisdiction?: string }> }>("acme")
+          ?.storageLanes?.[0]?.jurisdiction,
+      ).toBe("eu");
     });
 
     it("503s (secrets_key_unconfigured) when WORKSPACE_SECRETS_KEY is unset, and leaves the record untouched", async () => {

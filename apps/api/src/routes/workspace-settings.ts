@@ -59,7 +59,7 @@ import {
   RateLimitedError,
   ValidationError,
 } from "@uploads/errors";
-import { type R2Jurisdiction } from "@uploads/storage";
+import { createStorage, type R2Jurisdiction } from "@uploads/storage";
 import { Hono, type Context, type MiddlewareHandler } from "hono";
 import { usageWithLimits } from "../budget";
 import { previewFixtureItems } from "../comment-preview-fixtures";
@@ -84,15 +84,27 @@ import { resolveRepoCommentOptions, workspaceCommentDefaults } from "../repo-com
 import { sealCredentialFieldsStrict } from "../secrets";
 import { selfServeWorkspaceRecord } from "../self-serve-defaults";
 import type { SessionVars } from "../session-auth";
+import { storageConfig as laneConfig } from "../storage";
 import { getWorkspaceUsage } from "../usage";
-import { byoBucketAllowed, loadWorkspaceRecord, type WorkspaceRecord } from "../workspace";
+import {
+  byoBucketAllowed,
+  newLaneId,
+  loadWorkspaceRecord,
+  type StorageLane,
+  type WorkspaceRecord,
+} from "../workspace";
 import { mutateWorkspaceRecord } from "../workspace-mutate";
 import { planResponse, planSourceFor } from "../workspace-plan";
 import {
   candidateFromBody,
+  isByoRecord,
+  isLaneVerifyStale,
   storageReconcile,
   storageStatusResponse,
   storageVerify,
+  upsertDemotedLane,
+  upsertStandbyLane,
+  verifyLaneForActivate,
 } from "./workspace-storage";
 
 /** `?repo=` shape for the comment preview endpoint: exactly one `/`, no empty segments. */
@@ -407,11 +419,20 @@ export async function storageVerifyHandler(c: Context<SettingsVars>) {
 }
 
 /**
- * `PUT /:workspace/storage` — persists a verified BYO config. Never trusts a
+ * `PUT /:workspace/storage` — verifies a candidate BYO config and saves it
+ * as a **standby lane** (spec: "Configure, then switch"). Never trusts a
  * client-side "verified" claim — re-runs the same pipeline server-side
  * against the request body, and only writes on a pass. On a fail, responds
  * with the verify result (422) so the UI can render the same checklist the
- * standalone verify route would have. `mutateWorkspaceRecord` (with
+ * standalone verify route would have.
+ *
+ * Saving a config never changes routing — the top-level (active-lane) fields
+ * are never touched here, so there is no `workspace_storage_not_empty` guard
+ * on this path: attaching a config to a populated workspace is always safe
+ * because nothing about where uploads land has changed yet. Switching lanes
+ * is `POST .../storage/activate`'s job. Saving again for the same
+ * bucket+accountId replaces that lane in place (`upsertStandbyLane`) rather
+ * than appending a duplicate. `mutateWorkspaceRecord` (with
  * `requireServing`) both re-checks the workspace hasn't been soft-deleted
  * since the request started and gives us the read-immediately-before-write
  * window issue #387 exists for; sealing happens *inside* that callback
@@ -439,21 +460,6 @@ export async function storagePutHandler(c: Context<SettingsVars>) {
     return c.json(result, 422);
   }
 
-  // No migration of populated workspaces in v1 (plan's global constraints):
-  // attaching a BYO bucket to a workspace that already holds files would
-  // orphan them on the shared bucket. Checked against the D1 usage ledger
-  // *before* the mutation — a KV-only read inside the callback can't see
-  // this — accepting the narrow race where a concurrent upload lands
-  // between this check and the write (the callback's `requireServing`
-  // re-check guards the record itself, not usage).
-  const usage = await getWorkspaceUsage(c.env.DB, name);
-  if (usage.objects > 0 && candidate.adoptExistingContents !== true) {
-    throw new ConflictError(
-      "this workspace already has files — BYO storage can only be attached to an empty workspace",
-      { code: "workspace_storage_not_empty" },
-    );
-  }
-
   const nowIso = new Date().toISOString();
   const updated = await mutateWorkspaceRecord(
     c.env,
@@ -463,61 +469,228 @@ export async function storagePutHandler(c: Context<SettingsVars>) {
         accessKeyId: candidate.accessKeyId,
         secretAccessKey: candidate.secretAccessKey,
       });
-      const next: WorkspaceRecord = { ...current };
-      delete next.prefix;
-      delete next.binding;
-      next.bucket = candidate.bucket;
-      next.accountId = candidate.accountId;
-      next.accessKeyId = sealed.accessKeyId;
-      next.secretAccessKey = sealed.secretAccessKey;
-      if (candidate.publicBaseUrl) next.publicBaseUrl = candidate.publicBaseUrl;
-      else delete next.publicBaseUrl;
-      // Cast is safe: `storageVerify` above already ran the shape check
-      // (storage-verify.ts) that 422s on anything outside R2_JURISDICTIONS.
-      if (candidate.jurisdiction) next.jurisdiction = candidate.jurisdiction as R2Jurisdiction;
-      else delete next.jurisdiction;
-      next.storageConfiguredAt = nowIso;
-      next.storageVerifiedAt = nowIso;
-      next.storageConfiguredBy = userId;
-      // Display fragment for the settings UI, captured from the plaintext
-      // before sealing — `next.accessKeyId` is ciphertext from here on.
-      next.storageAccessKeyIdLast4 = candidate.accessKeyId.slice(-4);
-      return next;
+      const lane: StorageLane = {
+        id: newLaneId(),
+        provider: "r2",
+        bucket: candidate.bucket,
+        accountId: candidate.accountId,
+        accessKeyId: sealed.accessKeyId,
+        secretAccessKey: sealed.secretAccessKey,
+        publicBaseUrl: candidate.publicBaseUrl,
+        // Cast is safe: `storageVerify` above already ran the shape check
+        // (storage-verify.ts) that 422s on anything outside R2_JURISDICTIONS.
+        jurisdiction: candidate.jurisdiction as R2Jurisdiction | undefined,
+        verifiedAt: nowIso,
+        storageConfiguredAt: nowIso,
+        storageConfiguredBy: userId,
+        // Display fragment for the settings UI, captured from the plaintext
+        // before sealing — `lane.accessKeyId` is ciphertext from here on.
+        storageAccessKeyIdLast4: candidate.accessKeyId.slice(-4),
+      };
+      return { ...current, storageLanes: upsertStandbyLane(current.storageLanes, lane) };
     },
     { requireServing: true },
   );
 
-  console.log(JSON.stringify({ event: "workspace_storage_configured", workspace: name, userId }));
-
-  // `adoptExistingContents` bypassed the emptiness guard, so the D1 usage
-  // ledger still describes the old backing storage while the adopted
-  // bucket's contents are what this workspace now serves. Rebuild the
-  // ledger from the new bucket so it's honest immediately (it's dormant for
-  // `maxStorageBytes` while BYO is active — `storageBudgetApplies` — but
-  // powers the settings UI and becomes authoritative again on detach).
-  // Best-effort: the config write above already succeeded, and reconcile
-  // can be re-run any time.
-  if (candidate.adoptExistingContents === true) {
-    await storageReconcile(c.env, updated, name).catch((err) =>
-      console.error("workspace storage attach: usage reconcile failed for", name, err),
-    );
-  }
+  console.log(JSON.stringify({ event: "workspace_storage_saved", workspace: name, userId }));
 
   return c.json({ ...storageStatusResponse(updated, true), verify: result });
 }
 
 /**
- * `DELETE /:workspace/storage` — detach BYO storage and restore
- * shared-bucket defaults. Never touches the customer's bucket or its
- * objects — only the platform's own KV record. Blocked unless the
- * workspace's usage ledger reports zero objects, or the caller explicitly
- * passes `force` (query `?force=true` or a JSON body `{ "force": true }`) —
- * mirrors the empty-workspace guard on PUT above, in the opposite
- * direction. Shared-bucket fields (bucket/binding/prefix/publicBaseUrl)
- * come from `selfServeWorkspaceRecord` so this can't drift from what a
- * brand-new self-serve workspace actually gets; everything else on the
- * record (limits, github links, comment settings, plan, other flags) is
- * preserved untouched.
+ * Builds the `StorageLane` object for demoting the record's *current*
+ * top-level (active-lane) fields, shared by `storageActivateHandler` — the
+ * outgoing active config becomes a fallback lane the moment a new one takes
+ * over, so pre-switch objects keep resolving (spec: "Configure, then
+ * switch"). Reuses the record's own `storageLaneId` as the demoted lane's id
+ * when one exists (a record that has switched before); mints a fresh one for
+ * a record on its first-ever switch (the implicit original/shared lane never
+ * had an id).
+ */
+function demoteActiveLane(current: WorkspaceRecord, nowIso: string): StorageLane {
+  return {
+    id: current.storageLaneId ?? newLaneId(),
+    provider: "r2",
+    bucket: current.bucket,
+    binding: current.binding,
+    prefix: current.prefix,
+    publicBaseUrl: current.publicBaseUrl,
+    accountId: current.accountId,
+    accessKeyId: current.accessKeyId,
+    secretAccessKey: current.secretAccessKey,
+    jurisdiction: current.jurisdiction,
+    lastActiveAt: nowIso,
+    verifiedAt: current.storageVerifiedAt,
+    storageConfiguredAt: current.storageConfiguredAt,
+    storageConfiguredBy: current.storageConfiguredBy,
+    storageAccessKeyIdLast4: current.storageAccessKeyIdLast4,
+  };
+}
+
+/**
+ * Promotes `lane`'s fields onto `next`'s top level (the active-lane fields) —
+ * shared by `storageActivateHandler`'s target promotion. Deletes fields the
+ * incoming lane doesn't carry so a switch between a binding-mode and an
+ * HTTP-credential-mode lane never leaves the other mode's stale fields
+ * behind (e.g. switching shared → BYO must drop `binding`/`prefix`;
+ * BYO → shared must drop the credential fields).
+ */
+function promoteLane(next: WorkspaceRecord, lane: StorageLane, verifiedAt: string | undefined) {
+  next.provider = "r2";
+  next.bucket = lane.bucket;
+  if (lane.binding) next.binding = lane.binding;
+  else delete next.binding;
+  if (lane.prefix) next.prefix = lane.prefix;
+  else delete next.prefix;
+  if (lane.publicBaseUrl) next.publicBaseUrl = lane.publicBaseUrl;
+  else delete next.publicBaseUrl;
+  if (lane.accountId) next.accountId = lane.accountId;
+  else delete next.accountId;
+  if (lane.accessKeyId) next.accessKeyId = lane.accessKeyId;
+  else delete next.accessKeyId;
+  if (lane.secretAccessKey) next.secretAccessKey = lane.secretAccessKey;
+  else delete next.secretAccessKey;
+  if (lane.jurisdiction) next.jurisdiction = lane.jurisdiction;
+  else delete next.jurisdiction;
+  next.storageLaneId = lane.id;
+  if (lane.storageConfiguredAt) next.storageConfiguredAt = lane.storageConfiguredAt;
+  else delete next.storageConfiguredAt;
+  if (lane.storageConfiguredBy) next.storageConfiguredBy = lane.storageConfiguredBy;
+  else delete next.storageConfiguredBy;
+  if (lane.storageAccessKeyIdLast4) next.storageAccessKeyIdLast4 = lane.storageAccessKeyIdLast4;
+  else delete next.storageAccessKeyIdLast4;
+  if (verifiedAt) next.storageVerifiedAt = verifiedAt;
+  else delete next.storageVerifiedAt;
+}
+
+/**
+ * `POST /:workspace/storage/activate` — switches the active (write) lane to
+ * a saved config, body `{ laneId }` (spec: "Configure, then switch",
+ * decoupled activation). The target lane must already be saved in
+ * `storageLanes` — either a standby config from `PUT` or a former active
+ * lane being reactivated. `byoBucketAllowed` is required unless the target
+ * is binding-mode: switching back to shared storage must survive flag
+ * revocation, the same #619 posture `storageDeleteHandler`'s legacy detach
+ * already carries — an HTTP-mode target still requires the flag.
+ *
+ * An HTTP-credential-mode target whose `verifiedAt` is stale (or absent) is
+ * re-verified against its *opened* (decrypted) credentials before the swap —
+ * a switch never lands on a config that has silently rotted — and 422s with
+ * the verify result, mutating nothing, on failure. Binding-mode targets
+ * (switching back to shared) skip verification entirely: there's nothing to
+ * decrypt or reach over HTTP.
+ *
+ * The swap itself is one `mutateWorkspaceRecord` callback: the current
+ * active fields are demoted into a lane (`demoteActiveLane`) and the target
+ * is promoted onto the top level (`promoteLane`) — read paths built in PR C
+ * mean the demoted lane keeps serving pre-switch files immediately.
+ */
+export async function storageActivateHandler(c: Context<SettingsVars>) {
+  const name = c.req.param("workspace") ?? "";
+  const userId = c.get("settingsUserId");
+  const record = await loadWorkspaceRecord(c.env, name);
+  if (!record) throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
+
+  const body = await c.req.json().catch(() => null);
+  const laneId = (body as { laneId?: unknown } | null)?.laneId;
+  if (typeof laneId !== "string" || laneId.length === 0) {
+    throw new ValidationError("laneId is required", { code: "invalid_lane_id" });
+  }
+  const target = (record.storageLanes ?? []).find((lane) => lane.id === laneId);
+  if (!target) {
+    throw new NotFoundError("storage lane not found", { code: "storage_lane_not_found" });
+  }
+
+  const targetIsBindingMode = Boolean(target.binding);
+  if (!targetIsBindingMode && !byoBucketAllowed(record)) {
+    throw new ForbiddenError("BYO storage is not enabled for this workspace", {
+      code: "byo_bucket_disabled",
+    });
+  }
+  if (!(await allowWrite(c.env, name))) {
+    throw new RateLimitedError("rate limit exceeded");
+  }
+
+  const nowIso = new Date().toISOString();
+  let verifiedAt = target.verifiedAt;
+  if (!targetIsBindingMode && isLaneVerifyStale(target.verifiedAt)) {
+    const result = await verifyLaneForActivate(c.env, target);
+    if (!result.ok) {
+      return c.json(result, 422);
+    }
+    verifiedAt = nowIso;
+  }
+
+  const updated = await mutateWorkspaceRecord(
+    c.env,
+    name,
+    (current) => {
+      const freshTarget = (current.storageLanes ?? []).find((lane) => lane.id === laneId);
+      if (!freshTarget) {
+        throw new ConflictError("storage lane no longer exists", {
+          code: "storage_lane_not_found",
+        });
+      }
+      const demoted = demoteActiveLane(current, nowIso);
+      const remaining = (current.storageLanes ?? []).filter((lane) => lane.id !== laneId);
+      const next: WorkspaceRecord = {
+        ...current,
+        storageLanes: upsertDemotedLane(remaining, demoted),
+      };
+      promoteLane(next, freshTarget, verifiedAt);
+      return next;
+    },
+    { requireServing: true },
+  );
+
+  console.log(
+    JSON.stringify({
+      event: "workspace_storage_lane_activated",
+      workspace: name,
+      userId,
+      laneId,
+    }),
+  );
+
+  // The promoted lane may already hold objects (a reactivated fallback, or a
+  // standby saved via `adoptExistingContents`) that the ledger has never
+  // walked — rebuild totals/shared-subset now so `maxStorageBytes`
+  // enforcement and the settings UI are honest immediately. Best-effort,
+  // same rationale as the legacy attach/detach reconcile calls.
+  await storageReconcile(c.env, updated, name).catch((err) =>
+    console.error("workspace storage activate: usage reconcile failed for", name, err),
+  );
+
+  return c.json(storageStatusResponse(updated, byoBucketAllowed(updated)));
+}
+
+/**
+ * `DELETE /:workspace/storage` — removes a saved lane, or (legacy shape, no
+ * `laneId`) detaches the active BYO lane and restores shared-bucket
+ * defaults. Never touches the customer's bucket or its objects — only the
+ * platform's own KV record.
+ *
+ * With `laneId`: removes exactly that lane from `storageLanes`. A standby
+ * lane (never active — no `lastActiveAt`) is always removable, no emptiness
+ * check: it's pure saved configuration. A fallback lane (`lastActiveAt`
+ * set — it may hold objects) is checked for emptiness first (a cheap
+ * `list({ limit: 1 })` against that lane's own store) and 409s
+ * `workspace_storage_not_empty` unless `force` — the "my bucket is gone"
+ * escape hatch, which knowingly orphans that lane's objects.
+ *
+ * Without `laneId` (legacy call shape): unchanged from before — blocked
+ * unless the ledger reports zero objects or `force` is passed (mirrors the
+ * `laneId` emptiness guard, against the D1 ledger instead of a live list —
+ * cheaper, and this is the path that already has ledger totals). The #619
+ * gate (detach must survive `byoBucketEnabled` revocation) is preserved
+ * exactly. Unlike before two-lane storage, a non-empty active BYO config is
+ * no longer discarded outright: it's kept as a fallback lane (`lastActiveAt`
+ * stamped) so files uploaded during the BYO era keep resolving — unless
+ * `force` is set, which drops it entirely as before. Shared-bucket fields
+ * (bucket/binding/prefix/publicBaseUrl) come from `selfServeWorkspaceRecord`
+ * so this can't drift from what a brand-new self-serve workspace actually
+ * gets; everything else on the record (limits, github links, comment
+ * settings, plan, other flags) is preserved untouched.
  */
 export async function storageDeleteHandler(c: Context<SettingsVars>) {
   const name = c.req.param("workspace") ?? "";
@@ -536,22 +709,60 @@ export async function storageDeleteHandler(c: Context<SettingsVars>) {
   }
 
   const queryForce = c.req.query("force");
-  const bodyForce = await c.req
-    .json<{ force?: unknown }>()
-    .then((b) => b?.force === true)
-    .catch(() => false);
-  const force = queryForce === "true" || queryForce === "1" || bodyForce;
+  const queryLaneId = c.req.query("laneId");
+  const parsedBody = await c.req.json<{ force?: unknown; laneId?: unknown }>().catch(() => null);
+  const force = queryForce === "true" || queryForce === "1" || parsedBody?.force === true;
+  const laneId =
+    queryLaneId || (typeof parsedBody?.laneId === "string" ? parsedBody.laneId : undefined);
 
-  if (!force) {
-    const usage = await getWorkspaceUsage(c.env.DB, name);
-    if (usage.objects > 0) {
-      throw new ConflictError(
-        "this workspace still has files on its BYO bucket — pass force to detach anyway",
-        { code: "workspace_storage_not_empty" },
-      );
+  if (laneId) {
+    const target = (record.storageLanes ?? []).find((lane) => lane.id === laneId);
+    if (!target) {
+      throw new NotFoundError("storage lane not found", { code: "storage_lane_not_found" });
     }
+    if (target.lastActiveAt && !force) {
+      // Resolves only the target lane's own config — never the active
+      // lane's (unlike `storageConfigs`, which would also decrypt/validate
+      // the active lane and turn an unrelated active-lane problem into a
+      // 503 on this lane's removal). A lane that fails to resolve at all
+      // (bad binding, undecryptable creds) is treated as empty: it's
+      // already unreachable, so removal can't be blocked on data nobody can
+      // read anyway — that data is exactly what `force` exists to release.
+      const nonEmpty = await laneConfig(c.env, target as unknown as WorkspaceRecord)
+        .then((config) => createStorage(config).list({ limit: 1 }))
+        .then((page) => page.items.length > 0)
+        .catch(() => false);
+      if (nonEmpty) {
+        throw new ConflictError(
+          "this storage lane still has files — pass force to remove it anyway",
+          { code: "workspace_storage_not_empty" },
+        );
+      }
+    }
+    const updated = await mutateWorkspaceRecord(
+      c.env,
+      name,
+      (current) => ({
+        ...current,
+        storageLanes: (current.storageLanes ?? []).filter((lane) => lane.id !== laneId),
+      }),
+      { requireServing: true },
+    );
+    console.log(
+      JSON.stringify({ event: "workspace_storage_lane_removed", workspace: name, userId, laneId }),
+    );
+    return c.json(storageStatusResponse(updated, byoBucketAllowed(updated)));
   }
 
+  const usage = await getWorkspaceUsage(c.env.DB, name);
+  if (!force && usage.objects > 0) {
+    throw new ConflictError(
+      "this workspace still has files on its BYO bucket — pass force to detach anyway",
+      { code: "workspace_storage_not_empty" },
+    );
+  }
+
+  const nowIso = new Date().toISOString();
   const updated = await mutateWorkspaceRecord(
     c.env,
     name,
@@ -561,7 +772,17 @@ export async function storageDeleteHandler(c: Context<SettingsVars>) {
         userId: current.createdByUserId ?? userId,
         now: new Date(),
       });
-      const next: WorkspaceRecord = { ...current };
+      // The ledger has objects (only reachable via `force`, since the guard
+      // above already blocked a non-empty non-force detach): the outgoing
+      // BYO config may hold objects that must keep resolving, so it's kept
+      // as a fallback lane rather than discarded (spec: "Detach
+      // symmetrically" / "Lane hygiene").
+      const keepAsFallback = usage.objects > 0 && isByoRecord(current);
+      const storageLanes = keepAsFallback
+        ? upsertDemotedLane(current.storageLanes, demoteActiveLane(current, nowIso))
+        : current.storageLanes;
+
+      const next: WorkspaceRecord = { ...current, storageLanes };
       next.bucket = shared.bucket;
       next.binding = shared.binding;
       next.prefix = shared.prefix;
@@ -575,6 +796,10 @@ export async function storageDeleteHandler(c: Context<SettingsVars>) {
       delete next.storageVerifiedAt;
       delete next.storageConfiguredBy;
       delete next.storageAccessKeyIdLast4;
+      // The restored shared lane has no id until a future activate demotes
+      // it again — clear it regardless of whether the outgoing BYO config
+      // was kept as a fallback lane.
+      delete next.storageLaneId;
       return next;
     },
     { requireServing: true },
@@ -791,5 +1016,6 @@ export const workspaceSettings = new Hono<SettingsVars>()
   .get("/:workspace/storage", sessionAdminGate(), storageGetHandler)
   .post("/:workspace/storage/verify", sessionAdminGate(), storageVerifyHandler)
   .put("/:workspace/storage", sessionAdminGate(), storagePutHandler)
+  .post("/:workspace/storage/activate", sessionAdminGate(), storageActivateHandler)
   .delete("/:workspace/storage", sessionAdminGate(), storageDeleteHandler)
   .onError((err, c) => respondError(c, err));
