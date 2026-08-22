@@ -1036,7 +1036,46 @@ export function repairOAuthQuery(search: string): string {
     );
 }
 
-export type OAuthConsentResult = { ok: true; redirectUri: string } | { ok: false; error: string };
+export type OAuthConsentResult =
+  | { ok: true; redirectUri: string }
+  | {
+      ok: false;
+      error: string;
+      /**
+       * True when retrying Allow/Deny on this page can never succeed — the
+       * consent page should stop inviting a doomed retry (disable the
+       * buttons) rather than leave them clickable.
+       */
+      permanent: boolean;
+    };
+
+/**
+ * Copy for `@better-auth/oauth-provider` wire codes that are permanent for
+ * this page: the signed authorize query in `location.search` no longer
+ * verifies. `verifyOAuthQueryParams` (apps/auth/node_modules/@better-auth/
+ * oauth-provider/dist/utils-*.mjs) folds a bad signature and an elapsed `exp`
+ * into the same boolean check, so both surface as `invalid_signature` — there
+ * is no separate expiry code. Neither cause is fixable by clicking Allow
+ * again; the client app holds the PKCE verifier needed to restart the flow,
+ * so recovery has to happen there.
+ */
+export const OAUTH_QUERY_EXPIRED_MESSAGE =
+  "This authorization request has expired. Return to the app you were connecting and start the connection again.";
+const OAUTH_CONSENT_PERMANENT_ERRORS: Record<string, string> = {
+  invalid_signature: OAUTH_QUERY_EXPIRED_MESSAGE,
+};
+
+/**
+ * True when the signed query's `exp` (unix seconds, set by
+ * @better-auth/oauth-provider's `signParams`) has already elapsed. Lets the
+ * consent page render the permanent expired state at load time instead of
+ * waiting on a POST /oauth2/consent that can only fail with
+ * `invalid_signature`.
+ */
+export function isOAuthQueryExpired(search: string, now: number = Date.now()): boolean {
+  const exp = Number(new URLSearchParams(search.replace(/^\?/, "")).get("exp"));
+  return Number.isFinite(exp) && exp > 0 && exp * 1000 <= now;
+}
 
 /**
  * POST /api/auth/oauth2/consent. `oauthQuery` is `location.search` with the
@@ -1044,8 +1083,10 @@ export type OAuthConsentResult = { ok: true; redirectUri: string } | { ok: false
  * required so the AS can resolve which pending authorize request this is.
  * `scope` is the space-delimited set of scopes the user is granting; omit on
  * deny. Response carries the redirect target (`url` on better-auth 1.6.23,
- * `redirect_uri` in older builds) on success, `error_description` /
- * `message` on rejection (expired/invalid signed query, unknown client, …).
+ * `redirect_uri` in older builds) on success. On rejection, Better Auth 1.7's
+ * oauth-provider envelopes are often a bare `{"error": "<code>"}` with no
+ * description — `error_description`/`message` win when present, otherwise a
+ * known `error` code maps to actionable copy, otherwise the generic fallback.
  */
 export async function submitOAuthConsent(
   origin: string,
@@ -1067,21 +1108,33 @@ export async function submitOAuthConsent(
       url?: string;
       error_description?: string;
       message?: string;
+      error?: string;
     } | null;
     if (!res.ok) {
+      const mapped = body?.error ? OAUTH_CONSENT_PERMANENT_ERRORS[body.error] : undefined;
       return {
         ok: false,
-        error: body?.error_description ?? body?.message ?? "Something went wrong. Try again.",
+        error:
+          body?.error_description ?? body?.message ?? mapped ?? "Something went wrong. Try again.",
+        permanent: mapped !== undefined,
       };
     }
     // better-auth 1.6.23 responds `{ redirect: true, url }` (prod-verified);
     // `redirect_uri` is the shape older plugin builds documented. Accept both.
     const redirectUri = body?.url ?? body?.redirect_uri;
     if (!redirectUri) {
-      return { ok: false, error: "The authorization server didn't return a redirect." };
+      return {
+        ok: false,
+        error: "The authorization server didn't return a redirect.",
+        permanent: false,
+      };
     }
     return { ok: true, redirectUri };
   } catch {
-    return { ok: false, error: "Couldn't reach the authorization server. Try again." };
+    return {
+      ok: false,
+      error: "Couldn't reach the authorization server. Try again.",
+      permanent: false,
+    };
   }
 }
