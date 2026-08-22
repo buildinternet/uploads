@@ -8,6 +8,60 @@ import { resealCredentialFields, secretsKeyRingFromEnv, type SecretsKeyRing } fr
 import type { WorkspaceRecord } from "./workspace";
 import { mutateWorkspaceRecord } from "./workspace-mutate";
 
+/** True when any credential lives at the top level or inside a saved lane. */
+function hasAnyCredentials(record: WorkspaceRecord): boolean {
+  if (record.accessKeyId || record.secretAccessKey) return true;
+  return (record.storageLanes ?? []).some((lane) => lane.accessKeyId || lane.secretAccessKey);
+}
+
+/**
+ * Reseal the active-lane pair and every `storageLanes` entry's credentials
+ * under the current KEK (issue: two-lane storage — a lane's sealed
+ * `accessKeyId`/`secretAccessKey` must never be missed by the rotation
+ * sweep). Fields with no credentials round-trip as `undefined`, same as
+ * `resealCredentialFields` alone.
+ */
+async function resealWorkspaceCredentials(
+  ring: SecretsKeyRing,
+  record: WorkspaceRecord,
+): Promise<{ record: WorkspaceRecord; changed: boolean }> {
+  let changed = false;
+
+  const top = await resealCredentialFields(ring, {
+    accessKeyId: record.accessKeyId,
+    secretAccessKey: record.secretAccessKey,
+  });
+  if (top.changed) changed = true;
+
+  let storageLanes = record.storageLanes;
+  if (storageLanes && storageLanes.length > 0) {
+    storageLanes = await Promise.all(
+      storageLanes.map(async (lane) => {
+        const resealed = await resealCredentialFields(ring, {
+          accessKeyId: lane.accessKeyId,
+          secretAccessKey: lane.secretAccessKey,
+        });
+        if (resealed.changed) changed = true;
+        return {
+          ...lane,
+          accessKeyId: resealed.accessKeyId,
+          secretAccessKey: resealed.secretAccessKey,
+        };
+      }),
+    );
+  }
+
+  return {
+    record: {
+      ...record,
+      accessKeyId: top.accessKeyId,
+      secretAccessKey: top.secretAccessKey,
+      storageLanes,
+    },
+    changed,
+  };
+}
+
 export interface ReencryptResult {
   dryRun: boolean;
   scanned: number;
@@ -60,7 +114,7 @@ export async function reencryptRegistryCredentials(
         workspaces.push({ workspace: name, action: "skipped", reason: "missing" });
         continue;
       }
-      if (!record.accessKeyId && !record.secretAccessKey) {
+      if (!hasAnyCredentials(record)) {
         skipped += 1;
         workspaces.push({ workspace: name, action: "skipped", reason: "no_credentials" });
         continue;
@@ -68,10 +122,7 @@ export async function reencryptRegistryCredentials(
 
       try {
         if (dryRun) {
-          const resealed = await resealCredentialFields(ring, {
-            accessKeyId: record.accessKeyId,
-            secretAccessKey: record.secretAccessKey,
-          });
+          const resealed = await resealWorkspaceCredentials(ring, record);
           if (!resealed.changed) {
             skipped += 1;
             workspaces.push({ workspace: name, action: "skipped", reason: "already_current" });
@@ -89,17 +140,10 @@ export async function reencryptRegistryCredentials(
         // pay for the crypto twice on every workspace the sweep rewrites.
         let changed = false;
         await mutateWorkspaceRecord(env, name, async (current) => {
-          const resealed = await resealCredentialFields(ring, {
-            accessKeyId: current.accessKeyId,
-            secretAccessKey: current.secretAccessKey,
-          });
+          const resealed = await resealWorkspaceCredentials(ring, current);
           changed = resealed.changed;
           if (!changed) return null;
-          return {
-            ...current,
-            accessKeyId: resealed.accessKeyId,
-            secretAccessKey: resealed.secretAccessKey,
-          };
+          return resealed.record;
         });
         if (!changed) {
           skipped += 1;

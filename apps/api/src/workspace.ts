@@ -186,6 +186,62 @@ export interface WorkspaceRecord {
    * save, so its trailing characters are ciphertext.
    */
   storageAccessKeyIdLast4?: string;
+  /**
+   * All configured inactive lanes: saved-but-never-used configs and demoted
+   * former actives (spec: docs/superpowers/specs/2026-08-22-two-lane-storage-design.md,
+   * "Record shape"). Absent/empty on every record until a later PR starts
+   * writing to it — nothing in PR B populates this field.
+   */
+  storageLanes?: StorageLane[];
+  /**
+   * Id of the currently-active lane (the top-level storage fields above).
+   * Absent means a record that predates this design — the implicit original
+   * lane. Stamped into new-upload provenance (see `files-core.ts`).
+   */
+  storageLaneId?: string;
+}
+
+/**
+ * A saved-or-formerly-active storage configuration, addressed by `id`.
+ * Lane state is derived, not stored as an enum: **standby** = configured and
+ * verified, `lastActiveAt` absent — a saved config that has never received
+ * writes; **fallback** = `lastActiveAt` set — a former active lane that may
+ * hold objects and participates in read resolution. See the spec's
+ * "N-lane readiness": `provider` is a widened string (validated to `"r2"` at
+ * every boundary today) so future files-sdk-supported providers need no
+ * record-shape migration.
+ */
+export interface StorageLane {
+  /** Short opaque id, e.g. "lane_<8hex>"; stamped into new-upload provenance. */
+  id: string;
+  /** Last successful verify run against this lane's config. */
+  verifiedAt?: string;
+  /** Set when the lane is demoted from active; absence = never held writes (standby). */
+  lastActiveAt?: string;
+  /** "r2" is the only value accepted today; widened now so future providers need no migration. */
+  provider: string;
+  bucket: string;
+  /** Shared lane uses the binding; BYO lanes are HTTP-credential mode. */
+  binding?: string;
+  prefix?: string;
+  publicBaseUrl?: string;
+  accountId?: string;
+  /** Sealed (`enc:v1:`), same KEK ring as active-lane credentials. */
+  accessKeyId?: string;
+  /** Sealed (`enc:v1:`). */
+  secretAccessKey?: string;
+  jurisdiction?: R2Jurisdiction;
+  /** Display/provenance mirrors of the top-level fields of the same name. */
+  storageAccessKeyIdLast4?: string;
+  storageConfiguredAt?: string;
+  storageConfiguredBy?: string;
+}
+
+/** New lane id: "lane_" + 8 lowercase hex chars from crypto.getRandomValues. */
+export function newLaneId(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(4));
+  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+  return `lane_${hex}`;
 }
 
 /**
