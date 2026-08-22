@@ -391,3 +391,23 @@ export function shotPreviewPosition(
   }
   return { left, top };
 }
+
+/**
+ * Whether a `focus` event on a `.wsp-tile` anchor should open its hover
+ * preview. True only for genuine keyboard-driven focus (`:focus-visible`) —
+ * a touch tap also focuses the anchor it activates, and without this guard
+ * that tap would leave a preview stuck open on a device with no hover to
+ * dismiss it with. Takes a `matches`-shaped object rather than a real
+ * `Element` so it stays unit-testable without a DOM.
+ */
+export function focusIsKeyboardDriven(el: { matches(selector: string): boolean } | null): boolean {
+  if (!el) return false;
+  try {
+    return el.matches(":focus-visible");
+  } catch {
+    // Older engines without :focus-visible support throw a SyntaxError from
+    // an unrecognized selector — treat that the same as "not keyboard-driven"
+    // rather than letting it break the tile's focus handling.
+    return false;
+  }
+}

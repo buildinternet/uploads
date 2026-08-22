@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   backfillTargets,
   filterCatalog,
+  focusIsKeyboardDriven,
   groupsFromCatalog,
   isRepoLabel,
   lastUpdatedLabel,
@@ -368,6 +369,27 @@ describe("shotPreviewPosition", () => {
     );
     expect(pos.top).toBe(492); // 800 - 8 - 300
     expect(pos.left).toBe(200);
+  });
+});
+
+describe("focusIsKeyboardDriven", () => {
+  it("opens the preview for a genuine :focus-visible match", () => {
+    expect(focusIsKeyboardDriven({ matches: (s) => s === ":focus-visible" })).toBe(true);
+  });
+  it("skips a focus that isn't :focus-visible (e.g. a touch tap)", () => {
+    expect(focusIsKeyboardDriven({ matches: () => false })).toBe(false);
+  });
+  it("treats a missing element as not keyboard-driven", () => {
+    expect(focusIsKeyboardDriven(null)).toBe(false);
+  });
+  it("treats an engine that throws on :focus-visible as not keyboard-driven", () => {
+    expect(
+      focusIsKeyboardDriven({
+        matches: () => {
+          throw new DOMException("unsupported selector", "SyntaxError");
+        },
+      }),
+    ).toBe(false);
   });
 });
 
