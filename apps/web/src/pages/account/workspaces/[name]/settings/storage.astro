@@ -748,34 +748,51 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         })();
       });
 
-      /** Shared handler for both switch directions ("Use this bucket" and "Switch back…") — same primitive pointed at the other lane's id. */
-      async function activateLane(laneId: string, targetLabel: string): Promise<void> {
+      /**
+       * Shared handler for both switch directions ("Use this bucket" and
+       * "Switch back…") — same primitive pointed at the other lane's id.
+       * `statusEl` is the visible status line for the view the button lives
+       * in: `storageSavedActionStatus` for "Use this bucket" (the saved-card
+       * lives in the shared view, where `#storage-byo` — and its
+       * `storageActionStatus` line — is hidden) and `storageActionStatus`
+       * for "Switch back" (the active-BYO view).
+       */
+      async function activateLane(
+        laneId: string,
+        targetLabel: string,
+        statusEl: HTMLElement,
+      ): Promise<void> {
         if (!confirm(switchConfirmMessage(targetLabel))) return;
         showStorageError(null);
-        storageActionStatus.textContent = "Switching…";
-        storageActionStatus.removeAttribute("data-state");
+        statusEl.textContent = "Switching…";
+        statusEl.removeAttribute("data-state");
         const result = await activateWorkspaceStorage(apiOrigin, workspaceName, laneId);
         if (!stillHere()) return;
         if (result.kind === "ok") {
           applyStatus(result.status);
-          storageActionStatus.textContent = "Switched.";
-          storageActionStatus.dataset.state = "ok";
+          // The switch just changed which view is visible — confirm on
+          // whichever status line that view actually shows, not the one the
+          // button that started this lived next to.
+          const confirmEl =
+            result.status.mode === "byo" ? storageActionStatus : storageSavedActionStatus;
+          confirmEl.textContent = "Switched.";
+          confirmEl.dataset.state = "ok";
           return;
         }
         if (result.kind === "invalid") {
           showStorageError(
             "This bucket's credentials could not be re-verified — rotate them and try again.",
           );
-          storageActionStatus.textContent = "";
+          statusEl.textContent = "";
           return;
         }
-        storageActionStatus.textContent = "Couldn’t switch. Try again.";
-        storageActionStatus.dataset.state = "error";
+        statusEl.textContent = "Couldn’t switch. Try again.";
+        statusEl.dataset.state = "error";
       }
 
       storageUseBtn.addEventListener("click", () => {
         if (!savedLaneId) return;
-        void activateLane(savedLaneId, "your bucket");
+        void activateLane(savedLaneId, "your bucket", storageSavedActionStatus);
       });
 
       storageDisconnectBtn.addEventListener("click", () => {
@@ -785,7 +802,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
             // switch — the common case once this workspace has ever used
             // the new activate primitive. Same decoupled switch as
             // "Use this bucket", pointed the other direction.
-            await activateLane(sharedFallbackLaneId, "storage.uploads.sh");
+            await activateLane(sharedFallbackLaneId, "storage.uploads.sh", storageActionStatus);
             return;
           }
           // No recorded shared lane yet (this workspace has never switched
@@ -853,12 +870,12 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         storageActionStatus.removeAttribute("data-state");
         renderPreviousLine(status);
 
-        // A binding-mode fallback lane (no account id — the shared bucket
-        // uses an R2 binding, never HTTP credentials) is the "switch back"
+        // The shared (binding-mode) fallback lane is the "switch back"
         // target once this workspace has switched through the new
-        // primitive at least once.
+        // primitive at least once. `mode` comes straight from the server —
+        // never inferred from which masked fields happen to be absent.
         const sharedFallback = status.lanes.find(
-          (lane) => lane.role === "fallback" && !lane.accountId && !lane.accessKeyIdLast4,
+          (lane) => lane.role === "fallback" && lane.mode === "shared",
         );
         sharedFallbackLaneId = sharedFallback?.laneId ?? null;
 

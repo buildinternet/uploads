@@ -1749,6 +1749,8 @@ export interface WorkspaceStorageLane {
   laneId: string;
   /** "standby" = saved, never active; "fallback" = a former active lane that may still hold objects. */
   role: "standby" | "fallback";
+  /** "shared" = platform-owned binding lane; "byo" = customer HTTP-credential lane. Explicit from the server — never infer this from field absence (there is no `accountId` on this type to infer from; only `accountIdMasked`). */
+  mode: "shared" | "byo";
   bucket: string;
   publicBaseUrl?: string;
   verifiedAt?: string;
@@ -1777,10 +1779,12 @@ function toWorkspaceStorageLane(value: unknown): WorkspaceStorageLane | null {
   if (!value || typeof value !== "object") return null;
   const v = value as Record<string, unknown>;
   if (typeof v.laneId !== "string" || (v.role !== "standby" && v.role !== "fallback")) return null;
+  if (v.mode !== "shared" && v.mode !== "byo") return null;
   if (typeof v.bucket !== "string") return null;
   return {
     laneId: v.laneId,
     role: v.role,
+    mode: v.mode,
     bucket: v.bucket,
     publicBaseUrl: typeof v.publicBaseUrl === "string" ? v.publicBaseUrl : undefined,
     verifiedAt: typeof v.verifiedAt === "string" ? v.verifiedAt : undefined,

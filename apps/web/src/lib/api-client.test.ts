@@ -1399,6 +1399,7 @@ describe("getWorkspaceStorageStatus", () => {
             {
               laneId: "lane_fallback1",
               role: "fallback",
+              mode: "shared",
               bucket: "uploads-default",
               publicBaseUrl: "https://storage.uploads.sh",
               lastActiveAt: "2026-06-01T00:00:00.000Z",
@@ -1426,6 +1427,7 @@ describe("getWorkspaceStorageStatus", () => {
           {
             laneId: "lane_fallback1",
             role: "fallback",
+            mode: "shared",
             bucket: "uploads-default",
             publicBaseUrl: "https://storage.uploads.sh",
             lastActiveAt: "2026-06-01T00:00:00.000Z",
