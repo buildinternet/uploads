@@ -266,6 +266,24 @@ export function byoBucketAllowed(record: Pick<WorkspaceRecord, "byoBucketEnabled
   return record.byoBucketEnabled === true;
 }
 
+/**
+ * The #619 posture, generalized to activating any lane: switching TO a
+ * binding-mode (shared) lane must survive `byoBucketEnabled` revocation —
+ * the workspace can never be stranded on a customer bucket just because an
+ * operator turned the flag off — while switching to an HTTP-credential-mode
+ * (BYO) lane still requires the flag. `storageActivateHandler` is this
+ * predicate's only caller today; the legacy no-`laneId` DELETE path has its
+ * own differently-shaped #619 gate (it also has to allow a workspace that's
+ * never been BYO-configured to short-circuit as a no-op) and is not a good
+ * fit for reuse here.
+ */
+export function laneActivationAllowed(
+  record: Pick<WorkspaceRecord, "byoBucketEnabled">,
+  targetLane: Pick<StorageLaneFields, "binding">,
+): boolean {
+  return Boolean(targetLane.binding) || byoBucketAllowed(record);
+}
+
 /** Days a soft-deleted workspace's data is retained before the retention sweep finalizes it. */
 export const WORKSPACE_DELETE_GRACE_DAYS = 14;
 

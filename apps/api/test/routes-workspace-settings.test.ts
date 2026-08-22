@@ -595,6 +595,69 @@ describe("storage vertical (self-serve BYO bucket)", () => {
       );
       expect(res.status).toBe(403);
     });
+
+    // CodeRabbit review (PR #774): a candidate matching the ACTIVE BYO
+    // lane's own bucket+accountId is a credential rotation of that lane,
+    // not a new saved config. Writing it as a standby would leave the
+    // active lane's stale creds live and risk a later activate discarding
+    // the rotated ones entirely.
+    it("rotating the active BYO lane's own bucket+accountId updates it in place, creating no standby lane", async () => {
+      const { env, registry } = makeEnv({ role: "owner", record: BYO_RECORD });
+      setStorageVerifyForTests(async () => okVerifyResult);
+      const res = await app.request(
+        "/v1/workspaces/acme/storage",
+        {
+          method: "PUT",
+          headers: { ...sessionHeaders, "content-type": "application/json" },
+          body: JSON.stringify({ ...CANDIDATE_BODY, accessKeyId: "AKIDROTATED0000" }),
+        },
+        env,
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        mode: string;
+        lanes: unknown[];
+        accessKeyIdLast4?: string;
+      };
+      // Still the active lane — no standby was created for the rotation.
+      expect(body.mode).toBe("byo");
+      expect(body.lanes).toHaveLength(0);
+      expect(body.accessKeyIdLast4).toBe("0000");
+
+      const saved = registry.record<{
+        storageLanes?: unknown[];
+        accessKeyId?: string;
+        bucket?: string;
+      }>("acme");
+      expect(saved?.storageLanes ?? []).toHaveLength(0);
+      expect(saved?.bucket).toBe("customer-bucket");
+      expect(saved?.accessKeyId).not.toBe("AKIDROTATED0000");
+      expect(saved?.accessKeyId).toMatch(/^enc:v1:/);
+    });
+
+    it("saving a DIFFERENT bucket while a BYO lane is active still creates a standby, active lane untouched", async () => {
+      const { env, registry } = makeEnv({ role: "owner", record: BYO_RECORD });
+      setStorageVerifyForTests(async () => okVerifyResult);
+      const res = await app.request(
+        "/v1/workspaces/acme/storage",
+        {
+          method: "PUT",
+          headers: { ...sessionHeaders, "content-type": "application/json" },
+          body: JSON.stringify({ ...CANDIDATE_BODY, bucket: "second-bucket" }),
+        },
+        env,
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { mode: string; lanes: Array<{ bucket: string }> };
+      expect(body.mode).toBe("byo");
+      expect(body.lanes).toHaveLength(1);
+      expect(body.lanes[0]).toMatchObject({ bucket: "second-bucket" });
+
+      const saved = registry.record<{ bucket?: string; accessKeyId?: string }>("acme");
+      // The active lane (original bucket) is untouched.
+      expect(saved?.bucket).toBe("customer-bucket");
+      expect(saved?.accessKeyId).toBe(BYO_RECORD.accessKeyId);
+    });
   });
 
   describe("DELETE /v1/workspaces/:workspace/storage", () => {

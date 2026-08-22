@@ -84,26 +84,31 @@ import { resolveRepoCommentOptions, workspaceCommentDefaults } from "../repo-com
 import { sealCredentialFieldsStrict } from "../secrets";
 import { selfServeWorkspaceRecord } from "../self-serve-defaults";
 import type { SessionVars } from "../session-auth";
-import { storageConfig as laneConfig } from "../storage";
+import { isSharedLane, storageConfig as laneConfig } from "../storage";
 import { getWorkspaceUsage } from "../usage";
 import {
   byoBucketAllowed,
+  laneActivationAllowed,
   newLaneId,
   loadWorkspaceRecord,
   type StorageLane,
   type WorkspaceRecord,
 } from "../workspace";
+import {
+  demoteActiveLane,
+  isLaneVerifyStale,
+  promoteLane,
+  upsertDemotedLane,
+  upsertStandbyLane,
+} from "../workspace-lanes";
 import { mutateWorkspaceRecord } from "../workspace-mutate";
 import { planResponse, planSourceFor } from "../workspace-plan";
 import {
   candidateFromBody,
   isByoRecord,
-  isLaneVerifyStale,
   storageReconcile,
   storageStatusResponse,
   storageVerify,
-  upsertDemotedLane,
-  upsertStandbyLane,
   verifyLaneForActivate,
 } from "./workspace-storage";
 
@@ -427,17 +432,26 @@ export async function storageVerifyHandler(c: Context<SettingsVars>) {
  * standalone verify route would have.
  *
  * Saving a config never changes routing — the top-level (active-lane) fields
- * are never touched here, so there is no `workspace_storage_not_empty` guard
- * on this path: attaching a config to a populated workspace is always safe
- * because nothing about where uploads land has changed yet. Switching lanes
- * is `POST .../storage/activate`'s job. Saving again for the same
- * bucket+accountId replaces that lane in place (`upsertStandbyLane`) rather
- * than appending a duplicate. `mutateWorkspaceRecord` (with
- * `requireServing`) both re-checks the workspace hasn't been soft-deleted
- * since the request started and gives us the read-immediately-before-write
- * window issue #387 exists for; sealing happens *inside* that callback
- * (precedent: `reencrypt-registry.ts`), never on data read earlier in the
- * request.
+ * are untouched for any *other* bucket, so there is no
+ * `workspace_storage_not_empty` guard on this path: attaching a config to a
+ * populated workspace is always safe because nothing about where uploads
+ * land has changed yet. Switching lanes is `POST .../storage/activate`'s
+ * job. Saving again for the same bucket+accountId replaces that lane in
+ * place (`upsertStandbyLane`) rather than appending a duplicate.
+ *
+ * The one exception: a candidate matching the bucket+accountId of the
+ * *currently active* BYO lane is a credential rotation of that lane, not a
+ * new saved config — it updates the top-level fields in place instead of
+ * writing a standby. Writing a standby here instead would leave the active
+ * lane's stale credentials live (nothing ever re-points them at the new
+ * standby without an explicit activate) and a later activate's demote step
+ * could silently discard the rotated creds entirely (CodeRabbit review).
+ *
+ * `mutateWorkspaceRecord` (with `requireServing`) both re-checks the
+ * workspace hasn't been soft-deleted since the request started and gives us
+ * the read-immediately-before-write window issue #387 exists for; sealing
+ * happens *inside* that callback (precedent: `reencrypt-registry.ts`), never
+ * on data read earlier in the request.
  */
 export async function storagePutHandler(c: Context<SettingsVars>) {
   const name = c.req.param("workspace") ?? "";
@@ -469,6 +483,33 @@ export async function storagePutHandler(c: Context<SettingsVars>) {
         accessKeyId: candidate.accessKeyId,
         secretAccessKey: candidate.secretAccessKey,
       });
+      // Cast is safe: `storageVerify` above already ran the shape check
+      // (storage-verify.ts) that 422s on anything outside R2_JURISDICTIONS.
+      const jurisdiction = candidate.jurisdiction as R2Jurisdiction | undefined;
+      // Display fragment for the settings UI, captured from the plaintext
+      // before sealing — every sealed field below is ciphertext from here on.
+      const accessKeyIdLast4 = candidate.accessKeyId.slice(-4);
+
+      const rotatesActiveLane =
+        isByoRecord(current) &&
+        current.bucket === candidate.bucket &&
+        current.accountId === candidate.accountId;
+
+      if (rotatesActiveLane) {
+        const next: WorkspaceRecord = { ...current };
+        next.accessKeyId = sealed.accessKeyId;
+        next.secretAccessKey = sealed.secretAccessKey;
+        if (candidate.publicBaseUrl) next.publicBaseUrl = candidate.publicBaseUrl;
+        else delete next.publicBaseUrl;
+        if (jurisdiction) next.jurisdiction = jurisdiction;
+        else delete next.jurisdiction;
+        next.storageVerifiedAt = nowIso;
+        next.storageConfiguredAt = nowIso;
+        next.storageConfiguredBy = userId;
+        next.storageAccessKeyIdLast4 = accessKeyIdLast4;
+        return next;
+      }
+
       const lane: StorageLane = {
         id: newLaneId(),
         provider: "r2",
@@ -477,15 +518,11 @@ export async function storagePutHandler(c: Context<SettingsVars>) {
         accessKeyId: sealed.accessKeyId,
         secretAccessKey: sealed.secretAccessKey,
         publicBaseUrl: candidate.publicBaseUrl,
-        // Cast is safe: `storageVerify` above already ran the shape check
-        // (storage-verify.ts) that 422s on anything outside R2_JURISDICTIONS.
-        jurisdiction: candidate.jurisdiction as R2Jurisdiction | undefined,
+        jurisdiction,
         verifiedAt: nowIso,
         storageConfiguredAt: nowIso,
         storageConfiguredBy: userId,
-        // Display fragment for the settings UI, captured from the plaintext
-        // before sealing — `lane.accessKeyId` is ciphertext from here on.
-        storageAccessKeyIdLast4: candidate.accessKeyId.slice(-4),
+        storageAccessKeyIdLast4: accessKeyIdLast4,
       };
       return { ...current, storageLanes: upsertStandbyLane(current.storageLanes, lane) };
     },
@@ -495,72 +532,6 @@ export async function storagePutHandler(c: Context<SettingsVars>) {
   console.log(JSON.stringify({ event: "workspace_storage_saved", workspace: name, userId }));
 
   return c.json({ ...storageStatusResponse(updated, true), verify: result });
-}
-
-/**
- * Builds the `StorageLane` object for demoting the record's *current*
- * top-level (active-lane) fields, shared by `storageActivateHandler` — the
- * outgoing active config becomes a fallback lane the moment a new one takes
- * over, so pre-switch objects keep resolving (spec: "Configure, then
- * switch"). Reuses the record's own `storageLaneId` as the demoted lane's id
- * when one exists (a record that has switched before); mints a fresh one for
- * a record on its first-ever switch (the implicit original/shared lane never
- * had an id).
- */
-function demoteActiveLane(current: WorkspaceRecord, nowIso: string): StorageLane {
-  return {
-    id: current.storageLaneId ?? newLaneId(),
-    provider: "r2",
-    bucket: current.bucket,
-    binding: current.binding,
-    prefix: current.prefix,
-    publicBaseUrl: current.publicBaseUrl,
-    accountId: current.accountId,
-    accessKeyId: current.accessKeyId,
-    secretAccessKey: current.secretAccessKey,
-    jurisdiction: current.jurisdiction,
-    lastActiveAt: nowIso,
-    verifiedAt: current.storageVerifiedAt,
-    storageConfiguredAt: current.storageConfiguredAt,
-    storageConfiguredBy: current.storageConfiguredBy,
-    storageAccessKeyIdLast4: current.storageAccessKeyIdLast4,
-  };
-}
-
-/**
- * Promotes `lane`'s fields onto `next`'s top level (the active-lane fields) —
- * shared by `storageActivateHandler`'s target promotion. Deletes fields the
- * incoming lane doesn't carry so a switch between a binding-mode and an
- * HTTP-credential-mode lane never leaves the other mode's stale fields
- * behind (e.g. switching shared → BYO must drop `binding`/`prefix`;
- * BYO → shared must drop the credential fields).
- */
-function promoteLane(next: WorkspaceRecord, lane: StorageLane, verifiedAt: string | undefined) {
-  next.provider = "r2";
-  next.bucket = lane.bucket;
-  if (lane.binding) next.binding = lane.binding;
-  else delete next.binding;
-  if (lane.prefix) next.prefix = lane.prefix;
-  else delete next.prefix;
-  if (lane.publicBaseUrl) next.publicBaseUrl = lane.publicBaseUrl;
-  else delete next.publicBaseUrl;
-  if (lane.accountId) next.accountId = lane.accountId;
-  else delete next.accountId;
-  if (lane.accessKeyId) next.accessKeyId = lane.accessKeyId;
-  else delete next.accessKeyId;
-  if (lane.secretAccessKey) next.secretAccessKey = lane.secretAccessKey;
-  else delete next.secretAccessKey;
-  if (lane.jurisdiction) next.jurisdiction = lane.jurisdiction;
-  else delete next.jurisdiction;
-  next.storageLaneId = lane.id;
-  if (lane.storageConfiguredAt) next.storageConfiguredAt = lane.storageConfiguredAt;
-  else delete next.storageConfiguredAt;
-  if (lane.storageConfiguredBy) next.storageConfiguredBy = lane.storageConfiguredBy;
-  else delete next.storageConfiguredBy;
-  if (lane.storageAccessKeyIdLast4) next.storageAccessKeyIdLast4 = lane.storageAccessKeyIdLast4;
-  else delete next.storageAccessKeyIdLast4;
-  if (verifiedAt) next.storageVerifiedAt = verifiedAt;
-  else delete next.storageVerifiedAt;
 }
 
 /**
@@ -601,8 +572,7 @@ export async function storageActivateHandler(c: Context<SettingsVars>) {
     throw new NotFoundError("storage lane not found", { code: "storage_lane_not_found" });
   }
 
-  const targetIsBindingMode = Boolean(target.binding);
-  if (!targetIsBindingMode && !byoBucketAllowed(record)) {
+  if (!laneActivationAllowed(record, target)) {
     throw new ForbiddenError("BYO storage is not enabled for this workspace", {
       code: "byo_bucket_disabled",
     });
@@ -613,7 +583,7 @@ export async function storageActivateHandler(c: Context<SettingsVars>) {
 
   const nowIso = new Date().toISOString();
   let verifiedAt = target.verifiedAt;
-  if (!targetIsBindingMode && isLaneVerifyStale(target.verifiedAt)) {
+  if (!isSharedLane(target) && isLaneVerifyStale(target.verifiedAt)) {
     const result = await verifyLaneForActivate(c.env, target);
     if (!result.ok) {
       return c.json(result, 422);
@@ -783,23 +753,22 @@ export async function storageDeleteHandler(c: Context<SettingsVars>) {
         : current.storageLanes;
 
       const next: WorkspaceRecord = { ...current, storageLanes };
-      next.bucket = shared.bucket;
-      next.binding = shared.binding;
-      next.prefix = shared.prefix;
-      if (shared.publicBaseUrl) next.publicBaseUrl = shared.publicBaseUrl;
-      else delete next.publicBaseUrl;
-      delete next.accountId;
-      delete next.accessKeyId;
-      delete next.secretAccessKey;
-      delete next.jurisdiction;
-      delete next.storageConfiguredAt;
-      delete next.storageVerifiedAt;
-      delete next.storageConfiguredBy;
-      delete next.storageAccessKeyIdLast4;
-      // The restored shared lane has no id until a future activate demotes
-      // it again — clear it regardless of whether the outgoing BYO config
-      // was kept as a fallback lane.
-      delete next.storageLaneId;
+      // The shared lane's fields come from `selfServeWorkspaceRecord` (never
+      // hand-rolled, so this can't drift from what a brand-new self-serve
+      // workspace actually gets) and go through the same `promoteLane` field
+      // list every other lane promotion uses. No `id` — the restored shared
+      // lane has none until a future activate demotes it again.
+      promoteLane(
+        next,
+        {
+          provider: shared.provider,
+          bucket: shared.bucket,
+          binding: shared.binding,
+          prefix: shared.prefix,
+          publicBaseUrl: shared.publicBaseUrl,
+        },
+        undefined,
+      );
       return next;
     },
     { requireServing: true },

@@ -14,7 +14,7 @@ import {
 } from "../storage-verify";
 import { storageBudgetApplies } from "../budget";
 import { reconcileWorkspaceUsage } from "../reconcile";
-import { storageConfig } from "../storage";
+import { isSharedLane, storageConfig } from "../storage";
 import type { StorageLane, WorkspaceRecord } from "../workspace";
 
 /** Last 4 chars only, prefixed with an ellipsis (e.g. `"…abcd"`). `undefined` for an empty/missing value. */
@@ -40,6 +40,8 @@ export interface StorageLaneStatus {
   laneId: string;
   /** "standby" = saved, never active (no `lastActiveAt`); "fallback" = a former active lane that may hold objects. */
   role: "standby" | "fallback";
+  /** "shared" = platform-owned binding lane; "byo" = customer HTTP-credential lane. Explicit, never inferred from field absence — a client picking the shared lane by "no accountId" would be wrong the moment a masked field is added. */
+  mode: "shared" | "byo";
   bucket: string;
   publicBaseUrl?: string;
   verifiedAt?: string;
@@ -69,6 +71,7 @@ function laneStatus(lane: StorageLane): StorageLaneStatus {
   return {
     laneId: lane.id,
     role: lane.lastActiveAt ? "fallback" : "standby",
+    mode: isSharedLane(lane) ? "shared" : "byo",
     bucket: lane.bucket,
     publicBaseUrl: lane.publicBaseUrl,
     verifiedAt: lane.verifiedAt,
@@ -214,52 +217,4 @@ export async function verifyLaneForActivate(
   lane: StorageLane,
 ): Promise<StorageVerifyResult> {
   return storageVerify(await laneVerifyCandidate(env, lane));
-}
-
-/** Milliseconds a lane's `verifiedAt` may age before `activate` re-runs verify against it. */
-export const LANE_VERIFY_STALE_MS = 10 * 60 * 1000;
-
-/** True when `verifiedAt` is missing or older than {@link LANE_VERIFY_STALE_MS}. */
-export function isLaneVerifyStale(verifiedAt: string | undefined, now = new Date()): boolean {
-  if (!verifiedAt) return true;
-  const verifiedMs = Date.parse(verifiedAt);
-  if (!Number.isFinite(verifiedMs)) return true;
-  return now.getTime() - verifiedMs > LANE_VERIFY_STALE_MS;
-}
-
-/**
- * Upsert `lane` into `lanes` keyed by bucket+accountId identity, preserving
- * an existing match's `id` and `lastActiveAt` — re-saving a standby config
- * (credential rotation) refreshes creds/verification without minting a new
- * lane id or silently clearing fallback status.
- */
-export function upsertStandbyLane(
-  lanes: StorageLane[] | undefined,
-  lane: StorageLane,
-): StorageLane[] {
-  const existing = lanes ?? [];
-  const idx = existing.findIndex(
-    (l) => l.bucket === lane.bucket && (l.accountId ?? null) === (lane.accountId ?? null),
-  );
-  if (idx === -1) return [...existing, lane];
-  const prior = existing[idx]!;
-  const next = [...existing];
-  next[idx] = { ...lane, id: prior.id, lastActiveAt: prior.lastActiveAt };
-  return next;
-}
-
-/**
- * Upsert a freshly-demoted (just-deactivated) lane into `lanes` keyed by
- * bucket+accountId, replacing any stale entry outright — the demoted lane's
- * id (derived from the record's own `storageLaneId`) is always authoritative
- * here, unlike `upsertStandbyLane`'s "preserve the existing id" rule.
- */
-export function upsertDemotedLane(
-  lanes: StorageLane[] | undefined,
-  lane: StorageLane,
-): StorageLane[] {
-  const existing = (lanes ?? []).filter(
-    (l) => !(l.bucket === lane.bucket && (l.accountId ?? null) === (lane.accountId ?? null)),
-  );
-  return [...existing, lane];
 }
