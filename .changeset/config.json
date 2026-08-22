@@ -9,10 +9,15 @@
   "updateInternalDependencies": "patch",
   "ignore": [
     "@uploads/api",
-    "@uploads/mcp",
-    "@uploads/web",
-    "@uploads/storage",
     "@uploads/auth",
-    "@uploads/billing"
+    "@uploads/billing",
+    "@uploads/comment-config",
+    "@uploads/comment-render",
+    "@uploads/email",
+    "@uploads/errors",
+    "@uploads/mcp",
+    "@uploads/storage",
+    "@uploads/ui",
+    "@uploads/web"
   ]
 }
