@@ -15,7 +15,7 @@ import {
 import { getFileMetadata, META_MAX_KEYS, setFileMetadata } from "../file-metadata";
 import { checkDeclaredLength, maxBytesForContentType, resolveUploadPolicy } from "../guards";
 import { splitUploadMetaHeaders } from "../provenance";
-import { objectPublicUrls, storage, storageConfig } from "../storage";
+import { objectPublicUrls, resolveObjectLane, storage, storageConfig } from "../storage";
 import { hasGithubTags, uploaderTags } from "../uploader-identity";
 import { sanitizeVisibility } from "../visibility";
 import type { WorkspaceVars } from "../workspace";
@@ -97,10 +97,12 @@ export async function signFileHandler(c: Context<WorkspaceVars>) {
     // hot-swap exemption, but it is NOT a security boundary: a signed URL
     // for a free key can still land on an object created after signing.
     // Treat this as UX guardrail parity with PUT, not a guarantee.
-    const replaced = await store.exists(key);
-    if (replaced && !body.replace && !isManagedGithubKey(key)) {
-      const cfg = await storageConfig(c.env, ws);
-      const urls = objectPublicUrls(c.env, cfg, key);
+    // Two-lane storage: an existing object may live in a fallback lane rather
+    // than the active one this presign will write to — the conflict check
+    // (and the URL it reports) must still find it there.
+    const existingLane = await resolveObjectLane(c.env, ws, key);
+    if (existingLane && !body.replace && !isManagedGithubKey(key)) {
+      const urls = objectPublicUrls(c.env, existingLane.config, key);
       throw new ConflictError(
         `An object already exists at "${key}". Pass replace: true to sign an overwrite.`,
         { code: "key_exists", details: { key, url: urls.url, embedUrl: urls.embedUrl } },
@@ -154,10 +156,14 @@ export async function putFileHandler(c: Context<WorkspaceVars>) {
   if (dryRun === "1" || dryRun === "true") {
     const ws = c.get("workspace");
     const finalKey = finalizeUploadKey(key, ws);
-    const store = await storage(c.env, ws);
-    const replaced = await store.exists(finalKey);
+    // Two-lane storage: preview against whichever lane actually holds the
+    // key today (a fallback-only key still counts as "would overwrite").
+    const existingLane = await resolveObjectLane(c.env, ws, finalKey);
+    const replaced = existingLane !== null;
     const wouldRefuse = replaced && !wantReplace && !isManagedGithubKey(finalKey);
-    const urls = objectPublicUrls(c.env, await storageConfig(c.env, ws), finalKey);
+    const urls = existingLane
+      ? objectPublicUrls(c.env, existingLane.config, finalKey)
+      : objectPublicUrls(c.env, await storageConfig(c.env, ws), finalKey);
     return c.json({
       workspace: c.get("workspaceName"),
       key: finalKey,
@@ -215,8 +221,10 @@ export async function getFileHandler(c: Context<WorkspaceVars>) {
   const key = c.req.param("key")!;
   if (badKey(key)) throw new ValidationError("invalid key", { code: "invalid_key" });
   const ws = c.get("workspace");
-  const store = await storage(c.env, ws);
-  if (!(await store.exists(key))) throw new NotFoundError();
+  // Two-lane storage: a key uploaded before a storage switch still resolves,
+  // from whichever lane actually holds it.
+  const lane = await resolveObjectLane(c.env, ws, key);
+  if (!lane) throw new NotFoundError();
 
   const metadataParam = c.req.query("metadata");
   if (metadataParam === "1" || metadataParam === "true") {
@@ -224,8 +232,8 @@ export async function getFileHandler(c: Context<WorkspaceVars>) {
     return c.json({ metadata });
   }
 
-  const meta = await store.head(key);
-  const urls = objectPublicUrls(c.env, await storageConfig(c.env, ws), key);
+  const meta = await lane.store.head(key);
+  const urls = objectPublicUrls(c.env, lane.config, key);
   return c.json(headObjectJson(key, meta, urls.url, urls.embedUrl));
 }
 
