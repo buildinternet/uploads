@@ -145,6 +145,99 @@ curl -X PUT http://127.0.0.1:8787/v1/default/files/test.txt \
   --data-binary "hello"
 ```
 
+## Verifying the screenshots page with real thumbnails
+
+`/account/workspaces/[name]/screenshots` needs a signed-in session, fixture
+uploads, and a place to actually serve their bytes from — none of which the
+smoke test above sets up. This is the raw loopback stack
+(`pnpm dev:stack:raw`, or `pnpm dev` + `pnpm dev:auth` + `pnpm dev:web`
+separately), not portless, since the `dev-session` bypass below only
+recognizes the pinned loopback origin. A few steps here aren't obvious from
+the API alone:
+
+1. **Sign in with the `dev-session` bypass, from a page already on
+   `http://127.0.0.1:4321`.** The endpoint
+   (`POST /api/auth/dev-session`, `apps/auth/src/local-demo.ts`) checks the
+   request's `Origin` header against `WEB_ORIGIN` exactly, so it only works
+   called from a page already loaded there — not from a bare `curl`. It also
+   only exists when local-demo mode is enabled (the raw loopback stack, never
+   a real TLD). Send a JSON body, even an empty one: better-call 415s a POST
+   with no `Content-Type: application/json`, the same gotcha `signOut`
+   documents in `apps/web/src/lib/auth-client.ts`.
+
+   ```js
+   // from the browser console on http://127.0.0.1:4321
+   await fetch("http://127.0.0.1:8788/api/auth/dev-session", {
+     method: "POST",
+     credentials: "include",
+     headers: { "Content-Type": "application/json" },
+     body: "{}",
+   });
+   ```
+
+2. **Register a workspace with a loopback `publicBaseUrl`, and serve those
+   bytes yourself.** `GET /public/files/:workspace/:key` returns JSON
+   metadata, not image bytes, so it can't be the thumbnail source. Use a
+   fresh workspace name rather than re-registering `default` —
+   `workspace:add` always mints a new token and would invalidate the one
+   `bootstrap` already seeded for you — and point it at a plain static file
+   server:
+
+   ```bash
+   pnpm workspace:add shots-demo --local --public-base-url http://127.0.0.1:8090
+   # serve fixture bytes at http://127.0.0.1:8090/shots-demo/screenshots/...
+   npx http-server ./fixtures-root -p 8090
+   ```
+
+   Lay fixture bytes out under `fixtures-root/<workspace>/<key>` — a
+   shared-mode workspace's public URL is `publicBaseUrl/<workspace>/<key>`
+   (`packages/storage/src/index.ts`'s `publicUrl`), so a `screenshots/app-a/…`
+   key needs to exist at `fixtures-root/shots-demo/screenshots/app-a/…`.
+
+   This alone isn't enough to make the page render actual `<img>` tiles,
+   though: a loopback `publicBaseUrl` isn't one of the CDN hosts the API
+   auto-derives an embeddable URL for (`DEFAULT_EMBEDDABLE_HOSTS` in
+   `packages/storage/src/index.ts` only knows `storage.uploads.sh` /
+   `store.uploads.sh`), so `embedUrl` comes back `null` and the tile falls
+   back to its generic file icon. Self-host the embed twin by pointing it at
+   the same static server in `apps/api/.dev.vars`:
+
+   ```
+   EMBED_PUBLIC_BASE_URL=http://127.0.0.1:8090
+   ```
+
+3. **Upload fixtures under an allowed key prefix.** `pnpm workspace:add`
+   applies the shared/agent limit template by default, which restricts
+   `allowedKeyPrefixes` to `f/`, `screenshots/`, and `gh/`
+   (`apps/api/src/key-policy.ts`). A key outside those roots fails with
+   `key_prefix_not_allowed`, so fixture keys need a `screenshots/` prefix.
+   The page also only lists files carrying `path` metadata, set via an
+   `X-Uploads-Meta-path` header — `$SHOTS_DEMO_TOKEN` is the token
+   `workspace:add` printed in the previous step:
+
+   ```bash
+   curl -X PUT http://127.0.0.1:8787/v1/shots-demo/files/screenshots/app-a/hero.png \
+     -H "Authorization: Bearer $SHOTS_DEMO_TOKEN" \
+     -H "Content-Type: image/png" \
+     -H "X-Uploads-Meta-path: /dashboard" \
+     -H "X-Uploads-Meta-app: app-a" \
+     --data-binary @fixtures/app-a.png
+   ```
+
+   Give each project fixture its own bytes: a put whose body hash matches an
+   object the workspace already holds inherits that object's derived
+   metadata, `path` included (content-hash inheritance,
+   `apps/api/src/content-hash.ts`). Reusing the same PNG for two "projects"
+   silently collapses them into one label — generate distinct pixels per
+   fixture (even a 1px color change is enough).
+
+4. **Expect thumbnails only in `astro dev`, never a prod-style build.**
+   Signed-in pages' CSP only relaxes `img-src` for loopback origins when
+   `import.meta.env.DEV` is true (`apps/web/src/lib/signed-in-page.ts`) — a
+   built/deployed page blocks a loopback image source on purpose, so this
+   whole recipe only proves out under `pnpm dev:web` (or `dev:stack:raw`),
+   not a preview build.
+
 Agent and contributor conventions live in [AGENTS.md](../AGENTS.md).
 Deployment is covered in [deploy.md](deploy.md); post-deploy smoke checks in
 [contract-testing.md](contract-testing.md).
