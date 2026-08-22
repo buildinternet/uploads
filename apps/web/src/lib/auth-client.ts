@@ -309,11 +309,17 @@ export async function sendMagicLink(
   return res.ok;
 }
 
-/** POST /api/auth/sign-out. */
+/**
+ * POST /api/auth/sign-out. The JSON header/body are load-bearing: better-call
+ * runs its Content-Type gate on every POST under the Workers runtime and 415s
+ * a bare POST (see `devSession` above), leaving the session cookie intact.
+ */
 export async function signOut(origin: string): Promise<void> {
   await fetch(`${authOrigin(origin)}/api/auth/sign-out`, {
     method: "POST",
     credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: "{}",
   }).catch(() => undefined);
 }
 
