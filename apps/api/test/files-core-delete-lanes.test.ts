@@ -37,8 +37,33 @@ describe("deleteObject across storage lanes", () => {
     await deleteObject(env, wsWithLanes, "screenshots/shot.png", WORKSPACE);
     expect(bucket.store.has("default/screenshots/shot.png")).toBe(false);
     expect(fallback.store.has("screenshots/shot.png")).toBe(false);
-    // Ledger counted the object once (active-lane hit, active-first order).
+    // Both physical copies are removed and debited.
     expect(db.usage.get(WORKSPACE)).toMatchObject({ bytes: 0, objects: 0 });
+  });
+
+  it("debits every physical binding-mode lane hit from total and shared usage", async () => {
+    const { env, bucket, db, ws } = makePosterEnv();
+    const fallback = new FakeR2Bucket();
+    (env as unknown as Record<string, FakeR2Bucket>).UPLOADS_FALLBACK = fallback;
+    await bucket.put("default/duplicate.png", new Uint8Array(7));
+    await fallback.put("duplicate.png", new Uint8Array(11));
+    db.usage.set(WORKSPACE, {
+      workspace: WORKSPACE,
+      bytes: 18,
+      objects: 2,
+      shared_bytes: 18,
+      shared_objects: 2,
+      uploads_in_period: 0,
+      period_start: "2026-08",
+      updated_at: "2026-08-22T00:00:00.000Z",
+    });
+    await deleteObject(env, { ...ws, storageLanes: [FALLBACK_LANE] }, "duplicate.png", WORKSPACE);
+    expect(db.usage.get(WORKSPACE)).toMatchObject({
+      bytes: 0,
+      objects: 0,
+      shared_bytes: 0,
+      shared_objects: 0,
+    });
   });
 
   it("deletes a key present only in the fallback lane (no 404, active lane untouched)", async () => {

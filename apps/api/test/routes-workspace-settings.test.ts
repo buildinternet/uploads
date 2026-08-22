@@ -62,6 +62,8 @@ function makeEnv(opts: EnvOpts = {}) {
       workspace: "acme",
       bytes: usage.bytes ?? 0,
       objects: usage.objects,
+      shared_bytes: usage.bytes ?? 0,
+      shared_objects: usage.objects,
       uploads_in_period: 0,
       period_start: "2026-07",
       updated_at: "2026-07-01T00:00:00.000Z",

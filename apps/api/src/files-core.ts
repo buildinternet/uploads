@@ -12,6 +12,7 @@ import {
   budgetDenialError,
   checkPutBudget,
   enforcedMaxStorageBytes,
+  enforcedStorageUsageBytes,
   resolveBudgetLimits,
   storageBudgetDenial,
   uploadBudgetDenial,
@@ -244,11 +245,17 @@ export async function generateAndStorePoster(
         await deleteServerFileMetadataKeys(env.DB, workspaceName, key, POSTER_META_KEYS);
         // Single-winner claim (issue #570) — same gate as deleteObject.
         if (await claimDeleteUsageSafe(env.DB, workspaceName, posterKey)) {
-          await recordUsageSafe(env.DB, workspaceName, {
-            bytes: -stale,
-            objects: -1,
-            uploads: 0,
-          });
+          await recordUsageSafe(
+            env.DB,
+            workspaceName,
+            {
+              bytes: -stale,
+              objects: -1,
+              uploads: 0,
+            },
+            undefined,
+            { sharedLane: Boolean(ws.binding) },
+          );
         }
       }
       return;
@@ -267,11 +274,17 @@ export async function generateAndStorePoster(
     await clearDeleteUsageClaimSafe(env.DB, workspaceName, posterKey);
     // Counted because reconcileWorkspaceUsage walks every object under the
     // prefix and would otherwise disagree with the ledger permanently.
-    await recordUsageSafe(env.DB, workspaceName, {
-      bytes: made.jpeg.byteLength - (previous ?? 0),
-      objects: previous === null ? 1 : 0,
-      uploads: 0,
-    });
+    await recordUsageSafe(
+      env.DB,
+      workspaceName,
+      {
+        bytes: made.jpeg.byteLength - (previous ?? 0),
+        objects: previous === null ? 1 : 0,
+        uploads: 0,
+      },
+      undefined,
+      { sharedLane: Boolean(ws.binding) },
+    );
     // Full replace, not upsert: a regeneration whose probe/extraction found
     // fewer fields than the prior poster (e.g. no dims this time) must not
     // leave stale video.width/height/duration rows behind.
@@ -467,6 +480,7 @@ export async function putObject(
   // failed write releases both.
   const { maxUploadsPerPeriod } = resolveBudgetLimits(ws);
   const maxStorageBytes = enforcedMaxStorageBytes(ws);
+  const sharedLane = Boolean(ws.binding);
   const uploadReservation = await reserveUploads(env.DB, workspaceName, 1, maxUploadsPerPeriod);
   if (!uploadReservation.ok) {
     throw budgetDenialError(
@@ -479,6 +493,8 @@ export async function putObject(
     workspaceName,
     deltaBytes,
     maxStorageBytes,
+    undefined,
+    { sharedLane },
   );
   if (!storageReservation.ok) {
     await releaseUploadsSafe(env.DB, workspaceName, 1);
@@ -486,7 +502,8 @@ export async function putObject(
       storageBudgetDenial(
         storageReservation.usage,
         storageReservation.maxStorageBytes,
-        storageReservation.deltaBytes,
+        sharedLane ? storageReservation.deltaBytes : 0,
+        enforcedStorageUsageBytes(ws, storageReservation.usage) ?? storageReservation.usage.bytes,
       ),
     );
   }
@@ -528,7 +545,7 @@ export async function putObject(
     await inheritedPromise;
     // Nothing was stored — return both reservations to the budget.
     await releaseUploadsSafe(env.DB, workspaceName, 1);
-    await releaseStorageBytesSafe(env.DB, workspaceName, reservedBytes);
+    await releaseStorageBytesSafe(env.DB, workspaceName, reservedBytes, undefined, { sharedLane });
     throw err;
   }
 
@@ -552,11 +569,17 @@ export async function putObject(
   // never-throwing — so they run concurrently rather than as serial D1
   // round trips on every upload.
   await Promise.all([
-    recordUsageSafe(env.DB, workspaceName, {
-      bytes: reservedBytes > 0 ? 0 : deltaBytes,
-      objects: replaced ? 0 : 1,
-      uploads: 0,
-    }),
+    recordUsageSafe(
+      env.DB,
+      workspaceName,
+      {
+        bytes: reservedBytes > 0 ? 0 : deltaBytes,
+        objects: replaced ? 0 : 1,
+        uploads: 0,
+      },
+      undefined,
+      { sharedLane },
+    ),
     clearDeleteUsageClaimSafe(env.DB, workspaceName, finalKey),
     recordAdoptionSafe(env, {
       metric: "upload",
@@ -1008,8 +1031,7 @@ export async function listObjects(
 
 /**
  * Delete `key` from every one of `configs`'s stores that actually holds it
- * and return the size reported by the first lane hit (active-first order,
- * matching `storageConfigs`'s own order) — `null` if no lane had it. Probes
+ * and return every lane hit with its size and storage ownership. Probes
  * every lane concurrently, then deletes concurrently from whichever lanes
  * hit. Two-lane storage: a key can exist in more than one lane after a
  * detach/re-attach cycle, and every copy must go so the file actually
@@ -1018,14 +1040,32 @@ export async function listObjects(
  * Callers resolve `storageConfigs` once and pass it in — `deleteObject`
  * reuses the same resolution for both the primary key and its poster.
  */
-async function deleteFromEveryLane(configs: LaneConfig[], key: string): Promise<number | null> {
+async function deleteFromEveryLane(
+  configs: LaneConfig[],
+  key: string,
+): Promise<Array<{ size: number; sharedLane: boolean }>> {
   const stores = configs.map((lc) => createStorage(lc.config));
   const sizes = await Promise.all(stores.map((store) => existingSize(store, key)));
-  // `.find` over the Promise.all result preserves `configs`' order (active
-  // first) regardless of which probe actually settled first.
-  const prev = sizes.find((size) => size !== null) ?? null;
   await Promise.all(stores.filter((_, i) => sizes[i] !== null).map((store) => store.delete(key)));
-  return prev;
+  return sizes.flatMap((size, index) =>
+    size === null ? [] : [{ size, sharedLane: Boolean(configs[index]?.config.r2Binding) }],
+  );
+}
+
+async function recordDeletedLaneUsage(
+  env: Env,
+  workspaceName: string,
+  hits: Array<{ size: number; sharedLane: boolean }>,
+): Promise<void> {
+  for (const hit of hits) {
+    await recordUsageSafe(
+      env.DB,
+      workspaceName,
+      { bytes: -hit.size, objects: -1, uploads: 0 },
+      undefined,
+      { sharedLane: hit.sharedLane },
+    );
+  }
 }
 
 /** Delete an object (and its D1 custom metadata) and decrement the workspace ledger when size was known. */
@@ -1038,10 +1078,10 @@ export async function deleteObject(
   if (badKey(key)) throw new ValidationError("invalid key", { code: "invalid_key" });
 
   const configs = await storageConfigs(env, ws);
-  const prev = await deleteFromEveryLane(configs, key);
+  const hits = await deleteFromEveryLane(configs, key);
   await deleteFileMetadata(env.DB, workspaceName, key);
 
-  if (prev !== null) {
+  if (hits.length > 0) {
     // Single-winner claim (issue #570): concurrent DELETEs can both observe
     // the object and both reach this branch; only the first claimer debits
     // the ledger (and records the adoption delete metric). Claim after the
@@ -1053,13 +1093,14 @@ export async function deleteObject(
       // land in different tables (workspace_usage vs daily_metrics), neither
       // depends on the other's result, and both are never-throwing — so they
       // run concurrently rather than as two serial D1 round trips per delete.
+      const deletedBytes = hits.reduce((sum, hit) => sum + hit.size, 0);
       await Promise.all([
-        recordUsageSafe(env.DB, workspaceName, {
-          bytes: -prev,
-          objects: -1,
-          uploads: 0,
+        recordDeletedLaneUsage(env, workspaceName, hits),
+        recordAdoptionSafe(env, {
+          metric: "delete",
+          workspace: workspaceName,
+          bytes: deletedBytes,
         }),
-        recordAdoptionSafe(env, { metric: "delete", workspace: workspaceName, bytes: prev }),
       ]);
     }
   }
@@ -1070,14 +1111,10 @@ export async function deleteObject(
   // every-lane-that-has-it treatment as the primary object above.
   const posterKey = posterKeyFor(key);
   try {
-    const posterPrev = await deleteFromEveryLane(configs, posterKey);
-    if (posterPrev !== null) {
+    const posterHits = await deleteFromEveryLane(configs, posterKey);
+    if (posterHits.length > 0) {
       if (await claimDeleteUsageSafe(env.DB, workspaceName, posterKey)) {
-        await recordUsageSafe(env.DB, workspaceName, {
-          bytes: -posterPrev,
-          objects: -1,
-          uploads: 0,
-        });
+        await recordDeletedLaneUsage(env, workspaceName, posterHits);
       }
     }
   } catch (err) {

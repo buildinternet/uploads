@@ -10,6 +10,7 @@ import { adminUi } from "./admin-ui";
 const MIGRATIONS = [
   "migrations/20260710120000_auth.sql",
   "migrations/20260710140000_workspace_usage.sql",
+  "migrations/20260822120100_workspace_usage_shared_subset.sql",
   "migrations/20260712230000_token_minting_user.sql",
   "migrations/20260817180000_token_last_used.sql",
   "migrations/20260728120000_daily_metrics.sql",

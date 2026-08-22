@@ -9,7 +9,10 @@
 import { describe, expect, it } from "vitest";
 import { SqliteD1, database } from "./sqlite-d1";
 
-const MIGRATIONS = ["migrations/20260710140000_workspace_usage.sql"];
+const MIGRATIONS = [
+  "migrations/20260710140000_workspace_usage.sql",
+  "migrations/20260822120100_workspace_usage_shared_subset.sql",
+];
 
 describe("SqliteD1 row-returning-statement detection", () => {
   it("returns rows for a WITH ... SELECT CTE run through db.batch()", async () => {

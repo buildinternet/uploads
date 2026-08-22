@@ -107,6 +107,17 @@ beforeEach(async () => {
   );
   db.exec(
     readFileSync(
+      fileURLToPath(
+        new NodeURL(
+          "../migrations/20260822120100_workspace_usage_shared_subset.sql",
+          import.meta.url,
+        ),
+      ),
+      "utf8",
+    ),
+  );
+  db.exec(
+    readFileSync(
       fileURLToPath(new NodeURL("../migrations/20260711180000_galleries.sql", import.meta.url)),
       "utf8",
     ),

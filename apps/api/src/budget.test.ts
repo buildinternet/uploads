@@ -99,6 +99,8 @@ describe("checkPutBudget — storage cap skipped for BYO, upload cap unaffected"
     workspace: "acme",
     bytes: 900,
     objects: 1,
+    sharedBytes: 900,
+    sharedObjects: 1,
     uploadsInPeriod: 2,
     periodStart: "2026-07",
     updatedAt: "2026-07-31T00:00:00.000Z",
@@ -117,7 +119,7 @@ describe("checkPutBudget — storage cap skipped for BYO, upload cap unaffected"
     expect(denial?.code).toBe("storage_quota_exceeded");
   });
 
-  it("allows the same over-cap put on a BYO workspace (storage cap skipped)", () => {
+  it("allows the same put on a BYO workspace when shared residue stays under cap", () => {
     const denial = checkPutBudget(usage, byoLimits, { bytes: 200, uploads: 1 });
     expect(denial).toBeNull();
   });
@@ -131,8 +133,8 @@ describe("checkPutBudget — storage cap skipped for BYO, upload cap unaffected"
   });
 });
 
-describe("enforcedMaxStorageBytes (#365 BYO storage-budget fix)", () => {
-  it("returns undefined for a BYO record (HTTP credentials, no binding)", () => {
+describe("enforcedMaxStorageBytes", () => {
+  it("returns the cap for a BYO record so shared residue remains enforced", () => {
     expect(
       enforcedMaxStorageBytes({
         maxStorageBytes: 1_000,
@@ -140,7 +142,7 @@ describe("enforcedMaxStorageBytes (#365 BYO storage-budget fix)", () => {
         accessKeyId: "key",
         secretAccessKey: "secret",
       }),
-    ).toBeUndefined();
+    ).toBe(1_000);
   });
 
   it("returns the plan cap for a plain shared-bucket record", () => {
@@ -148,25 +150,27 @@ describe("enforcedMaxStorageBytes (#365 BYO storage-budget fix)", () => {
   });
 });
 
-describe("usageWithLimits — storage fields gated by storage ownership", () => {
+describe("usageWithLimits — storage fields use the active lane's budget attribution", () => {
   const usage: WorkspaceUsage = {
     workspace: "acme",
     bytes: 900,
     objects: 1,
+    sharedBytes: 900,
+    sharedObjects: 1,
     uploadsInPeriod: 2,
     periodStart: "2026-07",
     updatedAt: "2026-07-31T00:00:00.000Z",
   };
 
-  it("omits maxStorageBytes/storageRemainingBytes for a BYO record", () => {
+  it("reports remaining shared residue for a BYO record", () => {
     const out = usageWithLimits(usage, {
       maxStorageBytes: 1_000,
       accountId: "a".repeat(32),
       accessKeyId: "key",
       secretAccessKey: "secret",
     });
-    expect(out.maxStorageBytes).toBeUndefined();
-    expect(out.storageRemainingBytes).toBeUndefined();
+    expect(out.maxStorageBytes).toBe(1_000);
+    expect(out.storageRemainingBytes).toBe(100);
   });
 
   it("includes maxStorageBytes/storageRemainingBytes for a shared-bucket record", () => {

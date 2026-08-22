@@ -1,21 +1,17 @@
-/**
- * CodeRabbit review (PR #771): `reconcileWorkspaceUsage` walks the active
- * lane only (`// PR D:` marker in reconcile.ts) — for a workspace with a
- * fallback lane that may hold objects, that would zero the fallback's
- * bytes/objects out of the ledger. Until PR D makes reconcile lane-aware, it
- * must refuse rather than silently corrupt the ledger.
- */
 import { describe, expect, it } from "vitest";
 import { reconcileWorkspaceUsage } from "../src/reconcile";
 import { makePosterEnv, PNG, WORKSPACE } from "./poster-fixtures";
 import { putObject } from "../src/files-core";
+import { FakeR2Bucket } from "./fake-r2";
 import type { StorageLane } from "../src/workspace";
 
 describe("reconcileWorkspaceUsage and multi-lane records", () => {
-  it("refuses a record with a fallback lane, leaving the ledger untouched", async () => {
+  it("rebuilds total and shared usage across active and fallback lanes", async () => {
     const { env, ws, db } = makePosterEnv();
     await putObject(env, ws, "screenshots/shot.png", PNG, WORKSPACE);
-    const before = db.usage.get(WORKSPACE);
+    const fallbackBucket = new FakeR2Bucket();
+    (env as unknown as Record<string, unknown>).UPLOADS_FALLBACK = fallbackBucket;
+    await fallbackBucket.put("legacy.png", new Uint8Array(21));
 
     const fallback: StorageLane = {
       id: "lane_fallback1",
@@ -26,10 +22,17 @@ describe("reconcileWorkspaceUsage and multi-lane records", () => {
     };
     const wsWithFallback = { ...ws, storageLanes: [fallback] };
 
-    await expect(reconcileWorkspaceUsage(env, wsWithFallback, WORKSPACE)).rejects.toMatchObject({
-      code: "reconcile_multi_lane_unsupported",
+    const result = await reconcileWorkspaceUsage(env, wsWithFallback, WORKSPACE);
+    expect(result).toMatchObject({
+      bytes: PNG.byteLength + 21,
+      objects: 2,
     });
-    expect(db.usage.get(WORKSPACE)).toEqual(before);
+    expect(db.usage.get(WORKSPACE)).toMatchObject({
+      bytes: PNG.byteLength + 21,
+      objects: 2,
+      shared_bytes: PNG.byteLength + 21,
+      shared_objects: 2,
+    });
   });
 
   it("does not refuse a record with only a standby lane (no lastActiveAt)", async () => {

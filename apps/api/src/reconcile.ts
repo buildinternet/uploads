@@ -9,8 +9,8 @@
  * The in-memory `files-sdk/usage` plugin is not used: it does not survive
  * across Worker isolates and does not track net storage after deletes.
  */
-import { ConflictError } from "@uploads/errors";
-import { storage } from "./storage";
+import { createStorage } from "@uploads/storage";
+import { storageConfigs } from "./storage";
 import { getWorkspaceUsage, setUsageTotals, type WorkspaceUsage } from "./usage";
 import { isUnprefixedDedicatedBucket, type WorkspaceRecord } from "./workspace";
 
@@ -42,26 +42,8 @@ export async function reconcileWorkspaceUsage(
   workspaceName: string,
   now = new Date(),
 ): Promise<ReconcileResult> {
-  // PR D: walks the active lane only. Two-lane storage (PR C) means a
-  // workspace can also have fallback lanes holding objects, which this scan
-  // does not see — reconcile stays active-lane-only until PR D's
-  // `shared_bytes` ledger work makes it lane-aware (spec: "Usage / budget
-  // attribution"). A fallback lane (`lastActiveAt` set — it may hold
-  // objects) is refused outright rather than silently ignored: walking only
-  // the active lane would zero out the fallback lane's bytes/objects from
-  // the ledger, and a later delete against that lane would then debit an
-  // already-zeroed total (CodeRabbit review, PR #771). A standby lane (no
-  // `lastActiveAt` — pure saved config, never a read source) doesn't trigger
-  // this, since reconcile genuinely has nothing to miss there.
-  if ((ws.storageLanes ?? []).some((lane) => lane.lastActiveAt)) {
-    throw new ConflictError(
-      "storage reconcile is not yet lane-aware for a workspace with a fallback storage lane",
-      { code: "reconcile_multi_lane_unsupported" },
-    );
-  }
-
   const previous = await getWorkspaceUsage(env.DB, workspaceName, now);
-  const store = await storage(env, ws);
+  const configs = await storageConfigs(env, ws);
   const unprefixedBucket = isUnprefixedDedicatedBucket(ws);
   if (unprefixedBucket) {
     console.log(
@@ -75,13 +57,28 @@ export async function reconcileWorkspaceUsage(
 
   let bytes = 0;
   let objects = 0;
-  // listAll follows list() cursors; each item is a StoredFile with size metadata.
-  for await (const item of store.listAll()) {
-    bytes += item.size ?? 0;
-    objects += 1;
+  let sharedBytes = 0;
+  let sharedObjects = 0;
+  for (const { config } of configs) {
+    const store = createStorage(config);
+    // listAll follows list() cursors; each item is a StoredFile with size metadata.
+    for await (const item of store.listAll()) {
+      const size = item.size ?? 0;
+      bytes += size;
+      objects += 1;
+      if (config.r2Binding) {
+        sharedBytes += size;
+        sharedObjects += 1;
+      }
+    }
   }
 
-  const usage = await setUsageTotals(env.DB, workspaceName, { bytes, objects }, now);
+  const usage = await setUsageTotals(
+    env.DB,
+    workspaceName,
+    { bytes, objects, sharedBytes, sharedObjects },
+    now,
+  );
   return {
     workspace: workspaceName,
     bytes,

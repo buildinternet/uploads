@@ -9,10 +9,8 @@
  * ledger before put (see budget.ts) when the workspace record sets caps.
  *
  * The ledger records usage for every workspace, BYO bucket included: even
- * though `budget.ts`'s `storageBudgetApplies` predicate skips `maxStorageBytes`
- * enforcement on self-serve BYO records (their disk, their bill), this table
- * still tracks their bytes/objects/uploads for the settings UI and any future
- * gateway pricing (issue #583 Task 1.2).
+ * total usage includes BYO lanes, while the shared subset lets `budget.ts`
+ * enforce platform-owned storage residue after a workspace switches to BYO.
  */
 
 export interface WorkspaceUsage {
@@ -21,6 +19,10 @@ export interface WorkspaceUsage {
   bytes: number;
   /** Net object count under the workspace. */
   objects: number;
+  /** Net bytes stored in platform-owned binding-mode lanes. */
+  sharedBytes: number;
+  /** Net object count in platform-owned binding-mode lanes. */
+  sharedObjects: number;
   /** Successful puts in the current UTC calendar month. */
   uploadsInPeriod: number;
   /** Period key `YYYY-MM` (UTC). */
@@ -32,6 +34,8 @@ interface UsageRow {
   workspace: string;
   bytes: number;
   objects: number;
+  shared_bytes: number;
+  shared_objects: number;
   uploads_in_period: number;
   period_start: string;
   updated_at: string;
@@ -51,6 +55,8 @@ function toUsage(row: UsageRow): WorkspaceUsage {
     workspace: row.workspace,
     bytes: row.bytes,
     objects: row.objects,
+    sharedBytes: row.shared_bytes,
+    sharedObjects: row.shared_objects,
     uploadsInPeriod: row.uploads_in_period,
     periodStart: row.period_start,
     updatedAt: row.updated_at,
@@ -62,6 +68,8 @@ export function emptyUsage(workspace: string, now = new Date()): WorkspaceUsage 
     workspace,
     bytes: 0,
     objects: 0,
+    sharedBytes: 0,
+    sharedObjects: 0,
     uploadsInPeriod: 0,
     periodStart: usagePeriodStart(now),
     updatedAt: now.toISOString(),
@@ -75,7 +83,8 @@ export async function getWorkspaceUsage(
 ): Promise<WorkspaceUsage> {
   const row = await db
     .prepare(
-      `SELECT workspace, bytes, objects, uploads_in_period, period_start, updated_at
+      `SELECT workspace, bytes, objects, shared_bytes, shared_objects,
+              uploads_in_period, period_start, updated_at
        FROM workspace_usage WHERE workspace = ? LIMIT 1`,
     )
     .bind(workspace)
@@ -95,6 +104,7 @@ export async function applyUsageDelta(
   workspace: string,
   delta: UsageDelta,
   now = new Date(),
+  opts?: { sharedLane?: boolean },
 ): Promise<void> {
   if (delta.bytes === 0 && delta.objects === 0 && delta.uploads === 0) return;
 
@@ -115,6 +125,8 @@ export async function applyUsageDelta(
         `UPDATE workspace_usage SET
            bytes = MAX(0, bytes + ?),
            objects = MAX(0, objects + ?),
+           shared_bytes = MAX(0, shared_bytes + ?),
+           shared_objects = MAX(0, shared_objects + ?),
            uploads_in_period = CASE
              WHEN period_start = ? THEN uploads_in_period + ?
              ELSE MAX(0, ?)
@@ -126,6 +138,8 @@ export async function applyUsageDelta(
       .bind(
         delta.bytes,
         delta.objects,
+        opts?.sharedLane ? delta.bytes : 0,
+        opts?.sharedLane ? delta.objects : 0,
         period,
         delta.uploads,
         delta.uploads,
@@ -256,12 +270,17 @@ export async function reserveStorageBytes(
   deltaBytes: number,
   maxStorageBytes: number | undefined,
   now = new Date(),
+  opts?: { sharedLane?: boolean },
 ): Promise<StorageReservation> {
   if (deltaBytes <= 0) return { ok: true, reservedBytes: 0 };
   if (maxStorageBytes === undefined) return { ok: true, reservedBytes: 0 };
 
   const period = usagePeriodStart(now);
   const updatedAt = now.toISOString();
+  const sharedLane = opts?.sharedLane !== false;
+  const sharedDeltaBytes = sharedLane ? deltaBytes : 0;
+  const enforcedDeltaBytes = sharedLane ? deltaBytes : 0;
+  const enforcedColumn = sharedLane ? "bytes" : "shared_bytes";
 
   const results = await db.batch([
     db
@@ -277,11 +296,19 @@ export async function reserveStorageBytes(
       .prepare(
         `UPDATE workspace_usage SET
            bytes = bytes + ?,
+           shared_bytes = shared_bytes + ?,
            updated_at = ?
          WHERE workspace = ?
-           AND bytes + ? <= ?`,
+           AND ${enforcedColumn} + ? <= ?`,
       )
-      .bind(deltaBytes, updatedAt, workspace, deltaBytes, maxStorageBytes),
+      .bind(
+        deltaBytes,
+        sharedDeltaBytes,
+        updatedAt,
+        workspace,
+        enforcedDeltaBytes,
+        maxStorageBytes,
+      ),
   ]);
 
   const changes = results[1]?.meta?.changes ?? 0;
@@ -303,6 +330,7 @@ export async function releaseStorageBytesSafe(
   workspace: string,
   reservedBytes: number,
   now = new Date(),
+  opts?: { sharedLane?: boolean },
 ): Promise<void> {
   if (reservedBytes <= 0) return;
   try {
@@ -310,10 +338,16 @@ export async function releaseStorageBytesSafe(
       .prepare(
         `UPDATE workspace_usage SET
            bytes = MAX(0, bytes - ?),
+           shared_bytes = MAX(0, shared_bytes - ?),
            updated_at = ?
          WHERE workspace = ?`,
       )
-      .bind(reservedBytes, now.toISOString(), workspace)
+      .bind(
+        reservedBytes,
+        opts?.sharedLane !== false ? reservedBytes : 0,
+        now.toISOString(),
+        workspace,
+      )
       .run();
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -334,9 +368,10 @@ export async function recordUsageSafe(
   workspace: string,
   delta: UsageDelta,
   now = new Date(),
+  opts?: { sharedLane?: boolean },
 ): Promise<void> {
   try {
-    await applyUsageDelta(db, workspace, delta, now);
+    await applyUsageDelta(db, workspace, delta, now, opts);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(
@@ -434,31 +469,36 @@ export async function deleteUsageForWorkspace(db: D1Database, workspace: string)
 export async function setUsageTotals(
   db: D1Database,
   workspace: string,
-  totals: { bytes: number; objects: number },
+  totals: { bytes: number; objects: number; sharedBytes: number; sharedObjects: number },
   now = new Date(),
 ): Promise<WorkspaceUsage> {
   const period = usagePeriodStart(now);
   const updatedAt = now.toISOString();
   const bytes = Math.max(0, Math.floor(totals.bytes));
   const objects = Math.max(0, Math.floor(totals.objects));
+  const sharedBytes = Math.max(0, Math.floor(totals.sharedBytes));
+  const sharedObjects = Math.max(0, Math.floor(totals.sharedObjects));
 
   await db.batch([
     db
       .prepare(
         `INSERT OR IGNORE INTO workspace_usage
-           (workspace, bytes, objects, uploads_in_period, period_start, updated_at)
-         VALUES (?, ?, ?, 0, ?, ?)`,
+           (workspace, bytes, objects, shared_bytes, shared_objects,
+            uploads_in_period, period_start, updated_at)
+         VALUES (?, ?, ?, ?, ?, 0, ?, ?)`,
       )
-      .bind(workspace, bytes, objects, period, updatedAt),
+      .bind(workspace, bytes, objects, sharedBytes, sharedObjects, period, updatedAt),
     db
       .prepare(
         `UPDATE workspace_usage SET
            bytes = ?,
            objects = ?,
+           shared_bytes = ?,
+           shared_objects = ?,
            updated_at = ?
          WHERE workspace = ?`,
       )
-      .bind(bytes, objects, updatedAt, workspace),
+      .bind(bytes, objects, sharedBytes, sharedObjects, updatedAt, workspace),
   ]);
 
   return getWorkspaceUsage(db, workspace, now);

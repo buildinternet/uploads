@@ -41,6 +41,28 @@ describe("workspace usage ledger", () => {
     expect(snap).toMatchObject({ bytes: 800, objects: 1, uploadsInPeriod: 2 });
   });
 
+  it("updates the shared subset only for binding-mode lane deltas", async () => {
+    const db = new UsageFakeD1() as unknown as D1Database;
+    const now = new Date("2026-07-10T00:00:00Z");
+
+    await applyUsageDelta(db, "acme", { bytes: 1200, objects: 1, uploads: 1 }, now, {
+      sharedLane: true,
+    });
+    await applyUsageDelta(db, "acme", { bytes: 800, objects: 1, uploads: 1 }, now, {
+      sharedLane: false,
+    });
+    await applyUsageDelta(db, "acme", { bytes: -200, objects: 0, uploads: 0 }, now, {
+      sharedLane: true,
+    });
+
+    expect(await getWorkspaceUsage(db, "acme", now)).toMatchObject({
+      bytes: 1800,
+      objects: 2,
+      sharedBytes: 1000,
+      sharedObjects: 1,
+    });
+  });
+
   it("adjusts net bytes on overwrite (delta only)", async () => {
     const db = new UsageFakeD1() as unknown as D1Database;
     const now = new Date("2026-07-10T00:00:00Z");
@@ -212,6 +234,40 @@ describe("storage byte reservations", () => {
     );
     expect(results.filter((r) => r.ok)).toHaveLength(2);
     expect((await getWorkspaceUsage(db, "acme", now)).bytes).toBe(800);
+  });
+
+  it("atomically reserves and releases the shared subset for a binding lane", async () => {
+    const db = new UsageFakeD1() as unknown as D1Database;
+    const reservation = await reserveStorageBytes(db, "acme", 600, 1000, now, {
+      sharedLane: true,
+    });
+    expect(reservation).toEqual({ ok: true, reservedBytes: 600 });
+    expect(await getWorkspaceUsage(db, "acme", now)).toMatchObject({
+      bytes: 600,
+      sharedBytes: 600,
+    });
+
+    await releaseStorageBytesSafe(db, "acme", 600, now, { sharedLane: true });
+    expect(await getWorkspaceUsage(db, "acme", now)).toMatchObject({
+      bytes: 0,
+      sharedBytes: 0,
+    });
+  });
+
+  it("gates a BYO-lane reservation against shared residue without attributing BYO bytes", async () => {
+    const db = new UsageFakeD1() as unknown as D1Database;
+    await applyUsageDelta(db, "acme", { bytes: 900, objects: 1, uploads: 0 }, now, {
+      sharedLane: true,
+    });
+
+    const reservation = await reserveStorageBytes(db, "acme", 50, 1000, now, {
+      sharedLane: false,
+    });
+    expect(reservation).toEqual({ ok: true, reservedBytes: 50 });
+    expect(await getWorkspaceUsage(db, "acme", now)).toMatchObject({
+      bytes: 950,
+      sharedBytes: 900,
+    });
   });
 });
 

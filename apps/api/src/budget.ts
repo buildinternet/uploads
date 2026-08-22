@@ -31,11 +31,11 @@ export interface WorkspaceBudgetLimits {
 }
 
 /**
- * Whether `maxStorageBytes` should be enforced against `record` (issue #583
- * Task 1.2). False for a self-serve BYO/customer-credential record — their
- * disk, their bill — while `maxUploadBytes` / `maxVideoUploadBytes` /
- * `maxUploadsPerPeriod` (platform-compute protections, decided 2026-07-31)
- * stay enforced for everyone, BYO included.
+ * Whether the active lane's bytes count toward the platform storage budget.
+ * False for a self-serve BYO/customer-credential record — their disk, their
+ * bill. The cap still applies to shared-lane residue through
+ * `enforcedStorageUsageBytes`. Upload size and monthly-count protections stay
+ * enforced for everyone, BYO included.
  *
  * The precise signal is deliberately **not** `isUnprefixedDedicatedBucket`
  * (`workspace.ts`) — that predicate answers a layout question ("does this
@@ -49,8 +49,8 @@ export interface WorkspaceBudgetLimits {
  * customer-billed even if it also happens to carry stray credential fields.
  *
  * Usage is still recorded on BYO records either way — see `usage.ts`'s
- * header comment — this predicate only gates the `maxStorageBytes` cap
- * itself.
+ * header comment. This predicate selects total usage or shared-lane usage as
+ * the enforcement baseline.
  */
 export function storageBudgetApplies(record: WorkspaceBudgetLimits): boolean {
   const isCustomerCredentialStorage =
@@ -61,10 +61,18 @@ export function storageBudgetApplies(record: WorkspaceBudgetLimits): boolean {
   return !isCustomerCredentialStorage;
 }
 
-/** Storage cap to *enforce*: undefined when the workspace owns its storage. */
+/** Resolved storage cap, regardless of which lane is active. */
 export function enforcedMaxStorageBytes(record: WorkspaceBudgetLimits): number | undefined {
-  if (!storageBudgetApplies(record)) return undefined;
   return resolveBudgetLimits(record).maxStorageBytes;
+}
+
+/** Usage baseline enforced by the storage cap for the active lane. */
+export function enforcedStorageUsageBytes(
+  record: WorkspaceBudgetLimits,
+  usage: WorkspaceUsage,
+): number | undefined {
+  if (enforcedMaxStorageBytes(record) === undefined) return undefined;
+  return storageBudgetApplies(record) ? usage.bytes : usage.sharedBytes;
 }
 
 export type BudgetDenialCode = "storage_quota_exceeded" | "upload_budget_exceeded";
@@ -146,13 +154,14 @@ export function storageBudgetDenial(
   usage: WorkspaceUsage,
   maxStorageBytes: number,
   deltaBytes: number,
+  usageBytes = usage.bytes,
 ): BudgetDenial {
   return {
     code: "storage_quota_exceeded",
     status: 507,
-    message: `storage quota exceeded (${usage.bytes} + ${deltaBytes} > ${maxStorageBytes} bytes)`,
+    message: `storage quota exceeded (${usageBytes} + ${deltaBytes} > ${maxStorageBytes} bytes)`,
     detail: {
-      bytes: usage.bytes,
+      bytes: usageBytes,
       deltaBytes,
       maxStorageBytes,
       objects: usage.objects,
@@ -182,6 +191,8 @@ export function checkPutBudget(
 ): BudgetDenial | null {
   const { maxUploadsPerPeriod } = resolveBudgetLimits(limits);
   const maxStorageBytes = enforcedMaxStorageBytes(limits);
+  const usageBytes = enforcedStorageUsageBytes(limits, usage);
+  const storageDeltaBytes = storageBudgetApplies(limits) ? delta.bytes : 0;
 
   if (maxUploadsPerPeriod !== undefined && delta.uploads > 0) {
     if (usage.uploadsInPeriod + delta.uploads > maxUploadsPerPeriod) {
@@ -191,10 +202,11 @@ export function checkPutBudget(
 
   if (
     maxStorageBytes !== undefined &&
-    delta.bytes > 0 &&
-    usage.bytes + delta.bytes > maxStorageBytes
+    usageBytes !== undefined &&
+    (storageDeltaBytes > 0 || !storageBudgetApplies(limits)) &&
+    usageBytes + storageDeltaBytes > maxStorageBytes
   ) {
-    return storageBudgetDenial(usage, maxStorageBytes, delta.bytes);
+    return storageBudgetDenial(usage, maxStorageBytes, storageDeltaBytes, usageBytes);
   }
 
   return null;
@@ -204,18 +216,21 @@ export function checkPutBudget(
 export function usageWithLimits(usage: WorkspaceUsage, limits: WorkspaceBudgetLimits) {
   const resolved = resolveBudgetLimits(limits);
   const maxStorageBytes = enforcedMaxStorageBytes(limits);
+  const usageBytes = enforcedStorageUsageBytes(limits, usage);
   const out: Record<string, unknown> = {
     workspace: usage.workspace,
     bytes: usage.bytes,
     objects: usage.objects,
+    sharedBytes: usage.sharedBytes,
+    sharedObjects: usage.sharedObjects,
     uploadsInPeriod: usage.uploadsInPeriod,
     periodStart: usage.periodStart,
     updatedAt: usage.updatedAt,
   };
 
-  if (maxStorageBytes !== undefined) {
+  if (maxStorageBytes !== undefined && usageBytes !== undefined) {
     out.maxStorageBytes = maxStorageBytes;
-    out.storageRemainingBytes = Math.max(0, maxStorageBytes - usage.bytes);
+    out.storageRemainingBytes = Math.max(0, maxStorageBytes - usageBytes);
   }
   if (resolved.maxUploadsPerPeriod !== undefined) {
     out.maxUploadsPerPeriod = resolved.maxUploadsPerPeriod;

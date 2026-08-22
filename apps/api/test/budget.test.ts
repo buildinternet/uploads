@@ -6,6 +6,8 @@ const usage = (partial: Partial<WorkspaceUsage> = {}): WorkspaceUsage => ({
   workspace: "acme",
   bytes: 1000,
   objects: 2,
+  sharedBytes: 1000,
+  sharedObjects: 2,
   uploadsInPeriod: 5,
   periodStart: "2026-07",
   updatedAt: "2026-07-11T00:00:00.000Z",
@@ -69,6 +71,36 @@ describe("checkPutBudget", () => {
     );
     expect(denial?.code).toBe("upload_budget_exceeded");
     expect(denial?.status).toBe(429);
+  });
+
+  it("denies a BYO-active put when shared residue is over the storage cap", () => {
+    const denial = checkPutBudget(
+      usage({ bytes: 50_000, sharedBytes: 1100 }),
+      {
+        maxStorageBytes: 1000,
+        accountId: "customer",
+        accessKeyId: "key",
+        secretAccessKey: "secret",
+      },
+      { bytes: 200, uploads: 1 },
+    );
+    expect(denial?.code).toBe("storage_quota_exceeded");
+    expect(denial?.detail).toMatchObject({ bytes: 1100, deltaBytes: 0 });
+  });
+
+  it("allows a BYO-active put when total bytes are large but shared residue is below the cap", () => {
+    expect(
+      checkPutBudget(
+        usage({ bytes: 50_000, sharedBytes: 900 }),
+        {
+          maxStorageBytes: 1000,
+          accountId: "customer",
+          accessKeyId: "key",
+          secretAccessKey: "secret",
+        },
+        { bytes: 20_000, uploads: 1 },
+      ),
+    ).toBeNull();
   });
 });
 

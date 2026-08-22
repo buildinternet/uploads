@@ -8,9 +8,8 @@ import { UsageFakeD1 } from "./usage-fake-d1";
 // its ledger crosses the free-plan byte cap every upload used to fail with
 // 507 `storage_quota_exceeded` — a hard outage for a customer paying their
 // own R2 bill. The atomic reservation in `putObject` (files-core.ts) must
-// skip the platform storage cap for BYO records the same way the read-side
-// `checkPutBudget` pre-check already does, while still incrementing the
-// usage ledger and still enforcing the per-period upload-count cap.
+// enforce the cap against shared-lane residue for BYO records while still
+// incrementing total usage and enforcing the per-period upload-count cap.
 //
 // A *real* BYO workspace record has no `binding` — I/O goes over an S3-style
 // HTTP client (files-sdk's r2-http adapter), which this in-process test
@@ -126,7 +125,7 @@ function put(env: unknown, key = "shot.png") {
   );
 }
 
-describe("BYO-bucket workspaces skip the platform storage cap", () => {
+describe("BYO-bucket workspace storage budget attribution", () => {
   it("accepts an upload on a BYO workspace already over the free-plan byte cap, and still increments the ledger", async () => {
     const { env, db } = await makeByoEnv();
 
@@ -160,14 +159,14 @@ describe("BYO-bucket workspaces skip the platform storage cap", () => {
     expect(body.error.code).toBe("upload_budget_exceeded");
   });
 
-  it("omits maxStorageBytes/storageRemainingBytes from GET /usage for a BYO workspace", async () => {
+  it("reports the shared-residue storage budget from GET /usage for a BYO workspace", async () => {
     const { env } = await makeByoEnv();
     await put(env, "byo-usage.png");
     const res = await app.request("/v1/default/usage", { headers: auth }, env as never);
     expect(res.status).toBe(200);
     const body = (await res.json()) as Record<string, unknown>;
-    expect(body.maxStorageBytes).toBeUndefined();
-    expect(body.storageRemainingBytes).toBeUndefined();
+    expect(body.maxStorageBytes).toBe(250_000_000);
+    expect(body.storageRemainingBytes).toBe(250_000_000);
   });
 
   it("still denies a shared-bucket (non-BYO) workspace over its cap with 507 storage_quota_exceeded", async () => {
