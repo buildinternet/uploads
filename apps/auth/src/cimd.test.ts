@@ -109,6 +109,19 @@ describe("CIMD client resolution", () => {
     expect(row?.skipConsent).toBeFalsy();
   });
 
+  it("lets a self-registered client request files:delete (clientRegistrationAllowedScopes)", async () => {
+    // Better Auth 1.7 persists self-registered clients with
+    // defaultScopes ∪ allowedScopes and discards any document-declared
+    // `scope` — without files:delete in clientRegistrationAllowedScopes this
+    // request 400s with invalid_scope (found by the #556 Inspector run).
+    const env = dbEnv();
+    stubMetadataFetch();
+
+    const res = await authorize(env, { scope: "files:read files:write files:delete" });
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toContain("/login");
+  });
+
   it("rejects a metadata document missing the MCP profile's required fields", async () => {
     const env = dbEnv();
     const { client_name: _omitted, ...withoutName } = metadataDocument();
