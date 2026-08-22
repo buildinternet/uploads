@@ -1,23 +1,25 @@
 /*
- * Tailwind v4 theme for the signed-in React surfaces — phase 1 of the
+ * Tailwind v4 theme for the signed-in React surfaces — phase 2 of the
  * Tailwind + shadcn migration (.context/2026-08-22-tailwind-shadcn-migration-plan.md).
  *
- * Deliberately imports Tailwind WITHOUT preflight: phase 1's bar is
- * pixel-identical, and preflight's resets would fight the existing `ul-*`
- * styles. Preflight arrives with the shadcn restyle in phase 2, scoped to
- * migrated pages. Utilities are available immediately; the theme is fed by
- * the existing brand tokens in tokens.css (`@theme inline` references the
- * var(--*) values rather than duplicating them).
+ * Phase 2 turns Tailwind preflight ON (it was deliberately off in phase 1)
+ * and layers in shadcn's base styles + tw-animate-css, matching the
+ * shadcn-probe reference (`shadcn init -b base`). A visual audit of the
+ * existing `ul-*` styled signed-in pages is expected to follow this change —
+ * preflight resets (margin/border/font resets on headings, buttons, tables,
+ * etc.) can shift the look of anything not yet migrated to Tailwind classes.
  *
- * Spacing keeps Tailwind's default 4px scale (p-1 = 4px … matches the
- * --space-* steps at 1/2/3/4/6/10).
+ * Single dark theme by construction (tokens.css sets color-scheme: dark), so
+ * unlike the probe there is no `:root`/`.dark` variable-swap block and no
+ * `@custom-variant dark` — every shadcn semantic color is defined directly
+ * in `@theme inline`, fed by the brand tokens in tokens.css.
  */
 
 @import "./tokens.css";
 
-@layer theme, base, components, utilities;
-@import "tailwindcss/theme.css" layer(theme);
-@import "tailwindcss/utilities.css" layer(utilities);
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
 
 /* Scan both the shared package and the web app for class usage. */
 @source "./";
@@ -32,12 +34,42 @@
   /* Text */
   --color-fg: var(--fg);
   --color-body: var(--body);
-  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted);
 
-  /* Accents */
-  --color-accent: var(--accent);
-  --color-success: var(--green);
+  /* shadcn semantic colors, mapped onto the brand tokens.
+   *
+   * Naming collision: the brand violet was previously `--color-accent`
+   * (var(--accent)). shadcn's own "accent" semantic means something
+   * different — a subtle neutral hover surface, used by generated
+   * components for things like menu-item/button hover states — and the two
+   * cannot coexist under one @theme name. Resolution: --color-accent now
+   * follows shadcn's convention (subtle hover surface), since that's what
+   * every generated component under src/components/ui reads for
+   * bg-accent/text-accent-foreground. The brand violet is not orphaned —
+   * `--color-primary` already carries it (var(--accent) below), so call
+   * sites that want the violet should reach for `bg-primary` / `text-primary`
+   * rather than a literal "accent" utility going forward.
+   */
+  --color-background: var(--bg);
+  --color-foreground: var(--fg);
+  --color-card: var(--panel);
+  --color-card-foreground: var(--fg);
+  --color-popover: var(--panel);
+  --color-popover-foreground: var(--fg);
+  --color-primary: var(--accent);
+  --color-primary-foreground: var(--bg);
+  --color-secondary: var(--panel);
+  --color-secondary-foreground: var(--fg);
+  --color-muted: #17171a;
+  --color-accent: #1a1a1e;
+  --color-accent-foreground: var(--fg);
   --color-destructive: var(--red);
+  --color-border: var(--line);
+  --color-input: var(--line);
+  --color-ring: var(--accent);
+
+  /* Brand extras (kept from phase 1) */
+  --color-success: var(--green);
 
   /* Type families */
   --font-sans: var(--sans);
@@ -47,8 +79,23 @@
   /* Radii — Tailwind's rounded-sm/md/lg resolve to the brand radii.
      Literal values, not var(--radius-*): the theme token shares the name
      with the tokens.css custom property, so referencing it would cycle.
-     Keep in sync with tokens.css. */
+     Keep in sync with tokens.css. Larger steps are derived proportionally
+     for generated components that reference rounded-xl/2xl. */
   --radius-sm: 7px;
   --radius-md: 8px;
   --radius-lg: 10px;
+  --radius-xl: 14px;
+  --radius-2xl: 18px;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
 }
