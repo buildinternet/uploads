@@ -567,6 +567,40 @@ describe("storage vertical (self-serve BYO bucket)", () => {
         "settings_requires_session",
       );
     });
+
+    it("still detaches an already-BYO-configured workspace after byoBucketEnabled is revoked (#619)", async () => {
+      const { env, registry } = makeEnv({
+        role: "owner",
+        record: { ...BYO_RECORD, byoBucketEnabled: false },
+        usage: { objects: 0 },
+      });
+      const res = await app.request(
+        "/v1/workspaces/acme/storage",
+        { method: "DELETE", headers: sessionHeaders },
+        env,
+      );
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ mode: "shared" });
+      const saved = registry.record<{ accessKeyId?: unknown }>("acme");
+      expect(saved?.accessKeyId).toBeUndefined();
+    });
+
+    it("still 403s (byo_bucket_disabled) a shared-mode workspace with the flag off — the gate isn't just deleted", async () => {
+      const { env } = makeEnv({
+        role: "owner",
+        record: { ...SHARED_RECORD, byoBucketEnabled: false },
+        usage: { objects: 0 },
+      });
+      const res = await app.request(
+        "/v1/workspaces/acme/storage",
+        { method: "DELETE", headers: sessionHeaders },
+        env,
+      );
+      expect(res.status).toBe(403);
+      expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+        "byo_bucket_disabled",
+      );
+    });
   });
 });
 
