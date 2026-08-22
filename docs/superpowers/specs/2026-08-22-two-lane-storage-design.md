@@ -46,12 +46,13 @@ The existing top-level storage fields on `WorkspaceRecord` (`provider`, `bucket`
 New field:
 
 ```ts
-/** Ordered read-only fallback lanes, most recent demotion first. */
-fallbackLanes?: StorageLane[];
+/** All configured inactive lanes: saved-but-never-used configs and demoted former actives. */
+storageLanes?: StorageLane[];
 
 interface StorageLane {
   id: string;              // short opaque id, e.g. "lane_<8hex>"; stamped into new-upload provenance
-  demotedAt: string;       // ISO timestamp of the transition that demoted it
+  verifiedAt?: string;     // last successful verify run against this lane's config
+  lastActiveAt?: string;   // set when the lane is demoted from active; absence = never held writes
   provider: "r2";
   bucket: string;
   binding?: string;        // shared lane uses the binding; BYO lanes are HTTP-credential mode
@@ -66,9 +67,15 @@ interface StorageLane {
 
 - All writes go through `mutateWorkspaceRecord` (versioned KV writes — never bare
   `REGISTRY.put`).
-- Fallback-lane credentials are sealed/resealed exactly like active-lane credentials
-  (`sealCredentialFieldsStrict` on demotion of an HTTP-mode lane; `resealCredentialFields`
-  covers rotation sweeps — the reseal walk must include `fallbackLanes`).
+- Lane credentials are sealed/resealed exactly like active-lane credentials
+  (`sealCredentialFieldsStrict` when an HTTP-mode lane config is saved;
+  `resealCredentialFields` covers rotation sweeps — the reseal walk must include
+  `storageLanes`).
+- Lane states, derived rather than stored as an enum: **standby** = configured and
+  verified, `lastActiveAt` absent — a saved config that has never received writes;
+  **fallback** = `lastActiveAt` set — a former active lane that may hold objects.
+  Only fallback lanes participate in read resolution; standby lanes are pure
+  configuration and cost nothing at read time.
 - The active lane also gets a persisted `storageLaneId` (top-level field) so provenance
   stamping and future migration tooling can name it. On records that predate this
   design, absence of `storageLaneId` means the implicit original lane.
@@ -115,7 +122,7 @@ Call sites that change from "current store only" to lane-aware:
 - Metadata writes (`file_metadata`, `file_content_hash`) are keyed on
   `(workspace, object_key)` and are lane-agnostic — unchanged.
 
-Single-lane workspaces (no `fallbackLanes`) take the exact current code path; the
+Single-lane workspaces (no fallback lanes) take the exact current code path; the
 helper short-circuits. **No behavior change until a second lane exists.**
 
 ### Listing: merged fan-out
@@ -133,33 +140,53 @@ Thumbnails: `thumb-url.ts` wraps by host; shared-lane files keep getting cdn-cgi
 thumbs, BYO-lane files keep the existing BYO behavior (no thumbs) — per-file now
 instead of per-workspace.
 
-### Attach / detach flow changes
+### Configure, then switch (decoupled activation)
 
-Attach (`PUT /me/workspaces/:name/storage`, handler in `workspace-settings.ts`):
+Saving a BYO configuration and routing uploads to it are **two separate actions**
+(Zach, 2026-08-22). Verification sits between them, and switching is explicit,
+re-verified, and instantly reversible. Nothing changes about where uploads go until
+the user says so.
+
+**Save** (`PUT /me/workspaces/:name/storage`):
 
 1. Verify pipeline unchanged (shape/auth/round-trip/not-empty + public-URL probe;
    `adoptExistingContents` still bypasses the **bucket**-not-empty check).
-2. The `workspace_storage_not_empty` 409 (**workspace** ledger check) is **removed**.
-   Instead, when `workspace_usage.objects > 0`, the current active config is demoted
-   into `fallbackLanes` before the BYO config is written as active.
-   When the ledger is empty, behave exactly as today (overwrite, no fallback lane).
-3. Reconcile after attach becomes lane-aware (see Usage below).
+2. On success the config is written as a **standby lane** in `storageLanes` with
+   `verifiedAt` — the active lane is untouched. The `workspace_storage_not_empty`
+   409 disappears from this path entirely (saving a config is always safe).
+3. Saving again replaces the standby lane for that bucket (credential rotation is a
+   re-save). Re-verify on demand stamps a fresh `verifiedAt`.
 
-Detach (`DELETE /me/workspaces/:name/storage`):
+**Switch** (`POST /me/workspaces/:name/storage/activate`, body `{ laneId }`):
 
-1. #619 fix (ships first, standalone): allow detach whenever the record is currently
-   BYO-configured, regardless of `byoBucketEnabled`.
-2. Two-lane detach: if the BYO era produced objects (any object resolves only in the
-   BYO lane), demote the BYO lane to a fallback instead of dropping it; restore the
-   shared config as active. If the shared config is already present in `fallbackLanes`,
-   **promote it back** (remove from fallbacks) rather than duplicating it.
-3. `force=true` keeps its meaning of "drop without ceremony": it discards the BYO
-   config entirely (current behavior) — the escape hatch when the customer bucket is
-   gone or credentials are dead.
+1. Re-run verify against the target lane if it's HTTP-credential mode and
+   `verifiedAt` is stale (older than a short window) — a switch never lands on a
+   config that has silently rotted.
+2. Swap: the target lane's config becomes the top-level active fields; the outgoing
+   active config is written into `storageLanes` with `lastActiveAt` stamped (it may
+   hold objects, so it becomes a read fallback). If the workspace ledger is empty at
+   switch time, the outgoing lane is stored without read-fallback weight (nothing to
+   resolve) but the config is kept.
+3. Switching back is the same call with the other lane's `laneId` — the shared lane
+   is always present as a lane entry once any switch has happened. No separate
+   detach semantics needed for the common case.
+
+**Remove** (`DELETE /me/workspaces/:name/storage`, now takes a `laneId` for saved
+configs):
+
+1. #619 fix (ships first, standalone): allow removal/switch-back whenever the record
+   is currently BYO-configured, regardless of `byoBucketEnabled`.
+2. Removing a standby lane (never active) is always allowed — it's just saved config.
+3. Removing a fallback lane that still holds objects gets the
+   `workspace_storage_not_empty` 409 (the code moves here, where it's genuinely
+   protective), bypassed by `force=true` — the "my bucket is gone" escape hatch,
+   which orphans that lane's objects knowingly.
+4. Removing the _active_ BYO lane = switch back to shared first (or `force`).
 
 Lane hygiene: a fallback lane whose objects have all been deleted (reconcile finds
-zero keys) is pruned automatically during reconcile. Re-attach while a fallback BYO
-lane exists for the _same bucket_ promotes it instead of appending a duplicate.
+zero keys) drops its read-fallback role automatically; a BYO lane the user removed
+is gone entirely. Re-saving a config for the _same bucket_ as an existing lane
+updates that lane in place rather than appending a duplicate.
 
 ### Usage / budget attribution
 
@@ -188,13 +215,15 @@ stamp = uploaded before this design.
 
 ### Errors, UI, docs
 
-- `workspace_storage_not_empty` stays registered (detach-side and older clients) but
-  the attach path stops emitting it. Web client's 409 branch copy updates.
+- `workspace_storage_not_empty` stays registered but moves from the save path to
+  lane removal. Web client's 409 branch copy updates.
 - Settings Storage panel (`storage.astro`): remove `applySharedUsageGate` disable +
-  the "only available for an empty workspace" note; replace with transition copy
-  ("existing files stay on uploads.sh storage and keep working; new uploads go to
-  your bucket"). BYO-details view shows a small "previous storage" line when
-  `fallbackLanes` is non-empty. Detach copy gains the symmetric explanation.
+  the "only available for an empty workspace" note. The wizard ends at **"Save &
+  verify"** — saving never changes where uploads go. The saved config renders as a
+  card with verify status and a **"Use this bucket"** action; once switched, the
+  panel shows which lane is active with a **"Switch back to uploads.sh storage"**
+  action. Transition copy on switch: "existing files stay where they are and keep
+  working; new uploads go to <target>."
 - `/docs/byo-bucket` empty-workspace note replaced with the two-lane explanation;
   serving matrix gains a "files uploaded before connecting" row. Sitemap/llms.txt
   untouched (page exists).
@@ -203,15 +232,18 @@ stamp = uploaded before this design.
 
 ### Testing
 
-- Unit: lane resolution order, composite cursor round-trip, merge/dedupe collision
-  (active wins), fallback-lane resolve-failure degradation, seal/reseal walk over
-  `fallbackLanes`, budget shared-subset math.
-- Integration (vitest + in-process fakes, two fake R2 stores): attach-to-populated →
-  old key resolves with shared-lane URL, new put lands in BYO store with lane stamp,
-  list merges, delete targets owning lane; detach → symmetric; re-attach promotes
-  existing lane; reconcile rebuilds shared subset; force-detach drops lane.
+- Unit: lane resolution order (standby lanes skipped), composite cursor round-trip,
+  merge/dedupe collision (active wins), fallback-lane resolve-failure degradation,
+  seal/reseal walk over `storageLanes`, budget shared-subset math, stale-verify
+  re-check before activate.
+- Integration (vitest + in-process fakes, two fake R2 stores): save config on a
+  populated workspace → uploads still land in shared store; activate → old key
+  resolves with shared-lane URL, new put lands in BYO store with lane stamp, list
+  merges, delete targets owning lane; switch back → symmetric; re-activate reuses
+  the existing lane; reconcile rebuilds shared subset; force-remove drops the lane;
+  remove-with-objects 409s without force.
 - Contract: /f/ page + /public/files for a pre-switch key returns the shared-bucket
-  URL after attach (the headline behavior).
+  URL after the switch (the headline behavior).
 
 ## Phases / PR breakdown
 
@@ -219,18 +251,18 @@ stamp = uploaded before this design.
    `storageConfiguredAt` is set even if `byoBucketAllowed` is false. Test: flag
    revoked → detach 200.
 2. **PR B — lanes primitive, no behavior change**: `StorageLane` type +
-   `fallbackLanes`/`storageLaneId` on `WorkspaceRecord`, `storageConfigs`,
+   `storageLanes`/`storageLaneId` on `WorkspaceRecord`, `storageConfigs`,
    `resolveObjectLane`, seal/reseal coverage, provenance stamp on put. All existing
-   tests green; new unit tests. Nothing writes `fallbackLanes` yet.
+   tests green; new unit tests. Nothing writes `storageLanes` yet.
 3. **PR C — lane-aware read paths**: public-files, files-core, shared handlers,
    workspace-files, gallery/poster/comment URL derivation, delete-owning-lane,
    merged listing + composite cursor. Behavior still identical for single-lane
    records (the entire fleet).
-4. **PR D — two-lane transitions + usage + UI + docs**: attach demotion, detach
-   promotion, lane pruning, `shared_bytes` migration + delta/reconcile/budget wiring,
-   settings + admin UI, /docs/byo-bucket, doctor line. Closes the attach constraint;
-   update #594 (reduce to physical-migration residue or close in favor of a new
-   tracking issue).
+4. **PR D — save/activate/remove transitions + usage + UI + docs**: standby save
+   path, activate endpoint with stale-verify re-check, removal guards, lane pruning,
+   `shared_bytes` migration + delta/reconcile/budget wiring, settings + admin UI,
+   /docs/byo-bucket, doctor line. Closes the attach constraint; update #594 (reduce
+   to physical-migration residue or close in favor of a new tracking issue).
 
 Each PR bases on main (no stacking — stacked PRs skip CI in this repo).
 
@@ -242,3 +274,8 @@ Each PR bases on main (no stacking — stacked PRs skip CI in this repo).
   Provenance stamping of new uploads is kept as the zero-cost forward hook.
 - Two-lane only; profiles/routing deferred to #630 (Zach, 2026-08-22).
 - #619 first as its own PR; #597 billing not bundled (Zach, 2026-08-22).
+- Configuration decoupled from activation (Zach, 2026-08-22): saving a BYO config
+  never changes routing; an explicit, re-verified switch does, and switching back is
+  the same primitive pointed at the other lane. Chosen for safety (a bad config
+  can't break uploads by merely being saved) at negligible added complexity — the
+  read/list/budget design is unchanged.
