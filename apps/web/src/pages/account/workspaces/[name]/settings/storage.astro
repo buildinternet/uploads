@@ -211,6 +211,19 @@ if (!workspace) return Astro.redirect("/account/workspaces");
               </p>
             </div>
 
+            <div class="ul-field" id="storage-adopt-row" hidden>
+              <label class="storage-adopt-label">
+                <input type="checkbox" id="storage-adopt" />
+                This bucket already contains files — show them in this workspace
+              </label>
+              <p class="ul-field__hint">
+                Everything already in the bucket becomes part of this workspace once you switch to
+                it.
+              </p>
+            </div>
+
+            <ul class="storage-checklist" id="storage-form-checklist" aria-live="polite"></ul>
+
             <div class="storage-actions">
               <button type="submit" class="ul-btn ul-btn--solid" id="storage-verify-btn"
                 >Verify</button
@@ -227,7 +240,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         </div>
 
         <div class="storage-wizard-step" id="storage-step-3" hidden>
-          <h3>3. Verify</h3>
+          <h3>3. Review &amp; save</h3>
           <ul class="storage-checklist" id="storage-checklist" aria-live="polite"></ul>
           <div class="storage-actions">
             <button type="button" class="ul-btn ul-btn--solid" id="storage-save-btn" disabled
@@ -326,6 +339,14 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       gap: 8px;
       max-width: 32rem;
       padding: 0;
+    }
+    .storage-checklist:empty {
+      display: none;
+    }
+    .storage-adopt-label {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
     }
     .storage-checklist li {
       display: flex;
@@ -462,6 +483,9 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       const storageVerifyBtn = requireElement<HTMLButtonElement>("#storage-verify-btn", page);
       const storageVerifyStatus = requireElement<HTMLElement>("#storage-verify-status", page);
       const storageChecklist = requireElement<HTMLElement>("#storage-checklist", page);
+      const storageFormChecklist = requireElement<HTMLElement>("#storage-form-checklist", page);
+      const storageAdoptRow = requireElement<HTMLElement>("#storage-adopt-row", page);
+      const storageAdopt = requireElement<HTMLInputElement>("#storage-adopt", page);
       const storageSaveBtn = requireElement<HTMLButtonElement>("#storage-save-btn", page);
       const storageSaveStatus = requireElement<HTMLElement>("#storage-save-status", page);
       const storageCancelBtns = [
@@ -545,6 +569,8 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         storageForm.reset();
         lastVerify = null;
         storageChecklist.innerHTML = "";
+        storageFormChecklist.innerHTML = "";
+        storageAdoptRow.hidden = true;
         storageVerifyStatus.textContent = "";
         storageVerifyStatus.removeAttribute("data-state");
         storageSaveStatus.textContent = "";
@@ -603,13 +629,15 @@ if (!workspace) return Astro.redirect("/account/workspaces");
           // owns and is actively serving from, so its non-empty contents are
           // expected, not a mistake — same rationale as the PUT route's
           // `adoptExistingContents` escape hatch for the empty-workspace guard.
-          adoptExistingContents: wizardMode === "rotate" ? true : undefined,
+          // In connect mode the user opts in via the checkbox that appears
+          // when the not-empty check fails.
+          adoptExistingContents: wizardMode === "rotate" || storageAdopt.checked ? true : undefined,
         };
       }
 
       /** Required checks gate save; a failing recommended check (public-url) only warns. */
-      function renderChecklist(result: StorageVerifyResult): void {
-        storageChecklist.innerHTML = result.checks
+      function renderChecklist(result: StorageVerifyResult, target: HTMLElement): void {
+        target.innerHTML = result.checks
           .map((check) => {
             const label = STORAGE_CHECK_LABELS[check.id] ?? check.id;
             const badgeClass = check.ok
@@ -625,7 +653,17 @@ if (!workspace) return Astro.redirect("/account/workspaces");
             return `<li><div class="storage-check-row"><span class="ul-badge ${badgeClass}">${escapeHtml(badgeText)}</span><strong>${escapeHtml(label)}</strong></div>${hint}</li>`;
           })
           .join("");
-        storageSaveBtn.disabled = !result.ok;
+      }
+
+      /**
+       * A failing not-empty check is fixable in place: reveal the adopt
+       * checkbox so the user can opt in and re-verify without retyping
+       * anything. Once revealed it stays visible for the rest of the wizard
+       * session — hiding a ticked checkbox again would silently drop consent.
+       */
+      function revealAdoptRowIfNotEmpty(result: StorageVerifyResult): void {
+        const notEmpty = result.checks.find((check) => check.id === "not-empty");
+        if (notEmpty && !notEmpty.ok) storageAdoptRow.hidden = false;
       }
 
       storageStep1Next.addEventListener("click", () => goToWizardStep(2));
@@ -651,9 +689,21 @@ if (!workspace) return Astro.redirect("/account/workspaces");
             storageVerifyStatus.dataset.state = "error";
             return;
           }
-          storageVerifyStatus.textContent = "";
           lastVerify = result.result;
-          renderChecklist(result.result);
+          if (!result.result.ok) {
+            // Stay on the credentials step: the fix is almost always a field
+            // edit, so show the failing checks right under the form instead
+            // of moving to a page the user has to back out of.
+            renderChecklist(result.result, storageFormChecklist);
+            revealAdoptRowIfNotEmpty(result.result);
+            storageVerifyStatus.textContent = "Verification failed — see the checks below.";
+            storageVerifyStatus.dataset.state = "error";
+            return;
+          }
+          storageVerifyStatus.textContent = "";
+          storageFormChecklist.innerHTML = "";
+          renderChecklist(result.result, storageChecklist);
+          storageSaveBtn.disabled = false;
           goToWizardStep(3);
         })();
       });
@@ -682,7 +732,8 @@ if (!workspace) return Astro.redirect("/account/workspaces");
           storageSaveBtn.disabled = false;
           if (result.kind === "invalid") {
             lastVerify = result.result;
-            renderChecklist(result.result);
+            renderChecklist(result.result, storageChecklist);
+            storageSaveBtn.disabled = !result.result.ok;
             storageSaveStatus.textContent = "Verification failed — see the checklist above.";
             storageSaveStatus.dataset.state = "error";
             return;

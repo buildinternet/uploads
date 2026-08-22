@@ -67,9 +67,14 @@ export function createStorage(config: StorageConfig): Files {
         }),
       };
       // Binding mode (hybrid when HTTP creds are also set) vs pure HTTP mode.
+      // Pure HTTP mode pins `client: "fetch"` (aws4fetch): the default
+      // aws-sdk client parses S3 XML with DOMParser in Workers-style bundles,
+      // which workerd doesn't provide — list() throws "DOMParser is not
+      // defined" at runtime. Binding mode never touches an S3 client for I/O
+      // and its hybrid signer is already aws4fetch, so it needs no override.
       const adapter = config.r2Binding
         ? r2({ binding: config.r2Binding, bucket: config.bucket, ...shared })
-        : r2({ bucket: config.bucket, ...shared });
+        : r2({ bucket: config.bucket, client: "fetch", ...shared });
       return new Files({ adapter, prefix: config.prefix });
     }
     default:
