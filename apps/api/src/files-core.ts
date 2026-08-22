@@ -55,6 +55,7 @@ import {
   type ProvenanceMap,
 } from "./provenance";
 import {
+  isSharedLane,
   objectPublicUrls,
   storage,
   storageConfig,
@@ -254,7 +255,7 @@ export async function generateAndStorePoster(
               uploads: 0,
             },
             undefined,
-            { sharedLane: Boolean(ws.binding) },
+            { sharedLane: isSharedLane(ws) },
           );
         }
       }
@@ -283,7 +284,7 @@ export async function generateAndStorePoster(
         uploads: 0,
       },
       undefined,
-      { sharedLane: Boolean(ws.binding) },
+      { sharedLane: isSharedLane(ws) },
     );
     // Full replace, not upsert: a regeneration whose probe/extraction found
     // fewer fields than the prior poster (e.g. no dims this time) must not
@@ -480,7 +481,7 @@ export async function putObject(
   // failed write releases both.
   const { maxUploadsPerPeriod } = resolveBudgetLimits(ws);
   const maxStorageBytes = enforcedMaxStorageBytes(ws);
-  const sharedLane = Boolean(ws.binding);
+  const sharedLane = isSharedLane(ws);
   const uploadReservation = await reserveUploads(env.DB, workspaceName, 1, maxUploadsPerPeriod);
   if (!uploadReservation.ok) {
     throw budgetDenialError(
@@ -503,6 +504,13 @@ export async function putObject(
         storageReservation.usage,
         storageReservation.maxStorageBytes,
         sharedLane ? storageReservation.deltaBytes : 0,
+        // The `?? .bytes` fallback is unreachable by construction, not a
+        // real degrade path: `reserveStorageBytes` only ever returns
+        // `ok: false` when `maxStorageBytes` (== `enforcedMaxStorageBytes(ws)`
+        // here) is defined, and that is `enforcedStorageUsageBytes`'s only
+        // undefined-condition — so this call can never actually see
+        // `undefined`. Kept rather than asserted non-null so a future change
+        // to either function's contract fails safe instead of throwing.
         enforcedStorageUsageBytes(ws, storageReservation.usage) ?? storageReservation.usage.bytes,
       ),
     );
@@ -1029,43 +1037,74 @@ export async function listObjects(
   };
 }
 
+/** One lane's outcome for a `deleteFromEveryLane` call — the object's size and whether that lane is platform-owned (binding-mode), for ledger accounting. */
+interface DeletedLaneHit {
+  size: number;
+  sharedLane: boolean;
+}
+
 /**
- * Delete `key` from every one of `configs`'s stores that actually holds it
- * and return every lane hit with its size and storage ownership. Probes
- * every lane concurrently, then deletes concurrently from whichever lanes
- * hit. Two-lane storage: a key can exist in more than one lane after a
- * detach/re-attach cycle, and every copy must go so the file actually
- * disappears (spec: "Read path" — deletion). Single-lane records take the
- * exact path this always has: one lane, one `existingSize` + `delete` call.
- * Callers resolve `storageConfigs` once and pass it in — `deleteObject`
- * reuses the same resolution for both the primary key and its poster.
+ * Delete `key` from every one of `configs`'s stores that actually holds it.
+ * Probes every lane concurrently, then deletes concurrently from whichever
+ * lanes hit via `Promise.allSettled` rather than `Promise.all` — one lane's
+ * delete rejecting (network blip, stale binding) must not discard the fact
+ * that a sibling lane's delete already succeeded. `hits` is exactly the set
+ * of lanes whose delete actually completed, safe to debit from the ledger;
+ * `failures` carries whatever rejected, for the caller to surface after
+ * crediting the successes (never before — a delete that half-succeeds must
+ * never look like it fully failed to the ledger). A retry against a lane
+ * whose key is already gone can't double-debit: `existingSize` finds
+ * nothing there on the next attempt. Two-lane storage: a key can exist in
+ * more than one lane after a detach/re-attach cycle, and every copy must go
+ * so the file actually disappears (spec: "Read path" — deletion).
+ * Single-lane records take the exact path this always has: one lane, one
+ * `existingSize` + `delete` call. Callers resolve `storageConfigs` once and
+ * pass it in — `deleteObject` reuses the same resolution for both the
+ * primary key and its poster.
  */
 async function deleteFromEveryLane(
   configs: LaneConfig[],
   key: string,
-): Promise<Array<{ size: number; sharedLane: boolean }>> {
-  const stores = configs.map((lc) => createStorage(lc.config));
-  const sizes = await Promise.all(stores.map((store) => existingSize(store, key)));
-  await Promise.all(stores.filter((_, i) => sizes[i] !== null).map((store) => store.delete(key)));
-  return sizes.flatMap((size, index) =>
-    size === null ? [] : [{ size, sharedLane: Boolean(configs[index]?.config.r2Binding) }],
-  );
+): Promise<{ hits: DeletedLaneHit[]; failures: unknown[] }> {
+  const targets = configs.map((lc) => ({
+    store: createStorage(lc.config),
+    sharedLane: isSharedLane(lc.config),
+  }));
+  const sizes = await Promise.all(targets.map((t) => existingSize(t.store, key)));
+  const present = targets
+    .map((t, i) => ({ ...t, size: sizes[i] }))
+    .filter((t): t is typeof t & { size: number } => t.size !== null);
+
+  const settled = await Promise.allSettled(present.map((t) => t.store.delete(key)));
+  const hits: DeletedLaneHit[] = [];
+  const failures: unknown[] = [];
+  settled.forEach((result, i) => {
+    if (result.status === "fulfilled") {
+      hits.push({ size: present[i]!.size, sharedLane: present[i]!.sharedLane });
+    } else {
+      failures.push(result.reason);
+    }
+  });
+  return { hits, failures };
 }
 
+/** Debits the ledger for every lane a delete actually removed the object from. Independent D1 rows per lane, none of which can throw (`recordUsageSafe`) — safe to run concurrently. */
 async function recordDeletedLaneUsage(
   env: Env,
   workspaceName: string,
-  hits: Array<{ size: number; sharedLane: boolean }>,
+  hits: DeletedLaneHit[],
 ): Promise<void> {
-  for (const hit of hits) {
-    await recordUsageSafe(
-      env.DB,
-      workspaceName,
-      { bytes: -hit.size, objects: -1, uploads: 0 },
-      undefined,
-      { sharedLane: hit.sharedLane },
-    );
-  }
+  await Promise.all(
+    hits.map((hit) =>
+      recordUsageSafe(
+        env.DB,
+        workspaceName,
+        { bytes: -hit.size, objects: -1, uploads: 0 },
+        undefined,
+        { sharedLane: hit.sharedLane },
+      ),
+    ),
+  );
 }
 
 /** Delete an object (and its D1 custom metadata) and decrement the workspace ledger when size was known. */
@@ -1078,7 +1117,7 @@ export async function deleteObject(
   if (badKey(key)) throw new ValidationError("invalid key", { code: "invalid_key" });
 
   const configs = await storageConfigs(env, ws);
-  const hits = await deleteFromEveryLane(configs, key);
+  const { hits, failures } = await deleteFromEveryLane(configs, key);
   await deleteFileMetadata(env.DB, workspaceName, key);
 
   if (hits.length > 0) {
@@ -1104,6 +1143,10 @@ export async function deleteObject(
       ]);
     }
   }
+  // Every fulfilled lane is already credited above — only now does a
+  // rejected lane's delete get to fail the request, so a partial failure
+  // never looks like nothing happened.
+  if (failures.length > 0) throw failures[0];
 
   // Derived poster (issue #299), best-effort: a missing one is the norm for
   // every non-video object. Guarded so a transient poster-cleanup failure
@@ -1111,12 +1154,16 @@ export async function deleteObject(
   // every-lane-that-has-it treatment as the primary object above.
   const posterKey = posterKeyFor(key);
   try {
-    const posterHits = await deleteFromEveryLane(configs, posterKey);
+    const { hits: posterHits, failures: posterFailures } = await deleteFromEveryLane(
+      configs,
+      posterKey,
+    );
     if (posterHits.length > 0) {
       if (await claimDeleteUsageSafe(env.DB, workspaceName, posterKey)) {
         await recordDeletedLaneUsage(env, workspaceName, posterHits);
       }
     }
+    if (posterFailures.length > 0) throw posterFailures[0];
   } catch (err) {
     console.error({ event: "poster_delete_failed", workspace: workspaceName, key, err });
   }

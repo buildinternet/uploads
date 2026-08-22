@@ -10,7 +10,7 @@
  * across Worker isolates and does not track net storage after deletes.
  */
 import { createStorage } from "@uploads/storage";
-import { storageConfigs } from "./storage";
+import { isSharedLane, storageConfigs } from "./storage";
 import { getWorkspaceUsage, setUsageTotals, type WorkspaceUsage } from "./usage";
 import { isUnprefixedDedicatedBucket, type WorkspaceRecord } from "./workspace";
 
@@ -55,21 +55,34 @@ export async function reconcileWorkspaceUsage(
     );
   }
 
+  // Every lane's walk is independent — run them concurrently and merge the
+  // partial sums after, rather than one lane's (possibly remote, possibly
+  // slow) listAll() blocking the next. Single-lane records still make
+  // exactly the one walk this always has.
+  const partials = await Promise.all(
+    configs.map(async ({ config }) => {
+      const store = createStorage(config);
+      let bytes = 0;
+      let objects = 0;
+      // listAll follows list() cursors; each item is a StoredFile with size metadata.
+      for await (const item of store.listAll()) {
+        bytes += item.size ?? 0;
+        objects += 1;
+      }
+      return { bytes, objects, shared: isSharedLane(config) };
+    }),
+  );
+
   let bytes = 0;
   let objects = 0;
   let sharedBytes = 0;
   let sharedObjects = 0;
-  for (const { config } of configs) {
-    const store = createStorage(config);
-    // listAll follows list() cursors; each item is a StoredFile with size metadata.
-    for await (const item of store.listAll()) {
-      const size = item.size ?? 0;
-      bytes += size;
-      objects += 1;
-      if (config.r2Binding) {
-        sharedBytes += size;
-        sharedObjects += 1;
-      }
+  for (const partial of partials) {
+    bytes += partial.bytes;
+    objects += partial.objects;
+    if (partial.shared) {
+      sharedBytes += partial.bytes;
+      sharedObjects += partial.objects;
     }
   }
 

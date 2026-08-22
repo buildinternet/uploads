@@ -87,4 +87,48 @@ describe("deleteObject across storage lanes", () => {
     expect(bucket.store.has(`default/${put.key}`)).toBe(false);
     expect(db.usage.get(WORKSPACE)).toMatchObject({ bytes: 0, objects: 0 });
   });
+
+  it("credits every lane whose delete actually succeeded even when a sibling lane's delete rejects, then surfaces the failure", async () => {
+    const { env, bucket, db, ws } = makePosterEnv();
+    const fallback = new FakeR2Bucket();
+    (env as unknown as Record<string, FakeR2Bucket>).UPLOADS_FALLBACK = fallback;
+    await bucket.put("default/both.png", new Uint8Array(5));
+    await fallback.put("both.png", new Uint8Array(9));
+    db.usage.set(WORKSPACE, {
+      workspace: WORKSPACE,
+      bytes: 14,
+      objects: 2,
+      shared_bytes: 14,
+      shared_objects: 2,
+      uploads_in_period: 0,
+      period_start: "2026-08",
+      updated_at: "2026-08-22T00:00:00.000Z",
+    });
+    // The fallback lane's delete rejects; the active lane's delete still
+    // succeeds — `Promise.allSettled` (not `Promise.all`) must not let the
+    // rejection erase the active lane's already-completed removal.
+    let fallbackDeleteCalled = false;
+    fallback.delete = async () => {
+      fallbackDeleteCalled = true;
+      throw new Error("fallback delete boom");
+    };
+
+    await expect(
+      deleteObject(env, { ...ws, storageLanes: [FALLBACK_LANE] }, "both.png", WORKSPACE),
+    ).rejects.toThrow("fallback delete boom");
+
+    expect(fallbackDeleteCalled).toBe(true);
+    // Active lane's copy is gone; the fallback's rejected delete left its
+    // copy in place (it never actually deleted).
+    expect(bucket.store.has("default/both.png")).toBe(false);
+    expect(fallback.store.has("both.png")).toBe(true);
+    // Only the active (fulfilled) lane's bytes/objects were debited — the
+    // fallback lane's failed delete is not credited to the ledger.
+    expect(db.usage.get(WORKSPACE)).toMatchObject({
+      bytes: 9,
+      objects: 1,
+      shared_bytes: 9,
+      shared_objects: 1,
+    });
+  });
 });

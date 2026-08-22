@@ -278,8 +278,14 @@ export async function reserveStorageBytes(
   const period = usagePeriodStart(now);
   const updatedAt = now.toISOString();
   const sharedLane = opts?.sharedLane !== false;
+  // A binding-mode (shared) reservation lands entirely in `bytes` and is
+  // enforced against it (today's cap); an HTTP-credential (BYO) reservation
+  // lands there too for the total, but is enforced against `shared_bytes`
+  // instead — the shared residue left over from before the switch — since
+  // BYO bytes themselves stay unmetered. Same "does this delta apply to the
+  // shared column" question either way, so one value answers both what's
+  // added and what's checked.
   const sharedDeltaBytes = sharedLane ? deltaBytes : 0;
-  const enforcedDeltaBytes = sharedLane ? deltaBytes : 0;
   const enforcedColumn = sharedLane ? "bytes" : "shared_bytes";
 
   const results = await db.batch([
@@ -301,14 +307,7 @@ export async function reserveStorageBytes(
          WHERE workspace = ?
            AND ${enforcedColumn} + ? <= ?`,
       )
-      .bind(
-        deltaBytes,
-        sharedDeltaBytes,
-        updatedAt,
-        workspace,
-        enforcedDeltaBytes,
-        maxStorageBytes,
-      ),
+      .bind(deltaBytes, sharedDeltaBytes, updatedAt, workspace, sharedDeltaBytes, maxStorageBytes),
   ]);
 
   const changes = results[1]?.meta?.changes ?? 0;
