@@ -7,6 +7,24 @@
 
 import { b64urlDecode, b64urlEncode } from "./secrets";
 
+/**
+ * `env.GITHUB_CACHE.get`, tolerant of a missing binding. GITHUB_CACHE is a
+ * core KV binding (uploads#754 item 3) so every deployed worker provisions
+ * it, but this module is imported transitively into apps/mcp too (via
+ * `@uploads/api/uploader-identity`), and unit tests build minimal envs — a
+ * bare `env.GITHUB_CACHE.get(...)` would throw a raw TypeError on `undefined`
+ * before ever reaching this module's own try/catch blocks, contradicting its
+ * documented "every function degrades to null" contract. Treat a lookup
+ * failure the same as a cache miss: fall through to a fresh fetch.
+ */
+async function cacheGet(env: Env, key: string): Promise<string | null> {
+  try {
+    return (await env.GITHUB_CACHE?.get(key)) ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export interface GithubAppConfig {
   appId: string;
   privateKey: string;
@@ -138,7 +156,7 @@ export async function installationForRepo(
   fetchImpl: typeof fetch = fetch,
 ): Promise<number | null> {
   const key = `ghinst:${repo}`;
-  const cached = (await env.GITHUB_CACHE.get(key)) as string | null;
+  const cached = await cacheGet(env, key);
   if (cached !== null) return cached === "none" ? null : Number(cached);
   try {
     const res = await githubFetch(fetchImpl, `https://api.github.com/repos/${repo}/installation`, {
@@ -229,7 +247,7 @@ export async function fetchPrActors(
 ): Promise<number[] | null> {
   if (!REPO_RE.test(repo) || !Number.isSafeInteger(num) || num < 1) return null;
   const key = `pr-actors:${kind}:${repo}:${num}`;
-  const cached = (await env.GITHUB_CACHE.get(key)) as string | null;
+  const cached = await cacheGet(env, key);
   if (cached !== null) {
     try {
       const ids = JSON.parse(cached) as unknown;
@@ -285,7 +303,7 @@ export async function installationToken(
   fetchImpl: typeof fetch = fetch,
 ): Promise<string | null> {
   const key = `ghtok:${installationId}`;
-  const cached = (await env.GITHUB_CACHE.get(key)) as string | null;
+  const cached = await cacheGet(env, key);
   if (cached !== null) return cached;
   try {
     const res = await githubFetch(
@@ -324,7 +342,7 @@ export async function repoIsPrivate(
 ): Promise<boolean | null> {
   if (!REPO_RE.test(repo)) return null;
   const key = `ghpriv:${repo}`;
-  const cached = (await env.GITHUB_CACHE.get(key)) as string | null;
+  const cached = await cacheGet(env, key);
   if (cached !== null) return cached === "1";
   const token = await installationToken(env, cfg, installationId, fetchImpl);
   if (!token) return null;
@@ -374,7 +392,7 @@ export async function prHeadBranch(
 ): Promise<string | null> {
   if (!REPO_RE.test(repo) || !Number.isSafeInteger(num) || num < 1) return null;
   const key = `prhead:${repo}#${num}`;
-  const cached = (await env.GITHUB_CACHE.get(key)) as string | null;
+  const cached = await cacheGet(env, key);
   if (cached !== null) return cached;
   const token = await installationToken(env, cfg, installationId, fetchImpl);
   if (!token) return null;

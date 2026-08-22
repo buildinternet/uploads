@@ -396,3 +396,57 @@ describe("prHeadBranch", () => {
     expect(await prHeadBranch(envWith(kv), cfgWith(pem), 42, "o/r", 0, fetchImpl)).toBeNull();
   });
 });
+
+// GITHUB_CACHE is a core binding (uploads#754 item 3), but this module is
+// imported transitively into apps/mcp — which has no GITHUB_CACHE of its
+// own — and unit tests build minimal envs, so every exported function here
+// must still degrade to null (never throw) when the binding is absent,
+// matching the module's documented "every function degrades to null on
+// failure" contract.
+describe("GITHUB_CACHE binding absent", () => {
+  const noCacheEnv = {} as Env;
+
+  it("installationForRepo degrades to null instead of throwing", async () => {
+    const { pem } = await testKeyPair();
+    const fetchImpl = (async () =>
+      new Response(JSON.stringify({ id: 4242 }), { status: 200 })) as typeof fetch;
+    await expect(
+      installationForRepo(noCacheEnv, cfgWith(pem), "o/r", fetchImpl),
+    ).resolves.toBeNull();
+  });
+
+  it("fetchPrActors degrades to null instead of throwing", async () => {
+    const { pem } = await testKeyPair();
+    const fetchImpl = (async () =>
+      new Response(JSON.stringify({ user: { id: 1 } }), { status: 200 })) as typeof fetch;
+    await expect(
+      fetchPrActors(noCacheEnv, cfgWith(pem), 42, "o/r", "pull", 7, fetchImpl),
+    ).resolves.toBeNull();
+  });
+
+  it("installationToken degrades to null instead of throwing", async () => {
+    const { pem } = await testKeyPair();
+    const fetchImpl = (async () =>
+      new Response(JSON.stringify({ token: "ghs_abc" }), { status: 201 })) as typeof fetch;
+    await expect(installationToken(noCacheEnv, cfgWith(pem), 4242, fetchImpl)).resolves.toBeNull();
+  });
+
+  it("repoIsPrivate degrades to null instead of throwing", async () => {
+    const { pem } = await testKeyPair();
+    const fetchImpl = (async (input: RequestInfo | URL) => {
+      // No cached installation token either, so this never even reaches the
+      // repo-privacy fetch — exercised for completeness.
+      if (String(input).endsWith("/access_tokens")) return new Response("", { status: 401 });
+      return new Response(JSON.stringify({ private: true }), { status: 200 });
+    }) as typeof fetch;
+    await expect(repoIsPrivate(noCacheEnv, cfgWith(pem), 42, "o/r", fetchImpl)).resolves.toBeNull();
+  });
+
+  it("prHeadBranch degrades to null instead of throwing", async () => {
+    const { pem } = await testKeyPair();
+    const fetchImpl = (async () => new Response("", { status: 401 })) as typeof fetch;
+    await expect(
+      prHeadBranch(noCacheEnv, cfgWith(pem), 42, "o/r", 7, fetchImpl),
+    ).resolves.toBeNull();
+  });
+});

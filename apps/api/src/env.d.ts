@@ -64,4 +64,23 @@ interface Env {
   MEDIA?: MediaBinding;
   FLAGS?: Flagship;
   POSTER_LIMITER?: RateLimit;
+  /**
+   * Browser Run (screenshot rendering, `POST /v1/render`). Like `MEDIA`, this
+   * has no local Miniflare simulation and self-hosters may skip the block
+   * entirely (uploads#754 item 3) — `browserRenderer()` in render.ts treats
+   * an absent binding as a distinct `renderer_unavailable` 503, never a
+   * crash.
+   */
+  BROWSER?: BrowserRun;
+  /**
+   * Per-workspace/IP rate limiters (uploads#754 item 3). All fail OPEN when
+   * absent (unlike POSTER_LIMITER above, which fails closed) — see
+   * guards.ts's `makeRateLimitGuard` and the five call sites of
+   * INVITE_LIMITER. A self-hoster may delete any of these `unsafe.bindings`
+   * blocks and simply run without that burst guard.
+   */
+  WRITE_LIMITER?: RateLimit;
+  RENDER_LIMITER?: RateLimit;
+  WS_CREATE_LIMITER?: RateLimit;
+  INVITE_LIMITER?: RateLimit;
 }

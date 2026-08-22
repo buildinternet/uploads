@@ -89,6 +89,10 @@ async function makeEnv(
   opts: {
     overrides?: Partial<WorkspaceRecord>;
     browser?: FakeBrowser;
+    // Explicit tri-state: omit `browser` for the default FakeBrowser, or pass
+    // `noBrowser: true` to build an env with BROWSER absent entirely (issue
+    // #754 item 3 — BROWSER is an optional binding self-hosters may skip).
+    noBrowser?: boolean;
     rateLimitOk?: boolean;
     scopedToken?: { rawToken: string; scopes: string[] };
   } = {},
@@ -110,11 +114,17 @@ async function makeEnv(
         }
       : undefined,
   );
-  const browser = opts.browser ?? FakeBrowser.pngResponse(PNG);
+  // Typed as always-defined for the many existing callers that destructure
+  // `browser` and use it unconditionally; `noBrowser: true` (used only by the
+  // BROWSER-absent test below, which never touches this field) sets the
+  // env's actual BROWSER binding to `undefined` regardless of this type.
+  const browser: FakeBrowser = opts.noBrowser
+    ? (undefined as unknown as FakeBrowser)
+    : (opts.browser ?? FakeBrowser.pngResponse(PNG));
   const env = {
     REGISTRY: { get: async () => record, put: async () => undefined },
     DB: db,
-    BROWSER: browser,
+    BROWSER: opts.noBrowser ? undefined : browser,
     RENDER_LIMITER: { limit: async () => ({ success: opts.rateLimitOk ?? true }) },
   };
   return { env, db, browser };
@@ -446,6 +456,18 @@ describe("POST /v1/render Browser Run error passthrough", () => {
     expect(res.status).toBe(502);
     const json = (await res.json()) as { error: { code: string } };
     expect(json.error.code).toBe("render_failed");
+  });
+
+  it("503s with renderer_unavailable when BROWSER is absent (self-host, no crash)", async () => {
+    const { env, db } = await makeEnv({ noBrowser: true });
+    const res = await renderReq(env, { url: "https://example.com" });
+    expect(res.status).toBe(503);
+    const json = (await res.json()) as { error: { code: string; type: string } };
+    expect(json.error.code).toBe("renderer_unavailable");
+    expect(json.error.type).toBe("unavailable");
+    // The upload reservation made before the Browser Run call must be
+    // released, same as any other failed render.
+    expect(db.usage.get("default")?.uploads_in_period ?? 0).toBe(0);
   });
 });
 

@@ -17,4 +17,11 @@ interface Env {
   // OPENAI_APPS_CHALLENGE --config apps/mcp/wrangler.jsonc` when submitting
   // the plugin; unset or blank → 404.
   OPENAI_APPS_CHALLENGE?: string;
+  /**
+   * Per-workspace write rate limit (uploads#754 item 3), shared with apps/api
+   * via `@uploads/api/guards`'s `allowWrite` — fails open when absent. This
+   * worker binds it unconditionally in wrangler.jsonc, but a self-hoster may
+   * delete that `unsafe.bindings` block and run without the burst guard.
+   */
+  WRITE_LIMITER?: RateLimit;
 }
