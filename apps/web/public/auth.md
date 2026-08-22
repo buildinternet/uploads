@@ -83,9 +83,13 @@ inferred from the `up_<workspace>_…` token form).
 
 `https://agents.uploads.sh/mcp` also accepts OAuth 2.1 bearer tokens issued by
 our authorization server at `https://uploads.sh` (issuer
-`https://uploads.sh/api/auth`). It supports PKCE and dynamic client
-registration (RFC 7591) — an MCP client can register itself, no manual setup.
-Discovery:
+`https://uploads.sh/api/auth`). It supports PKCE and self-service client
+registration, no manual setup — preferably via Client ID Metadata Documents
+(CIMD, per MCP spec 2026-07-28: use an HTTPS URL that serves your client
+metadata JSON as the `client_id`; the metadata must include `client_name` and
+`redirect_uris`, and `redirect_uri` must exactly match a listed entry).
+Dynamic client registration (RFC 7591) remains supported for older clients.
+Discovery (advertises `client_id_metadata_document_supported`):
 
 ```bash
 curl -s https://uploads.sh/.well-known/oauth-authorization-server

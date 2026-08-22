@@ -7,6 +7,14 @@
  * (a probe, MCP Inspector, or an agent that registered but never completed
  * auth) accumulate as `oauth_client` rows. This sweep purges them.
  *
+ * CIMD (issue #556) does not retire this reaper: Better Auth persists
+ * discovery-resolved clients as ordinary anonymous `oauth_client` rows
+ * (`client_discovery_id = 'cimd'`), so URL-form client_ids accumulate the
+ * same way DCR rows do. They are deliberately NOT exempted below — a swept
+ * CIMD row is recreated on demand from its metadata URL at the next
+ * authorize, and the never-used guard already protects rows with live
+ * consents or tokens.
+ *
  * A client is REAPABLE only when ALL hold:
  *   - older than the retention window (default 30d,
  *     `OAUTH_CLIENT_REAPER_RETENTION_DAYS`),
