@@ -191,9 +191,10 @@ export const app = new Hono<{ Bindings: AuthEnv }>()
   .on(["POST", "GET"], "/api/auth/*", async (c) => {
     const auth = await createAuth(c.env);
     if (!auth) {
-      // Signing secret unresolved (Secrets Store entry not populated yet, or
-      // no BETTER_AUTH_SECRET_DEV in dev) — never boot Better Auth on an
-      // ephemeral secret (D7). Fail closed instead of 500ing.
+      // Signing secret unresolved (BETTER_AUTH_SECRET not set, and the
+      // transitional Secrets Store fallback is also empty/unpopulated) —
+      // never boot Better Auth on an ephemeral secret (D7). Fail closed
+      // instead of 500ing.
       return c.json(
         { error: { code: "auth_unavailable", message: "Auth is not configured yet." } },
         503,

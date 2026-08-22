@@ -10,7 +10,7 @@ function envWithoutSecret(): AuthEnv {
     DB: {} as unknown as D1Database,
     WEB_ORIGIN: "https://uploads.sh",
     ENVIRONMENT: "development",
-    // No UPL_BETTER_AUTH_SECRET, no BETTER_AUTH_SECRET_DEV: unresolvable.
+    // No UPL_BETTER_AUTH_SECRET, no BETTER_AUTH_SECRET: unresolvable.
   };
 }
 
@@ -21,7 +21,7 @@ function envWithoutSecret(): AuthEnv {
 function localEnv(overrides: Partial<AuthEnv> = {}): AuthEnv {
   return {
     DB: createFakeD1(),
-    BETTER_AUTH_SECRET_DEV: "x".repeat(32),
+    BETTER_AUTH_SECRET: "x".repeat(32),
     LOCAL_STACK: "true",
     ENVIRONMENT: "development",
     BETTER_AUTH_URL: LOCAL_STACK_WEB_ORIGIN,
@@ -67,8 +67,8 @@ describe("503 guard", () => {
     expect(body.error.code).toBe("auth_unavailable");
   });
 
-  it("boots once BETTER_AUTH_SECRET_DEV is set", async () => {
-    const env: AuthEnv = { ...envWithoutSecret(), BETTER_AUTH_SECRET_DEV: "x".repeat(32) };
+  it("boots once BETTER_AUTH_SECRET is set", async () => {
+    const env: AuthEnv = { ...envWithoutSecret(), BETTER_AUTH_SECRET: "x".repeat(32) };
     const response = await app.request(
       "/api/auth/get-session",
       { headers: { Origin: "https://uploads.sh" } },
@@ -85,7 +85,7 @@ describe("CORS on /api/auth/*", () => {
     DB: {} as unknown as D1Database,
     WEB_ORIGIN: "https://uploads.sh",
     ENVIRONMENT: "production",
-    BETTER_AUTH_SECRET_DEV: "x".repeat(32),
+    BETTER_AUTH_SECRET: "x".repeat(32),
   };
 
   function preflight(origin: string) {

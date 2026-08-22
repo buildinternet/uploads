@@ -287,7 +287,8 @@ export type AuthEnv = GitHubCredentialsEnv &
     DB: D1Database;
     EMAIL?: import("./email").EmailBinding;
     BETTER_AUTH_URL?: string;
-    BETTER_AUTH_SECRET_DEV?: string;
+    BETTER_AUTH_SECRET?: string;
+    /** Transitional Secrets Store fallback — see src/secrets.ts and uploads#754 item 2. */
     UPL_BETTER_AUTH_SECRET?: import("./secrets").SecretLike;
     WEB_ORIGIN?: string;
     /** The auth worker's own direct origin (e.g. https://auth.uploads.sh),

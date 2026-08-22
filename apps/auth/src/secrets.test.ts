@@ -42,31 +42,38 @@ describe("resolveSecret", () => {
 });
 
 describe("resolveSigningSecret", () => {
-  it("prefers the Secrets Store binding", async () => {
+  it("prefers the plain BETTER_AUTH_SECRET over the store fallback", async () => {
+    expect(
+      await resolveSigningSecret({
+        BETTER_AUTH_SECRET: "plain-secret",
+        UPL_BETTER_AUTH_SECRET: store("store-secret"),
+      }),
+    ).toBe("plain-secret");
+  });
+
+  it("falls back to the store when the plain secret is unset", async () => {
     expect(
       await resolveSigningSecret({
         UPL_BETTER_AUTH_SECRET: store("store-secret"),
-        BETTER_AUTH_SECRET_DEV: "dev-secret",
       }),
     ).toBe("store-secret");
   });
 
-  it("falls back to BETTER_AUTH_SECRET_DEV when the store is empty", async () => {
+  it("falls back to the store when the plain secret is empty", async () => {
     expect(
       await resolveSigningSecret({
-        UPL_BETTER_AUTH_SECRET: store(""),
-        BETTER_AUTH_SECRET_DEV: "dev-secret",
+        BETTER_AUTH_SECRET: "",
+        UPL_BETTER_AUTH_SECRET: store("store-secret"),
       }),
-    ).toBe("dev-secret");
+    ).toBe("store-secret");
   });
 
-  it("falls back to BETTER_AUTH_SECRET_DEV when the store fails", async () => {
+  it("returns null when the store fails and no plain secret is set", async () => {
     expect(
       await resolveSigningSecret({
         UPL_BETTER_AUTH_SECRET: failingStore(),
-        BETTER_AUTH_SECRET_DEV: "dev-secret",
       }),
-    ).toBe("dev-secret");
+    ).toBeNull();
   });
 
   it("returns null when nothing resolves", async () => {
@@ -75,13 +82,23 @@ describe("resolveSigningSecret", () => {
 });
 
 describe("resolveGitHubCredentials", () => {
-  it("returns credentials when both id and secret resolve", async () => {
+  it("returns credentials when both id and secret resolve from the store", async () => {
     expect(
       await resolveGitHubCredentials({
         UPL_GITHUB_CLIENT_ID: store("id"),
         UPL_GITHUB_CLIENT_SECRET: store("secret"),
       }),
     ).toEqual({ clientId: "id", clientSecret: "secret" });
+  });
+
+  it("prefers plain vars over the store, per half", async () => {
+    expect(
+      await resolveGitHubCredentials({
+        GITHUB_CLIENT_ID: "plain-id",
+        UPL_GITHUB_CLIENT_ID: store("store-id"),
+        UPL_GITHUB_CLIENT_SECRET: store("store-secret"),
+      }),
+    ).toEqual({ clientId: "plain-id", clientSecret: "store-secret" });
   });
 
   it("gates on both halves — id only is not enough", async () => {
@@ -100,34 +117,38 @@ describe("resolveGitHubCredentials", () => {
     ).toBeNull();
   });
 
-  it("falls back to dev plain vars when the store is unpopulated", async () => {
+  it("resolves entirely from plain vars when the store is unset", async () => {
     expect(
       await resolveGitHubCredentials({
-        GITHUB_CLIENT_ID: "dev-id",
-        GITHUB_CLIENT_SECRET: "dev-secret",
+        GITHUB_CLIENT_ID: "plain-id",
+        GITHUB_CLIENT_SECRET: "plain-secret",
       }),
-    ).toEqual({ clientId: "dev-id", clientSecret: "dev-secret" });
+    ).toEqual({ clientId: "plain-id", clientSecret: "plain-secret" });
   });
 
-  it("returns null with neither store nor dev vars set", async () => {
+  it("returns null with neither plain vars nor store set", async () => {
     expect(await resolveGitHubCredentials({})).toBeNull();
   });
 });
 
 describe("resolveDashApiKey", () => {
-  it("prefers the store, falls back to BETTER_AUTH_API_KEY, else null", async () => {
+  it("prefers the plain BETTER_AUTH_API_KEY, falls back to the store, else null", async () => {
+    expect(
+      await resolveDashApiKey({
+        BETTER_AUTH_API_KEY: "plain-key",
+        UPL_BETTER_AUTH_API_KEY: store("store-key"),
+      }),
+    ).toBe("plain-key");
     expect(
       await resolveDashApiKey({
         UPL_BETTER_AUTH_API_KEY: store("store-key"),
-        BETTER_AUTH_API_KEY: "dev-key",
       }),
     ).toBe("store-key");
     expect(
       await resolveDashApiKey({
         UPL_BETTER_AUTH_API_KEY: failingStore(),
-        BETTER_AUTH_API_KEY: "dev-key",
       }),
-    ).toBe("dev-key");
+    ).toBeNull();
     expect(await resolveDashApiKey({})).toBeNull();
   });
 });

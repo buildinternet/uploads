@@ -3,14 +3,18 @@
 // here, mirroring apps/api/src/env.d.ts.
 interface Env {
   /**
-   * Dev-only fallback for the Better Auth signing secret. Preferred only when
-   * UPL_BETTER_AUTH_SECRET (Secrets Store) is unresolvable — see
-   * src/secrets.ts and the D7 footgun note there.
+   * The Better Auth signing secret (`wrangler secret put BETTER_AUTH_SECRET`).
+   * Preferred over the transitional `UPL_BETTER_AUTH_SECRET` Secrets Store
+   * binding declared in wrangler.jsonc — see src/secrets.ts and uploads#754
+   * item 2.
    */
-  BETTER_AUTH_SECRET_DEV?: string;
-  /** Dev plain fallback for UPL_BETTER_AUTH_API_KEY (mounts `dash()` when set). */
+  BETTER_AUTH_SECRET?: string;
+  /** Infra dashboard API key (mounts `dash()` when set). Preferred over the
+   * transitional `UPL_BETTER_AUTH_API_KEY` store binding. */
   BETTER_AUTH_API_KEY?: string;
-  /** Dev-only plain fallbacks for GitHub OAuth, gated the same way as the store pair. */
+  /** GitHub OAuth credentials, gated the same way as the store pair.
+   * Preferred over the transitional `UPL_GITHUB_CLIENT_ID`/`_SECRET` store
+   * bindings. */
   GITHUB_CLIENT_ID?: string;
   GITHUB_CLIENT_SECRET?: string;
   /** Comma-separated extra trusted origins (see src/trusted-origins.ts). */

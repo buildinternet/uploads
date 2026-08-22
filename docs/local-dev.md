@@ -125,7 +125,7 @@ Prefer the manual steps over `bootstrap`?
 ```bash
 pnpm install
 cp apps/api/.dev.vars.example apps/api/.dev.vars   # set ADMIN_TOKEN to any non-empty string
-cp apps/auth/.dev.vars.example apps/auth/.dev.vars # set a 32+ character BETTER_AUTH_SECRET_DEV
+cp apps/auth/.dev.vars.example apps/auth/.dev.vars # set a 32+ character BETTER_AUTH_SECRET
 cp .env.example .env                               # point UPLOADS_API_URL at http://127.0.0.1:8787
 pnpm types
 pnpm --filter @uploads/api run migrate:d1:local

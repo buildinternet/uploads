@@ -81,16 +81,22 @@
       "migrations_dir": "migrations",
     },
   ],
-  // Cloudflare Secrets Store, prefixed UPL_ (mirrors room-configurator's RS_
-  // convention — see D7). store_id below is the "releases" store, the only
-  // Secrets Store that already exists on the Build Internet account
-  // (confirmed via `wrangler secrets-store store list --remote`); it's
-  // shared across buildinternet-org repos the same way KV/D1 IDs are noted
-  // inline elsewhere in this repo. Wrangler FAILS a deploy when a declared
-  // secrets_store_secrets entry doesn't exist in the store yet. Until
-  // populated: GitHub stays omitted from socialProviders (D3), dash() stays
-  // omitted (no infra API key), and /api/auth/* answers 503 without a signing
-  // secret (see src/secrets.ts) rather than booting on an ephemeral secret.
+  // TRANSITIONAL (uploads#754 item 2) — these four are being moved off the
+  // account-level Secrets Store (store_id below is the "releases" store,
+  // shared across buildinternet-org repos — non-portable for a self-hoster,
+  // and each of these four secrets has exactly one consumer: this worker, so
+  // the store's cross-worker propagation never applied) onto plain per-worker
+  // secrets: BETTER_AUTH_SECRET, BETTER_AUTH_API_KEY, GITHUB_CLIENT_ID,
+  // GITHUB_CLIENT_SECRET (matching this repo's plain-secret naming
+  // elsewhere). src/secrets.ts now prefers the plain env var and falls back
+  // to the matching binding below only when the plain var is unset — kept
+  // here so a deploy stays safe before an operator has run `wrangler secret
+  // put` for all four. Once prod (and preview, if used) confirm the plain
+  // secrets are live, remove this block (and the matching one under
+  // `previews` below) and the UPL_* fallback branches in src/secrets.ts.
+  // Wrangler FAILS a deploy when a declared secrets_store_secrets entry
+  // doesn't exist in the store, which is why these stay populated rather
+  // than being deleted piecemeal.
   "secrets_store_secrets": [
     {
       "binding": "UPL_BETTER_AUTH_SECRET",
