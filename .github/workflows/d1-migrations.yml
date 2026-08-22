@@ -10,8 +10,11 @@
 # Token needs D1 edit in addition to Workers (Edit Cloudflare Workers template
 # alone is not always enough — add D1 write if apply fails with auth errors).
 #
-# apps/auth has its own migrations workflow (d1-migrations-auth.yml) so
-# auth-only changes don't trigger this apps/api job and vice versa.
+# Issue #754 item 1 cutover: this database now also holds Better Auth's
+# tables (apps/auth binds the same `DB` — see apps/auth/wrangler.jsonc). The
+# formerly separate d1-migrations-auth.yml workflow and apps/auth/migrations/
+# chain are retired; this is the single migration workflow for the whole
+# repo now.
 
 name: D1 Migrations
 

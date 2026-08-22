@@ -107,45 +107,33 @@ for app in api mcp web auth; do
 done
 
 # ── Local D1 ─────────────────────────────────────────────────────────────────
+# Single merged database since issue #754 item 1: apps/auth's local `wrangler
+# dev` is started with `--persist-to ../api/.wrangler/state` (see
+# scripts/dev-stack.mjs) so it shares this same local D1 state instead of
+# getting its own empty copy — there is nothing separate to check for auth.
 section "Local D1 database"
 D1_STATE="$ROOT/apps/api/.wrangler/state/v3/d1"
 if [ -d "$D1_STATE" ]; then
-  pass "local D1 state present (apps/api/.wrangler/state/v3/d1)"
+  pass "local D1 state present (apps/api/.wrangler/state/v3/d1) — includes auth's tables"
 else
-  warn "local D1 not built yet — enrollment / usage / gallery routes need migrations" \
+  warn "local D1 not built yet — enrollment / usage / gallery / auth routes need migrations" \
     "pnpm --filter @uploads/api run migrate:d1:local  (or: pnpm bootstrap)"
 fi
 
-AUTH_D1_STATE="$ROOT/apps/auth/.wrangler/state/v3/d1"
-if [ -d "$AUTH_D1_STATE" ]; then
-  pass "local Auth D1 state present (apps/auth/.wrangler/state/v3/d1)"
-else
-  warn "local Auth D1 not built yet — authenticated local stack needs migrations" \
-    "pnpm --filter @uploads/auth run migrate:d1:local  (or: pnpm bootstrap)"
-fi
-
-# Best-effort pending-migration checks. Always time-bound: unbounded
+# Best-effort pending-migration check. Always time-bound: unbounded
 # wrangler --local has orphaned multi-GB processes.
-check_local_migrations() {
-  local app="$1"
-  local label="$2"
-  local mig_out
+if [ -d "$ROOT/apps/api/node_modules/wrangler" ] || [ -d "$ROOT/node_modules/wrangler" ]; then
   mig_out="$(
-    run_with_timeout 30 pnpm --filter "@uploads/$app" exec wrangler d1 migrations list DB --local 2>/dev/null || true
+    run_with_timeout 30 pnpm --filter @uploads/api exec wrangler d1 migrations list DB --local 2>/dev/null || true
   )"
   if printf '%s\n' "$mig_out" | grep -qiE 'No migrations.*(to apply|pending|waiting)'; then
-    pass "no pending local ${label}D1 migrations"
+    pass "no pending local D1 migrations"
   elif printf '%s\n' "$mig_out" | grep -qE 'Migrations to be applied|┌─'; then
-    warn "local ${label}D1 has pending migrations" \
-      "pnpm --filter @uploads/$app run migrate:d1:local"
+    warn "local D1 has pending migrations" \
+      "pnpm --filter @uploads/api run migrate:d1:local"
   else
-    info "could not parse local ${label}D1 migration status — skip if migrate:d1:local already ran"
+    info "could not parse local D1 migration status — skip if migrate:d1:local already ran"
   fi
-}
-
-if [ -d "$ROOT/apps/api/node_modules/wrangler" ] || [ -d "$ROOT/node_modules/wrangler" ]; then
-  check_local_migrations api ""
-  check_local_migrations auth "Auth "
 fi
 
 # ── Local workspace registry ─────────────────────────────────────────────────

@@ -79,15 +79,19 @@
   "triggers": {
     "crons": ["15 6 * * *", "*/5 * * * *"],
   },
-  // Dedicated D1 database (see docs/superpowers/plans/2026-07-12-better-auth-introduction.md,
-  // decision D1) — auth tables never live in uploads-production. Database
-  // created 2026-07-12 (region ENAM); migrations in ./migrations.
+  // Issue #754 item 1 cutover (2026-08): auth tables now live in the main
+  // uploads-production database, shared with apps/api — the original
+  // dedicated `uploads-auth` database (created 2026-07-12, see
+  // docs/superpowers/plans/2026-07-12-better-auth-introduction.md, decision
+  // D1) is decommissioned. No `migrations_dir` here: the merged migration
+  // chain lives in apps/api/migrations and is applied by
+  // .github/workflows/d1-migrations.yml against apps/api's own
+  // wrangler.jsonc — this worker owns no migrations of its own to apply.
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "uploads-auth",
-      "database_id": "24eb8b7f-5dff-46bc-a1a5-fa436810805d",
-      "migrations_dir": "migrations",
+      "database_name": "uploads-production",
+      "database_id": "5f73946b-edd5-414c-856c-8f9bd3c644ba",
     },
   ],
   // Plain per-worker secrets (uploads#754 item 2 — moved off the
@@ -161,21 +165,24 @@
   // override it per-preview (dashboard → the Preview's settings) before
   // exercising auth flows. The GitHub OAuth app only registers production
   // callback URLs, so social login cannot work on a preview; magic-link and
-  // session flows can once BETTER_AUTH_URL is set. Auth state must never be
-  // shared, so previews get their own D1. Bindings do NOT inherit from the
-  // production config — a preview gets only what this block lists — so
-  // EMAIL, the API service binding (always calls production uploads-api),
-  // and the rate limiter are repeated verbatim. The eight plain secrets
-  // above are NOT bindings declared per-config-block — they live on the
-  // Worker script itself, so previews see the same ones prod does unless a
-  // branch overrides one with `wrangler preview secret put`. Note a preview
-  // CAN send real mail from noreply@uploads.sh, but only explicit flows
-  // (magic links) do.
+  // session flows can once BETTER_AUTH_URL is set. Bindings do NOT inherit
+  // from the production config — a preview gets only what this block
+  // lists — so EMAIL, the API service binding (always calls production
+  // uploads-api), and the rate limiter are repeated verbatim. The eight
+  // plain secrets above are NOT bindings declared per-config-block — they
+  // live on the Worker script itself, so previews see the same ones prod
+  // does unless a branch overrides one with `wrangler preview secret put`.
+  // Note a preview CAN send real mail from noreply@uploads.sh, but only
+  // explicit flows (magic links) do.
   //
-  // One-time setup (migrations go through wrangler.preview.jsonc — the
-  // `d1 migrations` command cannot see databases declared inside `previews`):
-  //   wrangler d1 create uploads-auth-preview
-  //   wrangler d1 migrations apply uploads-auth-preview --remote -c apps/auth/wrangler.preview.jsonc
+  // Issue #754 item 1 cutover (2026-08): the preview D1 is now
+  // `uploads-preview`, the same shared preview database apps/api's own
+  // `previews` block points at (the old dedicated `uploads-auth-preview`
+  // database and apps/auth/wrangler.preview.jsonc are decommissioned).
+  // Migrations for it run through apps/api/wrangler.preview.jsonc — the
+  // `d1 migrations` command cannot see databases declared inside
+  // `previews`, and this worker owns no migrations of its own:
+  //   wrangler d1 migrations apply uploads-preview --remote -c apps/api/wrangler.preview.jsonc
   "previews": {
     "vars": {
       // #731 phase C: mirrors the top-level flip above (previews blocks do
@@ -189,9 +196,8 @@
     "d1_databases": [
       {
         "binding": "DB",
-        "database_name": "uploads-auth-preview",
-        "database_id": "8f581b6a-6238-4153-a846-a94b83cac86c",
-        "migrations_dir": "migrations",
+        "database_name": "uploads-preview",
+        "database_id": "b8c82095-b471-4e3a-8634-56e0861e43f1",
       },
     ],
     "send_email": [{ "name": "EMAIL", "allowed_sender_addresses": ["noreply@uploads.sh"] }],

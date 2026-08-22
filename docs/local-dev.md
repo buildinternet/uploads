@@ -128,8 +128,7 @@ cp apps/api/.dev.vars.example apps/api/.dev.vars   # set ADMIN_TOKEN to any non-
 cp apps/auth/.dev.vars.example apps/auth/.dev.vars # set a 32+ character BETTER_AUTH_SECRET
 cp .env.example .env                               # point UPLOADS_API_URL at http://127.0.0.1:8787
 pnpm types
-pnpm --filter @uploads/api run migrate:d1:local
-pnpm --filter @uploads/auth run migrate:d1:local
+pnpm --filter @uploads/api run migrate:d1:local    # single merged chain — includes auth's tables (#754 item 1)
 pnpm workspace:add default --local                 # prints a bearer token once — save to .env
 pnpm dev
 ```

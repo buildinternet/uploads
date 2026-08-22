@@ -136,11 +136,17 @@ async function main() {
   const authVars =
     `--var LOCAL_STACK:true --var ENVIRONMENT:development ` +
     `--var BETTER_AUTH_URL:${WEB_ORIGIN} --var WEB_ORIGIN:${WEB_ORIGIN}`;
+  // --persist-to points auth's local D1 simulation at apps/api's own
+  // .wrangler/state directory (issue #754 item 1 cutover): both workers now
+  // bind the same database_id, and wrangler's local D1 state is otherwise
+  // keyed by cwd, so without this each worker would get its own empty local
+  // copy instead of sharing the one apps/api's migrate:d1:local populates.
+  const authPersist = "--persist-to ../api/.wrangler/state";
   start(
     "auth",
     portlessWrap(
       `auth.${PORTLESS_BASE}`,
-      `pnpm --filter @uploads/auth exec wrangler dev --local --ip 127.0.0.1 --port "$PORT" ${authVars}`,
+      `pnpm --filter @uploads/auth exec wrangler dev --local ${authPersist} --ip 127.0.0.1 --port "$PORT" ${authVars}`,
     ) ?? [
       "--filter",
       "@uploads/auth",
@@ -148,6 +154,8 @@ async function main() {
       "wrangler",
       "dev",
       "--local",
+      "--persist-to",
+      "../api/.wrangler/state",
       "--ip",
       "127.0.0.1",
       "--port",
