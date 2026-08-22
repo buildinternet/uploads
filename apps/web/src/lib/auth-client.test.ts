@@ -6,6 +6,7 @@ import {
   getOAuthPublicClient,
   getSession,
   isBannedAuthError,
+  isOAuthQueryExpired,
   linkGitHub,
   listAccounts,
   listAdminUsers,
@@ -632,7 +633,62 @@ describe("submitOAuthConsent", () => {
     );
     await expect(
       submitOAuthConsent("https://auth.uploads.sh", { accept: false, oauthQuery: "sig=x" }),
-    ).resolves.toEqual({ ok: false, error: "expired request" });
+    ).resolves.toEqual({ ok: false, error: "expired request", permanent: false });
+  });
+
+  it("maps a bare invalid_signature envelope to actionable, permanent copy", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ error: "invalid_signature" }, { status: 400 })),
+    );
+    await expect(
+      submitOAuthConsent("https://auth.uploads.sh", { accept: false, oauthQuery: "sig=x" }),
+    ).resolves.toEqual({
+      ok: false,
+      error:
+        "This authorization request has expired. Return to the app you were connecting and start the connection again.",
+      permanent: true,
+    });
+  });
+
+  it("prefers error_description over the code map, but still flags as permanent", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json(
+          { error: "invalid_signature", error_description: "signature mismatch" },
+          { status: 400 },
+        ),
+      ),
+    );
+    await expect(
+      submitOAuthConsent("https://auth.uploads.sh", { accept: false, oauthQuery: "sig=x" }),
+    ).resolves.toEqual({ ok: false, error: "signature mismatch", permanent: true });
+  });
+
+  it("falls back to the generic message for an unknown error code, not permanent", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ error: "server_error" }, { status: 500 })),
+    );
+    await expect(
+      submitOAuthConsent("https://auth.uploads.sh", { accept: false, oauthQuery: "sig=x" }),
+    ).resolves.toEqual({ ok: false, error: "Something went wrong. Try again.", permanent: false });
+  });
+});
+
+describe("isOAuthQueryExpired", () => {
+  it("is true once exp (unix seconds) has elapsed", () => {
+    const now = 1_700_000_000_000;
+    expect(isOAuthQueryExpired("?client_id=c1&exp=1699999999", now)).toBe(true);
+    expect(isOAuthQueryExpired("client_id=c1&exp=1699999999", now)).toBe(true);
+  });
+
+  it("is false when exp is in the future or missing/malformed", () => {
+    const now = 1_700_000_000_000;
+    expect(isOAuthQueryExpired("?client_id=c1&exp=1700000001", now)).toBe(false);
+    expect(isOAuthQueryExpired("?client_id=c1", now)).toBe(false);
+    expect(isOAuthQueryExpired("?client_id=c1&exp=not-a-number", now)).toBe(false);
   });
 });
 

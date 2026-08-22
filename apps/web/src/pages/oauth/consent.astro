@@ -190,6 +190,10 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
         </div>
       </div>
 
+      <div id="expired-request" hidden>
+        <div class="ul-callout status" data-state="error" role="alert" id="expired-message"></div>
+      </div>
+
       <div id="signed-out" hidden>
         <p>
           Sign in to review this request. <a class="linklike" id="signin-link" href="/login"
@@ -250,7 +254,9 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
         getOAuthPublicClient,
         getOAuthWorkspaceChoice,
         getSession,
+        isOAuthQueryExpired,
         listOrganizations,
+        OAUTH_QUERY_EXPIRED_MESSAGE,
         repairOAuthQuery,
         setOAuthWorkspaceChoice,
         submitOAuthConsent,
@@ -270,6 +276,8 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
       const checking = requireElement<HTMLElement>("#checking");
       const authUnavailable = requireElement<HTMLElement>("#auth-unavailable");
       const noRequest = requireElement<HTMLElement>("#no-request");
+      const expiredRequest = requireElement<HTMLElement>("#expired-request");
+      const expiredMessage = requireElement<HTMLElement>("#expired-message");
       const signedOut = requireElement<HTMLElement>("#signed-out");
       const signinLink = requireElement<HTMLAnchorElement>("#signin-link");
       const noWorkspace = requireElement<HTMLElement>("#no-workspace");
@@ -317,6 +325,7 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
           checking,
           authUnavailable,
           noRequest,
+          expiredRequest,
           signedOut,
           noWorkspace,
           confirmBox,
@@ -388,6 +397,16 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
       async function proceed() {
         hideAll();
         checking.hidden = false;
+
+        // Renders the permanent expired state up front instead of waiting on
+        // a POST /oauth2/consent that can only come back invalid_signature —
+        // verifyOAuthQueryParams checks `exp` the same way (see auth-client.ts).
+        if (isOAuthQueryExpired(location.search)) {
+          hideAll();
+          expiredMessage.textContent = OAUTH_QUERY_EXPIRED_MESSAGE;
+          expiredRequest.hidden = false;
+          return;
+        }
 
         if (!clientId) {
           hideAll();
@@ -476,8 +495,13 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
           oauthQuery,
         });
         if (!result.ok) {
-          allowBtn.disabled = false;
-          denyBtn.disabled = false;
+          // A permanent failure (e.g. the signed query no longer verifies)
+          // can't be fixed by clicking Allow/Deny again — leave the buttons
+          // disabled instead of inviting a doomed retry.
+          if (!result.permanent) {
+            allowBtn.disabled = false;
+            denyBtn.disabled = false;
+          }
           confirmError.textContent = result.error;
           confirmError.hidden = false;
           return;
