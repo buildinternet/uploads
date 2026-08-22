@@ -126,8 +126,8 @@ describe("signed-in / auth CSP builders", () => {
     expect(csp).toContain("'self'");
     expect(csp).toContain("https://cloudflareinsights.com");
     expect(csp).toContain("script-src 'self' 'unsafe-inline'");
-    expect(csp).toContain("img-src data:");
-    expect(csp).not.toContain("img-src data: https:");
+    expect(csp).toContain("img-src 'self' data:");
+    expect(csp).not.toContain("img-src 'self' data: https:");
     expect(csp).not.toContain(API);
     expect(csp).toContain("frame-ancestors 'none'");
   });
@@ -136,8 +136,8 @@ describe("signed-in / auth CSP builders", () => {
     const csp = devicePageCsp(AUTH, API);
     expect(csp).toContain(`connect-src ${AUTH} ${API}`);
     // Still an auth page: data: images only, unlike signedInCsp.
-    expect(csp).toContain("img-src data:");
-    expect(csp).not.toContain("img-src data: https:");
+    expect(csp).toContain("img-src 'self' data:");
+    expect(csp).not.toContain("img-src 'self' data: https:");
     expect(csp).toContain("frame-ancestors 'none'");
     expect(csp).toContain("form-action 'none'");
 
@@ -188,7 +188,7 @@ describe("signed-in / auth CSP builders", () => {
     expect(INVITE_CSP).toContain("'self'");
     expect(INVITE_CSP).toContain("https://cloudflareinsights.com");
     expect(INVITE_CSP).toContain("frame-ancestors 'none'");
-    expect(INVITE_CSP).toContain("img-src data:");
+    expect(INVITE_CSP).toContain("img-src 'self' data:");
   });
 
   it("applyAuthSecurityHeaders matches public-file baseline + page CSP", () => {
