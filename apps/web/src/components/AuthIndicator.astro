@@ -198,6 +198,12 @@ const MENU_ITEMS = [
       signOutBtn?.addEventListener(
         "click",
         () => {
+          // The sign-out POST must complete before navigating (its response
+          // clears the session cookie), so show a pending state for the
+          // round-trip instead of a dead button.
+          if (signOutBtn.disabled) return;
+          signOutBtn.disabled = true;
+          signOutBtn.textContent = "Signing out…";
           clearCachedSessionUser();
           paintHeaderFiles(false);
           void signOut(origin).then(() => {
@@ -393,5 +399,11 @@ const MENU_ITEMS = [
   .auth-indicator :global(.auth-menu__signout:focus-visible) {
     color: var(--red, #d98a9c);
     background: color-mix(in srgb, var(--red, #d98a9c) 10%, transparent);
+  }
+  .auth-indicator :global(.auth-menu__signout:disabled) {
+    color: var(--muted, #8a8a83);
+    background: none;
+    opacity: 0.6;
+    cursor: wait;
   }
 </style>
