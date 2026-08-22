@@ -183,11 +183,15 @@ fi
 AUTH_DEV_VARS="$ROOT/apps/auth/.dev.vars"
 if [ -f "$AUTH_DEV_VARS" ]; then
   pass "apps/auth/.dev.vars present"
-  if grep -qE '^BETTER_AUTH_SECRET_DEV=.+$' "$AUTH_DEV_VARS"; then
-    pass "BETTER_AUTH_SECRET_DEV is set (local Auth can issue stable sessions)"
+  if grep -qE '^BETTER_AUTH_SECRET=.+$' "$AUTH_DEV_VARS"; then
+    pass "BETTER_AUTH_SECRET is set (local Auth can issue stable sessions)"
   else
-    warn "BETTER_AUTH_SECRET_DEV is empty — local Auth returns 503" \
+    warn "BETTER_AUTH_SECRET is empty — local Auth returns 503" \
       "set a random 32+ character value in apps/auth/.dev.vars  (or: pnpm bootstrap)"
+  fi
+  # #754 rename: the old key is no longer read by apps/auth/src/secrets.ts.
+  if grep -qE '^BETTER_AUTH_SECRET_DEV=.+$' "$AUTH_DEV_VARS"; then
+    info "legacy BETTER_AUTH_SECRET_DEV found — unused since #754; safe to delete (pnpm bootstrap migrates its value to BETTER_AUTH_SECRET)"
   fi
   if grep -qE '^ENVIRONMENT=development$' "$AUTH_DEV_VARS"; then
     pass "Auth ENVIRONMENT is development"

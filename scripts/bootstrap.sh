@@ -139,10 +139,14 @@ if have openssl; then
   # Optional encryption key for BYO S3 credentials in REGISTRY — harmless if unused.
   ensure_secret "$DEV_VARS" "WORKSPACE_SECRETS_KEY" "$(openssl rand -base64 32)" \
     "local encryption for BYO workspace secrets in REGISTRY KV"
-  ensure_secret "$AUTH_DEV_VARS" "BETTER_AUTH_SECRET_DEV" "$(openssl rand -base64 32)" \
+  # #754 renamed the auth signing secret BETTER_AUTH_SECRET_DEV → BETTER_AUTH_SECRET;
+  # carry over an existing legacy value so local sessions stay valid.
+  AUTH_SECRET_VALUE="$(grep -E '^BETTER_AUTH_SECRET_DEV=.+$' "$AUTH_DEV_VARS" 2>/dev/null | head -n1 | cut -d= -f2-)"
+  [ -n "$AUTH_SECRET_VALUE" ] || AUTH_SECRET_VALUE="$(openssl rand -base64 32)"
+  ensure_secret "$AUTH_DEV_VARS" "BETTER_AUTH_SECRET" "$AUTH_SECRET_VALUE" \
     "local Better Auth signing secret (never used in production)"
 else
-  note "openssl not found — set API secrets and BETTER_AUTH_SECRET_DEV in local .dev.vars files by hand"
+  note "openssl not found — set API secrets and BETTER_AUTH_SECRET in local .dev.vars files by hand"
 fi
 
 # Point the root client .env at local wrangler if still on the prod defaults.
