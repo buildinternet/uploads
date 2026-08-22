@@ -159,39 +159,98 @@ export interface ResolvedLane extends LaneConfig {
 }
 
 /**
- * Walk lanes in order (active, then fallbacks) — first `store.exists(key)`
- * hit wins. Returns `null` when the key exists in no lane. Resolves lazily:
- * a fallback lane's config (and its credential decrypt) is only resolved
- * once every earlier lane has missed, so the common case — the active lane
- * has the key — never touches fallback credentials at all. Single-lane
- * records short-circuit to the current behavior: exactly one `exists` call.
+ * Resolves and caches each lane's store/config at most once per resolver
+ * instance — a batch of `resolve()` calls against many keys (gallery
+ * hydration, comment poster URLs, …) shares one active-lane resolve and one
+ * resolve per *distinct* fallback lane actually needed, instead of
+ * re-decrypting the same lane's credentials on every call. `resolveObjectLane`
+ * below is exactly `createLaneResolver(env, ws).resolve(key)` for a single
+ * lookup — both share this same lazy, cached machinery.
  */
+export interface LaneResolver {
+  /**
+   * Walk lanes in order (active, then fallbacks) — first `store.exists(key)`
+   * hit wins. Returns `null` when the key exists in no lane. Resolves
+   * lazily: a fallback lane's config (and its credential decrypt) is only
+   * resolved once some earlier call has missed every lane before it, so the
+   * common case — the active lane has the key — never touches fallback
+   * credentials at all. Single-lane records short-circuit to exactly one
+   * `exists` call.
+   */
+  resolve(key: string): Promise<ResolvedLane | null>;
+  /** The active lane's store, resolved (and cached) the same way `resolve` would — for a caller that already knows it's writing to (or otherwise doesn't need to search past) the active lane. */
+  activeStore(): Promise<Files>;
+  /** The active lane's config, resolved (and cached) the same way `resolve` would. */
+  activeConfig(): Promise<StorageConfig>;
+}
+
+export function createLaneResolver(env: Env, ws: WorkspaceRecord): LaneResolver {
+  let activePromise: Promise<{ store: Files; config: StorageConfig }> | undefined;
+  const active = () => {
+    activePromise ??= (async () => {
+      const config = await storageConfig(env, ws);
+      return { store: createStorage(config), config };
+    })();
+    return activePromise;
+  };
+
+  const fallbackPromises = new Map<
+    string,
+    Promise<{ store: Files; config: StorageConfig } | null>
+  >();
+  const fallback = (lane: StorageLane) => {
+    let promise = fallbackPromises.get(lane.id);
+    if (!promise) {
+      promise = (async () => {
+        const config = await resolveFallbackLane(env, lane);
+        return config ? { store: createStorage(config), config } : null;
+      })();
+      fallbackPromises.set(lane.id, promise);
+    }
+    return promise;
+  };
+
+  return {
+    async activeStore() {
+      return (await active()).store;
+    },
+    async activeConfig() {
+      return (await active()).config;
+    },
+    async resolve(key) {
+      const { store: activeStore, config: activeConfig } = await active();
+      if (await activeStore.exists(key)) {
+        return {
+          store: activeStore,
+          config: activeConfig,
+          laneId: ws.storageLaneId ?? null,
+          role: "active",
+        };
+      }
+      for (const lane of ws.storageLanes ?? []) {
+        const resolved = await fallback(lane);
+        if (!resolved) continue;
+        if (await resolved.store.exists(key)) {
+          return {
+            store: resolved.store,
+            config: resolved.config,
+            laneId: lane.id,
+            role: "fallback",
+          };
+        }
+      }
+      return null;
+    },
+  };
+}
+
+/** Single-lookup convenience wrapper over `createLaneResolver` — see its docs for the lazy/cached resolution contract. A caller resolving several keys against the same `ws` should build one resolver and call `.resolve()` on it directly instead. */
 export async function resolveObjectLane(
   env: Env,
   ws: WorkspaceRecord,
   key: string,
 ): Promise<ResolvedLane | null> {
-  const activeConfig = await storageConfig(env, ws);
-  const activeStore = createStorage(activeConfig);
-  if (await activeStore.exists(key)) {
-    return {
-      store: activeStore,
-      config: activeConfig,
-      laneId: ws.storageLaneId ?? null,
-      role: "active",
-    };
-  }
-
-  for (const lane of ws.storageLanes ?? []) {
-    const config = await resolveFallbackLane(env, lane);
-    if (!config) continue;
-    const store = createStorage(config);
-    if (await store.exists(key)) {
-      return { store, config, laneId: lane.id, role: "fallback" };
-    }
-  }
-
-  return null;
+  return createLaneResolver(env, ws).resolve(key);
 }
 
 export { publicUrl };

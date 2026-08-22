@@ -12,7 +12,7 @@ import { getMetadataForKeys } from "./file-metadata";
 import { findGalleriesByReference, listGalleryItems, type GalleryCursor } from "./galleries";
 import { galleryUrl, hydrateOwnerGallery } from "./gallery-service";
 import { parseExternalReference } from "./external-references";
-import { objectPublicUrls, storageConfig } from "./storage";
+import { createLaneResolver, objectPublicUrls } from "./storage";
 import { posterKeyFor } from "./poster";
 import { listActivePrefixIds } from "./github-private-prefixes";
 import type { WorkspaceRecord } from "./workspace";
@@ -176,7 +176,13 @@ async function gatherAttachments(
     items.map((item) => item.key),
     { metaKeys: COMMENT_META_KEYS },
   );
-  const cfg = await storageConfig(env, ws);
+  // Two-lane storage (PR C simplify follow-up): the poster resolves its OWN
+  // lane rather than the active one — `item.url`/`embedUrl` above already
+  // came from whichever lane `listObjects` found the primary key in, but a
+  // poster is a distinct key that needs its own lookup (they're written
+  // together at upload time, but a workspace can switch lanes afterward).
+  // `resolver` caches lane store/config across every item in this batch.
+  const resolver = createLaneResolver(env, ws);
   for (const item of items) {
     const meta = metaByKey.get(item.key);
     if (!meta) continue;
@@ -185,10 +191,15 @@ async function gatherAttachments(
       item.meta = { ...(path ? { path } : {}), ...(state ? { state } : {}) };
     }
     // `video.poster` is a presence flag only. The URL is always recomputed
-    // from the object key, so a client-settable row can never decide what
-    // image renders in a public comment.
+    // from the object key (never trusted from a stored row), and only
+    // rendered when the poster actually resolves to a lane — a
+    // client-settable metadata row can never conjure a URL for bytes that
+    // don't exist.
     if (meta["video.poster"] === "1") {
-      const posterUrls = objectPublicUrls(env, cfg, posterKeyFor(item.key));
+      const posterLane = await resolver.resolve(posterKeyFor(item.key));
+      const posterUrls = posterLane
+        ? objectPublicUrls(env, posterLane.config, posterKeyFor(item.key))
+        : { url: null, embedUrl: null };
       item.posterUrl = posterUrls.embedUrl ?? posterUrls.url;
       const duration = Number(meta["video.duration"]);
       const width = Number(meta["video.width"]);

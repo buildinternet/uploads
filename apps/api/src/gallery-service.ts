@@ -22,7 +22,7 @@ import {
   projectPublicGallery,
 } from "./galleries";
 import { resolveTitles, withPublicTitleBudget, type TitleInfo } from "./github-titles";
-import { objectPublicUrls, storage, storageConfig } from "./storage";
+import { createLaneResolver, objectPublicUrls, type LaneResolver } from "./storage";
 import type { StorageConfig } from "@uploads/storage";
 import { objectVisibility } from "./visibility";
 import { webOrigin } from "./web-url";
@@ -281,25 +281,39 @@ export async function hydrateGalleryItems(
   items: GalleryItemRecord[],
   opts: { audience: "owner" | "public" } = { audience: "owner" },
 ): Promise<Omit<GalleryItemDto, "pageUrl">[]> {
-  let store: Awaited<ReturnType<typeof storage>>;
-  let config: Awaited<ReturnType<typeof storageConfig>>;
+  // Two-lane storage (PR C audit): each item resolves its OWN lane via a
+  // shared `LaneResolver` — a gallery can reference objects uploaded before
+  // a storage switch, and the resolver caches each lane's store/config
+  // across all of this gallery's items instead of re-resolving (and
+  // re-decrypting a fallback lane's credentials) per item. Confirm the
+  // active lane itself resolves up front so a misconfigured workspace still
+  // fails fast with the same error as before, rather than failing per-item
+  // deep inside `mapBounded`.
+  const resolver = createLaneResolver(env, workspace);
   try {
-    [store, config] = await Promise.all([storage(env, workspace), storageConfig(env, workspace)]);
+    await resolver.activeConfig();
   } catch (cause) {
     throw new ServiceUnavailableError("Gallery storage unavailable.", {
       code: "gallery_storage_unavailable",
       cause,
     });
   }
+  const laneConfigByKey = new Map<string, StorageConfig>();
   const hydrated = await mapBounded(
     items,
     8,
     async (item): Promise<Omit<GalleryItemDto, "pageUrl">> => {
       let meta: GalleryObjectHead | null;
+      let itemConfig: StorageConfig | null = null;
       try {
-        meta = (await store.exists(item.object_key))
-          ? ((await store.head(item.object_key)) as GalleryObjectHead)
-          : null;
+        const lane = await resolver.resolve(item.object_key);
+        if (lane) {
+          itemConfig = lane.config;
+          laneConfigByKey.set(item.object_key, lane.config);
+          meta = (await lane.store.head(item.object_key)) as GalleryObjectHead;
+        } else {
+          meta = null;
+        }
       } catch (cause) {
         throw new ServiceUnavailableError("Gallery storage unavailable.", {
           code: "gallery_storage_unavailable",
@@ -309,8 +323,8 @@ export async function hydrateGalleryItems(
       const isPrivate = meta ? objectVisibility(meta.metadata) === "private" : false;
       const withheld = opts.audience === "public" && isPrivate;
       const urls =
-        meta && !withheld
-          ? objectPublicUrls(env, config, item.object_key)
+        meta && !withheld && itemConfig
+          ? objectPublicUrls(env, itemConfig, item.object_key)
           : { url: null, embedUrl: null };
       if (meta && !withheld && urls.url === null)
         throw new ServiceUnavailableError("Gallery object is not publicly served.", {
@@ -349,10 +363,14 @@ export async function hydrateGalleryItems(
       });
       for (const item of hydrated) {
         const metadata = metadataByKey.get(item.objectKey);
-        if (!metadata) continue;
+        // Same lane the primary object resolved from above — posters are
+        // written alongside their video at upload time, so they live in the
+        // same lane by construction.
+        const itemConfig = laneConfigByKey.get(item.objectKey);
+        if (!metadata || !itemConfig) continue;
         const { posterUrl, videoDimensions } = videoPresentation(
           env,
-          config,
+          itemConfig,
           item.objectKey,
           metadata,
         );
@@ -400,27 +418,32 @@ function isPreviewImageKey(key: string): boolean {
 }
 
 /**
- * Storage config for building preview URLs, or `null` when it can't be
- * resolved. The list endpoint historically needed no storage at all, so a
- * misconfigured/undecryptable workspace must degrade to no thumbnails rather
- * than 503 the whole list (unlike `hydrateGalleryItems`, which does hard-fail).
+ * Cover URL for one gallery, or `null` unless it's a still image the caller
+ * can actually resolve to a lane. Two-lane storage (PR C audit): this now
+ * resolves the cover key's owning lane via `resolver` — a cover uploaded
+ * before a storage switch previously derived the wrong (active-lane) host.
+ * `resolver` caches lane store/config across every gallery in one
+ * `galleryListSummaries` call, so this costs one `exists` probe per
+ * *distinct* cover key, not a re-decrypt per gallery. The list endpoint
+ * historically needed no storage existence check at all — a
+ * misconfigured/undecryptable workspace, or a lane resolve failure, must
+ * still degrade to no thumbnail rather than 503 the whole list (unlike
+ * `hydrateGalleryItems`, which hard-fails).
  */
-async function galleryPreviewConfig(env: Env, ws: WorkspaceRecord): Promise<StorageConfig | null> {
+async function previewUrlForKey(
+  env: Env,
+  resolver: LaneResolver,
+  key: string | null,
+): Promise<string | null> {
+  if (!key || !isPreviewImageKey(key)) return null;
+  let lane: Awaited<ReturnType<LaneResolver["resolve"]>>;
   try {
-    return await storageConfig(env, ws);
+    lane = await resolver.resolve(key);
   } catch {
     return null;
   }
-}
-
-/** Cover URL for one gallery: pure key→URL, no head. `null` unless it's a still image on a public workspace. */
-function previewUrlForKey(
-  env: Env,
-  config: StorageConfig | null,
-  key: string | null,
-): string | null {
-  if (!config || !key || !isPreviewImageKey(key)) return null;
-  const { url, embedUrl } = objectPublicUrls(env, config, key);
+  if (!lane) return null;
+  const { url, embedUrl } = objectPublicUrls(env, lane.config, key);
   return embedUrl ?? url;
 }
 
@@ -441,25 +464,27 @@ export async function galleryListSummaries(
   const coverIds = records
     .map((record) => record.cover_item_id)
     .filter((id): id is string => id !== null);
-  const [itemCounts, refsByGallery, firstKeys, coverKeys, config] = await Promise.all([
+  const [itemCounts, refsByGallery, firstKeys, coverKeys] = await Promise.all([
     countItemsForGalleries(env.DB, name, ids),
     listExternalReferencesForGalleries(env.DB, name, ids),
     firstItemKeyForGalleries(env.DB, name, ids),
     itemKeysByIds(env.DB, name, coverIds),
-    galleryPreviewConfig(env, workspace),
   ]);
-  return records.map((record) => {
-    const coverKey =
-      (record.cover_item_id ? coverKeys.get(record.cover_item_id) : undefined) ??
-      firstKeys.get(record.id) ??
-      null;
-    return {
-      ...gallerySummary(env, record),
-      itemCount: itemCounts.get(record.id) ?? 0,
-      references: (refsByGallery.get(record.id) ?? []).map(referenceDto),
-      previewUrl: previewUrlForKey(env, config, coverKey),
-    };
-  });
+  const resolver = createLaneResolver(env, workspace);
+  return Promise.all(
+    records.map(async (record) => {
+      const coverKey =
+        (record.cover_item_id ? coverKeys.get(record.cover_item_id) : undefined) ??
+        firstKeys.get(record.id) ??
+        null;
+      return {
+        ...gallerySummary(env, record),
+        itemCount: itemCounts.get(record.id) ?? 0,
+        references: (refsByGallery.get(record.id) ?? []).map(referenceDto),
+        previewUrl: await previewUrlForKey(env, resolver, coverKey),
+      };
+    }),
+  );
 }
 
 export async function hydrateOwnerGallery(

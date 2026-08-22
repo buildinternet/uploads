@@ -102,6 +102,7 @@ async function makeEnv(
   opts: {
     rateLimitOk?: boolean;
     scopedToken?: { rawToken: string; scopes: string[]; mintingUserId?: string };
+    extraBindings?: Record<string, FakeR2Bucket>;
   } = {},
 ) {
   const record: WorkspaceRecord = {
@@ -133,6 +134,7 @@ async function makeEnv(
     // metering; file_metadata reads/writes are backed by makeFakeDB's store.
     DB: db,
     UPLOADS_DEFAULT: bucket,
+    ...opts.extraBindings,
     WRITE_LIMITER: { limit: async () => ({ success: opts.rateLimitOk ?? true }) },
     WEB_ORIGIN: "https://uploads.sh",
     // Uploader attribution (issue #340) defaults: empty login cache, no
@@ -146,6 +148,21 @@ async function makeEnv(
     },
   };
   return { env, bucket, db };
+}
+
+/** A fallback `StorageLane` (customer bucket, binding-mode) demoted after a
+ * storage switch — used by the PR C lane-aware read-path tests below. */
+function fallbackLane(overrides: Partial<import("../src/workspace").StorageLane> = {}) {
+  return {
+    id: "lane_fallback1",
+    provider: "r2",
+    bucket: "customer-bucket",
+    binding: "UPLOADS_FALLBACK",
+    prefix: "legacy/",
+    lastActiveAt: "2026-08-01T00:00:00.000Z",
+    publicBaseUrl: "https://storage.customer.example.com",
+    ...overrides,
+  };
 }
 
 /** PUT the standard test key with auth, letting each test vary body/headers/env. */
@@ -312,6 +329,28 @@ describe("PUT /v1/:workspace/files upload guardrails", () => {
     expect(res.status).toBe(400);
   });
 
+  // Task C2 (two-lane storage, PR C): a strict key that exists only in a
+  // fallback lane still counts as "would overwrite" — the preview URL comes
+  // from that lane, not the (empty, on this key) active lane.
+  it("dry run reports replaced=true from a fallback-only key, with that lane's URL", async () => {
+    const fallbackBucket = new FakeR2Bucket();
+    await fallbackBucket.put("legacy/screenshots/shot.png", PNG);
+    const { env } = await makeEnv(
+      { storageLaneId: "lane_active1", storageLanes: [fallbackLane()] },
+      { extraBindings: { UPLOADS_FALLBACK: fallbackBucket } },
+    );
+    const res = await app.request(
+      "/v1/default/files/screenshots/shot.png?dryRun=1",
+      { method: "PUT", headers: { Authorization: `Bearer ${TOKEN}` }, body: new Uint8Array(0) },
+      env,
+    );
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { replaced: boolean; wouldRefuse: boolean; url: string };
+    expect(json.replaced).toBe(true);
+    expect(json.wouldRefuse).toBe(true);
+    expect(json.url).toBe("https://storage.customer.example.com/legacy/screenshots/shot.png");
+  });
+
   it("stores allowlisted provenance metadata and returns it on put + head", async () => {
     const { env, bucket } = await makeEnv();
     const res = await putShot(env, {
@@ -418,6 +457,33 @@ describe("POST /v1/:workspace/files/sign strict-overwrite gate (review follow-up
     expect(res.status).toBe(409);
     const json = (await res.json()) as { error: { code: string } };
     expect(json.error.code).toBe("key_exists");
+  });
+
+  // Task C2 (two-lane storage, PR C): a key that already exists only in a
+  // fallback lane is still a conflict — reported with that lane's URL.
+  it("refuses to sign an overwrite of a fallback-only key, reporting that lane's URL", async () => {
+    const fallbackBucket = new FakeR2Bucket();
+    await fallbackBucket.put("legacy/screenshots/shot.png", PNG);
+    const { env } = await makeEnv(
+      { storageLaneId: "lane_active1", storageLanes: [fallbackLane()] },
+      { extraBindings: { UPLOADS_FALLBACK: fallbackBucket } },
+    );
+
+    const res = await app.request(
+      "/v1/default/files/sign",
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
+        body: JSON.stringify({ key: "screenshots/shot.png", contentType: "image/png" }),
+      },
+      env,
+    );
+    expect(res.status).toBe(409);
+    const json = (await res.json()) as { error: { code: string; details?: { url?: string } } };
+    expect(json.error.code).toBe("key_exists");
+    expect(json.error.details?.url).toBe(
+      "https://storage.customer.example.com/legacy/screenshots/shot.png",
+    );
   });
 
   it("signs an overwrite when replace: true is passed", async () => {
@@ -866,6 +932,51 @@ describe("PUT /v1/:workspace/files custom metadata capture + cascade", () => {
     await expect(
       getFileMetadata(db as unknown as D1Database, "default", "screenshots/shot.png"),
     ).resolves.toEqual({ app: "web" });
+  });
+});
+
+function getFile(env: Parameters<typeof app.request>[2], key: string, token = TOKEN) {
+  return app.request(
+    `/v1/default/files/${key}`,
+    { headers: { Authorization: `Bearer ${token}` } },
+    env,
+  );
+}
+
+describe("GET /v1/:workspace/files/:key (head)", () => {
+  it("resolves an active-lane object (single-lane control)", async () => {
+    const { env } = await makeEnv();
+    expect((await putShot(env)).status).toBe(201);
+
+    const res = await getFile(env, "screenshots/shot.png");
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { key: string; url: string };
+    expect(json.url).toBe("https://storage.uploads.sh/default/screenshots/shot.png");
+  });
+
+  // Task C2 (two-lane storage, PR C): a key uploaded before a storage switch
+  // still resolves via HEAD, from its owning (fallback) lane's URL.
+  it("resolves a fallback-only object from the owning lane's URL", async () => {
+    const fallbackBucket = new FakeR2Bucket();
+    await fallbackBucket.put("legacy/screenshots/old.png", PNG);
+    const { env } = await makeEnv(
+      { storageLaneId: "lane_active1", storageLanes: [fallbackLane()] },
+      { extraBindings: { UPLOADS_FALLBACK: fallbackBucket } },
+    );
+
+    const res = await getFile(env, "screenshots/old.png");
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { url: string };
+    expect(json.url).toBe("https://storage.customer.example.com/legacy/screenshots/old.png");
+  });
+
+  it("404s a key present in neither lane", async () => {
+    const { env } = await makeEnv({
+      storageLaneId: "lane_active1",
+      storageLanes: [fallbackLane()],
+    });
+    const res = await getFile(env, "screenshots/missing.png");
+    expect(res.status).toBe(404);
   });
 });
 

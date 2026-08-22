@@ -3,7 +3,7 @@ import { FakeR2Bucket } from "./fake-r2";
 import { FakeKv } from "./fake-kv";
 import { FileMetadataTable } from "./helpers/fake-file-metadata-table";
 import { app } from "../src/index";
-import { setServerFileMetadata } from "../src/file-metadata";
+import { setFileMetadata, setServerFileMetadata } from "../src/file-metadata";
 import { sha256Hex, type WorkspaceRecord } from "../src/workspace";
 
 // The public file page (issue #135) is served over HTTP from this endpoint:
@@ -214,6 +214,119 @@ describe("GET /public/files/:workspace/:key", () => {
   it("404s on a traversal / bad key rather than resolving it", async () => {
     const { env } = await makeEnv();
     const res = await app.request("/public/files/default/../../etc/passwd", {}, env);
+    expect(res.status).toBe(404);
+  });
+
+  // Task C1 (two-lane storage, PR C): a file that lives only in a fallback
+  // lane (e.g. uploaded before a storage switch — spec: "Read path") must
+  // still resolve, from that lane's own public URL, not the active lane's.
+  it("resolves a fallback-only object to the owning lane's public URL", async () => {
+    const fallbackBucket = new FakeR2Bucket();
+    await fallbackBucket.put("legacy/screenshots/shot.png", PNG);
+    const record: WorkspaceRecord = {
+      provider: "r2",
+      bucket: "uploads-default",
+      binding: "UPLOADS_DEFAULT",
+      prefix: "default/",
+      publicBaseUrl: "https://storage.uploads.sh",
+      tokenHash: await sha256Hex(TOKEN),
+      storageLaneId: "lane_active1",
+      storageLanes: [
+        {
+          id: "lane_fallback1",
+          provider: "r2",
+          bucket: "customer-bucket",
+          binding: "UPLOADS_FALLBACK",
+          prefix: "legacy/",
+          lastActiveAt: "2026-08-01T00:00:00.000Z",
+          publicBaseUrl: "https://storage.customer.example.com",
+        },
+      ],
+    };
+    const noopDb = {
+      prepare: () => ({
+        bind() {
+          return this;
+        },
+        async first() {
+          return null;
+        },
+        async run() {
+          return { success: true, meta: { changes: 0 }, results: [] };
+        },
+        async all() {
+          return { success: true, results: [], meta: {} };
+        },
+      }),
+      async batch(stmts: { run: () => Promise<unknown> }[]) {
+        return Promise.all(stmts.map((s) => s.run()));
+      },
+    };
+    const env = {
+      REGISTRY: { get: async () => record, put: async () => undefined },
+      DB: noopDb,
+      UPLOADS_DEFAULT: new FakeR2Bucket(),
+      UPLOADS_FALLBACK: fallbackBucket,
+      WRITE_LIMITER: { limit: async () => ({ success: true }) },
+    };
+
+    const res = await app.request("/public/files/default/screenshots/shot.png", {}, env);
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { url: string };
+    expect(json.url).toBe("https://storage.customer.example.com/legacy/screenshots/shot.png");
+  });
+
+  it("404s a fallback-lane hit whose lane has no publicBaseUrl (per-lane gate)", async () => {
+    const fallbackBucket = new FakeR2Bucket();
+    await fallbackBucket.put("legacy/screenshots/shot.png", PNG);
+    const record: WorkspaceRecord = {
+      provider: "r2",
+      bucket: "uploads-default",
+      binding: "UPLOADS_DEFAULT",
+      prefix: "default/",
+      publicBaseUrl: "https://storage.uploads.sh",
+      tokenHash: await sha256Hex(TOKEN),
+      storageLaneId: "lane_active1",
+      storageLanes: [
+        {
+          id: "lane_fallback1",
+          provider: "r2",
+          bucket: "customer-bucket",
+          binding: "UPLOADS_FALLBACK",
+          prefix: "legacy/",
+          lastActiveAt: "2026-08-01T00:00:00.000Z",
+          // No publicBaseUrl on this lane — the per-lane 404 gate must still apply.
+        },
+      ],
+    };
+    const noopDb = {
+      prepare: () => ({
+        bind() {
+          return this;
+        },
+        async first() {
+          return null;
+        },
+        async run() {
+          return { success: true, meta: { changes: 0 }, results: [] };
+        },
+        async all() {
+          return { success: true, results: [], meta: {} };
+        },
+      }),
+      async batch(stmts: { run: () => Promise<unknown> }[]) {
+        return Promise.all(stmts.map((s) => s.run()));
+      },
+    };
+    const env = {
+      REGISTRY: { get: async () => record, put: async () => undefined },
+      DB: noopDb,
+      UPLOADS_DEFAULT: new FakeR2Bucket(),
+      UPLOADS_FALLBACK: fallbackBucket,
+      WRITE_LIMITER: { limit: async () => ({ success: true }) },
+    };
+
+    const res = await app.request("/public/files/default/screenshots/shot.png", {}, env);
     expect(res.status).toBe(404);
   });
 
@@ -721,6 +834,68 @@ describe("GET /public/files/:workspace/:key — before/after counterpart (issue 
     expect(json.counterpart).toEqual({
       key: "gh/acme/web/pull/12/hero-after.webp",
       url: "https://storage.uploads.sh/default/gh/acme/web/pull/12/hero-after.webp",
+      state: "after",
+    });
+  });
+
+  // CodeRabbit review (PR #771): the counterpart previously resolved via the
+  // PRIMARY object's store/cfg, so a counterpart living in a different
+  // (fallback) lane was missed entirely.
+  it("pairs a counterpart that lives in a different (fallback) lane", async () => {
+    const fallbackBucket = new FakeR2Bucket();
+    const beforeKey = "gh/acme/web/pull/12/hero-before.webp";
+    const afterKey = "gh/acme/web/pull/12/hero-after.webp";
+    await fallbackBucket.put(`legacy/${afterKey}`, PNG, {
+      httpMetadata: { contentType: "image/png" },
+    });
+
+    const db = makeFakeDB();
+    await setFileMetadata(db as unknown as D1Database, "default", afterKey, {
+      path: "hero.webp",
+      state: "after",
+    });
+
+    const record: WorkspaceRecord = {
+      provider: "r2",
+      bucket: "uploads-default",
+      binding: "UPLOADS_DEFAULT",
+      prefix: "default/",
+      publicBaseUrl: "https://storage.uploads.sh",
+      tokenHash: await sha256Hex(TOKEN),
+      storageLaneId: "lane_active1",
+      storageLanes: [
+        {
+          id: "lane_fallback1",
+          provider: "r2",
+          bucket: "customer-bucket",
+          binding: "UPLOADS_FALLBACK",
+          prefix: "legacy/",
+          lastActiveAt: "2026-08-01T00:00:00.000Z",
+          publicBaseUrl: "https://storage.customer.example.com",
+        },
+      ],
+    };
+    const activeBucket = new FakeR2Bucket();
+    const env = {
+      REGISTRY: { get: async () => record, put: async () => undefined },
+      DB: db,
+      UPLOADS_DEFAULT: activeBucket,
+      UPLOADS_FALLBACK: fallbackBucket,
+      WRITE_LIMITER: { limit: async () => ({ success: true }) },
+    };
+    await seedFile(env, beforeKey, {
+      "X-Uploads-Meta-path": "hero.webp",
+      "X-Uploads-Meta-state": "before",
+    });
+
+    const res = await app.request(`/public/files/default/${beforeKey}`, {}, env);
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as {
+      counterpart?: { key: string; url: string; state: string };
+    };
+    expect(json.counterpart).toEqual({
+      key: afterKey,
+      url: `https://storage.customer.example.com/legacy/${afterKey}`,
       state: "after",
     });
   });

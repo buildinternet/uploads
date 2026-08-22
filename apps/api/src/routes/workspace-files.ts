@@ -52,7 +52,7 @@ import {
 import { writeRateLimit } from "../guards";
 import { memberWorkspaceOr404 } from "../org-workspaces";
 import type { SessionVars } from "../session-auth";
-import { objectPublicUrls, publicUrl, storage, storageConfig } from "../storage";
+import { objectPublicUrls, publicUrl, resolveObjectLane, storage, storageConfig } from "../storage";
 import { sanitizeVisibility, VISIBILITY_VALUES } from "../visibility";
 import { loadWorkspaceRecord, requireScope } from "../workspace";
 import {
@@ -271,18 +271,22 @@ export const workspaceFiles = new Hono<DualAuthVars>()
   // when the workspace has one; otherwise a short-lived signed download URL
   // when the provider can sign; otherwise a typed error rather than a 200
   // with `url: null`.
+  //
+  // Two-lane storage: resolves across lanes so a fallback-only key (uploaded
+  // before a storage switch) still gets a usable URL — the public URL, or the
+  // signed URL, is minted against the lane that actually holds the object,
+  // not the workspace's current active lane.
   .get("/:workspace/files/file-url", dualWorkspaceAuth(), scoped("files:read"), async (c) => {
     const record = c.get("workspace");
     const key = c.req.query("key") ?? "";
     if (badKey(key)) throw new NotFoundError();
-    const store = await storage(c.env, record);
-    if (!(await store.exists(key))) throw new NotFoundError();
+    const lane = await resolveObjectLane(c.env, record, key);
+    if (!lane) throw new NotFoundError();
 
-    const cfg = await storageConfig(c.env, record);
-    const url = publicUrl(cfg, key);
+    const url = publicUrl(lane.config, key);
     if (url) return c.json({ url });
 
-    const signed = await signedDownloadUrl(store, key);
+    const signed = await signedDownloadUrl(lane.store, key);
     if (signed) return c.json({ url: signed });
 
     throw new ValidationError(

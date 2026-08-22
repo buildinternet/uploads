@@ -1,6 +1,6 @@
 import { NotFoundError, UnauthorizedError } from "@uploads/errors";
 import { Hono } from "hono";
-import type { Files } from "@uploads/storage";
+import type { Files, StorageConfig } from "@uploads/storage";
 import {
   findCounterpartCandidate,
   isPairableImageContentType,
@@ -11,9 +11,9 @@ import { displayTitle, getFileMetadata, isServerMetaKey } from "../file-metadata
 import { githubAvatarProxyUrl, ownerFromRepo } from "../github-avatars";
 import { resolveTitles, withPublicTitleBudget } from "../github-titles";
 import { videoPresentation } from "../poster";
-import { objectPublicUrls, storage, storageConfig } from "../storage";
+import { objectPublicUrls, resolveObjectLane } from "../storage";
 import { objectVisibility } from "../visibility";
-import { loadWorkspaceRecord, type WorkspaceVars } from "../workspace";
+import { loadWorkspaceRecord, type WorkspaceRecord, type WorkspaceVars } from "../workspace";
 import { requestOrigin } from "../well-known";
 
 type GithubKind = "pull" | "issue";
@@ -81,15 +81,24 @@ interface ResolvedPublicObject {
   meta: { size?: number; type?: string; lastModified?: number; metadata?: Record<string, string> };
   urls: { url: string | null; embedUrl: string | null };
   env: Env;
-  cfg: Awaited<ReturnType<typeof storageConfig>>;
+  cfg: StorageConfig;
+  /** The workspace record, so a caller resolving a second key (e.g. a before/after counterpart) doesn't repeat the KV lookup. */
+  record: WorkspaceRecord;
 }
 
 /**
  * Shared lookup + visibility gate for the `/public/files/:workspace/:key*` GET
- * handler below: workspace record → publicUrl existence → store.exists/head →
+ * handler below: workspace record → lane resolution → publicUrl existence →
  * objectVisibility 401. Both the JSON-metadata response and the `?download=1`
  * streaming branch call this exact same gate (run once per request) so the
  * two can never disagree about who gets to see — or download — an object.
+ *
+ * Two-lane storage (spec: "Read path"): `resolveObjectLane` finds whichever
+ * lane actually holds the key — a file uploaded before a storage switch keeps
+ * resolving from its original lane — and the public URL is derived from that
+ * lane's config, not the workspace's current active lane. Single-lane records
+ * (no `storageLanes`) take the exact path this always has: one `exists` call
+ * against the active lane.
  */
 async function resolvePublicObject(
   env: Env,
@@ -103,22 +112,24 @@ async function resolvePublicObject(
   const record = await loadWorkspaceRecord(env, workspace);
   if (!record) throw new NotFoundError();
 
+  const lane = await resolveObjectLane(env, record, key);
+  if (!lane) throw new NotFoundError();
+
   // Phase 1 is public-workspace-only: resolving the public URL doubles as the
-  // visibility gate. A workspace without a public base URL cannot be wrapped
-  // here — that is #123's signed-URL territory, swapped in when it lands.
-  const cfg = await storageConfig(env, record);
-  const urls = objectPublicUrls(env, cfg, key);
+  // visibility gate. A lane without a public base URL cannot be wrapped here
+  // — that is #123's signed-URL territory, swapped in when it lands. Kept
+  // per-lane: a lane hit whose config lacks `publicBaseUrl` still 404s, even
+  // though a different lane on this same workspace might have one.
+  const urls = objectPublicUrls(env, lane.config, key);
   if (!urls.url) throw new NotFoundError();
 
-  const store = await storage(env, record);
-  if (!(await store.exists(key))) throw new NotFoundError();
-  const meta = await store.head(key);
+  const meta = await lane.store.head(key);
 
   if (objectVisibility(meta.metadata ?? undefined)) {
     throw new UnauthorizedError("sign in to view this file", { code: "auth_required" });
   }
 
-  return { store, meta, urls, env, cfg };
+  return { store: lane.store, meta, urls, env, cfg: lane.config, record };
 }
 
 /**
@@ -155,7 +166,7 @@ async function resolvePublicObject(
 export const publicFiles = new Hono<WorkspaceVars>().get("/:workspace/:key{.+}", async (c) => {
   const workspace = c.req.param("workspace");
   const key = c.req.param("key");
-  const { store, meta, urls, env, cfg } = await resolvePublicObject(c.env, workspace, key);
+  const { store, meta, urls, env, cfg, record } = await resolvePublicObject(c.env, workspace, key);
 
   const downloadParam = c.req.query("download");
   if (downloadParam === "1" || downloadParam === "true") {
@@ -182,21 +193,25 @@ export const publicFiles = new Hono<WorkspaceVars>().get("/:workspace/:key{.+}",
   // response. Skipping any of those would either leak the existence of a
   // private counterpart object, or hand the web page's static side-by-side
   // layout (issue #420 v1 renders both sides as an image element) a video
-  // or other non-image file it can't render that way.
+  // or other non-image file it can't render that way. Two-lane storage
+  // (CodeRabbit review, PR #771): the counterpart is resolved via its OWN
+  // lane, not the primary object's `store`/`cfg` — a before/after pair can
+  // straddle a storage switch just like any other pair of keys.
   let counterpart: { key: string; url: string; state: BeforeAfterState } | undefined;
   const ownContentType = meta.type ?? "application/octet-stream";
   const candidate = isPairableImageContentType(ownContentType)
     ? await findCounterpartCandidate(c.env.DB, workspace, key, metadata)
     : null;
   if (candidate && candidate.key !== key) {
-    if (await store.exists(candidate.key)) {
-      const counterpartMeta = await store.head(candidate.key);
+    const counterpartLane = await resolveObjectLane(env, record, candidate.key);
+    if (counterpartLane) {
+      const counterpartMeta = await counterpartLane.store.head(candidate.key);
       const counterpartType = counterpartMeta.type ?? "application/octet-stream";
       if (
         isPairableImageContentType(counterpartType) &&
         !objectVisibility(counterpartMeta.metadata ?? undefined)
       ) {
-        const counterpartUrls = objectPublicUrls(env, cfg, candidate.key);
+        const counterpartUrls = objectPublicUrls(env, counterpartLane.config, candidate.key);
         if (counterpartUrls.url) {
           counterpart = { key: candidate.key, url: counterpartUrls.url, state: candidate.state };
         }

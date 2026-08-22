@@ -9,14 +9,29 @@
  * is scoped to what's new: both credential types reaching the SAME handler,
  * and the auth rejections specific to the dual-auth guard.
  */
-import { beforeAll, describe, expect, it } from "vitest";
-import { app } from "../src/index";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import type { Files } from "@uploads/storage";
 import { FakeR2Bucket } from "./fake-r2";
 import { FileMetadataTable } from "./helpers/fake-file-metadata-table";
 import { sha256Hex, type WorkspaceRecord } from "../src/workspace";
 
+// `resolveObjectLane` delegates to the real implementation everywhere except
+// the one test below that needs an HTTP-mode fallback lane's signed URL
+// without dialing out for a real S3 HEAD probe.
+vi.mock("../src/storage", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../src/storage")>();
+  return { ...original, resolveObjectLane: vi.fn(original.resolveObjectLane) };
+});
+
+const { app } = await import("../src/index");
+const storageModule = await import("../src/storage");
+
 const TOKEN = "canonical-secret-token";
 const USER = { id: "u-1", email: "member@example.com", name: "Member" };
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 beforeAll(() => {
   if (!(crypto.subtle as SubtleCrypto & { timingSafeEqual?: unknown }).timingSafeEqual) {
@@ -72,9 +87,15 @@ function makeFakeDB() {
  * user with an `acme` org membership.
  */
 async function makeEnv(
-  opts: { member?: boolean; session?: boolean; getSessionCalls?: { count: number } } = {},
+  opts: {
+    member?: boolean;
+    session?: boolean;
+    getSessionCalls?: { count: number };
+    recordOverrides?: Partial<WorkspaceRecord>;
+    extraBindings?: Record<string, FakeR2Bucket>;
+  } = {},
 ): Promise<{ env: Parameters<typeof app.request>[2]; bucket: FakeR2Bucket }> {
-  const { member = true, session = true, getSessionCalls } = opts;
+  const { member = true, session = true, getSessionCalls, recordOverrides, extraBindings } = opts;
   const record: WorkspaceRecord = {
     provider: "r2",
     bucket: "uploads-default",
@@ -82,6 +103,7 @@ async function makeEnv(
     prefix: "acme/",
     publicBaseUrl: "https://storage.uploads.sh",
     tokenHash: await sha256Hex(TOKEN),
+    ...recordOverrides,
   };
   const bucket = new FakeR2Bucket();
   const db = makeFakeDB();
@@ -90,6 +112,7 @@ async function makeEnv(
       get: async (key: string) => (key === "ws:acme" ? record : null),
     },
     UPLOADS_DEFAULT: bucket,
+    ...extraBindings,
     DB: db,
     WRITE_LIMITER: { limit: async () => ({ success: true }) },
     WEB_ORIGIN: "https://uploads.sh",
@@ -209,6 +232,75 @@ describe("GET /v1/workspaces/:workspace/files/file-url (dual auth)", () => {
     );
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ url: "https://storage.uploads.sh/acme/shots/a.png" });
+  });
+
+  // Task C2 (two-lane storage, PR C): a key that only exists in a fallback
+  // lane (e.g. detached BYO storage that still holds objects) resolves to
+  // that lane's own public URL, not a 404 against the active lane.
+  it("resolves a fallback-only key to the fallback lane's public URL", async () => {
+    const fallbackBucket = new FakeR2Bucket();
+    await fallbackBucket.put("legacy/shots/old.png", new Uint8Array([9]).buffer);
+    const { env } = await makeEnv({
+      recordOverrides: {
+        storageLaneId: "lane_active1",
+        storageLanes: [
+          {
+            id: "lane_fallback1",
+            provider: "r2",
+            bucket: "customer-bucket",
+            binding: "UPLOADS_FALLBACK",
+            prefix: "legacy/",
+            lastActiveAt: "2026-08-01T00:00:00.000Z",
+            publicBaseUrl: "https://storage.customer.example.com",
+          },
+        ],
+      },
+      extraBindings: { UPLOADS_FALLBACK: fallbackBucket },
+    });
+    const res = await app.request(
+      "/v1/workspaces/acme/files/file-url?key=shots/old.png",
+      { headers: { Authorization: `Bearer ${TOKEN}` } },
+      env,
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      url: "https://storage.customer.example.com/legacy/shots/old.png",
+    });
+  });
+
+  // A fallback lane without a public URL (HTTP-credential mode) must still
+  // resolve — via a signed URL minted from that owning lane's store, not the
+  // active lane's. `resolveObjectLane` itself is proven lane-aware by
+  // storage-lanes.test.ts; this stubs it to hand the route a fallback
+  // `ResolvedLane` directly, so the route's "sign against the *owning* lane"
+  // wiring is exercised without a real S3 HEAD probe over the network.
+  it("mints a signed URL from the owning fallback lane when it has no publicBaseUrl", async () => {
+    const fallbackStore = {
+      capabilities: { signedUrl: { supported: true } },
+      url: vi.fn(async (key: string) => `https://customer-bucket.example.com/signed/${key}`),
+    } as unknown as Files;
+    vi.mocked(storageModule.resolveObjectLane).mockResolvedValueOnce({
+      store: fallbackStore,
+      // No publicBaseUrl — HTTP-credential mode, must sign instead.
+      config: { provider: "r2", bucket: "customer-bucket" } as never,
+      laneId: "lane_fallback1",
+      role: "fallback",
+    });
+    const { env } = await makeEnv();
+    const res = await app.request(
+      "/v1/workspaces/acme/files/file-url?key=shots/old.png",
+      { headers: { Authorization: `Bearer ${TOKEN}` } },
+      env,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { url: string };
+    // Not the active lane's public base, and not a plain unsigned URL.
+    expect(body.url).not.toContain("storage.uploads.sh");
+    expect(body.url).toBe("https://customer-bucket.example.com/signed/shots/old.png");
+    expect(fallbackStore.url).toHaveBeenCalledWith(
+      "shots/old.png",
+      expect.objectContaining({ responseContentDisposition: "attachment" }),
+    );
   });
 });
 
