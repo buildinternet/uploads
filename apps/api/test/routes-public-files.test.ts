@@ -217,6 +217,119 @@ describe("GET /public/files/:workspace/:key", () => {
     expect(res.status).toBe(404);
   });
 
+  // Task C1 (two-lane storage, PR C): a file that lives only in a fallback
+  // lane (e.g. uploaded before a storage switch — spec: "Read path") must
+  // still resolve, from that lane's own public URL, not the active lane's.
+  it("resolves a fallback-only object to the owning lane's public URL", async () => {
+    const fallbackBucket = new FakeR2Bucket();
+    await fallbackBucket.put("legacy/screenshots/shot.png", PNG);
+    const record: WorkspaceRecord = {
+      provider: "r2",
+      bucket: "uploads-default",
+      binding: "UPLOADS_DEFAULT",
+      prefix: "default/",
+      publicBaseUrl: "https://storage.uploads.sh",
+      tokenHash: await sha256Hex(TOKEN),
+      storageLaneId: "lane_active1",
+      storageLanes: [
+        {
+          id: "lane_fallback1",
+          provider: "r2",
+          bucket: "customer-bucket",
+          binding: "UPLOADS_FALLBACK",
+          prefix: "legacy/",
+          lastActiveAt: "2026-08-01T00:00:00.000Z",
+          publicBaseUrl: "https://storage.customer.example.com",
+        },
+      ],
+    };
+    const noopDb = {
+      prepare: () => ({
+        bind() {
+          return this;
+        },
+        async first() {
+          return null;
+        },
+        async run() {
+          return { success: true, meta: { changes: 0 }, results: [] };
+        },
+        async all() {
+          return { success: true, results: [], meta: {} };
+        },
+      }),
+      async batch(stmts: { run: () => Promise<unknown> }[]) {
+        return Promise.all(stmts.map((s) => s.run()));
+      },
+    };
+    const env = {
+      REGISTRY: { get: async () => record, put: async () => undefined },
+      DB: noopDb,
+      UPLOADS_DEFAULT: new FakeR2Bucket(),
+      UPLOADS_FALLBACK: fallbackBucket,
+      WRITE_LIMITER: { limit: async () => ({ success: true }) },
+    };
+
+    const res = await app.request("/public/files/default/screenshots/shot.png", {}, env);
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { url: string };
+    expect(json.url).toBe("https://storage.customer.example.com/legacy/screenshots/shot.png");
+  });
+
+  it("404s a fallback-lane hit whose lane has no publicBaseUrl (per-lane gate)", async () => {
+    const fallbackBucket = new FakeR2Bucket();
+    await fallbackBucket.put("legacy/screenshots/shot.png", PNG);
+    const record: WorkspaceRecord = {
+      provider: "r2",
+      bucket: "uploads-default",
+      binding: "UPLOADS_DEFAULT",
+      prefix: "default/",
+      publicBaseUrl: "https://storage.uploads.sh",
+      tokenHash: await sha256Hex(TOKEN),
+      storageLaneId: "lane_active1",
+      storageLanes: [
+        {
+          id: "lane_fallback1",
+          provider: "r2",
+          bucket: "customer-bucket",
+          binding: "UPLOADS_FALLBACK",
+          prefix: "legacy/",
+          lastActiveAt: "2026-08-01T00:00:00.000Z",
+          // No publicBaseUrl on this lane — the per-lane 404 gate must still apply.
+        },
+      ],
+    };
+    const noopDb = {
+      prepare: () => ({
+        bind() {
+          return this;
+        },
+        async first() {
+          return null;
+        },
+        async run() {
+          return { success: true, meta: { changes: 0 }, results: [] };
+        },
+        async all() {
+          return { success: true, results: [], meta: {} };
+        },
+      }),
+      async batch(stmts: { run: () => Promise<unknown> }[]) {
+        return Promise.all(stmts.map((s) => s.run()));
+      },
+    };
+    const env = {
+      REGISTRY: { get: async () => record, put: async () => undefined },
+      DB: noopDb,
+      UPLOADS_DEFAULT: new FakeR2Bucket(),
+      UPLOADS_FALLBACK: fallbackBucket,
+      WRITE_LIMITER: { limit: async () => ({ success: true }) },
+    };
+
+    const res = await app.request("/public/files/default/screenshots/shot.png", {}, env);
+    expect(res.status).toBe(404);
+  });
+
   it("exposes no listing/enumeration surface (workspace root has no route)", async () => {
     const { env } = await makeEnv();
     const res = await app.request("/public/files/default", {}, env);
