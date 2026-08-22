@@ -6,9 +6,19 @@
  * `.raw()` (used when a query has field selectors — see `SQLiteD1Session`'s
  * `values()` path), and `client.batch(...)`.
  *
- * Schema is loaded by applying the real `apps/auth/migrations/*.sql` files
- * in order, so drift between `src/schema.ts` and the migrations is caught by
- * tests instead of only at `wrangler d1 migrations apply` time.
+ * Schema is loaded by applying the real `apps/api/migrations/*.sql` files in
+ * order (issue #754: apps/auth's dedicated D1 folds into the main one, so
+ * that is now the single source of truth for this worker's tables too) —
+ * drift between `src/schema.ts` and the migrations is caught by tests
+ * instead of only at `wrangler d1 migrations apply` time. Those files also
+ * create apps/api's own tables, which is harmless here — no table/index name
+ * collides (see .context/754-auth-d1-merge-plan.md) and this worker's tests
+ * never touch them.
+ *
+ * `apps/auth/migrations/*.sql` still exists and still drives the OLD
+ * dedicated auth D1 in production until the item-1 cutover lands; it is
+ * intentionally no longer the source this harness reads from, since new auth
+ * schema changes should land in apps/api/migrations going forward.
  *
  * Deliberately NOT a full D1 emulator: no `.dump()`, no `sessions`/bookmark
  * API, and `meta` fields are minimal stubs. Good enough for drizzle+Better
@@ -25,7 +35,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const MIGRATIONS_DIR = join(__dirname, "..", "..", "migrations");
+const MIGRATIONS_DIR = join(__dirname, "..", "..", "..", "api", "migrations");
 
 function applyMigrations(db: DatabaseSync): void {
   const files = readdirSync(MIGRATIONS_DIR)
