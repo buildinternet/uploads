@@ -120,7 +120,12 @@ export function signedInCsp(authOrigin: string, apiOrigin: string): string {
     `script-src 'self' 'unsafe-inline' ${CF_RUM_SCRIPT_SRC}`,
     `style-src ${STYLE_SRC_SELF_AND_INLINE}`,
     "font-src 'self'",
-    "img-src data: https:",
+    // Local stack workspaces serve thumbnails from plain-http loopback
+    // origins, which `https:` alone rejects — without the DEV allowance
+    // every signed-in thumbnail is a broken image in `astro dev`.
+    import.meta.env.DEV
+      ? "img-src data: https: http://127.0.0.1:* http://localhost:*"
+      : "img-src data: https:",
     "base-uri 'none'",
     "form-action 'none'",
     "frame-ancestors 'none'",

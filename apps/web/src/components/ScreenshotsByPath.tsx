@@ -19,6 +19,7 @@ import { Callout, Input, Select } from "@uploads/ui";
 import "@uploads/ui/styles.css";
 import {
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type CSSProperties,
@@ -502,35 +503,40 @@ function FilterBar({
           </ul>
         )}
       </div>
-      <div className="wsp-toggle" role="group" aria-label="Layout">
-        <button
-          type="button"
-          className="wsp-toggle__opt"
-          aria-pressed={feed === "grouped"}
-          onClick={() => onFeed("grouped")}
-        >
-          Grouped
-        </button>
-        <button
-          type="button"
-          className="wsp-toggle__opt"
-          aria-pressed={feed === "recent"}
-          onClick={() => onFeed("recent")}
-        >
-          Recent
-        </button>
-      </div>
-      {/* Persisted PR merge-state tagging: filters both the drill-in
-          (meta.gh.merged=true) and the grouped overview (?merged=1). */}
-      <div className="wsp-toggle" role="group" aria-label="Merge filter">
-        <button
-          type="button"
-          className="wsp-toggle__opt"
-          aria-pressed={merged}
-          onClick={() => onMerged(!merged)}
-        >
-          Merged only
-        </button>
+      {/* One flex item so the two toggle groups wrap together as a cluster —
+          separately they wrap independently and "Merged only" ends up
+          orphaned on its own row. */}
+      <div className="wsp-filter__toggles">
+        <div className="wsp-toggle" role="group" aria-label="Layout">
+          <button
+            type="button"
+            className="wsp-toggle__opt"
+            aria-pressed={feed === "grouped"}
+            onClick={() => onFeed("grouped")}
+          >
+            Grouped
+          </button>
+          <button
+            type="button"
+            className="wsp-toggle__opt"
+            aria-pressed={feed === "recent"}
+            onClick={() => onFeed("recent")}
+          >
+            Recent
+          </button>
+        </div>
+        {/* Persisted PR merge-state tagging: filters both the drill-in
+            (meta.gh.merged=true) and the grouped overview (?merged=1). */}
+        <div className="wsp-toggle" role="group" aria-label="Merge filter">
+          <button
+            type="button"
+            className="wsp-toggle__opt"
+            aria-pressed={merged}
+            onClick={() => onMerged(!merged)}
+          >
+            Merged only
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -845,6 +851,21 @@ function ScreenshotsByPathInner({
     };
   }, []);
 
+  // `shotPreviewPosition` places the pop-over from an ESTIMATED height, so a
+  // tall capture (or the async PR-title/meta lines) can run past the viewport
+  // bottom. Clamp the rendered box back inside after layout, and again when
+  // the full-size image or the resolved title changes its real height.
+  const previewRef = useRef<HTMLDivElement | null>(null);
+  const clampPreview = () => {
+    const el = previewRef.current;
+    if (!el) return;
+    const margin = 12;
+    const rect = el.getBoundingClientRect();
+    el.style.left = `${Math.max(margin, Math.min(rect.left, window.innerWidth - rect.width - margin))}px`;
+    el.style.top = `${Math.max(margin, Math.min(rect.top, window.innerHeight - rect.height - margin))}px`;
+  };
+  useLayoutEffect(clampPreview, [preview, titles]);
+
   const onPreviewLeave = () => {
     if (previewTimer.current !== null) window.clearTimeout(previewTimer.current);
     previewTimer.current = null;
@@ -977,10 +998,13 @@ function ScreenshotsByPathInner({
   const previewLayer = preview ? (
     <div
       className="wsp-preview"
+      ref={previewRef}
       style={{ left: preview.left, top: preview.top }}
       role="presentation"
     >
-      <img src={preview.src} alt="" />
+      {/* onLoad: the real image height is only known once bytes arrive —
+          re-clamp so a tall capture doesn't push the meta off-screen. */}
+      <img src={preview.src} alt="" onLoad={clampPreview} />
       <div className="wsp-preview__meta">
         <div className="wsp-preview__name">{preview.name}</div>
         {preview.pr && (
@@ -1027,10 +1051,12 @@ function ScreenshotsByPathInner({
     return (
       <div className="wsp" aria-busy={overviewRefreshing || undefined}>
         {filterBar}
-        <button type="button" className="text-btn" onClick={() => setView({ ...view, path: "" })}>
-          {view.project ? `← ${view.project}` : "← all projects"}
-        </button>
-        <h2 className="wsp-drill__heading">{view.path}</h2>
+        <div className="wsp-drill__head">
+          <button type="button" className="text-btn" onClick={() => setView({ ...view, path: "" })}>
+            {view.project ? `← ${view.project}` : "← all projects"}
+          </button>
+          <h2 className="wsp-drill__heading">{view.path}</h2>
+        </div>
         {drill.status === "loading" && (
           <div className="wsp-grid" aria-busy="true">
             {Array.from({ length: 8 }, (_, i) => (
@@ -1267,22 +1293,36 @@ function ProjectSection({
   const count = summary?.count ?? ghItems?.length ?? 0;
   const lastUpdated = summary?.lastUpdated;
 
+  const labelBody = (
+    <>
+      {/* 15px to sit proportionally beside the --text-h3 label; the default
+          12 was scaled for the old body-size head. */}
+      {isRepoLabel(label) && <GitHubMark size={15} />}
+      {label}
+    </>
+  );
+
   return (
     <div className="wsp-project">
       <div className="wsp-project__head">
-        <span className="wsp-project__label">
-          {isRepoLabel(label) && <GitHubMark />}
-          {label}
-        </span>
+        {/* The project name IS the "view project" control — a standing
+            "view project →" beside every section repeated the same text
+            down the page. The arrow affordance discloses on hover/focus
+            (always visible on hover-less devices). */}
+        {showViewProject ? (
+          <button type="button" className="wsp-project__label" onClick={onViewProject}>
+            {labelBody}
+            <span className="wsp-project__go" aria-hidden="true">
+              →
+            </span>
+          </button>
+        ) : (
+          <span className="wsp-project__label">{labelBody}</span>
+        )}
         <span className="wsp-group__meta">
           {count} {count === 1 ? "file" : "files"}
           {lastUpdated ? ` · ${lastUpdatedLabel(lastUpdated, new Date())}` : ""}
         </span>
-        {showViewProject && (
-          <button type="button" className="text-btn wsp-project__viewall" onClick={onViewProject}>
-            view project →
-          </button>
-        )}
       </div>
       {groups.map((group) => (
         <PathGroupSection
@@ -1355,7 +1395,9 @@ function PathGroupSection({
           {group.count} {group.count === 1 ? "file" : "files"} ·{" "}
           {lastUpdatedLabel(group.lastUpdated, new Date())}
         </span>
-        <span className="wsp-group__viewall">view all →</span>
+        <span className="wsp-group__viewall">
+          <span className="wsp-group__viewall-text">view all </span>→
+        </span>
       </button>
       {group.recent.length > 0 && (
         <div className="wsp-strip">

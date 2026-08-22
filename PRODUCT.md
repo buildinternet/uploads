@@ -6,14 +6,6 @@
 
 web
 
-## Register
-
-product
-
-<!-- Split surface: the landing page, docs, guides, and changelog are brand
-     register; console/account/admin and packages/ui are product register.
-     Product is the default. -->
-
 ## Users
 
 **Primary: the coding agent.** Agents execute the loop — capture a visual the

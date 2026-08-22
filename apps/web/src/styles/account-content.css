@@ -1911,9 +1911,13 @@ button.wft-card__name:focus-visible {
 /* Screenshots-by-path tab (Task 6) — sits beside the `wft-` file table;
    reuses its custom properties (--line/--muted/--fg/--panel/--mono) so the
    two tabs read as one system. */
+/* Spacing thesis: bond a group head to its strip (10px), stack a project's
+   groups (16px), zone the toolbar away from content (32px), and separate
+   projects decisively (32px gap + 8px margin = 40px, --space-6). The
+   between-projects interval must read a clear step above within-project. */
 .wsp {
   display: grid;
-  gap: 24px;
+  gap: 32px;
 }
 /* Overview project section — one level up from .wsp-group, so its head
    reads slightly larger and its children (.wsp-group rows) sit stacked
@@ -1922,26 +1926,55 @@ button.wft-card__name:focus-visible {
   display: grid;
   gap: 16px;
 }
+/* Each subsequent project opens with a full-width hairline: the section
+   boundary is structural, not just whitespace, so a project head can't be
+   misread as one more path row. */
+.wsp-project + .wsp-project {
+  border-top: 1px solid var(--line);
+  padding-top: 28px;
+}
 .wsp-project__head {
   display: flex;
   align-items: baseline;
   gap: 10px;
   width: 100%;
 }
+/* Rendered as a <button> on the overview (the name is the "view project"
+   control) and a plain <span> once that project is the active filter — the
+   reset below has to erase the button chrome for the first case. */
 .wsp-project__label {
-  font-weight: var(--weight-semibold);
-  font-size: var(--text-body);
-}
-.wsp-project__viewall {
-  margin-left: auto;
-  color: var(--muted);
-  font-size: var(--text-micro);
-  white-space: nowrap;
+  background: none;
+  border: 0;
   padding: 0;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+  font-weight: var(--weight-semibold);
+  /* A full scale step above the 13px path rows — at --text-body the two
+     levels blurred together and project names were easy to scan past. */
+  font-size: var(--text-h3);
+  line-height: 1.3;
+  overflow-wrap: anywhere;
 }
-.wsp-project__viewall:hover,
-.wsp-project__viewall:focus-visible {
-  color: var(--fg);
+span.wsp-project__label {
+  cursor: auto;
+}
+/* Pointer devices signal "the name is a link" with an underline on
+   hover/focus — an in-flow arrow reserved a dead gap between the name and
+   its meta at rest. The inline arrow exists only on hover-less devices
+   (below), where it is always visible and so never leaves a phantom gap. */
+.wsp-project__go {
+  display: none;
+  margin-left: 8px;
+  color: var(--muted);
+}
+button.wsp-project__label:hover,
+button.wsp-project__label:focus-visible {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+  text-decoration-color: var(--muted);
+  text-decoration-thickness: 1px;
 }
 
 .wsp-group {
@@ -1964,27 +1997,59 @@ button.wft-card__name:focus-visible {
 .wsp-group__path {
   font-weight: var(--weight-semibold);
   font-size: var(--text-meta);
+  overflow-wrap: anywhere;
 }
 .wsp-group__meta {
   color: var(--muted);
   font-size: var(--text-micro);
   white-space: nowrap;
 }
+/* The whole group head is the drill-in button, so "view all →" is a hint,
+   not a control — disclose it on hover/focus instead of repeating the same
+   words on every row. Opacity (not display) keeps it in the accessible name
+   and keeps the row's layout stable. */
 .wsp-group__viewall {
   margin-left: auto;
   color: var(--muted);
   font-size: var(--text-micro);
   white-space: nowrap;
+  opacity: 0;
+  transition: opacity 120ms ease;
 }
 .wsp-group__head:hover .wsp-group__viewall,
 .wsp-group__head:focus-visible .wsp-group__viewall {
   color: var(--fg);
+  opacity: 1;
+}
+/* Hover-less (touch) devices: no reveal moment exists, so keep a compact
+   trailing chevron per row — the standard tappable-row disclosure — and
+   drop the repeated words. */
+@media (hover: none) {
+  .wsp-group__viewall {
+    opacity: 1;
+  }
+  .wsp-group__viewall-text {
+    display: none;
+  }
+  .wsp-project__go {
+    display: inline;
+  }
 }
 
+/* Drill-in header: breadcrumb back-link bonded tight above the path title.
+   `justify-items: start` keeps the back button shrink-wrapped — as a bare
+   grid child it stretched full-width and its centered label floated
+   mid-page. */
+.wsp-drill__head {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+}
 .wsp-drill__heading {
-  margin: 10px 0 4px;
+  margin: 0;
   font-size: var(--text-body);
   font-weight: var(--weight-semibold);
+  overflow-wrap: anywhere;
 }
 
 /* Horizontal strip of a group's recent thumbs (overview). Shared height,
@@ -2233,6 +2298,14 @@ button.wft-card__name:focus-visible {
 .wsp-preview__pr .wsp-ghicon {
   margin-right: 2px;
 }
+/* Both toggle groups wrap as one cluster — independently they orphan
+   "Merged only" onto its own row at intermediate widths. */
+.wsp-filter__toggles {
+  display: flex;
+  flex: none;
+  gap: 8px;
+  align-items: stretch;
+}
 .wsp-filter__skel {
   display: flex;
   align-items: center;
@@ -2246,6 +2319,19 @@ button.wft-card__name:focus-visible {
   .wsp-filter .wsp-filter__project,
   .wsp-filter .wsp-filter__q {
     font-size: var(--text-meta);
+  }
+}
+/* Long project labels (owner/repo) can't share one line with the meta and
+   action at phone widths — give the label the full first line and let
+   meta + "view project" settle underneath instead of stranding the label
+   below its own icon. */
+@media (max-width: 639px) {
+  .wsp-project__head {
+    flex-wrap: wrap;
+    row-gap: 2px;
+  }
+  .wsp-project__label {
+    flex: 1 0 100%;
   }
 }
 
