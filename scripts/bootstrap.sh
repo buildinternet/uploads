@@ -10,7 +10,8 @@
 #   3. env files   — scaffold .env + API/Auth/Web .dev.vars from *.example
 #                    (only if absent); mint the local-only signing/admin secrets
 #   4. types       — wrangler types → worker-configuration.d.ts (gitignored)
-#   5. database    — apply local API + Auth D1 migrations
+#   5. database    — apply local D1 migrations (single merged database, since
+#                    issue #754 item 1 folded auth's tables into it)
 #   6. workspace   — seed the local `default` workspace in REGISTRY KV (once)
 #   7. doctor      — verify the result
 #
@@ -178,14 +179,9 @@ if [ "$SKIP_DB" = 1 ]; then
 else
   step "Applying local D1 migrations"
   if pnpm --filter @uploads/api run migrate:d1:local; then
-    ok "local D1 migrations applied"
+    ok "local D1 migrations applied (includes auth's tables — see issue #754 item 1)"
   else
     note "D1 migrate failed — see output above; 'pnpm doctor' will detail what's missing"
-  fi
-  if pnpm --filter @uploads/auth run migrate:d1:local; then
-    ok "local Auth D1 migrations applied"
-  else
-    note "Auth D1 migrate failed — see output above; 'pnpm doctor' will detail what's missing"
   fi
 fi
 
