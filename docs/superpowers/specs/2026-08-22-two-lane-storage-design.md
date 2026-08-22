@@ -23,7 +23,9 @@ derivation side needs fixing.
   resolving from the shared bucket, new uploads land in the customer bucket.
 - Detach symmetrically: files uploaded during the BYO era keep resolving after a
   return to shared storage.
-- Record shape generalizes to future storage profiles/routing (#630) without redesign.
+- Record shape generalizes to future storage profiles/routing (#630) without redesign:
+  N saved lanes, per-project routing, and non-R2 providers must be reachable later by
+  adding behavior, never by migrating the record or the API shape.
 
 ## Non-goals (deferred)
 
@@ -53,7 +55,8 @@ interface StorageLane {
   id: string;              // short opaque id, e.g. "lane_<8hex>"; stamped into new-upload provenance
   verifiedAt?: string;     // last successful verify run against this lane's config
   lastActiveAt?: string;   // set when the lane is demoted from active; absence = never held writes
-  provider: "r2";
+  provider: string;        // "r2" is the only value accepted today; widened now so future
+                           // files-sdk-supported providers need no record-shape migration
   bucket: string;
   binding?: string;        // shared lane uses the binding; BYO lanes are HTTP-credential mode
   prefix?: string;
@@ -79,6 +82,25 @@ interface StorageLane {
 - The active lane also gets a persisted `storageLaneId` (top-level field) so provenance
   stamping and future migration tooling can name it. On records that predate this
   design, absence of `storageLaneId` means the implicit original lane.
+
+### N-lane readiness (cheap now, deliberately unexploited)
+
+`storageLanes` is an array and every lane operation addresses a `laneId` — nothing in
+the API shape assumes "the one BYO config". v1 product surfaces cap the experience at
+one saved BYO config + the shared lane, but that cap lives in UI/validation, not in
+the record, the endpoints, the cursor format, or the resolver. Adding a third saved
+lane, or later a per-project routing rule that picks a write lane, is additive.
+What we explicitly do NOT build now: routing rules, multi-config UI, per-lane budget
+UI beyond the shared subset.
+
+### files-sdk is the storage layer — no bespoke clients
+
+Every lane resolves through `packages/storage`'s `createStorage`, which is a thin
+wrapper over **files-sdk** (`Files` + the `r2` adapter; the config comment already
+reads "provider selects the files-sdk adapter"). Lane-aware code composes N
+`Storage` instances from that wrapper — it never talks S3/R2 directly. Future non-R2
+providers are "whatever files-sdk supports" plus a `provider` value and a verify-
+pipeline variant; the lane machinery itself stays provider-agnostic.
 
 ### Resolution: `storageConfigs(env, ws)`
 
@@ -279,3 +301,8 @@ Each PR bases on main (no stacking — stacked PRs skip CI in this repo).
   the same primitive pointed at the other lane. Chosen for safety (a bad config
   can't break uploads by merely being saved) at negligible added complexity — the
   read/list/budget design is unchanged.
+- Keep N-lane / multi-provider options open where free (Zach, 2026-08-22): lanes are
+  an id-addressed array, `provider` is a widened string validated to "r2" today, and
+  all storage IO goes through the files-sdk-backed `packages/storage` wrapper. The
+  one-saved-config limit is UI/validation only. Per-project routing and non-R2
+  providers stay future work (#630, #595) but require no schema or API migration.
