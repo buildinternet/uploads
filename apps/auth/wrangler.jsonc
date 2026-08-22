@@ -142,23 +142,13 @@
       "service": "uploads-api",
     },
   ],
-  // Better Auth's own database-backed rate limiter (storage: "database" in
-  // src/auth.ts) covers /api/auth/* abuse; this namespace is reserved for a
-  // future edge-level limiter in front of it, following apps/api's and
-  // apps/mcp's per-worker namespace_id convention (1001/1002 taken there).
-  "unsafe": {
-    "bindings": [
-      {
-        "name": "AUTH_RATE_LIMITER",
-        "type": "ratelimit",
-        "namespace_id": "1003",
-        "simple": {
-          "limit": 60,
-          "period": 60,
-        },
-      },
-    ],
-  },
+  // Rate limiting: Better Auth's own database-backed rate limiter
+  // (storage: "database" in src/auth.ts) covers /api/auth/* abuse. An
+  // AUTH_RATE_LIMITER edge-limiter binding (namespace_id 1003) was reserved
+  // here from PR #89 to #764 but never read by code — removed by the #754
+  // minimal-binding audit. If an edge limiter in front of Better Auth's is
+  // ever wired up, namespace_id 1003 is free to reuse (1001/1002 are taken
+  // by apps/api and apps/mcp).
   // Workers Previews (`npx wrangler preview` from a branch). Deliberately
   // narrow for this worker: BETTER_AUTH_URL must equal the preview's own
   // origin, which is only known after the first preview deploy prints it —
@@ -167,8 +157,8 @@
   // callback URLs, so social login cannot work on a preview; magic-link and
   // session flows can once BETTER_AUTH_URL is set. Bindings do NOT inherit
   // from the production config — a preview gets only what this block
-  // lists — so EMAIL, the API service binding (always calls production
-  // uploads-api), and the rate limiter are repeated verbatim. The eight
+  // lists — so EMAIL and the API service binding (always calls production
+  // uploads-api) are repeated verbatim. The eight
   // plain secrets above are NOT bindings declared per-config-block — they
   // live on the Worker script itself, so previews see the same ones prod
   // does unless a branch overrides one with `wrangler preview secret put`.
@@ -205,18 +195,6 @@
       {
         "binding": "API",
         "service": "uploads-api",
-      },
-    ],
-    // Previews declare rate limiters via the dedicated `ratelimits` field
-    // (same values as the production `unsafe` entry above).
-    "ratelimits": [
-      {
-        "name": "AUTH_RATE_LIMITER",
-        "namespace_id": "1003",
-        "simple": {
-          "limit": 60,
-          "period": 60,
-        },
       },
     ],
   },

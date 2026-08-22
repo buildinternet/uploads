@@ -9,8 +9,8 @@
  *   Auth only deletes a row when a poll notices `expired_token` — an
  *   abandoned `uploads login` (user never opens the approval page, or opens
  *   it but never approves) leaves the row behind forever. Growth here is
- *   unauthenticated (`POST /device/code` needs no auth), bounded only by the
- *   AUTH_RATE_LIMITER binding.
+ *   unauthenticated (`POST /device/code` needs no auth), bounded only by
+ *   Better Auth's database-backed rate limiter (src/auth.ts `rateLimit`).
  *
  * Deletes are batched (id-select then delete-by-id, looped) so a table that
  * has grown large doesn't turn one sweep into a single unbounded statement.
