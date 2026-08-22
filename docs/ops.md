@@ -520,9 +520,25 @@ deliberately keeps its own optional overrides for each — the app code treats
 every one of them as fail-soft at runtime; `secrets.required` is a
 deploy-time guarantee, not a type-level one).
 
-**Rotating any of the eight going forward** is a plain `wrangler secret put
-<NAME>` from `apps/auth` — no store, no binding, takes effect on the next
-request.
+**Rotating an independent secret** (`BETTER_AUTH_SECRET`, `BETTER_AUTH_API_KEY`,
+`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRO_PRICE_ID`,
+`BILLING_INTERNAL_KEY`) is a plain `wrangler secret put <NAME>` from
+`apps/auth` — no store, no binding, takes effect on the next request.
+
+**Rotating `GITHUB_CLIENT_ID`/`GITHUB_CLIENT_SECRET` together** must NOT use
+two separate `wrangler secret put` calls: each one deploys immediately, so a
+sequential pair leaves a window where the new id is live against the old
+secret (or vice versa) and GitHub OAuth briefly breaks. Update both in one
+request instead:
+
+```bash
+printf 'GITHUB_CLIENT_ID=%s\nGITHUB_CLIENT_SECRET=%s\n' "$NEW_ID" "$NEW_SECRET" \
+  | pnpm exec wrangler secret bulk
+```
+
+(from `apps/auth`; `wrangler secret bulk` also accepts a JSON file of
+`{"key": "value"}` pairs). This lands both values in a single deploy, so
+they're never mismatched.
 
 **Previews.** This validates the same underlying `uploads-auth` Worker
 script's secrets that production uses, not a separate `previews`-scoped set.
