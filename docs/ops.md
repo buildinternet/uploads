@@ -550,6 +550,57 @@ eight secrets and needed no changes here. A manual `wrangler preview`
 inherits the same worker-level secrets too, unless a branch explicitly
 overrides one with `wrangler preview secret put`.
 
+## Minimal-binding profile (self-hosting, uploads#754 item 3)
+
+The four workers' `wrangler.jsonc` files declare ~15+ bindings between them,
+but not all of them are load-bearing. This section is the self-host contract:
+which bindings a deployment must have to run at all, and which ones are
+optional and degrade gracefully when skipped. **No dedicated self-hosting doc
+exists yet in this repo** — this table lives here (the closest existing home
+for operator-facing config) until one does; if that changes, move this
+section wholesale rather than duplicating it.
+
+Every optional binding below fails soft on its own: a self-hoster can delete
+the corresponding block from `wrangler.jsonc` (or a preview/branch config)
+without touching application code. This repo's own production config keeps
+every binding — this table is about what tolerates absence, not what we
+recommend removing.
+
+### Core (required — absence is a hard crash or an unusable deploy)
+
+| Binding                      | Worker(s)      | Type            |
+| ---------------------------- | -------------- | --------------- |
+| `DB`                         | api, auth, mcp | D1              |
+| `REGISTRY`, `GITHUB_CACHE`   | api, mcp       | KV              |
+| `UPLOADS`, `UPLOADS_DEFAULT` | api, mcp       | R2              |
+| `AUTH`                       | api, web       | Service binding |
+| `API`                        | auth, web      | Service binding |
+| `ASSETS`                     | web            | Workers Assets  |
+
+### Optional (fail-soft when absent)
+
+| Binding                                                                        | Worker    | What's lost without it                                                                                                                                                                                                                                                                                                                           |
+| ------------------------------------------------------------------------------ | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ANALYTICS`                                                                    | api       | The `/admin/metrics` breakdown panel's wide-dimension data (surface, content type, client, plan, repo). D1-backed metrics still work.                                                                                                                                                                                                            |
+| `ANALYTICS_API_TOKEN`                                                          | api       | Same as above — without it the breakdown panel reports `not_configured` even if `ANALYTICS` itself is bound.                                                                                                                                                                                                                                     |
+| `BROWSER`                                                                      | api       | `POST /v1/render` (CLI screenshot capture) answers 503 `renderer_unavailable`. Nothing else is affected.                                                                                                                                                                                                                                         |
+| `MEDIA`                                                                        | api       | Video poster-frame generation is skipped; uploads still succeed, just without a generated poster image.                                                                                                                                                                                                                                          |
+| `FLAGS`                                                                        | api       | Poster generation's runtime kill switch always evaluates to disabled (fails closed) — same effect as never enabling the feature.                                                                                                                                                                                                                 |
+| `FLAGS`                                                                        | web       | `/console` visibility falls back to the static `CONSOLE_MODE` var instead of a live-toggleable flag.                                                                                                                                                                                                                                             |
+| `GITHUB_WEBHOOK_QUEUE`                                                         | api       | GitHub webhook deliveries process inline (`waitUntil`) instead of through a durable queue — functionally the same, just without queue-level retry/DLQ semantics.                                                                                                                                                                                 |
+| `WRITE_LIMITER`                                                                | api, mcp  | No per-workspace burst limit on uploads/deletes.                                                                                                                                                                                                                                                                                                 |
+| `RENDER_LIMITER`                                                               | api       | No burst limit on `POST /v1/render` independent of the monthly upload budget.                                                                                                                                                                                                                                                                    |
+| `WS_CREATE_LIMITER`                                                            | api       | No burst limit on self-serve workspace creation (the 3-per-user cap itself still applies).                                                                                                                                                                                                                                                       |
+| `INVITE_LIMITER`                                                               | api       | No per-recipient/IP rate limit on invite emails, invite lookup/exchange, or CLI report/abuse endpoints.                                                                                                                                                                                                                                          |
+| `POSTER_LIMITER`                                                               | api       | **Fails closed, not open** — unlike every other limiter above, an absent `POSTER_LIMITER` disables poster generation entirely rather than removing its burst cap, since posters are a metered, billable operation.                                                                                                                               |
+| `EMAIL`                                                                        | api       | Welcome emails, abuse-report notifications, and invite-code emails are skipped (logged instead); the underlying record/report/enrollment is still created.                                                                                                                                                                                       |
+| `EMAIL`                                                                        | auth      | Magic-link, invitation, member-joined, and welcome emails are skipped (logged instead, with the link itself logged for invitations). GitHub OAuth sign-in is unaffected — it has no dependency on `EMAIL`. A deployment with neither `EMAIL` nor GitHub OAuth configured has no working sign-in method; that's a configuration gap, not a crash. |
+| `ADMIN_TOKEN`                                                                  | api       | The static break-glass admin token is disabled; scoped operator tokens (minted through the normal admin flow) still work.                                                                                                                                                                                                                        |
+| `BILLING_INTERNAL_KEY`                                                         | api, auth | Fails closed by design: `/internal/billing/plan` always 401s and the auth→api plan-sync bridge no-ops (queues a retry) instead of sending an unauthenticated request.                                                                                                                                                                            |
+| `GITHUB_APP_WEBHOOK_SECRET`                                                    | api       | The GitHub webhook endpoint 503s.                                                                                                                                                                                                                                                                                                                |
+| `GITHUB_APP_ID` / `GITHUB_APP_PRIVATE_KEY` / `GITHUB_APP_HOME_INSTALLATION_ID` | api, mcp  | GitHub App integration (PR/issue title resolution, managed comments, private-repo detection, auto-promotion) is disabled entirely — an all-or-nothing trio.                                                                                                                                                                                      |
+| `OPENAI_APPS_CHALLENGE`                                                        | mcp       | `/.well-known/openai-apps-challenge` 404s (only needed when submitting the OpenAI plugin directory listing).                                                                                                                                                                                                                                     |
+
 ## Presign
 
 `POST /v1/:ws/files/sign` — workspace needs HTTP S3 credentials (not binding-only).
