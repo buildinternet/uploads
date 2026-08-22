@@ -45,6 +45,15 @@
     // Dashboard field is ever cleared, remove this var in the same change.
     // See packages/billing/src/stripe-checkout.ts.
     "STRIPE_CHECKOUT_TOS_CONSENT": "true",
+    // Declared (empty/falsy) so a local `.dev.vars` override keeps working
+    // now that `secrets` (below) is defined: once a Worker declares
+    // `secrets.required`, wrangler only loads `.dev.vars`/`.env` keys that
+    // are either already a declared `vars` key or a required secret — an
+    // ambient-only key like this one would otherwise silently stop loading
+    // locally. Only takes effect when ENVIRONMENT is "production" (see
+    // isProduction in src/auth.ts); local/preview ENVIRONMENT values already
+    // skip rate limiting regardless of this var.
+    "AUTH_RATE_LIMIT_DISABLED": "",
   },
   "routes": [
     {
@@ -81,44 +90,38 @@
       "migrations_dir": "migrations",
     },
   ],
-  // TRANSITIONAL (uploads#754 item 2) — these four are being moved off the
-  // account-level Secrets Store (store_id below is the "releases" store,
-  // shared across buildinternet-org repos — non-portable for a self-hoster,
-  // and each of these four secrets has exactly one consumer: this worker, so
-  // the store's cross-worker propagation never applied) onto plain per-worker
-  // secrets: BETTER_AUTH_SECRET, BETTER_AUTH_API_KEY, GITHUB_CLIENT_ID,
-  // GITHUB_CLIENT_SECRET (matching this repo's plain-secret naming
-  // elsewhere). src/secrets.ts now prefers the plain env var and falls back
-  // to the matching binding below only when the plain var is unset — kept
-  // here so a deploy stays safe before an operator has run `wrangler secret
-  // put` for all four. Once prod (and preview, if used) confirm the plain
-  // secrets are live, remove this block (and the matching one under
-  // `previews` below) and the UPL_* fallback branches in src/secrets.ts.
-  // Wrangler FAILS a deploy when a declared secrets_store_secrets entry
-  // doesn't exist in the store, which is why these stay populated rather
-  // than being deleted piecemeal.
-  "secrets_store_secrets": [
-    {
-      "binding": "UPL_BETTER_AUTH_SECRET",
-      "store_id": "a887a71cab084105b79706df23380723",
-      "secret_name": "UPL_BETTER_AUTH_SECRET",
-    },
-    {
-      "binding": "UPL_BETTER_AUTH_API_KEY",
-      "store_id": "a887a71cab084105b79706df23380723",
-      "secret_name": "UPL_BETTER_AUTH_API_KEY",
-    },
-    {
-      "binding": "UPL_GITHUB_CLIENT_ID",
-      "store_id": "a887a71cab084105b79706df23380723",
-      "secret_name": "UPL_GITHUB_CLIENT_ID",
-    },
-    {
-      "binding": "UPL_GITHUB_CLIENT_SECRET",
-      "store_id": "a887a71cab084105b79706df23380723",
-      "secret_name": "UPL_GITHUB_CLIENT_SECRET",
-    },
-  ],
+  // Plain per-worker secrets (uploads#754 item 2 — moved off the
+  // account-level Cloudflare Secrets Store: each of these had exactly one
+  // consumer, this worker, so the store's cross-worker propagation never
+  // applied, and its store_id pointed at a store shared across
+  // buildinternet-org repos, non-portable for a self-hoster). Declaring them
+  // here makes `wrangler deploy`/`wrangler versions upload` fail with a clear
+  // error instead of a silent 503 if any go missing, and is the source of
+  // truth for `wrangler types` (see the `secrets` configuration property:
+  // https://developers.cloudflare.com/workers/wrangler/configuration/#secrets-configuration-property).
+  // Cutover commands and the Stripe/billing pair's own history are in
+  // docs/ops.md ("Auth worker: Secrets Store → plain secret cutover").
+  //
+  // This validates the SAME underlying Worker script's secrets that prod
+  // uses — not a `previews`-scoped set. Per docs/previews.md, the
+  // automatic per-branch "Branch Preview URL" that Workers Builds deploys
+  // for every PR runs against production bindings (it is NOT the
+  // `npx wrangler preview` / `previews` block flow below), so it sees these
+  // same secrets and is unaffected by this list. A manual `wrangler preview`
+  // inherits the same worker-level secrets unless a branch explicitly
+  // overrides one with `wrangler preview secret put`.
+  "secrets": {
+    "required": [
+      "BETTER_AUTH_SECRET",
+      "BETTER_AUTH_API_KEY",
+      "GITHUB_CLIENT_ID",
+      "GITHUB_CLIENT_SECRET",
+      "STRIPE_SECRET_KEY",
+      "STRIPE_WEBHOOK_SECRET",
+      "STRIPE_PRO_PRICE_ID",
+      "BILLING_INTERNAL_KEY",
+    ],
+  },
   // Magic-link delivery. uploads.sh is onboarded for Cloudflare Email Sending;
   // all auth mail comes from noreply@uploads.sh (D7).
   "send_email": [{ "name": "EMAIL", "allowed_sender_addresses": ["noreply@uploads.sh"] }],
@@ -160,11 +163,14 @@
   // callback URLs, so social login cannot work on a preview; magic-link and
   // session flows can once BETTER_AUTH_URL is set. Auth state must never be
   // shared, so previews get their own D1. Bindings do NOT inherit from the
-  // production config — a preview gets only what this block lists — so the
-  // Secrets Store references, EMAIL, the API service binding (always calls
-  // production uploads-api), and the rate limiter are repeated verbatim.
-  // Note a preview CAN send real mail from noreply@uploads.sh, but only
-  // explicit flows (magic links) do.
+  // production config — a preview gets only what this block lists — so
+  // EMAIL, the API service binding (always calls production uploads-api),
+  // and the rate limiter are repeated verbatim. The eight plain secrets
+  // above are NOT bindings declared per-config-block — they live on the
+  // Worker script itself, so previews see the same ones prod does unless a
+  // branch overrides one with `wrangler preview secret put`. Note a preview
+  // CAN send real mail from noreply@uploads.sh, but only explicit flows
+  // (magic links) do.
   //
   // One-time setup (migrations go through wrangler.preview.jsonc — the
   // `d1 migrations` command cannot see databases declared inside `previews`):
@@ -186,28 +192,6 @@
         "database_name": "uploads-auth-preview",
         "database_id": "8f581b6a-6238-4153-a846-a94b83cac86c",
         "migrations_dir": "migrations",
-      },
-    ],
-    "secrets_store_secrets": [
-      {
-        "binding": "UPL_BETTER_AUTH_SECRET",
-        "store_id": "a887a71cab084105b79706df23380723",
-        "secret_name": "UPL_BETTER_AUTH_SECRET",
-      },
-      {
-        "binding": "UPL_BETTER_AUTH_API_KEY",
-        "store_id": "a887a71cab084105b79706df23380723",
-        "secret_name": "UPL_BETTER_AUTH_API_KEY",
-      },
-      {
-        "binding": "UPL_GITHUB_CLIENT_ID",
-        "store_id": "a887a71cab084105b79706df23380723",
-        "secret_name": "UPL_GITHUB_CLIENT_ID",
-      },
-      {
-        "binding": "UPL_GITHUB_CLIENT_SECRET",
-        "store_id": "a887a71cab084105b79706df23380723",
-        "secret_name": "UPL_GITHUB_CLIENT_SECRET",
       },
     ],
     "send_email": [{ "name": "EMAIL", "allowed_sender_addresses": ["noreply@uploads.sh"] }],
