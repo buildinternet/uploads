@@ -305,6 +305,19 @@ describe("handleWebhook producer path", () => {
     await handleWebhook(envWith(kv, queue), "issues", issuesPayload);
     expect(kv.store.has("ghref:o/r#1")).toBe(false);
   });
+
+  it("processes inline when GITHUB_WEBHOOK_QUEUE is absent entirely (issue #754 item 3: self-hosters may skip the queue)", async () => {
+    const kv = new FakeKv();
+    kv.store.set("ghref:o/r#1", { value: "{}" });
+    // No queue at all — envWith(kv, undefined) leaves GITHUB_WEBHOOK_QUEUE unset.
+    await expect(
+      handleWebhook({ GITHUB_CACHE: kv } as unknown as Env, "issues", issuesPayload),
+    ).resolves.toBeUndefined();
+    // Same signal as the "send fails" case above: the inline path ran and
+    // consumed the reconcile-cache entry (the consumer-owned delete never
+    // gets a chance to run without a queue).
+    expect(kv.store.has("ghref:o/r#1")).toBe(false);
+  });
 });
 
 describe("handleGithubWebhookBatch", () => {

@@ -498,10 +498,27 @@ function decodePngDimensions(bytes: Uint8Array): { width: number; height: number
   return { width, height };
 }
 
-/** Wraps the Browser Run `BROWSER` binding behind the `Renderer` seam. */
-export function browserRenderer(browser: BrowserRun): Renderer {
+/**
+ * Wraps the Browser Run `BROWSER` binding behind the `Renderer` seam.
+ * `BROWSER` is an optional binding (uploads#754 item 3 — self-hosters can
+ * skip it): an absent binding degrades this single endpoint to a 503 with a
+ * distinct `renderer_unavailable` code, never a worker crash. This used to be
+ * only *incidentally* fail-soft — `browser.quickAction` throwing a `TypeError`
+ * on `undefined` happened to land in the catch below as a generic
+ * `render_failed` 502 — so the explicit check here is for a clearer signal to
+ * callers, not a behavior fix.
+ */
+export function browserRenderer(browser: BrowserRun | undefined): Renderer {
   return {
     async screenshot(input) {
+      if (!browser) {
+        throw new AppError({
+          type: "unavailable",
+          code: "renderer_unavailable",
+          message: "screenshot rendering is not configured on this deployment",
+          status: 503,
+        });
+      }
       const options = toBrowserRunOptions(input);
       let response: Response;
       try {
