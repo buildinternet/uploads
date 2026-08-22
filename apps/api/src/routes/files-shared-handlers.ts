@@ -15,7 +15,7 @@ import {
 import { getFileMetadata, META_MAX_KEYS, setFileMetadata } from "../file-metadata";
 import { checkDeclaredLength, maxBytesForContentType, resolveUploadPolicy } from "../guards";
 import { splitUploadMetaHeaders } from "../provenance";
-import { objectPublicUrls, resolveObjectLane, storage, storageConfig } from "../storage";
+import { createLaneResolver, objectPublicUrls, resolveObjectLane, storage } from "../storage";
 import { hasGithubTags, uploaderTags } from "../uploader-identity";
 import { sanitizeVisibility } from "../visibility";
 import type { WorkspaceVars } from "../workspace";
@@ -84,7 +84,17 @@ export async function signFileHandler(c: Context<WorkspaceVars>) {
       : 3600;
 
   try {
-    const store = await storage(c.env, ws);
+    // Two-lane storage: an existing object may live in a fallback lane
+    // rather than the active one this presign will write to — the conflict
+    // check (and the URL it reports) must still find it there. `resolver`
+    // caches the active lane's store/config, so the conflict-check walk and
+    // the trailing URL derivation below resolve the active lane exactly
+    // once between them, not once each.
+    const resolver = createLaneResolver(c.env, ws);
+    const [store, existingLane] = await Promise.all([
+      resolver.activeStore(),
+      resolver.resolve(key),
+    ]);
 
     // Strict-overwrite gate (issue #174), best-effort here: /sign mints a
     // presigned URL for a direct-to-bucket PUT that happens later (up to
@@ -97,10 +107,6 @@ export async function signFileHandler(c: Context<WorkspaceVars>) {
     // hot-swap exemption, but it is NOT a security boundary: a signed URL
     // for a free key can still land on an object created after signing.
     // Treat this as UX guardrail parity with PUT, not a guarantee.
-    // Two-lane storage: an existing object may live in a fallback lane rather
-    // than the active one this presign will write to — the conflict check
-    // (and the URL it reports) must still find it there.
-    const existingLane = await resolveObjectLane(c.env, ws, key);
     if (existingLane && !body.replace && !isManagedGithubKey(key)) {
       const urls = objectPublicUrls(c.env, existingLane.config, key);
       throw new ConflictError(
@@ -114,7 +120,7 @@ export async function signFileHandler(c: Context<WorkspaceVars>) {
       contentType,
       maxSize,
     });
-    const cfg = await storageConfig(c.env, ws);
+    const cfg = await resolver.activeConfig();
     const urls = objectPublicUrls(c.env, cfg, key);
     return c.json({
       workspace: c.get("workspaceName"),
@@ -158,12 +164,16 @@ export async function putFileHandler(c: Context<WorkspaceVars>) {
     const finalKey = finalizeUploadKey(key, ws);
     // Two-lane storage: preview against whichever lane actually holds the
     // key today (a fallback-only key still counts as "would overwrite").
-    const existingLane = await resolveObjectLane(c.env, ws, finalKey);
+    // `resolver` caches the active lane's config, so the not-found branch
+    // below reuses the same resolve `resolve()` already did internally,
+    // rather than a second `storageConfig` call.
+    const resolver = createLaneResolver(c.env, ws);
+    const existingLane = await resolver.resolve(finalKey);
     const replaced = existingLane !== null;
     const wouldRefuse = replaced && !wantReplace && !isManagedGithubKey(finalKey);
     const urls = existingLane
       ? objectPublicUrls(c.env, existingLane.config, finalKey)
-      : objectPublicUrls(c.env, await storageConfig(c.env, ws), finalKey);
+      : objectPublicUrls(c.env, await resolver.activeConfig(), finalKey);
     return c.json({
       workspace: c.get("workspaceName"),
       key: finalKey,
