@@ -7,24 +7,18 @@
  * `values()` path), and `client.batch(...)`.
  *
  * Schema is loaded by applying the real `apps/api/migrations/*.sql` files in
- * order (issue #754: apps/auth's dedicated D1 folds into the main one, so
- * that is now the single source of truth for this worker's tables too) —
- * drift between `src/schema.ts` and the migrations is caught by tests
- * instead of only at `wrangler d1 migrations apply` time. Those files also
- * create apps/api's own tables, which is harmless here — no table/index name
- * collides (see .context/754-auth-d1-merge-plan.md) and this worker's tests
- * never touch them.
+ * order. Issue #754 item 1 (cutover complete as of this file): this worker's
+ * tables live in the main `uploads-production` database now, alongside
+ * apps/api's own — `apps/api/migrations` is the ONLY migration chain for
+ * this worker, both in production and here in tests. Applying the full api
+ * chain is harmless for these tests — no table/index name collides (see
+ * .context/754-auth-d1-merge-plan.md) and this worker's tests never touch
+ * apps/api's tables. Drift between `src/schema.ts` and the migrations is
+ * caught here instead of only at `wrangler d1 migrations apply` time.
  *
- * `apps/auth/migrations/*.sql` still exists and still drives the OLD
- * dedicated auth D1 that production actually runs against, until the item-1
- * cutover lands; it is intentionally no longer the source this harness reads
- * from. Transitional policy until cutover: a schema change affecting this
- * worker MUST land in BOTH chains — `apps/api/migrations` (so the future
- * merged layout and this test harness stay correct) AND
- * `apps/auth/migrations` (so the live `uploads-auth` database production
- * actually reads from gets the change too). Landing it in only one chain
- * either leaves prod's real database out of date or leaves the future
- * merged schema/tests silently behind.
+ * The old `apps/auth/migrations/*.sql` chain and its dedicated `uploads-auth`
+ * database are retired — do not resurrect that directory. Any future schema
+ * change for this worker goes in `apps/api/migrations` only.
  *
  * Deliberately NOT a full D1 emulator: no `.dump()`, no `sessions`/bookmark
  * API, and `meta` fields are minimal stubs. Good enough for drizzle+Better
