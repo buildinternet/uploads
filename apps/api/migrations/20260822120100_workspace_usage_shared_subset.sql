@@ -1,0 +1,2 @@
+ALTER TABLE workspace_usage ADD COLUMN shared_bytes INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE workspace_usage ADD COLUMN shared_objects INTEGER NOT NULL DEFAULT 0;

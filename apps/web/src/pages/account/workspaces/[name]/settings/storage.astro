@@ -65,17 +65,29 @@ if (!workspace) return Astro.redirect("/account/workspaces");
           <div class="storage-summary__step">
             <span class="storage-summary__num">3</span>
             <div class="storage-summary__body">
-              <div class="storage-summary__title">Verify and save</div>
+              <div class="storage-summary__title">Save & verify</div>
               <div class="storage-summary__sub">
-                We run auth, round-trip, and public-URL checks before switching the workspace over.
+                We run auth, round-trip, and public-URL checks. Saving never changes where uploads
+                go — switch to it whenever you're ready.
               </div>
             </div>
           </div>
         </div>
 
-        <p class="muted settings-note" id="storage-connect-note" hidden>
-          Connecting is only available for an empty workspace — this workspace already has files.
-        </p>
+        <div id="storage-saved" hidden>
+          <h3>Saved bucket</h3>
+          <dl class="kv" id="storage-saved-details"></dl>
+          <p class="muted" id="storage-saved-status">Saved · not in use</p>
+          <div class="storage-actions">
+            <button type="button" class="ul-btn ul-btn--solid" id="storage-use-btn"
+              >Use this bucket</button
+            >
+            <button type="button" class="ul-btn" id="storage-saved-rotate-btn"
+              >Rotate credentials</button
+            >
+          </div>
+          <p class="muted" id="storage-saved-action-status" role="status"></p>
+        </div>
       </div>
 
       <div id="storage-byo" hidden>
@@ -85,11 +97,13 @@ if (!workspace) return Astro.redirect("/account/workspaces");
           >
           <button type="button" class="ul-btn" id="storage-rotate-btn">Rotate credentials</button>
           <button type="button" class="ul-btn ul-btn--danger" id="storage-disconnect-btn"
-            >Disconnect</button
+            >Switch back to uploads.sh storage</button
           >
         </div>
         <p class="muted" id="storage-action-status" role="status"></p>
       </div>
+
+      <p class="muted settings-note" id="storage-previous" hidden></p>
 
       <div id="storage-wizard" hidden>
         <div class="storage-wizard-step" id="storage-step-1">
@@ -217,7 +231,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
           <ul class="storage-checklist" id="storage-checklist" aria-live="polite"></ul>
           <div class="storage-actions">
             <button type="button" class="ul-btn ul-btn--solid" id="storage-save-btn" disabled
-              >Save</button
+              >Save & verify</button
             >
             <button type="button" class="ul-btn ul-btn--ghost" id="storage-step3-back">Back</button>
             <button type="button" class="ul-btn ul-btn--ghost" id="storage-wizard-cancel-3"
@@ -341,13 +355,14 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       requireElement,
     } from "../../../../../lib/account-shell";
     import {
+      activateWorkspaceStorage,
       deleteWorkspaceStorage,
-      getMyWorkspaceUsage,
       getWorkspaceStorageStatus,
       putWorkspaceStorage,
       verifyWorkspaceStorage,
       type StorageCandidate,
       type StorageVerifyResult,
+      type WorkspaceStorageLane,
       type WorkspaceStorageStatus,
     } from "../../../../../lib/api-client";
     import { loadWorkspaces } from "../../../../../lib/workspaces-nav";
@@ -400,7 +415,18 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       const storageByoDetails = requireElement<HTMLElement>("#storage-byo-details", page);
       const storageConnectBtn = requireElement<HTMLButtonElement>("#storage-connect-btn", page);
       const storageSummary = requireElement<HTMLElement>("#storage-summary", page);
-      const storageConnectNote = requireElement<HTMLElement>("#storage-connect-note", page);
+      const storageSaved = requireElement<HTMLElement>("#storage-saved", page);
+      const storageSavedDetails = requireElement<HTMLElement>("#storage-saved-details", page);
+      const storageUseBtn = requireElement<HTMLButtonElement>("#storage-use-btn", page);
+      const storageSavedRotateBtn = requireElement<HTMLButtonElement>(
+        "#storage-saved-rotate-btn",
+        page,
+      );
+      const storageSavedActionStatus = requireElement<HTMLElement>(
+        "#storage-saved-action-status",
+        page,
+      );
+      const storagePrevious = requireElement<HTMLElement>("#storage-previous", page);
       const storageReverifyBtn = requireElement<HTMLButtonElement>("#storage-reverify-btn", page);
       const storageRotateBtn = requireElement<HTMLButtonElement>("#storage-rotate-btn", page);
       const storageDisconnectBtn = requireElement<HTMLButtonElement>(
@@ -455,6 +481,10 @@ if (!workspace) return Astro.redirect("/account/workspaces");
 
       let wizardMode: "connect" | "rotate" = "connect";
       let lastVerify: StorageVerifyResult | null = null;
+      /** The standby lane currently offered by the "Use this bucket" card, if any. */
+      let savedLaneId: string | null = null;
+      /** The demoted shared (binding-mode) fallback lane "Switch back" targets, if one has been recorded yet. */
+      let sharedFallbackLaneId: string | null = null;
 
       function showStorageError(message: string | null): void {
         if (!message) {
@@ -480,6 +510,37 @@ if (!workspace) return Astro.redirect("/account/workspaces");
           .join("");
       }
 
+      function renderSavedDetails(lane: WorkspaceStorageLane): void {
+        const rows: [string, string][] = [
+          ["Bucket", lane.bucket],
+          ["Account ID", lane.accountIdMasked ?? "—"],
+          ["Access key ID", lane.accessKeyIdLast4 ? `…${lane.accessKeyIdLast4}` : "—"],
+          ["Public base URL", lane.publicBaseUrl ?? "Signed-only (no public URL)"],
+          ["Verified", formatTimestamp(lane.verifiedAt)],
+        ];
+        storageSavedDetails.innerHTML = rows
+          .map(([label, value]) => `<dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd>`)
+          .join("");
+      }
+
+      /** "Existing files stay where they are and keep working. New uploads go to <target>." — the switch confirmation copy from every direction (spec verbatim). */
+      function switchConfirmMessage(targetLabel: string): string {
+        return `Existing files stay where they are and keep working. New uploads go to ${targetLabel}.`;
+      }
+
+      /** The "previous storage" line: fallback lanes (former actives that may still hold objects). */
+      function renderPreviousLine(status: WorkspaceStorageStatus): void {
+        const fallbacks = status.lanes.filter((lane) => lane.role === "fallback");
+        if (fallbacks.length === 0) {
+          storagePrevious.hidden = true;
+          storagePrevious.textContent = "";
+          return;
+        }
+        const names = fallbacks.map((lane) => lane.bucket).join(", ");
+        storagePrevious.hidden = false;
+        storagePrevious.textContent = `Previous storage still serving old files: ${names}.`;
+      }
+
       function resetWizardForm(): void {
         storageForm.reset();
         lastVerify = null;
@@ -497,7 +558,13 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         storageStep3.hidden = step !== 3;
       }
 
-      function openWizard(mode: "connect" | "rotate", prefill?: WorkspaceStorageStatus): void {
+      interface WizardPrefill {
+        bucket?: string;
+        publicBaseUrl?: string;
+        jurisdiction?: string;
+      }
+
+      function openWizard(mode: "connect" | "rotate", prefill?: WizardPrefill): void {
         wizardMode = mode;
         resetWizardForm();
         showStorageError(null);
@@ -603,10 +670,13 @@ if (!workspace) return Astro.redirect("/account/workspaces");
           if (!stillHere()) return;
           if (result.kind === "ok") {
             // Never leave the secret in form state once it's been sent.
+            // Saving never switches the active lane — the workspace keeps
+            // uploading wherever it already was; the saved config just
+            // becomes available to switch to (spec: "Configure, then switch").
             closeWizard();
             applyStatus(result.status);
-            storageActionStatus.textContent = "Saved.";
-            storageActionStatus.dataset.state = "ok";
+            storageSavedActionStatus.textContent = "Saved.";
+            storageSavedActionStatus.dataset.state = "ok";
             return;
           }
           storageSaveBtn.disabled = false;
@@ -615,11 +685,6 @@ if (!workspace) return Astro.redirect("/account/workspaces");
             renderChecklist(result.result);
             storageSaveStatus.textContent = "Verification failed — see the checklist above.";
             storageSaveStatus.dataset.state = "error";
-            return;
-          }
-          if (result.kind === "conflict") {
-            showStorageError(result.message);
-            storageSaveStatus.textContent = "";
             return;
           }
           storageSaveStatus.textContent = "Couldn’t save. Try again.";
@@ -641,6 +706,22 @@ if (!workspace) return Astro.redirect("/account/workspaces");
             return;
           }
           openWizard("rotate", result.status);
+        })();
+      });
+
+      storageSavedRotateBtn.addEventListener("click", () => {
+        void (async () => {
+          storageSavedActionStatus.textContent = "";
+          storageSavedActionStatus.removeAttribute("data-state");
+          const result = await getWorkspaceStorageStatus(apiOrigin, workspaceName);
+          if (!stillHere()) return;
+          if (result.kind !== "ok") {
+            storageSavedActionStatus.textContent = "Couldn’t reach the server. Try again.";
+            storageSavedActionStatus.dataset.state = "error";
+            return;
+          }
+          const standby = result.status.lanes.find((lane) => lane.role === "standby");
+          openWizard("rotate", standby ?? undefined);
         })();
       });
 
@@ -667,17 +748,76 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         })();
       });
 
+      /**
+       * Shared handler for both switch directions ("Use this bucket" and
+       * "Switch back…") — same primitive pointed at the other lane's id.
+       * `statusEl` is the visible status line for the view the button lives
+       * in: `storageSavedActionStatus` for "Use this bucket" (the saved-card
+       * lives in the shared view, where `#storage-byo` — and its
+       * `storageActionStatus` line — is hidden) and `storageActionStatus`
+       * for "Switch back" (the active-BYO view).
+       */
+      async function activateLane(
+        laneId: string,
+        targetLabel: string,
+        statusEl: HTMLElement,
+      ): Promise<void> {
+        if (!confirm(switchConfirmMessage(targetLabel))) return;
+        showStorageError(null);
+        statusEl.textContent = "Switching…";
+        statusEl.removeAttribute("data-state");
+        const result = await activateWorkspaceStorage(apiOrigin, workspaceName, laneId);
+        if (!stillHere()) return;
+        if (result.kind === "ok") {
+          applyStatus(result.status);
+          // The switch just changed which view is visible — confirm on
+          // whichever status line that view actually shows, not the one the
+          // button that started this lived next to.
+          const confirmEl =
+            result.status.mode === "byo" ? storageActionStatus : storageSavedActionStatus;
+          confirmEl.textContent = "Switched.";
+          confirmEl.dataset.state = "ok";
+          return;
+        }
+        if (result.kind === "invalid") {
+          showStorageError(
+            "This bucket's credentials could not be re-verified — rotate them and try again.",
+          );
+          statusEl.textContent = "";
+          return;
+        }
+        statusEl.textContent = "Couldn’t switch. Try again.";
+        statusEl.dataset.state = "error";
+      }
+
+      storageUseBtn.addEventListener("click", () => {
+        if (!savedLaneId) return;
+        void activateLane(savedLaneId, "your bucket", storageSavedActionStatus);
+      });
+
       storageDisconnectBtn.addEventListener("click", () => {
         void (async () => {
+          if (sharedFallbackLaneId) {
+            // A shared lane has already been recorded from a previous
+            // switch — the common case once this workspace has ever used
+            // the new activate primitive. Same decoupled switch as
+            // "Use this bucket", pointed the other direction.
+            await activateLane(sharedFallbackLaneId, "storage.uploads.sh", storageActionStatus);
+            return;
+          }
+          // No recorded shared lane yet (this workspace has never switched
+          // through the new primitive — e.g. BYO was set some other way).
+          // Fall back to the legacy detach path, which restores shared
+          // defaults directly.
           if (
             !confirm(
-              "Disconnect this bucket? Your workspace will go back to the shared storage.uploads.sh bucket. Nothing on your own bucket is touched or deleted.",
+              "Switch back to uploads.sh storage? Nothing on your own bucket is touched or deleted.",
             )
           ) {
             return;
           }
           showStorageError(null);
-          storageActionStatus.textContent = "Disconnecting…";
+          storageActionStatus.textContent = "Switching…";
           storageActionStatus.removeAttribute("data-state");
           storageDisconnectBtn.disabled = true;
           const result = await deleteWorkspaceStorage(apiOrigin, workspaceName);
@@ -685,7 +825,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
           storageDisconnectBtn.disabled = false;
           if (result.kind === "ok") {
             applyStatus(result.status);
-            storageActionStatus.textContent = "Disconnected.";
+            storageActionStatus.textContent = "Switched.";
             storageActionStatus.dataset.state = "ok";
             return;
           }
@@ -694,12 +834,15 @@ if (!workspace) return Astro.redirect("/account/workspaces");
             // forced retry the workspace would be stuck on BYO storage with no
             // UI path back to shared — so offer the same escape hatch the API
             // documents, spelling out what force does (and doesn't) touch.
+            // Two-lane storage keeps this config around as a fallback lane so
+            // those files keep resolving even after the forced switch.
             showStorageError(result.message);
             storageActionStatus.textContent = "";
             if (
               !confirm(
-                "This workspace still has files on your bucket. Detach anyway? " +
-                  "Your files stay on your bucket untouched, but this workspace stops serving them.",
+                "This workspace still has files on your bucket. Switch back anyway? " +
+                  "Your files stay on your bucket untouched and keep resolving from it, " +
+                  "but new uploads move to storage.uploads.sh.",
               )
             ) {
               return;
@@ -711,12 +854,12 @@ if (!workspace) return Astro.redirect("/account/workspaces");
             if (forced.kind === "ok") {
               showStorageError(null);
               applyStatus(forced.status);
-              storageActionStatus.textContent = "Disconnected.";
+              storageActionStatus.textContent = "Switched.";
               storageActionStatus.dataset.state = "ok";
               return;
             }
           }
-          storageActionStatus.textContent = "Couldn’t disconnect. Try again.";
+          storageActionStatus.textContent = "Couldn’t switch. Try again.";
           storageActionStatus.dataset.state = "error";
         })();
       });
@@ -725,6 +868,17 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         closeWizard();
         storageActionStatus.textContent = "";
         storageActionStatus.removeAttribute("data-state");
+        renderPreviousLine(status);
+
+        // The shared (binding-mode) fallback lane is the "switch back"
+        // target once this workspace has switched through the new
+        // primitive at least once. `mode` comes straight from the server —
+        // never inferred from which masked fields happen to be absent.
+        const sharedFallback = status.lanes.find(
+          (lane) => lane.role === "fallback" && lane.mode === "shared",
+        );
+        sharedFallbackLaneId = sharedFallback?.laneId ?? null;
+
         if (status.mode === "byo") {
           storageSharedEl.hidden = true;
           storageByoEl.hidden = false;
@@ -732,19 +886,18 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         } else {
           storageByoEl.hidden = true;
           storageSharedEl.hidden = false;
-          void applySharedUsageGate();
+          const standby = status.lanes.find((lane) => lane.role === "standby");
+          if (standby) {
+            savedLaneId = standby.laneId;
+            storageSaved.hidden = false;
+            renderSavedDetails(standby);
+            storageSavedActionStatus.textContent = "";
+            storageSavedActionStatus.removeAttribute("data-state");
+          } else {
+            savedLaneId = null;
+            storageSaved.hidden = true;
+          }
         }
-      }
-
-      /** Disables "Connect your own bucket" (with an explanation) once the workspace has files —
-       * connecting only works on an empty workspace. Reuses the usage endpoint the account shell
-       * already calls elsewhere rather than inventing a new one. */
-      async function applySharedUsageGate(): Promise<void> {
-        const usage = await getMyWorkspaceUsage(apiOrigin, workspaceName);
-        if (!stillHere()) return;
-        const hasFiles = !!usage && usage.objects > 0;
-        storageConnectBtn.disabled = hasFiles;
-        storageConnectNote.hidden = !hasFiles;
       }
 
       async function loadStorage(): Promise<void> {
@@ -761,9 +914,8 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         applyStatus(result.status);
         // Create-flow hand-off (issue #583 Task 2.1): `new.astro` redirects
         // here with `#storage` after creating a workspace with "bring your
-        // own bucket" checked. Only opens the wizard when the flag actually
-        // allows it — an unflagged workspace just lands on a normal storage
-        // page, matching the create form's honest client-side gate.
+        // own bucket" checked. Saving never depends on the workspace being
+        // empty any more, so this always opens straight into the wizard.
         if (result.status.mode === "shared" && window.location.hash === "#storage") {
           openWizard("connect");
           storageSection.scrollIntoView({ block: "start" });

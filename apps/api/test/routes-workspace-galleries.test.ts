@@ -141,6 +141,7 @@ beforeEach(async () => {
   db = new DatabaseSync(":memory:");
   db.exec(migration("20260710120000_auth.sql"));
   db.exec(migration("20260710140000_workspace_usage.sql"));
+  db.exec(migration("20260822120100_workspace_usage_shared_subset.sql"));
   db.exec(migration("20260711180000_galleries.sql"));
   db.exec(migration("20260712230000_token_minting_user.sql"));
   db.exec(migration("20260817180000_token_last_used.sql"));

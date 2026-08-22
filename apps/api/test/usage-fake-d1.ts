@@ -15,6 +15,8 @@ export type UsageRow = {
   workspace: string;
   bytes: number;
   objects: number;
+  shared_bytes: number;
+  shared_objects: number;
   uploads_in_period: number;
   period_start: string;
   updated_at: string;
@@ -136,24 +138,23 @@ export class UsageFakeD1 {
                 workspace,
                 bytes: 0,
                 objects: 0,
+                shared_bytes: 0,
+                shared_objects: 0,
                 uploads_in_period: 0,
                 period_start: period,
                 updated_at: updatedAt,
               });
             }
           } else {
-            const [workspace, bytes, objects, period, updatedAt] = values as [
-              string,
-              number,
-              number,
-              string,
-              string,
-            ];
+            const [workspace, bytes, objects, sharedBytes, sharedObjects, period, updatedAt] =
+              values as [string, number, number, number, number, string, string];
             if (!this.usage.has(workspace)) {
               this.usage.set(workspace, {
                 workspace,
                 bytes,
                 objects,
+                shared_bytes: sharedBytes,
+                shared_objects: sharedObjects,
                 uploads_in_period: 0,
                 period_start: period,
                 updated_at: updatedAt,
@@ -165,34 +166,39 @@ export class UsageFakeD1 {
         if (normalized.startsWith("UPDATE workspace_usage SET")) {
           // Guarded storage reservation from reserveStorageBytes (check before
           // the upload-count path — both contain `<= ?`).
-          if (normalized.includes("bytes + ? <=")) {
-            const [deltaBytes, updatedAt, workspace, , max] = values as [
-              number,
-              string,
-              string,
-              number,
-              number,
-            ];
+          if (normalized.includes("bytes + ? <=") || normalized.includes("shared_bytes + ? <=")) {
+            const [deltaBytes, sharedDeltaBytes, updatedAt, workspace, enforcedDelta, max] =
+              values as [number, number, string, string, number, number];
             const row = this.usage.get(workspace);
             if (!row) throw new Error(`update before insert for ${workspace}`);
-            if (row.bytes + deltaBytes > max) {
+            const enforcedBytes = normalized.includes("shared_bytes + ? <=")
+              ? row.shared_bytes
+              : row.bytes;
+            if (enforcedBytes + enforcedDelta > max) {
               return { success: true as const, meta: { changes: 0 }, results: [] };
             }
             this.usage.set(workspace, {
               ...row,
               bytes: row.bytes + deltaBytes,
+              shared_bytes: row.shared_bytes + sharedDeltaBytes,
               updated_at: updatedAt,
             });
             return { success: true as const, meta: { changes: 1 }, results: [] };
           }
           // Storage release from releaseStorageBytesSafe.
           if (normalized.includes("MAX(0, bytes - ?)")) {
-            const [reservedBytes, updatedAt, workspace] = values as [number, string, string];
+            const [reservedBytes, sharedReservedBytes, updatedAt, workspace] = values as [
+              number,
+              number,
+              string,
+              string,
+            ];
             const row = this.usage.get(workspace);
             if (!row) return { success: true as const, meta: { changes: 0 }, results: [] };
             this.usage.set(workspace, {
               ...row,
               bytes: Math.max(0, row.bytes - reservedBytes),
+              shared_bytes: Math.max(0, row.shared_bytes - sharedReservedBytes),
               updated_at: updatedAt,
             });
             return { success: true as const, meta: { changes: 1 }, results: [] };
@@ -252,7 +258,9 @@ export class UsageFakeD1 {
             normalized.includes("objects = ?") &&
             !normalized.includes("bytes +")
           ) {
-            const [bytes, objects, updatedAt, workspace] = values as [
+            const [bytes, objects, sharedBytes, sharedObjects, updatedAt, workspace] = values as [
+              number,
+              number,
               number,
               number,
               string,
@@ -264,6 +272,8 @@ export class UsageFakeD1 {
               ...row,
               bytes,
               objects,
+              shared_bytes: sharedBytes,
+              shared_objects: sharedObjects,
               updated_at: updatedAt,
             });
             return { success: true as const, meta: { changes: 1 }, results: [] };
@@ -272,13 +282,26 @@ export class UsageFakeD1 {
           const [
             dBytes,
             dObjects,
+            dSharedBytes,
+            dSharedObjects,
             period,
             dUploadsAdd,
             dUploadsNew,
             periodSet,
             updatedAt,
             workspace,
-          ] = values as [number, number, string, number, number, string, string, string];
+          ] = values as [
+            number,
+            number,
+            number,
+            number,
+            string,
+            number,
+            number,
+            string,
+            string,
+            string,
+          ];
           const row = this.usage.get(workspace);
           if (!row) throw new Error(`update before insert for ${workspace}`);
           const samePeriod = row.period_start === period;
@@ -286,6 +309,8 @@ export class UsageFakeD1 {
             workspace,
             bytes: Math.max(0, row.bytes + dBytes),
             objects: Math.max(0, row.objects + dObjects),
+            shared_bytes: Math.max(0, row.shared_bytes + dSharedBytes),
+            shared_objects: Math.max(0, row.shared_objects + dSharedObjects),
             uploads_in_period: samePeriod
               ? row.uploads_in_period + dUploadsAdd
               : Math.max(0, dUploadsNew),

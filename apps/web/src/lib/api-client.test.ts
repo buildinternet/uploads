@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  activateWorkspaceStorage,
   deleteWorkspaceFile,
   deleteWorkspaceStorage,
   getGithubInstalled,
@@ -1374,12 +1375,12 @@ describe("getWorkspaceStorageStatus", () => {
 
     await expect(getWorkspaceStorageStatus("http://127.0.0.1:8787", "acme")).resolves.toEqual({
       kind: "ok",
-      status: { mode: "shared", byoBucketEnabled: true },
+      status: { mode: "shared", byoBucketEnabled: true, lanes: [] },
     });
     expect(fetchMock).toHaveBeenCalledOnce();
   });
 
-  it("parses the full byo-mode projection", async () => {
+  it("parses the full byo-mode projection, including saved lanes", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () =>
@@ -1393,6 +1394,17 @@ describe("getWorkspaceStorageStatus", () => {
           configuredAt: "2026-07-01T00:00:00.000Z",
           verifiedAt: "2026-07-01T00:00:00.000Z",
           jurisdiction: "eu",
+          activeLaneId: "lane_active1",
+          lanes: [
+            {
+              laneId: "lane_fallback1",
+              role: "fallback",
+              mode: "shared",
+              bucket: "uploads-default",
+              publicBaseUrl: "https://storage.uploads.sh",
+              lastActiveAt: "2026-06-01T00:00:00.000Z",
+            },
+          ],
         }),
       ),
     );
@@ -1410,6 +1422,17 @@ describe("getWorkspaceStorageStatus", () => {
         configuredAt: "2026-07-01T00:00:00.000Z",
         verifiedAt: "2026-07-01T00:00:00.000Z",
         jurisdiction: "eu",
+        activeLaneId: "lane_active1",
+        lanes: [
+          {
+            laneId: "lane_fallback1",
+            role: "fallback",
+            mode: "shared",
+            bucket: "uploads-default",
+            publicBaseUrl: "https://storage.uploads.sh",
+            lastActiveAt: "2026-06-01T00:00:00.000Z",
+          },
+        ],
       },
     });
   });
@@ -1536,6 +1559,7 @@ describe("putWorkspaceStorage", () => {
         byoBucketEnabled: true,
         bucket: "my-bucket",
         accessKeyIdLast4: "1234",
+        lanes: [],
       },
     });
   });
@@ -1557,25 +1581,17 @@ describe("putWorkspaceStorage", () => {
     });
   });
 
-  it("surfaces a 409 conflict message verbatim", async () => {
+  // Saving a config never switches the active lane (spec: "Configure, then
+  // switch") — the 409 `workspace_storage_not_empty` guard moved to lane
+  // removal, so PUT no longer has a conflict branch at all.
+  it("has no conflict branch — a 409 falls through to unavailable/server", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () =>
-        Response.json(
-          {
-            error: {
-              message: "this workspace already has files",
-              code: "workspace_storage_not_empty",
-            },
-          },
-          { status: 409 },
-        ),
-      ),
+      vi.fn(async () => new Response(null, { status: 409 })),
     );
-
     await expect(putWorkspaceStorage("http://127.0.0.1:8787", "acme", CANDIDATE)).resolves.toEqual({
-      kind: "conflict",
-      message: "this workspace already has files",
+      kind: "unavailable",
+      reason: "server",
     });
   });
 
@@ -1591,6 +1607,76 @@ describe("putWorkspaceStorage", () => {
   });
 });
 
+describe("activateWorkspaceStorage", () => {
+  it("POSTs the laneId and returns the resulting status on success", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe("http://127.0.0.1:8787/v1/workspaces/acme/storage/activate");
+      expect(init?.method).toBe("POST");
+      expect(init?.credentials).toBe("include");
+      expect(JSON.parse(init!.body as string)).toEqual({ laneId: "lane_abc12345" });
+      return Response.json({
+        mode: "byo",
+        byoBucketEnabled: true,
+        bucket: "my-bucket",
+        activeLaneId: "lane_abc12345",
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      activateWorkspaceStorage("http://127.0.0.1:8787", "acme", "lane_abc12345"),
+    ).resolves.toEqual({
+      kind: "ok",
+      status: {
+        mode: "byo",
+        byoBucketEnabled: true,
+        bucket: "my-bucket",
+        activeLaneId: "lane_abc12345",
+        lanes: [],
+      },
+    });
+  });
+
+  it("surfaces a 422 stale-verify failure as the invalid checklist", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json(
+          { ok: false, checks: [{ id: "auth", ok: false, required: true, hint: "bad keys" }] },
+          { status: 422 },
+        ),
+      ),
+    );
+
+    await expect(
+      activateWorkspaceStorage("http://127.0.0.1:8787", "acme", "lane_abc12345"),
+    ).resolves.toEqual({
+      kind: "invalid",
+      result: { ok: false, checks: [{ id: "auth", ok: false, required: true, hint: "bad keys" }] },
+    });
+  });
+
+  it("reports 404 as not_found for an unknown laneId", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 404 })),
+    );
+    await expect(
+      activateWorkspaceStorage("http://127.0.0.1:8787", "acme", "lane_nope"),
+    ).resolves.toEqual({ kind: "unavailable", reason: "not_found" });
+  });
+
+  it("reports 403 as forbidden", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 403 })),
+    );
+    await expect(
+      activateWorkspaceStorage("http://127.0.0.1:8787", "acme", "lane_abc12345"),
+    ).resolves.toEqual({ kind: "unavailable", reason: "forbidden" });
+  });
+});
+
 describe("deleteWorkspaceStorage", () => {
   it("DELETEs without force by default", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -1603,7 +1689,7 @@ describe("deleteWorkspaceStorage", () => {
 
     await expect(deleteWorkspaceStorage("http://127.0.0.1:8787", "acme")).resolves.toEqual({
       kind: "ok",
-      status: { mode: "shared", byoBucketEnabled: true },
+      status: { mode: "shared", byoBucketEnabled: true, lanes: [] },
     });
   });
 
@@ -1615,6 +1701,35 @@ describe("deleteWorkspaceStorage", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     await deleteWorkspaceStorage("http://127.0.0.1:8787", "acme", { force: true });
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("appends ?laneId= when removing a specific saved lane", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      expect(String(input)).toBe(
+        "http://127.0.0.1:8787/v1/workspaces/acme/storage?laneId=lane_abc12345",
+      );
+      return Response.json({ mode: "shared", byoBucketEnabled: true });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await deleteWorkspaceStorage("http://127.0.0.1:8787", "acme", { laneId: "lane_abc12345" });
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("combines force and laneId in the query string", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      expect(url.searchParams.get("force")).toBe("true");
+      expect(url.searchParams.get("laneId")).toBe("lane_abc12345");
+      return Response.json({ mode: "shared", byoBucketEnabled: true });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await deleteWorkspaceStorage("http://127.0.0.1:8787", "acme", {
+      force: true,
+      laneId: "lane_abc12345",
+    });
     expect(fetchMock).toHaveBeenCalledOnce();
   });
 

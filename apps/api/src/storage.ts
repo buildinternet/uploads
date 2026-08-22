@@ -109,6 +109,20 @@ export interface LaneConfig {
 }
 
 /**
+ * True for a platform-owned, binding-mode lane (the shared bucket, always
+ * reached over an R2 binding) rather than a customer HTTP-credential (BYO)
+ * lane. Accepts either shape a caller has on hand — unresolved fields
+ * (`WorkspaceRecord`/`StorageLane`/`StorageLaneFields`, which carry
+ * `binding`) or an already-resolved `StorageConfig` (which carries
+ * `r2Binding` instead) — so every call site derives the same signal from
+ * whichever bag it happens to be holding, rather than hand-computing
+ * `Boolean(x.binding)`/`Boolean(x.r2Binding)` at each one.
+ */
+export function isSharedLane(fields: { binding?: string; r2Binding?: R2Bucket }): boolean {
+  return Boolean(fields.binding) || Boolean(fields.r2Binding);
+}
+
+/**
  * Resolve one fallback lane's config, or `null` if it's a standby lane (no
  * `lastActiveAt` — pure saved configuration, never a read source) or if it
  * fails to resolve (bad binding name, undecryptable creds, unsupported
@@ -138,18 +152,25 @@ async function resolveFallbackLane(env: Env, lane: StorageLane): Promise<Storage
  * resolve is skipped (see `resolveFallbackLane`). Resolves every lane's
  * config up front — the right choice for a listing/status caller that needs
  * them all; `resolveObjectLane` below resolves lazily instead, since it
- * usually needs at most one.
+ * usually needs at most one. The active lane and every fallback lane
+ * resolve concurrently (`Promise.all` preserves array order regardless of
+ * settle order) — single-lane records still make exactly the one
+ * `storageConfig` call this always has, so there's no overhead added to the
+ * common case.
  */
 export async function storageConfigs(env: Env, ws: WorkspaceRecord): Promise<LaneConfig[]> {
+  const lanes = ws.storageLanes ?? [];
+  const [activeConfig, fallbackConfigs] = await Promise.all([
+    storageConfig(env, ws),
+    Promise.all(lanes.map((lane) => resolveFallbackLane(env, lane))),
+  ]);
+
   const configs: LaneConfig[] = [
-    { laneId: ws.storageLaneId ?? null, role: "active", config: await storageConfig(env, ws) },
+    { laneId: ws.storageLaneId ?? null, role: "active", config: activeConfig },
   ];
-
-  for (const lane of ws.storageLanes ?? []) {
-    const config = await resolveFallbackLane(env, lane);
-    if (config) configs.push({ laneId: lane.id, role: "fallback", config });
-  }
-
+  fallbackConfigs.forEach((config, i) => {
+    if (config) configs.push({ laneId: lanes[i]!.id, role: "fallback", config });
+  });
   return configs;
 }
 

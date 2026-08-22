@@ -14,7 +14,8 @@ import {
 } from "../storage-verify";
 import { storageBudgetApplies } from "../budget";
 import { reconcileWorkspaceUsage } from "../reconcile";
-import type { WorkspaceRecord } from "../workspace";
+import { isSharedLane, storageConfig } from "../storage";
+import type { StorageLane, WorkspaceRecord } from "../workspace";
 
 /** Last 4 chars only, prefixed with an ellipsis (e.g. `"…abcd"`). `undefined` for an empty/missing value. */
 export function maskTrailing(value: string | undefined): string | undefined {
@@ -34,6 +35,21 @@ export function isByoRecord(
   return !storageBudgetApplies(record);
 }
 
+/** A saved-but-inactive lane, projected for the settings/admin UI — never a credential value. */
+export interface StorageLaneStatus {
+  laneId: string;
+  /** "standby" = saved, never active (no `lastActiveAt`); "fallback" = a former active lane that may hold objects. */
+  role: "standby" | "fallback";
+  /** "shared" = platform-owned binding lane; "byo" = customer HTTP-credential lane. Explicit, never inferred from field absence — a client picking the shared lane by "no accountId" would be wrong the moment a masked field is added. */
+  mode: "shared" | "byo";
+  bucket: string;
+  publicBaseUrl?: string;
+  verifiedAt?: string;
+  lastActiveAt?: string;
+  accountIdMasked?: string;
+  accessKeyIdLast4?: string;
+}
+
 export interface StorageStatusResponse {
   mode: "shared" | "byo";
   byoBucketEnabled: boolean;
@@ -44,15 +60,36 @@ export interface StorageStatusResponse {
   configuredAt?: string;
   verifiedAt?: string;
   jurisdiction?: string;
+  /** Id of the active lane (the top-level fields above). Absent on a record that predates lanes. */
+  activeLaneId?: string;
+  /** Every other configured lane: saved-but-never-used configs and demoted former actives. */
+  lanes: StorageLaneStatus[];
+}
+
+/** Masked projection of one `StorageLane` for `storageStatusResponse` — never a credential value. */
+function laneStatus(lane: StorageLane): StorageLaneStatus {
+  return {
+    laneId: lane.id,
+    role: lane.lastActiveAt ? "fallback" : "standby",
+    mode: isSharedLane(lane) ? "shared" : "byo",
+    bucket: lane.bucket,
+    publicBaseUrl: lane.publicBaseUrl,
+    verifiedAt: lane.verifiedAt,
+    lastActiveAt: lane.lastActiveAt,
+    accountIdMasked: maskTrailing(lane.accountId),
+    accessKeyIdLast4: lane.storageAccessKeyIdLast4,
+  };
 }
 
 /**
  * Projection shared by `GET /me/workspaces/:name/storage` and the success
- * response of `PUT` — never includes credential values (precedent: `GET
- * /admin/workspaces/:name` in `admin.ts`, which projects presence booleans
- * only). `byoBucketEnabled` is always reported, even in shared mode, because
- * the settings UI needs it to decide whether to show the "connect your own
- * bucket" panel at all.
+ * response of `PUT`/`POST .../activate`/`DELETE` — never includes credential
+ * values (precedent: `GET /admin/workspaces/:name` in `admin.ts`, which
+ * projects presence booleans only). `byoBucketEnabled` is always reported,
+ * even in shared mode, because the settings UI needs it to decide whether to
+ * show the "connect your own bucket" panel at all. `lanes` covers every
+ * *other* configured lane (standby saves + demoted former actives) — the
+ * active lane itself is the top-level fields, not a `lanes` entry.
  */
 export function storageStatusResponse(
   record: WorkspaceRecord,
@@ -72,6 +109,8 @@ export function storageStatusResponse(
     configuredAt: record.storageConfiguredAt,
     verifiedAt: record.storageVerifiedAt,
     jurisdiction: byo ? record.jurisdiction : undefined,
+    activeLaneId: record.storageLaneId,
+    lanes: (record.storageLanes ?? []).map(laneStatus),
   };
 }
 
@@ -140,4 +179,42 @@ export function candidateFromBody(body: unknown): StorageVerifyCandidate {
     jurisdiction:
       typeof b.jurisdiction === "string" && b.jurisdiction !== "" ? b.jurisdiction : undefined,
   };
+}
+
+/**
+ * Re-verify candidate for a lane about to be activated. Opens its (possibly
+ * sealed) credentials the same way `storageConfig` does for the active lane
+ * — `StorageLane`'s field shape matches `StorageLaneFields`, the same bag
+ * `storageConfig` resolves, so it can stand in for a `WorkspaceRecord` here.
+ * `adoptExistingContents: true` because a lane being reactivated (or an
+ * activate-back-to-shared lane) may already hold objects — the verify
+ * pipeline's `not-empty` check must not treat that as a failure.
+ */
+export async function laneVerifyCandidate(
+  env: Env,
+  lane: StorageLane,
+): Promise<StorageVerifyCandidate> {
+  const config = await storageConfig(env, lane as unknown as WorkspaceRecord);
+  return {
+    bucket: config.bucket,
+    accountId: config.accountId ?? "",
+    accessKeyId: config.accessKeyId ?? "",
+    secretAccessKey: config.secretAccessKey ?? "",
+    publicBaseUrl: config.publicBaseUrl,
+    adoptExistingContents: true,
+    jurisdiction: config.jurisdiction,
+  };
+}
+
+/**
+ * `POST .../storage/activate`'s stale-verify re-check — opens the target
+ * lane's credentials into a candidate (`laneVerifyCandidate`) and runs it
+ * through the same `storageVerify` seam `PUT` uses, so route tests
+ * substitute a fake verify implementation once for both routes.
+ */
+export async function verifyLaneForActivate(
+  env: Env,
+  lane: StorageLane,
+): Promise<StorageVerifyResult> {
+  return storageVerify(await laneVerifyCandidate(env, lane));
 }

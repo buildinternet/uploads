@@ -65,6 +65,8 @@ describe("POST /usage/reconcile", () => {
       workspace: "default",
       bytes: 9999,
       objects: 99,
+      shared_bytes: 9999,
+      shared_objects: 99,
       uploads_in_period: 7,
       period_start: "2026-07",
       updated_at: "2026-07-01T00:00:00.000Z",

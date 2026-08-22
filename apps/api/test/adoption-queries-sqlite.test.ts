@@ -14,6 +14,7 @@ import { SqliteD1, database } from "./helpers/sqlite-d1";
 
 const MIGRATION = "migrations/20260728120000_daily_metrics.sql";
 const USAGE_MIGRATION = "migrations/20260710140000_workspace_usage.sql";
+const SHARED_USAGE_MIGRATION = "migrations/20260822120100_workspace_usage_shared_subset.sql";
 
 async function seed(db: D1Database): Promise<void> {
   const day = (d: string) => new Date(`${d}T10:00:00Z`);
@@ -197,7 +198,7 @@ describe("featureTotals", () => {
 
 describe("platformStorage", () => {
   it("reports current workspace count and stored bytes from workspace_usage", async () => {
-    const sqlite = new SqliteD1([USAGE_MIGRATION, MIGRATION]);
+    const sqlite = new SqliteD1([USAGE_MIGRATION, SHARED_USAGE_MIGRATION, MIGRATION]);
     try {
       const db = database(sqlite);
       await db
@@ -214,7 +215,7 @@ describe("platformStorage", () => {
   });
 
   it("returns zeros on an empty ledger rather than nulls", async () => {
-    const sqlite = new SqliteD1([USAGE_MIGRATION, MIGRATION]);
+    const sqlite = new SqliteD1([USAGE_MIGRATION, SHARED_USAGE_MIGRATION, MIGRATION]);
     try {
       expect(await platformStorage(database(sqlite))).toEqual({ workspaces: 0, storedBytes: 0 });
     } finally {

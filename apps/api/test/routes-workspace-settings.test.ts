@@ -11,6 +11,7 @@ import {
   setStorageReconcileForTests,
   setStorageVerifyForTests,
 } from "../src/routes/workspace-storage";
+import { encryptSecret } from "../src/secrets";
 import { fakeRegistry } from "./fake-kv";
 import { FakeR2Bucket } from "./fake-r2";
 import { UsageFakeD1 } from "./usage-fake-d1";
@@ -62,6 +63,8 @@ function makeEnv(opts: EnvOpts = {}) {
       workspace: "acme",
       bytes: usage.bytes ?? 0,
       objects: usage.objects,
+      shared_bytes: usage.bytes ?? 0,
+      shared_objects: usage.objects,
       uploads_in_period: 0,
       period_start: "2026-07",
       updated_at: "2026-07-01T00:00:00.000Z",
@@ -462,7 +465,7 @@ describe("storage vertical (self-serve BYO bucket)", () => {
   });
 
   describe("PUT /v1/workspaces/:workspace/storage", () => {
-    it("saves on a passing verify, masking credentials in the response", async () => {
+    it("saves a standby lane on a passing verify, masking credentials in the response, without switching the active lane", async () => {
       const { env, registry } = makeEnv({
         role: "owner",
         record: { ...SHARED_RECORD, byoBucketEnabled: true },
@@ -481,11 +484,78 @@ describe("storage vertical (self-serve BYO bucket)", () => {
       expect(res.status).toBe(200);
       const raw = await res.text();
       expect(raw).not.toContain("super-secret-value");
-      const body = JSON.parse(raw) as { mode: string };
-      expect(body.mode).toBe("byo");
-      expect(registry.record<{ accessKeyId?: string }>("acme")?.accessKeyId).not.toBe(
-        "AKIDEXAMPLE1234",
+      const body = JSON.parse(raw) as {
+        mode: string;
+        lanes: Array<{ laneId: string; role: string; bucket: string }>;
+      };
+      // The active lane is untouched — saving a config never switches it.
+      expect(body.mode).toBe("shared");
+      expect(body.lanes).toHaveLength(1);
+      expect(body.lanes[0]).toMatchObject({ role: "standby", bucket: "customer-bucket" });
+      // Top-level (active-lane) fields are untouched.
+      expect(registry.record<{ bucket?: string; accessKeyId?: string }>("acme")?.bucket).toBe(
+        "uploads-default",
       );
+      const savedLane = registry.record<{
+        storageLanes?: Array<{ accessKeyId?: string }>;
+      }>("acme")?.storageLanes?.[0];
+      expect(savedLane?.accessKeyId).not.toBe("AKIDEXAMPLE1234");
+      expect(savedLane?.accessKeyId).toMatch(/^enc:v1:/);
+    });
+
+    it("saving again for the same bucket replaces the standby lane in place rather than appending a duplicate", async () => {
+      const { env, registry } = makeEnv({
+        role: "owner",
+        record: { ...SHARED_RECORD, byoBucketEnabled: true },
+        usage: { objects: 0 },
+      });
+      setStorageVerifyForTests(async () => okVerifyResult);
+      const first = await app.request(
+        "/v1/workspaces/acme/storage",
+        {
+          method: "PUT",
+          headers: { ...sessionHeaders, "content-type": "application/json" },
+          body: JSON.stringify(CANDIDATE_BODY),
+        },
+        env,
+      );
+      const firstLaneId = ((await first.json()) as { lanes: Array<{ laneId: string }> }).lanes[0]!
+        .laneId;
+
+      const second = await app.request(
+        "/v1/workspaces/acme/storage",
+        {
+          method: "PUT",
+          headers: { ...sessionHeaders, "content-type": "application/json" },
+          body: JSON.stringify({ ...CANDIDATE_BODY, accessKeyId: "AKIDROTATED0000" }),
+        },
+        env,
+      );
+      expect(second.status).toBe(200);
+      const body = (await second.json()) as { lanes: Array<{ laneId: string }> };
+      expect(body.lanes).toHaveLength(1);
+      expect(body.lanes[0]!.laneId).toBe(firstLaneId);
+      expect(registry.record<{ storageLanes?: unknown[] }>("acme")?.storageLanes).toHaveLength(1);
+    });
+
+    it("saves a standby lane even on a populated workspace — saving never changes routing", async () => {
+      const { env, registry } = makeEnv({
+        role: "owner",
+        record: { ...SHARED_RECORD, byoBucketEnabled: true },
+        usage: { objects: 5 },
+      });
+      setStorageVerifyForTests(async () => okVerifyResult);
+      const res = await app.request(
+        "/v1/workspaces/acme/storage",
+        {
+          method: "PUT",
+          headers: { ...sessionHeaders, "content-type": "application/json" },
+          body: JSON.stringify(CANDIDATE_BODY),
+        },
+        env,
+      );
+      expect(res.status).toBe(200);
+      expect(registry.record<{ bucket?: string }>("acme")?.bucket).toBe("uploads-default");
     });
 
     it("rejects with the verify result (422) on a failed verify, leaving the record untouched", async () => {
@@ -524,6 +594,69 @@ describe("storage vertical (self-serve BYO bucket)", () => {
         env,
       );
       expect(res.status).toBe(403);
+    });
+
+    // CodeRabbit review (PR #774): a candidate matching the ACTIVE BYO
+    // lane's own bucket+accountId is a credential rotation of that lane,
+    // not a new saved config. Writing it as a standby would leave the
+    // active lane's stale creds live and risk a later activate discarding
+    // the rotated ones entirely.
+    it("rotating the active BYO lane's own bucket+accountId updates it in place, creating no standby lane", async () => {
+      const { env, registry } = makeEnv({ role: "owner", record: BYO_RECORD });
+      setStorageVerifyForTests(async () => okVerifyResult);
+      const res = await app.request(
+        "/v1/workspaces/acme/storage",
+        {
+          method: "PUT",
+          headers: { ...sessionHeaders, "content-type": "application/json" },
+          body: JSON.stringify({ ...CANDIDATE_BODY, accessKeyId: "AKIDROTATED0000" }),
+        },
+        env,
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        mode: string;
+        lanes: unknown[];
+        accessKeyIdLast4?: string;
+      };
+      // Still the active lane — no standby was created for the rotation.
+      expect(body.mode).toBe("byo");
+      expect(body.lanes).toHaveLength(0);
+      expect(body.accessKeyIdLast4).toBe("0000");
+
+      const saved = registry.record<{
+        storageLanes?: unknown[];
+        accessKeyId?: string;
+        bucket?: string;
+      }>("acme");
+      expect(saved?.storageLanes ?? []).toHaveLength(0);
+      expect(saved?.bucket).toBe("customer-bucket");
+      expect(saved?.accessKeyId).not.toBe("AKIDROTATED0000");
+      expect(saved?.accessKeyId).toMatch(/^enc:v1:/);
+    });
+
+    it("saving a DIFFERENT bucket while a BYO lane is active still creates a standby, active lane untouched", async () => {
+      const { env, registry } = makeEnv({ role: "owner", record: BYO_RECORD });
+      setStorageVerifyForTests(async () => okVerifyResult);
+      const res = await app.request(
+        "/v1/workspaces/acme/storage",
+        {
+          method: "PUT",
+          headers: { ...sessionHeaders, "content-type": "application/json" },
+          body: JSON.stringify({ ...CANDIDATE_BODY, bucket: "second-bucket" }),
+        },
+        env,
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { mode: string; lanes: Array<{ bucket: string }> };
+      expect(body.mode).toBe("byo");
+      expect(body.lanes).toHaveLength(1);
+      expect(body.lanes[0]).toMatchObject({ bucket: "second-bucket" });
+
+      const saved = registry.record<{ bucket?: string; accessKeyId?: string }>("acme");
+      // The active lane (original bucket) is untouched.
+      expect(saved?.bucket).toBe("customer-bucket");
+      expect(saved?.accessKeyId).toBe(BYO_RECORD.accessKeyId);
     });
   });
 
@@ -600,6 +733,320 @@ describe("storage vertical (self-serve BYO bucket)", () => {
       expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
         "byo_bucket_disabled",
       );
+    });
+
+    it("force-detaching a non-empty BYO workspace keeps the config as a fallback lane instead of discarding it", async () => {
+      const { env, registry } = makeEnv({
+        role: "owner",
+        record: BYO_RECORD,
+        usage: { objects: 9 },
+      });
+      const res = await app.request(
+        "/v1/workspaces/acme/storage?force=true",
+        { method: "DELETE", headers: sessionHeaders },
+        env,
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { lanes: Array<{ role: string; bucket: string }> };
+      expect(body.lanes).toHaveLength(1);
+      expect(body.lanes[0]).toMatchObject({ role: "fallback", bucket: "customer-bucket" });
+      const saved = registry.record<{ bucket?: string; accessKeyId?: unknown }>("acme");
+      expect(saved?.bucket).toBe("uploads-default");
+      expect(saved?.accessKeyId).toBeUndefined();
+    });
+  });
+
+  describe("POST /v1/workspaces/:workspace/storage/activate", () => {
+    const SECRETS_KEY = "test-workspace-secrets-key-0000";
+
+    /**
+     * Real (not placeholder) sealed credentials — activate opens them for
+     * the stale-verify re-check, so a fake `enc:v1:` string that isn't
+     * actually valid ciphertext would 503 (`storage_credentials_unreadable`)
+     * on every test that reaches a stale lane, not just the ones testing it.
+     */
+    async function standbyLane(overrides: Partial<Record<string, unknown>> = {}) {
+      return {
+        id: "lane_standby1",
+        provider: "r2",
+        bucket: "customer-bucket",
+        accountId: "a".repeat(32),
+        accessKeyId: await encryptSecret(SECRETS_KEY, "AKIDEXAMPLE1234"),
+        secretAccessKey: await encryptSecret(SECRETS_KEY, "super-secret-value"),
+        publicBaseUrl: "https://media.example.com",
+        // Fresh by default — a test that wants the stale-verify path
+        // overrides this with a timestamp older than LANE_VERIFY_STALE_MS.
+        verifiedAt: new Date().toISOString(),
+        storageAccessKeyIdLast4: "1234",
+        ...overrides,
+      };
+    }
+
+    it("promotes a standby lane to active and demotes the outgoing shared config to a fallback lane", async () => {
+      const record = {
+        ...SHARED_RECORD,
+        byoBucketEnabled: true,
+        storageLanes: [await standbyLane()],
+      };
+      const { env, registry } = makeEnv({ role: "owner", record });
+      setStorageVerifyForTests(async () => okVerifyResult);
+      const res = await app.request(
+        "/v1/workspaces/acme/storage/activate",
+        {
+          method: "POST",
+          headers: { ...sessionHeaders, "content-type": "application/json" },
+          body: JSON.stringify({ laneId: "lane_standby1" }),
+        },
+        env,
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        mode: string;
+        activeLaneId: string;
+        lanes: Array<{ role: string; bucket: string; lastActiveAt?: string }>;
+      };
+      expect(body.mode).toBe("byo");
+      expect(body.activeLaneId).toBe("lane_standby1");
+      expect(body.lanes).toHaveLength(1);
+      expect(body.lanes[0]).toMatchObject({ role: "fallback", bucket: "uploads-default" });
+      expect(body.lanes[0]?.lastActiveAt).toBeTruthy();
+
+      const saved = registry.record<{
+        bucket?: string;
+        accountId?: string;
+        accessKeyId?: string;
+        storageLaneId?: string;
+        storageLanes?: Array<{ id: string; bucket: string; lastActiveAt?: string }>;
+      }>("acme");
+      expect(saved?.bucket).toBe("customer-bucket");
+      expect(saved?.accountId).toBe("a".repeat(32));
+      expect(saved?.storageLaneId).toBe("lane_standby1");
+      expect(saved?.storageLanes).toHaveLength(1);
+      expect(saved?.storageLanes?.[0]?.bucket).toBe("uploads-default");
+      expect(saved?.storageLanes?.[0]?.lastActiveAt).toBeTruthy();
+    });
+
+    it("re-verifies a stale-verified lane before switching, and 422s without mutating on failure", async () => {
+      const staleLane = await standbyLane({ verifiedAt: "2020-01-01T00:00:00.000Z" });
+      const record = { ...SHARED_RECORD, byoBucketEnabled: true, storageLanes: [staleLane] };
+      const { env, registry } = makeEnv({ role: "owner", record });
+      let calls = 0;
+      setStorageVerifyForTests(async () => {
+        calls++;
+        return { ok: false, checks: [{ id: "auth", ok: false, required: true, hint: "bad" }] };
+      });
+      const before = registry.record("acme");
+      const res = await app.request(
+        "/v1/workspaces/acme/storage/activate",
+        {
+          method: "POST",
+          headers: { ...sessionHeaders, "content-type": "application/json" },
+          body: JSON.stringify({ laneId: "lane_standby1" }),
+        },
+        env,
+      );
+      expect(res.status).toBe(422);
+      expect(calls).toBe(1);
+      expect(registry.record("acme")).toEqual(before);
+    });
+
+    it("skips re-verify when the lane's verifiedAt is fresh", async () => {
+      const record = {
+        ...SHARED_RECORD,
+        byoBucketEnabled: true,
+        storageLanes: [await standbyLane()],
+      };
+      const { env } = makeEnv({ role: "owner", record });
+      let calls = 0;
+      setStorageVerifyForTests(async () => {
+        calls++;
+        return okVerifyResult;
+      });
+      const res = await app.request(
+        "/v1/workspaces/acme/storage/activate",
+        {
+          method: "POST",
+          headers: { ...sessionHeaders, "content-type": "application/json" },
+          body: JSON.stringify({ laneId: "lane_standby1" }),
+        },
+        env,
+      );
+      expect(res.status).toBe(200);
+      expect(calls).toBe(0);
+    });
+
+    it("switches back to a binding-mode fallback lane without requiring byoBucketEnabled", async () => {
+      const sharedFallback = {
+        id: "lane_shared0",
+        provider: "r2",
+        bucket: "uploads-default",
+        binding: "UPLOADS_DEFAULT",
+        prefix: "acme/",
+        publicBaseUrl: "https://storage.uploads.sh",
+        lastActiveAt: "2026-08-01T00:00:00.000Z",
+      };
+      const record = { ...BYO_RECORD, byoBucketEnabled: false, storageLanes: [sharedFallback] };
+      const { env, registry } = makeEnv({ role: "owner", record });
+      const res = await app.request(
+        "/v1/workspaces/acme/storage/activate",
+        {
+          method: "POST",
+          headers: { ...sessionHeaders, "content-type": "application/json" },
+          body: JSON.stringify({ laneId: "lane_shared0" }),
+        },
+        env,
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { mode: string };
+      expect(body.mode).toBe("shared");
+      const saved = registry.record<{ bucket?: string; binding?: string }>("acme");
+      expect(saved?.bucket).toBe("uploads-default");
+      expect(saved?.binding).toBe("UPLOADS_DEFAULT");
+    });
+
+    it("404s an unknown laneId", async () => {
+      const record = {
+        ...SHARED_RECORD,
+        byoBucketEnabled: true,
+        storageLanes: [await standbyLane()],
+      };
+      const { env } = makeEnv({ role: "owner", record });
+      const res = await app.request(
+        "/v1/workspaces/acme/storage/activate",
+        {
+          method: "POST",
+          headers: { ...sessionHeaders, "content-type": "application/json" },
+          body: JSON.stringify({ laneId: "lane_nonexistent" }),
+        },
+        env,
+      );
+      expect(res.status).toBe(404);
+    });
+
+    it("403s (byo_bucket_disabled) activating an HTTP-mode lane when the flag is off", async () => {
+      const record = {
+        ...SHARED_RECORD,
+        byoBucketEnabled: false,
+        storageLanes: [await standbyLane()],
+      };
+      const { env } = makeEnv({ role: "owner", record });
+      const res = await app.request(
+        "/v1/workspaces/acme/storage/activate",
+        {
+          method: "POST",
+          headers: { ...sessionHeaders, "content-type": "application/json" },
+          body: JSON.stringify({ laneId: "lane_standby1" }),
+        },
+        env,
+      );
+      expect(res.status).toBe(403);
+      expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+        "byo_bucket_disabled",
+      );
+    });
+
+    it("403s a bearer token", async () => {
+      const record = {
+        ...SHARED_RECORD,
+        byoBucketEnabled: true,
+        storageLanes: [await standbyLane()],
+      };
+      const { env } = makeEnv({ record });
+      const res = await app.request(
+        "/v1/workspaces/acme/storage/activate",
+        {
+          method: "POST",
+          headers: { ...bearerHeaders, "content-type": "application/json" },
+          body: JSON.stringify({ laneId: "lane_standby1" }),
+        },
+        env,
+      );
+      expect(res.status).toBe(403);
+    });
+  });
+
+  describe("DELETE /v1/workspaces/:workspace/storage with laneId", () => {
+    it("always removes a standby lane, no emptiness check", async () => {
+      const standby = {
+        id: "lane_standby1",
+        provider: "r2",
+        bucket: "customer-bucket",
+        accountId: "a".repeat(32),
+        accessKeyId: "enc:v1:sealed",
+        secretAccessKey: "enc:v1:sealed",
+      };
+      const record = { ...SHARED_RECORD, byoBucketEnabled: true, storageLanes: [standby] };
+      const { env, registry } = makeEnv({ role: "owner", record });
+      const res = await app.request(
+        "/v1/workspaces/acme/storage?laneId=lane_standby1",
+        { method: "DELETE", headers: sessionHeaders },
+        env,
+      );
+      expect(res.status).toBe(200);
+      expect(registry.record<{ storageLanes?: unknown[] }>("acme")?.storageLanes).toHaveLength(0);
+    });
+
+    it("409s removing a fallback lane that still has objects, force removes it anyway", async () => {
+      const fallbackBucket = new FakeR2Bucket();
+      await fallbackBucket.put("still-here.png", new Uint8Array([1, 2, 3]));
+      const fallback = {
+        id: "lane_fallback1",
+        provider: "r2",
+        bucket: "old-shared",
+        binding: "UPLOADS_FALLBACK",
+        lastActiveAt: "2026-07-01T00:00:00.000Z",
+      };
+      const record = { ...BYO_RECORD, storageLanes: [fallback] };
+      const { env, registry } = makeEnv({ role: "owner", record });
+      (env as unknown as Record<string, unknown>).UPLOADS_FALLBACK = fallbackBucket;
+
+      const denied = await app.request(
+        "/v1/workspaces/acme/storage?laneId=lane_fallback1",
+        { method: "DELETE", headers: sessionHeaders },
+        env,
+      );
+      expect(denied.status).toBe(409);
+      expect(registry.record<{ storageLanes?: unknown[] }>("acme")?.storageLanes).toHaveLength(1);
+
+      const forced = await app.request(
+        "/v1/workspaces/acme/storage?laneId=lane_fallback1&force=true",
+        { method: "DELETE", headers: sessionHeaders },
+        env,
+      );
+      expect(forced.status).toBe(200);
+      expect(registry.record<{ storageLanes?: unknown[] }>("acme")?.storageLanes).toHaveLength(0);
+    });
+
+    it("removes an empty fallback lane without needing force", async () => {
+      const emptyBucket = new FakeR2Bucket();
+      const fallback = {
+        id: "lane_fallback2",
+        provider: "r2",
+        bucket: "old-shared",
+        binding: "UPLOADS_FALLBACK",
+        lastActiveAt: "2026-07-01T00:00:00.000Z",
+      };
+      const record = { ...BYO_RECORD, storageLanes: [fallback] };
+      const { env, registry } = makeEnv({ role: "owner", record });
+      (env as unknown as Record<string, unknown>).UPLOADS_FALLBACK = emptyBucket;
+
+      const res = await app.request(
+        "/v1/workspaces/acme/storage?laneId=lane_fallback2",
+        { method: "DELETE", headers: sessionHeaders },
+        env,
+      );
+      expect(res.status).toBe(200);
+      expect(registry.record<{ storageLanes?: unknown[] }>("acme")?.storageLanes).toHaveLength(0);
+    });
+
+    it("404s an unknown laneId", async () => {
+      const { env } = makeEnv({ role: "owner", record: BYO_RECORD });
+      const res = await app.request(
+        "/v1/workspaces/acme/storage?laneId=lane_nonexistent",
+        { method: "DELETE", headers: sessionHeaders },
+        env,
+      );
+      expect(res.status).toBe(404);
     });
   });
 });
