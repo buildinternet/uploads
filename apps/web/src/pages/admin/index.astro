@@ -383,6 +383,18 @@ export const prerender = false;
       // value, only masked/presence fields — see workspace-storage.ts) plus
       // `configuredBy` (admin-ui-only, like `stripeCustomerId` on the plan
       // response above).
+      /** A saved-but-inactive lane (spec: "Configure, then switch") — read-only here, never a credential value. */
+      interface StorageLaneResponse {
+        laneId: string;
+        role: "standby" | "fallback";
+        bucket: string;
+        publicBaseUrl?: string;
+        verifiedAt?: string;
+        lastActiveAt?: string;
+        accountIdMasked?: string;
+        accessKeyIdLast4?: string;
+      }
+
       interface StorageResponse {
         workspace: string;
         mode: "shared" | "byo";
@@ -394,6 +406,8 @@ export const prerender = false;
         configuredAt?: string;
         verifiedAt?: string;
         configuredBy: string | null;
+        activeLaneId?: string;
+        lanes?: StorageLaneResponse[];
       }
 
       function renderStorageForm(
@@ -417,10 +431,30 @@ export const prerender = false;
             </ul>`
             : `<p class="muted storage-shared-note">Using the shared platform bucket.</p>`;
 
+        // Read-only lane list (spec: "Configure, then switch") — every
+        // *other* configured lane: saved-but-never-used configs and demoted
+        // former actives. The admin panel never activates or removes a
+        // lane; that's the workspace's own settings page.
+        const lanes = data.lanes ?? [];
+        const laneList =
+          lanes.length > 0
+            ? `<ul class="admin-mini-list storage-lanes">
+              ${lanes
+                .map(
+                  (lane) => `<li>
+                    <span>${lane.role === "fallback" ? "Previous" : "Saved"}</span>
+                    <span class="mono">${escapeHtml(lane.bucket)}${lane.lastActiveAt ? ` — until ${escapeHtml(formatDate(lane.lastActiveAt) ?? lane.lastActiveAt)}` : ""}</span>
+                  </li>`,
+                )
+                .join("")}
+            </ul>`
+            : "";
+
         host.innerHTML = `
         <h4 class="storage-heading">Storage</h4>
         <p class="muted storage-mode">Mode: ${data.mode === "byo" ? "Bring your own bucket" : "Shared"}</p>
         ${provenance}
+        ${laneList}
         <form class="storage-form">
           <label class="storage-enabled"><input type="checkbox" class="storage-enabled-check" ${data.byoBucketEnabled ? "checked" : ""} /> Allow bring-your-own bucket</label>
           <button type="submit">Save</button>

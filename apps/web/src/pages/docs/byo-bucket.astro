@@ -64,14 +64,16 @@ const TOC = [
     </p>
     <p>
       Enter the account ID, bucket name, and key pair, then run verify. It checks the inputs,
-      authenticates against the bucket, round-trips a test object, and (on first attach) confirms
-      the bucket is empty unless you choose to adopt existing contents. Only a passing verify can
-      save.
+      authenticates against the bucket, and round-trips a test object. Only a passing verify can
+      save — and saving never changes where uploads go. The saved bucket sits in your settings page
+      as "Saved · not in use" until you click <strong>Use this bucket</strong>, so you can connect
+      and verify at any time without any risk to what's already uploading.
     </p>
     <p class="note">
-      You can only connect at workspace creation or on an empty workspace — there's no migration
-      path yet for workspaces that already have files (every published URL would break). File-size
-      and video-size limits still apply on a BYO bucket; the storage-quota budget does not.
+      Switching is instant and reversible, even for a workspace that already has files: existing
+      files keep resolving from wherever they already are, and only new uploads move to the newly
+      active bucket. File-size and video-size limits still apply on a BYO bucket; the storage-quota
+      budget does not.
     </p>
   </section>
 
@@ -110,6 +112,14 @@ const TOC = [
             a custom domain, or save without a public URL for signed-only access.</td
           >
         </tr>
+        <tr>
+          <th scope="row">Files uploaded before switching</th>
+          <td>Keep serving from wherever they already were.</td>
+          <td
+            >No migration, no broken links. Switching a workspace's active bucket only changes where
+            <em>new</em> uploads land — existing files and their published URLs don't move.</td
+          >
+        </tr>
       </tbody>
     </table>
   </section>
@@ -139,7 +149,7 @@ const TOC = [
 
   <section id="ownership">
     <h2>
-      Data ownership &amp; disconnecting <a
+      Data ownership &amp; switching back <a
         class="anchor"
         href="#ownership"
         aria-label="Link to this section">#</a
@@ -150,9 +160,9 @@ const TOC = [
       pointer to the bucket — never a copy of your files.
     </p>
     <p>
-      Disconnecting never touches your objects. It removes the stored credentials and points the
-      workspace back at the shared bucket. Your bucket stays as it was. Connecting again is a fresh
-      attach, same as the first time.
+      Switching back to <code>storage.uploads.sh</code> never touches your objects. Files you uploaded
+      while your bucket was active keep resolving from it — only new uploads move to the shared bucket.
+      Switching to your bucket again later is the same instant, reversible switch in the other direction.
     </p>
   </section>
 

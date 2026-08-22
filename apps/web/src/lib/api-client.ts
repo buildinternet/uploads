@@ -1744,6 +1744,19 @@ export async function getWorkspaceCommentPreview(
  * `storageStatusResponse`/`StorageVerifyResult` in
  * `apps/api/src/routes/workspace-storage.ts` — field names match exactly.
  */
+/** A saved-but-inactive lane (spec: "Configure, then switch") — never a credential value. */
+export interface WorkspaceStorageLane {
+  laneId: string;
+  /** "standby" = saved, never active; "fallback" = a former active lane that may still hold objects. */
+  role: "standby" | "fallback";
+  bucket: string;
+  publicBaseUrl?: string;
+  verifiedAt?: string;
+  lastActiveAt?: string;
+  accountIdMasked?: string;
+  accessKeyIdLast4?: string;
+}
+
 export interface WorkspaceStorageStatus {
   mode: "shared" | "byo";
   byoBucketEnabled: boolean;
@@ -1754,6 +1767,27 @@ export interface WorkspaceStorageStatus {
   configuredAt?: string;
   verifiedAt?: string;
   jurisdiction?: string;
+  /** Id of the active lane (the top-level fields above). Absent on a record that predates lanes. */
+  activeLaneId?: string;
+  /** Every other configured lane: saved-but-never-used configs and demoted former actives. */
+  lanes: WorkspaceStorageLane[];
+}
+
+function toWorkspaceStorageLane(value: unknown): WorkspaceStorageLane | null {
+  if (!value || typeof value !== "object") return null;
+  const v = value as Record<string, unknown>;
+  if (typeof v.laneId !== "string" || (v.role !== "standby" && v.role !== "fallback")) return null;
+  if (typeof v.bucket !== "string") return null;
+  return {
+    laneId: v.laneId,
+    role: v.role,
+    bucket: v.bucket,
+    publicBaseUrl: typeof v.publicBaseUrl === "string" ? v.publicBaseUrl : undefined,
+    verifiedAt: typeof v.verifiedAt === "string" ? v.verifiedAt : undefined,
+    lastActiveAt: typeof v.lastActiveAt === "string" ? v.lastActiveAt : undefined,
+    accountIdMasked: typeof v.accountIdMasked === "string" ? v.accountIdMasked : undefined,
+    accessKeyIdLast4: typeof v.accessKeyIdLast4 === "string" ? v.accessKeyIdLast4 : undefined,
+  };
 }
 
 function toWorkspaceStorageStatus(body: unknown): WorkspaceStorageStatus | null {
@@ -1770,6 +1804,8 @@ function toWorkspaceStorageStatus(body: unknown): WorkspaceStorageStatus | null 
     configuredAt: typeof b.configuredAt === "string" ? b.configuredAt : undefined,
     verifiedAt: typeof b.verifiedAt === "string" ? b.verifiedAt : undefined,
     jurisdiction: typeof b.jurisdiction === "string" ? b.jurisdiction : undefined,
+    activeLaneId: typeof b.activeLaneId === "string" ? b.activeLaneId : undefined,
+    lanes: Array.isArray(b.lanes) ? b.lanes.flatMap((l) => toWorkspaceStorageLane(l) ?? []) : [],
   };
 }
 
@@ -1894,15 +1930,16 @@ export type StorageSaveResult =
   | { kind: "ok"; status: WorkspaceStorageStatus }
   /** 422 — the server re-ran verify and it failed; render the same checklist. */
   | { kind: "invalid"; result: StorageVerifyResult }
-  /** 409 `workspace_storage_not_empty` — message surfaced verbatim. */
-  | { kind: "conflict"; message: string }
   | { kind: "unavailable"; reason: RequestFailure | "forbidden" | "not_found" | "server" };
 
 /**
- * PUT /v1/workspaces/:name/storage — attach or rotate a BYO config. The
- * server re-verifies `candidate` itself (never trusts a client-side
- * "verified" claim), so a 422 here carries a fresh `StorageVerifyResult`
- * the wizard can render exactly like the standalone verify call's.
+ * PUT /v1/workspaces/:name/storage — verifies `candidate` and saves it as a
+ * **standby lane** (spec: "Configure, then switch"); never switches the
+ * active lane, so there is no `workspace_storage_not_empty` 409 on this path
+ * — saving a config is always safe. The server re-verifies `candidate`
+ * itself (never trusts a client-side "verified" claim), so a 422 here
+ * carries a fresh `StorageVerifyResult` the wizard can render exactly like
+ * the standalone verify call's.
  */
 export async function putWorkspaceStorage(
   apiOrigin: string,
@@ -1926,14 +1963,49 @@ export async function putWorkspaceStorage(
     if (verify) return { kind: "invalid", result: verify };
     return { kind: "unavailable", reason: "server" };
   }
-  if (response.status === 409) {
-    const body = (await response.json().catch(() => null)) as {
-      error?: { message?: string };
-    } | null;
-    return {
-      kind: "conflict",
-      message: body?.error?.message ?? "This workspace already has files.",
-    };
+  if (response.status === 403) return { kind: "unavailable", reason: "forbidden" };
+  if (response.status === 404) return { kind: "unavailable", reason: "not_found" };
+  if (!response.ok) return { kind: "unavailable", reason: "server" };
+  const status = toWorkspaceStorageStatus(await response.json().catch(() => null));
+  if (!status) return { kind: "unavailable", reason: "server" };
+  return { kind: "ok", status };
+}
+
+export type StorageActivateResult =
+  | { kind: "ok"; status: WorkspaceStorageStatus }
+  /** 422 — the target lane's stale credentials failed re-verification. */
+  | { kind: "invalid"; result: StorageVerifyResult }
+  | { kind: "unavailable"; reason: RequestFailure | "forbidden" | "not_found" | "server" };
+
+/**
+ * POST /v1/workspaces/:name/storage/activate — switches the active (write)
+ * lane to `laneId`, one of the saved lanes from `WorkspaceStorageStatus.lanes`.
+ * Existing files stay where they are (the outgoing active config becomes a
+ * read fallback); new uploads go to the newly-active lane. Works for
+ * switching back to the shared lane too — that lane's own `laneId` is
+ * whichever fallback entry has `role: "fallback"` and no credential fields.
+ */
+export async function activateWorkspaceStorage(
+  apiOrigin: string,
+  name: string,
+  laneId: string,
+): Promise<StorageActivateResult> {
+  const result = await fetchWithTimeout(
+    `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(name)}/storage/activate`,
+    {
+      method: "POST",
+      credentials: "include",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ laneId }),
+    },
+  );
+  if (result.kind === "unavailable") return result;
+  const { response } = result;
+  if (response.status === 422) {
+    const verify = toStorageVerifyResult(await response.json().catch(() => null));
+    if (verify) return { kind: "invalid", result: verify };
+    return { kind: "unavailable", reason: "server" };
   }
   if (response.status === 403) return { kind: "unavailable", reason: "forbidden" };
   if (response.status === 404) return { kind: "unavailable", reason: "not_found" };
@@ -1950,17 +2022,21 @@ export type StorageDetachResult =
   | { kind: "unavailable"; reason: RequestFailure | "forbidden" | "not_found" | "server" };
 
 /**
- * DELETE /v1/workspaces/:name/storage — detach BYO storage and restore
- * shared-bucket defaults. `force: true` bypasses the empty-bucket guard
- * (caller must have already confirmed with the user — never touches the
- * customer's bucket or its objects either way).
+ * DELETE /v1/workspaces/:name/storage — removes a saved lane (`laneId`), or
+ * (legacy shape, no `laneId`) detaches the active BYO lane and restores
+ * shared-bucket defaults. `force: true` bypasses the empty-lane/empty-bucket
+ * guard (caller must have already confirmed with the user — never touches
+ * the customer's bucket or its objects either way).
  */
 export async function deleteWorkspaceStorage(
   apiOrigin: string,
   name: string,
-  opts: { force?: boolean } = {},
+  opts: { force?: boolean; laneId?: string } = {},
 ): Promise<StorageDetachResult> {
-  const qs = opts.force ? "?force=true" : "";
+  const params = new URLSearchParams();
+  if (opts.force) params.set("force", "true");
+  if (opts.laneId) params.set("laneId", opts.laneId);
+  const qs = params.size > 0 ? `?${params.toString()}` : "";
   const result = await fetchWithTimeout(
     `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(name)}/storage${qs}`,
     { method: "DELETE", credentials: "include", cache: "no-store" },
