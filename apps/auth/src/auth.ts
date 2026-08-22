@@ -5,6 +5,7 @@
  * after a redeploy, or a different D1 binding under `wrangler dev -c`) never
  * serves a stale instance.
  */
+import { cimd } from "@better-auth/cimd";
 import { dash } from "@better-auth/infra";
 import { oauthProvider } from "@better-auth/oauth-provider";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
@@ -20,6 +21,7 @@ import {
   magicLink,
   organization,
 } from "better-auth/plugins";
+import { fetchClientMetadataResource } from "./cimd-transport";
 import { deviceWorkspacePlugin } from "./device-workspace";
 import { sendAuthEmail } from "./email";
 import { localDemoEnabled, localDemoPlugin } from "./local-demo";
@@ -658,6 +660,23 @@ function buildAuth(
         // 403.
         customAccessTokenClaims: async ({ user, referenceId }) =>
           applyWorkspaceChoice(await resolveWorkspaceClaims(db, user?.id), referenceId),
+      }),
+      // Issue #556: Client ID Metadata Documents (CIMD). MCP spec 2026-07-28
+      // deprecates DCR in favour of an HTTPS-URL `client_id` that points at a
+      // metadata document; this plugin contributes that discovery to the
+      // oauthProvider() above (order is irrelevant — it registers via
+      // `extendOAuthProvider` at init) and advertises
+      // `client_id_metadata_document_supported: true` in the AS metadata.
+      // DCR stays enabled alongside for backward compatibility. Discovery-
+      // resolved clients are persisted as ordinary oauth_client rows tagged
+      // `client_discovery_id = 'cimd'` and are refreshed from their metadata
+      // URL on later resolutions, so the stale-client reaper may sweep them
+      // like any other anonymous row (see oauth-client-reaper.ts).
+      // The MCP profile pins the draft-00 requirements that spec revision
+      // mandates (client_name + redirect_uris required).
+      cimd({
+        fetchClientMetadataResource,
+        metadataProfile: "mcp-2026-07-28",
       }),
       // D5/Phase 4: bearer() lets the CLI present the device-flow session token
       // as `Authorization: Bearer <token>` so apps/api's session verification
