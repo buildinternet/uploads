@@ -607,6 +607,17 @@ function buildAuth(
         consentPage: `${webOrigin}/oauth/consent`,
         scopes: [...OAUTH_SCOPES],
         clientRegistrationDefaultScopes: [...OAUTH_CLIENT_REGISTRATION_DEFAULT_SCOPES],
+        // Better Auth 1.7 persists every self-registered client (DCR and
+        // CIMD alike) with scope = defaultScopes ∪ allowedScopes, DISCARDING
+        // any `scope` the registration or metadata document declares — so
+        // without this line the defaults above are a hard cap and no
+        // self-registered client can ever request files:delete (authorize
+        // 400s with invalid_scope; found by the #556 MCP Inspector run,
+        // which requests every scope the resource advertises). Listing
+        // files:delete here lets self-registered clients REQUEST it; every
+        // grant still goes through the user's consent screen, and device-flow
+        // workspace tokens already get files:delete by default.
+        clientRegistrationAllowedScopes: ["files:delete"],
         // Better Auth 1.7: `validAudiences` → the persisted `resources` model.
         // String form (plugin-level defaults) preserves the 1.6 accepted-audience
         // behavior; `resourceSeedMode` defaults to the safe "insertOnly".
