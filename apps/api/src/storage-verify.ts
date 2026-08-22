@@ -337,7 +337,7 @@ export async function verifyStorageConfig(
     required: true,
     hint: notEmptyOk
       ? undefined
-      : "this bucket already has objects in it — pass adoptExistingContents to attach it anyway, or point at an empty bucket",
+      : "this bucket already has objects in it — confirm you want this workspace to expose the existing contents (adoptExistingContents), or point at an empty bucket",
   });
 
   if (candidate.publicBaseUrl) {
