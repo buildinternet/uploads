@@ -1,6 +1,7 @@
 import { defineConfig } from "astro/config";
 import cloudflare from "@astrojs/cloudflare";
 import react from "@astrojs/react";
+import tailwindcss from "@tailwindcss/vite";
 
 /**
  * Vite 8 / Rolldown + @vitejs/plugin-react injects Fast Refresh helpers
@@ -28,6 +29,7 @@ export default defineConfig({
     format: "file",
   },
   vite: {
+    plugins: [tailwindcss()],
     server: {
       hmr: false,
     },

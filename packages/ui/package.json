@@ -18,12 +18,14 @@
     },
     "./styles.css": "./dist/uploads-ui.css",
     "./tokens.css": "./src/tokens.css",
+    "./theme.css": "./src/theme.css",
     "./fonts/*": "./fonts/*"
   },
   "files": [
     "dist",
     "fonts",
     "src/tokens.css",
+    "src/theme.css",
     "src/styles.css"
   ],
   "scripts": {
@@ -37,7 +39,8 @@
     "react-dom": ">=18"
   },
   "dependencies": {
-    "lucide-react": "^1.24.0"
+    "lucide-react": "^1.24.0",
+    "tailwindcss": "^4.3.3"
   },
   "devDependencies": {
     "@types/node": "^26.1.0",
