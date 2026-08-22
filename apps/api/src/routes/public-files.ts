@@ -13,7 +13,7 @@ import { resolveTitles, withPublicTitleBudget } from "../github-titles";
 import { videoPresentation } from "../poster";
 import { objectPublicUrls, resolveObjectLane } from "../storage";
 import { objectVisibility } from "../visibility";
-import { loadWorkspaceRecord, type WorkspaceVars } from "../workspace";
+import { loadWorkspaceRecord, type WorkspaceRecord, type WorkspaceVars } from "../workspace";
 import { requestOrigin } from "../well-known";
 
 type GithubKind = "pull" | "issue";
@@ -82,6 +82,8 @@ interface ResolvedPublicObject {
   urls: { url: string | null; embedUrl: string | null };
   env: Env;
   cfg: StorageConfig;
+  /** The workspace record, so a caller resolving a second key (e.g. a before/after counterpart) doesn't repeat the KV lookup. */
+  record: WorkspaceRecord;
 }
 
 /**
@@ -127,7 +129,7 @@ async function resolvePublicObject(
     throw new UnauthorizedError("sign in to view this file", { code: "auth_required" });
   }
 
-  return { store: lane.store, meta, urls, env, cfg: lane.config };
+  return { store: lane.store, meta, urls, env, cfg: lane.config, record };
 }
 
 /**
@@ -164,7 +166,7 @@ async function resolvePublicObject(
 export const publicFiles = new Hono<WorkspaceVars>().get("/:workspace/:key{.+}", async (c) => {
   const workspace = c.req.param("workspace");
   const key = c.req.param("key");
-  const { store, meta, urls, env, cfg } = await resolvePublicObject(c.env, workspace, key);
+  const { store, meta, urls, env, cfg, record } = await resolvePublicObject(c.env, workspace, key);
 
   const downloadParam = c.req.query("download");
   if (downloadParam === "1" || downloadParam === "true") {
@@ -191,21 +193,25 @@ export const publicFiles = new Hono<WorkspaceVars>().get("/:workspace/:key{.+}",
   // response. Skipping any of those would either leak the existence of a
   // private counterpart object, or hand the web page's static side-by-side
   // layout (issue #420 v1 renders both sides as an image element) a video
-  // or other non-image file it can't render that way.
+  // or other non-image file it can't render that way. Two-lane storage
+  // (CodeRabbit review, PR #771): the counterpart is resolved via its OWN
+  // lane, not the primary object's `store`/`cfg` — a before/after pair can
+  // straddle a storage switch just like any other pair of keys.
   let counterpart: { key: string; url: string; state: BeforeAfterState } | undefined;
   const ownContentType = meta.type ?? "application/octet-stream";
   const candidate = isPairableImageContentType(ownContentType)
     ? await findCounterpartCandidate(c.env.DB, workspace, key, metadata)
     : null;
   if (candidate && candidate.key !== key) {
-    if (await store.exists(candidate.key)) {
-      const counterpartMeta = await store.head(candidate.key);
+    const counterpartLane = await resolveObjectLane(env, record, candidate.key);
+    if (counterpartLane) {
+      const counterpartMeta = await counterpartLane.store.head(candidate.key);
       const counterpartType = counterpartMeta.type ?? "application/octet-stream";
       if (
         isPairableImageContentType(counterpartType) &&
         !objectVisibility(counterpartMeta.metadata ?? undefined)
       ) {
-        const counterpartUrls = objectPublicUrls(env, cfg, candidate.key);
+        const counterpartUrls = objectPublicUrls(env, counterpartLane.config, candidate.key);
         if (counterpartUrls.url) {
           counterpart = { key: candidate.key, url: counterpartUrls.url, state: candidate.state };
         }

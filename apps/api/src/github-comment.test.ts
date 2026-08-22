@@ -329,6 +329,14 @@ describe("gatherCommentBody poster hydration (issue #299)", () => {
     const { env, ws, workspaceName, bucket } = makeTestEnv();
     const key = "gh/acme/web/pull/12/clip.mp4";
     await bucket.put(`acme/${key}`, PNG, { httpMetadata: { contentType: "video/mp4" } });
+    // The real write path (`generateAndStorePoster`, files-core.ts) always
+    // writes the poster object alongside the `video.poster` flag — the
+    // poster URL now resolves the poster's own lane (PR C simplify
+    // follow-up), so the fixture must reflect that real invariant rather
+    // than the flag alone.
+    await bucket.put(`acme/${posterKeyFor(key)}`, PNG, {
+      httpMetadata: { contentType: "image/jpeg" },
+    });
     // The real write path (`setServerFileMetadata`) is what generateAndStorePoster
     // (Task 8) uses — this is the only legitimate way `video.poster` gets set.
     await setServerFileMetadata(env.DB, workspaceName, key, { "video.poster": "1" });
@@ -378,6 +386,11 @@ describe("gatherCommentBody poster hydration (issue #299)", () => {
     const { env, ws, workspaceName, bucket } = makeTestEnv();
     const key = "gh/acme/web/pull/12/clip.mp4";
     await bucket.put(`acme/${key}`, PNG, { httpMetadata: { contentType: "video/mp4" } });
+    // See the poster-hydration test above: the poster resolves its own
+    // lane now, so it must actually exist for its URL to render.
+    await bucket.put(`acme/${posterKeyFor(key)}`, PNG, {
+      httpMetadata: { contentType: "image/jpeg" },
+    });
     await setServerFileMetadata(env.DB, workspaceName, key, {
       "video.poster": "1",
       "video.duration": "14",
@@ -395,6 +408,42 @@ describe("gatherCommentBody poster hydration (issue #299)", () => {
     // display width selection rather than appearing verbatim, so duration is
     // the one directly observable proof that videoMeta parsed as numbers.
     expect(result.body).toContain("0:14");
+  });
+
+  // Two-lane storage (simplify follow-up on PR #771): the poster resolves
+  // its OWN lane, independent of where the primary video lives.
+  it("resolves a poster living in a different (fallback) lane than the video", async () => {
+    const { env, ws, workspaceName, bucket } = makeTestEnv();
+    const key = "gh/acme/web/pull/12/clip.mp4";
+    await bucket.put(`acme/${key}`, PNG, { httpMetadata: { contentType: "video/mp4" } });
+
+    const fallbackBucket = new FakeR2Bucket();
+    await fallbackBucket.put(posterKeyFor(key), PNG, {
+      httpMetadata: { contentType: "image/jpeg" },
+    });
+    (env as unknown as Record<string, FakeR2Bucket>).UPLOADS_FALLBACK = fallbackBucket;
+    const wsWithFallback: WorkspaceRecord = {
+      ...ws,
+      storageLaneId: "lane_active1",
+      storageLanes: [
+        {
+          id: "lane_fallback1",
+          provider: "r2",
+          bucket: "customer-bucket",
+          binding: "UPLOADS_FALLBACK",
+          lastActiveAt: "2026-08-01T00:00:00.000Z",
+          publicBaseUrl: "https://storage.customer.example.com",
+        },
+      ],
+    };
+    await setServerFileMetadata(env.DB, workspaceName, key, { "video.poster": "1" });
+
+    const result = await gatherCommentBody(env, wsWithFallback, workspaceName, {
+      repo: "acme/web",
+      num: 12,
+      kind: "pull",
+    });
+    expect(result.body).toContain(`https://storage.customer.example.com/${posterKeyFor(key)}`);
   });
 });
 
