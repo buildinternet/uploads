@@ -5,11 +5,10 @@ import {
   publicUrl,
   type EmbedUrlOptions,
   type Files,
-  type R2Jurisdiction,
   type StorageConfig,
 } from "@uploads/storage";
 import { openCredentialFields, secretsKeyRingFromEnv } from "./secrets";
-import type { WorkspaceRecord } from "./workspace";
+import type { StorageLane, StorageLaneFields, WorkspaceRecord } from "./workspace";
 
 /** Worker env override for the embed CDN base (self-host / disable). */
 function embedUrlOptionsFromEnv(env: Env): EmbedUrlOptions {
@@ -26,26 +25,20 @@ export function objectPublicUrls(
   return publicAndEmbedUrls(cfg, key, embedUrlOptionsFromEnv(env));
 }
 
-/** The storage-field bag shared by a `WorkspaceRecord`'s top-level (active) fields and a `StorageLane`. */
-interface StorageFieldsLike {
-  bucket: string;
-  binding?: string;
-  prefix?: string;
-  publicBaseUrl?: string;
-  accountId?: string;
-  accessKeyId?: string;
-  secretAccessKey?: string;
-  jurisdiction?: R2Jurisdiction;
-}
-
 /**
  * Shared binding lookup + credential opening for both the active lane
- * (`storageConfig`) and fallback lanes (`storageConfigs`). Only "r2" is ever
- * a valid `StorageConfig.provider`, so the caller is responsible for
- * validating a lane's `provider` string before calling this — see
- * `storageConfigs`.
+ * (`storageConfig`) and fallback lanes (`storageConfigs`/`resolveObjectLane`).
+ * Single enforcement point for `provider`: only `"r2"` is ever a valid
+ * `StorageConfig.provider`, so every caller — active or fallback — goes
+ * through this check rather than validating it themselves.
  */
-async function resolveStorageConfig(env: Env, fields: StorageFieldsLike): Promise<StorageConfig> {
+async function resolveStorageConfig(env: Env, fields: StorageLaneFields): Promise<StorageConfig> {
+  if (fields.provider !== "r2") {
+    throw new ServiceUnavailableError(`unsupported storage provider "${fields.provider}"`, {
+      code: "storage_misconfigured",
+      details: { provider: fields.provider },
+    });
+  }
   let binding: R2Bucket | undefined;
   if (fields.binding) {
     const candidate: unknown = Reflect.get(env, fields.binding);
@@ -116,13 +109,36 @@ export interface LaneConfig {
 }
 
 /**
+ * Resolve one fallback lane's config, or `null` if it's a standby lane (no
+ * `lastActiveAt` — pure saved configuration, never a read source) or if it
+ * fails to resolve (bad binding name, undecryptable creds, unsupported
+ * provider — logged, never thrown, so a stale fallback can never take down
+ * the active lane).
+ */
+async function resolveFallbackLane(env: Env, lane: StorageLane): Promise<StorageConfig | null> {
+  if (!lane.lastActiveAt) return null;
+  try {
+    return await resolveStorageConfig(env, lane);
+  } catch (err) {
+    console.error(
+      JSON.stringify({
+        message: "storage_lane_skipped",
+        laneId: lane.id,
+        reason: err instanceof Error ? err.message : String(err),
+      }),
+    );
+    return null;
+  }
+}
+
+/**
  * Active lane first, then fallback lanes (`lastActiveAt` set) in array
- * order. Standby lanes (no `lastActiveAt`) are pure saved configuration and
- * are excluded — they never participate in read resolution. A fallback lane
- * that fails to resolve (bad binding name, undecryptable creds, unsupported
- * provider) is logged and skipped, never throws — a stale fallback must
- * never take down the active lane. Active-lane failures still throw exactly
- * as `storageConfig` does today.
+ * order. Standby lanes are excluded. Active-lane failures still throw
+ * exactly as `storageConfig` does today; a fallback lane that fails to
+ * resolve is skipped (see `resolveFallbackLane`). Resolves every lane's
+ * config up front — the right choice for a listing/status caller that needs
+ * them all; `resolveObjectLane` below resolves lazily instead, since it
+ * usually needs at most one.
  */
 export async function storageConfigs(env: Env, ws: WorkspaceRecord): Promise<LaneConfig[]> {
   const configs: LaneConfig[] = [
@@ -130,46 +146,24 @@ export async function storageConfigs(env: Env, ws: WorkspaceRecord): Promise<Lan
   ];
 
   for (const lane of ws.storageLanes ?? []) {
-    if (!lane.lastActiveAt) continue; // standby: saved, never active — not a read source.
-    if (lane.provider !== "r2") {
-      console.error(
-        JSON.stringify({
-          message: "storage_lane_skipped",
-          laneId: lane.id,
-          reason: "unsupported_provider",
-          provider: lane.provider,
-        }),
-      );
-      continue;
-    }
-    try {
-      const config = await resolveStorageConfig(env, lane);
-      configs.push({ laneId: lane.id, role: "fallback", config });
-    } catch (err) {
-      console.error(
-        JSON.stringify({
-          message: "storage_lane_skipped",
-          laneId: lane.id,
-          reason: err instanceof Error ? err.message : String(err),
-        }),
-      );
-    }
+    const config = await resolveFallbackLane(env, lane);
+    if (config) configs.push({ laneId: lane.id, role: "fallback", config });
   }
 
   return configs;
 }
 
 /** A storage lane resolved to a live `Files` instance, for object-level operations. */
-export interface ResolvedLane {
+export interface ResolvedLane extends LaneConfig {
   store: Files;
-  config: StorageConfig;
-  laneId: string | null;
-  role: "active" | "fallback";
 }
 
 /**
  * Walk lanes in order (active, then fallbacks) — first `store.exists(key)`
- * hit wins. Returns `null` when the key exists in no lane. Single-lane
+ * hit wins. Returns `null` when the key exists in no lane. Resolves lazily:
+ * a fallback lane's config (and its credential decrypt) is only resolved
+ * once every earlier lane has missed, so the common case — the active lane
+ * has the key — never touches fallback credentials at all. Single-lane
  * records short-circuit to the current behavior: exactly one `exists` call.
  */
 export async function resolveObjectLane(
@@ -177,13 +171,26 @@ export async function resolveObjectLane(
   ws: WorkspaceRecord,
   key: string,
 ): Promise<ResolvedLane | null> {
-  const configs = await storageConfigs(env, ws);
-  for (const lane of configs) {
-    const store = createStorage(lane.config);
+  const activeConfig = await storageConfig(env, ws);
+  const activeStore = createStorage(activeConfig);
+  if (await activeStore.exists(key)) {
+    return {
+      store: activeStore,
+      config: activeConfig,
+      laneId: ws.storageLaneId ?? null,
+      role: "active",
+    };
+  }
+
+  for (const lane of ws.storageLanes ?? []) {
+    const config = await resolveFallbackLane(env, lane);
+    if (!config) continue;
+    const store = createStorage(config);
     if (await store.exists(key)) {
-      return { store, config: lane.config, laneId: lane.laneId, role: lane.role };
+      return { store, config, laneId: lane.id, role: "fallback" };
     }
   }
+
   return null;
 }
 

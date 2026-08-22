@@ -5,7 +5,7 @@
  * walks them in order and returns the first lane whose store has the key.
  * See docs/superpowers/specs/2026-08-22-two-lane-storage-design.md.
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { FakeR2Bucket } from "./fake-r2";
 import { resolveObjectLane, storageConfigs } from "../src/storage";
 import type { StorageLane, WorkspaceRecord } from "../src/workspace";
@@ -140,5 +140,25 @@ describe("resolveObjectLane", () => {
     };
     await resolveObjectLane(env, ACTIVE_WS, "default/whatever.png");
     expect(existsCalls).toBe(1);
+  });
+
+  it("never resolves a fallback lane's config when the active lane already has the key (lazy walk)", async () => {
+    // The fallback lane names a binding that doesn't exist on env — resolving
+    // it would log a "storage_lane_skipped" error. A lazy walk never attempts
+    // it once the active lane hits, so console.error must stay silent.
+    const active = new FakeR2Bucket();
+    await active.put("default/only-active.png", new Uint8Array([1]));
+    const env = makeEnv({ UPLOADS_DEFAULT: active });
+    const badLane: StorageLane = { ...FALLBACK_LANE, binding: "NO_SUCH_BINDING" };
+    const ws: WorkspaceRecord = { ...ACTIVE_WS, storageLanes: [badLane] };
+
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const resolved = await resolveObjectLane(env, ws, "default/only-active.png");
+      expect(resolved?.role).toBe("active");
+      expect(errorSpy).not.toHaveBeenCalled();
+    } finally {
+      errorSpy.mockRestore();
+    }
   });
 });

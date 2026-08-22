@@ -202,23 +202,16 @@ export interface WorkspaceRecord {
 }
 
 /**
- * A saved-or-formerly-active storage configuration, addressed by `id`.
- * Lane state is derived, not stored as an enum: **standby** = configured and
- * verified, `lastActiveAt` absent — a saved config that has never received
- * writes; **fallback** = `lastActiveAt` set — a former active lane that may
- * hold objects and participates in read resolution. See the spec's
- * "N-lane readiness": `provider` is a widened string (validated to `"r2"` at
- * every boundary today) so future files-sdk-supported providers need no
- * record-shape migration.
+ * The storage-connection fields shared by `WorkspaceRecord`'s top-level
+ * (active-lane) fields and a `StorageLane` — bucket/binding/credentials, not
+ * lane bookkeeping (id, verifiedAt, lastActiveAt) or the display-only
+ * mirrors. `packages/storage`'s `resolveStorageConfig` accepts this shape so
+ * one function resolves either the active fields or a saved lane.
+ * `provider` is a widened string (validated to `"r2"` at that boundary, not
+ * here) so future files-sdk-supported providers need no record-shape
+ * migration — see the spec's "N-lane readiness".
  */
-export interface StorageLane {
-  /** Short opaque id, e.g. "lane_<8hex>"; stamped into new-upload provenance. */
-  id: string;
-  /** Last successful verify run against this lane's config. */
-  verifiedAt?: string;
-  /** Set when the lane is demoted from active; absence = never held writes (standby). */
-  lastActiveAt?: string;
-  /** "r2" is the only value accepted today; widened now so future providers need no migration. */
+export interface StorageLaneFields {
   provider: string;
   bucket: string;
   /** Shared lane uses the binding; BYO lanes are HTTP-credential mode. */
@@ -226,11 +219,27 @@ export interface StorageLane {
   prefix?: string;
   publicBaseUrl?: string;
   accountId?: string;
-  /** Sealed (`enc:v1:`), same KEK ring as active-lane credentials. */
+  /** Sealed (`enc:v1:`) on a `StorageLane`; same shape as the active-lane pair. */
   accessKeyId?: string;
-  /** Sealed (`enc:v1:`). */
+  /** Sealed (`enc:v1:`) on a `StorageLane`. */
   secretAccessKey?: string;
   jurisdiction?: R2Jurisdiction;
+}
+
+/**
+ * A saved-or-formerly-active storage configuration, addressed by `id`.
+ * Lane state is derived, not stored as an enum: **standby** = configured and
+ * verified, `lastActiveAt` absent — a saved config that has never received
+ * writes; **fallback** = `lastActiveAt` set — a former active lane that may
+ * hold objects and participates in read resolution.
+ */
+export interface StorageLane extends StorageLaneFields {
+  /** Short opaque id, e.g. "lane_<8hex>"; stamped into new-upload provenance. */
+  id: string;
+  /** Last successful verify run against this lane's config. */
+  verifiedAt?: string;
+  /** Set when the lane is demoted from active; absence = never held writes (standby). */
+  lastActiveAt?: string;
   /** Display/provenance mirrors of the top-level fields of the same name. */
   storageAccessKeyIdLast4?: string;
   storageConfiguredAt?: string;
