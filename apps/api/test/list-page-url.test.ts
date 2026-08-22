@@ -103,6 +103,49 @@ describe("listObjects two-lane fan-out", () => {
     expect(page2.cursor).toBeNull();
   });
 
+  // CodeRabbit review (PR #771): an exhausted lane that was simply omitted
+  // from the composite cursor's lane map was indistinguishable from a lane
+  // that had never started, and restarted from the beginning on the next
+  // page — duplicating everything it had already emitted. Repro: limit 2,
+  // active [a, e], fallback [b, c, e] (duplicate key "e"). Without the fix,
+  // the third page re-returns [a, e] instead of terminating.
+  it("does not restart an exhausted lane on a later page (CodeRabbit regression)", async () => {
+    const active = new FakeR2Bucket();
+    const fallback = new FakeR2Bucket();
+    await active.put("a.png", new Uint8Array([1]));
+    await active.put("e.png", new Uint8Array([1]));
+    await fallback.put("b.png", new Uint8Array([1]));
+    await fallback.put("c.png", new Uint8Array([1]));
+    await fallback.put("e.png", new Uint8Array([1, 2, 3, 4, 5]));
+
+    const ws: WorkspaceRecord = {
+      ...baseRecord,
+      prefix: undefined,
+      storageLaneId: "lane_active1",
+      storageLanes: [FALLBACK_LANE],
+    };
+    const env = twoLaneEnv(active, fallback);
+
+    const page1 = await listObjects(env, ws, { limit: 2 });
+    expect(page1.items.map((i) => i.key)).toEqual(["a.png", "b.png"]);
+    expect(page1.cursor).not.toBeNull();
+
+    const page2 = await listObjects(env, ws, { limit: 2, cursor: page1.cursor! });
+    expect(page2.items.map((i) => i.key)).toEqual(["c.png", "e.png"]);
+    // Active's copy of the duplicate "e.png" won.
+    expect(page2.items[1].size).toBe(1);
+
+    // Bug repro: page2.cursor may still be non-null here (fallback's own
+    // duplicate "e" hasn't been filtered out yet) — a caller must keep
+    // following the cursor until it's null. The fix is that this next page
+    // is empty and terminal, never a re-emission of "a.png"/"e.png".
+    if (page2.cursor) {
+      const page3 = await listObjects(env, ws, { limit: 2, cursor: page2.cursor });
+      expect(page3.items).toEqual([]);
+      expect(page3.cursor).toBeNull();
+    }
+  });
+
   it("excludes a standby lane (no lastActiveAt) from the fan-out — behaves single-lane", async () => {
     const active = new FakeR2Bucket();
     await active.put("a.png", new Uint8Array([1]));

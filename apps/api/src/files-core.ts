@@ -32,7 +32,14 @@ import {
 import { recordPrActivityFromMetadata } from "./github-pr-activity";
 import { DEFAULT_MAX_UPLOAD_BYTES, inspectUpload, resolveUploadPolicy } from "./guards";
 import { checkKeyPolicy, resolveKeyPolicy } from "./key-policy";
-import { decodeLaneCursor, encodeLaneCursor, mergeBounded } from "./lane-list";
+import {
+  decodeLaneCursor,
+  decodeLaneResumeState,
+  encodeLaneCursor,
+  encodeLaneResumeState,
+  LANE_DONE,
+  mergeBounded,
+} from "./lane-list";
 import {
   makePoster,
   mediabunnyProbe,
@@ -46,7 +53,13 @@ import {
   sanitizeProvenance,
   type ProvenanceMap,
 } from "./provenance";
-import { objectPublicUrls, storage, storageConfig, storageConfigs } from "./storage";
+import {
+  objectPublicUrls,
+  storage,
+  storageConfig,
+  storageConfigs,
+  type LaneConfig,
+} from "./storage";
 import {
   claimDeleteUsageSafe,
   clearDeleteUsageClaimSafe,
@@ -837,46 +850,18 @@ function projectListedObject(
   };
 }
 
-/**
- * Packs a lane's next-fetch state into one opaque string: how many items to
- * skip past a batch already fetched from `cursor` (a lane whose merged page
- * didn't consume its whole fetched batch must resume mid-batch — providers
- * only support resuming at a *batch* boundary, so the leftover is re-fetched
- * and re-skipped rather than lost), plus the underlying provider cursor to
- * fetch that batch from (`undefined` = start of listing). Internal to
- * `listObjects`'s multi-lane fan-out — `LaneCursorMap`'s value type is just
- * `string`, so this format is a private implementation detail of this file.
- */
-function encodeLaneResumeState(skip: number, cursor: string | undefined): string {
-  return `${skip}:${cursor ?? ""}`;
-}
-
-function decodeLaneResumeState(raw: string | undefined): {
-  skip: number;
-  cursor: string | undefined;
-} {
-  const sep = raw?.indexOf(":") ?? -1;
-  if (raw === undefined || sep < 0) return { skip: 0, cursor: undefined };
-  const skip = Number(raw.slice(0, sep));
-  const cursor = raw.slice(sep + 1);
-  return {
-    skip: Number.isFinite(skip) && skip >= 0 ? skip : 0,
-    cursor: cursor.length > 0 ? cursor : undefined,
-  };
-}
-
 /** One lane's fetched-and-filtered batch, tagged with enough state to resume it next page. */
 interface LaneFetch {
   laneKeyStr: string;
   cfg: Awaited<ReturnType<typeof storageConfig>>;
-  /** This batch's items after dropping the portion already emitted on an earlier page. */
+  /** This batch's items, already dropped for anything at or before the composite cursor's high-water key. Empty (without ever fetching) when the lane was already `LANE_DONE`. */
   remaining: RawListedItem[];
-  /** How many of this batch's items were already skipped before this fetch (for the next page's bookkeeping). */
-  skipBase: number;
-  /** The provider cursor this fetch itself used (re-used verbatim if `remaining` isn't fully consumed this page). */
+  /** The provider cursor this fetch itself used (re-used verbatim next page if `remaining` isn't fully consumed this page) — `undefined` if the lane was already done (never fetched). */
   providerCursorUsed: string | undefined;
   /** The provider's own next-cursor for this batch, if it was truncated. */
   providerNextCursor: string | undefined;
+  /** True when this lane was already `LANE_DONE` coming in — skipped entirely, no fetch made. */
+  wasDone: boolean;
 }
 
 const ACTIVE_LANE_CURSOR_KEY = "active";
@@ -925,13 +910,27 @@ export async function listObjects(
   // a plain (pre-lanes) cursor decodes to `null` — treated as a fresh start
   // rather than an error.
   const cursorMap = decodeLaneCursor(opts.cursor) ?? { v: 1, lanes: {} };
+  // The global high-water key: nothing at or before it is ever re-emitted,
+  // even if a lane's own resume state were somehow lost — defense in depth
+  // alongside the explicit `LANE_DONE` sentinel below.
+  const highWater = cursorMap.after;
   const laneCursorKey = (laneId: string | null) => laneId ?? ACTIVE_LANE_CURSOR_KEY;
 
   const prefixesSeen: string[] = [];
   const fetches: LaneFetch[] = await Promise.all(
     configs.map(async (lc): Promise<LaneFetch> => {
       const laneKeyStr = laneCursorKey(lc.laneId);
-      const { skip, cursor: providerCursor } = decodeLaneResumeState(cursorMap.lanes[laneKeyStr]);
+      const { cursor: providerCursor, done } = decodeLaneResumeState(cursorMap.lanes[laneKeyStr]);
+      if (done) {
+        return {
+          laneKeyStr,
+          cfg: lc.config,
+          remaining: [],
+          providerCursorUsed: undefined,
+          providerNextCursor: undefined,
+          wasDone: true,
+        };
+      }
       const store = createStorage(lc.config);
       const result = await store.list({
         prefix: opts.prefix,
@@ -940,14 +939,16 @@ export async function listObjects(
         cursor: providerCursor,
       });
       for (const p of result.prefixes ?? []) if (!prefixesSeen.includes(p)) prefixesSeen.push(p);
-      const filtered = result.items.filter((item) => !item.key.startsWith(INTERNAL_KEY_PREFIX));
+      const remaining = result.items
+        .filter((item) => !item.key.startsWith(INTERNAL_KEY_PREFIX))
+        .filter((item) => highWater === undefined || item.key > highWater);
       return {
         laneKeyStr,
         cfg: lc.config,
-        remaining: filtered.slice(skip),
-        skipBase: skip,
+        remaining,
         providerCursorUsed: providerCursor,
         providerNextCursor: result.cursor,
+        wasDone: false,
       };
     }),
   );
@@ -955,61 +956,75 @@ export async function listObjects(
   // Tag each raw item with the config it came from (by object identity) so
   // the merge result can still be projected to a `ListedObject` per its
   // owning lane, without threading lane info through `mergeBounded`'s
-  // generic `{ key }` constraint.
-  const taggedPages = fetches.map((fetch, laneOrder) => ({
-    laneOrder,
+  // generic `{ key }` constraint. `fetches` is already active-first order
+  // (matches `storageConfigs`), which is exactly the merge priority order
+  // `mergeBounded` wants.
+  const taggedPages = fetches.map((fetch) => ({
     items: fetch.remaining.map((raw) => ({ ...raw, __cfg: fetch.cfg })),
   }));
   const merged = mergeBounded(taggedPages, limit);
 
   const nextLanes: Record<string, string> = {};
   fetches.forEach((fetch, i) => {
+    if (fetch.wasDone) {
+      nextLanes[fetch.laneKeyStr] = LANE_DONE;
+      return;
+    }
     const consumedCount = merged.consumed[i] ?? 0;
-    if (consumedCount >= fetch.remaining.length) {
-      // This batch is fully spent. More to come only if the provider itself
-      // wasn't exhausted — advance to its next batch, skip reset to 0.
-      if (fetch.providerNextCursor) {
-        nextLanes[fetch.laneKeyStr] = encodeLaneResumeState(0, fetch.providerNextCursor);
-      }
+    const fullyConsumed = consumedCount >= fetch.remaining.length;
+    if (fullyConsumed && !fetch.providerNextCursor) {
+      // Nothing left in this lane, ever — mark it explicitly done so the
+      // next page skips fetching it entirely, rather than reinterpreting
+      // "no entry" as "hasn't started yet" (the bug this cursor format
+      // guards against — see decodeLaneResumeState).
+      nextLanes[fetch.laneKeyStr] = LANE_DONE;
+    } else if (fullyConsumed) {
+      // Batch fully spent, but the provider says there's more — advance.
+      nextLanes[fetch.laneKeyStr] = encodeLaneResumeState(fetch.providerNextCursor);
     } else {
-      // Trimmed mid-batch: re-fetch the same provider cursor next page and
-      // skip further ahead — providers only resume at a batch boundary.
-      nextLanes[fetch.laneKeyStr] = encodeLaneResumeState(
-        fetch.skipBase + consumedCount,
-        fetch.providerCursorUsed,
-      );
+      // Trimmed mid-batch: re-fetch the same provider cursor next page.
+      // `highWater` (updated below) filters out what's already been
+      // emitted, so this never re-emits a duplicate.
+      nextLanes[fetch.laneKeyStr] = encodeLaneResumeState(fetch.providerCursorUsed);
     }
   });
 
+  const lastEmittedKey = merged.items.at(-1)?.key;
+  const nextHighWater = lastEmittedKey ?? highWater;
+  const allDone = Object.values(nextLanes).every((v) => v === LANE_DONE);
+
   return {
     items: merged.items.map((raw) => projectListedObject(env, ws, raw.__cfg, raw)),
-    cursor: Object.keys(nextLanes).length > 0 ? encodeLaneCursor({ v: 1, lanes: nextLanes }) : null,
+    cursor: allDone
+      ? null
+      : encodeLaneCursor({
+          v: 1,
+          lanes: nextLanes,
+          ...(nextHighWater !== undefined ? { after: nextHighWater } : {}),
+        }),
     ...(prefixesSeen.length > 0 ? { prefixes: prefixesSeen } : {}),
   };
 }
 
 /**
- * Delete `key` from every lane's store that actually holds it and return the
- * size reported by the first lane hit (active-first order) — `null` if no
- * lane had it. Two-lane storage: a key can exist in more than one lane after
- * a detach/re-attach cycle, and every copy must go so the file actually
+ * Delete `key` from every one of `configs`'s stores that actually holds it
+ * and return the size reported by the first lane hit (active-first order,
+ * matching `storageConfigs`'s own order) — `null` if no lane had it. Probes
+ * every lane concurrently, then deletes concurrently from whichever lanes
+ * hit. Two-lane storage: a key can exist in more than one lane after a
+ * detach/re-attach cycle, and every copy must go so the file actually
  * disappears (spec: "Read path" — deletion). Single-lane records take the
  * exact path this always has: one lane, one `existingSize` + `delete` call.
+ * Callers resolve `storageConfigs` once and pass it in — `deleteObject`
+ * reuses the same resolution for both the primary key and its poster.
  */
-async function deleteFromEveryLane(
-  env: Env,
-  ws: WorkspaceRecord,
-  key: string,
-): Promise<number | null> {
-  const configs = await storageConfigs(env, ws);
-  let prev: number | null = null;
-  for (const lc of configs) {
-    const store = createStorage(lc.config);
-    const size = await existingSize(store, key);
-    if (size === null) continue;
-    if (prev === null) prev = size;
-    await store.delete(key);
-  }
+async function deleteFromEveryLane(configs: LaneConfig[], key: string): Promise<number | null> {
+  const stores = configs.map((lc) => createStorage(lc.config));
+  const sizes = await Promise.all(stores.map((store) => existingSize(store, key)));
+  // `.find` over the Promise.all result preserves `configs`' order (active
+  // first) regardless of which probe actually settled first.
+  const prev = sizes.find((size) => size !== null) ?? null;
+  await Promise.all(stores.filter((_, i) => sizes[i] !== null).map((store) => store.delete(key)));
   return prev;
 }
 
@@ -1022,7 +1037,8 @@ export async function deleteObject(
 ): Promise<{ key: string; deleted: true }> {
   if (badKey(key)) throw new ValidationError("invalid key", { code: "invalid_key" });
 
-  const prev = await deleteFromEveryLane(env, ws, key);
+  const configs = await storageConfigs(env, ws);
+  const prev = await deleteFromEveryLane(configs, key);
   await deleteFileMetadata(env.DB, workspaceName, key);
 
   if (prev !== null) {
@@ -1054,7 +1070,7 @@ export async function deleteObject(
   // every-lane-that-has-it treatment as the primary object above.
   const posterKey = posterKeyFor(key);
   try {
-    const posterPrev = await deleteFromEveryLane(env, ws, posterKey);
+    const posterPrev = await deleteFromEveryLane(configs, posterKey);
     if (posterPrev !== null) {
       if (await claimDeleteUsageSafe(env.DB, workspaceName, posterKey)) {
         await recordUsageSafe(env.DB, workspaceName, {
