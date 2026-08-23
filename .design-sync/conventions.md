@@ -83,12 +83,17 @@ Cap prose at `--measure` (68ch).
 
 `Accordion` · `AlertDialog` · `Badge` · `Button` · `Checkbox` · `Combobox`
 · `Dialog` · `DropdownMenu` · `Empty` · `Input` · `InputGroup` · `Kbd`
-· `Label` · `Popover` · `Select` · `Switch` · `Table` · `Tabs` · `Textarea`
-· `Tooltip`
+· `Label` · `Popover` · `Select` · `Separator` · `Sheet` · `Sidebar`
+· `Skeleton` · `Switch` · `Table` · `Tabs` · `Textarea` · `Tooltip`
 
 Compound parts (`DialogTrigger`, `SelectItem`, `TableRow`,
 `DropdownMenuItem`, `InputGroupAddon`, `EmptyHeader`/`EmptyTitle`/
-`EmptyDescription`/`EmptyContent`/`EmptyMedia`, `KbdGroup`, …) are all
+`EmptyDescription`/`EmptyContent`/`EmptyMedia`, `KbdGroup`,
+`SheetTrigger`/`SheetContent`/`SheetHeader`/`SheetFooter`/`SheetTitle`/
+`SheetDescription`/`SheetClose`, `SidebarProvider`/`SidebarHeader`/
+`SidebarContent`/`SidebarFooter`/`SidebarGroup`/`SidebarGroupLabel`/
+`SidebarGroupContent`/`SidebarMenu`/`SidebarMenuItem`/`SidebarMenuButton`/
+`SidebarTrigger`/`useSidebar`/…, …) are all
 exported flat from the
 same module. Key variant axes: `Button` `variant`
 (`default | outline | secondary | ghost | destructive | link`) and `size`

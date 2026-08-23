@@ -81,6 +81,32 @@ import {
   ComboboxItem,
   ComboboxList,
 } from "@uploads/ui/components/ui/combobox";
+import { Separator } from "@uploads/ui/components/ui/separator";
+import { Skeleton } from "@uploads/ui/components/ui/skeleton";
+import {
+  Sheet,
+  SheetClose,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@uploads/ui/components/ui/sheet";
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarGroupLabel,
+  SidebarHeader,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarProvider,
+  SidebarTrigger,
+} from "@uploads/ui/components/ui/sidebar";
 
 function Section({ eyebrow, children }: { eyebrow: string; children: React.ReactNode }) {
   return (
@@ -337,6 +363,96 @@ export default function UiKit() {
               <TooltipContent>Tooltip copy</TooltipContent>
             </Tooltip>
           </TooltipProvider>
+
+          <Sheet>
+            <SheetTrigger render={<Button variant="outline">Open sheet</Button>} />
+            <SheetContent>
+              <SheetHeader>
+                <SheetTitle>Workspace settings</SheetTitle>
+                <SheetDescription>Update details for this workspace.</SheetDescription>
+              </SheetHeader>
+              <SheetFooter>
+                <SheetClose render={<Button variant="outline">Cancel</Button>} />
+                <Button>Save</Button>
+              </SheetFooter>
+            </SheetContent>
+          </Sheet>
+        </div>
+      </Section>
+
+      <Section eyebrow="Separator">
+        <div className="flex flex-col gap-2">
+          <p className="text-sm text-body">Above the line</p>
+          <Separator />
+          <p className="text-sm text-body">Below the line</p>
+        </div>
+        <div className="flex h-8 items-center gap-4">
+          <span className="text-sm text-body">Files</span>
+          <Separator orientation="vertical" />
+          <span className="text-sm text-body">Galleries</span>
+          <Separator orientation="vertical" />
+          <span className="text-sm text-body">People</span>
+        </div>
+      </Section>
+
+      <Section eyebrow="Skeleton">
+        <div className="flex max-w-sm flex-col gap-3 rounded-lg border p-4">
+          <Skeleton className="h-32 w-full rounded-lg" />
+          <div className="flex items-center gap-3">
+            <Skeleton className="size-8 rounded-full" />
+            <div className="flex flex-1 flex-col gap-2">
+              <Skeleton className="h-4 w-2/3" />
+              <Skeleton className="h-3 w-1/3" />
+            </div>
+          </div>
+        </div>
+      </Section>
+
+      <Section eyebrow="Sidebar">
+        <div className="relative h-[520px] w-full overflow-hidden rounded-lg border [&_[data-slot=sidebar-container]]:absolute! [&_[data-slot=sidebar-container]]:h-full!">
+          <SidebarProvider className="h-full min-h-0">
+            <Sidebar collapsible="icon" className="h-full">
+              <SidebarHeader>
+                <span className="px-2 font-mono text-[13px] tracking-[0.08em] text-accent uppercase">
+                  uploads.sh
+                </span>
+              </SidebarHeader>
+              <SidebarContent>
+                <SidebarGroup>
+                  <SidebarGroupLabel>Workspace</SidebarGroupLabel>
+                  <SidebarGroupContent>
+                    <SidebarMenu>
+                      <SidebarMenuItem>
+                        <SidebarMenuButton isActive>Files</SidebarMenuButton>
+                      </SidebarMenuItem>
+                      <SidebarMenuItem>
+                        <SidebarMenuButton>Screenshots</SidebarMenuButton>
+                      </SidebarMenuItem>
+                      <SidebarMenuItem>
+                        <SidebarMenuButton>Galleries</SidebarMenuButton>
+                      </SidebarMenuItem>
+                      <SidebarMenuItem>
+                        <SidebarMenuButton>Settings</SidebarMenuButton>
+                      </SidebarMenuItem>
+                    </SidebarMenu>
+                  </SidebarGroupContent>
+                </SidebarGroup>
+              </SidebarContent>
+              <SidebarFooter>
+                <SidebarMenu>
+                  <SidebarMenuItem>
+                    <SidebarMenuButton>Ada Lovelace</SidebarMenuButton>
+                  </SidebarMenuItem>
+                </SidebarMenu>
+              </SidebarFooter>
+            </Sidebar>
+            <div className="flex flex-1 flex-col gap-2 p-4">
+              <SidebarTrigger />
+              <p className="text-sm text-muted-foreground">
+                Sidebar content area — collapse via the trigger above.
+              </p>
+            </div>
+          </SidebarProvider>
         </div>
       </Section>
     </div>

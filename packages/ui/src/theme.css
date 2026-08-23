@@ -68,6 +68,18 @@
   --color-input: var(--line);
   --color-ring: var(--accent);
 
+  /* Sidebar block palette — same surfaces as the shell it replaces: page
+     background, hairline borders, the shared subtle hover surface, violet
+     only for the active/primary treatment. */
+  --color-sidebar: var(--bg);
+  --color-sidebar-foreground: var(--fg);
+  --color-sidebar-primary: var(--accent);
+  --color-sidebar-primary-foreground: var(--bg);
+  --color-sidebar-accent: #1a1a1e;
+  --color-sidebar-accent-foreground: var(--fg);
+  --color-sidebar-border: var(--line);
+  --color-sidebar-ring: var(--accent);
+
   /* Brand extras (kept from phase 1) */
   --color-success: var(--green);
 

@@ -1,9 +1,9 @@
 /* Flat 3A account nav + right-rail column for /account/*.
    Every selector here is scoped under `.account-shell` (the AccountLayout
-   `#app` root) so /admin/* — which shares nav.side / .layout markup and
-   signed-in-shell.css — renders exactly as before. Do NOT add an unscoped
-   nav.side or .layout rule to this file; put account-only overrides here
-   instead of editing signed-in-shell.css. */
+   `#app` root) so /admin/* — which shares the .shell-side / .layout markup
+   and signed-in-shell.css — renders exactly as before. Do NOT add an
+   unscoped .shell-side or .layout rule to this file; put account-only
+   overrides here instead of editing signed-in-shell.css. */
 
 /* Always 3 columns (nav · content · rail) at the same shell width so
    personal and workspace pages share content geometry. Empty rail still
@@ -17,7 +17,7 @@
   margin-right: auto;
 }
 .account-shell .layout {
-  grid-template-columns: 180px minmax(0, 1fr) 272px;
+  grid-template-columns: auto minmax(0, 1fr) 272px;
   gap: 40px;
 }
 .account-shell .content {
@@ -25,237 +25,18 @@
   min-width: 0;
 }
 
-/* Flat nav rows ----------------------------------------------------------
-   Beat signed-in-shell's pill treatment (`border-radius` + panel border on
-   `nav.side a[aria-current]`). Account nav is flush type with a quiet
-   rectangular active wash — no rounded chip, consistent horizontal inset. */
-.account-shell nav.side {
-  --side-inset: 8px;
-  gap: 2px;
-  font-size: var(--text-meta);
-}
-.account-shell nav.side .side-link {
-  display: block;
-  padding: 7px var(--side-inset);
-  margin: 0;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--muted);
-  text-decoration: none;
-}
-.account-shell nav.side .side-link:hover,
-.account-shell nav.side .side-link:focus-visible {
-  color: var(--fg);
-  background: transparent;
-  outline: none;
-}
-/* Active item — soft rounded pill. Same accent color-mix wash the switcher
-   menu's hover/current rows already use (below), just applied at rest. */
-.account-shell nav.side .side-link[aria-current] {
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
-  border: 0;
-  border-radius: 6px;
-}
+/* Sidebar island column (issue #798) ------------------------------------
+   `nav.shell-side` hosts the ShellSidebar React island. The old `.side-*`
+   and `.ws-switcher` rules are gone on purpose: the island is styled with
+   Tailwind utilities, which lose to unlayered legacy CSS, so the competing
+   rules are deleted rather than fought. The class is `shell-side` (not
+   `side`) for the same reason — signed-in-shell.css's `nav.side a` chrome
+   would otherwise repaint every row.
 
-/* Section labels (PERSONAL / workspace). Same horizontal inset as
-   side-links. ~20px above each group (releases' spacing) reads the two
-   groups as distinct rather than one long list. */
-.account-shell nav.side .side-label {
-  margin: 20px 0 6px;
-  padding: 0 var(--side-inset);
-  color: var(--muted);
-  font-size: var(--text-micro);
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-}
-/* First label in the nav (the workspace-section one, when present) shouldn't
-   add extra air above the switcher card it directly follows. */
-.account-shell nav.side .ws-switcher + .side-label {
-  margin-top: 10px;
-}
-
-/* Workspace switcher — first nav item. Two-line bordered card: name (+ Pro
-   badge, painted by workspaces-nav.ts right after the label element) on line
-   one, a muted "workspace" subtitle on line two, chevron pinned right and
-   vertically centered via the grid. */
-.account-shell nav.side .ws-switcher {
-  position: relative;
-  margin: 0 0 4px;
-}
-/* Beat signed-in-shell's `nav.side button` (red hover / mono foot). */
-.account-shell nav.side .ws-switcher .ws-switcher__trigger {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  max-width: 100%;
-  padding: 9px 10px;
-  margin: 0;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: none;
-  color: var(--fg);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-.account-shell nav.side .ws-switcher .ws-switcher__trigger:hover,
-.account-shell nav.side .ws-switcher .ws-switcher__trigger:focus-visible,
-.account-shell nav.side .ws-switcher .ws-switcher__trigger[aria-expanded="true"] {
-  border-color: var(--accent);
-  outline: none;
-}
-/* One line now: the trigger names the workspace, and the `workspace` section
-   label directly beneath it in the nav already says what kind of thing it is —
-   the trigger's own uppercase subtitle just said it twice. */
-.account-shell nav.side .ws-switcher__body {
-  min-width: 0;
-  display: grid;
-}
-.account-shell nav.side .ws-switcher__line1 {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-}
-.account-shell nav.side .ws-switcher__label {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--fg);
-  font-size: var(--text-meta);
-  font-weight: var(--weight-semibold);
-}
-/* Trigger's own Pro badge (workspaces-nav.ts paintTriggerBadge, inserted as
-   `label`'s next sibling) — same `.pro-badge` idiom as the menu rows
-   (account-content.css). Lands inside `.ws-switcher__line1` alongside the
-   label, so it stays on the name line rather than pushed to the subtitle. */
-.account-shell nav.side .ws-switcher .ws-switcher__trigger .pro-badge {
-  flex: none;
-  font-size: var(--text-micro);
-  padding: 0 5px;
-}
-/* Visible switcher affordance — boxed chevron, not tiny label-tracking text. */
-.account-shell nav.side .ws-switcher__chevron {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 16px;
-  border: 1px solid color-mix(in srgb, var(--line) 90%, var(--muted));
-  border-radius: 3px;
-  color: var(--fg);
-  font-size: var(--text-micro);
-  line-height: 1;
-  letter-spacing: 0;
-}
-.account-shell nav.side .ws-switcher .ws-switcher__trigger:hover .ws-switcher__chevron,
-.account-shell nav.side .ws-switcher .ws-switcher__trigger:focus-visible .ws-switcher__chevron,
-.account-shell
-  nav.side
-  .ws-switcher
-  .ws-switcher__trigger[aria-expanded="true"]
-  .ws-switcher__chevron {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-.account-shell
-  nav.side
-  .ws-switcher
-  .ws-switcher__trigger[aria-expanded="true"]
-  .ws-switcher__chevron {
-  transform: rotate(180deg);
-}
-.account-shell nav.side .ws-switcher__menu {
-  position: absolute;
-  top: calc(100% + 6px);
-  left: 0;
-  z-index: 30;
-  min-width: min(220px, 70vw);
-  max-width: 280px;
-  padding: 6px;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
-  overflow: hidden;
-}
-.account-shell nav.side .ws-switcher__item {
-  display: block;
-  box-sizing: border-box;
-  width: 100%;
-  padding: 8px 10px;
-  border-radius: 6px;
-  color: var(--fg);
-  font-size: var(--text-meta);
-  letter-spacing: 0;
-  text-transform: none;
-  text-decoration: none;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.account-shell nav.side .ws-switcher__item:hover,
-.account-shell nav.side .ws-switcher__item:focus-visible {
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-  color: var(--accent);
-  outline: none;
-}
-.account-shell nav.side .ws-switcher__item.is-current {
-  color: var(--accent);
-}
-/* Trailing switcher row — "+ new workspace", or "manage workspaces" once the
-   creation cap is reached. Same quiet treatment either way. */
-.account-shell nav.side .ws-switcher__item--new,
-.account-shell nav.side .ws-switcher__item--manage {
-  color: color-mix(in srgb, var(--muted) 70%, var(--accent));
-  font-size: var(--text-micro);
-}
-.account-shell nav.side .ws-switcher__sep {
-  height: 1px;
-  margin: 4px 6px;
-  background: var(--line);
-}
-
-/* Section links participate in nav gap via display:contents. */
-.account-shell nav.side .ws-section-nav {
-  display: contents;
-}
-.account-shell nav.side .ws-section-nav[hidden] {
-  display: none;
-}
-
-/* Settings sub-nav (github comment / storage) — indented under the settings
-   tab with a left hairline, shown only while a settings route is active. */
-.account-shell nav.side .ws-settings-subnav {
-  display: grid;
-  gap: 2px;
-  margin: 2px 0 2px 12px;
-  padding-left: 10px;
-  border-left: 1px solid var(--line);
-}
-.account-shell nav.side .ws-settings-subnav__link {
-  display: block;
-  padding: 5px 8px;
-  border-radius: 6px;
-  color: var(--muted);
-  font-size: var(--text-micro);
-  text-decoration: none;
-}
-.account-shell nav.side .ws-settings-subnav__link:hover,
-.account-shell nav.side .ws-settings-subnav__link:focus-visible {
-  color: var(--fg);
-  outline: none;
-}
-.account-shell nav.side .ws-settings-subnav__link[aria-current] {
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
-}
+   Width comes from the island itself: the sidebar container carries
+   `w-(--sidebar-width)` / `w-(--sidebar-width-icon)` with its own width
+   transition, so an `auto` grid track animates with it on collapse (the base
+   `.layout` rule above sets that track). */
 
 /* Widened rail for the comment-settings 3-column layout (nav · content ·
    preview). Only above --bp-rail (1080px, see signed-in-shell.css) — the
@@ -264,7 +45,7 @@
    must stay out of their way rather than out-specificity them. */
 @media (min-width: 1081px) {
   .account-shell .layout[data-rail-wide] {
-    grid-template-columns: 180px minmax(420px, 1fr) 430px;
+    grid-template-columns: auto minmax(420px, 1fr) 430px;
   }
 }
 
@@ -309,9 +90,9 @@
 /* Mid-width (--bp-stack+1 … --bp-rail): drop rail beside content, restack
    under the main column. Hide empty rails so they leave no hairline. See
    breakpoint scale in signed-in-shell.css. */
-@media (min-width: 681px) and (max-width: 1080px) {
+@media (min-width: 768px) and (max-width: 1080px) {
   .account-shell .layout {
-    grid-template-columns: 180px minmax(0, 1fr);
+    grid-template-columns: auto minmax(0, 1fr);
     gap: 24px;
   }
   .account-shell aside.rail {
@@ -327,79 +108,22 @@
   }
 }
 
-/* --bp-stack: single column. The nav collapses to three compact rows —
-   one-line switcher, one horizontally scrollable tab row, personal links —
-   instead of the tall stacked menu, so content starts near the top of the
-   viewport on phones. */
-@media (max-width: 680px) {
+/* --bp-sidebar (767px): below the kit's md breakpoint the island renders as
+   a Sheet drawer (opened from the header trigger), so the nav column has no
+   in-flow content — collapse the shell to a single column and drop the track
+   entirely. The drawer itself portals to <body>, so hiding this element does
+   not hide it. */
+@media (max-width: 767px) {
   .account-shell .shell {
     padding-top: 16px;
   }
-  /* minmax(0, …): a plain 1fr tracks min-content, so the no-wrap tab row
-     below would widen the whole page. align-content: start keeps the extra
-     viewport height (from the sticky-footer flex stretch) below the content
-     instead of distributed between nav and content as a large gap. */
   .account-shell .layout {
     grid-template-columns: minmax(0, 1fr);
     align-content: start;
     gap: 16px;
   }
-  /* Beat signed-in-shell's chip grid: flex-wrap so the switcher and tab row
-     each take a full line while the personal links share one. */
-  .account-shell nav.side {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 4px 2px;
-  }
-  /* One-line switcher: drop the "workspace" subtitle line and tighten. */
-  .account-shell nav.side .ws-switcher {
-    flex: 1 1 100%;
-    margin: 0 0 4px;
-  }
-  .account-shell nav.side .ws-switcher .ws-switcher__trigger {
-    padding: 7px 10px;
-  }
-  /* Eyebrow labels spend rows without adding meaning at this size. */
-  .account-shell nav.side .side-label {
+  .account-shell nav.shell-side {
     display: none;
-  }
-  /* Workspace tabs: a single scrollable pill row, edge-to-edge bleed so the
-     cut-off pill hints at more. */
-  .account-shell nav.side .ws-section-nav {
-    /* Basis spans the column plus the bled-through shell padding; min-width
-       lets the row shrink so overflow-x scrolls instead of widening the page. */
-    flex: 0 0 calc(100% + 40px);
-    min-width: 0;
-    display: flex;
-    gap: 2px;
-    margin: 0 -20px;
-    padding: 0 20px;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
-  }
-  .account-shell nav.side .ws-section-nav::-webkit-scrollbar {
-    display: none;
-  }
-  .account-shell nav.side .ws-section-nav .side-link {
-    flex: none;
-    padding: 6px 10px;
-    white-space: nowrap;
-  }
-  /* Settings sub-links join the same row instead of an indented block. */
-  .account-shell nav.side .ws-settings-subnav {
-    display: contents;
-  }
-  .account-shell nav.side .ws-settings-subnav__link {
-    flex: none;
-    padding: 6px 10px;
-    white-space: nowrap;
-  }
-  /* Personal links (account / developers) share one compact row. */
-  .account-shell nav.side > .side-link {
-    flex: none;
-    padding: 6px 10px;
   }
   .account-shell aside.rail {
     position: static;

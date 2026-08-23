@@ -18,6 +18,12 @@
                               already bigger than it, so raising it widens the
                               content column above ~1080px without moving
                               where the rail stops fitting below it.
+     --bp-sidebar     767px   The kit sidebar's md breakpoint. At/below it the
+                              ShellSidebar island renders as a Sheet drawer, so
+                              the signed-in shells drop the nav track entirely
+                              (this file + account-shell.css). Mirrors
+                              `useIsMobile` in @uploads/ui — move both or
+                              neither.
      --bp-stack       680px   At/below this the nav + layout collapse to a
                               single full-width column (this file +
                               account-shell.css). The mid-width rail tier is
@@ -145,6 +151,34 @@ a.button:focus-visible {
   gap: 24px;
   align-items: start;
 }
+/* Sidebar island column (issue #798) — hosts the ShellSidebar React island in
+   both signed-in shells. Width comes from the island's own `--sidebar-width`
+   variables, so the track animates on collapse-to-icons; the kit's spacer div
+   (which exists only to reserve room for its viewport-fixed container) is
+   redundant once the container renders in flow, and is hidden here. */
+/* Grid track is set per-shell: #dashboard here (admin), `.account-shell` in
+   account-shell.css. Keeping it off a shared `.layout:has(…)` selector avoids
+   out-specificity-ing the account shell's own three-column rule. */
+#dashboard .layout {
+  grid-template-columns: auto minmax(0, 1fr);
+}
+nav.shell-side {
+  position: sticky;
+  top: 28px;
+  min-width: 0;
+}
+nav.shell-side [data-slot="sidebar-gap"] {
+  display: none;
+}
+@media (max-width: 767px) {
+  #dashboard .layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  nav.shell-side {
+    display: none;
+  }
+}
+
 nav.side {
   display: grid;
   gap: 4px;

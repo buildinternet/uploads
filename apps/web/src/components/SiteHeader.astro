@@ -28,9 +28,20 @@ interface Props {
   authOrigin?: string;
   /** Small pill next to the brand (e.g. "admin", "console"). */
   badge?: string;
+  /**
+   * Signed-in shells only: render the mobile drawer trigger for the
+   * `ShellSidebar` island (issue #798). Hidden at/above the kit's md
+   * breakpoint, where the sidebar is a real column.
+   */
+  sidebarToggle?: boolean;
 }
 
-const { authOrigin, badge } = Astro.props;
+const { authOrigin, badge, sidebarToggle = false } = Astro.props;
+
+// Rendered via set:html: a bare script body inside the JSX ternary below
+// breaks prettier's astro parser, and a `{`…`}` expression renders as a
+// literal (a no-op template-literal statement in the browser).
+const SIDEBAR_TOGGLE_BINDER = `(function(){var b=document.querySelector("[data-shell-sidebar-toggle]");if(!b||b.dataset.bound==="1")return;b.dataset.bound="1";b.addEventListener("click",function(){window.dispatchEvent(new CustomEvent("shell:sidebar-toggle"));});})();`;
 const REPO = "https://github.com/buildinternet/uploads";
 // Resolved server-side: no page CSP allows api.github.com in connect-src, so
 // the old client fetch was blocked everywhere. See lib/github-stars.
@@ -50,6 +61,20 @@ const inSection = (base: string) => path === base || path.startsWith(base + "/")
 <header class="site-header">
   <div class="site-header__inner">
     <div class="site-header__start">
+      {
+        sidebarToggle ? (
+          <button
+            type="button"
+            class="site-header__sidebar-toggle"
+            data-shell-sidebar-toggle
+            aria-label="Open navigation"
+          >
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M1.5 2.5h13v11h-13zM6 2.5v11" />
+            </svg>
+          </button>
+        ) : null
+      }
       <Brand />
       {badge ? <span class="site-header__badge">{badge}</span> : null}
     </div>
@@ -174,6 +199,38 @@ const inSection = (base: string) => path === base || path.startsWith(base + "/")
       transition: none;
     }
   }
+  /* Mobile drawer trigger for the ShellSidebar island. Only below the kit's
+     md breakpoint (768px), where the sidebar renders as a Sheet. */
+  .site-header__sidebar-toggle {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    color: var(--fg, #e8e8e3);
+    background: var(--panel, #121214);
+    border: 1px solid var(--line, #232327);
+    border-radius: var(--radius-sm, 6px);
+    cursor: pointer;
+  }
+  .site-header__sidebar-toggle:hover,
+  .site-header__sidebar-toggle:focus-visible {
+    border-color: var(--accent, #c27eff);
+    outline: none;
+  }
+  .site-header__sidebar-toggle svg {
+    width: 15px;
+    height: 15px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.25;
+  }
+  @media (max-width: 767px) {
+    .site-header__sidebar-toggle {
+      display: inline-flex;
+    }
+  }
   .site-header__badge {
     display: inline-block;
     font-size: var(--text-micro);
@@ -234,3 +291,11 @@ const inSection = (base: string) => path === base || path.startsWith(base + "/")
     }
   }
 </style>
+
+{
+  /* Only on the signed-in shells, and deliberately `is:inline` so public
+  pages keep shipping no extra bundled JS. data-astro-rerun: re-bind after
+  each ClientRouter body swap. The ShellSidebar island listens for this event
+  on `window` and calls toggleSidebar — no second React root in the header. */
+}
+{sidebarToggle ? <script is:inline data-astro-rerun set:html={SIDEBAR_TOGGLE_BINDER} /> : null}

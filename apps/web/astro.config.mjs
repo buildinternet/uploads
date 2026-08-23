@@ -33,5 +33,27 @@ export default defineConfig({
     server: {
       hmr: false,
     },
+    // With `hmr: false` Vite cannot push the full-reload it normally issues
+    // after a mid-load dep re-optimization, so any dependency the cold
+    // optimizer discovers lazily strands the already-evaluated graph on a
+    // second React copy — "Invalid hook call", every island dead until a
+    // manual reload. The lazy discoveries (per the dev log) are Astro's own
+    // ClientRouter virtual modules, first pulled when a signed-in page
+    // loads. Pre-include them so a cold cache has nothing left to discover;
+    // dedupe pins one React instance regardless.
+    resolve: {
+      dedupe: ["react", "react-dom"],
+    },
+    optimizeDeps: {
+      include: [
+        "react",
+        "react/jsx-runtime",
+        "react-dom/client",
+        "astro/virtual-modules/transitions-events.js",
+        "astro/virtual-modules/transitions-router.js",
+        "astro/virtual-modules/transitions-swap-functions.js",
+        "astro/virtual-modules/transitions-types.js",
+      ],
+    },
   },
 });
