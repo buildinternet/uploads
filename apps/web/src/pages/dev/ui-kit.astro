@@ -1,0 +1,38 @@
+---
+// Dev-only kitchen sink for the packages/ui (shadcn/Base UI) component kit.
+// Not linked anywhere in product nav; 404s outside development.
+// Forced to render per-request (not prerendered) so the production gate below
+// is evaluated against the live runtime env, not baked in at build time.
+export const prerender = false;
+
+import { env } from "cloudflare:workers";
+import BaseHead from "../../components/BaseHead.astro";
+import "@uploads/ui/theme.css";
+
+if (env.ENVIRONMENT === "production") {
+  return new Response(null, { status: 404 });
+}
+---
+
+<html lang="en">
+  <head>
+    <BaseHead />
+    <title>UI kit · dev</title>
+  </head>
+  <body class="bg-background text-foreground">
+    {
+      /* Manual createRoot mount — `client:*` islands are banned in this codebase
+        (they 404 fetching the Fast-Refresh bootstrap under `astro dev` with the
+        Cloudflare adapter; see files.astro and astro.config.mjs). */
+    }
+    <div id="ui-kit-root"></div>
+    <script>
+      import { createElement } from "react";
+      import { createRoot } from "react-dom/client";
+      import UiKit from "../../components/dev/UiKit";
+
+      const el = document.getElementById("ui-kit-root");
+      if (el) createRoot(el).render(createElement(UiKit));
+    </script>
+  </body>
+</html>
