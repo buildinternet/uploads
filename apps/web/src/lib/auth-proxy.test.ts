@@ -296,6 +296,44 @@ describe("proxyAuthRequest — no timeout on general traffic", () => {
   });
 });
 
+describe("proxyAuthRequest — bounded browser get-session", () => {
+  it("settles with a synthetic 503 when the binding hangs on GET get-session", async () => {
+    const hang = hangingBinding();
+    const request = new Request("https://uploads.sh/api/auth/get-session");
+
+    const response = await proxyAuthRequest({ AUTH: { fetch: hang } }, request, 20);
+
+    expect(response.status).toBe(503);
+    expect(await sessionResultFromResponse(response)).toEqual({
+      kind: "unavailable",
+      reason: "server",
+    });
+  });
+
+  it("propagates the caller's own abort as a throw, not a synthetic 503", async () => {
+    const hang = hangingBinding();
+    const controller = new AbortController();
+    const request = new Request("https://uploads.sh/api/auth/get-session", {
+      signal: controller.signal,
+    });
+
+    const pending = proxyAuthRequest({ AUTH: { fetch: hang } }, request, 5_000);
+    controller.abort(new DOMException("gone", "AbortError"));
+
+    await expect(pending).rejects.toThrow();
+  });
+
+  it("normal GET get-session responses pass through untouched", async () => {
+    const { AUTH } = fakeAuthBinding(Response.json({ user: { id: "1" } }));
+    const request = new Request("https://uploads.sh/api/auth/get-session");
+
+    const response = await proxyAuthRequest({ AUTH }, request, 20);
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ user: { id: "1" } });
+  });
+});
+
 describe("serverAuthFetch", () => {
   it("resolves a relative path against the request's own origin and forwards its cookie header", async () => {
     const { AUTH, fetchMock } = fakeAuthBinding(Response.json(null));
