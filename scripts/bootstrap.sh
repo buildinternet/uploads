@@ -141,7 +141,9 @@ if have openssl; then
     "local encryption for BYO workspace secrets in REGISTRY KV"
   # #754 renamed the auth signing secret BETTER_AUTH_SECRET_DEV → BETTER_AUTH_SECRET;
   # carry over an existing legacy value so local sessions stay valid.
-  AUTH_SECRET_VALUE="$(grep -E '^BETTER_AUTH_SECRET_DEV=.+$' "$AUTH_DEV_VARS" 2>/dev/null | head -n1 | cut -d= -f2-)"
+  # `|| true`: with pipefail, grep's no-match exit 1 would abort the whole
+  # script on any checkout without the legacy line — i.e. every fresh one.
+  AUTH_SECRET_VALUE="$(grep -E '^BETTER_AUTH_SECRET_DEV=.+$' "$AUTH_DEV_VARS" 2>/dev/null | head -n1 | cut -d= -f2- || true)"
   [ -n "$AUTH_SECRET_VALUE" ] || AUTH_SECRET_VALUE="$(openssl rand -base64 32)"
   ensure_secret "$AUTH_DEV_VARS" "BETTER_AUTH_SECRET" "$AUTH_SECRET_VALUE" \
     "local Better Auth signing secret (never used in production)"
