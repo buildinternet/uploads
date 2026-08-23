@@ -10,7 +10,11 @@ import { getWorkspacePeople } from "../../../../lib/api-client";
 import { serverApiFetchImpl } from "../../../../lib/api-proxy";
 import { resolveSignedInOrigins } from "../../../../lib/signed-in-page";
 import { isBrowseWorkspace } from "../../../../lib/workspace-browse-url";
-import { renderMembersHtml, renderMembersPlaceholderHtml } from "../../../../lib/workspace-ui";
+import {
+  renderMembersHtml,
+  renderMembersPlaceholderHtml,
+  renderPeopleTableHtml,
+} from "../../../../lib/workspace-ui";
 import { workspaceHomePath } from "../../../../lib/workspaces-nav";
 
 export const prerender = false;
@@ -36,10 +40,12 @@ if (cookie.trim()) {
     fetchImpl: serverApiFetchImpl(env, Astro.request),
   });
   if (people.kind === "ok" && people.members.length > 0) {
-    ssrMembersHtml = renderMembersHtml(people.members, {
-      canManage: false,
-      viewerRole: people.role,
-    });
+    ssrMembersHtml = renderPeopleTableHtml(
+      renderMembersHtml(people.members, {
+        canManage: false,
+        viewerRole: people.role,
+      }),
+    );
   }
 }
 ---
@@ -59,7 +65,6 @@ if (cookie.trim()) {
       </div>
       <div
         id="ws-members"
-        class="member-list"
         aria-busy={ssrMembersHtml ? "false" : "true"}
         set:html={ssrMembersHtml ?? renderMembersPlaceholderHtml()}
       />
@@ -113,6 +118,7 @@ if (cookie.trim()) {
       isWorkspaceAdminRole,
       renderInvitesHtml,
       renderMembersHtml,
+      renderPeopleTableHtml,
       type MemberRow,
     } from "../../../../lib/workspace-ui";
 
@@ -173,8 +179,10 @@ if (cookie.trim()) {
       ): void {
         const memberHtml = members.length ? renderMembersHtml(members, memberOpts) : "";
         const inviteHtml = memberOpts.canManage && invites.length ? renderInvitesHtml(invites) : "";
-        const html = memberHtml + inviteHtml;
-        membersEl.innerHTML = html || '<p class="muted">Just you so far.</p>';
+        const rows = memberHtml + inviteHtml;
+        membersEl.innerHTML = rows
+          ? renderPeopleTableHtml(rows)
+          : '<p class="muted">Just you so far.</p>';
         // Unlike the innerHTML assignments above, `aria-busy` here lives on
         // `membersEl` itself, not on markup the assignment replaces — the
         // placeholder puts it directly on the surviving container, so it has

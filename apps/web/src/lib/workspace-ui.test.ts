@@ -17,6 +17,7 @@ import {
   renderGalleriesViewToggleHtml,
   renderInvitesHtml,
   renderMembersHtml,
+  renderPeopleTableHtml,
   renderMembersPlaceholderHtml,
   renderUsageHtml,
   renderUsagePlaceholderHtml,
@@ -43,17 +44,18 @@ describe("formatBytes / formatMarketedBytes (decimal SI)", () => {
 });
 
 describe("renderMembersHtml", () => {
-  it("leads with the display name and shows email as the sub-line", () => {
+  it("renders name, email, and role as table cells", () => {
     const html = renderMembersHtml([{ email: "a@b.com", name: "Ada", role: "owner" }]);
+    expect(html).toContain("<tr");
     expect(html).toContain(">Ada<");
     expect(html).toContain(">a@b.com<");
     expect(html).toContain(">owner<");
   });
 
-  it("leads with the email when there is no display name, without a sub-line", () => {
+  it("renders an em-dash name cell when there is no display name", () => {
     const html = renderMembersHtml([{ email: "c@d.com", name: "", role: "member" }]);
-    expect(html).toMatch(/member-row__name[^"]*">c@d\.com</);
-    expect(html).not.toContain("member-row__email");
+    expect(html).toContain(">—<");
+    expect(html).toMatch(/member-row__email[^>]*>c@d\.com</);
   });
 
   it("escapes interpolated fields and renders [] as empty", () => {
@@ -113,6 +115,21 @@ describe("renderInvitesHtml", () => {
   });
   it("returns empty string for no invites", () => {
     expect(renderInvitesHtml([])).toBe("");
+  });
+});
+
+describe("renderPeopleTableHtml", () => {
+  it("wraps member and invite rows in one ws-table with a Name/Email/Role head", () => {
+    const rows =
+      renderMembersHtml([{ email: "a@b.com", name: "Ada", role: "owner" }]) +
+      renderInvitesHtml([{ id: "i1", email: "p@x.com", status: "pending" }]);
+    const html = renderPeopleTableHtml(rows);
+    expect(html).toContain('class="ws-table"');
+    expect(html).toContain('aria-label="People"');
+    expect(html).toContain(">Name</th>");
+    expect(html).toContain(">Email</th>");
+    expect(html).toContain(">Role</th>");
+    expect(html.match(/<tr/g)).toHaveLength(3); // head + member + invite
   });
 });
 
@@ -461,13 +478,13 @@ describe("skeleton placeholders", () => {
     expect(renderGalleriesPlaceholderHtml().match(/<tr>/g)).toHaveLength(4);
   });
 
-  it("mirrors the real member row's two-column structure", () => {
+  it("mirrors the real people table's chrome and cell structure", () => {
     const html = renderMembersPlaceholderHtml(2);
-    expect(html.match(/class="member-row /g)).toHaveLength(2);
-    // Both halves present, or the flex row collapses and the swap rearranges.
-    expect(html).toContain("member-row__who");
-    expect(html).toContain("member-row__name");
-    expect(html).toContain("member-row__role");
+    expect(html.match(/<tr/g)).toHaveLength(3); // 1 head + 2 body
+    expect(html).toContain("ws-table");
+    expect(html).toContain(">Name</th>");
+    expect(html).toContain(">Email</th>");
+    expect(html).toContain(">Role</th>");
   });
 });
 
