@@ -1,4 +1,13 @@
-/* OAuth create form + detail extras. */
+/*
+ * OAuth create/edit form extras (admin/oauth.astro, admin/oauth/[clientId].astro).
+ * Only `.oauth-scopes`/`.oauth-scope-check` remain: the fieldset/legend look
+ * has no Tailwind-utility equivalent on a bare <fieldset>/<legend>, and the
+ * scope checkboxes need `!important` to win over the shared
+ * `.admin-stack-form label` uppercase/vertical-stack rule that would
+ * otherwise apply (that rule itself now lives inline as a utility string on
+ * every other label in these forms — see admin-ui.ts — so this is the one
+ * spot still fighting a same-name legacy selector).
+ */
 
 .oauth-scopes {
   border: 1px solid var(--line);
@@ -23,50 +32,4 @@
   letter-spacing: normal !important;
   color: var(--body) !important;
   font-size: var(--text-micro) !important;
-}
-.oauth-copy-row {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  flex-wrap: wrap;
-  margin-top: 8px;
-}
-.oauth-copy-row input {
-  flex: 1;
-  min-width: 200px;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  color: var(--fg);
-  padding: 7px 9px;
-  font: var(--text-micro) var(--mono);
-}
-.oauth-uri-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  gap: 4px;
-  font: var(--text-micro) var(--mono);
-}
-.oauth-detail-header {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-.oauth-detail-header h2 {
-  margin: 0;
-  font-size: var(--text-body);
-  font-weight: var(--weight-semibold);
-}
-.oauth-detail-badges {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-.oauth-form-actions {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
 }

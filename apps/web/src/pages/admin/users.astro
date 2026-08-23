@@ -4,20 +4,25 @@
  * List: Better Auth admin list-users. Ban/unban: /admin-ui/users/:id/{ban,unban}.
  */
 import AdminLayout from "../../layouts/AdminLayout.astro";
+import { ADMIN_TH, ADMIN_TH_ACTIONS } from "../../lib/admin-ui";
 
 export const prerender = false;
 ---
 
 <AdminLayout section="users">
-  <section class="admin-page">
-    <header class="admin-page-header">
-      <h2>Users</h2>
-      <p>
+  <section class="admin-page grid gap-4 min-w-0">
+    <header class="admin-page-header grid gap-1.5 max-w-2xl">
+      <h2 class="m-0 text-(length:--text-body) font-semibold text-foreground">Users</h2>
+      <p class="m-0 text-body text-(length:--text-meta) leading-[1.55] text-pretty">
         Deactivate an account for abuse - ends their sessions and revokes workspace API tokens they
         minted. Reactivate restores sign-in only (tokens stay revoked).
       </p>
     </header>
-    <form id="users-search" class="admin-toolbar" role="search">
+    <form
+      id="users-search"
+      class="admin-toolbar flex flex-wrap items-center gap-y-2 gap-x-3 max-w-[480px]"
+      role="search"
+    >
       <label class="sr-only" for="users-search-input">Search by email</label>
       <input
         type="search"
@@ -26,20 +31,38 @@ export const prerender = false;
         placeholder="Search email…"
         autocomplete="off"
         maxlength="200"
+        class="flex-1 min-w-[200px] bg-panel border border-border rounded-sm text-foreground px-[9px] py-[7px] text-(length:--text-micro) focus-visible:outline-none focus-visible:border-primary"
       />
-      <button type="submit">Search</button>
+      <button
+        type="submit"
+        class="text-(length:--text-micro) text-primary bg-transparent border border-border rounded-sm px-3 py-[7px] cursor-pointer whitespace-nowrap w-fit hover:border-primary focus-visible:border-primary focus-visible:outline-none"
+      >
+        Search
+      </button>
     </form>
-    <div id="users-status" class="admin-status">Loading…</div>
-    <div id="users-action-status" class="admin-status" role="status" hidden></div>
-    <div class="admin-table-wrap" id="users-table-wrap" hidden>
-      <table class="admin-table" id="users-list" aria-label="Users">
+    <div id="users-status" class="admin-status text-(length:--text-meta) text-muted-foreground">
+      Loading…
+    </div>
+    <div
+      id="users-action-status"
+      class="admin-status text-(length:--text-meta) text-muted-foreground"
+      role="status"
+      hidden
+    >
+    </div>
+    <div class="admin-table-wrap w-full overflow-x-auto" id="users-table-wrap" hidden>
+      <table
+        class="admin-table w-full border-collapse text-(length:--text-meta) leading-[1.4]"
+        id="users-list"
+        aria-label="Users"
+      >
         <thead>
           <tr>
-            <th class="keep" scope="col" style="width:18px"></th>
-            <th class="keep" scope="col">Email</th>
-            <th scope="col">Name</th>
-            <th scope="col">Joined</th>
-            <th class="actions" scope="col">Status</th>
+            <th class={`keep ${ADMIN_TH}`} scope="col" style="width:18px"></th>
+            <th class={`keep ${ADMIN_TH}`} scope="col">Email</th>
+            <th class={ADMIN_TH} scope="col">Name</th>
+            <th class={ADMIN_TH} scope="col">Joined</th>
+            <th class={`actions ${ADMIN_TH_ACTIONS}`} scope="col">Status</th>
           </tr>
         </thead>
       </table>
@@ -49,7 +72,17 @@ export const prerender = false;
   <script>
     import { onAstroPageLoad, onSession, requireElement } from "../../lib/account-shell";
     import { banUser, listAdminUsers, unbanUser, type AdminUser } from "../../lib/auth-client";
-    import { clearExpandGroups, escapeHtml, wireExpandGroup } from "../../lib/admin-ui";
+    import {
+      ADMIN_BTN,
+      ADMIN_BTN_DANGER,
+      ADMIN_CELL_MUTED,
+      ADMIN_CELL_PRIMARY,
+      ADMIN_EXPAND_TD,
+      ADMIN_TD,
+      clearExpandGroups,
+      escapeHtml,
+      wireExpandGroup,
+    } from "../../lib/admin-ui";
 
     onAstroPageLoad(() => {
       if (!document.getElementById("users-list")) return;
@@ -101,28 +134,34 @@ export const prerender = false;
 
       function actionsHtml(user: AdminUser): string {
         if (sessionUserId && user.id === sessionUserId) {
-          return `<p class="users-self-note">That's you - ban is unavailable.</p>`;
+          return `<p class="users-self-note m-0 text-(length:--text-micro) text-muted-foreground">That's you - ban is unavailable.</p>`;
         }
         if (user.banned) {
-          return `<button type="button" class="admin-btn users-unban-btn" data-user-id="${escapeHtml(user.id)}">
+          return `<button type="button" class="admin-btn users-unban-btn ${ADMIN_BTN}" data-user-id="${escapeHtml(user.id)}">
             Reactivate account
           </button>`;
         }
-        return `<form class="users-ban-form" data-user-id="${escapeHtml(user.id)}">
-          <label>
+        return `<form class="users-ban-form grid gap-2 max-w-[360px]" data-user-id="${escapeHtml(user.id)}">
+          <label class="grid gap-1 text-muted-foreground text-(length:--text-micro) uppercase tracking-[0.06em]">
             Reason (optional)
-            <input type="text" class="users-ban-reason" maxlength="500"
+            <input type="text" class="users-ban-reason bg-background border border-border rounded-sm text-foreground normal-case tracking-normal px-[9px] py-[7px] font-sans text-(length:--text-micro) focus-visible:outline-none focus-visible:border-primary" maxlength="500"
               placeholder="Abuse, spam, …" autocomplete="off" />
           </label>
-          <button type="submit" class="admin-btn admin-btn--danger users-ban-btn">Deactivate account</button>
+          <button type="submit" class="admin-btn admin-btn--danger users-ban-btn ${ADMIN_BTN} ${ADMIN_BTN_DANGER}">Deactivate account</button>
         </form>`;
       }
 
       function statusPills(user: AdminUser): string {
         return [
-          isAdmin(user.role) ? `<span class="pill is-admin">Admin</span>` : "",
-          user.banned ? `<span class="pill is-banned">Deactivated</span>` : "",
-          !user.emailVerified ? `<span class="pill is-unverified">Unverified</span>` : "",
+          isAdmin(user.role)
+            ? `<span class="pill is-admin text-primary border-primary">Admin</span>`
+            : "",
+          user.banned
+            ? `<span class="pill is-banned text-destructive border-destructive">Deactivated</span>`
+            : "",
+          !user.emailVerified
+            ? `<span class="pill is-unverified text-muted-foreground">Unverified</span>`
+            : "",
         ]
           .filter(Boolean)
           .join(" ");
@@ -140,25 +179,26 @@ export const prerender = false;
           user.cliOnboardedAt != null && String(user.cliOnboardedAt)
             ? formatDate(user.cliOnboardedAt)
             : "never";
+        const emailCls = user.banned ? "text-[color-mix(in_srgb,var(--red)_70%,var(--fg))]" : "";
 
         group.innerHTML = `
-          <tr class="admin-row" tabindex="0" aria-expanded="false">
-            <td class="admin-expand" aria-hidden="true">›</td>
-            <td class="keep"><span class="email primary">${escapeHtml(user.email)}</span></td>
-            <td class="optional">${displayName || `<span class="muted">-</span>`}</td>
-            <td class="optional muted">${escapeHtml(formatDate(user.createdAt))}</td>
-            <td class="actions">${pills || `<span class="muted">-</span>`}</td>
+          <tr class="admin-row group cursor-pointer" tabindex="0" aria-expanded="false">
+            <td class="admin-expand ${ADMIN_EXPAND_TD} group-hover:bg-panel/55 group-focus-within:bg-panel/55" aria-hidden="true">›</td>
+            <td class="keep ${ADMIN_TD} group-hover:bg-panel/55 group-focus-within:bg-panel/55"><span class="email primary ${ADMIN_CELL_PRIMARY} font-mono font-medium ${emailCls}">${escapeHtml(user.email)}</span></td>
+            <td class="optional ${ADMIN_TD} group-hover:bg-panel/55 group-focus-within:bg-panel/55">${displayName || `<span class="muted">-</span>`}</td>
+            <td class="optional ${ADMIN_TD} ${ADMIN_CELL_MUTED} group-hover:bg-panel/55 group-focus-within:bg-panel/55">${escapeHtml(formatDate(user.createdAt))}</td>
+            <td class="actions text-right w-px whitespace-nowrap pl-4 ${ADMIN_TD} group-hover:bg-panel/55 group-focus-within:bg-panel/55">${pills || `<span class="muted">-</span>`}</td>
           </tr>
           <tr class="admin-detail" hidden>
-            <td colspan="5">
-              <div class="admin-detail-inner">
-                <div class="admin-detail-kv">
-                  <div><span class="label">id</span> <code>${escapeHtml(user.id)}</code></div>
-                  <div><span class="label">role</span> ${escapeHtml(user.role?.trim() || "user")}</div>
-                  <div><span class="label">CLI onboarded</span> ${escapeHtml(cli)}</div>
+            <td colspan="5" class="p-0 pb-[18px] border-b border-border bg-panel/35">
+              <div class="admin-detail-inner grid gap-3.5 pt-1 pb-0.5 max-w-[560px]">
+                <div class="admin-detail-kv grid gap-1.5 text-(length:--text-micro) text-body">
+                  <div class="flex flex-wrap gap-x-2.5 gap-y-1.5"><span class="label text-muted-foreground min-w-[7rem]">id</span> <code class="font-mono text-(length:--text-micro) text-foreground break-all">${escapeHtml(user.id)}</code></div>
+                  <div class="flex flex-wrap gap-x-2.5 gap-y-1.5"><span class="label text-muted-foreground min-w-[7rem]">role</span> ${escapeHtml(user.role?.trim() || "user")}</div>
+                  <div class="flex flex-wrap gap-x-2.5 gap-y-1.5"><span class="label text-muted-foreground min-w-[7rem]">CLI onboarded</span> ${escapeHtml(cli)}</div>
                   ${
                     user.banned && user.banReason
-                      ? `<div><span class="label">reason</span> ${escapeHtml(user.banReason)}</div>`
+                      ? `<div class="flex flex-wrap gap-x-2.5 gap-y-1.5"><span class="label text-muted-foreground min-w-[7rem]">reason</span> ${escapeHtml(user.banReason)}</div>`
                       : ""
                   }
                 </div>

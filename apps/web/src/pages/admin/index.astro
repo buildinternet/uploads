@@ -1,29 +1,39 @@
 ---
 import AdminLayout from "../../layouts/AdminLayout.astro";
 import "../../styles/admin-workspaces.css";
+import { ADMIN_TH, ADMIN_TH_NUM } from "../../lib/admin-ui";
 
 export const prerender = false;
 ---
 
 <AdminLayout section="workspaces">
-  <section class="admin-page">
-    <header class="admin-page-header">
-      <h2>Workspaces</h2>
-      <p>
+  <section class="admin-page grid gap-4 min-w-0">
+    <header class="admin-page-header grid gap-1.5 max-w-2xl">
+      <h2 class="m-0 text-(length:--text-body) font-semibold text-foreground">Workspaces</h2>
+      <p class="m-0 text-body text-(length:--text-meta) leading-[1.55] text-pretty">
         Every registered workspace, with its members and pending invites. Expand a row to load
         people, plan, limits, and invites.
       </p>
     </header>
-    <div id="workspaces-status" class="admin-status">Loading…</div>
-    <div class="admin-table-wrap" id="workspaces-table-wrap" hidden>
-      <table class="admin-table" id="workspaces-list" aria-label="Workspaces">
+    <div
+      id="workspaces-status"
+      class="admin-status text-(length:--text-meta) text-muted-foreground"
+    >
+      Loading…
+    </div>
+    <div class="admin-table-wrap w-full overflow-x-auto" id="workspaces-table-wrap" hidden>
+      <table
+        class="admin-table w-full border-collapse text-(length:--text-meta) leading-[1.4]"
+        id="workspaces-list"
+        aria-label="Workspaces"
+      >
         <thead>
           <tr>
-            <th class="keep" scope="col" style="width:18px"></th>
-            <th class="keep" scope="col">Workspace</th>
-            <th scope="col">Organization</th>
-            <th class="num" scope="col">Members</th>
-            <th class="num" scope="col">Pending</th>
+            <th class={`keep ${ADMIN_TH}`} scope="col" style="width:18px"></th>
+            <th class={`keep ${ADMIN_TH}`} scope="col">Workspace</th>
+            <th class={ADMIN_TH} scope="col">Organization</th>
+            <th class={`num ${ADMIN_TH_NUM}`} scope="col">Members</th>
+            <th class={`num ${ADMIN_TH_NUM}`} scope="col">Pending</th>
           </tr>
         </thead>
       </table>
@@ -33,7 +43,22 @@ export const prerender = false;
   <script>
     import { onAstroPageLoad, onSession, requireElement } from "../../lib/account-shell";
     import { formatDate } from "../../lib/subscription-copy";
-    import { clearExpandGroups, escapeHtml, loadOnce, wireExpandGroup } from "../../lib/admin-ui";
+    import {
+      ADMIN_BTN,
+      ADMIN_CELL_MONO,
+      ADMIN_CELL_MUTED,
+      ADMIN_CELL_PRIMARY,
+      ADMIN_DETAIL_HEADING,
+      ADMIN_EXPAND_TD,
+      ADMIN_MINI_LIST,
+      ADMIN_MINI_LIST_ITEM,
+      ADMIN_TD,
+      ADMIN_TD_NUM,
+      clearExpandGroups,
+      escapeHtml,
+      loadOnce,
+      wireExpandGroup,
+    } from "../../lib/admin-ui";
 
     onAstroPageLoad(() => {
       if (!document.getElementById("workspaces-list")) return;
@@ -141,15 +166,15 @@ export const prerender = false;
           : "";
 
         host.innerHTML = `
-        <h4 class="plan-heading">Plan</h4>
+        <h4 class="plan-heading ${ADMIN_DETAIL_HEADING}">Plan</h4>
         <p class="muted plan-availability">${data.available ? "Available" : "Not available for self-serve upgrade"}</p>
         <p class="muted plan-source">Source: ${escapeHtml(PLAN_SOURCE_LABEL[data.planSource])}</p>
         ${subscriptionLine}
         ${appliedNote}
-        <form class="plan-form">
-          <select class="plan-select ul-select ul-select--sm" aria-label="Plan">${options}</select>
-          <button type="submit">Save plan</button>
-          <div class="plan-status" role="status" aria-live="polite" hidden></div>
+        <form class="plan-form flex flex-wrap gap-2 items-center">
+          <select class="plan-select ul-select ul-select--sm" style="width:auto" aria-label="Plan">${options}</select>
+          <button type="submit" class="${ADMIN_BTN}">Save plan</button>
+          <div class="plan-status w-full text-(length:--text-micro)" role="status" aria-live="polite" hidden></div>
         </form>`;
 
         const form = host.querySelector<HTMLFormElement>(".plan-form");
@@ -240,19 +265,19 @@ export const prerender = false;
                 `<option value="${u.label}"${u.label === split.unit ? " selected" : ""}>${u.label}</option>`,
             ).join("");
             return `
-            <div class="limit-row" data-field="${f.key}" data-byte="1">
-              <label>${f.label}</label>
-              <input type="number" min="1" step="1" class="limit-value" value="${split.value}" ${unlimited ? "disabled" : ""} />
-              <select class="limit-unit ul-select ul-select--sm" ${unlimited ? "disabled" : ""}>${options}</select>
-              <label class="limit-unlimited"><input type="checkbox" class="limit-unlim" ${unlimited ? "checked" : ""} /> Unlimited</label>
+            <div class="limit-row grid grid-cols-[130px_1fr_70px_auto] max-[560px]:grid-cols-1 items-center gap-2 max-[560px]:gap-1" data-field="${f.key}" data-byte="1">
+              <label class="text-(length:--text-meta) text-body">${f.label}</label>
+              <input type="number" min="1" step="1" class="limit-value bg-background border border-border rounded-sm text-foreground px-1.5 py-1 font-mono text-(length:--text-micro) disabled:opacity-50" value="${split.value}" ${unlimited ? "disabled" : ""} />
+              <select class="limit-unit ul-select ul-select--sm" style="width:auto" ${unlimited ? "disabled" : ""}>${options}</select>
+              <label class="limit-unlimited inline-flex items-center gap-1 text-(length:--text-micro) whitespace-nowrap text-muted-foreground"><input type="checkbox" class="limit-unlim" ${unlimited ? "checked" : ""} /> Unlimited</label>
             </div>`;
           }
           return (
             `
-          <div class="limit-row" data-field="${f.key}">
-            <label>${f.label}</label>
-            <input type="number" min="1" step="1" class="limit-value" value="${raw === null ? "" : raw}" ${unlimited ? "disabled" : ""} />
-            <label class="limit-unlimited"><input type="checkbox" class="limit-unlim" ${unlimited ? "checked" : ""} /> Unlimited</label>` +
+          <div class="limit-row grid grid-cols-[130px_1fr_auto_auto] max-[560px]:grid-cols-1 items-center gap-2 max-[560px]:gap-1" data-field="${f.key}">
+            <label class="text-(length:--text-meta) text-body">${f.label}</label>
+            <input type="number" min="1" step="1" class="limit-value bg-background border border-border rounded-sm text-foreground px-1.5 py-1 font-mono text-(length:--text-micro) disabled:opacity-50" value="${raw === null ? "" : raw}" ${unlimited ? "disabled" : ""} />
+            <label class="limit-unlimited inline-flex items-center gap-1 text-(length:--text-micro) whitespace-nowrap text-muted-foreground"><input type="checkbox" class="limit-unlim" ${unlimited ? "checked" : ""} /> Unlimited</label>` +
             `</div>`
           );
         }).join("");
@@ -265,12 +290,12 @@ export const prerender = false;
               : "";
 
         host.innerHTML = `
-        <h4 class="limits-heading">Limits</h4>
+        <h4 class="limits-heading ${ADMIN_DETAIL_HEADING}">Limits</h4>
         ${usageLine}
-        <form class="limits-form">
+        <form class="limits-form flex flex-col gap-2">
           ${rows}
-          <button type="submit">Save limits</button>
-          <div class="limit-status" role="status" aria-live="polite" hidden></div>
+          <button type="submit" class="${ADMIN_BTN} self-start mt-1">Save limits</button>
+          <div class="limit-status w-full text-(length:--text-micro)" role="status" aria-live="polite" hidden></div>
         </form>`;
 
         // Unlimited checkbox toggles its row's inputs.
@@ -417,17 +442,17 @@ export const prerender = false;
       ): void {
         const provenance =
           data.mode === "byo"
-            ? `<ul class="admin-mini-list storage-provenance">
-              ${data.bucket ? `<li><span>Bucket</span><span class="mono">${escapeHtml(data.bucket)}</span></li>` : ""}
-              ${data.accountIdMasked ? `<li><span>Account</span><span class="mono">${escapeHtml(data.accountIdMasked)}</span></li>` : ""}
-              ${data.accessKeyIdLast4 ? `<li><span>Access key</span><span class="mono">${escapeHtml(data.accessKeyIdLast4)}</span></li>` : ""}
-              ${data.publicBaseUrl ? `<li><span>Public URL</span><span class="mono">${escapeHtml(data.publicBaseUrl)}</span></li>` : ""}
-              <li><span>Configured</span><span>${
+            ? `<ul class="admin-mini-list storage-provenance ${ADMIN_MINI_LIST}">
+              ${data.bucket ? `<li class="${ADMIN_MINI_LIST_ITEM}"><span>Bucket</span><span class="mono font-mono font-medium">${escapeHtml(data.bucket)}</span></li>` : ""}
+              ${data.accountIdMasked ? `<li class="${ADMIN_MINI_LIST_ITEM}"><span>Account</span><span class="mono font-mono font-medium">${escapeHtml(data.accountIdMasked)}</span></li>` : ""}
+              ${data.accessKeyIdLast4 ? `<li class="${ADMIN_MINI_LIST_ITEM}"><span>Access key</span><span class="mono font-mono font-medium">${escapeHtml(data.accessKeyIdLast4)}</span></li>` : ""}
+              ${data.publicBaseUrl ? `<li class="${ADMIN_MINI_LIST_ITEM}"><span>Public URL</span><span class="mono font-mono font-medium">${escapeHtml(data.publicBaseUrl)}</span></li>` : ""}
+              <li class="${ADMIN_MINI_LIST_ITEM}"><span>Configured</span><span>${
                 data.configuredAt
                   ? `${escapeHtml(formatDate(data.configuredAt) ?? data.configuredAt)}${data.configuredBy ? ` by ${escapeHtml(data.configuredBy)}` : ""}`
                   : `<span class="muted">Not configured</span>`
               }</span></li>
-              <li><span>Verified</span><span>${data.verifiedAt ? escapeHtml(formatDate(data.verifiedAt) ?? data.verifiedAt) : `<span class="muted">Not verified</span>`}</span></li>
+              <li class="${ADMIN_MINI_LIST_ITEM}"><span>Verified</span><span>${data.verifiedAt ? escapeHtml(formatDate(data.verifiedAt) ?? data.verifiedAt) : `<span class="muted">Not verified</span>`}</span></li>
             </ul>`
             : `<p class="muted storage-shared-note">Using the shared platform bucket.</p>`;
 
@@ -438,12 +463,12 @@ export const prerender = false;
         const lanes = data.lanes ?? [];
         const laneList =
           lanes.length > 0
-            ? `<ul class="admin-mini-list storage-lanes">
+            ? `<ul class="admin-mini-list storage-lanes ${ADMIN_MINI_LIST}">
               ${lanes
                 .map(
-                  (lane) => `<li>
-                    <span>${lane.role === "fallback" ? "Previous" : "Saved"}</span>
-                    <span class="mono">${escapeHtml(lane.bucket)}${lane.lastActiveAt ? ` — until ${escapeHtml(formatDate(lane.lastActiveAt) ?? lane.lastActiveAt)}` : ""}</span>
+                  (lane) => `<li class="${ADMIN_MINI_LIST_ITEM}">
+                    <span class="text-muted-foreground">${lane.role === "fallback" ? "Previous" : "Saved"}</span>
+                    <span class="mono font-mono font-medium">${escapeHtml(lane.bucket)}${lane.lastActiveAt ? ` — until ${escapeHtml(formatDate(lane.lastActiveAt) ?? lane.lastActiveAt)}` : ""}</span>
                   </li>`,
                 )
                 .join("")}
@@ -451,14 +476,14 @@ export const prerender = false;
             : "";
 
         host.innerHTML = `
-        <h4 class="storage-heading">Storage</h4>
+        <h4 class="storage-heading ${ADMIN_DETAIL_HEADING}">Storage</h4>
         <p class="muted storage-mode">Mode: ${data.mode === "byo" ? "Bring your own bucket" : "Shared"}</p>
         ${provenance}
         ${laneList}
-        <form class="storage-form">
-          <label class="storage-enabled"><input type="checkbox" class="storage-enabled-check" ${data.byoBucketEnabled ? "checked" : ""} /> Allow bring-your-own bucket</label>
-          <button type="submit">Save</button>
-          <div class="storage-status" role="status" aria-live="polite" hidden></div>
+        <form class="storage-form flex flex-wrap gap-2 items-center">
+          <label class="storage-enabled inline-flex items-center gap-1.5 text-(length:--text-meta) text-body"><input type="checkbox" class="storage-enabled-check" ${data.byoBucketEnabled ? "checked" : ""} /> Allow bring-your-own bucket</label>
+          <button type="submit" class="${ADMIN_BTN}">Save</button>
+          <div class="storage-status w-full text-(length:--text-micro)" role="status" aria-live="polite" hidden></div>
         </form>`;
 
         const form = host.querySelector<HTMLFormElement>(".storage-form");
@@ -525,12 +550,12 @@ export const prerender = false;
 
       function renderGithubLinks(host: HTMLElement, links: GithubLink[]): void {
         host.innerHTML = links.length
-          ? `<h4 class="github-links-heading">GitHub repos claimed</h4>
-           <ul class="github-links-list">
+          ? `<h4 class="github-links-heading ${ADMIN_DETAIL_HEADING}">GitHub repos claimed</h4>
+           <ul class="github-links-list list-none m-0 p-0 grid gap-1">
              ${links
                .map(
                  (l) =>
-                   `<li><span class="repo">${escapeHtml(l.repo)}</span><span class="muted">${escapeHtml(l.source)}</span></li>`,
+                   `<li class="flex justify-between gap-2 text-(length:--text-meta)"><span class="repo font-mono text-(length:--text-micro) text-foreground">${escapeHtml(l.repo)}</span><span class="muted">${escapeHtml(l.source)}</span></li>`,
                )
                .join("")}
            </ul>`
@@ -541,19 +566,19 @@ export const prerender = false;
         const group = document.createElement("tbody");
         group.className = "admin-row-group workspace";
         const org = ws.organization ? ws.organization.name : "no organization yet";
-        const orgClass = ws.organization ? "" : " muted";
+        const orgClass = ws.organization ? "" : ` ${ADMIN_CELL_MUTED}`;
 
         group.innerHTML = `
-      <tr class="admin-row" tabindex="0" aria-expanded="false">
-        <td class="admin-expand" aria-hidden="true">›</td>
-        <td class="keep"><span class="primary mono">${escapeHtml(ws.workspace)}</span></td>
-        <td class="optional${orgClass}">${escapeHtml(org)}</td>
-        <td class="num optional">${ws.memberCount}</td>
-        <td class="num optional">${ws.pendingInviteCount}</td>
+      <tr class="admin-row group cursor-pointer" tabindex="0" aria-expanded="false">
+        <td class="admin-expand ${ADMIN_EXPAND_TD} group-hover:bg-panel/55 group-focus-within:bg-panel/55" aria-hidden="true">›</td>
+        <td class="keep ${ADMIN_TD} group-hover:bg-panel/55 group-focus-within:bg-panel/55"><span class="primary mono ${ADMIN_CELL_PRIMARY} ${ADMIN_CELL_MONO}">${escapeHtml(ws.workspace)}</span></td>
+        <td class="optional${orgClass} ${ADMIN_TD} group-hover:bg-panel/55 group-focus-within:bg-panel/55">${escapeHtml(org)}</td>
+        <td class="num optional ${ADMIN_TD_NUM} group-hover:bg-panel/55 group-focus-within:bg-panel/55">${ws.memberCount}</td>
+        <td class="num optional ${ADMIN_TD_NUM} group-hover:bg-panel/55 group-focus-within:bg-panel/55">${ws.pendingInviteCount}</td>
       </tr>
       <tr class="admin-detail" hidden>
-        <td colspan="5">
-          <div class="admin-detail-inner">
+        <td colspan="5" class="p-0 pb-[18px] border-b border-border bg-panel/35">
+          <div class="admin-detail-inner grid gap-3.5 pt-1 pb-0.5 max-w-[560px]">
             <div class="members admin-detail-block" data-state="unloaded">Members load when expanded.</div>
             <div class="invites admin-detail-block"></div>
             <div class="plan admin-detail-block" data-state="unloaded"></div>
@@ -562,25 +587,25 @@ export const prerender = false;
             <div class="github-links admin-detail-block" data-state="unloaded"></div>
             ${
               ws.organization
-                ? `<form class="invite-form admin-inline-form admin-detail-block" data-workspace="${escapeHtml(ws.workspace)}">
-                    <label>Email<input type="email" required class="invite-email" placeholder="you@example.com" /></label>
-                    <label>Role
-                      <select class="invite-role ul-select ul-select--sm">
+                ? `<form class="invite-form admin-inline-form admin-detail-block flex flex-wrap gap-2 items-end max-w-[480px]" data-workspace="${escapeHtml(ws.workspace)}">
+                    <label class="grid gap-1 text-muted-foreground text-(length:--text-micro) uppercase tracking-[0.06em]">Email<input type="email" required class="invite-email bg-background border border-border rounded-sm text-foreground normal-case tracking-normal px-[9px] py-[7px] font-sans text-(length:--text-micro) flex-1 min-w-[200px]" placeholder="you@example.com" /></label>
+                    <label class="grid gap-1 text-muted-foreground text-(length:--text-micro) uppercase tracking-[0.06em]">Role
+                      <select class="invite-role ul-select ul-select--sm" style="width:auto">
                         <option value="member">member</option>
                         <option value="admin">admin</option>
                       </select>
                     </label>
-                    <button type="submit">Invite</button>
+                    <button type="submit" class="${ADMIN_BTN}">Invite</button>
                   </form>
-                  <div class="invite-status" hidden></div>`
+                  <div class="invite-status text-(length:--text-micro)" hidden></div>`
                 : `<p class="muted admin-detail-block">No organization provisioned for this workspace yet - run the org backfill.</p>`
             }
-            <div class="invite-link-row admin-detail-block">
-              <button type="button" class="invite-link-generate">Generate invite link</button>
-              <input type="text" class="invite-link-url" readonly hidden aria-label="Invite link" />
-              <button type="button" class="invite-link-copy" hidden>Copy</button>
+            <div class="invite-link-row admin-detail-block flex gap-2 items-center flex-wrap">
+              <button type="button" class="invite-link-generate ${ADMIN_BTN}">Generate invite link</button>
+              <input type="text" class="invite-link-url flex-1 min-w-[200px] bg-background border border-border rounded-sm text-foreground px-[9px] py-[7px] font-mono text-(length:--text-micro)" readonly hidden aria-label="Invite link" />
+              <button type="button" class="invite-link-copy ${ADMIN_BTN}" hidden>Copy</button>
             </div>
-            <div class="invite-status invite-link-status" role="status" aria-live="polite" hidden></div>
+            <div class="invite-status invite-link-status text-(length:--text-micro)" role="status" aria-live="polite" hidden></div>
           </div>
         </td>
       </tr>`;
@@ -610,12 +635,12 @@ export const prerender = false;
                 ]);
                 if (membersEl) {
                   membersEl.innerHTML = members.length
-                    ? `<h4>Members</h4><ul class="admin-mini-list">${members.map((m) => `<li><span>${escapeHtml(m.email)}</span><span class="role">${escapeHtml(m.role)}</span></li>`).join("")}</ul>`
+                    ? `<h4 class="${ADMIN_DETAIL_HEADING}">Members</h4><ul class="admin-mini-list ${ADMIN_MINI_LIST}">${members.map((m) => `<li class="${ADMIN_MINI_LIST_ITEM}"><span>${escapeHtml(m.email)}</span><span class="role text-muted-foreground">${escapeHtml(m.role)}</span></li>`).join("")}</ul>`
                     : `<p class="muted">No members yet.</p>`;
                 }
                 if (invitesEl) {
                   invitesEl.innerHTML = invites.length
-                    ? `<h4>Pending invites</h4><ul class="admin-mini-list">${invites.map((i) => `<li><span>${escapeHtml(i.email)}</span><span class="role">pending</span></li>`).join("")}</ul>`
+                    ? `<h4 class="${ADMIN_DETAIL_HEADING}">Pending invites</h4><ul class="admin-mini-list ${ADMIN_MINI_LIST}">${invites.map((i) => `<li class="${ADMIN_MINI_LIST_ITEM}"><span>${escapeHtml(i.email)}</span><span class="role text-muted-foreground">pending</span></li>`).join("")}</ul>`
                     : "";
                 }
               } catch {

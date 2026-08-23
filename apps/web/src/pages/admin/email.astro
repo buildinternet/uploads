@@ -4,6 +4,15 @@
  * Type list mirrors EMAIL_PREVIEW_TYPES in apps/api/src/admin-email-preview.ts.
  */
 import AdminLayout from "../../layouts/AdminLayout.astro";
+import {
+  ADMIN_BTN,
+  ADMIN_CELL_MUTED,
+  ADMIN_CELL_PRIMARY,
+  ADMIN_TD,
+  ADMIN_TD_ACTIONS,
+  ADMIN_TH,
+  ADMIN_TH_ACTIONS,
+} from "../../lib/admin-ui";
 
 export const prerender = false;
 
@@ -18,42 +27,65 @@ const PREVIEW_TYPES = [
 ---
 
 <AdminLayout section="email">
-  <section class="admin-page">
-    <header class="admin-page-header">
-      <h2>Email previews</h2>
-      <p>
+  <section class="admin-page grid gap-4 min-w-0">
+    <header class="admin-page-header grid gap-1.5 max-w-2xl">
+      <h2 class="m-0 text-(length:--text-body) font-semibold text-foreground">Email previews</h2>
+      <p class="m-0 text-body text-(length:--text-meta) leading-[1.55] text-pretty">
         Send a sample of each product email through Cloudflare Email Sending. Links use placeholder
         tokens and will not complete a real sign-in or invite. Defaults to your signed-in address;
         override for another inbox (e.g. Gmail markup tests).
       </p>
     </header>
 
-    <div class="admin-field">
-      <label for="email-to">Send to</label>
-      <input type="email" id="email-to" maxlength="320" placeholder="you@example.com" />
+    <div class="admin-field flex flex-wrap items-center gap-y-2 gap-x-3 max-w-[480px]">
+      <label
+        for="email-to"
+        class="grid gap-1 text-muted-foreground text-(length:--text-micro) uppercase tracking-[0.06em]"
+        >Send to</label
+      >
+      <input
+        type="email"
+        id="email-to"
+        maxlength="320"
+        placeholder="you@example.com"
+        class="flex-1 min-w-[200px] bg-panel border border-border rounded-sm text-foreground px-[9px] py-[7px] text-(length:--text-micro) focus-visible:outline-none focus-visible:border-primary"
+      />
     </div>
 
-    <div id="email-action-status" class="admin-status" role="status" hidden></div>
+    <div
+      id="email-action-status"
+      class="admin-status text-(length:--text-meta) text-muted-foreground"
+      role="status"
+      hidden
+    >
+    </div>
 
-    <div class="admin-table-wrap">
-      <table class="admin-table" aria-label="Email previews">
+    <div class="admin-table-wrap w-full overflow-x-auto">
+      <table
+        class="admin-table w-full border-collapse text-(length:--text-meta) leading-[1.4]"
+        aria-label="Email previews"
+      >
         <thead>
           <tr>
-            <th class="keep" scope="col">Template</th>
-            <th scope="col">Category</th>
-            <th class="actions" scope="col"></th>
+            <th class={`keep ${ADMIN_TH}`} scope="col">Template</th>
+            <th class={ADMIN_TH} scope="col">Category</th>
+            <th class={`actions ${ADMIN_TH_ACTIONS}`} scope="col"></th>
           </tr>
         </thead>
         <tbody>
           {
             PREVIEW_TYPES.map((t) => (
               <tr class="admin-row">
-                <td class="keep">
-                  <span class="primary">{t.label}</span>
+                <td class={`keep ${ADMIN_TD}`}>
+                  <span class={`primary ${ADMIN_CELL_PRIMARY}`}>{t.label}</span>
                 </td>
-                <td class="optional muted">{t.category}</td>
-                <td class="actions">
-                  <button type="button" class="admin-btn email-send" data-type={t.id}>
+                <td class={`optional ${ADMIN_TD} ${ADMIN_CELL_MUTED}`}>{t.category}</td>
+                <td class={`actions ${ADMIN_TD_ACTIONS}`}>
+                  <button
+                    type="button"
+                    class={`admin-btn email-send ${ADMIN_BTN}`}
+                    data-type={t.id}
+                  >
                     Send preview
                   </button>
                 </td>
