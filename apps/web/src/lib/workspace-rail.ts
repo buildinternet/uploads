@@ -171,8 +171,8 @@ export interface InitWorkspaceRailOptions {
 /**
  * Mount the rail for one workspace-tab page load. Call directly from
  * `WorkspaceLayout.astro`'s `onAstroPageLoad` callback — this function gates
- * its own `/me/*` fetches behind `onSession` internally (same shape as
- * `initWorkspacesNav`), so callers don't need to re-wrap it. The
+ * its own `/me/*` fetches behind `onSession` internally, so callers don't
+ * need to re-wrap it. The
  * connected-work hook is bound synchronously before that gate, so it exists
  * immediately regardless of session-resolution timing or script order
  * relative to the files tab's own script.

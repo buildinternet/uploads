@@ -227,8 +227,7 @@ export function adminNavSections(options: {
 
 /**
  * Switcher data for the header dropdown. Rows preserve the current tab so
- * switching workspaces lands on the same section (same rule the old
- * `renderSwitcherMenuHtml` followed), and exactly one trailing row renders:
+ * switching workspaces lands on the same section, and exactly one trailing row renders:
  * create while there is allowance left, otherwise manage.
  */
 export function workspaceSwitcherData(
