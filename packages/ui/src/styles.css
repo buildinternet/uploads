@@ -113,23 +113,6 @@
   --width-viewer: 1080px; /* media viewers: /f, /g */
 }
 
-/* ── Surface (theme root) ──────────────────────────────────────────────── */
-/*
- * Wrap product UI in <Surface> (class .ul-surface) so components sit on the
- * dark canvas with the tokens in scope. The base face is sans — the terminal
- * character comes from Geist Pixel, the chevron motif, and the density, not
- * from setting every label in a typewriter. Reach for var(--mono) when the
- * characters are a key, path, size, count, or timestamp: something the reader
- * transcribes or compares column-to-column. Never to make a word look technical.
- */
-.ul-surface {
-  background: var(--bg);
-  color: var(--fg);
-  font: var(--text-ui) / var(--leading-ui) var(--sans);
-  letter-spacing: var(--tracking-ui);
-  -webkit-font-smoothing: antialiased;
-}
-
 /* ── Brand ─────────────────────────────────────────────────────────────── */
 .ul-brand {
   display: inline-flex;
@@ -264,36 +247,6 @@
 }
 .ul-btn--block {
   width: 100%;
-}
-
-/* ── Panel ─────────────────────────────────────────────────────────────── */
-.ul-panel {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-lg);
-  padding: var(--space-5);
-  color: var(--body);
-}
-.ul-panel--pad-lg {
-  padding: clamp(24px, 6vw, 40px);
-}
-.ul-panel__title {
-  margin: 0 0 var(--space-2);
-  color: var(--fg);
-  font-family: var(--sans);
-  font-size: var(--text-h3);
-  font-weight: var(--weight-semibold);
-  letter-spacing: var(--tracking-heading);
-  line-height: var(--leading-tight);
-}
-.ul-panel__desc {
-  margin: 0 0 var(--space-4);
-  color: var(--body);
-  font-size: var(--text-ui);
-  line-height: var(--leading-body);
-}
-.ul-panel__desc:last-child {
-  margin-bottom: 0;
 }
 
 /* ── Field / Label / Input ─────────────────────────────────────────────── */
@@ -476,40 +429,6 @@
   flex: none;
 }
 
-/* ── Divider ───────────────────────────────────────────────────────────── */
-.ul-divider {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  color: var(--muted);
-  font: var(--text-micro) / 1 var(--sans);
-  font-weight: var(--weight-medium);
-  letter-spacing: var(--tracking-caps);
-  text-transform: uppercase;
-}
-.ul-divider::before,
-.ul-divider::after {
-  content: "";
-  flex: 1;
-  height: 1px;
-  background: var(--line);
-}
-.ul-divider--plain {
-  height: 1px;
-  background: var(--line);
-  border: 0;
-}
-/* Chevron divider — the brand mark's chevron as a section separator. */
-.ul-divider--chevron {
-  gap: 14px;
-}
-.ul-divider--chevron svg {
-  width: 14px;
-  height: 14px;
-  color: var(--muted);
-  flex: none;
-}
-
 /* ── Progress ──────────────────────────────────────────────────────────── */
 /*
  * Labeled quota meters: each row is label + usage above a narrow bar.
@@ -598,74 +517,4 @@
 }
 .ul-progress__fill[data-level="full"] {
   color: var(--accent);
-}
-
-/* ── GalleryTile ───────────────────────────────────────────────────────── */
-/*
- * The product's core object: a hosted image / PR screenshot with its metadata.
- */
-.ul-tile {
-  display: flex;
-  flex-direction: column;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-lg);
-  overflow: hidden;
-  text-decoration: none;
-  color: inherit;
-  transition: border-color 0.12s ease;
-}
-.ul-tile:hover,
-.ul-tile:focus-visible {
-  border-color: var(--accent);
-  outline: none;
-}
-.ul-tile__thumb {
-  aspect-ratio: 16 / 10;
-  background: var(--bg);
-  border-bottom: 1px solid var(--line);
-  display: block;
-}
-.ul-tile__thumb img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-/* Empty thumb: the stacked-chevron mark, faint, instead of a bare gray box. */
-.ul-tile__thumb--empty {
-  display: grid;
-  place-items: center;
-}
-.ul-tile__thumb--empty svg {
-  width: 30px;
-  height: 30px;
-  color: var(--line);
-}
-.ul-tile__body {
-  padding: 11px 13px 13px;
-  display: grid;
-  gap: 6px;
-}
-.ul-tile__name {
-  font: var(--text-meta) / var(--leading-tight) var(--mono);
-  color: var(--fg);
-  letter-spacing: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.ul-tile__meta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font: var(--text-micro) / 1 var(--mono);
-  font-variant-numeric: tabular-nums;
-  color: var(--muted);
-}
-.ul-tile__meta > * {
-  flex: none;
-}
-.ul-tile__spacer {
-  flex: 1 1 auto;
 }
