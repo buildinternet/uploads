@@ -21,6 +21,8 @@
  */
 import { Callout, Input, Select } from "@uploads/ui";
 import "@uploads/ui/styles.css";
+import { Empty, EmptyContent, EmptyHeader, EmptyTitle } from "@uploads/ui/components/ui/empty";
+import { Kbd } from "@uploads/ui/components/ui/kbd";
 import {
   useEffect,
   useLayoutEffect,
@@ -90,15 +92,41 @@ function EmptyShotsCta({ title }: { title: string }) {
     }
   };
   return (
-    <div className="ws-empty-state ws-empty-state--cta">
-      <p className="ws-empty-state__title">{title}</p>
-      <div className="command ws-empty__command">
-        <code>{EMPTY_CTA_CMD}</code>
-        <button type="button" aria-live="polite" onClick={() => void copy()}>
-          {copied ? "copied ✓" : "copy"}
-        </button>
-      </div>
-    </div>
+    <Empty>
+      <EmptyHeader>
+        <EmptyTitle>{title}</EmptyTitle>
+      </EmptyHeader>
+      <EmptyContent>
+        <div className="ws-empty__command flex w-full min-w-0 items-center gap-2 rounded-[6px] border border-line bg-panel px-3 py-2">
+          <code className="min-w-0 flex-1 overflow-x-auto font-[var(--mono)] text-[13px] text-fg [overflow-wrap:anywhere]">
+            {EMPTY_CTA_CMD}
+          </code>
+          <button
+            type="button"
+            aria-live="polite"
+            className="text-btn text-btn--boxed flex-none"
+            onClick={() => void copy()}
+          >
+            {copied ? "copied ✓" : "copy"}
+          </button>
+        </div>
+      </EmptyContent>
+    </Empty>
+  );
+}
+
+/**
+ * Compact Empty for inline filter/drill "nothing found" messages — smaller
+ * than the CTA-style empty state above, since these sit inside already-
+ * scoped list/grid contexts rather than replacing the whole page.
+ */
+function InlineEmpty({ title }: { title: ReactNode }) {
+  return (
+    <Empty className="gap-2 p-3">
+      <EmptyHeader className="gap-1">
+        <EmptyTitle>{title}</EmptyTitle>
+      </EmptyHeader>
+    </Empty>
   );
 }
 
@@ -429,6 +457,13 @@ function FilterBar({
   // useful to offer until the user edits it back into a query.
   const suggestions = path ? [] : pathSuggestions(catalog, { project, q });
   const open = suggestOpen && suggestions.length > 0;
+  // "Ctrl K" is the deterministic default so the server's render and the
+  // client's first render agree bit-for-bit (no `navigator` at SSR time) —
+  // corrected to "⌘K" after mount, once hydration has already reconciled.
+  const [modKbd, setModKbd] = useState("Ctrl K");
+  useEffect(() => {
+    if (/Mac|iPhone|iPad|iPod/.test(navigator.userAgent)) setModKbd("⌘K");
+  }, []);
 
   const pick = (picked: string) => {
     setSuggestOpen(false);
@@ -479,7 +514,7 @@ function FilterBar({
         <Input
           id="wsp-path-filter"
           type="search"
-          className="wsp-filter__q flex-1 min-w-0 min-h-9 px-3 py-1.5 text-base sm:text-[13px] rounded-[6px] box-border"
+          className={`wsp-filter__q flex-1 min-w-0 min-h-9 px-3 py-1.5 text-base sm:text-[13px] rounded-[6px] box-border${value === "" ? " pr-14" : ""}`}
           aria-label="Filter by path"
           aria-keyshortcuts="Meta+K Control+K Slash"
           aria-expanded={open}
@@ -504,6 +539,9 @@ function FilterBar({
           }}
           onKeyDown={onKeyDown}
         />
+        {value === "" && (
+          <Kbd className="absolute top-1/2 right-2.5 -translate-y-1/2">{modKbd}</Kbd>
+        )}
         {open && (
           <ul
             className="wsp-suggest absolute top-[calc(100%+4px)] left-0 right-0 z-30 m-0 max-h-[280px] list-none overflow-y-auto rounded-[6px] border border-line bg-panel p-1 shadow-[0_8px_24px_rgb(0_0_0_/_0.25)]"
@@ -1129,7 +1167,7 @@ function ScreenshotsByPathInner({
                 as a metadata filter — spec keeps URL-prefix search out of
                 scope), so a truncated response may hide project matches: say
                 so rather than claiming an empty/complete result. */}
-            {drillItems.length === 0 && <p className="wft-end">{drillEmptyMessage}</p>}
+            {drillItems.length === 0 && <InlineEmpty title={drillEmptyMessage} />}
             {drillItems.length > 0 && drill.truncated && (
               <p className="wft-end">
                 {view.project
@@ -1159,13 +1197,15 @@ function ScreenshotsByPathInner({
           !view.merged && overview.latest.length === 0 && overview.catalog.length === 0 ? (
             <EmptyShotsCta title="No screenshots yet" />
           ) : (
-            <p className="wft-end">
-              {overview.latest.length === 0
-                ? view.merged
-                  ? "No merged uploads to show."
-                  : "No recent uploads to show."
-                : "No recent uploads match this filter."}
-            </p>
+            <InlineEmpty
+              title={
+                overview.latest.length === 0
+                  ? view.merged
+                    ? "No merged uploads to show."
+                    : "No recent uploads to show."
+                  : "No recent uploads match this filter."
+              }
+            />
           )
         ) : (
           <>
@@ -1243,7 +1283,7 @@ function ScreenshotsByPathInner({
       {isEmptyWorkspace ? (
         <EmptyShotsCta title="No screenshots yet" />
       ) : isEmptyFilter ? (
-        <p className="wft-end">{emptyFilterMessage}</p>
+        <InlineEmpty title={emptyFilterMessage} />
       ) : (
         <>
           {sectionLabels.map((label, index) => {

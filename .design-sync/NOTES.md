@@ -214,6 +214,20 @@ web-app shims but are deliberately EXCLUDED from the design project).
 - **@parcel/watcher** (optional dep of @tailwindcss/cli): its postinstall is
   denied in pnpm-workspace.yaml `allowBuilds` — not needed for one-shot builds.
 
+### 2026-08-23 second pass — Empty + Kbd (PR #799)
+
+Kit grew to 20 components. `Empty` and `Kbd` added to `src/design-sync.ts`,
+`cfg.componentSrcMap` (subparts nulled), previews authored, conventions
+enumeration updated. `Empty` needed `cardMode: "column"` (same `[GRID_OVERFLOW]`
+remedy as Accordion/InputGroup/Tabs). Incremental upload: the two component
+dirs + `_preview/{Empty,Kbd}.*` + shared closure
+(`_ds_bundle.js/.css`, `styles.css`, `README.md`, `_ds_sync.json`,
+`_ds_needs_recompile`). Gotcha: running `resync.mjs` WITHOUT `--entry` cleans
+`ds-bundle/` then fails resolving the package (expects a self-link in
+node_modules) — leaving an empty bundle. Always drive the individual
+`package-build/capture/validate` scripts with the explicit
+`--entry ./packages/ui/dist/design-sync.js`.
+
 ### Known render warns (2026-08-23 kit sync)
 - `[TOKENS_MISSING] --accordion-panel-height, --radius, --secondary, --foreground, --tw`
   — runtime/JS-set vars (accordion height) plus shadcn-generated arbitrary

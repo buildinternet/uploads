@@ -169,13 +169,17 @@ const tip = {
           <div class="cs-row__control flex items-center gap-2.5">
             <button
               type="button"
-              class="cs-toggle"
+              class="group relative inline-flex h-[18.4px] w-[32px] shrink-0 items-center rounded-full border border-transparent bg-input outline-none transition-all focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 aria-checked:bg-primary"
               role="switch"
+              data-slot="switch"
               id="cs-show-metadata"
               aria-checked="false"
               aria-label="Metadata captions"
             >
-              <span class="cs-toggle__knob" aria-hidden="true"></span>
+              <span
+                class="pointer-events-none block size-4 translate-x-0 rounded-full bg-background ring-0 transition-transform group-aria-checked:translate-x-[calc(100%-2px)]"
+                data-slot="switch-thumb"
+                aria-hidden="true"></span>
             </button>
           </div>
         </div>
@@ -200,13 +204,17 @@ const tip = {
           <div class="cs-row__control flex items-center gap-2.5">
             <button
               type="button"
-              class="cs-toggle"
+              class="group relative inline-flex h-[18.4px] w-[32px] shrink-0 items-center rounded-full border border-transparent bg-input outline-none transition-all focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 aria-checked:bg-primary"
               role="switch"
+              data-slot="switch"
               id="cs-link-to-file-page"
               aria-checked="false"
               aria-label="Link items to file pages"
             >
-              <span class="cs-toggle__knob" aria-hidden="true"></span>
+              <span
+                class="pointer-events-none block size-4 translate-x-0 rounded-full bg-background ring-0 transition-transform group-aria-checked:translate-x-[calc(100%-2px)]"
+                data-slot="switch-thumb"
+                aria-hidden="true"></span>
             </button>
           </div>
         </div>
@@ -231,13 +239,17 @@ const tip = {
           <div class="cs-row__control flex items-center gap-2.5">
             <button
               type="button"
-              class="cs-toggle"
+              class="group relative inline-flex h-[18.4px] w-[32px] shrink-0 items-center rounded-full border border-transparent bg-input outline-none transition-all focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 aria-checked:bg-primary"
               role="switch"
+              data-slot="switch"
               id="cs-ingest-github-attachments"
               aria-checked="false"
               aria-label="Import GitHub attachments"
             >
-              <span class="cs-toggle__knob" aria-hidden="true"></span>
+              <span
+                class="pointer-events-none block size-4 translate-x-0 rounded-full bg-background ring-0 transition-transform group-aria-checked:translate-x-[calc(100%-2px)]"
+                data-slot="switch-thumb"
+                aria-hidden="true"></span>
             </button>
           </div>
         </div>
@@ -371,47 +383,6 @@ const tip = {
 
   <style>
     /* ---------- Comment settings rows ---------- */
-    /* Toggle switch (role=switch button). Replaces the tri-state segmented
-       control for the boolean rows — the workspace value is the default, so a
-       plain on/off reads cleaner than auto/on/off (issue #365). */
-    .cs-toggle {
-      position: relative;
-      width: 38px;
-      height: 21px;
-      flex: none;
-      padding: 0;
-      border: 1px solid var(--line);
-      border-radius: 999px;
-      background: var(--bg);
-      cursor: pointer;
-      transition:
-        background 0.15s ease,
-        border-color 0.15s ease;
-    }
-    .cs-toggle__knob {
-      position: absolute;
-      top: 2px;
-      left: 2px;
-      width: 15px;
-      height: 15px;
-      border-radius: 999px;
-      background: var(--muted);
-      transition:
-        left 0.15s ease,
-        background 0.15s ease;
-    }
-    .cs-toggle[aria-checked="true"] {
-      background: color-mix(in srgb, var(--accent) 28%, transparent);
-      border-color: var(--accent);
-    }
-    .cs-toggle[aria-checked="true"] .cs-toggle__knob {
-      left: 19px;
-      background: var(--accent);
-    }
-    .cs-toggle:focus-visible {
-      outline: 2px solid var(--accent);
-      outline-offset: 2px;
-    }
     /* Dimmed when a linked repo's `.uploads.yml` pins this row — its
        workspace-default control still shows the value, just de-emphasized,
        since the repo config wins regardless of what's picked here. Toggled

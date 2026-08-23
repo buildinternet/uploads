@@ -8,7 +8,7 @@ import {
 } from "../../lib/account-profile-ui";
 import { serverAuthFetchImpl } from "../../lib/auth-proxy";
 import { resolveSignedInOrigins } from "../../lib/signed-in-page";
-import { renderDetailListPlaceholderHtml } from "../../lib/workspace-ui";
+import { renderDetailListPlaceholderHtml, renderEmptyStateHtml } from "../../lib/workspace-ui";
 
 export const prerender = false;
 
@@ -72,9 +72,10 @@ const sessionsEmpty = sessionsReady && (initial.sessions?.length ?? 0) === 0;
         id="sessions-status"
         class="muted detail-status"
         hidden={sessionsEmpty ? undefined : true}
-      >
-        {sessionsEmpty ? "No active sessions." : ""}
-      </div>
+        set:html={sessionsEmpty
+          ? renderEmptyStateHtml({ title: "No active sessions.", variant: "inline" })
+          : ""}
+      />
       <ul
         class="detail-list"
         id="sessions-list"
@@ -154,7 +155,7 @@ const sessionsEmpty = sessionsReady && (initial.sessions?.length ?? 0) === 0;
       isUpgradeDismissed,
       resolveUpgradePrompt,
     } from "../../lib/cli-upgrade";
-    import { renderDetailListPlaceholderHtml } from "../../lib/workspace-ui";
+    import { renderDetailListPlaceholderHtml, renderEmptyStateHtml } from "../../lib/workspace-ui";
 
     onAstroPageLoad(() => {
       if (!document.getElementById("acct-email")) return;
@@ -282,7 +283,13 @@ const sessionsEmpty = sessionsReady && (initial.sessions?.length ?? 0) === 0;
         if (!sessions.length) {
           list.hidden = true;
           list.removeAttribute("aria-busy");
-          showStatus(status, "No active sessions.");
+          showStatus(
+            status,
+            renderEmptyStateHtml({ title: "No active sessions.", variant: "inline" }),
+            {
+              html: true,
+            },
+          );
           return;
         }
 

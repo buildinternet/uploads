@@ -8,7 +8,7 @@ import {
   type IssuedWorkspaceToken,
   type MintableWorkspace,
 } from "./api-client";
-import { escapeHtml } from "./workspace-ui";
+import { escapeHtml, renderEmptyStateHtml } from "./workspace-ui";
 
 export async function loadDevelopersPageData(
   apiOrigin: string,
@@ -39,7 +39,11 @@ export function tokenAccessLabel(scopes: string[]): string {
 
 export function renderIssuedTokenListHtml(tokens: IssuedWorkspaceToken[]): string {
   if (tokens.length === 0) {
-    return `<li><div class="detail-main"><div class="detail-title">No tokens yet</div><div class="detail-meta">Create one above to start.</div></div></li>`;
+    return `<li>${renderEmptyStateHtml({
+      title: "No tokens yet",
+      description: "Create one above to start.",
+      variant: "inline",
+    })}</li>`;
   }
   return tokens
     .map((token) => {

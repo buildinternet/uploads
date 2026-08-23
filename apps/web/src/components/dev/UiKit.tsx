@@ -66,6 +66,15 @@ import {
   TooltipTrigger,
 } from "@uploads/ui/components/ui/tooltip";
 import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@uploads/ui/components/ui/empty";
+import { Kbd, KbdGroup } from "@uploads/ui/components/ui/kbd";
+import {
   Combobox,
   ComboboxContent,
   ComboboxInput,
@@ -229,6 +238,39 @@ export default function UiKit() {
             </TableRow>
           </TableBody>
         </Table>
+      </Section>
+
+      <Section eyebrow="Empty states">
+        <Empty className="max-w-xl border">
+          <EmptyHeader>
+            <EmptyMedia variant="icon">⌁</EmptyMedia>
+            <EmptyTitle>No screenshots yet</EmptyTitle>
+            <EmptyDescription>
+              Capture one with <code>uploads screenshot &lt;url&gt;</code> and it shows up here.
+            </EmptyDescription>
+          </EmptyHeader>
+          <EmptyContent>
+            <Button variant="outline" size="sm">
+              Read the docs
+            </Button>
+          </EmptyContent>
+        </Empty>
+      </Section>
+
+      <Section eyebrow="Kbd">
+        <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
+          <span className="flex items-center gap-2">
+            Filter
+            <KbdGroup>
+              <Kbd>⌘</Kbd>
+              <Kbd>K</Kbd>
+            </KbdGroup>
+          </span>
+          <span className="flex items-center gap-2">
+            Search
+            <Kbd>/</Kbd>
+          </span>
+        </div>
       </Section>
 
       <Section eyebrow="Overlays">
