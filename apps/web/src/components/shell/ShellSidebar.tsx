@@ -228,12 +228,12 @@ function WorkspaceSwitcher({ switcher }: { switcher: ShellSwitcher }): ReactNode
             {switcher.createHref ? (
               <DropdownMenuItem render={<a href={switcher.createHref} />}>
                 <Glyph name="plus" />
-                <span>new workspace</span>
+                <span>New workspace</span>
               </DropdownMenuItem>
             ) : (
               <DropdownMenuItem render={<a href={switcher.manageHref} />}>
                 <Glyph name="workspaces" />
-                <span>manage workspaces</span>
+                <span>Manage workspaces</span>
               </DropdownMenuItem>
             )}
           </DropdownMenuContent>

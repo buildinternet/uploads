@@ -182,6 +182,14 @@ nav.shell-side [data-slot="sidebar-gap"] {
   color: inherit;
   text-decoration: none;
 }
+/* Group headings ("Workspace", "Personal") echo the right rail's small-caps
+   labels (.ws-rail__label in account-shell.css). */
+[data-slot="sidebar-group-label"] {
+  color: var(--muted);
+  font-size: var(--text-micro);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
 /* Active row: accent-tinted surface with accent text, instead of the kit's
    neutral sidebar-accent wash. */
 [data-slot="sidebar-menu-button"][data-active],

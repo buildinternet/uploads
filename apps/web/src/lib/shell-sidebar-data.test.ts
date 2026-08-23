@@ -53,7 +53,7 @@ describe("accountNavSections", () => {
       section: "profile",
     });
     expect(sections.map((s) => s.label)).toEqual(["Personal"]);
-    expect(sections[0]!.items.map((i) => i.label)).toEqual(["account", "developers"]);
+    expect(sections[0]!.items.map((i) => i.label)).toEqual(["Account", "Developers"]);
     expect(sections[0]!.items[0]!.current).toBe(true);
     expect(sections[0]!.items[1]!.current).toBe(false);
   });
@@ -73,17 +73,17 @@ describe("accountNavSections", () => {
       workspace: "acme",
       section: "workspaces",
     });
-    expect(sections.map((s) => s.label)).toEqual(["workspace", "Personal"]);
+    expect(sections.map((s) => s.label)).toEqual(["Workspace", "Personal"]);
     const items = sections[0]!.items;
     expect(items.map((i) => i.label)).toEqual([
-      "screenshots",
-      "files",
-      "galleries",
-      "people",
-      "billing",
-      "settings",
+      "Screenshots",
+      "Files",
+      "Galleries",
+      "People",
+      "Billing",
+      "Settings",
     ]);
-    expect(items.filter((i) => i.current).map((i) => i.label)).toEqual(["galleries"]);
+    expect(items.filter((i) => i.current).map((i) => i.label)).toEqual(["Galleries"]);
     expect(items[0]!.href).toBe("/account/workspaces/acme/screenshots");
   });
 
@@ -94,7 +94,7 @@ describe("accountNavSections", () => {
       section: "workspaces",
     });
     expect(sections[0]!.items.filter((i) => i.current).map((i) => i.label)).toEqual([
-      "screenshots",
+      "Screenshots",
     ]);
   });
 
@@ -112,7 +112,7 @@ describe("accountNavSections", () => {
       section: "workspaces",
     });
     const nested = settings[0]!.items.filter((i) => i.nested);
-    expect(nested.map((i) => i.label)).toEqual(["github comment", "storage"]);
+    expect(nested.map((i) => i.label)).toEqual(["GitHub comment", "Storage"]);
     expect(nested.map((i) => i.current)).toEqual([false, true]);
     expect(nested[1]!.href).toBe("/account/workspaces/acme/settings/storage");
   });
@@ -149,7 +149,7 @@ describe("accountNavSections", () => {
 describe("adminNavSections", () => {
   it("marks the active admin section", () => {
     const sections = adminNavSections({ section: "metrics", showConsoleLinks: false });
-    expect(sections.map((s) => s.label)).toEqual(["admin", "Personal"]);
+    expect(sections.map((s) => s.label)).toEqual(["Admin", "Personal"]);
     const items = sections[0]!.items;
     expect(items.map((i) => i.href)).toEqual([
       "/admin",
@@ -166,12 +166,12 @@ describe("adminNavSections", () => {
       adminNavSections({ section: "workspaces", showConsoleLinks: false })[1]!.items.map(
         (i) => i.label,
       ),
-    ).toEqual(["account"]);
+    ).toEqual(["Account"]);
     expect(
       adminNavSections({ section: "workspaces", showConsoleLinks: true })[1]!.items.map(
         (i) => i.label,
       ),
-    ).toEqual(["account", "console"]);
+    ).toEqual(["Account", "Console"]);
   });
 });
 

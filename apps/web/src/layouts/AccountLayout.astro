@@ -108,7 +108,7 @@ const sidebarProps = {
   ariaLabel: "Account sections",
   sections: accountNavSections({ pathname: Astro.url.pathname, workspace, section }),
   switcher: workspaceSwitcherData([], { active: workspace }),
-  headerLabel: workspace || "workspaces",
+  headerLabel: workspace || "Workspaces",
   headerHref: "/account/workspaces",
   defaultOpen: readSidebarDefaultOpen(sessionCookie),
   account: { apiOrigin, section, workspace },

@@ -115,6 +115,11 @@ export function readSidebarDefaultOpen(cookieHeader: string | null | undefined):
 
 export type AccountSectionId = "workspaces" | "profile" | "developers";
 
+/** Nav rows read as proper nouns; the shared tab list keeps its lowercase ids. */
+function capitalize(label: string): string {
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
 /**
  * Account nav: the workspace group (only with an active workspace) followed by
  * the always-present personal group. `pathname` decides which row is current;
@@ -135,7 +140,7 @@ export function accountNavSections(options: {
     const items: ShellNavItem[] = [];
     for (const tab of WORKSPACE_NAV_TABS) {
       items.push({
-        label: tab.label,
+        label: capitalize(tab.label),
         href: workspacePath(workspace, tab.id),
         current: activeTab === tab.id,
         icon: TAB_ICONS[tab.id],
@@ -143,34 +148,34 @@ export function accountNavSections(options: {
       if (tab.id !== "settings" || !subpage) continue;
       const base = `/account/workspaces/${encodeURIComponent(workspace)}/settings`;
       items.push({
-        label: "github comment",
+        label: "GitHub comment",
         href: base,
         current: subpage === "comment",
         icon: "dot",
         nested: true,
       });
       items.push({
-        label: "storage",
+        label: "Storage",
         href: `${base}/storage`,
         current: subpage === "storage",
         icon: "dot",
         nested: true,
       });
     }
-    sections.push({ label: "workspace", items });
+    sections.push({ label: "Workspace", items });
   }
 
   sections.push({
     label: "Personal",
     items: [
       {
-        label: "account",
+        label: "Account",
         href: "/account/profile",
         current: section === "profile",
         icon: "account",
       },
       {
-        label: "developers",
+        label: "Developers",
         href: "/account/developers",
         current: section === "developers",
         icon: "developers",
@@ -201,14 +206,14 @@ export function adminNavSections(options: {
   showConsoleLinks: boolean;
 }): ShellNavSection[] {
   const personal: ShellNavItem[] = [
-    { label: "account", href: "/account", current: false, icon: "account" },
+    { label: "Account", href: "/account", current: false, icon: "account" },
   ];
   if (options.showConsoleLinks) {
-    personal.push({ label: "console", href: "/console", current: false, icon: "developers" });
+    personal.push({ label: "Console", href: "/console", current: false, icon: "developers" });
   }
   return [
     {
-      label: "admin",
+      label: "Admin",
       items: ADMIN_NAV.map((item) => ({
         label: item.label,
         href: item.href,
