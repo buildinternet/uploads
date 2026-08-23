@@ -17,10 +17,17 @@ import {
 export function WorkspaceNav() {
   return (
     <div
-      className="relative overflow-hidden rounded-lg border [&_[data-slot=sidebar-container]]:absolute! [&_[data-slot=sidebar-container]]:h-full!"
+      className="sb-story relative overflow-hidden rounded-lg border"
       style={{ height: 420, width: 640 }}
     >
-      <SidebarProvider className="h-full min-h-0">
+      {/* The compiled stylesheet only carries utilities the product uses, so
+          the containment overrides ship as a scoped style tag instead of
+          arbitrary variants (which would silently no-op here). */}
+      <style>{`
+        .sb-story [data-slot="sidebar-container"] { position: absolute; inset: 0 auto 0 0; height: 100%; }
+        .sb-story [data-slot="sidebar-wrapper"] { min-height: 0; height: 100%; }
+      `}</style>
+      <SidebarProvider style={{ height: "100%", minHeight: 0 }}>
         <Sidebar collapsible="icon" className="h-full">
           <SidebarHeader>
             <span className="px-2 font-mono text-[13px] tracking-[0.08em] text-accent uppercase">

@@ -166,6 +166,6 @@
     "Combobox": { "cardMode": "single", "primaryStory": "PathFilter", "viewport": "560x420" },
     "Tooltip": { "cardMode": "single", "primaryStory": "CopyHint", "viewport": "480x280" },
     "Sheet": { "cardMode": "single", "primaryStory": "WorkspaceSettings", "viewport": "760x520" },
-    "Sidebar": { "cardMode": "single", "primaryStory": "WorkspaceNav", "viewport": "760x520" }
+    "Sidebar": { "cardMode": "single", "primaryStory": "WorkspaceNav", "viewport": "900x520" }
   }
 }
