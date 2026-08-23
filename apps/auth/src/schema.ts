@@ -158,10 +158,16 @@ export const verification = sqliteTable(
 );
 
 /**
- * Better Auth's own database-backed rate limiter storage
- * (`rateLimit.storage: "database"`, see src/auth.ts). Model name is fixed at
- * "rateLimit" by Better Auth; `count`/`lastRequest` are plain epoch-ms
- * integers, not timestamp-mode columns.
+ * Better Auth's database-backed rate limiter storage model. Retained
+ * unused: since the 2026-08-23 D1 stall incident, src/auth.ts supplies its
+ * own `rateLimit.customStorage` backed by a per-key Durable Object
+ * (src/rate-limit-do.ts), falling back to Better Auth's in-process memory
+ * Map when the RATE_LIMIT binding is absent. Either way D1 is out of the
+ * rate-limit path. This table is kept only so existing deployments don't
+ * need a drop migration — nothing reads or
+ * writes it anymore. Model name is fixed at "rateLimit" by Better Auth;
+ * `count`/`lastRequest` are plain epoch-ms integers, not timestamp-mode
+ * columns.
  *
  * Paired migration: `migrations/20260712200000_better_auth_core.sql`.
  */

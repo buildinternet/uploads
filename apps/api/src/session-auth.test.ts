@@ -114,6 +114,37 @@ describe("sessionAuth", () => {
     expect(res.status).toBe(401);
   });
 
+  it("attaches a bounded AbortSignal to the AUTH get-session fetch", async () => {
+    let seenSignal: AbortSignal | undefined;
+    const auth: Pick<Fetcher, "fetch"> = {
+      fetch: (async (_input: RequestInfo | URL, init?: RequestInit) => {
+        seenSignal = init?.signal ?? undefined;
+        return new Response(JSON.stringify(null), { status: 200 });
+      }) as Fetcher["fetch"],
+    };
+    await appWith(auth).request("/whoami", {}, env(auth));
+    expect(seenSignal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("returns 503 auth_session_unavailable (not a hang) when the AUTH fetch aborts on timeout", async () => {
+    // Simulates AbortSignal.timeout firing: a stalled AUTH binding rejects
+    // with an AbortError instead of ever resolving. Regression guard for the
+    // 2026-08-23 incident (D1 stalls propagating as unbounded hangs).
+    const auth: Pick<Fetcher, "fetch"> = {
+      fetch: (() =>
+        Promise.reject(
+          new DOMException("The operation was aborted.", "AbortError"),
+        )) as Fetcher["fetch"],
+    };
+    const start = Date.now();
+    const res = await appWith(auth).request("/whoami", {}, env(auth));
+    expect(Date.now() - start).toBeLessThan(1000);
+    expect(res.status).toBe(503);
+    expect((await res.json()) as { error?: { code?: string } }).toMatchObject({
+      error: { code: "auth_session_unavailable" },
+    });
+  });
+
   it("forwards the client IP headers to the auth worker", async () => {
     let seen: Headers | undefined;
     const auth = stubAuth((req) => {

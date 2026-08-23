@@ -26,6 +26,7 @@ import { deviceWorkspacePlugin } from "./device-workspace";
 import { sendAuthEmail } from "./email";
 import { localDemoEnabled, localDemoPlugin } from "./local-demo";
 import { memberCapDenial } from "./member-cap";
+import { createDurableRateLimitStorage, type RateLimitNamespaceLike } from "./rate-limit";
 import * as schema from "./schema";
 import { stripePluginOrNone } from "./stripe-plugin";
 import { authTrustedOrigins, isTrustedOrigin } from "./trusted-origins";
@@ -299,6 +300,13 @@ export type AuthEnv = GitHubCredentialsEnv &
     ENVIRONMENT?: string;
     BETTER_AUTH_TRUSTED_ORIGINS?: string;
     AUTH_RATE_LIMIT_DISABLED?: string;
+    /**
+     * Durable Object namespace backing Better Auth's rate limiter (see the
+     * `rateLimit` block below and src/rate-limit-do.ts). Optional: tests and
+     * bare local envs construct auth without it and fall back to Better
+     * Auth's in-process memory storage.
+     */
+    RATE_LIMIT?: RateLimitNamespaceLike;
     /** Ephemeral flag passed only by `pnpm dev:stack`; never configure in prod. */
     LOCAL_STACK?: string;
     /** Stripe phase 2 (task 5): gates stripePluginOrNone (src/stripe-plugin.ts)
@@ -311,6 +319,24 @@ export type AuthEnv = GitHubCredentialsEnv &
   };
 
 export type BetterAuthInstance = ReturnType<typeof buildAuth>;
+
+/**
+ * Pick the Better Auth rate-limit storage for this env: the Durable-Object
+ * customStorage when RATE_LIMIT is bound, Better Auth's in-process memory Map
+ * otherwise (unit tests, bare local envs). See the long comment on the
+ * `rateLimit` block in buildAuth for why D1 is no longer an option.
+ *
+ * Both branches return the same (partially-optional) shape so the resulting
+ * `auth.options.rateLimit` isn't a discriminated union that callers — and
+ * tests — have to narrow.
+ */
+function rateLimitStorage(env: AuthEnv): {
+  customStorage?: ReturnType<typeof createDurableRateLimitStorage>;
+  storage?: "memory";
+} {
+  if (env.RATE_LIMIT) return { customStorage: createDurableRateLimitStorage(env.RATE_LIMIT) };
+  return { storage: "memory" };
+}
 
 /**
  * Issue #580: capture the GitHub login at OAuth-link time. Called from the
@@ -775,16 +801,58 @@ function buildAuth(
     // rate limiting is on whenever ENVIRONMENT === "production", regardless
     // of whether GitHub/signing secrets happen to be configured, unless the
     // explicit dev opt-out is set.
+    //
+    // Storage (2026-08-23, post-incident): Cloudflare D1 stalled 5-25s in
+    // production, and every /api/auth/* request — including get-session,
+    // which the api worker calls over the service binding on every signed-in
+    // request — paid a rate-limit read+write against D1 before the handler
+    // even ran, so the D1 stall hung the whole site. D1 is now out of the
+    // rate-limit path entirely (the `rate_limit` table is retained unused; see
+    // schema.ts).
+    //
+    // Two changes came out of that. First, /get-session is exempt from the
+    // limiter altogether (see customRules below), so the hottest path has no
+    // rate-limit storage dependency of any kind. Second, what remains — the
+    // mutation-ish, low-frequency endpoints (sign-in, sign-up, magic-link,
+    // change-password, …) — is backed by Durable Objects: one
+    // `RateLimitCounter` object per rate-limit key (src/rate-limit-do.ts,
+    // bound as RATE_LIMIT). `idFromName(key)` is deterministic, so the whole
+    // fleet shares ONE exact fixed-window counter per key instead of the
+    // per-isolate approximation a memory Map gives — which is precisely what
+    // you want on the endpoints where the limit is load-bearing. The DO is
+    // single-threaded, so its read-decide-write needs no locking; the decision
+    // itself mirrors Better Auth's own `decideConsume` (src/rate-limit.ts).
+    // With /get-session out of the picture, a DO round trip on a sign-in
+    // attempt is a rounding error against the password/OAuth work that
+    // follows it.
+    //
+    // Two properties keep this from ever repeating the incident anyway: the
+    // wrapper is FAIL-OPEN (any throw → allowed) and TIME-BOUNDED (the DO call
+    // is raced against a ~1.5s timer → allowed), so no storage dependency can
+    // stall a request. Rate limiting is abuse-shaping, not a security
+    // boundary; taking the site down to enforce it is the wrong trade.
+    //
+    // When the binding is absent (unit tests, bare local envs) we fall back to
+    // Better Auth's in-process memory Map. Alternatives rejected: KV (1
+    // write/sec/key is too coarse for a shared counter) and D1 (the incident).
     rateLimit: {
       enabled: isProduction && env.AUTH_RATE_LIMIT_DISABLED !== "true",
-      storage: "database",
+      ...rateLimitStorage(env),
       customRules: {
-        // get-session is a cheap read hit once per API request (the api
-        // worker's sessionAuth middleware calls it over the service binding
-        // per request), so its budget is sized to page-request volume, not
-        // the 100/min default meant for auth mutations. Keyed per client IP —
-        // the api worker forwards cf-connecting-ip/x-forwarded-for.
-        "/get-session": { window: 60, max: 600 },
+        // `false` disables the limiter for this path outright — Better Auth
+        // 1.7.1 honors it in resolveRateLimitConfig
+        // (better-auth/dist/api/rate-limiter/index.mjs:274, `if (resolved ===
+        // false) return null`), which makes onRequestRateLimit return before
+        // it ever touches storage.
+        //
+        // get-session is a cheap read the api worker's sessionAuth middleware
+        // calls over a TRUSTED service binding on every signed-in request. Its
+        // old 600/min budget was really defending us against our own client
+        // fan-out bugs (fixed in #797), and on the single hottest path in the
+        // product any shared-store dependency costs more than the limit is
+        // worth. Browser-originated abuse of /api/auth/* belongs to the WAF at
+        // the edge (a per-IP rate-limiting rule), not to the app.
+        "/get-session": false,
       },
     },
     trustedOrigins: (request) => {
@@ -837,6 +905,9 @@ function cacheKey(
     githubClientSecret: github?.clientSecret ?? null,
     dashApiKey,
     hasEmail: Boolean(env.EMAIL),
+    // Presence flips the limiter between DO-backed customStorage and Better
+    // Auth's memory fallback, so it has to be part of the key.
+    hasRateLimitDO: Boolean(env.RATE_LIMIT),
   });
 }
 

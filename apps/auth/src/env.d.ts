@@ -30,6 +30,15 @@ interface Env {
   /** Dev opt-out for Better Auth's fail-closed production rate limiting. */
   AUTH_RATE_LIMIT_DISABLED?: string;
   /**
+   * Durable Object namespace backing Better Auth's rate limiter (2026-08-23
+   * incident follow-up — see src/rate-limit-do.ts and the `durable_objects`
+   * block in wrangler.jsonc). Declared optional here, overriding the required
+   * version `wrangler types` generates from the binding: unit tests and bare
+   * local envs build auth without it and fall back to Better Auth's
+   * in-process memory storage.
+   */
+  RATE_LIMIT?: DurableObjectNamespace<import("./rate-limit-do").RateLimitCounter>;
+  /**
    * Service binding to apps/api (see wrangler.jsonc), used by
    * src/billing-bridge.ts to POST /internal/billing/plan. Optional: absent
    * in tests/local dev without both `wrangler dev` sessions running — the

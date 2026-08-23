@@ -11,6 +11,12 @@ import { BILLING_OUTBOX_CRON, drainBillingOutbox } from "./billing-outbox";
 import { billingPricesResponseBody } from "./billing-prices";
 import { ROBOTS_TXT } from "./robots";
 
+// Durable Object backing Better Auth's rate limiter (see src/rate-limit-do.ts
+// and the `durable_objects` block in wrangler.jsonc). Wrangler resolves the
+// binding's class_name against the entrypoint's named exports, so this
+// re-export is load-bearing even though nothing in this file calls it.
+export { RateLimitCounter } from "./rate-limit-do";
+
 // Credentialed CORS for the web origin (+ dev origins), scoped to /api/auth/*
 // only — this worker has no other public surface (D1: "CORS becomes trivial").
 const authCors = cors({
