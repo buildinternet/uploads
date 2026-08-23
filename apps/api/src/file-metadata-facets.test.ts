@@ -10,6 +10,7 @@ import {
   groupObjectsByPath,
   projectLabelFromMeta,
   BY_PATH_CATALOG_LIMIT,
+  BY_PATH_CATALOG_RECENT_LIMIT,
   BY_PATH_GROUP_LIMIT,
   BY_PATH_LATEST_LIMIT,
   BY_PATH_RECENT_LIMIT,
@@ -197,8 +198,14 @@ describe("groupObjectsByPath", () => {
       { project: "Other", path: "/home", count: 1, lastUpdated: at(2), recent: ["b.png"] },
     ]);
     expect(result.catalog).toEqual([
-      { project: "Other", path: "/settings", count: 2, lastUpdated: at(3) },
-      { project: "Other", path: "/home", count: 1, lastUpdated: at(2) },
+      {
+        project: "Other",
+        path: "/settings",
+        count: 2,
+        lastUpdated: at(3),
+        recent: ["c.png", "a.png"],
+      },
+      { project: "Other", path: "/home", count: 1, lastUpdated: at(2), recent: ["b.png"] },
     ]);
     expect(result.projects).toEqual([{ label: "Other", count: 3, lastUpdated: at(3) }]);
   });
@@ -279,6 +286,38 @@ describe("groupObjectsByPath", () => {
     expect(result.catalog.some((e) => e.project === "acme/api" && e.path === "/admin")).toBe(true);
     expect(result.projects.map((p) => p.label).sort()).toEqual(["acme/api", "acme/web"]);
     expect(result.projects.find((p) => p.label === "acme/api")?.count).toBe(1);
+  });
+
+  it("gives every catalog entry a short thumb strip, including past the group cap", async () => {
+    const rows = [
+      ...Array.from({ length: BY_PATH_GROUP_LIMIT }, (_, i) => ({
+        workspace: "acme",
+        key: `web-${i}.png`,
+        meta: { path: `/web-${i}` },
+        at: at(i + 10),
+      })),
+      ...Array.from({ length: BY_PATH_CATALOG_RECENT_LIMIT + 1 }, (_, i) => ({
+        workspace: "acme",
+        key: `old-${i}.png`,
+        meta: { path: "/old" },
+        at: at(i),
+      })),
+    ];
+    const result = await groupObjectsByPath(timedDb(rows), "acme");
+    expect(result.truncated).toBe(true);
+    expect(result.groups.map((g) => g.path)).not.toContain("/old");
+    const entry = result.catalog.find((e) => e.path === "/old")!;
+    expect(entry.count).toBe(BY_PATH_CATALOG_RECENT_LIMIT + 1);
+    // Newest-first, capped at the shorter catalog strip.
+    expect(entry.recent).toEqual([
+      `old-${BY_PATH_CATALOG_RECENT_LIMIT}.png`,
+      ...Array.from(
+        { length: BY_PATH_CATALOG_RECENT_LIMIT - 1 },
+        (_, i) => `old-${BY_PATH_CATALOG_RECENT_LIMIT - 1 - i}.png`,
+      ),
+    ]);
+    // Thumbed groups keep their longer strip; the catalog twin is capped.
+    expect(result.catalog.find((e) => e.path === "/web-0")!.recent).toEqual(["web-0.png"]);
   });
 
   it("caps the catalog at BY_PATH_CATALOG_LIMIT", async () => {

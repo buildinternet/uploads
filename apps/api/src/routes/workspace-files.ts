@@ -197,11 +197,14 @@ export const workspaceFiles = new Hono<DualAuthVars>()
   // page's single overview query (spec: docs/superpowers/specs/
   // 2026-08-10-screenshots-by-path-design.md). Drill-in reuses the sibling
   // `files/search?meta.path=…` route; this one answers "which paths, how
-  // recent, first few keys" plus a thumbless `catalog` of every unique
-  // (project, path) so the page can filter without a second query. `state`
-  // and `gh.kind`/`gh.number` are the metadata keys enriched — the page
-  // badges before/after and names the PR in the hover preview, and nothing
-  // else leaks into the payload.
+  // recent, first few keys" plus a `catalog` of every unique (project, path)
+  // — each with a shorter thumb strip of its own — so the page can filter AND
+  // render every group's thumbs without a second query. `state` and
+  // `gh.kind`/`gh.number` are the metadata keys enriched — the page badges
+  // before/after and names the PR in the hover preview, and nothing else
+  // leaks into the payload. Enrichment stays scoped to the thumbed groups'
+  // keys plus `latest`, so the catalog's growth never widens the two D1
+  // enrichment queries; catalog-only strips carry key/url/embedUrl alone.
   .get("/:workspace/files/by-path", dualWorkspaceAuth(), scoped("files:read"), async (c) => {
     const record = c.get("workspace");
     const name = c.get("workspaceName");
@@ -251,7 +254,17 @@ export const workspaceFiles = new Hono<DualAuthVars>()
         lastUpdated: group.lastUpdated,
         recent: group.recent.map(shotItem),
       })),
-      catalog,
+      // Every catalog entry carries its own (shorter) strip, so the page can
+      // render thumbs for groups past the thumbed cap without fetching one
+      // search per group. Those keys are NOT metadata-enriched (see above):
+      // `objectPublicUrls` is pure computation, so this costs no extra D1.
+      catalog: catalog.map((entry) => ({
+        project: entry.project,
+        path: entry.path,
+        count: entry.count,
+        lastUpdated: entry.lastUpdated,
+        recent: entry.recent.map(shotItem),
+      })),
       projects,
       // Flat newest-first feed (the "Recent" view) — same item shape as
       // `recent`, plus which (project, path) each shot belongs to.

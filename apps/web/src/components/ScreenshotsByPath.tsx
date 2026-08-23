@@ -6,6 +6,10 @@
  * = the existing `files/search?meta.path=…` route. Files without `path`
  * metadata never appear here — the empty state says how to get them.
  *
+ * Every rendered group's thumb strip comes from that one overview response:
+ * its `catalog` carries a short strip per (project, path), so filtering past
+ * the thumbed-group cap no longer fans out into one search request per group.
+ *
  * SSR-first (plan 006, following plan 005's `WorkspaceFileTable` shape):
  * when the request carries a session, `screenshots.astro` server-fetches the
  * by-path overview + workspace summary and renders this component with no
@@ -35,7 +39,6 @@ import {
   type GithubTitleMap,
   type LatestShotItem,
   type PathCatalogEntry,
-  type PathGroupItem,
   type ProjectSummary,
   type SearchFileItem,
 } from "../lib/api-client";
@@ -45,7 +48,6 @@ import { thumbUrl } from "../lib/thumb-url";
 import { onSession } from "../lib/account-shell";
 import { makeFileOpener, newTabLinkProps, type FileOpener } from "../lib/file-opener";
 import {
-  backfillTargets,
   filterCatalog,
   focusIsKeyboardDriven,
   groupsFromCatalog,
@@ -61,7 +63,6 @@ import {
   shotKindFromKey,
   shotPreviewCaption,
   shotPreviewPosition,
-  shotsFromSearchItems,
   type ScreenshotsFeed,
   type ScreenshotsView,
   type ShotPreviewBox,
@@ -664,11 +665,6 @@ function ScreenshotsByPathInner({
   const [drill, setDrill] = useState<DrillState>({ status: "idle" });
   const [drillRetryNonce, setDrillRetryNonce] = useState(0);
   const [ghState, setGhState] = useState<DrillState>({ status: "loading" });
-  // Thumb strips fetched for groups past the overview's thumbed cap, keyed
-  // `project\0path`. In-flight keys live in the ref so a re-render mid-fetch
-  // doesn't fire a duplicate search.
-  const [backfill, setBackfill] = useState<Record<string, PathGroupItem[]>>({});
-  const backfillStarted = useRef(new Set<string>());
   // Scope of the last overview fetch that is allowed to replace the page with
   // the full-page skeleton. `view.merged` is deliberately excluded: toggling
   // Merged only refetches the same workspace, and dropping a ready overview
@@ -811,52 +807,6 @@ function ScreenshotsByPathInner({
     view.merged,
     drillRetryNonce,
   ]);
-
-  // Thumb backfill for groups past the overview's 50-group thumbed cap:
-  // filtering (especially by project) surfaces catalog paths whose group got
-  // no `recent` strip, which used to render as bare headings. Fetch those
-  // strips lazily through the same search route the drill-in uses, capped
-  // per pass and cached per (project, path) for the life of the mount. A
-  // failed search caches an empty strip — the heading-only fallback — rather
-  // than retrying on every keystroke.
-  useEffect(() => {
-    if (overview.status !== "ready" || view.feed !== "grouped" || view.path) return;
-    const matching = groupsFromCatalog(
-      filterCatalog(overview.catalog, { project: view.project, q: view.q }),
-      overview.groups,
-    );
-    const targets = backfillTargets(matching, backfillStarted.current);
-    if (targets.length === 0) return;
-    const projectsByPath = new Map<string, string[]>();
-    for (const target of targets) {
-      backfillStarted.current.add(`${target.project}\0${target.path}`);
-      const projects = projectsByPath.get(target.path);
-      if (projects) projects.push(target.project);
-      else projectsByPath.set(target.path, [target.project]);
-    }
-    onSession(() => {
-      for (const [path, projects] of projectsByPath) {
-        void searchWorkspaceFiles(apiOrigin, workspace, [{ key: "path", value: path }], {
-          collapsePromoted: true,
-        }).then((result) => {
-          // No cancellation guard: the cache is keyed by (project, path)
-          // independent of the current view, so a late response is never
-          // stale — dropping it would strand its group (started, no strip).
-          const items = result.kind === "ok" ? result.items : [];
-          setBackfill((prev) => {
-            const next = { ...prev };
-            for (const project of projects) {
-              next[`${project}\0${path}`] = shotsFromSearchItems(items, project);
-            }
-            return next;
-          });
-        });
-      }
-    });
-    // `backfill` in the deps chains passes: each resolved batch re-runs the
-    // effect for the next ≤12 targets until none remain (the started set
-    // keeps every pass strictly new, so the chain terminates).
-  }, [apiOrigin, workspace, overview, backfill, view.project, view.q, view.feed, view.path]);
 
   useEffect(() => {
     const dismiss = () => {
@@ -1254,11 +1204,7 @@ function ScreenshotsByPathInner({
     project: view.project,
     q: view.q,
   });
-  const matchingGroups = groupsFromCatalog(matchingCatalog, overview.groups).map((group) =>
-    group.recent.length > 0
-      ? group
-      : { ...group, recent: backfill[`${group.project}\0${group.path}`] ?? [] },
-  );
+  const matchingGroups = groupsFromCatalog(matchingCatalog, overview.groups);
   const qTrim = view.q.trim();
   const filtering = qTrim !== "" || view.project !== "";
   // Path query hides GitHub strips that aren't path-grouped; project-only

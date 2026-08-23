@@ -778,6 +778,14 @@ function buildAuth(
     rateLimit: {
       enabled: isProduction && env.AUTH_RATE_LIMIT_DISABLED !== "true",
       storage: "database",
+      customRules: {
+        // get-session is a cheap read hit once per API request (the api
+        // worker's sessionAuth middleware calls it over the service binding
+        // per request), so its budget is sized to page-request volume, not
+        // the 100/min default meant for auth mutations. Keyed per client IP —
+        // the api worker forwards cf-connecting-ip/x-forwarded-for.
+        "/get-session": { window: 60, max: 600 },
+      },
     },
     trustedOrigins: (request) => {
       const origin = request?.headers.get("origin");

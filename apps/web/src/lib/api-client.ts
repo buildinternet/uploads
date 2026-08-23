@@ -902,12 +902,17 @@ export interface FilesPathGroup {
   recent: PathGroupItem[];
 }
 
-/** One unique (project, path) pair without thumbs — the filter-bar catalog. */
+/**
+ * One unique (project, path) pair — the filter-bar catalog. Carries a short
+ * thumb strip of its own (shorter than a thumbed group's), so groups past the
+ * overview's thumbed cap still render thumbs off this one response.
+ */
 export interface PathCatalogEntry {
   project: string;
   path: string;
   count: number;
   lastUpdated: string;
+  recent: PathGroupItem[];
 }
 
 /** One shot in the flat newest-first feed (the "Recent" view). */
@@ -981,8 +986,17 @@ function isPathCatalogEntry(value: unknown): value is PathCatalogEntry {
     typeof entry.project === "string" &&
     typeof entry.path === "string" &&
     typeof entry.count === "number" &&
-    typeof entry.lastUpdated === "string"
+    typeof entry.lastUpdated === "string" &&
+    // `recent` is additive (older API deploys omit it) — normalized to []
+    // below, so those entries just render as heading-only groups.
+    (entry.recent === undefined ||
+      (Array.isArray(entry.recent) && entry.recent.every(isPathGroupItem)))
   );
+}
+
+/** Normalize a parsed catalog entry, filling in a missing (older-API) strip. */
+function catalogEntry(entry: PathCatalogEntry): PathCatalogEntry {
+  return entry.recent ? entry : { ...entry, recent: [] };
 }
 
 function isLatestShotItem(value: unknown): value is LatestShotItem {
@@ -997,11 +1011,12 @@ function isLatestShotItem(value: unknown): value is LatestShotItem {
 
 /** Derive a catalog from thumbed groups when an older API omitted it. */
 function catalogFromGroups(groups: FilesPathGroup[]): PathCatalogEntry[] {
-  return groups.map(({ project, path, count, lastUpdated }) => ({
+  return groups.map(({ project, path, count, lastUpdated, recent }) => ({
     project,
     path,
     count,
     lastUpdated,
+    recent,
   }));
 }
 
@@ -1064,7 +1079,7 @@ export async function getWorkspaceFilesByPath(
   return {
     kind: "ok",
     groups: body.groups,
-    catalog: body.catalog,
+    catalog: body.catalog.map(catalogEntry),
     projects: body.projects,
     latest,
     truncated: body.truncated,
