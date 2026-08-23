@@ -127,6 +127,30 @@ export type SettingsVars = {
 };
 
 /**
+ * Best-effort usage reconcile off the response path. Activation/detach used
+ * to await this before responding, which pushed real switches past the
+ * browser's request timeout — the client reported "couldn't switch" for a
+ * switch that had already committed (#788). `waitUntil` keeps the rebuild
+ * running after the response; runtimes without an execution context (unit
+ * tests) fall back to awaiting so assertions still see the reconciled state.
+ */
+async function reconcileOffPath(
+  c: Context<SettingsVars>,
+  updated: WorkspaceRecord,
+  name: string,
+  label: string,
+): Promise<void> {
+  const task = storageReconcile(c.env, updated, name).catch((err) =>
+    console.error(`${label}: usage reconcile failed for`, name, err),
+  );
+  try {
+    c.executionCtx.waitUntil(task);
+  } catch {
+    await task;
+  }
+}
+
+/**
  * Session-only member gate for the billing/summary tier: a bearer
  * `Authorization` header 403s outright (no bearer capability exists for
  * either route and none is minted here), otherwise resolves the session +
@@ -685,12 +709,10 @@ export async function storageActivateHandler(c: Context<SettingsVars>) {
 
   // The promoted lane may already hold objects (a reactivated fallback, or a
   // standby saved via `adoptExistingContents`) that the ledger has never
-  // walked — rebuild totals/shared-subset now so `maxStorageBytes`
-  // enforcement and the settings UI are honest immediately. Best-effort,
-  // same rationale as the legacy attach/detach reconcile calls.
-  await storageReconcile(c.env, updated, name).catch((err) =>
-    console.error("workspace storage activate: usage reconcile failed for", name, err),
-  );
+  // walked — rebuild totals/shared-subset so `maxStorageBytes` enforcement
+  // and the settings UI are honest. Best-effort, same rationale as the
+  // legacy attach/detach reconcile calls.
+  await reconcileOffPath(c, updated, name, "workspace storage activate");
 
   return c.json(storageStatusResponse(updated, byoBucketAllowed(updated)));
 }
@@ -844,9 +866,7 @@ export async function storageDeleteHandler(c: Context<SettingsVars>) {
   // delete. Rebuild from the restored shared-bucket prefix (best-effort,
   // same rationale as the attach path above).
   if (force) {
-    await storageReconcile(c.env, updated, name).catch((err) =>
-      console.error("workspace storage detach: usage reconcile failed for", name, err),
-    );
+    await reconcileOffPath(c, updated, name, "workspace storage detach");
   }
 
   return c.json(storageStatusResponse(updated, byoBucketAllowed(updated)));
