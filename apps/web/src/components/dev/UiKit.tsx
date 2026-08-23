@@ -52,6 +52,7 @@ import {
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -270,9 +271,12 @@ export default function UiKit() {
           <DropdownMenu>
             <DropdownMenuTrigger render={<Button variant="outline">Actions</Button>} />
             <DropdownMenuContent>
-              <DropdownMenuLabel>Workspace</DropdownMenuLabel>
-              <DropdownMenuItem>Rename</DropdownMenuItem>
-              <DropdownMenuItem>Duplicate</DropdownMenuItem>
+              {/* Base UI requires GroupLabel inside a Group (it throws otherwise). */}
+              <DropdownMenuGroup>
+                <DropdownMenuLabel>Workspace</DropdownMenuLabel>
+                <DropdownMenuItem>Rename</DropdownMenuItem>
+                <DropdownMenuItem>Duplicate</DropdownMenuItem>
+              </DropdownMenuGroup>
               <DropdownMenuSeparator />
               <DropdownMenuItem variant="destructive">Delete</DropdownMenuItem>
             </DropdownMenuContent>

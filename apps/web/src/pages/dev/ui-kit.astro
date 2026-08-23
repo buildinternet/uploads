@@ -7,7 +7,6 @@ export const prerender = false;
 
 import { env } from "cloudflare:workers";
 import BaseHead from "../../components/BaseHead.astro";
-import UiKit from "../../components/dev/UiKit";
 import "@uploads/ui/theme.css";
 
 if (env.ENVIRONMENT === "production") {
@@ -21,6 +20,19 @@ if (env.ENVIRONMENT === "production") {
     <title>UI kit · dev</title>
   </head>
   <body class="bg-background text-foreground">
-    <UiKit client:load />
+    {
+      /* Manual createRoot mount — `client:*` islands are banned in this codebase
+        (they 404 fetching the Fast-Refresh bootstrap under `astro dev` with the
+        Cloudflare adapter; see files.astro and astro.config.mjs). */
+    }
+    <div id="ui-kit-root"></div>
+    <script>
+      import { createElement } from "react";
+      import { createRoot } from "react-dom/client";
+      import UiKit from "../../components/dev/UiKit";
+
+      const el = document.getElementById("ui-kit-root");
+      if (el) createRoot(el).render(createElement(UiKit));
+    </script>
   </body>
 </html>
