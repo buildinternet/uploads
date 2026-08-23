@@ -332,7 +332,8 @@ Source (and where to look if something breaks): https://github.com/buildinternet
         max-width: var(--measure);
         margin: 0 0 12px 2px;
       }
-      .sect-lede code {
+      .sect-lede code,
+      .feature code {
         font: var(--text-micro) var(--mono);
         color: var(--fg);
         background: var(--panel);
@@ -367,14 +368,6 @@ Source (and where to look if something breaks): https://github.com/buildinternet
         color: var(--body);
         margin: 0;
       }
-      .feature code {
-        font: var(--text-micro) var(--mono);
-        color: var(--fg);
-        background: var(--panel);
-        border: 1px solid var(--line);
-        border-radius: 4px;
-        padding: 0 4px;
-      }
       @media (max-width: 560px) {
         .features .grid {
           grid-template-columns: 1fr;
@@ -388,6 +381,7 @@ Source (and where to look if something breaks): https://github.com/buildinternet
         border: 1px solid var(--line);
         border-radius: var(--radius-md);
         padding: 12px 14px;
+        font-family: var(--mono);
         font-size: var(--text-meta);
       }
 
