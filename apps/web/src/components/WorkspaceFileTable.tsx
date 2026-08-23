@@ -229,12 +229,14 @@ function GridViewIcon({ className }: { className?: string }) {
 
 function FileThumb({ thumb }: { thumb: ReturnType<typeof pickThumbnail> }) {
   const [broken, setBroken] = useState(false);
+  const thumbBase =
+    "wft-thumb h-[26px] w-[26px] flex-none overflow-hidden rounded-[2px] border border-line bg-cover bg-center";
   if (thumb.kind === "image") {
     if (broken) return null;
     return (
-      <span className="wft-thumb" aria-hidden="true">
+      <span className={thumbBase} aria-hidden="true">
         <img
-          className="wft-thumb__img"
+          className="wft-thumb__img block h-full w-full object-cover"
           src={thumbUrl(thumb.src, 64)}
           alt=""
           loading="lazy"
@@ -245,7 +247,10 @@ function FileThumb({ thumb }: { thumb: ReturnType<typeof pickThumbnail> }) {
     );
   }
   return (
-    <span className="wft-thumb wft-thumb--tile" aria-hidden="true">
+    <span
+      className={`${thumbBase} wft-thumb--tile grid place-items-center bg-panel text-muted-foreground [&>svg]:h-[11px] [&>svg]:w-[11px]`}
+      aria-hidden="true"
+    >
       {thumb.kind === "video" && <PlayIcon />}
       {thumb.kind === "lock" && <LockIcon />}
     </span>
@@ -255,7 +260,7 @@ function FileThumb({ thumb }: { thumb: ReturnType<typeof pickThumbnail> }) {
 function VisibilityBadge({ private: priv }: { private: boolean }) {
   return (
     <span
-      className={`wft-vis ${priv ? "wft-vis--private" : "wft-vis--public"}`}
+      className={`wft-vis ${priv ? "wft-vis--private text-muted-foreground" : "wft-vis--public text-fg"}`}
       title={
         priv
           ? "Unlisted: hidden from listings and the /f/ page unless signed in. The raw file URL still works for anyone who has it."
@@ -263,9 +268,12 @@ function VisibilityBadge({ private: priv }: { private: boolean }) {
       }
     >
       {priv ? (
-        <LockIcon className="wft-vis__icon" />
+        <LockIcon className="wft-vis__icon h-3 w-3 flex-none" />
       ) : (
-        <span className="wft-vis__dot" aria-hidden="true" />
+        <span
+          className="wft-vis__dot h-1.5 w-1.5 flex-none rounded-full bg-green-500"
+          aria-hidden="true"
+        />
       )}
       {priv ? "unlisted" : "public"}
     </span>
@@ -313,11 +321,15 @@ function FileActionsMenu({
     };
   }, [confirm]);
 
+  const menuItem =
+    "wft-menu__item block w-full cursor-pointer rounded-[2px] border-0 bg-none px-[9px] py-[7px] text-left font-[var(--sans)] text-[length:var(--text-micro)] text-fg hover:bg-accent/12 hover:text-accent focus-visible:bg-accent/12 focus-visible:text-accent focus-visible:outline-none disabled:cursor-default disabled:opacity-55";
+  const menuItemDanger = "wft-menu__item--danger text-red-500";
+
   return (
-    <div className="wft-menu">
+    <div className="wft-menu relative flex-none justify-self-end">
       <button
         type="button"
-        className="wft-menu__trigger"
+        className="wft-menu__trigger cursor-pointer rounded-[2px] border border-transparent px-[7px] pt-px pb-[3px] font-[var(--sans)] text-[length:var(--text-meta)] leading-[1.2] text-muted-foreground hover:border-line hover:text-fg focus-visible:border-line focus-visible:text-fg focus-visible:outline-none"
         aria-expanded={open}
         aria-label="File actions"
         onClick={onToggle}
@@ -325,11 +337,14 @@ function FileActionsMenu({
         ⋯
       </button>
       {open && confirm === "closed" && (
-        <div role="menu" className="wft-menu__popover">
+        <div
+          role="menu"
+          className="wft-menu__popover absolute top-[calc(100%+4px)] right-0 z-30 grid min-w-[170px] gap-px rounded-[2px] border border-line bg-panel p-1 shadow-[0_12px_32px_color-mix(in_srgb,var(--line)_85%,transparent)]"
+        >
           <button
             type="button"
             role="menuitem"
-            className="wft-menu__item"
+            className={menuItem}
             onClick={(e) => onCopy(e.currentTarget)}
           >
             copy link
@@ -337,7 +352,7 @@ function FileActionsMenu({
           <button
             type="button"
             role="menuitem"
-            className="wft-menu__item"
+            className={menuItem}
             disabled={busy}
             onClick={onToggleVisibility}
           >
@@ -346,7 +361,7 @@ function FileActionsMenu({
           <button
             type="button"
             role="menuitem"
-            className="wft-menu__item wft-menu__item--danger"
+            className={`${menuItem} ${menuItemDanger}`}
             onClick={() => setConfirm("confirm")}
           >
             delete…
@@ -355,18 +370,18 @@ function FileActionsMenu({
       )}
       {open && confirm !== "closed" && (
         <div
-          className="wft-menu__popover wft-confirm"
+          className="wft-menu__popover wft-confirm absolute top-[calc(100%+4px)] right-0 z-30 w-[220px] rounded-[2px] border border-line bg-panel p-2.5 shadow-[0_12px_32px_color-mix(in_srgb,var(--line)_85%,transparent)]"
           role="alertdialog"
           aria-label={`Delete ${filename}`}
         >
-          <p className="wft-confirm__text">
+          <p className="wft-confirm__text m-0 mb-2 text-[length:var(--text-micro)] leading-[1.5] text-[var(--body)] [overflow-wrap:anywhere]">
             Permanently delete <strong>{filename}</strong> for everyone? Links and embeds will
             break.
           </p>
           {confirm === "confirm" ? (
             <button
               type="button"
-              className="wft-menu__item wft-menu__item--danger"
+              className={`${menuItem} ${menuItemDanger}`}
               disabled={busy}
               onClick={() => setConfirm("armed")}
             >
@@ -375,7 +390,7 @@ function FileActionsMenu({
           ) : (
             <button
               type="button"
-              className="wft-menu__item wft-confirm__armed"
+              className={`${menuItem} wft-confirm__armed rounded-[6px] bg-red-500 text-center text-white`}
               disabled={busy}
               onClick={() => {
                 // Reset to a fresh two-step confirm immediately: if the
@@ -1158,7 +1173,7 @@ function WorkspaceFileTableInner({
   };
 
   return (
-    <div className="wft">
+    <div className="wft grid gap-0">
       <div className="wft-filter">
         <form
           className="wft-filterbar input-group"
@@ -1277,7 +1292,11 @@ function WorkspaceFileTableInner({
         <span className="wft-sectionhead__label">files</span>
         <span className="wft-sectionhead__rule" />
         <span className="wft-sectionhead__count">{topLabel}</span>
-        <div className="wft-view" role="group" aria-label="File layout">
+        <div
+          className="wft-view inline-flex flex-none overflow-hidden rounded-[2px] border border-line"
+          role="group"
+          aria-label="File layout"
+        >
           {(
             [
               ["list", "List view", ListViewIcon],
@@ -1300,15 +1319,15 @@ function WorkspaceFileTableInner({
       </div>
 
       {filtered ? (
-        <div className="wft-chips">
+        <div className="wft-chips mt-3 flex flex-wrap items-center gap-2">
           {nameTerm && (
-            <span className="wft-chip">
-              <span className="wft-chip__key">name</span>
-              <span className="wft-chip__eq">~</span>
-              <span className="wft-chip__value">{nameTerm}</span>
+            <span className="wft-chip inline-flex items-center gap-[7px] rounded-[2px] border border-line bg-panel py-1 pr-[5px] pl-[9px] text-[length:var(--text-micro)]">
+              <span className="wft-chip__key text-muted-foreground">name</span>
+              <span className="wft-chip__eq text-muted-foreground">~</span>
+              <span className="wft-chip__value text-fg">{nameTerm}</span>
               <button
                 type="button"
-                className="wft-chip__remove"
+                className="wft-chip__remove font-[var(--sans)] text-[length:var(--text-micro)] leading-none text-muted-foreground cursor-pointer border-0 bg-none px-1 hover:text-red-500 focus-visible:text-red-500 focus-visible:outline-none"
                 aria-label="Remove name filter"
                 onClick={() => commitNameTerm("")}
               >
@@ -1319,19 +1338,26 @@ function WorkspaceFileTableInner({
           {filters.map((f) => {
             const kind = chipKind(f.key);
             return (
-              <span className="wft-chip" key={f.key}>
-                {kind === "repo" && <GithubMarkIcon className="wft-chip__icon" />}
-                {kind === "pr" && <PullRequestIcon className="wft-chip__icon" />}
+              <span
+                className="wft-chip inline-flex items-center gap-[7px] rounded-[2px] border border-line bg-panel py-1 pr-[5px] pl-[9px] text-[length:var(--text-micro)]"
+                key={f.key}
+              >
+                {kind === "repo" && (
+                  <GithubMarkIcon className="wft-chip__icon h-3 w-3 flex-none text-muted-foreground" />
+                )}
+                {kind === "pr" && (
+                  <PullRequestIcon className="wft-chip__icon h-3 w-3 flex-none text-muted-foreground" />
+                )}
                 {kind === "plain" && (
                   <>
-                    <span className="wft-chip__key">{f.key}</span>
-                    <span className="wft-chip__eq">=</span>
+                    <span className="wft-chip__key text-muted-foreground">{f.key}</span>
+                    <span className="wft-chip__eq text-muted-foreground">=</span>
                   </>
                 )}
-                <span className="wft-chip__value">{f.value}</span>
+                <span className="wft-chip__value text-fg">{f.value}</span>
                 <button
                   type="button"
-                  className="wft-chip__remove"
+                  className="wft-chip__remove font-[var(--sans)] text-[length:var(--text-micro)] leading-none text-muted-foreground cursor-pointer border-0 bg-none px-1 hover:text-red-500 focus-visible:text-red-500 focus-visible:outline-none"
                   aria-label={`Remove filter ${f.key}`}
                   onClick={() => removeFilter(f.key)}
                 >
@@ -1340,10 +1366,11 @@ function WorkspaceFileTableInner({
               </span>
             );
           })}
-          <span className="wft-clearall">
+          <span className="wft-clearall text-muted-foreground text-[length:var(--text-micro)]">
             metadata search ·{" "}
             <button
               type="button"
+              className="cursor-pointer border-0 bg-none p-0 font-inherit text-muted-foreground underline hover:text-accent focus-visible:text-accent focus-visible:outline-none"
               onClick={() => {
                 setNameTerm("");
                 setFilters([]);
@@ -1379,14 +1406,22 @@ function WorkspaceFileTableInner({
       )}
 
       {match && (
-        <div className="wft-banner">
-          <PullRequestIcon className="wft-banner__icon" title={match.kindLabel} />
-          <a className="wft-banner__ref" href={match.url} target="_blank" rel="noopener noreferrer">
+        <div className="wft-banner mt-3 flex items-center gap-3 rounded-[2px] border border-line bg-panel px-3.5 py-2.5">
+          <PullRequestIcon
+            className="wft-banner__icon h-[15px] w-[15px] flex-none text-fg"
+            title={match.kindLabel}
+          />
+          <a
+            className="wft-banner__ref text-[length:var(--text-meta)] font-semibold text-fg no-underline hover:text-accent focus-visible:text-accent focus-visible:outline-none"
+            href={match.url}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
             {match.label}
           </a>
-          <span className="wft-banner__spacer" />
+          <span className="wft-banner__spacer flex-1" />
           <a
-            className="wft-banner__open"
+            className="wft-banner__open flex-none text-[length:var(--text-micro)] text-muted-foreground no-underline hover:text-accent focus-visible:text-accent focus-visible:outline-none"
             href={match.url}
             target="_blank"
             rel="noopener noreferrer"
@@ -1423,7 +1458,9 @@ function WorkspaceFileTableInner({
                 <span className="wft-thumb wft-thumb--tile" aria-hidden="true">
                   <FolderIcon />
                 </span>
-                <span className="wft-filename">{childName(folder, prefix)}/</span>
+                <span className="wft-filename overflow-hidden text-ellipsis whitespace-nowrap">
+                  {childName(folder, prefix)}/
+                </span>
               </span>
               <span className="wft-size" />
               <span className="wft-type" />
@@ -1442,9 +1479,15 @@ function WorkspaceFileTableInner({
 
             return (
               <div className="wft-row" key={file.key}>
-                <FileOpenTrigger opener={opener} file={file} className="wft-name wft-name--btn">
+                <FileOpenTrigger
+                  opener={opener}
+                  file={file}
+                  className="wft-name wft-name--btn w-full cursor-pointer border-0 bg-none p-0 text-left font-inherit text-inherit no-underline"
+                >
                   {thumb.kind !== "none" && <FileThumb thumb={thumb} />}
-                  <span className="wft-filename">{name}</span>
+                  <span className="wft-filename overflow-hidden text-ellipsis whitespace-nowrap">
+                    {name}
+                  </span>
                 </FileOpenTrigger>
                 <span className="wft-size">{sizeLabel(file.size)}</span>
                 <span className="wft-type">{type}</span>
@@ -1464,22 +1507,29 @@ function WorkspaceFileTableInner({
           })}
         </div>
       ) : (
-        <div className="wft-cards">
+        <div className="wft-cards mt-3 grid grid-cols-[repeat(auto-fill,minmax(168px,1fr))] gap-3 max-[560px]:grid-cols-[repeat(auto-fill,minmax(140px,1fr))] max-[560px]:gap-2.5">
           {folders.map((folder) => (
             <button
               key={folder}
               type="button"
-              className="wft-card wft-card--folder"
+              className="wft-card wft-card--folder flex min-w-0 w-full cursor-pointer flex-col overflow-hidden rounded-[var(--radius-lg,10px)] border border-line bg-panel p-0 text-left font-inherit text-inherit transition-colors duration-150 hover:border-accent focus-visible:border-accent focus-visible:outline-none"
               onClick={() => navigate(folder)}
             >
-              <span className="wft-card__media" aria-hidden="true">
-                <span className="wft-card__placeholder">
+              <span
+                className="wft-card__media block aspect-[16/10] w-full overflow-hidden border-0 border-b border-line bg-bg"
+                aria-hidden="true"
+              >
+                <span className="wft-card__placeholder grid h-full w-full place-items-center text-muted-foreground [&>svg]:h-[22px] [&>svg]:w-[22px]">
                   <FolderIcon />
                 </span>
               </span>
-              <span className="wft-card__body">
-                <span className="wft-card__name">{childName(folder, prefix)}/</span>
-                <span className="wft-card__meta">folder</span>
+              <span className="wft-card__body grid min-w-0 gap-1.5 px-[11px] pt-2.5 pb-3">
+                <span className="wft-card__name min-w-0 flex-1 cursor-inherit overflow-hidden text-ellipsis whitespace-nowrap font-[var(--mono)] text-[length:var(--text-meta)] text-fg">
+                  {childName(folder, prefix)}/
+                </span>
+                <span className="wft-card__meta flex min-w-0 items-center gap-2 font-[var(--mono)] text-[length:var(--text-micro)] text-muted-foreground">
+                  folder
+                </span>
               </span>
             </button>
           ))}
@@ -1490,33 +1540,43 @@ function WorkspaceFileTableInner({
             const type = fileTypeLabel(file);
             const priv = isPrivateFile(file);
             return (
-              <div className="wft-card" key={file.key}>
+              <div
+                className="wft-card flex min-w-0 flex-col overflow-hidden rounded-[var(--radius-lg,10px)] border border-line bg-panel transition-colors duration-150 hover:border-accent/55 focus-within:border-accent/55"
+                key={file.key}
+              >
                 <FileOpenTrigger
                   opener={opener}
                   file={file}
-                  className="wft-card__media"
+                  className="wft-card__media block aspect-[16/10] w-full cursor-pointer overflow-hidden border-0 border-b border-line bg-bg p-0 text-inherit no-underline focus-visible:shadow-[inset_0_0_0_1px_var(--accent)] focus-visible:outline-none"
                   aria-label={`Open ${name}`}
                 >
                   {thumb.kind === "image" ? (
                     <span
-                      className="wft-card__img"
+                      className="wft-card__img block h-full w-full bg-cover bg-center"
                       style={{ backgroundImage: `url(${thumbUrl(thumb.src, 560)})` }}
                       aria-hidden="true"
                     />
                   ) : (
-                    <span className="wft-card__placeholder" aria-hidden="true">
+                    <span
+                      className="wft-card__placeholder grid h-full w-full place-items-center text-muted-foreground [&>svg]:h-[22px] [&>svg]:w-[22px]"
+                      aria-hidden="true"
+                    >
                       {thumb.kind === "video" && <PlayIcon />}
                       {thumb.kind === "lock" && <LockIcon />}
-                      {thumb.kind === "none" && <span className="wft-card__ext">{type}</span>}
+                      {thumb.kind === "none" && (
+                        <span className="wft-card__ext font-[var(--mono)] text-[length:var(--text-micro)] tracking-[0.08em] text-muted-foreground uppercase">
+                          {type}
+                        </span>
+                      )}
                     </span>
                   )}
                 </FileOpenTrigger>
-                <div className="wft-card__body">
-                  <div className="wft-card__title">
+                <div className="wft-card__body grid min-w-0 gap-1.5 px-[11px] pt-2.5 pb-3">
+                  <div className="wft-card__title flex min-w-0 items-center gap-1">
                     <FileOpenTrigger
                       opener={opener}
                       file={file}
-                      className="wft-card__name"
+                      className="wft-card__name min-w-0 flex-1 cursor-pointer overflow-hidden text-ellipsis whitespace-nowrap border-0 bg-none p-0 text-left font-[var(--mono)] text-[length:var(--text-meta)] text-fg no-underline hover:text-accent focus-visible:text-accent focus-visible:outline-none"
                       title={name}
                     >
                       {name}
@@ -1534,11 +1594,11 @@ function WorkspaceFileTableInner({
                       onDelete={() => void deleteFile(file)}
                     />
                   </div>
-                  <div className="wft-card__meta">
-                    <span>
+                  <div className="wft-card__meta flex min-w-0 items-center gap-2 font-[var(--mono)] text-[length:var(--text-micro)] text-muted-foreground">
+                    <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
                       {sizeLabel(file.size)} · {type}
                     </span>
-                    <span className="wft-card__spacer" />
+                    <span className="wft-card__spacer flex-1" />
                     <VisibilityBadge private={priv} />
                   </div>
                 </div>
@@ -1551,7 +1611,11 @@ function WorkspaceFileTableInner({
       <div className="wft-end">{endLabel}</div>
 
       {state.status === "ok" && state.cursor && (
-        <button type="button" className="wft-loadmore text-btn" onClick={() => void loadMore()}>
+        <button
+          type="button"
+          className="wft-loadmore text-btn mt-2.5"
+          onClick={() => void loadMore()}
+        >
           Load more
         </button>
       )}

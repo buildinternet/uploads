@@ -131,22 +131,33 @@ export function FileBrowser({
   // instead of collapsing it — the reserved-height viewport does the rest.
   const isBusyOverlay = isLoading && hasContent;
 
+  const crumbBtn =
+    "font-[var(--mono)] text-[length:var(--text-meta)] leading-[var(--leading-tight)] text-muted-foreground border border-transparent rounded-[var(--radius-sm)] px-1.5 py-1 bg-none cursor-pointer hover:text-accent hover:border-line focus-visible:text-accent focus-visible:border-line focus-visible:outline-none";
+
   return (
-    <div className="ul-files">
-      <nav className="ul-files__crumbs" aria-label="Current folder">
+    <div className="ul-files grid gap-[7px]">
+      <nav
+        className="ul-files__crumbs flex min-w-0 items-center gap-[3px]"
+        aria-label="Current folder"
+      >
         <button
           type="button"
+          className={crumbBtn}
           onClick={() => navigate("")}
           aria-label="File root"
           aria-current={prefix === "" ? "location" : undefined}
         >
-          <Home aria-hidden="true" />
+          <Home className="h-[13px] w-[13px] flex-none" aria-hidden="true" />
         </button>
         {crumbsOf(prefix, delimiter).map((crumb, index, crumbs) => (
           <Fragment key={crumb.prefix}>
-            <ChevronRight className="ul-files__chevron" aria-hidden="true" />
+            <ChevronRight
+              className="ul-files__chevron h-[13px] w-[13px] flex-none"
+              aria-hidden="true"
+            />
             <button
               type="button"
+              className={crumbBtn}
               onClick={() => navigate(crumb.prefix)}
               aria-current={index === crumbs.length - 1 ? "location" : undefined}
             >
@@ -155,34 +166,46 @@ export function FileBrowser({
           </Fragment>
         ))}
       </nav>
-      <div className="ul-files__viewport" data-busy={isBusyOverlay ? "" : undefined}>
-        <ul className="ul-files__list">
+      <div
+        className="ul-files__viewport group relative min-h-[var(--ul-files-min-height,116px)]"
+        data-busy={isBusyOverlay ? "" : undefined}
+      >
+        <ul className="ul-files__list m-0 grid gap-0 p-0 [&>li]:m-0 [&>li]:border-0 [&>li]:border-b [&>li]:border-line [&>li]:bg-none [&>li]:p-0 [&>li:last-child]:border-b-0 group-data-[busy]:pointer-events-none group-data-[busy]:opacity-45">
           {folders.map((folder) => (
             <li key={folder}>
-              <button className="ul-files__row" onClick={() => navigate(folder)} type="button">
-                <span className="ul-files__icon">
+              <button
+                className="ul-files__row flex w-full cursor-pointer items-center gap-[9px] rounded-[var(--radius-sm)] border-0 bg-none px-2 py-[7px] text-left font-[var(--mono)] text-[length:var(--text-meta)] leading-[var(--leading-tight)] text-fg hover:bg-accent/12 hover:text-accent focus-visible:bg-accent/12 focus-visible:text-accent focus-visible:outline-none"
+                onClick={() => navigate(folder)}
+                type="button"
+              >
+                <span className="ul-files__icon grid h-[27px] w-[27px] flex-none place-items-center rounded-[var(--radius-sm)] bg-panel text-muted-foreground [&>svg]:h-3.5 [&>svg]:w-3.5">
                   <Folder aria-hidden="true" />
                 </span>
-                <span className="ul-files__name">{childName(folder, prefix, delimiter)}</span>
-                <ChevronRight className="ul-files__chevron" aria-hidden="true" />
+                <span className="ul-files__name grid min-w-0 flex-1 overflow-hidden [&>span]:overflow-hidden [&>span]:text-ellipsis [&>span]:whitespace-nowrap">
+                  {childName(folder, prefix, delimiter)}
+                </span>
+                <ChevronRight
+                  className="ul-files__chevron h-[13px] w-[13px] flex-none"
+                  aria-hidden="true"
+                />
               </button>
             </li>
           ))}
           {items.map((item) => (
             <li key={item.key}>
-              <div className="ul-files__row-wrap">
+              <div className="ul-files__row-wrap flex items-center gap-1">
                 <button
-                  className="ul-files__row"
+                  className="ul-files__row flex min-w-0 flex-1 cursor-pointer items-center gap-[9px] rounded-[var(--radius-sm)] border-0 bg-none px-2 py-[7px] text-left font-[var(--mono)] text-[length:var(--text-meta)] leading-[var(--leading-tight)] text-fg hover:bg-accent/12 hover:text-accent focus-visible:bg-accent/12 focus-visible:text-accent focus-visible:outline-none disabled:cursor-default"
                   disabled={!onSelect}
                   onClick={() => onSelect?.(item)}
                   type="button"
                 >
-                  <span className="ul-files__icon">
+                  <span className="ul-files__icon grid h-[27px] w-[27px] flex-none place-items-center rounded-[var(--radius-sm)] bg-panel text-muted-foreground [&>svg]:h-3.5 [&>svg]:w-3.5">
                     <File aria-hidden="true" />
                   </span>
-                  <span className="ul-files__name">
+                  <span className="ul-files__name grid min-w-0 flex-1 overflow-hidden [&>span]:overflow-hidden [&>span]:text-ellipsis [&>span]:whitespace-nowrap">
                     <span>{childName(item.key, prefix, delimiter) || item.key}</span>
-                    <small>
+                    <small className="font-[var(--mono)] text-[length:var(--text-micro)] leading-none text-muted-foreground [font-variant-numeric:tabular-nums]">
                       {formatBytes(item.size)} · {item.type || "unknown"}
                     </small>
                   </span>
@@ -198,24 +221,39 @@ export function FileBrowser({
           ))}
         </ul>
         {isBusyOverlay ? (
-          <div className="ul-files__busy" aria-hidden="true">
-            <LoaderCircle className="ul-files__spin" />
+          <div
+            className="ul-files__busy pointer-events-none absolute top-1 right-1 text-muted-foreground [&>svg]:h-[15px] [&>svg]:w-[15px]"
+            aria-hidden="true"
+          >
+            <LoaderCircle className="ul-files__spin animate-spin motion-reduce:animate-none" />
           </div>
         ) : null}
         {isLoading && !hasContent ? (
-          <div className="ul-files__state">
-            <LoaderCircle className="ul-files__spin" aria-hidden="true" /> Loading…
+          <div className="ul-files__state absolute inset-0 flex items-center justify-center gap-[7px] p-3 font-[var(--sans)] text-[length:var(--text-meta)] leading-[var(--leading-ui)] text-muted-foreground [&>svg]:h-3.5 [&>svg]:w-3.5">
+            <LoaderCircle
+              className="ul-files__spin animate-spin motion-reduce:animate-none"
+              aria-hidden="true"
+            />{" "}
+            Loading…
           </div>
         ) : null}
-        {hasError ? <div className="ul-files__state">Files unavailable.</div> : null}
+        {hasError ? (
+          <div className="ul-files__state absolute inset-0 flex items-center justify-center gap-[7px] p-3 font-[var(--sans)] text-[length:var(--text-meta)] leading-[var(--leading-ui)] text-muted-foreground">
+            Files unavailable.
+          </div>
+        ) : null}
         {isEmpty ? (
-          <div className="ul-files__state">
+          <div className="ul-files__state absolute inset-0 flex items-center justify-center gap-[7px] p-3 font-[var(--sans)] text-[length:var(--text-meta)] leading-[var(--leading-ui)] text-muted-foreground [&>svg]:h-3.5 [&>svg]:w-3.5">
             <Folder aria-hidden="true" /> This folder is empty.
           </div>
         ) : null}
       </div>
       {cursor && !isLoading ? (
-        <button className="ul-files__more" onClick={() => void load(cursor)} type="button">
+        <button
+          className={crumbBtn + " ul-files__more"}
+          onClick={() => void load(cursor)}
+          type="button"
+        >
           Load more
         </button>
       ) : null}

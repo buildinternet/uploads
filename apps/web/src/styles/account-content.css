@@ -1009,15 +1009,6 @@ section.card .ws-messages .command {
    Grid view is a separate card layout (`.wft-cards`); layout is ?view= +
    soft localStorage fallback (see workspace-files-view.ts). */
 
-.wft {
-  display: grid;
-  gap: 0;
-}
-.wft-status {
-  color: var(--muted);
-  font-size: var(--text-meta);
-  margin: 0;
-}
 /* Workspace-info "unavailable" state — error text + a retry affordance. */
 .wft-status-block {
   display: grid;
@@ -1137,13 +1128,6 @@ section.card .ws-messages .command {
 }
 
 /* List / grid layout toggle — sits after the file count in the section head. */
-.wft-view {
-  display: inline-flex;
-  flex: none;
-  border: 1px solid var(--line);
-  border-radius: 2px;
-  overflow: hidden;
-}
 .wft-view__btn {
   display: grid;
   place-items: center;
@@ -1174,69 +1158,6 @@ section.card .ws-messages .command {
   background: color-mix(in srgb, var(--accent) 16%, transparent);
 }
 
-.wft-chips {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin-top: 12px;
-}
-.wft-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  border: 1px solid var(--line);
-  border-radius: 2px;
-  background: var(--panel);
-  padding: 4px 5px 4px 9px;
-  font-size: var(--text-micro);
-}
-.wft-chip__icon {
-  width: 12px;
-  height: 12px;
-  color: var(--muted);
-  flex: none;
-}
-.wft-chip__key,
-.wft-chip__eq {
-  color: var(--muted);
-}
-.wft-chip__value {
-  color: var(--fg);
-}
-.wft-chip__remove {
-  font: var(--text-micro) var(--sans);
-  color: var(--muted);
-  background: none;
-  border: 0;
-  padding: 0 4px;
-  cursor: pointer;
-  line-height: 1;
-}
-.wft-chip__remove:hover,
-.wft-chip__remove:focus-visible {
-  color: var(--red);
-  outline: none;
-}
-.wft-clearall {
-  color: var(--muted);
-  font-size: var(--text-micro);
-}
-.wft-clearall button {
-  color: var(--muted);
-  background: none;
-  border: 0;
-  padding: 0;
-  font: inherit;
-  cursor: pointer;
-  text-decoration: underline;
-}
-.wft-clearall button:hover,
-.wft-clearall button:focus-visible {
-  color: var(--accent);
-  outline: none;
-}
-
 .wft-crumbs {
   display: flex;
   align-items: center;
@@ -1264,48 +1185,6 @@ section.card .ws-messages .command {
 .wft-crumbs__current {
   color: var(--fg);
   padding: 2px 4px;
-}
-
-.wft-banner {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-top: 12px;
-  padding: 10px 14px;
-  border: 1px solid var(--line);
-  border-radius: 2px;
-  background: var(--panel);
-}
-.wft-banner__icon {
-  width: 15px;
-  height: 15px;
-  color: var(--fg);
-  flex: none;
-}
-.wft-banner__ref {
-  font-size: var(--text-meta);
-  color: var(--fg);
-  font-weight: var(--weight-semibold);
-  text-decoration: none;
-}
-.wft-banner__ref:hover,
-.wft-banner__ref:focus-visible {
-  color: var(--accent);
-  outline: none;
-}
-.wft-banner__spacer {
-  flex: 1;
-}
-.wft-banner__open {
-  flex: none;
-  font-size: var(--text-micro);
-  color: var(--muted);
-  text-decoration: none;
-}
-.wft-banner__open:hover,
-.wft-banner__open:focus-visible {
-  color: var(--accent);
-  outline: none;
 }
 
 /* Shell width + content clamp for the account 3-column layout live in
@@ -1355,50 +1234,6 @@ button.wft-row {
   gap: 10px;
   min-width: 0;
 }
-/* Renders as <a> when the file's destination is known at render time, else as
-   a <button> for the signed-URL fallback — reset both chromes. */
-.wft-name--btn {
-  background: none;
-  border: 0;
-  padding: 0;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  text-decoration: none;
-  cursor: pointer;
-  width: 100%;
-}
-.wft-thumb {
-  width: 26px;
-  height: 26px;
-  border-radius: 2px;
-  border: 1px solid var(--line);
-  flex: none;
-  overflow: hidden;
-  background-size: cover;
-  background-position: center;
-}
-.wft-thumb__img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-.wft-thumb--tile {
-  display: grid;
-  place-items: center;
-  color: var(--muted);
-  background: var(--panel);
-}
-.wft-thumb--tile svg {
-  width: 11px;
-  height: 11px;
-}
-.wft-filename {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .wft-size {
   text-align: right;
   color: var(--muted);
@@ -1411,253 +1246,18 @@ button.wft-row {
   align-items: center;
   gap: 6px;
 }
-.wft-vis--private {
-  color: var(--muted);
-}
-.wft-vis--public {
-  color: var(--fg);
-}
-.wft-vis__icon {
-  width: 12px;
-  height: 12px;
-  flex: none;
-}
-.wft-vis__dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 99px;
-  background: var(--green);
-  flex: none;
-}
-.wft-menu {
-  position: relative;
-  justify-self: end;
-}
-.wft-menu__trigger {
-  font: var(--weight-medium) var(--text-meta) / 1 var(--sans);
-  color: var(--muted);
-  background: none;
-  border: 1px solid transparent;
-  border-radius: 2px;
-  padding: 1px 7px 3px;
-  cursor: pointer;
-  line-height: 1.2;
-}
-.wft-menu__trigger:hover,
-.wft-menu__trigger:focus-visible {
-  color: var(--fg);
-  border-color: var(--line);
-  outline: none;
-}
-.wft-menu__popover {
-  position: absolute;
-  top: calc(100% + 4px);
-  right: 0;
-  z-index: 30;
-  min-width: 170px;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 2px;
-  box-shadow: 0 12px 32px color-mix(in srgb, var(--line) 85%, transparent);
-  padding: 4px;
-  display: grid;
-  gap: 1px;
-}
-.wft-menu__item {
-  display: block;
-  width: 100%;
-  text-align: left;
-  font: var(--text-micro) var(--sans);
-  color: var(--fg);
-  background: none;
-  border: 0;
-  border-radius: 2px;
-  padding: 7px 9px;
-  cursor: pointer;
-}
-.wft-menu__item:hover,
-.wft-menu__item:focus-visible {
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-  color: var(--accent);
-  outline: none;
-}
-.wft-menu__item:disabled {
-  opacity: 0.55;
-  cursor: default;
-}
-.wft-menu__item--danger {
-  color: var(--red);
-}
-.wft-confirm {
-  width: 220px;
-  padding: 10px;
-}
-.wft-confirm__text {
-  margin: 0 0 8px;
-  font-size: var(--text-micro);
-  line-height: 1.5;
-  color: var(--body);
-  overflow-wrap: anywhere;
-}
-.wft-confirm__armed {
-  color: #fff;
-  background: var(--red);
-  border-radius: 6px;
-  text-align: center;
-}
 .wft-end {
   border-top: 1px solid var(--line);
   padding: 9px 2px;
   color: var(--muted);
   font-size: var(--text-micro);
 }
-.wft-loadmore {
-  margin-top: 10px;
-}
 
-/* Grid (card) layout — larger thumbs; folders are one full-card button. */
-.wft-cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
-  gap: 12px;
-  margin-top: 12px;
-}
-.wft-card {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-lg, 10px);
-  overflow: hidden;
-  transition: border-color 0.12s ease;
-}
-.wft-card:hover,
-.wft-card:focus-within {
-  border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
-}
-button.wft-card {
-  width: 100%;
-  padding: 0;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-button.wft-card:hover,
-button.wft-card:focus-visible {
-  border-color: var(--accent);
-  outline: none;
-}
-.wft-card__media {
-  display: block;
-  width: 100%;
-  aspect-ratio: 16 / 10;
-  padding: 0;
-  border: 0;
-  border-bottom: 1px solid var(--line);
-  background: var(--bg);
-  cursor: pointer;
-  color: inherit;
-  text-decoration: none;
-  overflow: hidden;
-}
-.wft-card__media:focus-visible {
-  outline: none;
-  box-shadow: inset 0 0 0 1px var(--accent);
-}
-.wft-card__img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  background-size: cover;
-  background-position: center;
-}
-.wft-card__placeholder {
-  display: grid;
-  place-items: center;
-  width: 100%;
-  height: 100%;
-  color: var(--muted);
-}
-.wft-card__placeholder svg {
-  width: 22px;
-  height: 22px;
-}
-.wft-card__ext {
-  font: var(--text-micro) var(--mono);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--muted);
-}
-.wft-card__body {
-  display: grid;
-  gap: 6px;
-  padding: 10px 11px 12px;
-  min-width: 0;
-}
-.wft-card__title {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  min-width: 0;
-}
-.wft-card__name {
-  min-width: 0;
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font: var(--text-meta) var(--mono);
-  color: var(--fg);
-  background: none;
-  border: 0;
-  padding: 0;
-  text-align: left;
-  text-decoration: none;
-  cursor: pointer;
-}
-/* Interactive only on file cards — a folder card's name is a plain span
-   inside the card button, and must not pick up the accent hover. */
-a.wft-card__name:hover,
-a.wft-card__name:focus-visible,
-button.wft-card__name:hover,
-button.wft-card__name:focus-visible {
-  color: var(--accent);
-  outline: none;
-}
-.wft-card--folder .wft-card__name {
-  cursor: inherit;
-}
-.wft-card__meta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  font: var(--text-micro) var(--mono);
-  color: var(--muted);
-}
-.wft-card__meta > span:first-child {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;
-}
-.wft-card__spacer {
-  flex: 1 1 auto;
-}
-.wft-card .wft-menu {
-  flex: none;
-}
+/* Card (grid) layout for the files table is now Tailwind utilities in
+   WorkspaceFileTable.tsx — this override on the shared `.wft-vis` badge is
+   the only CSS the card context still needs. */
 .wft-card .wft-vis {
   font-size: var(--text-micro);
-}
-
-@media (max-width: 560px) {
-  .wft-cards {
-    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-    gap: 10px;
-  }
 }
 
 /* --bp-file-grid: the five fixed columns (64/64/92/32 + gaps) leave the name
