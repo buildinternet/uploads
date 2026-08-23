@@ -200,6 +200,11 @@ export function renderPlanCardsGridHtml(
     planSource: billing.planSource,
   });
 
+  const cardClass =
+    "plan-card flex flex-col gap-2 rounded-[10px] border border-border p-4 data-[current=true]:border-foreground";
+  const ctaClass =
+    "plan-card__cta mt-auto self-start rounded-md border border-border bg-card px-3 py-1.5 text-xs tracking-wide text-primary hover:border-primary focus-visible:border-primary focus-visible:outline-none disabled:cursor-default disabled:opacity-60";
+
   return cardPlans
     .map((plan) => {
       const isCurrent = plan.id === currentPlanId;
@@ -210,16 +215,16 @@ export function renderPlanCardsGridHtml(
       if (!isCurrent && plan.id === "pro") {
         footer =
           cta.kind === "unavailable"
-            ? `<button type="button" class="plan-card__cta" disabled>Coming soon</button>`
-            : `<button type="button" class="plan-card__cta" data-cta="upgrade" data-plan="pro">Upgrade to Pro</button>`;
+            ? `<button type="button" class="${ctaClass}" disabled>Coming soon</button>`
+            : `<button type="button" class="${ctaClass}" data-cta="upgrade" data-plan="pro">Upgrade to Pro</button>`;
       }
       return `
-              <div class="plan-card${isCurrent ? " is-current" : ""}" data-plan="${plan.id}">
-                ${isCurrent ? `<span class="plan-card__badge">Current plan</span>` : ""}
-                <p class="plan-card__name">${escapeHtml(plan.name)}</p>
-                ${priceLine ? `<p class="plan-card__price">${escapeHtml(priceLine)}</p>` : ""}
-                <p class="muted plan-card__blurb">${escapeHtml(plan.blurb)}</p>
-                <ul class="plan-card__limits muted">${planCardLimitRows(plan)}</ul>
+              <div class="${cardClass}" data-plan="${plan.id}" data-current="${isCurrent}">
+                ${isCurrent ? `<span class="plan-card__badge self-start rounded-full bg-foreground px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-background">Current plan</span>` : ""}
+                <p class="plan-card__name m-0 text-sm font-semibold">${escapeHtml(plan.name)}</p>
+                ${priceLine ? `<p class="plan-card__price m-0 text-xs text-muted-foreground">${escapeHtml(priceLine)}</p>` : ""}
+                <p class="muted plan-card__blurb m-0 text-xs">${escapeHtml(plan.blurb)}</p>
+                <ul class="plan-card__limits muted mt-1 grid list-none gap-1 p-0 text-[11px]">${planCardLimitRows(plan)}</ul>
                 ${footer}
               </div>`;
     })
