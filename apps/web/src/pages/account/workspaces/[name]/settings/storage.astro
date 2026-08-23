@@ -577,6 +577,8 @@ if (!workspace) return Astro.redirect("/account/workspaces");
 
       let wizardMode: "connect" | "rotate" = "connect";
       let lastVerify: StorageVerifyResult | null = null;
+      /** Last status rendered — what a cancelled wizard restores the page to. */
+      let lastStatus: WorkspaceStorageStatus | null = null;
       /** The standby lane currently offered by the "Use this bucket" card, if any. */
       let savedLaneId: string | null = null;
       /** The demoted shared (binding-mode) fallback lane "Switch back" targets, if one has been recorded yet. */
@@ -785,6 +787,12 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         resetWizardForm();
         showStorageError(null);
         storageWizard.hidden = false;
+        // One state at a time (#788): while the wizard is open it IS the
+        // page — the lane cards hide so their buttons (Use this bucket,
+        // Switch back…) can't fire mid-edit. `closeWizard` restores whichever
+        // card the last-loaded status calls for.
+        storageSharedEl.hidden = true;
+        storageByoEl.hidden = true;
         // The summary card is the collapsed stand-in for these same three
         // steps — once the wizard is open it would just say them twice.
         storageSummary.hidden = true;
@@ -803,10 +811,17 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         }
       }
 
-      function closeWizard(): void {
+      /** Hides the wizard chrome without re-rendering the cards — `applyStatus` calls this before it repaints from a fresh status. */
+      function hideWizard(): void {
         storageWizard.hidden = true;
         storageSummary.hidden = false;
         resetWizardForm();
+      }
+
+      /** The user-cancel path: close the wizard and restore the view the last-loaded status calls for (the wizard hid the lane cards on open). */
+      function closeWizard(): void {
+        hideWizard();
+        if (lastStatus) applyStatus(lastStatus);
       }
 
       function collectCandidate(): StorageCandidate {
@@ -929,7 +944,6 @@ if (!workspace) return Astro.redirect("/account/workspaces");
             // becomes available to switch to (spec: "Configure, then
             // switch"). The lane card appearing IS the confirmation — no
             // extra "Saved." status line lingering as page furniture (#788).
-            closeWizard();
             applyStatus(result.status);
             return;
           }
@@ -1045,12 +1059,13 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         }
         // A slow activation can outlive the request timeout while still
         // committing server-side (#788's "couldn't switch" ghost) — before
-        // reporting failure, re-check: `lanes` only lists non-active lanes,
-        // so if the target id is gone from it, it was promoted and the
-        // switch actually worked.
+        // reporting failure, re-check whether the target lane is now the
+        // ACTIVE lane. (Mere absence from `lanes` isn't proof: a stale id —
+        // already promoted, or removed by another tab — 404s into this same
+        // branch and would also be absent.)
         const recheck = await getWorkspaceStorageStatus(apiOrigin, workspaceName);
         if (!stillHere()) return;
-        if (recheck.kind === "ok" && !recheck.status.lanes.some((lane) => lane.laneId === laneId)) {
+        if (recheck.kind === "ok" && recheck.status.activeLaneId === laneId) {
           applyStatus(recheck.status);
           const confirmEl =
             recheck.status.mode === "byo" ? storageActionStatus : storageSavedActionStatus;
@@ -1149,7 +1164,8 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       });
 
       function applyStatus(status: WorkspaceStorageStatus): void {
-        closeWizard();
+        lastStatus = status;
+        hideWizard();
         storageActionStatus.textContent = "";
         storageActionStatus.removeAttribute("data-state");
         storageSavedConfirm.hidden = true;
