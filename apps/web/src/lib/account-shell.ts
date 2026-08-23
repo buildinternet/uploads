@@ -17,7 +17,7 @@ import {
   type SessionResponse,
   type SessionUser,
 } from "./auth-client";
-import { markPageLoad } from "./page-visit";
+import { getPageVisit, isCurrentPageVisit, markPageLoad } from "./page-visit";
 import { loginHref } from "./signed-in-page";
 import { clearWorkspaceSnapshots } from "./workspace-cache";
 
@@ -155,7 +155,52 @@ export type SessionGateOptions = {
   who?: HTMLElement | null;
   /** When set, only accept sessions with this `user.role` (e.g. `"admin"`). */
   requireRole?: string;
+  /** Test seam: background-retry delays after an "unavailable" revalidation. */
+  retryDelaysMs?: number[];
 };
+
+/**
+ * Background revalidation retries after "auth unavailable" with a cached
+ * identity (2026-08-23 D1 stall incident): auth outages come in ~10s windows,
+ * so a shell kept visible usually revalidates successfully on the next try.
+ * Spread wider than a stall window; give up quietly after the last one — the
+ * next navigation re-gates anyway.
+ */
+const UNAVAILABLE_RETRY_DELAYS_MS = [10_000, 30_000, 60_000];
+
+function retryGateInBackground(options: SessionGateOptions): void {
+  const visit = getPageVisit();
+  const delays = options.retryDelaysMs ?? UNAVAILABLE_RETRY_DELAYS_MS;
+  let attempt = 0;
+  const tick = (): void => {
+    if (attempt >= delays.length) return;
+    const delay = delays[attempt++];
+    setTimeout(() => {
+      if (!isCurrentPageVisit(visit)) return;
+      void getSession(options.authOrigin).then((result) => {
+        if (!isCurrentPageVisit(visit)) return;
+        if (result.kind === "unavailable") {
+          tick();
+          return;
+        }
+        if (result.kind === "signed_out") {
+          clearCachedSessionUser();
+          redirectToSignIn();
+          return;
+        }
+        if (options.requireRole && result.session.user.role !== options.requireRole) {
+          clearCachedSessionUser();
+          showDenied(options);
+          return;
+        }
+        writeCachedSessionUser(result.session.user);
+        showApp(result.session.user, options);
+        publishSession(result.session.user, true);
+      });
+    }, delay);
+  };
+  tick();
+}
 
 /**
  * Toggle checking / denied / app shells from the session.
@@ -186,6 +231,19 @@ export async function resolveSessionGate(
   }
 
   if (result.kind === "unavailable") {
+    // An auth outage is not a sign-out. With a known identity the shell is
+    // already painted (cache or SSR seed) — keep it up and revalidate in the
+    // background instead of blanking the whole app; per-request auth is still
+    // enforced server-side on every API call. Only a visit with no identity
+    // at all gets the blocking "try again" screen.
+    if (cached) {
+      // Re-assert the shell state: showApp(cached) ran before the network
+      // check, but make the outage panel's hidden state explicit here too.
+      showApp(cached, options);
+      options.unavailable.hidden = true;
+      retryGateInBackground(options);
+      return null;
+    }
     showUnavailable(options);
     return null;
   }
