@@ -1,9 +1,7 @@
 /**
- * Workspace switcher + section links in the account sidebar.
- *
- * Section heading = current workspace (dropdown of memberships + "+ new
- * workspace"). When a workspace is active, files / galleries / people /
- * settings sit as flat rows underneath.
+ * Workspace nav data for the signed-in shell: tab definitions, pathname
+ * parsing, and the membership caches behind the sidebar's workspace switcher
+ * (rendered by the `ShellSidebar` island via `shell-sidebar-data.ts`).
  *
  * Memberships live in sessionStorage (instant paint, revalidated after
  * session). Last-used workspace lives in localStorage so it survives
@@ -16,10 +14,7 @@ import {
   type WorkspaceCreateQuota,
   type WorkspacesResult,
 } from "./api-client";
-import { onSession } from "./account-shell";
 import { isBrowseWorkspace, workspaceFromPathname } from "./workspace-browse-url";
-import { shouldShowProBadge } from "./plan-badge";
-import { escapeHtml } from "./workspace-ui";
 
 /** Storage keys — UX only; membership is still enforced server-side. */
 export const WORKSPACES_CACHE_KEY = "uploads:myWorkspaces";
@@ -66,13 +61,6 @@ export function workspacePath(
 export function workspaceOpenTab(to: string | null | undefined): "files" | "screenshots" {
   return to === "files" ? "files" : "screenshots";
 }
-
-export type WorkspacesNavOptions = {
-  active?: string;
-  activeTab?: WorkspaceNavTab | "";
-  /** Creation quota; absent means allowed (see `parseWorkspaceCreateQuota`). */
-  quota?: WorkspaceCreateQuota;
-};
 
 /**
  * The workspace index normally auto-opens a workspace. This param is how a
@@ -262,10 +250,6 @@ export function resolveSidebarWorkspace(pathname: string, bootGlobal = ""): stri
   return isBrowseWorkspace(fallback) ? fallback : "";
 }
 
-function displayName(ws: MyWorkspace): string {
-  return ws.organization.name || ws.workspace;
-}
-
 /**
  * Active workspace tab from `/account/workspaces/:name[/*]`.
  * Empty on the index, create page, or unrelated routes. `settings` is the one
@@ -295,7 +279,7 @@ export type WorkspaceSettingsSubpage = "comment" | "storage";
 
 /**
  * Which settings sub-page is active, for the sidebar's nested sub-nav
- * (`AccountLayout`'s workspace section). `""` off the settings routes
+ * (`shell-sidebar-data.ts`'s workspace section). `""` off the settings routes
  * entirely — callers only render the sub-nav when this is non-empty.
  */
 export function workspaceSettingsSubpageFromPathname(
@@ -316,226 +300,4 @@ export function workspaceSettingsSubpageFromPathname(
 function tabPathSuffix(tab: WorkspaceNavTab | ""): string {
   if (!tab) return "/screenshots";
   return WORKSPACE_NAV_TABS.find((t) => t.id === tab)?.path ?? "/screenshots";
-}
-
-/** Switcher dropdown HTML. Rows preserve `activeTab` so switching workspaces
- * lands on the same section instead of resetting to screenshots. */
-export function renderSwitcherMenuHtml(
-  workspaces: MyWorkspace[],
-  options: WorkspacesNavOptions = {},
-): string {
-  const active = options.active ?? "";
-  const activeTab = options.activeTab || "";
-  const rows = workspaces
-    .map((ws) => {
-      const href = workspacePath(ws.workspace, activeTab);
-      const current = active === ws.workspace;
-      const cls = current ? "ws-switcher__item is-current" : "ws-switcher__item";
-      const aria = current ? ' aria-current="true"' : "";
-      const badge = shouldShowProBadge(ws.plan) ? ` <span class="pro-badge">Pro</span>` : "";
-      return `<a href="${escapeHtml(href)}" class="${cls}"${aria}>${escapeHtml(displayName(ws))}${badge}</a>`;
-    })
-    .join("");
-
-  // One trailing row, never both: the fast path to creating while the user
-  // has an allowance left, and once they're at the cap a link to the index
-  // — which carries the explanation — instead of an offer that would be
-  // refused. Absent quota keeps the create row (fail open).
-  const trailer = canCreateWorkspace(options.quota)
-    ? `<a href="/account/workspaces/new" class="ws-switcher__item ws-switcher__item--new">+ new workspace</a>`
-    : `<a href="${MANAGE_WORKSPACES_HREF}" class="ws-switcher__item ws-switcher__item--manage">manage workspaces</a>`;
-
-  return rows + (rows ? `<div class="ws-switcher__sep"></div>` : "") + trailer;
-}
-
-/**
- * Nested sub-links shown under the "settings" tab once it's active — one
- * source of markup shared by `AccountLayout.astro`'s server render and this
- * module's client-side `paint()`, so the two can't drift apart. Empty when
- * `subpage` is `""` (not on a settings route).
- */
-export function renderSettingsSubnavHtml(
-  workspace: string,
-  subpage: WorkspaceSettingsSubpage | "",
-): string {
-  if (!subpage) return "";
-  const base = `/account/workspaces/${encodeURIComponent(workspace)}/settings`;
-  const links: { href: string; label: string; current: boolean }[] = [
-    { href: base, label: "github comment", current: subpage === "comment" },
-    { href: `${base}/storage`, label: "storage", current: subpage === "storage" },
-  ];
-  return `<div class="ws-settings-subnav">${links
-    .map(
-      (link) =>
-        `<a href="${escapeHtml(link.href)}" class="ws-settings-subnav__link"${
-          link.current ? ' aria-current="page"' : ""
-        }>${escapeHtml(link.label)}</a>`,
-    )
-    .join("")}</div>`;
-}
-
-/** Section links under the switcher. Empty when no workspace is active. */
-export function renderWorkspaceSectionNavHtml(
-  workspace: string,
-  activeTab: WorkspaceNavTab | "" = "",
-  settingsSubpage: WorkspaceSettingsSubpage | "" = "",
-): string {
-  if (!workspace) return "";
-  return WORKSPACE_NAV_TABS.map((tab) => {
-    const href = workspacePath(workspace, tab.id);
-    const current = activeTab === tab.id ? ' aria-current="page"' : "";
-    const link = `<a href="${escapeHtml(href)}" class="side-link"${current}>${escapeHtml(tab.label)}</a>`;
-    const subnav =
-      tab.id === "settings" ? renderSettingsSubnavHtml(workspace, settingsSubpage) : "";
-    return link + subnav;
-  }).join("");
-}
-
-/** Label on the switcher trigger. */
-export function switcherLabel(workspaces: MyWorkspace[], active: string): string {
-  if (!active) return "workspaces";
-  const match = workspaces.find((ws) => ws.workspace === active);
-  return match ? displayName(match) : active;
-}
-
-/** Whether the collapsed switcher trigger should show a Pro badge next to
- * the active workspace name — same rule as the menu row (shouldShowProBadge),
- * just resolved against whichever workspace is currently active. */
-export function shouldShowTriggerBadge(workspaces: MyWorkspace[], active: string): boolean {
-  if (!active) return false;
-  const match = workspaces.find((ws) => ws.workspace === active);
-  return shouldShowProBadge(match?.plan);
-}
-
-type SwitcherEls = {
-  trigger: HTMLButtonElement;
-  label: HTMLElement;
-  menu: HTMLElement;
-  section: HTMLElement;
-};
-
-function closeMenu(els: SwitcherEls): void {
-  els.trigger.setAttribute("aria-expanded", "false");
-  els.menu.hidden = true;
-}
-
-/**
- * Paint (or remove) the trigger's Pro badge as a sibling element right after
- * `els.label` — never via innerHTML with the (untrusted) workspace name, so
- * the label stays a plain textContent write and the badge is its own node.
- * Re-entrant: repeated calls reuse the existing badge node rather than
- * creating a new one each paint.
- */
-function paintTriggerBadge(els: SwitcherEls, workspaces: MyWorkspace[], active: string): void {
-  const existing = els.trigger.querySelector<HTMLElement>("[data-ws-switcher-badge]");
-  if (!shouldShowTriggerBadge(workspaces, active)) {
-    existing?.remove();
-    return;
-  }
-  if (existing) return;
-  const badge = document.createElement("span");
-  badge.dataset.wsSwitcherBadge = "";
-  badge.className = "pro-badge";
-  badge.textContent = "Pro";
-  els.label.insertAdjacentElement("afterend", badge);
-}
-
-function paint(els: SwitcherEls, workspaces: MyWorkspace[], opts: WorkspacesNavOptions): void {
-  let active = opts.active ?? "";
-  // Drop a stale last-used slug if the user is no longer a member.
-  if (active && workspaces.length > 0 && !workspaces.some((ws) => ws.workspace === active)) {
-    clearCachedActiveWorkspace();
-    active = "";
-  }
-  // Empty on personal routes so no workspace tab is falsely current.
-  const activeTab = opts.activeTab || "";
-
-  els.label.textContent = switcherLabel(workspaces, active);
-  paintTriggerBadge(els, workspaces, active);
-  els.menu.innerHTML = renderSwitcherMenuHtml(workspaces, { active, activeTab, quota: opts.quota });
-
-  // The "workspace" eyebrow above the section nav tracks it 1:1. Toggled
-  // here (not via a `:has(+ …:not([hidden]))` rule in account-shell.css)
-  // because Chromium fails to re-resolve that selector when this function
-  // flips the sibling's `hidden` — the rule matches on paper and still
-  // computes `display: none`.
-  const sectionLabel = document.getElementById("workspace-section-label");
-  if (active) {
-    els.section.hidden = false;
-    const settingsSubpage =
-      activeTab === "settings" ? workspaceSettingsSubpageFromPathname(location.pathname) : "";
-    els.section.innerHTML = renderWorkspaceSectionNavHtml(active, activeTab, settingsSubpage);
-    if (sectionLabel) sectionLabel.hidden = false;
-  } else {
-    els.section.hidden = true;
-    els.section.innerHTML = "";
-    if (sectionLabel) sectionLabel.hidden = true;
-  }
-}
-
-function bindSwitcher(els: SwitcherEls): void {
-  if (els.trigger.dataset.bound === "1") return;
-  els.trigger.dataset.bound = "1";
-
-  els.trigger.addEventListener("click", (event) => {
-    event.stopPropagation();
-    const open = els.trigger.getAttribute("aria-expanded") === "true";
-    els.trigger.setAttribute("aria-expanded", open ? "false" : "true");
-    els.menu.hidden = open;
-  });
-
-  els.menu.addEventListener("click", (event) => {
-    if ((event.target as HTMLElement).closest("a")) closeMenu(els);
-  });
-
-  // One document listener for outside click + Escape (survives ClientRouter).
-  if (document.documentElement.dataset.wsSwitcherDocBound === "1") return;
-  document.documentElement.dataset.wsSwitcherDocBound = "1";
-
-  document.addEventListener("click", (event) => {
-    const root = document.getElementById("ws-switcher");
-    if (!root || root.contains(event.target as Node)) return;
-    const trigger = document.querySelector<HTMLButtonElement>("#ws-switcher-trigger");
-    const menu = document.querySelector<HTMLElement>("#ws-switcher-menu");
-    if (!trigger || !menu) return;
-    trigger.setAttribute("aria-expanded", "false");
-    menu.hidden = true;
-  });
-
-  document.addEventListener("keydown", (event) => {
-    if (event.key !== "Escape") return;
-    const trigger = document.querySelector<HTMLButtonElement>("#ws-switcher-trigger");
-    const menu = document.querySelector<HTMLElement>("#ws-switcher-menu");
-    if (!trigger || !menu || menu.hidden) return;
-    trigger.setAttribute("aria-expanded", "false");
-    menu.hidden = true;
-    trigger.focus();
-  });
-}
-
-/** Optimistic paint from cache, then revalidate after session. */
-export function initWorkspacesNav(apiOrigin: string, options: WorkspacesNavOptions = {}): void {
-  const trigger = document.querySelector<HTMLButtonElement>("#ws-switcher-trigger");
-  const label = document.querySelector<HTMLElement>("#ws-switcher-label");
-  const menu = document.querySelector<HTMLElement>("#ws-switcher-menu");
-  const section = document.querySelector<HTMLElement>("#workspace-section-nav");
-  if (!trigger || !label || !menu || !section) return;
-
-  const els: SwitcherEls = { trigger, label, menu, section };
-  bindSwitcher(els);
-
-  const opts: WorkspacesNavOptions = {
-    active: resolveSidebarWorkspace(location.pathname, options.active ?? ""),
-    activeTab: options.activeTab || workspaceTabFromPathname(location.pathname),
-    quota: options.quota ?? readCachedQuota(),
-  };
-
-  paint(els, readCachedWorkspaces() ?? [], opts);
-
-  onSession(() => {
-    void loadWorkspaces(apiOrigin).then((result) => {
-      if (result.kind !== "success") return;
-      paint(els, result.workspaces, { ...opts, quota: result.quota });
-    });
-  });
 }

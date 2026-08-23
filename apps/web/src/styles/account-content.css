@@ -614,6 +614,11 @@ section.card .ws-note {
   font-variant-numeric: tabular-nums;
   padding-left: 16px;
 }
+.ws-table th.actions,
+.ws-table td.actions {
+  text-align: right;
+  padding-left: 16px;
+}
 .ws-table tbody > tr > td {
   padding: 12px 12px 12px 0;
   border-bottom: 1px solid var(--line);

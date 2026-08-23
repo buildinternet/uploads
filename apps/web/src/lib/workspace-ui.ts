@@ -154,26 +154,42 @@ export function canManageMemberRow(member: MemberRow, opts: MemberRowOptions): b
   return true;
 }
 
-/**
- * People-tab member list. Name leads when set (email sub-line); manageable
- * rows get role `<select>` + remove. `[]` → `""`.
- */
-/** People-tab row chrome — shared by member and invite rows so both surfaces match exactly. */
-const MEMBER_ROW_CLASS =
-  "member-row flex items-baseline justify-between gap-3.5 border-t border-border px-0.5 py-2 text-sm first:border-t-0";
-const MEMBER_ROW_WHO_CLASS = "flex min-w-0 items-baseline gap-2.5";
-const MEMBER_ROW_NAME_CLASS = "truncate font-semibold";
-const MEMBER_ROW_ROLE_CLASS =
-  "shrink-0 rounded-md border border-transparent px-2.5 py-1 font-mono text-xs uppercase tracking-wider text-muted-foreground";
-const MEMBER_ROW_ACTIONS_CLASS = "flex items-center gap-2";
+/** People-tab role badge — the read-only counterpart of the role `<select>`. */
+const MEMBER_ROLE_BADGE_CLASS = "font-mono text-xs uppercase tracking-wider text-muted-foreground";
+/** Right-hand actions cluster inside the role cell. */
+const MEMBER_ROW_ACTIONS_CLASS = "inline-flex items-center gap-2";
 
+/**
+ * People table shell — same `.ws-table` chrome as the galleries tab, so the
+ * two workspace lists read as one surface. `rowsHtml` is `<tr>` rows from
+ * `renderMembersHtml`/`renderInvitesHtml` (concatenated: pending invites
+ * render in the same table). Callers paint the empty state themselves.
+ */
+export function renderPeopleTableHtml(rowsHtml: string): string {
+  return `<div class="ws-table-wrap">
+<table class="ws-table" aria-label="People">
+  <thead>
+    <tr>
+      <th scope="col">Name</th>
+      <th scope="col">Email</th>
+      <th scope="col" class="actions">Role</th>
+    </tr>
+  </thead>
+  <tbody>${rowsHtml}</tbody>
+</table>
+</div>`;
+}
+
+/**
+ * People-tab member rows (`<tr>`s for `renderPeopleTableHtml`). Manageable
+ * rows get role `<select>` + remove in the role cell. `[]` → `""`.
+ */
 export function renderMembersHtml(members: MemberRow[], opts: MemberRowOptions = {}): string {
   return members
     .map((m) => {
-      const lead = m.name || m.email;
-      const sub = m.name
-        ? `<span class="member-row__email truncate text-xs text-muted-foreground">${escapeHtml(m.email)}</span>`
-        : "";
+      const name = m.name
+        ? `<span class="member-row__name font-semibold text-foreground">${escapeHtml(m.name)}</span>`
+        : EMPTY_CELL;
       const controls = canManageMemberRow(m, opts)
         ? `<span class="${MEMBER_ROW_ACTIONS_CLASS}">` +
           `<select class="member-row__role-select ul-select ul-select--sm" style="width: auto" data-member-id="${escapeHtml(m.id!)}" aria-label="Role for ${escapeHtml(m.email)}">` +
@@ -182,35 +198,36 @@ export function renderMembersHtml(members: MemberRow[], opts: MemberRowOptions =
           `</select>` +
           `<button type="button" class="text-btn member-row__remove" data-member-id="${escapeHtml(m.id!)}" data-member-email="${escapeHtml(m.email)}">Remove</button>` +
           `</span>`
-        : `<span class="member-row__role ${MEMBER_ROW_ROLE_CLASS}">${escapeHtml(m.role)}</span>`;
-      return `<div class="${MEMBER_ROW_CLASS}"><span class="member-row__who ${MEMBER_ROW_WHO_CLASS}"><span class="member-row__name ${MEMBER_ROW_NAME_CLASS}">${escapeHtml(lead)}</span>${sub}</span>${controls}</div>`;
+        : `<span class="member-row__role ${MEMBER_ROLE_BADGE_CLASS}">${escapeHtml(m.role)}</span>`;
+      return `<tr class="member-row">
+  <td>${name}</td>
+  <td class="member-row__email">${escapeHtml(m.email)}</td>
+  <td class="actions">${controls}</td>
+</tr>`;
     })
     .join("");
 }
 
 /**
- * Member-list placeholder.
- *
- * Mirrors `renderMembersHtml`'s two-part row — `.member-row` is a flex with
- * `justify-content: space-between`, so a single child would collapse to one
- * column and the swap to real rows would visibly rearrange, not just repaint.
- * The nested `__name` and `__role` spans also carry the font sizes the row's
- * `align-items: baseline` height is derived from.
+ * Member-table placeholder — same table chrome as the real render, so the
+ * swap to real rows repaints without rearranging.
  */
 export function renderMembersPlaceholderHtml(rows = 2): string {
   const widths = ["124px", "96px"];
-  return Array.from(
+  const body = Array.from(
     { length: rows },
     (_, i) =>
-      `<div class="${MEMBER_ROW_CLASS}">` +
-      `<span class="member-row__who ${MEMBER_ROW_WHO_CLASS}"><span class="member-row__name ${MEMBER_ROW_NAME_CLASS}">${skeletonBarHtml(widths[i % widths.length])}</span></span>` +
-      `<span class="member-row__role ${MEMBER_ROW_ROLE_CLASS}">${skeletonBarHtml("42px")}</span>` +
-      `</div>`,
+      `<tr class="member-row">
+  <td>${skeletonBarHtml(widths[i % widths.length])}</td>
+  <td>${skeletonBarHtml("140px")}</td>
+  <td class="actions">${skeletonBarHtml("42px")}</td>
+</tr>`,
   ).join("");
+  return renderPeopleTableHtml(body);
 }
 
 /**
- * Pending invites as people-list rows (same `.member-row` surface as members).
+ * Pending invites as people-table rows (same `<tr>` surface as members).
  * Status badge + revoke. `[]` → `""` (caller omits the block).
  */
 export function renderInvitesHtml(
@@ -219,14 +236,11 @@ export function renderInvitesHtml(
   return invites
     .map((inv) => {
       const status = inv.status || "pending";
-      return (
-        `<div class="member-row member-row--pending ${MEMBER_ROW_CLASS}">` +
-        `<span class="member-row__who ${MEMBER_ROW_WHO_CLASS}"><span class="member-row__name truncate font-medium text-muted-foreground">${escapeHtml(inv.email)}</span></span>` +
-        `<span class="${MEMBER_ROW_ACTIONS_CLASS}">` +
-        `<span class="member-row__role member-row__role--pending shrink-0 rounded-md border border-transparent px-2.5 py-1 font-mono text-xs uppercase tracking-wider text-primary">${escapeHtml(status)}</span>` +
-        `<button type="button" class="text-btn invite-row__revoke" data-invite-id="${escapeHtml(inv.id)}" data-invite-email="${escapeHtml(inv.email)}">Revoke</button>` +
-        `</span></div>`
-      );
+      return `<tr class="member-row member-row--pending">
+  <td>${EMPTY_CELL}</td>
+  <td class="member-row__email text-muted-foreground">${escapeHtml(inv.email)}</td>
+  <td class="actions"><span class="${MEMBER_ROW_ACTIONS_CLASS}"><span class="member-row__role member-row__role--pending font-mono text-xs uppercase tracking-wider text-primary">${escapeHtml(status)}</span><button type="button" class="text-btn invite-row__revoke" data-invite-id="${escapeHtml(inv.id)}" data-invite-email="${escapeHtml(inv.email)}">Revoke</button></span></td>
+</tr>`;
     })
     .join("");
 }
