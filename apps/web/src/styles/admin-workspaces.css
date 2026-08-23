@@ -1,45 +1,10 @@
-/* Workspace expand-detail: plan, limits, GitHub, invite link. */
+/*
+ * Workspace expand-detail (admin/index.astro): only the bits that don't map
+ * to a static Tailwind utility survive here — colors driven by a JS-set
+ * `data-state` attribute. Layout (grids, flex rows, form field boxes) moved
+ * to Tailwind utility classes directly on the generated markup.
+ */
 
-.workspace .plan-availability,
-.workspace .plan-unapplied,
-.workspace .limit-usage {
-  margin: 0 0 10px;
-  font-size: var(--text-micro);
-  color: var(--muted);
-}
-.workspace .plan-form {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
-}
-.workspace .limit-value {
-  background: var(--bg);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  color: var(--fg);
-  padding: 4px 6px;
-  font: var(--text-micro) var(--mono);
-}
-/* .plan-select, .limit-unit, and .invite-role are styled by .ul-select
-   .ul-select--sm (markup in admin/index.astro) instead of bespoke box CSS.
-   All three need width: auto — .ul-select defaults to 100% for a stacked
-   field, but each of these sits in a flex row (.plan-form next to "Save
-   plan"; the invite-role <label> inside the flex-wrap .admin-inline-form)
-   or, for .limit-unit, reads clearer pinned to content width like the
-   sibling .limit-value input even though its 70px grid column would also
-   work with the 100% default. */
-.workspace .plan-select,
-.workspace .limit-unit,
-.workspace .invite-role {
-  width: auto;
-}
-.workspace .plan-status,
-.workspace .limit-status,
-.workspace .invite-status {
-  font-size: var(--text-micro);
-  width: 100%;
-}
 .workspace .plan-status[data-state="error"],
 .workspace .limit-status[data-state="error"],
 .workspace .invite-status[data-state="error"] {
@@ -51,79 +16,4 @@
 }
 .workspace .invite-status[data-state="ready"] {
   color: var(--accent);
-}
-.workspace .limits-form {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.workspace .limit-row {
-  display: grid;
-  grid-template-columns: 130px 1fr auto auto;
-  align-items: center;
-  gap: 8px;
-}
-.workspace .limit-row[data-byte] {
-  grid-template-columns: 130px 1fr 70px auto;
-}
-.workspace .limit-row > label:first-child {
-  font-size: var(--text-meta);
-  color: var(--body);
-}
-/* .limit-unit's disabled treatment now comes from .ul-select:disabled. */
-.workspace .limit-value:disabled {
-  opacity: 0.5;
-}
-.workspace .limit-unlimited {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: var(--text-micro);
-  white-space: nowrap;
-  color: var(--muted);
-}
-.workspace .limits-form button {
-  align-self: flex-start;
-  margin-top: 4px;
-}
-.workspace .github-links-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  gap: 4px;
-}
-.workspace .github-links-list li {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  font-size: var(--text-meta);
-}
-.workspace .github-links-list .repo {
-  font: var(--text-micro) var(--mono);
-  color: var(--fg);
-}
-.workspace .invite-link-row {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  flex-wrap: wrap;
-}
-.workspace .invite-link-url {
-  flex: 1;
-  min-width: 200px;
-  background: var(--bg);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  color: var(--fg);
-  padding: 7px 9px;
-  font: var(--text-micro) var(--mono);
-}
-
-@media (max-width: 560px) {
-  .workspace .limit-row,
-  .workspace .limit-row[data-byte] {
-    grid-template-columns: 1fr;
-    gap: 4px;
-  }
 }

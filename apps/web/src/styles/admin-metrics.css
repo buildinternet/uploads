@@ -1,124 +1,12 @@
 /*
- * Operator metrics surface (/admin/metrics). Follows the per-page CSS
- * convention used by admin-workspaces.css / admin-oauth.css — design-system
- * tokens only, no hard-coded colors, so light and dark both work.
- *
- * Token names verified against packages/ui/src/tokens.css and
- * apps/web/src/styles/admin.css: this repo has no "--space-", "--font-size-"
- * or "--color-" prefixed custom properties in active use anywhere under
- * apps/web/src, so spacing here matches admin.css's raw-px convention (its
- * numbers are all literal px, not a token scale) and colors read the real
- * tokens — var(--line), var(--fg), var(--body), var(--muted), var(--accent),
- * var(--panel), var(--bg), var(--sans), var(--radius-sm), var(--radius-md).
+ * Operator metrics surface (/admin/metrics). Tiles, section rhythm, table
+ * wraps, and the skeleton/loading-opacity states moved to Tailwind utility
+ * classes directly in metrics.astro. What's left is the inline SVG bar
+ * chart (`drawChart` in metrics.astro's script) — hover/focus interaction,
+ * a JS-positioned tooltip, and SVG fill/stroke that read more naturally as
+ * CSS than as long per-element `class` strings on hand-built SVG markup —
+ * plus `.ws-skel`, a duplicated-on-purpose primitive (see its own comment).
  */
-
-.metrics-tiles {
-  display: grid;
-  gap: 14px;
-  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
-  margin: 0;
-  padding: 0;
-}
-
-#metrics-tiles {
-  margin-bottom: 32px;
-}
-
-.metrics-tile {
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-  padding: 12px 14px;
-}
-
-.metrics-tile dt {
-  margin: 0;
-  color: var(--muted);
-  font: var(--text-micro) var(--sans);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
-.metrics-tile dd {
-  margin: 6px 0 0;
-  color: var(--fg);
-  font-size: var(--text-h3);
-  font-weight: var(--weight-semibold);
-  /* Tabular figures so the numbers don't jitter on refresh. */
-  font-variant-numeric: tabular-nums;
-}
-
-.metrics-range {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-/* .admin-btn is the shared admin button look; the pressed state here is
-   the same pattern as .wft-view__btn[aria-pressed="true"] in
-   account-content.css — a filled accent chip instead of an outline. */
-.metrics-range .admin-btn[aria-pressed="true"] {
-  color: var(--bg);
-  background: var(--accent);
-  border-color: var(--accent);
-}
-
-/* Vertical rhythm between sections: a hairline + generous top padding on
-   every section after the first, matching the .admin-subsection separator
-   idiom in admin.css (border-top + padding-top, not just a margin) so
-   headings read as clearly starting a new region rather than trailing off
-   the previous one. */
-.metrics-section + .metrics-section {
-  margin-top: 8px;
-  padding-top: 32px;
-  border-top: 1px solid var(--line);
-}
-
-.metrics-section h3 {
-  margin: 0 0 14px;
-  font-size: var(--text-micro);
-  font-weight: var(--weight-semibold);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--fg);
-}
-
-/*
- * Progressive loading (issue #586), following the three-tier pattern PR #526
- * shipped for /account: static chrome up front (the section heading and, for
- * tables, the `<thead>`, both now server-rendered), then a skeleton reserving
- * the real content's footprint until data lands.
- *
- * The chart containers (#chart-uploads / #chart-signups) fix `aspect-ratio`
- * to the SVG's own `viewBox` ratio (480 / 200, see the `drawChart` script)
- * so the box is the same size whether it holds the skeleton, the rendered
- * chart, or the "No data yet." empty state — swapping `innerHTML` never
- * changes the container's own size, so there is nothing to shift.
- */
-.metrics-chart-wrap {
-  position: relative;
-}
-
-#chart-uploads,
-#chart-signups {
-  aspect-ratio: 480 / 200;
-}
-
-/* Centers the "No data yet." message in the same reserved box, rather than
-   letting a lone <p> collapse to its line height. */
-#chart-uploads:has(> p.muted),
-#chart-signups:has(> p.muted) {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.metrics-chart-skeleton {
-  display: block;
-  inline-size: 100%;
-  block-size: 100%;
-  border-radius: var(--radius-sm);
-  background: var(--panel);
-}
 
 .metrics-chart {
   display: block;
@@ -185,48 +73,6 @@
 .metrics-chart-tooltip .day {
   color: var(--muted);
   margin-right: 4px;
-}
-
-/* Wide content scrolls inside its own container; the page body never
-   scrolls horizontally. */
-.metrics-table-wrap {
-  margin-top: 12px;
-  overflow-x: auto;
-}
-
-/* Reduced opacity while a range change is refetching, so the previous
-   render holds instead of flashing to empty. */
-#metrics-content {
-  transition: opacity 0.15s ease;
-}
-
-#metrics-content[data-loading="true"] {
-  opacity: 0.6;
-}
-
-/* Small explanatory line under a section heading — same treatment as
-   .admin-page-header p, scoped to this page since no other /admin/* section
-   currently needs one. */
-.admin-hint {
-  margin: 0 0 12px;
-  color: var(--muted);
-  font-size: var(--text-meta);
-  line-height: 1.5;
-}
-
-#breakdown-panel label {
-  display: inline-block;
-  margin: 0 8px 12px 0;
-  font-size: var(--text-meta);
-  color: var(--body);
-}
-
-#breakdown-panel #breakdown-status {
-  margin: 8px 0;
-}
-
-#breakdown-panel .metrics-table-wrap {
-  margin-top: 16px;
 }
 
 /* Loading placeholder emitted by workspace-ui.ts's skeletonBarHtml (reused by

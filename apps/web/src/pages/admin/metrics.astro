@@ -7,7 +7,12 @@
  */
 import AdminLayout from "../../layouts/AdminLayout.astro";
 import "../../styles/admin-metrics.css";
-import { renderAdminTableSkeletonRowsHtml } from "../../lib/admin-ui";
+import {
+  ADMIN_BTN,
+  ADMIN_TH,
+  ADMIN_TH_NUM,
+  renderAdminTableSkeletonRowsHtml,
+} from "../../lib/admin-ui";
 
 export const prerender = false;
 
@@ -36,81 +41,201 @@ const breakdownSkeleton = renderAdminTableSkeletonRowsHtml(
 ---
 
 <AdminLayout section="metrics">
-  <section class="admin-page">
-    <header class="admin-page-header">
-      <h2>Adoption</h2>
-      <p>Signup, upload, and workspace activity across the platform over a rolling window.</p>
+  <section class="admin-page grid gap-4 min-w-0">
+    <header class="admin-page-header grid gap-1.5 max-w-2xl">
+      <h2 class="m-0 text-(length:--text-body) font-semibold text-foreground">Adoption</h2>
+      <p class="m-0 text-body text-(length:--text-meta) leading-[1.55] text-pretty">
+        Signup, upload, and workspace activity across the platform over a rolling window.
+      </p>
     </header>
 
-    <div class="metrics-range" role="group" aria-label="Time window">
-      <button type="button" class="admin-btn" data-days="7" aria-pressed="false">7 days</button>
-      <button type="button" class="admin-btn" data-days="30" aria-pressed="true">30 days</button>
-      <button type="button" class="admin-btn" data-days="90" aria-pressed="false">90 days</button>
+    <div class="metrics-range flex flex-wrap gap-2" role="group" aria-label="Time window">
+      <button
+        type="button"
+        class={`admin-btn ${ADMIN_BTN} aria-pressed:bg-primary aria-pressed:text-background aria-pressed:border-primary`}
+        data-days="7"
+        aria-pressed="false">7 days</button
+      >
+      <button
+        type="button"
+        class={`admin-btn ${ADMIN_BTN} aria-pressed:bg-primary aria-pressed:text-background aria-pressed:border-primary`}
+        data-days="30"
+        aria-pressed="true">30 days</button
+      >
+      <button
+        type="button"
+        class={`admin-btn ${ADMIN_BTN} aria-pressed:bg-primary aria-pressed:text-background aria-pressed:border-primary`}
+        data-days="90"
+        aria-pressed="false">90 days</button
+      >
     </div>
 
-    <div id="metrics-status" class="admin-status" role="status">Loading…</div>
+    <div
+      id="metrics-status"
+      class="admin-status text-(length:--text-meta) text-muted-foreground"
+      role="status"
+    >
+      Loading…
+    </div>
 
-    <div id="metrics-content">
-      <dl class="metrics-tiles" id="metrics-tiles">
-        <div class="metrics-tile">
-          <dt>Users</dt>
-          <dd id="tile-users">—</dd>
+    <div
+      id="metrics-content"
+      class="transition-opacity duration-150 ease data-[loading=true]:opacity-60"
+    >
+      <dl
+        class="metrics-tiles grid gap-3.5 m-0 p-0 mb-8 [grid-template-columns:repeat(auto-fit,minmax(11rem,1fr))]"
+        id="metrics-tiles"
+      >
+        <div class="metrics-tile border border-border rounded-md px-3.5 py-3">
+          <dt
+            class="m-0 text-muted-foreground text-(length:--text-micro) uppercase tracking-[0.06em]"
+          >
+            Users
+          </dt>
+          <dd
+            id="tile-users"
+            class="mt-1.5 mb-0 text-foreground text-(length:--text-h3) font-semibold tabular-nums"
+          >
+            —
+          </dd>
         </div>
-        <div class="metrics-tile">
-          <dt>Organizations</dt>
-          <dd id="tile-orgs">—</dd>
+        <div class="metrics-tile border border-border rounded-md px-3.5 py-3">
+          <dt
+            class="m-0 text-muted-foreground text-(length:--text-micro) uppercase tracking-[0.06em]"
+          >
+            Organizations
+          </dt>
+          <dd
+            id="tile-orgs"
+            class="mt-1.5 mb-0 text-foreground text-(length:--text-h3) font-semibold tabular-nums"
+          >
+            —
+          </dd>
         </div>
-        <div class="metrics-tile">
-          <dt>Workspaces with uploads</dt>
-          <dd id="tile-workspaces">—</dd>
+        <div class="metrics-tile border border-border rounded-md px-3.5 py-3">
+          <dt
+            class="m-0 text-muted-foreground text-(length:--text-micro) uppercase tracking-[0.06em]"
+          >
+            Workspaces with uploads
+          </dt>
+          <dd
+            id="tile-workspaces"
+            class="mt-1.5 mb-0 text-foreground text-(length:--text-h3) font-semibold tabular-nums"
+          >
+            —
+          </dd>
         </div>
-        <div class="metrics-tile">
-          <dt>Stored bytes</dt>
-          <dd id="tile-stored">—</dd>
+        <div class="metrics-tile border border-border rounded-md px-3.5 py-3">
+          <dt
+            class="m-0 text-muted-foreground text-(length:--text-micro) uppercase tracking-[0.06em]"
+          >
+            Stored bytes
+          </dt>
+          <dd
+            id="tile-stored"
+            class="mt-1.5 mb-0 text-foreground text-(length:--text-h3) font-semibold tabular-nums"
+          >
+            —
+          </dd>
         </div>
-        <div class="metrics-tile">
-          <dt>Active, 7d</dt>
-          <dd id="tile-active-7">—</dd>
+        <div class="metrics-tile border border-border rounded-md px-3.5 py-3">
+          <dt
+            class="m-0 text-muted-foreground text-(length:--text-micro) uppercase tracking-[0.06em]"
+          >
+            Active, 7d
+          </dt>
+          <dd
+            id="tile-active-7"
+            class="mt-1.5 mb-0 text-foreground text-(length:--text-h3) font-semibold tabular-nums"
+          >
+            —
+          </dd>
         </div>
-        <div class="metrics-tile">
-          <dt>Active, 30d</dt>
-          <dd id="tile-active-30">—</dd>
+        <div class="metrics-tile border border-border rounded-md px-3.5 py-3">
+          <dt
+            class="m-0 text-muted-foreground text-(length:--text-micro) uppercase tracking-[0.06em]"
+          >
+            Active, 30d
+          </dt>
+          <dd
+            id="tile-active-30"
+            class="mt-1.5 mb-0 text-foreground text-(length:--text-h3) font-semibold tabular-nums"
+          >
+            —
+          </dd>
         </div>
-        <div class="metrics-tile">
-          <dt>Uploads in window</dt>
-          <dd id="tile-uploads">—</dd>
+        <div class="metrics-tile border border-border rounded-md px-3.5 py-3">
+          <dt
+            class="m-0 text-muted-foreground text-(length:--text-micro) uppercase tracking-[0.06em]"
+          >
+            Uploads in window
+          </dt>
+          <dd
+            id="tile-uploads"
+            class="mt-1.5 mb-0 text-foreground text-(length:--text-h3) font-semibold tabular-nums"
+          >
+            —
+          </dd>
         </div>
       </dl>
 
       <section class="metrics-section">
-        <h3>Uploads per day</h3>
-        <div id="chart-uploads" aria-busy="true">
-          <div class="metrics-chart-skeleton" aria-hidden="true"></div>
+        <h3
+          class="m-0 mb-3.5 text-(length:--text-micro) font-semibold tracking-[0.04em] uppercase text-foreground"
+        >
+          Uploads per day
+        </h3>
+        <div
+          id="chart-uploads"
+          class="relative [aspect-ratio:480/200] has-[>p.muted]:flex has-[>p.muted]:items-center has-[>p.muted]:justify-center"
+          aria-busy="true"
+        >
+          <div
+            class="metrics-chart-skeleton block size-full rounded-sm bg-panel"
+            aria-hidden="true"
+          >
+          </div>
         </div>
       </section>
 
-      <section class="metrics-section">
-        <h3>Signups per day</h3>
-        <div id="chart-signups" aria-busy="true">
-          <div class="metrics-chart-skeleton" aria-hidden="true"></div>
+      <section class="metrics-section mt-2 pt-8 border-t border-border">
+        <h3
+          class="m-0 mb-3.5 text-(length:--text-micro) font-semibold tracking-[0.04em] uppercase text-foreground"
+        >
+          Signups per day
+        </h3>
+        <div
+          id="chart-signups"
+          class="relative [aspect-ratio:480/200] has-[>p.muted]:flex has-[>p.muted]:items-center has-[>p.muted]:justify-center"
+          aria-busy="true"
+        >
+          <div
+            class="metrics-chart-skeleton block size-full rounded-sm bg-panel"
+            aria-hidden="true"
+          >
+          </div>
         </div>
       </section>
 
-      <section class="metrics-section">
-        <h3>Workspace activity</h3>
-        <div class="metrics-table-wrap">
+      <section class="metrics-section mt-2 pt-8 border-t border-border">
+        <h3
+          class="m-0 mb-3.5 text-(length:--text-micro) font-semibold tracking-[0.04em] uppercase text-foreground"
+        >
+          Workspace activity
+        </h3>
+        <div class="metrics-table-wrap mt-3 overflow-x-auto">
           <table
-            class="admin-table"
+            class="admin-table w-full border-collapse text-(length:--text-meta) leading-[1.4]"
             id="workspace-activity"
             aria-label="Workspace activity"
             aria-busy="true"
           >
             <thead>
               <tr>
-                <th class="keep" scope="col">Workspace</th>
-                <th class="keep num" scope="col">Uploads</th>
-                <th class="keep num" scope="col">Bytes</th>
-                <th class="keep" scope="col">Last active</th>
+                <th class={`keep ${ADMIN_TH}`} scope="col">Workspace</th>
+                <th class={`keep num ${ADMIN_TH_NUM}`} scope="col">Uploads</th>
+                <th class={`keep num ${ADMIN_TH_NUM}`} scope="col">Bytes</th>
+                <th class={`keep ${ADMIN_TH}`} scope="col">Last active</th>
               </tr>
             </thead>
             <tbody set:html={workspaceActivitySkeleton} />
@@ -118,46 +243,99 @@ const breakdownSkeleton = renderAdminTableSkeletonRowsHtml(
         </div>
       </section>
 
-      <section class="metrics-section" id="features-panel">
-        <h3>Feature adoption</h3>
-        <p class="admin-hint">Counts within the selected window, not all-time totals.</p>
-        <dl class="metrics-tiles" id="feature-tiles">
-          <div class="metrics-tile">
-            <dt>Workspaces created</dt>
-            <dd id="tile-feature-workspace_created">—</dd>
+      <section class="metrics-section mt-2 pt-8 border-t border-border" id="features-panel">
+        <h3
+          class="m-0 mb-3.5 text-(length:--text-micro) font-semibold tracking-[0.04em] uppercase text-foreground"
+        >
+          Feature adoption
+        </h3>
+        <p
+          class="admin-hint m-0 mb-3 text-muted-foreground text-(length:--text-meta) leading-[1.5]"
+        >
+          Counts within the selected window, not all-time totals.
+        </p>
+        <dl
+          class="metrics-tiles grid gap-3.5 m-0 p-0 mb-8 [grid-template-columns:repeat(auto-fit,minmax(11rem,1fr))]"
+          id="feature-tiles"
+        >
+          <div class="metrics-tile border border-border rounded-md px-3.5 py-3">
+            <dt
+              class="m-0 text-muted-foreground text-(length:--text-micro) uppercase tracking-[0.06em]"
+            >
+              Workspaces created
+            </dt>
+            <dd
+              id="tile-feature-workspace_created"
+              class="mt-1.5 mb-0 text-foreground text-(length:--text-h3) font-semibold tabular-nums"
+            >
+              —
+            </dd>
           </div>
-          <div class="metrics-tile">
-            <dt>Galleries created</dt>
-            <dd id="tile-feature-gallery_created">—</dd>
+          <div class="metrics-tile border border-border rounded-md px-3.5 py-3">
+            <dt
+              class="m-0 text-muted-foreground text-(length:--text-micro) uppercase tracking-[0.06em]"
+            >
+              Galleries created
+            </dt>
+            <dd
+              id="tile-feature-gallery_created"
+              class="mt-1.5 mb-0 text-foreground text-(length:--text-h3) font-semibold tabular-nums"
+            >
+              —
+            </dd>
           </div>
-          <div class="metrics-tile">
-            <dt>PR comments posted</dt>
-            <dd id="tile-feature-comment_posted">—</dd>
+          <div class="metrics-tile border border-border rounded-md px-3.5 py-3">
+            <dt
+              class="m-0 text-muted-foreground text-(length:--text-micro) uppercase tracking-[0.06em]"
+            >
+              PR comments posted
+            </dt>
+            <dd
+              id="tile-feature-comment_posted"
+              class="mt-1.5 mb-0 text-foreground text-(length:--text-h3) font-semibold tabular-nums"
+            >
+              —
+            </dd>
           </div>
-          <div class="metrics-tile">
-            <dt>Repos linked</dt>
-            <dd id="tile-feature-repo_linked">—</dd>
+          <div class="metrics-tile border border-border rounded-md px-3.5 py-3">
+            <dt
+              class="m-0 text-muted-foreground text-(length:--text-micro) uppercase tracking-[0.06em]"
+            >
+              Repos linked
+            </dt>
+            <dd
+              id="tile-feature-repo_linked"
+              class="mt-1.5 mb-0 text-foreground text-(length:--text-h3) font-semibold tabular-nums"
+            >
+              —
+            </dd>
           </div>
         </dl>
       </section>
 
-      <section class="metrics-section" id="multi-identity-panel">
-        <h3>Multi-identity workspaces</h3>
-        <p class="admin-hint">
+      <section class="metrics-section mt-2 pt-8 border-t border-border" id="multi-identity-panel">
+        <h3
+          class="m-0 mb-3.5 text-(length:--text-micro) font-semibold tracking-[0.04em] uppercase text-foreground"
+        >
+          Multi-identity workspaces
+        </h3>
+        <p
+          class="admin-hint m-0 mb-3 text-muted-foreground text-(length:--text-meta) leading-[1.5]"
+        >
           Workspaces with two or more people minting tokens — a revisit trigger for the actor-on-PR
           gate (issue #579). All-time, not scoped to the selected window.
         </p>
-        <div class="metrics-table-wrap">
+        <div class="metrics-table-wrap mt-3 overflow-x-auto">
           <table
-            class="admin-table"
+            class="admin-table w-full border-collapse text-(length:--text-meta) leading-[1.4]"
             id="multi-identity-table"
             aria-label="Multi-identity workspaces"
             aria-busy="true"
           >
             <thead>
               <tr>
-                <th class="keep" scope="col">Workspace</th>
-                <th class="keep num" scope="col">Distinct minters</th>
+                <th class={`keep ${ADMIN_TH}`} scope="col">Workspace</th>
+                <th class={`keep num ${ADMIN_TH_NUM}`} scope="col">Distinct minters</th>
               </tr>
             </thead>
             <tbody set:html={multiIdentitySkeleton} />
@@ -165,29 +343,46 @@ const breakdownSkeleton = renderAdminTableSkeletonRowsHtml(
         </div>
       </section>
 
-      <section class="metrics-section" id="breakdown-panel">
-        <h3>Upload breakdown</h3>
-        <p class="admin-hint">Last 90 days, from Analytics Engine. Sampled and approximate.</p>
-        <label for="breakdown-dimension">Group by</label>
+      <section class="metrics-section mt-2 pt-8 border-t border-border" id="breakdown-panel">
+        <h3
+          class="m-0 mb-3.5 text-(length:--text-micro) font-semibold tracking-[0.04em] uppercase text-foreground"
+        >
+          Upload breakdown
+        </h3>
+        <p
+          class="admin-hint m-0 mb-3 text-muted-foreground text-(length:--text-meta) leading-[1.5]"
+        >
+          Last 90 days, from Analytics Engine. Sampled and approximate.
+        </p>
+        <label
+          for="breakdown-dimension"
+          class="inline-block mr-2 mb-3 text-(length:--text-meta) text-body">Group by</label
+        >
         <select id="breakdown-dimension" class="ul-select">
           <option value="surface">Surface</option>
           <option value="contentType">Content type</option>
           <option value="client">Client</option>
           <option value="repo">Repository</option>
         </select>
-        <div id="breakdown-status" class="admin-status" role="status" hidden></div>
-        <div class="metrics-table-wrap">
+        <div
+          id="breakdown-status"
+          class="admin-status my-2 text-(length:--text-meta) text-muted-foreground"
+          role="status"
+          hidden
+        >
+        </div>
+        <div class="metrics-table-wrap mt-4 overflow-x-auto">
           <table
-            class="admin-table"
+            class="admin-table w-full border-collapse text-(length:--text-meta) leading-[1.4]"
             id="breakdown-table"
             aria-label="Upload breakdown"
             aria-busy="true"
           >
             <thead>
               <tr>
-                <th class="keep" scope="col">Value</th>
-                <th class="keep num" scope="col">Uploads</th>
-                <th class="keep num" scope="col">Bytes</th>
+                <th class={`keep ${ADMIN_TH}`} scope="col">Value</th>
+                <th class={`keep num ${ADMIN_TH_NUM}`} scope="col">Uploads</th>
+                <th class={`keep num ${ADMIN_TH_NUM}`} scope="col">Bytes</th>
               </tr>
             </thead>
             <tbody set:html={breakdownSkeleton} />
@@ -199,7 +394,7 @@ const breakdownSkeleton = renderAdminTableSkeletonRowsHtml(
 
   <script>
     import { onAstroPageLoad, onSession, requireElement } from "../../lib/account-shell";
-    import { escapeHtml } from "../../lib/admin-ui";
+    import { ADMIN_TD, ADMIN_TD_NUM, escapeHtml } from "../../lib/admin-ui";
     import { formatBytes } from "../../lib/workspace-ui";
 
     onAstroPageLoad(() => {
@@ -455,7 +650,7 @@ const breakdownSkeleton = renderAdminTableSkeletonRowsHtml(
           .join("");
 
         container.innerHTML = `
-          <div class="metrics-chart-wrap">
+          <div class="metrics-chart-wrap relative">
             ${svg}
             <div class="metrics-chart-tooltip" data-visible="false" role="presentation"></div>
           </div>
@@ -591,10 +786,10 @@ const breakdownSkeleton = renderAdminTableSkeletonRowsHtml(
           ? overview.workspaces
               .map(
                 (row) =>
-                  `<tr class="admin-row"><td>${escapeHtml(row.workspace)}</td><td class="num">${num(row.uploads)}</td><td class="num">${bytes(row.bytes)}</td><td>${escapeHtml(row.lastActive)}</td></tr>`,
+                  `<tr class="admin-row"><td class="${ADMIN_TD}">${escapeHtml(row.workspace)}</td><td class="num ${ADMIN_TD_NUM}">${num(row.uploads)}</td><td class="num ${ADMIN_TD_NUM}">${bytes(row.bytes)}</td><td class="${ADMIN_TD}">${escapeHtml(row.lastActive)}</td></tr>`,
               )
               .join("")
-          : `<tr class="admin-row"><td colspan="4" class="muted">No workspace activity in this window.</td></tr>`;
+          : `<tr class="admin-row"><td colspan="4" class="muted ${ADMIN_TD}">No workspace activity in this window.</td></tr>`;
         const tableBody = table.querySelector<HTMLElement>("tbody");
         if (tableBody) tableBody.innerHTML = rows;
         table.removeAttribute("aria-busy");
@@ -607,10 +802,10 @@ const breakdownSkeleton = renderAdminTableSkeletonRowsHtml(
           ? overview.multiIdentityWorkspaces
               .map(
                 (row) =>
-                  `<tr class="admin-row"><td>${escapeHtml(row.workspace)}</td><td class="num">${num(row.users)}</td></tr>`,
+                  `<tr class="admin-row"><td class="${ADMIN_TD}">${escapeHtml(row.workspace)}</td><td class="num ${ADMIN_TD_NUM}">${num(row.users)}</td></tr>`,
               )
               .join("")
-          : `<tr class="admin-row"><td colspan="2" class="muted">No multi-identity workspaces yet.</td></tr>`;
+          : `<tr class="admin-row"><td colspan="2" class="muted ${ADMIN_TD}">No multi-identity workspaces yet.</td></tr>`;
         const multiIdentityBody = multiIdentityTable.querySelector<HTMLElement>("tbody");
         if (multiIdentityBody) multiIdentityBody.innerHTML = multiIdentityRows;
         multiIdentityTable.removeAttribute("aria-busy");
@@ -684,7 +879,7 @@ const breakdownSkeleton = renderAdminTableSkeletonRowsHtml(
             tableBody.innerHTML = body.rows
               .map(
                 (row) =>
-                  `<tr class="admin-row"><td>${escapeHtml(row.value || "(none)")}</td><td class="num">${num(row.events)}</td><td class="num">${bytes(row.bytes)}</td></tr>`,
+                  `<tr class="admin-row"><td class="${ADMIN_TD}">${escapeHtml(row.value || "(none)")}</td><td class="num ${ADMIN_TD_NUM}">${num(row.events)}</td><td class="num ${ADMIN_TD_NUM}">${bytes(row.bytes)}</td></tr>`,
               )
               .join("");
           }

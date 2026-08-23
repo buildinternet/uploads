@@ -4,6 +4,44 @@
  */
 import { skeletonBarHtml } from "./workspace-ui";
 
+/**
+ * Shared Tailwind utility strings for the hand-built `.admin-table` markup
+ * (both the static Astro `<thead>`s and the JS-rendered `<tbody>` rows).
+ * Centralized here rather than repeated per page so every table stays
+ * visually identical without duplicating long class lists — the CSS
+ * equivalents these replace lived in admin.css's `.admin-table` block.
+ */
+export const ADMIN_TH =
+  "text-left font-medium text-(length:--text-micro) uppercase tracking-[0.06em] text-muted-foreground pr-3 pb-[10px] border-b border-border whitespace-nowrap last:pr-0";
+export const ADMIN_TH_NUM = `${ADMIN_TH} text-right tabular-nums pl-4`;
+export const ADMIN_TH_ACTIONS = `${ADMIN_TH} text-right`;
+
+export const ADMIN_TD = "py-3 pr-3 border-b border-border text-body align-middle last:pr-0";
+export const ADMIN_TD_NUM = `${ADMIN_TD} text-right tabular-nums pl-4`;
+export const ADMIN_TD_ACTIONS = `${ADMIN_TD} text-right w-px whitespace-nowrap pl-4`;
+
+export const ADMIN_CELL_PRIMARY = "text-foreground font-semibold";
+export const ADMIN_CELL_MONO = "font-mono font-medium";
+export const ADMIN_CELL_MUTED = "text-muted-foreground text-(length:--text-micro)";
+
+/** Chevron cell for an expandable `tbody.admin-row-group` summary row. */
+export const ADMIN_EXPAND_TD =
+  "w-[18px] text-muted-foreground text-(length:--text-micro) leading-none transition-transform duration-150 ease-linear select-none [.is-open_&]:rotate-90 [.is-open_&]:text-foreground";
+
+/** Small uppercase heading inside an expanded `.admin-detail-inner` block. */
+export const ADMIN_DETAIL_HEADING =
+  "m-0 mb-2 text-(length:--text-micro) font-semibold tracking-[0.04em] uppercase text-foreground";
+
+/** Outline button — the shared `.admin-btn` look. */
+export const ADMIN_BTN =
+  "text-(length:--text-micro) text-primary bg-transparent border border-border rounded-sm px-3 py-[7px] cursor-pointer whitespace-nowrap w-fit hover:border-primary focus-visible:border-primary focus-visible:outline-none disabled:opacity-55 disabled:cursor-default";
+export const ADMIN_MINI_LIST = "list-none m-0 p-0 grid gap-1.5";
+export const ADMIN_MINI_LIST_ITEM =
+  "flex justify-between gap-2 text-(length:--text-micro) text-body";
+
+export const ADMIN_BTN_DANGER =
+  "text-destructive border-destructive/40 hover:not-disabled:border-destructive focus-visible:not-disabled:border-destructive disabled:text-muted-foreground disabled:opacity-60 disabled:cursor-not-allowed";
+
 /** Escape text for insertion into HTML attribute/text nodes. */
 export function escapeHtml(value: string): string {
   return value.replace(
@@ -15,7 +53,7 @@ export function escapeHtml(value: string): string {
 export interface AdminSkeletonColumn {
   /** CSS length passed to `skeletonBarHtml` (e.g. "88px"). */
   width: string;
-  /** Adds `class="num"`, matching `.admin-table td.num`'s right alignment. */
+  /** Uses `ADMIN_TD_NUM` instead of `ADMIN_TD` for right-aligned numeric columns. */
   num?: boolean;
 }
 
@@ -31,7 +69,9 @@ export function renderAdminTableSkeletonRowsHtml(columns: AdminSkeletonColumn[],
     { length: rows },
     () =>
       `<tr class="admin-row">${columns
-        .map((c) => `<td${c.num ? ' class="num"' : ""}>${skeletonBarHtml(c.width)}</td>`)
+        .map(
+          (c) => `<td class="${c.num ? ADMIN_TD_NUM : ADMIN_TD}">${skeletonBarHtml(c.width)}</td>`,
+        )
         .join("")}</tr>`,
   ).join("");
 }

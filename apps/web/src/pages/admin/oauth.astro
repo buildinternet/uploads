@@ -1,30 +1,37 @@
 ---
 import AdminLayout from "../../layouts/AdminLayout.astro";
 import "../../styles/admin-oauth.css";
+import { ADMIN_BTN, ADMIN_TH, ADMIN_TH_ACTIONS, ADMIN_TH_NUM } from "../../lib/admin-ui";
 
 export const prerender = false;
 ---
 
 <AdminLayout section="oauth">
-  <section class="admin-page">
-    <header class="admin-page-header">
-      <h2>OAuth apps</h2>
-      <p>
+  <section class="admin-page grid gap-4 min-w-0">
+    <header class="admin-page-header grid gap-1.5 max-w-2xl">
+      <h2 class="m-0 text-(length:--text-body) font-semibold text-foreground">OAuth apps</h2>
+      <p class="m-0 text-body text-(length:--text-meta) leading-[1.55] text-pretty">
         Registered OAuth client applications. All clients are public PKCE clients - there is no
         client secret to manage.
       </p>
     </header>
-    <div id="oauth-status" class="admin-status">Loading…</div>
-    <div class="admin-table-wrap" id="oauth-table-wrap" hidden>
-      <table class="admin-table" id="oauth-list" aria-label="OAuth apps">
+    <div id="oauth-status" class="admin-status text-(length:--text-meta) text-muted-foreground">
+      Loading…
+    </div>
+    <div class="admin-table-wrap w-full overflow-x-auto" id="oauth-table-wrap" hidden>
+      <table
+        class="admin-table w-full border-collapse text-(length:--text-meta) leading-[1.4]"
+        id="oauth-list"
+        aria-label="OAuth apps"
+      >
         <thead>
           <tr>
-            <th class="keep" scope="col">Name</th>
-            <th scope="col">Client ID</th>
-            <th scope="col">Scopes</th>
-            <th scope="col">Created</th>
-            <th class="num" scope="col">Consents</th>
-            <th class="actions" scope="col">Status</th>
+            <th class={`keep ${ADMIN_TH}`} scope="col">Name</th>
+            <th class={ADMIN_TH} scope="col">Client ID</th>
+            <th class={ADMIN_TH} scope="col">Scopes</th>
+            <th class={ADMIN_TH} scope="col">Created</th>
+            <th class={`num ${ADMIN_TH_NUM}`} scope="col">Consents</th>
+            <th class={`actions ${ADMIN_TH_ACTIONS}`} scope="col">Status</th>
           </tr>
         </thead>
         <tbody id="oauth-list-body"></tbody>
@@ -32,23 +39,38 @@ export const prerender = false;
     </div>
   </section>
 
-  <section class="admin-page">
-    <header class="admin-page-header">
-      <h2>New OAuth app</h2>
-      <p>Create a public PKCE client for an integration or agent.</p>
+  <section class="admin-page grid gap-4 min-w-0 mt-2 pt-7 border-t border-border">
+    <header class="admin-page-header grid gap-1.5 max-w-2xl">
+      <h2 class="m-0 text-(length:--text-body) font-semibold text-foreground">New OAuth app</h2>
+      <p class="m-0 text-body text-(length:--text-meta) leading-[1.55] text-pretty">
+        Create a public PKCE client for an integration or agent.
+      </p>
     </header>
-    <form id="oauth-create-form" class="admin-stack-form">
-      <label>
+    <form id="oauth-create-form" class="admin-stack-form grid gap-3 max-w-[480px]">
+      <label
+        class="grid gap-1 text-muted-foreground text-(length:--text-micro) uppercase tracking-[0.06em]"
+      >
         Name
-        <input type="text" id="oauth-create-name" required maxlength="200" placeholder="My app" />
+        <input
+          type="text"
+          id="oauth-create-name"
+          required
+          maxlength="200"
+          placeholder="My app"
+          class="bg-panel border border-border rounded-sm text-foreground normal-case tracking-normal px-[9px] py-[7px] font-sans text-(length:--text-micro) focus-visible:outline-none focus-visible:border-primary"
+        />
       </label>
-      <label>
+      <label
+        class="grid gap-1 text-muted-foreground text-(length:--text-micro) uppercase tracking-[0.06em]"
+      >
         Redirect URIs (one per line)
         <textarea
           id="oauth-create-redirects"
           required
           rows="3"
-          placeholder="https://example.com/callback"></textarea>
+          placeholder="https://example.com/callback"
+          class="bg-panel border border-border rounded-sm text-foreground normal-case tracking-normal px-[9px] py-[7px] font-sans text-(length:--text-micro) resize-y focus-visible:outline-none focus-visible:border-primary"
+        ></textarea>
       </label>
       <fieldset class="oauth-scopes">
         <legend>Scopes</legend>
@@ -65,29 +87,50 @@ export const prerender = false;
           files:delete
         </label>
       </fieldset>
-      <label>
+      <label
+        class="grid gap-1 text-muted-foreground text-(length:--text-micro) uppercase tracking-[0.06em]"
+      >
         Homepage URL (optional)
-        <input type="url" id="oauth-create-uri" placeholder="https://example.com" />
+        <input
+          type="url"
+          id="oauth-create-uri"
+          placeholder="https://example.com"
+          class="bg-panel border border-border rounded-sm text-foreground normal-case tracking-normal px-[9px] py-[7px] font-sans text-(length:--text-micro) focus-visible:outline-none focus-visible:border-primary"
+        />
       </label>
       <label class="oauth-scope-check">
         <input type="checkbox" id="oauth-create-official" />
         Official app
       </label>
-      <button type="submit">Create app</button>
+      <button type="submit" class={ADMIN_BTN}>Create app</button>
     </form>
-    <div id="oauth-create-status" class="admin-status" role="status" hidden></div>
+    <div
+      id="oauth-create-status"
+      class="admin-status text-(length:--text-meta) text-muted-foreground"
+      role="status"
+      hidden
+    >
+    </div>
     <div id="oauth-create-result" hidden>
-      <p class="muted" style="margin:0;font-size:var(--text-meta)">New client ID (copy it now):</p>
+      <p class="muted m-0 text-(length:--text-meta)">New client ID (copy it now):</p>
       <div class="oauth-copy-row">
         <input type="text" id="oauth-create-client-id" readonly aria-label="New client ID" />
-        <button type="button" class="admin-btn" id="oauth-create-copy">Copy</button>
+        <button type="button" class={`admin-btn ${ADMIN_BTN}`} id="oauth-create-copy">Copy</button>
       </div>
     </div>
   </section>
 
   <script>
     import { onAstroPageLoad, onSession, requireElement } from "../../lib/account-shell";
-    import { escapeHtml } from "../../lib/admin-ui";
+    import {
+      ADMIN_CELL_MONO,
+      ADMIN_CELL_MUTED,
+      ADMIN_CELL_PRIMARY,
+      ADMIN_TD,
+      ADMIN_TD_ACTIONS,
+      ADMIN_TD_NUM,
+      escapeHtml,
+    } from "../../lib/admin-ui";
 
     onAstroPageLoad(() => {
       if (!document.getElementById("oauth-list-body")) return;
@@ -130,8 +173,12 @@ export const prerender = false;
 
       function badges(client: OAuthClient): string {
         const parts: string[] = [];
-        if (client.official) parts.push(`<span class="pill is-admin">Official</span>`);
-        if (client.disabled) parts.push(`<span class="pill is-disabled">Disabled</span>`);
+        if (client.official)
+          parts.push(`<span class="pill is-admin text-primary border-primary">Official</span>`);
+        if (client.disabled)
+          parts.push(
+            `<span class="pill is-disabled text-destructive border-destructive">Disabled</span>`,
+          );
         return parts.join(" ") || `<span class="muted">-</span>`;
       }
 
@@ -140,16 +187,16 @@ export const prerender = false;
         row.className = "admin-row";
         const href = `/admin/oauth/${encodeURIComponent(client.clientId)}`;
         row.innerHTML = `
-          <td class="keep">
-            <a class="admin-row-link" href="${href}">
-              <span class="primary">${escapeHtml(client.name)}</span>
+          <td class="keep ${ADMIN_TD}">
+            <a class="admin-row-link group text-inherit no-underline" href="${href}">
+              <span class="primary ${ADMIN_CELL_PRIMARY} group-hover:text-primary group-focus-visible:text-primary">${escapeHtml(client.name)}</span>
             </a>
           </td>
-          <td class="optional mono muted">${escapeHtml(client.clientId)}</td>
-          <td class="optional muted">${client.scopes.map(escapeHtml).join(", ") || "-"}</td>
-          <td class="optional muted">${new Date(client.createdAt).toLocaleDateString()}</td>
-          <td class="num optional">${client.consentCount}</td>
-          <td class="actions">${badges(client)}</td>
+          <td class="optional mono muted ${ADMIN_TD} ${ADMIN_CELL_MONO} ${ADMIN_CELL_MUTED}">${escapeHtml(client.clientId)}</td>
+          <td class="optional muted ${ADMIN_TD} ${ADMIN_CELL_MUTED}">${client.scopes.map(escapeHtml).join(", ") || "-"}</td>
+          <td class="optional muted ${ADMIN_TD} ${ADMIN_CELL_MUTED}">${new Date(client.createdAt).toLocaleDateString()}</td>
+          <td class="num optional ${ADMIN_TD_NUM}">${client.consentCount}</td>
+          <td class="actions ${ADMIN_TD_ACTIONS}">${badges(client)}</td>
         `;
         return row;
       }

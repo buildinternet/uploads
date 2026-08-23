@@ -1,6 +1,7 @@
 ---
 import AdminLayout from "../../../layouts/AdminLayout.astro";
 import "../../../styles/admin-oauth.css";
+import { ADMIN_BTN, ADMIN_BTN_DANGER } from "../../../lib/admin-ui";
 
 export const prerender = false;
 
@@ -9,69 +10,151 @@ if (!clientId) return Astro.redirect("/admin/oauth");
 ---
 
 <AdminLayout section="oauth">
-  <section class="admin-page">
-    <a href="/admin/oauth" class="admin-back">&larr; OAuth apps</a>
-    <div id="oauth-detail-status" class="admin-status">Loading…</div>
+  <section class="admin-page grid gap-4 min-w-0">
+    <a
+      href="/admin/oauth"
+      class="admin-back text-(length:--text-micro) text-muted-foreground no-underline w-fit hover:text-primary focus-visible:text-primary focus-visible:outline-none"
+      >&larr; OAuth apps</a
+    >
+    <div
+      id="oauth-detail-status"
+      class="admin-status text-(length:--text-meta) text-muted-foreground"
+    >
+      Loading…
+    </div>
 
-    <div id="oauth-detail" hidden>
-      <div class="oauth-detail-header">
-        <h2 id="oauth-detail-name"></h2>
-        <div id="oauth-detail-badges" class="oauth-detail-badges"></div>
+    <div id="oauth-detail" class="grid gap-4" hidden>
+      <div class="oauth-detail-header flex items-center gap-2.5 flex-wrap">
+        <h2 id="oauth-detail-name" class="m-0 text-(length:--text-body) font-semibold"></h2>
+        <div id="oauth-detail-badges" class="oauth-detail-badges flex gap-1.5 flex-wrap"></div>
       </div>
 
-      <dl class="admin-dl">
+      <dl
+        class="admin-dl m-0 grid gap-3.5 gap-x-5 [grid-template-columns:repeat(auto-fill,minmax(220px,1fr))]"
+      >
         <div>
-          <dt>Client ID</dt>
-          <dd><code id="oauth-detail-client-id"></code></dd>
+          <dt class="text-muted-foreground text-(length:--text-micro) uppercase tracking-[0.06em]">
+            Client ID
+          </dt>
+          <dd class="mt-1 mb-0 text-body text-(length:--text-meta) break-words">
+            <code id="oauth-detail-client-id" class="font-mono text-(length:--text-micro)"></code>
+          </dd>
         </div>
         <div>
-          <dt>Homepage</dt>
-          <dd id="oauth-detail-uri"></dd>
+          <dt class="text-muted-foreground text-(length:--text-micro) uppercase tracking-[0.06em]">
+            Homepage
+          </dt>
+          <dd
+            id="oauth-detail-uri"
+            class="mt-1 mb-0 text-body text-(length:--text-meta) break-words"
+          >
+          </dd>
         </div>
         <div>
-          <dt>Redirect URIs</dt>
-          <dd id="oauth-detail-redirects"></dd>
+          <dt class="text-muted-foreground text-(length:--text-micro) uppercase tracking-[0.06em]">
+            Redirect URIs
+          </dt>
+          <dd
+            id="oauth-detail-redirects"
+            class="mt-1 mb-0 text-body text-(length:--text-meta) break-words"
+          >
+          </dd>
         </div>
         <div>
-          <dt>Scopes</dt>
-          <dd id="oauth-detail-scopes"></dd>
+          <dt class="text-muted-foreground text-(length:--text-micro) uppercase tracking-[0.06em]">
+            Scopes
+          </dt>
+          <dd
+            id="oauth-detail-scopes"
+            class="mt-1 mb-0 text-body text-(length:--text-meta) break-words"
+          >
+          </dd>
         </div>
         <div>
-          <dt>Consents</dt>
-          <dd id="oauth-detail-consent-count"></dd>
+          <dt class="text-muted-foreground text-(length:--text-micro) uppercase tracking-[0.06em]">
+            Consents
+          </dt>
+          <dd
+            id="oauth-detail-consent-count"
+            class="mt-1 mb-0 text-body text-(length:--text-meta) break-words"
+          >
+          </dd>
         </div>
         <div>
-          <dt>Active tokens</dt>
-          <dd id="oauth-detail-active-tokens"></dd>
+          <dt class="text-muted-foreground text-(length:--text-micro) uppercase tracking-[0.06em]">
+            Active tokens
+          </dt>
+          <dd
+            id="oauth-detail-active-tokens"
+            class="mt-1 mb-0 text-body text-(length:--text-meta) break-words"
+          >
+          </dd>
         </div>
         <div>
-          <dt>Last consent</dt>
-          <dd id="oauth-detail-last-consent"></dd>
+          <dt class="text-muted-foreground text-(length:--text-micro) uppercase tracking-[0.06em]">
+            Last consent
+          </dt>
+          <dd
+            id="oauth-detail-last-consent"
+            class="mt-1 mb-0 text-body text-(length:--text-meta) break-words"
+          >
+          </dd>
         </div>
         <div>
-          <dt>Created</dt>
-          <dd id="oauth-detail-created"></dd>
+          <dt class="text-muted-foreground text-(length:--text-micro) uppercase tracking-[0.06em]">
+            Created
+          </dt>
+          <dd
+            id="oauth-detail-created"
+            class="mt-1 mb-0 text-body text-(length:--text-meta) break-words"
+          >
+          </dd>
         </div>
       </dl>
 
-      <div class="admin-actions">
-        <button type="button" class="admin-btn" id="oauth-edit-toggle">Edit</button>
-        <button type="button" class="admin-btn" id="oauth-disable-toggle"></button>
-        <button type="button" class="admin-btn admin-btn--danger" id="oauth-delete">Delete</button>
+      <div class="admin-actions flex flex-wrap gap-2 items-center">
+        <button type="button" class={`admin-btn ${ADMIN_BTN}`} id="oauth-edit-toggle">Edit</button>
+        <button type="button" class={`admin-btn ${ADMIN_BTN}`} id="oauth-disable-toggle"></button>
+        <button
+          type="button"
+          class={`admin-btn admin-btn--danger ${ADMIN_BTN} ${ADMIN_BTN_DANGER}`}
+          id="oauth-delete">Delete</button
+        >
       </div>
-      <p id="oauth-delete-hint" class="muted" style="font-size:var(--text-micro);margin:0" hidden>
+      <p id="oauth-delete-hint" class="muted m-0 text-(length:--text-micro)" hidden>
         Remove the official flag to enable deletion.
       </p>
-      <div id="oauth-action-status" class="admin-status" role="status" hidden></div>
+      <div
+        id="oauth-action-status"
+        class="admin-status text-(length:--text-meta) text-muted-foreground"
+        role="status"
+        hidden
+      >
+      </div>
 
-      <form id="oauth-edit-form" class="admin-stack-form" hidden style="margin-top:8px">
-        <label>
+      <form id="oauth-edit-form" class="admin-stack-form grid gap-3 max-w-[480px] mt-2" hidden>
+        <label
+          class="grid gap-1 text-muted-foreground text-(length:--text-micro) uppercase tracking-[0.06em]"
+        >
           Name
-          <input type="text" id="oauth-edit-name" required maxlength="200" />
+          <input
+            type="text"
+            id="oauth-edit-name"
+            required
+            maxlength="200"
+            class="bg-panel border border-border rounded-sm text-foreground normal-case tracking-normal px-[9px] py-[7px] font-sans text-(length:--text-micro) focus-visible:outline-none focus-visible:border-primary"
+          />
         </label>
-        <label>
+        <label
+          class="grid gap-1 text-muted-foreground text-(length:--text-micro) uppercase tracking-[0.06em]"
+        >
           Redirect URIs (one per line)
-          <textarea id="oauth-edit-redirects" required rows="3"></textarea>
+          <textarea
+            id="oauth-edit-redirects"
+            required
+            rows="3"
+            class="bg-panel border border-border rounded-sm text-foreground normal-case tracking-normal px-[9px] py-[7px] font-sans text-(length:--text-micro) resize-y focus-visible:outline-none focus-visible:border-primary"
+          ></textarea>
         </label>
         <fieldset class="oauth-scopes">
           <legend>Scopes</legend>
@@ -88,17 +171,23 @@ if (!clientId) return Astro.redirect("/admin/oauth");
             files:delete
           </label>
         </fieldset>
-        <label>
+        <label
+          class="grid gap-1 text-muted-foreground text-(length:--text-micro) uppercase tracking-[0.06em]"
+        >
           Homepage URL (optional)
-          <input type="url" id="oauth-edit-uri" />
+          <input
+            type="url"
+            id="oauth-edit-uri"
+            class="bg-panel border border-border rounded-sm text-foreground normal-case tracking-normal px-[9px] py-[7px] font-sans text-(length:--text-micro) focus-visible:outline-none focus-visible:border-primary"
+          />
         </label>
         <label class="oauth-scope-check">
           <input type="checkbox" id="oauth-edit-official" />
           Official app
         </label>
-        <div class="oauth-form-actions">
-          <button type="submit">Save changes</button>
-          <button type="button" id="oauth-edit-cancel">Cancel</button>
+        <div class="oauth-form-actions flex gap-2 flex-wrap">
+          <button type="submit" class={ADMIN_BTN}>Save changes</button>
+          <button type="button" class={ADMIN_BTN} id="oauth-edit-cancel">Cancel</button>
         </div>
       </form>
     </div>
@@ -196,8 +285,12 @@ if (!clientId) return Astro.redirect("/admin/oauth");
 
       function badges(client: OAuthClient): string {
         const parts: string[] = [];
-        if (client.official) parts.push(`<span class="pill is-admin">Official</span>`);
-        if (client.disabled) parts.push(`<span class="pill is-disabled">Disabled</span>`);
+        if (client.official)
+          parts.push(`<span class="pill is-admin text-primary border-primary">Official</span>`);
+        if (client.disabled)
+          parts.push(
+            `<span class="pill is-disabled text-destructive border-destructive">Disabled</span>`,
+          );
         return parts.join(" ");
       }
 
@@ -209,7 +302,7 @@ if (!clientId) return Astro.redirect("/admin/oauth");
         clientIdEl.textContent = client.clientId;
         uriEl.textContent = client.uri || "-";
         redirectsEl.innerHTML = client.redirectUris.length
-          ? `<ul class="oauth-uri-list">${client.redirectUris.map((u) => `<li>${escapeHtml(u)}</li>`).join("")}</ul>`
+          ? `<ul class="oauth-uri-list list-none m-0 p-0 grid gap-1 font-mono text-(length:--text-micro)">${client.redirectUris.map((u) => `<li>${escapeHtml(u)}</li>`).join("")}</ul>`
           : "-";
         scopesEl.textContent = client.scopes.join(", ") || "-";
         consentCountEl.textContent = String(client.consentCount);
