@@ -132,13 +132,25 @@ describe("sessionAuth", () => {
   });
 
   it("propagates an auth worker 429 as 429 auth_rate_limited with retry_after", async () => {
+    // Better Auth's rate limiter emits `X-Retry-After` (not `Retry-After`).
     const auth = stubAuth(
-      () => new Response(null, { status: 429, headers: { "retry-after": "42" } }),
+      () => new Response(null, { status: 429, headers: { "x-retry-after": "42" } }),
     );
     const res = await appWith(auth).request("/whoami", {}, env(auth));
     expect(res.status).toBe(429);
     expect((await res.json()) as { error?: { code?: string } }).toMatchObject({
       error: { code: "auth_rate_limited", details: { retry_after: 42 } },
+    });
+  });
+
+  it("falls back to a standard Retry-After header on a 429", async () => {
+    const auth = stubAuth(
+      () => new Response(null, { status: 429, headers: { "retry-after": "7" } }),
+    );
+    const res = await appWith(auth).request("/whoami", {}, env(auth));
+    expect(res.status).toBe(429);
+    expect((await res.json()) as { error?: { code?: string } }).toMatchObject({
+      error: { code: "auth_rate_limited", details: { retry_after: 7 } },
     });
   });
 

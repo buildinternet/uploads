@@ -42,6 +42,20 @@ export type SessionVars = {
 const AUTH_INTERNAL_ORIGIN = "https://auth.internal";
 
 /**
+ * Maps a 429 from the auth worker to a RateLimitedError. Better Auth's rate
+ * limiter emits `X-Retry-After` (seconds); the standard `Retry-After` is
+ * accepted as a fallback for any intermediary that rewrites it.
+ */
+export function authRateLimitError(response: Response): RateLimitedError {
+  const raw = response.headers.get("x-retry-after") ?? response.headers.get("retry-after");
+  const retryAfter = Number(raw);
+  return new RateLimitedError("auth service rate limited this client", {
+    code: "auth_rate_limited",
+    ...(Number.isFinite(retryAfter) && retryAfter > 0 ? { retryAfterSeconds: retryAfter } : {}),
+  });
+}
+
+/**
  * Resolves the caller's session via the AUTH binding and sets `sessionUser`
  * (null only when there is genuinely no valid session). Auth binding outages
  * and malformed successful responses stay distinct as 503s: treating either
@@ -70,14 +84,8 @@ async function resolveSessionUser(env: Env, req: Request): Promise<SessionUser |
     // explicitly unauthorized response also remains a normal signed-out case.
     if (response.status === 401) return null;
     // A rate-limited auth worker is not an outage: surface it as a 429 the
-    // client can back off from, carrying the upstream Retry-After when given.
-    if (response.status === 429) {
-      const retryAfter = Number(response.headers.get("retry-after"));
-      throw new RateLimitedError("auth service rate limited this client", {
-        code: "auth_rate_limited",
-        ...(Number.isFinite(retryAfter) && retryAfter > 0 ? { retryAfterSeconds: retryAfter } : {}),
-      });
-    }
+    // client can back off from, carrying the upstream retry hint when given.
+    if (response.status === 429) throw authRateLimitError(response);
     if (!response.ok) {
       throw new ServiceUnavailableError("auth service is unavailable", {
         code: "auth_session_unavailable",

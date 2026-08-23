@@ -47,6 +47,7 @@ import {
   subscriptionForOrg,
 } from "../org-workspaces";
 import {
+  authRateLimitError,
   requireAdminUser,
   requireSessionUser,
   sessionAuth,
@@ -113,6 +114,9 @@ async function proxyAdminAuth(
       cause: err,
     });
   }
+  // Rate limiting is the caller's problem, not an outage — surface it before
+  // the status → AppError mapping turns it into a 503.
+  if (response.status === 429) throw authRateLimitError(response);
   return { status: response.status, payload: await response.json().catch(() => null) };
 }
 

@@ -1515,6 +1515,31 @@ describe("POST /admin-ui/users/:userId/ban", () => {
     expect(getRevokedBinds()?.[1]).toBe("u-target");
   });
 
+  it("propagates an auth worker 429 on ban as 429 auth_rate_limited", async () => {
+    const auth = stubAuth((req) => {
+      const url = new URL(req.url);
+      if (url.pathname === "/api/auth/get-session") {
+        return new Response(JSON.stringify({ session: {}, user: ADMIN_USER }), { status: 200 });
+      }
+      // Better Auth's rate limiter emits `X-Retry-After`.
+      return new Response(null, { status: 429, headers: { "x-retry-after": "30" } });
+    });
+    const env = { AUTH: auth } as unknown as Env;
+    const res = await app().request(
+      "/admin-ui/users/u-target/ban",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json", cookie: "session=abc" },
+        body: JSON.stringify({}),
+      },
+      env,
+    );
+    expect(res.status).toBe(429);
+    expect((await res.json()) as { error?: { code?: string } }).toMatchObject({
+      error: { code: "auth_rate_limited", details: { retry_after: 30 } },
+    });
+  });
+
   it("rejects self-ban without calling the auth worker", async () => {
     const { env, banCalls } = banEnv(ADMIN_USER);
     const res = await app().request(
