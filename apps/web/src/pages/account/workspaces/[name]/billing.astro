@@ -96,7 +96,7 @@ const cta: BillingCtaState = billing
         <h3>Plans</h3>
         <div
           id="ws-plan-cards"
-          class="plan-cards"
+          class="plan-cards my-1 mb-3.5 grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-3.5"
           data-organization-id={billing ? billing.organization.id : undefined}
           set:html={billing ? renderPlanCardsGridHtml(billing, proPriceCopy) : ""}
         />
@@ -113,6 +113,7 @@ const cta: BillingCtaState = billing
         <button
           type="button"
           id="ws-manage-billing-btn"
+          class="rounded-md border border-border bg-card px-3 py-1.5 text-xs tracking-wide text-primary hover:border-primary focus-visible:border-primary focus-visible:outline-none disabled:cursor-default disabled:opacity-60"
           hidden={cta.kind === "manage" ? undefined : true}>Manage billing</button
         >
         <p class="muted" id="ws-comped-note" hidden={cta.kind === "comped" ? undefined : true}>

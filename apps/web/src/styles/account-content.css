@@ -1,40 +1,5 @@
 /* Content styles for /account/* cards (profile kv, workspace list, developer list). */
 
-/* Billing tab — plan comparison cards. */
-.plan-cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 14px;
-  margin: 4px 0 14px;
-}
-.plan-card {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 16px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-}
-.plan-card.is-current {
-  border-color: var(--fg);
-}
-.plan-card__badge {
-  align-self: flex-start;
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: var(--fg);
-  color: var(--bg);
-  font-size: var(--text-micro);
-  font-weight: var(--weight-semibold);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-.plan-card__name {
-  margin: 0;
-  font-size: var(--text-body);
-  font-weight: var(--weight-semibold);
-}
-
 /* Compact "Pro" marker shown outside the billing tab (issue #365 follow-up)
    — same uppercase/pill idiom as .plan-card__badge, but a muted accent
    outline rather than an inverse fg/bg fill so it reads as a small aside
@@ -51,53 +16,6 @@
   letter-spacing: 0.04em;
   line-height: 1.4;
 }
-.plan-card__price {
-  margin: 0;
-  font-size: var(--text-meta);
-  color: var(--muted);
-}
-.plan-card__blurb {
-  margin: 0;
-  font-size: var(--text-meta);
-}
-.plan-card__limits {
-  margin: 4px 0 0;
-  padding: 0;
-  list-style: none;
-  display: grid;
-  gap: 4px;
-  font-size: var(--text-micro);
-}
-.plan-card__cta {
-  margin-top: auto;
-  align-self: flex-start;
-}
-/* Billing action buttons share the account area's standard button treatment
-   (same recipe as the invite-form submit) instead of native browser chrome. */
-.plan-card__cta,
-#ws-manage-billing-btn {
-  font: var(--text-micro) var(--sans);
-  letter-spacing: 0.03em;
-  color: var(--accent);
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 7px 12px;
-  background: var(--panel);
-  cursor: pointer;
-}
-.plan-card__cta:hover,
-.plan-card__cta:focus-visible,
-#ws-manage-billing-btn:hover,
-#ws-manage-billing-btn:focus-visible {
-  border-color: var(--accent);
-  outline: none;
-}
-.plan-card__cta:disabled,
-#ws-manage-billing-btn:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
-
 /* Settings pages: one card, hairline sections — no stacked cards / nested boxes. */
 section.card.settings-page {
   padding: 20px 22px 8px;
@@ -1742,63 +1660,6 @@ button.wft-card__name:focus-visible {
   }
 }
 
-/* People tab — member rows (innerHTML-injected by renderMembersHtml). */
-.member-list {
-  display: grid;
-}
-.member-row {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 14px;
-  padding: 9px 2px;
-  border-top: 1px solid var(--line);
-  font-size: var(--text-meta);
-}
-.member-row:first-child {
-  border-top: 0;
-}
-.member-row__who {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  min-width: 0;
-}
-.member-row__name {
-  font-weight: var(--weight-semibold);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.member-row__email {
-  color: var(--muted);
-  font-size: var(--text-micro);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-/* A row's height must not depend on which of three shapes its role cell
-   happens to render: a plain label (read-only viewer), a <select>
-   (manageable viewer, styled via .ul-select--sm below), or, via
-   .member-row__actions below, a Remove/Revoke .text-btn (also a
-   manageable/pending viewer). .member-row__role mirrors .text-btn's own box
-   (font/padding/border, account-content.css:513) — the same box
-   .ul-select--sm mirrors — rather than a measured number, so all three
-   converge on whatever that rule computes to and stay correct if it ever
-   changes. letter-spacing/text-transform/color stay label-specific — neither
-   affects box height. Can't just apply .ul-select--sm here: this is a plain
-   <span>, not a <select>, so the caret/background-image would be wrong. */
-.member-row__role {
-  flex: none;
-  font: var(--text-micro) var(--sans);
-  padding: 5px 9px;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  color: var(--muted);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
 /* --bp-file-grid: the five fixed columns (64/64/92/32 + gaps) leave the name
    track nothing to render in, so filenames ellipsize to zero width. Drop the
    size and type columns (their values still live in the file's own page) and
@@ -1816,34 +1677,6 @@ button.wft-card__name:focus-visible {
   .wft-type {
     display: none;
   }
-}
-
-/* People tab: pending invites share the member-row surface + revoke control. */
-.member-row__actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-/* Styling now comes from .ul-select .ul-select--sm (markup in workspace-ui.ts)
-   — that primitive's `appearance: none` takes full control of the box, which
-   turns out to be exactly what removes the old <select>-vs-<button> height
-   quirk (a previous attempt pinned `height: 27.5px` here because plain
-   box-matching CSS left a <select> rendering 2px taller than a <button> no
-   matter how closely font/padding/border/line-height/box-sizing were copied;
-   `appearance: none` plus a drawn-in caret doesn't have that quirk — see
-   packages/ui/src/styles.css). `.member-row__role-select` itself is now only
-   a JS hook (people.astro); the one thing it still needs is `width: auto` —
-   .ul-select defaults to 100% for stacked fields, but this select sits in the
-   flex .member-row__actions row next to the Remove button. */
-.member-row__role-select {
-  width: auto;
-}
-.member-row__role--pending {
-  color: var(--accent);
-}
-.member-row--pending .member-row__name {
-  font-weight: var(--weight-medium);
-  color: var(--muted);
 }
 
 /* Galleries empty state — the primary element when a workspace has none. */

@@ -158,21 +158,32 @@ export function canManageMemberRow(member: MemberRow, opts: MemberRowOptions): b
  * People-tab member list. Name leads when set (email sub-line); manageable
  * rows get role `<select>` + remove. `[]` → `""`.
  */
+/** People-tab row chrome — shared by member and invite rows so both surfaces match exactly. */
+const MEMBER_ROW_CLASS =
+  "member-row flex items-baseline justify-between gap-3.5 border-t border-border px-0.5 py-2 text-sm first:border-t-0";
+const MEMBER_ROW_WHO_CLASS = "flex min-w-0 items-baseline gap-2.5";
+const MEMBER_ROW_NAME_CLASS = "truncate font-semibold";
+const MEMBER_ROW_ROLE_CLASS =
+  "shrink-0 rounded-md border border-transparent px-2.5 py-1 font-mono text-xs uppercase tracking-wider text-muted-foreground";
+const MEMBER_ROW_ACTIONS_CLASS = "flex items-center gap-2";
+
 export function renderMembersHtml(members: MemberRow[], opts: MemberRowOptions = {}): string {
   return members
     .map((m) => {
       const lead = m.name || m.email;
-      const sub = m.name ? `<span class="member-row__email">${escapeHtml(m.email)}</span>` : "";
+      const sub = m.name
+        ? `<span class="member-row__email truncate text-xs text-muted-foreground">${escapeHtml(m.email)}</span>`
+        : "";
       const controls = canManageMemberRow(m, opts)
-        ? `<span class="member-row__actions">` +
-          `<select class="member-row__role-select ul-select ul-select--sm" data-member-id="${escapeHtml(m.id!)}" aria-label="Role for ${escapeHtml(m.email)}">` +
+        ? `<span class="${MEMBER_ROW_ACTIONS_CLASS}">` +
+          `<select class="member-row__role-select ul-select ul-select--sm w-auto" data-member-id="${escapeHtml(m.id!)}" aria-label="Role for ${escapeHtml(m.email)}">` +
           `<option value="member"${m.role === "member" ? " selected" : ""}>member</option>` +
           `<option value="admin"${m.role === "admin" ? " selected" : ""}>admin</option>` +
           `</select>` +
           `<button type="button" class="text-btn member-row__remove" data-member-id="${escapeHtml(m.id!)}" data-member-email="${escapeHtml(m.email)}">Remove</button>` +
           `</span>`
-        : `<span class="member-row__role">${escapeHtml(m.role)}</span>`;
-      return `<div class="member-row"><span class="member-row__who"><span class="member-row__name">${escapeHtml(lead)}</span>${sub}</span>${controls}</div>`;
+        : `<span class="member-row__role ${MEMBER_ROW_ROLE_CLASS}">${escapeHtml(m.role)}</span>`;
+      return `<div class="${MEMBER_ROW_CLASS}"><span class="member-row__who ${MEMBER_ROW_WHO_CLASS}"><span class="member-row__name ${MEMBER_ROW_NAME_CLASS}">${escapeHtml(lead)}</span>${sub}</span>${controls}</div>`;
     })
     .join("");
 }
@@ -191,9 +202,9 @@ export function renderMembersPlaceholderHtml(rows = 2): string {
   return Array.from(
     { length: rows },
     (_, i) =>
-      `<div class="member-row">` +
-      `<span class="member-row__who"><span class="member-row__name">${skeletonBarHtml(widths[i % widths.length])}</span></span>` +
-      `<span class="member-row__role">${skeletonBarHtml("42px")}</span>` +
+      `<div class="${MEMBER_ROW_CLASS}">` +
+      `<span class="member-row__who ${MEMBER_ROW_WHO_CLASS}"><span class="member-row__name ${MEMBER_ROW_NAME_CLASS}">${skeletonBarHtml(widths[i % widths.length])}</span></span>` +
+      `<span class="member-row__role ${MEMBER_ROW_ROLE_CLASS}">${skeletonBarHtml("42px")}</span>` +
       `</div>`,
   ).join("");
 }
@@ -209,10 +220,10 @@ export function renderInvitesHtml(
     .map((inv) => {
       const status = inv.status || "pending";
       return (
-        `<div class="member-row member-row--pending">` +
-        `<span class="member-row__who"><span class="member-row__name">${escapeHtml(inv.email)}</span></span>` +
-        `<span class="member-row__actions">` +
-        `<span class="member-row__role member-row__role--pending">${escapeHtml(status)}</span>` +
+        `<div class="member-row member-row--pending ${MEMBER_ROW_CLASS}">` +
+        `<span class="member-row__who ${MEMBER_ROW_WHO_CLASS}"><span class="member-row__name truncate font-medium text-muted-foreground">${escapeHtml(inv.email)}</span></span>` +
+        `<span class="${MEMBER_ROW_ACTIONS_CLASS}">` +
+        `<span class="member-row__role member-row__role--pending shrink-0 rounded-md border border-transparent px-2.5 py-1 font-mono text-xs uppercase tracking-wider text-primary">${escapeHtml(status)}</span>` +
         `<button type="button" class="text-btn invite-row__revoke" data-invite-id="${escapeHtml(inv.id)}" data-invite-email="${escapeHtml(inv.email)}">Revoke</button>` +
         `</span></div>`
       );
