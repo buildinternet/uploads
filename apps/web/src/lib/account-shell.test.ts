@@ -11,7 +11,8 @@ vi.mock("./auth-client", async (importOriginal) => ({
   ...auth,
 }));
 
-import { resolveSessionGate, type SessionGateOptions } from "./account-shell";
+import { resolveSessionGate, SESSION_CACHE_KEY, type SessionGateOptions } from "./account-shell";
+import { markPageLoad, resetPageVisitForTests } from "./page-visit";
 
 function element(): HTMLElement {
   return { hidden: false, textContent: "" } as HTMLElement;
@@ -63,8 +64,14 @@ afterEach(() => {
   auth.getSession.mockReset();
   auth.signOut.mockReset();
   auth.startLocalDemoSession.mockReset();
+  resetPageVisitForTests();
   vi.unstubAllGlobals();
 });
+
+/** Resolves once queued zero-delay retry timers and their promises have run. */
+function flushRetries(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 10));
+}
 
 describe("resolveSessionGate", () => {
   it("shows unavailable when local demo session creation cannot reach Auth", async () => {
@@ -146,6 +153,85 @@ describe("resolveSessionGate", () => {
     );
     expect(options.denied.hidden).toBe(true);
     expect(options.app.hidden).toBe(true);
+  });
+
+  it("keeps the shell visible on auth-unavailable when an identity is cached", async () => {
+    const { values } = installBrowser();
+    values.set(
+      SESSION_CACHE_KEY,
+      JSON.stringify({ id: "user", email: "user@example.com", name: "User", role: "user" }),
+    );
+    markPageLoad();
+    const options = { ...gate(), retryDelaysMs: [0] };
+    const session = {
+      session: {},
+      user: { id: "user", email: "user@example.com", name: "User", role: "user" },
+    };
+    auth.getSession
+      .mockResolvedValueOnce({ kind: "unavailable", reason: "server" })
+      .mockResolvedValueOnce({ kind: "signed_in", session });
+
+    await expect(resolveSessionGate(options)).resolves.toBeNull();
+    expect(options.app.hidden).toBe(false);
+    expect(options.unavailable.hidden).toBe(true);
+
+    await flushRetries();
+    expect(auth.getSession).toHaveBeenCalledTimes(2);
+    expect(options.app.hidden).toBe(false);
+    expect(values.get(SESSION_CACHE_KEY)).toContain("user@example.com");
+  });
+
+  it("keeps the shell visible when every background retry stays unavailable", async () => {
+    const { values } = installBrowser();
+    values.set(
+      SESSION_CACHE_KEY,
+      JSON.stringify({ id: "user", email: "user@example.com", name: "User", role: "user" }),
+    );
+    markPageLoad();
+    const options = { ...gate(), retryDelaysMs: [0, 0] };
+    auth.getSession.mockResolvedValue({ kind: "unavailable", reason: "server" });
+
+    await expect(resolveSessionGate(options)).resolves.toBeNull();
+    await flushRetries();
+    await flushRetries();
+    expect(auth.getSession).toHaveBeenCalledTimes(3);
+    expect(options.app.hidden).toBe(false);
+    expect(options.unavailable.hidden).toBe(true);
+  });
+
+  it("still blocks on auth-unavailable when no identity is known", async () => {
+    installBrowser();
+    const options = gate();
+    auth.getSession.mockResolvedValue({ kind: "unavailable", reason: "server" });
+
+    await expect(resolveSessionGate(options)).resolves.toBeNull();
+    expect(options.unavailable.hidden).toBe(false);
+    expect(options.app.hidden).toBe(true);
+  });
+
+  it("redirects to login when a background retry finds the session signed out", async () => {
+    const replace = vi.fn();
+    const { values } = installBrowser();
+    vi.stubGlobal("location", {
+      origin: "https://uploads.sh",
+      pathname: "/account",
+      search: "",
+      replace,
+    });
+    values.set(
+      SESSION_CACHE_KEY,
+      JSON.stringify({ id: "user", email: "user@example.com", name: "User", role: "user" }),
+    );
+    markPageLoad();
+    const options = { ...gate(), retryDelaysMs: [0] };
+    auth.getSession
+      .mockResolvedValueOnce({ kind: "unavailable", reason: "server" })
+      .mockResolvedValueOnce({ kind: "signed_out" });
+
+    await expect(resolveSessionGate(options)).resolves.toBeNull();
+    await flushRetries();
+    expect(replace).toHaveBeenCalledWith("/login?callbackURL=%2Faccount");
+    expect(values.has(SESSION_CACHE_KEY)).toBe(false);
   });
 
   it("shows the app without a who node when the header owns session UI", async () => {
