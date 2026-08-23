@@ -51,7 +51,7 @@ describe("renderMembersHtml", () => {
 
   it("leads with the email when there is no display name, without a sub-line", () => {
     const html = renderMembersHtml([{ email: "c@d.com", name: "", role: "member" }]);
-    expect(html).toContain('member-row__name">c@d.com<');
+    expect(html).toMatch(/member-row__name[^"]*">c@d\.com</);
     expect(html).not.toContain("member-row__email");
   });
 
@@ -462,7 +462,7 @@ describe("skeleton placeholders", () => {
 
   it("mirrors the real member row's two-column structure", () => {
     const html = renderMembersPlaceholderHtml(2);
-    expect(html.match(/class="member-row"/g)).toHaveLength(2);
+    expect(html.match(/class="member-row /g)).toHaveLength(2);
     // Both halves present, or the flex row collapses and the swap rearranges.
     expect(html).toContain("member-row__who");
     expect(html).toContain("member-row__name");
