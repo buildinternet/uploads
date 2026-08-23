@@ -142,13 +142,39 @@
       "service": "uploads-api",
     },
   ],
-  // Rate limiting: Better Auth's own database-backed rate limiter
-  // (storage: "database" in src/auth.ts) covers /api/auth/* abuse. An
-  // AUTH_RATE_LIMITER edge-limiter binding (namespace_id 1003) was reserved
+  // Rate limiting (2026-08-23 incident follow-up): Better Auth's limiter is
+  // backed by one `RateLimitCounter` Durable Object per rate-limit key —
+  // `rateLimit.customStorage` in src/auth.ts, class in src/rate-limit-do.ts,
+  // re-exported from src/index.ts because wrangler resolves `class_name`
+  // against the entrypoint's named exports. It replaces `storage: "database"`,
+  // whose per-request D1 read+write turned a D1 stall into a site-wide hang.
+  // The wrapper is fail-open and time-bounded, so this binding going sideways
+  // degrades to "no limiting", never to a stalled request.
+  //
+  // The `new_sqlite_classes` migration below is applied by the next
+  // `wrangler deploy` (i.e. the Workers Builds deploy of this branch); nothing
+  // to run by hand. Do not rename the class or the migration tag afterwards —
+  // renaming a DO class needs an explicit `renamed_classes` migration.
+  //
+  // An AUTH_RATE_LIMITER edge-limiter binding (namespace_id 1003) was reserved
   // here from PR #89 to #764 but never read by code — removed by the #754
-  // minimal-binding audit. If an edge limiter in front of Better Auth's is
+  // minimal-binding audit. If an edge limiter in FRONT of Better Auth's is
   // ever wired up, namespace_id 1003 is free to reuse (1001/1002 are taken
   // by apps/api and apps/mcp).
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "RATE_LIMIT",
+        "class_name": "RateLimitCounter",
+      },
+    ],
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["RateLimitCounter"],
+    },
+  ],
   // Workers Previews (`npx wrangler preview` from a branch). Deliberately
   // narrow for this worker: BETTER_AUTH_URL must equal the preview's own
   // origin, which is only known after the first preview deploy prints it —
@@ -197,5 +223,19 @@
         "service": "uploads-api",
       },
     ],
+    // Repeated verbatim because `previews` bindings do not inherit. No
+    // `script_name`/`environment`: those are only needed to reach a DO class
+    // defined in a DIFFERENT worker script. `RateLimitCounter` is defined and
+    // exported by this same script, so a preview gets its own object
+    // namespace on its own preview script — counters are naturally isolated
+    // from production's, which is what you want for a preview.
+    "durable_objects": {
+      "bindings": [
+        {
+          "name": "RATE_LIMIT",
+          "class_name": "RateLimitCounter",
+        },
+      ],
+    },
   },
 }

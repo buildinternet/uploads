@@ -41,6 +41,11 @@ export type SessionVars = {
 // for auth.uploads.sh callers elsewhere in this repo's plan (D1).
 const AUTH_INTERNAL_ORIGIN = "https://auth.internal";
 
+// Bounded so a stalled auth/D1 dependency degrades to a fast 503 instead of
+// hanging every request for as long as the auth worker does (2026-08-23
+// incident: D1 stalls of 5-25s propagated through this unbounded fetch).
+const AUTH_FETCH_TIMEOUT_MS = 4000;
+
 /**
  * Maps a 429 from the auth worker to a RateLimitedError. Better Auth's rate
  * limiter emits `X-Retry-After` (seconds); the standard `Retry-After` is
@@ -79,6 +84,7 @@ async function resolveSessionUser(env: Env, req: Request): Promise<SessionUser |
   try {
     const response = await env.AUTH.fetch(`${AUTH_INTERNAL_ORIGIN}/api/auth/get-session`, {
       headers,
+      signal: AbortSignal.timeout(AUTH_FETCH_TIMEOUT_MS),
     });
     // Better Auth returns a normal no-session result as 200 + null. An
     // explicitly unauthorized response also remains a normal signed-out case.

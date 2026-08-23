@@ -26,6 +26,16 @@ export interface AuthProxyEnv {
 const LOCAL_AUTH_ORIGIN_DEFAULT = "http://127.0.0.1:8788";
 
 /**
+ * Bound on `serverGetSession` only (2026-08-23 incident): a stalled D1 read
+ * inside the auth worker was observed holding the AUTH binding open 5–25s,
+ * which stalled every SSR page render behind it with no bound at all. This
+ * timeout is scoped to the read-only get-session lookup specifically —
+ * `proxyAuthRequest` itself stays unbounded for every other caller (sign-in,
+ * OAuth callbacks, and other mutations must never be aborted mid-write).
+ */
+const SESSION_LOOKUP_TIMEOUT_MS = 4_000;
+
+/**
  * Appended when a same-origin (host-only) session cookie is set for
  * `uploads.sh` — clears the pre-Phase-C wide `Domain=.uploads.sh` cookie so
  * the browser's jar doesn't carry both. Before Phase C the upstream
@@ -72,12 +82,39 @@ function withLegacyCookieCleared(upstream: Response, request: Request): Response
  * session` on the request's own origin, over the same transport as
  * `proxyAuthRequest`. A server-to-server fetch has no cookie jar of its own,
  * so the header must be forwarded explicitly.
+ *
+ * Carries an `AbortSignal.timeout` (see {@link SESSION_LOOKUP_TIMEOUT_MS})
+ * on the request itself — `proxyAuthRequest` forwards whatever signal the
+ * request already has, so the binding/HTTP fetch it makes is bounded without
+ * `proxyAuthRequest` needing to know about timeouts at all. `timeoutMs` is
+ * only for tests, so they can exercise a hanging binding without a real 4s
+ * wait; production callers always get the default.
  */
-export async function serverGetSession(env: AuthProxyEnv, request: Request): Promise<Response> {
+export async function serverGetSession(
+  env: AuthProxyEnv,
+  request: Request,
+  timeoutMs = SESSION_LOOKUP_TIMEOUT_MS,
+): Promise<Response> {
   const getSessionRequest = new Request(new URL("/api/auth/get-session", request.url), {
     headers: { cookie: request.headers.get("cookie") ?? "" },
+    signal: AbortSignal.timeout(timeoutMs),
   });
-  return proxyAuthRequest(env, getSessionRequest);
+  try {
+    return await proxyAuthRequest(env, getSessionRequest);
+  } catch (err) {
+    if (getSessionRequest.signal.aborted) {
+      // Synthetic response, not a throw: every current consumer parses a
+      // Response via `sessionResultFromResponse` (401 → signed_out, non-ok →
+      // `{ kind: "unavailable", reason: "server" }`) and only falls back to
+      // its own `.catch` for a *thrown* network failure. Returning a non-ok
+      // Response here — instead of letting the AbortError propagate — routes
+      // a timeout through that same already-handled "unavailable" path
+      // rather than a second, less-exercised error path, and keeps
+      // "signed out" distinguishable from "auth unavailable" either way.
+      return new Response(null, { status: 503, statusText: "auth session lookup timed out" });
+    }
+    throw err;
+  }
 }
 
 /**

@@ -40,6 +40,11 @@ export interface Membership {
 
 const INTERNAL_ORIGIN = "https://auth.internal";
 
+// Bounded so a stalled auth/D1 dependency degrades to a fast 503 instead of
+// hanging every request for as long as the auth worker does (2026-08-23
+// incident: D1 stalls of 5-25s propagated through this unbounded fetch).
+const AUTH_FETCH_TIMEOUT_MS = 4000;
+
 function internalHeaders(): Headers {
   return new Headers({ "x-uploads-internal": "1" });
 }
@@ -84,7 +89,17 @@ export async function membershipsForUser(
   url.searchParams.set("userId", userId);
   if (opts?.slug) url.searchParams.set("slug", opts.slug);
 
-  const response = await env.AUTH.fetch(url.toString(), { headers: internalHeaders() });
+  let response: Response;
+  try {
+    response = await env.AUTH.fetch(url.toString(), {
+      headers: internalHeaders(),
+      signal: AbortSignal.timeout(AUTH_FETCH_TIMEOUT_MS),
+    });
+  } catch {
+    throw new ServiceUnavailableError("auth service is unavailable", {
+      code: "auth_lookup_failed",
+    });
+  }
   if (!response.ok) {
     throw new ServiceUnavailableError("auth service returned an unexpected status", {
       code: "auth_lookup_failed",

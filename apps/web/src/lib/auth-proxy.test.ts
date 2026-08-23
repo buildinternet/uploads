@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { sessionResultFromResponse } from "./auth-client";
 import {
   proxyAuthRequest,
   serverAuthFetch,
@@ -14,6 +15,22 @@ afterEach(() => {
 function fakeAuthBinding(response: Response) {
   const fetch = vi.fn(async (_req: Request) => response);
   return { AUTH: { fetch }, fetchMock: fetch };
+}
+
+/**
+ * A binding fake that never resolves on its own — mirrors a D1-stalled auth
+ * worker holding the request open indefinitely. Rejects with an AbortError
+ * when the forwarded request's own signal aborts, same as a real `fetch`
+ * would, so it actually exercises `serverGetSession`'s timeout handling
+ * instead of just hanging forever regardless of the signal.
+ */
+function hangingBinding() {
+  return vi.fn(
+    (req: Request) =>
+      new Promise<Response>((_resolve, reject) => {
+        req.signal.addEventListener("abort", () => reject(req.signal.reason), { once: true });
+      }),
+  );
 }
 
 describe("proxyAuthRequest — binding transport", () => {
@@ -200,6 +217,82 @@ describe("serverGetSession", () => {
 
     const forwarded = fetchMock.mock.calls[0]?.[0] as Request;
     expect(forwarded.headers.get("cookie")).toBe("");
+  });
+
+  it("settles with a synthetic 503 (not a throw) when the AUTH binding hangs past the timeout", async () => {
+    // Binding fetch never resolves — mirrors a D1-stalled auth worker holding
+    // the request open indefinitely. Uses a short injected timeoutMs so the
+    // test doesn't actually wait out the real 4s production default.
+    const hang = hangingBinding();
+    const request = new Request("https://uploads.sh/account/profile", {
+      headers: { cookie: "better-auth.session_token=abc" },
+    });
+
+    const response = await serverGetSession({ AUTH: { fetch: hang } }, request, 20);
+
+    expect(response.ok).toBe(false);
+    expect(response.status).toBe(503);
+  });
+
+  it("resolving 503 timeout response parses as unavailable, distinct from a real 401 signed-out response", async () => {
+    const { AUTH: signedOutAuth } = fakeAuthBinding(Response.json(null, { status: 401 }));
+    const signedOut = await sessionResultFromResponse(
+      await serverGetSession(
+        { AUTH: signedOutAuth },
+        new Request("https://uploads.sh/account/profile"),
+      ),
+    );
+    expect(signedOut).toEqual({ kind: "signed_out" });
+
+    const hang = hangingBinding();
+    const timedOut = await sessionResultFromResponse(
+      await serverGetSession(
+        { AUTH: { fetch: hang } },
+        new Request("https://uploads.sh/account/profile"),
+        20,
+      ),
+    );
+    expect(timedOut).toEqual({ kind: "unavailable", reason: "server" });
+  });
+
+  it("normal, fast responses are unaffected by the timeout plumbing", async () => {
+    const { AUTH, fetchMock } = fakeAuthBinding(Response.json({ user: { id: "1" } }));
+    const request = new Request("https://uploads.sh/account/profile", {
+      headers: { cookie: "better-auth.session_token=abc" },
+    });
+
+    const response = await serverGetSession({ AUTH }, request);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ user: { id: "1" } });
+  });
+});
+
+describe("proxyAuthRequest — no timeout on general traffic", () => {
+  it("a hanging binding fetch leaves proxyAuthRequest unsettled (plain proxyAuthRequest carries no timeout)", async () => {
+    const hang = hangingBinding();
+    const request = new Request("https://uploads.sh/api/auth/sign-in/social", { method: "POST" });
+
+    let settled = false;
+    proxyAuthRequest({ AUTH: { fetch: hang } }, request).then(() => {
+      settled = true;
+    });
+
+    // Give any pending microtasks/timers a chance to fire; a bound request
+    // would already have rejected here, an unbound one must not have.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(settled).toBe(false);
+  });
+
+  it("does not attach a signal to the forwarded request", async () => {
+    const { AUTH, fetchMock } = fakeAuthBinding(Response.json({ ok: true }));
+    const request = new Request("https://uploads.sh/api/auth/sign-in/social", { method: "POST" });
+
+    await proxyAuthRequest({ AUTH }, request);
+
+    const forwarded = fetchMock.mock.calls[0]?.[0] as Request;
+    expect(forwarded.signal.aborted).toBe(false);
   });
 });
 
