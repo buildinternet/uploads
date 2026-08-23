@@ -1,0 +1,26 @@
+---
+// Dev-only kitchen sink for the packages/ui (shadcn/Base UI) component kit.
+// Not linked anywhere in product nav; 404s outside development.
+// Forced to render per-request (not prerendered) so the production gate below
+// is evaluated against the live runtime env, not baked in at build time.
+export const prerender = false;
+
+import { env } from "cloudflare:workers";
+import BaseHead from "../../components/BaseHead.astro";
+import UiKit from "../../components/dev/UiKit";
+import "@uploads/ui/theme.css";
+
+if (env.ENVIRONMENT === "production") {
+  return new Response(null, { status: 404 });
+}
+---
+
+<html lang="en">
+  <head>
+    <BaseHead />
+    <title>UI kit · dev</title>
+  </head>
+  <body class="bg-background text-foreground">
+    <UiKit client:load />
+  </body>
+</html>
