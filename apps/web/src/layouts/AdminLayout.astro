@@ -47,16 +47,14 @@ const { authOrigin, apiOrigin } = resolveSignedInOrigins();
 applyAuthSecurityHeaders(Astro.response.headers, signedInCsp(authOrigin, apiOrigin));
 
 // ShellSidebar island props (issue #798). No workspace switcher here — the
-// header row is a plain "admin" label. Sign-out stays in the header avatar
-// menu, the way the account shell has had it since #601; identity fills in
-// from the client-resolved session.
+// header row is a plain "admin" label. Sign-out and identity stay in the
+// header avatar menu, the way the account shell has had it since #601.
 const sidebarProps = {
   ariaLabel: "Admin sections",
   sections: adminNavSections({ section, showConsoleLinks }),
   switcher: null,
   headerLabel: "admin",
   headerHref: "/admin",
-  identity: null,
   defaultOpen: readSidebarDefaultOpen(Astro.request.headers.get("cookie")),
 };
 const sidebarSeedJson = JSON.stringify(sidebarProps).replace(/</g, "\\u003c");

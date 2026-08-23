@@ -30,7 +30,6 @@ import {
 import {
   Sidebar,
   SidebarContent,
-  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
@@ -49,7 +48,6 @@ import {
   accountNavSections,
   workspaceSwitcherData,
   type AccountSectionId,
-  type ShellIdentity,
   type ShellNavIcon,
   type ShellNavItem,
   type ShellNavSection,
@@ -249,16 +247,6 @@ function ShellSidebarBody(props: ShellSidebarIslandProps): ReactNode {
   const { account } = props;
   const [sections, setSections] = useState<ShellNavSection[]>(props.sections);
   const [switcher, setSwitcher] = useState<ShellSwitcher | null>(props.switcher);
-  const [identity, setIdentity] = useState<ShellIdentity | null>(props.identity);
-
-  // Fill the footer from the resolved session when the server didn't have one
-  // (the admin shell resolves its session client-side).
-  useEffect(() => {
-    if (identity) return;
-    onSession((user) => {
-      setIdentity({ name: user.name, email: user.email });
-    });
-  }, [identity]);
 
   // Account shell only: the URL carries no workspace on personal routes, so
   // paint from the membership cache first and revalidate after the session.
@@ -332,26 +320,6 @@ function ShellSidebarBody(props: ShellSidebarIslandProps): ReactNode {
             <NavGroup key={section.label} section={section} />
           ))}
         </SidebarContent>
-
-        {identity && (
-          <SidebarFooter>
-            <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  size="lg"
-                  tooltip={identity.email}
-                  render={<a href="/account/profile" />}
-                >
-                  <Glyph name="account" />
-                  <span className="grid min-w-0 leading-tight group-data-[collapsible=icon]:hidden">
-                    <span className="truncate text-sm">{identity.name || identity.email}</span>
-                    <span className="truncate text-xs text-muted-foreground">{identity.email}</span>
-                  </span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            </SidebarMenu>
-          </SidebarFooter>
-        )}
       </Sidebar>
     </SidebarProvider>
   );

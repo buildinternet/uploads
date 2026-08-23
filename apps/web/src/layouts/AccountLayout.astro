@@ -78,7 +78,6 @@ applyAuthSecurityHeaders(Astro.response.headers, signedInCsp(authOrigin, apiOrig
 // client always revalidates in the background, so a session revoked between
 // this render and hydration still leaves for login.
 const sessionCookie = Astro.request.headers.get("cookie") ?? "";
-let sidebarIdentity: { name: string; email: string } | null = null;
 let serverSessionUserJson: string | null = null;
 if (sessionCookie.trim()) {
   // #731 phase B: resolved over the AUTH binding (env.AUTH, or the HTTP
@@ -98,7 +97,6 @@ if (sessionCookie.trim()) {
       /[<\u2028\u2029]/g,
       (ch) => "\\u" + ch.charCodeAt(0).toString(16).padStart(4, "0"),
     );
-    sidebarIdentity = { name: session.session.user.name, email: session.session.user.email };
   }
 }
 const serverSignedIn = serverSessionUserJson !== null;
@@ -112,7 +110,6 @@ const sidebarProps = {
   switcher: workspaceSwitcherData([], { active: workspace }),
   headerLabel: workspace || "workspaces",
   headerHref: "/account/workspaces",
-  identity: sidebarIdentity,
   defaultOpen: readSidebarDefaultOpen(sessionCookie),
   account: { apiOrigin, section, workspace },
 };

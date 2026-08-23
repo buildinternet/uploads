@@ -72,11 +72,6 @@ export interface ShellSwitcher {
   manageHref: string;
 }
 
-export interface ShellIdentity {
-  name: string;
-  email: string;
-}
-
 export interface ShellSidebarProps {
   /** `aria-label` for the nav landmark ("Account sections" / "Admin sections"). */
   ariaLabel: string;
@@ -86,7 +81,6 @@ export interface ShellSidebarProps {
   /** Header copy when there is no switcher. */
   headerLabel: string;
   headerHref: string;
-  identity: ShellIdentity | null;
   /** From the `sidebar_state` cookie — must match on server and client. */
   defaultOpen: boolean;
 }
