@@ -93,10 +93,12 @@ async function proxyAdminAuth(
   body: unknown,
 ): Promise<{ status: number; payload: unknown }> {
   const headers = new Headers({ "content-type": "application/json" });
-  const cookie = req.headers.get("cookie");
-  const authorization = req.headers.get("authorization");
-  if (cookie) headers.set("cookie", cookie);
-  if (authorization) headers.set("authorization", authorization);
+  // Client IP headers included so Better Auth rate-limits per caller (same
+  // convention as session-auth.ts).
+  for (const name of ["cookie", "authorization", "cf-connecting-ip", "x-forwarded-for"]) {
+    const value = req.headers.get(name);
+    if (value) headers.set(name, value);
+  }
 
   let response: Response;
   try {

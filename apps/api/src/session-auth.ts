@@ -5,7 +5,12 @@
  * (bearer tokens); this is the seam for session-authenticated admin UI
  * endpoints later phases build on.
  */
-import { ForbiddenError, ServiceUnavailableError, UnauthorizedError } from "@uploads/errors";
+import {
+  ForbiddenError,
+  RateLimitedError,
+  ServiceUnavailableError,
+  UnauthorizedError,
+} from "@uploads/errors";
 import type { MiddlewareHandler } from "hono";
 
 /** Minimal shape of Better Auth's `get-session` response body. */
@@ -50,10 +55,12 @@ export const sessionAuth: MiddlewareHandler<SessionVars> = async (c, next) => {
 
 async function resolveSessionUser(env: Env, req: Request): Promise<SessionUser | null> {
   const headers = new Headers();
-  const cookie = req.headers.get("cookie");
-  const authorization = req.headers.get("authorization");
-  if (cookie) headers.set("cookie", cookie);
-  if (authorization) headers.set("authorization", authorization);
+  // Client IP headers ride along so Better Auth's rate limiter buckets per
+  // caller instead of lumping every API-originated get-session into one key.
+  for (const name of ["cookie", "authorization", "cf-connecting-ip", "x-forwarded-for"]) {
+    const value = req.headers.get(name);
+    if (value) headers.set(name, value);
+  }
 
   try {
     const response = await env.AUTH.fetch(`${AUTH_INTERNAL_ORIGIN}/api/auth/get-session`, {
@@ -62,6 +69,15 @@ async function resolveSessionUser(env: Env, req: Request): Promise<SessionUser |
     // Better Auth returns a normal no-session result as 200 + null. An
     // explicitly unauthorized response also remains a normal signed-out case.
     if (response.status === 401) return null;
+    // A rate-limited auth worker is not an outage: surface it as a 429 the
+    // client can back off from, carrying the upstream Retry-After when given.
+    if (response.status === 429) {
+      const retryAfter = Number(response.headers.get("retry-after"));
+      throw new RateLimitedError("auth service rate limited this client", {
+        code: "auth_rate_limited",
+        ...(Number.isFinite(retryAfter) && retryAfter > 0 ? { retryAfterSeconds: retryAfter } : {}),
+      });
+    }
     if (!response.ok) {
       throw new ServiceUnavailableError("auth service is unavailable", {
         code: "auth_session_unavailable",
@@ -84,7 +100,7 @@ async function resolveSessionUser(env: Env, req: Request): Promise<SessionUser |
     if (body.user.banned === true) return null;
     return body.user;
   } catch (err) {
-    if (err instanceof ServiceUnavailableError) throw err;
+    if (err instanceof ServiceUnavailableError || err instanceof RateLimitedError) throw err;
     throw new ServiceUnavailableError("auth service is unavailable", {
       code: "auth_session_unavailable",
     });

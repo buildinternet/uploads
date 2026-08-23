@@ -541,6 +541,7 @@ describe("getWorkspaceFilesByPath", () => {
     path: "/settings",
     count: 2,
     lastUpdated: "2026-08-09T21:14:03.000Z",
+    recent: [{ key: "shots/a.png", url: "https://s.example/a.png", embedUrl: null }],
   };
 
   it("returns groups, catalog, and projects on a well-formed response", async () => {
@@ -601,6 +602,25 @@ describe("getWorkspaceFilesByPath", () => {
     expect(result.kind === "ok" && result.latest).toEqual([]);
   });
 
+  it("defaults a catalog entry's strip to empty when an older API omits it", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({
+          groups: [GROUP],
+          catalog: [{ project: "acme/web", path: "/older", count: 1, lastUpdated: "1" }],
+          projects: [PROJECT],
+          truncated: false,
+          catalogTruncated: false,
+        }),
+      ),
+    );
+    const result = await getWorkspaceFilesByPath("https://api.uploads.sh", "acme");
+    expect(result.kind === "ok" && result.catalog).toEqual([
+      { project: "acme/web", path: "/older", count: 1, lastUpdated: "1", recent: [] },
+    ]);
+  });
+
   it("synthesizes a catalog from groups when an older API omits it", async () => {
     vi.stubGlobal(
       "fetch",
@@ -610,7 +630,8 @@ describe("getWorkspaceFilesByPath", () => {
     expect(result).toEqual({
       kind: "ok",
       groups: [GROUP],
-      catalog: [CATALOG],
+      // Synthesized entries carry the group's own (longer) strip.
+      catalog: [{ ...CATALOG, recent: GROUP.recent }],
       projects: [PROJECT],
       latest: [],
       truncated: true,
@@ -624,7 +645,7 @@ describe("getWorkspaceFilesByPath", () => {
       vi.fn(async () =>
         Response.json({
           groups: [GROUP],
-          catalog: [{ path: 1 }],
+          catalog: [{ ...CATALOG, recent: [{ key: 1 }] }],
           projects: [PROJECT],
           truncated: false,
         }),

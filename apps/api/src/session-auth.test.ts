@@ -114,6 +114,43 @@ describe("sessionAuth", () => {
     expect(res.status).toBe(401);
   });
 
+  it("forwards the client IP headers to the auth worker", async () => {
+    let seen: Headers | undefined;
+    const auth = stubAuth((req) => {
+      seen = req.headers;
+      return new Response(JSON.stringify(null), { status: 200 });
+    });
+    await appWith(auth).request(
+      "/whoami",
+      {
+        headers: { "cf-connecting-ip": "203.0.113.7", "x-forwarded-for": "203.0.113.7, 10.0.0.1" },
+      },
+      env(auth),
+    );
+    expect(seen?.get("cf-connecting-ip")).toBe("203.0.113.7");
+    expect(seen?.get("x-forwarded-for")).toBe("203.0.113.7, 10.0.0.1");
+  });
+
+  it("propagates an auth worker 429 as 429 auth_rate_limited with retry_after", async () => {
+    const auth = stubAuth(
+      () => new Response(null, { status: 429, headers: { "retry-after": "42" } }),
+    );
+    const res = await appWith(auth).request("/whoami", {}, env(auth));
+    expect(res.status).toBe(429);
+    expect((await res.json()) as { error?: { code?: string } }).toMatchObject({
+      error: { code: "auth_rate_limited", details: { retry_after: 42 } },
+    });
+  });
+
+  it("propagates an auth worker 429 without Retry-After as a bare 429", async () => {
+    const auth = stubAuth(() => new Response(null, { status: 429 }));
+    const res = await appWith(auth).request("/whoami", {}, env(auth));
+    expect(res.status).toBe(429);
+    expect((await res.json()) as { error?: { code?: string } }).toMatchObject({
+      error: { code: "auth_rate_limited" },
+    });
+  });
+
   it("allows requireAdminUser for a multi-role user (comma-separated role)", async () => {
     const user = { id: "u3", email: "admin2@b.com", name: "Admin2", role: "admin,support" };
     const auth = stubAuth(

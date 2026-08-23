@@ -705,6 +705,12 @@ export const BY_PATH_GROUP_LIMIT = 50;
 /** Recent object keys returned per path group. */
 export const BY_PATH_RECENT_LIMIT = 6;
 /**
+ * Recent object keys returned per catalog entry — a shorter strip than the
+ * groups', so every path can render thumbs without the page fetching one
+ * search per group.
+ */
+export const BY_PATH_CATALOG_RECENT_LIMIT = 3;
+/**
  * Max unique (project, path) pairs in the screenshots catalog. Larger than
  * the thumbed-group cap so the filter bar can still name older paths.
  */
@@ -720,8 +726,11 @@ export type PathGroup = {
   recent: string[];
 };
 
-/** Unique (project, path) without thumbs — same fields as a group minus `recent`. */
-export type PathCatalogEntry = Omit<PathGroup, "recent">;
+/**
+ * Unique (project, path) — same fields as a group, with a shorter thumb strip
+ * (BY_PATH_CATALOG_RECENT_LIMIT keys).
+ */
+export type PathCatalogEntry = PathGroup;
 
 /** One entry in the flat newest-first feed (the "Recent" view). */
 export type LatestPathObject = {
@@ -738,9 +747,11 @@ export type ProjectSummary = { label: string; count: number; lastUpdated: string
  * query (spec: docs/superpowers/specs/2026-08-11-screenshots-project-grouping-design.md).
  * Groups come back most-recently-active first, each carrying its newest
  * BY_PATH_RECENT_LIMIT keys and total count. `catalog` is the same unique
- * pairs without thumbs, up to BY_PATH_CATALOG_LIMIT, so the page can filter
- * by path without a second query. `projects` summarizes the catalog by
- * project label, most-recent first.
+ * pairs, up to BY_PATH_CATALOG_LIMIT, with a shorter
+ * BY_PATH_CATALOG_RECENT_LIMIT strip — so the page can filter by path AND
+ * render thumbs for every group off this one query, with no per-group
+ * follow-up search. `projects` summarizes the catalog by project label,
+ * most-recent first.
  *
  * One flat scan of the `path` rows (seeked via `file_metadata_lookup_idx
  * (workspace, meta_key, meta_value)`), with the three project-label keys
@@ -836,12 +847,15 @@ export async function groupObjectsByPath(
       if (catalog.length === BY_PATH_CATALOG_LIMIT) {
         catalogTruncated = true;
       } else {
-        entry = { project, path: row.path, count: 0, lastUpdated: row.updated_at };
+        entry = { project, path: row.path, count: 0, lastUpdated: row.updated_at, recent: [] };
         catalogByKey.set(groupKey, entry);
         catalog.push(entry);
       }
     }
-    if (entry) entry.count += 1;
+    if (entry) {
+      entry.count += 1;
+      if (entry.recent.length < BY_PATH_CATALOG_RECENT_LIMIT) entry.recent.push(row.object_key);
+    }
 
     let group = byKey.get(groupKey);
     if (!group) {

@@ -1921,6 +1921,39 @@ describe("GET /me/workspaces/:name/files/by-path", () => {
     expect(body.projects.map((p) => p.label).sort()).toEqual(["acme/web", "x.dev"]);
   });
 
+  it("gives every catalog entry a thumb strip, unenriched past the thumbed-group cap", async () => {
+    const db = metadataDb([
+      ...Array.from({ length: 50 }, (_, i) => ({
+        workspace: "acme",
+        key: `new-${i}.png`,
+        meta: { path: `/new-${i}`, state: "after" },
+      })),
+      { workspace: "acme", key: "old.png", meta: { path: "/old", state: "after" } },
+    ]);
+    const env = memberEnv({ workspace: "acme", db, bucket: new FakeR2Bucket(), record: R2_RECORD });
+    const res = await app().request("/me/workspaces/acme/files/by-path", {}, env);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      groups: { path: string }[];
+      catalog: {
+        path: string;
+        recent: { key: string; url: string | null; embedUrl: string | null; state?: string }[];
+      }[];
+      truncated: boolean;
+    };
+    expect(body.truncated).toBe(true);
+    // Rows land newest-last in the fake DB, so "/old" is the group that fell
+    // off the thumbed cap — it still gets a strip, from the catalog.
+    const dropped = body.catalog.find(
+      (entry) => !body.groups.some((group) => group.path === entry.path),
+    )!;
+    expect(dropped.recent).toHaveLength(1);
+    expect(dropped.recent[0]).toMatchObject({ url: expect.stringContaining("https://") });
+    // Enrichment stays scoped to the thumbed groups + `latest`: no extra D1.
+    expect(dropped.recent[0]).not.toHaveProperty("state");
+    expect(dropped.recent[0]).not.toHaveProperty("updatedAt");
+  });
+
   it("returns a flat latest feed with project, path, and upload time per shot", async () => {
     const db = metadataDb([
       {
