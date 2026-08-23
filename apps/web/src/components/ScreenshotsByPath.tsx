@@ -303,10 +303,18 @@ function ShotThumb({
           {showLock ? "🔒" : extLabel(item.key)}
         </span>
       )}
-      {contextLabel && <span className="wsp-state">{contextLabel}</span>}
+      {contextLabel && (
+        <span className="wsp-state absolute top-1 left-1 rounded-full border border-line bg-panel px-[5px] py-px text-[12px] leading-[1.4] tracking-[0.04em] text-muted-foreground uppercase">
+          {contextLabel}
+        </span>
+      )}
       {paired && (
-        <span className="wsp-pair" aria-hidden="true" title="Has a before/after pair">
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+        <span
+          className="wsp-pair absolute top-1 right-1 grid h-[18px] w-[18px] place-items-center rounded-[4px] border border-line bg-panel text-muted-foreground"
+          aria-hidden="true"
+          title="Has a before/after pair"
+        >
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="block">
             <rect x="1" y="1" width="4.5" height="10" rx="1" fill="currentColor" opacity="0.45" />
             <rect
               x="6.5"
@@ -357,18 +365,18 @@ function SkelBar({ width }: { width: string }) {
 
 function OverviewLoadingSkeleton() {
   return (
-    <div className="wsp" aria-busy="true">
-      <div className="wsp-filter">
-        <span className="wsp-filter__project wsp-filter__skel">
+    <div className="wsp grid gap-8" aria-busy="true">
+      <div className="wsp-filter flex flex-wrap items-stretch gap-2">
+        <span className="wsp-filter__project wsp-filter__skel flex min-h-9 items-center rounded-[6px] border border-line bg-bg px-3 box-border">
           <SkelBar width="120px" />
         </span>
-        <span className="wsp-filter__q wsp-filter__skel">
+        <span className="wsp-filter__q wsp-filter__skel flex min-h-9 items-center rounded-[6px] border border-line bg-bg px-3 box-border">
           <SkelBar width="60%" />
         </span>
       </div>
       {[0, 1, 2].map((row) => (
-        <div className="wsp-group" key={row}>
-          <div className="wsp-group__head">
+        <div className="wsp-group grid gap-2.5" key={row}>
+          <div className="wsp-group__head flex w-full items-baseline gap-2.5">
             <SkelBar width="140px" />
           </div>
           <div className="wsp-strip">
@@ -452,9 +460,9 @@ function FilterBar({
   };
 
   return (
-    <div className="wsp-filter">
+    <div className="wsp-filter flex flex-wrap items-stretch gap-2">
       <Select
-        className="ul-select--sm wsp-filter__project"
+        className="ul-select--sm wsp-filter__project flex-[0_1_16rem] min-w-[12rem] max-w-full min-h-9 text-base sm:text-[13px] box-border"
         aria-label="Filter by project"
         value={project}
         onChange={(event) => onProject(event.target.value)}
@@ -466,11 +474,11 @@ function FilterBar({
           </option>
         ))}
       </Select>
-      <div className="wsp-filter__qwrap">
+      <div className="wsp-filter__qwrap relative flex flex-[1_1_16rem] min-w-0">
         <Input
           id="wsp-path-filter"
           type="search"
-          className="wsp-filter__q"
+          className="wsp-filter__q flex-1 min-w-0 min-h-9 px-3 py-1.5 text-base sm:text-[13px] rounded-[6px] box-border"
           aria-label="Filter by path"
           aria-keyshortcuts="Meta+K Control+K Slash"
           aria-expanded={open}
@@ -496,7 +504,12 @@ function FilterBar({
           onKeyDown={onKeyDown}
         />
         {open && (
-          <ul className="wsp-suggest" id="wsp-path-suggest" role="listbox" aria-label="Paths">
+          <ul
+            className="wsp-suggest absolute top-[calc(100%+4px)] left-0 right-0 z-30 m-0 max-h-[280px] list-none overflow-y-auto rounded-[6px] border border-line bg-panel p-1 shadow-[0_8px_24px_rgb(0_0_0_/_0.25)]"
+            id="wsp-path-suggest"
+            role="listbox"
+            aria-label="Paths"
+          >
             {suggestions.map((entry, index) => (
               <li key={entry.path} role="presentation">
                 <button
@@ -504,15 +517,17 @@ function FilterBar({
                   role="option"
                   id={`wsp-path-suggest-${index}`}
                   aria-selected={index === active}
-                  className={index === active ? "wsp-suggest__opt is-active" : "wsp-suggest__opt"}
+                  className={`wsp-suggest__opt flex w-full items-baseline gap-3 rounded-sm border-0 bg-none px-2 py-1.5 text-left font-[inherit] text-inherit cursor-pointer ${index === active ? "is-active bg-bg" : ""}`}
                   onMouseDown={(event) => {
                     event.preventDefault();
                     pick(entry.path);
                   }}
                   onMouseEnter={() => setActive(index)}
                 >
-                  <span className="wsp-suggest__path">{entry.path}</span>
-                  <span className="wsp-suggest__count">
+                  <span className="wsp-suggest__path text-[13px] font-semibold [overflow-wrap:anywhere]">
+                    {entry.path}
+                  </span>
+                  <span className="wsp-suggest__count ml-auto text-[12px] whitespace-nowrap text-muted-foreground">
                     {entry.count} {entry.count === 1 ? "file" : "files"}
                   </span>
                 </button>
@@ -524,11 +539,15 @@ function FilterBar({
       {/* One flex item so the two toggle groups wrap together as a cluster —
           separately they wrap independently and "Merged only" ends up
           orphaned on its own row. */}
-      <div className="wsp-filter__toggles">
-        <div className="wsp-toggle" role="group" aria-label="Layout">
+      <div className="wsp-filter__toggles flex flex-none items-stretch gap-2">
+        <div
+          className="wsp-toggle flex items-stretch overflow-hidden rounded-[6px] border border-line box-border"
+          role="group"
+          aria-label="Layout"
+        >
           <button
             type="button"
-            className="wsp-toggle__opt"
+            className="wsp-toggle__opt min-h-[34px] whitespace-nowrap border-0 bg-none px-3 text-[13px] text-muted-foreground cursor-pointer first:border-l-0 [&+&]:border-l [&+&]:border-line aria-pressed:bg-panel aria-pressed:text-fg hover:text-fg focus-visible:text-fg"
             aria-pressed={feed === "grouped"}
             onClick={() => onFeed("grouped")}
           >
@@ -536,7 +555,7 @@ function FilterBar({
           </button>
           <button
             type="button"
-            className="wsp-toggle__opt"
+            className="wsp-toggle__opt min-h-[34px] whitespace-nowrap border-0 bg-none px-3 text-[13px] text-muted-foreground cursor-pointer [&+&]:border-l [&+&]:border-line aria-pressed:bg-panel aria-pressed:text-fg hover:text-fg focus-visible:text-fg"
             aria-pressed={feed === "recent"}
             onClick={() => onFeed("recent")}
           >
@@ -545,10 +564,14 @@ function FilterBar({
         </div>
         {/* Persisted PR merge-state tagging: filters both the drill-in
             (meta.gh.merged=true) and the grouped overview (?merged=1). */}
-        <div className="wsp-toggle" role="group" aria-label="Merge filter">
+        <div
+          className="wsp-toggle flex items-stretch overflow-hidden rounded-[6px] border border-line box-border"
+          role="group"
+          aria-label="Merge filter"
+        >
           <button
             type="button"
-            className="wsp-toggle__opt"
+            className="wsp-toggle__opt min-h-[34px] whitespace-nowrap border-0 bg-none px-3 text-[13px] text-muted-foreground cursor-pointer aria-pressed:bg-panel aria-pressed:text-fg hover:text-fg focus-visible:text-fg"
             aria-pressed={merged}
             onClick={() => onMerged(!merged)}
           >
@@ -1105,16 +1128,21 @@ function ScreenshotsByPathInner({
     }
 
     return (
-      <div className="wsp" aria-busy={overviewRefreshing || undefined}>
+      <div className="wsp grid gap-8" aria-busy={overviewRefreshing || undefined}>
         {filterBar}
-        <div className="wsp-drill__head">
+        <div className="wsp-drill__head grid gap-2 justify-items-start">
           <button type="button" className="text-btn" onClick={() => setView({ ...view, path: "" })}>
             {view.project ? `← ${view.project}` : "← all projects"}
           </button>
-          <h2 className="wsp-drill__heading">{view.path}</h2>
+          <h2 className="wsp-drill__heading m-0 text-base font-semibold [overflow-wrap:anywhere]">
+            {view.path}
+          </h2>
         </div>
         {drill.status === "loading" && (
-          <div className="wsp-grid" aria-busy="true">
+          <div
+            className="wsp-grid grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(220px,1fr))]"
+            aria-busy="true"
+          >
             {Array.from({ length: 8 }, (_, i) => (
               <span className="wsp-thumb wsp-thumb--skel" key={i} aria-hidden="true" />
             ))}
@@ -1134,7 +1162,7 @@ function ScreenshotsByPathInner({
         )}
         {drill.status === "ready" && (
           <>
-            <div className="wsp-grid">
+            <div className="wsp-grid grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(220px,1fr))]">
               {drillItems.map((item) => (
                 <ShotThumb
                   key={item.key}
@@ -1175,7 +1203,7 @@ function ScreenshotsByPathInner({
     });
     const latestPaired = pairedShotKeys(latestItems);
     return (
-      <div className="wsp" aria-busy={overviewRefreshing || undefined}>
+      <div className="wsp grid gap-8" aria-busy={overviewRefreshing || undefined}>
         {filterBar}
         {latestItems.length === 0 ? (
           !view.merged && overview.latest.length === 0 && overview.catalog.length === 0 ? (
@@ -1191,7 +1219,7 @@ function ScreenshotsByPathInner({
           )
         ) : (
           <>
-            <div className="wsp-grid">
+            <div className="wsp-grid grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(220px,1fr))]">
               {latestItems.map((item) => (
                 <ShotThumb
                   key={item.key}
@@ -1264,7 +1292,7 @@ function ScreenshotsByPathInner({
   }
 
   return (
-    <div className="wsp" aria-busy={overviewRefreshing || undefined}>
+    <div className="wsp grid gap-8" aria-busy={overviewRefreshing || undefined}>
       {filterBar}
       {isEmptyWorkspace ? (
         <EmptyShotsCta title="No screenshots yet" />
@@ -1272,7 +1300,7 @@ function ScreenshotsByPathInner({
         <p className="wft-end">{emptyFilterMessage}</p>
       ) : (
         <>
-          {sectionLabels.map((label) => {
+          {sectionLabels.map((label, index) => {
             const projectSummary = overview.projects.find((p) => p.label === label);
             const groups = matchingGroups.filter((group) => group.project === label);
             const previewGroups = filtering ? groups : groups.slice(0, PREVIEW_PATHS_PER_PROJECT);
@@ -1285,6 +1313,10 @@ function ScreenshotsByPathInner({
                 groups={previewGroups}
                 ghItems={ghItems}
                 showViewProject={!view.project}
+                // Each subsequent project opens with a full-width hairline —
+                // the section boundary is structural, not just whitespace —
+                // so a project head can't be misread as one more path row.
+                bordered={index > 0}
                 onViewProject={() => setView({ ...view, project: label, path: "" })}
                 onDrill={onDrill}
                 opener={opener}
@@ -1329,6 +1361,7 @@ function ProjectSection({
   groups,
   ghItems,
   showViewProject,
+  bordered,
   onViewProject,
   onDrill,
   opener,
@@ -1339,6 +1372,8 @@ function ProjectSection({
   groups: FilesPathGroup[];
   ghItems: SearchFileItem[] | undefined;
   showViewProject: boolean;
+  /** True for every project section after the first — see call site. */
+  bordered: boolean;
   onViewProject: () => void;
   onDrill: (group: { project: string; path: string }) => void;
   opener: FileOpener;
@@ -1359,23 +1394,32 @@ function ProjectSection({
   );
 
   return (
-    <div className="wsp-project">
-      <div className="wsp-project__head">
+    <div className={`wsp-project grid gap-4${bordered ? " border-t border-line pt-7" : ""}`}>
+      <div className="wsp-project__head flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5 w-full sm:flex-nowrap">
         {/* The project name IS the "view project" control — a standing
             "view project →" beside every section repeated the same text
             down the page. The arrow affordance discloses on hover/focus
             (always visible on hover-less devices). */}
         {showViewProject ? (
-          <button type="button" className="wsp-project__label" onClick={onViewProject}>
+          <button
+            type="button"
+            className="wsp-project__label flex-[1_0_100%] sm:flex-none bg-none border-0 p-0 text-left cursor-pointer text-fg font-semibold text-[19px] leading-[1.3] [overflow-wrap:anywhere] hover:underline focus-visible:underline [text-underline-offset:4px] hover:decoration-muted-foreground focus-visible:decoration-muted-foreground [text-decoration-thickness:1px]"
+            onClick={onViewProject}
+          >
             {labelBody}
-            <span className="wsp-project__go" aria-hidden="true">
+            <span
+              className="wsp-project__go hidden ml-2 text-muted-foreground [@media(hover:none)]:inline"
+              aria-hidden="true"
+            >
               →
             </span>
           </button>
         ) : (
-          <span className="wsp-project__label">{labelBody}</span>
+          <span className="wsp-project__label flex-[1_0_100%] sm:flex-none text-fg font-semibold text-[19px] leading-[1.3] [overflow-wrap:anywhere]">
+            {labelBody}
+          </span>
         )}
-        <span className="wsp-group__meta">
+        <span className="wsp-group__meta text-muted-foreground text-[12px] whitespace-nowrap">
           {count} {count === 1 ? "file" : "files"}
           {lastUpdated ? ` · ${lastUpdatedLabel(lastUpdated, new Date())}` : ""}
         </span>
@@ -1404,10 +1448,12 @@ function GitHubSection({
   preview: PreviewHandlers;
 }) {
   return (
-    <div className="wsp-group">
-      <div className="wsp-group__head">
-        <span className="wsp-group__path">From GitHub</span>
-        <span className="wsp-group__meta">
+    <div className="wsp-group grid gap-2.5">
+      <div className="wsp-group__head flex items-baseline gap-2.5 w-full">
+        <span className="wsp-group__path font-semibold text-[13px] [overflow-wrap:anywhere]">
+          From GitHub
+        </span>
+        <span className="wsp-group__meta text-muted-foreground text-[12px] whitespace-nowrap">
           {items.length} {items.length === 1 ? "file" : "files"}
         </span>
       </div>
@@ -1444,15 +1490,25 @@ function PathGroupSection({
 }) {
   const paired = pairedShotKeys(group.recent);
   return (
-    <div className="wsp-group">
-      <button type="button" className="wsp-group__head" onClick={() => onDrill(group)}>
-        <span className="wsp-group__path">{group.path}</span>
-        <span className="wsp-group__meta">
+    <div className="wsp-group grid gap-2.5">
+      <button
+        type="button"
+        className="wsp-group__head group flex items-baseline gap-2.5 w-full bg-none border-0 p-0 text-left cursor-pointer text-inherit font-[inherit]"
+        onClick={() => onDrill(group)}
+      >
+        <span className="wsp-group__path font-semibold text-[13px] [overflow-wrap:anywhere]">
+          {group.path}
+        </span>
+        <span className="wsp-group__meta text-muted-foreground text-[12px] whitespace-nowrap">
           {group.count} {group.count === 1 ? "file" : "files"} ·{" "}
           {lastUpdatedLabel(group.lastUpdated, new Date())}
         </span>
-        <span className="wsp-group__viewall">
-          <span className="wsp-group__viewall-text">view all </span>→
+        {/* Hint, not a control (the whole head is the drill-in button) — disclosed
+            on hover/focus; opacity (not display) keeps it in the accessible name
+            and keeps the row's layout stable. Hover-less devices keep a compact
+            trailing chevron always visible instead (no hover reveal moment). */}
+        <span className="wsp-group__viewall ml-auto text-muted-foreground text-[12px] whitespace-nowrap opacity-0 transition-opacity duration-[120ms] ease-linear group-hover:opacity-100 group-hover:text-fg group-focus-visible:opacity-100 group-focus-visible:text-fg [@media(hover:none)]:opacity-100">
+          <span className="wsp-group__viewall-text [@media(hover:none)]:hidden">view all </span>→
         </span>
       </button>
       {group.recent.length > 0 && (
