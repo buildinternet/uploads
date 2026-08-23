@@ -45,13 +45,54 @@ const SESSION_LOOKUP_TIMEOUT_MS = 4_000;
 const LEGACY_CLEAR_COOKIE =
   "__Secure-better-auth.session_token=; Path=/; Domain=.uploads.sh; Max-Age=0; Secure; HttpOnly; SameSite=Lax";
 
-/** Forwards `request` to the auth worker (binding, else HTTP fallback). */
-export async function proxyAuthRequest(env: AuthProxyEnv, request: Request): Promise<Response> {
-  const forwarded = new Request(request, { redirect: "manual" });
-  const upstream = env.AUTH
-    ? await env.AUTH.fetch(forwarded)
-    : await fetch(rewriteOrigin(forwarded, env.UPLOADS_AUTH_ORIGIN ?? LOCAL_AUTH_ORIGIN_DEFAULT));
-  return withLegacyCookieCleared(upstream, request);
+/**
+ * True for the one auth-proxy request that is safe to time-bound: a GET of
+ * `/api/auth/get-session`. Every other `/api/auth/*` request may be a
+ * mutation (sign-in, OAuth callback) that must never be aborted mid-write.
+ */
+function isGetSessionRead(request: Request): boolean {
+  return request.method === "GET" && new URL(request.url).pathname === "/api/auth/get-session";
+}
+
+/**
+ * Forwards `request` to the auth worker (binding, else HTTP fallback).
+ *
+ * Browser-facing `GET /api/auth/get-session` carries the same
+ * {@link SESSION_LOOKUP_TIMEOUT_MS} bound as the SSR path
+ * ({@link serverGetSession}): during the 2026-08-23 D1 stall incident this
+ * raw XHR path was the last unbounded auth read and was observed hanging
+ * client fetches for the full stall duration. A timeout surfaces as the
+ * same synthetic 503 the SSR path returns — parsed by
+ * `sessionResultFromResponse` as "unavailable", distinct from signed-out.
+ * The caller's own abort (navigation away) still propagates as a throw.
+ */
+export async function proxyAuthRequest(
+  env: AuthProxyEnv,
+  request: Request,
+  // Injected in tests only, like serverGetSession's `timeoutMs`.
+  sessionTimeoutMs = SESSION_LOOKUP_TIMEOUT_MS,
+): Promise<Response> {
+  const bounded = isGetSessionRead(request);
+  const forwarded = new Request(
+    request,
+    bounded
+      ? {
+          redirect: "manual",
+          signal: AbortSignal.any([request.signal, AbortSignal.timeout(sessionTimeoutMs)]),
+        }
+      : { redirect: "manual" },
+  );
+  try {
+    const upstream = env.AUTH
+      ? await env.AUTH.fetch(forwarded)
+      : await fetch(rewriteOrigin(forwarded, env.UPLOADS_AUTH_ORIGIN ?? LOCAL_AUTH_ORIGIN_DEFAULT));
+    return withLegacyCookieCleared(upstream, request);
+  } catch (err) {
+    if (bounded && forwarded.signal.aborted && !request.signal.aborted) {
+      return new Response(null, { status: 503, statusText: "auth session lookup timed out" });
+    }
+    throw err;
+  }
 }
 
 /**

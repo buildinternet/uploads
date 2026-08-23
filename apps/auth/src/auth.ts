@@ -771,7 +771,14 @@ function buildAuth(
       // /list-sessions uses freshSessionMiddleware (default 24h → SESSION_NOT_FRESH).
       // We only use it for account UX, not high-sensitivity actions — disable.
       freshAge: 0,
-      cookieCache: { enabled: true, maxAge: 5 * 60 },
+      // 15 min (was 5): during the 2026-08-23 D1 stall incident, every
+      // cookie-cache expiry forced a D1 session read that could land in a
+      // stall window and surface as a fast "auth unavailable" 503. A longer
+      // cache means signed-in users touch D1 a third as often, at the cost
+      // of session revocation (sign-out elsewhere, ban) taking up to 15 min
+      // to propagate to cached readers — acceptable for this product's
+      // threat model; high-sensitivity actions re-verify server-side.
+      cookieCache: { enabled: true, maxAge: 15 * 60 },
       // CLI package version — set/refreshed via POST /update-session (not core
       // userAgent, which Better Auth freezes after create). See account Sessions.
       additionalFields: {
