@@ -113,6 +113,7 @@ const screenshotsSeedJson = JSON.stringify({
     import { onAstroPageLoad } from "../../../../lib/account-shell";
     import { createElement } from "react";
     import { hydrateRoot, type Root } from "react-dom/client";
+    import { detectIdentifierPrefix } from "../../../../lib/react-island";
     import type { OverviewState } from "../../../../components/ScreenshotsByPath";
     import type { WorkspaceInfoStatus } from "../../../../lib/workspace-file-row";
 
@@ -165,7 +166,9 @@ const screenshotsSeedJson = JSON.stringify({
       // `ScreenshotsByPath` already composes `IslandErrorBoundary` internally
       // (plan 006) — mounting it directly, with no extra wrapper, matches the
       // SSR'd tree exactly, so `hydrateRoot` reconciles without warnings.
-      screenshotsRoot = hydrateRoot(mount, createElement(ScreenshotsByPath, seed));
+      screenshotsRoot = hydrateRoot(mount, createElement(ScreenshotsByPath, seed), {
+        identifierPrefix: detectIdentifierPrefix(mount.innerHTML),
+      });
     }
 
     // astro:page-load fires on the initial load too (same as every sibling

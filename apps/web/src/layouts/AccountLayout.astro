@@ -230,6 +230,7 @@ const sidebarSeedJson = JSON.stringify(sidebarProps).replace(/</g, "\\u003c");
       import { onAstroPageLoad, requireElement, resolveSessionGate } from "../lib/account-shell";
       import { createElement } from "react";
       import { hydrateRoot, type Root } from "react-dom/client";
+      import { detectIdentifierPrefix } from "../lib/react-island";
       import type { ShellSidebarIslandProps } from "../components/shell/ShellSidebar";
 
       let sidebarRoot: Root | null = null;
@@ -264,7 +265,9 @@ const sidebarSeedJson = JSON.stringify(sidebarProps).replace(/</g, "\\u003c");
         const { ShellSidebar } = await import("../components/shell/ShellSidebar");
         if (!document.contains(mount)) return;
         teardownSidebar();
-        sidebarRoot = hydrateRoot(mount, createElement(ShellSidebar, seed));
+        sidebarRoot = hydrateRoot(mount, createElement(ShellSidebar, seed), {
+          identifierPrefix: detectIdentifierPrefix(mount.innerHTML),
+        });
       }
 
       onAstroPageLoad(() => {
