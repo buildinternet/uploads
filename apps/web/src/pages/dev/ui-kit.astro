@@ -9,7 +9,9 @@ import { env } from "cloudflare:workers";
 import BaseHead from "../../components/BaseHead.astro";
 import "@uploads/ui/theme.css";
 
-if (env.ENVIRONMENT === "production") {
+// import.meta.env.DEV keeps the page reachable under `astro dev`, where
+// platformProxy serves wrangler.jsonc's ENVIRONMENT="production" verbatim.
+if (!import.meta.env.DEV && env.ENVIRONMENT === "production") {
   return new Response(null, { status: 404 });
 }
 ---
