@@ -176,7 +176,7 @@ export function renderMembersHtml(members: MemberRow[], opts: MemberRowOptions =
         : "";
       const controls = canManageMemberRow(m, opts)
         ? `<span class="${MEMBER_ROW_ACTIONS_CLASS}">` +
-          `<select class="member-row__role-select ul-select ul-select--sm w-auto" data-member-id="${escapeHtml(m.id!)}" aria-label="Role for ${escapeHtml(m.email)}">` +
+          `<select class="member-row__role-select ul-select ul-select--sm" style="width: auto" data-member-id="${escapeHtml(m.id!)}" aria-label="Role for ${escapeHtml(m.email)}">` +
           `<option value="member"${m.role === "member" ? " selected" : ""}>member</option>` +
           `<option value="admin"${m.role === "admin" ? " selected" : ""}>admin</option>` +
           `</select>` +

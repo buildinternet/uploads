@@ -32,7 +32,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
 
       <div id="storage-shared">
         <!-- Connect pitch + walkthrough: only when no bucket is saved yet.
-             Once a lane exists the lane card is the page (#788) — repeating
+             Once a lane exists the lane card is the page (#788) - repeating
              the pitch under it read as "you still need to do this". -->
         <div id="storage-intro">
           <p class="settings-note muted">
@@ -40,38 +40,49 @@ if (!workspace) return Astro.redirect("/account/workspaces");
             own Cloudflare R2 bucket instead — see the&#32;
             <a href="/docs/byo-bucket">bring your own bucket</a> docs.
           </p>
-          <div class="storage-actions">
+          <div class="storage-actions flex flex-wrap items-center gap-3 mt-3">
             <button type="button" class="ul-btn ul-btn--solid" id="storage-connect-btn"
               >Connect your own bucket</button
             >
           </div>
 
-          <div class="storage-summary" id="storage-summary">
-            <div class="storage-summary__step">
-              <span class="storage-summary__num">1</span>
-              <div class="storage-summary__body">
-                <div class="storage-summary__title">Set up your bucket on Cloudflare</div>
-                <div class="storage-summary__sub">
+          <div
+            class="storage-summary mt-[22px] rounded-md border border-border bg-card"
+            id="storage-summary"
+          >
+            <div class="storage-summary__step flex items-baseline gap-3 px-4 py-[13px]">
+              <span class="storage-summary__num flex-none text-xs text-primary">1</span>
+              <div class="storage-summary__body min-w-0 text-[13px]">
+                <div class="storage-summary__title text-foreground">
+                  Set up your bucket on Cloudflare
+                </div>
+                <div class="storage-summary__sub mt-0.5 text-xs text-muted-foreground">
                   Dashboard → R2 → Create bucket, then a bucket-scoped API token with Object Read &
                   Write.
                 </div>
               </div>
             </div>
-            <div class="storage-summary__step">
-              <span class="storage-summary__num">2</span>
-              <div class="storage-summary__body">
-                <div class="storage-summary__title">Enter the bucket's credentials</div>
-                <div class="storage-summary__sub">
+            <div
+              class="storage-summary__step flex items-baseline gap-3 border-t border-border px-4 py-[13px]"
+            >
+              <span class="storage-summary__num flex-none text-xs text-primary">2</span>
+              <div class="storage-summary__body min-w-0 text-[13px]">
+                <div class="storage-summary__title text-foreground">
+                  Enter the bucket's credentials
+                </div>
+                <div class="storage-summary__sub mt-0.5 text-xs text-muted-foreground">
                   Account ID (or endpoint URL) and access keys — we'll look up the bucket for you,
                   plus an optional public base URL.
                 </div>
               </div>
             </div>
-            <div class="storage-summary__step">
-              <span class="storage-summary__num">3</span>
-              <div class="storage-summary__body">
-                <div class="storage-summary__title">Save & verify</div>
-                <div class="storage-summary__sub">
+            <div
+              class="storage-summary__step flex items-baseline gap-3 border-t border-border px-4 py-[13px]"
+            >
+              <span class="storage-summary__num flex-none text-xs text-primary">3</span>
+              <div class="storage-summary__body min-w-0 text-[13px]">
+                <div class="storage-summary__title text-foreground">Save & verify</div>
+                <div class="storage-summary__sub mt-0.5 text-xs text-muted-foreground">
                   We run auth, round-trip, and public-URL checks. Saving never changes where uploads
                   go — switch to it whenever you're ready.
                 </div>
@@ -84,11 +95,14 @@ if (!workspace) return Astro.redirect("/account/workspaces");
           <p class="settings-note muted">
             Uploads currently go to shared storage on <code>storage.uploads.sh</code>.
           </p>
-          <h3 class="storage-lane-heading">
+          <h3 class="storage-lane-heading flex items-center gap-2.5">
             Your bucket <span class="ul-badge ul-badge--accent">Not in use yet</span>
           </h3>
           <dl class="kv" id="storage-saved-details"></dl>
-          <div class="storage-actions" id="storage-saved-actions">
+          <div
+            class="storage-actions flex flex-wrap items-center gap-3 mt-3"
+            id="storage-saved-actions"
+          >
             <button type="button" class="ul-btn ul-btn--solid" id="storage-use-btn"
               >Use this bucket</button
             >
@@ -97,24 +111,33 @@ if (!workspace) return Astro.redirect("/account/workspaces");
             >
             <button type="button" class="ul-btn" id="storage-replace-btn">Replace bucket</button>
           </div>
-          <div class="storage-confirm" id="storage-saved-confirm" hidden>
-            <p class="storage-confirm__msg" data-confirm-msg></p>
-            <div class="storage-actions">
+          <div
+            class="storage-confirm max-w-[32rem] mt-3 flex flex-col gap-2.5 rounded-md border border-border px-4 py-3"
+            id="storage-saved-confirm"
+            hidden
+          >
+            <p class="storage-confirm__msg m-0 text-[13px] text-foreground" data-confirm-msg></p>
+            <div class="storage-actions flex flex-wrap items-center gap-3">
               <button type="button" class="ul-btn ul-btn--solid" data-confirm-yes>Switch</button>
               <button type="button" class="ul-btn" data-confirm-no>Cancel</button>
             </div>
           </div>
-          <p class="muted" id="storage-saved-action-status" role="status"></p>
+          <p
+            class="muted data-[state=error]:text-destructive data-[state=ok]:text-success"
+            id="storage-saved-action-status"
+            role="status"
+          >
+          </p>
         </div>
       </div>
 
       <div id="storage-byo" hidden>
-        <h3 class="storage-lane-heading">
+        <h3 class="storage-lane-heading flex items-center gap-2.5">
           Your bucket <span class="ul-badge ul-badge--ok">Active</span>
         </h3>
         <p class="settings-note muted">New uploads go to this bucket.</p>
         <dl class="kv" id="storage-byo-details"></dl>
-        <div class="storage-actions">
+        <div class="storage-actions flex flex-wrap items-center gap-3 mt-3">
           <button type="button" class="ul-btn" id="storage-reverify-btn">Re-run verification</button
           >
           <button type="button" class="ul-btn" id="storage-rotate-btn">Rotate credentials</button>
@@ -122,14 +145,23 @@ if (!workspace) return Astro.redirect("/account/workspaces");
             >Switch back to uploads.sh storage</button
           >
         </div>
-        <div class="storage-confirm" id="storage-byo-confirm" hidden>
-          <p class="storage-confirm__msg" data-confirm-msg></p>
-          <div class="storage-actions">
+        <div
+          class="storage-confirm max-w-[32rem] mt-3 flex flex-col gap-2.5 rounded-md border border-border px-4 py-3"
+          id="storage-byo-confirm"
+          hidden
+        >
+          <p class="storage-confirm__msg m-0 text-[13px] text-foreground" data-confirm-msg></p>
+          <div class="storage-actions flex flex-wrap items-center gap-3">
             <button type="button" class="ul-btn ul-btn--solid" data-confirm-yes>Switch</button>
             <button type="button" class="ul-btn" data-confirm-no>Cancel</button>
           </div>
         </div>
-        <p class="muted" id="storage-action-status" role="status"></p>
+        <p
+          class="muted data-[state=error]:text-destructive data-[state=ok]:text-success"
+          id="storage-action-status"
+          role="status"
+        >
+        </p>
       </div>
 
       <p class="muted settings-note" id="storage-previous" hidden></p>
@@ -137,26 +169,32 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       <div id="storage-wizard" hidden>
         <div class="storage-wizard-step" id="storage-step-1">
           <h3>1. Set up your bucket on Cloudflare</h3>
-          <ol class="storage-instructions">
+          <ol
+            class="storage-instructions max-w-[42rem] flex flex-col gap-2.5 pl-[1.2em] text-[13px] leading-[1.6] text-muted-foreground"
+          >
             <li>
-              Create an R2 bucket: dashboard → <strong>R2</strong> →
-              <strong>Create bucket</strong>.
+              Create an R2 bucket: dashboard → <strong class="text-foreground">R2</strong> →
+              <strong class="text-foreground">Create bucket</strong>.
             </li>
             <li>
-              Create a bucket-scoped API token: <strong>R2</strong> →
-              <strong>Manage API Tokens</strong> → <strong>Create API Token</strong>, permission
-              <strong>Object Read & Write</strong>, scoped to that one bucket only. Copy the Access
-              Key ID and Secret Access Key — and either the Account ID or the S3 endpoint URL
-              Cloudflare shows on the same screen (either works below).
+              Create a bucket-scoped API token: <strong class="text-foreground">R2</strong> →
+              <strong class="text-foreground">Manage API Tokens</strong> → <strong
+                class="text-foreground">Create API Token</strong
+              >, permission
+              <strong class="text-foreground">Object Read & Write</strong>, scoped to that one
+              bucket only. Copy the Access Key ID and Secret Access Key — and either the Account ID
+              or the S3 endpoint URL Cloudflare shows on the same screen (either works below).
             </li>
             <li>
-              Optional — for public reads: bucket → <strong>Settings</strong> →
-              <strong>Public access</strong> → <strong>Custom Domains</strong>, connect a domain on
-              a Cloudflare zone in your account. <code>r2.dev</code> URLs aren't supported; skip this
-              for signed-only access.
+              Optional — for public reads: bucket → <strong class="text-foreground">Settings</strong
+              > →
+              <strong class="text-foreground">Public access</strong> → <strong
+                class="text-foreground">Custom Domains</strong
+              >, connect a domain on a Cloudflare zone in your account. <code>r2.dev</code> URLs aren't
+              supported; skip this for signed-only access.
             </li>
           </ol>
-          <div class="storage-actions">
+          <div class="storage-actions flex flex-wrap items-center gap-3 mt-3">
             <button type="button" class="ul-btn ul-btn--solid" id="storage-step1-next">Next</button>
             <button type="button" class="ul-btn ul-btn--ghost" id="storage-wizard-cancel-1"
               >Cancel</button
@@ -169,7 +207,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
           <p class="settings-note muted">
             Enter your bucket's credentials — checks run inline below.
           </p>
-          <form class="ws-form" id="storage-form">
+          <form class="ws-form flex flex-col gap-3.5 max-w-[32rem]" id="storage-form">
             <div class="ul-field">
               <label for="storage-account-id" class="ul-label">Account ID or endpoint URL</label>
               <input
@@ -249,7 +287,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
             </div>
 
             <div class="ul-field" id="storage-adopt-row" hidden>
-              <label class="storage-adopt-label">
+              <label class="storage-adopt-label flex items-baseline gap-2">
                 <input type="checkbox" id="storage-adopt" />
                 This bucket already has files in it — use them as-is
               </label>
@@ -261,9 +299,14 @@ if (!workspace) return Astro.redirect("/account/workspaces");
               </p>
             </div>
 
-            <ul class="storage-checklist" id="storage-form-checklist" aria-live="polite"></ul>
+            <ul
+              class="storage-checklist flex flex-col gap-2 max-w-[32rem] p-0 list-none empty:hidden"
+              id="storage-form-checklist"
+              aria-live="polite"
+            >
+            </ul>
 
-            <div class="storage-actions">
+            <div class="storage-actions flex flex-wrap items-center gap-3 mt-3">
               <button type="submit" class="ul-btn ul-btn--solid" id="storage-verify-btn"
                 >Verify</button
               >
@@ -280,8 +323,13 @@ if (!workspace) return Astro.redirect("/account/workspaces");
 
         <div class="storage-wizard-step" id="storage-step-3" hidden>
           <h3>3. Review &amp; save</h3>
-          <ul class="storage-checklist" id="storage-checklist" aria-live="polite"></ul>
-          <div class="storage-actions">
+          <ul
+            class="storage-checklist flex flex-col gap-2 max-w-[32rem] p-0 list-none empty:hidden"
+            id="storage-checklist"
+            aria-live="polite"
+          >
+          </ul>
+          <div class="storage-actions flex flex-wrap items-center gap-3 mt-3">
             <button type="button" class="ul-btn ul-btn--solid" id="storage-save-btn" disabled
               >Save & verify</button
             >
@@ -295,141 +343,6 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       </div>
     </div>
   </section>
-
-  <style>
-    /* ---------- Storage panel ---------- */
-    .storage-actions {
-      display: flex;
-      align-items: center;
-      flex-wrap: wrap;
-      gap: 12px;
-      margin-top: 12px;
-    }
-    #storage-save-status[data-state="error"],
-    #storage-verify-status[data-state="error"],
-    #storage-action-status[data-state="error"] {
-      color: var(--red);
-    }
-    #storage-save-status[data-state="ok"],
-    #storage-verify-status[data-state="ok"],
-    #storage-action-status[data-state="ok"] {
-      color: var(--green);
-    }
-
-    /* Collapsed-state 3-step summary, shown alongside "Connect your own
-       bucket" before the wizard opens. Purely decorative overview — the
-       wizard below repeats the detail once the user actually starts. */
-    .storage-summary {
-      margin-top: 22px;
-      border: 1px solid var(--line);
-      border-radius: var(--radius-md);
-      background: var(--panel);
-    }
-    .storage-summary__step {
-      display: flex;
-      gap: 12px;
-      align-items: baseline;
-      padding: 13px 16px;
-    }
-    .storage-summary__step + .storage-summary__step {
-      border-top: 1px solid var(--line);
-    }
-    .storage-summary__num {
-      flex: none;
-      color: var(--accent);
-      font-size: var(--text-micro);
-    }
-    .storage-summary__body {
-      min-width: 0;
-      font-size: var(--text-meta);
-    }
-    .storage-summary__title {
-      color: var(--fg);
-    }
-    .storage-summary__sub {
-      margin-top: 2px;
-      color: var(--muted);
-      font-size: var(--text-micro);
-    }
-
-    .storage-instructions {
-      max-width: 42rem;
-      padding-left: 1.2em;
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-      font-size: var(--text-meta);
-      line-height: 1.6;
-      color: var(--muted);
-    }
-    .storage-instructions strong {
-      color: var(--fg);
-    }
-    #storage-form {
-      display: flex;
-      flex-direction: column;
-      gap: 14px;
-      max-width: 32rem;
-    }
-    .storage-checklist {
-      list-style: none;
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-      max-width: 32rem;
-      padding: 0;
-    }
-    .storage-checklist:empty {
-      display: none;
-    }
-    .storage-adopt-label {
-      display: flex;
-      align-items: baseline;
-      gap: 8px;
-    }
-    .storage-checklist li {
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
-      padding: 8px 12px;
-      border: 1px solid var(--line);
-      border-radius: var(--radius-md);
-    }
-    .storage-check-row {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    .storage-check-hint {
-      font-size: var(--text-micro);
-      color: var(--muted);
-    }
-    .storage-signed-only-note {
-      display: block;
-      margin-top: 4px;
-      font-size: var(--text-micro);
-      color: var(--muted);
-    }
-    .storage-lane-heading {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-    .storage-confirm {
-      max-width: 32rem;
-      padding: 12px 16px;
-      border: 1px solid var(--line);
-      border-radius: var(--radius-md);
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-    }
-    .storage-confirm__msg {
-      margin: 0;
-      font-size: var(--text-meta);
-      color: var(--fg);
-    }
-  </style>
 
   <script>
     import {
@@ -605,7 +518,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         if (publicBaseUrl) return escapeHtml(publicBaseUrl);
         return (
           `<span class="ul-badge ul-badge--accent">Signed-only</span> ` +
-          `<span class="storage-signed-only-note">no public base URL — links expire after an hour, ` +
+          `<span class="storage-signed-only-note block mt-1 text-xs text-muted-foreground">no public base URL — links expire after an hour, ` +
           `embeds/galleries won't work. Add one any time; it applies to files already uploaded, too.</span>`
         );
       }
@@ -861,9 +774,9 @@ if (!workspace) return Astro.redirect("/account/workspaces");
             const badgeText = check.ok ? "Pass" : check.required ? "Fail" : "Warning";
             const hint =
               !check.ok && check.hint
-                ? `<span class="storage-check-hint">${escapeHtml(check.hint)}</span>`
+                ? `<span class="storage-check-hint text-xs text-muted-foreground">${escapeHtml(check.hint)}</span>`
                 : "";
-            return `<li><div class="storage-check-row"><span class="ul-badge ${badgeClass}">${escapeHtml(badgeText)}</span><strong>${escapeHtml(label)}</strong></div>${hint}</li>`;
+            return `<li class="flex flex-col gap-0.5 rounded-md border border-border px-3 py-2"><div class="storage-check-row flex items-center gap-2"><span class="ul-badge ${badgeClass}">${escapeHtml(badgeText)}</span><strong>${escapeHtml(label)}</strong></div>${hint}</li>`;
           })
           .join("");
       }
