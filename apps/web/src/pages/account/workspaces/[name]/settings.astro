@@ -37,32 +37,47 @@ const tip = {
         Control how uploads appear in comments on issues and pull requests.
       </p>
 
-      <div class="cs-install" id="cs-install" hidden>
-        <p class="cs-install__body">
+      <div
+        class="cs-install flex flex-wrap items-center justify-between gap-4 mt-4 mb-1 rounded-[var(--radius-sm)] border border-border bg-card px-3.5 py-3"
+        id="cs-install"
+        hidden
+      >
+        <p
+          class="cs-install__body m-0 max-w-[44ch] text-[13px] leading-[1.55] text-body [text-wrap:pretty]"
+        >
           The GitHub App posts and updates these comments — install it on your repos to get started.
         </p>
         <a
-          class="cs-install__cta"
+          class="cs-install__cta flex-none rounded-[var(--radius-sm)] border border-border bg-background px-[13px] py-[7px] font-semibold text-[13px] text-foreground no-underline whitespace-nowrap hover:border-primary hover:text-primary focus-visible:border-primary focus-visible:text-primary focus-visible:outline-none"
           href={GITHUB_APP_INSTALL_URL}
           target="_blank"
           rel="noopener noreferrer">Install GitHub App →</a
         >
       </div>
 
-      <div id="cs-repo-banner" class="ul-callout cs-repo-banner" hidden></div>
+      <div id="cs-repo-banner" class="ul-callout cs-repo-banner mb-4 text-[13px]" hidden></div>
 
       <div id="cs-error" class="ul-callout" data-state="error" role="alert" hidden></div>
 
-      <form class="ws-form" id="cs-form">
-        <div class="cs-row" id="cs-row-width">
-          <div class="cs-row__info">
-            <div class="cs-row__label-line">
-              <span class="cs-row__label">Image width</span>
+      <form class="ws-form max-w-none mt-2" id="cs-form">
+        <div
+          class="cs-row grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-7 gap-y-2 border-b border-border py-5 max-[680px]:grid-cols-[minmax(0,1fr)]"
+          id="cs-row-width"
+        >
+          <div class="cs-row__info min-w-0">
+            <div class="cs-row__label-line flex flex-wrap items-center gap-2">
+              <span class="cs-row__label font-semibold text-[13px] text-foreground"
+                >Image width</span
+              >
               <span class="cs-row__chip-slot" id="cs-row-width-chip"></span>
             </div>
-            <p class="cs-row__desc">How wide inline screenshots render in the comment.</p>
+            <p
+              class="cs-row__desc mt-1 text-[13px] leading-[1.55] text-muted-foreground max-w-[44ch] [text-wrap:pretty] max-[680px]:max-w-none"
+            >
+              How wide inline screenshots render in the comment.
+            </p>
           </div>
-          <div class="cs-row__control">
+          <div class="cs-row__control flex items-center gap-2.5">
             <div class="cs-seg" role="radiogroup" aria-label="Image width" id="cs-image-width">
               <button
                 type="button"
@@ -93,6 +108,7 @@ const tip = {
               type="number"
               id="cs-image-width-px"
               class="ul-input cs-image-width-px"
+              style="width: 7rem"
               step="1"
               min="160"
               max="1000"
@@ -102,19 +118,29 @@ const tip = {
           </div>
         </div>
 
-        <div class="cs-row" id="cs-row-max-inline">
-          <div class="cs-row__info">
-            <div class="cs-row__label-line">
-              <span class="cs-row__label">Max inline images</span>
+        <div
+          class="cs-row grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-7 gap-y-2 border-b border-border py-5 max-[680px]:grid-cols-[minmax(0,1fr)]"
+          id="cs-row-max-inline"
+        >
+          <div class="cs-row__info min-w-0">
+            <div class="cs-row__label-line flex flex-wrap items-center gap-2">
+              <span class="cs-row__label font-semibold text-[13px] text-foreground"
+                >Max inline images</span
+              >
               <span class="cs-row__chip-slot" id="cs-row-max-inline-chip"></span>
             </div>
-            <p class="cs-row__desc">Attachments beyond this collapse into a "more files" link.</p>
+            <p
+              class="cs-row__desc mt-1 text-[13px] leading-[1.55] text-muted-foreground max-w-[44ch] [text-wrap:pretty] max-[680px]:max-w-none"
+            >
+              Attachments beyond this collapse into a "more files" link.
+            </p>
           </div>
-          <div class="cs-row__control">
+          <div class="cs-row__control flex items-center gap-2.5">
             <input
               type="number"
               id="cs-max-inline"
               class="ul-input"
+              style="width: 8rem"
               step="1"
               min="1"
               max="48"
@@ -123,17 +149,24 @@ const tip = {
           </div>
         </div>
 
-        <div class="cs-row" id="cs-row-meta">
-          <div class="cs-row__info">
-            <div class="cs-row__label-line">
-              <span class="cs-row__label">Metadata captions</span>
+        <div
+          class="cs-row grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-7 gap-y-2 border-b border-border py-5 max-[680px]:grid-cols-[minmax(0,1fr)]"
+          id="cs-row-meta"
+        >
+          <div class="cs-row__info min-w-0">
+            <div class="cs-row__label-line flex flex-wrap items-center gap-2">
+              <span class="cs-row__label font-semibold text-[13px] text-foreground"
+                >Metadata captions</span
+              >
               <span class="cs-row__chip-slot" id="cs-row-meta-chip"></span>
             </div>
-            <p class="cs-row__desc">
+            <p
+              class="cs-row__desc mt-1 text-[13px] leading-[1.55] text-muted-foreground max-w-[44ch] [text-wrap:pretty] max-[680px]:max-w-none"
+            >
               Show extra details like filename, dimensions, and size under each image.
             </p>
           </div>
-          <div class="cs-row__control">
+          <div class="cs-row__control flex items-center gap-2.5">
             <button
               type="button"
               class="cs-toggle"
@@ -147,15 +180,24 @@ const tip = {
           </div>
         </div>
 
-        <div class="cs-row" id="cs-row-link">
-          <div class="cs-row__info">
-            <div class="cs-row__label-line">
-              <span class="cs-row__label">Link items to file pages</span>
+        <div
+          class="cs-row grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-7 gap-y-2 border-b border-border py-5 max-[680px]:grid-cols-[minmax(0,1fr)]"
+          id="cs-row-link"
+        >
+          <div class="cs-row__info min-w-0">
+            <div class="cs-row__label-line flex flex-wrap items-center gap-2">
+              <span class="cs-row__label font-semibold text-[13px] text-foreground"
+                >Link items to file pages</span
+              >
               <span class="cs-row__chip-slot" id="cs-row-link-chip"></span>
             </div>
-            <p class="cs-row__desc">Each item links to a hosted file page for larger previews.</p>
+            <p
+              class="cs-row__desc mt-1 text-[13px] leading-[1.55] text-muted-foreground max-w-[44ch] [text-wrap:pretty] max-[680px]:max-w-none"
+            >
+              Each item links to a hosted file page for larger previews.
+            </p>
           </div>
-          <div class="cs-row__control">
+          <div class="cs-row__control flex items-center gap-2.5">
             <button
               type="button"
               class="cs-toggle"
@@ -169,17 +211,24 @@ const tip = {
           </div>
         </div>
 
-        <div class="cs-row" id="cs-row-ingest">
-          <div class="cs-row__info">
-            <div class="cs-row__label-line">
-              <span class="cs-row__label">Import GitHub attachments</span>
+        <div
+          class="cs-row grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-7 gap-y-2 border-b border-border py-5 max-[680px]:grid-cols-[minmax(0,1fr)]"
+          id="cs-row-ingest"
+        >
+          <div class="cs-row__info min-w-0">
+            <div class="cs-row__label-line flex flex-wrap items-center gap-2">
+              <span class="cs-row__label font-semibold text-[13px] text-foreground"
+                >Import GitHub attachments</span
+              >
             </div>
-            <p class="cs-row__desc">
+            <p
+              class="cs-row__desc mt-1 text-[13px] leading-[1.55] text-muted-foreground max-w-[44ch] [text-wrap:pretty] max-[680px]:max-w-none"
+            >
               Mirror manually added images and video on pull requests and issues into this
               workspace. On by default; bot-authored and tiny images are filtered out.
             </p>
           </div>
-          <div class="cs-row__control">
+          <div class="cs-row__control flex items-center gap-2.5">
             <button
               type="button"
               class="cs-toggle"
@@ -193,16 +242,24 @@ const tip = {
           </div>
         </div>
 
-        <div class="cs-row cs-row--note" id="cs-row-note">
-          <div class="cs-row__note-head">
-            <span class="cs-row__label">Note (optional)</span>
+        <div class="cs-row cs-row--note block border-b-0 pt-4" id="cs-row-note">
+          <div class="cs-row__note-head flex items-baseline gap-2">
+            <span class="cs-row__label font-semibold text-[13px] text-foreground"
+              >Note (optional)</span
+            >
             <span class="cs-row__chip-slot" id="cs-row-note-chip"></span>
-            <span class="cs-row__note-count"><span id="cs-note-count">0</span>/500</span>
+            <span class="cs-row__note-count ml-auto text-[12px] text-muted-foreground"
+              ><span id="cs-note-count">0</span>/500</span
+            >
           </div>
-          <p class="cs-row__desc">Included with every managed comment.</p>
+          <p
+            class="cs-row__desc mt-1 text-[13px] leading-[1.55] text-muted-foreground max-w-[44ch] [text-wrap:pretty] max-[680px]:max-w-none"
+          >
+            Included with every managed comment.
+          </p>
           <textarea
             id="cs-note"
-            class="ul-input cs-note"
+            class="ul-input cs-note mt-2 box-border w-full resize-y text-[13px] leading-[1.5]"
             maxlength="500"
             rows="2"
             placeholder="e.g. Screenshots update on every push."></textarea>
@@ -215,9 +272,18 @@ const tip = {
              `position:fixed` means DOM location doesn't affect layout. It
              reveals only when dirty (or briefly on the post-save flash). */
         }
-        <div class="cs-savebar" id="cs-savebar" role="status" hidden>
-          <span class="cs-savebar__msg" id="cs-savebar-msg"></span>
-          <button type="button" class="cs-savebar__reset" id="cs-reset-btn">Reset</button>
+        <div
+          class="cs-savebar fixed bottom-6 left-1/2 z-40 flex w-max max-w-[calc(100vw-32px)] -translate-x-1/2 items-center gap-4 rounded-[var(--radius-md)] border border-border bg-card py-2.5 pr-2.5 pl-[18px] shadow-[0_12px_32px_rgba(0,0,0,0.5)]"
+          id="cs-savebar"
+          role="status"
+          hidden
+        >
+          <span class="cs-savebar__msg text-[13px] text-foreground" id="cs-savebar-msg"></span>
+          <button
+            type="button"
+            class="cs-savebar__reset border-0 bg-transparent px-1 py-1.5 text-[13px] text-muted-foreground"
+            id="cs-reset-btn">Reset</button
+          >
           <button type="submit" class="ul-btn ul-btn--solid cs-savebar__save" id="cs-save-btn"
             >Save changes</button
           >
@@ -239,16 +305,26 @@ const tip = {
         >
       </div>
 
-      <div class="cs-preview-repo-field">
+      <div class="cs-preview-repo-field mb-3.5">
         <label for="cs-preview-repo" class="sr-only">Previewing with config from</label>
-        <select id="cs-preview-repo" class="ul-select cs-preview-repo-select">
+        <select
+          id="cs-preview-repo"
+          class="ul-select cs-preview-repo-select w-full box-border rounded-[7px] border border-border bg-card px-3 py-2.5 font-mono text-[13px]"
+        >
           <option value="">Workspace defaults</option>
         </select>
       </div>
 
-      <div class="cs-ghc" role="img" aria-label="Preview of the managed GitHub attachments comment">
-        <div class="cs-ghc-avatar" aria-hidden="true">
-          <svg viewBox="0 0 32 32" shape-rendering="crispEdges">
+      <div
+        class="cs-ghc grid grid-cols-[40px_1fr] gap-3"
+        role="img"
+        aria-label="Preview of the managed GitHub attachments comment"
+      >
+        <div
+          class="cs-ghc-avatar grid h-10 w-10 place-items-center rounded-[var(--radius-md)] border border-border bg-card"
+          aria-hidden="true"
+        >
+          <svg viewBox="0 0 32 32" shape-rendering="crispEdges" class="h-8 w-8">
             <path d="M4 0H28V4H32V28H28V32H4V28H0V4H4Z" fill="#0d1117"></path>
             <g fill="#c27eff">
               <path d="M14 4h4v4h-4z M10 6h4v4h-4z M18 6h4v4h-4z M6 8h4v4h-4z M22 8h4v4h-4z"></path>
@@ -263,21 +339,31 @@ const tip = {
             </g>
           </svg>
         </div>
-        <div class="cs-ghc-bubble">
-          <div class="cs-ghc-head">
+        <div class="cs-ghc-bubble overflow-hidden rounded-[var(--radius-md)] border border-border">
+          <div
+            class="cs-ghc-head flex flex-wrap items-center gap-2 border-b border-border bg-card px-3.5 py-2 text-[13px] text-muted-foreground"
+          >
             {
               /* Name only — the `bot` chip beside it is what GitHub renders, so
                 spelling it "uploads-sh[bot]" here would double-label. */
             }
-            <span class="cs-ghc-user">uploads-sh</span>
-            <span class="cs-ghc-bot-chip">bot</span>
+            <span class="cs-ghc-user font-semibold text-foreground">uploads-sh</span>
+            <span
+              class="cs-ghc-bot-chip rounded-full border border-border px-1.5 text-[12px] tracking-[0.02em] text-muted-foreground"
+              >bot</span
+            >
             <span>commented just now</span>
           </div>
-          <div id="cs-preview-body" class="cs-preview-body" aria-busy="true"></div>
+          <div
+            id="cs-preview-body"
+            class="cs-preview-body overflow-x-auto px-4 py-3.5 text-[13px] leading-[1.6] [&_img]:h-auto [&_img]:max-w-full [&_table]:border-collapse [&_td]:px-2 [&_td]:py-1 [&_td]:align-top"
+            aria-busy="true"
+          >
+          </div>
         </div>
       </div>
 
-      <p class="settings-note muted cs-preview-footnote">
+      <p class="settings-note muted cs-preview-footnote mt-2.5">
         Rendered from your saved settings — GitHub's own styling may differ from preview.
       </p>
     </section>
@@ -285,50 +371,6 @@ const tip = {
 
   <style>
     /* ---------- Comment settings rows ---------- */
-    .cs-repo-banner {
-      margin: 0 0 16px;
-      font-size: var(--text-meta);
-    }
-
-    /* Install-App prompt: shown only when the workspace has no GitHub App
-       installed (JS reveals it), since the App is what posts these comments. */
-    .cs-install {
-      display: flex;
-      align-items: center;
-      gap: 16px;
-      justify-content: space-between;
-      flex-wrap: wrap;
-      margin: 16px 0 4px;
-      padding: 12px 14px;
-      border: 1px solid var(--line);
-      border-radius: var(--radius-sm);
-      background: var(--panel);
-    }
-    .cs-install__body {
-      margin: 0;
-      max-width: 44ch;
-      font: var(--text-meta)/1.55 var(--sans);
-      color: var(--body);
-      text-wrap: pretty;
-    }
-    .cs-install__cta {
-      flex: none;
-      padding: 7px 13px;
-      border: 1px solid var(--line);
-      border-radius: var(--radius-sm);
-      background: var(--bg);
-      color: var(--fg);
-      font: 600 var(--text-meta) var(--sans);
-      text-decoration: none;
-      white-space: nowrap;
-    }
-    .cs-install__cta:hover,
-    .cs-install__cta:focus-visible {
-      border-color: var(--accent);
-      color: var(--accent);
-      outline: none;
-    }
-
     /* Toggle switch (role=switch button). Replaces the tri-state segmented
        control for the boolean rows — the workspace value is the default, so a
        plain on/off reads cleaner than auto/on/off (issue #365). */
@@ -370,84 +412,12 @@ const tip = {
       outline: 2px solid var(--accent);
       outline-offset: 2px;
     }
-    /* Rows are label-left / control-right, so they want the full content
-       column — not `.ws-form`'s 28rem single-column measure. */
-    #cs-form {
-      max-width: none;
-      margin-top: 8px;
-    }
-    .cs-row {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
-      gap: 8px 28px;
-      align-items: center;
-      padding: 20px 0;
-      border-bottom: 1px solid var(--line);
-    }
     /* Dimmed when a linked repo's `.uploads.yml` pins this row — its
        workspace-default control still shows the value, just de-emphasized,
-       since the repo config wins regardless of what's picked here. */
+       since the repo config wins regardless of what's picked here. Toggled
+       via classList, not a static utility, so it stays a CSS rule. */
     .cs-row--dimmed {
       opacity: 0.5;
-    }
-    .cs-row__info {
-      min-width: 0;
-    }
-    .cs-row__label-line {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      flex-wrap: wrap;
-    }
-    .cs-row__label {
-      font: 600 var(--text-meta) var(--sans);
-      color: var(--fg);
-    }
-    .cs-row__desc {
-      margin: 4px 0 0;
-      font-size: var(--text-meta);
-      line-height: 1.55;
-      color: var(--muted);
-      max-width: 44ch;
-      text-wrap: pretty;
-    }
-    .cs-row__control {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-    .cs-image-width-px {
-      width: 7rem;
-    }
-    /* Wide enough for the "auto (16)" placeholder, which the input's natural
-       size clips. */
-    #cs-max-inline {
-      width: 8rem;
-    }
-    /* Full-width row: the textarea sits under its own label line rather than
-       in the controls column, so this one opts out of the two-column grid. */
-    .cs-row--note {
-      display: block;
-      padding: 16px 0 0;
-      border-bottom: 0;
-    }
-    .cs-row__note-head {
-      display: flex;
-      align-items: baseline;
-      gap: 8px;
-    }
-    .cs-row__note-count {
-      margin-left: auto;
-      color: var(--muted);
-      font-size: var(--text-micro);
-    }
-    .cs-row--note textarea {
-      margin-top: 8px;
-      width: 100%;
-      box-sizing: border-box;
-      resize: vertical;
-      font-size: var(--text-meta);
-      line-height: 1.5;
     }
 
     /* Reusable segmented control (radiogroup of buttons). */
@@ -480,56 +450,13 @@ const tip = {
       outline: none;
     }
 
-    /* --bp-stack (680px, see signed-in-shell.css): the two-column row has no
-       room left — the description and the control both end up too narrow to
-       read, so the control moves under its label. */
-    @media (max-width: 680px) {
-      .cs-row {
-        grid-template-columns: minmax(0, 1fr);
-      }
-      .cs-row__desc {
-        max-width: none;
-      }
-    }
-
-    /* Floating save bar — pinned bottom-center, revealed only when dirty. */
-    .cs-savebar {
-      position: fixed;
-      bottom: 24px;
-      left: 50%;
-      transform: translateX(-50%);
-      z-index: 40;
-      display: flex;
-      align-items: center;
-      gap: 16px;
-      /* Sized to its contents — a compact centered pill, never the full
-         viewport width. The max-width only reins it in on very small screens,
-         where the row wraps instead of overflowing. */
-      width: max-content;
-      max-width: calc(100vw - 32px);
-      padding: 10px 10px 10px 18px;
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: var(--radius-md);
-      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
-    }
-    .cs-savebar__msg {
-      font: var(--text-meta) var(--sans);
-      color: var(--fg);
-    }
+    /* Floating save bar state — layout/color moved to utility classes on the
+       markup; only the conditional data-state/data-mode selectors stay CSS. */
     .cs-savebar__msg[data-state="ok"] {
       color: var(--green);
     }
     .cs-savebar__msg[data-state="error"] {
       color: var(--red);
-    }
-    .cs-savebar__reset {
-      padding: 6px 4px;
-      border: 0;
-      background: none;
-      color: var(--muted);
-      font: var(--text-meta) var(--sans);
-      cursor: pointer;
     }
     .cs-savebar__reset:hover,
     .cs-savebar__reset:focus-visible {
@@ -541,94 +468,6 @@ const tip = {
     .cs-savebar:not([data-mode="dirty"]) .cs-savebar__reset,
     .cs-savebar:not([data-mode="dirty"]) .cs-savebar__save {
       display: none;
-    }
-
-    /* ---------- Preview (rail slot) ---------- */
-    /* No `display` on `.cs-preview-section` itself: it starts `hidden` until
-       the settings GET succeeds, and any class-level `display` would outrank
-       the UA `[hidden]` rule (same trap as `.ws-rail__cta[hidden]`). The head
-       reuses the rail's own `.ws-rail__head` divider so it matches the usage /
-       tip sections below it — the "unsaved edits" chip sits after the rule. */
-    .cs-preview-repo-field {
-      margin-bottom: 14px;
-    }
-    .cs-preview-repo-select {
-      width: 100%;
-      box-sizing: border-box;
-      padding: 9px 12px;
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 7px;
-      font: var(--text-meta) var(--mono);
-    }
-    .cs-preview-footnote {
-      margin-top: 10px;
-    }
-
-    /* ---------- GitHub comment chrome ---------- */
-    .cs-ghc {
-      display: grid;
-      grid-template-columns: 40px 1fr;
-      gap: 12px;
-    }
-    .cs-ghc-avatar {
-      width: 40px;
-      height: 40px;
-      border-radius: var(--radius-md);
-      background: var(--panel);
-      border: 1px solid var(--line);
-      display: grid;
-      place-items: center;
-    }
-    .cs-ghc-avatar svg {
-      width: 32px;
-      height: 32px;
-    }
-    .cs-ghc-bubble {
-      border: 1px solid var(--line);
-      border-radius: var(--radius-md);
-      overflow: hidden;
-    }
-    .cs-ghc-head {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      flex-wrap: wrap;
-      background: var(--panel);
-      border-bottom: 1px solid var(--line);
-      padding: 8px 14px;
-      color: var(--muted);
-      font-size: var(--text-meta);
-    }
-    .cs-ghc-user {
-      color: var(--fg);
-      font-weight: var(--weight-semibold);
-    }
-    .cs-ghc-bot-chip {
-      font-size: var(--text-micro);
-      letter-spacing: 0.02em;
-      color: var(--muted);
-      border: 1px solid var(--line);
-      border-radius: 999px;
-      padding: 0 6px;
-    }
-
-    .cs-preview-body {
-      padding: 14px 16px;
-      font-size: var(--text-meta);
-      line-height: 1.6;
-      overflow-x: auto;
-    }
-    .cs-preview-body img {
-      max-width: 100%;
-      height: auto;
-    }
-    .cs-preview-body table {
-      border-collapse: collapse;
-    }
-    .cs-preview-body td {
-      padding: 4px 8px;
-      vertical-align: top;
     }
   </style>
 
