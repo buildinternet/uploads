@@ -118,6 +118,7 @@ const filesSeedJson = JSON.stringify({
     import { onAstroPageLoad } from "../../../../lib/account-shell";
     import { createElement } from "react";
     import { hydrateRoot, type Root } from "react-dom/client";
+    import { detectIdentifierPrefix } from "../../../../lib/react-island";
     import type { ListingState } from "../../../../components/WorkspaceFileTable";
     import type { WorkspaceInfoStatus } from "../../../../lib/workspace-file-row";
 
@@ -171,7 +172,9 @@ const filesSeedJson = JSON.stringify({
       // internally (plan 005 Phase A) — mounting it directly, with no extra
       // wrapper, matches the SSR'd tree exactly, so `hydrateRoot` reconciles
       // without warnings.
-      filesTableRoot = hydrateRoot(mount, createElement(WorkspaceFileTable, seed));
+      filesTableRoot = hydrateRoot(mount, createElement(WorkspaceFileTable, seed), {
+        identifierPrefix: detectIdentifierPrefix(mount.innerHTML),
+      });
     }
 
     // astro:page-load fires on the initial load too (same as every sibling
