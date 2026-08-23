@@ -23,6 +23,11 @@
     // the Flagship `console-mode` flag (FLAGS binding below) is unavailable;
     // see src/lib/console-mode.ts for the resolution order.
     "CONSOLE_MODE": "linked-only",
+    // Gates the dev-only /dev/ui-kit kitchen sink (404s when "production").
+    // Mirrors apps/api's/apps/auth's ENVIRONMENT convention: set here, unset
+    // in local dev. #785 shipped the page reading this var without declaring
+    // it, so the production gate never tripped (undefined !== "production").
+    "ENVIRONMENT": "production",
   },
   // Same-origin auth proxy (#731 phase A): lets server code call the auth
   // and api workers directly instead of over the public internet. Astro dev
