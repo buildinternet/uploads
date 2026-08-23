@@ -82,11 +82,14 @@ Cap prose at `--measure` (68ch).
 ## Components
 
 `Accordion` · `AlertDialog` · `Badge` · `Button` · `Checkbox` · `Combobox`
-· `Dialog` · `DropdownMenu` · `Input` · `InputGroup` · `Label` · `Popover`
-· `Select` · `Switch` · `Table` · `Tabs` · `Textarea` · `Tooltip`
+· `Dialog` · `DropdownMenu` · `Empty` · `Input` · `InputGroup` · `Kbd`
+· `Label` · `Popover` · `Select` · `Switch` · `Table` · `Tabs` · `Textarea`
+· `Tooltip`
 
 Compound parts (`DialogTrigger`, `SelectItem`, `TableRow`,
-`DropdownMenuItem`, `InputGroupAddon`, …) are all exported flat from the
+`DropdownMenuItem`, `InputGroupAddon`, `EmptyHeader`/`EmptyTitle`/
+`EmptyDescription`/`EmptyContent`/`EmptyMedia`, `KbdGroup`, …) are all
+exported flat from the
 same module. Key variant axes: `Button` `variant`
 (`default | outline | secondary | ghost | destructive | link`) and `size`
 (`xs | sm | default | lg | icon*`); `Badge` `variant` (same six). The
