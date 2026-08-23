@@ -20,6 +20,7 @@ import {
   getWorkspaceSummary,
   inviteToWorkspace,
   listWorkspaceFolder,
+  listWorkspaceStorageBuckets,
   putWorkspaceStorage,
   removeWorkspaceMember,
   revokeWorkspaceInvite,
@@ -1532,6 +1533,59 @@ describe("verifyWorkspaceStorage", () => {
     );
     await expect(
       verifyWorkspaceStorage("http://127.0.0.1:8787", "acme", CANDIDATE),
+    ).resolves.toEqual({ kind: "unavailable", reason: "network" });
+  });
+});
+
+describe("listWorkspaceStorageBuckets", () => {
+  const CREDS = {
+    accountId: "a".repeat(32),
+    accessKeyId: "AKIA1234",
+    secretAccessKey: "shh",
+  };
+
+  it("POSTs the credentials and returns the bucket list", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe("http://127.0.0.1:8787/v1/workspaces/acme/storage/buckets");
+      expect(init?.method).toBe("POST");
+      expect(init?.credentials).toBe("include");
+      expect(JSON.parse(init!.body as string)).toEqual(CREDS);
+      return Response.json({ ok: true, buckets: ["one", "two"] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      listWorkspaceStorageBuckets("http://127.0.0.1:8787", "acme", CREDS),
+    ).resolves.toEqual({ kind: "ok", buckets: ["one", "two"] });
+  });
+
+  it("maps the access_denied shape to its own kind, distinct from a generic error", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ ok: false, reason: "access_denied" })),
+    );
+    await expect(
+      listWorkspaceStorageBuckets("http://127.0.0.1:8787", "acme", CREDS),
+    ).resolves.toEqual({ kind: "access_denied" });
+  });
+
+  it("reports 403 as forbidden — byo_bucket_disabled", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 403 })),
+    );
+    await expect(
+      listWorkspaceStorageBuckets("http://127.0.0.1:8787", "acme", CREDS),
+    ).resolves.toEqual({ kind: "unavailable", reason: "forbidden" });
+  });
+
+  it("propagates network failures", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Promise.reject(new TypeError("network down"))),
+    );
+    await expect(
+      listWorkspaceStorageBuckets("http://127.0.0.1:8787", "acme", CREDS),
     ).resolves.toEqual({ kind: "unavailable", reason: "network" });
   });
 });

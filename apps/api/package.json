@@ -45,6 +45,7 @@
     "@uploads/email": "workspace:^",
     "@uploads/errors": "workspace:^",
     "@uploads/storage": "workspace:^",
+    "aws4fetch": "^1.0.20",
     "hono": "^4.13.3",
     "mediabunny": "^1.50.9"
   },

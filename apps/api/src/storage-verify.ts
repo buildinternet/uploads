@@ -20,6 +20,7 @@ import {
   createStorage,
   isR2Jurisdiction,
   R2_JURISDICTIONS,
+  type R2Jurisdiction,
   type StorageConfig,
 } from "@uploads/storage";
 
@@ -55,6 +56,16 @@ export interface StorageVerifyResult {
   /** True only when every required check passed. */
   ok: boolean;
   checks: StorageVerifyCheck[];
+  /**
+   * The jurisdiction the successful auth probe actually used — either the
+   * candidate's own `jurisdiction` echoed back, or whichever of the
+   * auto-probe order (default, `eu`, `fedramp`) answered first when the
+   * caller omitted it. Absent when auth never succeeded. Callers that persist
+   * a verified candidate (`storagePutHandler`) should save this value rather
+   * than `candidate.jurisdiction` — that field is often unset by design now
+   * that the wizard no longer shows a jurisdiction picker.
+   */
+  jurisdiction?: R2Jurisdiction;
 }
 
 /** Minimal surface the pipeline needs from a storage client — satisfied by files-sdk's `Files`. */
@@ -243,20 +254,34 @@ async function checkPublicUrl(
     }
     return { id: "public-url", ok: true, required: false };
   } catch {
+    // A thrown fetch means this probe — run from inside the API worker —
+    // couldn't reach the domain; it does NOT mean the domain is broken. A
+    // same-account/zone-set customer domain in particular can be unreachable
+    // as a Workers subrequest while serving the public internet fine (issue
+    // #783). Say "we couldn't verify it from here", not "your domain is
+    // broken", and point at the one check that actually settles it.
     return {
       id: "public-url",
       ok: false,
       required: false,
-      hint: "could not reach publicBaseUrl — domain not connected to the bucket yet (DNS can take a few minutes) or the request timed out",
+      hint: "we couldn't verify publicBaseUrl from here — this can happen even when the domain is working fine (a same-account custom domain isn't always reachable as a server-side request). Open a known object's URL in a browser to check for yourself; if that loads, the domain is fine.",
     };
   }
 }
 
+/** Warning shown when no `publicBaseUrl` is configured — signed-only mode is allowed but degraded (issue #783 follow-up comment). */
+const NO_PUBLIC_URL_HINT =
+  "no public base URL set — files will only be reachable through signed links that expire after an hour, and embeds/galleries won't work. Add one any time; it applies retroactively to files already uploaded (URLs are derived on request, nothing is stored per file).";
+
 /**
  * Runs the required + recommended check pipeline against `candidate`.
  * Required checks short-circuit on first failure (shape → auth → round-trip
- * → not-empty); the recommended public-URL check only runs when the
- * round-trip succeeded and a `publicBaseUrl` was supplied.
+ * → not-empty). When `candidate.jurisdiction` is omitted, the auth step
+ * auto-probes the default endpoint, then `eu`, then `fedramp`, and records
+ * whichever answers on `StorageVerifyResult.jurisdiction`. The public-URL
+ * check always runs last: a real reachability probe when `publicBaseUrl` is
+ * set (recommended — never gates `ok`), otherwise a recommended warning that
+ * signed-only mode is a degraded, not neutral, choice.
  */
 export async function verifyStorageConfig(
   candidate: StorageVerifyCandidate,
@@ -270,16 +295,38 @@ export async function verifyStorageConfig(
   checks.push(shape);
   if (!shape.ok) return { ok: false, checks };
 
-  const client = createClient(candidate);
+  // Auth + reachability probe, also resolving the jurisdiction. When the
+  // caller supplied one explicitly (parsed from a pasted endpoint URL), just
+  // use it — one client, one attempt. Otherwise auto-probe in the order the
+  // wizard promises (default endpoint, then `eu`, then `fedramp`) and use
+  // whichever answers first; a wrong-jurisdiction bucket reliably fails
+  // auth/lookup at the other endpoints, so trying in order costs at most two
+  // extra calls and never a false positive. Its `list()` result also seeds
+  // the empty-bucket guard below, so attaching a bucket costs one list call.
+  const jurisdictionOrder: (R2Jurisdiction | undefined)[] =
+    candidate.jurisdiction !== undefined
+      ? [candidate.jurisdiction as R2Jurisdiction]
+      : [undefined, ...R2_JURISDICTIONS];
 
-  // Auth + reachability probe. Its `list()` result also seeds the
-  // empty-bucket guard below, so attaching a bucket costs one list call.
-  let existingItems: { key: string }[];
-  try {
-    const listed = await client.list({ limit: 1000 });
-    existingItems = listed.items;
-  } catch (err) {
-    checks.push({ id: "auth", ok: false, required: true, hint: hintForAuthError(err) });
+  let client: StorageProbeClient | undefined;
+  let existingItems: { key: string }[] | undefined;
+  let jurisdiction: R2Jurisdiction | undefined;
+  let authErr: unknown;
+  for (const attemptJurisdiction of jurisdictionOrder) {
+    const attemptClient = createClient({ ...candidate, jurisdiction: attemptJurisdiction });
+    try {
+      const listed = await attemptClient.list({ limit: 1000 });
+      client = attemptClient;
+      existingItems = listed.items;
+      jurisdiction = attemptJurisdiction;
+      break;
+    } catch (err) {
+      authErr = err;
+    }
+  }
+
+  if (!client || !existingItems) {
+    checks.push({ id: "auth", ok: false, required: true, hint: hintForAuthError(authErr) });
     return { ok: false, checks };
   }
   checks.push({ id: "auth", ok: true, required: true });
@@ -337,7 +384,7 @@ export async function verifyStorageConfig(
     required: true,
     hint: notEmptyOk
       ? undefined
-      : "this bucket already has objects in it — confirm you want this workspace to expose the existing contents (adoptExistingContents), or point at an empty bucket",
+      : "this bucket already has objects in it. Nothing gets imported or copied — the bucket root simply becomes this workspace's root, so every existing object becomes visible here (and publicly reachable too, if you set a public base URL) once you switch to this bucket. Confirm that's what you want (adoptExistingContents), or point at an empty bucket instead. Saving now doesn't switch anything on its own — you do that separately, whenever you're ready.",
   });
 
   if (candidate.publicBaseUrl) {
@@ -349,7 +396,16 @@ export async function verifyStorageConfig(
         hint: "skipped — the write/read round-trip failed before the public URL could be verified",
       },
     );
+  } else {
+    // Signed-only mode is allowed, but it's a degraded state, not a neutral
+    // default — flag it the same warning-level way a failed recommended
+    // check would be (issue #783 follow-up comment).
+    checks.push({ id: "public-url", ok: false, required: false, hint: NO_PUBLIC_URL_HINT });
   }
 
-  return { ok: checks.filter((c) => c.required).every((c) => c.ok), checks };
+  return {
+    ok: checks.filter((c) => c.required).every((c) => c.ok),
+    checks,
+    jurisdiction,
+  };
 }
