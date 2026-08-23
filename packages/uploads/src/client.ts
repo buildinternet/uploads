@@ -507,16 +507,123 @@ export interface EnrollmentCreateResult {
   emailed?: boolean;
 }
 
-async function jsonRequest<T>(url: string, init: RequestInit): Promise<T> {
-  let res: Response;
+// --- Request resilience (issue #809) ---------------------------------------
+//
+// Bare `fetch` has no timeout — undici's default header timeout is ~5
+// minutes, so a backend stall (see the 2026-08-23 D1 stall incident, #808)
+// hangs the CLI silently for that whole window instead of failing fast like
+// the workers now do (#805-#807). Every core API call routes through
+// `resilientFetch` for a bounded timeout and a single bounded retry.
+//
+// Timeouts: short for JSON control calls, longer for the one content-bytes
+// call (file `put`), matching the side-channel calls' pattern (telemetry.ts,
+// update-check.ts already carry AbortController timeouts — this closes the
+// gap on the core path).
+const JSON_TIMEOUT_MS = 15_000;
+const CONTENT_TIMEOUT_MS = 60_000;
+
+// At most one retry. Retried on network errors, 503, and 429 — and only for
+// GET/PUT, since a `put` is byte-idempotent (same key, same bytes) but a
+// POST/DELETE/PATCH might not be, and telling "no bytes sent" apart from "the
+// mutation already landed" isn't reliable enough to risk a double-apply.
+const MAX_ATTEMPTS = 2;
+const RETRYABLE_METHODS = new Set(["GET", "PUT"]);
+const RETRYABLE_STATUSES = new Set([429, 503]);
+const DEFAULT_RETRY_DELAY_MS = 2_000;
+// Cap an honored X-Retry-After so a large server-suggested backoff can't
+// stall a hook/CI step for minutes.
+const MAX_RETRY_AFTER_DELAY_MS = 10_000;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Seconds-valued retry delay from the response, capped; falls back to the default backoff. */
+function retryDelayMs(res: Response | undefined): number {
+  const raw = res?.headers.get("x-retry-after") ?? res?.headers.get("retry-after");
+  const seconds = raw ? Number(raw) : NaN;
+  if (Number.isFinite(seconds) && seconds > 0) {
+    return Math.min(seconds * 1000, MAX_RETRY_AFTER_DELAY_MS);
+  }
+  return DEFAULT_RETRY_DELAY_MS;
+}
+
+/** One-line stderr notice so a hook/CI log explains the pause (issue #809). */
+function printRetryNotice(label: string, delayMs: number): void {
+  const seconds = delayMs % 1000 === 0 ? `${delayMs / 1000}s` : `${Math.round(delayMs) / 1000}s`;
+  process.stderr.write(`warning: uploads.sh ${label}, retrying in ${seconds}…\n`);
+}
+
+/**
+ * fetch with a per-request AbortController timeout. A timeout (or any other
+ * fetch rejection) surfaces as `UploadsError` code `NETWORK`, naming the
+ * timeout so hook/CI logs are diagnosable.
+ */
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    res = await fetch(url, init);
+    return await fetch(url, { ...init, signal: controller.signal });
   } catch (err) {
+    if (controller.signal.aborted) {
+      throw new UploadsError(`request timed out after ${timeoutMs}ms`, "NETWORK");
+    }
     throw new UploadsError(
       err instanceof Error ? err.message : "network request failed",
       "NETWORK",
     );
+  } finally {
+    clearTimeout(timer);
   }
+}
+
+/**
+ * The shared resilience core for both `jsonRequest` and
+ * `createUploadsClient`'s `request`: bounded timeout + bounded retry on
+ * network errors, 503, and 429, honoring `X-Retry-After` when present.
+ * Never retries a non-idempotent method (see `RETRYABLE_METHODS` above).
+ * Returns the raw `Response` on the final attempt — callers still handle
+ * `!res.ok` themselves via `parseErrorResponse`.
+ */
+async function resilientFetch(
+  method: string,
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+): Promise<Response> {
+  const retryable = RETRYABLE_METHODS.has(method.toUpperCase());
+  for (let attempt = 1; ; attempt++) {
+    let res: Response | undefined;
+    let networkErr: UploadsError | undefined;
+    try {
+      res = await fetchWithTimeout(url, init, timeoutMs);
+    } catch (err) {
+      networkErr = err as UploadsError;
+    }
+
+    const canRetry =
+      retryable &&
+      attempt < MAX_ATTEMPTS &&
+      (networkErr !== undefined || (res !== undefined && RETRYABLE_STATUSES.has(res.status)));
+
+    if (!canRetry) {
+      if (networkErr) throw networkErr;
+      return res as Response;
+    }
+
+    const delayMs = retryDelayMs(res);
+    printRetryNotice(res ? `responded ${res.status}` : "request failed", delayMs);
+    await sleep(delayMs);
+  }
+}
+
+async function jsonRequest<T>(url: string, init: RequestInit): Promise<T> {
+  const method = (init.method ?? "GET").toUpperCase();
+  const res = await resilientFetch(method, url, init, JSON_TIMEOUT_MS);
   if (!res.ok) throw await parseErrorResponse(res);
   return (await res.json()) as T;
 }
@@ -922,24 +1029,30 @@ export function createUploadsClient(config: UploadsClientConfig) {
   async function request<T>(
     method: string,
     path: string,
-    opts?: { body?: Uint8Array; headers?: Record<string, string>; auth?: boolean },
+    opts?: {
+      body?: Uint8Array;
+      headers?: Record<string, string>;
+      auth?: boolean;
+      /**
+       * Content PUT/GET calls (byte bodies/downloads) get the longer
+       * timeout; every JSON control call uses the default. Set by `put`'s
+       * real (non-dry-run) write below — the only content-bytes call this
+       * client makes today.
+       */
+      longTimeout?: boolean;
+    },
   ): Promise<T> {
     const headers: Record<string, string> = { ...opts?.headers };
     if (opts?.auth !== false) {
       headers.Authorization = `Bearer ${config.token}`;
     }
 
-    let res: Response;
-    try {
-      res = await fetch(path, {
-        method,
-        headers,
-        body: opts?.body,
-      });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "network request failed";
-      throw new UploadsError(message, "NETWORK");
-    }
+    const res = await resilientFetch(
+      method,
+      path,
+      { method, headers, body: opts?.body },
+      opts?.longTimeout ? CONTENT_TIMEOUT_MS : JSON_TIMEOUT_MS,
+    );
 
     if (!res.ok) {
       throw await parseErrorResponse(res);
@@ -1056,6 +1169,7 @@ export function createUploadsClient(config: UploadsClientConfig) {
       }>("PUT", `${canonicalFilesBase(config)}/${encodeKeyPath(key)}`, {
         body,
         headers,
+        longTimeout: true,
       });
 
       if (result.url == null) {
