@@ -1,30 +1,26 @@
-import { Surface, Badge } from "@uploads/ui";
+import "./canvas.module.css";
+import { Badge } from "@uploads/ui";
 
-/** The color tones. */
-export function Tones() {
+export function Variants() {
   return (
-    <Surface style={{ padding: 28, display: "flex", gap: 10, flexWrap: "wrap" }}>
-      <Badge>png</Badge>
-      <Badge tone="accent">acme-web</Badge>
-      <Badge tone="ok">public</Badge>
-      <Badge tone="danger">expired</Badge>
-    </Surface>
+    <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+      <Badge>Pro</Badge>
+      <Badge variant="secondary">Free</Badge>
+      <Badge variant="destructive">Expired</Badge>
+      <Badge variant="outline">Draft</Badge>
+      <Badge variant="ghost">Archived</Badge>
+      <Badge variant="link">View details</Badge>
+    </div>
   );
 }
 
-/** With a leading status dot. */
-export function WithDot() {
+export function StatusTags() {
   return (
-    <Surface style={{ padding: 28, display: "flex", gap: 10, flexWrap: "wrap" }}>
-      <Badge tone="ok" dot>
-        public
-      </Badge>
-      <Badge tone="accent" dot>
-        team only
-      </Badge>
-      <Badge tone="danger" dot>
-        private
-      </Badge>
-    </Surface>
+    <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+      <Badge variant="secondary">gh.pr 778</Badge>
+      <Badge variant="outline">public</Badge>
+      <Badge variant="destructive">soft-deleted</Badge>
+      <Badge>synced</Badge>
+    </div>
   );
 }

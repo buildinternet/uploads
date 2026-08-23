@@ -3,6 +3,7 @@ packages:
   - packages/*
   - scripts/demos
 allowBuilds:
+  "@parcel/watcher": false
   esbuild: true
   sharp: true
   workerd: true

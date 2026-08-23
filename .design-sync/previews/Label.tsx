@@ -1,11 +1,38 @@
-import { Surface, Label, Input } from "@uploads/ui";
+import "./canvas.module.css";
+import { Label, Input, Switch, Textarea } from "@uploads/ui";
 
-/** The uppercase micro-label above a control. */
-export function Default() {
+export function WorkspaceNameField() {
   return (
-    <Surface style={{ padding: 28, width: 300, display: "grid", gap: 6 }}>
-      <Label htmlFor="ws">Workspace name</Label>
-      <Input id="ws" defaultValue="acme-web" />
-    </Surface>
+    <div style={{ display: "grid", gap: 6, width: 260 }}>
+      <Label htmlFor="workspace-name">Workspace name</Label>
+      <Input id="workspace-name" defaultValue="Dev demo" />
+    </div>
+  );
+}
+
+export function DisabledField() {
+  return (
+    <div className="group" data-disabled="true" style={{ display: "grid", gap: 6, width: 260 }}>
+      <Label htmlFor="bucket-region">Bucket region</Label>
+      <Input id="bucket-region" defaultValue="auto (R2)" disabled />
+    </div>
+  );
+}
+
+export function InlineSwitchLabel() {
+  return (
+    <Label htmlFor="ingest-toggle" style={{ width: 260, justifyContent: "space-between" }}>
+      Auto-ingest PR screenshots
+      <Switch id="ingest-toggle" defaultChecked />
+    </Label>
+  );
+}
+
+export function CommentField() {
+  return (
+    <div style={{ display: "grid", gap: 6, width: 320 }}>
+      <Label htmlFor="pr-comment">Comment for PR #778</Label>
+      <Textarea id="pr-comment" defaultValue="Two-lane storage lands read-fallback without migration." />
+    </div>
   );
 }

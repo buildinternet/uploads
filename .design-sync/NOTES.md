@@ -176,3 +176,47 @@ restage by hand (or copy from main) in those worktrees.
   so the exact tsup/esbuild versions aren't pinned there — the committed
   `package.json` ranges are the source of truth. A real `pnpm install` at repo root
   is the canonical build path.
+
+## 2026-08-23 — shadcn/Base UI kit re-sync (post migration phases 1–4)
+
+The synced component set is now the 18-component shadcn/Base UI kit
+(`src/components/ui/*`), NOT the legacy `ul-*` primitives (deleted in PR #795;
+Callout + Field/Input/Label/Select remain in the package as transitional
+web-app shims but are deliberately EXCLUDED from the design project).
+
+- **Entry**: `dist/design-sync.js` — a dedicated barrel (`src/design-sync.ts`,
+  not public API) added because the kit ships as per-component subpath entries
+  and `dist/index.js` only exports the transitional legacy pieces. Always pass
+  `--entry ./packages/ui/dist/design-sync.js`.
+- **Discovery gotcha**: component discovery reads the package.json types entry
+  (`dist/index.d.ts`), NOT the `--entry` sibling — so all 18 kit components are
+  pinned in `cfg.componentSrcMap` (and legacy `Callout`/`Field` nulled; ~80
+  subcomponent exports like `DialogTrigger` nulled so they don't become cards;
+  they still ship in the bundle + are documented in the parent's prompt.md).
+- **CSS**: `cfg.cssEntry` = `dist/design-theme.css` — a static Tailwind compile
+  of `src/theme.css` added to the package build (`tailwindcss -i src/theme.css
+  -o dist/design-theme.css`, devDep `@tailwindcss/cli`). It carries tokens,
+  the 3 Geist @font-face rules (from tokens.css), the base layer, and every
+  utility used by packages/ui + apps/web/src (the `@source` globs). A design
+  agent writing a utility class outside that set gets nothing — conventions.md
+  must steer styling toward tokens/vars and the enumerated common families.
+- **Dark canvas**: the converter's card template paints the card body white
+  (unlayered inline style) and the theme's dark `body` rule is layered, so it
+  loses. Fix: every authored preview's first line imports
+  `previews/canvas.module.css` (`html body { background: var(--bg) … }` — the
+  extra specificity beats the inline rule). Plain `.css` imports are stubbed
+  by the harness loader (`'.css': 'empty'`); ONLY `.module.css` ships, hence
+  the module suffix (global element selectors are unaffected by local-css).
+- **Base UI quirks for previews**: triggers take a `render` prop for custom
+  elements (`<DialogTrigger render={<Button…/>} />`); `DropdownMenuLabel`
+  must sit inside `DropdownMenuGroup` or Base UI throws; overlays render
+  open statically via `defaultOpen`.
+- **@parcel/watcher** (optional dep of @tailwindcss/cli): its postinstall is
+  denied in pnpm-workspace.yaml `allowBuilds` — not needed for one-shot builds.
+
+### Known render warns (2026-08-23 kit sync)
+- `[TOKENS_MISSING] --accordion-panel-height, --radius, --secondary, --foreground, --tw`
+  — runtime/JS-set vars (accordion height) plus shadcn-generated arbitrary
+  values (`color-mix(...var(--secondary)...)` in button/badge hover) that
+  reference bare shadcn var names; Tailwind v4 defines `--color-*` instead.
+  Hover falls back harmlessly; previews render clean. Not chased.
