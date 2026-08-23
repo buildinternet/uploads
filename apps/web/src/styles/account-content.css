@@ -1279,46 +1279,6 @@ button.wft-row {
   }
 }
 
-/* Galleries empty state — the primary element when a workspace has none. */
-.ws-empty-state {
-  display: grid;
-  gap: 10px;
-  justify-items: start;
-  padding: 20px 0 8px;
-}
-.ws-empty-state__title {
-  margin: 0;
-  color: var(--fg);
-  font-size: var(--text-ui);
-  font-weight: var(--weight-semibold);
-}
-.ws-empty-state__body {
-  margin: 0;
-  max-width: 46ch;
-  color: var(--muted);
-  font-size: var(--text-meta);
-}
-.ws-empty-state .command {
-  width: 100%;
-}
-/* CTA-focused variant (galleries): centered, generous air, the create
-   command shrink-wrapped as the one visible action. */
-.ws-empty-state--cta {
-  justify-items: center;
-  text-align: center;
-  gap: 14px;
-  padding: 40px 0 32px;
-}
-.ws-empty-state--cta .command {
-  width: auto;
-  /* min-width 0: without it the nowrap command sets the grid item's
-     min-content width and overflows the card on narrow screens — the code
-     element scrolls inside instead. */
-  min-width: 0;
-  max-width: 100%;
-  border: 1px solid var(--line);
-}
-
 /* Reference commands, demoted out of the primary reading path. */
 .ws-gallery-help {
   margin-top: 20px;

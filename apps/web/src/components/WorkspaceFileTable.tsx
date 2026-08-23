@@ -19,6 +19,8 @@
  */
 import { Callout } from "@uploads/ui";
 import "@uploads/ui/styles.css";
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@uploads/ui/components/ui/empty";
+import { Kbd } from "@uploads/ui/components/ui/kbd";
 import { Fragment, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { IslandErrorBoundary } from "./IslandErrorBoundary";
 import type { ConnectedWorkSetter } from "../lib/workspace-rail";
@@ -800,6 +802,39 @@ function WorkspaceFileTableInner({
     };
   }, []);
 
+  // "Ctrl K" is the deterministic default so the server's render and the
+  // client's first render agree bit-for-bit (no `navigator` at SSR time) —
+  // corrected to "⌘K" after mount, once hydration has already reconciled.
+  const [modKbd, setModKbd] = useState("Ctrl K");
+  useEffect(() => {
+    if (/Mac|iPhone|iPad|iPod/.test(navigator.userAgent)) setModKbd("⌘K");
+  }, []);
+
+  // "/" or ⌘K/Ctrl+K focuses the filter input from anywhere on the page,
+  // mirroring ScreenshotsByPath's path-filter shortcut.
+  useEffect(() => {
+    const typingInField = (event: KeyboardEvent) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return false;
+      return Boolean(target.closest("input, textarea, select") || target.isContentEditable);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.isComposing) return;
+      if ((event.key === "k" || event.key === "K") && (event.metaKey || event.ctrlKey)) {
+        event.preventDefault();
+        document.getElementById("wft-filter-input")?.focus();
+        return;
+      }
+      if (event.key === "/" && !event.metaKey && !event.ctrlKey && !event.altKey) {
+        if (typingInField(event)) return;
+        event.preventDefault();
+        document.getElementById("wft-filter-input")?.focus();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, []);
+
   // Close the open `⋯` menu on outside click / Escape.
   useEffect(() => {
     if (!openMenuKey) return;
@@ -1020,6 +1055,9 @@ function WorkspaceFileTableInner({
     parts.push(pluralCount(count, "file"));
     return parts.join(" · ");
   })();
+  // True "nothing here" states — as opposed to loading/error/truncated/
+  // non-empty end-of-list markers, which stay plain `.wft-end` text.
+  const isEmptyState = state.status === "ok" && count === 0 && (filtered || folderCount === 0);
 
   const parsedDraft = parseDraft(draft);
   // Only treat the parsed key as "selected" once it's a valid (lowercase) key —
@@ -1190,8 +1228,9 @@ function WorkspaceFileTableInner({
             addFilter();
           }}
         >
-          <span className="input-group__field">
+          <span className="input-group__field relative">
             <input
+              id="wft-filter-input"
               role="combobox"
               aria-expanded={menuOpen}
               aria-controls="wft-suggest"
@@ -1202,7 +1241,9 @@ function WorkspaceFileTableInner({
                   : undefined
               }
               aria-label="Filter files"
+              aria-keyshortcuts="Meta+K Control+K Slash"
               placeholder="Filter by name, or key=value…"
+              style={draft === "" ? { paddingRight: 56 } : undefined}
               value={draft}
               onFocus={() => {
                 // Cancel a still-armed blur-close from a quick refocus — otherwise
@@ -1269,6 +1310,9 @@ function WorkspaceFileTableInner({
                 }
               }}
             />
+            {draft === "" && (
+              <Kbd className="absolute top-1/2 right-2.5 -translate-y-1/2">{modKbd}</Kbd>
+            )}
           </span>
           <button type="submit" className="input-group__action">
             add
@@ -1608,7 +1652,20 @@ function WorkspaceFileTableInner({
         </div>
       )}
 
-      <div className="wft-end">{endLabel}</div>
+      {isEmptyState ? (
+        <Empty className="wft-empty">
+          <EmptyHeader>
+            <EmptyTitle>{endLabel}</EmptyTitle>
+            <EmptyDescription>
+              {filtered
+                ? "Try removing a filter or searching a different name."
+                : "Files uploaded to this workspace will show up here."}
+            </EmptyDescription>
+          </EmptyHeader>
+        </Empty>
+      ) : (
+        <div className="wft-end">{endLabel}</div>
+      )}
 
       {state.status === "ok" && state.cursor && (
         <button
