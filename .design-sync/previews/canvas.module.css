@@ -1,0 +1,23 @@
+/*
+ * Shared preview-card canvas for the dark-only uploads.sh theme.
+ *
+ * The converter's card template paints the card body white (fine for
+ * light design systems). @uploads/ui is a single dark theme whose real
+ * background comes from the theme's base-layer `body { background: var(--bg) }`
+ * — which a design page gets, but the card's inline style overrides.
+ * `html body` out-specifies that inline rule; every authored preview
+ * imports this file so its cells render on the true canvas.
+ */
+html body {
+  background: var(--bg);
+  color: var(--body);
+  font-family: var(--sans);
+}
+
+html body :global(.ds-cell) {
+  border-color: var(--line);
+}
+
+html body :global(.ds-cell) > h4 {
+  color: var(--muted);
+}

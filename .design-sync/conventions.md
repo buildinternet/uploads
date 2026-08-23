@@ -1,97 +1,102 @@
 # uploads.sh design system — how to build with it
 
-A dark, developer-console UI language. Three typefaces do specific jobs, sizes
-are roles rather than numbers, and the palette is dark by construction. Build screens by composing the components below
-and choosing their props — you do not write CSS classes yourself.
+A dark, developer-console UI language built on shadcn-style components
+(Base UI primitives) and Tailwind utilities. Single dark theme by
+construction — there is no light mode and no theme provider.
 
-## Setup — wrap everything in `Surface`
+## Setup — no wrapper needed
 
-Import the stylesheet once at the app root, then wrap UI in `Surface` so the dark
-`--bg` canvas, the Geist **sans** body font, and every token are in scope:
+Import the components and compose. The stylesheet's base layer paints the
+dark `--bg` canvas and Geist sans on `<body>`; no provider or root wrapper
+is required. The one composition exception: `Tooltip` must sit inside a
+`TooltipProvider`.
 
 ```tsx
-import "@uploads/ui/styles.css";
-import { Surface, Brand, Panel, Button, Field, Input, Divider } from "@uploads/ui";
+import { Button, Dialog, DialogContent, DialogHeader, DialogTitle,
+         DialogDescription, DialogFooter, DialogTrigger } from "@uploads/ui";
 
-<Surface style={{ padding: 24 }}>
-  <Brand />
-  <Panel roomy title="Sign in" description="Continue with GitHub or a workspace token.">
-    <Button variant="primary" block>Continue with GitHub</Button>
-    <Divider label="or" />
-    <Field label="Workspace token"><Input placeholder="upl_…" /></Field>
-  </Panel>
-</Surface>
+<Dialog>
+  <DialogTrigger render={<Button variant="outline">Invite teammate</Button>} />
+  <DialogContent>
+    <DialogHeader>
+      <DialogTitle>Invite a teammate</DialogTitle>
+      <DialogDescription>They'll get an email link to join the workspace.</DialogDescription>
+    </DialogHeader>
+    <DialogFooter>
+      <Button variant="ghost">Cancel</Button>
+      <Button>Send invite</Button>
+    </DialogFooter>
+  </DialogContent>
+</Dialog>
 ```
 
-The design tokens live in `:root`, so components are styled even outside a
-`Surface`; what `Surface` adds is the dark page canvas and the sans body font.
-Build every screen inside one.
+**Base UI composition rules** (these throw or silently break if ignored):
+triggers take a `render` prop to wrap a custom element (as above — not
+`asChild`); `DropdownMenuLabel` must sit inside a `DropdownMenuGroup`;
+overlays render open statically via `defaultOpen`.
 
-## Styling idiom — props + tokens, never classes
+## Styling idiom — utilities from the shipped sheet, tokens for the rest
 
-There is **no utility-class vocabulary to author**. Style two ways only:
+The stylesheet is a **static Tailwind compile**: only classes the product
+already uses exist. Stay inside this vocabulary and everything renders;
+an arbitrary class outside it silently does nothing.
 
-1. **Component props** carry the design language:
-   - `Button` — `variant` (`default | primary | solid | ghost | danger`; `solid`
-     fills with the accent — at most one per surface), `size` (`sm | md | lg`),
-     `block`, `icon`
-   - `Callout` — `tone` (`info | ready | error | muted`), `title`
-   - `Badge` — `tone` (`neutral | accent | ok | danger`), `dot`
-   - `Field` — `label`, `hint`, `invalid`
-   - `Select` — a dark `<select>`; compact variant via `className="ul-select--sm"`
-   - `Panel` — `title`, `description`, `roomy`
-   - `Progress` — `label`, `value`, `max`, `detail` (a labelled quota meter; the
-     fill goes quiet below 85%, warns near the cap, and turns `--accent` when full)
-   - `Brand` — `size` (`md | lg`), `href`
-2. **Token overrides** for your own layout glue — set any `var(--*)` on a scope:
-   - Surfaces: `--bg` (page), `--panel` (raised cards), `--line` (hairline borders)
-   - Text: `--fg` (headings), `--body` (copy), `--muted` (metadata)
-   - Accents: `--accent` (violet), `--green` (ready), `--red` (error)
-   - Families: `--sans` (the interface voice), `--mono` (keys, code, and
-     measurements), `--pixel` (the Geist Pixel display face; set its shape with
-     `--pixel-shape`, 0–100)
-   - Sizes: `--text-display|h1|h2|h3|h4|body|ui|meta|micro`
-   - `--leading-*`, `--tracking-*`, `--weight-*`, `--measure`, `--mono-optical`
-   - `--radius-sm|md|lg`, `--space-1…6`
+Safe, verified families for layout glue:
+
+- Layout: `flex`, `flex-col`, `grid`, `items-center`, `justify-between`,
+  `gap-2|3|4`, `min-w-0`, `truncate`, `w-full`
+- Spacing: `p-4`, `px-4`, `py-2`, `mt-2`, `mb-4` (small numeric steps of
+  each family exist; stay ≤ 8)
+- Surfaces: `bg-bg` (page), `bg-panel` (raised), `bg-muted` (hover wash),
+  `border`, `rounded-lg`
+- Text: `text-fg` (headings), `text-body` (copy), `text-muted-foreground`
+  (metadata), `text-sm`, `font-sans`, `font-mono`, `uppercase`
+
+For anything beyond that, use inline `style` with the tokens — that always
+works: `style={{ background: "var(--panel)", padding: "var(--space-4)" }}`.
+
+- Surfaces: `--bg`, `--panel`, `--line` (hairline borders)
+- Text: `--fg`, `--body`, `--muted`
+- Accents: `--accent` (violet), `--green` (ready), `--red` (error)
+- Families: `--sans`, `--mono`, `--pixel` (brand display face only)
+- Sizes: `--text-display|h1|h2|h3|h4|body|ui|meta|micro`,
+  `--leading-*`, `--tracking-*`, `--weight-*`, `--measure`
+- `--radius-sm|md|lg`, `--space-1…6`
 
 ### The mono rule
 
-`--sans` (Geist) is the interface voice: prose, headings, buttons, labels,
-navigation, metadata. `--pixel` is for brand moments only.
-
-Reach for `--mono` (Geist Mono) when the characters are something the reader
-**transcribes or compares column-to-column** — a command, a code sample, a file
-key, a URL, a hash, or a figure in a table. Never to make a word look technical.
-The terminal character of this system comes from Geist Pixel, the chevron motif,
-and the density, not from setting every label in a typewriter.
-
-Two helpers exist for the edges: `ul-input--key` puts a form field's value in
-mono, and `--mono-optical` scales inline code down one step so it sits on the
-baseline of the sans around it.
+`--sans` (Geist) is the interface voice: prose, headings, labels, nav,
+metadata. Buttons and badges are the shipped exceptions — they come mono
+out of the box; don't undo it. Reach for `font-mono` yourself only when
+the characters are something the reader **transcribes or compares
+column-to-column** — a command, file key, URL, hash, or a figure in a
+table. Never to make a word look technical.
 
 ### Sizes
 
-Never hardcode a pixel value — every size is a role:
-
-| Token | Size | For |
-| --- | --- | --- |
-| `--text-body` | 16px | prose and reading copy |
-| `--text-ui` | 14px | buttons, nav, labels, inputs |
-| `--text-meta` | 13px | metadata, captions, dense table cells |
-| `--text-micro` | 12px | badges and uppercase pills — the floor |
-
-Nothing in this system renders below 12px. Cap prose at `--measure` (68ch).
-
-## Where the truth lives
-
-- **`styles.css`** (imported above) — the full token layer, `@font-face` rules,
-  and every component's CSS. Read it before inventing layout styles.
-- Per component: **`<Name>.d.ts`** is the exact prop contract; **`<Name>.prompt.md`**
-  has usage examples. Read those before composing a component you haven't used.
+Never hardcode a pixel value — every size is a role. `--text-body` 16px
+prose · `--text-ui` 14px controls · `--text-meta` 13px metadata ·
+`--text-micro` 12px badges (the floor — nothing renders below 12px).
+Cap prose at `--measure` (68ch).
 
 ## Components
 
-`Surface` · `Brand` · `Button` · `Panel` · `Field` / `Input` / `Select` / `Label` ·
-`Progress` (a labelled quota / usage meter) · `Callout` · `Badge` · `Divider` ·
-`GalleryTile` (a hosted image / PR-screenshot tile — the product's core object) ·
-`FileBrowser` (a read-only, folder-aware files-sdk browser).
+`Accordion` · `AlertDialog` · `Badge` · `Button` · `Checkbox` · `Combobox`
+· `Dialog` · `DropdownMenu` · `Input` · `InputGroup` · `Label` · `Popover`
+· `Select` · `Switch` · `Table` · `Tabs` · `Textarea` · `Tooltip`
+
+Compound parts (`DialogTrigger`, `SelectItem`, `TableRow`,
+`DropdownMenuItem`, `InputGroupAddon`, …) are all exported flat from the
+same module. Key variant axes: `Button` `variant`
+(`default | outline | secondary | ghost | destructive | link`) and `size`
+(`xs | sm | default | lg | icon*`); `Badge` `variant` (same six). The
+violet accent is `default`/primary — at most one filled-accent action per
+surface.
+
+## Where the truth lives
+
+- **`styles.css`** — tokens, `@font-face`, base layer, and the compiled
+  utility set. Read it before inventing a class.
+- Per component: **`<Name>.d.ts`** is the exact prop contract;
+  **`<Name>.prompt.md`** has usage examples. Read those before composing
+  a component you haven't used.

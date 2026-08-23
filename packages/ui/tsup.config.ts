@@ -10,6 +10,7 @@ import { defineConfig } from "tsup";
 export default defineConfig({
   entry: {
     index: "src/index.ts",
+    "design-sync": "src/design-sync.ts",
     "components/ui/accordion": "src/components/ui/accordion.tsx",
     "components/ui/alert-dialog": "src/components/ui/alert-dialog.tsx",
     "components/ui/badge": "src/components/ui/badge.tsx",
