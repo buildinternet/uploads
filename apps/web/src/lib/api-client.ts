@@ -1902,6 +1902,16 @@ export interface StorageCandidate {
   jurisdiction?: string;
 }
 
+/**
+ * Storage verify/save/activate/detach run a live probe pipeline against the
+ * customer's bucket (auth list, round-trip write, a public-URL fetch with
+ * its own 5s budget, jurisdiction probing) — legitimately slower than any
+ * other call in this file. The default 8s browser timeout aborted real,
+ * ultimately-successful activations (#788): the worker kept going and
+ * committed the switch after the client had already reported failure.
+ */
+const STORAGE_PIPELINE_TIMEOUT_MS = 30_000;
+
 export type StorageVerifyApiResult =
   | { kind: "ok"; result: StorageVerifyResult }
   | { kind: "unavailable"; reason: RequestFailure | "forbidden" | "not_found" | "server" };
@@ -1925,6 +1935,7 @@ export async function verifyWorkspaceStorage(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(candidate),
     },
+    { timeoutMs: STORAGE_PIPELINE_TIMEOUT_MS },
   );
   if (result.kind === "unavailable") return result;
   const { response } = result;
@@ -1987,6 +1998,7 @@ export async function listWorkspaceStorageBuckets(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(creds),
     },
+    { timeoutMs: STORAGE_PIPELINE_TIMEOUT_MS },
   );
   if (result.kind === "unavailable") return result;
   const { response } = result;
@@ -2026,6 +2038,7 @@ export async function putWorkspaceStorage(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(candidate),
     },
+    { timeoutMs: STORAGE_PIPELINE_TIMEOUT_MS },
   );
   if (result.kind === "unavailable") return result;
   const { response } = result;
@@ -2070,6 +2083,7 @@ export async function activateWorkspaceStorage(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ laneId }),
     },
+    { timeoutMs: STORAGE_PIPELINE_TIMEOUT_MS },
   );
   if (result.kind === "unavailable") return result;
   const { response } = result;
@@ -2111,6 +2125,7 @@ export async function deleteWorkspaceStorage(
   const result = await fetchWithTimeout(
     `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(name)}/storage${qs}`,
     { method: "DELETE", credentials: "include", cache: "no-store" },
+    { timeoutMs: STORAGE_PIPELINE_TIMEOUT_MS },
   );
   if (result.kind === "unavailable") return result;
   const { response } = result;

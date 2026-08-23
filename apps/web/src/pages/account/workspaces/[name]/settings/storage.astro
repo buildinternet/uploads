@@ -31,67 +31,88 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       <div id="storage-error" class="ul-callout" data-state="error" role="alert" hidden></div>
 
       <div id="storage-shared">
-        <p class="settings-note muted">
-          Your files live on <code>storage.uploads.sh</code>. You can point this workspace at your
-          own Cloudflare R2 bucket instead — see the&#32;
-          <a href="/docs/byo-bucket">bring your own bucket</a> docs.
-        </p>
-        <div class="storage-actions">
-          <button type="button" class="ul-btn ul-btn--solid" id="storage-connect-btn"
-            >Connect your own bucket</button
-          >
-        </div>
+        <!-- Connect pitch + walkthrough: only when no bucket is saved yet.
+             Once a lane exists the lane card is the page (#788) — repeating
+             the pitch under it read as "you still need to do this". -->
+        <div id="storage-intro">
+          <p class="settings-note muted">
+            Your files live on <code>storage.uploads.sh</code>. You can point this workspace at your
+            own Cloudflare R2 bucket instead — see the&#32;
+            <a href="/docs/byo-bucket">bring your own bucket</a> docs.
+          </p>
+          <div class="storage-actions">
+            <button type="button" class="ul-btn ul-btn--solid" id="storage-connect-btn"
+              >Connect your own bucket</button
+            >
+          </div>
 
-        <div class="storage-summary" id="storage-summary">
-          <div class="storage-summary__step">
-            <span class="storage-summary__num">1</span>
-            <div class="storage-summary__body">
-              <div class="storage-summary__title">Set up your bucket on Cloudflare</div>
-              <div class="storage-summary__sub">
-                Dashboard → R2 → Create bucket, then a bucket-scoped API token with Object Read &
-                Write.
+          <div class="storage-summary" id="storage-summary">
+            <div class="storage-summary__step">
+              <span class="storage-summary__num">1</span>
+              <div class="storage-summary__body">
+                <div class="storage-summary__title">Set up your bucket on Cloudflare</div>
+                <div class="storage-summary__sub">
+                  Dashboard → R2 → Create bucket, then a bucket-scoped API token with Object Read &
+                  Write.
+                </div>
               </div>
             </div>
-          </div>
-          <div class="storage-summary__step">
-            <span class="storage-summary__num">2</span>
-            <div class="storage-summary__body">
-              <div class="storage-summary__title">Enter the bucket's credentials</div>
-              <div class="storage-summary__sub">
-                Account ID (or endpoint URL) and access keys — we'll look up the bucket for you,
-                plus an optional public base URL.
+            <div class="storage-summary__step">
+              <span class="storage-summary__num">2</span>
+              <div class="storage-summary__body">
+                <div class="storage-summary__title">Enter the bucket's credentials</div>
+                <div class="storage-summary__sub">
+                  Account ID (or endpoint URL) and access keys — we'll look up the bucket for you,
+                  plus an optional public base URL.
+                </div>
               </div>
             </div>
-          </div>
-          <div class="storage-summary__step">
-            <span class="storage-summary__num">3</span>
-            <div class="storage-summary__body">
-              <div class="storage-summary__title">Save & verify</div>
-              <div class="storage-summary__sub">
-                We run auth, round-trip, and public-URL checks. Saving never changes where uploads
-                go — switch to it whenever you're ready.
+            <div class="storage-summary__step">
+              <span class="storage-summary__num">3</span>
+              <div class="storage-summary__body">
+                <div class="storage-summary__title">Save & verify</div>
+                <div class="storage-summary__sub">
+                  We run auth, round-trip, and public-URL checks. Saving never changes where uploads
+                  go — switch to it whenever you're ready.
+                </div>
               </div>
             </div>
           </div>
         </div>
 
         <div id="storage-saved" hidden>
-          <h3>Saved bucket</h3>
+          <p class="settings-note muted">
+            Uploads currently go to shared storage on <code>storage.uploads.sh</code>.
+          </p>
+          <h3 class="storage-lane-heading">
+            Your bucket <span class="ul-badge ul-badge--accent">Not in use yet</span>
+          </h3>
           <dl class="kv" id="storage-saved-details"></dl>
-          <p class="muted" id="storage-saved-status">Saved · not in use</p>
-          <div class="storage-actions">
+          <div class="storage-actions" id="storage-saved-actions">
             <button type="button" class="ul-btn ul-btn--solid" id="storage-use-btn"
               >Use this bucket</button
             >
             <button type="button" class="ul-btn" id="storage-saved-rotate-btn"
               >Rotate credentials</button
             >
+            <button type="button" class="ul-btn" id="storage-replace-btn">Replace bucket</button>
+          </div>
+          <div class="storage-confirm" id="storage-saved-confirm" hidden>
+            <p class="storage-confirm__msg" data-confirm-msg></p>
+            <div class="storage-actions">
+              <button type="button" class="ul-btn ul-btn--solid" data-confirm-yes>Switch</button>
+              <button type="button" class="ul-btn" data-confirm-no>Cancel</button>
+            </div>
           </div>
           <p class="muted" id="storage-saved-action-status" role="status"></p>
         </div>
       </div>
 
       <div id="storage-byo" hidden>
+        <h3 class="storage-lane-heading">
+          Your bucket <span class="ul-badge ul-badge--ok">Active</span>
+        </h3>
+        <p class="settings-note muted">New uploads go to this bucket.</p>
         <dl class="kv" id="storage-byo-details"></dl>
         <div class="storage-actions">
           <button type="button" class="ul-btn" id="storage-reverify-btn">Re-run verification</button
@@ -100,6 +121,13 @@ if (!workspace) return Astro.redirect("/account/workspaces");
           <button type="button" class="ul-btn ul-btn--danger" id="storage-disconnect-btn"
             >Switch back to uploads.sh storage</button
           >
+        </div>
+        <div class="storage-confirm" id="storage-byo-confirm" hidden>
+          <p class="storage-confirm__msg" data-confirm-msg></p>
+          <div class="storage-actions">
+            <button type="button" class="ul-btn ul-btn--solid" data-confirm-yes>Switch</button>
+            <button type="button" class="ul-btn" data-confirm-no>Cancel</button>
+          </div>
         </div>
         <p class="muted" id="storage-action-status" role="status"></p>
       </div>
@@ -382,6 +410,25 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       font-size: var(--text-micro);
       color: var(--muted);
     }
+    .storage-lane-heading {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .storage-confirm {
+      max-width: 32rem;
+      padding: 12px 16px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-md);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .storage-confirm__msg {
+      margin: 0;
+      font-size: var(--text-meta);
+      color: var(--fg);
+    }
   </style>
 
   <script>
@@ -454,7 +501,11 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       const storageByoEl = requireElement<HTMLElement>("#storage-byo", page);
       const storageByoDetails = requireElement<HTMLElement>("#storage-byo-details", page);
       const storageConnectBtn = requireElement<HTMLButtonElement>("#storage-connect-btn", page);
+      const storageIntro = requireElement<HTMLElement>("#storage-intro", page);
       const storageSummary = requireElement<HTMLElement>("#storage-summary", page);
+      const storageReplaceBtn = requireElement<HTMLButtonElement>("#storage-replace-btn", page);
+      const storageSavedConfirm = requireElement<HTMLElement>("#storage-saved-confirm", page);
+      const storageByoConfirm = requireElement<HTMLElement>("#storage-byo-confirm", page);
       const storageSaved = requireElement<HTMLElement>("#storage-saved", page);
       const storageSavedDetails = requireElement<HTMLElement>("#storage-saved-details", page);
       const storageUseBtn = requireElement<HTMLButtonElement>("#storage-use-btn", page);
@@ -590,6 +641,38 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       /** "Existing files stay where they are and keep working. New uploads go to <target>." — the switch confirmation copy from every direction (spec verbatim). */
       function switchConfirmMessage(targetLabel: string): string {
         return `Existing files stay where they are and keep working. New uploads go to ${targetLabel}.`;
+      }
+
+      /**
+       * In-page replacement for `window.confirm` (#788 — a native browser
+       * alert mid-flow read as something breaking). Shows `message` in the
+       * view's confirm box and resolves with the user's answer. One question
+       * at a time per box: re-asking while a previous ask is still open
+       * resolves the old one as declined first.
+       */
+      const pendingConfirms = new Map<HTMLElement, (answer: boolean) => void>();
+      function inlineConfirm(box: HTMLElement, message: string): Promise<boolean> {
+        pendingConfirms.get(box)?.(false);
+        const msgEl = box.querySelector<HTMLElement>("[data-confirm-msg]");
+        const yesBtn = box.querySelector<HTMLButtonElement>("[data-confirm-yes]");
+        const noBtn = box.querySelector<HTMLButtonElement>("[data-confirm-no]");
+        if (!msgEl || !yesBtn || !noBtn) return Promise.resolve(false);
+        msgEl.textContent = message;
+        box.hidden = false;
+        return new Promise((resolve) => {
+          const done = (answer: boolean): void => {
+            pendingConfirms.delete(box);
+            box.hidden = true;
+            yesBtn.removeEventListener("click", onYes);
+            noBtn.removeEventListener("click", onNo);
+            resolve(answer);
+          };
+          pendingConfirms.set(box, done);
+          const onYes = (): void => done(true);
+          const onNo = (): void => done(false);
+          yesBtn.addEventListener("click", onYes);
+          noBtn.addEventListener("click", onNo);
+        });
       }
 
       /** The "previous storage" line: fallback lanes (former actives that may still hold objects). */
@@ -843,11 +926,11 @@ if (!workspace) return Astro.redirect("/account/workspaces");
             // Never leave the secret in form state once it's been sent.
             // Saving never switches the active lane — the workspace keeps
             // uploading wherever it already was; the saved config just
-            // becomes available to switch to (spec: "Configure, then switch").
+            // becomes available to switch to (spec: "Configure, then
+            // switch"). The lane card appearing IS the confirmation — no
+            // extra "Saved." status line lingering as page furniture (#788).
             closeWizard();
             applyStatus(result.status);
-            storageSavedActionStatus.textContent = "Saved.";
-            storageSavedActionStatus.dataset.state = "ok";
             return;
           }
           storageSaveBtn.disabled = false;
@@ -865,6 +948,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       });
 
       storageConnectBtn.addEventListener("click", () => openWizard("connect"));
+      storageReplaceBtn.addEventListener("click", () => openWizard("connect"));
 
       storageRotateBtn.addEventListener("click", () => {
         void (async () => {
@@ -933,8 +1017,9 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         laneId: string,
         targetLabel: string,
         statusEl: HTMLElement,
+        confirmBox: HTMLElement,
       ): Promise<void> {
-        if (!confirm(switchConfirmMessage(targetLabel))) return;
+        if (!(await inlineConfirm(confirmBox, switchConfirmMessage(targetLabel)))) return;
         showStorageError(null);
         statusEl.textContent = "Switching…";
         statusEl.removeAttribute("data-state");
@@ -958,13 +1043,33 @@ if (!workspace) return Astro.redirect("/account/workspaces");
           statusEl.textContent = "";
           return;
         }
+        // A slow activation can outlive the request timeout while still
+        // committing server-side (#788's "couldn't switch" ghost) — before
+        // reporting failure, re-check: `lanes` only lists non-active lanes,
+        // so if the target id is gone from it, it was promoted and the
+        // switch actually worked.
+        const recheck = await getWorkspaceStorageStatus(apiOrigin, workspaceName);
+        if (!stillHere()) return;
+        if (recheck.kind === "ok" && !recheck.status.lanes.some((lane) => lane.laneId === laneId)) {
+          applyStatus(recheck.status);
+          const confirmEl =
+            recheck.status.mode === "byo" ? storageActionStatus : storageSavedActionStatus;
+          confirmEl.textContent = "Switched.";
+          confirmEl.dataset.state = "ok";
+          return;
+        }
         statusEl.textContent = "Couldn’t switch. Try again.";
         statusEl.dataset.state = "error";
       }
 
       storageUseBtn.addEventListener("click", () => {
         if (!savedLaneId) return;
-        void activateLane(savedLaneId, "your bucket", storageSavedActionStatus);
+        void activateLane(
+          savedLaneId,
+          "your bucket",
+          storageSavedActionStatus,
+          storageSavedConfirm,
+        );
       });
 
       storageDisconnectBtn.addEventListener("click", () => {
@@ -974,7 +1079,12 @@ if (!workspace) return Astro.redirect("/account/workspaces");
             // switch — the common case once this workspace has ever used
             // the new activate primitive. Same decoupled switch as
             // "Use this bucket", pointed the other direction.
-            await activateLane(sharedFallbackLaneId, "storage.uploads.sh", storageActionStatus);
+            await activateLane(
+              sharedFallbackLaneId,
+              "storage.uploads.sh",
+              storageActionStatus,
+              storageByoConfirm,
+            );
             return;
           }
           // No recorded shared lane yet (this workspace has never switched
@@ -982,9 +1092,10 @@ if (!workspace) return Astro.redirect("/account/workspaces");
           // Fall back to the legacy detach path, which restores shared
           // defaults directly.
           if (
-            !confirm(
+            !(await inlineConfirm(
+              storageByoConfirm,
               "Switch back to uploads.sh storage? Nothing on your own bucket is touched or deleted.",
-            )
+            ))
           ) {
             return;
           }
@@ -1011,11 +1122,12 @@ if (!workspace) return Astro.redirect("/account/workspaces");
             showStorageError(result.message);
             storageActionStatus.textContent = "";
             if (
-              !confirm(
+              !(await inlineConfirm(
+                storageByoConfirm,
                 "This workspace still has files on your bucket. Switch back anyway? " +
                   "Your files stay on your bucket untouched and keep resolving from it, " +
                   "but new uploads move to storage.uploads.sh.",
-              )
+              ))
             ) {
               return;
             }
@@ -1040,6 +1152,8 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         closeWizard();
         storageActionStatus.textContent = "";
         storageActionStatus.removeAttribute("data-state");
+        storageSavedConfirm.hidden = true;
+        storageByoConfirm.hidden = true;
         renderPreviousLine(status);
 
         // The shared (binding-mode) fallback lane is the "switch back"
@@ -1061,12 +1175,17 @@ if (!workspace) return Astro.redirect("/account/workspaces");
           const standby = status.lanes.find((lane) => lane.role === "standby");
           if (standby) {
             savedLaneId = standby.laneId;
+            // One state at a time (#788): with a saved lane the lane card is
+            // the page — the connect pitch + walkthrough disappear instead
+            // of stacking above it ("Replace bucket" reopens the wizard).
+            storageIntro.hidden = true;
             storageSaved.hidden = false;
             renderSavedDetails(standby);
             storageSavedActionStatus.textContent = "";
             storageSavedActionStatus.removeAttribute("data-state");
           } else {
             savedLaneId = null;
+            storageIntro.hidden = false;
             storageSaved.hidden = true;
           }
         }
