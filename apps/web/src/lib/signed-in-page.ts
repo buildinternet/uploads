@@ -126,6 +126,11 @@ export function signedInCsp(authOrigin: string, apiOrigin: string): string {
     import.meta.env.DEV
       ? "img-src data: https: http://127.0.0.1:* http://localhost:*"
       : "img-src data: https:",
+    // Dev tooling (in-app-browser/devtools instrumentation) occasionally
+    // spawns a blob: worker in page context; with no worker-src the strict
+    // script-src blocks it and logs a scary console error on signed-in
+    // pages. App code never creates workers, so prod stays locked down.
+    ...(import.meta.env.DEV ? ["worker-src 'self' blob:"] : []),
     "base-uri 'none'",
     "form-action 'none'",
     "frame-ancestors 'none'",
