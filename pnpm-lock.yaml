@@ -68,6 +68,9 @@ importers:
       '@uploads/storage':
         specifier: workspace:^
         version: link:../../packages/storage
+      aws4fetch:
+        specifier: ^1.0.20
+        version: 1.0.20
       hono:
         specifier: ^4.13.3
         version: 4.13.3

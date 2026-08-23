@@ -449,6 +449,9 @@ export const me = new Hono<SessionVars>()
   .post("/workspaces/:name/storage/verify", (c) =>
     forwardToWorkspaceSettings(c, `/${encodeURIComponent(c.req.param("name"))}/storage/verify`),
   )
+  .post("/workspaces/:name/storage/buckets", (c) =>
+    forwardToWorkspaceSettings(c, `/${encodeURIComponent(c.req.param("name"))}/storage/buckets`),
+  )
   .put("/workspaces/:name/storage", (c) =>
     forwardToWorkspaceSettings(c, `/${encodeURIComponent(c.req.param("name"))}/storage`),
   )

@@ -58,7 +58,8 @@ if (!workspace) return Astro.redirect("/account/workspaces");
             <div class="storage-summary__body">
               <div class="storage-summary__title">Enter the bucket's credentials</div>
               <div class="storage-summary__sub">
-                Account ID, bucket name, access keys — plus an optional public base URL.
+                Account ID (or endpoint URL) and access keys — we'll look up the bucket for you,
+                plus an optional public base URL.
               </div>
             </div>
           </div>
@@ -117,7 +118,8 @@ if (!workspace) return Astro.redirect("/account/workspaces");
               Create a bucket-scoped API token: <strong>R2</strong> →
               <strong>Manage API Tokens</strong> → <strong>Create API Token</strong>, permission
               <strong>Object Read & Write</strong>, scoped to that one bucket only. Copy the Access
-              Key ID, Secret Access Key, and your Account ID.
+              Key ID and Secret Access Key — and either the Account ID or the S3 endpoint URL
+              Cloudflare shows on the same screen (either works below).
             </li>
             <li>
               Optional — for public reads: bucket → <strong>Settings</strong> →
@@ -135,41 +137,27 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         </div>
 
         <div class="storage-wizard-step" id="storage-step-2" hidden>
-          <h3>2. Enter your bucket's credentials</h3>
+          <h3>2. Connect your bucket</h3>
+          <p class="settings-note muted">
+            Enter your bucket's credentials — checks run inline below.
+          </p>
           <form class="ws-form" id="storage-form">
             <div class="ul-field">
-              <label for="storage-account-id" class="ul-label">Account ID</label>
+              <label for="storage-account-id" class="ul-label">Account ID or endpoint URL</label>
               <input
                 type="text"
                 id="storage-account-id"
                 class="ul-input"
                 autocomplete="off"
                 spellcheck="false"
-                placeholder="32-character hex account id"
+                placeholder="32-character hex account id, or the endpoint URL from Cloudflare"
                 required
               />
-            </div>
-            <div class="ul-field">
-              <label for="storage-bucket" class="ul-label">Bucket name</label>
-              <input
-                type="text"
-                id="storage-bucket"
-                class="ul-input"
-                autocomplete="off"
-                spellcheck="false"
-                required
-              />
-            </div>
-            <div class="ul-field">
-              <label for="storage-jurisdiction" class="ul-label">Jurisdiction</label>
-              <select id="storage-jurisdiction" class="ul-select">
-                <option value="">Default (no jurisdiction)</option>
-                <option value="eu">European Union (eu)</option>
-                <option value="fedramp">FedRAMP (fedramp)</option>
-              </select>
               <p class="ul-field__hint">
-                Jurisdiction is chosen at bucket creation on Cloudflare and can't be changed later —
-                pick the one the bucket was created with.
+                Paste either one — the R2 API token screen hands you an endpoint URL (<code
+                  >https://&lt;account&gt;.r2.cloudflarestorage.com</code
+                >) that already carries your account id and jurisdiction, so there's nothing else to
+                figure out here.
               </p>
             </div>
             <div class="ul-field">
@@ -195,6 +183,23 @@ if (!workspace) return Astro.redirect("/account/workspaces");
               />
             </div>
             <div class="ul-field">
+              <label for="storage-bucket" class="ul-label" id="storage-bucket-label"
+                >Bucket Name</label
+              >
+              <select id="storage-bucket-select" class="ul-select" required hidden></select>
+              <input
+                type="text"
+                id="storage-bucket"
+                class="ul-input"
+                autocomplete="off"
+                spellcheck="false"
+                required
+              />
+              <p class="ul-field__hint" id="storage-bucket-hint">
+                Enter your access keys above and we'll look up your buckets.
+              </p>
+            </div>
+            <div class="ul-field">
               <label for="storage-public-base-url" class="ul-label"
                 >Public base URL (optional)</label
               >
@@ -207,18 +212,24 @@ if (!workspace) return Astro.redirect("/account/workspaces");
                 placeholder="https://media.example.com"
               />
               <p class="ul-field__hint">
-                Leave blank for signed-only access. <code>r2.dev</code> URLs aren't supported.
+                Without this, files are only reachable through signed links that expire after an
+                hour, and embeds/galleries won't work — connect a custom domain for stable,
+                embeddable links. You can add it any time; it applies to files already uploaded,
+                too.
+                <code>r2.dev</code> URLs aren't supported.
               </p>
             </div>
 
             <div class="ul-field" id="storage-adopt-row" hidden>
               <label class="storage-adopt-label">
                 <input type="checkbox" id="storage-adopt" />
-                This bucket already contains files — show them in this workspace
+                This bucket already has files in it — use them as-is
               </label>
               <p class="ul-field__hint">
-                Everything already in the bucket becomes part of this workspace once you switch to
-                it.
+                Nothing gets imported or copied. The bucket root becomes this workspace's root, so
+                every file already in it becomes part of the workspace (and publicly reachable too,
+                if you set a public base URL) once you switch to this bucket. Saving now doesn't
+                switch anything — you do that separately, whenever you're ready.
               </p>
             </div>
 
@@ -365,6 +376,12 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       font-size: var(--text-micro);
       color: var(--muted);
     }
+    .storage-signed-only-note {
+      display: block;
+      margin-top: 4px;
+      font-size: var(--text-micro);
+      color: var(--muted);
+    }
   </style>
 
   <script>
@@ -379,6 +396,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       activateWorkspaceStorage,
       deleteWorkspaceStorage,
       getWorkspaceStorageStatus,
+      listWorkspaceStorageBuckets,
       putWorkspaceStorage,
       verifyWorkspaceStorage,
       type StorageCandidate,
@@ -386,6 +404,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       type WorkspaceStorageLane,
       type WorkspaceStorageStatus,
     } from "../../../../../lib/api-client";
+    import { parseAccountIdOrEndpoint } from "../../../../../lib/r2-endpoint";
     import { loadWorkspaces } from "../../../../../lib/workspaces-nav";
     import { resolveActiveWorkspace } from "../../../../../lib/workspace-browse-url";
     import { renderDetailsHtml } from "../../../../../lib/workspace-rail";
@@ -464,13 +483,15 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       const storageStep3Back = requireElement<HTMLButtonElement>("#storage-step3-back", page);
       const storageForm = requireElement<HTMLFormElement>("#storage-form", page);
       const storageAccountId = requireElement<HTMLInputElement>("#storage-account-id", page);
-      const storageBucket = requireElement<HTMLInputElement>("#storage-bucket", page);
+      const storageBucketText = requireElement<HTMLInputElement>("#storage-bucket", page);
       // Same worker-configuration.d.ts `Element.remove()` workaround as the
       // tri-state selects on the comment-settings page.
-      const storageJurisdiction = requireElement<HTMLElement>(
-        "#storage-jurisdiction",
+      const storageBucketSelect = requireElement<HTMLElement>(
+        "#storage-bucket-select",
         page,
       ) as unknown as HTMLSelectElement;
+      const storageBucketLabel = requireElement<HTMLLabelElement>("#storage-bucket-label", page);
+      const storageBucketHint = requireElement<HTMLElement>("#storage-bucket-hint", page);
       const storageAccessKeyId = requireElement<HTMLInputElement>("#storage-access-key-id", page);
       const storageSecretAccessKey = requireElement<HTMLInputElement>(
         "#storage-secret-access-key",
@@ -499,8 +520,8 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         shape: "Config looks valid",
         auth: "Authentication",
         "round-trip": "Upload / download round-trip",
-        "not-empty": "Bucket is empty",
-        "public-url": "Public URL reachable",
+        "not-empty": "Bucket contents",
+        "public-url": "Public base URL",
       };
 
       let wizardMode: "connect" | "rotate" = "connect";
@@ -520,30 +541,49 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         storageErrorEl.textContent = message;
       }
 
+      /**
+       * The "Public base URL" row's value — flagged as a warning (issue #783
+       * follow-up comment) rather than presented as a neutral default:
+       * signed-only mode loses stable links, embeds, and galleries. Adding a
+       * URL later upgrades every existing file's links retroactively, since
+       * URLs are derived at request time and nothing is stored per file.
+       */
+      function publicBaseUrlRowValue(publicBaseUrl: string | undefined): string {
+        if (publicBaseUrl) return escapeHtml(publicBaseUrl);
+        return (
+          `<span class="ul-badge ul-badge--accent">Signed-only</span> ` +
+          `<span class="storage-signed-only-note">no public base URL — links expire after an hour, ` +
+          `embeds/galleries won't work. Add one any time; it applies to files already uploaded, too.</span>`
+        );
+      }
+
       function renderByoDetails(status: WorkspaceStorageStatus): void {
         const rows: [string, string][] = [
-          ["Bucket", status.bucket ?? "—"],
-          ["Account ID", status.accountIdMasked ?? "—"],
-          ["Access key ID", status.accessKeyIdLast4 ? `…${status.accessKeyIdLast4}` : "—"],
-          ["Public base URL", status.publicBaseUrl ?? "Signed-only (no public URL)"],
-          ["Verified", formatTimestamp(status.verifiedAt)],
+          ["Bucket", escapeHtml(status.bucket ?? "—")],
+          ["Account ID", escapeHtml(status.accountIdMasked ?? "—")],
+          [
+            "Access key ID",
+            escapeHtml(status.accessKeyIdLast4 ? `…${status.accessKeyIdLast4}` : "—"),
+          ],
+          ["Public base URL", publicBaseUrlRowValue(status.publicBaseUrl)],
+          ["Verified", escapeHtml(formatTimestamp(status.verifiedAt))],
         ];
-        if (status.jurisdiction) rows.push(["Jurisdiction", status.jurisdiction]);
+        if (status.jurisdiction) rows.push(["Jurisdiction", escapeHtml(status.jurisdiction)]);
         storageByoDetails.innerHTML = rows
-          .map(([label, value]) => `<dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd>`)
+          .map(([label, value]) => `<dt>${escapeHtml(label)}</dt><dd>${value}</dd>`)
           .join("");
       }
 
       function renderSavedDetails(lane: WorkspaceStorageLane): void {
         const rows: [string, string][] = [
-          ["Bucket", lane.bucket],
-          ["Account ID", lane.accountIdMasked ?? "—"],
-          ["Access key ID", lane.accessKeyIdLast4 ? `…${lane.accessKeyIdLast4}` : "—"],
-          ["Public base URL", lane.publicBaseUrl ?? "Signed-only (no public URL)"],
-          ["Verified", formatTimestamp(lane.verifiedAt)],
+          ["Bucket", escapeHtml(lane.bucket)],
+          ["Account ID", escapeHtml(lane.accountIdMasked ?? "—")],
+          ["Access key ID", escapeHtml(lane.accessKeyIdLast4 ? `…${lane.accessKeyIdLast4}` : "—")],
+          ["Public base URL", publicBaseUrlRowValue(lane.publicBaseUrl)],
+          ["Verified", escapeHtml(formatTimestamp(lane.verifiedAt))],
         ];
         storageSavedDetails.innerHTML = rows
-          .map(([label, value]) => `<dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd>`)
+          .map(([label, value]) => `<dt>${escapeHtml(label)}</dt><dd>${value}</dd>`)
           .join("");
       }
 
@@ -565,6 +605,69 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         storagePrevious.textContent = `Previous storage still serving old files: ${names}.`;
       }
 
+      /** Which bucket control is live: a plain name field (default, and the 403/access-denied fallback) or the picker populated from a successful ListBuckets lookup. */
+      type BucketMode = "text" | "select";
+      let bucketMode: BucketMode = "text";
+      /** Invalidates an in-flight bucket lookup that resolves after the form has moved on (reset, closed, or fields changed again). */
+      let bucketLookupToken = 0;
+      /** `accountId:jurisdiction:accessKeyId:secretAccessKey` signature of the last lookup attempt — skips refiring on every blur while tabbing through unchanged fields. */
+      let lastBucketLookupKey = "";
+
+      function setBucketMode(mode: BucketMode, buckets?: string[]): void {
+        bucketMode = mode;
+        const isSelect = mode === "select";
+        storageBucketSelect.hidden = !isSelect;
+        storageBucketText.hidden = isSelect;
+        storageBucketSelect.required = isSelect;
+        storageBucketText.required = !isSelect;
+        storageBucketLabel.textContent = isSelect ? "Bucket" : "Bucket Name";
+        storageBucketLabel.htmlFor = isSelect ? "storage-bucket-select" : "storage-bucket";
+        if (isSelect) {
+          storageBucketSelect.innerHTML = (buckets ?? [])
+            .map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`)
+            .join("");
+        }
+      }
+
+      /**
+       * Fires on blur of the account id/endpoint, access key id, or secret
+       * key fields once all three are present — the wizard's bucket picker
+       * (issue #783 Part A item 2). A malformed account id/endpoint, or an
+       * `access_denied`/error result (a bucket-scoped token — the common,
+       * expected case, since R2 only permits `ListBuckets` for
+       * account-scoped tokens) falls back to the plain "Bucket Name" field
+       * with no apologetic prose, not an error state.
+       */
+      async function maybeLookupBuckets(): Promise<void> {
+        const parsed = parseAccountIdOrEndpoint(storageAccountId.value);
+        const accessKeyId = storageAccessKeyId.value.trim();
+        const secretAccessKey = storageSecretAccessKey.value;
+        if (!parsed || !accessKeyId || !secretAccessKey) return;
+        const key = `${parsed.accountId}:${parsed.jurisdiction ?? ""}:${accessKeyId}:${secretAccessKey}`;
+        if (key === lastBucketLookupKey) return;
+        lastBucketLookupKey = key;
+        const token = ++bucketLookupToken;
+        storageBucketHint.textContent = "Looking up your buckets…";
+        const result = await listWorkspaceStorageBuckets(apiOrigin, workspaceName, {
+          accountId: parsed.accountId,
+          accessKeyId,
+          secretAccessKey,
+          jurisdiction: parsed.jurisdiction,
+        });
+        if (token !== bucketLookupToken || !stillHere()) return;
+        if (result.kind === "ok" && result.buckets.length > 0) {
+          setBucketMode("select", result.buckets);
+          storageBucketHint.textContent = "";
+        } else {
+          setBucketMode("text");
+          storageBucketHint.textContent = "";
+        }
+      }
+
+      for (const el of [storageAccountId, storageAccessKeyId, storageSecretAccessKey]) {
+        el.addEventListener("blur", () => void maybeLookupBuckets());
+      }
+
       function resetWizardForm(): void {
         storageForm.reset();
         lastVerify = null;
@@ -576,6 +679,11 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         storageSaveStatus.textContent = "";
         storageSaveStatus.removeAttribute("data-state");
         storageSaveBtn.disabled = true;
+        bucketLookupToken++; // invalidate any in-flight lookup
+        lastBucketLookupKey = "";
+        storageBucketHint.textContent =
+          "Enter your access keys above and we'll look up your buckets.";
+        setBucketMode("text");
       }
 
       function goToWizardStep(step: 1 | 2 | 3): void {
@@ -587,7 +695,6 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       interface WizardPrefill {
         bucket?: string;
         publicBaseUrl?: string;
-        jurisdiction?: string;
       }
 
       function openWizard(mode: "connect" | "rotate", prefill?: WizardPrefill): void {
@@ -602,9 +709,11 @@ if (!workspace) return Astro.redirect("/account/workspaces");
           // "Same form, keys only": bucket/public URL are already known and
           // prefilled; account id can't be — the API only ever returns the
           // masked tail, never the plaintext — so the field starts blank.
-          storageBucket.value = prefill.bucket ?? "";
+          // Jurisdiction is never prefilled either (no visible field any
+          // more) — re-verifying re-probes it the same way a fresh connect
+          // would, and `PUT` only overwrites the saved value on success.
+          storageBucketText.value = prefill.bucket ?? "";
           storagePublicBaseUrl.value = prefill.publicBaseUrl ?? "";
-          storageJurisdiction.value = prefill.jurisdiction ?? "";
           goToWizardStep(2);
         } else {
           goToWizardStep(1);
@@ -618,13 +727,19 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       }
 
       function collectCandidate(): StorageCandidate {
+        // Parsed client-side (issue #783 Part A item 1) — a bare account id
+        // or a pasted endpoint URL both land here as `{ accountId,
+        // jurisdiction }`; the API contract is unchanged, it just usually
+        // gets `jurisdiction: undefined` now and auto-probes it server-side.
+        const parsed = parseAccountIdOrEndpoint(storageAccountId.value);
         return {
-          bucket: storageBucket.value.trim(),
-          accountId: storageAccountId.value.trim(),
+          bucket:
+            bucketMode === "select" ? storageBucketSelect.value : storageBucketText.value.trim(),
+          accountId: parsed?.accountId ?? storageAccountId.value.trim(),
           accessKeyId: storageAccessKeyId.value.trim(),
           secretAccessKey: storageSecretAccessKey.value,
           publicBaseUrl: storagePublicBaseUrl.value.trim() || undefined,
-          jurisdiction: storageJurisdiction.value || undefined,
+          jurisdiction: parsed?.jurisdiction,
           // Rotating credentials targets the bucket this workspace already
           // owns and is actively serving from, so its non-empty contents are
           // expected, not a mistake — same rationale as the PUT route's
@@ -677,6 +792,12 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         event.preventDefault();
         void (async () => {
           showStorageError(null);
+          if (!parseAccountIdOrEndpoint(storageAccountId.value)) {
+            storageVerifyStatus.textContent =
+              "Enter a 32-character account id, or paste the R2 endpoint URL Cloudflare gave you.";
+            storageVerifyStatus.dataset.state = "error";
+            return;
+          }
           storageVerifyStatus.textContent = "Verifying…";
           storageVerifyStatus.removeAttribute("data-state");
           storageVerifyBtn.disabled = true;

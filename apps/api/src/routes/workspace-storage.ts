@@ -7,6 +7,11 @@
  * copy of masking and projection logic.
  */
 import {
+  listR2Buckets,
+  type ListBucketsCredentials,
+  type ListBucketsResult,
+} from "../r2-list-buckets";
+import {
   verifyStorageConfig,
   type StorageVerifyCandidate,
   type StorageVerifyOptions,
@@ -164,6 +169,26 @@ export function setStorageReconcileForTests(
   fn: ((env: Env, ws: WorkspaceRecord, name: string) => Promise<unknown>) | undefined,
 ): void {
   runStorageReconcile = fn ?? reconcileWorkspaceUsage;
+}
+
+/**
+ * `listR2Buckets` entry point `storageBucketsHandler` calls, indirected
+ * through this mutable binding for the same reason as `storageVerify` above
+ * — route tests need to substitute a fake instead of hitting the network.
+ * Restore the default with `setListBucketsForTests(undefined)` in an
+ * `afterEach`/`finally`.
+ */
+let runListBuckets: (creds: ListBucketsCredentials) => Promise<ListBucketsResult> = listR2Buckets;
+
+export function listBuckets(creds: ListBucketsCredentials): Promise<ListBucketsResult> {
+  return runListBuckets(creds);
+}
+
+/** Test-only: swap the ListBuckets implementation. Pass `undefined` to restore the real one. */
+export function setListBucketsForTests(
+  fn: ((creds: ListBucketsCredentials) => Promise<ListBucketsResult>) | undefined,
+): void {
+  runListBuckets = fn ?? listR2Buckets;
 }
 
 /** Parses the request body into a `StorageVerifyCandidate` shape (no validation — `verifyStorageConfig`'s `shape` check does that). */

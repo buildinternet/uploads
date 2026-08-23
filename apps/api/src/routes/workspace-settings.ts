@@ -103,9 +103,11 @@ import {
 } from "../workspace-lanes";
 import { mutateWorkspaceRecord } from "../workspace-mutate";
 import { planResponse, planSourceFor } from "../workspace-plan";
+import type { ListBucketsResult } from "../r2-list-buckets";
 import {
   candidateFromBody,
   isByoRecord,
+  listBuckets,
   storageReconcile,
   storageStatusResponse,
   storageVerify,
@@ -423,6 +425,58 @@ export async function storageVerifyHandler(c: Context<SettingsVars>) {
   return c.json(result);
 }
 
+/** Body shape for `POST /:workspace/storage/buckets`. Never persisted — same in-flight-only posture as verify's candidate body. */
+interface ListBucketsBody {
+  accountId: string;
+  accessKeyId: string;
+  secretAccessKey: string;
+  jurisdiction?: string;
+}
+
+function listBucketsCredentialsFromBody(body: unknown): ListBucketsBody {
+  const b = (body ?? {}) as Record<string, unknown>;
+  return {
+    accountId: typeof b.accountId === "string" ? b.accountId : "",
+    accessKeyId: typeof b.accessKeyId === "string" ? b.accessKeyId : "",
+    secretAccessKey: typeof b.secretAccessKey === "string" ? b.secretAccessKey : "",
+    jurisdiction:
+      typeof b.jurisdiction === "string" && b.jurisdiction !== "" ? b.jurisdiction : undefined,
+  };
+}
+
+/**
+ * `POST /:workspace/storage/buckets` — the wizard's bucket picker (issue
+ * #783 Part A item 2). Same auth/rate-limit tier as `storage/verify` (never
+ * persists anything; every call does real remote I/O), but calls S3
+ * `ListBuckets` directly (`../r2-list-buckets.ts`) rather than the verify
+ * pipeline — `ListBuckets` is account-level, not bucket-scoped, so it's a
+ * different request entirely from the round-trip probe.
+ *
+ * Always 200s with a `ListBucketsResult` body — including the
+ * `access_denied` shape a bucket-scoped token produces, which is the
+ * *expected*, common case (R2 only permits `ListBuckets` for account-scoped
+ * tokens) and the wizard's signal to fall back to a plain bucket-name field,
+ * not an error to surface.
+ */
+export async function storageBucketsHandler(c: Context<SettingsVars>) {
+  const name = c.req.param("workspace") ?? "";
+  const record = await loadWorkspaceRecord(c.env, name);
+  if (!record) throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
+  if (!byoBucketAllowed(record)) {
+    throw new ForbiddenError("BYO storage is not enabled for this workspace", {
+      code: "byo_bucket_disabled",
+    });
+  }
+  if (!(await allowWrite(c.env, name))) {
+    throw new RateLimitedError("rate limit exceeded");
+  }
+
+  const body = await c.req.json().catch(() => null);
+  const creds = listBucketsCredentialsFromBody(body);
+  const result: ListBucketsResult = await listBuckets(creds);
+  return c.json(result);
+}
+
 /**
  * `PUT /:workspace/storage` — verifies a candidate BYO config and saves it
  * as a **standby lane** (spec: "Configure, then switch"). Never trusts a
@@ -483,9 +537,16 @@ export async function storagePutHandler(c: Context<SettingsVars>) {
         accessKeyId: candidate.accessKeyId,
         secretAccessKey: candidate.secretAccessKey,
       });
-      // Cast is safe: `storageVerify` above already ran the shape check
-      // (storage-verify.ts) that 422s on anything outside R2_JURISDICTIONS.
-      const jurisdiction = candidate.jurisdiction as R2Jurisdiction | undefined;
+      // Prefer whatever the caller supplied explicitly (parsed client-side
+      // from a pasted endpoint URL) — cast is safe since `storageVerify`
+      // above already ran the shape check (storage-verify.ts) that 422s on
+      // anything outside R2_JURISDICTIONS. When the caller omitted it (the
+      // common case now that the wizard has no jurisdiction field),
+      // fall back to whichever jurisdiction the verify pipeline's auto-probe
+      // actually found live — never save a jurisdiction the bucket wasn't
+      // proven to answer at.
+      const jurisdiction =
+        (candidate.jurisdiction as R2Jurisdiction | undefined) ?? result.jurisdiction;
       // Display fragment for the settings UI, captured from the plaintext
       // before sealing — every sealed field below is ciphertext from here on.
       const accessKeyIdLast4 = candidate.accessKeyId.slice(-4);
@@ -984,6 +1045,7 @@ export const workspaceSettings = new Hono<SettingsVars>()
   .get("/:workspace/comment-preview", sessionAdminGate(), commentPreviewHandler)
   .get("/:workspace/storage", sessionAdminGate(), storageGetHandler)
   .post("/:workspace/storage/verify", sessionAdminGate(), storageVerifyHandler)
+  .post("/:workspace/storage/buckets", sessionAdminGate(), storageBucketsHandler)
   .put("/:workspace/storage", sessionAdminGate(), storagePutHandler)
   .post("/:workspace/storage/activate", sessionAdminGate(), storageActivateHandler)
   .delete("/:workspace/storage", sessionAdminGate(), storageDeleteHandler)

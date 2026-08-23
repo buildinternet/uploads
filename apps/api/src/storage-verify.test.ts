@@ -188,12 +188,24 @@ describe("verifyStorageConfig — auth/reachability", () => {
 });
 
 describe("verifyStorageConfig — round trip + empty-bucket guard", () => {
-  it("passes end to end on an empty bucket with no publicBaseUrl", async () => {
+  it("passes end to end on an empty bucket with no publicBaseUrl, flagging signed-only as a warning", async () => {
     const client = new FakeStorageClient();
     const result = await run(VALID, client);
     expect(result.ok).toBe(true);
-    expect(result.checks.map((c) => c.id)).toEqual(["shape", "auth", "round-trip", "not-empty"]);
-    expect(result.checks.every((c) => c.ok)).toBe(true);
+    expect(result.checks.map((c) => c.id)).toEqual([
+      "shape",
+      "auth",
+      "round-trip",
+      "not-empty",
+      "public-url",
+    ]);
+    // Every *required* check passed; the trailing public-url entry is a
+    // recommended warning (no publicBaseUrl configured) and doesn't gate ok.
+    const publicUrl = result.checks.find((c) => c.id === "public-url")!;
+    expect(publicUrl.ok).toBe(false);
+    expect(publicUrl.required).toBe(false);
+    expect(publicUrl.hint).toMatch(/no public base URL/);
+    expect(publicUrl.hint).toMatch(/expire after an hour/);
     // Probe object must not be left behind.
     expect(client.store.size).toBe(0);
     expect(client.deletedKeys).toHaveLength(1);
@@ -207,6 +219,11 @@ describe("verifyStorageConfig — round trip + empty-bucket guard", () => {
     const notEmpty = result.checks.find((c) => c.id === "not-empty")!;
     expect(notEmpty.ok).toBe(false);
     expect(notEmpty.hint).toMatch(/adoptExistingContents/);
+    // Plain-language explanation of what attaching a non-empty bucket
+    // actually does (issue #783 Part B item 1) — not just what to click.
+    expect(notEmpty.hint).toMatch(/nothing gets imported or copied/i);
+    expect(notEmpty.hint).toMatch(/becomes this workspace's root/);
+    expect(notEmpty.hint).toMatch(/saving now doesn't switch anything/i);
   });
 
   it("passes the empty-bucket guard when adoptExistingContents is set", async () => {
@@ -246,12 +263,62 @@ describe("verifyStorageConfig — round trip + empty-bucket guard", () => {
   });
 });
 
+describe("verifyStorageConfig — jurisdiction auto-probe", () => {
+  it("uses the candidate's own jurisdiction without probing when one is given", async () => {
+    const client = new FakeStorageClient();
+    const createClient = vi.fn(() => client);
+    const result = await verifyStorageConfig({ ...VALID, jurisdiction: "eu" }, { createClient });
+    expect(createClient).toHaveBeenCalledOnce();
+    expect(createClient).toHaveBeenCalledWith(expect.objectContaining({ jurisdiction: "eu" }));
+    expect(result.jurisdiction).toBe("eu");
+  });
+
+  it("probes default, then eu, then fedramp — in that order — and records whichever answers", async () => {
+    const attempts: (string | undefined)[] = [];
+    const createClient = vi.fn((c: StorageVerifyCandidate) => {
+      attempts.push(c.jurisdiction);
+      const client = new FakeStorageClient();
+      // Only the fedramp endpoint "has" this bucket in this scenario.
+      if (c.jurisdiction !== "fedramp") client.listError = new FakeError("NotFound", "no bucket");
+      return client;
+    });
+    const result = await verifyStorageConfig(VALID, { createClient });
+    expect(attempts).toEqual([undefined, "eu", "fedramp"]);
+    expect(result.jurisdiction).toBe("fedramp");
+    expect(result.checks.find((c) => c.id === "auth")!.ok).toBe(true);
+  });
+
+  it("stops probing at the first jurisdiction that answers (default)", async () => {
+    const createClient = vi.fn(() => new FakeStorageClient());
+    const result = await verifyStorageConfig(VALID, { createClient });
+    expect(createClient).toHaveBeenCalledOnce();
+    expect(result.jurisdiction).toBeUndefined();
+  });
+
+  it("falls back to the auth-error hint when no jurisdiction answers", async () => {
+    const createClient = vi.fn(() => {
+      const client = new FakeStorageClient();
+      client.listError = new FakeError("Unauthorized", "denied");
+      return client;
+    });
+    const result = await verifyStorageConfig(VALID, { createClient });
+    expect(createClient).toHaveBeenCalledTimes(3);
+    expect(result.ok).toBe(false);
+    expect(result.checks.find((c) => c.id === "auth")!.hint).toMatch(/access key was rejected/);
+    expect(result.jurisdiction).toBeUndefined();
+  });
+});
+
 describe("verifyStorageConfig — recommended public-URL probe", () => {
-  it("skips cleanly when no publicBaseUrl is supplied (signed-only mode)", async () => {
+  it("never fetches when no publicBaseUrl is supplied, and flags signed-only as a warning instead", async () => {
     const client = new FakeStorageClient();
     const fetchImpl = vi.fn();
     const result = await run(VALID, client, fetchImpl as unknown as typeof fetch);
-    expect(result.checks.find((c) => c.id === "public-url")).toBeUndefined();
+    const publicUrl = result.checks.find((c) => c.id === "public-url");
+    expect(publicUrl).toBeDefined();
+    expect(publicUrl!.ok).toBe(false);
+    expect(publicUrl!.required).toBe(false);
+    expect(publicUrl!.hint).toMatch(/no public base URL set/);
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
@@ -318,7 +385,7 @@ describe("verifyStorageConfig — recommended public-URL probe", () => {
     expect(fetchImpl).toHaveBeenCalledOnce();
   });
 
-  it("reports a fetch failure (DNS/timeout) as a recommended, non-gating failure", async () => {
+  it("reports a thrown fetch (DNS/timeout/subrequest failure) as 'couldn't verify from here', not 'domain is broken'", async () => {
     const client = new FakeStorageClient();
     const fetchImpl = vi.fn(async () => {
       throw new Error("network error: ENOTFOUND");
@@ -330,7 +397,9 @@ describe("verifyStorageConfig — recommended public-URL probe", () => {
     );
     const publicUrl = result.checks.find((c) => c.id === "public-url")!;
     expect(publicUrl.ok).toBe(false);
-    expect(publicUrl.hint).toMatch(/DNS/);
+    expect(publicUrl.hint).toMatch(/couldn't verify publicBaseUrl from here/);
+    expect(publicUrl.hint).not.toMatch(/not connected/);
+    expect(publicUrl.hint).toMatch(/known object/);
     expect(result.ok).toBe(true);
   });
 

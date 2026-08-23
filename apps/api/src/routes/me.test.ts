@@ -5,7 +5,11 @@ import { Hono } from "hono";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { respondError } from "../error-response";
 import { me } from "./me";
-import { setStorageReconcileForTests, setStorageVerifyForTests } from "./workspace-storage";
+import {
+  setListBucketsForTests,
+  setStorageReconcileForTests,
+  setStorageVerifyForTests,
+} from "./workspace-storage";
 import { fakeRegistry, FakeKv } from "../../test/fake-kv";
 import { UsageFakeD1 } from "../../test/usage-fake-d1";
 import { FakeR2Bucket } from "../../test/fake-r2";
@@ -2683,6 +2687,7 @@ describe("workspace storage routes (self-serve BYO bucket, issue #583 Task 1.1)"
   afterEach(() => {
     setStorageVerifyForTests(undefined);
     setStorageReconcileForTests(undefined);
+    setListBucketsForTests(undefined);
   });
 
   /** Installs a reconcile spy so guard-bypassed transitions don't walk a real bucket. */
@@ -2787,6 +2792,81 @@ describe("workspace storage routes (self-serve BYO bucket, issue #583 Task 1.1)"
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify(CANDIDATE_BODY),
+        },
+        env,
+      );
+      expect(res.status).toBe(429);
+    });
+  });
+
+  describe("POST /me/workspaces/:name/storage/buckets", () => {
+    const CREDS_BODY = {
+      accountId: "a".repeat(32),
+      accessKeyId: "AKIAEXAMPLE",
+      secretAccessKey: "s3cr3t",
+    };
+
+    it("403s (byo_bucket_disabled) when the workspace flag is off", async () => {
+      const { env } = storageEnv({ role: "owner", record: SHARED_RECORD });
+      const res = await app().request(
+        "/me/workspaces/acme/storage/buckets",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(CREDS_BODY),
+        },
+        env,
+      );
+      expect(res.status).toBe(403);
+    });
+
+    it("runs the injected ListBuckets lookup and returns its buckets", async () => {
+      const { env } = storageEnv({ role: "owner", record: BYO_RECORD });
+      setListBucketsForTests(async (creds) => {
+        expect(creds.accountId).toBe(CREDS_BODY.accountId);
+        return { ok: true, buckets: ["one", "two"] };
+      });
+      const res = await app().request(
+        "/me/workspaces/acme/storage/buckets",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(CREDS_BODY),
+        },
+        env,
+      );
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ ok: true, buckets: ["one", "two"] });
+    });
+
+    it("200s with the distinguishable access_denied shape (not an error) so the UI can fall back", async () => {
+      const { env } = storageEnv({ role: "owner", record: BYO_RECORD });
+      setListBucketsForTests(async () => ({ ok: false, reason: "access_denied" }));
+      const res = await app().request(
+        "/me/workspaces/acme/storage/buckets",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(CREDS_BODY),
+        },
+        env,
+      );
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ ok: false, reason: "access_denied" });
+    });
+
+    it("429s when the write limiter is over budget", async () => {
+      const { env: baseEnv } = storageEnv({ role: "owner", record: BYO_RECORD });
+      const env = {
+        ...baseEnv,
+        WRITE_LIMITER: { limit: async () => ({ success: false }) },
+      } as unknown as Env;
+      const res = await app().request(
+        "/me/workspaces/acme/storage/buckets",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(CREDS_BODY),
         },
         env,
       );

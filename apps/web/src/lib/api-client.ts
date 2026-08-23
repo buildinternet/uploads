@@ -1855,6 +1855,8 @@ export interface StorageVerifyResult {
   /** True only when every required check passed. */
   ok: boolean;
   checks: StorageVerifyCheck[];
+  /** The jurisdiction the auth probe actually used — echoed back, or auto-detected when the candidate omitted it. Absent when auth never succeeded. */
+  jurisdiction?: string;
 }
 
 function toStorageVerifyResult(body: unknown): StorageVerifyResult | null {
@@ -1882,7 +1884,11 @@ function toStorageVerifyResult(body: unknown): StorageVerifyResult | null {
       },
     ];
   });
-  return { ok: b.ok, checks };
+  return {
+    ok: b.ok,
+    checks,
+    jurisdiction: typeof b.jurisdiction === "string" ? b.jurisdiction : undefined,
+  };
 }
 
 /** Candidate config the wizard is trying to attach — never saved until a PUT. */
@@ -1928,6 +1934,67 @@ export async function verifyWorkspaceStorage(
   const verify = toStorageVerifyResult(await response.json().catch(() => null));
   if (!verify) return { kind: "unavailable", reason: "server" };
   return { kind: "ok", result: verify };
+}
+
+/** Credentials the wizard has on hand once the account id/endpoint + key fields are filled — never saved. */
+export interface StorageBucketsCredentials {
+  accountId: string;
+  accessKeyId: string;
+  secretAccessKey: string;
+  jurisdiction?: string;
+}
+
+export type StorageBucketsApiResult =
+  | { kind: "ok"; buckets: string[] }
+  /** R2 only permits `ListBuckets` for account-scoped tokens — the wizard's cue to fall back to a plain "Bucket Name" field. */
+  | { kind: "access_denied" }
+  | { kind: "unavailable"; reason: RequestFailure | "forbidden" | "not_found" | "server" };
+
+function toStorageBucketsApiResult(body: unknown): StorageBucketsApiResult | null {
+  if (!body || typeof body !== "object") return null;
+  const b = body as Record<string, unknown>;
+  if (b.ok === true) {
+    return Array.isArray(b.buckets) && b.buckets.every((x) => typeof x === "string")
+      ? { kind: "ok", buckets: b.buckets }
+      : null;
+  }
+  if (b.ok === false && b.reason === "access_denied") return { kind: "access_denied" };
+  if (b.ok === false && b.reason === "error") return { kind: "unavailable", reason: "server" };
+  return null;
+}
+
+/**
+ * POST /v1/workspaces/:name/storage/buckets — the wizard's bucket picker
+ * (issue #783 Part A item 2): runs S3 `ListBuckets` against the given
+ * account/credentials and returns the bucket names, so the wizard can render
+ * a `<select>` instead of asking for a bucket name up front. Same
+ * auth/availability shape as `verifyWorkspaceStorage` (403 = BYO disabled),
+ * plus an `access_denied` outcome that's expected and common (bucket-scoped
+ * tokens can't list) — the caller should fall back to a plain text field,
+ * not show an error.
+ */
+export async function listWorkspaceStorageBuckets(
+  apiOrigin: string,
+  name: string,
+  creds: StorageBucketsCredentials,
+): Promise<StorageBucketsApiResult> {
+  const result = await fetchWithTimeout(
+    `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(name)}/storage/buckets`,
+    {
+      method: "POST",
+      credentials: "include",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(creds),
+    },
+  );
+  if (result.kind === "unavailable") return result;
+  const { response } = result;
+  if (response.status === 403) return { kind: "unavailable", reason: "forbidden" };
+  if (response.status === 404) return { kind: "unavailable", reason: "not_found" };
+  if (!response.ok) return { kind: "unavailable", reason: "server" };
+  const parsed = toStorageBucketsApiResult(await response.json().catch(() => null));
+  return parsed ?? { kind: "unavailable", reason: "server" };
 }
 
 export type StorageSaveResult =
