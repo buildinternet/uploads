@@ -8,7 +8,7 @@ import {
   renderWorkspaceOptionsHtml,
 } from "../../lib/developers-ui";
 import { resolveSignedInOrigins } from "../../lib/signed-in-page";
-import { renderDetailListPlaceholderHtml } from "../../lib/workspace-ui";
+import { renderDetailListPlaceholderHtml, renderEmptyStateHtml } from "../../lib/workspace-ui";
 
 export const prerender = false;
 
@@ -84,9 +84,17 @@ const tokensReady = initial.tokens !== null;
         1 year, or until you revoke them. The CLI reads the workspace from the token.
       </p>
 
-      <p class="muted cli-note" id="token-empty" hidden={knownEmpty ? undefined : true}>
-        Create a <a href="/account/workspaces/new">workspace</a> first, then mint a token for it.
-      </p>
+      <div
+        class="cli-note"
+        id="token-empty"
+        hidden={knownEmpty ? undefined : true}
+        set:html={renderEmptyStateHtml({
+          title: "No workspace yet",
+          description:
+            'Create a <a href="/account/workspaces/new">workspace</a> first, then mint a token for it.',
+          variant: "inline",
+        })}
+      />
 
       <form class="ws-form" id="token-form" hidden={knownEmpty ? true : undefined}>
         <label

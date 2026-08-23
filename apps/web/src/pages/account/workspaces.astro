@@ -87,7 +87,11 @@ if (!managing) {
     } from "../../lib/workspaces-nav";
     import { workspaceCapMessage } from "@uploads/billing";
     import { shouldShowProBadge } from "../../lib/plan-badge";
-    import { escapeHtml, renderWorkspacesPlaceholderHtml } from "../../lib/workspace-ui";
+    import {
+      escapeHtml,
+      renderEmptyStateHtml,
+      renderWorkspacesPlaceholderHtml,
+    } from "../../lib/workspace-ui";
 
     onAstroPageLoad(() => {
       if (!document.getElementById("orgs-status")) return;
@@ -150,8 +154,11 @@ if (!managing) {
           list.hidden = true;
           list.removeAttribute("aria-busy");
           status.hidden = false;
-          status.innerHTML =
-            'No workspaces yet — <a href="/account/workspaces/new">create one</a>, or accept an invite.';
+          status.innerHTML = renderEmptyStateHtml({
+            title: "No workspaces yet",
+            description: '<a href="/account/workspaces/new">Create one</a>, or accept an invite.',
+            variant: "inline",
+          });
           return;
         }
 

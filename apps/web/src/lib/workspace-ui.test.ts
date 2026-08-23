@@ -6,6 +6,7 @@ import {
   formatMarketedBytes,
   orderOrgsOldestFirst,
   renderDetailListPlaceholderHtml,
+  renderEmptyStateHtml,
   renderFilesPlaceholderHtml,
   renderGalleriesEmptyHtml,
   renderGalleriesGridHtml,
@@ -470,19 +471,69 @@ describe("skeleton placeholders", () => {
   });
 });
 
+describe("renderEmptyStateHtml", () => {
+  it("mirrors the shadcn Empty component's data-slot structure", () => {
+    const html = renderEmptyStateHtml({ title: "No items", description: "Do a thing." });
+    expect(html).toContain('data-slot="empty"');
+    expect(html).toContain('data-slot="empty-header"');
+    expect(html).toContain('data-slot="empty-title"');
+    expect(html).toContain('data-slot="empty-description"');
+    expect(html).toContain(">No items<");
+    expect(html).toContain(">Do a thing.<");
+  });
+
+  it("escapes the title but leaves description/content as caller-trusted HTML", () => {
+    const html = renderEmptyStateHtml({
+      title: "<script>alert(1)</script>",
+      description: 'Create a <a href="/x">thing</a>.',
+    });
+    expect(html).not.toContain("<script>");
+    expect(html).toContain("&lt;script&gt;");
+    expect(html).toContain('<a href="/x">thing</a>');
+  });
+
+  it("omits the description and content slots when not given", () => {
+    const html = renderEmptyStateHtml({ title: "No items" });
+    expect(html).not.toContain("empty-description");
+    expect(html).not.toContain("empty-content");
+  });
+
+  it("renders the content slot for a trailing CTA", () => {
+    const html = renderEmptyStateHtml({ title: "No items", content: "<button>Go</button>" });
+    expect(html).toContain('data-slot="empty-content"');
+    expect(html).toContain("<button>Go</button>");
+  });
+
+  it("defaults to the card variant's centered, bordered classes", () => {
+    const html = renderEmptyStateHtml({ title: "No items" });
+    expect(html).toContain("rounded-xl");
+    expect(html).toContain("border-dashed");
+    expect(html).toContain("items-center");
+  });
+
+  it("the inline variant drops the card chrome for a compact one-liner", () => {
+    const html = renderEmptyStateHtml({ title: "No items", variant: "inline" });
+    expect(html).not.toContain("rounded-xl");
+    expect(html).not.toContain("border-dashed");
+    expect(html).toContain("items-start");
+  });
+});
+
 describe("renderGalleriesEmptyHtml", () => {
   const cmd = 'uploads gallery create --title "Release screenshots"';
 
   it("leads with the state, not with instructions", () => {
     const html = renderGalleriesEmptyHtml(cmd);
     const headlineAt = html.indexOf("No galleries yet");
-    const commandAt = html.indexOf("ws-empty__command");
+    const commandAt = html.indexOf('data-slot="empty-content"');
     expect(headlineAt).toBeGreaterThanOrEqual(0);
     expect(commandAt).toBeGreaterThan(headlineAt);
   });
 
-  it("renders as the centered CTA variant", () => {
-    expect(renderGalleriesEmptyHtml(cmd)).toContain("ws-empty-state--cta");
+  it("renders as the Empty component's card variant", () => {
+    const html = renderGalleriesEmptyHtml(cmd);
+    expect(html).toContain('data-slot="empty"');
+    expect(html).toContain("rounded-xl");
   });
 
   it("carries the create command as the single primary action", () => {
@@ -501,7 +552,7 @@ describe("renderGalleriesEmptyHtml", () => {
 
   it("skips the restated body sentence — the page note and details block above/below it already cover it", () => {
     const html = renderGalleriesEmptyHtml(cmd);
-    expect(html).not.toContain("ws-empty-state__body");
+    expect(html).not.toContain("empty-description");
     expect(html).not.toContain("public link");
   });
 });

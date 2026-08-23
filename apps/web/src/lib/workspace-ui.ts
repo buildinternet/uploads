@@ -554,6 +554,73 @@ export function renderUsagePlaceholderHtml(meters = 2): string {
 }
 
 /**
+ * Empty-state builder — an HTML-string mirror of the shadcn `Empty`
+ * component (packages/ui/src/components/ui/empty.tsx) for signed-in Astro
+ * pages, which can't mount React but can use the same Tailwind classes
+ * (packages/ui/src/theme.css `@source`s apps/web/src). Keep the two in sync:
+ * `data-slot` names and per-part classes here should match the component's
+ * `data-slot="empty…"` parts exactly for the `card` variant.
+ *
+ * `title` is escaped automatically. `description` and `content` are raw
+ * HTML — callers compose/escape any dynamic pieces themselves (same
+ * convention as `renderMembersHtml`'s `escapeHtml(...)` calls), which is
+ * what lets a description carry a real `<a>` link (e.g. "create one").
+ *
+ * `variant`:
+ * - `"card"` (default) — the component's own centered, bordered, padded
+ *   shape. Right for a block that *is* the page's primary content (e.g. a
+ *   galleries grid with nothing in it).
+ * - `"inline"` — a left-aligned, unpadded, unbordered shape for a one-line
+ *   note sitting inside an existing form or list (e.g. "No tokens yet"),
+ *   where the card's visual weight would be out of place.
+ */
+export interface EmptyStateOptions {
+  title: string;
+  description?: string;
+  /** Raw icon/SVG markup for the `empty-icon` media slot. Omit for no icon. */
+  mediaGlyph?: string;
+  /** Raw HTML for the `empty-content` slot below the header (e.g. a copyable command). */
+  content?: string;
+  variant?: "card" | "inline";
+}
+
+const EMPTY_VARIANT_CLASSES: Record<
+  "card" | "inline",
+  { root: string; header: string; content: string }
+> = {
+  card: {
+    root: "flex w-full min-w-0 flex-1 flex-col items-center justify-center gap-4 rounded-xl border-dashed p-6 text-center text-balance",
+    header: "flex max-w-sm flex-col items-center gap-2",
+    content: "flex w-full max-w-sm min-w-0 flex-col items-center gap-2.5 text-sm text-balance",
+  },
+  inline: {
+    root: "flex w-full min-w-0 flex-col items-start gap-1 text-left text-balance",
+    header: "flex flex-col items-start gap-1",
+    content: "flex w-full min-w-0 flex-col items-start gap-2 text-sm text-balance",
+  },
+};
+
+const EMPTY_MEDIA_CLASS =
+  "mb-2 flex shrink-0 items-center justify-center bg-transparent [&_svg]:pointer-events-none [&_svg]:shrink-0";
+const EMPTY_TITLE_CLASS = "text-sm font-medium tracking-tight";
+const EMPTY_DESCRIPTION_CLASS =
+  "text-sm/relaxed text-muted-foreground [&>a]:underline [&>a]:underline-offset-4 [&>a:hover]:text-primary";
+
+export function renderEmptyStateHtml(opts: EmptyStateOptions): string {
+  const shape = EMPTY_VARIANT_CLASSES[opts.variant ?? "card"];
+  const media = opts.mediaGlyph
+    ? `<div data-slot="empty-icon" data-variant="default" class="${EMPTY_MEDIA_CLASS}">${opts.mediaGlyph}</div>`
+    : "";
+  const description = opts.description
+    ? `<div data-slot="empty-description" class="${EMPTY_DESCRIPTION_CLASS}">${opts.description}</div>`
+    : "";
+  const content = opts.content
+    ? `<div data-slot="empty-content" class="${shape.content}">${opts.content}</div>`
+    : "";
+  return `<div data-slot="empty" class="${shape.root}"><div data-slot="empty-header" class="${shape.header}">${media}<div data-slot="empty-title" class="${EMPTY_TITLE_CLASS}">${escapeHtml(opts.title)}</div>${description}</div>${content}</div>`;
+}
+
+/**
  * Galleries empty state.
  *
  * Built as the page's primary element rather than a muted footnote: when a
@@ -562,20 +629,17 @@ export function renderUsagePlaceholderHtml(meters = 2): string {
  *
  * No body sentence: the page-header note above this block already explains
  * what a gallery is — a restatement here was stacking, not informing. This
- * stays down to the state plus the one action that resolves it, centered as
- * a CTA (`--cta` modifier) rather than left-set like a list row. The page
- * hides its reference-commands details block while this is shown, so the
- * create command appears exactly once.
+ * stays down to the state plus the one action that resolves it, using the
+ * `card` variant's centered layout rather than left-set like a list row. The
+ * page hides its reference-commands details block while this is shown, so
+ * the create command appears exactly once.
  */
 export function renderGalleriesEmptyHtml(createCmd: string): string {
   const safe = escapeHtml(createCmd);
-  return `<div class="ws-empty-state ws-empty-state--cta">
-  <p class="ws-empty-state__title">No galleries yet</p>
-  <div class="command ws-empty__command">
-    <code>${safe}</code>
-    <button type="button" data-copy="${safe}" aria-live="polite">copy</button>
-  </div>
-</div>`;
+  return renderEmptyStateHtml({
+    title: "No galleries yet",
+    content: `<div class="command"><code>${safe}</code><button type="button" data-copy="${safe}" aria-live="polite">copy</button></div>`,
+  });
 }
 
 /** Galleries table placeholder — same chrome as `renderGalleriesTableHtml`. */
