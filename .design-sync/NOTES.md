@@ -228,6 +228,18 @@ node_modules) — leaving an empty bundle. Always drive the individual
 `package-build/capture/validate` scripts with the explicit
 `--entry ./packages/ui/dist/design-sync.js`.
 
+### 2026-08-23 third pass — Sidebar/Sheet/Separator/Skeleton (PR #800)
+
+Kit now 24 components. Two Sidebar-preview traps:
+- Preview `.tsx` files are NOT in the theme's `@source` globs, so arbitrary
+  Tailwind variants written only there silently no-op — containment overrides
+  for the Sidebar's fixed container ship as a scoped `<style>` tag in the
+  preview instead.
+- A `cardMode: "single"` viewport below 768px puts `useIsMobile` in mobile
+  mode and the Sidebar renders as a CLOSED Sheet — i.e. nothing. Sidebar's
+  override viewport is 900x520 for this reason; keep any sidebar-ish story
+  ≥768px wide.
+
 ### Known render warns (2026-08-23 kit sync)
 - `[TOKENS_MISSING] --accordion-panel-height, --radius, --secondary, --foreground, --tw`
   — runtime/JS-set vars (accordion height) plus shadcn-generated arbitrary

@@ -18,12 +18,11 @@ import {
   signedInCsp,
 } from "../lib/signed-in-page";
 import {
-  renderSettingsSubnavHtml,
-  WORKSPACE_NAV_TABS,
-  workspaceSettingsSubpageFromPathname,
-  workspaceTabFromPathname,
-  type WorkspaceNavTab,
-} from "../lib/workspaces-nav";
+  accountNavSections,
+  readSidebarDefaultOpen,
+  workspaceSwitcherData,
+} from "../lib/shell-sidebar-data";
+import { ShellSidebar } from "../components/shell/ShellSidebar";
 import BaseHead from "../components/BaseHead.astro";
 import Footer from "../components/Footer.astro";
 import SiteHeader from "../components/SiteHeader.astro";
@@ -47,7 +46,9 @@ interface Props {
   railWide?: boolean;
 }
 
-const { section, workspace = "", creating = false, title, railWide = false } = Astro.props;
+// `creating` is accepted (callers still pass it) but no longer read here — the
+// switcher's create row is part of the island's own data now.
+const { section, workspace = "", title, railWide = false } = Astro.props;
 const hasRail = Astro.slots.has("rail");
 
 const titles: Record<AccountSection, string> = {
@@ -57,14 +58,6 @@ const titles: Record<AccountSection, string> = {
 };
 const pageHeading = title ?? (workspace || titles[section]);
 const docTitle = `${pageHeading} · uploads.sh`;
-
-const activeTab: WorkspaceNavTab | "" = workspace
-  ? workspaceTabFromPathname(Astro.url.pathname) || "screenshots"
-  : "";
-const settingsSubpage =
-  activeTab === "settings" ? workspaceSettingsSubpageFromPathname(Astro.url.pathname) : "";
-const workspaceBase = workspace ? `/account/workspaces/${encodeURIComponent(workspace)}` : "";
-const switcherHeading = workspace || "workspaces";
 
 const { authOrigin, apiOrigin } = resolveSignedInOrigins();
 // Header (not meta): frame-ancestors is ignored on meta CSP. Also sets
@@ -107,6 +100,22 @@ if (sessionCookie.trim()) {
   }
 }
 const serverSignedIn = serverSessionUserJson !== null;
+
+// ShellSidebar island props (issue #798). The membership list isn't known
+// server-side — the island paints it from the cache and revalidates after the
+// session — so the switcher ships with the active workspace only.
+const sidebarProps = {
+  ariaLabel: "Account sections",
+  sections: accountNavSections({ pathname: Astro.url.pathname, workspace, section }),
+  switcher: workspaceSwitcherData([], { active: workspace }),
+  headerLabel: workspace || "Workspaces",
+  headerHref: "/account/workspaces",
+  defaultOpen: readSidebarDefaultOpen(sessionCookie),
+  account: { apiOrigin, section, workspace },
+};
+// Same props into the client mount below; `<`-escaped so a workspace name
+// containing "</script" can't break out of the seed tag.
+const sidebarSeedJson = JSON.stringify(sidebarProps).replace(/</g, "\\u003c");
 ---
 
 <html lang="en" transition:animate="none">
@@ -129,101 +138,12 @@ const serverSignedIn = serverSessionUserJson !== null;
     </div>
 
     <div id="app" class="account-shell" hidden={!serverSignedIn}>
-      <SiteHeader authOrigin={authOrigin} />
+      <SiteHeader authOrigin={authOrigin} sidebarToggle />
 
       <div class="shell">
         <div class="layout" data-rail-wide={railWide ? "" : undefined}>
-          <nav class="side" aria-label="Account sections">
-            <div class="ws-switcher" id="ws-switcher">
-              <button
-                type="button"
-                class="ws-switcher__trigger"
-                id="ws-switcher-trigger"
-                aria-expanded="false"
-                aria-haspopup="true"
-                aria-controls="ws-switcher-menu"
-              >
-                <span class="ws-switcher__body">
-                  <span class="ws-switcher__line1">
-                    {
-                      /* workspaces-nav.ts's paintTriggerBadge inserts the Pro
-                        badge right after this label — keeping the label in
-                        its own line1 wrapper is what keeps the badge on the
-                        name line instead of drifting onto the subtitle. */
-                    }
-                    <span class="ws-switcher__label" id="ws-switcher-label">{switcherHeading}</span>
-                  </span>
-                </span>
-                <span class="ws-switcher__chevron" aria-hidden="true" title="Switch workspace"
-                  >▾</span
-                >
-              </button>
-              <div class="ws-switcher__menu" id="ws-switcher-menu" hidden>
-                {/* Filled client-side after session + /me/workspaces (cached for paint). */}
-                {
-                  creating ? (
-                    <a
-                      href="/account/workspaces/new"
-                      class="ws-switcher__item ws-switcher__item--new"
-                      aria-current="true"
-                    >
-                      + new workspace
-                    </a>
-                  ) : null
-                }
-              </div>
-            </div>
-
-            {
-              /* Symmetric eyebrow with "Personal" below — same `.side-label`
-                idiom, shown only once a workspace is active (id lets the
-                optimistic boot script below unhide it alongside the nav). */
-            }
-            <div class="side-label" id="workspace-section-label" hidden={!workspace}>workspace</div>
-            <div
-              id="workspace-section-nav"
-              class="ws-section-nav"
-              role="group"
-              aria-label="Workspace sections"
-              hidden={!workspace}
-            >
-              {
-                workspace
-                  ? WORKSPACE_NAV_TABS.map((tab) => (
-                      <Fragment>
-                        <a
-                          href={`${workspaceBase}${tab.path}`}
-                          class="side-link"
-                          aria-current={activeTab === tab.id ? "page" : undefined}
-                        >
-                          {tab.label}
-                        </a>
-                        {tab.id === "settings" && settingsSubpage && (
-                          <Fragment
-                            set:html={renderSettingsSubnavHtml(workspace, settingsSubpage)}
-                          />
-                        )}
-                      </Fragment>
-                    ))
-                  : null
-              }
-            </div>
-
-            <div class="side-label">Personal</div>
-            <a
-              href="/account/profile"
-              class="side-link"
-              aria-current={section === "profile" ? "page" : undefined}
-            >
-              account
-            </a>
-            <a
-              href="/account/developers"
-              class="side-link"
-              aria-current={section === "developers" ? "page" : undefined}
-            >
-              developers
-            </a>
+          <nav class="shell-side" id="shell-sidebar" aria-label="Account sections">
+            <ShellSidebar {...sidebarProps} />
           </nav>
 
           <div class="content">
@@ -240,6 +160,7 @@ const serverSignedIn = serverSessionUserJson !== null;
           </aside>
         </div>
       </div>
+      <script type="application/json" id="shell-sidebar-seed" set:html={sidebarSeedJson} />
 
       {/* Sibling of .shell so the footer centers on the viewport. */}
       <Footer />
@@ -265,9 +186,11 @@ const serverSignedIn = serverSessionUserJson !== null;
     }
 
     {
-      /* Optimistic shell + workspace section nav before deferred modules run.
-    Keys match SESSION_CACHE_KEY / ACTIVE_WORKSPACE_CACHE_KEY. Not a security
-    boundary — revalidated after. data-astro-rerun: re-apply after body swap. */
+      /* Optimistic shell reveal before deferred modules run. Keys match
+    SESSION_CACHE_KEY / ACTIVE_WORKSPACE_CACHE_KEY. Not a security boundary —
+    revalidated after. The sidebar nav itself is the ShellSidebar island's job
+    now; this only remembers the workspace the island then reads back.
+    data-astro-rerun: re-apply after body swap. */
     }
     <script is:inline data-astro-rerun>
       (function () {
@@ -282,31 +205,13 @@ const serverSignedIn = serverSessionUserJson !== null;
           if (app) app.hidden = false;
           window.__uploadsSessionUser = user;
 
-          // Remember workspace from URL; on personal routes restore last-used section nav.
           var m = location.pathname.match(/^\/account\/workspaces\/([^/]+)/);
           var pathWs = m && m[1] !== "new" ? decodeURIComponent(m[1]) : "";
           if (pathWs) {
             try {
-              sessionStorage.setItem("uploads:activeWorkspace", pathWs);
+              localStorage.setItem("uploads:activeWorkspace", pathWs);
             } catch (e) {}
           }
-          var activeWs = pathWs || sessionStorage.getItem("uploads:activeWorkspace") || "";
-          if (!activeWs || !/^[a-z0-9][a-z0-9-]{1,62}$/.test(activeWs)) return;
-          var section = document.getElementById("workspace-section-nav");
-          if (!section || !section.hidden) return;
-          var label = document.getElementById("ws-switcher-label");
-          if (label && !pathWs) label.textContent = activeWs;
-          var base = "/account/workspaces/" + encodeURIComponent(activeWs);
-          var paths = ["", "/screenshots", "/galleries", "/people", "/billing", "/settings"];
-          var names = ["files", "screenshots", "galleries", "people", "billing", "settings"];
-          var html = "";
-          for (var i = 0; i < paths.length; i++) {
-            html += '<a href="' + base + paths[i] + '" class="side-link">' + names[i] + "</a>";
-          }
-          section.innerHTML = html;
-          section.hidden = false;
-          var sectionLabel = document.getElementById("workspace-section-label");
-          if (sectionLabel) sectionLabel.hidden = false;
         } catch (e) {}
       })();
     </script>
@@ -323,21 +228,55 @@ const serverSignedIn = serverSessionUserJson !== null;
     />
     <script>
       import { onAstroPageLoad, requireElement, resolveSessionGate } from "../lib/account-shell";
-      import { initWorkspacesNav } from "../lib/workspaces-nav";
+      import { createElement } from "react";
+      import { hydrateRoot, type Root } from "react-dom/client";
+      import type { ShellSidebarIslandProps } from "../components/shell/ShellSidebar";
+
+      let sidebarRoot: Root | null = null;
+
+      function teardownSidebar(): void {
+        if (!sidebarRoot) return;
+        try {
+          sidebarRoot.unmount();
+        } catch {
+          // Container may already be gone after a body swap.
+        }
+        sidebarRoot = null;
+      }
+
+      function readSidebarSeed(): ShellSidebarIslandProps | null {
+        const el = document.getElementById("shell-sidebar-seed");
+        if (!el?.textContent) return null;
+        try {
+          return JSON.parse(el.textContent) as ShellSidebarIslandProps;
+        } catch {
+          return null;
+        }
+      }
+
+      // Same manual SSR + hydrateRoot mechanism the workspace files table uses
+      // (`client:*` is banned repo-wide, see astro.config.mjs).
+      async function bootSidebar(): Promise<void> {
+        const mount = document.getElementById("shell-sidebar");
+        const seed = readSidebarSeed();
+        if (!mount || !seed) return;
+        document.addEventListener("astro:before-swap", teardownSidebar, { once: true });
+        const { ShellSidebar } = await import("../components/shell/ShellSidebar");
+        if (!document.contains(mount)) return;
+        teardownSidebar();
+        sidebarRoot = hydrateRoot(mount, createElement(ShellSidebar, seed));
+      }
 
       onAstroPageLoad(() => {
         if (!document.getElementById("app")) return;
+
+        void bootSidebar();
 
         const w = window as unknown as {
           __UPLOADS_AUTH_ORIGIN__: string;
           __UPLOADS_API_ORIGIN__: string;
           __UPLOADS_ACTIVE_WORKSPACE__: string;
         };
-
-        // Boot global is a hint; init resolves URL → boot → last-used cache.
-        initWorkspacesNav(w.__UPLOADS_API_ORIGIN__, {
-          active: w.__UPLOADS_ACTIVE_WORKSPACE__ || "",
-        });
 
         void resolveSessionGate({
           authOrigin: w.__UPLOADS_AUTH_ORIGIN__,

@@ -18,6 +18,12 @@
                               already bigger than it, so raising it widens the
                               content column above ~1080px without moving
                               where the rail stops fitting below it.
+     --bp-sidebar     767px   The kit sidebar's md breakpoint. At/below it the
+                              ShellSidebar island renders as a Sheet drawer, so
+                              the signed-in shells drop the nav track entirely
+                              (this file + account-shell.css). Mirrors
+                              `useIsMobile` in @uploads/ui — move both or
+                              neither.
      --bp-stack       680px   At/below this the nav + layout collapse to a
                               single full-width column (this file +
                               account-shell.css). The mid-width rail tier is
@@ -145,6 +151,62 @@ a.button:focus-visible {
   gap: 24px;
   align-items: start;
 }
+/* Sidebar island column (issue #798) — hosts the ShellSidebar React island in
+   both signed-in shells. Width comes from the island's own `--sidebar-width`
+   variables, so the track animates on collapse-to-icons; the kit's spacer div
+   (which exists only to reserve room for its viewport-fixed container) is
+   redundant once the container renders in flow, and is hidden here. */
+/* Grid track is set per-shell: #dashboard here (admin), `.account-shell` in
+   account-shell.css. Keeping it off a shared `.layout:has(…)` selector avoids
+   out-specificity-ing the account shell's own three-column rule. */
+#dashboard .layout {
+  grid-template-columns: auto minmax(0, 1fr);
+}
+nav.shell-side {
+  position: sticky;
+  top: 28px;
+  min-width: 0;
+}
+nav.shell-side [data-slot="sidebar-gap"] {
+  display: none;
+}
+/* The kit sidebar carries its own affordances (hover wash, active tint), so
+   the shell's global link underline + hover-accent read wrong on menu rows.
+   Unlayered on purpose — the global `a` rule above is unlayered and would
+   otherwise beat the island's Tailwind classes. `[data-slot="sidebar"]`
+   (rather than nav.shell-side) also covers the mobile Sheet, which portals
+   to <body>. */
+[data-slot="sidebar"] a,
+[data-slot="sidebar"] a:hover,
+[data-slot="sidebar"] a:focus-visible {
+  color: inherit;
+  text-decoration: none;
+}
+/* Group headings ("Workspace", "Personal") echo the right rail's small-caps
+   labels (.ws-rail__label in account-shell.css). */
+[data-slot="sidebar-group-label"] {
+  color: var(--muted);
+  font-size: var(--text-micro);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+/* Active row: accent-tinted surface with accent text, instead of the kit's
+   neutral sidebar-accent wash. */
+[data-slot="sidebar-menu-button"][data-active],
+[data-slot="sidebar-menu-button"][data-active]:hover,
+[data-slot="sidebar-menu-button"][data-active]:focus-visible {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+}
+@media (max-width: 767px) {
+  #dashboard .layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  nav.shell-side {
+    display: none;
+  }
+}
+
 nav.side {
   display: grid;
   gap: 4px;

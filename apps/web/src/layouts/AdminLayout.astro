@@ -14,6 +14,8 @@ import {
   resolveSignedInOrigins,
   signedInCsp,
 } from "../lib/signed-in-page";
+import { adminNavSections, readSidebarDefaultOpen } from "../lib/shell-sidebar-data";
+import { ShellSidebar } from "../components/shell/ShellSidebar";
 import BaseHead from "../components/BaseHead.astro";
 import Footer from "../components/Footer.astro";
 import SiteHeader from "../components/SiteHeader.astro";
@@ -44,13 +46,18 @@ const { authOrigin, apiOrigin } = resolveSignedInOrigins();
 // Header (not meta): frame-ancestors is ignored on meta CSP.
 applyAuthSecurityHeaders(Astro.response.headers, signedInCsp(authOrigin, apiOrigin));
 
-const nav: { href: string; section: AdminSection; label: string }[] = [
-  { href: "/admin", section: "workspaces", label: "Workspaces" },
-  { href: "/admin/metrics", section: "metrics", label: "Metrics" },
-  { href: "/admin/users", section: "users", label: "Users" },
-  { href: "/admin/oauth", section: "oauth", label: "OAuth apps" },
-  { href: "/admin/email", section: "email", label: "Email" },
-];
+// ShellSidebar island props (issue #798). No workspace switcher here — the
+// header row is a plain "admin" label. Sign-out and identity stay in the
+// header avatar menu, the way the account shell has had it since #601.
+const sidebarProps = {
+  ariaLabel: "Admin sections",
+  sections: adminNavSections({ section, showConsoleLinks }),
+  switcher: null,
+  headerLabel: "Admin",
+  headerHref: "/admin",
+  defaultOpen: readSidebarDefaultOpen(Astro.request.headers.get("cookie")),
+};
+const sidebarSeedJson = JSON.stringify(sidebarProps).replace(/</g, "\\u003c");
 ---
 
 <html lang="en" transition:animate="none">
@@ -87,23 +94,12 @@ const nav: { href: string; section: AdminSection; label: string }[] = [
     over the AUTH service binding on every request.
   -->
     <div id="dashboard" hidden>
-      <SiteHeader badge="admin" authOrigin={authOrigin} />
+      <SiteHeader badge="admin" authOrigin={authOrigin} sidebarToggle />
 
       <div class="shell">
         <div class="layout">
-          <nav class="side" aria-label="Admin sections">
-            {
-              nav.map((item) => (
-                <a href={item.href} aria-current={item.section === section ? "page" : undefined}>
-                  {item.label}
-                </a>
-              ))
-            }
-            <div class="side-foot">
-              <a href="/account">← account</a>
-              {showConsoleLinks ? <a href="/console">console →</a> : null}
-              <button type="button" id="sign-out-btn">Sign out</button>
-            </div>
+          <nav class="shell-side" id="shell-sidebar" aria-label="Admin sections">
+            <ShellSidebar {...sidebarProps} />
           </nav>
 
           <div class="content">
@@ -111,6 +107,7 @@ const nav: { href: string; section: AdminSection; label: string }[] = [
           </div>
         </div>
       </div>
+      <script type="application/json" id="shell-sidebar-seed" set:html={sidebarSeedJson} />
 
       {/* Sibling of .shell so the footer centers on the viewport. */}
       <Footer />
@@ -149,9 +146,44 @@ const nav: { href: string; section: AdminSection; label: string }[] = [
         requireElement,
         resolveSessionGate,
       } from "../lib/account-shell";
+      import { createElement } from "react";
+      import { hydrateRoot, type Root } from "react-dom/client";
+      import type { ShellSidebarIslandProps } from "../components/shell/ShellSidebar";
+
+      let sidebarRoot: Root | null = null;
+
+      function teardownSidebar(): void {
+        if (!sidebarRoot) return;
+        try {
+          sidebarRoot.unmount();
+        } catch {
+          // Container may already be gone after a body swap.
+        }
+        sidebarRoot = null;
+      }
+
+      // Same manual SSR + hydrateRoot mechanism AccountLayout uses.
+      async function bootSidebar(): Promise<void> {
+        const mount = document.getElementById("shell-sidebar");
+        const seedEl = document.getElementById("shell-sidebar-seed");
+        if (!mount || !seedEl?.textContent) return;
+        let seed: ShellSidebarIslandProps;
+        try {
+          seed = JSON.parse(seedEl.textContent) as ShellSidebarIslandProps;
+        } catch {
+          return;
+        }
+        document.addEventListener("astro:before-swap", teardownSidebar, { once: true });
+        const { ShellSidebar } = await import("../components/shell/ShellSidebar");
+        if (!document.contains(mount)) return;
+        teardownSidebar();
+        sidebarRoot = hydrateRoot(mount, createElement(ShellSidebar, seed));
+      }
 
       onAstroPageLoad(() => {
         if (!document.getElementById("dashboard")) return;
+
+        void bootSidebar();
 
         const w = window as unknown as {
           __UPLOADS_AUTH_ORIGIN__: string;
