@@ -1292,7 +1292,7 @@ function ScreenshotsByPathInner({
   }
 
   return (
-    <div className="wsp" aria-busy={overviewRefreshing || undefined}>
+    <div className="wsp grid gap-8" aria-busy={overviewRefreshing || undefined}>
       {filterBar}
       {isEmptyWorkspace ? (
         <EmptyShotsCta title="No screenshots yet" />
