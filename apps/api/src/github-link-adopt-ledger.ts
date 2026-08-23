@@ -17,6 +17,7 @@
  * surface as a thrown error so the queue retries the delivery — nothing here
  * swallows errors, same doctrine as the ingest ledger.
  */
+import { type D1Queryable } from "./db-session";
 
 export interface AdoptLedgerRow {
   repo: string; // lowercase owner/name
@@ -71,7 +72,7 @@ const SELECT_COLUMNS =
  * ways to update an existing row.
  */
 export async function recordAdoptedLink(
-  db: D1Database,
+  db: D1Queryable,
   row: Omit<AdoptLedgerRow, "detachedAt">,
 ): Promise<void> {
   await db
@@ -95,7 +96,7 @@ export async function recordAdoptedLink(
 
 /** The ledger row for a single (repo, kind, num, source key), or null if never recorded. */
 export async function adoptLedgerRow(
-  db: D1Database,
+  db: D1Queryable,
   repo: string,
   kind: "pull" | "issues",
   num: number,
@@ -113,7 +114,7 @@ export async function adoptLedgerRow(
 
 /** All ledger rows for (repo, kind, num) currently attributed to `source` ("body" or "comment:<id>"). */
 export async function adoptLedgerRowsForSource(
-  db: D1Database,
+  db: D1Queryable,
   repo: string,
   kind: "pull" | "issues",
   num: number,
@@ -133,7 +134,7 @@ export async function adoptLedgerRowsForSource(
  * for the noise guard's total-adopted count (detached rows excluded by the
  * caller, same as ingest's own target-scoped reads). */
 export async function adoptLedgerRowsForTarget(
-  db: D1Database,
+  db: D1Queryable,
   repo: string,
   kind: "pull" | "issues",
   num: number,
@@ -153,7 +154,7 @@ export async function adoptLedgerRowsForTarget(
  * reappears.
  */
 export async function setAdoptLedgerDetached(
-  db: D1Database,
+  db: D1Queryable,
   repo: string,
   kind: "pull" | "issues",
   num: number,
@@ -175,7 +176,7 @@ export async function setAdoptLedgerDetached(
  * a comment into the body).
  */
 export async function setAdoptLedgerSource(
-  db: D1Database,
+  db: D1Queryable,
   repo: string,
   kind: "pull" | "issues",
   num: number,

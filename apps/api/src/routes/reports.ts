@@ -29,6 +29,7 @@ import {
   stripControl,
 } from "../cli-intake";
 import type { WorkspaceVars } from "../workspace";
+import { dbFor } from "../db-session";
 
 export { MAX_ATTACHMENT_BYTES };
 
@@ -114,13 +115,14 @@ reports.post("/", async (c) => {
 
   // Persist metadata first so a successful response always has a D1 row.
   try {
-    await c.env.DB.prepare(
-      `INSERT INTO uploads_cli_reports (
+    await dbFor(c.env)
+      .prepare(
+        `INSERT INTO uploads_cli_reports (
         id, message, type, contact, surface, client_kind, anon_id,
         cli_version, os, arch, runtime, command, error_code,
         attachment_key, attachment_filename, attachment_bytes
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
+      )
       .bind(
         id,
         message,
@@ -174,7 +176,7 @@ reports.post("/", async (c) => {
         }),
       );
       try {
-        await c.env.DB.prepare("DELETE FROM uploads_cli_reports WHERE id = ?").bind(id).run();
+        await dbFor(c.env).prepare("DELETE FROM uploads_cli_reports WHERE id = ?").bind(id).run();
       } catch {
         // best-effort cleanup
       }

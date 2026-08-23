@@ -333,4 +333,8 @@ export class UsageFakeD1 {
     for (const stmt of statements) results.push(await stmt.run());
     return results;
   };
+
+  /** D1 Sessions API stub (see src/db-session.ts) — this fake has no
+   *  primary/replica split, so a "session" is just itself. */
+  withSession = () => this;
 }

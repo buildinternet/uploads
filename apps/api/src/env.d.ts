@@ -83,4 +83,13 @@ interface Env {
   RENDER_LIMITER?: RateLimit;
   WS_CREATE_LIMITER?: RateLimit;
   INVITE_LIMITER?: RateLimit;
+  /**
+   * Per-request D1 Sessions API session (issue #808). Set once per HTTP
+   * request by middleware in index.ts (see src/db-session.ts); every D1
+   * call site reads it via `dbFor(env)` instead of `env.DB` directly. Not a
+   * wrangler binding — populated at runtime, so it's optional here, and
+   * absent for cron invocations and for tests that exercise a route
+   * sub-app directly instead of the full `app`.
+   */
+  DB_SESSION?: D1DatabaseSession;
 }

@@ -16,6 +16,7 @@
  */
 
 import { bumpDailyMetric, logAdoptionFailure } from "./adoption";
+import { type D1Queryable } from "./db-session";
 
 export interface RepoLink {
   repo: string;
@@ -55,7 +56,7 @@ function rowToLink(row: RepoLinkRow): RepoLink {
  * failures are logged and swallowed.
  */
 export async function recordRepoLink(
-  db: D1Database,
+  db: D1Queryable,
   repo: string,
   workspaceName: string,
   source: string,
@@ -99,7 +100,7 @@ export async function recordRepoLink(
 }
 
 /** The workspace bound to `repo`, or null if unclaimed. Never throws (callers treat a D1 failure as "no link"). */
-export async function findRepoLink(db: D1Database, repo: string): Promise<RepoLink | null> {
+export async function findRepoLink(db: D1Queryable, repo: string): Promise<RepoLink | null> {
   try {
     const row = await db
       .prepare(
@@ -144,7 +145,7 @@ export function deriveRepoBinding(link: RepoLink | null, workspaceName: string):
  * #318 CodeRabbit review) — a lookup failure here throws instead of being
  * reported as an honest-looking `{unlinked: false, reason: "not_linked"}`.
  */
-export async function findRepoLinkStrict(db: D1Database, repo: string): Promise<RepoLink | null> {
+export async function findRepoLinkStrict(db: D1Queryable, repo: string): Promise<RepoLink | null> {
   const row = await db
     .prepare(
       `SELECT repo_full_name, workspace_name, installation_id, source, created_at
@@ -160,7 +161,7 @@ export async function findRepoLinkStrict(db: D1Database, repo: string): Promise<
  * throws — cleanup is best-effort; a failed delete just means the next
  * webhook delivery re-discovers the same stale state and retries the cleanup.
  */
-export async function deleteRepoLink(db: D1Database, repo: string): Promise<void> {
+export async function deleteRepoLink(db: D1Queryable, repo: string): Promise<void> {
   try {
     await db
       .prepare(`DELETE FROM github_repo_links WHERE repo_full_name = ?`)
@@ -184,7 +185,7 @@ export async function deleteRepoLink(db: D1Database, repo: string): Promise<void
  * failures instead of catching/logging them. Returns whether a row existed
  * to delete (not just whether the statement ran).
  */
-export async function deleteRepoLinkStrict(db: D1Database, repo: string): Promise<boolean> {
+export async function deleteRepoLinkStrict(db: D1Queryable, repo: string): Promise<boolean> {
   const result = await db
     .prepare(`DELETE FROM github_repo_links WHERE repo_full_name = ?`)
     .bind(normalizeRepo(repo))
@@ -201,7 +202,7 @@ export async function deleteRepoLinkStrict(db: D1Database, repo: string): Promis
  * Returns true only if a row owned by `workspaceName` was deleted.
  */
 export async function deleteRepoLinkForWorkspace(
-  db: D1Database,
+  db: D1Queryable,
   repo: string,
   workspaceName: string,
 ): Promise<boolean> {
@@ -218,7 +219,7 @@ export async function deleteRepoLinkForWorkspace(
  * workspace has claimed without querying D1 directly.
  */
 export async function listRepoLinksForWorkspace(
-  db: D1Database,
+  db: D1Queryable,
   workspaceName: string,
 ): Promise<RepoLink[]> {
   const { results } = await db
@@ -238,7 +239,7 @@ export async function listRepoLinksForWorkspace(
  * admin-gated route; self-serve callers never get this power.
  */
 export async function setRepoLink(
-  db: D1Database,
+  db: D1Queryable,
   repo: string,
   workspaceName: string,
   source: string,

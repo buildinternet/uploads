@@ -53,6 +53,7 @@ import { putObject } from "./files-core";
 import { findRepoLinkStrict } from "./github-repo-links";
 import { resolveRepoCommentOptions } from "./repo-comment-config";
 import { loadWorkspaceRecord, type WorkspaceRecord } from "./workspace";
+import { dbFor } from "./db-session";
 
 export interface IngestSourceRef {
   repo: string;
@@ -292,7 +293,7 @@ async function fetchAndStore(
     throw err;
   }
 
-  await recordIngestedAsset(env.DB, {
+  await recordIngestedAsset(dbFor(env), {
     repo: ref.repo,
     assetId: attachment.id,
     workspace: workspaceName,
@@ -320,7 +321,7 @@ export async function reconcileIngestSource(
   author: string | null,
   deps: IngestDeps = {},
 ): Promise<IngestSummary> {
-  const db = env.DB;
+  const db = dbFor(env);
   const summary = emptySummary();
   const found = text === null ? [] : extractUserAttachments(text);
   const foundIds = new Set(found.map((a) => a.id));
@@ -425,7 +426,7 @@ export async function ingestForWebhook(
   ref: IngestSourceRef,
   deps: IngestDeps = {},
 ): Promise<void> {
-  const link = await findRepoLinkStrict(env.DB, ref.repo);
+  const link = await findRepoLinkStrict(dbFor(env), ref.repo);
   if (!link) return;
   const ws = await loadWorkspaceRecord(env, link.workspaceName);
   if (!ws) return;
@@ -597,14 +598,20 @@ export async function reconcileIngestTarget(
     // non-detached row for this target whose source we didn't just scan.
     // Skipped entirely when the scan was truncated (above): unseen later
     // pages mean an absent source isn't proof of deletion.
-    const rows = await ledgerRowsForTarget(env.DB, target.repo, target.kind, target.num);
+    const rows = await ledgerRowsForTarget(dbFor(env), target.repo, target.kind, target.num);
     for (const row of rows) {
       if (row.detachedAt !== null) continue;
       if (seenSources.has(row.source)) continue;
       // Metadata-first, same retry-safety ordering as the per-source detach
       // path in reconcileIngestSource.
-      await updateFileMetadataValue(env.DB, row.workspace, row.objectKey, "gh.detached", "true");
-      await setLedgerDetached(env.DB, target.repo, row.assetId, new Date().toISOString());
+      await updateFileMetadataValue(
+        dbFor(env),
+        row.workspace,
+        row.objectKey,
+        "gh.detached",
+        "true",
+      );
+      await setLedgerDetached(dbFor(env), target.repo, row.assetId, new Date().toISOString());
       merged.detached.push(row.objectKey);
     }
   }

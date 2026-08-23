@@ -92,6 +92,7 @@ import {
   githubPrivatePrefixRotateHandler,
 } from "./github-private-prefix";
 import { githubPromoteHandler } from "./github-promote";
+import { dbFor } from "../db-session";
 
 // Same owner/name grammar as routes/github-comment.ts's `REPO_RE` — repeated
 // here rather than imported since that copy is module-private (deliberately
@@ -125,7 +126,7 @@ const githubIngestHandler: Handler<DualAuthVars> = async (c) => {
       code: "github_ingest_target",
     });
   }
-  const link = await findRepoLink(c.env.DB, repo);
+  const link = await findRepoLink(dbFor(c.env), repo);
   if (deriveRepoBinding(link, workspaceName) !== "self") {
     // 404 (not 403) so an "other"-bound repo can't be told apart from an
     // unlinked one — never leaks whether/where it's linked (issue #398).
@@ -266,7 +267,7 @@ const githubStatusHandler: Handler<DualAuthVars> = async (c) => {
  */
 const githubRepoLinksHandler: Handler<DualAuthVars> = async (c) => {
   const name = c.req.param("workspace") ?? "";
-  const links = await listRepoLinksForWorkspace(c.env.DB, name);
+  const links = await listRepoLinksForWorkspace(dbFor(c.env), name);
   return c.json({ repos: links.map((link) => link.repo) });
 };
 

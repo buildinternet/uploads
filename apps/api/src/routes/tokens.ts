@@ -39,6 +39,7 @@ import {
 } from "../session-auth";
 import { loadWorkspaceRecord, WS_NAME_RE } from "../workspace";
 import { suggestWorkspaceName } from "../workspace-suggestion";
+import { dbFor } from "../db-session";
 
 /** Redacted scope list for the issued-token surface — never garbage entries. */
 function parseIssuedScopes(value: string): string[] {
@@ -239,7 +240,7 @@ export const tokens = new Hono<SessionVars>()
     }
 
     const expiresAt = ttlSeconds === null ? undefined : new Date(Date.now() + ttlSeconds * 1000);
-    const { token, record: tokenRecord } = await createToken(c.env.DB, {
+    const { token, record: tokenRecord } = await createToken(dbFor(c.env), {
       workspace: grant.workspace,
       label,
       scopes,
@@ -263,7 +264,7 @@ export const tokens = new Hono<SessionVars>()
   // token on that workspace). Members only see their own rows.
   .get("/issued", sessionAuth, requireSessionUser, async (c) => {
     const user = c.get("sessionUser")!;
-    const issued = (await listTokensForMintingUser(c.env.DB, user.id)).map((token) => ({
+    const issued = (await listTokensForMintingUser(dbFor(c.env), user.id)).map((token) => ({
       id: token.id,
       workspace: token.workspace,
       label: token.label,
@@ -280,14 +281,14 @@ export const tokens = new Hono<SessionVars>()
     if (!id) {
       throw new NotFoundError("no matching token", { code: "token_not_found" });
     }
-    const match = await findTokenForMintingUser(c.env.DB, user.id, id);
+    const match = await findTokenForMintingUser(dbFor(c.env), user.id, id);
     if (!match) {
       throw new NotFoundError("no matching token", { code: "token_not_found" });
     }
     if (!(await allowWrite(c.env, match.workspace))) {
       throw new RateLimitedError("token revoke rate limit exceeded");
     }
-    const revoked = await revokeTokenForMintingUser(c.env.DB, user.id, id);
+    const revoked = await revokeTokenForMintingUser(dbFor(c.env), user.id, id);
     if (!revoked) {
       throw new NotFoundError("no matching token", { code: "token_not_found" });
     }

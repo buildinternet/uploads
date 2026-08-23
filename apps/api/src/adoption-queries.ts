@@ -25,6 +25,7 @@
 
 import type { AdoptionMetric } from "./adoption";
 import { ADOPTION_METRICS, utcDay } from "./adoption";
+import { type D1Queryable } from "./db-session";
 
 export interface DayPoint {
   day: string;
@@ -55,7 +56,7 @@ export function windowStart(days: number, now = new Date()): string {
 
 /** Daily platform totals for one metric. One index entry per day in window. */
 export async function platformSeries(
-  db: D1Database,
+  db: D1Queryable,
   metric: AdoptionMetric,
   since: string,
 ): Promise<DayPoint[]> {
@@ -72,7 +73,7 @@ export async function platformSeries(
 
 /** Per-workspace upload activity in the window, busiest first. */
 export async function workspaceActivity(
-  db: D1Database,
+  db: D1Queryable,
   since: string,
   limit = DEFAULT_LIMIT,
 ): Promise<WorkspaceActivity[]> {
@@ -108,7 +109,7 @@ export interface ActiveWorkspace {
  * read, and the last 7 days are always a subset of the last 30).
  */
 export async function activeWorkspacesSince(
-  db: D1Database,
+  db: D1Queryable,
   since: string,
 ): Promise<ActiveWorkspace[]> {
   const result = await db
@@ -134,7 +135,7 @@ export async function activeWorkspacesSince(
  * mirroring the pattern the other queries in this module already use.
  */
 export async function featureTotals(
-  db: D1Database,
+  db: D1Queryable,
   since: string,
 ): Promise<Record<string, number>> {
   const results = await db.batch<{ total: number | null }>(
@@ -166,7 +167,7 @@ export async function featureTotals(
  * One aggregate over a table with one row per workspace.
  */
 export async function platformStorage(
-  db: D1Database,
+  db: D1Queryable,
 ): Promise<{ workspaces: number; storedBytes: number }> {
   const row = await db
     .prepare(
@@ -192,7 +193,7 @@ export interface MultiIdentityWorkspace {
  * had multiple minters", not "how many active tokens exist right now".
  */
 export async function multiIdentityWorkspaces(
-  db: D1Database,
+  db: D1Queryable,
   limit = DEFAULT_LIMIT,
 ): Promise<MultiIdentityWorkspace[]> {
   const result = await db

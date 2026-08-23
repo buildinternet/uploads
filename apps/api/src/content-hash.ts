@@ -14,6 +14,7 @@
  */
 
 import { addMissingFileMetadata, getFileMetadata } from "./file-metadata";
+import { type D1Queryable } from "./db-session";
 
 /**
  * The closed set of keys inheritance may copy — a restatement of
@@ -64,7 +65,7 @@ interface HashRow {
  * a missing index row costs a future inheritance, not correctness.
  */
 export async function recordContentHash(
-  db: D1Database,
+  db: D1Queryable,
   workspace: string,
   objectKey: string,
   contentSha256: string,
@@ -98,7 +99,7 @@ export async function recordContentHash(
  * in both cloud and self-hosted.
  */
 export async function inheritableMetaForHash(
-  db: D1Database,
+  db: D1Queryable,
   workspace: string,
   contentSha256: string,
   selfKey: string,
@@ -149,7 +150,7 @@ export async function inheritableMetaForHash(
  * second read.
  */
 export async function applyInheritedMetaAdditively(
-  db: D1Database,
+  db: D1Queryable,
   workspace: string,
   objectKey: string,
   inherited: Record<string, string>,

@@ -25,6 +25,7 @@
  */
 
 import { findObjectsByMetadata } from "./file-metadata";
+import { type D1Queryable } from "./db-session";
 
 export type BeforeAfterState = "before" | "after";
 
@@ -95,7 +96,7 @@ export function isPairableImageContentType(contentType: string): boolean {
  * module doc.
  */
 export async function findCounterpartCandidate(
-  db: D1Database,
+  db: D1Queryable,
   workspace: string,
   key: string,
   metadata: Record<string, string>,

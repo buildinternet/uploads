@@ -19,6 +19,7 @@ import { deleteFileMetadataForKeys } from "./file-metadata";
 import { reconcileWorkspaceUsage, type ReconcileResult } from "./reconcile";
 import { storage } from "./storage";
 import { isUnprefixedDedicatedBucket, type WorkspaceRecord } from "./workspace";
+import { dbFor } from "./db-session";
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 /** Cap listed deleted keys in the response so agents don't get huge payloads. */
@@ -86,7 +87,7 @@ export async function purgeExpiredObjects(
     if (batch.length === 0) return;
     // Bulk form: native multi-delete on R2/S3 when available.
     await store.delete(batch);
-    await deleteFileMetadataForKeys(env.DB, workspaceName, batch);
+    await deleteFileMetadataForKeys(dbFor(env), workspaceName, batch);
     batch = [];
   }
 

@@ -10,6 +10,7 @@ import {
   type FileScope,
   type WorkspaceScope,
 } from "./auth-db";
+import { dbFor } from "./db-session";
 
 export type { FileScope } from "./auth-db";
 
@@ -495,7 +496,7 @@ function workspaceAuthWith(
     // unknown or the token empty, so response latency doesn't reveal whether
     // a workspace name exists (uniform-401 guarantee above).
     const d1Token = await findActiveToken(
-      c.env.DB,
+      dbFor(c.env),
       record && name ? name : "__unknown__",
       token || "__unknown__",
     );
@@ -509,7 +510,7 @@ function workspaceAuthWith(
     c.set("authSource", d1Token ? "d1" : "legacy");
     // Uploader attribution (issue #340) — null for legacy/enrollment tokens.
     c.set("mintingUserId", d1Token?.minting_user_id ?? null);
-    if (d1Token) await touchTokenLastUsed(c.env.DB, d1Token.id);
+    if (d1Token) await touchTokenLastUsed(dbFor(c.env), d1Token.id);
     await next();
   };
 }
@@ -601,7 +602,7 @@ export function workspaceGovernanceAuth(scope: WorkspaceScope): MiddlewareHandle
     const tokenWorkspace = token ? workspaceNameFromToken(token) : undefined;
     if (!tokenWorkspace) throw new UnauthorizedError();
 
-    const record = await findActiveToken(c.env.DB, tokenWorkspace, token);
+    const record = await findActiveToken(dbFor(c.env), tokenWorkspace, token);
     if (!record) throw new UnauthorizedError();
 
     const name = c.req.param("name");
@@ -617,7 +618,7 @@ export function workspaceGovernanceAuth(scope: WorkspaceScope): MiddlewareHandle
     if (!scopes.has(scope)) throw new ForbiddenError();
 
     c.set("governanceMintingUserId", record.minting_user_id);
-    await touchTokenLastUsed(c.env.DB, record.id);
+    await touchTokenLastUsed(dbFor(c.env), record.id);
     await next();
   };
 }

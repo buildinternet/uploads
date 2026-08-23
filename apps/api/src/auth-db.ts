@@ -1,4 +1,5 @@
 import { sha256Hex } from "./workspace";
+import { type D1Queryable } from "./db-session";
 
 export const FILE_SCOPES = ["files:read", "files:write", "files:delete"] as const;
 export type FileScope = (typeof FILE_SCOPES)[number];
@@ -115,7 +116,7 @@ function id(): string {
 }
 
 export async function findActiveToken(
-  db: D1Database,
+  db: D1Queryable,
   workspace: string,
   rawToken: string,
   now = new Date(),
@@ -135,7 +136,7 @@ export async function findActiveToken(
 }
 
 export async function createToken(
-  db: D1Database,
+  db: D1Queryable,
   input: {
     workspace: string;
     label?: string;
@@ -184,7 +185,7 @@ export async function createToken(
 }
 
 export async function createEnrollment(
-  db: D1Database,
+  db: D1Queryable,
   input: {
     workspace: string;
     label?: string;
@@ -231,7 +232,7 @@ export async function createEnrollment(
 }
 
 export async function findEnrollmentPage(
-  db: D1Database,
+  db: D1Queryable,
   pageId: string,
   now = new Date(),
 ): Promise<{ workspace: string; expiresAt: string; used: boolean } | null> {
@@ -249,7 +250,7 @@ export async function findEnrollmentPage(
 }
 
 export async function exchangeEnrollment(
-  db: D1Database,
+  db: D1Queryable,
   code: string,
   now = new Date(),
 ): Promise<{ workspace: string; token: string; scopes: FileScope[]; expiresAt: string } | null> {
@@ -309,7 +310,7 @@ export async function exchangeEnrollment(
  * `includeRevoked: true` for admin audit listing.
  */
 export async function listTokens(
-  db: D1Database,
+  db: D1Queryable,
   workspace: string,
   opts?: { includeRevoked?: boolean },
 ): Promise<AuthTokenRecord[]> {
@@ -328,7 +329,7 @@ export async function listTokens(
 }
 
 export async function revokeToken(
-  db: D1Database,
+  db: D1Queryable,
   workspace: string,
   selector: { hashPrefix?: string; label?: string },
   now = new Date(),
@@ -356,7 +357,7 @@ export async function revokeToken(
  * Tokens with a null `minting_user_id` (pre-tracking rows) are left alone.
  */
 export async function revokeTokensForMintingUser(
-  db: D1Database,
+  db: D1Queryable,
   userId: string,
   now = new Date(),
 ): Promise<number> {
@@ -377,7 +378,7 @@ export async function revokeTokensForMintingUser(
  * workspace-admin token list.
  */
 export async function listTokensForMintingUser(
-  db: D1Database,
+  db: D1Queryable,
   userId: string,
   now = new Date(),
 ): Promise<AuthTokenRecord[]> {
@@ -400,7 +401,7 @@ export async function listTokensForMintingUser(
  * someone else's id all return null so callers can collapse them to the same 404.
  */
 export async function findTokenForMintingUser(
-  db: D1Database,
+  db: D1Queryable,
   userId: string,
   tokenId: string,
   now = new Date(),
@@ -423,7 +424,7 @@ export async function findTokenForMintingUser(
 
 /** Soft-revoke one token this user minted. Same null contract as find. */
 export async function revokeTokenForMintingUser(
-  db: D1Database,
+  db: D1Queryable,
   userId: string,
   tokenId: string,
   now = new Date(),
@@ -445,7 +446,7 @@ export async function revokeTokenForMintingUser(
  * written in the last hour so a busy token does not pay a D1 write per request.
  */
 export async function touchTokenLastUsed(
-  db: D1Database,
+  db: D1Queryable,
   tokenId: string,
   now = new Date(),
 ): Promise<void> {

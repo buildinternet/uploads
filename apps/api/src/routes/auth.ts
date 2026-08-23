@@ -1,6 +1,7 @@
 import { RateLimitedError, ValidationError } from "@uploads/errors";
 import { Hono } from "hono";
 import { exchangeEnrollment, findEnrollmentPage } from "../auth-db";
+import { dbFor } from "../db-session";
 
 const INVALID_ENROLLMENT = () =>
   new ValidationError("invalid or expired enrollment code", { code: "invalid_enrollment" });
@@ -20,7 +21,7 @@ export const auth = new Hono<{ Bindings: Env }>()
   .get("/enrollments/:pageId", async (c) => {
     c.header("Cache-Control", "no-store");
     c.header("Access-Control-Allow-Origin", "https://uploads.sh");
-    const result = await findEnrollmentPage(c.env.DB, c.req.param("pageId"));
+    const result = await findEnrollmentPage(dbFor(c.env), c.req.param("pageId"));
     if (!result) throw INVALID_ENROLLMENT();
     return c.json(result);
   })
@@ -48,7 +49,7 @@ export const auth = new Hono<{ Bindings: Env }>()
     }
     const code = parsed.code.trim();
     if (!/^upe_[A-Za-z0-9_-]{20,}$/.test(code)) throw INVALID_ENROLLMENT();
-    const result = await exchangeEnrollment(c.env.DB, code);
+    const result = await exchangeEnrollment(dbFor(c.env), code);
     if (!result) throw INVALID_ENROLLMENT();
     return c.json(result, 201);
   });

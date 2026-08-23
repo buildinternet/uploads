@@ -28,6 +28,7 @@
  * Kept out of scope for this phase — see `.context/613-api-consolidation-plan.md`.
  */
 import { ForbiddenError, NotFoundError, ValidationError } from "@uploads/errors";
+import { dbFor } from "../db-session";
 import { createFilesRouter, signedDownloadUrl } from "@uploads/storage";
 import { Hono, type Context, type Handler, type MiddlewareHandler } from "hono";
 import {
@@ -118,7 +119,7 @@ export const workspaceFiles = new Hono<DualAuthVars>()
     } = await listObjects(c.env, record, { prefix, delimiter, limit, cursor });
 
     const metaByKey = await getMetadataForKeys(
-      c.env.DB,
+      dbFor(c.env),
       name,
       items.map((item) => item.key),
     );
@@ -166,7 +167,7 @@ export const workspaceFiles = new Hono<DualAuthVars>()
     // Upload time per match so the screenshots drill-in pop-over can show it
     // (the grouped by-path route surfaces the same via `updatedAt`).
     const updatedByKey = await getObjectUpdatedAt(
-      c.env.DB,
+      dbFor(c.env),
       name,
       matches.map((m) => m.key),
     );
@@ -190,7 +191,7 @@ export const workspaceFiles = new Hono<DualAuthVars>()
   // Facet discovery for the files filter bar: which metadata keys this
   // workspace actually contains, and (with `?key=`) that key's values.
   .get("/:workspace/files/facets", dualWorkspaceAuth(), scoped("files:read"), async (c) => {
-    return c.json(await listFacets(c.env.DB, c.get("workspaceName"), c.req.query("key")));
+    return c.json(await listFacets(dbFor(c.env), c.get("workspaceName"), c.req.query("key")));
   })
 
   // Recent uploads grouped by their `path` metadata value — the screenshots
@@ -213,7 +214,7 @@ export const workspaceFiles = new Hono<DualAuthVars>()
     // semantics untouched.
     const mergedOnly = c.req.query("merged") === "1";
     const { groups, catalog, projects, latest, truncated, catalogTruncated } =
-      await groupObjectsByPath(c.env.DB, name, { mergedOnly });
+      await groupObjectsByPath(dbFor(c.env), name, { mergedOnly });
     const shotKeys = [
       ...groups.flatMap((group) => group.recent),
       ...latest.map((item) => item.key),
@@ -221,10 +222,10 @@ export const workspaceFiles = new Hono<DualAuthVars>()
     // `gh.ref` lets the pop-over resolve live PR/issue status via /github/titles;
     // `updatedAt` gives it the shot's upload time (the `latest` feed already
     // carries `uploadedAt`, this brings the same to the grouped `recent` strips).
-    const metaByKey = await getMetadataForKeys(c.env.DB, name, shotKeys, {
+    const metaByKey = await getMetadataForKeys(dbFor(c.env), name, shotKeys, {
       metaKeys: ["state", "gh.kind", "gh.number", "gh.ref"],
     });
-    const updatedByKey = await getObjectUpdatedAt(c.env.DB, name, shotKeys);
+    const updatedByKey = await getObjectUpdatedAt(dbFor(c.env), name, shotKeys);
     const cfg = await storageConfig(c.env, record);
     const shotItem = (key: string) => {
       const urls = objectPublicUrls(c.env, cfg, key);

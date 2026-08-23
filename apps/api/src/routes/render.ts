@@ -22,6 +22,7 @@ import { renderRateLimit } from "../guards";
 import { browserRenderer, MAX_RENDER_HTML_BYTES, parseRenderRequest } from "../render";
 import { releaseUploadsSafe, reserveUploads } from "../usage";
 import { requireScope, tokenWorkspaceAuth, type WorkspaceVars } from "../workspace";
+import { dbFor } from "../db-session";
 
 // Headroom over the 2 MiB `html` cap for JSON-encoding overhead (escaped
 // backslashes/unicode, the surrounding object). Checked (via
@@ -50,7 +51,7 @@ export const render = new Hono<WorkspaceVars>().post(
     // call; the reservation IS the count, so success records nothing further
     // and failure releases it.
     const { maxUploadsPerPeriod } = resolveBudgetLimits(ws);
-    const reservation = await reserveUploads(c.env.DB, workspaceName, 1, maxUploadsPerPeriod);
+    const reservation = await reserveUploads(dbFor(c.env), workspaceName, 1, maxUploadsPerPeriod);
     if (!reservation.ok) {
       throw budgetDenialError(
         uploadBudgetDenial(reservation.usage, reservation.maxUploadsPerPeriod),
@@ -61,7 +62,7 @@ export const render = new Hono<WorkspaceVars>().post(
     try {
       result = await browserRenderer(c.env.BROWSER).screenshot(input);
     } catch (err) {
-      await releaseUploadsSafe(c.env.DB, workspaceName, 1);
+      await releaseUploadsSafe(dbFor(c.env), workspaceName, 1);
       throw err;
     }
 

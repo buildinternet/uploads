@@ -7,6 +7,7 @@
  * loop, with a per-table batch cap so a backlog cannot blow the Worker cron
  * CPU budget. Residual rows clear on subsequent days.
  */
+import { dbFor, type D1Queryable } from "./db-session";
 
 export const TELEMETRY_RETENTION_DAYS = 30;
 export const ENROLLMENT_RETENTION_DAYS = 7;
@@ -38,7 +39,7 @@ function placeholders(n: number): string {
 const D1_MAX_BOUND_PARAMS = 100;
 
 async function deleteByIdsChunked(
-  db: D1Database,
+  db: D1Queryable,
   table: "uploads_telemetry_events" | "auth_enrollments",
   ids: string[],
 ): Promise<void> {
@@ -56,7 +57,7 @@ async function deleteByIdsChunked(
  * “the last batch happened to be full” (exact-cap runs must report truncated=false).
  */
 async function purgeInBatches(
-  db: D1Database,
+  db: D1Queryable,
   selectIds: (limit: number) => Promise<string[]>,
   deleteIds: (ids: string[]) => Promise<void>,
 ): Promise<{ deleted: number; truncated: boolean }> {
@@ -85,7 +86,7 @@ async function purgeInBatches(
 }
 
 async function purgeTelemetry(
-  db: D1Database,
+  db: D1Queryable,
   cutoffMs: number,
 ): Promise<{
   deleted: number;
@@ -107,7 +108,7 @@ async function purgeTelemetry(
 }
 
 async function purgeEnrollments(
-  db: D1Database,
+  db: D1Queryable,
   cutoffIso: string,
 ): Promise<{
   deleted: number;
@@ -152,8 +153,8 @@ export async function runObservabilityRetention(
   const enrollmentCutoff = new Date(now.getTime() - ENROLLMENT_RETENTION_DAYS * MS_PER_DAY);
   const cutoffIso = enrollmentCutoff.toISOString();
 
-  const telemetry = await purgeTelemetry(env.DB, cutoffMs);
-  const enrollments = await purgeEnrollments(env.DB, cutoffIso);
+  const telemetry = await purgeTelemetry(dbFor(env), cutoffMs);
+  const enrollments = await purgeEnrollments(dbFor(env), cutoffIso);
 
   const result: ObservabilityRetentionResult = {
     telemetryDeleted: telemetry.deleted,

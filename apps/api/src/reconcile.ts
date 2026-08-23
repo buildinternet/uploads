@@ -13,6 +13,7 @@ import { createStorage } from "@uploads/storage";
 import { isSharedLane, storageConfigs } from "./storage";
 import { getWorkspaceUsage, setUsageTotals, type WorkspaceUsage } from "./usage";
 import { isUnprefixedDedicatedBucket, type WorkspaceRecord } from "./workspace";
+import { dbFor } from "./db-session";
 
 export interface ReconcileResult {
   workspace: string;
@@ -42,7 +43,7 @@ export async function reconcileWorkspaceUsage(
   workspaceName: string,
   now = new Date(),
 ): Promise<ReconcileResult> {
-  const previous = await getWorkspaceUsage(env.DB, workspaceName, now);
+  const previous = await getWorkspaceUsage(dbFor(env), workspaceName, now);
   const configs = await storageConfigs(env, ws);
   const unprefixedBucket = isUnprefixedDedicatedBucket(ws);
   if (unprefixedBucket) {
@@ -87,7 +88,7 @@ export async function reconcileWorkspaceUsage(
   }
 
   const usage = await setUsageTotals(
-    env.DB,
+    dbFor(env),
     workspaceName,
     { bytes, objects, sharedBytes, sharedObjects },
     now,

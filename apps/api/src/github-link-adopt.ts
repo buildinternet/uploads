@@ -73,6 +73,7 @@ import {
   installationToken,
 } from "./github-app";
 import { loadWorkspaceRecord } from "./workspace";
+import { dbFor } from "./db-session";
 
 export interface AdoptSourceRef {
   repo: string;
@@ -228,7 +229,7 @@ export async function adoptLinkedFiles(
   const ws = await loadWorkspaceRecord(env, workspaceName);
   if (!ws) return summary;
 
-  const db = env.DB;
+  const db = dbFor(env);
   const { repo, kind, num } = target;
   const foundKeys = new Set(keys);
 
@@ -361,7 +362,7 @@ export async function adoptLinkedFilesForWebhook(
   ref: AdoptSourceRef,
   deps: { fetchImpl?: typeof fetch } = {},
 ): Promise<void> {
-  const link = await findRepoLinkStrict(env.DB, ref.repo);
+  const link = await findRepoLinkStrict(dbFor(env), ref.repo);
   if (!link) return;
   const ws = await loadWorkspaceRecord(env, link.workspaceName);
   if (!ws) return;

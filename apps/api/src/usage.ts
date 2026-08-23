@@ -12,6 +12,7 @@
  * total usage includes BYO lanes, while the shared subset lets `budget.ts`
  * enforce platform-owned storage residue after a workspace switches to BYO.
  */
+import { type D1Queryable } from "./db-session";
 
 export interface WorkspaceUsage {
   workspace: string;
@@ -77,7 +78,7 @@ export function emptyUsage(workspace: string, now = new Date()): WorkspaceUsage 
 }
 
 export async function getWorkspaceUsage(
-  db: D1Database,
+  db: D1Queryable,
   workspace: string,
   now = new Date(),
 ): Promise<WorkspaceUsage> {
@@ -100,7 +101,7 @@ export async function getWorkspaceUsage(
 
 /** Apply a delta. `bytes`/`objects` may be negative; `uploads` only on puts. */
 export async function applyUsageDelta(
-  db: D1Database,
+  db: D1Queryable,
   workspace: string,
   delta: UsageDelta,
   now = new Date(),
@@ -167,7 +168,7 @@ export type UploadReservation =
  * precondition of the work, not best-effort metering.
  */
 export async function reserveUploads(
-  db: D1Database,
+  db: D1Queryable,
   workspace: string,
   count: number,
   maxUploadsPerPeriod: number | undefined,
@@ -220,7 +221,7 @@ export async function reserveUploads(
  * reservation belonged to the old period.
  */
 export async function releaseUploadsSafe(
-  db: D1Database,
+  db: D1Queryable,
   workspace: string,
   count: number,
   now = new Date(),
@@ -265,7 +266,7 @@ export type StorageReservation =
  * work and must NOT re-count reserved bytes in `recordUsageSafe`.
  */
 export async function reserveStorageBytes(
-  db: D1Database,
+  db: D1Queryable,
   workspace: string,
   deltaBytes: number,
   maxStorageBytes: number | undefined,
@@ -325,7 +326,7 @@ export async function reserveStorageBytes(
  * Best-effort (same rationale as releaseUploadsSafe).
  */
 export async function releaseStorageBytesSafe(
-  db: D1Database,
+  db: D1Queryable,
   workspace: string,
   reservedBytes: number,
   now = new Date(),
@@ -363,7 +364,7 @@ export async function releaseStorageBytesSafe(
 
 /** Best-effort metering: log and continue if D1 fails. */
 export async function recordUsageSafe(
-  db: D1Database,
+  db: D1Queryable,
   workspace: string,
   delta: UsageDelta,
   now = new Date(),
@@ -392,7 +393,7 @@ export async function recordUsageSafe(
  * dropping a successful single delete's accounting).
  */
 export async function claimDeleteUsageSafe(
-  db: D1Database,
+  db: D1Queryable,
   workspace: string,
   objectKey: string,
   now = new Date(),
@@ -426,7 +427,7 @@ export async function claimDeleteUsageSafe(
  * (reconcile repairs absolute totals).
  */
 export async function clearDeleteUsageClaimSafe(
-  db: D1Database,
+  db: D1Queryable,
   workspace: string,
   objectKey: string,
 ): Promise<void> {
@@ -454,7 +455,7 @@ export async function clearDeleteUsageClaimSafe(
  * `deleteFileMetadataForWorkspace`: teardown's fail-safe ordering wants a
  * loud failure before the KV record is removed, not a silent leak.
  */
-export async function deleteUsageForWorkspace(db: D1Database, workspace: string): Promise<void> {
+export async function deleteUsageForWorkspace(db: D1Queryable, workspace: string): Promise<void> {
   await db.batch([
     db.prepare(`DELETE FROM workspace_usage WHERE workspace = ?`).bind(workspace),
     db.prepare(`DELETE FROM delete_usage_claims WHERE workspace = ?`).bind(workspace),
@@ -466,7 +467,7 @@ export async function deleteUsageForWorkspace(db: D1Database, workspace: string)
  * Preserves uploads_in_period for the current period when the row exists.
  */
 export async function setUsageTotals(
-  db: D1Database,
+  db: D1Queryable,
   workspace: string,
   totals: { bytes: number; objects: number; sharedBytes: number; sharedObjects: number },
   now = new Date(),

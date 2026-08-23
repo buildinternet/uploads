@@ -1,4 +1,5 @@
 /** Per-workspace cap; gallery membership remains independently capped below. */
+import { type D1Queryable } from "./db-session";
 export const MAX_GALLERIES_PER_WORKSPACE = 100;
 export const MAX_GALLERY_ITEMS = 100;
 export const MAX_GALLERY_REFERENCES = 20;
@@ -140,7 +141,7 @@ function randomGalleryId(): string {
 }
 
 async function classifyVersion(
-  db: D1Database,
+  db: D1Queryable,
   workspace: string,
   id: string,
   expectedVersion: number,
@@ -153,7 +154,7 @@ async function classifyVersion(
 }
 
 export async function createGallery(
-  db: D1Database,
+  db: D1Queryable,
   input: { workspace: string; title: string; description?: string | null; now?: Date },
 ): Promise<MutationResult<GalleryRecord>> {
   const titleError = validateTitle(input.title);
@@ -200,7 +201,7 @@ export async function createGallery(
 }
 
 export async function getGallery(
-  db: D1Database,
+  db: D1Queryable,
   workspace: string,
   id: string,
 ): Promise<GalleryRecord | null> {
@@ -215,7 +216,7 @@ export async function getGallery(
 
 /** Internal resolver. Do not return this record from a public route; use projectPublicGallery. */
 export async function resolvePublicGallery(
-  db: D1Database,
+  db: D1Queryable,
   id: string,
 ): Promise<GalleryRecord | null> {
   return db
@@ -241,7 +242,7 @@ export function projectPublicGallery(record: GalleryRecord): PublicGallery {
 }
 
 export async function listGalleries(
-  db: D1Database,
+  db: D1Queryable,
   workspace: string,
   options: { limit?: number; cursor?: GalleryCursor } = {},
 ): Promise<GalleryPage> {
@@ -275,7 +276,7 @@ export async function listGalleries(
 }
 
 export async function updateGallery(
-  db: D1Database,
+  db: D1Queryable,
   workspace: string,
   id: string,
   input: {
@@ -345,7 +346,7 @@ export async function updateGallery(
  * config ever changes.
  */
 export async function deleteGalleriesForWorkspace(
-  db: D1Database,
+  db: D1Queryable,
   workspace: string,
 ): Promise<{ galleries: number }> {
   await db
@@ -368,7 +369,7 @@ export async function deleteGalleriesForWorkspace(
 }
 
 export async function softDeleteGallery(
-  db: D1Database,
+  db: D1Queryable,
   workspace: string,
   id: string,
   expectedVersion: number,
@@ -388,7 +389,7 @@ export async function softDeleteGallery(
 }
 
 export async function listGalleryItems(
-  db: D1Database,
+  db: D1Queryable,
   workspace: string,
   galleryId: string,
 ): Promise<GalleryItemRecord[]> {
@@ -405,7 +406,7 @@ export async function listGalleryItems(
 
 /** Item counts for many galleries in one query (avoids N+1 on the account list). */
 export async function countItemsForGalleries(
-  db: D1Database,
+  db: D1Queryable,
   workspace: string,
   galleryIds: string[],
 ): Promise<Map<string, number>> {
@@ -430,7 +431,7 @@ export async function countItemsForGalleries(
 
 /** External references for many galleries in one query, ordered by created_at. */
 export async function listExternalReferencesForGalleries(
-  db: D1Database,
+  db: D1Queryable,
   workspace: string,
   galleryIds: string[],
 ): Promise<Map<string, GalleryExternalReferenceRecord[]>> {
@@ -470,7 +471,7 @@ export async function listExternalReferencesForGalleries(
  * `itemKeysByIds`) and only fall back to this.
  */
 export async function firstItemKeyForGalleries(
-  db: D1Database,
+  db: D1Queryable,
   workspace: string,
   galleryIds: string[],
 ): Promise<Map<string, string>> {
@@ -504,7 +505,7 @@ export async function firstItemKeyForGalleries(
  * leaking another workspace's key. Returns a Map keyed by item id.
  */
 export async function itemKeysByIds(
-  db: D1Database,
+  db: D1Queryable,
   workspace: string,
   itemIds: string[],
 ): Promise<Map<string, string>> {
@@ -528,7 +529,7 @@ export async function itemKeysByIds(
 
 /** Persistence primitive: callers must first verify objectKey exists and has a public URL. */
 export async function addGalleryItem(
-  db: D1Database,
+  db: D1Queryable,
   workspace: string,
   galleryId: string,
   input: {
@@ -606,7 +607,7 @@ export async function addGalleryItem(
 }
 
 export async function removeGalleryItem(
-  db: D1Database,
+  db: D1Queryable,
   workspace: string,
   galleryId: string,
   itemId: string,
@@ -636,7 +637,7 @@ export async function removeGalleryItem(
 }
 
 export async function reorderGalleryItems(
-  db: D1Database,
+  db: D1Queryable,
   workspace: string,
   galleryId: string,
   orderedItemIds: string[],
@@ -702,7 +703,7 @@ export async function reorderGalleryItems(
 }
 
 export async function listExternalReferences(
-  db: D1Database,
+  db: D1Queryable,
   workspace: string,
   galleryId: string,
 ): Promise<GalleryExternalReferenceRecord[]> {
@@ -719,7 +720,7 @@ export async function listExternalReferences(
 }
 
 export async function addExternalReference(
-  db: D1Database,
+  db: D1Queryable,
   workspace: string,
   galleryId: string,
   input: {
@@ -826,7 +827,7 @@ export async function addExternalReference(
 }
 
 export async function removeExternalReference(
-  db: D1Database,
+  db: D1Queryable,
   workspace: string,
   galleryId: string,
   referenceId: string,
@@ -855,7 +856,7 @@ export async function removeExternalReference(
 }
 
 export async function findGalleriesByReference(
-  db: D1Database,
+  db: D1Queryable,
   workspace: string,
   normalizedKey: string,
   options: { limit?: number; cursor?: GalleryCursor } = {},

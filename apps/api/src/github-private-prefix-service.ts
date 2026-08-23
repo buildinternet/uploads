@@ -28,6 +28,7 @@ import {
 import { storage } from "./storage";
 import { objectVisibility } from "./visibility";
 import type { WorkspaceRecord } from "./workspace";
+import { dbFor } from "./db-session";
 
 export type GhKeyMode = { mode: "plain" } | { mode: "private"; prefixId: string };
 
@@ -89,7 +90,7 @@ export async function resolveGhKeyContext(
   // sits directly in front of an upload, and the "never block an upload"
   // invariant applies to every step, not just the lookups above it.
   try {
-    const prefixId = await getOrMintPrefixId(env.DB, req.repo, branch);
+    const prefixId = await getOrMintPrefixId(dbFor(env), req.repo, branch);
     return { mode: "private", prefixId };
   } catch (err) {
     console.error(
@@ -208,16 +209,16 @@ export async function rotatePrivatePrefix(
     throw new ForbiddenError(decline.message, { code: "not_authorized" });
   }
 
-  const oldId = await getActivePrefixId(env.DB, repo, branch);
+  const oldId = await getActivePrefixId(dbFor(env), repo, branch);
   if (oldId === null) return { rotated: false, reason: "no_prefix" };
 
-  await retirePrefixId(env.DB, repo, branch, oldId);
-  const newId = await getOrMintPrefixId(env.DB, repo, branch);
+  await retirePrefixId(dbFor(env), repo, branch, oldId);
+  const newId = await getOrMintPrefixId(dbFor(env), repo, branch);
 
   // Includes `oldId` (just retired above) plus any tombstone left behind by
   // an earlier, interrupted rotation for this same (repo, branch) — see the
   // resumability note above.
-  const sourceIds = await listRetiredPrefixIds(env.DB, repo, branch);
+  const sourceIds = await listRetiredPrefixIds(dbFor(env), repo, branch);
 
   const store = await storage(env, ws);
   const newPrefixRoot = `${GH_PRIVATE_ROOT}${newId}/`;
@@ -269,10 +270,11 @@ export async function rotatePrivatePrefix(
           // truth for `newKey`'s resulting rows; a plain `UPDATE` into an
           // already-occupied (workspace, object_key, meta_key) row would
           // otherwise throw a UNIQUE constraint violation.
-          await deleteFileMetadata(env.DB, workspaceName, newKey);
-          await env.DB.prepare(
-            `UPDATE file_metadata SET object_key = ? WHERE workspace = ? AND object_key = ?`,
-          )
+          await deleteFileMetadata(dbFor(env), workspaceName, newKey);
+          await dbFor(env)
+            .prepare(
+              `UPDATE file_metadata SET object_key = ? WHERE workspace = ? AND object_key = ?`,
+            )
             .bind(newKey, workspaceName, item.key)
             .run();
 
@@ -283,9 +285,8 @@ export async function rotatePrivatePrefix(
           // bytes are identical). This only removes the now-stale OLD row so
           // it can't linger as a dead inheritance donor pointing at a
           // shortly-to-be-deleted key.
-          await env.DB.prepare(
-            `DELETE FROM file_content_hash WHERE workspace = ? AND object_key = ?`,
-          )
+          await dbFor(env)
+            .prepare(`DELETE FROM file_content_hash WHERE workspace = ? AND object_key = ?`)
             .bind(workspaceName, item.key)
             .run();
 
@@ -293,9 +294,10 @@ export async function rotatePrivatePrefix(
           // R2-bucket-relative and can collide across workspaces sharing a
           // bucket prefix, so an unscoped match could rename another
           // workspace's row that merely happens to share this tail.
-          await env.DB.prepare(
-            `UPDATE github_ingested_assets SET object_key = ? WHERE object_key = ? AND workspace = ?`,
-          )
+          await dbFor(env)
+            .prepare(
+              `UPDATE github_ingested_assets SET object_key = ? WHERE object_key = ? AND workspace = ?`,
+            )
             .bind(newKey, item.key, workspaceName)
             .run();
           // Gallery items referencing this object follow the move too, so a
@@ -303,11 +305,12 @@ export async function rotatePrivatePrefix(
           // `gallery_items` has no `workspace` column of its own, so scope
           // through its parent `galleries` row instead — same
           // cross-workspace-collision reasoning as the ledger update above.
-          await env.DB.prepare(
-            `UPDATE gallery_items SET object_key = ?
+          await dbFor(env)
+            .prepare(
+              `UPDATE gallery_items SET object_key = ?
              WHERE object_key = ?
                AND gallery_id IN (SELECT id FROM galleries WHERE workspace = ?)`,
-          )
+            )
             .bind(newKey, item.key, workspaceName)
             .run();
 

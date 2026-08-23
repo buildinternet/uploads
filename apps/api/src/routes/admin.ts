@@ -34,6 +34,7 @@ import {
   stampSoftDelete,
   type WorkspaceRecord,
 } from "../workspace";
+import { dbFor } from "../db-session";
 
 const WS_NAME_RE = /^[a-z0-9][a-z0-9-]{1,62}$/;
 const HASH_PREFIX_LEN = 8;
@@ -226,7 +227,7 @@ export const admin = new Hono<{ Bindings: Env }>()
     const expiresAt = body.expiresInDays
       ? new Date(Date.now() + body.expiresInDays * 24 * 60 * 60 * 1000)
       : undefined;
-    const created = await createToken(c.env.DB, {
+    const created = await createToken(dbFor(c.env), {
       workspace: name,
       label,
       scopes,
@@ -311,7 +312,7 @@ export const admin = new Hono<{ Bindings: Env }>()
       }
     }
 
-    const enrollment = await createEnrollment(c.env.DB, {
+    const enrollment = await createEnrollment(dbFor(c.env), {
       workspace: name,
       label,
       scopes,
@@ -361,7 +362,7 @@ export const admin = new Hono<{ Bindings: Env }>()
       throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
     }
 
-    const d1 = (await listTokens(c.env.DB, name, { includeRevoked: true })).map((token) => ({
+    const d1 = (await listTokens(dbFor(c.env), name, { includeRevoked: true })).map((token) => ({
       label: token.label,
       createdAt: token.created_at,
       hashPrefix: token.token_hash.slice(0, HASH_PREFIX_LEN),
@@ -406,7 +407,7 @@ export const admin = new Hono<{ Bindings: Env }>()
       hashPrefix ? token.hash.startsWith(hashPrefix) : token.label === label,
     );
     // Active-only list (default) — revoked tokens cannot be re-revoked here.
-    const activeD1 = (await listTokens(c.env.DB, name)).filter((token) =>
+    const activeD1 = (await listTokens(dbFor(c.env), name)).filter((token) =>
       hashPrefix ? token.token_hash.startsWith(hashPrefix) : token.label === label,
     );
     const count = kvMatches.length + activeD1.length;
@@ -414,7 +415,7 @@ export const admin = new Hono<{ Bindings: Env }>()
     if (count > 1) throw new ConflictError("selector matches multiple tokens");
 
     if (activeD1.length === 1) {
-      const result = await revokeToken(c.env.DB, name, { hashPrefix, label });
+      const result = await revokeToken(dbFor(c.env), name, { hashPrefix, label });
       if (!result.match) throw new NotFoundError("no matching token");
       return c.json({
         workspace: name,

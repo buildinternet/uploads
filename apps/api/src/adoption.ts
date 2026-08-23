@@ -9,6 +9,7 @@
  * Like `recordUsageSafe`, metering is best-effort: `recordAdoptionSafe` logs
  * and continues on failure, because a metrics write must never fail an upload.
  */
+import { dbFor, type D1Queryable } from "./db-session";
 
 /**
  * Every adoption metric. The union is DERIVED from this array so the two can
@@ -77,7 +78,7 @@ function normalizeBytes(bytes: number | undefined): number {
  * request path should use `recordAdoptionSafe` instead.
  */
 export async function bumpDailyMetric(
-  db: D1Database,
+  db: D1Queryable,
   event: AdoptionEvent,
   now = new Date(),
 ): Promise<void> {
@@ -199,7 +200,7 @@ export async function recordAdoptionSafe(
 ): Promise<void> {
   writeAdoptionPoint(env, event);
   try {
-    await bumpDailyMetric(env.DB, event, now);
+    await bumpDailyMetric(dbFor(env), event, now);
   } catch (err) {
     logAdoptionFailure(event.metric, event.workspace, err);
   }

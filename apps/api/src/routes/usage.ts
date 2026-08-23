@@ -5,6 +5,7 @@ import { reconcileWorkspaceUsage } from "../reconcile";
 import { purgeExpiredObjects } from "../retention";
 import { getWorkspaceUsage } from "../usage";
 import { requireScope, type WorkspaceVars } from "../workspace";
+import { dbFor } from "../db-session";
 
 /**
  * Usage snapshot + maintenance:
@@ -14,7 +15,7 @@ import { requireScope, type WorkspaceVars } from "../workspace";
  */
 export const usage = new Hono<WorkspaceVars>()
   .get("/", requireScope("files:read"), async (c) => {
-    const snapshot = await getWorkspaceUsage(c.env.DB, c.get("workspaceName"));
+    const snapshot = await getWorkspaceUsage(dbFor(c.env), c.get("workspaceName"));
     const workspace = c.get("workspace");
     // `scopes` reflects the presented credential, not the workspace — doctor
     // uses it to surface a token that can't delete before the user hits a

@@ -24,6 +24,7 @@ import { listActivePrefixIds } from "../github-private-prefixes";
 import { writeRateLimit } from "../guards";
 import { requireScope, type WorkspaceVars } from "../workspace";
 import { jsonBody } from "./json-body";
+import { dbFor } from "../db-session";
 
 // Same grammar as routes/github-comment.ts's REPO_RE/DOTS_ONLY_RE.
 const REPO_RE = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
@@ -84,7 +85,7 @@ export async function githubPrivatePrefixHandler(c: Context<WorkspaceVars>) {
   // `resolveGhKeyContext` itself) — degrade to an empty list instead.
   let activePrefixIds: string[] = [];
   try {
-    activePrefixIds = await listActivePrefixIds(c.env.DB, req.repo);
+    activePrefixIds = await listActivePrefixIds(dbFor(c.env), req.repo);
   } catch (err) {
     console.error(
       JSON.stringify({

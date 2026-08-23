@@ -116,6 +116,12 @@ export class SqliteD1 {
   close() {
     this.db.close();
   }
+
+  /** D1 Sessions API stub (see src/db-session.ts) — this fake has no
+   *  primary/replica split, so a "session" is just itself. */
+  withSession() {
+    return this;
+  }
 }
 
 export function database(sqlite: SqliteD1): D1Database {

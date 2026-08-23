@@ -60,6 +60,7 @@ import {
   ValidationError,
 } from "@uploads/errors";
 import { createStorage, type R2Jurisdiction } from "@uploads/storage";
+import { dbFor } from "../db-session";
 import { Hono, type Context, type MiddlewareHandler } from "hono";
 import { usageWithLimits } from "../budget";
 import { previewFixtureItems } from "../comment-preview-fixtures";
@@ -807,7 +808,7 @@ export async function storageDeleteHandler(c: Context<SettingsVars>) {
     return c.json(storageStatusResponse(updated, byoBucketAllowed(updated)));
   }
 
-  const usage = await getWorkspaceUsage(c.env.DB, name);
+  const usage = await getWorkspaceUsage(dbFor(c.env), name);
   if (!force && usage.objects > 0) {
     throw new ConflictError(
       "this workspace still has files on its BYO bucket — pass force to detach anyway",
@@ -885,7 +886,7 @@ export async function summaryHandler(c: Context<SettingsVars>) {
   const publicBaseUrl = record.publicBaseUrl;
   let usage: ReturnType<typeof usageWithLimits> | null = null;
   try {
-    usage = usageWithLimits(await getWorkspaceUsage(c.env.DB, name), record);
+    usage = usageWithLimits(await getWorkspaceUsage(dbFor(c.env), name), record);
   } catch {
     usage = null;
   }
@@ -934,7 +935,7 @@ export async function billingHandler(c: Context<SettingsVars>) {
   const { plan, available, planApplied, limits } = planResponse(name, record);
 
   const [usage, authSubscription] = await Promise.all([
-    getWorkspaceUsage(c.env.DB, name)
+    getWorkspaceUsage(dbFor(c.env), name)
       .then((raw) => usageWithLimits(raw, record))
       .catch(() => null),
     subscriptionForOrg(c.env, ws.organization.slug),
@@ -997,7 +998,7 @@ export async function commentPreviewHandler(c: Context<SettingsVars>) {
     if (!REPO_SHAPE_RE.test(repo)) {
       throw new ValidationError("repo must be in owner/name form", { code: "invalid_repo" });
     }
-    const link = await findRepoLink(c.env.DB, repo);
+    const link = await findRepoLink(dbFor(c.env), repo);
     if (!link || link.workspaceName !== name) {
       throw new NotFoundError("repo not linked to this workspace", { code: "repo_not_linked" });
     }
@@ -1031,7 +1032,7 @@ export async function commentPreviewHandler(c: Context<SettingsVars>) {
     // Same narrow key set and skip condition as gatherAttachments — the
     // preview must caption and pair exactly like the production comment.
     const metaByKey = await getMetadataForKeys(
-      c.env.DB,
+      dbFor(c.env),
       name,
       items.map((item) => item.key),
       { metaKeys: ["path", "state"] },

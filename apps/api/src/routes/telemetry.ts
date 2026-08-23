@@ -22,6 +22,7 @@ import {
   SURFACES,
 } from "../cli-intake";
 import type { WorkspaceVars } from "../workspace";
+import { dbFor } from "../db-session";
 
 export const telemetry = new Hono<WorkspaceVars>();
 
@@ -68,13 +69,14 @@ telemetry.post("/", async (c) => {
   const durationMs = clampInt(sanitizeInt(body.durationMs), 0, MAX_DURATION_MS);
 
   try {
-    await c.env.DB.prepare(
-      `INSERT INTO uploads_telemetry_events (
+    await dbFor(c.env)
+      .prepare(
+        `INSERT INTO uploads_telemetry_events (
         id, anon_id, timestamp, surface, client_kind, agent_name,
         command, exit_code, duration_ms, error_code, cli_version,
         os, arch, runtime
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
+      )
       .bind(
         newId("tel"),
         anonId,

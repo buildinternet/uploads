@@ -22,6 +22,7 @@ import {
 import { writeRateLimit } from "../guards";
 import { requireScope, type WorkspaceVars } from "../workspace";
 import { jsonBody } from "./json-body";
+import { dbFor } from "../db-session";
 
 // Same owner/name grammar + dot-only-segment guard as routes/github-comment.ts's
 // parseTarget (this repo string is looked up/stored, not interpolated into an
@@ -57,7 +58,7 @@ function linkResponse(repo: string, link: RepoLink | null) {
  */
 export async function githubLinkGetHandler(c: Context<WorkspaceVars>) {
   const repo = parseRepo(c.req.query("repo"));
-  const link = await findRepoLink(c.env.DB, repo);
+  const link = await findRepoLink(dbFor(c.env), repo);
   return c.json(linkResponse(repo, link));
 }
 
@@ -76,7 +77,7 @@ export async function githubLinkGetHandler(c: Context<WorkspaceVars>) {
 export async function githubRepoLinkGetHandler(c: Context<WorkspaceVars>) {
   const repo = parseRepo(c.req.query("repo"));
   const workspaceName = c.get("workspaceName");
-  const link = await findRepoLink(c.env.DB, repo);
+  const link = await findRepoLink(dbFor(c.env), repo);
   return c.json({ binding: deriveRepoBinding(link, workspaceName) });
 }
 
@@ -84,7 +85,7 @@ export async function githubLinkPostHandler(c: Context<WorkspaceVars>) {
   const repo = parseRepo((await jsonBody(c)).repo);
   const workspaceName = c.get("workspaceName");
 
-  const before = await findRepoLink(c.env.DB, repo);
+  const before = await findRepoLink(dbFor(c.env), repo);
   if (before) {
     // Already bound — honestly report the owner rather than claiming
     // success. First-claim-wins: this call never overwrites it, whether
@@ -113,8 +114,8 @@ export async function githubLinkPostHandler(c: Context<WorkspaceVars>) {
     });
   }
 
-  await recordRepoLink(c.env.DB, repo, workspaceName, "cli");
-  const after = await findRepoLink(c.env.DB, repo);
+  await recordRepoLink(dbFor(c.env), repo, workspaceName, "cli");
+  const after = await findRepoLink(dbFor(c.env), repo);
   return c.json({
     claimed: after?.workspaceName === workspaceName,
     ...linkResponse(repo, after),
@@ -133,7 +134,7 @@ export async function githubLinkDeleteHandler(c: Context<WorkspaceVars>) {
   // degrading to "unclaimed" is an acceptable inspect-only fallback), a
   // D1 read failure here must surface as a 5xx, not silently report
   // `{unlinked: false, reason: "not_linked"}` (CodeRabbit, issue #318).
-  const before = await findRepoLinkStrict(c.env.DB, repo);
+  const before = await findRepoLinkStrict(dbFor(c.env), repo);
   if (!before) {
     return c.json({ repo, unlinked: false, reason: "not_linked" as const });
   }
@@ -143,7 +144,7 @@ export async function githubLinkDeleteHandler(c: Context<WorkspaceVars>) {
       { code: "not_link_owner" },
     );
   }
-  const removed = await deleteRepoLinkForWorkspace(c.env.DB, repo, workspaceName);
+  const removed = await deleteRepoLinkForWorkspace(dbFor(c.env), repo, workspaceName);
   return c.json({ repo, unlinked: removed });
 }
 

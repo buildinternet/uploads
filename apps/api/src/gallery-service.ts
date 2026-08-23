@@ -27,6 +27,7 @@ import type { StorageConfig } from "@uploads/storage";
 import { objectVisibility } from "./visibility";
 import { webOrigin } from "./web-url";
 import type { WorkspaceRecord } from "./workspace";
+import { dbFor } from "./db-session";
 
 /** Fields we read from a Files SDK head when hydrating gallery items. */
 type GalleryObjectHead = {
@@ -358,7 +359,7 @@ export async function hydrateGalleryItems(
     .map((item) => item.objectKey);
   if (videoKeys.length > 0 && workspace.name) {
     try {
-      const metadataByKey = await getMetadataForKeys(env.DB, workspace.name, videoKeys, {
+      const metadataByKey = await getMetadataForKeys(dbFor(env), workspace.name, videoKeys, {
         metaKeys: ["video.poster", "video.width", "video.height"],
       });
       for (const item of hydrated) {
@@ -465,10 +466,10 @@ export async function galleryListSummaries(
     .map((record) => record.cover_item_id)
     .filter((id): id is string => id !== null);
   const [itemCounts, refsByGallery, firstKeys, coverKeys] = await Promise.all([
-    countItemsForGalleries(env.DB, name, ids),
-    listExternalReferencesForGalleries(env.DB, name, ids),
-    firstItemKeyForGalleries(env.DB, name, ids),
-    itemKeysByIds(env.DB, name, coverIds),
+    countItemsForGalleries(dbFor(env), name, ids),
+    listExternalReferencesForGalleries(dbFor(env), name, ids),
+    firstItemKeyForGalleries(dbFor(env), name, ids),
+    itemKeysByIds(dbFor(env), name, coverIds),
   ]);
   const resolver = createLaneResolver(env, workspace);
   return Promise.all(

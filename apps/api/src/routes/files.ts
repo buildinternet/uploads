@@ -16,6 +16,7 @@ import {
   putFileHandler,
   signFileHandler,
 } from "./files-shared-handlers";
+import { dbFor } from "../db-session";
 
 export const files = new Hono<WorkspaceVars>()
 
@@ -82,7 +83,7 @@ export const files = new Hono<WorkspaceVars>()
     if (metadataParam !== "1" && metadataParam !== "true") return c.json(page);
 
     const metaByKey = await getMetadataForKeys(
-      c.env.DB,
+      dbFor(c.env),
       c.get("workspaceName"),
       page.items.map((item) => item.key),
     );
@@ -98,7 +99,7 @@ export const files = new Hono<WorkspaceVars>()
   // Static path must register before `/:key{.+}` so "facets" is not treated
   // as an object key.
   .get("/facets", requireScope("files:read"), async (c) => {
-    return c.json(await listFacets(c.env.DB, c.get("workspaceName"), c.req.query("key")));
+    return c.json(await listFacets(dbFor(c.env), c.get("workspaceName"), c.req.query("key")));
   })
 
   // Metadata now lives on the key-at-tail routes (same shape PUT/GET/DELETE
