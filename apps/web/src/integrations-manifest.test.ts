@@ -150,4 +150,91 @@ describe("/openapi.json", () => {
     expect(response.headers.get("content-type")).toBe("application/json; charset=utf-8");
     expect(await response.json()).toEqual(canonicalSpec);
   });
+
+  it("publishes the canonical workspace resource hierarchy", () => {
+    const paths = canonicalSpec.paths as Record<string, Record<string, unknown>>;
+    expect(paths["/v1/workspaces/{workspace}/files"]).toHaveProperty("get");
+    expect(paths["/v1/workspaces/{workspace}/files/search"]).toHaveProperty("get");
+    expect(paths["/v1/workspaces/{workspace}/files/facets"]).toHaveProperty("get");
+    expect(paths["/v1/workspaces/{workspace}/usage"]).toHaveProperty("get");
+    expect(paths["/v1/workspaces/{workspace}/usage/reconcile"]).toHaveProperty("post");
+    expect(paths["/public/galleries/{galleryId}"]?.get).toMatchObject({ security: [] });
+    expect(paths["/v1/workspaces/{workspace}/galleries"]).toMatchObject({
+      get: { operationId: "listGalleries" },
+      post: { operationId: "createGallery" },
+    });
+  });
+
+  it("keeps legacy route families as explicit compatibility paths", () => {
+    const paths = canonicalSpec.paths as Record<string, Record<string, unknown>>;
+    expect(paths["/v1/{workspace}/files"]?.get).toMatchObject({
+      "x-uploads-compatibility": true,
+    });
+    expect(paths["/v1/{workspace}/files/{key}"]?.put).toMatchObject({
+      "x-uploads-compatibility": true,
+    });
+    expect(paths["/v1/{workspace}/usage"]?.get).toMatchObject({
+      "x-uploads-compatibility": true,
+    });
+    expect(paths["/v1/{workspace}/galleries"]?.get).toMatchObject({
+      "x-uploads-compatibility": true,
+    });
+  });
+
+  it("matches the file mutation success statuses", () => {
+    type Operation = { responses: Record<string, unknown> };
+    const paths = canonicalSpec.paths as unknown as Record<string, Record<string, Operation>>;
+    const operations = paths["/v1/workspaces/{workspace}/files/{key}"]!;
+    expect(operations.put.responses).toHaveProperty("200");
+    expect(operations.put.responses).toHaveProperty("201");
+    expect(operations.delete.responses).toHaveProperty("200");
+    expect(operations.delete.responses).not.toHaveProperty("204");
+    expect(operations.delete.responses["200"]).toMatchObject({
+      content: {
+        "application/json": {
+          schema: { $ref: "#/components/schemas/DeleteResult" },
+        },
+      },
+    });
+  });
+
+  it("documents idempotent gallery membership upserts as 200 or 201", () => {
+    type Operation = { responses: Record<string, unknown> };
+    const paths = canonicalSpec.paths as unknown as Record<string, Record<string, Operation>>;
+    const add = paths["/v1/workspaces/{workspace}/galleries/{galleryId}/items"]?.post;
+    expect(add.responses).toHaveProperty("200");
+    expect(add.responses).toHaveProperty("201");
+  });
+
+  it("resolves every local reference and keeps operation ids unique", () => {
+    const document = canonicalSpec as unknown as Record<string, unknown>;
+    const references: string[] = [];
+    const operationIds: string[] = [];
+    const walk = (node: unknown): void => {
+      if (Array.isArray(node)) {
+        node.forEach(walk);
+        return;
+      }
+      if (node === null || typeof node !== "object") return;
+      const record = node as Record<string, unknown>;
+      if (typeof record.$ref === "string") references.push(record.$ref);
+      if (typeof record.operationId === "string") operationIds.push(record.operationId);
+      Object.values(record).forEach(walk);
+    };
+    walk(document);
+
+    for (const reference of references) {
+      expect(reference, "only local OpenAPI references are supported here").toMatch(/^#\//);
+      const target = reference
+        .slice(2)
+        .split("/")
+        .map((part) => part.replaceAll("~1", "/").replaceAll("~0", "~"))
+        .reduce<unknown>((value, part) => {
+          if (value === null || typeof value !== "object") return undefined;
+          return (value as Record<string, unknown>)[part];
+        }, document);
+      expect(target, reference).toBeDefined();
+    }
+    expect(new Set(operationIds).size).toBe(operationIds.length);
+  });
 });
