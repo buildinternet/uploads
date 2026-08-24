@@ -527,7 +527,11 @@ function workspaceAuthWith(
     try {
       d1Token = await timeOp(
         () =>
-          findActiveToken(dbFor(c.env), record && name ? name : "__unknown__", token || "__unknown__"),
+          findActiveToken(
+            dbFor(c.env),
+            record && name ? name : "__unknown__",
+            token || "__unknown__",
+          ),
         { name: "d1", timing, route: c.req.path, thresholdMs },
       );
     } finally {
