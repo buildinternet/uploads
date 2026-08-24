@@ -26,6 +26,7 @@
  */
 import { ValidationError } from "@uploads/errors";
 import { dbFor } from "../db-session";
+import { boundedDataRead } from "../data-read-bounds";
 import { Hono, type Context, type MiddlewareHandler } from "hono";
 import { dualWorkspaceAuth, type DualAuthVars } from "../dual-workspace-auth";
 import { respondError } from "../error-response";
@@ -66,10 +67,15 @@ async function listGalleriesEnrichedHandler(c: Context<WorkspaceVars>) {
   if (!Number.isInteger(limit) || limit < 1 || limit > 100)
     throw new ValidationError("limit must be an integer from 1 to 100.");
   const name = c.get("workspaceName");
-  const page = await listGalleries(dbFor(c.env), name, {
-    limit,
-    cursor: decodeGalleryCursor(c.req.query("cursor")),
-  });
+  const page = await boundedDataRead(
+    c,
+    () =>
+      listGalleries(dbFor(c.env), name, {
+        limit,
+        cursor: decodeGalleryCursor(c.req.query("cursor")),
+      }),
+    { name: "d1_galleries_list" },
+  );
   return c.json({
     // The workspace record (not just the name) so `galleryListSummaries` can
     // resolve storage for each row's cover `previewUrl` (additive field).

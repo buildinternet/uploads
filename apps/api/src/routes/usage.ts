@@ -6,6 +6,7 @@ import { purgeExpiredObjects } from "../retention";
 import { getWorkspaceUsage } from "../usage";
 import { requireScope, type WorkspaceVars } from "../workspace";
 import { dbFor } from "../db-session";
+import { boundedDataRead } from "../data-read-bounds";
 
 /**
  * Usage snapshot + maintenance:
@@ -15,7 +16,11 @@ import { dbFor } from "../db-session";
  */
 export const usage = new Hono<WorkspaceVars>()
   .get("/", requireScope("files:read"), async (c) => {
-    const snapshot = await getWorkspaceUsage(dbFor(c.env), c.get("workspaceName"));
+    const snapshot = await boundedDataRead(
+      c,
+      () => getWorkspaceUsage(dbFor(c.env), c.get("workspaceName")),
+      { name: "d1_workspace_usage" },
+    );
     const workspace = c.get("workspace");
     // `scopes` reflects the presented credential, not the workspace — doctor
     // uses it to surface a token that can't delete before the user hits a
