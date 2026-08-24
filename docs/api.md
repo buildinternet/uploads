@@ -287,6 +287,44 @@ Configure limits with `pnpm workspace:limits <name> …` (see
 [workspaces](workspaces.md)). Bare keys are rewritten to `f/<id>/<name>` before
 policy checks; presign uses the same finalization as put.
 
+### Rate limits
+
+Bursts are bounded per workspace. Each budget is separate and never draws from
+another, so a read cannot exhaust a write allowance. Reads have two tiers:
+
+| Tier   | Applies to                                                                      |
+| ------ | ------------------------------------------------------------------------------- |
+| normal | A listing you asked not to hydrate (`?metadata=0`), `file-url`, a single object |
+| tight  | `files/search`, `files/facets`, `files/by-path`, a metadata-hydrated listing    |
+
+The tight tier exists because those shapes fan out with per-row work. A listing
+that skips hydration also skips the tighter bound. A caller that discards
+metadata therefore pays neither cost. Writes, renders, poster generation, and
+the public intake endpoints keep their own separate budgets, unchanged.
+
+Both tiers are sized well above normal application and CLI traffic. They exist
+to stop a runaway loop, not to pace ordinary use.
+
+A request refused by one of these burst limiters answers `429` with
+`type: rate_limited` and:
+
+- `Retry-After` — seconds to wait, the standard header.
+- `X-Retry-After` — the same value, kept for compatibility with callers that
+  read the older spelling.
+- `error.details.retry_after` — the same value on the body.
+
+Waiting that long is always sufficient.
+
+Not every `429` carries that metadata. `upload_budget_exceeded` reports a
+monthly budget rather than a burst, and it recovers at the start of the next
+UTC calendar month rather than after a countable delay. It therefore omits both
+headers and `retry_after` instead of publishing a figure it cannot compute.
+
+No `RateLimit-Limit`, `RateLimit-Remaining`, or `RateLimit-Reset` header is sent
+on any response. The underlying limiter reports only whether a request was
+allowed, so there is no accurate quota or reset instant to publish. A fabricated
+one would make clients back off at the wrong time.
+
 ### Maintenance operations
 
 **Reconcile (potentially expensive).** This operation scans every object under

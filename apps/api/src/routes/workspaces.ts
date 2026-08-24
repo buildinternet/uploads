@@ -170,7 +170,9 @@ export const workspaces = new Hono<SessionVars>().post(
     // create cap) rather than the shared WRITE_LIMITER — that keeps
     // concurrent requests from racing past the per-user cap check below.
     if (!(await allowWorkspaceCreate(c.env, user.id))) {
-      throw new RateLimitedError("workspace creation rate limit exceeded");
+      throw new RateLimitedError("workspace creation rate limit exceeded", {
+        retryAfterSeconds: 60,
+      });
     }
 
     if (!(await isGithubLinked(c.env, user.id))) {
@@ -443,7 +445,9 @@ workspaces.post("/:name/invites", dualGovernanceAuth("workspace:invite"), async 
   const limiter = c.env.INVITE_LIMITER;
   if (limiter) {
     const { success } = await limiter.limit({ key: `invite:email:${email}` });
-    if (!success) throw new RateLimitedError("invite rate limit exceeded");
+    if (!success) {
+      throw new RateLimitedError("invite rate limit exceeded", { retryAfterSeconds: 60 });
+    }
   }
 
   const response = await c.env.AUTH.fetch("https://auth.internal/internal/invite", {

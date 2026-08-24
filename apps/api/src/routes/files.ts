@@ -10,6 +10,7 @@ import {
 import { objectPublicUrls, storageConfig } from "../storage";
 import { requireScope, type WorkspaceVars } from "../workspace";
 import { writeRateLimit } from "../guards";
+import { heavyReadRateLimit, legacyListingReadRateLimit, readRateLimit } from "../read-limits";
 import {
   getFileHandler,
   patchFileHandler,
@@ -37,7 +38,7 @@ export const files = new Hono<WorkspaceVars>()
   // result to hydrate); callers needing the private marker must HEAD the
   // object. Meta-only responses omit `truncated` (pre-#528 shape); name
   // searches include it.
-  .get("/", requireScope("files:read"), async (c) => {
+  .get("/", legacyListingReadRateLimit, requireScope("files:read"), async (c) => {
     const query = c.req.query();
     const rawName = c.req.query("name");
     const nameTerm = rawName === undefined ? undefined : normalizeSearchName(rawName);
@@ -112,7 +113,7 @@ export const files = new Hono<WorkspaceVars>()
   // agents need this to discover what is filterable before calling find_files.
   // Static path must register before `/:key{.+}` so "facets" is not treated
   // as an object key.
-  .get("/facets", requireScope("files:read"), async (c) => {
+  .get("/facets", heavyReadRateLimit, requireScope("files:read"), async (c) => {
     return c.json(
       await boundedDataRead(
         c,
@@ -132,7 +133,7 @@ export const files = new Hono<WorkspaceVars>()
   // the deployed worker 404s on any real key. `?metadata=1` on GET and a bare
   // PATCH (which has no other meaning on this route) avoid the fragile
   // suffix pattern entirely.
-  .get("/:key{.+}", requireScope("files:read"), getFileHandler)
+  .get("/:key{.+}", readRateLimit, requireScope("files:read"), getFileHandler)
 
   .patch("/:key{.+}", writeRateLimit, requireScope("files:write"), patchFileHandler)
 

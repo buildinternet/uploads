@@ -3215,3 +3215,65 @@ describe("workspace storage routes (self-serve BYO bucket, issue #583 Task 1.1)"
     });
   });
 });
+
+describe("read rate limits on the canonical files vertical (issue #829 §3)", () => {
+  const R2 = {
+    provider: "r2",
+    bucket: "shared",
+    binding: "UPLOADS_DEFAULT",
+    prefix: "acme/",
+    publicBaseUrl: "https://storage.uploads.sh",
+  };
+
+  function readEnv(overrides: Record<string, unknown>): Env {
+    const bucket = new FakeR2Bucket();
+    return {
+      ...memberEnv({ workspace: "acme", db: new UsageFakeD1(), bucket, record: R2 }),
+      ...overrides,
+    } as unknown as Env;
+  }
+
+  const refuse = { limit: async () => ({ success: false }) };
+  const allow = { limit: async () => ({ success: true }) };
+
+  it("429s a hydrated listing when the tight read limiter is over budget", async () => {
+    const env = readEnv({ HEAVY_READ_LIMITER: refuse, READ_LIMITER: allow });
+    const res = await app().request("/me/workspaces/acme/files", {}, env);
+    expect(res.status).toBe(429);
+    expect(res.headers.get("Retry-After")).toBe("60");
+    expect(res.headers.get("X-Retry-After")).toBe("60");
+  });
+
+  it("serves the same listing with `metadata=0` — it pays the normal limit", async () => {
+    const env = readEnv({ HEAVY_READ_LIMITER: refuse, READ_LIMITER: allow });
+    const res = await app().request("/me/workspaces/acme/files?metadata=0", {}, env);
+    expect(res.status).toBe(200);
+  });
+
+  it("429s search, facets, and by-path on the tight limiter", async () => {
+    const env = readEnv({ HEAVY_READ_LIMITER: refuse, READ_LIMITER: allow });
+    for (const path of [
+      "/me/workspaces/acme/files/search?name=shot",
+      "/me/workspaces/acme/files/facets",
+      "/me/workspaces/acme/files/by-path",
+    ]) {
+      const res = await app().request(path, {}, env);
+      expect(res.status).toBe(429);
+    }
+  });
+
+  it("does not consume the write limiter on a read", async () => {
+    const seen: string[] = [];
+    const env = readEnv({
+      WRITE_LIMITER: {
+        limit: async ({ key }: { key: string }) => {
+          seen.push(key);
+          return { success: true };
+        },
+      },
+    });
+    const res = await app().request("/me/workspaces/acme/files", {}, env);
+    expect(res.status).toBe(200);
+    expect(seen).toEqual([]);
+  });
+});

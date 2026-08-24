@@ -52,6 +52,7 @@ import {
   searchFilesByNameAndMeta,
 } from "../file-search";
 import { writeRateLimit } from "../guards";
+import { heavyReadRateLimit, listingReadRateLimit, readRateLimit } from "../read-limits";
 import { memberWorkspaceOr404 } from "../org-workspaces";
 import type { SessionVars } from "../session-auth";
 import { objectPublicUrls, publicUrl, resolveObjectLane, storage, storageConfig } from "../storage";
@@ -73,6 +74,11 @@ function scoped(scope: Parameters<typeof requireScope>[0]): MiddlewareHandler<Du
   return requireScope(scope) as unknown as MiddlewareHandler<DualAuthVars>;
 }
 const rateLimited = writeRateLimit as unknown as MiddlewareHandler<DualAuthVars>;
+// Read-side limiters (issue #829 §3), cast for the same reason as `scoped`
+// above. `listingRead` picks its tier from `?metadata`; `heavyRead` is fixed.
+const listingRead = listingReadRateLimit as unknown as MiddlewareHandler<DualAuthVars>;
+const heavyRead = heavyReadRateLimit as unknown as MiddlewareHandler<DualAuthVars>;
+const pointRead = readRateLimit as unknown as MiddlewareHandler<DualAuthVars>;
 function shared(handler: SharedFilesHandler): Handler<DualAuthVars> {
   return handler as unknown as Handler<DualAuthVars>;
 }
@@ -114,7 +120,7 @@ export const workspaceFiles = new Hono<DualAuthVars>()
   // default. Response shape is unchanged either way: `metadata` is simply
   // `undefined` per item when hydration is skipped, same as it already is
   // for any key with no D1 metadata row.
-  .get("/:workspace/files", dualWorkspaceAuth(), scoped("files:read"), async (c) => {
+  .get("/:workspace/files", dualWorkspaceAuth(), listingRead, scoped("files:read"), async (c) => {
     const record = c.get("workspace");
     const name = c.get("workspaceName");
     const { prefix, delimiter, cursor } = c.req.query();
@@ -150,90 +156,102 @@ export const workspaceFiles = new Hono<DualAuthVars>()
   // Metadata + filename search — AND-of-equality `meta.*` filters and/or a
   // `name` substring term. Results carry no `visibility` (not in the D1
   // index — accepted caveat, same as the pre-#613 session route).
-  .get("/:workspace/files/search", dualWorkspaceAuth(), scoped("files:read"), async (c) => {
-    const record = c.get("workspace");
-    const name = c.get("workspaceName");
-    const query = c.req.query();
-    const rawName = c.req.query("name");
-    const nameTerm = rawName === undefined ? undefined : normalizeSearchName(rawName);
-    const filters = parseMetaQueryFilters(query, (param) => c.req.queries(param));
-    const hasMeta = Object.keys(filters).length > 0;
+  .get(
+    "/:workspace/files/search",
+    dualWorkspaceAuth(),
+    heavyRead,
+    scoped("files:read"),
+    async (c) => {
+      const record = c.get("workspace");
+      const name = c.get("workspaceName");
+      const query = c.req.query();
+      const rawName = c.req.query("name");
+      const nameTerm = rawName === undefined ? undefined : normalizeSearchName(rawName);
+      const filters = parseMetaQueryFilters(query, (param) => c.req.queries(param));
+      const hasMeta = Object.keys(filters).length > 0;
 
-    if (!hasMeta && nameTerm === undefined) {
-      throw new ValidationError("at least one meta.* filter or name is required", {
-        code: "file_metadata_invalid_key",
-      });
-    }
+      if (!hasMeta && nameTerm === undefined) {
+        throw new ValidationError("at least one meta.* filter or name is required", {
+          code: "file_metadata_invalid_key",
+        });
+      }
 
-    // `limit` narrows the page below the server cap (never raises it) — added
-    // for the bearer-find migration (#613), whose callers pass `--limit`.
-    const SEARCH_LIMIT = 100;
-    const rawLimit = Number(c.req.query("limit") ?? SEARCH_LIMIT) || SEARCH_LIMIT;
-    const pageSize = Math.min(Math.max(1, Math.floor(rawLimit)), SEARCH_LIMIT);
-    const cfg = await storageConfig(c.env, record);
-    // `collapse=promoted` drops promoted branch originals so the screenshots
-    // drill-in (?path=…) doesn't list a shot twice — once from its `branch/<b>/`
-    // key and once from the promoted `pull/<n>/` copy. Opt-in: a bare search
-    // (and the `find_files` tool) still returns every matching object.
-    const collapsePromotedShadows = c.req.query("collapse") === "promoted";
-    const { matches, truncated, cursor } = await boundedDataRead(
-      c,
-      () =>
-        searchFilesByNameAndMeta(c.env, record, name, {
-          filters: hasMeta ? filters : undefined,
-          nameTerm,
-          prefix: query.prefix,
-          pageSize,
-          collapsePromotedShadows,
-          ...(query.cursor ? { cursor: query.cursor } : {}),
+      // `limit` narrows the page below the server cap (never raises it) — added
+      // for the bearer-find migration (#613), whose callers pass `--limit`.
+      const SEARCH_LIMIT = 100;
+      const rawLimit = Number(c.req.query("limit") ?? SEARCH_LIMIT) || SEARCH_LIMIT;
+      const pageSize = Math.min(Math.max(1, Math.floor(rawLimit)), SEARCH_LIMIT);
+      const cfg = await storageConfig(c.env, record);
+      // `collapse=promoted` drops promoted branch originals so the screenshots
+      // drill-in (?path=…) doesn't list a shot twice — once from its `branch/<b>/`
+      // key and once from the promoted `pull/<n>/` copy. Opt-in: a bare search
+      // (and the `find_files` tool) still returns every matching object.
+      const collapsePromotedShadows = c.req.query("collapse") === "promoted";
+      const { matches, truncated, cursor } = await boundedDataRead(
+        c,
+        () =>
+          searchFilesByNameAndMeta(c.env, record, name, {
+            filters: hasMeta ? filters : undefined,
+            nameTerm,
+            prefix: query.prefix,
+            pageSize,
+            collapsePromotedShadows,
+            ...(query.cursor ? { cursor: query.cursor } : {}),
+          }),
+        { name: "d1_files_search" },
+      );
+      // Upload time per match so the screenshots drill-in pop-over can show it
+      // (the grouped by-path route surfaces the same via `updatedAt`).
+      const updatedByKey = await boundedDataRead(
+        c,
+        () =>
+          getObjectUpdatedAt(
+            dbFor(c.env),
+            name,
+            matches.map((m) => m.key),
+          ),
+        { name: "d1_files_updated_at" },
+      );
+
+      return c.json({
+        items: matches.map((match) => {
+          const urls = objectPublicUrls(c.env, cfg, match.key);
+          const updatedAt = updatedByKey.get(match.key);
+          return {
+            key: match.key,
+            url: urls.url,
+            embedUrl: urls.embedUrl,
+            metadata: match.metadata,
+            ...(updatedAt !== undefined ? { updatedAt } : {}),
+          };
         }),
-      { name: "d1_files_search" },
-    );
-    // Upload time per match so the screenshots drill-in pop-over can show it
-    // (the grouped by-path route surfaces the same via `updatedAt`).
-    const updatedByKey = await boundedDataRead(
-      c,
-      () =>
-        getObjectUpdatedAt(
-          dbFor(c.env),
-          name,
-          matches.map((m) => m.key),
-        ),
-      { name: "d1_files_updated_at" },
-    );
-
-    return c.json({
-      items: matches.map((match) => {
-        const urls = objectPublicUrls(c.env, cfg, match.key);
-        const updatedAt = updatedByKey.get(match.key);
-        return {
-          key: match.key,
-          url: urls.url,
-          embedUrl: urls.embedUrl,
-          metadata: match.metadata,
-          ...(updatedAt !== undefined ? { updatedAt } : {}),
-        };
-      }),
-      truncated,
-      // Additive continuation (issue #829 §4): opaque, non-null exactly when
-      // `truncated` is true. Hand it back as `?cursor=` for the next page.
-      cursor,
-    });
-  })
+        truncated,
+        // Additive continuation (issue #829 §4): opaque, non-null exactly when
+        // `truncated` is true. Hand it back as `?cursor=` for the next page.
+        cursor,
+      });
+    },
+  )
 
   // Facet discovery for the files filter bar: which metadata keys this
   // workspace actually contains, and (with `?key=`) that key's values.
-  .get("/:workspace/files/facets", dualWorkspaceAuth(), scoped("files:read"), async (c) => {
-    return c.json(
-      await boundedDataRead(
-        c,
-        () => listFacets(dbFor(c.env), c.get("workspaceName"), c.req.query("key")),
-        {
-          name: "d1_files_facets",
-        },
-      ),
-    );
-  })
+  .get(
+    "/:workspace/files/facets",
+    dualWorkspaceAuth(),
+    heavyRead,
+    scoped("files:read"),
+    async (c) => {
+      return c.json(
+        await boundedDataRead(
+          c,
+          () => listFacets(dbFor(c.env), c.get("workspaceName"), c.req.query("key")),
+          {
+            name: "d1_files_facets",
+          },
+        ),
+      );
+    },
+  )
 
   // Recent uploads grouped by their `path` metadata value — the screenshots
   // page's single overview query (spec: docs/superpowers/specs/
@@ -247,90 +265,96 @@ export const workspaceFiles = new Hono<DualAuthVars>()
   // leaks into the payload. Enrichment stays scoped to the thumbed groups'
   // keys plus `latest`, so the catalog's growth never widens the two D1
   // enrichment queries; catalog-only strips carry key/url/embedUrl alone.
-  .get("/:workspace/files/by-path", dualWorkspaceAuth(), scoped("files:read"), async (c) => {
-    const record = c.get("workspace");
-    const name = c.get("workspaceName");
-    // Opt-in "Merged only" filter (Screenshots page toggle) — leaves the
-    // default (unfiltered) overview and general `meta.gh.merged=` search
-    // semantics untouched.
-    const mergedOnly = c.req.query("merged") === "1";
-    const { groups, catalog, projects, latest, truncated, catalogTruncated } =
-      await boundedDataRead(c, () => groupObjectsByPath(dbFor(c.env), name, { mergedOnly }), {
-        name: "d1_screenshots_by_path",
-      });
-    const shotKeys = [
-      ...groups.flatMap((group) => group.recent),
-      ...latest.map((item) => item.key),
-    ];
-    // `gh.ref` lets the pop-over resolve live PR/issue status via /github/titles;
-    // `updatedAt` gives it the shot's upload time (the `latest` feed already
-    // carries `uploadedAt`, this brings the same to the grouped `recent` strips).
-    const metaByKey = await boundedDataRead(
-      c,
-      () =>
-        getMetadataForKeys(dbFor(c.env), name, shotKeys, {
-          metaKeys: ["state", "gh.kind", "gh.number", "gh.ref"],
-        }),
-      { name: "d1_files_meta" },
-    );
-    const updatedByKey = await boundedDataRead(
-      c,
-      () => getObjectUpdatedAt(dbFor(c.env), name, shotKeys),
-      { name: "d1_files_updated_at" },
-    );
-    const cfg = await storageConfig(c.env, record);
-    const shotItem = (key: string) => {
-      const urls = objectPublicUrls(c.env, cfg, key);
-      const meta = metaByKey.get(key);
-      const state = meta?.state;
-      const ghKind = meta?.["gh.kind"];
-      const ghNumber = meta?.["gh.number"];
-      const ghRef = meta?.["gh.ref"];
-      const updatedAt = updatedByKey.get(key);
-      return {
-        key,
-        url: urls.url,
-        embedUrl: urls.embedUrl,
-        ...(state !== undefined ? { state } : {}),
-        ...(ghKind !== undefined ? { ghKind } : {}),
-        ...(ghNumber !== undefined ? { ghNumber } : {}),
-        ...(ghRef !== undefined ? { ghRef } : {}),
-        ...(updatedAt !== undefined ? { updatedAt } : {}),
+  .get(
+    "/:workspace/files/by-path",
+    dualWorkspaceAuth(),
+    heavyRead,
+    scoped("files:read"),
+    async (c) => {
+      const record = c.get("workspace");
+      const name = c.get("workspaceName");
+      // Opt-in "Merged only" filter (Screenshots page toggle) — leaves the
+      // default (unfiltered) overview and general `meta.gh.merged=` search
+      // semantics untouched.
+      const mergedOnly = c.req.query("merged") === "1";
+      const { groups, catalog, projects, latest, truncated, catalogTruncated } =
+        await boundedDataRead(c, () => groupObjectsByPath(dbFor(c.env), name, { mergedOnly }), {
+          name: "d1_screenshots_by_path",
+        });
+      const shotKeys = [
+        ...groups.flatMap((group) => group.recent),
+        ...latest.map((item) => item.key),
+      ];
+      // `gh.ref` lets the pop-over resolve live PR/issue status via /github/titles;
+      // `updatedAt` gives it the shot's upload time (the `latest` feed already
+      // carries `uploadedAt`, this brings the same to the grouped `recent` strips).
+      const metaByKey = await boundedDataRead(
+        c,
+        () =>
+          getMetadataForKeys(dbFor(c.env), name, shotKeys, {
+            metaKeys: ["state", "gh.kind", "gh.number", "gh.ref"],
+          }),
+        { name: "d1_files_meta" },
+      );
+      const updatedByKey = await boundedDataRead(
+        c,
+        () => getObjectUpdatedAt(dbFor(c.env), name, shotKeys),
+        { name: "d1_files_updated_at" },
+      );
+      const cfg = await storageConfig(c.env, record);
+      const shotItem = (key: string) => {
+        const urls = objectPublicUrls(c.env, cfg, key);
+        const meta = metaByKey.get(key);
+        const state = meta?.state;
+        const ghKind = meta?.["gh.kind"];
+        const ghNumber = meta?.["gh.number"];
+        const ghRef = meta?.["gh.ref"];
+        const updatedAt = updatedByKey.get(key);
+        return {
+          key,
+          url: urls.url,
+          embedUrl: urls.embedUrl,
+          ...(state !== undefined ? { state } : {}),
+          ...(ghKind !== undefined ? { ghKind } : {}),
+          ...(ghNumber !== undefined ? { ghNumber } : {}),
+          ...(ghRef !== undefined ? { ghRef } : {}),
+          ...(updatedAt !== undefined ? { updatedAt } : {}),
+        };
       };
-    };
 
-    return c.json({
-      groups: groups.map((group) => ({
-        project: group.project,
-        path: group.path,
-        count: group.count,
-        lastUpdated: group.lastUpdated,
-        recent: group.recent.map(shotItem),
-      })),
-      // Every catalog entry carries its own (shorter) strip, so the page can
-      // render thumbs for groups past the thumbed cap without fetching one
-      // search per group. Those keys are NOT metadata-enriched (see above):
-      // `objectPublicUrls` is pure computation, so this costs no extra D1.
-      catalog: catalog.map((entry) => ({
-        project: entry.project,
-        path: entry.path,
-        count: entry.count,
-        lastUpdated: entry.lastUpdated,
-        recent: entry.recent.map(shotItem),
-      })),
-      projects,
-      // Flat newest-first feed (the "Recent" view) — same item shape as
-      // `recent`, plus which (project, path) each shot belongs to.
-      latest: latest.map((item) => ({
-        ...shotItem(item.key),
-        project: item.project,
-        path: item.path,
-        uploadedAt: item.uploadedAt,
-      })),
-      truncated,
-      catalogTruncated,
-    });
-  })
+      return c.json({
+        groups: groups.map((group) => ({
+          project: group.project,
+          path: group.path,
+          count: group.count,
+          lastUpdated: group.lastUpdated,
+          recent: group.recent.map(shotItem),
+        })),
+        // Every catalog entry carries its own (shorter) strip, so the page can
+        // render thumbs for groups past the thumbed cap without fetching one
+        // search per group. Those keys are NOT metadata-enriched (see above):
+        // `objectPublicUrls` is pure computation, so this costs no extra D1.
+        catalog: catalog.map((entry) => ({
+          project: entry.project,
+          path: entry.path,
+          count: entry.count,
+          lastUpdated: entry.lastUpdated,
+          recent: entry.recent.map(shotItem),
+        })),
+        projects,
+        // Flat newest-first feed (the "Recent" view) — same item shape as
+        // `recent`, plus which (project, path) each shot belongs to.
+        latest: latest.map((item) => ({
+          ...shotItem(item.key),
+          project: item.project,
+          path: item.path,
+          uploadedAt: item.uploadedAt,
+        })),
+        truncated,
+        catalogTruncated,
+      });
+    },
+  )
 
   // Resolve a selected file to a usable URL (issue #613 wart fix: this used
   // to live outside `files/`, at `/me/workspaces/:name/file-url`). Public URL
@@ -342,24 +366,30 @@ export const workspaceFiles = new Hono<DualAuthVars>()
   // before a storage switch) still gets a usable URL — the public URL, or the
   // signed URL, is minted against the lane that actually holds the object,
   // not the workspace's current active lane.
-  .get("/:workspace/files/file-url", dualWorkspaceAuth(), scoped("files:read"), async (c) => {
-    const record = c.get("workspace");
-    const key = c.req.query("key") ?? "";
-    if (badKey(key)) throw new NotFoundError();
-    const lane = await resolveObjectLane(c.env, record, key);
-    if (!lane) throw new NotFoundError();
+  .get(
+    "/:workspace/files/file-url",
+    dualWorkspaceAuth(),
+    pointRead,
+    scoped("files:read"),
+    async (c) => {
+      const record = c.get("workspace");
+      const key = c.req.query("key") ?? "";
+      if (badKey(key)) throw new NotFoundError();
+      const lane = await resolveObjectLane(c.env, record, key);
+      if (!lane) throw new NotFoundError();
 
-    const url = publicUrl(lane.config, key);
-    if (url) return c.json({ url });
+      const url = publicUrl(lane.config, key);
+      if (url) return c.json({ url });
 
-    const signed = await signedDownloadUrl(lane.store, key);
-    if (signed) return c.json({ url: signed });
+      const signed = await signedDownloadUrl(lane.store, key);
+      if (signed) return c.json({ url: signed });
 
-    throw new ValidationError(
-      "no public or signed URL available for this workspace's storage configuration",
-      { code: "file_url_unavailable" },
-    );
-  })
+      throw new ValidationError(
+        "no public or signed URL available for this workspace's storage configuration",
+        { code: "file_url_unavailable" },
+      );
+    },
+  )
 
   // Toggle a file's `visibility` custom-metadata flag. See the module
   // docblock above for why the key stays a query param here.
@@ -436,6 +466,7 @@ export const workspaceFiles = new Hono<DualAuthVars>()
   .get(
     "/:workspace/files/:key{.+}",
     dualWorkspaceAuth(),
+    pointRead,
     scoped("files:read"),
     shared(getFileHandler),
   )

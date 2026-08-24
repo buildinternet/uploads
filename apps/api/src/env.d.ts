@@ -81,6 +81,16 @@ interface Env {
    */
   WRITE_LIMITER?: RateLimit;
   RENDER_LIMITER?: RateLimit;
+  /**
+   * Read-side limiters (issue #829 §3), keyed by workspace and entirely
+   * separate from the write/render/poster/intake budgets above.
+   * `HEAVY_READ_LIMITER` covers search, facets, by-path, and
+   * metadata-hydrated listings; `READ_LIMITER` covers the cheaper reads
+   * (including a listing the caller opted out of hydrating). See
+   * `read-limits.ts`.
+   */
+  READ_LIMITER?: RateLimit;
+  HEAVY_READ_LIMITER?: RateLimit;
   WS_CREATE_LIMITER?: RateLimit;
   INVITE_LIMITER?: RateLimit;
   /**

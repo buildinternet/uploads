@@ -14,7 +14,9 @@ export const auth = new Hono<{ Bindings: Env }>()
       const address = c.req.header("CF-Connecting-IP") ?? "unknown";
       const operation = c.req.path.endsWith("/exchange") ? "exchange" : "lookup";
       const { success } = await limiter.limit({ key: `invite:${operation}:${address}` });
-      if (!success) throw new RateLimitedError("invitation rate limit exceeded");
+      if (!success) {
+        throw new RateLimitedError("invitation rate limit exceeded", { retryAfterSeconds: 60 });
+      }
     }
     await next();
   })
