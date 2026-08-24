@@ -1824,10 +1824,10 @@ describe("OAuth JWT bearer (issue #224)", () => {
     );
   });
 
-  // #731 phase C (C-1): the issuer moved from auth.uploads.sh to uploads.sh —
-  // tokens minted under the old issuer before the flip must keep working
-  // until they expire naturally.
-  it("accepts a JWT minted under the legacy pre-flip issuer (auth.uploads.sh)", async () => {
+  // #731 phase E: the pre-flip auth.uploads.sh issuer is no longer accepted —
+  // legacy tokens have aged out, so a stale one now 401s and the client
+  // re-discovers the current issuer.
+  it("401s for a JWT minted under the retired legacy issuer (auth.uploads.sh)", async () => {
     const { env } = await makeEnv();
     const jwt = await signOAuthToken(
       { sub: "user-1", workspace: "test-ws", workspaces: ["test-ws"], scope: "files:read" },
@@ -1839,7 +1839,8 @@ describe("OAuth JWT bearer (issue #224)", () => {
       jwt,
       "https://agents.uploads.sh/mcp",
     );
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(401);
+    expect(response.headers.get("WWW-Authenticate")).toContain('error="invalid_token"');
   });
 
   it("still accepts a JWT minted under the current issuer (uploads.sh)", async () => {
