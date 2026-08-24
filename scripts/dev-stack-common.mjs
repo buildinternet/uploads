@@ -1,14 +1,18 @@
 /** Shared local-stack endpoints, cookie jar, fixture uploads, and smoke flow. */
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
+import { createServer } from "node:net";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-// Portless (see the `portless` skill) gives the stack named HTTPS origins with
-// a shared `.uploads.localhost` cookie parent, so the Better Auth session
-// spans web/auth/api locally the same way `.uploads.sh` does in prod.
-// `PORTLESS=0` falls back to the legacy loopback ports (also the path for the
-// dev GitHub OAuth app, whose callback is pinned to 127.0.0.1:8788).
+// Portless (see the `portless` skill) gives WEB a stable named HTTPS origin
+// (`https://uploads.localhost`), the only origin the browser ever talks to.
+// Since #731 auth and api are internal upstreams reached through web's
+// same-origin `/api/auth` + `/api` proxies, so they need no hostname of their
+// own — they run as plain loopback ports (dynamically assigned here so
+// concurrent worktree stacks don't collide). `PORTLESS=0` falls back to the
+// legacy pinned ports (also the path for the dev GitHub OAuth app, whose
+// callback is pinned to 127.0.0.1:8788).
 export const USE_PORTLESS = process.env.PORTLESS !== "0";
 export const PORTLESS_BASE = process.env.PORTLESS_NAME || "uploads";
 
@@ -53,11 +57,33 @@ function portlessUrl(name) {
   return url;
 }
 
+/**
+ * Reserve a free loopback port for an internal upstream (auth/api). Binds to
+ * :0, reads the OS-assigned port, then releases it so wrangler can claim it a
+ * moment later. The small release→bind window is fine for a local dev stack
+ * and lets concurrent worktree stacks each get their own ports without a
+ * named portless route. `dev-stack.mjs` passes the resolved port to wrangler.
+ */
+function freePort() {
+  return new Promise((resolve, reject) => {
+    const server = createServer();
+    server.on("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const { port } = server.address();
+      server.close(() => resolve(port));
+    });
+  });
+}
+
+// Auth and api are internal upstreams (web proxies to them), so they need no
+// portless hostname — just a loopback port. In portless mode that port is
+// dynamic (concurrent worktree stacks stay collision-free); `PORTLESS=0` keeps
+// the legacy pinned ports. Only WEB gets a portless-named origin.
 export const AUTH_ORIGIN = USE_PORTLESS
-  ? portlessUrl(`auth.${PORTLESS_BASE}`)
+  ? `http://127.0.0.1:${await freePort()}`
   : "http://127.0.0.1:8788";
 export const API_ORIGIN = USE_PORTLESS
-  ? portlessUrl(`api.${PORTLESS_BASE}`)
+  ? `http://127.0.0.1:${await freePort()}`
   : "http://127.0.0.1:8787";
 export const WEB_ORIGIN = USE_PORTLESS ? portlessUrl(PORTLESS_BASE) : "http://127.0.0.1:4321";
 export const PREVIEW_URL = `${WEB_ORIGIN}/account/workspaces`;

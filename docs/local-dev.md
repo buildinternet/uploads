@@ -18,26 +18,26 @@ pnpm typecheck        # wrangler types + tsc across workspaces
 
 ## Named local URLs (portless)
 
-`pnpm dev:stack` runs through [portless](https://npmjs.com/portless), so the
-stack gets stable named `.localhost` origins instead of bare ports:
+`pnpm dev:stack` runs through [portless](https://npmjs.com/portless), so WEB
+gets a stable named `.localhost` origin instead of a bare port:
 
-| Service | URL                              | Browser-visible?                                            |
-| ------- | -------------------------------- | ----------------------------------------------------------- |
-| web     | `https://uploads.localhost`      | yes — the only origin the browser talks to                  |
-| auth    | `https://auth.uploads.localhost` | no — internal upstream behind web's `/api/auth` proxy       |
-| api     | `https://api.uploads.localhost`  | not yet (phase D moves browser api traffic same-origin too) |
+| Service | URL                         | Browser-visible?                                      |
+| ------- | --------------------------- | ----------------------------------------------------- |
+| web     | `https://uploads.localhost` | yes — the only origin the browser talks to            |
+| auth    | plain loopback (dynamic)    | no — internal upstream behind web's `/api/auth` proxy |
+| api     | plain loopback (dynamic)    | no — internal upstream behind web's `/api` proxy      |
 
-All three processes still run — auth and api each get their own named origin
-— but since #731 phase C the browser only ever talks to `uploads.localhost`:
-auth is served same-origin through web's `/api/auth` proxy (mirroring
-production), so `auth.uploads.localhost` is now an internal upstream the web
-worker forwards to, not something a signed-in page's own requests hit
-directly. The Better Auth session cookie is host-only on `uploads.localhost`
-(no shared `.uploads.localhost` parent needed anymore — same shape as prod's
-host-only `uploads.sh` cookie), and signed-in pages (`/account/*`, `/admin/*`)
-just work in a local browser, including agent browser panels. In a linked git
-worktree, portless prefixes the branch name (`fix-ui.uploads.localhost` /
-`fix-ui.auth.uploads.localhost` for the internal upstream); nothing else
+Since #731 the browser only ever talks to `uploads.localhost`: auth and api
+are served same-origin through web's `/api/auth` and `/api` proxies (mirroring
+production), so they're internal upstreams the web worker forwards to, not
+origins a signed-in page's own requests hit. Because nothing browser-facing
+needs their hostnames, only WEB gets a portless-named origin; auth and api run
+as plain `127.0.0.1` loopback processes on ports assigned dynamically at boot
+(so concurrent worktree stacks don't collide). The Better Auth session cookie
+is host-only on `uploads.localhost` (same shape as prod's host-only
+`uploads.sh` cookie), and signed-in pages (`/account/*`, `/admin/*`) just work
+in a local browser, including agent browser panels. In a linked git worktree,
+portless prefixes the branch name (`fix-ui.uploads.localhost`); nothing else
 changes. `dev:stack` prints the resolved `previewUrl` when ready, and
 `pnpm dev:stack:check --json` reports it too.
 
@@ -76,9 +76,8 @@ the stack can run under a real TLD instead — on the shared
 
 ```bash
 PORTLESS_TLD=dev PORTLESS_NAME=uploads.local.buildinternet pnpm dev:stack
-# -> https://uploads.local.buildinternet.dev
-#    https://auth.uploads.local.buildinternet.dev
-#    https://api.uploads.local.buildinternet.dev
+# -> https://uploads.local.buildinternet.dev   (web; auth + api stay on plain
+#    loopback ports, same as the default `.localhost` mode)
 ```
 
 The zone is deliberately NOT under uploads.sh: even though prod's session
@@ -94,18 +93,17 @@ loopback on any machine, worktree prefixes included.
 
 The proxy only serves TLDs it was started with, so if yours runs with the
 default `.localhost` only, this mode auto-starts a second proxy on `:1355`
-and the URLs carry that port. For clean port-free URLs, run one proxy with
-both TLDs: `sudo portless proxy stop && sudo portless proxy start --https
+and the web URL carries that port. For a clean port-free URL, run one proxy
+with both TLDs: `sudo portless proxy stop && sudo portless proxy start --https
 --tld localhost --tld dev` (or bake it in with
 `portless service install --tld localhost --tld dev`).
 
-These origins are trusted by the auth worker outside production (https only).
+The web origin is trusted by the auth worker outside production (https only).
 Same-origin mode applies here too (`BETTER_AUTH_URL` is the web origin), so
-register the provider's redirect URI as
-`https://uploads.local.buildinternet.dev/api/auth/callback/<provider>` — NOT
-the `auth.` subdomain, even though that's where the auth worker's own process
-listens; `auth.uploads.local.buildinternet.dev` is now only the internal
-upstream web forwards `/api/auth/*` to.
+register the provider's redirect URI on the web origin:
+`https://uploads.local.buildinternet.dev/api/auth/callback/<provider>`. Auth
+has no real-TLD subdomain of its own — it's a plain loopback upstream web
+forwards `/api/auth/*` to, exactly as in the default mode.
 Note the `dev-session` bypass is intentionally unavailable in this mode —
 sign in through the real provider flow you're testing. GitHub accepts
 loopback callbacks, so day-to-day GitHub testing can stay on `PORTLESS=0`
