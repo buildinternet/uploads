@@ -1,5 +1,27 @@
 # @buildinternet/uploads
 
+## 0.47.0
+
+### Minor Changes
+
+- 5af793e: Page through file search. `findFiles` now returns an opaque `cursor` and
+  accepts one back. The new `findFilesAll` follows that cursor, up to a page cap.
+  `uploads find` and `uploads list --meta` gained `--cursor` and `--all`. The
+  `find_files` MCP tool takes and returns the same cursor.
+- cac30d3: `list`/`listAll` now skip the server's per-key metadata hydration when the
+  caller didn't request `metadata: true`, instead of fetching it and throwing
+  it away.
+
+### Patch Changes
+
+- d6e49f7: Mint workspace tokens safely on retry: `mintWorkspaceToken` now accepts an
+  optional `idempotencyKey` so a retried request replays the original one-time
+  token instead of minting a duplicate.
+- 5bd56dd: Upload files safely on retry: `put` now accepts an optional `idempotencyKey`
+  so a retried request replays the original response instead of writing a
+  duplicate object.
+- 5c27ee3: Retry gallery creation safely with caller-scoped idempotency keys.
+
 ## 0.46.3
 
 ### Patch Changes
