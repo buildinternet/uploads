@@ -42,7 +42,7 @@ Options:
   --scopes <list>     Comma-separated scopes (default:
                       files:read,files:write,files:delete)
   --label <text>      Token label (default: this machine's hostname)
-  --auth-url <url>    Auth base (default: https://auth.uploads.sh)
+  --auth-url <url>    Auth base (default: https://uploads.sh)
   --no-open           Don't try to open a browser automatically
   --code <code>       Fallback: use a pre-existing enrollment code instead of
                       device login (visible in shell history)
@@ -181,10 +181,10 @@ function hasEnrollmentSource(parsed: ReturnType<typeof parseCommandArgs>): boole
 }
 
 /**
- * Auth worker base URL: explicit flag > UPLOADS_AUTH_URL > swap an `api.` host
- * label for `auth.` > the production default. Local multi-worker dev (where
- * auth runs on a different loopback port than the API) needs an explicit
- * --auth-url / UPLOADS_AUTH_URL.
+ * Auth base URL: explicit flag > UPLOADS_AUTH_URL > derived from the API base
+ * (`api.<domain>` → `<domain>`, same-origin auth since #731) > the production
+ * default. Local multi-worker dev (where auth runs on a different loopback port
+ * than the API) needs an explicit --auth-url / UPLOADS_AUTH_URL.
  */
 export function resolveAuthUrl(
   parsed: ReturnType<typeof parseCommandArgs>,

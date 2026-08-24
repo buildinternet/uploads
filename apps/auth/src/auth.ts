@@ -375,71 +375,6 @@ export async function upsertGithubLogin(
   }
 }
 
-/**
- * Derive the cookie domain for `advanced.crossSubDomainCookies` from
- * BETTER_AUTH_URL: `https://auth.uploads.sh` -> `.uploads.sh`, so a session
- * cookie set on the auth worker is visible on `uploads.sh` and
- * `api.uploads.sh` (D1's cross-subdomain requirement). Falls back to
- * `undefined` (cross-subdomain cookies disabled) for bare hosts/IPs/localhost
- * where there is no parent domain to share.
- *
- * A 2-label apex host (e.g. `uploads.sh`) shares the whole host instead of
- * stripping the first label — stripping would yield a bare public suffix
- * (`.sh`), which browsers reject as a cookie domain.
- *
- * #731 Phase C: `webOrigin` is the web app's origin (env.WEB_ORIGIN). When it
- * resolves to the SAME hostname as `betterAuthUrl` — auth is being served
- * through the web origin's same-origin proxy — the cookie needs no domain
- * scoping at all; a host-only cookie is both sufficient and strictly safer.
- * This short-circuits before all the legacy derivation below, which still
- * governs every differing-host case (auth.uploads.sh serving uploads.sh, the
- * portless dev stack, etc).
- */
-export function deriveCookieDomain(
-  betterAuthUrl: string | undefined,
-  webOrigin?: string,
-): string | undefined {
-  if (!betterAuthUrl) return undefined;
-  if (webOrigin) {
-    try {
-      if (new URL(betterAuthUrl).hostname === new URL(webOrigin).hostname) {
-        return undefined; // same-origin mode: host-only session cookie
-      }
-    } catch {
-      // Unparseable webOrigin — fall through to legacy derivation below.
-    }
-  }
-  let host: string;
-  try {
-    host = new URL(betterAuthUrl).hostname;
-  } catch {
-    return undefined;
-  }
-  if (host === "localhost" || /^\d{1,3}(\.\d{1,3}){3}$/.test(host)) {
-    return undefined;
-  }
-  if (host.endsWith(".localhost")) {
-    // Portless dev (see the `portless` skill): auth.uploads.localhost shares a
-    // session cookie with uploads.localhost via the `.<name>.localhost` parent.
-    // Always anchor on the last two labels so worktree-prefixed hosts
-    // (fix-ui.auth.uploads.localhost) land on the same parent as the web app.
-    // A bare `<name>.localhost` has no shareable parent — host-only cookie.
-    const parts = host.split(".");
-    return parts.length >= 3 ? "." + parts.slice(-2).join(".") : undefined;
-  }
-  const parts = host.split(".");
-  // Real-TLD portless zone (see trusted-origins.ts): anchor on
-  // `.uploads.local.buildinternet.dev` so worktree-prefixed hosts
-  // (fix-ui.auth.uploads.local.buildinternet.dev) share the same parent as
-  // the web app, mirroring the `.localhost` rule above.
-  if (host.endsWith(".uploads.local.buildinternet.dev")) {
-    return "." + parts.slice(-4).join(".");
-  }
-  if (parts.length < 2) return undefined;
-  if (parts.length === 2) return "." + host;
-  return "." + parts.slice(1).join(".");
-}
-
 function buildAuth(
   env: AuthEnv,
   signingSecret: string,
@@ -449,7 +384,6 @@ function buildAuth(
   const db = drizzle(env.DB, { schema });
   const betterAuthUrl = env.BETTER_AUTH_URL || "https://auth.uploads.sh";
   const webOrigin = env.WEB_ORIGIN || "https://uploads.sh";
-  const cookieDomain = deriveCookieDomain(betterAuthUrl, webOrigin);
   const isProduction = env.ENVIRONMENT === "production";
 
   return betterAuth({
@@ -725,12 +659,12 @@ function buildAuth(
       // D5/Phase 4: RFC 8628 device flow for `uploads login`.
       //
       // verificationUri MUST be an ABSOLUTE URL on the WEB origin — the /device
-      // approval page is served by apps/web (uploads.sh), not this worker
-      // (auth.uploads.sh). The plugin only prefixes baseURL when the value is
-      // relative, so a bare "/device" would resolve to
-      // https://auth.uploads.sh/device and 404. The session cookie is
-      // `.uploads.sh`-scoped (crossSubDomainCookies below) so it rides across
-      // the two subdomains.
+      // approval page is served by apps/web (uploads.sh), and since #731 auth
+      // is reached same-origin through web's `/api/auth` proxy. The plugin only
+      // prefixes baseURL when the value is relative, so a bare "/device" would
+      // resolve under the auth baseURL and 404. The session cookie is host-only
+      // on the web origin (crossSubDomainCookies disabled below); the /device
+      // page and the auth endpoints share that one origin, so it rides along.
       //
       // validateClient is fail-closed against the oauth_client table: the id
       // must be registered, enabled, and carry the device-code grant type
@@ -877,9 +811,10 @@ function buildAuth(
       ipAddress: {
         ipAddressHeaders: ["cf-connecting-ip", "x-forwarded-for"],
       },
-      crossSubDomainCookies: cookieDomain
-        ? { enabled: true, domain: cookieDomain }
-        : { enabled: false },
+      // #731: the session cookie is host-only on the web origin (uploads.sh)
+      // in every environment — auth is always served same-origin through web's
+      // `/api/auth` proxy, so it never needs a shared parent domain.
+      crossSubDomainCookies: { enabled: false },
     },
   });
 }
