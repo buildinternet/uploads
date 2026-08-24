@@ -52,6 +52,13 @@ export interface PutOptions {
    * `KEY_EXISTS`.
    */
   replace?: boolean;
+  /**
+   * Reuse this key to safely retry the same upload request (issue #829). Not
+   * generated automatically — unlike `createGallery`, a `put` is only
+   * retried by the client (see `resilientFetch`) or is server-replay-safe
+   * when the caller supplies one; omit it and no header is sent.
+   */
+  idempotencyKey?: string;
 }
 
 export interface ListOptions {
@@ -524,13 +531,17 @@ export interface EnrollmentCreateResult {
 const JSON_TIMEOUT_MS = 15_000;
 const CONTENT_TIMEOUT_MS = 60_000;
 
-// At most one retry. Retried on network errors, 503, and 429 — and only for
-// GET/PUT, since a `put` is byte-idempotent (same key, same bytes). POST is
-// retryable only when the request carries an Idempotency-Key; DELETE/PATCH
-// remain single-attempt because telling "no bytes sent" apart from "the
-// mutation already landed" isn't reliable enough to risk a double-apply.
+// At most one retry. Retried on network errors, 503, and 429 — GET always.
+// POST and PUT are retryable only when the request carries an
+// Idempotency-Key (gallery-create's POST, and an upload PUT that opts in per
+// issue #829) — a bare PUT is no longer assumed byte-idempotent, since a
+// strict (non-`gh/`) key without a caller-supplied key can 409 `key_exists`
+// on replay. DELETE/PATCH remain single-attempt because telling "no bytes
+// sent" apart from "the mutation already landed" isn't reliable enough to
+// risk a double-apply.
 const MAX_ATTEMPTS = 2;
-const RETRYABLE_METHODS = new Set(["GET", "PUT"]);
+const RETRYABLE_METHODS = new Set(["GET"]);
+const IDEMPOTENCY_KEYED_METHODS = new Set(["POST", "PUT"]);
 const RETRYABLE_STATUSES = new Set([429, 503]);
 const DEFAULT_RETRY_DELAY_MS = 2_000;
 // Cap an honored X-Retry-After so a large server-suggested backoff can't
@@ -601,7 +612,8 @@ async function resilientFetch(
   const normalizedMethod = method.toUpperCase();
   const retryable =
     RETRYABLE_METHODS.has(normalizedMethod) ||
-    (normalizedMethod === "POST" && new Headers(init.headers).has("Idempotency-Key"));
+    (IDEMPOTENCY_KEYED_METHODS.has(normalizedMethod) &&
+      new Headers(init.headers).has("Idempotency-Key"));
   for (let attempt = 1; ; attempt++) {
     let res: Response | undefined;
     let networkErr: UploadsError | undefined;
@@ -1160,6 +1172,7 @@ export function createUploadsClient(config: UploadsClientConfig) {
 
       const headers: Record<string, string> = { "Content-Type": contentType };
       if (opts.replace) headers["X-Uploads-Replace"] = "1";
+      if (opts.idempotencyKey) headers["Idempotency-Key"] = opts.idempotencyKey;
       if (opts.provenance) {
         for (const [k, v] of Object.entries(opts.provenance)) {
           if (v !== undefined && v !== "") headers[`X-Uploads-Meta-${k}`] = v;

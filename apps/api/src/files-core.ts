@@ -58,6 +58,7 @@ import {
 import {
   isSharedLane,
   objectPublicUrls,
+  resolveObjectLane,
   storage,
   storageConfig,
   storageConfigs,
@@ -393,6 +394,12 @@ export async function putObject(
      * write. Absent means the caller predates this parameter.
      */
     surface?: UploadSurface;
+    /**
+     * Precomputed SHA-256 (hex) of `bytes`. The idempotent-PUT path already
+     * hashes the body for its fingerprint; passing it here avoids a second pass
+     * over a potentially multi-MB body. Omit to hash internally as usual.
+     */
+    contentSha256?: string;
   },
 ): Promise<{
   key: string;
@@ -523,7 +530,7 @@ export async function putObject(
   // (never trust a client-supplied hash). Visibility lives alongside provenance
   // in the same custom-metadata bag but is tracked separately (not client-free-form).
   // `uploaded-at` is server-only — set on the final bag, never via sanitizeProvenance.
-  const contentSha256 = await contentSha256Hex(bytes);
+  const contentSha256 = opts?.contentSha256 ?? (await contentSha256Hex(bytes));
   // Started here rather than where it is consumed, so this D1 read overlaps the
   // R2 write and usage accounting instead of adding its latency after them. Safe
   // to leave in flight: inheritableMetaForHash never rejects (it resolves to `{}`
@@ -684,6 +691,52 @@ export async function putObject(
     ...(storedMetadata ? { metadata: storedMetadata } : {}),
     ...(storedVisibility ? { visibility: storedVisibility } : {}),
   };
+}
+
+/** The shape `putObject` resolves to — reused by the idempotency reconcile path below. */
+export type PutObjectResult = Awaited<ReturnType<typeof putObject>>;
+
+/**
+ * Reconciles a `key_exists` failure from an idempotent `PUT` retry (issue
+ * #829): a prior attempt's bytes may already be durably stored even though its
+ * idempotency claim never completed — a crash between the R2 write and the
+ * downstream D1 work (metadata, content-hash index, PR activity). Heading the
+ * object and synthesizing a response would report success while that D1 work
+ * was never applied (e.g. `X-Uploads-Meta-*` tags silently dropped). So, only
+ * when the stored object's `content-sha256` matches this retry's bytes — i.e.
+ * it is our own interrupted upload — this re-drives `putObject` with `replace`,
+ * converging the object to the intended state through the exact same
+ * metadata/index/poster path a normal write uses. The cost is the accepted
+ * one-off upload-ledger over-count on this rare recovery path.
+ *
+ * Returns `null` when there is no object at the key, or when one exists but its
+ * content hash differs (a genuine conflict — the caller surfaces `key_exists`
+ * rather than overwriting someone else's object).
+ */
+export async function reconcileInterruptedUpload(
+  env: Env,
+  ws: WorkspaceRecord,
+  workspaceName: string,
+  key: string,
+  bytes: Uint8Array,
+  expectedContentSha256: string,
+  putOpts: NonNullable<Parameters<typeof putObject>[5]>,
+): Promise<PutObjectResult | null> {
+  const finalKey = finalizeUploadKey(key, ws);
+  const lane = await resolveObjectLane(env, ws, finalKey);
+  if (!lane) return null;
+
+  const meta = await lane.store.head(finalKey).catch(() => null);
+  if (!meta) return null;
+
+  const provenance = provenanceForResponse(meta.metadata ?? undefined);
+  if (provenance?.["content-sha256"] !== expectedContentSha256) return null;
+
+  return putObject(env, ws, key, bytes, workspaceName, {
+    ...putOpts,
+    replace: true,
+    contentSha256: expectedContentSha256,
+  });
 }
 
 /**
