@@ -15,6 +15,7 @@ import { objectPublicUrls, resolveObjectLane } from "../storage";
 import { objectVisibility } from "../visibility";
 import { loadWorkspaceRecord, type WorkspaceRecord, type WorkspaceVars } from "../workspace";
 import { requestOrigin } from "../well-known";
+import { dbFor } from "../db-session";
 
 type GithubKind = "pull" | "issue";
 
@@ -175,7 +176,7 @@ export const publicFiles = new Hono<WorkspaceVars>().get("/:workspace/:key{.+}",
   }
 
   // After the visibility gate — private objects 401 before this D1 read.
-  const metadata = await getFileMetadata(c.env.DB, workspace, key);
+  const metadata = await getFileMetadata(dbFor(c.env), workspace, key);
   let github = deriveGithubContext(metadata);
 
   // `video.*` rows are server-owned (issue #299) and never meant to reach
@@ -200,7 +201,7 @@ export const publicFiles = new Hono<WorkspaceVars>().get("/:workspace/:key{.+}",
   let counterpart: { key: string; url: string; state: BeforeAfterState } | undefined;
   const ownContentType = meta.type ?? "application/octet-stream";
   const candidate = isPairableImageContentType(ownContentType)
-    ? await findCounterpartCandidate(c.env.DB, workspace, key, metadata)
+    ? await findCounterpartCandidate(dbFor(c.env), workspace, key, metadata)
     : null;
   if (candidate && candidate.key !== key) {
     const counterpartLane = await resolveObjectLane(env, record, candidate.key);

@@ -64,6 +64,7 @@ import { mutateWorkspaceRecord } from "../workspace-mutate";
 import { LIMIT_FIELDS, validateLimitsPatch } from "../workspace-limits";
 import { planResponse, planSourceFor, validatePlanPatch } from "../workspace-plan";
 import { storageStatusResponse } from "./workspace-storage";
+import { dbFor } from "../db-session";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const BAN_REASON_MAX = 500;
@@ -437,7 +438,7 @@ async function limitsResponse(env: Env, name: string, record: WorkspaceRecord) {
   };
   let usage: { bytes: number; uploads: number } | null = null;
   try {
-    const u = await getWorkspaceUsage(env.DB, name);
+    const u = await getWorkspaceUsage(dbFor(env), name);
     usage = { bytes: u.bytes, uploads: u.uploadsInPeriod };
   } catch {
     usage = null;
@@ -628,7 +629,7 @@ export const adminUi = new Hono<SessionVars>()
     const scopes = validateScopes(body.scopes, ["files:read", "files:write"]);
     if (!scopes) throw new ValidationError("invalid scopes", { code: "invalid_scopes" });
 
-    const enrollment = await createEnrollment(c.env.DB, {
+    const enrollment = await createEnrollment(dbFor(c.env), {
       workspace: name,
       label,
       scopes,
@@ -823,7 +824,7 @@ export const adminUi = new Hono<SessionVars>()
   // workspace), not scoped to one workspace's list.
   .get("/workspaces/:name/github-links", async (c) => {
     const name = c.req.param("name");
-    const links = await listRepoLinksForWorkspace(c.env.DB, name);
+    const links = await listRepoLinksForWorkspace(dbFor(c.env), name);
     return c.json({ workspace: name, links: links.map(repoLinkResponse) });
   })
 
@@ -858,7 +859,7 @@ export const adminUi = new Hono<SessionVars>()
     if (!(await allowWrite(c.env, workspace))) {
       throw new RateLimitedError("rate limit exceeded");
     }
-    await setRepoLink(c.env.DB, repo, workspace, "admin");
+    await setRepoLink(dbFor(c.env), repo, workspace, "admin");
     return c.json({ repo, workspace, reassigned: true });
   })
 
@@ -871,14 +872,14 @@ export const adminUi = new Hono<SessionVars>()
   // (there's no destination workspace to key on, unlike PUT above).
   .delete("/github-links", async (c) => {
     const repo = parseRepoParam(c.req.query("repo"));
-    const before = await findRepoLinkStrict(c.env.DB, repo);
+    const before = await findRepoLinkStrict(dbFor(c.env), repo);
     if (!before) {
       return c.json({ repo, unlinked: false, reason: "not_linked" as const });
     }
     if (!(await allowWrite(c.env, before.workspaceName))) {
       throw new RateLimitedError("rate limit exceeded");
     }
-    const removed = await deleteRepoLinkStrict(c.env.DB, repo);
+    const removed = await deleteRepoLinkStrict(dbFor(c.env), repo);
     return c.json({ repo, unlinked: removed });
   })
 
@@ -899,7 +900,7 @@ export const adminUi = new Hono<SessionVars>()
     // Best-effort: ban already wiped sessions; a D1 blip must not undo it.
     let tokensRevoked = 0;
     try {
-      tokensRevoked = await revokeTokensForMintingUser(c.env.DB, userId);
+      tokensRevoked = await revokeTokensForMintingUser(dbFor(c.env), userId);
     } catch {
       tokensRevoked = 0;
     }

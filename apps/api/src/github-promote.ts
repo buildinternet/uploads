@@ -24,6 +24,7 @@ import { resolveGhKeyContextSafe } from "./github-private-prefix-service";
 import { storage } from "./storage";
 import { objectVisibility } from "./visibility";
 import type { WorkspaceRecord } from "./workspace";
+import { dbFor } from "./db-session";
 
 /**
  * Max staged files processed per call — bounds the work a pathological branch
@@ -223,7 +224,7 @@ export async function promoteBranchAttachments(
   }
 
   const metaByKey = await getMetadataForKeys(
-    env.DB,
+    dbFor(env),
     workspaceName,
     toProcess
       .filter((i) => i.kind === "unit")
@@ -238,7 +239,7 @@ export async function promoteBranchAttachments(
    * throw, never affect promoted/skipped). */
   async function tagShadowOriginal(shadow: StagedEntry, destKey: string): Promise<void> {
     try {
-      await setFileMetadata(env.DB, workspaceName, shadow.key, {
+      await setFileMetadata(dbFor(env), workspaceName, shadow.key, {
         "gh.promoted-to": ref,
         "gh.promoted-at": nowIso,
         "gh.status": "promoted",
@@ -331,7 +332,7 @@ export async function promoteBranchAttachments(
       // without disturbing its own gh.repo/gh.kind/gh.branch/gh.staged-at
       // tags. `gh.status` (issue #339) flips so in-flight staged media is a
       // plain equality query (`meta.gh.status=staged`).
-      await setFileMetadata(env.DB, workspaceName, key, {
+      await setFileMetadata(dbFor(env), workspaceName, key, {
         "gh.promoted-to": ref,
         "gh.promoted-at": nowIso,
         "gh.status": "promoted",

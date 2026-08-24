@@ -10,6 +10,7 @@
 
 import { InternalError, ValidationError } from "@uploads/errors";
 import { PROVENANCE_SERVER_KEYS } from "./provenance";
+import { type D1Queryable } from "./db-session";
 
 /** Lowercase key, optionally namespaced with dots (e.g. `gh.repo`). */
 export const META_KEY_RE = /^[a-z][a-z0-9._-]{0,63}$/;
@@ -248,7 +249,7 @@ interface MetaRow {
 
 /** All metadata for one object, keyed by `(workspace, object_key)`. */
 export async function getFileMetadata(
-  db: D1Database,
+  db: D1Queryable,
   workspace: string,
   objectKey: string,
 ): Promise<Record<string, string>> {
@@ -275,7 +276,7 @@ export async function getFileMetadata(
  * exactly one place; does not change SQL semantics for any of them.
  */
 function upsertStatements(
-  db: D1Database,
+  db: D1Queryable,
   workspace: string,
   objectKey: string,
   entries: Record<string, string>,
@@ -312,7 +313,7 @@ function upsertStatements(
  * rate limiter). Caps are re-enforced on the next merge.
  */
 export async function setFileMetadata(
-  db: D1Database,
+  db: D1Queryable,
   workspace: string,
   objectKey: string,
   set: Record<string, string>,
@@ -378,7 +379,7 @@ export async function setFileMetadata(
  * `undefined` so a caller can tell "nothing to do" from "wrote an empty map".
  */
 export async function addMissingFileMetadata(
-  db: D1Database,
+  db: D1Queryable,
   workspace: string,
   objectKey: string,
   candidates: Record<string, string>,
@@ -407,7 +408,7 @@ export async function addMissingFileMetadata(
  * other row. No-op (no row created) if the key isn't already present.
  */
 export async function updateFileMetadataValue(
-  db: D1Database,
+  db: D1Queryable,
   workspace: string,
   objectKey: string,
   metaKey: string,
@@ -423,7 +424,7 @@ export async function updateFileMetadataValue(
 
 /** Deletes all metadata rows for an object (e.g. on object delete). */
 export async function deleteFileMetadata(
-  db: D1Database,
+  db: D1Queryable,
   workspace: string,
   objectKey: string,
 ): Promise<void> {
@@ -435,7 +436,7 @@ export async function deleteFileMetadata(
 
 /** Deletes every metadata row for a workspace being torn down. */
 export async function deleteFileMetadataForWorkspace(
-  db: D1Database,
+  db: D1Queryable,
   workspace: string,
 ): Promise<void> {
   await db.prepare(`DELETE FROM file_metadata WHERE workspace = ?`).bind(workspace).run();
@@ -447,7 +448,7 @@ export async function deleteFileMetadataForWorkspace(
  * stay under D1's bound-parameter limit. No-op on an empty list.
  */
 export async function deleteFileMetadataForKeys(
-  db: D1Database,
+  db: D1Queryable,
   workspace: string,
   keys: string[],
 ): Promise<void> {
@@ -471,7 +472,7 @@ export async function deleteFileMetadataForKeys(
  * would otherwise incur. Used by `putObject`'s full-replace-on-upload path.
  */
 export async function replaceFileMetadata(
-  db: D1Database,
+  db: D1Queryable,
   workspace: string,
   objectKey: string,
   metadata: Record<string, string>,
@@ -549,7 +550,7 @@ const MERGED_STATUS_SQL = `s2.meta_key = 'gh.merged' AND s2.meta_value = 'true'`
  * show a shot twice; general search keeps them.
  */
 export async function findObjectsByMetadata(
-  db: D1Database,
+  db: D1Queryable,
   workspace: string,
   filters: Record<string, string>,
   opts: { prefix?: string; limit?: number; collapsePromotedShadows?: boolean } = {},
@@ -635,7 +636,7 @@ const EXCLUDE_SERVER_KEYS = SERVER_META_PREFIXES.map(
  * Fetches one row beyond the cap so `truncated` is exact.
  */
 export async function facetKeys(
-  db: D1Database,
+  db: D1Queryable,
   workspace: string,
 ): Promise<{
   keys: Array<{ key: string; count: number; distinctValues: number }>;
@@ -674,7 +675,7 @@ export async function facetKeys(
  * rows-read is proportional to the one key rather than the whole workspace.
  */
 export async function facetValues(
-  db: D1Database,
+  db: D1Queryable,
   workspace: string,
   key: string,
 ): Promise<{ values: Array<{ value: string; count: number }>; truncated: boolean }> {
@@ -775,7 +776,7 @@ export type ProjectSummary = { label: string; count: number; lastUpdated: string
  * `catalog`, `projects`, and `latest` all reflect the same filtered rows.
  */
 export async function groupObjectsByPath(
-  db: D1Database,
+  db: D1Queryable,
   workspace: string,
   opts: { mergedOnly?: boolean } = {},
 ): Promise<{
@@ -952,7 +953,7 @@ export type FacetValuesResult = {
  * `key` → that key's values (validated against `META_KEY_RE`).
  */
 export async function listFacets(
-  db: D1Database,
+  db: D1Queryable,
   workspace: string,
   key?: string,
 ): Promise<FacetKeysResult | FacetValuesResult> {
@@ -1002,7 +1003,7 @@ function metadataLookupChunk(reservedParams: number): number {
  * worse failure mode for a caller that built the list dynamically.
  */
 export async function getMetadataForKeys(
-  db: D1Database,
+  db: D1Queryable,
   workspace: string,
   keys: string[],
   opts: { metaKeys?: string[] } = {},
@@ -1048,7 +1049,7 @@ export async function getMetadataForKeys(
  * bound-parameter limit.
  */
 export async function getObjectUpdatedAt(
-  db: D1Database,
+  db: D1Queryable,
   workspace: string,
   keys: string[],
 ): Promise<Map<string, string>> {
@@ -1080,7 +1081,7 @@ export async function getObjectUpdatedAt(
  * request's own custom metadata.
  */
 export async function setServerFileMetadata(
-  db: D1Database,
+  db: D1Queryable,
   workspace: string,
   objectKey: string,
   metadata: Record<string, string>,
@@ -1094,7 +1095,7 @@ export async function setServerFileMetadata(
 
 /** Drop specific server-owned rows — used to clear a stale poster pointer. */
 export async function deleteServerFileMetadataKeys(
-  db: D1Database,
+  db: D1Queryable,
   workspace: string,
   objectKey: string,
   keys: string[],

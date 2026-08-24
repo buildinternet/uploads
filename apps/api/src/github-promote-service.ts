@@ -12,6 +12,7 @@ import { isEntitledToClaimRepo } from "./github-claim-authz";
 import { promoteBranchAttachments, type PromoteResult, type PromoteTarget } from "./github-promote";
 import { findRepoLink, recordRepoLink } from "./github-repo-links";
 import type { WorkspaceRecord } from "./workspace";
+import { dbFor } from "./db-session";
 
 export type { PromoteResult, PromoteTarget };
 
@@ -31,11 +32,11 @@ export async function postPromoteBranchAttachments(
   // Implicit claim (phase 3): first-claim-wins; never affects the promote
   // result. Cross-tenant gate on NEW claims only (issue #297) — already-bound
   // repos re-record via INSERT OR IGNORE (no-op).
-  const existingLink = await findRepoLink(env.DB, target.repo);
+  const existingLink = await findRepoLink(dbFor(env), target.repo);
   const canClaim =
     existingLink !== null || (await isEntitledToClaimRepo(env, target.repo, mintingUserId));
   if (canClaim) {
-    await recordRepoLink(env.DB, target.repo, workspaceName, "promote");
+    await recordRepoLink(dbFor(env), target.repo, workspaceName, "promote");
   }
 
   return result;

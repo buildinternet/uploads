@@ -52,6 +52,7 @@ import {
   type GovernanceVars,
 } from "../workspace";
 import { mutateWorkspaceRecord } from "../workspace-mutate";
+import { dbFor } from "../db-session";
 
 const HASH_PREFIX_LEN = 8;
 
@@ -479,7 +480,7 @@ workspaces.get("/:name/tokens", workspaceManageAuth(), async (c) => {
 
   const now = new Date().toISOString();
   // listTokens is active-only by default; also drop expired actives for UX.
-  const tokens = (await listTokens(c.env.DB, name))
+  const tokens = (await listTokens(dbFor(c.env), name))
     .filter((token) => token.expires_at === null || token.expires_at > now)
     .map((token) => ({
       label: token.label,
@@ -518,7 +519,7 @@ workspaces.delete("/:name/tokens", workspaceManageAuth(), async (c) => {
     });
   }
 
-  const result = await revokeToken(c.env.DB, name, { hashPrefix, label });
+  const result = await revokeToken(dbFor(c.env), name, { hashPrefix, label });
   if (result.ambiguous) {
     throw new ConflictError("selector matches multiple tokens");
   }

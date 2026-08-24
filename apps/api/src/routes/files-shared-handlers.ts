@@ -19,6 +19,7 @@ import { createLaneResolver, objectPublicUrls, resolveObjectLane, storage } from
 import { hasGithubTags, uploaderTags } from "../uploader-identity";
 import { sanitizeVisibility } from "../visibility";
 import type { WorkspaceVars } from "../workspace";
+import { dbFor } from "../db-session";
 
 /** Handler shape shared by the legacy bearer and canonical dual-auth routers. */
 export type SharedFilesHandler = Handler<WorkspaceVars>;
@@ -238,7 +239,7 @@ export async function getFileHandler(c: Context<WorkspaceVars>) {
 
   const metadataParam = c.req.query("metadata");
   if (metadataParam === "1" || metadataParam === "true") {
-    const metadata = await getFileMetadata(c.env.DB, c.get("workspaceName"), key);
+    const metadata = await getFileMetadata(dbFor(c.env), c.get("workspaceName"), key);
     return c.json({ metadata });
   }
 
@@ -284,7 +285,7 @@ export async function patchFileHandler(c: Context<WorkspaceVars>) {
   }
 
   const metadata = await setFileMetadata(
-    c.env.DB,
+    dbFor(c.env),
     c.get("workspaceName"),
     key,
     (set as Record<string, string> | undefined) ?? {},

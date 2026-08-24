@@ -15,6 +15,7 @@
  * passes `purgeObjects: true` (see `TeardownOptions`, issue #583) — platform
  * state is still torn down either way.
  */
+import { dbFor } from "./db-session";
 import { deleteFileMetadataForWorkspace } from "./file-metadata";
 import { deleteGalleriesForWorkspace } from "./galleries";
 import { deleteOrg } from "./org-workspaces";
@@ -98,9 +99,9 @@ export async function teardownWorkspace(
     if (batch.length > 0) await store.delete(batch);
   }
 
-  const { galleries } = await deleteGalleriesForWorkspace(env.DB, name);
-  await deleteFileMetadataForWorkspace(env.DB, name);
-  await deleteUsageForWorkspace(env.DB, name);
+  const { galleries } = await deleteGalleriesForWorkspace(dbFor(env), name);
+  await deleteFileMetadataForWorkspace(dbFor(env), name);
+  await deleteUsageForWorkspace(dbFor(env), name);
 
   // Best-effort, like the self-serve rollback path in routes/workspaces.ts
   // — an org left behind after this point is orphaned (no KV record means

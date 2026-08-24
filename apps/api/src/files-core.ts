@@ -75,6 +75,7 @@ import {
 import { objectVisibility, VISIBILITY_META_KEY, type Visibility } from "./visibility";
 import { webOrigin } from "./web-url";
 import type { WorkspaceRecord } from "./workspace";
+import { dbFor } from "./db-session";
 
 // The freshness floor on overwrite for every bucket. This is the operative lever
 // for GitHub embeds: they're proxied through GitHub's Camo/Fastly cache, and
@@ -243,11 +244,11 @@ export async function generateAndStorePoster(
       const stale = await existingSize(store, posterKey);
       if (stale !== null) {
         await store.delete(posterKey);
-        await deleteServerFileMetadataKeys(env.DB, workspaceName, key, POSTER_META_KEYS);
+        await deleteServerFileMetadataKeys(dbFor(env), workspaceName, key, POSTER_META_KEYS);
         // Single-winner claim (issue #570) — same gate as deleteObject.
-        if (await claimDeleteUsageSafe(env.DB, workspaceName, posterKey)) {
+        if (await claimDeleteUsageSafe(dbFor(env), workspaceName, posterKey)) {
           await recordUsageSafe(
-            env.DB,
+            dbFor(env),
             workspaceName,
             {
               bytes: -stale,
@@ -272,11 +273,11 @@ export async function generateAndStorePoster(
       ...(visibility === "private" ? { metadata: { [VISIBILITY_META_KEY]: "private" } } : {}),
     });
     // A re-created poster must be able to debit the ledger on a later delete.
-    await clearDeleteUsageClaimSafe(env.DB, workspaceName, posterKey);
+    await clearDeleteUsageClaimSafe(dbFor(env), workspaceName, posterKey);
     // Counted because reconcileWorkspaceUsage walks every object under the
     // prefix and would otherwise disagree with the ledger permanently.
     await recordUsageSafe(
-      env.DB,
+      dbFor(env),
       workspaceName,
       {
         bytes: made.jpeg.byteLength - (previous ?? 0),
@@ -289,8 +290,8 @@ export async function generateAndStorePoster(
     // Full replace, not upsert: a regeneration whose probe/extraction found
     // fewer fields than the prior poster (e.g. no dims this time) must not
     // leave stale video.width/height/duration rows behind.
-    await deleteServerFileMetadataKeys(env.DB, workspaceName, key, POSTER_META_KEYS);
-    await setServerFileMetadata(env.DB, workspaceName, key, made.meta);
+    await deleteServerFileMetadataKeys(dbFor(env), workspaceName, key, POSTER_META_KEYS);
+    await setServerFileMetadata(dbFor(env), workspaceName, key, made.meta);
   } catch (err) {
     console.error({ event: "poster_generation_failed", workspace: workspaceName, key, err });
   }
@@ -469,7 +470,7 @@ export async function putObject(
   const deltaBytes = newSize - (prior?.size ?? 0);
   const uploadedAt = resolveUploadedAtMeta(prior);
 
-  const usage = await getWorkspaceUsage(env.DB, workspaceName);
+  const usage = await getWorkspaceUsage(dbFor(env), workspaceName);
   // Cheap read-side reject for obviously spent budgets (both caps). Concurrent
   // puts at the boundary still need the atomic reservations below.
   const denial = checkPutBudget(usage, ws, { bytes: deltaBytes, uploads: 1 });
@@ -482,7 +483,7 @@ export async function putObject(
   const { maxUploadsPerPeriod } = resolveBudgetLimits(ws);
   const maxStorageBytes = enforcedMaxStorageBytes(ws);
   const sharedLane = isSharedLane(ws);
-  const uploadReservation = await reserveUploads(env.DB, workspaceName, 1, maxUploadsPerPeriod);
+  const uploadReservation = await reserveUploads(dbFor(env), workspaceName, 1, maxUploadsPerPeriod);
   if (!uploadReservation.ok) {
     throw budgetDenialError(
       uploadBudgetDenial(uploadReservation.usage, uploadReservation.maxUploadsPerPeriod),
@@ -490,7 +491,7 @@ export async function putObject(
   }
 
   const storageReservation = await reserveStorageBytes(
-    env.DB,
+    dbFor(env),
     workspaceName,
     deltaBytes,
     maxStorageBytes,
@@ -498,7 +499,7 @@ export async function putObject(
     { sharedLane },
   );
   if (!storageReservation.ok) {
-    await releaseUploadsSafe(env.DB, workspaceName, 1);
+    await releaseUploadsSafe(dbFor(env), workspaceName, 1);
     throw budgetDenialError(
       storageBudgetDenial(
         storageReservation.usage,
@@ -526,7 +527,12 @@ export async function putObject(
   // R2 write and usage accounting instead of adding its latency after them. Safe
   // to leave in flight: inheritableMetaForHash never rejects (it resolves to `{}`
   // on any failure), so an upload that throws below cannot orphan a rejection.
-  const inheritedPromise = inheritableMetaForHash(env.DB, workspaceName, contentSha256, finalKey);
+  const inheritedPromise = inheritableMetaForHash(
+    dbFor(env),
+    workspaceName,
+    contentSha256,
+    finalKey,
+  );
   const provenance: ProvenanceMap = {
     ...sanitizeProvenance(opts?.provenance, { clientOnly: true }),
     "content-sha256": contentSha256,
@@ -552,8 +558,10 @@ export async function putObject(
     // resolves to `{}` rather than rejecting, so this only discards a result.
     await inheritedPromise;
     // Nothing was stored — return both reservations to the budget.
-    await releaseUploadsSafe(env.DB, workspaceName, 1);
-    await releaseStorageBytesSafe(env.DB, workspaceName, reservedBytes, undefined, { sharedLane });
+    await releaseUploadsSafe(dbFor(env), workspaceName, 1);
+    await releaseStorageBytesSafe(dbFor(env), workspaceName, reservedBytes, undefined, {
+      sharedLane,
+    });
     throw err;
   }
 
@@ -578,7 +586,7 @@ export async function putObject(
   // round trips on every upload.
   await Promise.all([
     recordUsageSafe(
-      env.DB,
+      dbFor(env),
       workspaceName,
       {
         bytes: reservedBytes > 0 ? 0 : deltaBytes,
@@ -588,7 +596,7 @@ export async function putObject(
       undefined,
       { sharedLane },
     ),
-    clearDeleteUsageClaimSafe(env.DB, workspaceName, finalKey),
+    clearDeleteUsageClaimSafe(dbFor(env), workspaceName, finalKey),
     recordAdoptionSafe(env, {
       metric: "upload",
       workspace: workspaceName,
@@ -617,23 +625,28 @@ export async function putObject(
     // one atomic batch (replaceFileMetadata) rather than a delete followed
     // by a separate re-read-then-write.
     storedMetadata = mergeWithinMetadataCaps(opts.metadata, inherited);
-    await replaceFileMetadata(env.DB, workspaceName, finalKey, storedMetadata);
+    await replaceFileMetadata(dbFor(env), workspaceName, finalKey, storedMetadata);
     // Explicit metadata only, never the inherited merge: inherited keys
     // describe the bytes, and letting them reach PR activity would attribute
     // the donor upload's PR to this one. (`gh.*` is not inheritable, so this
     // is belt and braces rather than the only guard.)
-    await recordPrActivityFromMetadata(env.DB, workspaceName, opts.metadata);
+    await recordPrActivityFromMetadata(dbFor(env), workspaceName, opts.metadata);
   } else {
     // No `X-Uploads-Meta-*` headers: this put deliberately leaves an existing
     // object's tags alone, so inheritance must be additive rather than a
     // replace, which would wipe tags the caller never asked to change.
-    storedMetadata = await applyInheritedMetaAdditively(env.DB, workspaceName, finalKey, inherited);
+    storedMetadata = await applyInheritedMetaAdditively(
+      dbFor(env),
+      workspaceName,
+      finalKey,
+      inherited,
+    );
   }
 
   // Index this object's bytes for future inheritance. Last, and best-effort:
   // the object is durably stored by now, so a failed index write costs a later
   // inheritance rather than this upload.
-  await recordContentHash(env.DB, workspaceName, finalKey, contentSha256);
+  await recordContentHash(dbFor(env), workspaceName, finalKey, contentSha256);
 
   // After the metadata replace, never before: replaceFileMetadata is
   // delete-then-insert and would wipe the server-owned video.* rows.
@@ -1097,7 +1110,7 @@ async function recordDeletedLaneUsage(
   await Promise.all(
     hits.map((hit) =>
       recordUsageSafe(
-        env.DB,
+        dbFor(env),
         workspaceName,
         { bytes: -hit.size, objects: -1, uploads: 0 },
         undefined,
@@ -1118,14 +1131,14 @@ export async function deleteObject(
 
   const configs = await storageConfigs(env, ws);
   const { hits, failures } = await deleteFromEveryLane(configs, key);
-  await deleteFileMetadata(env.DB, workspaceName, key);
+  await deleteFileMetadata(dbFor(env), workspaceName, key);
 
   if (hits.length > 0) {
     // Single-winner claim (issue #570): concurrent DELETEs can both observe
     // the object and both reach this branch; only the first claimer debits
     // the ledger (and records the adoption delete metric). Claim after the
     // storage delete so a failed delete never burns the slot.
-    const wonClaim = await claimDeleteUsageSafe(env.DB, workspaceName, key);
+    const wonClaim = await claimDeleteUsageSafe(dbFor(env), workspaceName, key);
     if (wonClaim) {
       // Positive magnitude under the `delete` metric — never negative bytes
       // under `upload`. Net change is computed at read time. These two writes
@@ -1159,7 +1172,7 @@ export async function deleteObject(
       posterKey,
     );
     if (posterHits.length > 0) {
-      if (await claimDeleteUsageSafe(env.DB, workspaceName, posterKey)) {
+      if (await claimDeleteUsageSafe(dbFor(env), workspaceName, posterKey)) {
         await recordDeletedLaneUsage(env, workspaceName, posterHits);
       }
     }

@@ -37,11 +37,12 @@ import { parseExternalReference } from "../external-references";
 import { publicUrl, storage, storageConfig } from "../storage";
 import { requireScope, type WorkspaceVars } from "../workspace";
 import { jsonBody } from "./json-body";
+import { dbFor } from "../db-session";
 
 async function ownerGallery(c: Context<WorkspaceVars>, id: string) {
-  const record = await getGallery(c.env.DB, c.get("workspaceName"), id);
+  const record = await getGallery(dbFor(c.env), c.get("workspaceName"), id);
   if (!record) throw new NotFoundError("Gallery not found.", { code: "gallery_not_found" });
-  const items = await listGalleryItems(c.env.DB, c.get("workspaceName"), id);
+  const items = await listGalleryItems(dbFor(c.env), c.get("workspaceName"), id);
   return hydrateOwnerGallery(c.env, c.get("workspace"), record, items);
 }
 
@@ -58,7 +59,7 @@ async function ownerGallery(c: Context<WorkspaceVars>, id: string) {
 export async function createGalleryHandler(c: Context<WorkspaceVars>) {
   const body = await jsonBody(c);
   const result = unwrapMutation(
-    await createGallery(c.env.DB, {
+    await createGallery(dbFor(c.env), {
       workspace: c.get("workspaceName"),
       title: typeof body.title === "string" ? body.title : "",
       description:
@@ -79,7 +80,7 @@ export async function listGalleriesHandler(c: Context<WorkspaceVars>) {
   const limit = rawLimit === undefined ? 50 : Number(rawLimit);
   if (!Number.isInteger(limit) || limit < 1 || limit > 100)
     throw new ValidationError("limit must be an integer from 1 to 100.");
-  const page = await listGalleries(c.env.DB, c.get("workspaceName"), {
+  const page = await listGalleries(dbFor(c.env), c.get("workspaceName"), {
     limit,
     cursor: decodeGalleryCursor(c.req.query("cursor")),
   });
@@ -98,7 +99,7 @@ export async function galleriesByReferenceHandler(c: Context<WorkspaceVars>) {
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100)
     throw new ValidationError("limit must be an integer from 1 to 100.");
   const page = await findGalleriesByReference(
-    c.env.DB,
+    dbFor(c.env),
     c.get("workspaceName"),
     parsed.value.normalizedKey,
     { limit, cursor: decodeGalleryCursor(c.req.query("cursor")) },
@@ -116,7 +117,7 @@ export async function getGalleryHandler(c: Context<WorkspaceVars>) {
 export async function updateGalleryHandler(c: Context<WorkspaceVars>) {
   const body = await jsonBody(c);
   const { value } = unwrapMutation(
-    await updateGallery(c.env.DB, c.get("workspaceName"), c.req.param("id") as string, {
+    await updateGallery(dbFor(c.env), c.get("workspaceName"), c.req.param("id") as string, {
       expectedVersion: requireExpectedVersion(body.expectedVersion),
       title: typeof body.title === "string" ? body.title : undefined,
       description:
@@ -135,7 +136,7 @@ export async function updateGalleryHandler(c: Context<WorkspaceVars>) {
 export async function deleteGalleryHandler(c: Context<WorkspaceVars>) {
   const body = await jsonBody(c);
   const result = await softDeleteGallery(
-    c.env.DB,
+    dbFor(c.env),
     c.get("workspaceName"),
     c.req.param("id") as string,
     requireExpectedVersion(body.expectedVersion),
@@ -149,10 +150,10 @@ export async function addGalleryItemHandler(c: Context<WorkspaceVars>) {
   const key = typeof body.objectKey === "string" ? body.objectKey : "";
   if (badKey(key)) throw new ValidationError("invalid key", { code: "invalid_key" });
   const galleryId = c.req.param("id") as string;
-  const gallery = await getGallery(c.env.DB, c.get("workspaceName"), galleryId);
+  const gallery = await getGallery(dbFor(c.env), c.get("workspaceName"), galleryId);
   if (!gallery) throw new NotFoundError("Gallery not found.", { code: "gallery_not_found" });
   const expectedVersion = requireExpectedVersion(body.expectedVersion);
-  const existing = (await listGalleryItems(c.env.DB, c.get("workspaceName"), galleryId)).find(
+  const existing = (await listGalleryItems(dbFor(c.env), c.get("workspaceName"), galleryId)).find(
     (item) => item.object_key === key,
   );
   if (existing) {
@@ -190,7 +191,7 @@ export async function addGalleryItemHandler(c: Context<WorkspaceVars>) {
   if (publicUrl(config, key) === null)
     throw new ValidationError("Object has no public URL.", { code: "gallery_object_not_public" });
   const result = unwrapMutation(
-    await addGalleryItem(c.env.DB, c.get("workspaceName"), c.req.param("id") as string, {
+    await addGalleryItem(dbFor(c.env), c.get("workspaceName"), c.req.param("id") as string, {
       expectedVersion,
       objectKey: key,
       caption: body.caption === null || typeof body.caption === "string" ? body.caption : undefined,
@@ -210,7 +211,7 @@ export async function reorderGalleryItemsHandler(c: Context<WorkspaceVars>) {
     throw new ValidationError("itemIds must be an array of strings.");
   const result = unwrapMutation(
     await reorderGalleryItems(
-      c.env.DB,
+      dbFor(c.env),
       c.get("workspaceName"),
       c.req.param("id") as string,
       body.itemIds,
@@ -226,7 +227,7 @@ export async function reorderGalleryItemsHandler(c: Context<WorkspaceVars>) {
 export async function removeGalleryItemHandler(c: Context<WorkspaceVars>) {
   const body = await jsonBody(c);
   const result = await removeGalleryItem(
-    c.env.DB,
+    dbFor(c.env),
     c.get("workspaceName"),
     c.req.param("id") as string,
     c.req.param("itemId") as string,
@@ -237,23 +238,31 @@ export async function removeGalleryItemHandler(c: Context<WorkspaceVars>) {
 }
 
 export async function listExternalReferencesHandler(c: Context<WorkspaceVars>) {
-  const gallery = await getGallery(c.env.DB, c.get("workspaceName"), c.req.param("id") as string);
+  const gallery = await getGallery(
+    dbFor(c.env),
+    c.get("workspaceName"),
+    c.req.param("id") as string,
+  );
   if (!gallery) throw new NotFoundError("Gallery not found.", { code: "gallery_not_found" });
   return c.json({
-    references: (await listExternalReferences(c.env.DB, c.get("workspaceName"), gallery.id)).map(
-      referenceDto,
-    ),
+    references: (
+      await listExternalReferences(dbFor(c.env), c.get("workspaceName"), gallery.id)
+    ).map(referenceDto),
   });
 }
 
 export async function addExternalReferenceHandler(c: Context<WorkspaceVars>) {
   const body = await jsonBody(c);
-  const gallery = await getGallery(c.env.DB, c.get("workspaceName"), c.req.param("id") as string);
+  const gallery = await getGallery(
+    dbFor(c.env),
+    c.get("workspaceName"),
+    c.req.param("id") as string,
+  );
   if (!gallery) throw new NotFoundError("Gallery not found.", { code: "gallery_not_found" });
   const parsed = parseExternalReference(body.provider, body.coordinate);
   if (!parsed.ok) throw new ValidationError(parsed.message, { code: "gallery_invalid_reference" });
   const result = unwrapMutation(
-    await addExternalReference(c.env.DB, c.get("workspaceName"), c.req.param("id") as string, {
+    await addExternalReference(dbFor(c.env), c.get("workspaceName"), c.req.param("id") as string, {
       expectedVersion: requireExpectedVersion(body.expectedVersion),
       ...parsed.value,
     }),
@@ -264,7 +273,7 @@ export async function addExternalReferenceHandler(c: Context<WorkspaceVars>) {
 export async function removeExternalReferenceHandler(c: Context<WorkspaceVars>) {
   const body = await jsonBody(c);
   const result = await removeExternalReference(
-    c.env.DB,
+    dbFor(c.env),
     c.get("workspaceName"),
     c.req.param("id") as string,
     c.req.param("referenceId") as string,

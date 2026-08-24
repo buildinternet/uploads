@@ -7,6 +7,7 @@
  * D1 rows scoped by workspace name).
  */
 
+import { dbFor } from "./db-session";
 import { listObjects } from "./files-core";
 import { getMetadataForKeys } from "./file-metadata";
 import { findGalleriesByReference, listGalleryItems, type GalleryCursor } from "./galleries";
@@ -119,7 +120,7 @@ async function gatherAttachments(
   // also listed — a private-repo attachment can land under any of them, not
   // just the plain `ghKeyPrefix`. Plain prefix listed first so ordering
   // stays stable regardless of listActivePrefixIds' order.
-  const activePrefixIds = await listActivePrefixIds(env.DB, target.repo);
+  const activePrefixIds = await listActivePrefixIds(dbFor(env), target.repo);
   const prefixes = [
     ghKeyPrefix(target),
     ...activePrefixIds.map((id) => ghPrivateKeyPrefix(id, target)),
@@ -161,7 +162,7 @@ async function gatherAttachments(
   // settings are both off, but this one always runs since a detached copy
   // must never render regardless.
   const detachByKey = await getMetadataForKeys(
-    env.DB,
+    dbFor(env),
     workspaceName,
     items.map((item) => item.key),
     { metaKeys: [DETACH_META_KEY] },
@@ -171,7 +172,7 @@ async function gatherAttachments(
   if (!showMetadata || items.length === 0) return items;
 
   const metaByKey = await getMetadataForKeys(
-    env.DB,
+    dbFor(env),
     workspaceName,
     items.map((item) => item.key),
     { metaKeys: COMMENT_META_KEYS },
@@ -230,17 +231,22 @@ async function gatherGalleries(
   const galleries: GalleryCommentItem[] = [];
   let gCursor: GalleryCursor | undefined;
   do {
-    const page = await findGalleriesByReference(env.DB, workspaceName, ref.value.normalizedKey, {
-      limit: 100,
-      cursor: gCursor,
-    });
+    const page = await findGalleriesByReference(
+      dbFor(env),
+      workspaceName,
+      ref.value.normalizedKey,
+      {
+        limit: 100,
+        cursor: gCursor,
+      },
+    );
     const pageItems = await Promise.all(
       page.galleries.map(async (rec) => {
         const dto = await hydrateOwnerGallery(
           env,
           ws,
           rec,
-          await listGalleryItems(env.DB, workspaceName, rec.id),
+          await listGalleryItems(dbFor(env), workspaceName, rec.id),
         );
         const previews = dto.items
           .filter((i) => i.status === "available" && i.url && i.contentType?.startsWith("image/"))

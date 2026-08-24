@@ -12,6 +12,7 @@
  * application logic — `getOrMintPrefixId` is race-safe because of that
  * index, not despite the lack of one.
  */
+import { type D1Queryable } from "./db-session";
 
 interface PrefixRow {
   prefix_id: string;
@@ -37,7 +38,7 @@ export const PRIVATE_PREFIX_ID_RE = /^[0-9a-f]{32}$/;
 
 /** The currently active prefix id for (repo, branch), or null if none has been minted. */
 export async function getActivePrefixId(
-  db: D1Database,
+  db: D1Queryable,
   repo: string,
   branch: string,
 ): Promise<string | null> {
@@ -60,7 +61,7 @@ export async function getActivePrefixId(
  * they all converge on the same id regardless of who won.
  */
 export async function getOrMintPrefixId(
-  db: D1Database,
+  db: D1Queryable,
   repo: string,
   branch: string,
   now = new Date(),
@@ -94,7 +95,7 @@ export async function getOrMintPrefixId(
 }
 
 /** All active (non-retired) prefix ids for `repo`, across every branch. */
-export async function listActivePrefixIds(db: D1Database, repo: string): Promise<string[]> {
+export async function listActivePrefixIds(db: D1Queryable, repo: string): Promise<string[]> {
   const { results } = await db
     .prepare(
       `SELECT prefix_id FROM github_private_prefixes
@@ -116,7 +117,7 @@ export async function listActivePrefixIds(db: D1Database, repo: string): Promise
  * scoped to non-retired rows across an entire repo, not one branch.
  */
 export async function listRetiredPrefixIds(
-  db: D1Database,
+  db: D1Queryable,
   repo: string,
   branch: string,
 ): Promise<string[]> {
@@ -138,7 +139,7 @@ export async function listRetiredPrefixIds(
  * longer sees an active row.
  */
 export async function retirePrefixId(
-  db: D1Database,
+  db: D1Queryable,
   repo: string,
   branch: string,
   prefixId: string,

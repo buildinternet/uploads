@@ -17,6 +17,7 @@ import {
 import { postManagedComment, type PostCommentResult } from "./github-comment-service";
 import { findRepoLink, recordRepoLink } from "./github-repo-links";
 import type { WorkspaceRecord } from "./workspace";
+import { dbFor } from "./db-session";
 
 export type { AttachExistingRequest, AttachExistingResult };
 
@@ -36,11 +37,11 @@ export async function postAttachExisting(
   // Implicit claim (mirrors postPromoteBranchAttachments): first-claim-wins,
   // never affects the attach result. Cross-tenant gate on NEW claims only
   // (issue #297) — already-bound repos re-record via INSERT OR IGNORE (no-op).
-  const existingLink = await findRepoLink(env.DB, req.target.repo);
+  const existingLink = await findRepoLink(dbFor(env), req.target.repo);
   const canClaim =
     existingLink !== null || (await isEntitledToClaimRepo(env, req.target.repo, mintingUserId));
   if (canClaim) {
-    await recordRepoLink(env.DB, req.target.repo, workspaceName, "attach");
+    await recordRepoLink(dbFor(env), req.target.repo, workspaceName, "attach");
   }
 
   // Comment sync (the piece promote leaves to a separate CLI call) — never

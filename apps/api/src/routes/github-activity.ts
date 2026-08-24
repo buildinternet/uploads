@@ -9,6 +9,7 @@ import { ValidationError } from "@uploads/errors";
 import { Hono, type Context } from "hono";
 import { listPrActivityForWorkspace } from "../github-pr-activity";
 import { requireScope, type WorkspaceVars } from "../workspace";
+import { dbFor } from "../db-session";
 
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
@@ -32,7 +33,7 @@ function parseLimit(raw: string | undefined): number {
 export async function githubActivityHandler(c: Context<WorkspaceVars>) {
   const limit = parseLimit(c.req.query("limit"));
   const workspaceName = c.get("workspaceName");
-  const activity = await listPrActivityForWorkspace(c.env.DB, workspaceName, limit);
+  const activity = await listPrActivityForWorkspace(dbFor(c.env), workspaceName, limit);
   return c.json({ workspace: workspaceName, activity });
 }
 

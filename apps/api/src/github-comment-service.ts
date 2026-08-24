@@ -16,6 +16,7 @@ import { resolveUploaderAccountId } from "./uploader-identity";
 import { findRepoLinkStrict, recordRepoLink } from "./github-repo-links";
 import type { GhTarget } from "./github-comment-render";
 import type { WorkspaceRecord } from "./workspace";
+import { dbFor } from "./db-session";
 
 /**
  * Cross-tenant authorization gate (issue #297). The App is installed
@@ -48,7 +49,7 @@ export async function checkRepoAuthorization(
   mintingUserId: string | null,
   installId: number | null,
 ): Promise<{ posted: false; reason: "not_authorized"; message: string } | null> {
-  const link = await findRepoLinkStrict(env.DB, repo);
+  const link = await findRepoLinkStrict(dbFor(env), repo);
   if (link) {
     if (link.workspaceName === workspaceName) return null;
     return {
@@ -254,7 +255,7 @@ export async function postManagedComment(
   // workspace has proven authenticated write access to this repo's
   // PR/issue thread — best-effort record it as the repo's bound workspace.
   // First-claim-wins (recordRepoLink) and never affects this response.
-  await recordRepoLink(env.DB, target.repo, workspaceName, "comment", installId);
+  await recordRepoLink(dbFor(env), target.repo, workspaceName, "comment", installId);
 
   // Both `created` and `updated` converge here — editing an existing managed
   // comment counts as one posted comment, not zero. `skipped` and every

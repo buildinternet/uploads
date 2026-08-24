@@ -14,6 +14,7 @@
  * github-repo-links.ts's `findRepoLink`/`recordRepoLink`, nothing here
  * swallows errors.
  */
+import { type D1Queryable } from "./db-session";
 
 export interface IngestLedgerRow {
   repo: string; // lowercase owner/name
@@ -65,7 +66,7 @@ function fromRow(row: IngestLedgerDbRow): IngestLedgerRow {
  * existing row.
  */
 export async function recordIngestedAsset(
-  db: D1Database,
+  db: D1Queryable,
   row: Omit<IngestLedgerRow, "detachedAt">,
 ): Promise<void> {
   await db
@@ -89,7 +90,7 @@ export async function recordIngestedAsset(
 
 /** The ledger row for a single (repo, asset id), or null if never recorded. */
 export async function ledgerRow(
-  db: D1Database,
+  db: D1Queryable,
   repo: string,
   assetId: string,
 ): Promise<IngestLedgerRow | null> {
@@ -105,7 +106,7 @@ export async function ledgerRow(
 
 /** All ledger rows for `repo` currently attributed to `source` ("body" or "comment:<id>"). */
 export async function ledgerRowsForSource(
-  db: D1Database,
+  db: D1Queryable,
   repo: string,
   source: string,
 ): Promise<IngestLedgerRow[]> {
@@ -121,7 +122,7 @@ export async function ledgerRowsForSource(
 
 /** All ledger rows for `repo` currently attributed to `kind`/`num` (across every source). */
 export async function ledgerRowsForTarget(
-  db: D1Database,
+  db: D1Queryable,
   repo: string,
   kind: "pull" | "issues",
   num: number,
@@ -142,7 +143,7 @@ export async function ledgerRowsForTarget(
  * reappears.
  */
 export async function setLedgerDetached(
-  db: D1Database,
+  db: D1Queryable,
   repo: string,
   assetId: string,
   detachedAt: string | null,
@@ -159,7 +160,7 @@ export async function setLedgerDetached(
  * from a comment into the body).
  */
 export async function setLedgerSource(
-  db: D1Database,
+  db: D1Queryable,
   repo: string,
   assetId: string,
   source: string,

@@ -21,6 +21,7 @@
 
 import { githubAppConfig, installationForRepo } from "./github-app";
 import { listRepoLinksForWorkspace } from "./github-repo-links";
+import { dbFor } from "./db-session";
 
 export interface GithubInstallStatus {
   /** false when the App env isn't configured on this worker — the integration is off entirely. */
@@ -53,7 +54,7 @@ export async function githubInstallStatus(
 
   let repos: string[];
   try {
-    const links = await listRepoLinksForWorkspace(env.DB, workspaceName);
+    const links = await listRepoLinksForWorkspace(dbFor(env), workspaceName);
     repos = links.slice(0, GITHUB_STATUS_REPO_CAP).map((link) => link.repo);
   } catch (err) {
     console.error(

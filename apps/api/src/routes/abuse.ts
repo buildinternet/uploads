@@ -12,6 +12,7 @@ import { Hono } from "hono";
 import { notifyAbuseReport } from "../abuse-email";
 import { envFlagOn, newId, readJsonObjectBody, sanitizeString, stripControl } from "../cli-intake";
 import type { WorkspaceVars } from "../workspace";
+import { dbFor } from "../db-session";
 
 export const ABUSE_REASONS = ["abuse", "copyright", "spam", "privacy", "other"] as const;
 
@@ -86,11 +87,12 @@ abuse.post("/", async (c) => {
   const createdAt = new Date().toISOString();
 
   try {
-    await c.env.DB.prepare(
-      `INSERT INTO abuse_reports (
+    await dbFor(c.env)
+      .prepare(
+        `INSERT INTO abuse_reports (
         id, created_at, reason, message, contact, page_url, workspace, object_key, surface
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
+      )
       .bind(id, createdAt, reason, message, contact, pageUrl, workspace, objectKey, surface)
       .run();
   } catch (err) {

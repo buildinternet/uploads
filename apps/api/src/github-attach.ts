@@ -34,6 +34,7 @@ import { storage, storageConfig } from "./storage";
 import { objectVisibility } from "./visibility";
 import { webOrigin } from "./web-url";
 import type { WorkspaceRecord } from "./workspace";
+import { dbFor } from "./db-session";
 
 /** Single-key call to `Files["download"]` — pulled out so its return type
  * (the single-key `StoredFile` overload) is inferred rather than spelled out. */
@@ -194,7 +195,7 @@ export async function attachExistingObject(
       ? ghPrivateAttachmentKey(mode.prefixId, req.target, filename)
       : `${ghKeyPrefix(req.target)}${sanitizeKeySegment(filename)}`;
 
-  const sourceMeta = await getFileMetadata(env.DB, workspaceName, sourceKey);
+  const sourceMeta = await getFileMetadata(dbFor(env), workspaceName, sourceKey);
   const bytes = new Uint8Array(await source.arrayBuffer());
   const visibility = objectVisibility(source.metadata);
   const ref = `${owner}/${name}#${req.target.num}`.toLowerCase();
@@ -208,7 +209,7 @@ export async function attachExistingObject(
 
   // Additive merge (PR #157 preserve mode): the source's existing metadata
   // rides along unchanged, gh.* is stamped fresh on top and always wins.
-  await setFileMetadata(env.DB, workspaceName, destKey, {
+  await setFileMetadata(dbFor(env), workspaceName, destKey, {
     ...sourceMeta,
     "gh.repo": `${owner}/${name}`.toLowerCase(),
     "gh.kind": req.target.kind,

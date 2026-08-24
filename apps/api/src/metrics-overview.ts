@@ -9,6 +9,7 @@
  * that governs `ws:` keys does not apply here.
  */
 
+import { dbFor } from "./db-session";
 import {
   activeWorkspacesSince,
   featureTotals,
@@ -122,18 +123,18 @@ export async function buildOverview(
   const since30 = windowStart(30, now);
 
   const [uploads, features, table, active30, storage, auth, multiIdentity] = await Promise.all([
-    platformSeries(env.DB, "upload", since),
-    featureTotals(env.DB, since),
-    workspaceActivity(env.DB, since),
+    platformSeries(dbFor(env), "upload", since),
+    featureTotals(dbFor(env), since),
+    workspaceActivity(dbFor(env), since),
     // Scans the 30-day window ONCE; the 7-day count is derived below by
     // filtering these same rows rather than issuing a second query — the
     // last 7 days of index entries are always a subset of the last 30, so a
     // separate activeWorkspaceCount(since7) call would just re-read them
     // (D1 bills rows read).
-    activeWorkspacesSince(env.DB, since30),
-    platformStorage(env.DB),
+    activeWorkspacesSince(dbFor(env), since30),
+    platformStorage(dbFor(env)),
     authMetrics(env, since),
-    multiIdentityWorkspaces(env.DB),
+    multiIdentityWorkspaces(dbFor(env)),
   ]);
 
   return {

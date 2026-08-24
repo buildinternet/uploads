@@ -70,6 +70,7 @@ import { promoteBranchAttachments } from "./github-promote";
 // consumer retries the event, not read as "repo not linked" and ack-drop it.
 import { deleteRepoLink, findRepoLinkStrict, type RepoLink } from "./github-repo-links";
 import { loadWorkspaceRecord } from "./workspace";
+import { dbFor } from "./db-session";
 
 const enc = new TextEncoder();
 
@@ -172,7 +173,7 @@ async function gatherAndUpsert(env: Env, link: RepoLink, target: GhTarget): Prom
     // The bound workspace is gone or tombstoned — the link is stale;
     // clean it up so a future claim (e.g. from another workspace) isn't
     // blocked by first-claim-wins forever.
-    await deleteRepoLink(env.DB, target.repo);
+    await deleteRepoLink(dbFor(env), target.repo);
     return;
   }
 
@@ -223,12 +224,12 @@ async function resolveLinkedWorkspaceOrCleanup(
   link: RepoLink;
   ws: NonNullable<Awaited<ReturnType<typeof loadWorkspaceRecord>>>;
 } | null> {
-  const link = await findRepoLinkStrict(env.DB, repo);
+  const link = await findRepoLinkStrict(dbFor(env), repo);
   if (!link) return null;
 
   const ws = await loadWorkspaceRecord(env, link.workspaceName);
   if (!ws) {
-    await deleteRepoLink(env.DB, repo);
+    await deleteRepoLink(dbFor(env), repo);
     return null;
   }
   return { link, ws };
@@ -281,14 +282,14 @@ async function stampMergedScreenshots(env: Env, repo: string, num: number): Prom
 
   const [owner, name] = repo.split("/");
   const ref = `${owner}/${name}#${num}`.toLowerCase();
-  const matches = await findObjectsByMetadata(env.DB, link.workspaceName, {
+  const matches = await findObjectsByMetadata(dbFor(env), link.workspaceName, {
     "gh.ref": ref,
     "gh.kind": "pull",
   });
 
   for (const match of matches) {
     try {
-      await setFileMetadata(env.DB, link.workspaceName, match.key, { "gh.merged": "true" });
+      await setFileMetadata(dbFor(env), link.workspaceName, match.key, { "gh.merged": "true" });
     } catch (err) {
       console.error(
         JSON.stringify({
@@ -364,7 +365,7 @@ async function reconcileBotComment(
   num: number,
   kind: GhTarget["kind"],
 ): Promise<void> {
-  const link = await findRepoLinkStrict(env.DB, repo);
+  const link = await findRepoLinkStrict(dbFor(env), repo);
   if (!link) return;
 
   const target: GhTarget = { repo, kind, num };

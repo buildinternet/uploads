@@ -18,6 +18,7 @@ import {
 } from "./file-metadata";
 import { storage } from "./storage";
 import type { WorkspaceRecord } from "./workspace";
+import { dbFor } from "./db-session";
 
 /** Max characters accepted in a `?name=` / `name` filename search term. */
 export const SEARCH_NAME_MAX = 128;
@@ -109,7 +110,7 @@ export async function searchFilesByNameAndMeta(
   const fetchLimit = pageSize + 1;
 
   if (hasMeta) {
-    const found = await findObjectsByMetadata(env.DB, workspaceName, filters, {
+    const found = await findObjectsByMetadata(dbFor(env), workspaceName, filters, {
       prefix,
       limit: fetchLimit,
       collapsePromotedShadows: opts.collapsePromotedShadows,
@@ -137,7 +138,7 @@ export async function searchFilesByNameAndMeta(
   }
   const truncated = keys.length > pageSize;
   const pageKeys = keys.slice(0, pageSize);
-  const metaByKey = await getMetadataForKeys(env.DB, workspaceName, pageKeys);
+  const metaByKey = await getMetadataForKeys(dbFor(env), workspaceName, pageKeys);
   return {
     matches: pageKeys.map((key) => ({ key, metadata: metaByKey.get(key) ?? {} })),
     truncated,

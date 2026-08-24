@@ -11,6 +11,7 @@
  * the last workspace that wrote media for the PR (in practice one workspace
  * per repo, per the `github_repo_links` binding model).
  */
+import { type D1Queryable } from "./db-session";
 
 export interface PrActivity {
   ref: string;
@@ -64,7 +65,7 @@ export interface PrMediaEvent {
  * branch never clobbers a previously recorded one.
  */
 export async function recordPrMediaActivity(
-  db: D1Database,
+  db: D1Queryable,
   event: PrMediaEvent,
   now = new Date(),
 ): Promise<void> {
@@ -114,7 +115,7 @@ export async function recordPrMediaActivity(
  * Never throws (recordPrMediaActivity swallows D1 failures).
  */
 export async function recordPrActivityFromMetadata(
-  db: D1Database,
+  db: D1Queryable,
   workspaceName: string,
   metadata: Record<string, string>,
 ): Promise<void> {
@@ -136,7 +137,7 @@ export async function recordPrActivityFromMetadata(
  * read endpoint should surface a D1 failure as a 5xx, not an empty feed.
  */
 export async function listPrActivityForWorkspace(
-  db: D1Database,
+  db: D1Queryable,
   workspaceName: string,
   limit: number,
 ): Promise<PrActivity[]> {

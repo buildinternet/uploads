@@ -1,6 +1,7 @@
 import { AppError, NotFoundError } from "@uploads/errors";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import { createDbSession } from "./db-session";
 import { respondError } from "./error-response";
 import { workspaceAuth, type WorkspaceVars } from "./workspace";
 import { files } from "./routes/files";
@@ -86,6 +87,21 @@ const adminUiCors = cors({
 
 /** Hono app — also re-exported for vitest (`app.request`). */
 export const app = new Hono<WorkspaceVars>()
+  // D1 Sessions API (issue #808): one Session per request, set before any
+  // handler runs. Everything downstream reads D1 via `dbFor(env)`
+  // (src/db-session.ts) instead of `env.DB` directly, so it's ready to have
+  // reads served by a replica once D1 read replication is enabled — while
+  // replication stays disabled, this is a no-op (queries still land on the
+  // primary). `DB` is a required binding in production, but some tests and
+  // local setups omit it (or fake it with a plain object that doesn't
+  // implement `withSession`), hence the guards — `dbFor` falls back to the
+  // raw binding whenever no session was created here.
+  .use("*", async (c, next) => {
+    if (c.env?.DB && typeof c.env.DB.withSession === "function") {
+      c.env.DB_SESSION = createDbSession(c.env.DB);
+    }
+    await next();
+  })
   .get("/health", (c) => c.json({ ok: true }))
   .get("/robots.txt", (c) =>
     c.text(ROBOTS_TXT, 200, {
