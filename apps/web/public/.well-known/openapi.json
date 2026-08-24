@@ -145,6 +145,107 @@
         }
       }
     },
+    "/v1/workspaces/{workspace}/files/by-path": {
+      "parameters": [{ "$ref": "#/components/parameters/Workspace" }],
+      "get": {
+        "operationId": "listFilesByPath",
+        "summary": "Group workspace files by GitHub path",
+        "description": "Powers the web Screenshots page's grouped-by-path view. Groups recently uploaded `gh.*`-tagged files by project and path.",
+        "parameters": [
+          {
+            "name": "merged",
+            "in": "query",
+            "schema": { "type": "string", "enum": ["1"] },
+            "description": "Set to `1` to include only files tagged from a merged PR."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Path groups, a flat catalog, known projects, and a flat recent feed.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/FileByPath" } }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
+    "/v1/workspaces/{workspace}/files/file-url": {
+      "parameters": [{ "$ref": "#/components/parameters/Workspace" }],
+      "get": {
+        "operationId": "getFileUrl",
+        "summary": "Resolve a usable URL for a file",
+        "description": "Returns the workspace's public URL when configured, otherwise a short-lived signed download URL. Resolves across storage lanes so a file uploaded before a storage switch still resolves.",
+        "parameters": [
+          { "name": "key", "in": "query", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "A usable URL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["url"],
+                  "properties": { "url": { "type": "string", "format": "uri" } }
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Validation" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/v1/workspaces/{workspace}/files/visibility": {
+      "parameters": [{ "$ref": "#/components/parameters/Workspace" }],
+      "patch": {
+        "operationId": "setFileVisibility",
+        "summary": "Set a file's visibility flag",
+        "parameters": [
+          { "name": "key", "in": "query", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["visibility"],
+                "properties": {
+                  "visibility": { "type": "string", "enum": ["public", "private"] }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The updated visibility.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["key", "visibility"],
+                  "properties": {
+                    "key": { "type": "string" },
+                    "visibility": { "type": "string", "enum": ["public", "private"] }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Validation" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    },
     "/v1/workspaces/{workspace}/files/{key}": {
       "parameters": [
         { "$ref": "#/components/parameters/Workspace" },
@@ -810,6 +911,18 @@
           "embedUrl": { "type": ["string", "null"], "format": "uri" },
           "metadata": { "$ref": "#/components/schemas/Metadata" },
           "updatedAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "FileByPath": {
+        "type": "object",
+        "required": ["groups", "catalog", "projects", "latest", "truncated", "catalogTruncated"],
+        "properties": {
+          "groups": { "type": "array", "items": { "type": "object" } },
+          "catalog": { "type": "array", "items": { "type": "object" } },
+          "projects": { "type": "array", "items": { "type": "string" } },
+          "latest": { "type": "array", "items": { "type": "object" } },
+          "truncated": { "type": "boolean" },
+          "catalogTruncated": { "type": "boolean" }
         }
       },
       "FileFacets": {
