@@ -1096,13 +1096,17 @@ export function createUploadsClient(config: UploadsClientConfig) {
     if (opts.prefix) params.set("prefix", opts.prefix);
     if (opts.limit != null) params.set("limit", String(opts.limit));
     if (opts.cursor) params.set("cursor", opts.cursor);
-    if (opts.metadata) params.set("metadata", "1");
+    // The canonical route hydrates D1 metadata by default (issue #613 — the
+    // session shape won the reconciliation); when the caller didn't ask for
+    // `opts.metadata` this client discards it anyway below, so `metadata=0`
+    // opts out of the hydration pass server-side instead of paying for work
+    // whose result is thrown away (issue #829 §5).
+    params.set("metadata", opts.metadata ? "1" : "0");
     const qs = params.toString();
-    // Canonical list envelope is `{files, prefixes, cursor}` with queryable
-    // metadata always hydrated (issue #613 — the session shape won the
-    // reconciliation). This client keeps its historical `{items, cursor}`
-    // contract: rename the array and honor `opts.metadata` by stripping the
-    // hydrated maps when the caller didn't ask for them.
+    // Canonical list envelope is `{files, prefixes, cursor}`. This client
+    // keeps its historical `{items, cursor}` contract: rename the array and
+    // honor `opts.metadata` by stripping the hydrated maps when the caller
+    // didn't ask for them.
     const page = await request<{ files: ListItem[]; cursor: string | null }>(
       "GET",
       `${canonicalFilesBase(config)}${qs ? `?${qs}` : ""}`,

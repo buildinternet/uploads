@@ -207,6 +207,44 @@ describe("GET /v1/workspaces/:workspace/files (dual auth)", () => {
     const res = await app.request("/v1/workspaces/acme/files", {}, env);
     expect(res.status).toBe(401);
   });
+
+  // Issue #829 §5: hydrating each row's D1 metadata is the expensive part of
+  // this route; `?metadata=0` opts out for callers that discard it anyway.
+  // Default behavior (no param) must stay exactly as before.
+  it("hydrates D1 metadata by default", async () => {
+    const { env, bucket } = await makeEnv();
+    await seed(bucket);
+    (env as unknown as { DB: { metadata: Map<string, Map<string, string>> } }).DB.metadata.set(
+      "acme shots/a.png",
+      new Map([["app", "web"]]),
+    );
+    const res = await app.request(
+      "/v1/workspaces/acme/files",
+      { headers: { Authorization: `Bearer ${TOKEN}` } },
+      env,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { files: { key: string; metadata?: unknown }[] };
+    expect(body.files).toMatchObject([{ key: "shots/a.png", metadata: { app: "web" } }]);
+  });
+
+  it.each(["0", "false"])("?metadata=%s skips D1 metadata hydration", async (value) => {
+    const { env, bucket } = await makeEnv();
+    await seed(bucket);
+    (env as unknown as { DB: { metadata: Map<string, Map<string, string>> } }).DB.metadata.set(
+      "acme shots/a.png",
+      new Map([["app", "web"]]),
+    );
+    const res = await app.request(
+      `/v1/workspaces/acme/files?metadata=${value}`,
+      { headers: { Authorization: `Bearer ${TOKEN}` } },
+      env,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { files: { key: string; metadata?: unknown }[] };
+    expect(body.files).toMatchObject([{ key: "shots/a.png" }]);
+    expect(body.files[0]).not.toHaveProperty("metadata");
+  });
 });
 
 describe("GET /v1/workspaces/:workspace/files/file-url (dual auth)", () => {

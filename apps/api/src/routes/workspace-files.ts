@@ -104,10 +104,16 @@ function sessionFileBrowserGate(): MiddlewareHandler<DualAuthVars> {
 
 export const workspaceFiles = new Hono<DualAuthVars>()
 
-  // Folder-aware listing, D1 `gh.*` metadata always hydrated. Query params:
+  // Folder-aware listing, D1 `gh.*` metadata hydrated by default. Query params:
   // `prefix`/`cursor` pass straight through, `limit` defaults to 100
   // (clamped inside `listObjects`), `delimiter` enables S3-style "folder"
-  // navigation via `listObjects`'s `prefixes`.
+  // navigation via `listObjects`'s `prefixes`. `metadata=0`/`false` skips the
+  // D1 metadata hydration pass for callers that discard it anyway (issue
+  // #829 §5) — same param name as the legacy `?metadata=1` opt-in on
+  // `files.ts`'s plain listing, inverted here since this route hydrates by
+  // default. Response shape is unchanged either way: `metadata` is simply
+  // `undefined` per item when hydration is skipped, same as it already is
+  // for any key with no D1 metadata row.
   .get("/:workspace/files", dualWorkspaceAuth(), scoped("files:read"), async (c) => {
     const record = c.get("workspace");
     const name = c.get("workspaceName");
@@ -119,17 +125,24 @@ export const workspaceFiles = new Hono<DualAuthVars>()
       prefixes,
     } = await listObjects(c.env, record, { prefix, delimiter, limit, cursor });
 
-    const metaByKey = await boundedDataRead(
-      c,
-      () =>
-        getMetadataForKeys(
-          dbFor(c.env),
-          name,
-          items.map((item) => item.key),
-        ),
-      { name: "d1_files_meta" },
-    );
-    const files = items.map((item) => ({ ...item, metadata: metaByKey.get(item.key) }));
+    const metadataParam = c.req.query("metadata");
+    const skipMetadata = metadataParam === "0" || metadataParam === "false";
+
+    const files = skipMetadata
+      ? items
+      : await (async () => {
+          const metaByKey = await boundedDataRead(
+            c,
+            () =>
+              getMetadataForKeys(
+                dbFor(c.env),
+                name,
+                items.map((item) => item.key),
+              ),
+            { name: "d1_files_meta" },
+          );
+          return items.map((item) => ({ ...item, metadata: metaByKey.get(item.key) }));
+        })();
 
     return c.json({ files, prefixes, cursor: nextCursor });
   })
