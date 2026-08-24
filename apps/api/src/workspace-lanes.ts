@@ -39,6 +39,11 @@ export function demoteActiveLane(current: WorkspaceRecord, nowIso: string): Stor
     storageConfiguredAt: current.storageConfiguredAt,
     storageConfiguredBy: current.storageConfiguredBy,
     storageAccessKeyIdLast4: current.storageAccessKeyIdLast4,
+    // Health travels with the lane (issue #826): switching away from a lane
+    // because its credentials broke must not make it look fine in the lane
+    // list the moment it stops being active.
+    unhealthyAt: current.storageUnhealthyAt,
+    unhealthyCode: current.storageUnhealthyCode,
   };
 }
 
@@ -99,6 +104,14 @@ export function promoteLane(
   else delete next.storageAccessKeyIdLast4;
   if (verifiedAt) next.storageVerifiedAt = verifiedAt;
   else delete next.storageVerifiedAt;
+  // A lane only ever becomes active after it has been proven to work — a
+  // binding-mode (shared) lane needs no proof, and an HTTP-credential lane is
+  // re-verified by `storageActivateHandler` before the swap (which forces a
+  // re-verify for a lane carrying a health flag, however fresh its
+  // `verifiedAt` looks). So promotion always clears the flag rather than
+  // carrying the demoted lane's history onto the live one.
+  delete next.storageUnhealthyAt;
+  delete next.storageUnhealthyCode;
 }
 
 /**

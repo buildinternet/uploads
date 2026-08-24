@@ -85,6 +85,7 @@ import { resolveRepoCommentOptions, workspaceCommentDefaults } from "../repo-com
 import { sealCredentialFieldsStrict } from "../secrets";
 import { selfServeWorkspaceRecord } from "../self-serve-defaults";
 import type { SessionVars } from "../session-auth";
+import { clearStorageHealthFields } from "../storage-health";
 import { isSharedLane, storageConfig as laneConfig } from "../storage";
 import { getWorkspaceUsage } from "../usage";
 import {
@@ -593,6 +594,11 @@ export async function storagePutHandler(c: Context<SettingsVars>) {
         next.storageConfiguredAt = nowIso;
         next.storageConfiguredBy = userId;
         next.storageAccessKeyIdLast4 = accessKeyIdLast4;
+        // The rotation just passed the full verify pipeline against these
+        // exact credentials, so whatever flagged this lane unhealthy (issue
+        // #826) is demonstrably fixed — clear the badge and the banner now
+        // rather than waiting for the next upload to prove it again.
+        clearStorageHealthFields(next);
         return next;
       }
 
@@ -669,7 +675,11 @@ export async function storageActivateHandler(c: Context<SettingsVars>) {
 
   const nowIso = new Date().toISOString();
   let verifiedAt = target.verifiedAt;
-  if (!isSharedLane(target) && isLaneVerifyStale(target.verifiedAt)) {
+  // A lane carrying a health flag (issue #826) is re-verified however fresh
+  // its `verifiedAt` looks: the flag is later evidence than the stamp, and
+  // `promoteLane` clears the flag unconditionally — so without this a broken
+  // lane could be switched back to and silently read as healthy again.
+  if (!isSharedLane(target) && (isLaneVerifyStale(target.verifiedAt) || target.unhealthyAt)) {
     const result = await verifyLaneForActivate(c.env, target);
     if (!result.ok) {
       return c.json(result, 422);

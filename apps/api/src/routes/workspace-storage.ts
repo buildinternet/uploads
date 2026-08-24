@@ -18,6 +18,7 @@ import {
   type StorageVerifyResult,
 } from "../storage-verify";
 import { storageBudgetApplies } from "../budget";
+import { storageHealth, type StorageHealth } from "../storage-health";
 import { reconcileWorkspaceUsage } from "../reconcile";
 import { isSharedLane, storageConfig } from "../storage";
 import type { StorageLane, WorkspaceRecord } from "../workspace";
@@ -53,6 +54,8 @@ export interface StorageLaneStatus {
   lastActiveAt?: string;
   accountIdMasked?: string;
   accessKeyIdLast4?: string;
+  /** Set when this lane was demoted while flagged unhealthy (issue #826). */
+  unhealthyAt?: string;
 }
 
 export interface StorageStatusResponse {
@@ -69,6 +72,12 @@ export interface StorageStatusResponse {
   activeLaneId?: string;
   /** Every other configured lane: saved-but-never-used configs and demoted former actives. */
   lanes: StorageLaneStatus[];
+  /**
+   * Whether the *active* lane's storage is currently working (issue #826).
+   * Always `{ ok: true }` in shared mode — a platform-binding failure is not
+   * a workspace-level state and never asks a workspace to fix anything.
+   */
+  health: StorageHealth;
 }
 
 /** Masked projection of one `StorageLane` for `storageStatusResponse` — never a credential value. */
@@ -83,6 +92,7 @@ function laneStatus(lane: StorageLane): StorageLaneStatus {
     lastActiveAt: lane.lastActiveAt,
     accountIdMasked: maskTrailing(lane.accountId),
     accessKeyIdLast4: lane.storageAccessKeyIdLast4,
+    unhealthyAt: lane.unhealthyAt,
   };
 }
 
@@ -116,6 +126,7 @@ export function storageStatusResponse(
     jurisdiction: byo ? record.jurisdiction : undefined,
     activeLaneId: record.storageLaneId,
     lanes: (record.storageLanes ?? []).map(laneStatus),
+    health: byo ? storageHealth(record) : { ok: true },
   };
 }
 

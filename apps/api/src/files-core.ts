@@ -31,6 +31,7 @@ import {
   recordContentHash,
 } from "./content-hash";
 import { recordPrActivityFromMetadata } from "./github-pr-activity";
+import { noteStorageFailure, noteStorageSuccess } from "./storage-health";
 import { DEFAULT_MAX_UPLOAD_BYTES, inspectUpload, resolveUploadPolicy } from "./guards";
 import { checkKeyPolicy, resolveKeyPolicy } from "./key-policy";
 import {
@@ -557,6 +558,11 @@ export async function putObject(
     // Settle the in-flight donor lookup so no D1 read outlives the request. It
     // resolves to `{}` rather than rejecting, so this only discards a result.
     await inheritedPromise;
+    // Credential-shaped failures flag the active BYO lane unhealthy (issue
+    // #826) so the settings page and the signed-in banner can say so before
+    // the next person notices a broken upload. Filters non-credential
+    // failures and shared lanes itself, and never throws.
+    await noteStorageFailure(env, workspaceName, ws, err);
     // Nothing was stored — return both reservations to the budget.
     await releaseUploadsSafe(dbFor(env), workspaceName, 1);
     await releaseStorageBytesSafe(dbFor(env), workspaceName, reservedBytes, undefined, {
@@ -564,6 +570,11 @@ export async function putObject(
     });
     throw err;
   }
+
+  // The write landed, so whatever flagged this lane unhealthy is over —
+  // clear it (issue #826). Returns without touching KV when nothing is
+  // flagged, which is every upload on a working workspace.
+  await noteStorageSuccess(env, workspaceName, ws);
 
   // Usage accounting first: the object is already durably stored above, so
   // the ledger must be updated regardless of whether the metadata batch
