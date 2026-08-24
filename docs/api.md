@@ -41,7 +41,6 @@ Throw `AppError` subclasses from `@uploads/errors` in route code; the API's
 
 | Route                                                                           | Description                                                                                                                                                                                                                     |
 | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /health`                                                                   | Liveness (no auth)                                                                                                                                                                                                              |
 | `POST /v1/abuse`                                                                | Public content report (no auth). D1 row + email to `abuse@uploads.sh`. Rate-limited; `ABUSE_DISABLED` kill switch                                                                                                               |
 | `PUT /v1/workspaces/:workspace/files/:key`                                      | Upload a raw body. The API sniffs its type. A normal upload returns `201`; `?dryRun=1` returns `200` without writing. Bare keys become `f/<id>/<name>`. Strict keys require `?replace=1` or `X-Uploads-Replace: 1` to overwrite |
 | `POST /v1/workspaces/:workspace/files/sign`                                     | Create a presigned upload. The workspace needs HTTP S3 credentials. The strict-overwrite check happens when the API creates the signed URL, so it is a best-effort guard rather than an atomic guarantee                        |
@@ -52,8 +51,8 @@ Throw `AppError` subclasses from `@uploads/errors` in route code; the API's
 | `PATCH /v1/workspaces/:workspace/files/:key`                                    | Merge queryable metadata with `{ set?, delete? }`                                                                                                                                                                               |
 | `DELETE /v1/workspaces/:workspace/files/:key`                                   | Delete an object. Returns `200 { key, deleted: true }`                                                                                                                                                                          |
 | `GET /v1/workspaces/:workspace/usage`                                           | Read workspace usage, limits, token scopes, and plan; requires `files:read`                                                                                                                                                     |
-| `POST /v1/workspaces/:workspace/usage/reconcile`                                | Rebuild `bytes` and `objects` from storage; bearer token only; requires `files:write`                                                                                                                                           |
-| `POST /v1/workspaces/:workspace/usage/purge-expired`                            | Delete objects older than `retentionDays`, then reconcile; bearer token only; requires `files:delete`                                                                                                                           |
+| `POST /v1/workspaces/:workspace/usage/reconcile`                                | Maintenance operation. Potentially expensive: scans storage and rebuilds `bytes` and `objects`; bearer token only; requires `files:write`                                                                                       |
+| `POST /v1/workspaces/:workspace/usage/purge-expired`                            | Destructive maintenance operation. Permanently deletes objects older than `retentionDays`, then reconciles; bearer token only; requires `files:delete`                                                                          |
 | `POST /v1/workspaces/:workspace/galleries`                                      | Create an empty public gallery; requires `files:write`                                                                                                                                                                          |
 | `GET /v1/workspaces/:workspace/galleries?limit=&cursor=`                        | List enriched gallery summaries with opaque cursor pagination; requires `files:read`                                                                                                                                            |
 | `GET /v1/workspaces/:workspace/galleries/:id`                                   | Read one owned gallery; requires `files:read`                                                                                                                                                                                   |
@@ -197,7 +196,10 @@ Configure limits with `pnpm workspace:limits <name> …` (see
 [workspaces](workspaces.md)). Bare keys are rewritten to `f/<id>/<name>` before
 policy checks; presign uses the same finalization as put.
 
-**Reconcile** scans every object under the workspace prefix and replaces ledger
+### Maintenance operations
+
+**Reconcile (potentially expensive).** This operation scans every object under
+the workspace prefix and replaces ledger
 `bytes`/`objects` (monthly upload count is preserved). Use after external
 deletes or if counters look wrong:
 
@@ -206,7 +208,8 @@ curl -X POST -H "Authorization: Bearer $TOKEN" \
   https://api.uploads.sh/v1/$WS/usage/reconcile
 ```
 
-**Purge expired** deletes objects whose store last-modified is older than
+**Purge expired (destructive).** This operation permanently deletes objects
+whose store last-modified is older than
 `retentionDays` on the workspace record, then reconciles. Skips with
 `{ "skipped": true }` when retention is unset.
 

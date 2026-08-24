@@ -3,7 +3,7 @@
   "info": {
     "title": "uploads.sh API",
     "version": "1.0.0",
-    "description": "Workspace-scoped file hosting for agents and humans. The canonical public hierarchy is `/v1/workspaces/{workspace}/...`. Bearer-only `/v1/{workspace}/...` routes remain as compatibility aliases. Full narrative docs: https://github.com/buildinternet/uploads/blob/main/docs/api.md",
+    "description": "Workspace-scoped file hosting for agents and humans. The canonical public hierarchy is `/v1/workspaces/{workspace}/...`. Full narrative docs: https://github.com/buildinternet/uploads/blob/main/docs/api.md",
     "contact": { "url": "https://github.com/buildinternet/uploads" },
     "license": {
       "name": "Apache-2.0",
@@ -11,29 +11,14 @@
     }
   },
   "servers": [{ "url": "https://api.uploads.sh", "description": "Production API" }],
+  "tags": [
+    {
+      "name": "Maintenance",
+      "description": "Advanced workspace operations that can scan or delete stored objects."
+    }
+  ],
   "security": [{ "bearerAuth": [] }],
   "paths": {
-    "/health": {
-      "get": {
-        "operationId": "health",
-        "summary": "Liveness probe",
-        "security": [],
-        "responses": {
-          "200": {
-            "description": "Worker is up",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "required": ["ok"],
-                  "properties": { "ok": { "type": "boolean" } }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/public/galleries/{galleryId}": {
       "parameters": [{ "$ref": "#/components/parameters/GalleryId" }],
       "get": {
@@ -42,7 +27,7 @@
         "description": "Returns the public allowlisted projection. It omits workspace ownership and object keys.",
         "security": [],
         "responses": {
-          "200": { "description": "The public gallery, items, and external references." },
+          "200": { "description": "The public gallery and its public item projection." },
           "404": { "$ref": "#/components/responses/NotFound" },
           "503": {
             "description": "Gallery storage is unavailable.",
@@ -301,7 +286,9 @@
       "post": {
         "operationId": "reconcileUsage",
         "summary": "Rebuild workspace usage counters",
-        "description": "Requires a bearer token with `files:write`; browser sessions are not accepted.",
+        "tags": ["Maintenance"],
+        "description": "Potentially expensive: scans every object in the workspace's active storage lanes and rebuilds the usage ledger. Requires a bearer token with `files:write`; browser sessions are not accepted.",
+        "x-uploads-potentially-expensive": true,
         "responses": {
           "200": { "description": "Reconciliation result and updated usage." },
           "401": { "$ref": "#/components/responses/Unauthorized" },
@@ -314,7 +301,9 @@
       "post": {
         "operationId": "purgeExpiredFiles",
         "summary": "Purge files past the retention window",
-        "description": "Requires a bearer token with `files:delete`; browser sessions are not accepted. The response is either `{ skipped: true }` or a purge and reconciliation result.",
+        "tags": ["Maintenance"],
+        "description": "Destructive: permanently deletes objects older than the workspace's `retentionDays`, then reconciles usage. Requires a bearer token with `files:delete`; browser sessions are not accepted. The response is either `{ skipped: true }` or a purge and reconciliation result.",
+        "x-uploads-destructive": true,
         "responses": {
           "200": { "description": "Purge result or a skipped result." },
           "401": { "$ref": "#/components/responses/Unauthorized" },
@@ -627,81 +616,6 @@
           "409": { "$ref": "#/components/responses/Conflict" },
           "429": { "$ref": "#/components/responses/RateLimited" }
         }
-      }
-    },
-    "/v1/{workspace}/files": {
-      "parameters": [{ "$ref": "#/components/parameters/Workspace" }],
-      "get": {
-        "operationId": "listFilesLegacy",
-        "summary": "List workspace files (compatibility route)",
-        "x-uploads-compatibility": true,
-        "description": "Bearer-only compatibility route. New integrations should use `/v1/workspaces/{workspace}/files`. Its response uses `{ items, cursor }`.",
-        "responses": { "200": { "description": "A compatibility file-list page." } }
-      }
-    },
-    "/v1/{workspace}/files/{key}": {
-      "parameters": [
-        { "$ref": "#/components/parameters/Workspace" },
-        { "$ref": "#/components/parameters/FileKey" }
-      ],
-      "get": {
-        "operationId": "getFileLegacy",
-        "summary": "Read file metadata (compatibility route)",
-        "x-uploads-compatibility": true,
-        "responses": { "200": { "description": "Object metadata." } }
-      },
-      "put": {
-        "operationId": "putFileLegacy",
-        "summary": "Upload a file (compatibility route)",
-        "x-uploads-compatibility": true,
-        "responses": {
-          "200": { "description": "Dry-run result." },
-          "201": { "description": "The file was stored." }
-        }
-      },
-      "patch": {
-        "operationId": "patchFileMetadataLegacy",
-        "summary": "Merge file metadata (compatibility route)",
-        "x-uploads-compatibility": true,
-        "responses": { "200": { "description": "The merged metadata map." } }
-      },
-      "delete": {
-        "operationId": "deleteFileLegacy",
-        "summary": "Delete a file (compatibility route)",
-        "x-uploads-compatibility": true,
-        "responses": {
-          "200": {
-            "description": "The file was deleted.",
-            "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/DeleteResult" } }
-            }
-          }
-        }
-      }
-    },
-    "/v1/{workspace}/usage": {
-      "parameters": [{ "$ref": "#/components/parameters/Workspace" }],
-      "get": {
-        "operationId": "getUsageLegacy",
-        "summary": "Read workspace usage (compatibility route)",
-        "x-uploads-compatibility": true,
-        "responses": { "200": { "description": "Workspace usage." } }
-      }
-    },
-    "/v1/{workspace}/galleries": {
-      "parameters": [{ "$ref": "#/components/parameters/Workspace" }],
-      "get": {
-        "operationId": "listGalleriesLegacy",
-        "summary": "List galleries (compatibility route)",
-        "x-uploads-compatibility": true,
-        "description": "Bearer-only compatibility route. Legacy summaries omit canonical enrichment fields.",
-        "responses": { "200": { "description": "Base gallery summaries and `nextCursor`." } }
-      },
-      "post": {
-        "operationId": "createGalleryLegacy",
-        "summary": "Create a gallery (compatibility route)",
-        "x-uploads-compatibility": true,
-        "responses": { "201": { "description": "The gallery was created." } }
       }
     }
   },

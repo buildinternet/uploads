@@ -5,7 +5,7 @@ import {
   ValidationError,
 } from "@uploads/errors";
 import { publicObjectDateFields } from "./files-core";
-import { displayTitle, getMetadataForKeys } from "./file-metadata";
+import { getMetadataForKeys } from "./file-metadata";
 import { VIDEO_TYPES } from "./guards";
 import { videoPresentation, type VideoDimensions } from "./poster";
 import {
@@ -21,7 +21,6 @@ import {
   listExternalReferencesForGalleries,
   projectPublicGallery,
 } from "./galleries";
-import { resolveTitles, withPublicTitleBudget, type TitleInfo } from "./github-titles";
 import { createLaneResolver, objectPublicUrls, type LaneResolver } from "./storage";
 import type { StorageConfig } from "@uploads/storage";
 import { objectVisibility } from "./visibility";
@@ -122,18 +121,7 @@ export interface GalleryListSummaryDto extends GallerySummaryDto {
 }
 export type PublicGalleryDto = PublicGallery & {
   items: PublicGalleryItemDto[];
-  references: PublicGalleryReferenceDto[];
 };
-export interface PublicGalleryReferenceDto {
-  provider: string;
-  resourceType: string;
-  coordinate: string;
-  canonicalUrl: string | null;
-  /** Live-resolved (or cached) GitHub title when available. */
-  title?: string;
-  /** pull vs issue when title resolve (or URL path) knows; drives the chip glyph. */
-  kind?: "pull" | "issue";
-}
 export interface ExternalReferenceDto {
   id: string;
   provider: string;
@@ -160,17 +148,6 @@ export function referenceDto(record: GalleryExternalReferenceRecord): ExternalRe
     coordinate: referenceCoordinate(record),
     canonicalUrl: record.canonical_url,
     createdAt: record.created_at,
-  };
-}
-
-export function publicReferenceDto(
-  record: GalleryExternalReferenceRecord,
-): PublicGalleryReferenceDto {
-  return {
-    provider: record.provider,
-    resourceType: record.resource_type,
-    coordinate: referenceCoordinate(record),
-    canonicalUrl: record.canonical_url,
   };
 }
 
@@ -514,62 +491,13 @@ export async function hydrateOwnerGallery(
   };
 }
 
-/** Rewrite `owner/repo#N` to a pull URL when title resolve says it's a PR. */
-function githubPullUrl(coordinate: string): string | null {
-  const match = /^([^/]+)\/([^#]+)#([1-9][0-9]*)$/.exec(coordinate);
-  if (!match) return null;
-  return `https://github.com/${match[1]}/${match[2]}/pull/${match[3]}`;
-}
-
-/**
- * Overlay live/cached GitHub titles onto public gallery references.
- * Failures and budget timeouts never fail the public gallery response.
- */
-export async function enrichPublicReferences(
-  env: Env,
-  references: GalleryExternalReferenceRecord[],
-): Promise<PublicGalleryReferenceDto[]> {
-  const base = references.map(publicReferenceDto);
-  const githubRefs = [
-    ...new Set(
-      base
-        .filter((ref) => ref.provider.toLowerCase() === "github")
-        .map((ref) => ref.coordinate.toLowerCase()),
-    ),
-  ];
-  if (githubRefs.length === 0) return base;
-
-  // Missing GITHUB_CACHE / App misconfig / transient / budget — keep bare refs.
-  const titles: Record<string, TitleInfo | null> =
-    (await withPublicTitleBudget(resolveTitles(env, githubRefs)).catch(() => null)) ?? {};
-
-  return base.map((ref) => {
-    if (ref.provider.toLowerCase() !== "github") return ref;
-    const info = titles[ref.coordinate.toLowerCase()];
-    if (!info) return ref;
-    const title = displayTitle(info.title);
-    // Prefer pull URL when resolve knows it's a PR (API always stamps /issues/).
-    const pullUrl = info.kind === "pull" ? githubPullUrl(ref.coordinate) : null;
-    return {
-      ...ref,
-      ...(title ? { title } : {}),
-      kind: info.kind,
-      canonicalUrl: pullUrl ?? ref.canonicalUrl,
-    };
-  });
-}
-
 export async function hydratePublicGallery(
   env: Env,
   workspace: WorkspaceRecord,
   record: GalleryRecord,
   items: GalleryItemRecord[],
-  references: GalleryExternalReferenceRecord[] = [],
 ): Promise<PublicGalleryDto> {
-  const [hydrated, publicReferences] = await Promise.all([
-    hydrateGalleryItems(env, workspace, items, { audience: "public" }),
-    enrichPublicReferences(env, references),
-  ]);
+  const hydrated = await hydrateGalleryItems(env, workspace, items, { audience: "public" });
   return {
     ...projectPublicGallery(record),
     items: hydrated.map((item) => ({
@@ -588,6 +516,5 @@ export async function hydratePublicGallery(
       ...(item.posterUrl ? { posterUrl: item.posterUrl } : {}),
       ...(item.videoDimensions ? { videoDimensions: item.videoDimensions } : {}),
     })),
-    references: publicReferences,
   };
 }

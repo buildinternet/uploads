@@ -165,19 +165,21 @@ describe("/openapi.json", () => {
     });
   });
 
-  it("keeps legacy route families as explicit compatibility paths", () => {
+  it("keeps compatibility aliases and operational health out of the integration contract", () => {
     const paths = canonicalSpec.paths as Record<string, Record<string, unknown>>;
-    expect(paths["/v1/{workspace}/files"]?.get).toMatchObject({
-      "x-uploads-compatibility": true,
+    expect(Object.keys(paths).some((path) => path.startsWith("/v1/{workspace}/"))).toBe(false);
+    expect(paths).not.toHaveProperty("/health");
+  });
+
+  it("labels expensive and destructive maintenance operations", () => {
+    const paths = canonicalSpec.paths as Record<string, Record<string, unknown>>;
+    expect(paths["/v1/workspaces/{workspace}/usage/reconcile"]?.post).toMatchObject({
+      tags: ["Maintenance"],
+      "x-uploads-potentially-expensive": true,
     });
-    expect(paths["/v1/{workspace}/files/{key}"]?.put).toMatchObject({
-      "x-uploads-compatibility": true,
-    });
-    expect(paths["/v1/{workspace}/usage"]?.get).toMatchObject({
-      "x-uploads-compatibility": true,
-    });
-    expect(paths["/v1/{workspace}/galleries"]?.get).toMatchObject({
-      "x-uploads-compatibility": true,
+    expect(paths["/v1/workspaces/{workspace}/usage/purge-expired"]?.post).toMatchObject({
+      tags: ["Maintenance"],
+      "x-uploads-destructive": true,
     });
   });
 
