@@ -2,6 +2,7 @@ import { ConflictError, ValidationError } from "@uploads/errors";
 import { MAX_GALLERIES_PER_WORKSPACE, prepareGalleryInsert, type GalleryRecord } from "./galleries";
 import { sha256Hex } from "./workspace";
 import type { D1Queryable } from "./db-session";
+import { boundedRead, type DataReadEnv } from "./data-read-bounds";
 
 export const IDEMPOTENCY_RETENTION_HOURS = 24;
 const GALLERY_CREATE_OPERATION = "gallery.create.v1";
@@ -51,6 +52,7 @@ export async function createGalleryIdempotently<T>(
     key: string;
     record: GalleryRecord;
     response: T;
+    readEnv?: DataReadEnv;
     now?: Date;
   },
 ): Promise<IdempotentGalleryResult<T>> {
@@ -123,14 +125,16 @@ export async function createGalleryIdempotently<T>(
     return { status: "ok", value: input.response, replayed: false };
   }
 
-  const row = await db
+  const replayLookup = db
     .prepare(
       `SELECT fingerprint, owner_nonce, state, response_status, response_body, expires_at
        FROM idempotency_requests
        WHERE workspace = ? AND principal = ? AND operation = ? AND key_hash = ?`,
     )
-    .bind(...scope)
-    .first<StoredRequest>();
+    .bind(...scope);
+  const row = await boundedRead(input.readEnv ?? {}, () => replayLookup.first<StoredRequest>(), {
+    name: "d1_gallery_idempotency_replay",
+  });
 
   if (!row) return { status: "limit", limit: MAX_GALLERIES_PER_WORKSPACE };
   if (row.fingerprint !== fingerprint || row.state !== "completed" || !row.response_body) {

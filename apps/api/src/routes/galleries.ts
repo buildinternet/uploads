@@ -91,6 +91,7 @@ export async function createGalleryHandler(c: Context<WorkspaceVars>) {
       key: idempotencyKey,
       record,
       response,
+      readEnv: c.env,
     });
   } catch (error) {
     if (error instanceof ConflictError && error.code === "idempotency_request_in_progress") {

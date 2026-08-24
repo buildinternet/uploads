@@ -1,7 +1,7 @@
 import { AppError, NotFoundError } from "@uploads/errors";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import { createDbSession } from "./db-session";
+import { createDbSession, dbFor } from "./db-session";
 import { respondError } from "./error-response";
 import { workspaceAuth, type WorkspaceVars } from "./workspace";
 import { files } from "./routes/files";
@@ -257,7 +257,7 @@ export default {
       }),
     );
     ctx.waitUntil(
-      purgeExpiredIdempotencyRequests(env.DB).catch((err) => {
+      purgeExpiredIdempotencyRequests(dbFor(env)).catch((err) => {
         const appErr = AppError.from(err);
         console.error(
           JSON.stringify({

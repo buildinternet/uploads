@@ -64,6 +64,59 @@ describe("gallery creation idempotency", () => {
     }
   });
 
+  it("bounds the replay lookup without racing the write batch", async () => {
+    const sqlite = new SqliteD1(MIGRATIONS);
+    try {
+      const now = new Date("2026-08-24T12:00:00Z");
+      const firstRecord = gallery("alpha", "Shots", now);
+      await createGalleryIdempotently(database(sqlite), {
+        workspace: "alpha",
+        principal: "d1-token:one",
+        key: "stalled-replay",
+        record: firstRecord,
+        response: { id: firstRecord.id },
+        now,
+      });
+
+      const underlying = database(sqlite);
+      let batchCompleted = false;
+      const stalledReplayDb = {
+        async batch(statements: D1PreparedStatement[]) {
+          await new Promise((resolve) => setTimeout(resolve, 20));
+          const results = await underlying.batch(statements);
+          batchCompleted = true;
+          return results;
+        },
+        prepare(sql: string) {
+          const statement = underlying.prepare(sql);
+          if (!sql.includes("SELECT fingerprint, owner_nonce")) return statement;
+          return {
+            bind() {
+              return this;
+            },
+            first: () => new Promise<never>(() => {}),
+          } as unknown as D1PreparedStatement;
+        },
+      } as unknown as D1Database;
+      const retryRecord = gallery("alpha", "Shots", new Date("2026-08-24T12:01:00Z"));
+
+      await expect(
+        createGalleryIdempotently(stalledReplayDb, {
+          workspace: "alpha",
+          principal: "d1-token:one",
+          key: "stalled-replay",
+          record: retryRecord,
+          response: { id: retryRecord.id },
+          readEnv: { DATA_READ_TIMEOUT_MS: "5" },
+          now: new Date("2026-08-24T12:01:00Z"),
+        }),
+      ).rejects.toMatchObject({ code: "data_unavailable" });
+      expect(batchCompleted).toBe(true);
+    } finally {
+      sqlite.close();
+    }
+  });
+
   it("lets concurrent callers create once and replay once", async () => {
     const sqlite = new SqliteD1(MIGRATIONS);
     try {
