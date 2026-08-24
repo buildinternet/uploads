@@ -1193,6 +1193,11 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
             type: "number",
             description: "Page size (default 50, max 500).",
           },
+          cursor: {
+            type: "string",
+            description:
+              "Opaque continuation from a previous call's `cursor`. Pass it back unchanged with the same filters/name to get the next page; a null `cursor` means there are no more pages.",
+          },
         },
         additionalProperties: false,
       },
@@ -1215,6 +1220,7 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
             nameTerm,
             prefix: optString(args, "prefix"),
             pageSize,
+            ...(optString(args, "cursor") ? { cursor: optString(args, "cursor")! } : {}),
           }),
         ]);
         const items = result.matches.map((match) => ({
@@ -1222,9 +1228,11 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
           url: publicUrl(cfg, match.key),
           metadata: match.metadata,
         }));
-        // Meta-only keeps the pre-#528 shape (no truncated).
-        if (nameTerm === undefined) return { items, cursor: null };
-        return { items, cursor: null, truncated: result.truncated };
+        // Meta-only keeps the pre-#528 shape (no truncated). `cursor` was
+        // always present and always null; it now carries the continuation
+        // token when more pages exist (issue #829 §4).
+        if (nameTerm === undefined) return { items, cursor: result.cursor };
+        return { items, cursor: result.cursor, truncated: result.truncated };
       },
     },
     {

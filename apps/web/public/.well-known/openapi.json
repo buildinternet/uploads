@@ -83,11 +83,12 @@
             "name": "limit",
             "in": "query",
             "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 100 }
-          }
+          },
+          { "$ref": "#/components/parameters/Cursor" }
         ],
         "responses": {
           "200": {
-            "description": "A bounded result. `truncated` can be true; search does not yet provide a cursor.",
+            "description": "A bounded page. `truncated` is true and `cursor` is non-null when more matches remain; pass `cursor` back to continue.",
             "content": {
               "application/json": { "schema": { "$ref": "#/components/schemas/FileSearch" } }
             }
@@ -787,13 +788,17 @@
       },
       "FileSearch": {
         "type": "object",
-        "required": ["items", "truncated"],
+        "required": ["items", "truncated", "cursor"],
         "properties": {
           "items": {
             "type": "array",
             "items": { "$ref": "#/components/schemas/FileSearchItem" }
           },
-          "truncated": { "type": "boolean" }
+          "truncated": { "type": "boolean" },
+          "cursor": {
+            "type": ["string", "null"],
+            "description": "Opaque continuation for the next page, or null on the last page."
+          }
         }
       },
       "FileSearchItem": {

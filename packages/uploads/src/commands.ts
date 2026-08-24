@@ -3245,8 +3245,10 @@ Default prefix: UPLOADS_DEFAULT_PREFIX (screenshots if unset).
 
 --meta <k=v> (repeatable, ANDed) and/or --name <term> switch to the search
 endpoint — returned items include their matched metadata. Combines with
---prefix, not with --pr/--issue/--all. --name is a case-insensitive
-substring match on object keys. See also: uploads find.
+--prefix, not with --pr/--issue. --name is a case-insensitive
+substring match on object keys. Search pages are continued with --cursor
+(opaque, from the previous page); --all follows it for up to 20 pages and
+prints the next cursor if more remain. See also: uploads find.
 
 Examples:
   uploads list --prefix screenshots/
@@ -3274,18 +3276,21 @@ async function runFindFiles(
   flags: CommandFlags["flags"],
   name?: string,
 ): Promise<number> {
-  if (flagString(flags, "--cursor") !== undefined) {
-    throw new UsageError("--cursor is not supported with metadata or name filters");
-  }
   const prefix = flagString(flags, "--prefix");
   const limit = flagInt(flags, "--limit", "--limit");
+  const cursor = flagString(flags, "--cursor");
   const nameTerm = name ?? flagString(flags, "--name");
   if (Object.keys(filters).length === 0 && !nameTerm) {
     throw new UsageError("find requires at least one k=v pair, --meta k=v, or --name <term>", {
       example: "uploads find path=/settings state=after",
     });
   }
-  const result = await ctx.client.findFiles(filters, { prefix, limit, name: nameTerm });
+  // `--all` follows the search cursor, but only up to FIND_FILES_MAX_PAGES —
+  // never an unbounded drain. `--cursor` resumes a specific page by hand.
+  const searchOpts = { prefix, limit, name: nameTerm, cursor };
+  const result = flagBool(flags, "--all")
+    ? await ctx.client.findFilesAll(filters, searchOpts)
+    : await ctx.client.findFiles(filters, searchOpts);
   if (ctx.json) await writeJson(result);
   else {
     for (const item of result.items) {
@@ -3300,6 +3305,8 @@ async function runFindFiles(
       );
     }
     writeTruncatedNotice(result.truncated, ctx.quiet, "more matches may exist beyond this page");
+    // Human mode surfaces the continuation the same way `uploads list` does.
+    if (result.cursor) process.stderr.write(`cursor: ${result.cursor}\n`);
   }
   return 0;
 }
@@ -3320,9 +3327,6 @@ export async function runList(
   if (metaPairs.length > 0 || nameFlag !== undefined) {
     if (ghTargetFromFlags(parsed.flags, run)) {
       throw new UsageError("--meta/--name cannot be combined with --pr/--issue");
-    }
-    if (flagBool(parsed.flags, "--all")) {
-      throw new UsageError("--meta/--name cannot be combined with --all");
     }
     return runFindFiles(
       ctx,
@@ -3396,10 +3400,15 @@ export async function runList(
 
 // --- find ---
 
-const FIND_HELP = `uploads find [k=v...] [--meta k=v]... [--name <term>] [--prefix <p>] [--limit <n>] [--workspace <name>]
+const FIND_HELP = `uploads find [k=v...] [--meta k=v]... [--name <term>] [--prefix <p>] [--limit <n>] [--cursor <c>] [--all] [--workspace <name>]
 
 Find objects by queryable metadata (ANDed equality) and/or a case-insensitive
 filename substring. Same output as \`uploads list --meta\` / \`--name\`.
+
+Results are paged. When more matches exist the next page's opaque cursor is
+printed to stderr (and carried in --json as \`cursor\`); pass it back with
+--cursor. --all follows the cursor for you, up to 20 pages, then prints the
+cursor to resume from.
 
 Pairs are positional k=v, or spelled --meta k=v. A bare positional without
 \`=\` is treated as --name (e.g. \`uploads find hero\`). At least one of a
@@ -3411,6 +3420,7 @@ Examples:
   uploads find --meta path=/settings
   uploads find hero
   uploads find --name hero --meta app=web
+  uploads find app=web --all --json
 `;
 
 export async function runFind(ctx: CliContext, args: string[], help = false): Promise<number> {

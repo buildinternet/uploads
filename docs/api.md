@@ -83,7 +83,7 @@ Throw `AppError` subclasses from `@uploads/errors` in route code; the API's
 | `PUT /v1/workspaces/:workspace/files/:key`                                      | Upload a raw body. The API sniffs its type. A normal upload returns `201`; `?dryRun=1` returns `200` without writing. Bare keys become `f/<id>/<name>`. Strict keys require `?replace=1` or `X-Uploads-Replace: 1` to overwrite |
 | `POST /v1/workspaces/:workspace/files/sign`                                     | Create a presigned upload. The workspace needs HTTP S3 credentials. The strict-overwrite check happens when the API creates the signed URL, so it is a best-effort guard rather than an atomic guarantee                        |
 | `GET /v1/workspaces/:workspace/files?prefix=&delimiter=&limit=&cursor=`         | List objects with opaque cursor pagination. Response: `{ files, prefixes, cursor }`                                                                                                                                             |
-| `GET /v1/workspaces/:workspace/files/search?meta.<key>=<value>&name=`           | Search by metadata equality and/or a filename substring. The response reports `truncated`; search does not yet return a continuation cursor                                                                                     |
+| `GET /v1/workspaces/:workspace/files/search?meta.<key>=<value>&name=`           | Search by metadata equality and/or a filename substring. The response reports `truncated` and an opaque `cursor`; pass it back as `?cursor=` for the next page                                                                  |
 | `GET /v1/workspaces/:workspace/files/facets?key=`                               | List queryable metadata keys or the values for one key                                                                                                                                                                          |
 | `GET /v1/workspaces/:workspace/files/:key`                                      | Read object metadata. `?metadata=1` returns only the queryable metadata map                                                                                                                                                     |
 | `PATCH /v1/workspaces/:workspace/files/:key`                                    | Merge queryable metadata with `{ set?, delete? }`                                                                                                                                                                               |
@@ -102,6 +102,24 @@ Throw `AppError` subclasses from `@uploads/errors` in route code; the API's
 | `GET/POST /v1/workspaces/:workspace/galleries/:id/external-references`          | List or link external coordinates; writes require `files:write`                                                                                                                                                                 |
 | `DELETE /v1/workspaces/:workspace/galleries/:id/external-references/:reference` | Unlink an external coordinate; requires `files:write`                                                                                                                                                                           |
 | `GET /public/galleries/:id`                                                     | Read one public gallery by its opaque ID (no auth)                                                                                                                                                                              |
+
+## Pagination
+
+Paged collections take `?cursor=` and return a `cursor` field. The field holds
+an opaque string when another page exists. It holds `null` when the caller has
+reached the end.
+
+`cursor` is the one continuation-field name for v1. Existing fields keep their
+names. New paged endpoints use `cursor` rather than a second spelling.
+
+Never parse, construct, or edit a cursor. Each one is scoped to the exact query
+that produced it. Send it back with that same query, unchanged. A cursor
+replayed against a different query is rejected with a `400`. On file search
+that error carries the code `file_search_invalid_cursor`.
+
+File search also keeps its pre-existing `truncated` flag. The flag reports the
+same thing from the other direction. `truncated: true` and a non-null `cursor`
+always travel together.
 
 ## Compatibility routes
 

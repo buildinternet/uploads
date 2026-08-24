@@ -1489,7 +1489,7 @@ export function createUploadsMcpTools(opts: {
       annotations: mcpRead,
       securitySchemes: mcpOAuthRead,
       description:
-        "Find objects whose queryable custom metadata matches ALL of `filters` (ANDed equality) and/or whose key contains `name` (case-insensitive substring). At least one of `filters` or `name` is required. Returns each match's key, public URL, full metadata map, and optional `truncated`. Same as `uploads find k=v...` / `uploads find --name <term>`.",
+        "Find objects whose queryable custom metadata matches ALL of `filters` (ANDed equality) and/or whose key contains `name` (case-insensitive substring). At least one of `filters` or `name` is required. Returns each match's key, public URL, full metadata map, optional `truncated`, and a `cursor` to pass back for the next page (null when there are none; set `all` to follow it for you). Same as `uploads find k=v...` / `uploads find --name <term>`.",
       inputSchema: {
         type: "object",
         properties: {
@@ -1508,6 +1508,16 @@ export function createUploadsMcpTools(opts: {
             description: "Key prefix filter, combinable with filters/name.",
           },
           limit: { type: "number", description: "Page size (default 50, max 500)." },
+          cursor: {
+            type: "string",
+            description:
+              "Opaque continuation from a previous call's `cursor`. Pass it back unchanged with the same filters/name to get the next page; a null `cursor` means there are no more pages.",
+          },
+          all: {
+            type: "boolean",
+            description:
+              "Follow the cursor and return every page, up to a bounded number of requests. A non-null `cursor` in the result means that bound was reached before the end — pass it back to continue.",
+          },
           workspace: workspaceProp,
         },
         additionalProperties: false,
@@ -1521,11 +1531,17 @@ export function createUploadsMcpTools(opts: {
         }
         if (hasMeta) validateMetaMap(filters);
         const { client } = await clientFor(args);
-        return client.findFiles(filters, {
+        const opts = {
           name,
           prefix: optString(args, "prefix"),
           limit: optPosInt(args, "limit"),
-        });
+          cursor: optString(args, "cursor"),
+        };
+        // `all` drains through findFilesAll, which caps its own page count —
+        // unlike `list`'s `all`, this never runs unbounded.
+        return optBool(args, "all")
+          ? client.findFilesAll(filters, opts)
+          : client.findFiles(filters, opts);
       },
     },
     {

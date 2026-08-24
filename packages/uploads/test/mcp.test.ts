@@ -41,6 +41,8 @@ function fakeFactory() {
     prefix?: string;
     limit?: number;
     name?: string;
+    cursor?: string;
+    all?: boolean;
   }> = [];
   const facetCalls: Array<{ kind: "keys" } | { kind: "values"; key: string }> = [];
   // Keyed by object key, mirroring the server's per-key metadata rows well
@@ -120,6 +122,13 @@ function fakeFactory() {
           .slice(0, opts.limit ?? 50)
           .map(([key, meta]) => ({ key, url: `https://x.test/${key}`, metadata: meta }));
         return { items, cursor: null, truncated: opts.name ? false : undefined };
+      },
+      findFilesAll: async (
+        filters: Record<string, string> = {},
+        opts: { prefix?: string; limit?: number; name?: string; cursor?: string } = {},
+      ) => {
+        findCalls.push({ filters, ...opts, all: true });
+        return { items: [], cursor: null, truncated: false };
       },
       listMetadataKeys: async () => {
         facetCalls.push({ kind: "keys" });
@@ -1361,6 +1370,22 @@ describe("tools/call get_metadata, set_metadata, find_files", () => {
     });
     expect(res.result.isError).toBe(false);
     expect(findCalls[0]).toMatchObject({ filters: {}, name: "hero" });
+  });
+
+  it("forwards a cursor, and routes `all` through the bounded drain", async () => {
+    const { server, findCalls } = serverWith();
+    await rpc(server, "tools/call", {
+      name: "find_files",
+      arguments: { name: "hero", cursor: "c0" },
+    });
+    expect(findCalls[0]).toMatchObject({ name: "hero", cursor: "c0" });
+    expect(findCalls[0].all).toBeUndefined();
+
+    await rpc(server, "tools/call", {
+      name: "find_files",
+      arguments: { name: "hero", all: true },
+    });
+    expect(findCalls[1]).toMatchObject({ name: "hero", all: true });
   });
 
   it("list_metadata_keys returns keys and values shapes", async () => {

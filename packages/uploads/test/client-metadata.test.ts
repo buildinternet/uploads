@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createUploadsClient } from "../src/client.js";
+import { createUploadsClient, FIND_FILES_MAX_PAGES } from "../src/client.js";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -157,6 +157,93 @@ describe("metadata CRUD client methods", () => {
     const result = await client.findFiles({ app: "web" }, { name: "hero" });
     expect(result.items[0].key).toBe("f/hero.png");
     expect(result.truncated).toBe(false);
+  });
+
+  it("findFiles forwards the cursor and surfaces the server's next cursor", async () => {
+    const fetch = vi.fn(async (input: string | URL | Request) => {
+      const url = new URL(String(input));
+      expect(url.searchParams.get("cursor")).toBe("c0");
+      return new Response(JSON.stringify({ items: [], cursor: "c1", truncated: true }));
+    });
+    vi.stubGlobal("fetch", fetch);
+    const client = createUploadsClient({
+      apiUrl: "https://api.test",
+      workspace: "test",
+      token: "up_test_x",
+    });
+    const result = await client.findFiles({ app: "web" }, { cursor: "c0" });
+    expect(result.cursor).toBe("c1");
+    expect(result.truncated).toBe(true);
+  });
+
+  it("findFilesAll follows the cursor but stops at the page cap", async () => {
+    // Server never runs out of pages — the drain has to stop itself.
+    let calls = 0;
+    const fetch = vi.fn(async (input: string | URL | Request) => {
+      calls += 1;
+      const seq = String(calls);
+      const url = new URL(String(input));
+      expect(url.searchParams.get("cursor")).toBe(calls === 1 ? null : String(calls - 1));
+      return new Response(
+        JSON.stringify({ items: [{ key: `f/${seq}.png`, url: null, metadata: {} }], cursor: seq }),
+      );
+    });
+    vi.stubGlobal("fetch", fetch);
+    const client = createUploadsClient({
+      apiUrl: "https://api.test",
+      workspace: "test",
+      token: "up_test_x",
+    });
+    const result = await client.findFilesAll({ app: "web" }, {}, 3);
+    expect(calls).toBe(3);
+    expect(result.items.map((item) => item.key)).toEqual(["f/1.png", "f/2.png", "f/3.png"]);
+    // Non-null cursor means the cap stopped the drain, not the server.
+    expect(result.cursor).toBe("3");
+  });
+
+  it("findFilesAll stops early when the server returns a null cursor", async () => {
+    let calls = 0;
+    const fetch = vi.fn(async () => {
+      calls += 1;
+      return new Response(
+        JSON.stringify({ items: [{ key: "f/only.png", url: null, metadata: {} }], cursor: null }),
+      );
+    });
+    vi.stubGlobal("fetch", fetch);
+    const client = createUploadsClient({
+      apiUrl: "https://api.test",
+      workspace: "test",
+      token: "up_test_x",
+    });
+    const result = await client.findFilesAll({ app: "web" });
+    expect(calls).toBe(1);
+    expect(result.cursor).toBeNull();
+  });
+
+  it("findFilesAll falls back to the default cap for a non-finite maxPages", async () => {
+    // Infinity would otherwise remove the bound entirely, and NaN would make
+    // the loop run zero times and return an empty result that looks complete.
+    for (const maxPages of [Number.POSITIVE_INFINITY, Number.NaN, 0, -5]) {
+      let calls = 0;
+      const fetch = vi.fn(async () => {
+        calls += 1;
+        return new Response(
+          JSON.stringify({
+            items: [{ key: `f/${calls}.png`, url: null, metadata: {} }],
+            cursor: "c",
+          }),
+        );
+      });
+      vi.stubGlobal("fetch", fetch);
+      const client = createUploadsClient({
+        apiUrl: "https://api.test",
+        workspace: "test",
+        token: "up_test_x",
+      });
+      const result = await client.findFilesAll({ app: "web" }, {}, maxPages);
+      expect(calls).toBe(FIND_FILES_MAX_PAGES);
+      expect(result.cursor).toBe("c");
+    }
   });
 
   it("listMetadataKeys GETs /files/facets", async () => {

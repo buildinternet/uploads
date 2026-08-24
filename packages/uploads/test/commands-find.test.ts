@@ -9,13 +9,20 @@ function fakeClient() {
     prefix?: string;
     limit?: number;
     name?: string;
+    cursor?: string;
   }[] = [];
   const client = {
     findFiles: async (
       filters: Record<string, string>,
-      opts: { prefix?: string; limit?: number; name?: string } = {},
+      opts: { prefix?: string; limit?: number; name?: string; cursor?: string } = {},
     ) => {
-      calls.push({ filters, prefix: opts.prefix, limit: opts.limit, name: opts.name });
+      calls.push({
+        filters,
+        prefix: opts.prefix,
+        limit: opts.limit,
+        name: opts.name,
+        cursor: opts.cursor,
+      });
       return {
         items: [
           {
@@ -115,11 +122,27 @@ describe("runFind", () => {
     expect(calls[0].limit).toBe(5);
   });
 
-  it("rejects --cursor with metadata filters", async () => {
-    const { client } = fakeClient();
-    await expect(runFind(ctxWith(client), ["app=myapp", "--cursor", "abc"], false)).rejects.toThrow(
-      UsageError,
-    );
+  it("forwards --cursor to the search endpoint (issue #829 §4)", async () => {
+    const { client, calls } = fakeClient();
+    const code = await runFind(ctxWith(client), ["app=myapp", "--cursor", "abc"], false);
+    expect(code).toBe(0);
+    expect(calls[0].cursor).toBe("abc");
+  });
+
+  it("--all follows the cursor through findFilesAll", async () => {
+    const { client, calls } = fakeClient();
+    const drained: unknown[] = [];
+    (client as unknown as Record<string, unknown>).findFilesAll = async (
+      filters: Record<string, string>,
+      opts: { cursor?: string },
+    ) => {
+      drained.push({ filters, cursor: opts.cursor });
+      return { items: [], cursor: null, truncated: false };
+    };
+    const code = await runFind(ctxWith(client), ["app=myapp", "--all"], false);
+    expect(code).toBe(0);
+    expect(drained).toEqual([{ filters: { app: "myapp" }, cursor: undefined }]);
+    expect(calls).toHaveLength(0);
   });
 
   it("renders each match's key, url, and matched metadata (sorted) on stdout", async () => {
