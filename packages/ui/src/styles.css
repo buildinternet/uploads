@@ -163,12 +163,17 @@
 }
 
 /* ── Button ────────────────────────────────────────────────────────────── */
+/* The base class carries a real size (the sm scale) so a size-less
+   `ul-btn` is never an unpadded text-hugging pill; `--sm/--md/--lg`
+   override it as before. */
 .ul-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
   font-family: var(--sans);
+  font-size: var(--text-meta);
+  padding: 9px 12px;
   font-weight: var(--weight-medium);
   letter-spacing: var(--tracking-ui);
   color: var(--fg);

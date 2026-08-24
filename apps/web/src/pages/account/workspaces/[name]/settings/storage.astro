@@ -1,12 +1,18 @@
 ---
 /**
  * Workspace settings — storage sub-page: the workspace details summary
- * (slug + base URL) and the Storage / BYO-bucket panel, split out of
- * settings.astro (issue #365 redesign). Behavior is unchanged from before
- * the split — this is the same markup, styles, and script logic, just
- * without the `<details>` disclosure around the summary (it's its own page
- * now, so there's nothing to collapse it under) and without the GitHub
- * comment block, which stays on the parent settings page.
+ * (slug + base URL) and the Storage / BYO-bucket panel.
+ *
+ * One-screen connect flow (direction A of the storage-settings redesign):
+ * the old three-step wizard and its duplicate summary card are gone. The
+ * empty state is a centered card (shared `Empty` component shape) that
+ * explains the default, and "Connect your bucket" expands a single form in
+ * place — Cloudflare setup instructions live in a collapsed <details> for
+ * the minority who arrive without a bucket. Verify and Save are one button:
+ * saving never switches lanes, so there is nothing to review in between.
+ * Lane-card management actions (rotate / replace / switch back) collapse
+ * into a ⋯ menu so status is the content and the destructive action never
+ * sits inline at equal weight.
  */
 import WorkspaceLayout from "../../../../../layouts/WorkspaceLayout.astro";
 import { isBrowseWorkspace } from "../../../../../lib/workspace-browse-url";
@@ -31,73 +37,97 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       <div id="storage-error" class="ul-callout" data-state="error" role="alert" hidden></div>
 
       <div id="storage-shared">
-        <!-- Connect pitch + walkthrough: only when no bucket is saved yet.
-             Once a lane exists the lane card is the page (#788) - repeating
-             the pitch under it read as "you still need to do this". -->
-        <div id="storage-intro">
-          <p class="settings-note muted">
-            Your files live on <code>storage.uploads.sh</code>. You can point this workspace at your
-            own Cloudflare R2 bucket instead — see the&#32;
-            <a href="/docs/byo-bucket">bring your own bucket</a> docs.
-          </p>
-          <div class="storage-actions flex flex-wrap items-center gap-3 mt-3">
-            <button type="button" class="ul-btn ul-btn--solid" id="storage-connect-btn"
-              >Connect your own bucket</button
-            >
-          </div>
-
+        <!-- Empty state: shared `Empty` card shape (kept in sync with
+             packages/ui/src/components/ui/empty.tsx, same convention as
+             renderEmptyStateHtml in workspace-ui.ts), centered inside the
+             section so the default story reads as the content, not a
+             footnote. -->
+        <div id="storage-intro" class="flex min-h-[16rem] items-center justify-center">
           <div
-            class="storage-summary mt-[22px] rounded-md border border-border bg-card"
-            id="storage-summary"
+            data-slot="empty"
+            class="flex w-full min-w-0 flex-1 flex-col items-center justify-center gap-4 rounded-xl border-dashed p-6 text-center text-balance"
           >
-            <div class="storage-summary__step flex items-baseline gap-3 px-4 py-[13px]">
-              <span class="storage-summary__num flex-none text-xs text-primary">1</span>
-              <div class="storage-summary__body min-w-0 text-[13px]">
-                <div class="storage-summary__title text-foreground">
-                  Set up your bucket on Cloudflare
-                </div>
-                <div class="storage-summary__sub mt-0.5 text-xs text-muted-foreground">
-                  Dashboard → R2 → Create bucket, then a bucket-scoped API token with Object Read &
-                  Write.
-                </div>
+            <div data-slot="empty-header" class="flex max-w-sm flex-col items-center gap-2">
+              <div
+                data-slot="empty-icon"
+                data-variant="icon"
+                class="mb-2 flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                  ><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path
+                    d="M3 5V19A9 3 0 0 0 21 19V5"></path><path d="M3 12A9 3 0 0 0 21 12"
+                  ></path></svg
+                >
+              </div>
+              <div data-slot="empty-title" class="text-sm font-medium tracking-tight">
+                Files live on hosted storage
+              </div>
+              <div
+                data-slot="empty-description"
+                class="text-sm/relaxed text-muted-foreground [&>a]:underline [&>a]:underline-offset-4 [&>a:hover]:text-primary"
+              >
+                Uploads go to hosted storage at <code>storage.uploads.sh</code> — no setup, and links
+                just work. Prefer to own the data? Point this workspace at your own Cloudflare R2 bucket.
+                Nothing moves until you switch.
               </div>
             </div>
             <div
-              class="storage-summary__step flex items-baseline gap-3 border-t border-border px-4 py-[13px]"
+              data-slot="empty-content"
+              class="flex w-full max-w-sm min-w-0 flex-col items-center gap-2.5 text-sm text-balance"
             >
-              <span class="storage-summary__num flex-none text-xs text-primary">2</span>
-              <div class="storage-summary__body min-w-0 text-[13px]">
-                <div class="storage-summary__title text-foreground">
-                  Enter the bucket's credentials
-                </div>
-                <div class="storage-summary__sub mt-0.5 text-xs text-muted-foreground">
-                  Account ID (or endpoint URL) and access keys — we'll look up the bucket for you,
-                  plus an optional public base URL.
-                </div>
-              </div>
-            </div>
-            <div
-              class="storage-summary__step flex items-baseline gap-3 border-t border-border px-4 py-[13px]"
-            >
-              <span class="storage-summary__num flex-none text-xs text-primary">3</span>
-              <div class="storage-summary__body min-w-0 text-[13px]">
-                <div class="storage-summary__title text-foreground">Save & verify</div>
-                <div class="storage-summary__sub mt-0.5 text-xs text-muted-foreground">
-                  We run auth, round-trip, and public-URL checks. Saving never changes where uploads
-                  go — switch to it whenever you're ready.
-                </div>
+              <div class="flex flex-wrap items-center justify-center gap-3">
+                <button type="button" class="ul-btn ul-btn--solid" id="storage-connect-btn"
+                  >Connect your bucket</button
+                >
+                <a class="ul-btn ul-btn--ghost" href="/docs/byo-bucket">Setup guide</a>
               </div>
             </div>
           </div>
         </div>
 
         <div id="storage-saved" hidden>
-          <p class="settings-note muted">
-            Uploads currently go to shared storage on <code>storage.uploads.sh</code>.
-          </p>
-          <h3 class="storage-lane-heading flex items-center gap-2.5">
-            Your bucket <span class="ul-badge ul-badge--accent">Not in use yet</span>
-          </h3>
+          <div class="storage-lane-head flex items-center justify-between gap-3">
+            <h3 class="storage-lane-heading flex items-center gap-2.5 m-0">
+              Your bucket <span class="ul-badge ul-badge--accent">Not in use yet</span>
+            </h3>
+            <div class="storage-menu relative flex-none" data-storage-menu>
+              <button
+                type="button"
+                class="ul-btn storage-menu__trigger px-2.5"
+                aria-haspopup="menu"
+                aria-expanded="false"
+                aria-label="Bucket actions"
+                data-menu-trigger>⋯</button
+              >
+              <div
+                role="menu"
+                class="storage-menu__popover absolute top-[calc(100%+4px)] right-0 z-30 grid min-w-[190px] gap-px rounded-md border border-border bg-popover p-1 shadow-lg"
+                data-menu-popover
+                hidden
+              >
+                <button
+                  type="button"
+                  role="menuitem"
+                  class="storage-menu__item block w-full cursor-pointer rounded-[4px] border-0 bg-transparent px-2.5 py-1.5 text-left text-[13px] text-foreground hover:bg-accent/12 focus-visible:bg-accent/12 focus-visible:outline-none"
+                  id="storage-saved-rotate-btn">Rotate credentials</button
+                >
+                <button
+                  type="button"
+                  role="menuitem"
+                  class="storage-menu__item block w-full cursor-pointer rounded-[4px] border-0 bg-transparent px-2.5 py-1.5 text-left text-[13px] text-foreground hover:bg-accent/12 focus-visible:bg-accent/12 focus-visible:outline-none"
+                  id="storage-replace-btn">Replace bucket</button
+                >
+              </div>
+            </div>
+          </div>
           <dl class="kv" id="storage-saved-details"></dl>
           <div
             class="storage-actions flex flex-wrap items-center gap-3 mt-3"
@@ -106,10 +136,6 @@ if (!workspace) return Astro.redirect("/account/workspaces");
             <button type="button" class="ul-btn ul-btn--solid" id="storage-use-btn"
               >Use this bucket</button
             >
-            <button type="button" class="ul-btn" id="storage-saved-rotate-btn"
-              >Rotate credentials</button
-            >
-            <button type="button" class="ul-btn" id="storage-replace-btn">Replace bucket</button>
           </div>
           <div
             class="storage-confirm max-w-[32rem] mt-3 flex flex-col gap-2.5 rounded-md border border-border px-4 py-3"
@@ -132,19 +158,42 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       </div>
 
       <div id="storage-byo" hidden>
-        <h3 class="storage-lane-heading flex items-center gap-2.5">
-          Your bucket <span class="ul-badge ul-badge--ok">Active</span>
-        </h3>
+        <div class="storage-lane-head flex items-center justify-between gap-3">
+          <h3 class="storage-lane-heading flex items-center gap-2.5 m-0">
+            Your bucket <span class="ul-badge ul-badge--ok">Active</span>
+          </h3>
+          <div class="storage-menu relative flex-none" data-storage-menu>
+            <button
+              type="button"
+              class="ul-btn storage-menu__trigger px-2.5"
+              aria-haspopup="menu"
+              aria-expanded="false"
+              aria-label="Bucket actions"
+              data-menu-trigger>⋯</button
+            >
+            <div
+              role="menu"
+              class="storage-menu__popover absolute top-[calc(100%+4px)] right-0 z-30 grid min-w-[220px] gap-px rounded-md border border-border bg-popover p-1 shadow-lg"
+              data-menu-popover
+              hidden
+            >
+              <button
+                type="button"
+                role="menuitem"
+                class="storage-menu__item block w-full cursor-pointer rounded-[4px] border-0 bg-transparent px-2.5 py-1.5 text-left text-[13px] text-foreground hover:bg-accent/12 focus-visible:bg-accent/12 focus-visible:outline-none"
+                id="storage-rotate-btn">Rotate credentials</button
+              >
+              <button
+                type="button"
+                role="menuitem"
+                class="storage-menu__item storage-menu__item--danger block w-full cursor-pointer rounded-[4px] border-0 bg-transparent px-2.5 py-1.5 text-left text-[13px] text-destructive hover:bg-destructive/10 focus-visible:bg-destructive/10 focus-visible:outline-none mt-px border-t border-border pt-2"
+                id="storage-disconnect-btn">Switch back to hosted storage…</button
+              >
+            </div>
+          </div>
+        </div>
         <p class="settings-note muted">New uploads go to this bucket.</p>
         <dl class="kv" id="storage-byo-details"></dl>
-        <div class="storage-actions flex flex-wrap items-center gap-3 mt-3">
-          <button type="button" class="ul-btn" id="storage-reverify-btn">Re-run verification</button
-          >
-          <button type="button" class="ul-btn" id="storage-rotate-btn">Rotate credentials</button>
-          <button type="button" class="ul-btn ul-btn--danger" id="storage-disconnect-btn"
-            >Switch back to uploads.sh storage</button
-          >
-        </div>
         <div
           class="storage-confirm max-w-[32rem] mt-3 flex flex-col gap-2.5 rounded-md border border-border px-4 py-3"
           id="storage-byo-confirm"
@@ -166,180 +215,138 @@ if (!workspace) return Astro.redirect("/account/workspaces");
 
       <p class="muted settings-note" id="storage-previous" hidden></p>
 
-      <div id="storage-wizard" hidden>
-        <div class="storage-wizard-step" id="storage-step-1">
-          <h3>1. Set up your bucket on Cloudflare</h3>
+      <!-- One-screen connect/rotate form — replaces the old 3-step wizard. -->
+      <div id="storage-connect" hidden>
+        <h3 id="storage-connect-heading">Connect your bucket</h3>
+
+        <details
+          class="storage-setup-help max-w-[32rem] rounded-md border border-border px-4 py-2.5 text-[13px] mb-4"
+          id="storage-setup-help"
+        >
+          <summary class="cursor-pointer text-foreground font-medium"
+            >Don't have a bucket yet?</summary
+          >
           <ol
-            class="storage-instructions max-w-[42rem] flex flex-col gap-2.5 pl-[1.2em] text-[13px] leading-[1.6] text-muted-foreground"
+            class="storage-instructions flex flex-col gap-2.5 pl-[1.2em] mt-2.5 mb-1 leading-[1.6] text-muted-foreground"
           >
             <li>
-              Create an R2 bucket: dashboard → <strong class="text-foreground">R2</strong> →
+              In the Cloudflare dashboard: <strong class="text-foreground">R2</strong> →
               <strong class="text-foreground">Create bucket</strong>.
             </li>
             <li>
-              Create a bucket-scoped API token: <strong class="text-foreground">R2</strong> →
-              <strong class="text-foreground">Manage API Tokens</strong> → <strong
+              Then <strong class="text-foreground">Manage API Tokens</strong> → <strong
                 class="text-foreground">Create API Token</strong
-              >, permission
-              <strong class="text-foreground">Object Read & Write</strong>, scoped to that one
-              bucket only. Copy the Access Key ID and Secret Access Key — and either the Account ID
-              or the S3 endpoint URL Cloudflare shows on the same screen (either works below).
+              > with <strong class="text-foreground">Object Read & Write</strong>, scoped to that
+              bucket. Copy the keys and the endpoint URL it shows.
             </li>
             <li>
-              Optional — for public reads: bucket → <strong class="text-foreground">Settings</strong
-              > →
+              Give the bucket a domain: bucket → <strong class="text-foreground">Settings</strong> →
               <strong class="text-foreground">Public access</strong> → <strong
                 class="text-foreground">Custom Domains</strong
-              >, connect a domain on a Cloudflare zone in your account. <code>r2.dev</code> URLs aren't
-              supported; skip this for signed-only access.
+              >. That domain is the public base URL below.
             </li>
           </ol>
-          <div class="storage-actions flex flex-wrap items-center gap-3 mt-3">
-            <button type="button" class="ul-btn ul-btn--solid" id="storage-step1-next">Next</button>
-            <button type="button" class="ul-btn ul-btn--ghost" id="storage-wizard-cancel-1"
-              >Cancel</button
-            >
-          </div>
-        </div>
-
-        <div class="storage-wizard-step" id="storage-step-2" hidden>
-          <h3>2. Connect your bucket</h3>
-          <p class="settings-note muted">
-            Enter your bucket's credentials — checks run inline below.
+          <p class="mt-1 mb-1 text-muted-foreground">
+            Full walkthrough in the <a href="/docs/byo-bucket">setup guide</a>.
           </p>
-          <form class="ws-form flex flex-col gap-3.5 max-w-[32rem]" id="storage-form">
-            <div class="ul-field">
-              <label for="storage-account-id" class="ul-label">Account ID or endpoint URL</label>
-              <input
-                type="text"
-                id="storage-account-id"
-                class="ul-input"
-                autocomplete="off"
-                spellcheck="false"
-                placeholder="32-character hex account id, or the endpoint URL from Cloudflare"
-                required
-              />
-              <p class="ul-field__hint">
-                Paste either one — the R2 API token screen hands you an endpoint URL (<code
-                  >https://&lt;account&gt;.r2.cloudflarestorage.com</code
-                >) that already carries your account id and jurisdiction, so there's nothing else to
-                figure out here.
-              </p>
-            </div>
-            <div class="ul-field">
-              <label for="storage-access-key-id" class="ul-label">Access key ID</label>
-              <input
-                type="text"
-                id="storage-access-key-id"
-                class="ul-input"
-                autocomplete="off"
-                spellcheck="false"
-                required
-              />
-            </div>
-            <div class="ul-field">
-              <label for="storage-secret-access-key" class="ul-label">Secret access key</label>
-              <input
-                type="password"
-                id="storage-secret-access-key"
-                class="ul-input"
-                autocomplete="off"
-                spellcheck="false"
-                required
-              />
-            </div>
-            <div class="ul-field">
-              <label for="storage-bucket" class="ul-label" id="storage-bucket-label"
-                >Bucket Name</label
-              >
-              <select id="storage-bucket-select" class="ul-select" required hidden></select>
-              <input
-                type="text"
-                id="storage-bucket"
-                class="ul-input"
-                autocomplete="off"
-                spellcheck="false"
-                required
-              />
-              <p class="ul-field__hint" id="storage-bucket-hint">
-                Enter your access keys above and we'll look up your buckets.
-              </p>
-            </div>
-            <div class="ul-field">
-              <label for="storage-public-base-url" class="ul-label"
-                >Public base URL (optional)</label
-              >
-              <input
-                type="text"
-                id="storage-public-base-url"
-                class="ul-input"
-                autocomplete="off"
-                spellcheck="false"
-                placeholder="https://media.example.com"
-              />
-              <p class="ul-field__hint">
-                Without this, files are only reachable through signed links that expire after an
-                hour, and embeds/galleries won't work — connect a custom domain for stable,
-                embeddable links. You can add it any time; it applies to files already uploaded,
-                too.
-                <code>r2.dev</code> URLs aren't supported.
-              </p>
-            </div>
+        </details>
 
-            <div class="ul-field" id="storage-adopt-row" hidden>
-              <label class="storage-adopt-label flex items-baseline gap-2">
-                <input type="checkbox" id="storage-adopt" />
-                This bucket already has files in it — use them as-is
-              </label>
-              <p class="ul-field__hint">
-                Nothing gets imported or copied. The bucket root becomes this workspace's root, so
-                every file already in it becomes part of the workspace (and publicly reachable too,
-                if you set a public base URL) once you switch to this bucket. Saving now doesn't
-                switch anything — you do that separately, whenever you're ready.
-              </p>
-            </div>
+        <form class="ws-form flex flex-col gap-3.5 max-w-[32rem]" id="storage-form">
+          <div class="ul-field">
+            <label for="storage-account-id" class="ul-label">Account ID or endpoint URL</label>
+            <input
+              type="text"
+              id="storage-account-id"
+              class="ul-input"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="Paste either — we work out the rest"
+              required
+            />
+          </div>
+          <div class="ul-field">
+            <label for="storage-access-key-id" class="ul-label">Access key ID</label>
+            <input
+              type="text"
+              id="storage-access-key-id"
+              class="ul-input"
+              autocomplete="off"
+              spellcheck="false"
+              required
+            />
+          </div>
+          <div class="ul-field">
+            <label for="storage-secret-access-key" class="ul-label">Secret access key</label>
+            <input
+              type="password"
+              id="storage-secret-access-key"
+              class="ul-input"
+              autocomplete="off"
+              spellcheck="false"
+              required
+            />
+          </div>
+          <div class="ul-field">
+            <label for="storage-bucket" class="ul-label" id="storage-bucket-label">Bucket</label>
+            <select id="storage-bucket-select" class="ul-select" required hidden></select>
+            <input
+              type="text"
+              id="storage-bucket"
+              class="ul-input"
+              autocomplete="off"
+              spellcheck="false"
+              required
+            />
+            <p class="ul-field__hint" id="storage-bucket-hint">
+              Enter your access keys above and we'll look up your buckets.
+            </p>
+          </div>
+          <div class="ul-field">
+            <label for="storage-public-base-url" class="ul-label">Public base URL</label>
+            <input
+              type="text"
+              id="storage-public-base-url"
+              class="ul-input"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="https://media.example.com"
+              required
+            />
+            <p class="ul-field__hint">
+              The custom domain on your bucket — your files are served from here.
+            </p>
+          </div>
 
-            <ul
-              class="storage-checklist flex flex-col gap-2 max-w-[32rem] p-0 list-none empty:hidden"
-              id="storage-form-checklist"
-              aria-live="polite"
-            >
-            </ul>
+          <div class="ul-field" id="storage-adopt-row" hidden>
+            <label class="storage-adopt-label flex items-baseline gap-2">
+              <input type="checkbox" id="storage-adopt" />
+              This bucket already has files in it — use them as-is
+            </label>
+            <p class="ul-field__hint">
+              Nothing gets imported or copied. Everything already in the bucket becomes part of this
+              workspace (and publicly reachable) once you switch to it.
+            </p>
+          </div>
 
-            <div class="storage-actions flex flex-wrap items-center gap-3 mt-3">
-              <button type="submit" class="ul-btn ul-btn--solid" id="storage-verify-btn"
-                >Verify</button
-              >
-              <button type="button" class="ul-btn ul-btn--ghost" id="storage-step2-back"
-                >Back</button
-              >
-              <button type="button" class="ul-btn ul-btn--ghost" id="storage-wizard-cancel-2"
-                >Cancel</button
-              >
-              <span class="muted" id="storage-verify-status" role="status"></span>
-            </div>
-          </form>
-        </div>
-
-        <div class="storage-wizard-step" id="storage-step-3" hidden>
-          <h3>3. Review &amp; save</h3>
           <ul
             class="storage-checklist flex flex-col gap-2 max-w-[32rem] p-0 list-none empty:hidden"
-            id="storage-checklist"
+            id="storage-form-checklist"
             aria-live="polite"
           >
           </ul>
-          <div class="storage-actions flex flex-wrap items-center gap-3 mt-3">
-            <button type="button" class="ul-btn ul-btn--solid" id="storage-save-btn" disabled
-              >Save & verify</button
-            >
-            <button type="button" class="ul-btn ul-btn--ghost" id="storage-step3-back">Back</button>
-            <button type="button" class="ul-btn ul-btn--ghost" id="storage-wizard-cancel-3"
+
+          <div class="storage-actions flex flex-wrap items-center justify-between gap-3 mt-3">
+            <div class="flex flex-wrap items-center gap-3">
+              <button type="submit" class="ul-btn ul-btn--solid" id="storage-save-btn"
+                >Verify &amp; save</button
+              >
+              <span class="muted" id="storage-save-status" role="status"></span>
+            </div>
+            <button type="button" class="ul-btn ul-btn--ghost" id="storage-connect-cancel"
               >Cancel</button
             >
-            <span class="muted" id="storage-save-status" role="status"></span>
           </div>
-        </div>
+        </form>
       </div>
     </div>
   </section>
@@ -404,7 +411,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         detailsEl.innerHTML = renderDetailsHtml(ws);
       });
 
-      // ---------- Storage panel (issue #583 Task 2.1) ----------
+      // ---------- Storage panel ----------
       // Section starts hidden, a non-`ok` GET (or an `ok` GET reporting
       // `byoBucketEnabled: false`) leaves it hidden for good, and every
       // in-flight call re-checks `stillHere()` before touching the DOM.
@@ -415,7 +422,6 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       const storageByoDetails = requireElement<HTMLElement>("#storage-byo-details", page);
       const storageConnectBtn = requireElement<HTMLButtonElement>("#storage-connect-btn", page);
       const storageIntro = requireElement<HTMLElement>("#storage-intro", page);
-      const storageSummary = requireElement<HTMLElement>("#storage-summary", page);
       const storageReplaceBtn = requireElement<HTMLButtonElement>("#storage-replace-btn", page);
       const storageSavedConfirm = requireElement<HTMLElement>("#storage-saved-confirm", page);
       const storageByoConfirm = requireElement<HTMLElement>("#storage-byo-confirm", page);
@@ -431,20 +437,19 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         page,
       );
       const storagePrevious = requireElement<HTMLElement>("#storage-previous", page);
-      const storageReverifyBtn = requireElement<HTMLButtonElement>("#storage-reverify-btn", page);
       const storageRotateBtn = requireElement<HTMLButtonElement>("#storage-rotate-btn", page);
       const storageDisconnectBtn = requireElement<HTMLButtonElement>(
         "#storage-disconnect-btn",
         page,
       );
       const storageActionStatus = requireElement<HTMLElement>("#storage-action-status", page);
-      const storageWizard = requireElement<HTMLElement>("#storage-wizard", page);
-      const storageStep1 = requireElement<HTMLElement>("#storage-step-1", page);
-      const storageStep2 = requireElement<HTMLElement>("#storage-step-2", page);
-      const storageStep3 = requireElement<HTMLElement>("#storage-step-3", page);
-      const storageStep1Next = requireElement<HTMLButtonElement>("#storage-step1-next", page);
-      const storageStep2Back = requireElement<HTMLButtonElement>("#storage-step2-back", page);
-      const storageStep3Back = requireElement<HTMLButtonElement>("#storage-step3-back", page);
+      const storageConnect = requireElement<HTMLElement>("#storage-connect", page);
+      const storageConnectHeading = requireElement<HTMLElement>("#storage-connect-heading", page);
+      const storageSetupHelp = requireElement<HTMLDetailsElement>("#storage-setup-help", page);
+      const storageConnectCancel = requireElement<HTMLButtonElement>(
+        "#storage-connect-cancel",
+        page,
+      );
       const storageForm = requireElement<HTMLFormElement>("#storage-form", page);
       const storageAccountId = requireElement<HTMLInputElement>("#storage-account-id", page);
       const storageBucketText = requireElement<HTMLInputElement>("#storage-bucket", page);
@@ -465,32 +470,29 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         "#storage-public-base-url",
         page,
       );
-      const storageVerifyBtn = requireElement<HTMLButtonElement>("#storage-verify-btn", page);
-      const storageVerifyStatus = requireElement<HTMLElement>("#storage-verify-status", page);
-      const storageChecklist = requireElement<HTMLElement>("#storage-checklist", page);
       const storageFormChecklist = requireElement<HTMLElement>("#storage-form-checklist", page);
       const storageAdoptRow = requireElement<HTMLElement>("#storage-adopt-row", page);
       const storageAdopt = requireElement<HTMLInputElement>("#storage-adopt", page);
       const storageSaveBtn = requireElement<HTMLButtonElement>("#storage-save-btn", page);
       const storageSaveStatus = requireElement<HTMLElement>("#storage-save-status", page);
-      const storageCancelBtns = [
-        "#storage-wizard-cancel-1",
-        "#storage-wizard-cancel-2",
-        "#storage-wizard-cancel-3",
-      ].map((sel) => requireElement<HTMLButtonElement>(sel, page));
 
-      /** Human labels for `StorageVerifyCheck.id` — kept here rather than trusting the API for copy. */
-      const STORAGE_CHECK_LABELS: Record<string, string> = {
-        shape: "Config looks valid",
-        auth: "Authentication",
-        "round-trip": "Upload / download round-trip",
-        "not-empty": "Bucket contents",
-        "public-url": "Public base URL",
+      /**
+       * Failure sentences for `StorageVerifyCheck.id` — written as plain
+       * "here's what went wrong" lines rather than pipeline stage names
+       * (people shouldn't have to care that we run an auth probe and a
+       * round-trip). Passing checks are never listed: on success the lane
+       * card appearing IS the confirmation.
+       */
+      const STORAGE_CHECK_FAILURES: Record<string, string> = {
+        shape: "Something in these settings doesn't look right",
+        auth: "We couldn't sign in to Cloudflare with these keys",
+        "round-trip": "We couldn't write a test file to this bucket",
+        "not-empty": "This bucket already has files in it",
+        "public-url": "The public base URL didn't serve our test file",
       };
 
-      let wizardMode: "connect" | "rotate" = "connect";
-      let lastVerify: StorageVerifyResult | null = null;
-      /** Last status rendered — what a cancelled wizard restores the page to. */
+      let formMode: "connect" | "rotate" = "connect";
+      /** Last status rendered — what a cancelled form restores the page to. */
       let lastStatus: WorkspaceStorageStatus | null = null;
       /** The standby lane currently offered by the "Use this bucket" card, if any. */
       let savedLaneId: string | null = null;
@@ -507,19 +509,49 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         storageErrorEl.textContent = message;
       }
 
+      // ----- ⋯ menus: open on trigger click, close on outside click / Escape.
+      const menus = Array.from(
+        storageSection.querySelectorAll<HTMLElement>("[data-storage-menu]"),
+      ).map((root) => ({
+        root,
+        trigger: root.querySelector<HTMLButtonElement>("[data-menu-trigger]"),
+        popover: root.querySelector<HTMLElement>("[data-menu-popover]"),
+      }));
+      function closeMenus(): void {
+        for (const menu of menus) {
+          if (menu.popover) menu.popover.hidden = true;
+          menu.trigger?.setAttribute("aria-expanded", "false");
+        }
+      }
+      for (const menu of menus) {
+        menu.trigger?.addEventListener("click", (event) => {
+          event.stopPropagation();
+          const willOpen = menu.popover?.hidden ?? false;
+          closeMenus();
+          if (menu.popover && willOpen) {
+            menu.popover.hidden = false;
+            menu.trigger?.setAttribute("aria-expanded", "true");
+          }
+        });
+        // Any item click both acts and closes.
+        menu.popover?.addEventListener("click", () => closeMenus());
+      }
+      document.addEventListener("click", closeMenus);
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") closeMenus();
+      });
+
       /**
-       * The "Public base URL" row's value — flagged as a warning (issue #783
-       * follow-up comment) rather than presented as a neutral default:
-       * signed-only mode loses stable links, embeds, and galleries. Adding a
-       * URL later upgrades every existing file's links retroactively, since
-       * URLs are derived at request time and nothing is stored per file.
+       * The "Public base URL" row's value — configs saved before the URL
+       * became required (or via the API/CLI) can still lack one; flag it so
+       * the fix (rotate credentials, which now requires a URL) is obvious.
        */
       function publicBaseUrlRowValue(publicBaseUrl: string | undefined): string {
         if (publicBaseUrl) return escapeHtml(publicBaseUrl);
         return (
-          `<span class="ul-badge ul-badge--accent">Signed-only</span> ` +
-          `<span class="storage-signed-only-note block mt-1 text-xs text-muted-foreground">no public base URL — links expire after an hour, ` +
-          `embeds/galleries won't work. Add one any time; it applies to files already uploaded, too.</span>`
+          `<span class="ul-badge ul-badge--accent">Not set</span> ` +
+          `<span class="storage-signed-only-note block mt-1 text-xs text-muted-foreground">links expire after an hour and embeds won't work — ` +
+          `add one via Rotate credentials.</span>`
         );
       }
 
@@ -618,7 +650,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         storageBucketText.hidden = isSelect;
         storageBucketSelect.required = isSelect;
         storageBucketText.required = !isSelect;
-        storageBucketLabel.textContent = isSelect ? "Bucket" : "Bucket Name";
+        storageBucketLabel.textContent = "Bucket";
         storageBucketLabel.htmlFor = isSelect ? "storage-bucket-select" : "storage-bucket";
         if (isSelect) {
           storageBucketSelect.innerHTML = (buckets ?? [])
@@ -629,12 +661,11 @@ if (!workspace) return Astro.redirect("/account/workspaces");
 
       /**
        * Fires on blur of the account id/endpoint, access key id, or secret
-       * key fields once all three are present — the wizard's bucket picker
-       * (issue #783 Part A item 2). A malformed account id/endpoint, or an
-       * `access_denied`/error result (a bucket-scoped token — the common,
-       * expected case, since R2 only permits `ListBuckets` for
-       * account-scoped tokens) falls back to the plain "Bucket Name" field
-       * with no apologetic prose, not an error state.
+       * key fields once all three are present. A malformed account
+       * id/endpoint, or an `access_denied`/error result (a bucket-scoped
+       * token — the common, expected case, since R2 only permits
+       * `ListBuckets` for account-scoped tokens) falls back to the plain
+       * bucket-name field with no apologetic prose, not an error state.
        */
       async function maybeLookupBuckets(): Promise<void> {
         const parsed = parseAccountIdOrEndpoint(storageAccountId.value);
@@ -666,82 +697,70 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         el.addEventListener("blur", () => void maybeLookupBuckets());
       }
 
-      function resetWizardForm(): void {
+      function resetForm(): void {
         storageForm.reset();
-        lastVerify = null;
-        storageChecklist.innerHTML = "";
         storageFormChecklist.innerHTML = "";
         storageAdoptRow.hidden = true;
-        storageVerifyStatus.textContent = "";
-        storageVerifyStatus.removeAttribute("data-state");
         storageSaveStatus.textContent = "";
         storageSaveStatus.removeAttribute("data-state");
-        storageSaveBtn.disabled = true;
+        storageSaveBtn.disabled = false;
         bucketLookupToken++; // invalidate any in-flight lookup
         lastBucketLookupKey = "";
         storageBucketHint.textContent =
           "Enter your access keys above and we'll look up your buckets.";
         setBucketMode("text");
+        storageSetupHelp.open = false;
       }
 
-      function goToWizardStep(step: 1 | 2 | 3): void {
-        storageStep1.hidden = step !== 1;
-        storageStep2.hidden = step !== 2;
-        storageStep3.hidden = step !== 3;
-      }
-
-      interface WizardPrefill {
+      interface FormPrefill {
         bucket?: string;
         publicBaseUrl?: string;
       }
 
-      function openWizard(mode: "connect" | "rotate", prefill?: WizardPrefill): void {
-        wizardMode = mode;
-        resetWizardForm();
+      function openForm(mode: "connect" | "rotate", prefill?: FormPrefill): void {
+        formMode = mode;
+        resetForm();
         showStorageError(null);
-        storageWizard.hidden = false;
-        // One state at a time (#788): while the wizard is open it IS the
+        storageConnect.hidden = false;
+        storageConnectHeading.textContent =
+          mode === "rotate" ? "Rotate credentials" : "Connect your bucket";
+        // Rotating is keys-only housekeeping — the setup help is noise there.
+        storageSetupHelp.hidden = mode === "rotate";
+        // One state at a time (#788): while the form is open it IS the
         // page — the lane cards hide so their buttons (Use this bucket,
-        // Switch back…) can't fire mid-edit. `closeWizard` restores whichever
+        // Switch back…) can't fire mid-edit. `closeForm` restores whichever
         // card the last-loaded status calls for.
         storageSharedEl.hidden = true;
         storageByoEl.hidden = true;
-        // The summary card is the collapsed stand-in for these same three
-        // steps — once the wizard is open it would just say them twice.
-        storageSummary.hidden = true;
         if (mode === "rotate" && prefill) {
           // "Same form, keys only": bucket/public URL are already known and
           // prefilled; account id can't be — the API only ever returns the
           // masked tail, never the plaintext — so the field starts blank.
-          // Jurisdiction is never prefilled either (no visible field any
-          // more) — re-verifying re-probes it the same way a fresh connect
-          // would, and `PUT` only overwrites the saved value on success.
+          // Jurisdiction is never prefilled either — re-verifying re-probes
+          // it the same way a fresh connect would, and `PUT` only overwrites
+          // the saved value on success.
           storageBucketText.value = prefill.bucket ?? "";
           storagePublicBaseUrl.value = prefill.publicBaseUrl ?? "";
-          goToWizardStep(2);
-        } else {
-          goToWizardStep(1);
         }
       }
 
-      /** Hides the wizard chrome without re-rendering the cards — `applyStatus` calls this before it repaints from a fresh status. */
-      function hideWizard(): void {
-        storageWizard.hidden = true;
-        storageSummary.hidden = false;
-        resetWizardForm();
+      /** Hides the form without re-rendering the cards — `applyStatus` calls this before it repaints from a fresh status. */
+      function hideForm(): void {
+        storageConnect.hidden = true;
+        resetForm();
       }
 
-      /** The user-cancel path: close the wizard and restore the view the last-loaded status calls for (the wizard hid the lane cards on open). */
-      function closeWizard(): void {
-        hideWizard();
+      /** The user-cancel path: close the form and restore the view the last-loaded status calls for. */
+      function closeForm(): void {
+        hideForm();
         if (lastStatus) applyStatus(lastStatus);
       }
 
       function collectCandidate(): StorageCandidate {
-        // Parsed client-side (issue #783 Part A item 1) — a bare account id
-        // or a pasted endpoint URL both land here as `{ accountId,
-        // jurisdiction }`; the API contract is unchanged, it just usually
-        // gets `jurisdiction: undefined` now and auto-probes it server-side.
+        // Parsed client-side — a bare account id or a pasted endpoint URL
+        // both land here as `{ accountId, jurisdiction }`; the API contract
+        // is unchanged, it just usually gets `jurisdiction: undefined` now
+        // and auto-probes it server-side.
         const parsed = parseAccountIdOrEndpoint(storageAccountId.value);
         return {
           bucket:
@@ -757,26 +776,26 @@ if (!workspace) return Astro.redirect("/account/workspaces");
           // `adoptExistingContents` escape hatch for the empty-workspace guard.
           // In connect mode the user opts in via the checkbox that appears
           // when the not-empty check fails.
-          adoptExistingContents: wizardMode === "rotate" || storageAdopt.checked ? true : undefined,
+          adoptExistingContents: formMode === "rotate" || storageAdopt.checked ? true : undefined,
         };
       }
 
-      /** Required checks gate save; a failing recommended check (public-url) only warns. */
-      function renderChecklist(result: StorageVerifyResult, target: HTMLElement): void {
-        target.innerHTML = result.checks
+      /**
+       * Renders only the FAILING checks, as plain what-went-wrong sentences
+       * — the passing ones are process detail nobody needs to review. The
+       * public base URL is required by this form, so a failing `public-url`
+       * check blocks saving here even though the API still classifies it as
+       * recommended-only.
+       */
+      function renderFailures(result: StorageVerifyResult): void {
+        storageFormChecklist.innerHTML = result.checks
+          .filter((check) => !check.ok)
           .map((check) => {
-            const label = STORAGE_CHECK_LABELS[check.id] ?? check.id;
-            const badgeClass = check.ok
-              ? "ul-badge--ok"
-              : check.required
-                ? "ul-badge--danger"
-                : "ul-badge--accent";
-            const badgeText = check.ok ? "Pass" : check.required ? "Fail" : "Warning";
-            const hint =
-              !check.ok && check.hint
-                ? `<span class="storage-check-hint text-xs text-muted-foreground">${escapeHtml(check.hint)}</span>`
-                : "";
-            return `<li class="flex flex-col gap-0.5 rounded-md border border-border px-3 py-2"><div class="storage-check-row flex items-center gap-2"><span class="ul-badge ${badgeClass}">${escapeHtml(badgeText)}</span><strong>${escapeHtml(label)}</strong></div>${hint}</li>`;
+            const label = STORAGE_CHECK_FAILURES[check.id] ?? `Check failed: ${check.id}`;
+            const hint = check.hint
+              ? `<span class="storage-check-hint text-xs text-muted-foreground">${escapeHtml(check.hint)}</span>`
+              : "";
+            return `<li class="flex flex-col gap-0.5 rounded-md border border-border px-3 py-2"><strong class="text-destructive text-[13px]">${escapeHtml(label)}</strong>${hint}</li>`;
           })
           .join("");
       }
@@ -784,7 +803,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       /**
        * A failing not-empty check is fixable in place: reveal the adopt
        * checkbox so the user can opt in and re-verify without retyping
-       * anything. Once revealed it stays visible for the rest of the wizard
+       * anything. Once revealed it stays visible for the rest of the form
        * session — hiding a ticked checkbox again would silently drop consent.
        */
       function revealAdoptRowIfNotEmpty(result: StorageVerifyResult): void {
@@ -792,80 +811,61 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         if (notEmpty && !notEmpty.ok) storageAdoptRow.hidden = false;
       }
 
-      storageStep1Next.addEventListener("click", () => goToWizardStep(2));
-      storageStep2Back.addEventListener("click", () => goToWizardStep(1));
-      storageStep3Back.addEventListener("click", () => goToWizardStep(2));
-      for (const btn of storageCancelBtns) {
-        btn.addEventListener("click", () => closeWizard());
-      }
+      storageConnectCancel.addEventListener("click", () => closeForm());
 
+      // One button: verify, and save in the same submit when everything
+      // passes. Saving never switches the active lane — the workspace keeps
+      // uploading wherever it already was (spec: "Configure, then switch"),
+      // so there is nothing to review between the two.
       storageForm.addEventListener("submit", (event) => {
         event.preventDefault();
         void (async () => {
           showStorageError(null);
           if (!parseAccountIdOrEndpoint(storageAccountId.value)) {
-            storageVerifyStatus.textContent =
+            storageSaveStatus.textContent =
               "Enter a 32-character account id, or paste the R2 endpoint URL Cloudflare gave you.";
-            storageVerifyStatus.dataset.state = "error";
+            storageSaveStatus.dataset.state = "error";
             return;
           }
-          storageVerifyStatus.textContent = "Verifying…";
-          storageVerifyStatus.removeAttribute("data-state");
-          storageVerifyBtn.disabled = true;
-          const candidate = collectCandidate();
-          const result = await verifyWorkspaceStorage(apiOrigin, workspaceName, candidate);
-          if (!stillHere()) return;
-          storageVerifyBtn.disabled = false;
-          if (result.kind !== "ok") {
-            storageVerifyStatus.textContent = "Couldn’t verify. Try again.";
-            storageVerifyStatus.dataset.state = "error";
-            return;
-          }
-          lastVerify = result.result;
-          if (!result.result.ok) {
-            // Stay on the credentials step: the fix is almost always a field
-            // edit, so show the failing checks right under the form instead
-            // of moving to a page the user has to back out of.
-            renderChecklist(result.result, storageFormChecklist);
-            revealAdoptRowIfNotEmpty(result.result);
-            storageVerifyStatus.textContent = "Verification failed — see the checks below.";
-            storageVerifyStatus.dataset.state = "error";
-            return;
-          }
-          storageVerifyStatus.textContent = "";
-          storageFormChecklist.innerHTML = "";
-          renderChecklist(result.result, storageChecklist);
-          storageSaveBtn.disabled = false;
-          goToWizardStep(3);
-        })();
-      });
-
-      storageSaveBtn.addEventListener("click", () => {
-        void (async () => {
-          if (!lastVerify?.ok) return;
-          showStorageError(null);
-          storageSaveStatus.textContent = "Saving…";
+          storageSaveStatus.textContent = "Checking your bucket…";
           storageSaveStatus.removeAttribute("data-state");
           storageSaveBtn.disabled = true;
           const candidate = collectCandidate();
-          const result = await putWorkspaceStorage(apiOrigin, workspaceName, candidate);
+          const verify = await verifyWorkspaceStorage(apiOrigin, workspaceName, candidate);
           if (!stillHere()) return;
-          if (result.kind === "ok") {
-            // Never leave the secret in form state once it's been sent.
-            // Saving never switches the active lane — the workspace keeps
-            // uploading wherever it already was; the saved config just
-            // becomes available to switch to (spec: "Configure, then
-            // switch"). The lane card appearing IS the confirmation — no
-            // extra "Saved." status line lingering as page furniture (#788).
-            applyStatus(result.status);
+          if (verify.kind !== "ok") {
+            storageSaveBtn.disabled = false;
+            storageSaveStatus.textContent = "Couldn’t reach the server. Try again.";
+            storageSaveStatus.dataset.state = "error";
             return;
           }
+          // Any failing check keeps you on the form with the fix in reach —
+          // including `public-url`, which the API treats as recommended but
+          // this form requires.
+          if (verify.result.checks.some((check) => !check.ok)) {
+            storageSaveBtn.disabled = false;
+            renderFailures(verify.result);
+            revealAdoptRowIfNotEmpty(verify.result);
+            storageSaveStatus.textContent = "Fix the items below and try again.";
+            storageSaveStatus.dataset.state = "error";
+            return;
+          }
+          storageFormChecklist.innerHTML = "";
+          storageSaveStatus.textContent = "Saving…";
+          const saved = await putWorkspaceStorage(apiOrigin, workspaceName, candidate);
+          if (!stillHere()) return;
           storageSaveBtn.disabled = false;
-          if (result.kind === "invalid") {
-            lastVerify = result.result;
-            renderChecklist(result.result, storageChecklist);
-            storageSaveBtn.disabled = !result.result.ok;
-            storageSaveStatus.textContent = "Verification failed — see the checklist above.";
+          if (saved.kind === "ok") {
+            // Never leave the secret in form state once it's been sent. The
+            // lane card appearing IS the confirmation — no "Saved." status
+            // line lingering as page furniture (#788).
+            applyStatus(saved.status);
+            return;
+          }
+          if (saved.kind === "invalid") {
+            renderFailures(saved.result);
+            revealAdoptRowIfNotEmpty(saved.result);
+            storageSaveStatus.textContent = "Fix the items below and try again.";
             storageSaveStatus.dataset.state = "error";
             return;
           }
@@ -874,8 +874,8 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         })();
       });
 
-      storageConnectBtn.addEventListener("click", () => openWizard("connect"));
-      storageReplaceBtn.addEventListener("click", () => openWizard("connect"));
+      storageConnectBtn.addEventListener("click", () => openForm("connect"));
+      storageReplaceBtn.addEventListener("click", () => openForm("connect"));
 
       storageRotateBtn.addEventListener("click", () => {
         void (async () => {
@@ -888,7 +888,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
             storageActionStatus.dataset.state = "error";
             return;
           }
-          openWizard("rotate", result.status);
+          openForm("rotate", result.status);
         })();
       });
 
@@ -904,30 +904,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
             return;
           }
           const standby = result.status.lanes.find((lane) => lane.role === "standby");
-          openWizard("rotate", standby ?? undefined);
-        })();
-      });
-
-      storageReverifyBtn.addEventListener("click", () => {
-        void (async () => {
-          storageActionStatus.textContent = "Re-running verification…";
-          storageActionStatus.removeAttribute("data-state");
-          storageReverifyBtn.disabled = true;
-          const result = await getWorkspaceStorageStatus(apiOrigin, workspaceName);
-          if (!stillHere()) return;
-          storageReverifyBtn.disabled = false;
-          if (result.kind !== "ok") {
-            storageActionStatus.textContent = "Couldn’t reach the server. Try again.";
-            storageActionStatus.dataset.state = "error";
-            return;
-          }
-          // There's no standalone "re-verify saved config" route — verify only
-          // ever runs against a candidate body. Re-running against the same
-          // (masked) status merely confirms the settings loaded; a real
-          // credential check requires re-entering the secret, so this opens
-          // the rotate flow instead of silently no-op'ing.
-          openWizard("rotate", result.status);
-          storageActionStatus.textContent = "";
+          openForm("rotate", standby ?? undefined);
         })();
       });
 
@@ -1009,7 +986,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
             // "Use this bucket", pointed the other direction.
             await activateLane(
               sharedFallbackLaneId,
-              "storage.uploads.sh",
+              "hosted storage",
               storageActionStatus,
               storageByoConfirm,
             );
@@ -1022,7 +999,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
           if (
             !(await inlineConfirm(
               storageByoConfirm,
-              "Switch back to uploads.sh storage? Nothing on your own bucket is touched or deleted.",
+              "Switch back to hosted storage? Nothing on your own bucket is touched or deleted.",
             ))
           ) {
             return;
@@ -1054,7 +1031,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
                 storageByoConfirm,
                 "This workspace still has files on your bucket. Switch back anyway? " +
                   "Your files stay on your bucket untouched and keep resolving from it, " +
-                  "but new uploads move to storage.uploads.sh.",
+                  "but new uploads move to hosted storage.",
               ))
             ) {
               return;
@@ -1078,7 +1055,8 @@ if (!workspace) return Astro.redirect("/account/workspaces");
 
       function applyStatus(status: WorkspaceStorageStatus): void {
         lastStatus = status;
-        hideWizard();
+        hideForm();
+        closeMenus();
         storageActionStatus.textContent = "";
         storageActionStatus.removeAttribute("data-state");
         storageSavedConfirm.hidden = true;
@@ -1105,8 +1083,8 @@ if (!workspace) return Astro.redirect("/account/workspaces");
           if (standby) {
             savedLaneId = standby.laneId;
             // One state at a time (#788): with a saved lane the lane card is
-            // the page — the connect pitch + walkthrough disappear instead
-            // of stacking above it ("Replace bucket" reopens the wizard).
+            // the page — the empty-state card disappears instead of stacking
+            // above it ("Replace bucket" reopens the form).
             storageIntro.hidden = true;
             storageSaved.hidden = false;
             renderSavedDetails(standby);
@@ -1135,9 +1113,9 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         // Create-flow hand-off (issue #583 Task 2.1): `new.astro` redirects
         // here with `#storage` after creating a workspace with "bring your
         // own bucket" checked. Saving never depends on the workspace being
-        // empty any more, so this always opens straight into the wizard.
+        // empty any more, so this opens straight into the connect form.
         if (result.status.mode === "shared" && window.location.hash === "#storage") {
-          openWizard("connect");
+          openForm("connect");
           storageSection.scrollIntoView({ block: "start" });
         }
       }
