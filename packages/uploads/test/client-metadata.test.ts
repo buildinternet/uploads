@@ -159,6 +159,67 @@ describe("metadata CRUD client methods", () => {
     expect(result.truncated).toBe(false);
   });
 
+  it("findFiles forwards the cursor and surfaces the server's next cursor", async () => {
+    const fetch = vi.fn(async (input: string | URL | Request) => {
+      const url = new URL(String(input));
+      expect(url.searchParams.get("cursor")).toBe("c0");
+      return new Response(JSON.stringify({ items: [], cursor: "c1", truncated: true }));
+    });
+    vi.stubGlobal("fetch", fetch);
+    const client = createUploadsClient({
+      apiUrl: "https://api.test",
+      workspace: "test",
+      token: "up_test_x",
+    });
+    const result = await client.findFiles({ app: "web" }, { cursor: "c0" });
+    expect(result.cursor).toBe("c1");
+    expect(result.truncated).toBe(true);
+  });
+
+  it("findFilesAll follows the cursor but stops at the page cap", async () => {
+    // Server never runs out of pages — the drain has to stop itself.
+    let calls = 0;
+    const fetch = vi.fn(async (input: string | URL | Request) => {
+      calls += 1;
+      const seq = String(calls);
+      const url = new URL(String(input));
+      expect(url.searchParams.get("cursor")).toBe(calls === 1 ? null : String(calls - 1));
+      return new Response(
+        JSON.stringify({ items: [{ key: `f/${seq}.png`, url: null, metadata: {} }], cursor: seq }),
+      );
+    });
+    vi.stubGlobal("fetch", fetch);
+    const client = createUploadsClient({
+      apiUrl: "https://api.test",
+      workspace: "test",
+      token: "up_test_x",
+    });
+    const result = await client.findFilesAll({ app: "web" }, {}, 3);
+    expect(calls).toBe(3);
+    expect(result.items.map((item) => item.key)).toEqual(["f/1.png", "f/2.png", "f/3.png"]);
+    // Non-null cursor means the cap stopped the drain, not the server.
+    expect(result.cursor).toBe("3");
+  });
+
+  it("findFilesAll stops early when the server returns a null cursor", async () => {
+    let calls = 0;
+    const fetch = vi.fn(async () => {
+      calls += 1;
+      return new Response(
+        JSON.stringify({ items: [{ key: "f/only.png", url: null, metadata: {} }], cursor: null }),
+      );
+    });
+    vi.stubGlobal("fetch", fetch);
+    const client = createUploadsClient({
+      apiUrl: "https://api.test",
+      workspace: "test",
+      token: "up_test_x",
+    });
+    const result = await client.findFilesAll({ app: "web" });
+    expect(calls).toBe(1);
+    expect(result.cursor).toBeNull();
+  });
+
   it("listMetadataKeys GETs /files/facets", async () => {
     const fetch = vi.fn(async (input: string | URL | Request) => {
       expect(String(input)).toBe("https://api.test/v1/workspaces/test/files/facets");

@@ -163,7 +163,7 @@ export const workspaceFiles = new Hono<DualAuthVars>()
     // key and once from the promoted `pull/<n>/` copy. Opt-in: a bare search
     // (and the `find_files` tool) still returns every matching object.
     const collapsePromotedShadows = c.req.query("collapse") === "promoted";
-    const { matches, truncated } = await boundedDataRead(
+    const { matches, truncated, cursor } = await boundedDataRead(
       c,
       () =>
         searchFilesByNameAndMeta(c.env, record, name, {
@@ -172,6 +172,7 @@ export const workspaceFiles = new Hono<DualAuthVars>()
           prefix: query.prefix,
           pageSize,
           collapsePromotedShadows,
+          ...(query.cursor ? { cursor: query.cursor } : {}),
         }),
       { name: "d1_files_search" },
     );
@@ -201,6 +202,9 @@ export const workspaceFiles = new Hono<DualAuthVars>()
         };
       }),
       truncated,
+      // Additive continuation (issue #829 §4): opaque, non-null exactly when
+      // `truncated` is true. Hand it back as `?cursor=` for the next page.
+      cursor,
     });
   })
 

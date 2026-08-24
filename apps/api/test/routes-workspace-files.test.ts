@@ -431,6 +431,133 @@ describe("GET /v1/workspaces/:workspace/files/facets and /search (dual auth)", (
   });
 });
 
+/**
+ * Cursor pagination for the two search paths (issue #829 §4). `cursor` is the
+ * additive continuation field; `items`/`truncated` keep their meaning.
+ */
+describe("GET /v1/workspaces/:workspace/files/search cursor pagination", () => {
+  type SearchBody = { items: { key: string }[]; truncated: boolean; cursor: string | null };
+
+  async function search(env: Parameters<typeof app.request>[2], qs: string): Promise<SearchBody> {
+    const res = await app.request(
+      `/v1/workspaces/acme/files/search?${qs}`,
+      { headers: { Authorization: `Bearer ${TOKEN}` } },
+      env,
+    );
+    expect(res.status).toBe(200);
+    return (await res.json()) as SearchBody;
+  }
+
+  function seedMeta(env: Parameters<typeof app.request>[2], key: string, app_: string): void {
+    const table = (env as { DB: { metadata: Map<string, Map<string, string>> } }).DB;
+    table.metadata.set(`acme ${key}`, new Map([["app", app_]]));
+  }
+
+  it("name path: walks the whole result set one page at a time without repeats", async () => {
+    const { env, bucket } = await makeEnv();
+    for (const name of ["hero-a", "hero-b", "hero-c"]) {
+      await bucket.put(`acme/shots/${name}.png`, new Uint8Array([1]).buffer, {
+        httpMetadata: { contentType: "image/png" },
+      });
+    }
+    const seen: string[] = [];
+    let cursor: string | null = null;
+    for (let page = 0; page < 5; page += 1) {
+      const body: SearchBody = await search(
+        env,
+        `name=hero&limit=1${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
+      );
+      seen.push(...body.items.map((item) => item.key));
+      // The continuation is present exactly when the page was truncated.
+      expect(body.cursor === null).toBe(!body.truncated);
+      cursor = body.cursor;
+      if (!cursor) break;
+    }
+    expect(cursor).toBeNull();
+    expect(seen).toEqual(["shots/hero-a.png", "shots/hero-b.png", "shots/hero-c.png"]);
+  });
+
+  it("metadata path: keyset continuation walks matching rows once", async () => {
+    const { env } = await makeEnv();
+    seedMeta(env, "shots/one.png", "web");
+    seedMeta(env, "shots/two.png", "web");
+    seedMeta(env, "shots/three.png", "web");
+    const seen: string[] = [];
+    let cursor: string | null = null;
+    for (let page = 0; page < 5; page += 1) {
+      const body: SearchBody = await search(
+        env,
+        `meta.app=web&limit=1${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
+      );
+      seen.push(...body.items.map((item) => item.key));
+      cursor = body.cursor;
+      if (!cursor) break;
+    }
+    expect(cursor).toBeNull();
+    expect([...seen].sort()).toEqual(["shots/one.png", "shots/three.png", "shots/two.png"]);
+  });
+
+  it("metadata path: advances even when the name term drops the whole window", async () => {
+    const { env } = await makeEnv();
+    seedMeta(env, "shots/aaa.png", "web");
+    seedMeta(env, "shots/bbb.png", "web");
+    seedMeta(env, "shots/zzz-hero.png", "web");
+    // Page 1's D1 window holds only `aaa`, which the name term drops — but the
+    // page is still truncated and its cursor moves past `aaa`.
+    const first = await search(env, "meta.app=web&name=hero&limit=1");
+    expect(first.items).toEqual([]);
+    expect(first.truncated).toBe(true);
+    expect(first.cursor).not.toBeNull();
+
+    const keys: string[] = [];
+    let cursor: string | null = first.cursor;
+    for (let page = 0; page < 5 && cursor; page += 1) {
+      const body: SearchBody = await search(
+        env,
+        `meta.app=web&name=hero&limit=1&cursor=${encodeURIComponent(cursor)}`,
+      );
+      keys.push(...body.items.map((item) => item.key));
+      cursor = body.cursor;
+    }
+    expect(keys).toEqual(["shots/zzz-hero.png"]);
+  });
+
+  it("rejects a garbage cursor and one minted for the other search path", async () => {
+    const { env, bucket } = await makeEnv();
+    await bucket.put("acme/shots/hero-a.png", new Uint8Array([1]).buffer, {
+      httpMetadata: { contentType: "image/png" },
+    });
+    await bucket.put("acme/shots/hero-b.png", new Uint8Array([1]).buffer, {
+      httpMetadata: { contentType: "image/png" },
+    });
+    seedMeta(env, "shots/hero-a.png", "web");
+    seedMeta(env, "shots/hero-b.png", "web");
+
+    const garbage = await app.request(
+      "/v1/workspaces/acme/files/search?name=hero&cursor=not-a-cursor",
+      { headers: { Authorization: `Bearer ${TOKEN}` } },
+      env,
+    );
+    expect(garbage.status).toBe(400);
+    expect(((await garbage.json()) as { error: { code: string } }).error.code).toBe(
+      "file_search_invalid_cursor",
+    );
+
+    // A metadata-path cursor must not be replayable against the name-only walk.
+    const metaPage = await search(env, "meta.app=web&limit=1");
+    expect(metaPage.cursor).not.toBeNull();
+    const foreign = await app.request(
+      `/v1/workspaces/acme/files/search?name=hero&cursor=${encodeURIComponent(metaPage.cursor!)}`,
+      { headers: { Authorization: `Bearer ${TOKEN}` } },
+      env,
+    );
+    expect(foreign.status).toBe(400);
+    expect(((await foreign.json()) as { error: { code: string } }).error.code).toBe(
+      "file_search_invalid_cursor",
+    );
+  });
+});
+
 describe("GET /v1/workspaces/:workspace/files/by-path (dual auth)", () => {
   it("bearer token: returns the grouped shape", async () => {
     const { env, bucket } = await makeEnv();

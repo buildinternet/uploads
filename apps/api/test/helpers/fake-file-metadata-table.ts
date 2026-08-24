@@ -134,6 +134,11 @@ export class FileMetadataTable {
       // substr prefix filter binds the raw prefix twice (length + comparison).
       const prefix = hasPrefix ? String(args[idx]) : undefined;
       if (hasPrefix) idx += 2;
+      // Keyset continuation wrapper (issue #829 §4) binds `after` just before
+      // the limit: `SELECT object_key FROM (…) AS page WHERE object_key > ?`.
+      const hasAfter = normalizedSql.includes("AS page WHERE object_key > ?");
+      const after = hasAfter ? String(args[idx]) : undefined;
+      if (hasAfter) idx += 1;
       const limit = args[idx] as number;
       const workspace = filters[0]?.workspace;
       if (!workspace || filters.some((f) => f.workspace !== workspace)) {
@@ -146,6 +151,7 @@ export class FileMetadataTable {
         if (!scopedKey.startsWith(scopePrefix)) continue;
         const objectKey = scopedKey.slice(scopePrefix.length);
         if (prefix && !objectKey.startsWith(prefix)) continue;
+        if (after !== undefined && objectKey <= after) continue;
         if (filters.every((f) => map.get(f.key) === f.value)) {
           results.push({ object_key: objectKey });
         }

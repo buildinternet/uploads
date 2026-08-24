@@ -56,17 +56,37 @@ const noRun: CommandRunner = () => {
 const ghRun: CommandRunner = () => "o/r";
 
 function fakeFindClient() {
-  const calls: { filters: Record<string, string>; prefix?: string; limit?: number }[] = [];
+  const calls: {
+    filters: Record<string, string>;
+    prefix?: string;
+    limit?: number;
+    cursor?: string;
+    all?: boolean;
+  }[] = [];
+  const page = (filters: Record<string, string>) => ({
+    items: [{ key: "gh/o/r/pull/1/a.png", url: "https://x.test/a.png", metadata: filters }],
+    cursor: null,
+  });
   const client = {
     findFiles: async (
       filters: Record<string, string>,
-      opts: { prefix?: string; limit?: number } = {},
+      opts: { prefix?: string; limit?: number; cursor?: string } = {},
     ) => {
-      calls.push({ filters, prefix: opts.prefix, limit: opts.limit });
-      return {
-        items: [{ key: "gh/o/r/pull/1/a.png", url: "https://x.test/a.png", metadata: filters }],
-        cursor: null,
-      };
+      calls.push({ filters, prefix: opts.prefix, limit: opts.limit, cursor: opts.cursor });
+      return page(filters);
+    },
+    findFilesAll: async (
+      filters: Record<string, string>,
+      opts: { prefix?: string; limit?: number; cursor?: string } = {},
+    ) => {
+      calls.push({
+        filters,
+        prefix: opts.prefix,
+        limit: opts.limit,
+        cursor: opts.cursor,
+        all: true,
+      });
+      return page(filters);
     },
   } as unknown as UploadsClient;
   return { client, calls };
@@ -207,17 +227,25 @@ describe("runList --meta", () => {
     ).rejects.toThrow(UsageError);
   });
 
-  it("rejects --meta combined with --all", async () => {
-    const { client } = fakeFindClient();
-    await expect(
-      runList(ctxWith(client), ["--meta", "app=x", "--all"], false, noRun),
-    ).rejects.toThrow(UsageError);
+  // Search is paged as of issue #829 §4: --cursor resumes a page and --all
+  // follows the cursor (bounded), instead of both being rejected outright.
+  it("follows the search cursor with --all", async () => {
+    const { client, calls } = fakeFindClient();
+    const code = await runList(ctxWith(client), ["--meta", "app=x", "--all"], false, noRun);
+    expect(code).toBe(0);
+    expect(calls[0].all).toBe(true);
   });
 
-  it("rejects --meta combined with --cursor", async () => {
-    const { client } = fakeFindClient();
-    await expect(
-      runList(ctxWith(client), ["--meta", "app=x", "--cursor", "abc"], false, noRun),
-    ).rejects.toThrow(UsageError);
+  it("forwards --cursor to the search endpoint", async () => {
+    const { client, calls } = fakeFindClient();
+    const code = await runList(
+      ctxWith(client),
+      ["--meta", "app=x", "--cursor", "abc"],
+      false,
+      noRun,
+    );
+    expect(code).toBe(0);
+    expect(calls[0].cursor).toBe("abc");
+    expect(calls[0].all).toBeUndefined();
   });
 });

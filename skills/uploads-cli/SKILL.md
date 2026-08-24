@@ -636,6 +636,8 @@ uploads find app=web path=/settings                 # same filter, positional pa
 uploads find --meta app=web                         # --meta works here too
 uploads find hero                                   # bare name = filename substring
 uploads find --name hero --meta app=web             # name + meta, either order
+uploads find app=web --all                          # follow the cursor (max 20 pages)
+uploads find app=web --cursor "$CURSOR"             # resume one page by hand
 uploads meta keys                                   # which meta keys exist here
 uploads meta values app                             # values (with counts) for one key
 ```
@@ -646,6 +648,11 @@ forms can appear in one call. `find` also takes a case-insensitive filename
 substring (`--name <term>`, or a bare positional without `=`). When you don't
 know which keys exist, start with `meta keys` / `meta values <key>` (or the MCP
 `list_metadata_keys` tool) — keys are user/agent-defined, not a fixed schema.
+
+Search results are paged. When more matches remain, `find` prints `truncated:
+true` and the next page's opaque `cursor` on stderr (`--json` carries `cursor`
+in the payload); pass it back with `--cursor`, or let `--all` follow it for up
+to 20 pages. Treat the cursor as opaque — it is only valid for the same query.
 
 On the default `screenshots/…` path, `put` also auto-derives GitHub context and
 stamps `gh.repo`/`gh.kind`/`gh.number`/`gh.ref` from the current branch's PR (or

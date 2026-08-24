@@ -548,12 +548,22 @@ const MERGED_STATUS_SQL = `s2.meta_key = 'gh.merged' AND s2.meta_value = 'true'`
  * `collapsePromotedShadows` (opt-in, off by default) drops promoted branch
  * originals (`PROMOTED_SHADOW_STATUS_SQL`) so the screenshots drill-in doesn't
  * show a shot twice; general search keeps them.
+ *
+ * `after` is a keyset continuation: rows are already ordered by `object_key`,
+ * so resuming at `object_key > :after` skips the consumed window without an
+ * OFFSET scan and stays stable when objects are added or removed between
+ * pages (issue #829 §4).
  */
 export async function findObjectsByMetadata(
   db: D1Queryable,
   workspace: string,
   filters: Record<string, string>,
-  opts: { prefix?: string; limit?: number; collapsePromotedShadows?: boolean } = {},
+  opts: {
+    prefix?: string;
+    limit?: number;
+    collapsePromotedShadows?: boolean;
+    after?: string;
+  } = {},
 ): Promise<Array<{ key: string; metadata: Record<string, string> }>> {
   const entries = Object.entries(filters);
   if (entries.length === 0) return [];
@@ -594,6 +604,12 @@ export async function findObjectsByMetadata(
                AND ${PROMOTED_SHADOW_STATUS_SQL}
            )`;
     params.push(workspace);
+  }
+  // Keyset continuation wraps last so it applies uniformly to the single-leg,
+  // INTERSECT, and collapse-wrapped forms.
+  if (opts.after !== undefined) {
+    sql = `SELECT object_key FROM (${sql}) AS page WHERE object_key > ?`;
+    params.push(opts.after);
   }
   sql += ` ORDER BY object_key LIMIT ?`;
   params.push(limit);

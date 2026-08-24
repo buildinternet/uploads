@@ -58,6 +58,7 @@ export const files = new Hono<WorkspaceVars>()
               nameTerm,
               prefix: query.prefix,
               pageSize,
+              ...(query.cursor ? { cursor: query.cursor } : {}),
             }),
           { name: "d1_files_search" },
         ),
@@ -71,9 +72,11 @@ export const files = new Hono<WorkspaceVars>()
           metadata: match.metadata,
         };
       });
-      // Meta-only keeps the pre-#528 envelope (no `truncated` field).
-      if (nameTerm === undefined) return c.json({ items, cursor: null });
-      return c.json({ items, cursor: null, truncated: result.truncated });
+      // Meta-only keeps the pre-#528 envelope (no `truncated` field). `cursor`
+      // was always present and always null; it now carries the continuation
+      // token when more pages exist (issue #829 §4).
+      if (nameTerm === undefined) return c.json({ items, cursor: result.cursor });
+      return c.json({ items, cursor: result.cursor, truncated: result.truncated });
     }
 
     const { prefix, cursor } = query;

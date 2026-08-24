@@ -69,6 +69,13 @@ export interface ListOptions {
   metadata?: boolean;
 }
 
+/**
+ * Default page cap for `findFilesAll` / `uploads find --all`. Search is a
+ * bounded read on the server, so following its cursor is bounded on the client
+ * too rather than draining an unknown number of pages (issue #829 §4).
+ */
+export const FIND_FILES_MAX_PAGES = 20;
+
 export interface FindFilesOptions {
   prefix?: string;
   limit?: number;
@@ -77,6 +84,13 @@ export interface FindFilesOptions {
    * At least one of non-empty `filters` or `name` is required.
    */
   name?: string;
+  /**
+   * Opaque continuation from a previous result's `cursor`. Pass it back
+   * unchanged, with the same filters/name/prefix, to fetch the next page
+   * (issue #829 §4). A cursor minted for one search path is rejected by the
+   * other, so do not hand-build one.
+   */
+  cursor?: string;
 }
 
 export interface FindFilesItem {
@@ -1120,6 +1134,28 @@ export function createUploadsClient(config: UploadsClientConfig) {
     };
   }
 
+  async function findFiles(
+    filters: Record<string, string> = {},
+    opts: FindFilesOptions = {},
+  ): Promise<FindFilesResult> {
+    const params = new URLSearchParams();
+    for (const [k, v] of Object.entries(filters)) params.append(`meta.${k}`, v);
+    if (opts.name) params.set("name", opts.name);
+    if (opts.prefix) params.set("prefix", opts.prefix);
+    if (opts.limit != null) params.set("limit", String(opts.limit));
+    if (opts.cursor) params.set("cursor", opts.cursor);
+    const result = await request<{
+      items: FindFilesItem[];
+      truncated: boolean;
+      cursor?: string | null;
+    }>("GET", `${canonicalFilesBase(config)}/search?${params.toString()}`);
+    return {
+      items: result.items,
+      cursor: result.cursor ?? null,
+      truncated: result.truncated,
+    };
+  }
+
   async function getGallery(id: string): Promise<Gallery> {
     return request<Gallery>("GET", `${galleriesBase(config)}/${encodeURIComponent(id)}`);
   }
@@ -1263,23 +1299,37 @@ export function createUploadsClient(config: UploadsClientConfig) {
      * ANDed equality filter over queryable metadata and/or a case-insensitive
      * filename substring. At least one of non-empty `filters` or `opts.name`
      * is required. `filters` must be pre-validated when present (see
-     * `metadata.ts`). The canonical search route is non-paginated (server cap
-     * 100, narrowable via `limit`), so `cursor` is always null.
+     * `metadata.ts`). The page is capped server-side (100, narrowable via
+     * `limit`); when more matches exist the result carries an opaque `cursor`
+     * to pass back as `opts.cursor` for the next page, and null when the last
+     * page has been reached.
      */
-    async findFiles(
+    findFiles,
+
+    /**
+     * `findFiles` followed through its `cursor`, up to `maxPages` requests
+     * (default `FIND_FILES_MAX_PAGES`). Bounded on purpose: search pages are
+     * the expensive read path, so draining is capped rather than open-ended.
+     * The returned `cursor` is non-null when the cap stopped the drain early —
+     * pass it back to continue from there.
+     */
+    async findFilesAll(
       filters: Record<string, string> = {},
       opts: FindFilesOptions = {},
+      maxPages: number = FIND_FILES_MAX_PAGES,
     ): Promise<FindFilesResult> {
-      const params = new URLSearchParams();
-      for (const [k, v] of Object.entries(filters)) params.append(`meta.${k}`, v);
-      if (opts.name) params.set("name", opts.name);
-      if (opts.prefix) params.set("prefix", opts.prefix);
-      if (opts.limit != null) params.set("limit", String(opts.limit));
-      const result = await request<{ items: FindFilesItem[]; truncated: boolean }>(
-        "GET",
-        `${canonicalFilesBase(config)}/search?${params.toString()}`,
-      );
-      return { items: result.items, cursor: null, truncated: result.truncated };
+      const items: FindFilesItem[] = [];
+      let cursor: string | undefined = opts.cursor;
+      let truncated: boolean | undefined;
+      const pages = Math.max(1, Math.floor(maxPages));
+      for (let page = 0; page < pages; page += 1) {
+        const result: FindFilesResult = await findFiles(filters, { ...opts, cursor });
+        items.push(...result.items);
+        truncated = result.truncated;
+        cursor = result.cursor ?? undefined;
+        if (!cursor) break;
+      }
+      return { items, cursor: cursor ?? null, ...(truncated === undefined ? {} : { truncated }) };
     },
 
     /** `GET /v1/:workspace/files/facets` — workspace metadata key vocabulary. */
