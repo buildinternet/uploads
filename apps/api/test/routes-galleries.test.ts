@@ -122,6 +122,14 @@ beforeEach(async () => {
       "utf8",
     ),
   );
+  db.exec(
+    readFileSync(
+      fileURLToPath(
+        new NodeURL("../migrations/20260824120000_idempotency_requests.sql", import.meta.url),
+      ),
+      "utf8",
+    ),
+  );
   // Phase 4: adds auth_tokens.minting_user_id, which findActiveToken (used by
   // workspaceAuth on these routes) now selects.
   db.exec(

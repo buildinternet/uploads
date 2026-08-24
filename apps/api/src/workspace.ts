@@ -365,6 +365,8 @@ export type WorkspaceVars = {
     authScopes: FileScope[];
     /** "session" is set only by `dualWorkspaceAuth` (see dual-workspace-auth.ts). */
     authSource: "d1" | "legacy" | "session";
+    /** Stable opaque credential identity used to isolate idempotency keys. */
+    authPrincipal: string;
     /** Better Auth user behind the bearer token (issue #340), or null. */
     mintingUserId: string | null;
   };
@@ -578,6 +580,7 @@ function workspaceAuthWith(
     c.set("workspaceName", name);
     c.set("authScopes", d1Token ? parseScopes(d1Token.scopes) : [...FILE_SCOPES]);
     c.set("authSource", d1Token ? "d1" : "legacy");
+    c.set("authPrincipal", d1Token ? `d1-token:${d1Token.id}` : `legacy-token:${providedHash}`);
     // Uploader attribution (issue #340) — null for legacy/enrollment tokens.
     c.set("mintingUserId", d1Token?.minting_user_id ?? null);
     if (d1Token) {

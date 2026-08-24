@@ -20,6 +20,7 @@ import { workspaceSettings } from "./routes/workspace-settings";
 import { me } from "./routes/me";
 import { runRetentionSweep } from "./retention-sweep";
 import { runObservabilityRetention } from "./observability-retention";
+import { purgeExpiredIdempotencyRequests } from "./gallery-idempotency";
 import { galleries } from "./routes/galleries";
 import { publicGalleries } from "./routes/public-galleries";
 import { publicFiles } from "./routes/public-files";
@@ -70,7 +71,7 @@ const consoleCors = cors({
   // PATCH: file metadata + galleries, admin workspace limits / OAuth client
   // edits, /me member role + file-visibility updates.
   allowMethods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-  allowHeaders: ["Authorization", "Content-Type"],
+  allowHeaders: ["Authorization", "Content-Type", "Idempotency-Key"],
   maxAge: 86400,
 });
 
@@ -249,6 +250,18 @@ export default {
         console.error(
           JSON.stringify({
             message: "observability_retention_failed",
+            error: appErr.message,
+            code: appErr.code,
+          }),
+        );
+      }),
+    );
+    ctx.waitUntil(
+      purgeExpiredIdempotencyRequests(env.DB).catch((err) => {
+        const appErr = AppError.from(err);
+        console.error(
+          JSON.stringify({
+            message: "idempotency_retention_failed",
             error: appErr.message,
             code: appErr.code,
           }),

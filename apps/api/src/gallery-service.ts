@@ -472,6 +472,19 @@ export async function hydrateOwnerGallery(
   items: GalleryItemRecord[],
 ): Promise<GalleryDto> {
   return {
+    ...emptyOwnerGallery(env, record),
+    items: (await hydrateGalleryItems(env, workspace, items, { audience: "owner" })).map(
+      (item) => ({
+        ...item,
+        pageUrl: galleryItemUrl(env, record.id, item.id),
+      }),
+    ),
+  };
+}
+
+/** A newly created gallery has no items, so projecting it must not touch storage. */
+export function emptyOwnerGallery(env: Env, record: GalleryRecord): GalleryDto {
+  return {
     id: record.id,
     url: galleryUrl(env, record.id),
     workspace: record.workspace,
@@ -482,12 +495,7 @@ export async function hydrateOwnerGallery(
     version: record.version,
     createdAt: record.created_at,
     updatedAt: record.updated_at,
-    items: (await hydrateGalleryItems(env, workspace, items, { audience: "owner" })).map(
-      (item) => ({
-        ...item,
-        pageUrl: galleryItemUrl(env, record.id, item.id),
-      }),
-    ),
+    items: [],
   };
 }
 

@@ -56,3 +56,12 @@ export function createDbSession(db: D1Database): D1DatabaseSession {
 export function dbFor(env: Env): D1Queryable {
   return env.DB_SESSION ?? env.DB;
 }
+
+/**
+ * Idempotency decisions must observe the latest claim from another request.
+ * Use a primary-constrained session even when ordinary reads may start on a
+ * replica. Test doubles without the Sessions API fall back to the raw binding.
+ */
+export function primaryDbFor(env: Env): D1Queryable {
+  return typeof env.DB.withSession === "function" ? env.DB.withSession("first-primary") : env.DB;
+}

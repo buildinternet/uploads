@@ -229,6 +229,8 @@ export interface GalleryListResult {
 export interface CreateGalleryOptions {
   title: string;
   description?: string | null;
+  /** Reuse this key to safely retry the same create request. Generated when omitted. */
+  idempotencyKey?: string;
 }
 
 export interface AddGalleryItemOptions {
@@ -523,8 +525,9 @@ const JSON_TIMEOUT_MS = 15_000;
 const CONTENT_TIMEOUT_MS = 60_000;
 
 // At most one retry. Retried on network errors, 503, and 429 — and only for
-// GET/PUT, since a `put` is byte-idempotent (same key, same bytes) but a
-// POST/DELETE/PATCH might not be, and telling "no bytes sent" apart from "the
+// GET/PUT, since a `put` is byte-idempotent (same key, same bytes). POST is
+// retryable only when the request carries an Idempotency-Key; DELETE/PATCH
+// remain single-attempt because telling "no bytes sent" apart from "the
 // mutation already landed" isn't reliable enough to risk a double-apply.
 const MAX_ATTEMPTS = 2;
 const RETRYABLE_METHODS = new Set(["GET", "PUT"]);
@@ -595,7 +598,10 @@ async function resilientFetch(
   init: RequestInit,
   timeoutMs: number,
 ): Promise<Response> {
-  const retryable = RETRYABLE_METHODS.has(method.toUpperCase());
+  const normalizedMethod = method.toUpperCase();
+  const retryable =
+    RETRYABLE_METHODS.has(normalizedMethod) ||
+    (normalizedMethod === "POST" && new Headers(init.headers).has("Idempotency-Key"));
   for (let attempt = 1; ; attempt++) {
     let res: Response | undefined;
     let networkErr: UploadsError | undefined;
@@ -1274,9 +1280,13 @@ export function createUploadsClient(config: UploadsClientConfig) {
     },
 
     async createGallery(opts: CreateGalleryOptions): Promise<Gallery> {
+      const { idempotencyKey = crypto.randomUUID(), ...body } = opts;
       return request<Gallery>("POST", galleriesBase(config), {
-        body: new TextEncoder().encode(JSON.stringify(opts)),
-        headers: { "Content-Type": "application/json" },
+        body: new TextEncoder().encode(JSON.stringify(body)),
+        headers: {
+          "Content-Type": "application/json",
+          "Idempotency-Key": idempotencyKey,
+        },
       });
     },
 
