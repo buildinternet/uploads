@@ -72,6 +72,19 @@ Every non-2xx response uses one nested envelope (same shape as either/releases):
 | `message` | Human-readable; may change; never parse this                                 |
 | `details` | Optional structured context for select codes                                 |
 
+`type` is the broad category — validation, not_found, conflict, and so on.
+Every response of a given `type` uses the same default HTTP status. Branch
+client logic on `code`, not `type` or `status`. Many `code` values share one
+`type`. Each still names one specific failure: `key_exists`,
+`idempotency_key_reused`, and `key_prefix_not_allowed` are all `validation`
+or `conflict`, each with its own distinct `code`.
+
+An individual `AppError` can override its default HTTP status. That override
+applies only to the response actually sent. It never travels on the wire, so
+a client decoding the envelope always recomputes status from `type`. No route
+in this API overrides status today. The mechanism exists in
+`packages/errors/src/base.ts` for a case that needs it later.
+
 Throw `AppError` subclasses from `@uploads/errors` in route code; the API's
 `onError` serializes them. See `packages/errors`.
 
@@ -88,6 +101,9 @@ Throw `AppError` subclasses from `@uploads/errors` in route code; the API's
 | `GET /v1/workspaces/:workspace/files/:key`                                      | Read object metadata. `?metadata=1` returns only the queryable metadata map                                                                                                                                                     |
 | `PATCH /v1/workspaces/:workspace/files/:key`                                    | Merge queryable metadata with `{ set?, delete? }`                                                                                                                                                                               |
 | `DELETE /v1/workspaces/:workspace/files/:key`                                   | Delete an object. Returns `200 { key, deleted: true }`                                                                                                                                                                          |
+| `GET /v1/workspaces/:workspace/files/by-path?merged=`                           | Group recently uploaded `gh.*`-tagged files by project and path. Powers the web Screenshots page                                                                                                                                |
+| `GET /v1/workspaces/:workspace/files/file-url?key=`                             | Resolve a usable URL for a key: the workspace's public URL, else a short-lived signed URL, else an error                                                                                                                        |
+| `PATCH /v1/workspaces/:workspace/files/visibility?key=`                         | Set a file's `visibility` flag with `{ visibility: "public" \| "private" }`                                                                                                                                                     |
 | `GET /v1/workspaces/:workspace/usage`                                           | Read workspace usage, limits, token scopes, and plan; requires `files:read`                                                                                                                                                     |
 | `POST /v1/workspaces/:workspace/usage/reconcile`                                | Maintenance operation. Potentially expensive: scans storage and rebuilds `bytes` and `objects`; bearer token only; requires `files:write`                                                                                       |
 | `POST /v1/workspaces/:workspace/usage/purge-expired`                            | Destructive maintenance operation. Permanently deletes objects older than `retentionDays`, then reconciles; bearer token only; requires `files:delete`                                                                          |
@@ -120,6 +136,25 @@ that error carries the code `file_search_invalid_cursor`.
 File search also keeps its pre-existing `truncated` flag. The flag reports the
 same thing from the other direction. `truncated: true` and a non-null `cursor`
 always travel together.
+
+### Collection envelope shapes
+
+Every list endpoint below is a stable v1 contract: existing fields keep
+their names and types, and any new field is additive. `cursor`/`nextCursor` behave as
+described above in every row.
+
+| Endpoint                                  | Envelope                                                       |
+| ----------------------------------------- | -------------------------------------------------------------- |
+| `GET …/files`                             | `{ files, prefixes, cursor }`                                  |
+| `GET …/files/search`                      | `{ items, truncated, cursor }`                                 |
+| `GET …/files/facets` (no `key`)           | `{ keys, truncated }`                                          |
+| `GET …/files/facets?key=`                 | `{ key, values, truncated }`                                   |
+| `GET …/galleries`                         | `{ galleries, nextCursor }`                                    |
+| `GET …/galleries/by-reference`            | `{ galleries, nextCursor }`                                    |
+| `GET …/galleries/:id/external-references` | `{ references }` (no pagination; the set is small per gallery) |
+
+`nextCursor` on the gallery endpoints predates the `cursor` convention below
+and keeps its name — see "Existing fields keep their names."
 
 ## Compatibility routes
 
