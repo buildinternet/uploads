@@ -122,10 +122,9 @@ export interface VerifiedOAuthToken {
 
 export interface OAuthJwtConfig {
   /**
-   * Expected `iss` — `${AUTH_ORIGIN}/api/auth`. jose does an exact match
-   * against any of the given values when an array is passed (used during
-   * the #731 phase C migration window to accept both the current and the
-   * legacy pre-flip issuer — see `LEGACY_OAUTH_ISSUER` in index.ts).
+   * Expected `iss` — `${AUTH_ORIGIN}/api/auth`. jose does an exact match, or
+   * accepts any value when an array is passed (a general capability; the #731
+   * phase-C dual-issuer window that used it was retired in phase E).
    */
   issuer: string | string[];
   /** Acceptable `aud` values — this resource's canonical URIs. */
@@ -137,9 +136,8 @@ export interface OAuthJwtConfig {
 }
 
 /**
- * JWKS lives at the primary (current) issuer's origin — the signing key
- * material is shared regardless of which origin minted a given token, so a
- * legacy-issuer token still verifies against the current JWKS endpoint.
+ * JWKS lives at the (primary) issuer's origin. When an array is passed the
+ * first entry is treated as primary.
  */
 function defaultJwksUrl(issuer: string | string[]): string {
   const primary = Array.isArray(issuer) ? issuer[0] : issuer;
