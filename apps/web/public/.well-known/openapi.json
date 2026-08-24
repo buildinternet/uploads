@@ -316,6 +316,8 @@
       "post": {
         "operationId": "createGallery",
         "summary": "Create a gallery",
+        "description": "Send an Idempotency-Key to make retries safe for 24 hours. Reusing the key with the same effective body returns the original 201 response. Reusing it with a different body returns 409.",
+        "parameters": [{ "$ref": "#/components/parameters/IdempotencyKey" }],
         "requestBody": {
           "required": true,
           "content": {
@@ -325,6 +327,12 @@
         "responses": {
           "201": {
             "description": "The gallery was created.",
+            "headers": {
+              "Idempotency-Replayed": {
+                "description": "Present with value `true` when the API replays a stored response.",
+                "schema": { "type": "string", "enum": ["true"] }
+              }
+            },
             "content": {
               "application/json": { "schema": { "$ref": "#/components/schemas/Gallery" } }
             }
@@ -332,6 +340,7 @@
           "400": { "$ref": "#/components/responses/Validation" },
           "401": { "$ref": "#/components/responses/Unauthorized" },
           "403": { "$ref": "#/components/responses/Forbidden" },
+          "409": { "$ref": "#/components/responses/Conflict" },
           "429": { "$ref": "#/components/responses/RateLimited" }
         }
       },
@@ -639,6 +648,13 @@
         "in": "path",
         "required": true,
         "schema": { "type": "string", "pattern": "^gal_" }
+      },
+      "IdempotencyKey": {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": false,
+        "description": "A caller-scoped retry key retained for 24 hours. Use 1 to 255 visible ASCII characters.",
+        "schema": { "type": "string", "minLength": 1, "maxLength": 255 }
       },
       "Prefix": { "name": "prefix", "in": "query", "schema": { "type": "string" } },
       "Cursor": {

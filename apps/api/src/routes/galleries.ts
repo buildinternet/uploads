@@ -10,6 +10,7 @@ import { badKey } from "../files-core";
 import {
   addGalleryItem,
   addExternalReference,
+  buildGallery,
   createGallery,
   getGallery,
   listGalleries,
@@ -24,6 +25,7 @@ import {
 } from "../galleries";
 import {
   decodeGalleryCursor,
+  emptyOwnerGallery,
   encodeGalleryCursor,
   gallerySummary,
   hydrateOwnerGallery,
@@ -38,7 +40,9 @@ import { publicUrl, storage, storageConfig } from "../storage";
 import { requireScope, type WorkspaceVars } from "../workspace";
 import { jsonBody } from "./json-body";
 import { dbFor } from "../db-session";
+import { primaryDbFor } from "../db-session";
 import { boundedDataRead } from "../data-read-bounds";
+import { createGalleryIdempotently } from "../gallery-idempotency";
 
 async function ownerGallery(c: Context<WorkspaceVars>, id: string) {
   const record = await getGallery(dbFor(c.env), c.get("workspaceName"), id);
@@ -59,21 +63,51 @@ async function ownerGallery(c: Context<WorkspaceVars>, id: string) {
  */
 export async function createGalleryHandler(c: Context<WorkspaceVars>) {
   const body = await jsonBody(c);
-  const result = unwrapMutation(
-    await createGallery(dbFor(c.env), {
-      workspace: c.get("workspaceName"),
-      title: typeof body.title === "string" ? body.title : "",
-      description:
-        body.description === null || typeof body.description === "string"
-          ? body.description
-          : undefined,
-    }),
-  );
-  await recordAdoptionSafe(c.env, {
-    metric: "gallery_created",
+  const input = {
     workspace: c.get("workspaceName"),
-  });
-  return c.json(await ownerGallery(c, result.value.id), 201);
+    title: typeof body.title === "string" ? body.title : "",
+    description:
+      body.description === null || typeof body.description === "string"
+        ? body.description
+        : undefined,
+  };
+  const idempotencyKey = c.req.header("Idempotency-Key");
+  if (idempotencyKey === undefined) {
+    const result = unwrapMutation(await createGallery(dbFor(c.env), input));
+    await recordAdoptionSafe(c.env, {
+      metric: "gallery_created",
+      workspace: c.get("workspaceName"),
+    });
+    return c.json(await ownerGallery(c, result.value.id), 201);
+  }
+
+  const record = unwrapMutation(buildGallery(input)).value;
+  const response = emptyOwnerGallery(c.env, record);
+  let result;
+  try {
+    result = await createGalleryIdempotently(primaryDbFor(c.env), {
+      workspace: c.get("workspaceName"),
+      principal: c.get("authPrincipal"),
+      key: idempotencyKey,
+      record,
+      response,
+      readEnv: c.env,
+    });
+  } catch (error) {
+    if (error instanceof ConflictError && error.code === "idempotency_request_in_progress") {
+      c.header("Retry-After", "1");
+    }
+    throw error;
+  }
+  if (result.status === "limit") mutationError(result);
+  if (result.replayed) c.header("Idempotency-Replayed", "true");
+  if (!result.replayed) {
+    await recordAdoptionSafe(c.env, {
+      metric: "gallery_created",
+      workspace: c.get("workspaceName"),
+    });
+  }
+  return c.json(result.value, 201);
 }
 
 export async function listGalleriesHandler(c: Context<WorkspaceVars>) {

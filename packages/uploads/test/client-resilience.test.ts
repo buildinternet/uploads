@@ -35,7 +35,7 @@ describe("request timeouts", () => {
     vi.stubGlobal("fetch", stallingFetch());
 
     const promise = client()
-      .createGallery({ title: "t" })
+      .deleteGallery("gal_1", { expectedVersion: 1 })
       .then(
         () => null,
         (e: unknown) => e,
@@ -177,19 +177,29 @@ describe("bounded retry", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it("does not retry a non-idempotent POST on 503", async () => {
-    const fetchMock = vi.fn(async () => new Response(null, { status: 503 }));
+  it("retries gallery creation with the same idempotency key", async () => {
+    vi.useFakeTimers();
+    let calls = 0;
+    const fetchMock = vi.fn(async () => {
+      calls++;
+      if (calls === 1) return new Response(null, { status: 503 });
+      return new Response(JSON.stringify({ id: "gal_1", title: "t" }), {
+        status: 201,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
     vi.stubGlobal("fetch", fetchMock);
 
-    const err = await client()
-      .createGallery({ title: "t" })
-      .then(
-        () => null,
-        (e: unknown) => e,
-      );
+    const promise = client().createGallery({ title: "t", idempotencyKey: "create-gallery-1" });
+    await vi.advanceTimersByTimeAsync(2_000);
+    await promise;
 
-    expect(err).toBeInstanceOf(UploadsError);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const requestCalls = fetchMock.mock.calls as unknown as Array<[string, RequestInit]>;
+    const firstHeaders = new Headers(requestCalls[0]?.[1].headers);
+    const secondHeaders = new Headers(requestCalls[1]?.[1].headers);
+    expect(firstHeaders.get("Idempotency-Key")).toBe("create-gallery-1");
+    expect(secondHeaders.get("Idempotency-Key")).toBe("create-gallery-1");
   });
 
   it("does not retry DELETE on 503", async () => {

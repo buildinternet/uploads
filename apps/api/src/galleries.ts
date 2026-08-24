@@ -153,51 +153,74 @@ async function classifyVersion(
   return { status: "conflict", currentVersion: current.version };
 }
 
-export async function createGallery(
-  db: D1Queryable,
-  input: { workspace: string; title: string; description?: string | null; now?: Date },
-): Promise<MutationResult<GalleryRecord>> {
+export function buildGallery(input: {
+  workspace: string;
+  title: string;
+  description?: string | null;
+  now?: Date;
+}): MutationResult<GalleryRecord> {
   const titleError = validateTitle(input.title);
   if (titleError) return titleError;
   const descriptionError = plainText(input.description, "description", 2000);
   if (descriptionError) return descriptionError;
   const now = (input.now ?? new Date()).toISOString();
-  const record: GalleryRecord = {
-    id: randomGalleryId(),
-    workspace: input.workspace,
-    title: input.title.trim(),
-    description: input.description ?? null,
-    visibility: "public",
-    cover_item_id: null,
-    version: 1,
-    created_at: now,
-    updated_at: now,
-    deleted_at: null,
+  return {
+    status: "ok",
+    value: {
+      id: randomGalleryId(),
+      workspace: input.workspace,
+      title: input.title.trim(),
+      description: input.description ?? null,
+      visibility: "public",
+      cover_item_id: null,
+      version: 1,
+      created_at: now,
+      updated_at: now,
+      deleted_at: null,
+    },
   };
+}
+
+/** Build the quota-guarded gallery insert, optionally gated by another row. */
+export function prepareGalleryInsert(
+  db: D1Queryable,
+  record: GalleryRecord,
+  condition?: { sql: string; values: unknown[] },
+): D1PreparedStatement {
   // The count check lives in the INSERT so concurrent creates cannot exceed the
   // tenant quota. Soft-deleted galleries deliberately do not consume a slot.
-  const result = await db
+  return db
     .prepare(
       `INSERT INTO galleries
       (id, workspace, title, description, visibility, cover_item_id, version, created_at, updated_at, deleted_at)
      SELECT ?, ?, ?, ?, 'public', NULL, 1, ?, ?, NULL
-     WHERE (SELECT COUNT(*) FROM galleries WHERE workspace = ? AND deleted_at IS NULL) < ?`,
+     WHERE (SELECT COUNT(*) FROM galleries WHERE workspace = ? AND deleted_at IS NULL) < ?
+       ${condition ? `AND (${condition.sql})` : ""}`,
     )
     .bind(
       record.id,
       record.workspace,
       record.title,
       record.description,
-      now,
-      now,
+      record.created_at,
+      record.updated_at,
       record.workspace,
       MAX_GALLERIES_PER_WORKSPACE,
-    )
-    .run();
+      ...(condition?.values ?? []),
+    );
+}
+
+export async function createGallery(
+  db: D1Queryable,
+  input: { workspace: string; title: string; description?: string | null; now?: Date },
+): Promise<MutationResult<GalleryRecord>> {
+  const built = buildGallery(input);
+  if (built.status !== "ok") return built;
+  const result = await prepareGalleryInsert(db, built.value).run();
   if ((result.meta.changes ?? 0) === 0) {
     return { status: "limit", limit: MAX_GALLERIES_PER_WORKSPACE };
   }
-  return { status: "ok", value: record };
+  return built;
 }
 
 export async function getGallery(

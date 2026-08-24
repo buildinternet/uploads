@@ -12,6 +12,23 @@ application. API integrations should use a workspace token.
 
 Unknown workspaces and bad tokens are indistinguishable (both 401).
 
+## Idempotency
+
+`POST /v1/workspaces/:workspace/galleries` accepts an optional
+`Idempotency-Key` header. `POST /v1/:workspace/galleries` accepts the same
+header and shares the same logical operation.
+
+Use 1 to 255 visible ASCII characters. The API scopes the key to the workspace
+and the current credential. It retains a successful response for 24 hours.
+The same key and effective JSON body replay the original `201` response with
+`Idempotency-Replayed: true`. The same key with a different effective body
+returns `409 idempotency_key_reused`. A concurrent request can return
+`409 idempotency_request_in_progress` with `Retry-After: 1`.
+
+The JavaScript client generates a key for `createGallery`. Pass
+`idempotencyKey` in the options when separate client calls must share a key.
+After 24 hours, the same key starts a new operation.
+
 ## Errors
 
 Every non-2xx response uses one nested envelope (same shape as either/releases):
@@ -53,7 +70,7 @@ Throw `AppError` subclasses from `@uploads/errors` in route code; the API's
 | `GET /v1/workspaces/:workspace/usage`                                           | Read workspace usage, limits, token scopes, and plan; requires `files:read`                                                                                                                                                     |
 | `POST /v1/workspaces/:workspace/usage/reconcile`                                | Maintenance operation. Potentially expensive: scans storage and rebuilds `bytes` and `objects`; bearer token only; requires `files:write`                                                                                       |
 | `POST /v1/workspaces/:workspace/usage/purge-expired`                            | Destructive maintenance operation. Permanently deletes objects older than `retentionDays`, then reconciles; bearer token only; requires `files:delete`                                                                          |
-| `POST /v1/workspaces/:workspace/galleries`                                      | Create an empty public gallery; requires `files:write`                                                                                                                                                                          |
+| `POST /v1/workspaces/:workspace/galleries`                                      | Create an empty public gallery; requires `files:write`; accepts `Idempotency-Key` for safe retries                                                                                                                              |
 | `GET /v1/workspaces/:workspace/galleries?limit=&cursor=`                        | List enriched gallery summaries with opaque cursor pagination; requires `files:read`                                                                                                                                            |
 | `GET /v1/workspaces/:workspace/galleries/:id`                                   | Read one owned gallery; requires `files:read`                                                                                                                                                                                   |
 | `PATCH/DELETE /v1/workspaces/:workspace/galleries/:id`                          | Update or soft-delete gallery metadata; requires `files:write`                                                                                                                                                                  |

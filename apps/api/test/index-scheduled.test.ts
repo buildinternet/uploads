@@ -19,6 +19,7 @@ const MIGRATIONS = [
   "migrations/20260713210559_file_metadata.sql",
   "migrations/20260710140000_workspace_usage.sql",
   "migrations/20260822120100_workspace_usage_shared_subset.sql",
+  "migrations/20260824120000_idempotency_requests.sql",
 ];
 
 const WS = "acme";
@@ -106,6 +107,21 @@ describe("scheduled handler — no staging reaper (#421)", () => {
         "gh.staged-at": daysAgo(400),
       });
 
+      const insertIdempotency = sqlite.db.prepare(
+        `INSERT INTO idempotency_requests
+         (workspace, principal, operation, key_hash, fingerprint, owner_nonce, state,
+          response_status, response_body, created_at, expires_at)
+         VALUES (?, 'd1-token:test', 'gallery.create.v1', ?, 'fingerprint', NULL,
+                 'completed', 201, '{}', ?, ?)`,
+      );
+      insertIdempotency.run(WS, "expired", daysAgo(2), daysAgo(1));
+      insertIdempotency.run(
+        WS,
+        "current",
+        new Date().toISOString(),
+        new Date(Date.now() + MS_PER_DAY).toISOString(),
+      );
+
       const { ctx, settle } = fakeExecutionContext();
       await worker.scheduled({} as ScheduledController, env, ctx);
       await settle();
@@ -118,6 +134,9 @@ describe("scheduled handler — no staging reaper (#421)", () => {
       expect(await getFileMetadata(database(sqlite), WS, abandonedKey)).toMatchObject({
         "gh.kind": "branch",
       });
+      expect(
+        sqlite.db.prepare("SELECT key_hash FROM idempotency_requests ORDER BY key_hash").all(),
+      ).toEqual([{ key_hash: "current" }]);
     } finally {
       sqlite.close();
     }

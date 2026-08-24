@@ -150,6 +150,7 @@ export function dualWorkspaceAuth(): MiddlewareHandler<DualAuthVars> {
     c.set("workspaceName", name);
     c.set("authScopes", [...FILE_SCOPES]);
     c.set("authSource", "session");
+    c.set("authPrincipal", `session-user:${userId}`);
     // A bearer token's `mintingUserId` names the Better Auth user whose
     // linked GitHub identity `isEntitledToClaimRepo` checks (see
     // `github-claim-authz.ts`) — for a session caller, that's simply the

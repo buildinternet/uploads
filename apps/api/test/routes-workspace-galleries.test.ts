@@ -143,6 +143,7 @@ beforeEach(async () => {
   db.exec(migration("20260710140000_workspace_usage.sql"));
   db.exec(migration("20260822120100_workspace_usage_shared_subset.sql"));
   db.exec(migration("20260711180000_galleries.sql"));
+  db.exec(migration("20260824120000_idempotency_requests.sql"));
   db.exec(migration("20260712230000_token_minting_user.sql"));
   db.exec(migration("20260817180000_token_last_used.sql"));
   db.exec(migration("20260713210559_file_metadata.sql"));
@@ -184,6 +185,31 @@ async function createViaCanonical(env: Parameters<typeof app.request>[2]) {
 }
 
 describe("POST/GET/PATCH/DELETE /v1/workspaces/:workspace/galleries (bearer, canonical CRUD)", () => {
+  it("replays one logical create across canonical and compatibility routes", async () => {
+    const env = await makeEnv();
+    const headers = {
+      Authorization: `Bearer ${TOKEN}`,
+      "Content-Type": "application/json",
+      "Idempotency-Key": "canonical-legacy-create",
+    };
+    const first = await app.request(
+      "/v1/workspaces/acme/galleries",
+      { method: "POST", headers, body: JSON.stringify({ title: "Launch media" }) },
+      env,
+    );
+    const replay = await app.request(
+      "/v1/acme/galleries",
+      { method: "POST", headers, body: JSON.stringify({ title: "Launch media" }) },
+      env,
+    );
+
+    expect(first.status).toBe(201);
+    expect(replay.status).toBe(201);
+    expect(replay.headers.get("Idempotency-Replayed")).toBe("true");
+    expect(await replay.json()).toEqual(await first.json());
+    expect(db.prepare("SELECT COUNT(*) AS count FROM galleries").get()).toMatchObject({ count: 1 });
+  });
+
   it("creates, reads, updates, and deletes a gallery", async () => {
     const env = await makeEnv();
     const gallery = await createViaCanonical(env);
@@ -283,6 +309,44 @@ describe("POST/GET/PATCH/DELETE /v1/workspaces/:workspace/galleries (bearer, can
 });
 
 describe("GET /v1/workspaces/:workspace/galleries (session auth)", () => {
+  it("isolates the same idempotency key between a bearer credential and a session user", async () => {
+    const env = await makeEnv();
+    const body = JSON.stringify({ title: "Independent creates" });
+    const bearer = await app.request(
+      "/v1/workspaces/acme/galleries",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${TOKEN}`,
+          "Content-Type": "application/json",
+          "Idempotency-Key": "shared-across-auth",
+        },
+        body,
+      },
+      env,
+    );
+    const session = await app.request(
+      "/v1/workspaces/acme/galleries",
+      {
+        method: "POST",
+        headers: {
+          cookie: "session=x",
+          "Content-Type": "application/json",
+          "Idempotency-Key": "shared-across-auth",
+        },
+        body,
+      },
+      env,
+    );
+
+    expect(bearer.status).toBe(201);
+    expect(session.status).toBe(201);
+    const bearerGallery = (await bearer.json()) as { id: string };
+    const sessionGallery = (await session.json()) as { id: string };
+    expect(bearerGallery.id).not.toBe(sessionGallery.id);
+    expect(db.prepare("SELECT COUNT(*) AS count FROM galleries").get()).toMatchObject({ count: 2 });
+  });
+
   it("a member reaches the same handler as a bearer caller (200, identical list shape)", async () => {
     const env = await makeEnv();
     await createViaCanonical(env);

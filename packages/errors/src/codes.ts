@@ -44,6 +44,11 @@ export const ERROR_CODES = [
   // Auth / enrollment
   "invalid_enrollment",
 
+  // Idempotency
+  "idempotency_key_invalid",
+  "idempotency_key_reused",
+  "idempotency_request_in_progress",
+
   // External integrations (GitHub App, OAuth providers, …)
   "integration_authorization_required",
 
