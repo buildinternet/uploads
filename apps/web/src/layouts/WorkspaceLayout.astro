@@ -69,10 +69,10 @@ const storagePath = `/account/workspaces/${encodeURIComponent(workspace)}/settin
   railWide={wideRail && hasPreview}
 >
   {
-    /* Broken-BYO-bucket notice (#826) — server-rendered hidden, revealed by
-      `initStorageHealthBanner` only for admins of a workspace whose active
-      lane is actually failing. Sits above the tab content because it is about
-      the workspace, not about this tab. */
+    /* Broken-BYO-bucket notice (#826).
+      Server-rendered hidden; `initStorageHealthBanner` reveals it.
+      Only admins of a workspace whose active lane is failing ever see it.
+      It sits above the tab content because it is about the workspace. */
   }
   <div class="ws-storage-alert" data-storage-health-banner role="alert" hidden>
     <div class="ws-storage-alert__body">
@@ -173,9 +173,10 @@ const storagePath = `/account/workspaces/${encodeURIComponent(workspace)}/settin
 </AccountLayout>
 
 <style>
-  /* Broken-storage notice (#826). Danger-tinted panel, one line of copy and
-     one link — deliberately not a `ul-callout`, which is a page-body element;
-     this sits in the shell above whatever the tab renders. */
+  /* Broken-storage notice (#826).
+     A danger-tinted panel with one line of copy and one link.
+     Deliberately not a `ul-callout`: that is a page-body element.
+     This sits in the shell, above whatever the tab renders. */
   .ws-storage-alert {
     display: flex;
     align-items: flex-start;

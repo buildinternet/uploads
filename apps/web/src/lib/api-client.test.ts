@@ -1498,6 +1498,69 @@ describe("getWorkspaceStorageStatus", () => {
     expect(legacy).toMatchObject({ kind: "ok", status: { health: { ok: true } } });
   });
 
+  it("treats a blank failure message as healthy, and trims the one it keeps", async () => {
+    const base = { mode: "byo", byoBucketEnabled: true, bucket: "my-bucket", lanes: [] };
+    // An empty or whitespace-only sentence would paint a danger badge and a
+    // workspace-wide banner with nothing in them.
+    for (const message of ["", "   ", "\n\t "]) {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => Response.json({ ...base, health: { ok: false, code: "auth", message } })),
+      );
+      const blank = await getWorkspaceStorageStatus("http://127.0.0.1:8787", "acme");
+      expect(blank).toMatchObject({ kind: "ok", status: { health: { ok: true } } });
+    }
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({ ...base, health: { ok: false, code: "auth", message: "  Broken.  " } }),
+      ),
+    );
+    const padded = await getWorkspaceStorageStatus("http://127.0.0.1:8787", "acme");
+    expect(padded).toMatchObject({
+      kind: "ok",
+      status: { health: { ok: false, message: "Broken." } },
+    });
+  });
+
+  it("parses a demoted lane's health block, and omits it when the lane is healthy", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({
+          mode: "shared",
+          byoBucketEnabled: true,
+          lanes: [
+            {
+              laneId: "lane_broken1",
+              role: "fallback",
+              mode: "byo",
+              bucket: "acme-media",
+              unhealthyAt: "2026-08-01T00:00:00.000Z",
+              health: {
+                ok: false,
+                code: "auth",
+                message: "We can no longer sign in to your bucket",
+                since: "2026-08-01T00:00:00.000Z",
+              },
+            },
+            { laneId: "lane_fine1", role: "standby", mode: "byo", bucket: "acme-spare" },
+          ],
+        }),
+      ),
+    );
+    const result = await getWorkspaceStorageStatus("http://127.0.0.1:8787", "acme");
+    if (result.kind !== "ok") throw new Error("expected ok");
+    expect(result.status.lanes[0]?.health).toEqual({
+      ok: false,
+      code: "auth",
+      message: "We can no longer sign in to your bucket",
+      since: "2026-08-01T00:00:00.000Z",
+    });
+    expect(result.status.lanes[1]).not.toHaveProperty("health");
+  });
+
   it("reports 403 as forbidden — non-admin members get no panel at all", async () => {
     vi.stubGlobal(
       "fetch",

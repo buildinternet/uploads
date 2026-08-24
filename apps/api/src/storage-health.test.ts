@@ -66,6 +66,28 @@ describe("classifyStorageFailure", () => {
     expect(classifyStorageFailure(new Error("network"))).toBeUndefined();
     expect(classifyStorageFailure(undefined)).toBeUndefined();
   });
+
+  it("leaves files-sdk's transport/outage code unflagged", () => {
+    // files-sdk normalizes network blips, timeouts, and provider outages to a
+    // single `Provider` code and retries them itself. Nothing in that shape
+    // separates a dead bucket from a hiccup, so it must never tell a workspace
+    // its credentials are broken.
+    expect(classifyStorageFailure(filesError("Provider"))).toBeUndefined();
+    expect(classifyStorageFailure(filesError("Provider", 503))).toBeUndefined();
+    expect(
+      classifyStorageFailure(
+        Object.assign(filesError("Provider"), { cause: new Error("fetch failed") }),
+      ),
+    ).toBeUndefined();
+    expect(
+      classifyStorageFailure(Object.assign(filesError("Provider"), { aborted: true })),
+    ).toBeUndefined();
+  });
+
+  it("still classifies auth when a Provider-coded error carries a 401/403", () => {
+    expect(classifyStorageFailure(filesError("Provider", 401))).toBe("auth");
+    expect(classifyStorageFailure(filesError("Provider", 403))).toBe("auth");
+  });
 });
 
 describe("storageHealth", () => {
@@ -251,5 +273,58 @@ describe("storageStatusResponse health projection", () => {
       true,
     );
     expect(response.lanes[0]?.unhealthyAt).toBe("2026-08-01T00:00:00.000Z");
+    // The normalized block too — a client showing "this fallback is broken"
+    // must be able to say *what* broke, not just that something did.
+    expect(response.lanes[0]?.health).toEqual({
+      ok: false,
+      code: "auth",
+      message: STORAGE_HEALTH_MESSAGES.auth,
+      since: "2026-08-01T00:00:00.000Z",
+    });
+  });
+
+  it("normalizes an unrecognized stored code on a demoted lane", () => {
+    const response = storageStatusResponse(
+      sharedRecord({
+        storageLanes: [
+          {
+            id: "lane_0000beef",
+            provider: "r2",
+            bucket: "acme-media",
+            accountId: "a".repeat(32),
+            accessKeyId: "enc:v1:key",
+            secretAccessKey: "enc:v1:secret",
+            lastActiveAt: "2026-08-24T00:00:00.000Z",
+            unhealthyAt: "2026-08-01T00:00:00.000Z",
+            unhealthyCode: "wat",
+          },
+        ],
+      }),
+      true,
+    );
+    expect(response.lanes[0]?.health).toMatchObject({
+      ok: false,
+      code: "unreachable",
+      message: STORAGE_HEALTH_MESSAGES.unreachable,
+    });
+  });
+
+  it("omits `health` entirely on a healthy lane", () => {
+    const response = storageStatusResponse(
+      sharedRecord({
+        storageLanes: [
+          {
+            id: "lane_0000beef",
+            provider: "r2",
+            bucket: "acme-media",
+            accountId: "a".repeat(32),
+            accessKeyId: "enc:v1:key",
+            secretAccessKey: "enc:v1:secret",
+          },
+        ],
+      }),
+      true,
+    );
+    expect(response.lanes[0]).not.toHaveProperty("health");
   });
 });

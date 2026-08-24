@@ -90,9 +90,15 @@ function errorStatus(err: unknown): number | undefined {
  * (a too-large object, a bad key) and a transient 5xx both return
  * `undefined`: flagging on those would light the banner for problems a
  * credential rotation cannot fix, which is worse than saying nothing.
- * `unreachable` is reserved for the one non-auth case a rotation *can*
- * fix — a bucket whose endpoint no longer answers at all — and is
- * deliberately conservative for the same reason.
+ *
+ * Note what is deliberately absent. files-sdk normalizes network blips,
+ * connection timeouts, and provider outages to a single `Provider` code, and
+ * retries them itself as transient. Nothing in that shape separates "this
+ * bucket is gone for good" from "the network hiccuped". So this function
+ * never returns `unreachable`: a transport failure leaves the lane unflagged
+ * rather than telling a workspace to rotate keys that are probably fine.
+ * `unreachable` exists only as `healthCodeOf`'s fallback wording for a stored
+ * code this version does not recognize.
  */
 export function classifyStorageFailure(err: unknown): StorageHealthCode | undefined {
   const code = errorCode(err);
@@ -116,8 +122,7 @@ export interface StorageHealth {
 
 const HEALTH_CODES = new Set<string>(["auth", "bucket_missing", "unreachable"]);
 
-function healthCodeOf(record: Pick<WorkspaceRecord, "storageUnhealthyCode">): StorageHealthCode {
-  const code = record.storageUnhealthyCode;
+function healthCodeOf(code: string | undefined): StorageHealthCode {
   // A record hand-edited (or written by a future version) with an unknown
   // code still reports *unhealthy* — the flag is the signal, the code only
   // picks the sentence. Falling back to `unreachable` keeps the vaguest,
@@ -125,18 +130,28 @@ function healthCodeOf(record: Pick<WorkspaceRecord, "storageUnhealthyCode">): St
   return code && HEALTH_CODES.has(code) ? (code as StorageHealthCode) : "unreachable";
 }
 
-/** Reads the stored flag into the projected shape. Healthy when nothing is flagged. */
+/**
+ * Normalizes a stored (timestamp, code) pair into the projected shape. The
+ * single place a stored code becomes a validated code plus its sentence, so
+ * the active lane and the saved-lane list can never disagree about what a
+ * given stored value means.
+ */
+export function healthFromFields(at: string | undefined, code: string | undefined): StorageHealth {
+  if (!at) return { ok: true };
+  const validated = healthCodeOf(code);
+  return {
+    ok: false,
+    code: validated,
+    message: STORAGE_HEALTH_MESSAGES[validated],
+    since: at,
+  };
+}
+
+/** Reads the *active* lane's flag into the projected shape. Healthy when nothing is flagged. */
 export function storageHealth(
   record: Pick<WorkspaceRecord, "storageUnhealthyAt" | "storageUnhealthyCode">,
 ): StorageHealth {
-  if (!record.storageUnhealthyAt) return { ok: true };
-  const code = healthCodeOf(record);
-  return {
-    ok: false,
-    code,
-    message: STORAGE_HEALTH_MESSAGES[code],
-    since: record.storageUnhealthyAt,
-  };
+  return healthFromFields(record.storageUnhealthyAt, record.storageUnhealthyCode);
 }
 
 /**
@@ -176,7 +191,7 @@ export async function noteStorageFailure(
   const code = classifyStorageFailure(err);
   if (!code) return;
   if (!isByoRecord(ws)) return;
-  if (ws.storageUnhealthyAt && healthCodeOf(ws) === code) return;
+  if (ws.storageUnhealthyAt && healthCodeOf(ws.storageUnhealthyCode) === code) return;
 
   const nowIso = new Date().toISOString();
   const laneId = ws.storageLaneId;
@@ -187,7 +202,8 @@ export async function noteStorageFailure(
       // started; if the workspace has switched since, that lane is no longer
       // the one this flag would describe.
       if ((current.storageLaneId ?? null) !== (laneId ?? null)) return null;
-      if (current.storageUnhealthyAt && healthCodeOf(current) === code) return null;
+      if (current.storageUnhealthyAt && healthCodeOf(current.storageUnhealthyCode) === code)
+        return null;
       return {
         ...current,
         // First failure wins: `since` is "failing since", not "last failed".

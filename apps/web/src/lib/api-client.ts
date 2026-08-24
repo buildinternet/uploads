@@ -1774,6 +1774,12 @@ export interface WorkspaceStorageLane {
   accessKeyIdLast4?: string;
   /** Set when this lane was demoted while its credentials were failing (issue #826). */
   unhealthyAt?: string;
+  /**
+   * Normalized health for a lane demoted while flagged (issue #826) — the
+   * same shape and the same server-authored sentence the active lane reports.
+   * Absent on a healthy lane.
+   */
+  health?: WorkspaceStorageHealth;
 }
 
 /** Whether the *active* lane's storage is currently working (issue #826). Always healthy in shared mode. */
@@ -1811,7 +1817,10 @@ function toWorkspaceStorageLane(value: unknown): WorkspaceStorageLane | null {
   if (typeof v.laneId !== "string" || (v.role !== "standby" && v.role !== "fallback")) return null;
   if (v.mode !== "shared" && v.mode !== "byo") return null;
   if (typeof v.bucket !== "string") return null;
+  // Same parser (and same fail-healthy rules) as the active lane's block.
+  const health = toWorkspaceStorageHealth(v.health);
   return {
+    ...(health.ok ? {} : { health }),
     laneId: v.laneId,
     role: v.role,
     mode: v.mode,
@@ -1831,15 +1840,22 @@ function toWorkspaceStorageLane(value: unknown): WorkspaceStorageLane | null {
  * workspace-wide banner from nothing. Only an explicit `ok: false` is treated
  * as broken, and only with a `message` the server actually wrote — the UI
  * never invents failure copy.
+ *
+ * "Actually wrote" means non-blank after trimming: an empty or whitespace-only
+ * message would render a danger badge and a banner with nothing in them, which
+ * is worse than staying quiet. The trimmed value is what callers get, so no
+ * downstream surface has to re-trim before display.
  */
 function toWorkspaceStorageHealth(value: unknown): WorkspaceStorageHealth {
   if (!value || typeof value !== "object") return { ok: true };
   const v = value as Record<string, unknown>;
   if (v.ok !== false || typeof v.message !== "string") return { ok: true };
+  const message = v.message.trim();
+  if (!message) return { ok: true };
   return {
     ok: false,
     code: typeof v.code === "string" ? v.code : undefined,
-    message: v.message,
+    message,
     since: typeof v.since === "string" ? v.since : undefined,
   };
 }
