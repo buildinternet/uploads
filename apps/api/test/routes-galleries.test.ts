@@ -639,29 +639,8 @@ describe("gallery routes with SQLite D1", () => {
 
     const publicView = await app.request(`/public/galleries/${gallery.id}`, {}, env);
     expect(publicView.status).toBe(200);
-    const publicBody = (await publicView.json()) as { references: Record<string, unknown>[] };
-    expect(publicBody.references).toHaveLength(2);
-    // Without GitHub App/cache in the test env, titles/kind stay omitted.
-    expect(publicBody.references).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          provider: "github",
-          resourceType: "item",
-          coordinate: "buildinternet/uploads#123",
-          canonicalUrl: "https://github.com/buildinternet/uploads/issues/123",
-        }),
-        expect.objectContaining({
-          provider: "github",
-          resourceType: "item",
-          coordinate: "buildinternet/new-uploads#123",
-          canonicalUrl: "https://github.com/buildinternet/new-uploads/issues/123",
-        }),
-      ]),
-    );
-    for (const ref of publicBody.references) {
-      expect(ref).not.toHaveProperty("title");
-      expect(ref).not.toHaveProperty("kind");
-    }
+    const publicBody = (await publicView.json()) as Record<string, unknown>;
+    expect(publicBody).not.toHaveProperty("references");
 
     const secondGallery = await create();
     expect(

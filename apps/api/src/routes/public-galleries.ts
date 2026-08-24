@@ -1,7 +1,7 @@
 import { NotFoundError, ServiceUnavailableError } from "@uploads/errors";
 import { Hono } from "hono";
 import { downloadResponse } from "../files-core";
-import { listExternalReferences, listGalleryItems, resolvePublicGallery } from "../galleries";
+import { listGalleryItems, resolvePublicGallery } from "../galleries";
 import { galleryItemFilename, hydratePublicGallery } from "../gallery-service";
 import { objectPublicUrls, storage, storageConfig } from "../storage";
 import { objectVisibility } from "../visibility";
@@ -79,13 +79,10 @@ export const publicGalleries = new Hono<WorkspaceVars>()
     if (!workspace) {
       throw new NotFoundError("Gallery not found.", { code: "gallery_not_found" });
     }
-    const [items, references] = await Promise.all([
-      boundedDataRead(c, () => listGalleryItems(dbFor(c.env), record.workspace, record.id), {
-        name: "d1_gallery_items",
-      }),
-      boundedDataRead(c, () => listExternalReferences(dbFor(c.env), record.workspace, record.id), {
-        name: "d1_gallery_external_references",
-      }),
-    ]);
-    return c.json(await hydratePublicGallery(c.env, workspace, record, items, references));
+    const items = await boundedDataRead(
+      c,
+      () => listGalleryItems(dbFor(c.env), record.workspace, record.id),
+      { name: "d1_gallery_items" },
+    );
+    return c.json(await hydratePublicGallery(c.env, workspace, record, items));
   });
