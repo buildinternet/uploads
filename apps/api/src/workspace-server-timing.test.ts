@@ -70,7 +70,11 @@ function appWith(db: unknown) {
 
 async function env(
   tokenHash: string,
-  opts: { touchDurationMs?: number; extra?: Record<string, string> } = {},
+  opts: {
+    touchDurationMs?: number;
+    extra?: Record<string, string>;
+    slowOps?: { writeDataPoint: (point: unknown) => void };
+  } = {},
 ) {
   return {
     REGISTRY: {
@@ -84,6 +88,7 @@ async function env(
       put: async () => undefined,
     },
     DB: fakeD1({ tokenHash, touchDurationMs: opts.touchDurationMs ?? 0.5 }),
+    ...(opts.slowOps ? { SLOW_OPS: opts.slowOps } : {}),
     ...opts.extra,
   } as unknown as Env;
 }
@@ -155,5 +160,51 @@ describe("workspaceAuth Server-Timing wiring (issue #812)", () => {
       await env(await sha256Hex(TOKEN)),
     );
     expect(res.status).toBe(401);
+  });
+});
+
+describe("workspaceAuth Analytics Engine slow-op sink (issue #812 tier 3)", () => {
+  it("writes AE points for both the d1 and d1_touch ops above the threshold", async () => {
+    const hash = await sha256Hex(TOKEN);
+    const points: unknown[] = [];
+    const res = await appWith(null).request(
+      "/acme/whoami",
+      { headers: { Authorization: `Bearer ${TOKEN}` } },
+      await env(hash, {
+        extra: { SLOW_OP_THRESHOLD_MS: "0" },
+        slowOps: { writeDataPoint: (point) => points.push(point) },
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(points).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ indexes: ["d1"], blobs: ["d1", "/acme/whoami", "ok"] }),
+        expect.objectContaining({
+          indexes: ["d1_touch"],
+          blobs: ["d1_touch", "/acme/whoami", "ok"],
+        }),
+      ]),
+    );
+  });
+
+  it("writes nothing below the threshold", async () => {
+    const hash = await sha256Hex(TOKEN);
+    const points: unknown[] = [];
+    await appWith(null).request(
+      "/acme/whoami",
+      { headers: { Authorization: `Bearer ${TOKEN}` } },
+      await env(hash, { slowOps: { writeDataPoint: (point) => points.push(point) } }),
+    );
+    expect(points).toHaveLength(0);
+  });
+
+  it("is a graceful no-op when the SLOW_OPS binding is absent, even above the threshold", async () => {
+    const hash = await sha256Hex(TOKEN);
+    const res = await appWith(null).request(
+      "/acme/whoami",
+      { headers: { Authorization: `Bearer ${TOKEN}` } },
+      await env(hash, { extra: { SLOW_OP_THRESHOLD_MS: "0" } }),
+    );
+    expect(res.status).toBe(200);
   });
 });

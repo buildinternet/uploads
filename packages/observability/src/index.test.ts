@@ -136,6 +136,58 @@ describe("timeOp", () => {
   });
 });
 
+describe("timeOp onSlowOp hook (issue #812 tier 3)", () => {
+  let logSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    logSpy.mockRestore();
+  });
+
+  it("calls onSlowOp with the same event shape as the log line when the op is slow", async () => {
+    const onSlowOp = vi.fn();
+    await timeOp(async () => "ok", {
+      name: "d1",
+      route: "/v1/files/x",
+      thresholdMs: 0,
+      onSlowOp,
+    });
+    expect(onSlowOp).toHaveBeenCalledTimes(1);
+    expect(onSlowOp).toHaveBeenCalledWith(
+      expect.objectContaining({ op: "d1", route: "/v1/files/x", outcome: "ok" }),
+    );
+  });
+
+  it("does not call onSlowOp for a fast op", async () => {
+    const onSlowOp = vi.fn();
+    await timeOp(async () => "fast", { name: "d1", thresholdMs: 1_000_000, onSlowOp });
+    expect(onSlowOp).not.toHaveBeenCalled();
+  });
+
+  it("calls onSlowOp on the error outcome path too, after rethrowing is set up", async () => {
+    const onSlowOp = vi.fn();
+    const err = new Error("boom");
+    await expect(
+      timeOp(
+        async () => {
+          throw err;
+        },
+        { name: "d1", thresholdMs: 0, onSlowOp },
+      ),
+    ).rejects.toThrow(err);
+    expect(onSlowOp).toHaveBeenCalledTimes(1);
+    expect(onSlowOp).toHaveBeenCalledWith(expect.objectContaining({ op: "d1", outcome: "error" }));
+  });
+
+  it("omitting onSlowOp is a no-op — it never becomes required", async () => {
+    await expect(timeOp(async () => "ok", { name: "d1", thresholdMs: 0 })).resolves.toBe("ok");
+    expect(logSpy).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("env helpers", () => {
   it("slowOpThresholdMs falls back to the default on unset/invalid values", () => {
     expect(slowOpThresholdMs(undefined)).toBe(DEFAULT_SLOW_OP_THRESHOLD_MS);

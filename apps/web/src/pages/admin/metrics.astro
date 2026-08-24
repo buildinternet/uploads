@@ -38,6 +38,15 @@ const breakdownSkeleton = renderAdminTableSkeletonRowsHtml(
   [{ width: "96px" }, { width: "34px", num: true }, { width: "58px", num: true }],
   5,
 );
+const slowOpsSkeleton = renderAdminTableSkeletonRowsHtml(
+  [
+    { width: "72px" },
+    { width: "34px", num: true },
+    { width: "58px", num: true },
+    { width: "58px", num: true },
+  ],
+  4,
+);
 ---
 
 <AdminLayout section="metrics">
@@ -389,6 +398,64 @@ const breakdownSkeleton = renderAdminTableSkeletonRowsHtml(
           </table>
         </div>
       </section>
+
+      <section class="metrics-section mt-2 pt-8 border-t border-border" id="slow-ops-panel">
+        <h3
+          class="m-0 mb-3.5 text-(length:--text-micro) font-semibold tracking-[0.04em] uppercase text-foreground"
+        >
+          Slow operations
+        </h3>
+        <p
+          class="admin-hint m-0 mb-3 text-muted-foreground text-(length:--text-meta) leading-[1.55]"
+        >
+          Ops that crossed the slow-op threshold (issue #812), from Analytics Engine. Wall-clock ms,
+          not D1 execution ms — a high count with a low p50 usually means round-trip latency, not a
+          slow query.
+        </p>
+        <div
+          class="metrics-range flex flex-wrap gap-2 mb-3"
+          role="group"
+          aria-label="Slow-op window"
+        >
+          <button
+            type="button"
+            class={`admin-btn ${ADMIN_BTN} aria-pressed:bg-primary aria-pressed:text-background aria-pressed:border-primary`}
+            data-slow-ops-window="24h"
+            aria-pressed="true">24 hours</button
+          >
+          <button
+            type="button"
+            class={`admin-btn ${ADMIN_BTN} aria-pressed:bg-primary aria-pressed:text-background aria-pressed:border-primary`}
+            data-slow-ops-window="7d"
+            aria-pressed="false">7 days</button
+          >
+        </div>
+        <div
+          id="slow-ops-status"
+          class="admin-status my-2 text-(length:--text-meta) text-muted-foreground"
+          role="status"
+          hidden
+        >
+        </div>
+        <div class="metrics-table-wrap mt-4 overflow-x-auto">
+          <table
+            class="admin-table w-full border-collapse text-(length:--text-meta) leading-[1.4]"
+            id="slow-ops-table"
+            aria-label="Slow operations"
+            aria-busy="true"
+          >
+            <thead>
+              <tr>
+                <th class={`keep ${ADMIN_TH}`} scope="col">Op</th>
+                <th class={`keep num ${ADMIN_TH_NUM}`} scope="col">Count</th>
+                <th class={`keep num ${ADMIN_TH_NUM}`} scope="col">p50 wall ms</th>
+                <th class={`keep num ${ADMIN_TH_NUM}`} scope="col">p95 wall ms</th>
+              </tr>
+            </thead>
+            <tbody set:html={slowOpsSkeleton} />
+          </table>
+        </div>
+      </section>
     </div>
   </section>
 
@@ -460,6 +527,8 @@ const breakdownSkeleton = renderAdminTableSkeletonRowsHtml(
       // run independently.
       let loadSeq = 0;
       let breakdownSeq = 0;
+      let slowOpsSeq = 0;
+      let slowOpsWindow: "24h" | "7d" = "24h";
 
       // The four genuine feature-adoption metrics (excludes `upload`/
       // `delete`, already shown elsewhere) mapped to their tile element ids.
@@ -898,6 +967,61 @@ const breakdownSkeleton = renderAdminTableSkeletonRowsHtml(
         }
       }
 
+      // Analytics Engine slow-op trend (issue #812 tier 3). Same
+      // additive/never-blocks-the-page contract as loadBreakdown above — an
+      // unconfigured/unreachable Analytics Engine renders as a panel message,
+      // not an error, and never blocks the D1-backed half of the page.
+      async function loadSlowOps(): Promise<void> {
+        const panelStatus = requireElement<HTMLElement>("#slow-ops-status", "admin");
+        const table = requireElement<HTMLElement>("#slow-ops-table", "admin");
+        const seq = ++slowOpsSeq;
+        try {
+          const res = await fetch(
+            `${apiOrigin}/admin-ui/metrics/slow-ops?window=${slowOpsWindow}`,
+            { credentials: "include", cache: "no-store" },
+          );
+          if (seq !== slowOpsSeq) return;
+          // Same reasoning as loadBreakdown: check res.ok before parsing, so
+          // a 401/5xx AppError body doesn't get misreported as "unavailable".
+          if (!res.ok) throw new Error(`request failed: ${res.status}`);
+          const body = (await res.json()) as
+            | {
+                available: true;
+                rows: { op: string; count: number; p50WallMs: number; p95WallMs: number }[];
+              }
+            | { available: false; reason: string };
+          if (seq !== slowOpsSeq) return;
+          const tableBody = table.querySelector<HTMLElement>("tbody");
+          if (!body.available) {
+            if (tableBody) tableBody.innerHTML = "";
+            table.removeAttribute("aria-busy");
+            panelStatus.hidden = false;
+            panelStatus.textContent =
+              body.reason === "not_configured"
+                ? "Analytics Engine is not configured. Set ANALYTICS_API_TOKEN to enable this panel."
+                : "Slow-op trend is temporarily unavailable.";
+            return;
+          }
+          panelStatus.hidden = true;
+          if (tableBody) {
+            tableBody.innerHTML = body.rows.length
+              ? body.rows
+                  .map(
+                    (row) =>
+                      `<tr class="admin-row"><td class="${ADMIN_TD}">${escapeHtml(row.op)}</td><td class="num ${ADMIN_TD_NUM}">${num(row.count)}</td><td class="num ${ADMIN_TD_NUM}">${num(Math.round(row.p50WallMs))}</td><td class="num ${ADMIN_TD_NUM}">${num(Math.round(row.p95WallMs))}</td></tr>`,
+                  )
+                  .join("")
+              : `<tr class="admin-row"><td colspan="4" class="muted ${ADMIN_TD}">No slow operations in this window.</td></tr>`;
+          }
+          table.removeAttribute("aria-busy");
+        } catch {
+          if (seq !== slowOpsSeq) return;
+          table.removeAttribute("aria-busy");
+          panelStatus.hidden = false;
+          panelStatus.textContent = "Slow-op trend is temporarily unavailable.";
+        }
+      }
+
       async function load(): Promise<void> {
         const seq = ++loadSeq;
         status.hidden = false;
@@ -915,6 +1039,7 @@ const breakdownSkeleton = renderAdminTableSkeletonRowsHtml(
           render(overview);
           status.hidden = true;
           void loadBreakdown();
+          void loadSlowOps();
         } catch {
           if (seq !== loadSeq) return;
           status.hidden = false;
@@ -931,6 +1056,19 @@ const breakdownSkeleton = renderAdminTableSkeletonRowsHtml(
       breakdownSelect.addEventListener("change", () => {
         void loadBreakdown();
       });
+
+      for (const button of document.querySelectorAll<HTMLButtonElement>("[data-slow-ops-window]")) {
+        button.addEventListener("click", () => {
+          const value = button.dataset.slowOpsWindow;
+          slowOpsWindow = value === "7d" ? "7d" : "24h";
+          for (const other of document.querySelectorAll<HTMLButtonElement>(
+            "[data-slow-ops-window]",
+          )) {
+            other.setAttribute("aria-pressed", other === button ? "true" : "false");
+          }
+          void loadSlowOps();
+        });
+      }
 
       for (const button of document.querySelectorAll<HTMLButtonElement>("[data-days]")) {
         button.addEventListener("click", () => {

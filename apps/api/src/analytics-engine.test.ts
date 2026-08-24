@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { breakdownQuery, fetchBreakdown } from "./analytics-engine";
+import { breakdownQuery, fetchBreakdown, fetchSlowOps, slowOpsQuery } from "./analytics-engine";
 
 function env(overrides: Record<string, unknown> = {}): Env {
   return {
@@ -146,5 +146,64 @@ describe("breakdownQuery non-finite days guard", () => {
 
   it("falls back to a 30-day window when days is Infinity", () => {
     expect(breakdownQuery("surface", Number.POSITIVE_INFINITY)).toContain("INTERVAL '30' DAY");
+  });
+});
+
+describe("slowOpsQuery", () => {
+  it("windows 24h as a 24-hour interval and 7d as a 168-hour interval", () => {
+    expect(slowOpsQuery("24h")).toContain("INTERVAL '24' HOUR");
+    expect(slowOpsQuery("7d")).toContain("INTERVAL '168' HOUR");
+  });
+
+  it("groups by op (blob1) and computes p50/p95 wall ms from double1", () => {
+    const sql = slowOpsQuery("24h");
+    expect(sql).toContain("blob1 AS op");
+    expect(sql).toContain("quantile(0.5)(double1) AS p50WallMs");
+    expect(sql).toContain("quantile(0.95)(double1) AS p95WallMs");
+    expect(sql).toContain("GROUP BY op");
+  });
+
+  it("scales the count by _sample_interval like breakdownQuery", () => {
+    expect(slowOpsQuery("24h")).toContain("_sample_interval");
+  });
+});
+
+describe("fetchSlowOps", () => {
+  it("returns rows on success", async () => {
+    const impl = jsonFetch({
+      data: [{ op: "d1", count: 12, p50WallMs: 1200, p95WallMs: 4500 }],
+    });
+    const result = await fetchSlowOps(env(), "24h", impl);
+    expect(result).toEqual({
+      available: true,
+      rows: [{ op: "d1", count: 12, p50WallMs: 1200, p95WallMs: 4500 }],
+    });
+  });
+
+  it("reports unavailable when the token is missing", async () => {
+    const result = await fetchSlowOps(
+      env({ ANALYTICS_API_TOKEN: undefined }),
+      "24h",
+      jsonFetch({}),
+    );
+    expect(result).toEqual({ available: false, reason: "not_configured" });
+  });
+
+  it("reports unavailable on a non-OK response rather than throwing", async () => {
+    const result = await fetchSlowOps(env(), "24h", jsonFetch({ errors: ["nope"] }, 403));
+    expect(result).toEqual({ available: false, reason: "query_failed" });
+  });
+
+  it("reports unavailable when the request throws", async () => {
+    const impl = (async () => {
+      throw new Error("network down");
+    }) as unknown as typeof fetch;
+    const result = await fetchSlowOps(env(), "24h", impl);
+    expect(result).toEqual({ available: false, reason: "query_failed" });
+  });
+
+  it("reports unavailable when the response body's data field is not an array", async () => {
+    const result = await fetchSlowOps(env(), "24h", jsonFetch({ data: "not-an-array" }));
+    expect(result).toEqual({ available: false, reason: "query_failed" });
   });
 });

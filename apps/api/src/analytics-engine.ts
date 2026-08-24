@@ -1,5 +1,8 @@
 /**
- * Analytics Engine read path for the operator metrics breakdown panel.
+ * Analytics Engine read path for the operator metrics panels: the upload
+ * breakdown (dataset `uploads_adoption`) and the slow-op trend (dataset
+ * `uploads_slow_ops`, issue #812 tier 3 — see `slow-op-analytics.ts` for the
+ * write side).
  *
  * AE has no read binding, so this goes over the Cloudflare SQL API with an
  * account token (ANALYTICS_API_TOKEN, an account token carrying "Account
@@ -7,7 +10,7 @@
  * from the local wrangler token in .env.
  *
  * EVERY failure mode returns `{ available: false, reason }` rather than
- * throwing: this panel is additive, and the D1-backed half of the metrics
+ * throwing: these panels are additive, and the D1-backed half of the metrics
  * page must keep working when AE is unconfigured or unreachable.
  *
  * Retention is 90 days — AE is for recent dimensional curiosity, never the
@@ -15,9 +18,11 @@
  */
 
 import { BLOB_ORDER } from "./adoption";
+import { SLOW_OP_BLOB_ORDER } from "./slow-op-analytics";
 
 const SQL_ENDPOINT = "https://api.cloudflare.com/client/v4/accounts";
 const DATASET = "uploads_adoption";
+const SLOW_OP_DATASET = "uploads_slow_ops";
 
 /**
  * Dimensions the breakdown panel lets an operator group by — a DELIBERATELY
@@ -110,6 +115,75 @@ export async function fetchBreakdown(
       return { available: false, reason: "query_failed" };
     }
     return { available: true, rows: (payload.data as BreakdownRow[] | undefined) ?? [] };
+  } catch {
+    return { available: false, reason: "query_failed" };
+  }
+}
+
+/** Windows the /admin-ui/metrics/slow-ops panel offers — 24 hours or 7 days. */
+export type SlowOpWindow = "24h" | "7d";
+
+const SLOW_OP_WINDOW_HOURS: Record<SlowOpWindow, number> = { "24h": 24, "7d": 168 };
+
+export interface SlowOpRow {
+  op: string;
+  count: number;
+  p50WallMs: number;
+  p95WallMs: number;
+}
+
+export type SlowOpsResult =
+  | { available: true; rows: SlowOpRow[] }
+  | { available: false; reason: string };
+
+const SLOW_OP_BLOB_COLUMN: Record<(typeof SLOW_OP_BLOB_ORDER)[number], string> = Object.fromEntries(
+  SLOW_OP_BLOB_ORDER.map((key, index) => [key, `blob${index + 1}`]),
+) as Record<(typeof SLOW_OP_BLOB_ORDER)[number], string>;
+
+/**
+ * Aggregates the `uploads_slow_ops` dataset (written by
+ * `slow-op-analytics.ts`'s `writeSlowOpPoint`) by op name: an event count
+ * (scaled by `_sample_interval` the same way `breakdownQuery` does) plus
+ * median/p95 wall-clock ms. `quantile(0.5|0.95)(...)` is Analytics Engine
+ * SQL's ClickHouse-derived quantile function — approximate, which is the
+ * right tradeoff for an operator trend panel.
+ */
+export function slowOpsQuery(window: SlowOpWindow): string {
+  const opColumn = SLOW_OP_BLOB_COLUMN.op;
+  const wallColumn = "double1";
+  const hours = SLOW_OP_WINDOW_HOURS[window];
+  return `SELECT ${opColumn} AS op,
+                 SUM(_sample_interval) AS count,
+                 quantile(0.5)(${wallColumn}) AS p50WallMs,
+                 quantile(0.95)(${wallColumn}) AS p95WallMs
+          FROM ${SLOW_OP_DATASET}
+          WHERE timestamp > NOW() - INTERVAL '${hours}' HOUR
+          GROUP BY op
+          ORDER BY count DESC
+          LIMIT 20`;
+}
+
+export async function fetchSlowOps(
+  env: Env,
+  window: SlowOpWindow,
+  fetchImpl: typeof fetch = fetch,
+): Promise<SlowOpsResult> {
+  const account = (env as { CLOUDFLARE_ACCOUNT_ID?: string }).CLOUDFLARE_ACCOUNT_ID;
+  const token = (env as { ANALYTICS_API_TOKEN?: string }).ANALYTICS_API_TOKEN;
+  if (!account || !token) return { available: false, reason: "not_configured" };
+
+  try {
+    const res = await fetchImpl(`${SQL_ENDPOINT}/${account}/analytics_engine/sql`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}` },
+      body: slowOpsQuery(window),
+    });
+    if (!res.ok) return { available: false, reason: "query_failed" };
+    const payload = (await res.json()) as { data?: unknown };
+    if (payload.data !== undefined && !Array.isArray(payload.data)) {
+      return { available: false, reason: "query_failed" };
+    }
+    return { available: true, rows: (payload.data as SlowOpRow[] | undefined) ?? [] };
   } catch {
     return { available: false, reason: "query_failed" };
   }

@@ -18,6 +18,7 @@ import {
   type WorkspaceScope,
 } from "./auth-db";
 import { dbFor } from "./db-session";
+import { writeSlowOpPoint } from "./slow-op-analytics";
 
 export type { FileScope } from "./auth-db";
 
@@ -532,7 +533,13 @@ function workspaceAuthWith(
             record && name ? name : "__unknown__",
             token || "__unknown__",
           ),
-        { name: "d1", timing, route: c.req.path, thresholdMs },
+        {
+          name: "d1",
+          timing,
+          route: c.req.path,
+          thresholdMs,
+          onSlowOp: (event) => writeSlowOpPoint(c.env, event),
+        },
       );
     } finally {
       appendServerTiming(c, timing);
@@ -556,6 +563,7 @@ function workspaceAuthWith(
           route: c.req.path,
           thresholdMs,
           execMs: d1ExecMs,
+          onSlowOp: (event) => writeSlowOpPoint(c.env, event),
         });
       } finally {
         appendServerTiming(c, touchTiming);
@@ -661,6 +669,7 @@ export function workspaceGovernanceAuth(scope: WorkspaceScope): MiddlewareHandle
         timing,
         route: c.req.path,
         thresholdMs,
+        onSlowOp: (event) => writeSlowOpPoint(c.env, event),
       });
     } finally {
       appendServerTiming(c, timing);
@@ -688,6 +697,7 @@ export function workspaceGovernanceAuth(scope: WorkspaceScope): MiddlewareHandle
         route: c.req.path,
         thresholdMs,
         execMs: d1ExecMs,
+        onSlowOp: (event) => writeSlowOpPoint(c.env, event),
       });
     } finally {
       appendServerTiming(c, touchTiming);

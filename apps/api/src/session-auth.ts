@@ -18,6 +18,7 @@ import {
   timeOp,
 } from "@uploads/observability";
 import type { MiddlewareHandler } from "hono";
+import { writeSlowOpPoint } from "./slow-op-analytics";
 
 /** Minimal shape of Better Auth's `get-session` response body. */
 export interface SessionUser {
@@ -88,6 +89,9 @@ export const sessionAuth: MiddlewareHandler<SessionVars> = async (c, next) => {
         timing,
         route: c.req.path,
         thresholdMs: slowOpThresholdMs(c.env),
+        // Issue #812 tier 3: fan a slow op out to the Analytics Engine trend
+        // dataset too, not just the structured log line.
+        onSlowOp: (event) => writeSlowOpPoint(c.env, event),
       }),
     );
   } finally {
