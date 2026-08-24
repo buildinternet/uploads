@@ -135,19 +135,26 @@ export async function findActiveToken(
     .first<AuthTokenRecord>();
 }
 
-export async function createToken(
-  db: D1Queryable,
-  input: {
-    workspace: string;
-    label?: string;
-    // Widened beyond FileScope so admin-scoped operator tokens (issue #257) and
-    // workspace-governance tokens (issue #262) can be minted through the same
-    // path; storage is just a JSON TEXT column.
-    scopes: (FileScope | OperatorScope | WorkspaceScope)[];
-    expiresAt?: Date;
-    mintedByUserId?: string | null;
-    now?: Date;
-  },
+export interface CreateTokenInput {
+  workspace: string;
+  label?: string;
+  // Widened beyond FileScope so admin-scoped operator tokens (issue #257) and
+  // workspace-governance tokens (issue #262) can be minted through the same
+  // path; storage is just a JSON TEXT column.
+  scopes: (FileScope | OperatorScope | WorkspaceScope)[];
+  expiresAt?: Date;
+  mintedByUserId?: string | null;
+  now?: Date;
+}
+
+/**
+ * Mint a fresh secret and its row *without writing it*. The plaintext `token`
+ * is returned once and never persisted (only its hash lives in `record`).
+ * Split out from {@link createToken} so retry-safe minting can insert the row
+ * inside a larger idempotency batch — see `token-idempotency.ts`.
+ */
+export async function buildTokenRecord(
+  input: CreateTokenInput,
 ): Promise<{ token: string; record: AuthTokenRecord }> {
   const token = randomSecret(`up_${input.workspace}_`);
   const now = input.now ?? new Date();
@@ -163,12 +170,27 @@ export async function createToken(
     minting_user_id: input.mintedByUserId ?? null,
     last_used_at: null,
   };
-  await db
+  return { token, record };
+}
+
+/**
+ * Build the `auth_tokens` insert, optionally gated by another row (e.g. an
+ * owned idempotency claim). Uses `INSERT … SELECT … WHERE` so the guard is
+ * evaluated atomically with the insert. `revoked_at`/`last_used_at` are always
+ * NULL at creation. `meta.changes > 0` means the row was written.
+ */
+export function prepareTokenInsert(
+  db: D1Queryable,
+  record: AuthTokenRecord,
+  condition?: { sql: string; values: unknown[] },
+): D1PreparedStatement {
+  return db
     .prepare(
       `INSERT INTO auth_tokens
        (id, workspace, token_hash, label, scopes, created_at, expires_at, revoked_at,
         minting_user_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
+       SELECT ?, ?, ?, ?, ?, ?, ?, NULL, ?
+       ${condition ? `WHERE (${condition.sql})` : ""}`,
     )
     .bind(
       record.id,
@@ -179,9 +201,17 @@ export async function createToken(
       record.created_at,
       record.expires_at,
       record.minting_user_id,
-    )
-    .run();
-  return { token, record };
+      ...(condition?.values ?? []),
+    );
+}
+
+export async function createToken(
+  db: D1Queryable,
+  input: CreateTokenInput,
+): Promise<{ token: string; record: AuthTokenRecord }> {
+  const built = await buildTokenRecord(input);
+  await prepareTokenInsert(db, built.record).run();
+  return built;
 }
 
 export async function createEnrollment(

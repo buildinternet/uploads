@@ -1,44 +1,23 @@
-import { ConflictError, ValidationError } from "@uploads/errors";
 import { MAX_GALLERIES_PER_WORKSPACE, prepareGalleryInsert, type GalleryRecord } from "./galleries";
 import { sha256Hex } from "./workspace";
 import type { D1Queryable } from "./db-session";
 import { boundedRead, type DataReadEnv } from "./data-read-bounds";
+import {
+  conflictFor,
+  IDEMPOTENCY_RETENTION_HOURS,
+  validateIdempotencyKey,
+  type StoredRequest,
+} from "./idempotency-core";
 
-export const IDEMPOTENCY_RETENTION_HOURS = 24;
+// Re-exported so existing importers (index.ts cron, tests) keep their paths.
+export { IDEMPOTENCY_RETENTION_HOURS, validateIdempotencyKey } from "./idempotency-core";
+export { purgeExpiredIdempotencyRequests } from "./idempotency-core";
+
 const GALLERY_CREATE_OPERATION = "gallery.create.v1";
-const IDEMPOTENCY_KEY_RE = /^[\x21-\x7e]{1,255}$/;
-
-interface StoredRequest {
-  fingerprint: string;
-  owner_nonce: string | null;
-  state: "pending" | "completed";
-  response_status: number | null;
-  response_body: string | null;
-  expires_at: string;
-}
 
 export type IdempotentGalleryResult<T> =
   | { status: "ok"; value: T; replayed: boolean }
   | { status: "limit"; limit: number };
-
-export function validateIdempotencyKey(value: string): void {
-  if (!IDEMPOTENCY_KEY_RE.test(value)) {
-    throw new ValidationError("Idempotency-Key must contain 1 to 255 visible ASCII characters.", {
-      code: "idempotency_key_invalid",
-    });
-  }
-}
-
-function conflictFor(row: StoredRequest, fingerprint: string): never {
-  if (row.fingerprint !== fingerprint) {
-    throw new ConflictError("Idempotency-Key was already used for a different request.", {
-      code: "idempotency_key_reused",
-    });
-  }
-  throw new ConflictError("A request with this Idempotency-Key is still in progress.", {
-    code: "idempotency_request_in_progress",
-  });
-}
 
 /**
  * Atomically claims a key, creates the gallery, and stores the exact 201 JSON.
@@ -141,29 +120,4 @@ export async function createGalleryIdempotently<T>(
     return conflictFor(row, fingerprint);
   }
   return { status: "ok", value: JSON.parse(row.response_body) as T, replayed: true };
-}
-
-/** Bounded daily cleanup. Expiry is also enforced when a key is claimed. */
-export async function purgeExpiredIdempotencyRequests(
-  db: D1Queryable,
-  now = new Date(),
-): Promise<{ deleted: number; truncated: boolean }> {
-  const batchSize = 500;
-  const maxBatches = 20;
-  let deleted = 0;
-  for (let batch = 0; batch < maxBatches; batch++) {
-    const result = await db
-      .prepare(
-        `DELETE FROM idempotency_requests
-         WHERE rowid IN (
-           SELECT rowid FROM idempotency_requests WHERE expires_at <= ? LIMIT ?
-         )`,
-      )
-      .bind(now.toISOString(), batchSize)
-      .run();
-    const changes = result.meta.changes ?? 0;
-    deleted += changes;
-    if (changes < batchSize) return { deleted, truncated: false };
-  }
-  return { deleted, truncated: true };
 }
