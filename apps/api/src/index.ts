@@ -47,41 +47,30 @@ function devOriginAllowed(origin: string, env: { ENVIRONMENT?: string }): boolea
   return /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
 }
 
-// Lets the browser console on the web origin (and local dev) call the token-
-// authenticated endpoints. CORS is not the security boundary — bearer tokens
-// are — but without these headers the preflight for Authorization fails.
+// The single browser CORS surface for the api. Reflects the web origin (and
+// dev loopback) for token-authenticated cross-origin calls. CORS is not the
+// security boundary — bearer tokens are — but without these headers a
+// preflight for Authorization fails.
+//
+// #731 phase E: this is UNCREDENTIALED (no `Access-Control-Allow-Credentials`).
+// Since the same-origin migration (phases B–D) the browser reaches every
+// cookie-authenticated surface (`/me`, `/admin-ui`, and the cookie-authed
+// `/v1/workspaces`+`/v1/tokens`) through the web origin's `/api` proxy over the
+// service binding — never a credentialed cross-origin request to api directly.
+// So api no longer advertises credentialed CORS: it is token-only at the edge,
+// which also removes the localhost-cookie-theft vector the old credentialed
+// reflection had to guard against. Non-browser callers (the CLI) send
+// `Authorization: Bearer` and are unaffected — CORS does not apply to them.
 const consoleCors = cors({
   origin: (origin, c) => {
     if (origin === (c.env.WEB_ORIGIN || "https://uploads.sh")) return origin;
     if (devOriginAllowed(origin, c.env)) return origin;
     return null;
   },
-  // PATCH is used by browser console clients for file metadata + galleries.
+  // PATCH: file metadata + galleries, admin workspace limits / OAuth client
+  // edits, /me member role + file-visibility updates.
   allowMethods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
   allowHeaders: ["Authorization", "Content-Type"],
-  maxAge: 86400,
-});
-
-// /admin-ui/* and /me/* are both session-cookie-authenticated (see
-// src/session-auth.ts — requireAdminUser for /admin-ui, requireSessionUser
-// only for /me), so unlike consoleCors above they must be credentialed —
-// same treatment as apps/auth's authCors for the web origin's cross-origin
-// browser calls (uploads.sh -> api.uploads.sh). The `/admin/*` surface is
-// bearer-token-only and deliberately untouched by CORS credentials — it
-// accepts either the static ADMIN_TOKEN break-glass secret or a D1-backed
-// operator token minted via POST /v1/tokens with an admin:* scope (#257).
-const adminUiCors = cors({
-  origin: (origin, c) => {
-    if (origin === (c.env.WEB_ORIGIN || "https://uploads.sh")) return origin;
-    if (devOriginAllowed(origin, c.env)) return origin;
-    return null;
-  },
-  credentials: true,
-  // PATCH: admin workspace limits, OAuth client edits, /me member role +
-  // file-visibility updates. Omitting it fails the browser preflight with
-  // "Method PATCH is not allowed by Access-Control-Allow-Methods".
-  allowMethods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-  allowHeaders: ["Content-Type"],
   maxAge: 86400,
 });
 
@@ -123,24 +112,15 @@ export const app = new Hono<WorkspaceVars>()
       { "Cache-Control": "public, max-age=300", "Access-Control-Allow-Origin": "*" },
     ),
   )
+  // One uncredentialed CORS surface across the api (#731 phase E). The
+  // cookie-authenticated routes (`/admin-ui/*`, `/me/*`, and the
+  // `/v1/workspaces`+`/v1/tokens` self-serve/mint surfaces) are reached by the
+  // browser same-origin through web's `/api` proxy over the service binding, so
+  // they no longer need — and no longer get — credentialed cross-origin CORS.
   .use("/admin/*", consoleCors)
-  .use("/admin-ui/*", adminUiCors)
-  .use("/me/*", adminUiCors)
-  // `/v1/workspaces` (lifecycle) and `/v1/tokens` (mint / issued list /
-  // own-token revoke) are the `/v1/*` surfaces authenticated by session
-  // COOKIE, so their CORS must be credentialed like /me/* — the uncredentialed
-  // consoleCors preflight makes the browser drop the request entirely
-  // ("Failed to fetch"). Everything else under /v1/* stays uncredentialed:
-  // bearer tokens are the boundary there. CLI callers of `/v1/tokens` still
-  // send `Authorization: Bearer <session>`; CORS does not apply to them.
-  .use("/v1/*", (c, next) =>
-    (c.req.path === "/v1/workspaces" ||
-      c.req.path.startsWith("/v1/workspaces/") ||
-      c.req.path === "/v1/tokens" ||
-      c.req.path.startsWith("/v1/tokens/")
-      ? adminUiCors
-      : consoleCors)(c, next),
-  )
+  .use("/admin-ui/*", consoleCors)
+  .use("/me/*", consoleCors)
+  .use("/v1/*", consoleCors)
   .route("/admin", admin)
   .route("/admin-ui", adminUi)
   .route("/me", me)
