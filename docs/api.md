@@ -29,6 +29,17 @@ The JavaScript client generates a key for `createGallery`. Pass
 `idempotencyKey` in the options when separate client calls must share a key.
 After 24 hours, the same key starts a new operation.
 
+`POST /v1/tokens` (workspace token minting) accepts the same header. A token is
+shown only once, so a retried mint would otherwise either create a second token
+or lose the only plaintext copy. With an `Idempotency-Key`, an identical retry
+replays the original `201` — including the original one-time token — and mints
+exactly one token; a changed request returns `409 idempotency_key_reused`. The
+replay body is encrypted at rest, so minting requires the server's encryption
+key to be configured and fails closed (`503`) otherwise. Authorization is
+re-checked on every attempt: a caller who has lost workspace access cannot
+recover a token by replaying a key. The client's `mintWorkspaceToken` accepts an
+optional `idempotencyKey`.
+
 ## Errors
 
 Every non-2xx response uses one nested envelope (same shape as either/releases):

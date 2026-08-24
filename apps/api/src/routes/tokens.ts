@@ -14,9 +14,16 @@
  * the request carries a `grants` array, but v1 accepts exactly one grant and
  * rejects >1 with a clear "not yet supported".
  */
-import { ForbiddenError, NotFoundError, RateLimitedError, ValidationError } from "@uploads/errors";
+import {
+  ConflictError,
+  ForbiddenError,
+  NotFoundError,
+  RateLimitedError,
+  ValidationError,
+} from "@uploads/errors";
 import { Hono } from "hono";
 import {
+  buildTokenRecord,
   createToken,
   isFileScope,
   isOperatorScope,
@@ -37,9 +44,11 @@ import {
   userHasAdminRole,
   type SessionVars,
 } from "../session-auth";
+import { secretsKeyRingFromEnv } from "../secrets";
+import { createTokenIdempotently } from "../token-idempotency";
 import { loadWorkspaceRecord, WS_NAME_RE } from "../workspace";
 import { suggestWorkspaceName } from "../workspace-suggestion";
-import { dbFor } from "../db-session";
+import { dbFor, primaryDbFor } from "../db-session";
 
 /** Redacted scope list for the issued-token surface — never garbage entries. */
 function parseIssuedScopes(value: string): string[] {
@@ -240,24 +249,69 @@ export const tokens = new Hono<SessionVars>()
     }
 
     const expiresAt = ttlSeconds === null ? undefined : new Date(Date.now() + ttlSeconds * 1000);
-    const { token, record: tokenRecord } = await createToken(dbFor(c.env), {
+
+    // Retry-safe minting (#829): with an Idempotency-Key, claim the key, mint,
+    // and store the *encrypted* 201 body in one batch so an identical retry
+    // replays the original plaintext token instead of minting a second one or
+    // losing the only copy. Runs AFTER every gate above, so a revoked or
+    // downgraded caller is rejected before any replay. Absent the header, the
+    // original one-shot mint is preserved exactly.
+    const idempotencyKey = c.req.header("Idempotency-Key");
+    if (idempotencyKey === undefined) {
+      const { token, record: tokenRecord } = await createToken(dbFor(c.env), {
+        workspace: grant.workspace,
+        label,
+        scopes,
+        expiresAt,
+        mintedByUserId: user.id,
+      });
+      return c.json(
+        {
+          token,
+          workspace: grant.workspace,
+          scopes,
+          label: tokenRecord.label,
+          expiresAt: tokenRecord.expires_at,
+        },
+        201,
+      );
+    }
+
+    const { token, record: tokenRecord } = await buildTokenRecord({
       workspace: grant.workspace,
       label,
       scopes,
       expiresAt,
       mintedByUserId: user.id,
     });
-
-    return c.json(
-      {
-        token,
+    const response = {
+      token,
+      workspace: grant.workspace,
+      scopes,
+      label: tokenRecord.label,
+      expiresAt: tokenRecord.expires_at,
+    };
+    let result;
+    try {
+      result = await createTokenIdempotently(primaryDbFor(c.env), {
         workspace: grant.workspace,
-        scopes,
-        label: tokenRecord.label,
-        expiresAt: tokenRecord.expires_at,
-      },
-      201,
-    );
+        principal: user.id,
+        key: idempotencyKey,
+        record: tokenRecord,
+        fingerprint: { scopes, label: tokenRecord.label, ttlSeconds },
+        response,
+        masterSecret: c.env.WORKSPACE_SECRETS_KEY,
+        ring: secretsKeyRingFromEnv(c.env),
+        readEnv: c.env,
+      });
+    } catch (error) {
+      if (error instanceof ConflictError && error.code === "idempotency_request_in_progress") {
+        c.header("Retry-After", "1");
+      }
+      throw error;
+    }
+    if (result.replayed) c.header("Idempotency-Replayed", "true");
+    return c.json(result.value, 201);
   })
   // Tokens this session user minted. Distinct from GET / (workspace picker)
   // and from GET /v1/workspaces/:name/tokens (workspace-admin list of every

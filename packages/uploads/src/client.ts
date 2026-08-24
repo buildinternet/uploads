@@ -903,11 +903,22 @@ export function mintWorkspaceToken(
     scopes?: Array<TokenScope>;
     label?: string;
     ttlSeconds?: number | null;
+    /**
+     * Optional retry key. Reusing it (same effective request, within 24h)
+     * replays the original response — including the one-time plaintext token —
+     * instead of minting a second token. A changed request with the same key
+     * returns 409.
+     */
+    idempotencyKey?: string;
   },
 ): Promise<MintTokenResult> {
   return jsonRequest(`${apiUrl.replace(/\/$/, "")}/v1/tokens`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+      ...(input.idempotencyKey ? { "Idempotency-Key": input.idempotencyKey } : {}),
+    },
     body: JSON.stringify({
       grants: [{ workspace: input.workspace, ...(input.scopes ? { scopes: input.scopes } : {}) }],
       ...(input.label ? { label: input.label } : {}),

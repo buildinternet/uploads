@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { describe, expect, it } from "vitest";
 import { respondError } from "../error-response";
 import { tokens } from "./tokens";
+import { SqliteD1, database } from "../../test/helpers/sqlite-d1";
 
 const USER = { id: "u-1", email: "a@b.com", name: "Ada", role: "user" };
 const ORG = { id: "org-acme", slug: "acme", name: "Acme" };
@@ -625,5 +626,120 @@ describe("DELETE /v1/tokens/:id", () => {
     );
     expect(res.status).toBe(429);
     expect(rows[0].revoked_at).toBeNull();
+  });
+});
+
+function countTokens(sqlite: SqliteD1): number {
+  return (sqlite.db.prepare("SELECT COUNT(*) AS c FROM auth_tokens").get() as { c: number }).c;
+}
+
+describe("POST /v1/tokens idempotency", () => {
+  const SECRET = "idempotency-master-key-0123456789";
+  const IDEMPOTENCY_MIGRATIONS = [
+    "migrations/20260710120000_auth.sql",
+    "migrations/20260712230000_token_minting_user.sql",
+    "migrations/20260817180000_token_last_used.sql",
+    "migrations/20260824120000_idempotency_requests.sql",
+  ];
+
+  function sqliteEnv(sqlite: SqliteD1, overrides: Parameters<typeof stubEnv>[0] = {}): Env {
+    return {
+      ...stubEnv({ db: database(sqlite), ...overrides }),
+      WORKSPACE_SECRETS_KEY: SECRET,
+    } as unknown as Env;
+  }
+
+  interface MintBody {
+    token: string;
+    workspace: string;
+    scopes: string[];
+    expiresAt: string | null;
+  }
+
+  it("replays the original token on an identical retry and mints once", async () => {
+    const sqlite = new SqliteD1(IDEMPOTENCY_MIGRATIONS);
+    try {
+      const env = sqliteEnv(sqlite);
+      const first = await post(env, oneGrant, { "Idempotency-Key": "route-mint-1" });
+      const retry = await post(env, oneGrant, { "Idempotency-Key": "route-mint-1" });
+      expect(first.status).toBe(201);
+      expect(retry.status).toBe(201);
+      expect(retry.headers.get("Idempotency-Replayed")).toBe("true");
+      const a = (await first.json()) as MintBody;
+      const b = (await retry.json()) as MintBody;
+      expect(b.token).toBe(a.token);
+      expect(countTokens(sqlite)).toBe(1);
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("409s idempotency_key_reused when the same key carries a changed body", async () => {
+    const sqlite = new SqliteD1(IDEMPOTENCY_MIGRATIONS);
+    try {
+      const env = sqliteEnv(sqlite);
+      await post(env, oneGrant, { "Idempotency-Key": "route-mint-2" });
+      const changed = await post(
+        env,
+        { grants: [{ workspace: "acme", scopes: ["files:read"] }] },
+        { "Idempotency-Key": "route-mint-2" },
+      );
+      expect(changed.status).toBe(409);
+      expect((await changed.json()) as { error: { code: string } }).toMatchObject({
+        error: { code: "idempotency_key_reused" },
+      });
+      expect(countTokens(sqlite)).toBe(1);
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("fails closed with 503 when no encryption key is configured", async () => {
+    const sqlite = new SqliteD1(IDEMPOTENCY_MIGRATIONS);
+    try {
+      const env = { ...stubEnv({ db: database(sqlite) }) } as unknown as Env;
+      const res = await post(env, oneGrant, { "Idempotency-Key": "route-nokey" });
+      expect(res.status).toBe(503);
+      expect((await res.json()) as { error: { code: string } }).toMatchObject({
+        error: { code: "secrets_key_unconfigured" },
+      });
+      expect(countTokens(sqlite)).toBe(0);
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("does not let a de-membered user recover a token by replaying a key", async () => {
+    const sqlite = new SqliteD1(IDEMPOTENCY_MIGRATIONS);
+    try {
+      const first = await post(sqliteEnv(sqlite), oneGrant, { "Idempotency-Key": "route-revoked" });
+      expect(first.status).toBe(201);
+      // The caller loses membership, then retries the same key.
+      const revoked = await post(sqliteEnv(sqlite, { memberships: [] }), oneGrant, {
+        "Idempotency-Key": "route-revoked",
+      });
+      expect(revoked.status).toBe(403);
+      expect((await revoked.json()) as { error: { code: string } }).toMatchObject({
+        error: { code: "workspace_forbidden" },
+      });
+      expect(countTokens(sqlite)).toBe(1);
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("preserves one-shot behavior when no Idempotency-Key is sent", async () => {
+    const sqlite = new SqliteD1(IDEMPOTENCY_MIGRATIONS);
+    try {
+      const env = sqliteEnv(sqlite);
+      const a = await post(env, oneGrant);
+      const b = await post(env, oneGrant);
+      expect(a.status).toBe(201);
+      expect(b.status).toBe(201);
+      expect(a.headers.get("Idempotency-Replayed")).toBeNull();
+      expect(countTokens(sqlite)).toBe(2);
+    } finally {
+      sqlite.close();
+    }
   });
 });

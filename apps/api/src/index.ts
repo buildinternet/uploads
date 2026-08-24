@@ -20,7 +20,7 @@ import { workspaceSettings } from "./routes/workspace-settings";
 import { me } from "./routes/me";
 import { runRetentionSweep } from "./retention-sweep";
 import { runObservabilityRetention } from "./observability-retention";
-import { purgeExpiredIdempotencyRequests } from "./gallery-idempotency";
+import { purgeExpiredIdempotencyRequests } from "./idempotency-core";
 import { galleries } from "./routes/galleries";
 import { publicGalleries } from "./routes/public-galleries";
 import { publicFiles } from "./routes/public-files";
