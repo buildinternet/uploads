@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createUploadsClient } from "../src/client.js";
+import { createUploadsClient, FIND_FILES_MAX_PAGES } from "../src/client.js";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -218,6 +218,32 @@ describe("metadata CRUD client methods", () => {
     const result = await client.findFilesAll({ app: "web" });
     expect(calls).toBe(1);
     expect(result.cursor).toBeNull();
+  });
+
+  it("findFilesAll falls back to the default cap for a non-finite maxPages", async () => {
+    // Infinity would otherwise remove the bound entirely, and NaN would make
+    // the loop run zero times and return an empty result that looks complete.
+    for (const maxPages of [Number.POSITIVE_INFINITY, Number.NaN, 0, -5]) {
+      let calls = 0;
+      const fetch = vi.fn(async () => {
+        calls += 1;
+        return new Response(
+          JSON.stringify({
+            items: [{ key: `f/${calls}.png`, url: null, metadata: {} }],
+            cursor: "c",
+          }),
+        );
+      });
+      vi.stubGlobal("fetch", fetch);
+      const client = createUploadsClient({
+        apiUrl: "https://api.test",
+        workspace: "test",
+        token: "up_test_x",
+      });
+      const result = await client.findFilesAll({ app: "web" }, {}, maxPages);
+      expect(calls).toBe(FIND_FILES_MAX_PAGES);
+      expect(result.cursor).toBe("c");
+    }
   });
 
   it("listMetadataKeys GETs /files/facets", async () => {

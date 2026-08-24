@@ -114,10 +114,18 @@ export class FileMetadataTable {
       return { success: true, results: results as T[], meta: {} };
     }
     // findObjectsByMetadata: single equality, or multi-filter INTERSECT legs.
-    // Args: (workspace, key, value)×N, optional prefix (bound twice), limit.
+    // Args: (workspace, key, value)×N, optional prefix (bound twice), the
+    // collapse wrapper's workspace (1), optional `after` (1), then the limit.
+    //
+    // Matched on shape rather than an exact prefix: the query nests one wrapper
+    // per optional feature (collapse, then the keyset continuation), so a
+    // `startsWith` check silently stops matching once two of them combine —
+    // and an unmatched statement here returns an empty page instead of failing,
+    // which reads as "no results" rather than "the fake did not understand".
     if (
-      normalizedSql.startsWith("SELECT object_key FROM file_metadata WHERE workspace") ||
-      normalizedSql.startsWith("SELECT object_key FROM (SELECT object_key FROM file_metadata")
+      normalizedSql.startsWith("SELECT object_key FROM") &&
+      normalizedSql.includes("meta_key = ? AND meta_value = ?") &&
+      normalizedSql.includes("ORDER BY object_key LIMIT ?")
     ) {
       const filterCount = (normalizedSql.match(/meta_key = \? AND meta_value = \?/g) ?? []).length;
       const hasPrefix = normalizedSql.includes("substr(object_key, 1, length(?)) = ?");
@@ -130,10 +138,16 @@ export class FileMetadataTable {
           value: args[base + 2] as string,
         });
       }
+      // Bind order mirrors findObjectsByMetadata exactly: filters (3 each),
+      // prefix (2), the collapse wrapper's own workspace bind (1), `after` (1),
+      // then the limit. Miscounting any one of them shifts every later read.
       let idx = filterCount * 3;
       // substr prefix filter binds the raw prefix twice (length + comparison).
       const prefix = hasPrefix ? String(args[idx]) : undefined;
       if (hasPrefix) idx += 2;
+      // The collapse wrapper's correlated NOT EXISTS binds the workspace again.
+      const hasCollapse = normalizedSql.includes("AS f WHERE NOT EXISTS");
+      if (hasCollapse) idx += 1;
       // Keyset continuation wrapper (issue #829 §4) binds `after` just before
       // the limit: `SELECT object_key FROM (…) AS page WHERE object_key > ?`.
       const hasAfter = normalizedSql.includes("AS page WHERE object_key > ?");
@@ -152,6 +166,8 @@ export class FileMetadataTable {
         const objectKey = scopedKey.slice(scopePrefix.length);
         if (prefix && !objectKey.startsWith(prefix)) continue;
         if (after !== undefined && objectKey <= after) continue;
+        // Collapse drops promoted branch originals (`gh.status=promoted`).
+        if (hasCollapse && map.get("gh.status") === "promoted") continue;
         if (filters.every((f) => map.get(f.key) === f.value)) {
           results.push({ object_key: objectKey });
         }

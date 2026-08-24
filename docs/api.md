@@ -105,16 +105,20 @@ Throw `AppError` subclasses from `@uploads/errors` in route code; the API's
 
 ## Pagination
 
-Paged collections take `?cursor=` and return a `cursor` field: an opaque
-string when another page exists, `null` when the caller has reached the end.
-`cursor` is the one continuation-field name for v1 — existing fields keep
-their names, and new paged endpoints use `cursor` rather than a second
-spelling. Never parse, construct, or edit a cursor: it is scoped to the query
-that produced it, and one minted for a different query shape is rejected with
-a `400` (`file_search_invalid_cursor` on file search).
+Paged collections take `?cursor=` and return a `cursor` field. The field holds
+an opaque string when another page exists. It holds `null` when the caller has
+reached the end.
 
-File search also keeps its pre-existing `truncated` flag, which reports the
-same thing from the other direction: `truncated: true` and a non-null `cursor`
+`cursor` is the one continuation-field name for v1. Existing fields keep their
+names. New paged endpoints use `cursor` rather than a second spelling.
+
+Never parse, construct, or edit a cursor. Each one is scoped to the exact query
+that produced it. Send it back with that same query, unchanged. A cursor
+replayed against a different query is rejected with a `400`. On file search
+that error carries the code `file_search_invalid_cursor`.
+
+File search also keeps its pre-existing `truncated` flag. The flag reports the
+same thing from the other direction. `truncated: true` and a non-null `cursor`
 always travel together.
 
 ## Compatibility routes

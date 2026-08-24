@@ -650,9 +650,10 @@ know which keys exist, start with `meta keys` / `meta values <key>` (or the MCP
 `list_metadata_keys` tool) — keys are user/agent-defined, not a fixed schema.
 
 Search results are paged. When more matches remain, `find` prints `truncated:
-true` and the next page's opaque `cursor` on stderr (`--json` carries `cursor`
-in the payload); pass it back with `--cursor`, or let `--all` follow it for up
-to 20 pages. Treat the cursor as opaque — it is only valid for the same query.
+true` and the next page's opaque `cursor` on stderr. `--json` carries the same
+`cursor` in the payload. Pass it back with `--cursor` to read the next page.
+`--all` follows the cursor for you, for up to 20 pages. Treat the cursor as
+opaque, and send it only with the query that produced it.
 
 On the default `screenshots/…` path, `put` also auto-derives GitHub context and
 stamps `gh.repo`/`gh.kind`/`gh.number`/`gh.ref` from the current branch's PR (or

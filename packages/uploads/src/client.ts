@@ -1312,6 +1312,10 @@ export function createUploadsClient(config: UploadsClientConfig) {
      * the expensive read path, so draining is capped rather than open-ended.
      * The returned `cursor` is non-null when the cap stopped the drain early —
      * pass it back to continue from there.
+     *
+     * `maxPages` must be a finite positive number. Anything else (`Infinity`,
+     * `NaN`, zero, a negative) falls back to the default rather than removing
+     * the bound or silently fetching nothing.
      */
     async findFilesAll(
       filters: Record<string, string> = {},
@@ -1321,7 +1325,8 @@ export function createUploadsClient(config: UploadsClientConfig) {
       const items: FindFilesItem[] = [];
       let cursor: string | undefined = opts.cursor;
       let truncated: boolean | undefined;
-      const pages = Math.max(1, Math.floor(maxPages));
+      const pages =
+        Number.isFinite(maxPages) && maxPages >= 1 ? Math.floor(maxPages) : FIND_FILES_MAX_PAGES;
       for (let page = 0; page < pages; page += 1) {
         const result: FindFilesResult = await findFiles(filters, { ...opts, cursor });
         items.push(...result.items);

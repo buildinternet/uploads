@@ -110,7 +110,59 @@ export const SEARCH_WALK_RESUME_MAX_SKIP = 20_000;
 interface CursorPayload {
   v: number;
   p: FileSearchPath;
+  /** Fingerprint of the query this cursor was minted for — see `searchScope`. */
+  s: string;
   k: string;
+}
+
+/** The parts of a search request a cursor is only meaningful within. */
+export interface SearchScope {
+  workspaceName: string;
+  filters?: Record<string, string>;
+  nameTerm?: string;
+  prefix?: string;
+  collapsePromotedShadows?: boolean;
+}
+
+/**
+ * Canonical string for a search scope. Every input that changes which keys the
+ * underlying query walks goes in, so two requests share a fingerprint only when
+ * resuming one from the other is meaningful. Filters are sorted because
+ * `meta.a=1&meta.b=2` and `meta.b=2&meta.a=1` are the same query.
+ *
+ * Lengths are written in ahead of each value so no two different scopes can
+ * flatten to the same string — without them `{ "a": "b:c" }` and
+ * `{ "a:b": "c" }` would collide.
+ */
+function canonicalScope(scope: SearchScope): string {
+  const part = (value: string) => `${value.length}:${value}`;
+  const filters = Object.entries(scope.filters ?? {})
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([key, value]) => part(key) + part(value))
+    .join("");
+  return [
+    part(scope.workspaceName),
+    part(scope.nameTerm ?? ""),
+    part(scope.prefix ?? ""),
+    scope.collapsePromotedShadows ? "1" : "0",
+    part(filters),
+  ].join("|");
+}
+
+/**
+ * FNV-1a over the canonical scope. This is a collision check between a client's
+ * own consecutive requests, not a security boundary — the cursor already only
+ * ever moves a scan forward within one authenticated workspace — so a short
+ * non-cryptographic digest is the right tool, and it keeps the cursor short.
+ */
+function searchScopeFingerprint(scope: SearchScope): string {
+  const text = canonicalScope(scope);
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < text.length; i += 1) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(36);
 }
 
 function base64UrlEncode(text: string): string {
@@ -129,17 +181,31 @@ function base64UrlDecode(text: string): string {
 }
 
 /** Mint an opaque continuation cursor for the last key of a page. */
-export function encodeSearchCursor(path: FileSearchPath, lastKey: string): string {
-  const payload: CursorPayload = { v: CURSOR_VERSION, p: path, k: lastKey };
+export function encodeSearchCursor(
+  path: FileSearchPath,
+  scope: SearchScope,
+  lastKey: string,
+): string {
+  const payload: CursorPayload = {
+    v: CURSOR_VERSION,
+    p: path,
+    s: searchScopeFingerprint(scope),
+    k: lastKey,
+  };
   return base64UrlEncode(JSON.stringify(payload));
 }
 
 /**
  * Decode a caller-supplied cursor, rejecting anything that is not a cursor this
- * service minted for `expectedPath`. Opaque to clients: the only supported use
- * is handing back the `cursor` a previous page returned, unchanged.
+ * service minted for `expectedPath` and this exact `scope`. Opaque to clients:
+ * the only supported use is handing back the `cursor` a previous page returned,
+ * unchanged, alongside the same query that produced it.
  */
-export function decodeSearchCursor(raw: string, expectedPath: FileSearchPath): string {
+export function decodeSearchCursor(
+  raw: string,
+  expectedPath: FileSearchPath,
+  scope: SearchScope,
+): string {
   const invalid = () =>
     new ValidationError("cursor is not valid for this search", {
       code: "file_search_invalid_cursor",
@@ -155,13 +221,19 @@ export function decodeSearchCursor(raw: string, expectedPath: FileSearchPath): s
     typeof payload !== "object" ||
     payload.v !== CURSOR_VERSION ||
     typeof payload.k !== "string" ||
-    payload.k.length === 0
+    payload.k.length === 0 ||
+    typeof payload.s !== "string"
   ) {
     throw invalid();
   }
   // A metadata-path cursor replayed against the name-only walk (or vice versa)
   // is rejected rather than reinterpreted.
   if (payload.p !== expectedPath) throw invalid();
+  // Same for a cursor replayed against a different query. Resuming at
+  // `key > :after` under changed filters would silently skip every match that
+  // sorts before the previous query's stopping point, and the caller would have
+  // no way to tell an incomplete result from a complete one.
+  if (payload.s !== searchScopeFingerprint(scope)) throw invalid();
   return payload.k;
 }
 
@@ -204,7 +276,17 @@ export async function searchFilesByNameAndMeta(
   const path = searchPathFor(filters);
   const hasMeta = path === "meta";
   const fetchLimit = pageSize + 1;
-  const after = opts.cursor === undefined ? undefined : decodeSearchCursor(opts.cursor, path);
+  // A cursor is only valid for the query that minted it, so the scope is built
+  // once here and used for both the decode check and the next page's cursor.
+  const scope: SearchScope = {
+    workspaceName,
+    filters,
+    nameTerm,
+    prefix,
+    collapsePromotedShadows: opts.collapsePromotedShadows,
+  };
+  const after =
+    opts.cursor === undefined ? undefined : decodeSearchCursor(opts.cursor, path, scope);
 
   if (hasMeta) {
     const found = await findObjectsByMetadata(dbFor(env), workspaceName, filters!, {
@@ -232,7 +314,7 @@ export async function searchFilesByNameAndMeta(
     return {
       matches: narrowed,
       truncated,
-      cursor: lastConsumed === undefined ? null : encodeSearchCursor("meta", lastConsumed),
+      cursor: lastConsumed === undefined ? null : encodeSearchCursor("meta", scope, lastConsumed),
     };
   }
 
@@ -273,6 +355,6 @@ export async function searchFilesByNameAndMeta(
   return {
     matches: pageKeys.map((key) => ({ key, metadata: metaByKey.get(key) ?? {} })),
     truncated,
-    cursor: lastKey === undefined ? null : encodeSearchCursor("name", lastKey),
+    cursor: lastKey === undefined ? null : encodeSearchCursor("name", scope, lastKey),
   };
 }
