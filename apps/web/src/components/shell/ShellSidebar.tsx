@@ -19,6 +19,24 @@
  * `shell:sidebar-toggle`; `SidebarToggleBridge` below is what listens.
  */
 import { useEffect, useState, type ReactNode } from "react";
+import {
+  type LucideIcon,
+  ChevronsUpDown,
+  CircleUser,
+  CreditCard,
+  Dot,
+  File,
+  Frame,
+  Images,
+  KeyRound,
+  LayoutGrid,
+  Mail,
+  ChartColumn,
+  Plus,
+  Settings,
+  Terminal,
+  Users,
+} from "lucide-react";
 import "@uploads/ui/styles.css";
 import {
   DropdownMenu,
@@ -76,53 +94,39 @@ export interface ShellSidebarIslandProps extends ShellSidebarProps {
 }
 
 /*
- * Local 16px glyph set rather than `lucide-react`: apps/web doesn't depend on
- * it (only @uploads/ui does), and the collapsed icon rail needs a glyph per
- * row. Sized by the kit's own `[&_svg]:size-4` rule.
+ * Nav glyphs come from lucide-react (already in the signed-in bundle via
+ * @uploads/ui's shadcn primitives). The kit's own `[&_svg]:size-4` rule sizes
+ * them to 16px and lucide's default 24-grid / stroke-2 gives the right optical
+ * weight, so the collapsed icon rail stays consistent with the rest of the DS.
  */
-const ICON_PATHS: Record<ShellNavIcon | "switcher" | "plus", string> = {
-  screenshots:
-    "M2.5 5.5h2.2l1-1.8h4.6l1 1.8h2.2v7.5h-11zM10.5 9.2a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0z",
-  files: "M4 2.5h5l3 3v8H4zM9 2.5v3h3",
-  galleries: "M2.5 4.5h11v8h-11zM2.5 10.5l3-3 3 3 2-2 2.5 2.5",
-  people:
-    "M6.5 7.5a2.25 2.25 0 1 0 0-4.5 2.25 2.25 0 0 0 0 4.5zM2 13.25c0-2.2 2-3.5 4.5-3.5s4.5 1.3 4.5 3.5M11 3.6a2.25 2.25 0 0 1 0 4.3M12.3 9.9c1.2.45 1.9 1.4 1.9 2.9",
-  billing: "M1.5 4.5h13v7h-13zM1.5 7.5h13",
-  settings: "M2.5 5h11M2.5 11h11M6 3.5v3M10.5 9.5v3",
-  account: "M8 8a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5zM2.75 13.5c0-2.5 2.2-4 5.25-4s5.25 1.5 5.25 4",
-  developers: "M3 4.5l3 3.5-3 3.5M8 12h5",
-  workspaces: "M2.5 2.5h5v5h-5zM8.5 2.5h5v5h-5zM2.5 8.5h5v5h-5zM8.5 8.5h5v5h-5z",
-  metrics: "M2.5 13.5h12M4.5 11.5V7M8 11.5V4M11.5 11.5V8.5",
-  users:
-    "M6.5 7.5a2.25 2.25 0 1 0 0-4.5 2.25 2.25 0 0 0 0 4.5zM2 13.25c0-2.2 2-3.5 4.5-3.5s4.5 1.3 4.5 3.5M11 3.6a2.25 2.25 0 0 1 0 4.3M12.3 9.9c1.2.45 1.9 1.4 1.9 2.9",
-  oauth: "M10 8.5a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6.7 9.3L2.5 13.5M4.4 11.6l1.5 1.5",
-  email: "M1.5 4h13v8h-13zM1.5 4.5l6.5 4.5 6.5-4.5",
-  dot: "M8 8.7a.7.7 0 1 0 0-1.4.7.7 0 0 0 0 1.4z",
-  switcher: "M5 6.5L8 3.5l3 3M5 9.5l3 3 3-3",
-  plus: "M8 3.5v9M3.5 8h9",
+const ICON_MAP: Record<ShellNavIcon | "switcher" | "plus", LucideIcon> = {
+  screenshots: Frame,
+  files: File,
+  galleries: Images,
+  people: Users,
+  billing: CreditCard,
+  settings: Settings,
+  account: CircleUser,
+  developers: Terminal,
+  workspaces: LayoutGrid,
+  metrics: ChartColumn,
+  users: Users,
+  oauth: KeyRound,
+  email: Mail,
+  dot: Dot,
+  switcher: ChevronsUpDown,
+  plus: Plus,
 };
 
 function Glyph({
   name,
   className,
 }: {
-  name: keyof typeof ICON_PATHS;
+  name: keyof typeof ICON_MAP;
   className?: string;
 }): ReactNode {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      className={className}
-    >
-      <path d={ICON_PATHS[name]} />
-    </svg>
-  );
+  const Icon = ICON_MAP[name];
+  return <Icon aria-hidden className={className} />;
 }
 
 function ProBadge(): ReactNode {
@@ -204,7 +208,6 @@ function WorkspaceSwitcher({ switcher }: { switcher: ShellSwitcher }): ReactNode
                 className="data-open:bg-sidebar-accent"
                 aria-label="Switch workspace"
               >
-                <Glyph name="workspaces" />
                 <span className="flex min-w-0 items-center gap-1.5 font-medium">
                   <span className="truncate">{switcher.activeLabel}</span>
                   {switcher.activePro && <ProBadge />}

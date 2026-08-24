@@ -206,6 +206,9 @@ importers:
       img-comparison-slider:
         specifier: ^8.0.7
         version: 8.0.7
+      lucide-react:
+        specifier: ^1.33.0
+        version: 1.33.0(react@19.2.7)
       markdown-for-agents:
         specifier: ^1.3.4
         version: 1.3.4
