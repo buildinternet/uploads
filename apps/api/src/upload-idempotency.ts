@@ -19,6 +19,8 @@ import { ConflictError } from "@uploads/errors";
 import { boundedRead, type DataReadEnv } from "./data-read-bounds";
 import type { D1Queryable } from "./db-session";
 import {
+  buildClaimStatement,
+  buildReplayLookup,
   conflictFor,
   IDEMPOTENCY_RETENTION_HOURS,
   validateIdempotencyKey,
@@ -105,38 +107,15 @@ export async function putObjectIdempotently<T>(
   ).toISOString();
   const scope = [input.workspace, input.principal, UPLOAD_PUT_OPERATION, keyHash] as const;
 
-  // Claim: identical shape to token/gallery idempotency's claim INSERT, but
-  // the pending row carries the short PENDING_TTL deadline rather than the
-  // 24h retention — a completed row's expires_at is always 24h out, so this
-  // predicate re-claims an expired pending row but never a live completed one.
-  const claim = db
-    .prepare(
-      `INSERT INTO idempotency_requests
-       (workspace, principal, operation, key_hash, fingerprint, owner_nonce, state,
-        response_status, response_body, created_at, expires_at)
-       VALUES (?, ?, ?, ?, ?, ?, 'pending', NULL, NULL, ?, ?)
-       ON CONFLICT (workspace, principal, operation, key_hash) DO UPDATE SET
-         fingerprint = excluded.fingerprint,
-         owner_nonce = excluded.owner_nonce,
-         state = 'pending',
-         response_status = NULL,
-         response_body = NULL,
-         created_at = excluded.created_at,
-         expires_at = excluded.expires_at
-       WHERE idempotency_requests.expires_at <= excluded.created_at`,
-    )
-    .bind(...scope, fp, ownerNonce, createdAt, pendingExpires);
-  await claim.run();
+  // Claim the key. The pending row carries the short PENDING_TTL deadline rather
+  // than the 24h retention a completed row gets, so `buildClaimStatement`'s
+  // `expires_at <= created_at` predicate re-claims an expired pending row but
+  // never a live completed one. `meta.changes > 0` means we own the claim — the
+  // same signal gallery/token read off their batched insert.
+  const claim = buildClaimStatement(db, scope, fp, ownerNonce, createdAt, pendingExpires);
+  const claimed = await claim.run();
 
-  const owner = await db
-    .prepare(
-      `SELECT owner_nonce, state FROM idempotency_requests
-       WHERE workspace = ? AND principal = ? AND operation = ? AND key_hash = ?`,
-    )
-    .bind(...scope)
-    .first<{ owner_nonce: string | null; state: "pending" | "completed" }>();
-
-  if (owner?.owner_nonce === ownerNonce && owner.state === "pending") {
+  if ((claimed.meta.changes ?? 0) > 0) {
     const complete = (responseBody: string) =>
       db
         .prepare(
@@ -160,10 +139,25 @@ export async function putObjectIdempotently<T>(
 
     try {
       const value = await input.run();
-      await complete(JSON.stringify(value));
+      const done = await complete(JSON.stringify(value));
+      // A 0-row completion means our pending claim was stolen (its TTL expired
+      // mid-`run()` and another request re-claimed). We still answer 201 — the
+      // upload landed — but the stored row now belongs to the other owner, so a
+      // racing retry may briefly see `pending`. Log it so that stays diagnosable.
+      if ((done.meta.changes ?? 0) === 0) {
+        console.warn({
+          event: "upload_idempotency_completion_lost",
+          workspace: input.workspace,
+          finalKey: input.fingerprint.finalKey,
+        });
+      }
       return { value, replayed: false };
     } catch (err) {
       if (err instanceof ConflictError && err.code === "key_exists") {
+        // A prior attempt's bytes already landed but its claim never completed.
+        // `reconcile()` re-drives the write only when the stored content hash
+        // matches — our own interrupted upload — and returns null on a genuine
+        // key collision, which surfaces as `key_exists`.
         const reconciled = await input.reconcile();
         if (reconciled) {
           await complete(JSON.stringify(reconciled));
@@ -177,27 +171,20 @@ export async function putObjectIdempotently<T>(
 
   // Did not win the claim: replay the winner's response, or conflict. Bound
   // only this standalone read; run()/reconcile() above are never raced.
-  const replayLookup = db
-    .prepare(
-      `SELECT fingerprint, owner_nonce, state, response_status, response_body, expires_at
-       FROM idempotency_requests
-       WHERE workspace = ? AND principal = ? AND operation = ? AND key_hash = ?`,
-    )
-    .bind(...scope);
+  const replayLookup = buildReplayLookup(db, scope);
   const row = await boundedRead(input.readEnv ?? {}, () => replayLookup.first<StoredRequest>(), {
     name: "d1_upload_idempotency_replay",
   });
 
-  const settled: StoredRequest = row ?? {
-    fingerprint: fp,
-    owner_nonce: null,
-    state: "pending",
-    response_status: null,
-    response_body: null,
-    expires_at: pendingExpires,
-  };
-  if (settled.fingerprint !== fp || settled.state !== "completed" || !settled.response_body) {
-    conflictFor(settled, fp);
+  // A missing row means the winner's claim is still settling — treat as
+  // in-progress so the caller retries.
+  if (!row) {
+    throw new ConflictError("A request with this Idempotency-Key is still in progress.", {
+      code: "idempotency_request_in_progress",
+    });
   }
-  return { value: JSON.parse(settled.response_body) as T, replayed: true };
+  if (row.fingerprint !== fp || row.state !== "completed" || !row.response_body) {
+    conflictFor(row, fp);
+  }
+  return { value: JSON.parse(row.response_body) as T, replayed: true };
 }

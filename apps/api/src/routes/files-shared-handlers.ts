@@ -11,7 +11,7 @@ import {
   headObjectJson,
   isManagedGithubKey,
   putObject,
-  reconcileExistingUpload,
+  reconcileInterruptedUpload,
 } from "../files-core";
 import { getFileMetadata, META_MAX_KEYS, setFileMetadata } from "../file-metadata";
 import { checkDeclaredLength, maxBytesForContentType, resolveUploadPolicy } from "../guards";
@@ -236,11 +236,11 @@ export async function putFileHandler(c: Context<WorkspaceVars>) {
     return c.json({ workspace: workspaceName, ...result }, 201);
   }
 
-  // contentSha256 is computed here (for the fingerprint/reconcile anchor) and
-  // again inside putObject (files-core.ts ~526) — a deliberate extra hash
-  // rather than threading it through putObject's signature; see the #829 plan.
+  // Hash the body once, up front: it anchors the fingerprint and the reconcile
+  // check, and is threaded into putObject so it isn't hashed a second time.
   const contentSha256 = await contentSha256Hex(bytes);
   const finalKey = finalizeUploadKey(key, ws);
+  const idempotentPutOpts = { ...putOpts, contentSha256 };
   let result;
   try {
     result = await putObjectIdempotently(primaryDbFor(c.env), {
@@ -254,8 +254,9 @@ export async function putFileHandler(c: Context<WorkspaceVars>) {
         replace: wantReplace,
         metadata,
       },
-      run: () => putObject(c.env, ws, key, bytes, workspaceName, putOpts),
-      reconcile: () => reconcileExistingUpload(c.env, ws, workspaceName, key, contentSha256),
+      run: () => putObject(c.env, ws, key, bytes, workspaceName, idempotentPutOpts),
+      reconcile: () =>
+        reconcileInterruptedUpload(c.env, ws, workspaceName, key, bytes, contentSha256, putOpts),
       readEnv: c.env,
     });
   } catch (error) {

@@ -41,13 +41,14 @@ recover a token by replaying a key. The client's `mintWorkspaceToken` accepts an
 optional `idempotencyKey`.
 
 `PUT /v1/workspaces/:workspace/files/:key` (object upload) accepts the same
-header. The key is scoped to the uploaded content plus the rest of the
-request, so an identical retry replays the original `201` instead of writing a
-duplicate object or hitting the `409 key_exists` a naive retry would get on a
-strict key. A retry with the same key but a different request returns
-`409 idempotency_key_reused`. The client's `put` accepts an optional
-`idempotencyKey`; unlike `createGallery`, it is never generated automatically
-— only supplied when the caller opts in.
+header. The API scopes the key to the uploaded content and the rest of the
+request. An identical retry replays the original `201`. That avoids both a
+duplicate object and the `409 key_exists` a naive retry would hit on a strict
+key. A retry with the same key but a different request returns
+`409 idempotency_key_reused`. A concurrent request can return
+`409 idempotency_request_in_progress` with `Retry-After: 1`. The client's `put`
+accepts an optional `idempotencyKey`. Unlike `createGallery`, it is never
+generated automatically — only supplied when the caller opts in.
 
 ## Errors
 

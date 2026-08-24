@@ -22,6 +22,8 @@ import { type AuthTokenRecord, prepareTokenInsert } from "./auth-db";
 import { boundedRead, type DataReadEnv } from "./data-read-bounds";
 import type { D1Queryable } from "./db-session";
 import {
+  buildClaimStatement,
+  buildReplayLookup,
   conflictFor,
   IDEMPOTENCY_RETENTION_HOURS,
   validateIdempotencyKey,
@@ -107,23 +109,7 @@ export async function createTokenIdempotently<T>(
   const responseBody = await encryptSecret(input.masterSecret, JSON.stringify(input.response));
   const scope = [input.workspace, input.principal, TOKEN_CREATE_OPERATION, keyHash] as const;
 
-  const claim = db
-    .prepare(
-      `INSERT INTO idempotency_requests
-       (workspace, principal, operation, key_hash, fingerprint, owner_nonce, state,
-        response_status, response_body, created_at, expires_at)
-       VALUES (?, ?, ?, ?, ?, ?, 'pending', NULL, NULL, ?, ?)
-       ON CONFLICT (workspace, principal, operation, key_hash) DO UPDATE SET
-         fingerprint = excluded.fingerprint,
-         owner_nonce = excluded.owner_nonce,
-         state = 'pending',
-         response_status = NULL,
-         response_body = NULL,
-         created_at = excluded.created_at,
-         expires_at = excluded.expires_at
-       WHERE idempotency_requests.expires_at <= excluded.created_at`,
-    )
-    .bind(...scope, fingerprint, ownerNonce, createdAt, expiresAt);
+  const claim = buildClaimStatement(db, scope, fingerprint, ownerNonce, createdAt, expiresAt);
 
   const ownsClaim = {
     sql: `EXISTS (
@@ -162,13 +148,7 @@ export async function createTokenIdempotently<T>(
   // We did not mint — either a completed row already exists (replay) or another
   // request holds a pending claim (conflict). Bound only this standalone read;
   // the write batch above is never deadline-raced.
-  const replayLookup = db
-    .prepare(
-      `SELECT fingerprint, owner_nonce, state, response_status, response_body, expires_at
-       FROM idempotency_requests
-       WHERE workspace = ? AND principal = ? AND operation = ? AND key_hash = ?`,
-    )
-    .bind(...scope);
+  const replayLookup = buildReplayLookup(db, scope);
   const row = await boundedRead(input.readEnv ?? {}, () => replayLookup.first<StoredRequest>(), {
     name: "d1_token_idempotency_replay",
   });
