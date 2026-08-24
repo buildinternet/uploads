@@ -17,6 +17,7 @@ import {
   signFileHandler,
 } from "./files-shared-handlers";
 import { dbFor } from "../db-session";
+import { boundedDataRead } from "../data-read-bounds";
 
 export const files = new Hono<WorkspaceVars>()
 
@@ -49,12 +50,17 @@ export const files = new Hono<WorkspaceVars>()
       const pageSize = clampSearchLimit(limitParam ? Number(limitParam) || undefined : undefined);
       const [cfg, result] = await Promise.all([
         storageConfig(c.env, ws),
-        searchFilesByNameAndMeta(c.env, ws, c.get("workspaceName"), {
-          filters: hasMeta ? filters : undefined,
-          nameTerm,
-          prefix: query.prefix,
-          pageSize,
-        }),
+        boundedDataRead(
+          c,
+          () =>
+            searchFilesByNameAndMeta(c.env, ws, c.get("workspaceName"), {
+              filters: hasMeta ? filters : undefined,
+              nameTerm,
+              prefix: query.prefix,
+              pageSize,
+            }),
+          { name: "d1_files_search" },
+        ),
       ]);
       const items = result.matches.map((match) => {
         const urls = objectPublicUrls(c.env, cfg, match.key);
@@ -82,10 +88,15 @@ export const files = new Hono<WorkspaceVars>()
     const metadataParam = c.req.query("metadata");
     if (metadataParam !== "1" && metadataParam !== "true") return c.json(page);
 
-    const metaByKey = await getMetadataForKeys(
-      dbFor(c.env),
-      c.get("workspaceName"),
-      page.items.map((item) => item.key),
+    const metaByKey = await boundedDataRead(
+      c,
+      () =>
+        getMetadataForKeys(
+          dbFor(c.env),
+          c.get("workspaceName"),
+          page.items.map((item) => item.key),
+        ),
+      { name: "d1_files_meta" },
     );
     return c.json({
       ...page,
@@ -99,7 +110,15 @@ export const files = new Hono<WorkspaceVars>()
   // Static path must register before `/:key{.+}` so "facets" is not treated
   // as an object key.
   .get("/facets", requireScope("files:read"), async (c) => {
-    return c.json(await listFacets(dbFor(c.env), c.get("workspaceName"), c.req.query("key")));
+    return c.json(
+      await boundedDataRead(
+        c,
+        () => listFacets(dbFor(c.env), c.get("workspaceName"), c.req.query("key")),
+        {
+          name: "d1_files_facets",
+        },
+      ),
+    );
   })
 
   // Metadata now lives on the key-at-tail routes (same shape PUT/GET/DELETE

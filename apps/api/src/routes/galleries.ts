@@ -38,6 +38,7 @@ import { publicUrl, storage, storageConfig } from "../storage";
 import { requireScope, type WorkspaceVars } from "../workspace";
 import { jsonBody } from "./json-body";
 import { dbFor } from "../db-session";
+import { boundedDataRead } from "../data-read-bounds";
 
 async function ownerGallery(c: Context<WorkspaceVars>, id: string) {
   const record = await getGallery(dbFor(c.env), c.get("workspaceName"), id);
@@ -80,10 +81,15 @@ export async function listGalleriesHandler(c: Context<WorkspaceVars>) {
   const limit = rawLimit === undefined ? 50 : Number(rawLimit);
   if (!Number.isInteger(limit) || limit < 1 || limit > 100)
     throw new ValidationError("limit must be an integer from 1 to 100.");
-  const page = await listGalleries(dbFor(c.env), c.get("workspaceName"), {
-    limit,
-    cursor: decodeGalleryCursor(c.req.query("cursor")),
-  });
+  const page = await boundedDataRead(
+    c,
+    () =>
+      listGalleries(dbFor(c.env), c.get("workspaceName"), {
+        limit,
+        cursor: decodeGalleryCursor(c.req.query("cursor")),
+      }),
+    { name: "d1_galleries_list" },
+  );
   const result = page.galleries.map((gallery) => gallerySummary(c.env, gallery));
   return c.json({
     galleries: result,
@@ -98,11 +104,14 @@ export async function galleriesByReferenceHandler(c: Context<WorkspaceVars>) {
   const limit = rawLimit === undefined ? 50 : Number(rawLimit);
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100)
     throw new ValidationError("limit must be an integer from 1 to 100.");
-  const page = await findGalleriesByReference(
-    dbFor(c.env),
-    c.get("workspaceName"),
-    parsed.value.normalizedKey,
-    { limit, cursor: decodeGalleryCursor(c.req.query("cursor")) },
+  const page = await boundedDataRead(
+    c,
+    () =>
+      findGalleriesByReference(dbFor(c.env), c.get("workspaceName"), parsed.value.normalizedKey, {
+        limit,
+        cursor: decodeGalleryCursor(c.req.query("cursor")),
+      }),
+    { name: "d1_galleries_by_reference" },
   );
   return c.json({
     galleries: page.galleries.map((gallery) => gallerySummary(c.env, gallery)),
@@ -111,7 +120,8 @@ export async function galleriesByReferenceHandler(c: Context<WorkspaceVars>) {
 }
 
 export async function getGalleryHandler(c: Context<WorkspaceVars>) {
-  return c.json(await ownerGallery(c, c.req.param("id") as string));
+  const id = c.req.param("id") as string;
+  return c.json(await boundedDataRead(c, () => ownerGallery(c, id), { name: "d1_gallery_get" }));
 }
 
 export async function updateGalleryHandler(c: Context<WorkspaceVars>) {
@@ -238,17 +248,20 @@ export async function removeGalleryItemHandler(c: Context<WorkspaceVars>) {
 }
 
 export async function listExternalReferencesHandler(c: Context<WorkspaceVars>) {
-  const gallery = await getGallery(
-    dbFor(c.env),
-    c.get("workspaceName"),
-    c.req.param("id") as string,
+  const references = await boundedDataRead(
+    c,
+    async () => {
+      const gallery = await getGallery(
+        dbFor(c.env),
+        c.get("workspaceName"),
+        c.req.param("id") as string,
+      );
+      if (!gallery) throw new NotFoundError("Gallery not found.", { code: "gallery_not_found" });
+      return listExternalReferences(dbFor(c.env), c.get("workspaceName"), gallery.id);
+    },
+    { name: "d1_gallery_external_references" },
   );
-  if (!gallery) throw new NotFoundError("Gallery not found.", { code: "gallery_not_found" });
-  return c.json({
-    references: (
-      await listExternalReferences(dbFor(c.env), c.get("workspaceName"), gallery.id)
-    ).map(referenceDto),
-  });
+  return c.json({ references: references.map(referenceDto) });
 }
 
 export async function addExternalReferenceHandler(c: Context<WorkspaceVars>) {
