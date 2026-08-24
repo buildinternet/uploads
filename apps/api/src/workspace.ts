@@ -1,5 +1,12 @@
 import { ForbiddenError, InsufficientScopeError, UnauthorizedError } from "@uploads/errors";
-import type { MiddlewareHandler } from "hono";
+import {
+  d1ExecMs,
+  ServerTiming,
+  serverTimingDisabled,
+  slowOpThresholdMs,
+  timeOp,
+} from "@uploads/observability";
+import type { Context, MiddlewareHandler } from "hono";
 import type { R2Jurisdiction, StorageProvider } from "@uploads/storage";
 import {
   FILE_SCOPES,
@@ -13,6 +20,22 @@ import {
 import { dbFor } from "./db-session";
 
 export type { FileScope } from "./auth-db";
+
+/**
+ * Appends `timing`'s Server-Timing entries to the response (issue #812) —
+ * merges with anything a downstream middleware (e.g. `sessionAuth` on a
+ * dual-auth route) already appended, since Hono joins multiple `append`ed
+ * values for the same header name. No-ops when the kill switch is set or
+ * there's nothing to report.
+ */
+function appendServerTiming<T extends { Bindings: Env }>(
+  c: Context<T>,
+  timing: ServerTiming,
+): void {
+  if (serverTimingDisabled(c.env)) return;
+  const value = timing.header();
+  if (value) c.header("Server-Timing", value, { append: true });
+}
 
 /**
  * A workspace is a tenant: its own bucket, credentials, and auth token.
@@ -495,11 +518,21 @@ function workspaceAuthWith(
     // Always pay the D1 round-trip, with dummy inputs when the workspace is
     // unknown or the token empty, so response latency doesn't reveal whether
     // a workspace name exists (uniform-401 guarantee above).
-    const d1Token = await findActiveToken(
-      dbFor(c.env),
-      record && name ? name : "__unknown__",
-      token || "__unknown__",
-    );
+    // One collector per request (issue #812) — findActiveToken's `.first()`
+    // carries no D1 `meta`, so only wall time is recorded for it; the
+    // touch-below `.run()` does carry `meta.duration` and reports exec ms too.
+    const timing = new ServerTiming();
+    const thresholdMs = slowOpThresholdMs(c.env);
+    let d1Token: Awaited<ReturnType<typeof findActiveToken>>;
+    try {
+      d1Token = await timeOp(
+        () =>
+          findActiveToken(dbFor(c.env), record && name ? name : "__unknown__", token || "__unknown__"),
+        { name: "d1", timing, route: c.req.path, thresholdMs },
+      );
+    } finally {
+      appendServerTiming(c, timing);
+    }
     const ok = legacyOk || (record !== null && d1Token !== null);
 
     if (!ok || !record || !name) throw new UnauthorizedError();
@@ -510,7 +543,20 @@ function workspaceAuthWith(
     c.set("authSource", d1Token ? "d1" : "legacy");
     // Uploader attribution (issue #340) — null for legacy/enrollment tokens.
     c.set("mintingUserId", d1Token?.minting_user_id ?? null);
-    if (d1Token) await touchTokenLastUsed(dbFor(c.env), d1Token.id);
+    if (d1Token) {
+      const touchTiming = new ServerTiming();
+      try {
+        await timeOp(() => touchTokenLastUsed(dbFor(c.env), d1Token.id), {
+          name: "d1_touch",
+          timing: touchTiming,
+          route: c.req.path,
+          thresholdMs,
+          execMs: d1ExecMs,
+        });
+      } finally {
+        appendServerTiming(c, touchTiming);
+      }
+    }
     await next();
   };
 }
@@ -602,7 +648,19 @@ export function workspaceGovernanceAuth(scope: WorkspaceScope): MiddlewareHandle
     const tokenWorkspace = token ? workspaceNameFromToken(token) : undefined;
     if (!tokenWorkspace) throw new UnauthorizedError();
 
-    const record = await findActiveToken(dbFor(c.env), tokenWorkspace, token);
+    const thresholdMs = slowOpThresholdMs(c.env);
+    const timing = new ServerTiming();
+    let record: Awaited<ReturnType<typeof findActiveToken>>;
+    try {
+      record = await timeOp(() => findActiveToken(dbFor(c.env), tokenWorkspace, token), {
+        name: "d1",
+        timing,
+        route: c.req.path,
+        thresholdMs,
+      });
+    } finally {
+      appendServerTiming(c, timing);
+    }
     if (!record) throw new UnauthorizedError();
 
     const name = c.req.param("name");
@@ -618,7 +676,18 @@ export function workspaceGovernanceAuth(scope: WorkspaceScope): MiddlewareHandle
     if (!scopes.has(scope)) throw new ForbiddenError();
 
     c.set("governanceMintingUserId", record.minting_user_id);
-    await touchTokenLastUsed(dbFor(c.env), record.id);
+    const touchTiming = new ServerTiming();
+    try {
+      await timeOp(() => touchTokenLastUsed(dbFor(c.env), record.id), {
+        name: "d1_touch",
+        timing: touchTiming,
+        route: c.req.path,
+        thresholdMs,
+        execMs: d1ExecMs,
+      });
+    } finally {
+      appendServerTiming(c, touchTiming);
+    }
     await next();
   };
 }

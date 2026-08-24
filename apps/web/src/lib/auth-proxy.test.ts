@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { sessionResultFromResponse } from "./auth-client";
 import {
   proxyAuthRequest,
@@ -399,5 +399,57 @@ describe("serverAuthFetchImpl", () => {
     const forwarded = fetchMock.mock.calls[0]?.[0] as Request;
     expect(forwarded.url).toBe("https://uploads.sh/api/auth/get-session");
     expect(forwarded.headers.get("cookie")).toBe("better-auth.session_token=abc");
+  });
+});
+
+describe("proxyAuthRequest — Server-Timing wiring (issue #812)", () => {
+  let logSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    logSpy.mockRestore();
+  });
+
+  it("emits an auth;dur=… Server-Timing header on the returned response", async () => {
+    const { AUTH } = fakeAuthBinding(Response.json({ ok: true }));
+    const request = new Request("https://uploads.sh/api/auth/get-session");
+
+    const response = await proxyAuthRequest({ AUTH }, request);
+    expect(response.headers.get("Server-Timing")).toMatch(/^auth;dur=\d+(\.\d+)?$/);
+  });
+
+  it("silences the header when SERVER_TIMING_DISABLED is set", async () => {
+    const { AUTH } = fakeAuthBinding(Response.json({ ok: true }));
+    const request = new Request("https://uploads.sh/api/auth/get-session");
+
+    const response = await proxyAuthRequest({ AUTH, SERVER_TIMING_DISABLED: "1" }, request);
+    expect(response.headers.get("Server-Timing")).toBeNull();
+  });
+
+  it("logs a slow-op line only above the threshold", async () => {
+    const { AUTH } = fakeAuthBinding(Response.json({ ok: true }));
+    const request = new Request("https://uploads.sh/api/auth/get-session");
+
+    await proxyAuthRequest({ AUTH, SLOW_OP_THRESHOLD_MS: "1000000" }, request);
+    expect(logSpy).not.toHaveBeenCalled();
+
+    await proxyAuthRequest({ AUTH, SLOW_OP_THRESHOLD_MS: "0" }, request);
+    expect(logSpy).toHaveBeenCalledTimes(1);
+    const logged = JSON.parse(logSpy.mock.calls[0]?.[0] as string) as Record<string, unknown>;
+    expect(logged).toMatchObject({ msg: "slow_op", op: "auth", outcome: "ok" });
+  });
+
+  it("still emits the header on the synthetic 503 timeout response", async () => {
+    const request = new Request("https://uploads.sh/api/auth/get-session");
+    const response = await proxyAuthRequest(
+      { AUTH: { fetch: hangingBinding() } },
+      request,
+      5, // tiny sessionTimeoutMs to force the abort path fast
+    );
+    expect(response.status).toBe(503);
+    expect(response.headers.get("Server-Timing")).toMatch(/^auth;dur=\d+(\.\d+)?$/);
   });
 });

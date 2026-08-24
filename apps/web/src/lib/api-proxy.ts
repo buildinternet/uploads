@@ -16,9 +16,16 @@
  * router upstream.
  */
 
+import {
+  ServerTiming,
+  serverTimingDisabled,
+  slowOpThresholdMs,
+  timeOp,
+  type TimingEnv,
+} from "@uploads/observability";
 import { rewriteOrigin, withInheritedCookie } from "./proxy-transport";
 
-export interface ApiProxyEnv {
+export interface ApiProxyEnv extends TimingEnv {
   API?: { fetch(req: Request): Promise<Response> };
   UPLOADS_API_ORIGIN?: string;
 }
@@ -67,9 +74,18 @@ export async function proxyApiRequest(env: ApiProxyEnv, request: Request): Promi
   url.pathname = strippedPath;
   const forwarded = new Request(url.toString(), manual);
 
-  return env.API
-    ? env.API.fetch(forwarded)
-    : fetch(rewriteOrigin(forwarded, env.UPLOADS_API_ORIGIN ?? LOCAL_API_ORIGIN_DEFAULT));
+  // Structural choke point (issue #812): the one upstream hop every
+  // `/api/*` proxy request makes, api-worker-bound rather than auth-bound —
+  // see auth-proxy.ts's proxyAuthRequest for the "auth" counterpart.
+  const timing = new ServerTiming();
+  const upstream = await timeOp(
+    () =>
+      env.API
+        ? env.API.fetch(forwarded)
+        : fetch(rewriteOrigin(forwarded, env.UPLOADS_API_ORIGIN ?? LOCAL_API_ORIGIN_DEFAULT)),
+    { name: "api", timing, route: decodedPath, thresholdMs: slowOpThresholdMs(env) },
+  );
+  return timing.applyTo(upstream, { disabled: serverTimingDisabled(env) });
 }
 
 /**

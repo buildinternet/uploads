@@ -11,6 +11,12 @@ import {
   ServiceUnavailableError,
   UnauthorizedError,
 } from "@uploads/errors";
+import {
+  ServerTiming,
+  serverTimingDisabled,
+  slowOpThresholdMs,
+  timeOp,
+} from "@uploads/observability";
 import type { MiddlewareHandler } from "hono";
 
 /** Minimal shape of Better Auth's `get-session` response body. */
@@ -68,7 +74,26 @@ export function authRateLimitError(response: Response): RateLimitedError {
  * lost access to every workspace.
  */
 export const sessionAuth: MiddlewareHandler<SessionVars> = async (c, next) => {
-  c.set("sessionUser", await resolveSessionUser(c.env, c.req.raw));
+  // One entry per request (issue #812): the AUTH-binding get-session round
+  // trip is this middleware's whole job, so its wall time IS the interesting
+  // number — the exact "auth;dur=3998" the 2026-08-23 D1 stall incident
+  // needed. Server-Timing is appended even when the call throws (a 503), so
+  // a stalled-auth response still carries the timing that explains it.
+  const timing = new ServerTiming();
+  try {
+    c.set(
+      "sessionUser",
+      await timeOp(() => resolveSessionUser(c.env, c.req.raw), {
+        name: "auth",
+        timing,
+        route: c.req.path,
+        thresholdMs: slowOpThresholdMs(c.env),
+      }),
+    );
+  } finally {
+    const value = timing.header();
+    if (value && !serverTimingDisabled(c.env)) c.header("Server-Timing", value, { append: true });
+  }
   await next();
 };
 
