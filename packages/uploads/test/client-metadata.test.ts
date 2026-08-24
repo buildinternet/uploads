@@ -238,7 +238,10 @@ describe("list metadata hydration", () => {
     expect(items[0].metadata).toEqual({ path: "/settings", state: "before" });
   });
 
-  it("omits the param when metadata is not requested", async () => {
+  // Issue #829 §5: the caller discards the hydrated map when it didn't ask
+  // for `metadata: true`, so the client opts out of the server's D1
+  // hydration pass rather than paying for it and throwing the result away.
+  it("sends metadata=0 to skip D1 hydration when metadata is not requested", async () => {
     let seenUrl = "";
     const fetch = vi.fn(async (input: string | URL | Request) => {
       seenUrl = String(input);
@@ -253,6 +256,6 @@ describe("list metadata hydration", () => {
 
     await client.listAll({ prefix: "gh/" });
 
-    expect(seenUrl).not.toContain("metadata");
+    expect(seenUrl).toContain("metadata=0");
   });
 });
