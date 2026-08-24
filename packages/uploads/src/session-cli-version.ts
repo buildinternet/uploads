@@ -63,7 +63,7 @@ export async function syncSessionCliVersion(opts: SyncCliVersionOptions = {}): P
   const authUrl = (
     opts.authUrl ??
     process.env.UPLOADS_AUTH_URL ??
-    (apiUrl ? authUrlFromApi(apiUrl) : "https://auth.uploads.sh")
+    (apiUrl ? authUrlFromApi(apiUrl) : "https://uploads.sh")
   ).replace(/\/$/, "");
 
   const controller = new AbortController();

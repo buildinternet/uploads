@@ -147,15 +147,15 @@ describe("resolveAuthUrl", () => {
     );
   });
 
-  it("swaps an api. host label for auth.", () => {
+  it("maps an api. host to its same-origin parent", () => {
     expect(resolveAuthUrl(parseCommandArgs([]), "https://api.uploads.sh")).toBe(
-      "https://auth.uploads.sh",
+      "https://uploads.sh",
     );
   });
 
   it("falls back to the production default for non-api hosts", () => {
     expect(resolveAuthUrl(parseCommandArgs([]), "http://localhost:8787")).toBe(
-      "https://auth.uploads.sh",
+      "https://uploads.sh",
     );
   });
 });

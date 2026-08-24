@@ -56,7 +56,7 @@ describe("syncSessionCliVersion", () => {
     ).toBe(true);
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     const call = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
-    expect(call[0]).toBe("https://auth.example.test/api/auth/update-session");
+    expect(call[0]).toBe("https://example.test/api/auth/update-session");
     expect(JSON.parse(String(call[1].body))).toEqual({ cliVersion: "1.2.3" });
     expect(readFileSync(cachePath, "utf8").trim()).toBe("1.2.3");
 

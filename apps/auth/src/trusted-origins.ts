@@ -1,27 +1,25 @@
 /**
- * Better Auth `trustedOrigins` + CORS allow-list, pure and unit-tested (see
- * plan D1/D3). Mirrors the shape of `~/Code/releases/workers/api/src/auth/index.ts`'s
- * `authTrustedOrigins`, trimmed to what uploads.sh actually needs: no glob
- * matching (we don't have a wildcard subdomain product surface yet), just an
- * explicit uploads.sh family + portless/localhost dev origins + an env escape
- * hatch.
+ * Better Auth `trustedOrigins` allow-list, pure and unit-tested. Mirrors the
+ * shape of `~/Code/releases/workers/api/src/auth/index.ts`'s
+ * `authTrustedOrigins`, trimmed to what uploads.sh actually needs: an explicit
+ * uploads.sh family (the web origin + env escape hatch), plus a plain-loopback
+ * allowance for local dev.
+ *
+ * #731/#741: the browser only ever talks to the WEB origin — auth is reached
+ * same-origin through web's `/api/auth` proxy in every environment — so the
+ * web origin (`env.WEB_ORIGIN`, passed through in dev too, including the
+ * portless `*.localhost` and real-TLD OAuth-testing origins and any worktree
+ * prefix) is always in the static list below and needs no regex. The old
+ * portless / real-TLD parent-domain regexes existed to trust the now-retired
+ * `auth.*` dev subdomains for cross-subdomain cookie sharing, which #731
+ * removed; only the loopback convenience remains.
  */
 
-const LOCALHOST_ORIGIN_RE = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
-// Portless dev (see the `portless` skill): named `*.localhost` origins, e.g.
-// https://uploads.localhost, https://auth.uploads.localhost, a worktree-
-// prefixed https://fix-ui.uploads.localhost, or the sudo-less proxy fallback
-// http://uploads.localhost:1355. `.localhost` resolves to loopback by spec.
-const PORTLESS_ORIGIN_RE = /^https?:\/\/[a-z0-9-]+(\.[a-z0-9-]+)*\.localhost(:\d+)?$/;
-// Real-TLD portless mode for OAuth providers that reject `*.localhost`
-// redirect URIs (see the `oauth` skill): PORTLESS_TLD=dev
-// PORTLESS_NAME=uploads.local.buildinternet serves
-// https://uploads.local.buildinternet.dev + subdomains, resolved to loopback
-// via public DNS. Deliberately on the shared infra domain (matching the
-// sibling repos) rather than under uploads.sh, so prod's `Domain=.uploads.sh`
-// session cookies never overlap the local zone. Non-production only.
-const LOCAL_BUILDINTERNET_ORIGIN_RE =
-  /^https:\/\/([a-z0-9-]+\.)*uploads\.local\.buildinternet\.dev$/;
+// Non-production only: bare loopback origins on any port. Lets a developer poke
+// the auth worker directly from a scratch tool on a different loopback port
+// than the web dev server. `.localhost` and real-TLD dev origins are covered by
+// the static WEB_ORIGIN entry instead (see the module docstring).
+const LOOPBACK_ORIGIN_RE = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
 
 export type TrustedOriginsEnv = {
   WEB_ORIGIN?: string;
@@ -39,10 +37,10 @@ function extraTrustedOrigins(env: TrustedOriginsEnv): string[] {
 /**
  * Static origin list for Better Auth's `trustedOrigins` option: the web
  * origin (defaults to https://uploads.sh), plus any comma-separated extras
- * from `BETTER_AUTH_TRUSTED_ORIGINS`. Dev/localhost origins are matched
- * dynamically in {@link isTrustedOrigin} (regex, not enumerable), so they are
- * intentionally NOT included here — Better Auth accepts a function too, but
- * we keep this list for callers (e.g. CORS) that want a concrete array.
+ * from `BETTER_AUTH_TRUSTED_ORIGINS`. The non-prod loopback allowance is
+ * matched dynamically in {@link isTrustedOrigin} (regex, not enumerable), so
+ * it is intentionally NOT included here — Better Auth accepts a function too,
+ * but we keep this list for the no-Origin fallback and any array consumer.
  */
 export function authTrustedOrigins(env: TrustedOriginsEnv): string[] {
   const webOrigin = env.WEB_ORIGIN || "https://uploads.sh";
@@ -53,9 +51,5 @@ export function authTrustedOrigins(env: TrustedOriginsEnv): string[] {
 export function isTrustedOrigin(origin: string, env: TrustedOriginsEnv): boolean {
   if (authTrustedOrigins(env).includes(origin)) return true;
   if (env.ENVIRONMENT === "production") return false;
-  return (
-    LOCALHOST_ORIGIN_RE.test(origin) ||
-    PORTLESS_ORIGIN_RE.test(origin) ||
-    LOCAL_BUILDINTERNET_ORIGIN_RE.test(origin)
-  );
+  return LOOPBACK_ORIGIN_RE.test(origin);
 }

@@ -28,18 +28,25 @@ export interface UploadsClientConfig {
   token: string;
 }
 
-/** Derive auth origin from an API base (`api.` → `auth.`), else production default. */
+/**
+ * Derive the auth base URL from an API base. Since #731 the auth endpoints are
+ * served same-origin on the app origin (`<origin>/api/auth`, web proxies to the
+ * auth worker), not an `auth.` subdomain — so the canonical `api.<domain>`
+ * shape maps to its parent (`api.uploads.sh` → `uploads.sh`). Falls back to the
+ * production origin. Local multi-worker dev, where auth listens on a different
+ * loopback port, still needs an explicit `--auth-url` / `UPLOADS_AUTH_URL`.
+ */
 export function authUrlFromApi(apiUrl: string): string {
   try {
     const url = new URL(apiUrl);
     if (url.hostname.startsWith("api.")) {
-      url.hostname = `auth.${url.hostname.slice(4)}`;
+      url.hostname = url.hostname.slice(4);
       return url.origin;
     }
   } catch {
     // fall through
   }
-  return "https://auth.uploads.sh";
+  return "https://uploads.sh";
 }
 
 export const DEFAULT_API_URL = "https://api.uploads.sh";
