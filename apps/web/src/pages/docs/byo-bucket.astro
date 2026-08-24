@@ -1,8 +1,8 @@
 ---
 // uploads.sh — docs / bring your own bucket. Point a workspace at your own
-// Cloudflare R2 bucket. Wizard copy on
-// `/account/workspaces/[name]/settings/storage.astro` (storage-step-1) is
-// the source of truth for dashboard paths — keep this page in sync with it.
+// Cloudflare R2 bucket. The connect form's setup disclosure on
+// `/account/workspaces/[name]/settings/storage.astro` (storage-setup-help)
+// is the source of truth for dashboard paths — keep this page in sync.
 import DocsLayout from "../../layouts/DocsLayout.astro";
 
 const TOC = [
@@ -16,10 +16,10 @@ const TOC = [
 
 <DocsLayout
   title="Bring your own bucket"
-  description="Point a workspace at your own Cloudflare R2 bucket instead of the shared storage.uploads.sh bucket."
+  description="Point a workspace at your own Cloudflare R2 bucket instead of hosted storage on storage.uploads.sh."
   path="/docs/byo-bucket"
   heading="Bring your own bucket"
-  tagline="Point a workspace at storage you already pay for, instead of the shared bucket."
+  tagline="Point a workspace at storage you already pay for, instead of hosted storage."
   active="byo-bucket"
   toc={TOC}
 >
@@ -34,40 +34,43 @@ const TOC = [
       Set up your bucket <a class="anchor" href="#setup" aria-label="Link to this section">#</a>
     </h2>
     <p>
-      A workspace admin runs the connect wizard from the workspace settings page. Three steps on the
-      Cloudflare dashboard, then verify before anything is saved.
+      A workspace admin connects from the workspace settings page — one form, filled from three
+      things you set up on the Cloudflare dashboard first.
     </p>
     <h3>1. Create an R2 bucket</h3>
     <p>
       Dashboard → <strong>R2</strong> → <strong>Create bucket</strong>. Any name that follows
-      Cloudflare's rules works (3–63 characters; lowercase letters, digits, hyphens). If the bucket
-      is in a jurisdiction (<code>eu</code> or <code>fedramp</code>), pick that same jurisdiction in
-      the wizard.
+      Cloudflare's rules works (3–63 characters; lowercase letters, digits, hyphens). Jurisdiction
+      buckets (<code>eu</code>, <code>fedramp</code>) work too — it's detected automatically from
+      the endpoint URL, or probed during verification.
     </p>
     <h3>2. Create a bucket-scoped API token</h3>
     <p>
       <strong>R2</strong> → <strong>Manage API Tokens</strong> → <strong>Create API Token</strong>,
-      permission <strong>Object Read &amp; Write</strong>, scoped to that one bucket. You get an
-      Access Key ID, a Secret Access Key, and your account ID.
+      permission <strong>Object Read &amp; Write</strong>, scoped to that one bucket. Copy the
+      Access Key ID and Secret Access Key — and either your account ID or the S3 endpoint URL shown
+      on the same screen. The form takes either one, and once your keys are in it looks up your
+      buckets for you where the token allows it.
     </p>
     <p class="note">
       Scope the token to one bucket, not the whole account. uploads.sh encrypts the key pair, but a
       bucket-scoped token still limits the blast radius if anything goes wrong.
     </p>
-    <h3>3. Optional: custom domain for public reads</h3>
+    <h3>3. Give the bucket a domain</h3>
     <p>
       Bucket → <strong>Settings</strong> → <strong>Public access</strong> → <strong
         >Custom Domains</strong
       >, connect a domain on a Cloudflare zone in your account, then paste the URL (for example&#32;
-      <code>https://media.example.com</code>) into the wizard as the public base URL. See the
-      serving matrix below for what this buys you.
+      <code>https://media.example.com</code>) into the form as the public base URL. The settings
+      page requires one — it's what makes links stable and embeddable. See the serving matrix below.
     </p>
     <p>
-      Enter the account ID, bucket name, and key pair, then run verify. It checks the inputs,
-      authenticates against the bucket, and round-trips a test object. Only a passing verify can
-      save — and saving never changes where uploads go. The saved bucket sits in your settings page
-      as "Saved · not in use" until you click <strong>Use this bucket</strong>, so you can connect
-      and verify at any time without any risk to what's already uploading.
+      Then <strong>Verify &amp; save</strong>: one click checks the settings, signs in to the
+      bucket, round-trips a test object, and fetches it through your public URL. Anything that fails
+      is spelled out on the form; a clean pass saves. Saving never changes where uploads go — the
+      bucket sits on your settings page as "Not in use yet" until you click
+      <strong>Use this bucket</strong>, so you can connect and verify at any time without any risk
+      to what's already uploading.
     </p>
     <p class="note">
       Switching is instant and reversible, even for a workspace that already has files: existing
@@ -102,14 +105,18 @@ const TOC = [
         <tr>
           <th scope="row">No public URL</th>
           <td>Signed URLs, generated on demand.</td>
-          <td>Fine for viewing; GitHub embeds won't render (see below).</td>
+          <td
+            >Degraded — links expire after an hour and GitHub embeds won't render (see below). The
+            settings page requires a public base URL; signed-only configs can only be saved through
+            the API.</td
+          >
         </tr>
         <tr>
           <th scope="row"><code>r2.dev</code> managed URL</th>
           <td>—</td>
           <td
-            ><strong>Not supported.</strong> The wizard rejects <code>r2.dev</code> base URLs — connect
-            a custom domain, or save without a public URL for signed-only access.</td
+            ><strong>Not supported.</strong>
+            <code>r2.dev</code> base URLs are rejected — connect a custom domain instead.</td
           >
         </tr>
         <tr>
@@ -137,7 +144,7 @@ const TOC = [
       </li>
       <li>
         <strong><code>retentionDays</code> auto-cleanup.</strong> Age-based retention walks a prefix on
-        the shared bucket. A BYO bucket has no shared prefix, so automatic retention isn't available —
+        the hosted bucket. A BYO bucket has no hosted prefix, so automatic retention isn't available —
         delete old files yourself if you need that.
       </li>
       <li>
@@ -160,9 +167,9 @@ const TOC = [
       pointer to the bucket — never a copy of your files.
     </p>
     <p>
-      Switching back to <code>storage.uploads.sh</code> never touches your objects. Files you uploaded
-      while your bucket was active keep resolving from it — only new uploads move to the shared bucket.
-      Switching to your bucket again later is the same instant, reversible switch in the other direction.
+      Switching back to hosted storage never touches your objects. Files you uploaded while your
+      bucket was active keep resolving from it — only new uploads move to hosted storage. Switching
+      to your bucket again later is the same instant, reversible switch in the other direction.
     </p>
   </section>
 
