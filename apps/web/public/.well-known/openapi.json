@@ -3,21 +3,15 @@
   "info": {
     "title": "uploads.sh API",
     "version": "1.0.0",
-    "description": "Workspace-scoped file hosting for agents and humans. Auth is a per-workspace bearer token (invitation enrollment via `uploads login`), not browser OAuth. Full narrative docs: https://github.com/buildinternet/uploads/blob/main/docs/api.md",
-    "contact": {
-      "url": "https://github.com/buildinternet/uploads"
-    },
+    "description": "Workspace-scoped file hosting for agents and humans. The canonical public hierarchy is `/v1/workspaces/{workspace}/...`. Bearer-only `/v1/{workspace}/...` routes remain as compatibility aliases. Full narrative docs: https://github.com/buildinternet/uploads/blob/main/docs/api.md",
+    "contact": { "url": "https://github.com/buildinternet/uploads" },
     "license": {
       "name": "Apache-2.0",
       "url": "https://github.com/buildinternet/uploads/blob/main/LICENSE"
     }
   },
-  "servers": [
-    {
-      "url": "https://api.uploads.sh",
-      "description": "Production API"
-    }
-  ],
+  "servers": [{ "url": "https://api.uploads.sh", "description": "Production API" }],
+  "security": [{ "bearerAuth": [] }],
   "paths": {
     "/health": {
       "get": {
@@ -31,9 +25,8 @@
               "application/json": {
                 "schema": {
                   "type": "object",
-                  "properties": {
-                    "ok": { "type": "boolean" }
-                  }
+                  "required": ["ok"],
+                  "properties": { "ok": { "type": "boolean" } }
                 }
               }
             }
@@ -41,134 +34,1086 @@
         }
       }
     },
-    "/v1/{workspace}/files/{key}": {
-      "parameters": [
-        {
-          "name": "workspace",
-          "in": "path",
-          "required": true,
-          "schema": { "type": "string" }
-        },
-        {
-          "name": "key",
-          "in": "path",
-          "required": true,
-          "schema": { "type": "string" },
-          "description": "Object key (may include slashes)"
+    "/public/galleries/{galleryId}": {
+      "parameters": [{ "$ref": "#/components/parameters/GalleryId" }],
+      "get": {
+        "operationId": "getPublicGallery",
+        "summary": "Read a public gallery",
+        "description": "Returns the public allowlisted projection. It omits workspace ownership and object keys.",
+        "security": [],
+        "responses": {
+          "200": { "description": "The public gallery, items, and external references." },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "503": {
+            "description": "Gallery storage is unavailable.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } }
+            }
+          }
         }
+      }
+    },
+    "/v1/workspaces/{workspace}/files": {
+      "parameters": [{ "$ref": "#/components/parameters/Workspace" }],
+      "get": {
+        "operationId": "listFiles",
+        "summary": "List workspace files",
+        "parameters": [
+          { "$ref": "#/components/parameters/Prefix" },
+          {
+            "name": "delimiter",
+            "in": "query",
+            "schema": { "type": "string" },
+            "description": "Return common prefixes for folder-style navigation."
+          },
+          { "$ref": "#/components/parameters/FileLimit" },
+          { "$ref": "#/components/parameters/Cursor" }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of files and an opaque continuation cursor.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/FileList" } }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
+    "/v1/workspaces/{workspace}/files/search": {
+      "parameters": [{ "$ref": "#/components/parameters/Workspace" }],
+      "get": {
+        "operationId": "searchFiles",
+        "summary": "Search workspace files",
+        "description": "Requires at least one `meta.<key>` equality filter or a `name` substring. Metadata filter names are dynamic query parameters.",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "query",
+            "schema": { "type": "string", "minLength": 1, "maxLength": 128 }
+          },
+          { "$ref": "#/components/parameters/Prefix" },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 100 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A bounded result. `truncated` can be true; search does not yet provide a cursor.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/FileSearch" } }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Validation" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
+    "/v1/workspaces/{workspace}/files/facets": {
+      "parameters": [{ "$ref": "#/components/parameters/Workspace" }],
+      "get": {
+        "operationId": "listFileFacets",
+        "summary": "List metadata keys or values",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "query",
+            "schema": { "type": "string" },
+            "description": "When present, list values for this metadata key. Otherwise list keys."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Metadata key facets or value facets.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/FileFacets" } }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
+    "/v1/workspaces/{workspace}/files/sign": {
+      "parameters": [{ "$ref": "#/components/parameters/Workspace" }],
+      "post": {
+        "operationId": "signFileUpload",
+        "summary": "Create a presigned upload",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/SignRequest" } }
+          }
+        },
+        "responses": {
+          "200": { "description": "Presigned upload details." },
+          "400": { "$ref": "#/components/responses/Validation" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "409": { "$ref": "#/components/responses/Conflict" },
+          "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    },
+    "/v1/workspaces/{workspace}/files/{key}": {
+      "parameters": [
+        { "$ref": "#/components/parameters/Workspace" },
+        { "$ref": "#/components/parameters/FileKey" }
       ],
       "put": {
         "operationId": "putFile",
-        "summary": "Upload a file (raw body)",
-        "security": [{ "bearerAuth": [] }],
+        "summary": "Upload a file",
         "parameters": [
           {
-            "name": "Content-Type",
-            "in": "header",
-            "required": false,
-            "schema": { "type": "string" },
-            "description": "Client hint; stored type is sniffed from magic bytes"
+            "name": "replace",
+            "in": "query",
+            "schema": { "type": "boolean", "default": false },
+            "description": "Allow replacement. `X-Uploads-Replace: 1` is an equivalent header form."
+          },
+          {
+            "name": "dryRun",
+            "in": "query",
+            "schema": { "type": "boolean", "default": false },
+            "description": "Validate and resolve the final key without writing."
           }
         ],
         "requestBody": {
           "required": true,
           "content": {
-            "application/octet-stream": {
-              "schema": { "type": "string", "format": "binary" }
-            }
+            "application/octet-stream": { "schema": { "type": "string", "format": "binary" } }
           }
         },
         "responses": {
           "200": {
-            "description": "Uploaded; body includes key, url, size, contentType, provenance (R2 upload labels), and metadata (the queryable tags this put stored, when it stored any)"
+            "description": "Dry-run result when `dryRun` is enabled.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/FileDryRun" } }
+            }
           },
-          "401": { "description": "Missing or invalid workspace token" },
-          "413": { "description": "Payload too large" }
+          "201": {
+            "description": "The file was stored.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/FilePut" } }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Validation" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "409": { "$ref": "#/components/responses/Conflict" },
+          "413": { "$ref": "#/components/responses/PayloadTooLarge" },
+          "415": { "$ref": "#/components/responses/UnsupportedMediaType" },
+          "429": { "$ref": "#/components/responses/RateLimited" }
         }
       },
       "get": {
-        "operationId": "headFile",
-        "summary": "Object metadata",
-        "security": [{ "bearerAuth": [] }],
+        "operationId": "getFile",
+        "summary": "Read file metadata",
+        "parameters": [
+          {
+            "name": "metadata",
+            "in": "query",
+            "schema": { "type": "boolean", "default": false },
+            "description": "Return only the queryable metadata map."
+          }
+        ],
         "responses": {
           "200": {
-            "description": "Object metadata JSON (includes public url when configured, and provenance; add ?metadata=1 for the queryable tags instead)"
+            "description": "Object metadata, or a metadata-only response when requested.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    { "$ref": "#/components/schemas/FileHead" },
+                    { "$ref": "#/components/schemas/MetadataResult" }
+                  ]
+                }
+              }
+            }
           },
-          "401": { "description": "Missing or invalid workspace token" },
-          "404": { "description": "Not found" }
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      },
+      "patch": {
+        "operationId": "patchFileMetadata",
+        "summary": "Merge file metadata",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/MetadataPatch" } }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The merged metadata map.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/MetadataResult" } }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Validation" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "429": { "$ref": "#/components/responses/RateLimited" }
         }
       },
       "delete": {
         "operationId": "deleteFile",
-        "summary": "Delete an object",
-        "security": [{ "bearerAuth": [] }],
+        "summary": "Delete a file",
         "responses": {
-          "204": { "description": "Deleted" },
-          "401": { "description": "Missing or invalid workspace token" },
-          "403": { "description": "Token lacks files:delete" }
+          "200": {
+            "description": "The file was deleted.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/DeleteResult" } }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    },
+    "/v1/workspaces/{workspace}/usage": {
+      "parameters": [{ "$ref": "#/components/parameters/Workspace" }],
+      "get": {
+        "operationId": "getUsage",
+        "summary": "Read workspace usage",
+        "responses": {
+          "200": {
+            "description": "Usage counters, configured limits, credential scopes, and plan.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Usage" } }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
+    "/v1/workspaces/{workspace}/usage/reconcile": {
+      "parameters": [{ "$ref": "#/components/parameters/Workspace" }],
+      "post": {
+        "operationId": "reconcileUsage",
+        "summary": "Rebuild workspace usage counters",
+        "description": "Requires a bearer token with `files:write`; browser sessions are not accepted.",
+        "responses": {
+          "200": { "description": "Reconciliation result and updated usage." },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
+    "/v1/workspaces/{workspace}/usage/purge-expired": {
+      "parameters": [{ "$ref": "#/components/parameters/Workspace" }],
+      "post": {
+        "operationId": "purgeExpiredFiles",
+        "summary": "Purge files past the retention window",
+        "description": "Requires a bearer token with `files:delete`; browser sessions are not accepted. The response is either `{ skipped: true }` or a purge and reconciliation result.",
+        "responses": {
+          "200": { "description": "Purge result or a skipped result." },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
+    "/v1/workspaces/{workspace}/galleries": {
+      "parameters": [{ "$ref": "#/components/parameters/Workspace" }],
+      "post": {
+        "operationId": "createGallery",
+        "summary": "Create a gallery",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/GalleryCreate" } }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The gallery was created.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Gallery" } }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Validation" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      },
+      "get": {
+        "operationId": "listGalleries",
+        "summary": "List workspace galleries",
+        "parameters": [
+          { "$ref": "#/components/parameters/GalleryLimit" },
+          { "$ref": "#/components/parameters/Cursor" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Enriched gallery summaries and an opaque continuation cursor.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/GalleryList" } }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
+    "/v1/workspaces/{workspace}/galleries/by-reference": {
+      "parameters": [{ "$ref": "#/components/parameters/Workspace" }],
+      "get": {
+        "operationId": "findGalleriesByReference",
+        "summary": "Find galleries by external reference",
+        "parameters": [
+          { "name": "provider", "in": "query", "required": true, "schema": { "type": "string" } },
+          {
+            "name": "coordinate",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          { "$ref": "#/components/parameters/GalleryLimit" },
+          { "$ref": "#/components/parameters/Cursor" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Gallery summaries and an opaque continuation cursor.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/GalleryList" } }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Validation" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
+    "/v1/workspaces/{workspace}/galleries/{galleryId}": {
+      "parameters": [
+        { "$ref": "#/components/parameters/Workspace" },
+        { "$ref": "#/components/parameters/GalleryId" }
+      ],
+      "get": {
+        "operationId": "getGallery",
+        "summary": "Read a gallery",
+        "responses": {
+          "200": {
+            "description": "The gallery and its items.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Gallery" } }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      },
+      "patch": {
+        "operationId": "updateGallery",
+        "summary": "Update a gallery",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/GalleryUpdate" } }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The updated gallery.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Gallery" } }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Validation" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "$ref": "#/components/responses/Conflict" },
+          "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      },
+      "delete": {
+        "operationId": "deleteGallery",
+        "summary": "Delete a gallery",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/ExpectedVersion" } }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The gallery was deleted.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/DeleteResult" } }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Validation" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "$ref": "#/components/responses/Conflict" },
+          "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    },
+    "/v1/workspaces/{workspace}/galleries/{galleryId}/items": {
+      "parameters": [
+        { "$ref": "#/components/parameters/Workspace" },
+        { "$ref": "#/components/parameters/GalleryId" }
+      ],
+      "post": {
+        "operationId": "addGalleryItem",
+        "summary": "Add a file to a gallery",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/GalleryItemCreate" } }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The file was already a member; the existing item is returned.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/GalleryItem" } }
+            }
+          },
+          "201": {
+            "description": "The gallery item was created.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/GalleryItem" } }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Validation" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "$ref": "#/components/responses/Conflict" },
+          "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    },
+    "/v1/workspaces/{workspace}/galleries/{galleryId}/items/order": {
+      "parameters": [
+        { "$ref": "#/components/parameters/Workspace" },
+        { "$ref": "#/components/parameters/GalleryId" }
+      ],
+      "put": {
+        "operationId": "reorderGalleryItems",
+        "summary": "Replace the gallery item order",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/GalleryOrder" } }
+          }
+        },
+        "responses": {
+          "200": { "description": "Ordered items and whether the order was unchanged." },
+          "400": { "$ref": "#/components/responses/Validation" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "$ref": "#/components/responses/Conflict" },
+          "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    },
+    "/v1/workspaces/{workspace}/galleries/{galleryId}/items/{itemId}": {
+      "parameters": [
+        { "$ref": "#/components/parameters/Workspace" },
+        { "$ref": "#/components/parameters/GalleryId" },
+        { "name": "itemId", "in": "path", "required": true, "schema": { "type": "string" } }
+      ],
+      "delete": {
+        "operationId": "removeGalleryItem",
+        "summary": "Remove an item from a gallery",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/ExpectedVersion" } }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The gallery membership was deleted.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/DeleteResult" } }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Validation" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "$ref": "#/components/responses/Conflict" },
+          "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    },
+    "/v1/workspaces/{workspace}/galleries/{galleryId}/external-references": {
+      "parameters": [
+        { "$ref": "#/components/parameters/Workspace" },
+        { "$ref": "#/components/parameters/GalleryId" }
+      ],
+      "get": {
+        "operationId": "listGalleryReferences",
+        "summary": "List gallery external references",
+        "responses": {
+          "200": { "description": "The gallery references." },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      },
+      "post": {
+        "operationId": "addGalleryReference",
+        "summary": "Add an external reference",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/GalleryReferenceCreate" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "The reference already existed and is returned unchanged." },
+          "201": { "description": "The reference was created." },
+          "400": { "$ref": "#/components/responses/Validation" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "$ref": "#/components/responses/Conflict" },
+          "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    },
+    "/v1/workspaces/{workspace}/galleries/{galleryId}/external-references/{referenceId}": {
+      "parameters": [
+        { "$ref": "#/components/parameters/Workspace" },
+        { "$ref": "#/components/parameters/GalleryId" },
+        {
+          "name": "referenceId",
+          "in": "path",
+          "required": true,
+          "schema": { "type": "string" }
+        }
+      ],
+      "delete": {
+        "operationId": "removeGalleryReference",
+        "summary": "Remove an external reference",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/ExpectedVersion" } }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The external reference was deleted.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/DeleteResult" } }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Validation" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "$ref": "#/components/responses/Conflict" },
+          "429": { "$ref": "#/components/responses/RateLimited" }
         }
       }
     },
     "/v1/{workspace}/files": {
+      "parameters": [{ "$ref": "#/components/parameters/Workspace" }],
       "get": {
-        "operationId": "listFiles",
-        "summary": "List objects",
-        "security": [{ "bearerAuth": [] }],
-        "parameters": [
-          {
-            "name": "workspace",
-            "in": "path",
-            "required": true,
-            "schema": { "type": "string" }
-          },
-          {
-            "name": "prefix",
-            "in": "query",
-            "schema": { "type": "string" }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "schema": { "type": "integer" }
-          },
-          {
-            "name": "cursor",
-            "in": "query",
-            "schema": { "type": "string" }
-          }
-        ],
+        "operationId": "listFilesLegacy",
+        "summary": "List workspace files (compatibility route)",
+        "x-uploads-compatibility": true,
+        "description": "Bearer-only compatibility route. New integrations should use `/v1/workspaces/{workspace}/files`. Its response uses `{ items, cursor }`.",
+        "responses": { "200": { "description": "A compatibility file-list page." } }
+      }
+    },
+    "/v1/{workspace}/files/{key}": {
+      "parameters": [
+        { "$ref": "#/components/parameters/Workspace" },
+        { "$ref": "#/components/parameters/FileKey" }
+      ],
+      "get": {
+        "operationId": "getFileLegacy",
+        "summary": "Read file metadata (compatibility route)",
+        "x-uploads-compatibility": true,
+        "responses": { "200": { "description": "Object metadata." } }
+      },
+      "put": {
+        "operationId": "putFileLegacy",
+        "summary": "Upload a file (compatibility route)",
+        "x-uploads-compatibility": true,
         "responses": {
-          "200": { "description": "Paginated object list" },
-          "401": { "description": "Missing or invalid workspace token" }
+          "200": { "description": "Dry-run result." },
+          "201": { "description": "The file was stored." }
+        }
+      },
+      "patch": {
+        "operationId": "patchFileMetadataLegacy",
+        "summary": "Merge file metadata (compatibility route)",
+        "x-uploads-compatibility": true,
+        "responses": { "200": { "description": "The merged metadata map." } }
+      },
+      "delete": {
+        "operationId": "deleteFileLegacy",
+        "summary": "Delete a file (compatibility route)",
+        "x-uploads-compatibility": true,
+        "responses": {
+          "200": {
+            "description": "The file was deleted.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/DeleteResult" } }
+            }
+          }
         }
       }
     },
     "/v1/{workspace}/usage": {
+      "parameters": [{ "$ref": "#/components/parameters/Workspace" }],
       "get": {
-        "operationId": "getUsage",
-        "summary": "Workspace usage snapshot",
-        "security": [{ "bearerAuth": [] }],
-        "parameters": [
-          {
-            "name": "workspace",
-            "in": "path",
-            "required": true,
-            "schema": { "type": "string" }
-          }
-        ],
-        "responses": {
-          "200": { "description": "Usage counters and limits" },
-          "401": { "description": "Missing or invalid workspace token" }
-        }
+        "operationId": "getUsageLegacy",
+        "summary": "Read workspace usage (compatibility route)",
+        "x-uploads-compatibility": true,
+        "responses": { "200": { "description": "Workspace usage." } }
+      }
+    },
+    "/v1/{workspace}/galleries": {
+      "parameters": [{ "$ref": "#/components/parameters/Workspace" }],
+      "get": {
+        "operationId": "listGalleriesLegacy",
+        "summary": "List galleries (compatibility route)",
+        "x-uploads-compatibility": true,
+        "description": "Bearer-only compatibility route. Legacy summaries omit canonical enrichment fields.",
+        "responses": { "200": { "description": "Base gallery summaries and `nextCursor`." } }
+      },
+      "post": {
+        "operationId": "createGalleryLegacy",
+        "summary": "Create a gallery (compatibility route)",
+        "x-uploads-compatibility": true,
+        "responses": { "201": { "description": "The gallery was created." } }
       }
     }
   },
   "components": {
+    "parameters": {
+      "Workspace": {
+        "name": "workspace",
+        "in": "path",
+        "required": true,
+        "schema": { "type": "string" }
+      },
+      "FileKey": {
+        "name": "key",
+        "in": "path",
+        "required": true,
+        "schema": { "type": "string" },
+        "description": "Object key. It may include slashes."
+      },
+      "GalleryId": {
+        "name": "galleryId",
+        "in": "path",
+        "required": true,
+        "schema": { "type": "string", "pattern": "^gal_" }
+      },
+      "Prefix": { "name": "prefix", "in": "query", "schema": { "type": "string" } },
+      "Cursor": {
+        "name": "cursor",
+        "in": "query",
+        "schema": { "type": "string" },
+        "description": "Opaque cursor returned by the previous page."
+      },
+      "FileLimit": {
+        "name": "limit",
+        "in": "query",
+        "schema": { "type": "integer", "minimum": 1, "maximum": 1000, "default": 100 }
+      },
+      "GalleryLimit": {
+        "name": "limit",
+        "in": "query",
+        "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 50 }
+      }
+    },
+    "responses": {
+      "Validation": {
+        "description": "Invalid request.",
+        "content": {
+          "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } }
+        }
+      },
+      "Unauthorized": {
+        "description": "Missing or invalid credential.",
+        "content": {
+          "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } }
+        }
+      },
+      "Forbidden": {
+        "description": "The credential lacks the required scope or role.",
+        "content": {
+          "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } }
+        }
+      },
+      "NotFound": {
+        "description": "The resource was not found.",
+        "content": {
+          "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } }
+        }
+      },
+      "Conflict": {
+        "description": "The request conflicts with current resource state.",
+        "content": {
+          "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } }
+        }
+      },
+      "PayloadTooLarge": {
+        "description": "The upload exceeds the workspace limit.",
+        "content": {
+          "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } }
+        }
+      },
+      "UnsupportedMediaType": {
+        "description": "The bytes are not an allowed media type.",
+        "content": {
+          "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } }
+        }
+      },
+      "RateLimited": {
+        "description": "The workspace rate limit or upload budget was exceeded.",
+        "content": {
+          "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } }
+        }
+      }
+    },
+    "schemas": {
+      "ErrorEnvelope": {
+        "type": "object",
+        "required": ["error"],
+        "properties": {
+          "error": {
+            "type": "object",
+            "required": ["code", "type", "message"],
+            "properties": {
+              "code": { "type": "string" },
+              "type": { "type": "string" },
+              "message": { "type": "string" },
+              "details": {}
+            }
+          }
+        }
+      },
+      "Metadata": { "type": "object", "additionalProperties": { "type": "string" } },
+      "MetadataResult": {
+        "type": "object",
+        "required": ["metadata"],
+        "properties": { "metadata": { "$ref": "#/components/schemas/Metadata" } }
+      },
+      "MetadataPatch": {
+        "type": "object",
+        "properties": {
+          "set": { "$ref": "#/components/schemas/Metadata" },
+          "delete": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "FileHead": {
+        "type": "object",
+        "required": ["key", "size", "contentType", "url", "embedUrl"],
+        "properties": {
+          "key": { "type": "string" },
+          "size": { "type": "integer", "minimum": 0 },
+          "contentType": { "type": "string" },
+          "uploaded": { "type": "string", "format": "date-time" },
+          "url": { "type": ["string", "null"], "format": "uri" },
+          "embedUrl": { "type": ["string", "null"], "format": "uri" },
+          "metadata": { "$ref": "#/components/schemas/Metadata" },
+          "visibility": { "type": "string", "enum": ["public", "private"] }
+        }
+      },
+      "FileList": {
+        "type": "object",
+        "required": ["files", "cursor"],
+        "properties": {
+          "files": { "type": "array", "items": { "$ref": "#/components/schemas/FileHead" } },
+          "prefixes": { "type": "array", "items": { "type": "string" } },
+          "cursor": { "type": ["string", "null"] }
+        }
+      },
+      "FileSearch": {
+        "type": "object",
+        "required": ["items", "truncated"],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/FileSearchItem" }
+          },
+          "truncated": { "type": "boolean" }
+        }
+      },
+      "FileSearchItem": {
+        "type": "object",
+        "required": ["key", "url", "embedUrl", "metadata"],
+        "properties": {
+          "key": { "type": "string" },
+          "url": { "type": ["string", "null"], "format": "uri" },
+          "embedUrl": { "type": ["string", "null"], "format": "uri" },
+          "metadata": { "$ref": "#/components/schemas/Metadata" },
+          "updatedAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "FileFacets": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": ["keys", "truncated"],
+            "properties": {
+              "keys": { "type": "array", "items": { "type": "object" } },
+              "truncated": { "type": "boolean" }
+            }
+          },
+          {
+            "type": "object",
+            "required": ["key", "values", "truncated"],
+            "properties": {
+              "key": { "type": "string" },
+              "values": { "type": "array", "items": { "type": "object" } },
+              "truncated": { "type": "boolean" }
+            }
+          }
+        ]
+      },
+      "SignRequest": {
+        "type": "object",
+        "required": ["key", "contentType"],
+        "properties": {
+          "key": { "type": "string" },
+          "contentType": { "type": "string" },
+          "maxSize": { "type": "integer", "minimum": 1 },
+          "expiresIn": { "type": "integer", "minimum": 1, "maximum": 86400 },
+          "replace": { "type": "boolean", "default": false }
+        }
+      },
+      "FilePut": {
+        "allOf": [
+          { "$ref": "#/components/schemas/FileHead" },
+          {
+            "type": "object",
+            "required": ["workspace", "replaced"],
+            "properties": {
+              "workspace": { "type": "string" },
+              "replaced": { "type": "boolean" }
+            }
+          }
+        ]
+      },
+      "FileDryRun": {
+        "type": "object",
+        "required": ["workspace", "key", "url", "embedUrl", "replaced", "wouldRefuse", "dryRun"],
+        "properties": {
+          "workspace": { "type": "string" },
+          "key": { "type": "string" },
+          "url": { "type": ["string", "null"], "format": "uri" },
+          "embedUrl": { "type": ["string", "null"], "format": "uri" },
+          "replaced": { "type": "boolean" },
+          "wouldRefuse": { "type": "boolean" },
+          "dryRun": { "const": true }
+        }
+      },
+      "DeleteResult": {
+        "type": "object",
+        "required": ["deleted"],
+        "properties": {
+          "id": { "type": "string" },
+          "key": { "type": "string" },
+          "deleted": { "const": true }
+        },
+        "anyOf": [{ "required": ["id"] }, { "required": ["key"] }]
+      },
+      "Usage": {
+        "type": "object",
+        "required": ["workspace", "bytes", "objects", "uploadsInPeriod", "scopes", "plan"],
+        "properties": {
+          "workspace": { "type": "string" },
+          "bytes": { "type": "integer", "minimum": 0 },
+          "objects": { "type": "integer", "minimum": 0 },
+          "sharedBytes": { "type": "integer", "minimum": 0 },
+          "sharedObjects": { "type": "integer", "minimum": 0 },
+          "uploadsInPeriod": { "type": "integer", "minimum": 0 },
+          "periodStart": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" },
+          "scopes": { "type": "array", "items": { "type": "string" } },
+          "plan": { "type": "string" },
+          "maxStorageBytes": { "type": "integer", "minimum": 0 },
+          "storageRemainingBytes": { "type": "integer", "minimum": 0 },
+          "maxUploadsPerPeriod": { "type": "integer", "minimum": 0 },
+          "uploadsRemaining": { "type": "integer", "minimum": 0 }
+        }
+      },
+      "ExpectedVersion": {
+        "type": "object",
+        "required": ["expectedVersion"],
+        "properties": { "expectedVersion": { "type": "integer", "minimum": 1 } }
+      },
+      "GallerySummary": {
+        "type": "object",
+        "required": ["id", "url", "workspace", "title", "visibility", "version"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^gal_" },
+          "url": { "type": "string", "format": "uri" },
+          "workspace": { "type": "string" },
+          "title": { "type": "string" },
+          "description": { "type": ["string", "null"] },
+          "visibility": { "type": "string", "enum": ["public"] },
+          "coverItemId": { "type": ["string", "null"] },
+          "version": { "type": "integer", "minimum": 1 },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" },
+          "itemCount": { "type": "integer", "minimum": 0 },
+          "references": { "type": "array", "items": { "type": "object" } },
+          "previewUrl": { "type": ["string", "null"], "format": "uri" }
+        }
+      },
+      "GalleryItem": {
+        "type": "object",
+        "required": [
+          "id",
+          "objectKey",
+          "position",
+          "caption",
+          "altText",
+          "createdAt",
+          "status",
+          "url",
+          "embedUrl",
+          "pageUrl",
+          "contentType",
+          "size",
+          "uploaded",
+          "modified"
+        ],
+        "properties": {
+          "id": { "type": "string" },
+          "objectKey": { "type": "string" },
+          "position": { "type": "integer", "minimum": 0 },
+          "caption": { "type": ["string", "null"] },
+          "altText": { "type": ["string", "null"] },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "status": { "type": "string", "enum": ["available", "missing", "withheld"] },
+          "url": { "type": ["string", "null"], "format": "uri" },
+          "embedUrl": { "type": ["string", "null"], "format": "uri" },
+          "pageUrl": { "type": "string", "format": "uri" },
+          "contentType": { "type": ["string", "null"] },
+          "size": { "type": ["integer", "null"], "minimum": 0 },
+          "uploaded": { "type": ["string", "null"], "format": "date-time" },
+          "modified": { "type": ["string", "null"], "format": "date-time" },
+          "posterUrl": { "type": "string", "format": "uri" },
+          "videoDimensions": {
+            "type": "object",
+            "required": ["width", "height"],
+            "properties": {
+              "width": { "type": "integer", "minimum": 1 },
+              "height": { "type": "integer", "minimum": 1 }
+            }
+          }
+        }
+      },
+      "Gallery": {
+        "allOf": [
+          { "$ref": "#/components/schemas/GallerySummary" },
+          {
+            "type": "object",
+            "required": ["items"],
+            "properties": {
+              "items": { "type": "array", "items": { "$ref": "#/components/schemas/GalleryItem" } }
+            }
+          }
+        ]
+      },
+      "GalleryList": {
+        "type": "object",
+        "required": ["galleries", "nextCursor"],
+        "properties": {
+          "galleries": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/GallerySummary" }
+          },
+          "nextCursor": { "type": ["string", "null"] }
+        }
+      },
+      "GalleryCreate": {
+        "type": "object",
+        "required": ["title"],
+        "properties": {
+          "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+          "description": { "type": ["string", "null"], "maxLength": 2000 }
+        }
+      },
+      "GalleryUpdate": {
+        "allOf": [
+          { "$ref": "#/components/schemas/ExpectedVersion" },
+          {
+            "type": "object",
+            "properties": {
+              "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+              "description": { "type": ["string", "null"], "maxLength": 2000 },
+              "coverItemId": { "type": ["string", "null"] }
+            }
+          }
+        ]
+      },
+      "GalleryItemCreate": {
+        "allOf": [
+          { "$ref": "#/components/schemas/ExpectedVersion" },
+          {
+            "type": "object",
+            "required": ["objectKey"],
+            "properties": {
+              "objectKey": { "type": "string" },
+              "caption": { "type": ["string", "null"] },
+              "altText": { "type": ["string", "null"] }
+            }
+          }
+        ]
+      },
+      "GalleryOrder": {
+        "allOf": [
+          { "$ref": "#/components/schemas/ExpectedVersion" },
+          {
+            "type": "object",
+            "required": ["itemIds"],
+            "properties": {
+              "itemIds": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        ]
+      },
+      "GalleryReferenceCreate": {
+        "allOf": [
+          { "$ref": "#/components/schemas/ExpectedVersion" },
+          {
+            "type": "object",
+            "required": ["provider", "coordinate"],
+            "properties": {
+              "provider": { "type": "string" },
+              "coordinate": { "type": "string" }
+            }
+          }
+        ]
+      }
+    },
     "securitySchemes": {
       "bearerAuth": {
         "type": "http",
         "scheme": "bearer",
-        "description": "Workspace token from `uploads login` (format up_<workspace>_…). See /auth.md and docs/enrollment.md."
+        "description": "Workspace token from `uploads login` or `/account/developers`. Canonical routes can also accept an uploads.sh browser session, but public API integrations should use a workspace token."
       }
     }
   }
