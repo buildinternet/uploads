@@ -152,6 +152,7 @@
       "put": {
         "operationId": "putFile",
         "summary": "Upload a file",
+        "description": "Send an Idempotency-Key to make retries safe for 24 hours. Reusing the key with the same effective request (keyed on the uploaded content) returns the original 201 response. Reusing it with a different request returns 409.",
         "parameters": [
           {
             "name": "replace",
@@ -164,7 +165,8 @@
             "in": "query",
             "schema": { "type": "boolean", "default": false },
             "description": "Validate and resolve the final key without writing."
-          }
+          },
+          { "$ref": "#/components/parameters/IdempotencyKey" }
         ],
         "requestBody": {
           "required": true,
@@ -181,6 +183,12 @@
           },
           "201": {
             "description": "The file was stored.",
+            "headers": {
+              "Idempotency-Replayed": {
+                "description": "Present with value `true` when the API replays a stored response.",
+                "schema": { "type": "string", "enum": ["true"] }
+              }
+            },
             "content": {
               "application/json": { "schema": { "$ref": "#/components/schemas/FilePut" } }
             }

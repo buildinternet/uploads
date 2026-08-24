@@ -11,15 +11,17 @@ import {
   headObjectJson,
   isManagedGithubKey,
   putObject,
+  reconcileExistingUpload,
 } from "../files-core";
 import { getFileMetadata, META_MAX_KEYS, setFileMetadata } from "../file-metadata";
 import { checkDeclaredLength, maxBytesForContentType, resolveUploadPolicy } from "../guards";
-import { splitUploadMetaHeaders } from "../provenance";
+import { contentSha256Hex, splitUploadMetaHeaders } from "../provenance";
 import { createLaneResolver, objectPublicUrls, resolveObjectLane, storage } from "../storage";
 import { hasGithubTags, uploaderTags } from "../uploader-identity";
+import { putObjectIdempotently } from "../upload-idempotency";
 import { sanitizeVisibility } from "../visibility";
 import type { WorkspaceVars } from "../workspace";
-import { dbFor } from "../db-session";
+import { dbFor, primaryDbFor } from "../db-session";
 
 /** Handler shape shared by the legacy bearer and canonical dual-auth routers. */
 export type SharedFilesHandler = Handler<WorkspaceVars>;
@@ -217,15 +219,53 @@ export async function putFileHandler(c: Context<WorkspaceVars>) {
       if (Object.keys(merged).length <= META_MAX_KEYS) metadata = merged;
     }
   }
-  const result = await putObject(
-    c.env,
-    c.get("workspace"),
-    key,
-    new Uint8Array(body),
-    c.get("workspaceName"),
-    { provenance, visibility, metadata, replace: wantReplace, surface: "api" },
-  );
-  return c.json({ workspace: c.get("workspaceName"), ...result }, 201);
+  const bytes = new Uint8Array(body);
+  const ws = c.get("workspace");
+  const workspaceName = c.get("workspaceName");
+  const putOpts = {
+    provenance,
+    visibility,
+    metadata,
+    replace: wantReplace,
+    surface: "api" as const,
+  };
+
+  const idempotencyKey = c.req.header("Idempotency-Key");
+  if (idempotencyKey === undefined) {
+    const result = await putObject(c.env, ws, key, bytes, workspaceName, putOpts);
+    return c.json({ workspace: workspaceName, ...result }, 201);
+  }
+
+  // contentSha256 is computed here (for the fingerprint/reconcile anchor) and
+  // again inside putObject (files-core.ts ~526) — a deliberate extra hash
+  // rather than threading it through putObject's signature; see the #829 plan.
+  const contentSha256 = await contentSha256Hex(bytes);
+  const finalKey = finalizeUploadKey(key, ws);
+  let result;
+  try {
+    result = await putObjectIdempotently(primaryDbFor(c.env), {
+      workspace: workspaceName,
+      principal: c.get("authPrincipal"),
+      key: idempotencyKey,
+      fingerprint: {
+        finalKey,
+        contentSha256,
+        visibility,
+        replace: wantReplace,
+        metadata,
+      },
+      run: () => putObject(c.env, ws, key, bytes, workspaceName, putOpts),
+      reconcile: () => reconcileExistingUpload(c.env, ws, workspaceName, key, contentSha256),
+      readEnv: c.env,
+    });
+  } catch (error) {
+    if (error instanceof ConflictError && error.code === "idempotency_request_in_progress") {
+      c.header("Retry-After", "1");
+    }
+    throw error;
+  }
+  if (result.replayed) c.header("Idempotency-Replayed", "true");
+  return c.json({ workspace: workspaceName, ...result.value }, 201);
 }
 
 export async function getFileHandler(c: Context<WorkspaceVars>) {

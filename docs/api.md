@@ -40,6 +40,15 @@ re-checked on every attempt: a caller who has lost workspace access cannot
 recover a token by replaying a key. The client's `mintWorkspaceToken` accepts an
 optional `idempotencyKey`.
 
+`PUT /v1/workspaces/:workspace/files/:key` (object upload) accepts the same
+header. The key is scoped to the uploaded content plus the rest of the
+request, so an identical retry replays the original `201` instead of writing a
+duplicate object or hitting the `409 key_exists` a naive retry would get on a
+strict key. A retry with the same key but a different request returns
+`409 idempotency_key_reused`. The client's `put` accepts an optional
+`idempotencyKey`; unlike `createGallery`, it is never generated automatically
+— only supplied when the caller opts in.
+
 ## Errors
 
 Every non-2xx response uses one nested envelope (same shape as either/releases):

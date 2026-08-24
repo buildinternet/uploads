@@ -20,6 +20,7 @@ import {
 import {
   deleteFileMetadata,
   deleteServerFileMetadataKeys,
+  getFileMetadata,
   mergeWithinMetadataCaps,
   replaceFileMetadata,
   setServerFileMetadata,
@@ -58,6 +59,7 @@ import {
 import {
   isSharedLane,
   objectPublicUrls,
+  resolveObjectLane,
   storage,
   storageConfig,
   storageConfigs,
@@ -683,6 +685,57 @@ export async function putObject(
     provenance,
     ...(storedMetadata ? { metadata: storedMetadata } : {}),
     ...(storedVisibility ? { visibility: storedVisibility } : {}),
+  };
+}
+
+/** The shape `putObject` resolves to — reused by the idempotency reconcile path below. */
+export type PutObjectResult = Awaited<ReturnType<typeof putObject>>;
+
+/**
+ * Reconciles a `key_exists` failure from an idempotent `PUT` retry (issue
+ * #829): a prior attempt's bytes may already be durably stored even though
+ * its idempotency claim never completed (a crash between the R2 write and
+ * the completing `UPDATE`). Rather than re-running `putObject` — which would
+ * double-count the upload ledger and redo poster generation — this heads the
+ * existing object and, only when its stored `content-sha256` matches the
+ * retry's own bytes, synthesizes the same 201 shape `putObject` would have
+ * returned. Never writes anything; never touches usage.
+ *
+ * Returns `null` when there is no object at the key, or when one exists but
+ * its content hash differs (a genuine conflict — the caller should surface
+ * `key_exists` rather than treat this as a replay).
+ */
+export async function reconcileExistingUpload(
+  env: Env,
+  ws: WorkspaceRecord,
+  workspaceName: string,
+  key: string,
+  expectedContentSha256: string,
+): Promise<PutObjectResult | null> {
+  const finalKey = finalizeUploadKey(key, ws);
+  const lane = await resolveObjectLane(env, ws, finalKey);
+  if (!lane) return null;
+
+  const meta = await lane.store.head(finalKey).catch(() => null);
+  if (!meta) return null;
+
+  const provenance = provenanceForResponse(meta.metadata ?? undefined);
+  if (provenance?.["content-sha256"] !== expectedContentSha256) return null;
+
+  const urls = objectPublicUrls(env, lane.config, finalKey);
+  const visibility = objectVisibility(meta.metadata ?? undefined);
+  const metadata = await getFileMetadata(dbFor(env), workspaceName, finalKey);
+
+  return {
+    key: finalKey,
+    url: urls.url,
+    embedUrl: urls.embedUrl,
+    size: meta.size ?? 0,
+    contentType: meta.type ?? "application/octet-stream",
+    replaced: true,
+    provenance,
+    ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
+    ...(visibility ? { visibility } : {}),
   };
 }
 
