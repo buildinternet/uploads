@@ -21,7 +21,12 @@ import {
   resolvePreviewRecipient,
   sendEmailPreview,
 } from "../admin-email-preview";
-import { fetchBreakdown, type BreakdownDimension } from "../analytics-engine";
+import {
+  fetchBreakdown,
+  fetchSlowOps,
+  type BreakdownDimension,
+  type SlowOpWindow,
+} from "../analytics-engine";
 import {
   DEFAULT_ENROLLMENT_SECONDS,
   DEFAULT_TOKEN_SECONDS,
@@ -512,6 +517,17 @@ export const adminUi = new Hono<SessionVars>()
     const dimension = (c.req.query("dimension") ?? "surface") as BreakdownDimension;
     const days = Number(c.req.query("days") ?? 30);
     return c.json(await fetchBreakdown(c.env, dimension, Number.isFinite(days) ? days : 30));
+  })
+
+  // Slow-op trend (issue #812 tier 3): counts + p50/p95 wall ms per op name,
+  // from the `uploads_slow_ops` Analytics Engine dataset written by
+  // slow-op-analytics.ts's writeSlowOpPoint. Same additive/best-effort
+  // contract as the breakdown panel above — always 200, an unconfigured or
+  // unreachable Analytics Engine just renders as a panel message.
+  .get("/metrics/slow-ops", async (c) => {
+    const raw = c.req.query("window");
+    const window: SlowOpWindow = raw === "7d" ? "7d" : "24h";
+    return c.json(await fetchSlowOps(c.env, window));
   })
 
   // List every KV workspace joined with its org + member/invite counts.

@@ -142,6 +142,18 @@
       "binding": "ANALYTICS",
       "dataset": "uploads_adoption",
     },
+    // Slow-op trend dataset (issue #812 tier 3): one point per operation
+    // that crosses SLOW_OP_THRESHOLD_MS, written by
+    // src/slow-op-analytics.ts's writeSlowOpPoint via @uploads/observability's
+    // timeOp `onSlowOp` hook. Separate dataset (not a blob added to
+    // `uploads_adoption`) so its schema can evolve independently and the
+    // existing adoption breakdown's blob ordinals never have to shift.
+    // Purely additive: an absent binding is a silent no-op, same contract as
+    // ANALYTICS above.
+    {
+      "binding": "SLOW_OPS",
+      "dataset": "uploads_slow_ops",
+    },
   ],
   // Service binding to apps/auth (Phase 2, plan D1): forwards Cookie/
   // Authorization to GET /api/auth/get-session over the binding — no public
@@ -319,6 +331,10 @@
       {
         "binding": "ANALYTICS",
         "dataset": "uploads_adoption_preview",
+      },
+      {
+        "binding": "SLOW_OPS",
+        "dataset": "uploads_slow_ops_preview",
       },
     ],
     // Everything below repeats the production bindings verbatim — stateless,

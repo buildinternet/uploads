@@ -1,8 +1,16 @@
 import { ForbiddenError, UnauthorizedError } from "@uploads/errors";
+import {
+  d1ExecMs,
+  ServerTiming,
+  serverTimingDisabled,
+  slowOpThresholdMs,
+  timeOp,
+} from "@uploads/observability";
 import type { MiddlewareHandler } from "hono";
 import { findActiveToken, isOperatorScope, touchTokenLastUsed } from "./auth-db";
 import { hexToBytes, sha256Hex, workspaceNameFromToken } from "./workspace";
 import { dbFor } from "./db-session";
+import { writeSlowOpPoint } from "./slow-op-analytics";
 
 const READ_METHODS = new Set(["GET", "HEAD"]);
 
@@ -40,9 +48,45 @@ export const adminAuth: MiddlewareHandler<{
   const workspace = token ? workspaceNameFromToken(token) : undefined;
   if (!workspace) throw new UnauthorizedError();
 
-  const record = await findActiveToken(dbFor(c.env), workspace, token);
+  // Instrumented per issue #814's noted follow-up: this bearer guard runs
+  // the same two D1 calls as workspace.ts's workspaceAuthWith, just not on
+  // the file-plane's highest-traffic path — same op names/shape so a
+  // "d1"/"d1_touch" slow-op line or Analytics Engine row means the same
+  // thing regardless of which guard produced it.
+  const thresholdMs = slowOpThresholdMs(c.env);
+  const timing = new ServerTiming();
+  let record: Awaited<ReturnType<typeof findActiveToken>>;
+  try {
+    record = await timeOp(() => findActiveToken(dbFor(c.env), workspace, token), {
+      name: "d1",
+      timing,
+      route: c.req.path,
+      thresholdMs,
+      onSlowOp: (event) => writeSlowOpPoint(c.env, event),
+    });
+  } finally {
+    if (!serverTimingDisabled(c.env)) {
+      const value = timing.header();
+      if (value) c.header("Server-Timing", value, { append: true });
+    }
+  }
   if (!record) throw new UnauthorizedError();
-  await touchTokenLastUsed(dbFor(c.env), record.id);
+  const touchTiming = new ServerTiming();
+  try {
+    await timeOp(() => touchTokenLastUsed(dbFor(c.env), record.id), {
+      name: "d1_touch",
+      timing: touchTiming,
+      route: c.req.path,
+      thresholdMs,
+      execMs: d1ExecMs,
+      onSlowOp: (event) => writeSlowOpPoint(c.env, event),
+    });
+  } finally {
+    if (!serverTimingDisabled(c.env)) {
+      const value = touchTiming.header();
+      if (value) c.header("Server-Timing", value, { append: true });
+    }
+  }
 
   // record.scopes is operator-token-or-file-token JSON; parseScopes (auth-db.ts)
   // is file-scope-only, so parse directly here and keep just the operator ones.

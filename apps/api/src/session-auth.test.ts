@@ -28,8 +28,8 @@ function appWith(_auth: Pick<Fetcher, "fetch">) {
     .onError((err, c) => respondError(c, err));
 }
 
-function env(auth: Pick<Fetcher, "fetch">, extra: Record<string, string> = {}) {
-  return { AUTH: auth, ...extra } as unknown as Env;
+function env(auth: Pick<Fetcher, "fetch">, extra: Record<string, string> = {}, slowOps?: unknown) {
+  return { AUTH: auth, ...(slowOps ? { SLOW_OPS: slowOps } : {}), ...extra } as unknown as Env;
 }
 
 describe("sessionAuth", () => {
@@ -248,6 +248,49 @@ describe("sessionAuth Server-Timing wiring (issue #812)", () => {
     expect(logSpy).toHaveBeenCalledTimes(1);
     const logged = JSON.parse(logSpy.mock.calls[0]?.[0] as string) as Record<string, unknown>;
     expect(logged).toMatchObject({ msg: "slow_op", op: "auth", outcome: "ok" });
+  });
+});
+
+describe("sessionAuth Analytics Engine slow-op sink (issue #812 tier 3)", () => {
+  function fakeAnalytics() {
+    const points: unknown[] = [];
+    return { points, binding: { writeDataPoint: (point: unknown) => points.push(point) } };
+  }
+
+  it("writes one AE point above the threshold, carrying op/route/wall/outcome", async () => {
+    const auth = stubAuth(() => new Response(JSON.stringify(null), { status: 200 }));
+    const analytics = fakeAnalytics();
+    await appWith(auth).request(
+      "/whoami",
+      {},
+      env(auth, { SLOW_OP_THRESHOLD_MS: "0" }, analytics.binding),
+    );
+    expect(analytics.points).toHaveLength(1);
+    expect(analytics.points[0]).toMatchObject({
+      indexes: ["auth"],
+      blobs: ["auth", "/whoami", "ok"],
+    });
+  });
+
+  it("writes nothing below the threshold", async () => {
+    const auth = stubAuth(() => new Response(JSON.stringify(null), { status: 200 }));
+    const analytics = fakeAnalytics();
+    await appWith(auth).request(
+      "/whoami",
+      {},
+      env(auth, { SLOW_OP_THRESHOLD_MS: "1000000" }, analytics.binding),
+    );
+    expect(analytics.points).toHaveLength(0);
+  });
+
+  it("is a graceful no-op when the SLOW_OPS binding is absent, even above the threshold", async () => {
+    const auth = stubAuth(() => new Response(JSON.stringify(null), { status: 200 }));
+    const res = await appWith(auth).request(
+      "/whoami",
+      {},
+      env(auth, { SLOW_OP_THRESHOLD_MS: "0" }),
+    );
+    expect(res.status).toBe(200);
   });
 });
 

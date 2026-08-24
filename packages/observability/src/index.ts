@@ -125,7 +125,11 @@ export function d1ExecMs(
   return typeof result?.meta?.duration === "number" ? result.meta.duration : undefined;
 }
 
-function logSlowOp(event: SlowOpEvent, thresholdMs: number): void {
+function logSlowOp(
+  event: SlowOpEvent,
+  thresholdMs: number,
+  onSlowOp?: (event: SlowOpEvent) => void,
+): void {
   if (event.wallMs < thresholdMs) return;
   // One structured line, values only — no query text, ids, or tokens.
   console.log(
@@ -138,6 +142,12 @@ function logSlowOp(event: SlowOpEvent, thresholdMs: number): void {
       outcome: event.outcome,
     }),
   );
+  // Optional sink (issue #812 tier 3): this package must not depend on any
+  // Worker binding, so it never writes to Analytics Engine itself — a caller
+  // that has an ANALYTICS binding (apps/api) passes `onSlowOp` to timeOp and
+  // does the write there. apps/web has no such binding and simply omits it,
+  // keeping web slow-ops console-log-only.
+  onSlowOp?.(event);
 }
 
 export interface TimeOpOptions<T> {
@@ -151,6 +161,15 @@ export interface TimeOpOptions<T> {
   thresholdMs?: number;
   /** Extracts execution ms from the resolved value, e.g. {@link d1ExecMs}. */
   execMs?: (result: T) => number | undefined;
+  /**
+   * Called with the same {@link SlowOpEvent} the structured log line carries,
+   * only when the op is slow (never on a fast op). Lets a caller with a
+   * binding this package can't depend on (e.g. apps/api's ANALYTICS Analytics
+   * Engine dataset) fan the event out to a second sink without this package
+   * knowing anything about Worker bindings. Never called for a fast op; called
+   * on both the success and error outcome paths, same as the log line.
+   */
+  onSlowOp?: (event: SlowOpEvent) => void;
 }
 
 /**
@@ -168,12 +187,20 @@ export async function timeOp<T>(fn: () => Promise<T>, opts: TimeOpOptions<T>): P
     const wallMs = Date.now() - start;
     const execMs = opts.execMs?.(result);
     opts.timing?.record({ name: opts.name, wallMs, execMs });
-    logSlowOp({ route: opts.route, op: opts.name, wallMs, execMs, outcome: "ok" }, thresholdMs);
+    logSlowOp(
+      { route: opts.route, op: opts.name, wallMs, execMs, outcome: "ok" },
+      thresholdMs,
+      opts.onSlowOp,
+    );
     return result;
   } catch (err) {
     const wallMs = Date.now() - start;
     opts.timing?.record({ name: opts.name, wallMs });
-    logSlowOp({ route: opts.route, op: opts.name, wallMs, outcome: "error" }, thresholdMs);
+    logSlowOp(
+      { route: opts.route, op: opts.name, wallMs, outcome: "error" },
+      thresholdMs,
+      opts.onSlowOp,
+    );
     throw err;
   }
 }
