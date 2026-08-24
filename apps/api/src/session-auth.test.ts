@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { respondError } from "./error-response";
 import {
   requireAdminUser,
@@ -28,8 +28,8 @@ function appWith(_auth: Pick<Fetcher, "fetch">) {
     .onError((err, c) => respondError(c, err));
 }
 
-function env(auth: Pick<Fetcher, "fetch">) {
-  return { AUTH: auth } as unknown as Env;
+function env(auth: Pick<Fetcher, "fetch">, extra: Record<string, string> = {}) {
+  return { AUTH: auth, ...extra } as unknown as Env;
 }
 
 describe("sessionAuth", () => {
@@ -201,6 +201,53 @@ describe("sessionAuth", () => {
     );
     const res = await appWith(auth).request("/admin-only", {}, env(auth));
     expect(res.status).toBe(200);
+  });
+});
+
+describe("sessionAuth Server-Timing wiring (issue #812)", () => {
+  let logSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    logSpy.mockRestore();
+  });
+
+  it("emits an auth;dur=… Server-Timing header on success", async () => {
+    const auth = stubAuth(() => new Response(JSON.stringify(null), { status: 200 }));
+    const res = await appWith(auth).request("/whoami", {}, env(auth));
+    expect(res.headers.get("Server-Timing")).toMatch(/^auth;dur=\d+(\.\d+)?$/);
+  });
+
+  it("still emits the header on a 503 (the timing that explains the failure)", async () => {
+    const auth = stubAuth(() => new Response(null, { status: 503 }));
+    const res = await appWith(auth).request("/whoami", {}, env(auth));
+    expect(res.status).toBe(503);
+    expect(res.headers.get("Server-Timing")).toMatch(/^auth;dur=\d+(\.\d+)?$/);
+  });
+
+  it("silences the header when SERVER_TIMING_DISABLED is set", async () => {
+    const auth = stubAuth(() => new Response(JSON.stringify(null), { status: 200 }));
+    const res = await appWith(auth).request(
+      "/whoami",
+      {},
+      env(auth, { SERVER_TIMING_DISABLED: "1" }),
+    );
+    expect(res.headers.get("Server-Timing")).toBeNull();
+  });
+
+  it("logs a slow-op line only above the threshold", async () => {
+    const auth = stubAuth(() => new Response(JSON.stringify(null), { status: 200 }));
+
+    await appWith(auth).request("/whoami", {}, env(auth, { SLOW_OP_THRESHOLD_MS: "1000000" }));
+    expect(logSpy).not.toHaveBeenCalled();
+
+    await appWith(auth).request("/whoami", {}, env(auth, { SLOW_OP_THRESHOLD_MS: "0" }));
+    expect(logSpy).toHaveBeenCalledTimes(1);
+    const logged = JSON.parse(logSpy.mock.calls[0]?.[0] as string) as Record<string, unknown>;
+    expect(logged).toMatchObject({ msg: "slow_op", op: "auth", outcome: "ok" });
   });
 });
 

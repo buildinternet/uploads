@@ -16,4 +16,12 @@ interface Env {
   AUTH?: Fetcher;
   API?: Fetcher;
   FLAGS?: Flagship;
+  /**
+   * Server-Timing + slow-op logging (issue #812), read by
+   * `@uploads/observability` — see `lib/auth-proxy.ts` and `lib/api-proxy.ts`.
+   * Unset means the defaults apply (1000ms threshold, header emission on).
+   */
+  SLOW_OP_THRESHOLD_MS?: string;
+  /** Kill switch for `Server-Timing` header emission only — slow-op logging is unaffected. */
+  SERVER_TIMING_DISABLED?: string;
 }

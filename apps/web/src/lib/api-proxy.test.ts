@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { proxyApiRequest, serverApiFetch, serverApiFetchImpl } from "./api-proxy";
 
 afterEach(() => {
@@ -237,19 +237,50 @@ describe("serverApiFetchImpl", () => {
   });
 });
 
-describe("serverApiFetchImpl", () => {
-  it("adapts serverApiFetch to a fetch(input, init) shape for api-client's fetchImpl", async () => {
-    const { API, fetchMock } = fakeApiBinding(Response.json({ workspaces: [] }));
-    const request = new Request("https://uploads.sh/account/workspaces", {
-      headers: { cookie: "better-auth.session_token=abc" },
-    });
+describe("proxyApiRequest — Server-Timing wiring (issue #812)", () => {
+  let logSpy: ReturnType<typeof vi.spyOn>;
 
-    const fetchImpl = serverApiFetchImpl({ API }, request);
-    const response = await fetchImpl("/api/me/workspaces", { cache: "no-store" });
+  beforeEach(() => {
+    logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+  });
 
-    expect(await response.json()).toEqual({ workspaces: [] });
-    const forwarded = fetchMock.mock.calls[0]?.[0] as Request;
-    expect(forwarded.url).toBe("https://uploads.sh/me/workspaces");
-    expect(forwarded.headers.get("cookie")).toBe("better-auth.session_token=abc");
+  afterEach(() => {
+    logSpy.mockRestore();
+  });
+
+  it("emits an api;dur=… Server-Timing header on the returned response", async () => {
+    const { API } = fakeApiBinding(Response.json({ ok: true }));
+    const request = new Request("https://uploads.sh/api/me/workspaces");
+
+    const response = await proxyApiRequest({ API }, request);
+    expect(response.headers.get("Server-Timing")).toMatch(/^api;dur=\d+(\.\d+)?$/);
+  });
+
+  it("silences the header when SERVER_TIMING_DISABLED is set", async () => {
+    const { API } = fakeApiBinding(Response.json({ ok: true }));
+    const request = new Request("https://uploads.sh/api/me/workspaces");
+
+    const response = await proxyApiRequest({ API, SERVER_TIMING_DISABLED: "1" }, request);
+    expect(response.headers.get("Server-Timing")).toBeNull();
+  });
+
+  it("logs a slow-op line only above the threshold", async () => {
+    const { API } = fakeApiBinding(Response.json({ ok: true }));
+    const request = new Request("https://uploads.sh/api/me/workspaces");
+
+    await proxyApiRequest({ API, SLOW_OP_THRESHOLD_MS: "1000000" }, request);
+    expect(logSpy).not.toHaveBeenCalled();
+
+    await proxyApiRequest({ API, SLOW_OP_THRESHOLD_MS: "0" }, request);
+    expect(logSpy).toHaveBeenCalledTimes(1);
+    const logged = JSON.parse(logSpy.mock.calls[0]?.[0] as string) as Record<string, unknown>;
+    expect(logged).toMatchObject({ msg: "slow_op", op: "api", outcome: "ok" });
+  });
+
+  it("never emits a header on the /auth guard's 404 (no upstream call was timed)", async () => {
+    const request = new Request("https://uploads.sh/api/auth/get-session");
+    const response = await proxyApiRequest({}, request);
+    expect(response.status).toBe(404);
+    expect(response.headers.get("Server-Timing")).toBeNull();
   });
 });

@@ -44,6 +44,7 @@
     "@uploads/comment-render": "workspace:^",
     "@uploads/email": "workspace:^",
     "@uploads/errors": "workspace:^",
+    "@uploads/observability": "workspace:^",
     "@uploads/storage": "workspace:^",
     "aws4fetch": "^1.0.20",
     "hono": "^4.13.3",

@@ -92,4 +92,13 @@ interface Env {
    * sub-app directly instead of the full `app`.
    */
   DB_SESSION?: D1DatabaseSession;
+  /**
+   * Server-Timing + slow-op logging (issue #812). Both read by
+   * `@uploads/observability`; unset means the defaults apply (1000ms
+   * threshold, header emission on). See session-auth.ts and workspace.ts for
+   * the instrumented choke points.
+   */
+  SLOW_OP_THRESHOLD_MS?: string;
+  /** Kill switch for `Server-Timing` header emission only — slow-op logging is unaffected. */
+  SERVER_TIMING_DISABLED?: string;
 }

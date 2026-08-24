@@ -16,9 +16,16 @@
  * 302s must reach the browser unfollowed, not be resolved inside the worker.
  */
 
+import {
+  ServerTiming,
+  serverTimingDisabled,
+  slowOpThresholdMs,
+  timeOp,
+  type TimingEnv,
+} from "@uploads/observability";
 import { rewriteOrigin, withInheritedCookie } from "./proxy-transport";
 
-export interface AuthProxyEnv {
+export interface AuthProxyEnv extends TimingEnv {
   AUTH?: { fetch(req: Request): Promise<Response> };
   UPLOADS_AUTH_ORIGIN?: string;
 }
@@ -82,14 +89,33 @@ export async function proxyAuthRequest(
         }
       : { redirect: "manual" },
   );
+  // Structural choke point (issue #812): every auth-proxy path (this
+  // function, and serverGetSession/serverAuthFetch below, which both call
+  // through here) times the one upstream hop it makes. Named "auth" to match
+  // apps/api's session-auth.ts timing entry for the same logical call.
+  const timing = new ServerTiming();
   try {
-    const upstream = env.AUTH
-      ? await env.AUTH.fetch(forwarded)
-      : await fetch(rewriteOrigin(forwarded, env.UPLOADS_AUTH_ORIGIN ?? LOCAL_AUTH_ORIGIN_DEFAULT));
-    return withLegacyCookieCleared(upstream, request);
+    const upstream = await timeOp(
+      () =>
+        env.AUTH
+          ? env.AUTH.fetch(forwarded)
+          : fetch(rewriteOrigin(forwarded, env.UPLOADS_AUTH_ORIGIN ?? LOCAL_AUTH_ORIGIN_DEFAULT)),
+      {
+        name: "auth",
+        timing,
+        route: new URL(request.url).pathname,
+        thresholdMs: slowOpThresholdMs(env),
+      },
+    );
+    return timing.applyTo(withLegacyCookieCleared(upstream, request), {
+      disabled: serverTimingDisabled(env),
+    });
   } catch (err) {
     if (bounded && forwarded.signal.aborted && !request.signal.aborted) {
-      return new Response(null, { status: 503, statusText: "auth session lookup timed out" });
+      return timing.applyTo(
+        new Response(null, { status: 503, statusText: "auth session lookup timed out" }),
+        { disabled: serverTimingDisabled(env) },
+      );
     }
     throw err;
   }

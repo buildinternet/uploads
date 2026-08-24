@@ -444,16 +444,20 @@ export async function revokeTokenForMintingUser(
 /**
  * Stamp last_used_at on a successful auth. No-ops when the column was
  * written in the last hour so a busy token does not pay a D1 write per request.
+ *
+ * Returns the raw `D1Result` (or `null` on the no-op path) so callers can
+ * read `meta.duration` for Server-Timing exec-ms reporting (issue #812)
+ * without this helper needing to know about timing itself.
  */
 export async function touchTokenLastUsed(
   db: D1Queryable,
   tokenId: string,
   now = new Date(),
-): Promise<void> {
-  if (!tokenId) return;
+): Promise<D1Result | null> {
+  if (!tokenId) return null;
   const iso = now.toISOString();
   const staleBefore = new Date(now.getTime() - LAST_USED_TOUCH_SECONDS * 1000).toISOString();
-  await db
+  return db
     .prepare(
       `UPDATE auth_tokens SET last_used_at = ?
        WHERE id = ? AND revoked_at IS NULL

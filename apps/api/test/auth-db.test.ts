@@ -285,4 +285,29 @@ describe("touchTokenLastUsed", () => {
     expect(updates[0]?.[0]).toBe(now.toISOString());
     expect(updates[0]?.[1]).toBe("tok-1");
   });
+
+  // Issue #812: touchTokenLastUsed now returns the raw D1Result so callers
+  // can read `meta.duration` for Server-Timing exec-ms reporting.
+  it("returns the D1Result (carrying meta.duration) instead of void", async () => {
+    const db = {
+      prepare() {
+        return {
+          bind() {
+            return { run: async () => ({ meta: { changes: 1, duration: 0.42 } }) };
+          },
+        };
+      },
+    } as unknown as D1Database;
+    const result = await touchTokenLastUsed(db, "tok-1");
+    expect(result?.meta.duration).toBe(0.42);
+  });
+
+  it("returns null (no D1 round trip) for an empty tokenId", async () => {
+    const db = {
+      prepare() {
+        throw new Error("unexpected D1 query");
+      },
+    } as unknown as D1Database;
+    expect(await touchTokenLastUsed(db, "")).toBeNull();
+  });
 });
