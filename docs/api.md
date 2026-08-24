@@ -139,8 +139,8 @@ always travel together.
 
 ### Collection envelope shapes
 
-Every list endpoint below is a frozen v1 contract: the field set does not
-change, and any new field is additive. `cursor`/`nextCursor` behave as
+Every list endpoint below is a stable v1 contract: existing fields keep
+their names and types, and any new field is additive. `cursor`/`nextCursor` behave as
 described above in every row.
 
 | Endpoint                                  | Envelope                                                       |
