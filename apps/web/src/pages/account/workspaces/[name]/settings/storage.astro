@@ -68,13 +68,13 @@ if (!workspace) return Astro.redirect("/account/workspaces");
                 >
               </div>
               <div data-slot="empty-title" class="text-sm font-medium tracking-tight">
-                Files live on uploads.sh storage
+                Files live on hosted storage
               </div>
               <div
                 data-slot="empty-description"
                 class="text-sm/relaxed text-muted-foreground [&>a]:underline [&>a]:underline-offset-4 [&>a:hover]:text-primary"
               >
-                Uploads go to shared storage on <code>storage.uploads.sh</code> — no setup, and links
+                Uploads go to hosted storage at <code>storage.uploads.sh</code> — no setup, and links
                 just work. Prefer to own the data? Point this workspace at your own Cloudflare R2 bucket.
                 Nothing moves until you switch.
               </div>
@@ -187,7 +187,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
                 type="button"
                 role="menuitem"
                 class="storage-menu__item storage-menu__item--danger block w-full cursor-pointer rounded-[4px] border-0 bg-transparent px-2.5 py-1.5 text-left text-[13px] text-destructive hover:bg-destructive/10 focus-visible:bg-destructive/10 focus-visible:outline-none mt-px border-t border-border pt-2"
-                id="storage-disconnect-btn">Switch back to uploads.sh storage…</button
+                id="storage-disconnect-btn">Switch back to hosted storage…</button
               >
             </div>
           </div>
@@ -986,7 +986,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
             // "Use this bucket", pointed the other direction.
             await activateLane(
               sharedFallbackLaneId,
-              "storage.uploads.sh",
+              "hosted storage",
               storageActionStatus,
               storageByoConfirm,
             );
@@ -999,7 +999,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
           if (
             !(await inlineConfirm(
               storageByoConfirm,
-              "Switch back to uploads.sh storage? Nothing on your own bucket is touched or deleted.",
+              "Switch back to hosted storage? Nothing on your own bucket is touched or deleted.",
             ))
           ) {
             return;
@@ -1031,7 +1031,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
                 storageByoConfirm,
                 "This workspace still has files on your bucket. Switch back anyway? " +
                   "Your files stay on your bucket untouched and keep resolving from it, " +
-                  "but new uploads move to storage.uploads.sh.",
+                  "but new uploads move to hosted storage.",
               ))
             ) {
               return;
