@@ -227,6 +227,37 @@
           "period": 60,
         },
       },
+      {
+        // Authenticated reads, keyed by workspace (issue #829 §3). Entirely
+        // separate from WRITE_LIMITER so a read burst can never spend a
+        // workspace's write budget or vice versa. Sized well above what the
+        // signed-in web app and the CLI produce — a workspace page load is a
+        // handful of reads, and this allows dozens of full page loads per
+        // second before anything is refused. The bound exists to stop a
+        // scripted loop, not to pace the product.
+        "name": "READ_LIMITER",
+        "type": "ratelimit",
+        "namespace_id": "1006",
+        "simple": {
+          "limit": 2400,
+          "period": 60,
+        },
+      },
+      {
+        // Expensive read shapes only: search, facets, by-path grouping, and
+        // metadata-hydrated listings (see read-limits.ts). Tighter than
+        // READ_LIMITER because each of these fans out into D1 with per-row
+        // work; still generous enough that the screenshots page, the file
+        // table, and `uploads find` paging through a large result set all sit
+        // far below it.
+        "name": "HEAVY_READ_LIMITER",
+        "type": "ratelimit",
+        "namespace_id": "1007",
+        "simple": {
+          "limit": 600,
+          "period": 60,
+        },
+      },
     ],
   },
   // Transactional email (Cloudflare Email Sending). uploads.sh is onboarded for
@@ -402,6 +433,22 @@
         "namespace_id": "1005",
         "simple": {
           "limit": 30,
+          "period": 60,
+        },
+      },
+      {
+        "name": "READ_LIMITER",
+        "namespace_id": "1006",
+        "simple": {
+          "limit": 2400,
+          "period": 60,
+        },
+      },
+      {
+        "name": "HEAVY_READ_LIMITER",
+        "namespace_id": "1007",
+        "simple": {
+          "limit": 600,
           "period": 60,
         },
       },

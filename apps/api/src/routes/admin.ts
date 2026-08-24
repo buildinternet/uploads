@@ -308,7 +308,11 @@ export const admin = new Hono<{ Bindings: Env }>()
       const limiter = c.env.INVITE_LIMITER;
       if (limiter) {
         const { success } = await limiter.limit({ key: `invite:email:${email.toLowerCase()}` });
-        if (!success) throw new RateLimitedError("invitation email rate limit exceeded");
+        if (!success) {
+          throw new RateLimitedError("invitation email rate limit exceeded", {
+            retryAfterSeconds: 60,
+          });
+        }
       }
     }
 

@@ -252,6 +252,38 @@ Configure limits with `pnpm workspace:limits <name> …` (see
 [workspaces](workspaces.md)). Bare keys are rewritten to `f/<id>/<name>` before
 policy checks; presign uses the same finalization as put.
 
+### Rate limits
+
+Bursts are bounded per workspace, in separate budgets that never draw from one
+another — a read cannot exhaust a write allowance, and vice versa. Reads have
+two tiers:
+
+| Tier   | Applies to                                                                      |
+| ------ | ------------------------------------------------------------------------------- |
+| normal | A listing you asked not to hydrate (`?metadata=0`), `file-url`, a single object |
+| tight  | `files/search`, `files/facets`, `files/by-path`, a metadata-hydrated listing    |
+
+The tight tier exists because those shapes fan out with per-row work. A listing
+that skips hydration also skips the tighter bound, so a caller that discards
+metadata pays neither cost. Writes, renders, poster generation, and the public
+intake endpoints keep their own separate budgets, unchanged.
+
+Both tiers are sized well above normal application and CLI traffic — they exist
+to stop a runaway loop, not to pace ordinary use.
+
+A refused request answers `429` with `type: rate_limited` and:
+
+- `Retry-After` — seconds to wait, the standard header.
+- `X-Retry-After` — the same value, kept for compatibility with callers that
+  read the older spelling.
+- `error.details.retry_after` — the same value on the body.
+
+Waiting that long is always sufficient. No `RateLimit-Limit`,
+`RateLimit-Remaining`, or `RateLimit-Reset` header is sent: the underlying
+limiter reports only whether a request was allowed, so there is no accurate
+quota or reset instant to publish, and a fabricated one would make clients back
+off at the wrong time.
+
 ### Maintenance operations
 
 **Reconcile (potentially expensive).** This operation scans every object under

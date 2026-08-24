@@ -52,8 +52,10 @@ abuse.post("/", async (c) => {
     const ip = c.req.header("cf-connecting-ip") ?? "unknown";
     const { success } = await limiter.limit({ key: `abuse-report:${ip}` });
     if (!success) {
-      c.header("Retry-After", "60");
-      throw new RateLimitedError("too many reports; retry shortly");
+      // INVITE_LIMITER's window. `respondError` turns this into both
+      // `Retry-After` and the compat `X-Retry-After`, plus `retry_after` on
+      // the error body (issue #829 §3).
+      throw new RateLimitedError("too many reports; retry shortly", { retryAfterSeconds: 60 });
     }
   }
 

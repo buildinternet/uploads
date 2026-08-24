@@ -259,13 +259,22 @@ export function inspectUpload(bytes: Uint8Array, policy: UploadPolicy): UploadIn
  * binding is absent (some local/dev setups, tests) — the window/quota
  * themselves are fixed per-binding in wrangler.jsonc (fixed sliding windows,
  * per-colo rather than globally exact — enough to blunt abuse, not billing).
+ *
+ * `opts.windowSeconds` is the binding's configured `simple.period`, mirrored
+ * here purely so the 429 can carry an honest `Retry-After`: the window length
+ * is the only recovery figure a Cloudflare `RateLimit` binding makes knowable
+ * — `limit()` returns `{ success }` and nothing else, so limit/remaining/reset
+ * are deliberately never emitted (see `respondError`). Waiting out one full
+ * window is always sufficient, which is exactly what `Retry-After` promises.
  */
-function makeRateLimitGuard<BindingKey extends string>(
+export function makeRateLimitGuard<BindingKey extends string>(
   bindingKey: BindingKey,
   message: string,
+  opts: { windowSeconds?: number; code?: string } = {},
 ): {
   middleware: MiddlewareHandler<WorkspaceVars>;
   allow: (env: Partial<Record<BindingKey, RateLimit>>, workspaceName: string) => Promise<boolean>;
+  reject: () => never;
 } {
   const allow = async (
     env: Partial<Record<BindingKey, RateLimit>>,
@@ -277,24 +286,31 @@ function makeRateLimitGuard<BindingKey extends string>(
     return success;
   };
 
+  const reject = (): never => {
+    throw new RateLimitedError(message, {
+      ...(opts.code ? { code: opts.code } : {}),
+      ...(opts.windowSeconds !== undefined ? { retryAfterSeconds: opts.windowSeconds } : {}),
+    });
+  };
+
   const middleware: MiddlewareHandler<WorkspaceVars> = async (c, next) => {
     // `c.env` is the worker's full Env; narrowed here since this guard only
     // ever reads the single `bindingKey` binding off of it.
     const env = c.env as unknown as Partial<Record<BindingKey, RateLimit>>;
-    if (!(await allow(env, c.get("workspaceName")))) {
-      throw new RateLimitedError(message);
-    }
+    if (!(await allow(env, c.get("workspaceName")))) reject();
     await next();
   };
 
-  return { middleware, allow };
+  return { middleware, allow, reject };
 }
 
 /**
  * Per-workspace rate limit for mutating requests (`WRITE_LIMITER`), used by
  * the file put/delete routes and the MCP worker's put/delete tools.
  */
-const writeRateLimitGuard = makeRateLimitGuard("WRITE_LIMITER", "rate limit exceeded");
+const writeRateLimitGuard = makeRateLimitGuard("WRITE_LIMITER", "rate limit exceeded", {
+  windowSeconds: 60,
+});
 export const writeRateLimit = writeRateLimitGuard.middleware;
 export const allowWrite = writeRateLimitGuard.allow;
 
@@ -304,7 +320,9 @@ export const allowWrite = writeRateLimitGuard.allow;
  * endpoint independent of the monthly upload-budget check (`checkPutBudget`,
  * reused for renders in routes/render.ts).
  */
-const renderRateLimitGuard = makeRateLimitGuard("RENDER_LIMITER", "render rate limit exceeded");
+const renderRateLimitGuard = makeRateLimitGuard("RENDER_LIMITER", "render rate limit exceeded", {
+  windowSeconds: 60,
+});
 export const renderRateLimit = renderRateLimitGuard.middleware;
 export const allowRender = renderRateLimitGuard.allow;
 

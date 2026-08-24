@@ -45,8 +45,7 @@ reports.post("/", async (c) => {
     const ip = c.req.header("cf-connecting-ip") ?? "unknown";
     const { success } = await limiter.limit({ key: `cli-report:${ip}` });
     if (!success) {
-      c.header("Retry-After", "60");
-      throw new RateLimitedError("too many reports; retry shortly");
+      throw new RateLimitedError("too many reports; retry shortly", { retryAfterSeconds: 60 });
     }
   }
 
