@@ -66,8 +66,19 @@ describe("read tier classification", () => {
     expect(classifyLegacyListingRead({ prefix: "f/" })).toBe("normal");
     // Opt-in hydration, and the two shapes that switch to the D1 search path.
     expect(classifyLegacyListingRead({ metadata: "1" })).toBe("tight");
+    expect(classifyLegacyListingRead({ metadata: "true" })).toBe("tight");
     expect(classifyLegacyListingRead({ name: "shot" })).toBe("tight");
     expect(classifyLegacyListingRead({ "meta.path": "web/home" })).toBe("tight");
+  });
+
+  it("does not charge the tight tier for a metadata value the legacy route ignores", () => {
+    // `routes/files.ts` hydrates only on "1"/"true". Anything else leaves the
+    // response unhydrated, so it must not pay the hydrated limit.
+    expect(classifyLegacyListingRead({ metadata: "yes" })).toBe("normal");
+    expect(classifyLegacyListingRead({ metadata: "2" })).toBe("normal");
+    expect(classifyLegacyListingRead({ metadata: "" })).toBe("normal");
+    expect(classifyLegacyListingRead({ metadata: "0" })).toBe("normal");
+    expect(classifyLegacyListingRead({ metadata: "false" })).toBe("normal");
   });
 });
 

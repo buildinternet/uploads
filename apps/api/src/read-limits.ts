@@ -104,16 +104,22 @@ export const listingReadRateLimit: MiddlewareHandler<WorkspaceVars> = async (c, 
 /**
  * Tier for the legacy bearer listing (`GET /v1/:workspace/files`), whose
  * metadata parameter runs the other way: that route lists from object storage
- * and hydrates only on `?metadata=1`, and switches to the D1 search path
- * entirely once any `meta.*` filter or `?name=` is present. Both of those are
- * the expensive shapes, so both pay the tight limit; a bare prefix list does
- * not.
+ * and hydrates only on `?metadata=1` or `?metadata=true`, and switches to the
+ * D1 search path entirely once any `meta.*` filter or `?name=` is present.
+ * Both of those are the expensive shapes, so both pay the tight limit; a bare
+ * prefix list does not.
+ *
+ * The hydration test is deliberately positive, matching `routes/files.ts`
+ * exactly. A negative test ("anything but 0/false opts in") would charge the
+ * tight limit for an unrecognized value like `?metadata=yes`, which that route
+ * ignores — the caller would pay the tighter bound without the work ever
+ * happening.
  */
 export function classifyLegacyListingRead(query: Record<string, string>): ReadTier {
   if (query.name !== undefined) return "tight";
   if (Object.keys(query).some((key) => key.startsWith("meta."))) return "tight";
   const metadata = query.metadata;
-  return metadata !== undefined && metadata !== "0" && metadata !== "false" ? "tight" : "normal";
+  return metadata === "1" || metadata === "true" ? "tight" : "normal";
 }
 
 export const legacyListingReadRateLimit: MiddlewareHandler<WorkspaceVars> = async (c, next) => {
