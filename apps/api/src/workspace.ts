@@ -224,6 +224,23 @@ export interface WorkspaceRecord {
    * lane. Stamped into new-upload provenance (see `files-core.ts`).
    */
   storageLaneId?: string;
+  /**
+   * Set when the active BYO lane's credentials stopped working (issue #826) —
+   * the timestamp of the *first* failure in the current unhealthy stretch, so
+   * the UI can say "failing since". Absent = healthy, which is also every
+   * shared-lane record: a platform-binding failure is never a workspace's
+   * problem to fix. Written and cleared only through
+   * `storage-health.ts`.
+   */
+  storageUnhealthyAt?: string;
+  /**
+   * Which kind of failure flagged the lane — `StorageHealthCode` in
+   * `storage-health.ts` (`"auth" | "bucket_missing" | "unreachable"`),
+   * widened to `string` here so an older worker reading a newer record can't
+   * fail to parse it. Picks the plain-language sentence; the flag itself is
+   * `storageUnhealthyAt`.
+   */
+  storageUnhealthyCode?: string;
 }
 
 /**
@@ -269,6 +286,15 @@ export interface StorageLane extends StorageLaneFields {
   storageAccessKeyIdLast4?: string;
   storageConfiguredAt?: string;
   storageConfiguredBy?: string;
+  /**
+   * Health carried down from the active-lane fields when this lane was
+   * demoted (issue #826) — a lane you switched away from *because* it broke
+   * still reads as broken in the lane list. Cleared on promotion: a lane only
+   * becomes active after it verifies.
+   */
+  unhealthyAt?: string;
+  /** `StorageHealthCode`, widened to `string` — see `WorkspaceRecord.storageUnhealthyCode`. */
+  unhealthyCode?: string;
 }
 
 /** New lane id: "lane_" + 8 lowercase hex chars from crypto.getRandomValues. */

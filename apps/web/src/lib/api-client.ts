@@ -1772,6 +1772,25 @@ export interface WorkspaceStorageLane {
   lastActiveAt?: string;
   accountIdMasked?: string;
   accessKeyIdLast4?: string;
+  /** Set when this lane was demoted while its credentials were failing (issue #826). */
+  unhealthyAt?: string;
+  /**
+   * Normalized health for a lane demoted while flagged (issue #826) — the
+   * same shape and the same server-authored sentence the active lane reports.
+   * Absent on a healthy lane.
+   */
+  health?: WorkspaceStorageHealth;
+}
+
+/** Whether the *active* lane's storage is currently working (issue #826). Always healthy in shared mode. */
+export interface WorkspaceStorageHealth {
+  ok: boolean;
+  /** `"auth" | "bucket_missing" | "unreachable"` — widened, since the sentence to show ships in `message`. */
+  code?: string;
+  /** Plain-language failure sentence, server-authored. Present only when `ok` is false. */
+  message?: string;
+  /** When the lane was *first* flagged — "failing since", not "last failed". */
+  since?: string;
 }
 
 export interface WorkspaceStorageStatus {
@@ -1788,6 +1807,8 @@ export interface WorkspaceStorageStatus {
   activeLaneId?: string;
   /** Every other configured lane: saved-but-never-used configs and demoted former actives. */
   lanes: WorkspaceStorageLane[];
+  /** Health of the active lane. Defaults to healthy when an older API omits it. */
+  health: WorkspaceStorageHealth;
 }
 
 function toWorkspaceStorageLane(value: unknown): WorkspaceStorageLane | null {
@@ -1796,7 +1817,10 @@ function toWorkspaceStorageLane(value: unknown): WorkspaceStorageLane | null {
   if (typeof v.laneId !== "string" || (v.role !== "standby" && v.role !== "fallback")) return null;
   if (v.mode !== "shared" && v.mode !== "byo") return null;
   if (typeof v.bucket !== "string") return null;
+  // Same parser (and same fail-healthy rules) as the active lane's block.
+  const health = toWorkspaceStorageHealth(v.health);
   return {
+    ...(health.ok ? {} : { health }),
     laneId: v.laneId,
     role: v.role,
     mode: v.mode,
@@ -1806,6 +1830,33 @@ function toWorkspaceStorageLane(value: unknown): WorkspaceStorageLane | null {
     lastActiveAt: typeof v.lastActiveAt === "string" ? v.lastActiveAt : undefined,
     accountIdMasked: typeof v.accountIdMasked === "string" ? v.accountIdMasked : undefined,
     accessKeyIdLast4: typeof v.accessKeyIdLast4 === "string" ? v.accessKeyIdLast4 : undefined,
+    unhealthyAt: typeof v.unhealthyAt === "string" ? v.unhealthyAt : undefined,
+  };
+}
+
+/**
+ * Fails *healthy* on anything unrecognized: a missing/garbled `health` block
+ * (an older API, a truncated body) must not paint a danger badge and a
+ * workspace-wide banner from nothing. Only an explicit `ok: false` is treated
+ * as broken, and only with a `message` the server actually wrote — the UI
+ * never invents failure copy.
+ *
+ * "Actually wrote" means non-blank after trimming: an empty or whitespace-only
+ * message would render a danger badge and a banner with nothing in them, which
+ * is worse than staying quiet. The trimmed value is what callers get, so no
+ * downstream surface has to re-trim before display.
+ */
+function toWorkspaceStorageHealth(value: unknown): WorkspaceStorageHealth {
+  if (!value || typeof value !== "object") return { ok: true };
+  const v = value as Record<string, unknown>;
+  if (v.ok !== false || typeof v.message !== "string") return { ok: true };
+  const message = v.message.trim();
+  if (!message) return { ok: true };
+  return {
+    ok: false,
+    code: typeof v.code === "string" ? v.code : undefined,
+    message,
+    since: typeof v.since === "string" ? v.since : undefined,
   };
 }
 
@@ -1825,6 +1876,7 @@ function toWorkspaceStorageStatus(body: unknown): WorkspaceStorageStatus | null 
     jurisdiction: typeof b.jurisdiction === "string" ? b.jurisdiction : undefined,
     activeLaneId: typeof b.activeLaneId === "string" ? b.activeLaneId : undefined,
     lanes: Array.isArray(b.lanes) ? b.lanes.flatMap((l) => toWorkspaceStorageLane(l) ?? []) : [],
+    health: toWorkspaceStorageHealth(b.health),
   };
 }
 

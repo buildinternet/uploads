@@ -883,6 +883,7 @@ describe("workspace storage admin panel (issue #583 Task 3.3)", () => {
       verifiedAt: undefined,
       configuredBy: null,
       lanes: [],
+      health: { ok: true },
     });
   });
 

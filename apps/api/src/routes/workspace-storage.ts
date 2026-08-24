@@ -18,6 +18,7 @@ import {
   type StorageVerifyResult,
 } from "../storage-verify";
 import { storageBudgetApplies } from "../budget";
+import { healthFromFields, storageHealth, type StorageHealth } from "../storage-health";
 import { reconcileWorkspaceUsage } from "../reconcile";
 import { isSharedLane, storageConfig } from "../storage";
 import type { StorageLane, WorkspaceRecord } from "../workspace";
@@ -53,6 +54,16 @@ export interface StorageLaneStatus {
   lastActiveAt?: string;
   accountIdMasked?: string;
   accessKeyIdLast4?: string;
+  /** Set when this lane was demoted while flagged unhealthy (issue #826). */
+  unhealthyAt?: string;
+  /**
+   * The same normalized health the active lane reports, for a lane that was
+   * demoted while flagged (issue #826). Carries the validated code and its
+   * sentence, so a client can say *what* broke on a fallback lane rather than
+   * only that something did. Absent on a healthy lane — no `{ ok: true }`
+   * noise on every entry.
+   */
+  health?: StorageHealth;
 }
 
 export interface StorageStatusResponse {
@@ -69,11 +80,20 @@ export interface StorageStatusResponse {
   activeLaneId?: string;
   /** Every other configured lane: saved-but-never-used configs and demoted former actives. */
   lanes: StorageLaneStatus[];
+  /**
+   * Whether the *active* lane's storage is currently working (issue #826).
+   * Always `{ ok: true }` in shared mode — a platform-binding failure is not
+   * a workspace-level state and never asks a workspace to fix anything.
+   */
+  health: StorageHealth;
 }
 
 /** Masked projection of one `StorageLane` for `storageStatusResponse` — never a credential value. */
 function laneStatus(lane: StorageLane): StorageLaneStatus {
+  const health = healthFromFields(lane.unhealthyAt, lane.unhealthyCode);
   return {
+    // Only present on an actually-flagged lane; see `StorageLaneStatus.health`.
+    ...(health.ok ? {} : { health }),
     laneId: lane.id,
     role: lane.lastActiveAt ? "fallback" : "standby",
     mode: isSharedLane(lane) ? "shared" : "byo",
@@ -83,6 +103,7 @@ function laneStatus(lane: StorageLane): StorageLaneStatus {
     lastActiveAt: lane.lastActiveAt,
     accountIdMasked: maskTrailing(lane.accountId),
     accessKeyIdLast4: lane.storageAccessKeyIdLast4,
+    unhealthyAt: lane.unhealthyAt,
   };
 }
 
@@ -116,6 +137,7 @@ export function storageStatusResponse(
     jurisdiction: byo ? record.jurisdiction : undefined,
     activeLaneId: record.storageLaneId,
     lanes: (record.storageLanes ?? []).map(laneStatus),
+    health: byo ? storageHealth(record) : { ok: true },
   };
 }
 

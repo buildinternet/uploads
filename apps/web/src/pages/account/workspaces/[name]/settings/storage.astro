@@ -160,7 +160,15 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       <div id="storage-byo" hidden>
         <div class="storage-lane-head flex items-center justify-between gap-3">
           <h3 class="storage-lane-heading flex items-center gap-2.5 m-0">
-            Your bucket <span class="ul-badge ul-badge--ok">Active</span>
+            Your bucket
+            <span class="ul-badge ul-badge--ok" id="storage-byo-badge-ok">Active</span>
+            <!-- Unhealthy active lane (#826).
+                 Swapped for the Active badge rather than shown beside it.
+                 The lane IS still the active one.
+                 Two badges would read as two lanes. -->
+            <span class="ul-badge ul-badge--danger" id="storage-byo-badge-error" hidden
+              >Not working</span
+            >
           </h3>
           <div class="storage-menu relative flex-none" data-storage-menu>
             <button
@@ -192,7 +200,32 @@ if (!workspace) return Astro.redirect("/account/workspaces");
             </div>
           </div>
         </div>
-        <p class="settings-note muted">New uploads go to this bucket.</p>
+        <p class="settings-note muted" id="storage-byo-note">New uploads go to this bucket.</p>
+
+        <!-- Unhealthy-lane panel (#826).
+             One plain-language sentence about what stopped working.
+             The fix is the primary button.
+             The prompted, never automatic, fallback sits beside it.
+             This replaces the "New uploads go to this bucket" note.
+             That note is not true while uploads are failing. -->
+        <div
+          class="storage-unhealthy max-w-[32rem] mt-1 mb-3 flex flex-col gap-2.5 rounded-md border border-destructive/40 bg-destructive/5 px-4 py-3"
+          id="storage-unhealthy"
+          role="alert"
+          hidden
+        >
+          <p class="m-0 text-[13px] font-medium text-destructive" id="storage-unhealthy-msg"></p>
+          <p class="m-0 text-xs text-muted-foreground" id="storage-unhealthy-detail"></p>
+          <div class="storage-actions flex flex-wrap items-center gap-3">
+            <button type="button" class="ul-btn ul-btn--solid" id="storage-unhealthy-rotate-btn"
+              >Rotate credentials</button
+            >
+            <button type="button" class="ul-btn" id="storage-unhealthy-fallback-btn" hidden
+              >Switch to hosted storage until this is fixed</button
+            >
+          </div>
+        </div>
+
         <dl class="kv" id="storage-byo-details"></dl>
         <div
           class="storage-confirm max-w-[32rem] mt-3 flex flex-col gap-2.5 rounded-md border border-border px-4 py-3"
@@ -443,6 +476,20 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         page,
       );
       const storageActionStatus = requireElement<HTMLElement>("#storage-action-status", page);
+      const storageByoNote = requireElement<HTMLElement>("#storage-byo-note", page);
+      const storageByoBadgeOk = requireElement<HTMLElement>("#storage-byo-badge-ok", page);
+      const storageByoBadgeError = requireElement<HTMLElement>("#storage-byo-badge-error", page);
+      const storageUnhealthy = requireElement<HTMLElement>("#storage-unhealthy", page);
+      const storageUnhealthyMsg = requireElement<HTMLElement>("#storage-unhealthy-msg", page);
+      const storageUnhealthyDetail = requireElement<HTMLElement>("#storage-unhealthy-detail", page);
+      const storageUnhealthyRotateBtn = requireElement<HTMLButtonElement>(
+        "#storage-unhealthy-rotate-btn",
+        page,
+      );
+      const storageUnhealthyFallbackBtn = requireElement<HTMLButtonElement>(
+        "#storage-unhealthy-fallback-btn",
+        page,
+      );
       const storageConnect = requireElement<HTMLElement>("#storage-connect", page);
       const storageConnectHeading = requireElement<HTMLElement>("#storage-connect-heading", page);
       const storageSetupHelp = requireElement<HTMLDetailsElement>("#storage-setup-help", page);
@@ -583,6 +630,35 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         storageSavedDetails.innerHTML = rows
           .map(([label, value]) => `<dt>${escapeHtml(label)}</dt><dd>${value}</dd>`)
           .join("");
+      }
+
+      /**
+       * Unhealthy-lane state for the active BYO card (#826).
+       * The server owns the failure sentence (`health.message`).
+       * This picks the badge and decides whether to offer the fallback.
+       *
+       * The fallback button needs a recorded shared lane to activate.
+       * Without one there is no lane id to point it at.
+       * The ⋯ menu's "Switch back to hosted storage…" is then the way out.
+       * That item falls through to the legacy detach path.
+       */
+      function renderHealth(status: WorkspaceStorageStatus): void {
+        const unhealthy = status.mode === "byo" && !status.health.ok;
+        storageByoBadgeOk.hidden = unhealthy;
+        storageByoBadgeError.hidden = !unhealthy;
+        // "New uploads go to this bucket" is not true while uploads are failing.
+        storageByoNote.hidden = unhealthy;
+        storageUnhealthy.hidden = !unhealthy;
+        if (!unhealthy) return;
+        storageUnhealthyMsg.textContent = status.health.message ?? "";
+        const since = status.health.since
+          ? ` Uploads started failing ${formatTimestamp(status.health.since)}.`
+          : "";
+        storageUnhealthyDetail.textContent =
+          `New uploads to this bucket are failing.${since} Rotating the access keys ` +
+          `usually fixes it. Nothing already stored on your bucket is touched, and ` +
+          `existing files keep resolving.`;
+        storageUnhealthyFallbackBtn.hidden = sharedFallbackLaneId === null;
       }
 
       /** "Existing files stay where they are and keep working. New uploads go to <target>." — the switch confirmation copy from every direction (spec verbatim). */
@@ -967,6 +1043,28 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         statusEl.dataset.state = "error";
       }
 
+      // The primary fix on the unhealthy panel.
+      // Opens the same rotate form the ⋯ menu does.
+      // Prefilled from the status already on screen, with no refetch.
+      // That status is current: the panel only exists because it was applied.
+      storageUnhealthyRotateBtn.addEventListener("click", () => {
+        if (!lastStatus) return;
+        openForm("rotate", lastStatus);
+      });
+
+      // Prompted fallback (#826) — never a silent reroute.
+      // Same activate primitive and confirmation copy as every other switch.
+      // So "existing files keep resolving" is stated before anything moves.
+      storageUnhealthyFallbackBtn.addEventListener("click", () => {
+        if (!sharedFallbackLaneId) return;
+        void activateLane(
+          sharedFallbackLaneId,
+          "hosted storage",
+          storageActionStatus,
+          storageByoConfirm,
+        );
+      });
+
       storageUseBtn.addEventListener("click", () => {
         if (!savedLaneId) return;
         void activateLane(
@@ -1096,6 +1194,9 @@ if (!workspace) return Astro.redirect("/account/workspaces");
             storageSaved.hidden = true;
           }
         }
+
+        // Last: it reads `sharedFallbackLaneId`, resolved above.
+        renderHealth(status);
       }
 
       async function loadStorage(): Promise<void> {
