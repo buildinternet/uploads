@@ -1772,6 +1772,19 @@ export interface WorkspaceStorageLane {
   lastActiveAt?: string;
   accountIdMasked?: string;
   accessKeyIdLast4?: string;
+  /** Set when this lane was demoted while its credentials were failing (issue #826). */
+  unhealthyAt?: string;
+}
+
+/** Whether the *active* lane's storage is currently working (issue #826). Always healthy in shared mode. */
+export interface WorkspaceStorageHealth {
+  ok: boolean;
+  /** `"auth" | "bucket_missing" | "unreachable"` — widened, since the sentence to show ships in `message`. */
+  code?: string;
+  /** Plain-language failure sentence, server-authored. Present only when `ok` is false. */
+  message?: string;
+  /** When the lane was *first* flagged — "failing since", not "last failed". */
+  since?: string;
 }
 
 export interface WorkspaceStorageStatus {
@@ -1788,6 +1801,8 @@ export interface WorkspaceStorageStatus {
   activeLaneId?: string;
   /** Every other configured lane: saved-but-never-used configs and demoted former actives. */
   lanes: WorkspaceStorageLane[];
+  /** Health of the active lane. Defaults to healthy when an older API omits it. */
+  health: WorkspaceStorageHealth;
 }
 
 function toWorkspaceStorageLane(value: unknown): WorkspaceStorageLane | null {
@@ -1806,6 +1821,26 @@ function toWorkspaceStorageLane(value: unknown): WorkspaceStorageLane | null {
     lastActiveAt: typeof v.lastActiveAt === "string" ? v.lastActiveAt : undefined,
     accountIdMasked: typeof v.accountIdMasked === "string" ? v.accountIdMasked : undefined,
     accessKeyIdLast4: typeof v.accessKeyIdLast4 === "string" ? v.accessKeyIdLast4 : undefined,
+    unhealthyAt: typeof v.unhealthyAt === "string" ? v.unhealthyAt : undefined,
+  };
+}
+
+/**
+ * Fails *healthy* on anything unrecognized: a missing/garbled `health` block
+ * (an older API, a truncated body) must not paint a danger badge and a
+ * workspace-wide banner from nothing. Only an explicit `ok: false` is treated
+ * as broken, and only with a `message` the server actually wrote — the UI
+ * never invents failure copy.
+ */
+function toWorkspaceStorageHealth(value: unknown): WorkspaceStorageHealth {
+  if (!value || typeof value !== "object") return { ok: true };
+  const v = value as Record<string, unknown>;
+  if (v.ok !== false || typeof v.message !== "string") return { ok: true };
+  return {
+    ok: false,
+    code: typeof v.code === "string" ? v.code : undefined,
+    message: v.message,
+    since: typeof v.since === "string" ? v.since : undefined,
   };
 }
 
@@ -1825,6 +1860,7 @@ function toWorkspaceStorageStatus(body: unknown): WorkspaceStorageStatus | null 
     jurisdiction: typeof b.jurisdiction === "string" ? b.jurisdiction : undefined,
     activeLaneId: typeof b.activeLaneId === "string" ? b.activeLaneId : undefined,
     lanes: Array.isArray(b.lanes) ? b.lanes.flatMap((l) => toWorkspaceStorageLane(l) ?? []) : [],
+    health: toWorkspaceStorageHealth(b.health),
   };
 }
 

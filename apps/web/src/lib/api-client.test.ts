@@ -1397,7 +1397,7 @@ describe("getWorkspaceStorageStatus", () => {
 
     await expect(getWorkspaceStorageStatus("http://127.0.0.1:8787", "acme")).resolves.toEqual({
       kind: "ok",
-      status: { mode: "shared", byoBucketEnabled: true, lanes: [] },
+      status: { mode: "shared", byoBucketEnabled: true, lanes: [], health: { ok: true } },
     });
     expect(fetchMock).toHaveBeenCalledOnce();
   });
@@ -1455,8 +1455,47 @@ describe("getWorkspaceStorageStatus", () => {
             lastActiveAt: "2026-06-01T00:00:00.000Z",
           },
         ],
+        health: { ok: true },
       },
     });
+  });
+
+  it("parses an unhealthy active lane, and fails healthy on a garbled health block", async () => {
+    const body = {
+      mode: "byo",
+      byoBucketEnabled: true,
+      bucket: "my-bucket",
+      lanes: [],
+      health: {
+        ok: false,
+        code: "auth",
+        message: "We can no longer sign in to your bucket",
+        since: "2026-08-01T00:00:00.000Z",
+      },
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json(body)),
+    );
+    const unhealthy = await getWorkspaceStorageStatus("http://127.0.0.1:8787", "acme");
+    expect(unhealthy).toMatchObject({ kind: "ok", status: { health: body.health } });
+
+    // No `message` — the UI would have nothing true to say, so a partial
+    // payload must not paint a danger badge and a workspace-wide banner.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ ...body, health: { ok: false } })),
+    );
+    const partial = await getWorkspaceStorageStatus("http://127.0.0.1:8787", "acme");
+    expect(partial).toMatchObject({ kind: "ok", status: { health: { ok: true } } });
+
+    // An older API with no `health` block at all.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ mode: "byo", byoBucketEnabled: true, lanes: [] })),
+    );
+    const legacy = await getWorkspaceStorageStatus("http://127.0.0.1:8787", "acme");
+    expect(legacy).toMatchObject({ kind: "ok", status: { health: { ok: true } } });
   });
 
   it("reports 403 as forbidden — non-admin members get no panel at all", async () => {
@@ -1635,6 +1674,7 @@ describe("putWorkspaceStorage", () => {
         bucket: "my-bucket",
         accessKeyIdLast4: "1234",
         lanes: [],
+        health: { ok: true },
       },
     });
   });
@@ -1708,6 +1748,7 @@ describe("activateWorkspaceStorage", () => {
         bucket: "my-bucket",
         activeLaneId: "lane_abc12345",
         lanes: [],
+        health: { ok: true },
       },
     });
   });
@@ -1764,7 +1805,7 @@ describe("deleteWorkspaceStorage", () => {
 
     await expect(deleteWorkspaceStorage("http://127.0.0.1:8787", "acme")).resolves.toEqual({
       kind: "ok",
-      status: { mode: "shared", byoBucketEnabled: true, lanes: [] },
+      status: { mode: "shared", byoBucketEnabled: true, lanes: [], health: { ok: true } },
     });
   });
 

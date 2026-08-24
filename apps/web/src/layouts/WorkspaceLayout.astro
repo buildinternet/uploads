@@ -59,6 +59,7 @@ const {
 const hasPreview = Astro.slots.has("preview");
 
 const invitePath = `/account/workspaces/${encodeURIComponent(workspace)}/people`;
+const storagePath = `/account/workspaces/${encodeURIComponent(workspace)}/settings/storage`;
 ---
 
 <AccountLayout
@@ -67,6 +68,27 @@ const invitePath = `/account/workspaces/${encodeURIComponent(workspace)}/people`
   title={workspace}
   railWide={wideRail && hasPreview}
 >
+  {
+    /* Broken-BYO-bucket notice (#826) — server-rendered hidden, revealed by
+      `initStorageHealthBanner` only for admins of a workspace whose active
+      lane is actually failing. Sits above the tab content because it is about
+      the workspace, not about this tab. */
+  }
+  <div class="ws-storage-alert" data-storage-health-banner role="alert" hidden>
+    <div class="ws-storage-alert__body">
+      <p class="ws-storage-alert__msg" data-storage-health-message></p>
+      <a class="ws-storage-alert__link" data-storage-health-link href={storagePath}
+        >Fix storage settings</a
+      >
+    </div>
+    <button
+      type="button"
+      class="ws-storage-alert__dismiss"
+      data-storage-health-dismiss
+      aria-label="Dismiss this notice">×</button
+    >
+  </div>
+
   <slot />
 
   <Fragment slot="rail">
@@ -151,6 +173,62 @@ const invitePath = `/account/workspaces/${encodeURIComponent(workspace)}/people`
 </AccountLayout>
 
 <style>
+  /* Broken-storage notice (#826). Danger-tinted panel, one line of copy and
+     one link — deliberately not a `ul-callout`, which is a page-body element;
+     this sits in the shell above whatever the tab renders. */
+  .ws-storage-alert {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 16px;
+    padding: 11px 14px;
+    border: 1px solid color-mix(in srgb, var(--red) 45%, transparent);
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--red) 8%, transparent);
+  }
+  .ws-storage-alert[hidden] {
+    display: none;
+  }
+  .ws-storage-alert__body {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 10px;
+    min-width: 0;
+  }
+  .ws-storage-alert__msg {
+    margin: 0;
+    color: var(--fg);
+    font-size: var(--text-meta);
+    line-height: 1.5;
+    text-wrap: pretty;
+  }
+  .ws-storage-alert__link {
+    color: var(--red);
+    font-size: var(--text-meta);
+    font-weight: var(--weight-semibold);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    white-space: nowrap;
+  }
+  .ws-storage-alert__dismiss {
+    flex: none;
+    padding: 0 4px;
+    background: none;
+    border: 0;
+    color: var(--muted);
+    font: inherit;
+    font-size: 16px;
+    line-height: 1.2;
+    cursor: pointer;
+  }
+  .ws-storage-alert__dismiss:hover,
+  .ws-storage-alert__dismiss:focus-visible {
+    color: var(--fg);
+    outline: none;
+  }
+
   /* Section *bodies* are filled via innerHTML by workspace-rail.ts, so
      injected classes need :global() — Astro scope only lands on elements
      this component renders. Shared section chrome (`.ws-rail`, head/label/
@@ -307,6 +385,7 @@ const invitePath = `/account/workspaces/${encodeURIComponent(workspace)}/people`
 <script>
   import { onAstroPageLoad } from "../lib/account-shell";
   import { resolveActiveWorkspace } from "../lib/workspace-browse-url";
+  import { initStorageHealthBanner } from "../lib/storage-health-banner";
   import { initWorkspaceRail } from "../lib/workspace-rail";
 
   function bootWorkspaceRail(): void {
@@ -332,6 +411,9 @@ const invitePath = `/account/workspaces/${encodeURIComponent(workspace)}/people`
     // `initWorkspaceRail` queries `document` for rail hooks — `root`
     // here is only this function's own re-entrancy guard.
     initWorkspaceRail(apiOrigin, workspace);
+    // Same boot, same re-entrancy guard: one health check per workspace-tab
+    // page load, painting the shell banner only when it has something to say.
+    initStorageHealthBanner(apiOrigin, workspace);
   }
 
   // Eager boot for the initial load, then re-boot after every ClientRouter

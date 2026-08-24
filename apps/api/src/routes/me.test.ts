@@ -2743,6 +2743,7 @@ describe("workspace storage routes (self-serve BYO bucket, issue #583 Task 1.1)"
         byoBucketEnabled: false,
         bucket: "uploads-default",
         lanes: [],
+        health: { ok: true },
       });
     });
 
@@ -2770,6 +2771,7 @@ describe("workspace storage routes (self-serve BYO bucket, issue #583 Task 1.1)"
         configuredAt: "2026-01-01T00:00:00.000Z",
         verifiedAt: "2026-01-01T00:00:00.000Z",
         lanes: [],
+        health: { ok: true },
       });
     });
   });
