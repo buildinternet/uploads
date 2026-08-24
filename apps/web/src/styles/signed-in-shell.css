@@ -175,12 +175,28 @@ nav.shell-side [data-slot="sidebar-gap"] {
    Unlayered on purpose — the global `a` rule above is unlayered and would
    otherwise beat the island's Tailwind classes. `[data-slot="sidebar"]`
    (rather than nav.shell-side) also covers the mobile Sheet, which portals
-   to <body>. */
+   to <body>. The workspace switcher's `[data-slot="dropdown-menu-content"]`
+   also portals to <body>, so it's listed here to match the sidebar rows
+   rather than pick up the global underlined-link treatment. */
 [data-slot="sidebar"] a,
 [data-slot="sidebar"] a:hover,
-[data-slot="sidebar"] a:focus-visible {
+[data-slot="sidebar"] a:focus-visible,
+[data-slot="dropdown-menu-content"] a,
+[data-slot="dropdown-menu-content"] a:hover,
+[data-slot="dropdown-menu-content"] a:focus-visible {
   color: inherit;
   text-decoration: none;
+}
+/* Inactive nav rows read as secondary (body tone), not high-emphasis white.
+   Active/hover promote back toward --fg; the accent [data-active] rule below
+   is more source-order-recent, so it still wins for the current page. */
+[data-slot="sidebar"] [data-slot="sidebar-menu-button"],
+[data-slot="sidebar"] [data-slot="sidebar-menu-sub-button"] {
+  color: var(--body);
+}
+[data-slot="sidebar"] [data-slot="sidebar-menu-button"]:hover,
+[data-slot="sidebar"] [data-slot="sidebar-menu-sub-button"]:hover {
+  color: var(--fg);
 }
 /* Group headings ("Workspace", "Personal") echo the right rail's small-caps
    labels (.ws-rail__label in account-shell.css). */
