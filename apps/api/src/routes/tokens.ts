@@ -24,7 +24,7 @@ import {
 import { Hono } from "hono";
 import {
   buildTokenRecord,
-  createToken,
+  prepareTokenInsert,
   isFileScope,
   isOperatorScope,
   isWorkspaceScope,
@@ -250,33 +250,8 @@ export const tokens = new Hono<SessionVars>()
 
     const expiresAt = ttlSeconds === null ? undefined : new Date(Date.now() + ttlSeconds * 1000);
 
-    // Retry-safe minting (#829): with an Idempotency-Key, claim the key, mint,
-    // and store the *encrypted* 201 body in one batch so an identical retry
-    // replays the original plaintext token instead of minting a second one or
-    // losing the only copy. Runs AFTER every gate above, so a revoked or
-    // downgraded caller is rejected before any replay. Absent the header, the
-    // original one-shot mint is preserved exactly.
-    const idempotencyKey = c.req.header("Idempotency-Key");
-    if (idempotencyKey === undefined) {
-      const { token, record: tokenRecord } = await createToken(dbFor(c.env), {
-        workspace: grant.workspace,
-        label,
-        scopes,
-        expiresAt,
-        mintedByUserId: user.id,
-      });
-      return c.json(
-        {
-          token,
-          workspace: grant.workspace,
-          scopes,
-          label: tokenRecord.label,
-          expiresAt: tokenRecord.expires_at,
-        },
-        201,
-      );
-    }
-
+    // Build the row and its one-time response once; the two mint paths differ
+    // only in how the row is persisted.
     const { token, record: tokenRecord } = await buildTokenRecord({
       workspace: grant.workspace,
       label,
@@ -291,6 +266,20 @@ export const tokens = new Hono<SessionVars>()
       label: tokenRecord.label,
       expiresAt: tokenRecord.expires_at,
     };
+
+    // Without an Idempotency-Key, the original one-shot mint is preserved
+    // exactly: a single unconditional insert.
+    const idempotencyKey = c.req.header("Idempotency-Key");
+    if (idempotencyKey === undefined) {
+      await prepareTokenInsert(dbFor(c.env), tokenRecord).run();
+      return c.json(response, 201);
+    }
+
+    // Retry-safe minting (#829): claim the key, insert the row, and store the
+    // *encrypted* 201 body in one batch so an identical retry replays the
+    // original plaintext token instead of minting a second one or losing the
+    // only copy. Runs AFTER every gate above, so a revoked or downgraded caller
+    // is rejected before any replay.
     let result;
     try {
       result = await createTokenIdempotently(primaryDbFor(c.env), {
