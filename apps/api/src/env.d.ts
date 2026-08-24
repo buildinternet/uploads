@@ -101,4 +101,10 @@ interface Env {
   SLOW_OP_THRESHOLD_MS?: string;
   /** Kill switch for `Server-Timing` header emission only — slow-op logging is unaffected. */
   SERVER_TIMING_DISABLED?: string;
+  /**
+   * Stall bound for data-plane D1 reads (issue #815) — file listings,
+   * by-path/screenshots grouping, search, usage summaries, galleries. Unset
+   * defaults to 8000ms; `"0"` disables the bound. See `data-read-bounds.ts`.
+   */
+  DATA_READ_TIMEOUT_MS?: string;
 }

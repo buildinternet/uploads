@@ -7,6 +7,7 @@ import { objectPublicUrls, storage, storageConfig } from "../storage";
 import { objectVisibility } from "../visibility";
 import { loadWorkspaceRecord, type WorkspaceVars } from "../workspace";
 import { dbFor } from "../db-session";
+import { boundedDataRead } from "../data-read-bounds";
 
 /** Runs `action`, mapping any thrown error to the 503 the gallery storage routes commit to. */
 async function withGalleryStorageErrors<T>(action: () => Promise<T>): Promise<T> {
@@ -34,7 +35,11 @@ export const publicGalleries = new Hono<WorkspaceVars>()
       throw new NotFoundError("Gallery not found.", { code: "gallery_not_found" });
     }
 
-    const items = await listGalleryItems(dbFor(c.env), record.workspace, record.id);
+    const items = await boundedDataRead(
+      c,
+      () => listGalleryItems(dbFor(c.env), record.workspace, record.id),
+      { name: "d1_gallery_items" },
+    );
     const item = items.find((entry) => entry.id === c.req.param("item"));
     if (!item) {
       throw new NotFoundError("Gallery item not found.", { code: "gallery_item_not_found" });
@@ -75,8 +80,12 @@ export const publicGalleries = new Hono<WorkspaceVars>()
       throw new NotFoundError("Gallery not found.", { code: "gallery_not_found" });
     }
     const [items, references] = await Promise.all([
-      listGalleryItems(dbFor(c.env), record.workspace, record.id),
-      listExternalReferences(dbFor(c.env), record.workspace, record.id),
+      boundedDataRead(c, () => listGalleryItems(dbFor(c.env), record.workspace, record.id), {
+        name: "d1_gallery_items",
+      }),
+      boundedDataRead(c, () => listExternalReferences(dbFor(c.env), record.workspace, record.id), {
+        name: "d1_gallery_external_references",
+      }),
     ]);
     return c.json(await hydratePublicGallery(c.env, workspace, record, items, references));
   });

@@ -17,6 +17,7 @@ import { purgeExpiredObjects } from "../retention";
 import { getWorkspaceUsage } from "../usage";
 import { requireScope } from "../workspace";
 import { dbFor } from "../db-session";
+import { boundedDataRead } from "../data-read-bounds";
 
 function scoped(scope: Parameters<typeof requireScope>[0]): MiddlewareHandler<DualAuthVars> {
   return requireScope(scope) as unknown as MiddlewareHandler<DualAuthVars>;
@@ -42,7 +43,11 @@ const requireToken: MiddlewareHandler<DualAuthVars> = async (c, next) => {
 
 export const workspaceUsage = new Hono<DualAuthVars>()
   .get("/:workspace/usage", dualWorkspaceAuth(), scoped("files:read"), async (c) => {
-    const snapshot = await getWorkspaceUsage(dbFor(c.env), c.get("workspaceName"));
+    const snapshot = await boundedDataRead(
+      c,
+      () => getWorkspaceUsage(dbFor(c.env), c.get("workspaceName")),
+      { name: "d1_workspace_usage" },
+    );
     const workspace = c.get("workspace");
     // `scopes` reflects the presented credential — for a session caller this
     // is the `FILE_SCOPES` set `dualWorkspaceAuth` grants (matching the

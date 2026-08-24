@@ -29,6 +29,7 @@
  */
 import { ForbiddenError, NotFoundError, ValidationError } from "@uploads/errors";
 import { dbFor } from "../db-session";
+import { boundedDataRead } from "../data-read-bounds";
 import { createFilesRouter, signedDownloadUrl } from "@uploads/storage";
 import { Hono, type Context, type Handler, type MiddlewareHandler } from "hono";
 import {
@@ -118,10 +119,15 @@ export const workspaceFiles = new Hono<DualAuthVars>()
       prefixes,
     } = await listObjects(c.env, record, { prefix, delimiter, limit, cursor });
 
-    const metaByKey = await getMetadataForKeys(
-      dbFor(c.env),
-      name,
-      items.map((item) => item.key),
+    const metaByKey = await boundedDataRead(
+      c,
+      () =>
+        getMetadataForKeys(
+          dbFor(c.env),
+          name,
+          items.map((item) => item.key),
+        ),
+      { name: "d1_files_meta" },
     );
     const files = items.map((item) => ({ ...item, metadata: metaByKey.get(item.key) }));
 
@@ -157,19 +163,29 @@ export const workspaceFiles = new Hono<DualAuthVars>()
     // key and once from the promoted `pull/<n>/` copy. Opt-in: a bare search
     // (and the `find_files` tool) still returns every matching object.
     const collapsePromotedShadows = c.req.query("collapse") === "promoted";
-    const { matches, truncated } = await searchFilesByNameAndMeta(c.env, record, name, {
-      filters: hasMeta ? filters : undefined,
-      nameTerm,
-      prefix: query.prefix,
-      pageSize,
-      collapsePromotedShadows,
-    });
+    const { matches, truncated } = await boundedDataRead(
+      c,
+      () =>
+        searchFilesByNameAndMeta(c.env, record, name, {
+          filters: hasMeta ? filters : undefined,
+          nameTerm,
+          prefix: query.prefix,
+          pageSize,
+          collapsePromotedShadows,
+        }),
+      { name: "d1_files_search" },
+    );
     // Upload time per match so the screenshots drill-in pop-over can show it
     // (the grouped by-path route surfaces the same via `updatedAt`).
-    const updatedByKey = await getObjectUpdatedAt(
-      dbFor(c.env),
-      name,
-      matches.map((m) => m.key),
+    const updatedByKey = await boundedDataRead(
+      c,
+      () =>
+        getObjectUpdatedAt(
+          dbFor(c.env),
+          name,
+          matches.map((m) => m.key),
+        ),
+      { name: "d1_files_updated_at" },
     );
 
     return c.json({
@@ -191,7 +207,15 @@ export const workspaceFiles = new Hono<DualAuthVars>()
   // Facet discovery for the files filter bar: which metadata keys this
   // workspace actually contains, and (with `?key=`) that key's values.
   .get("/:workspace/files/facets", dualWorkspaceAuth(), scoped("files:read"), async (c) => {
-    return c.json(await listFacets(dbFor(c.env), c.get("workspaceName"), c.req.query("key")));
+    return c.json(
+      await boundedDataRead(
+        c,
+        () => listFacets(dbFor(c.env), c.get("workspaceName"), c.req.query("key")),
+        {
+          name: "d1_files_facets",
+        },
+      ),
+    );
   })
 
   // Recent uploads grouped by their `path` metadata value — the screenshots
@@ -214,7 +238,9 @@ export const workspaceFiles = new Hono<DualAuthVars>()
     // semantics untouched.
     const mergedOnly = c.req.query("merged") === "1";
     const { groups, catalog, projects, latest, truncated, catalogTruncated } =
-      await groupObjectsByPath(dbFor(c.env), name, { mergedOnly });
+      await boundedDataRead(c, () => groupObjectsByPath(dbFor(c.env), name, { mergedOnly }), {
+        name: "d1_screenshots_by_path",
+      });
     const shotKeys = [
       ...groups.flatMap((group) => group.recent),
       ...latest.map((item) => item.key),
@@ -222,10 +248,19 @@ export const workspaceFiles = new Hono<DualAuthVars>()
     // `gh.ref` lets the pop-over resolve live PR/issue status via /github/titles;
     // `updatedAt` gives it the shot's upload time (the `latest` feed already
     // carries `uploadedAt`, this brings the same to the grouped `recent` strips).
-    const metaByKey = await getMetadataForKeys(dbFor(c.env), name, shotKeys, {
-      metaKeys: ["state", "gh.kind", "gh.number", "gh.ref"],
-    });
-    const updatedByKey = await getObjectUpdatedAt(dbFor(c.env), name, shotKeys);
+    const metaByKey = await boundedDataRead(
+      c,
+      () =>
+        getMetadataForKeys(dbFor(c.env), name, shotKeys, {
+          metaKeys: ["state", "gh.kind", "gh.number", "gh.ref"],
+        }),
+      { name: "d1_files_meta" },
+    );
+    const updatedByKey = await boundedDataRead(
+      c,
+      () => getObjectUpdatedAt(dbFor(c.env), name, shotKeys),
+      { name: "d1_files_updated_at" },
+    );
     const cfg = await storageConfig(c.env, record);
     const shotItem = (key: string) => {
       const urls = objectPublicUrls(c.env, cfg, key);
