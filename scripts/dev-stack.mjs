@@ -120,12 +120,16 @@ async function main() {
   );
   if (stopping) return;
 
-  // Portless mode: `portless run` assigns a free port via $PORT, registers the
-  // named HTTPS route (auto-starting the proxy), and prefixes worktree branch
-  // names — wrangler/astro just bind the assigned loopback port. PORTLESS=0
-  // keeps the legacy pinned ports (also the dev GitHub OAuth callback path).
+  // Only WEB gets a portless-named origin (`portless run` assigns a free port
+  // via $PORT, registers the named HTTPS route, and prefixes worktree branch
+  // names). Auth and api are internal upstreams web proxies to, so they run as
+  // plain loopback wrangler processes on the ports encoded in AUTH_ORIGIN /
+  // API_ORIGIN — dynamic in portless mode, the pinned 8788/8787 under
+  // PORTLESS=0 (also the dev GitHub OAuth callback path).
   const portlessWrap = (name, script) =>
     USE_PORTLESS ? ["exec", "portless", "run", "--name", name, "sh", "-c", script] : null;
+  const authPort = new URL(AUTH_ORIGIN).port;
+  const apiPort = new URL(API_ORIGIN).port;
 
   // #731 phase C: BETTER_AUTH_URL is the WEB origin, not this worker's own
   // AUTH_ORIGIN — the auth worker still binds/listens on AUTH_ORIGIN (see
@@ -133,66 +137,51 @@ async function main() {
   // Better Auth is configured as if it's served through web's same-origin
   // proxy, so deriveCookieDomain (auth.ts) emits a host-only cookie locally
   // the same way it will in production.
-  const authVars =
-    `--var LOCAL_STACK:true --var ENVIRONMENT:development ` +
-    `--var BETTER_AUTH_URL:${WEB_ORIGIN} --var WEB_ORIGIN:${WEB_ORIGIN}`;
+  //
   // --persist-to points auth's local D1 simulation at apps/api's own
   // .wrangler/state directory (issue #754 item 1 cutover): both workers now
   // bind the same database_id, and wrangler's local D1 state is otherwise
   // keyed by cwd, so without this each worker would get its own empty local
   // copy instead of sharing the one apps/api's migrate:d1:local populates.
-  const authPersist = "--persist-to ../api/.wrangler/state";
-  start(
-    "auth",
-    portlessWrap(
-      `auth.${PORTLESS_BASE}`,
-      `pnpm --filter @uploads/auth exec wrangler dev --local ${authPersist} --ip 127.0.0.1 --port "$PORT" ${authVars}`,
-    ) ?? [
-      "--filter",
-      "@uploads/auth",
-      "exec",
-      "wrangler",
-      "dev",
-      "--local",
-      "--persist-to",
-      "../api/.wrangler/state",
-      "--ip",
-      "127.0.0.1",
-      "--port",
-      "8788",
-      "--var",
-      "LOCAL_STACK:true",
-      "--var",
-      "ENVIRONMENT:development",
-      "--var",
-      `BETTER_AUTH_URL:${WEB_ORIGIN}`,
-      "--var",
-      `WEB_ORIGIN:${WEB_ORIGIN}`,
-    ],
-  );
+  start("auth", [
+    "--filter",
+    "@uploads/auth",
+    "exec",
+    "wrangler",
+    "dev",
+    "--local",
+    "--persist-to",
+    "../api/.wrangler/state",
+    "--ip",
+    "127.0.0.1",
+    "--port",
+    authPort,
+    "--var",
+    "LOCAL_STACK:true",
+    "--var",
+    "ENVIRONMENT:development",
+    "--var",
+    `BETTER_AUTH_URL:${WEB_ORIGIN}`,
+    "--var",
+    `WEB_ORIGIN:${WEB_ORIGIN}`,
+  ]);
   await waitFor(`${AUTH_ORIGIN}/health`, "auth");
   if (stopping) return;
 
-  start(
-    "api",
-    portlessWrap(
-      `api.${PORTLESS_BASE}`,
-      `pnpm --filter @uploads/api exec wrangler dev --local --ip 127.0.0.1 --port "$PORT" --var WEB_ORIGIN:${WEB_ORIGIN}`,
-    ) ?? [
-      "--filter",
-      "@uploads/api",
-      "exec",
-      "wrangler",
-      "dev",
-      "--local",
-      "--ip",
-      "127.0.0.1",
-      "--port",
-      "8787",
-      "--var",
-      `WEB_ORIGIN:${WEB_ORIGIN}`,
-    ],
-  );
+  start("api", [
+    "--filter",
+    "@uploads/api",
+    "exec",
+    "wrangler",
+    "dev",
+    "--local",
+    "--ip",
+    "127.0.0.1",
+    "--port",
+    apiPort,
+    "--var",
+    `WEB_ORIGIN:${WEB_ORIGIN}`,
+  ]);
   await waitFor(`${API_ORIGIN}/health`, "api");
   if (stopping) return;
 
@@ -248,10 +237,13 @@ async function main() {
 
   await seedFixtures(token);
   if (stopping) return;
-  // Real-TLD mode (e.g. *.local.uploads.sh for OAuth testing — see
-  // docs/local-dev.md) intentionally disables the dev-session bypass the
-  // smoke relies on; report ready without it.
-  const demoAvailable = /(\.localhost|^127\.0\.0\.1)$/.test(new URL(AUTH_ORIGIN).hostname);
+  // Real-TLD mode (e.g. *.uploads.local.buildinternet.dev for OAuth testing —
+  // see docs/local-dev.md) intentionally disables the dev-session bypass the
+  // smoke relies on; report ready without it. The bypass is gated on the WEB
+  // origin's shape (auth's localDemoEnabled → isLocalStackWebOrigin), so key
+  // off WEB_ORIGIN here — AUTH_ORIGIN is now always a bare loopback port and no
+  // longer signals the mode.
+  const demoAvailable = /(\.localhost|^127\.0\.0\.1)$/.test(new URL(WEB_ORIGIN).hostname);
   const smoke = demoAvailable ? await runSmoke() : "skipped (real-TLD mode has no dev-session)";
   if (stopping) return;
   console.log(JSON.stringify({ ready: true, previewUrl: PREVIEW_URL, smoke }));
