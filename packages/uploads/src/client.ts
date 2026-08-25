@@ -482,6 +482,11 @@ export interface UsageResult {
   storageRemainingBytes?: number;
   maxUploadsPerPeriod?: number;
   uploadsRemaining?: number;
+  /** Bytes still on hosted storage (shared-lane residue). */
+  sharedBytes?: number;
+  /** "shared" = BYO bucket active: the storage cap meters only hosted
+   * residue; the customer's own bucket is unmetered. */
+  storageBudgetBasis?: "total" | "shared";
   /** File scopes of the presented token (servers ≥ this field's release). */
   scopes?: Array<TokenScope>;
   /**

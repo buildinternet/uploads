@@ -183,6 +183,21 @@ describe("renderUsageHtml", () => {
     expect(html).toContain("3 objects");
     expect(html).not.toContain("usage-text");
   });
+
+  it("meters hosted residue and adds the unmetered note when a BYO bucket is active", () => {
+    const html = renderUsageHtml({
+      bytes: 900,
+      objects: 3,
+      uploadsInPeriod: 2,
+      maxStorageBytes: 1000,
+      sharedBytes: 250,
+      storageBudgetBasis: "shared",
+    });
+    expect(html).toContain("Hosted storage");
+    expect(html).toContain("250 B of 1 KB");
+    expect(html).toContain('aria-valuenow="25"');
+    expect(html).toContain("unmetered");
+  });
 });
 
 describe("orderOrgsOldestFirst", () => {

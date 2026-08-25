@@ -180,6 +180,8 @@ export function toWorkspaceSnapshot(
           uploadsInPeriod: usage.uploadsInPeriod,
           maxStorageBytes: usage.maxStorageBytes,
           maxUploadsPerPeriod: usage.maxUploadsPerPeriod,
+          sharedBytes: usage.sharedBytes,
+          storageBudgetBasis: usage.storageBudgetBasis,
         }
       : undefined,
   };

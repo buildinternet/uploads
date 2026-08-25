@@ -356,6 +356,7 @@ describe("GET /me/workspaces/:name/usage", () => {
       updatedAt: "2026-07-10T00:00:00.000Z",
       maxStorageBytes: 1000,
       storageRemainingBytes: 500,
+      storageBudgetBasis: "total",
       scopes: ["files:read", "files:write", "files:delete"],
       plan: "free",
     });
@@ -2735,7 +2736,10 @@ describe("workspace storage routes (self-serve BYO bucket, issue #583 Task 1.1)"
 
   describe("GET /me/workspaces/:name/storage", () => {
     it("is readable even when byoBucketEnabled is off, reporting shared mode", async () => {
-      const { env } = storageEnv({ role: "admin", record: SHARED_RECORD });
+      const { env } = storageEnv({
+        role: "admin",
+        record: { ...SHARED_RECORD, byoBucketEnabled: false },
+      });
       const res = await app().request("/me/workspaces/acme/storage", {}, env);
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual({
@@ -2777,8 +2781,11 @@ describe("workspace storage routes (self-serve BYO bucket, issue #583 Task 1.1)"
   });
 
   describe("POST /me/workspaces/:name/storage/verify", () => {
-    it("403s (byo_bucket_disabled) when the workspace flag is off", async () => {
-      const { env } = storageEnv({ role: "owner", record: SHARED_RECORD });
+    it("403s (byo_bucket_disabled) when the workspace flag is explicitly off", async () => {
+      const { env } = storageEnv({
+        role: "owner",
+        record: { ...SHARED_RECORD, byoBucketEnabled: false },
+      });
       const res = await app().request(
         "/me/workspaces/acme/storage/verify",
         {
@@ -2841,8 +2848,11 @@ describe("workspace storage routes (self-serve BYO bucket, issue #583 Task 1.1)"
       secretAccessKey: "s3cr3t",
     };
 
-    it("403s (byo_bucket_disabled) when the workspace flag is off", async () => {
-      const { env } = storageEnv({ role: "owner", record: SHARED_RECORD });
+    it("403s (byo_bucket_disabled) when the workspace flag is explicitly off", async () => {
+      const { env } = storageEnv({
+        role: "owner",
+        record: { ...SHARED_RECORD, byoBucketEnabled: false },
+      });
       const res = await app().request(
         "/me/workspaces/acme/storage/buckets",
         {
@@ -2910,8 +2920,11 @@ describe("workspace storage routes (self-serve BYO bucket, issue #583 Task 1.1)"
   });
 
   describe("PUT /me/workspaces/:name/storage", () => {
-    it("403s (byo_bucket_disabled) when the workspace flag is off", async () => {
-      const { env } = storageEnv({ role: "owner", record: SHARED_RECORD });
+    it("403s (byo_bucket_disabled) when the workspace flag is explicitly off", async () => {
+      const { env } = storageEnv({
+        role: "owner",
+        record: { ...SHARED_RECORD, byoBucketEnabled: false },
+      });
       const res = await app().request(
         "/me/workspaces/acme/storage",
         {
@@ -3117,8 +3130,11 @@ describe("workspace storage routes (self-serve BYO bucket, issue #583 Task 1.1)"
   });
 
   describe("DELETE /me/workspaces/:name/storage", () => {
-    it("403s (byo_bucket_disabled) when the workspace flag is off", async () => {
-      const { env } = storageEnv({ role: "owner", record: SHARED_RECORD });
+    it("403s (byo_bucket_disabled) when the workspace flag is explicitly off", async () => {
+      const { env } = storageEnv({
+        role: "owner",
+        record: { ...SHARED_RECORD, byoBucketEnabled: false },
+      });
       const res = await app().request("/me/workspaces/acme/storage", { method: "DELETE" }, env);
       expect(res.status).toBe(403);
     });

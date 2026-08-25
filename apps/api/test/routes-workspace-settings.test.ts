@@ -408,8 +408,11 @@ describe("storage vertical (self-serve BYO bucket)", () => {
   });
 
   describe("POST /v1/workspaces/:workspace/storage/verify", () => {
-    it("403s (byo_bucket_disabled) when the workspace flag is off", async () => {
-      const { env } = makeEnv({ role: "owner", record: SHARED_RECORD });
+    it("403s (byo_bucket_disabled) when the workspace flag is explicitly off", async () => {
+      const { env } = makeEnv({
+        role: "owner",
+        record: { ...SHARED_RECORD, byoBucketEnabled: false },
+      });
       const res = await app.request(
         "/v1/workspaces/acme/storage/verify",
         {

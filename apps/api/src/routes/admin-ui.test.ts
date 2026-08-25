@@ -874,7 +874,8 @@ describe("workspace storage admin panel (issue #583 Task 3.3)", () => {
     expect(await res.json()).toEqual({
       workspace: "acme",
       mode: "shared",
-      byoBucketEnabled: false,
+      // GA default-on: an absent flag reports the surface as enabled.
+      byoBucketEnabled: true,
       bucket: "uploads-default",
       publicBaseUrl: undefined,
       accountIdMasked: undefined,

@@ -43,7 +43,8 @@ export interface PlanDefinition {
    * Task 1.3). Ships dark: `true` on every plan today, and nothing reads it
    * for enforcement yet — the short-term gate is the per-workspace
    * `byoBucketEnabled` record flag (`apps/api/src/workspace.ts`'s
-   * `byoBucketAllowed`), off by default and operator-set only. This field
+   * `byoBucketAllowed`), on by default since the 2026-08-24 GA with an
+   * operator-set explicit `false` as the kill switch. This field
    * exists so a future billing decision (e.g. Pro-only) is a one-line flip
    * here rather than new plumbing. See `packages/billing/src/byo-bucket.ts`
    * — callers read that predicate, never switch on plan id (precedent:

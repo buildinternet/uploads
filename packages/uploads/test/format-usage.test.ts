@@ -109,6 +109,27 @@ describe("formatUsageHuman", () => {
     expect(lines.some((l) => l.startsWith("note:"))).toBe(false);
   });
 
+  it("meters hosted residue and notes the unmetered bucket when BYO is active", () => {
+    const lines = formatUsageHuman(
+      {
+        workspace: "acme",
+        bytes: 900,
+        objects: 3,
+        uploadsInPeriod: 2,
+        periodStart: "2026-08",
+        updatedAt: "2026-08-24T12:00:00.000Z",
+        maxStorageBytes: 1_000,
+        sharedBytes: 250,
+        storageBudgetBasis: "shared",
+      },
+      { timeZone: "UTC" },
+    );
+    const storageLine = lines.find((l) => l.startsWith("storage:"));
+    expect(storageLine).toContain("250 B / 1 KB");
+    expect(storageLine).toContain("on hosted storage");
+    expect(lines.some((l) => l.startsWith("note:") && l.includes("unmetered"))).toBe(true);
+  });
+
   it("meters only the capped dimensions (partial quotas)", () => {
     const lines = formatUsageHuman(
       {

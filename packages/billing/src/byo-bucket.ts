@@ -6,9 +6,10 @@
  * Ships dark: `PLANS.*.byoBucket` is `true` for every plan today, and
  * nothing calls this predicate for enforcement yet. The live gate is the
  * per-workspace `byoBucketEnabled` record flag
- * (`apps/api/src/workspace.ts`'s `byoBucketAllowed`), off by default and
- * operator-set only. This predicate exists so that when a future billing
- * decision restricts BYO to a paid plan, that's a one-line flip on
+ * (`apps/api/src/workspace.ts`'s `byoBucketAllowed`) — since the 2026-08-24
+ * GA it is on by default, with an operator-set explicit `false` as the
+ * per-workspace kill switch. This predicate exists so that when a future
+ * billing decision restricts BYO to a paid plan, that's a one-line flip on
  * `PLANS` plus wiring this predicate into the gate check — not new
  * plumbing. Callers read this predicate, never switch on plan id
  * (precedent: `marketsMemberCap`).
@@ -25,9 +26,9 @@ export interface ByoBucketPlanRecord {
 
 /**
  * Whether this workspace's plan permits the BYO-bucket surface. Currently
- * always `true` (every plan's `byoBucket` capability is `true`) — the real
- * gate today is `byoBucketAllowed` in `apps/api/src/workspace.ts`, not this
- * predicate. `getPlan` fails open to `free` for an unrecognized/absent plan
+ * always `true` (every plan's `byoBucket` capability is `true`) — the only
+ * live restriction is `byoBucketAllowed`'s per-workspace kill switch in
+ * `apps/api/src/workspace.ts`, not this predicate. `getPlan` fails open to `free` for an unrecognized/absent plan
  * string, same as every other plan-capability read in this package.
  */
 export function planAllowsByoBucket(record: ByoBucketPlanRecord): boolean {
