@@ -62,13 +62,52 @@ describe("buildDoctorReport token scopes", () => {
 });
 
 describe("buildDoctorReport storage section", () => {
-  it("honestly reports it can't check storage settings from a workspace token", async () => {
-    // GET /me/workspaces/:name/storage is session-gated (Better Auth cookie
-    // or bearer); the CLI only ever holds a minted up_<workspace>_… token,
-    // so doctor must not fabricate a shared/byo mode it can't verify.
+  function clientWithStorage(storage: unknown): UploadsClient {
+    return {
+      list: async () => ({ items: [], cursor: null }),
+      health: async () => ({ ok: true }),
+      usage: async () => ({ bytes: 0, objects: 0, uploadsInPeriod: 0, storage }),
+    } as unknown as UploadsClient;
+  }
+
+  it("falls back to the honest can't-check note against a server without the usage summary", async () => {
+    // Pre-#775 servers report no `storage` object on the usage endpoint, and
+    // the full projection on GET /me/workspaces/:name/storage stays
+    // session-gated — doctor must not fabricate a shared/byo mode.
     const report = await buildDoctorReport(fakeConfig(), fakeClient());
     expect(report.storage.checked).toBe(false);
     expect(report.storage.note).toMatch(/sign in on the web/);
+  });
+
+  it("reports hosted storage from the usage summary", async () => {
+    const report = await buildDoctorReport(
+      fakeConfig(),
+      clientWithStorage({ mode: "shared", fallbackLanes: 0, health: { ok: true } }),
+    );
+    expect(report.storage).toMatchObject({
+      checked: true,
+      mode: "shared",
+      fallbackLanes: 0,
+      healthy: true,
+      note: "hosted storage",
+    });
+  });
+
+  it("reports an active BYO lane with fallback-lane count", async () => {
+    const report = await buildDoctorReport(
+      fakeConfig(),
+      clientWithStorage({ mode: "byo", fallbackLanes: 1, health: { ok: true } }),
+    );
+    expect(report.storage.note).toBe("your bucket (1 previous lane still serving old files)");
+  });
+
+  it("flags an unhealthy BYO lane", async () => {
+    const report = await buildDoctorReport(
+      fakeConfig(),
+      clientWithStorage({ mode: "byo", fallbackLanes: 0, health: { ok: false, code: "auth" } }),
+    );
+    expect(report.storage.healthy).toBe(false);
+    expect(report.storage.note).toMatch(/not working/);
   });
 });
 

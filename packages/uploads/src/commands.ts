@@ -4242,16 +4242,18 @@ export interface DoctorReport {
   /** Workspace/token mismatch warning (also present in hints). */
   warning?: string;
   /**
-   * Bring-your-own-bucket storage status (issue #583 Phase 3). `GET
-   * /me/workspaces/:name/storage` is session-gated (Better Auth cookie or
-   * bearer via the AUTH service — see `session-auth.ts`); the CLI only ever
-   * holds a minted `up_<workspace>_…` workspace token, never a session
-   * bearer, so doctor cannot reach that route today. Until a token-authed
-   * read path exists, this is an honest "can't check from here" rather than
-   * a fabricated mode.
+   * Storage-lane summary (issue #775): the usage endpoint carries a
+   * bearer-safe `storage` object (mode + fallback-lane count + health), so
+   * doctor reports it from the same call it already makes. `checked` is
+   * false when usage failed or the server predates the field — then `note`
+   * falls back to the honest "can't check from here" line (the full
+   * projection on `GET /me/workspaces/:name/storage` stays session-gated).
    */
   storage: {
-    checked: false;
+    checked: boolean;
+    mode?: "shared" | "byo";
+    fallbackLanes?: number;
+    healthy?: boolean;
     note: string;
   };
   hints: string[];
@@ -4355,6 +4357,10 @@ export async function buildDoctorReport(
         error?: string;
       }
     | undefined;
+  let storage: DoctorReport["storage"] = {
+    checked: false,
+    note: "not checked from the CLI — this server doesn't report a storage summary on the usage endpoint; sign in on the web (Account → workspace → Settings) to view mode and verification status",
+  };
   let scopes: string[] | undefined;
   if (authOk) {
     try {
@@ -4365,6 +4371,25 @@ export async function buildDoctorReport(
         objects: snap.objects,
         uploadsInPeriod: snap.uploadsInPeriod,
       };
+      if (snap.storage) {
+        const laneNote =
+          snap.storage.fallbackLanes > 0
+            ? ` (${snap.storage.fallbackLanes} previous lane${snap.storage.fallbackLanes === 1 ? "" : "s"} still serving old files)`
+            : "";
+        const healthNote = snap.storage.health.ok
+          ? ""
+          : " — not working; rotate credentials on the web settings page";
+        storage = {
+          checked: true,
+          mode: snap.storage.mode,
+          fallbackLanes: snap.storage.fallbackLanes,
+          healthy: snap.storage.health.ok,
+          note:
+            (snap.storage.mode === "byo" ? "your bucket" : "hosted storage") +
+            laneNote +
+            healthNote,
+        };
+      }
       scopes = snap.scopes;
       if (scopes && !scopes.includes("files:delete")) {
         hints.push(
@@ -4397,10 +4422,7 @@ export async function buildDoctorReport(
     usage,
     scopes,
     warning: mismatch,
-    storage: {
-      checked: false,
-      note: "not checked from the CLI — storage settings (shared vs. bring-your-own-bucket) live behind a signed-in session; sign in on the web (Account → workspace → Settings) to view mode and verification status",
-    },
+    storage,
     hints,
     browser,
   };

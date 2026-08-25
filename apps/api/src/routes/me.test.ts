@@ -357,6 +357,7 @@ describe("GET /me/workspaces/:name/usage", () => {
       maxStorageBytes: 1000,
       storageRemainingBytes: 500,
       storageBudgetBasis: "total",
+      storage: { mode: "shared", fallbackLanes: 0, health: { ok: true } },
       scopes: ["files:read", "files:write", "files:delete"],
       plan: "free",
     });

@@ -487,6 +487,13 @@ export interface UsageResult {
   /** "shared" = BYO bucket active: the storage cap meters only hosted
    * residue; the customer's own bucket is unmetered. */
   storageBudgetBasis?: "total" | "shared";
+  /** Bearer-safe lane summary (issue #775; servers ≥ this field's release). */
+  storage?: {
+    mode: "shared" | "byo";
+    /** Demoted former-active lanes that still serve previously uploaded files. */
+    fallbackLanes: number;
+    health: { ok: boolean; code?: string; message?: string; since?: string };
+  };
   /** File scopes of the presented token (servers ≥ this field's release). */
   scopes?: Array<TokenScope>;
   /**

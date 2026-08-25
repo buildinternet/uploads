@@ -16,6 +16,7 @@ import { reconcileWorkspaceUsage } from "../reconcile";
 import { purgeExpiredObjects } from "../retention";
 import { getWorkspaceUsage } from "../usage";
 import { requireScope } from "../workspace";
+import { storageUsageSummary } from "./workspace-storage";
 import { dbFor } from "../db-session";
 import { boundedDataRead } from "../data-read-bounds";
 
@@ -57,6 +58,9 @@ export const workspaceUsage = new Hono<DualAuthVars>()
       ...usageWithLimits(snapshot, workspace),
       scopes: c.get("authScopes"),
       plan: getPlan(workspace.plan).id,
+      // Bearer-safe lane summary (issue #775) — lets `uploads doctor` report
+      // the storage mode without the session-gated settings projection.
+      storage: storageUsageSummary(workspace),
     });
   })
   .post(
