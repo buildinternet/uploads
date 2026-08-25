@@ -178,7 +178,7 @@ automatically; you don't wire them up per page.
 | `<h3>`                                                                    | Sub-heading within a section (e.g. a card title, a labelled step).                                                                                                                                |
 | `<div class="cmd">` with `<span class="text">` + a `data-copy` `<button>` | A single, copyable command line. `$ ` prompt is auto-prepended; add `class="slash"` for slash-commands typed into an agent (no `$`).                                                              |
 | `<span class="cm">` inside `.text`                                        | A trailing `# comment` on a command (muted).                                                                                                                                                      |
-| `<div class="block">` with `<pre>`                                        | Multi-line, **non-copyable** output. Only for real, reproducible output; `.ok` marks a success line, `.v` a value.                                                                                |
+| `<div class="block">` with `<pre>`                                        | Multi-line, **non-copyable** output or a reference command listing. Only for real, reproducible output; `.ok` marks a success line, `.v` a value (also brightens the command in a listing).       |
 | `<div class="cards">` + `<a class="card">`                                | The "explore" grid of links to subject pages. Each card: `<h3>Title <span class="go">→</span></h3>` + one-sentence `<p>`. Trim to the highest-intent destinations rather than listing everything. |
 | `<div class="note">`                                                      | A muted aside — the place for asides, "more:" link lists, and edge cases pulled out of the main flow.                                                                                             |
 | `<p class="pointer">`                                                     | A demoted secondary-command line under the golden path (styled quieter than body text). Name only the verb inline; link to where it's covered in full.                                            |
@@ -189,6 +189,15 @@ automatically; you don't wire them up per page.
 | `<div class="ghc">`                                                       | A styled mock GitHub comment (avatar + bubble), for showing what a posted comment looks like. Specialised — only where a page illustrates GitHub output.                                          |
 | `<code>`                                                                  | Short inline identifiers (see the inline-code rule).                                                                                                                                              |
 | `<span class="go">→</span>`                                               | The trailing arrow on card titles and pointers.                                                                                                                                                   |
+
+**Config-file examples get syntax highlighting.** For a real config file (a
+`.uploads.yml`, a JSON snippet), don't use a plain `.block` — render it with
+Astro's `<Code code={…} lang="yaml" theme="vitesse-dark" class="yaml-example" />`
+(from `astro:components`), with the file's text in a frontmatter constant.
+Highlighting makes the keys and values pop out from explanatory comments. The
+`.yaml-example` style in `comment-config.astro` drops the highlighted block into
+the same panel `.block` uses. Note: adding the `astro:components` import to a page
+for the first time needs a dev-server restart (Vite re-optimizes deps).
 
 The canonical example of all of this working together is `apps/web/src/pages/docs.astro`
 (the hub page). Read it before reworking a subject page — it shows the intro +

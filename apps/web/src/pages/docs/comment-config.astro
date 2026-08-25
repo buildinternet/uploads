@@ -5,6 +5,51 @@
 // optional note. Read by the bot, the hosted MCP comment path, and the CLI's
 // gh-fallback path.
 import DocsLayout from "../../layouts/DocsLayout.astro";
+import { Code } from "astro:components";
+
+const EXAMPLE_YAML = `comment:
+  # "auto" (the default filename-based sizing), "full" (natural width up to
+  # the comment column, no fixed attribute), or a pixel number from 160 to
+  # 1000. Applies to inline images, pair cells, and video posters alike;
+  # "full" and an explicit number override their sizing too, "auto" keeps it.
+  imageWidth: auto
+
+  # How many images render inline before the rest collapse to links.
+  # Clamped to 1-48. Default: 16.
+  maxInlineImages: 16
+
+  # Caption metadata under each image. Each key can be forced on or off.
+  # An omitted key follows the workspace default.
+  meta:
+    path: true
+    state: true
+
+  # Whether images link to the file's share page. Overrides the workspace
+  # setting.
+  linkToFilePage: true
+
+  # Whether images and video dropped directly on GitHub PRs and issues get
+  # imported into the workspace. On by default.
+  ingestGithubAttachments: true
+
+  # Whether attachments authored by [bot] accounts are imported too.
+  # Off by default — bot-posted media is usually noise (status GIFs, badges).
+  # Tiny images (under 200px on either side) are always skipped.
+  ingestBotAttachments: false
+
+  # Whether uploads.sh file links pasted directly into a PR body or comment
+  # (bypassing --pr/attach context — a bare paste, or a raw curl upload) get
+  # adopted into that PR/issue's attachment context. Only links to files
+  # already in this repo's own bound workspace are adopted; links to any
+  # other workspace's files are ignored. On by default for bound repos.
+  adoptLinkedFiles: true
+
+  # Optional short markdown at the top of the comment, before the media —
+  # repo-specific context, a link to a contributing guide, and so on.
+  # Trimmed, capped at 500 characters, rendered as-is: it's
+  # repo-owner-authored markdown in the owner's own repo, the same trust
+  # level as a PR description. Empty or whitespace-only counts as absent.
+  note: ""`;
 
 const TOC = [
   { id: "what-it-controls", label: "What it controls" },
@@ -62,51 +107,7 @@ const TOC = [
   <section id="example">
     <h2>Full example <a class="anchor" href="#example" aria-label="Link to this section">#</a></h2>
     <p>Save it at the repo root:</p>
-    <div class="block" aria-label="Example .uploads.yml">
-      <pre>comment:
-  # "auto" (the default filename-based sizing), "full" (natural width up to
-  # the comment column, no fixed attribute), or a pixel number from 160 to
-  # 1000. Applies to inline images, pair cells, and video posters alike;
-  # "full" and an explicit number override their sizing too, "auto" keeps it.
-  imageWidth: auto
-
-  # How many images render inline before the rest collapse to links.
-  # Clamped to 1-48. Default: 16.
-  maxInlineImages: 16
-
-  # Caption metadata under each image. Each key can be forced on or off.
-  # An omitted key follows the workspace default.
-  meta:
-    path: true
-    state: true
-
-  # Whether images link to the file's share page. Overrides the workspace
-  # setting.
-  linkToFilePage: true
-
-  # Whether images and video dropped directly on GitHub PRs and issues get
-  # imported into the workspace. On by default.
-  ingestGithubAttachments: true
-
-  # Whether attachments authored by [bot] accounts are imported too.
-  # Off by default — bot-posted media is usually noise (status GIFs, badges).
-  # Tiny images (under 200px on either side) are always skipped.
-  ingestBotAttachments: false
-
-  # Whether uploads.sh file links pasted directly into a PR body or comment
-  # (bypassing --pr/attach context — a bare paste, or a raw curl upload) get
-  # adopted into that PR/issue's attachment context. Only links to files
-  # already in this repo's own bound workspace are adopted; links to any
-  # other workspace's files are ignored. On by default for bound repos.
-  adoptLinkedFiles: true
-
-  # Optional short markdown at the top of the comment, before the media —
-  # repo-specific context, a link to a contributing guide, and so on.
-  # Trimmed, capped at 500 characters, rendered as-is: it's
-  # repo-owner-authored markdown in the owner's own repo, the same trust
-  # level as a PR description. Empty or whitespace-only counts as absent.
-  note: ""</pre>
-    </div>
+    <Code code={EXAMPLE_YAML} lang="yaml" theme="vitesse-dark" class="yaml-example" />
     <div class="note">
       A value outside its valid range doesn't fail the whole file: numbers clamp to their bounds,
       and an unrecognized value for a key drops just that key while every other key still applies.
@@ -208,3 +209,23 @@ const TOC = [
     <a class="next" href="/docs/agents"><span class="dir">Next →</span>Set up your agent</a>
   </nav>
 </DocsLayout>
+
+<style>
+  /* Shiki-highlighted YAML example: drop it into the same panel container the
+     .block primitive uses, and keep CLI-flag ligatures literal ("--" stays "--"). */
+  :global(pre.astro-code.yaml-example) {
+    background: var(--panel) !important;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    padding: 12px 14px;
+    margin: 12px 0;
+    font-family: var(--mono);
+    font-size: var(--text-meta);
+    line-height: 1.6;
+    overflow-x: auto;
+    font-variant-ligatures: none;
+    font-feature-settings:
+      "calt" 0,
+      "liga" 0;
+  }
+</style>
