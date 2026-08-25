@@ -39,10 +39,17 @@ import { ROBOTS_TXT } from "./robots";
 
 /**
  * Both prod hostnames this worker answers on (see wrangler.jsonc routes) are
- * accepted as `aud` — mirrored into the AS's own audience allow-list (parallel
- * lane). A JWT minted against either resource works on either route.
+ * accepted as `aud`, in `/mcp` and origin form. Generic clients copy the
+ * origin into authorize `resource=` (RFC 8707); the AS mints `aud` from
+ * that. Mirrored into the AS's `oauthResources()` list — keep both in
+ * lockstep. A JWT minted against any of these works on either route.
  */
-const OAUTH_AUDIENCES = ["https://agents.uploads.sh/mcp", "https://mcp.uploads.sh/mcp"];
+const OAUTH_AUDIENCES = [
+  "https://agents.uploads.sh/mcp",
+  "https://agents.uploads.sh",
+  "https://mcp.uploads.sh/mcp",
+  "https://mcp.uploads.sh",
+];
 
 /**
  * The JSON Schema validator for `createMcpServer`'s tool registration. Built
@@ -283,8 +290,10 @@ function respondProtectedResource(c: Context<WorkspaceVars>): Response {
   return c.json(
     protectedResourceMetadata({
       // The protected resource is the `/mcp` endpoint itself (matches the
-      // server-card transport endpoint and the RFC 8707 resource an MCP
-      // client indicates when requesting a token).
+      // server-card transport endpoint). Generic clients still copy the
+      // origin into authorize `resource=`; the AS and this worker's JWT
+      // `aud` list accept both forms. Do not switch this advertisement to
+      // origin-only.
       resource: `${requestOrigin(c.req.url)}/mcp`,
       resourceName: "uploads.sh MCP server",
       webOrigin: c.env.WEB_ORIGIN || "https://uploads.sh",

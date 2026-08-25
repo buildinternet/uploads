@@ -1902,6 +1902,16 @@ describe("OAuth JWT bearer (issue #224)", () => {
     expect(result.isError).toBe(false);
   });
 
+  it("accepts the origin-shaped audience generic clients copy from RFC 9728", async () => {
+    const { env } = await makeEnv();
+    const jwt = await signOAuthToken(
+      { sub: "user-1", workspace: "test-ws", workspaces: ["test-ws"], scope: "files:read" },
+      { audience: "https://agents.uploads.sh" },
+    );
+    const result = await callTool(env, "list", {}, jwt, "/mcp");
+    expect(result.isError).toBe(false);
+  });
+
   it("still authenticates the legacy up_ token path unaffected by the JWT lane", async () => {
     const { env, bucket } = await makeEnv();
     const result = await callTool(

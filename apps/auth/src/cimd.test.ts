@@ -10,7 +10,11 @@ import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AuthEnv } from "./auth";
-import { fetchClientMetadataResource } from "./cimd-transport";
+import {
+  fetchClientMetadataResource,
+  intersectAdvertisedGrantTypes,
+  rewriteClientMetadataGrantTypes,
+} from "./cimd-transport";
 import { app } from "./index";
 import * as schema from "./schema";
 import { createFakeD1 } from "./test/fake-d1";
@@ -122,6 +126,66 @@ describe("CIMD client resolution", () => {
     expect(res.headers.get("location")).toContain("/login");
   });
 
+  it("downscopes unknown extras (openid/admin) instead of invalid_scope", async () => {
+    const env = dbEnv();
+    stubMetadataFetch();
+
+    const res = await authorize(env, {
+      scope: "files:read files:write files:delete openid profile admin",
+    });
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toContain("/login");
+    expect(res.headers.get("location")).not.toContain("invalid_scope");
+  });
+
+  it("accepts resource= origin as well as origin/mcp", async () => {
+    const env = dbEnv();
+    stubMetadataFetch();
+
+    const origin = await authorize(env, { resource: "https://agents.uploads.sh" });
+    expect(origin.status).toBe(302);
+    expect(origin.headers.get("location")).toContain("/login");
+    expect(origin.headers.get("location")).not.toContain("invalid_target");
+
+    const path = await authorize(env, { resource: "https://agents.uploads.sh/mcp" });
+    expect(path.status).toBe(302);
+    expect(path.headers.get("location")).toContain("/login");
+  });
+
+  it("ingests MCPJam-shaped grant_types that include device_code", async () => {
+    const env = dbEnv();
+    stubMetadataFetch({
+      ...metadataDocument(),
+      grant_types: [
+        "authorization_code",
+        "refresh_token",
+        "urn:ietf:params:oauth:grant-type:device_code",
+      ],
+    });
+
+    const res = await authorize(env);
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toContain("/login");
+    expect(res.headers.get("location")).not.toContain("invalid_client_metadata");
+  });
+
+  it("ingests claude.ai-shaped grant_types that include jwt-bearer", async () => {
+    const env = dbEnv();
+    stubMetadataFetch({
+      ...metadataDocument(),
+      grant_types: [
+        "authorization_code",
+        "refresh_token",
+        "urn:ietf:params:oauth:grant-type:jwt-bearer",
+      ],
+    });
+
+    const res = await authorize(env);
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toContain("/login");
+    expect(res.headers.get("location")).not.toContain("invalid_client_metadata");
+  });
+
   it("rejects a metadata document missing the MCP profile's required fields", async () => {
     const env = dbEnv();
     const { client_name: _omitted, ...withoutName } = metadataDocument();
@@ -186,7 +250,74 @@ describe("Workers CIMD transport", () => {
   });
 });
 
+describe("CIMD grant_types interop", () => {
+  const DEVICE_CODE = "urn:ietf:params:oauth:grant-type:device_code";
+  const JWT_BEARER = "urn:ietf:params:oauth:grant-type:jwt-bearer";
+
+  it("intersects MCPJam-shaped extras down to authorization_code + refresh_token", () => {
+    expect(
+      intersectAdvertisedGrantTypes(["authorization_code", "refresh_token", DEVICE_CODE]),
+    ).toEqual(["authorization_code", "refresh_token"]);
+  });
+
+  it("also drops jwt-bearer extras", () => {
+    expect(
+      intersectAdvertisedGrantTypes(["authorization_code", "refresh_token", JWT_BEARER]),
+    ).toEqual(["authorization_code", "refresh_token"]);
+  });
+
+  it("does not invent a supported grant when only device_code is advertised", () => {
+    expect(intersectAdvertisedGrantTypes([DEVICE_CODE])).toBeUndefined();
+    expect(
+      rewriteClientMetadataGrantTypes({
+        ...metadataDocument(),
+        grant_types: [DEVICE_CODE],
+      }),
+    ).toBeUndefined();
+  });
+
+  it("rewrites fetched MCPJam metadata so the CIMD profile accepts it", async () => {
+    const advertised = {
+      ...metadataDocument(),
+      grant_types: ["authorization_code", "refresh_token", DEVICE_CODE],
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json(advertised, { headers: { "content-type": "application/json" } }),
+      ),
+    );
+
+    const res = await fetchClientMetadataResource(CLIENT_ID_URL);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.grant_types).toEqual(["authorization_code", "refresh_token"]);
+    expect(body.grant_types).not.toContain(DEVICE_CODE);
+    expect(body.redirect_uris).toEqual([REDIRECT_URI]);
+  });
+});
+
 describe("dynamic client registration (SEP-837)", () => {
+  it("tolerates extra grant_types (device_code) at /oauth2/register", async () => {
+    const res = await app.request(
+      "/api/auth/oauth2/register",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          client_name: "Test MCP Client",
+          redirect_uris: ["https://client.example.com/callback"],
+          grant_types: [
+            "authorization_code",
+            "refresh_token",
+            "urn:ietf:params:oauth:grant-type:device_code",
+          ],
+        }),
+      },
+      dbEnv(),
+    );
+    expect(res.status).toBe(201);
+  });
+
   it("tolerates the application_type field at /oauth2/register", async () => {
     const res = await app.request(
       "/api/auth/oauth2/register",

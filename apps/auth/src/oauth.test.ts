@@ -43,6 +43,27 @@ describe("oauth-provider migration/schema parity", () => {
   });
 });
 
+describe("oauth resources", () => {
+  it("seeds origin-shaped MCP identifiers alongside /mcp", async () => {
+    const env = dbEnv();
+    const res = await app.request("/.well-known/oauth-authorization-server", {}, env);
+    expect(res.status).toBe(200);
+    const orm = drizzle(env.DB, { schema });
+    const rows = await orm
+      .select({ identifier: schema.oauthResource.identifier })
+      .from(schema.oauthResource);
+    const ids = rows.map((r) => r.identifier);
+    expect(ids).toEqual(
+      expect.arrayContaining([
+        "https://agents.uploads.sh/mcp",
+        "https://agents.uploads.sh",
+        "https://mcp.uploads.sh/mcp",
+        "https://mcp.uploads.sh",
+      ]),
+    );
+  });
+});
+
 describe("dynamic client registration", () => {
   it("registers a client via POST /api/auth/oauth2/register (unauthenticated)", async () => {
     const res = await app.request(

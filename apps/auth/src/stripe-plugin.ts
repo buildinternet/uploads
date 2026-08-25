@@ -71,7 +71,7 @@ export function checkoutSessionParamsFor(env: CheckoutConsentEnv): {
  * True when `userId` is an `owner` or `admin` member of the org identified
  * by `referenceId` — the only roles allowed to start/manage a subscription.
  * Same select-then-check style as auth.ts's other org-role guards
- * (lastAdminGuardHook). Exported for direct unit testing.
+ * (`enforceLastAdminGuard`). Exported for direct unit testing.
  */
 export async function isOrgBillingAdmin(
   db: Db,
