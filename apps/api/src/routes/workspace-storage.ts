@@ -142,6 +142,31 @@ export function storageStatusResponse(
 }
 
 /**
+ * Compact, bearer-safe lane summary for `GET /:workspace/usage` (issue
+ * #775). Deliberately smaller than `storageStatusResponse`: usage is
+ * readable by any member session or workspace bearer token (`files:read`),
+ * so this projects no bucket names, domains, or masked credential
+ * fragments — just which mode is active, how many former lanes still serve
+ * old files, and whether the active lane is healthy. The full projection
+ * stays admin/owner-session-gated on the settings routes.
+ */
+export function storageUsageSummary(record: WorkspaceRecord): {
+  mode: "shared" | "byo";
+  fallbackLanes: number;
+  health: StorageHealth;
+} {
+  const byo = isByoRecord(record);
+  return {
+    mode: byo ? "byo" : "shared",
+    // Fallback = a demoted former active (`lastActiveAt` set) that still
+    // participates in read resolution. Standby saves don't serve anything,
+    // so they don't count.
+    fallbackLanes: (record.storageLanes ?? []).filter((lane) => lane.lastActiveAt).length,
+    health: byo ? storageHealth(record) : { ok: true },
+  };
+}
+
+/**
  * Verify pipeline entry point the storage routes call, indirected through
  * this mutable binding so tests can substitute a fake without hitting the
  * network. Candidate storage is always HTTP-credential mode (no R2 binding
