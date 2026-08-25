@@ -7,8 +7,23 @@
 // FAQ structured data and article og:type ride along via the layout's head
 // slot and `ogType` prop.
 import DocsLayout from "../layouts/DocsLayout.astro";
+import { Code } from "astro:components";
 
 const REPO = "https://github.com/buildinternet/uploads";
+
+// Non-copy, illustrative command blocks — syntax-highlighted rather than
+// click-to-copy, since the reader reads them (or their agent runs them) rather
+// than pasting them verbatim.
+const MANUAL_SETUP = `# install the agent skills
+npx skills add buildinternet/uploads
+
+# register the hosted MCP server
+claude mcp add --transport http uploads https://agents.uploads.sh/mcp`;
+
+const STAGE_EXAMPLE = `$ uploads put ./after.png --state after
+
+# staged for this branch — auto-comments to the PR when it opens
+# once the PR exists, run: uploads attach --promote`;
 
 const TOC = [
   { id: "problem", label: "The problem" },
@@ -108,7 +123,7 @@ const FAQ_JSON_LD = JSON.stringify({
 
   <section id="setup">
     <h2>
-      Step 1: install the CLI and sign in (once) <a
+      Step 1: Install the CLI and sign in <a
         class="anchor"
         href="#setup"
         aria-label="Link to this section">#</a
@@ -120,67 +135,43 @@ const FAQ_JSON_LD = JSON.stringify({
         >copy</button
       >
     </div>
-    <div class="cmd">
-      <span class="text">uploads login</span>
-      <button type="button" data-copy="uploads login" aria-live="polite">copy</button>
-    </div>
-    <p>
-      <code>uploads login</code> opens a browser sign-in and saves a workspace token. You do this once
-      per machine. Sign in with GitHub or a magic link, then create your own workspace or accept an invite
-      into one. Check your setup with <code>uploads doctor</code>.
+    <p>Then run <code>uploads login</code> and you're set.</p>
+    <p class="note">
+      Something not working? <code>uploads doctor</code> checks your setup and points at the fix.
     </p>
   </section>
 
   <section id="agents">
     <h2>
-      Step 2: teach your agent <a class="anchor" href="#agents" aria-label="Link to this section"
-        >#</a
+      Step 2: Teach your agent how to add screenshots <a
+        class="anchor"
+        href="#agents"
+        aria-label="Link to this section">#</a
       >
     </h2>
-    <p>One command sets up Claude Code:</p>
+    <p>One command sets up your coding agent:</p>
     <div class="cmd">
       <span class="text">uploads install</span>
       <button type="button" data-copy="uploads install" aria-live="polite">copy</button>
     </div>
-    <ul>
-      <li>
-        The <strong>agent skills</strong> teach when to capture as you go (and when to annotate with callouts
-        or redactions), plus the full CLI reference.
-      </li>
-      <li>
-        The local stdio <strong>MCP</strong> (<code>uploads mcp</code>) matches the CLI, including
-        <code>attach</code>. Hosted MCP at <code>agents.uploads.sh</code> has <code>put</code>,
-        <code>list</code>, <code>delete</code>, and more — not <code>attach</code>, and no git
-        defaults. Stage with <code>put</code> plus <code>repo</code> and <code>branch</code>. Once a
-        PR exists, <code>promote</code> with <code>repo</code>, <code>pr</code>, and <code
-          >branch</code
-        >.
-      </li>
-    </ul>
-    <p>Or set up each piece yourself, for other agent runtimes:</p>
-    <div class="cmd">
-      <span class="text">npx skills add buildinternet/uploads</span>
-      <button type="button" data-copy="npx skills add buildinternet/uploads" aria-live="polite"
-        >copy</button
-      >
-    </div>
-    <div class="cmd">
-      <span class="text"
-        >claude mcp add --transport http uploads <span class="url"
-          >https://agents.uploads.sh/mcp</span
-        ></span
-      >
-      <button
-        type="button"
-        data-copy="claude mcp add --transport http uploads https://agents.uploads.sh/mcp"
-        aria-live="polite">copy</button
-      >
-    </div>
+    <p>
+      That installs the <strong>agent skills</strong> (when to capture as you go, when to annotate, and
+      the full CLI reference) and registers the <strong>MCP server</strong> so the agent can upload without
+      shelling out. The skills and MCP are also what a browserless agent — CI job, review bot, or one
+      on <code>agents.uploads.sh</code> with no local git — uses to stage and promote. <a
+        href="/docs/agents#skill-vs-mcp">Skill vs. MCP <span class="go">→</span></a
+      > covers which surface fits your runtime.
+    </p>
+    <p class="pointer">
+      On another agent runtime? Wire up each piece yourself —
+      <a href="/docs/agents#install">see the setup <span class="go">→</span></a>.
+    </p>
+    <Code code={MANUAL_SETUP} lang="bash" theme="vitesse-dark" class="bash-example" />
   </section>
 
   <section id="stage">
     <h2>
-      Step 3: the agent stages screenshots as it works <a
+      Step 3: The agent stages screenshots as it works <a
         class="anchor"
         href="#stage"
         aria-label="Link to this section">#</a
@@ -189,17 +180,7 @@ const FAQ_JSON_LD = JSON.stringify({
     <p>
       No pull request required. On a branch, a bare <code>put</code> stages the file automatically:
     </p>
-    <div class="cmd">
-      <span class="text">uploads put ./after.png --state after</span>
-      <button type="button" data-copy="uploads put ./after.png --state after" aria-live="polite"
-        >copy</button
-      >
-    </div>
-    <div class="block" aria-label="Example output">
-      <pre>&gt;&gt; uploading ./after.png
-note: staged for branch feat/nav — auto-comments to pull request when opened
-(or run: uploads attach --promote once it exists)</pre>
-    </div>
+    <Code code={STAGE_EXAMPLE} lang="bash" theme="vitesse-dark" class="bash-example" />
     <p>
       Keep doing that at each visual milestone. Check the queue with <code>uploads staged</code>.
       When the PR opens, staged files promote into one managed comment — via the GitHub App, or
@@ -232,24 +213,11 @@ note: staged for branch feat/nav — auto-comments to pull request when opened
         >copy</button
       >
     </div>
-    <p>Not on a PR branch? Point it somewhere:</p>
-    <div class="cmd">
-      <span class="text">uploads attach ./repro.gif --issue 45</span>
-      <button type="button" data-copy="uploads attach ./repro.gif --issue 45" aria-live="polite"
-        >copy</button
-      >
-    </div>
-    <div class="cmd">
-      <span class="text">uploads attach ./shot.png --repo owner/name --pr 123</span>
-      <button
-        type="button"
-        data-copy="uploads attach ./shot.png --repo owner/name --pr 123"
-        aria-live="polite">copy</button
-      >
-    </div>
     <p>
-      Want to place the image yourself, in a PR description or README?&#32;
-      <code>--no-comment</code> prints the URL and Markdown without posting anything.
+      Off the PR branch, point it somewhere: add <code>--issue &lt;n&gt;</code> or <code
+        >--pr &lt;n&gt;</code
+      >, and <code>--repo owner/name</code> for a different repo. Placing the image yourself in a PR description
+      or README? <code>--no-comment</code> prints the URL and Markdown without posting.
     </p>
   </section>
 
@@ -260,16 +228,9 @@ note: staged for branch feat/nav — auto-comments to pull request when opened
       >
     </h2>
     <p>
-      A short screen recording is often the best proof that a change works. MP4, WebM, GIFs, zips,
-      logs all upload as-is:
-    </p>
-    <div class="cmd">
-      <span class="text">uploads put ./demo.mp4 <span class="cm"># stages on the branch</span></span
-      >
-      <button type="button" data-copy="uploads put ./demo.mp4" aria-live="polite">copy</button>
-    </div>
-    <p>
-      One caveat: GitHub only plays videos it hosts itself. Outside video shows up as a&#32;
+      A short screen recording is often the best proof that a change works. The same <code>put</code
+      >&#32; handles it — MP4, WebM, GIFs, zips, and logs all upload as-is and stage on the branch.
+      One caveat: GitHub only plays videos it hosts itself, so outside video shows up as a&#32;
       <strong>link, not a player</strong>. GIFs embed like images.
     </p>
     <p>
@@ -306,3 +267,36 @@ note: staged for branch feat/nav — auto-comments to pull request when opened
     <a class="next" href="/docs"><span class="dir">Next →</span>Docs overview</a>
   </nav>
 </DocsLayout>
+
+<style>
+  /* Shiki-highlighted, non-copy command/output blocks: drop them into the same
+     panel container the .block primitive uses, and keep CLI-flag ligatures
+     literal ("--" stays "--"). */
+  :global(pre.astro-code.bash-example) {
+    background: var(--panel) !important;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    padding: 12px 14px;
+    margin: 12px 0;
+    font-family: var(--mono);
+    font-size: var(--text-meta);
+    line-height: 1.6;
+    /* Wrap long commands instead of scrolling them off-screen. */
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font-variant-ligatures: none;
+    font-feature-settings:
+      "calt" 0,
+      "liga" 0;
+  }
+  /* Shiki's inner <code> otherwise inherits the inline-code border/background
+     from .doc code, which — being an inline box across several lines — paints a
+     border fragment on every line. Strip it back to plain highlighted text. */
+  :global(pre.astro-code.bash-example code) {
+    background: none;
+    border: 0;
+    padding: 0;
+    border-radius: 0;
+    font: inherit;
+  }
+</style>
