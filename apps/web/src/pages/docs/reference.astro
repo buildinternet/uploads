@@ -21,29 +21,12 @@ const REPO = "https://github.com/buildinternet/uploads";
       >
     </h2>
     <p>Commands for managing what's already uploaded:</p>
-    <div class="cmd">
-      <span class="text">uploads list <span class="cm"># see your files</span></span>
-      <button type="button" data-copy="uploads list" aria-live="polite">copy</button>
-    </div>
-    <div class="cmd">
-      <span class="text">uploads delete &lt;key&gt; <span class="cm"># remove a file</span></span>
-      <button type="button" data-copy="uploads delete" aria-live="polite">copy</button>
-    </div>
-    <div class="cmd">
-      <span class="text"
-        >uploads usage <span class="cm"># storage used by your workspace</span></span
-      >
-      <button type="button" data-copy="uploads usage" aria-live="polite">copy</button>
-    </div>
-    <div class="cmd">
-      <span class="text"
-        >uploads staged <span class="cm"># what's queued for this branch</span></span
-      >
-      <button type="button" data-copy="uploads staged" aria-live="polite">copy</button>
-    </div>
-    <div class="cmd">
-      <span class="text">uploads --help <span class="cm"># everything else</span></span>
-      <button type="button" data-copy="uploads --help" aria-live="polite">copy</button>
+    <div class="block" aria-label="Commands for managing uploads">
+      <pre><span class="v">uploads list</span>          # see your files
+<span class="v">uploads delete &lt;key&gt;</span>  # remove a file
+<span class="v">uploads usage</span>         # storage used by your workspace
+<span class="v">uploads staged</span>        # what's queued for this branch
+<span class="v">uploads --help</span>        # everything else</pre>
     </div>
   </section>
 

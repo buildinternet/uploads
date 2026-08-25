@@ -76,6 +76,13 @@ adjectives, no wind-up.
 for, or a second explanatory paragraph _after_ the first command (the reader
 wants to act, not read more).
 
+The thing to cut is _throat-clearing_ ("In this guide…", "uploads.sh is a service
+that…"), not substance. A concrete _why_ — a real constraint the tool exists to
+solve, like "GitHub has no API for file uploads, so agents can't include
+screenshots in pull requests" — earns its two or three sentences, because it
+tells the reader what problem they're actually solving. Lead with that when the
+page has one; keep it tight and get to the capability list.
+
 ### One golden path; demote the rest to a pointer
 
 Show the single most universal command as the worked example. A secondary command
@@ -119,6 +126,24 @@ command matters. So:
 
 Rule of thumb: **one copy target per action, not per line.** A typical page has
 one to three copy boxes, not one per command mentioned.
+
+**A reference list of sibling commands is one block, not N copy rows.** When a
+section just enumerates related commands (a "here's the command surface" menu,
+e.g. `list` / `delete` / `usage` / `--help`), a stack of `.cmd` copy rows reads
+as a wall of buttons. Put them in a single non-copyable `.block` instead —
+command in a `<span class="v">` (brighter), the `# comment` aligned in the muted
+base color:
+
+```html
+<div class="block" aria-label="Commands for managing uploads">
+  <pre><span class="v">uploads list</span>          # see your files
+<span class="v">uploads delete &lt;key&gt;</span>  # remove a file
+<span class="v">uploads usage</span>         # storage used by your workspace</pre>
+</div>
+```
+
+Reserve `.cmd` for the one or two commands in that section a reader actually runs
+in sequence (an install line, a golden path) — not the whole catalog.
 
 ## Inline-code rule
 
