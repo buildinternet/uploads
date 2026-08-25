@@ -32,6 +32,16 @@ const TOC = [
       Set up your bucket <a class="anchor" href="#setup" aria-label="Link to this section">#</a>
     </h2>
     <p>
+      Point a workspace at a Cloudflare R2 bucket you already control. With your own bucket you:
+    </p>
+    <ul>
+      <li>Keep files on storage you pay for and own directly — uploads.sh never holds a copy.</li>
+      <li>
+        Switch back to hosted storage any time, instantly and without touching existing files.
+      </li>
+      <li>See <a href="#degraded">what's different</a> on a BYO bucket before you switch.</li>
+    </ul>
+    <p>
       A workspace admin connects from the workspace settings page — one form, filled from three
       things you set up on the Cloudflare dashboard first (plus one optional cache rule).
     </p>
@@ -64,26 +74,26 @@ const TOC = [
     </p>
     <h3>4. Optional but recommended: add a cache rule for GitHub embeds</h3>
     <p>
-      On hosted storage, images embedded in GitHub comments refresh when a file is overwritten in
-      place, because a dedicated embed host serves badge-style no-cache headers that GitHub's Camo
-      proxy revalidates. You can give your own domain the same behavior with one rule on your zone:
-      <strong>Rules</strong> → <strong>Transform Rules</strong> →
-      <strong>Modify Response Header</strong>, matching your domain's hostname, setting
-      <code>Cache-Control</code> to <code>max-age=0, no-cache, no-store, must-revalidate</code>.
-      Verification checks for it and reminds you if it's missing — without it everything still
-      works, but a GitHub embed can keep showing the old bytes after an in-place overwrite. The
-      trade-off: these headers turn off edge caching for the whole domain, which is negligible for
-      screenshot workflows (R2 egress is free) but worth weighing if the same bucket serves
-      high-traffic assets — in that case, connect a second custom domain to the bucket and scope the
-      rule to just that host.
+      On hosted storage, a dedicated embed host serves badge-style no-cache headers that GitHub's
+      Camo proxy revalidates, so an overwritten image refreshes in place. Give your own domain the
+      same behavior with one rule on your zone: <strong>Rules</strong> →
+      <strong>Transform Rules</strong> → <strong>Modify Response Header</strong>, matching your
+      domain's hostname, setting <code>Cache-Control</code> to
+      <code>max-age=0, no-cache, no-store, must-revalidate</code>. Verification checks for it and
+      reminds you if it's missing. Without it, everything still works — a GitHub embed can just keep
+      showing the old bytes after an in-place overwrite.
+    </p>
+    <p class="note">
+      The rule turns off edge caching for the whole domain — negligible for screenshot workflows (R2
+      egress is free), but worth weighing if the same bucket also serves high-traffic assets. In
+      that case, connect a second custom domain to the bucket and scope the rule to just that host.
     </p>
     <p>
       Then <strong>Verify &amp; save</strong>: one click checks the settings, signs in to the
       bucket, round-trips a test object, and fetches it through your public URL. Anything that fails
       is spelled out on the form; a clean pass saves. Saving never changes where uploads go — the
       bucket sits on your settings page as "Not in use yet" until you click
-      <strong>Use this bucket</strong>, so you can connect and verify at any time without any risk
-      to what's already uploading.
+      <strong>Use this bucket</strong>.
     </p>
     <p class="note">
       Switching is instant and reversible, even for a workspace that already has files: existing

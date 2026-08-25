@@ -86,54 +86,15 @@ const TOC = [
       </div>
     </div>
     <p>
-      Run <code>attach</code> again with new files and this same comment updates in place, so your PR
-      doesn't collect a trail of stale screenshot comments.
+      Run <code>attach</code> again with new files and this same comment updates in place, instead of
+      collecting a trail of stale screenshot comments.
     </p>
     <p>
-      It uses the <code>gh</code> CLI to find the current repo and PR. If you're not on a PR branch, or
-      you want a different target, say so explicitly:
+      It uses the <code>gh</code> CLI to find the current repo and PR. Off a PR branch, or targeting somewhere
+      else, add <code>--pr &lt;n&gt;</code> or <code>--issue &lt;n&gt;</code>, and&#32;
+      <code>--repo owner/name</code> for a different repo. Add <code>--no-comment</code> to print the
+      URLs and Markdown without posting anything.
     </p>
-    <div class="cmd">
-      <span class="text"
-        >uploads attach ./shot.png --pr 123 <span class="cm"># a specific PR</span></span
-      >
-      <button type="button" data-copy="uploads attach ./shot.png --pr 123" aria-live="polite"
-        >copy</button
-      >
-    </div>
-    <div class="cmd">
-      <span class="text"
-        >uploads attach ./shot.png --issue 45 <span class="cm"># an issue instead</span></span
-      >
-      <button type="button" data-copy="uploads attach ./shot.png --issue 45" aria-live="polite"
-        >copy</button
-      >
-    </div>
-    <div class="cmd">
-      <span class="text"
-        >uploads attach ./shot.png --repo owner/name --pr 123 <span class="cm"
-          ># a different repo</span
-        ></span
-      >
-      <button
-        type="button"
-        data-copy="uploads attach ./shot.png --repo owner/name --pr 123"
-        aria-live="polite">copy</button
-      >
-    </div>
-    <p>
-      Want the URLs and ready-to-paste Markdown without touching any GitHub comment (say, to drop an
-      image into a PR description yourself)?
-    </p>
-    <div class="cmd">
-      <span class="text"
-        >uploads attach ./shot.png --no-comment <span class="cm"># print URLs, post nothing</span
-        ></span
-      >
-      <button type="button" data-copy="uploads attach ./shot.png --no-comment" aria-live="polite"
-        >copy</button
-      >
-    </div>
   </section>
 
   <section id="staging">
@@ -169,14 +130,10 @@ const TOC = [
       >
     </div>
     <p>
-      See what's queued for the current branch, and whether it'll actually auto-attach, with&#32;
-      <code>uploads staged</code>:
+      Run <code>uploads staged</code> to see what's queued for the current branch, and whether it'll actually
+      auto-attach:
     </p>
-    <div class="cmd">
-      <span class="text">uploads staged</span>
-      <button type="button" data-copy="uploads staged" aria-live="polite">copy</button>
-    </div>
-    <div class="block" aria-label="Example output">
+    <div class="block" aria-label="Example uploads staged output">
       <pre>after.webp  94.2 KB  staged 2026-07-22T14:00:00Z  https://storage.uploads.sh/gh/you/app/branch/feat-nav/after.webp
 binding: self — these auto-attach when this branch's PR opens
 once the PR exists: uploads attach --promote</pre>
@@ -192,7 +149,7 @@ once the PR exists: uploads attach --promote</pre>
       <a href="/docs/github-app#staging">GitHub App: staging before a PR exists</a> for what each binding
       state means and how to fix it.
     </p>
-    <p>
+    <p class="note">
       Once the PR opens, the next <code>attach</code> against it promotes those staged files automatically
       — or run <code>uploads attach --promote</code> with no files to do it explicitly (<code
         >--no-promote</code
@@ -221,18 +178,11 @@ once the PR exists: uploads attach --promote</pre>
         aria-live="polite">copy</button
       >
     </div>
-    <div class="cmd">
-      <span class="text">uploads put ./hero-after.webp --state after</span>
-      <button
-        type="button"
-        data-copy="uploads put ./hero-after.webp --state after"
-        aria-live="polite">copy</button
-      >
-    </div>
     <p>
-      Two files pair when they share a <code>--meta path</code> value and one is&#32;
-      <code>before</code> while the other is <code>after</code>. That's the form to use when a
-      single comment carries several pairs — the <code>path</code> is what keeps them from crossing:
+      Its counterpart uses <code>--state after</code> in place of <code>before</code>. Two files
+      pair when they share a <code>--meta path</code> value and one is <code>before</code> while the other
+      is <code>after</code> — the form to use when a single comment carries several pairs, since&#32;
+      <code>path</code> is what keeps them from crossing:
     </p>
     <div class="cmd">
       <span class="text">uploads put ./settings-old.webp --meta path=/settings --state before</span>
@@ -249,11 +199,13 @@ once the PR exists: uploads attach --promote</pre>
       <code>beforehand.webp</code> doesn't match. A group with two befores and one after is ambiguous
       and won't pair; it falls back to the normal stacked list. Only images pair.
     </p>
-    <p>
+    <p class="note">
       Pairing isn't only a comment thing — a file's public page shows its counterpart next to it,
-      with a link either way. <code>--state</code> also takes <code>empty</code>,&#32;
-      <code>error</code>, and <code>loading</code> for the other states worth capturing; those are searchable
-      with <code>uploads find</code> but don't pair.
+      with a link either way. <code>--state</code> also takes <code>empty</code>, <code>error</code
+      >, and&#32;
+      <code>loading</code> for the other states worth capturing; those are searchable with <code
+        >uploads find</code
+      > but don't pair.
     </p>
   </section>
 
@@ -288,32 +240,11 @@ plain dated upload.</pre>
 URL: <span class="v">https://storage.uploads.sh/screenshots/app/2026-07-12/shot-9f2c1a.webp</span>
 MARKDOWN: ![shot.png](https://storage.uploads.sh/screenshots/app/2026-07-12/shot-9f2c1a.webp)</pre>
     </div>
-    <p>A few useful variations:</p>
-    <div class="cmd">
-      <span class="text"
-        >uploads put ./shot.png --pr 123 <span class="cm"># also post to the PR</span></span
-      >
-      <button type="button" data-copy="uploads put ./shot.png --pr 123" aria-live="polite"
-        >copy</button
-      >
-    </div>
-    <div class="cmd">
-      <span class="text"
-        >uploads put ./shot.png --no-optimize <span class="cm"># upload the original bytes</span
-        ></span
-      >
-      <button type="button" data-copy="uploads put ./shot.png --no-optimize" aria-live="polite"
-        >copy</button
-      >
-    </div>
-    <div class="cmd">
-      <span class="text"
-        >uploads put ./mobile.png --frame phone <span class="cm"># add device chrome</span></span
-      >
-      <button type="button" data-copy="uploads put ./mobile.png --frame phone" aria-live="polite"
-        >copy</button
-      >
-    </div>
+    <p>
+      Useful flags: <code>--pr 123</code> also posts to that PR, <code>--no-optimize</code> uploads the
+      original bytes instead of re-encoding, and <code>--frame phone</code> adds device chrome to a mobile
+      screenshot.
+    </p>
     <p>
       By default, images are re-encoded to WebP (capped size, high quality) so GitHub embeds stay
       fast, and <strong>EXIF is stripped from the uploaded bytes</strong>. Use&#32;
@@ -335,7 +266,7 @@ MARKDOWN: ![shot.png](https://storage.uploads.sh/screenshots/app/2026-07-12/shot
       <a href="/docs/reference#good-to-know">Reference</a>.
     </p>
     <p class="note">
-      Details: any of <code>--pr</code>, <code>--issue</code>, <code>--key</code>,&#32;
+      Also: any of <code>--pr</code>, <code>--issue</code>, <code>--key</code>,&#32;
       <code>--ref</code>, <code>--prefix</code>, or <code>--destination</code> opts a bare&#32;
       <code>put</code> out of branch staging, as does <code>--no-git</code>. Staged keys have no
       content-hash suffix (unlike the dated layout above) — they're stable per filename, so
@@ -367,43 +298,11 @@ MARKDOWN: ![shot.png](https://storage.uploads.sh/screenshots/app/2026-07-12/shot
 URL: <span class="v">https://storage.uploads.sh/gh/app/example/pull/123/app.example.webp</span>
 MARKDOWN: ![app.example](https://storage.uploads.sh/gh/app/example/pull/123/app.example.webp)</pre>
     </div>
-    <p>A few useful variations:</p>
-    <div class="cmd">
-      <span class="text"
-        >uploads screenshot ./report.html --dark --selector "main" <span class="cm"
-          ># dark scheme</span
-        ></span
-      >
-      <button
-        type="button"
-        data-copy='uploads screenshot ./report.html --dark --selector "main"'
-        aria-live="polite">copy</button
-      >
-    </div>
-    <div class="cmd">
-      <span class="text"
-        >uploads screenshot ./card.html --no-upload --out ./card.png <span class="cm"
-          ># no hosting</span
-        ></span
-      >
-      <button
-        type="button"
-        data-copy="uploads screenshot ./card.html --no-upload --out ./card.png"
-        aria-live="polite">copy</button
-      >
-    </div>
-    <div class="cmd">
-      <span class="text"
-        >uploads screenshot http://localhost:4321 --reduced-motion <span class="cm"
-          ># clean dev-server shot</span
-        ></span
-      >
-      <button
-        type="button"
-        data-copy="uploads screenshot http://localhost:4321 --reduced-motion"
-        aria-live="polite">copy</button
-      >
-    </div>
+    <p>
+      Useful flags: <code>--dark</code> renders in dark scheme, <code>--selector</code> captures one element
+      instead of the full page, <code>--no-upload --out &lt;path&gt;</code> skips hosting and writes a
+      local file, and <code>--reduced-motion</code> settles animations for a clean dev-server shot.
+    </p>
     <p>
       If a Chrome or Chromium is already on the machine, <code>screenshot</code> drives it directly (nothing
       to download); otherwise it renders on uploads.sh servers. Force either side with <code
@@ -420,17 +319,17 @@ MARKDOWN: ![app.example](https://storage.uploads.sh/gh/app/example/pull/123/app.
     <p>
       When you shoot your own dev server, it hides known framework dev toolbars (Astro, Next, Nuxt,
       Vite) automatically (opt out with
-      <code>--no-hide-dev-tools</code>) and takes <code>--reduced-motion</code> to settle animations.
-      Hide any other overlay with <code>--hide &lt;selector&gt;</code>
+      <code>--no-hide-dev-tools</code>). Hide any other overlay with <code
+        >--hide &lt;selector&gt;</code
+      >
       (repeatable), or run setup JS first with <code>--eval &lt;js&gt;</code> /
       <code>--init-script &lt;file&gt;</code> (local backend).
     </p>
-    <p>
+    <p class="note">
       Capturing a clicked or selected state of a React/Next app? A synthetic <code>el.click()</code>
-      in <code>--eval</code> fires before the framework hydrates — the element is in the server-rendered
-      HTML but no handler is attached yet, so it silently does nothing. Gate on the app's own &ldquo;interactive&rdquo;
-      signal with <code>--wait-for &lt;js&gt;</code> (local backend), which polls that expression until
-      truthy before <code>--eval</code> runs — e.g.
+      in <code>--eval</code> fires before the framework hydrates, so it silently does nothing — gate on
+      the app's own "interactive" signal with <code>--wait-for &lt;js&gt;</code> (local backend), which
+      polls that expression until truthy before <code>--eval</code> runs, e.g.
       <code>--wait-for 'document.querySelector("[data-hydrated]")'</code>.
     </p>
   </section>
@@ -490,7 +389,7 @@ MARKDOWN: ![app.example](https://storage.uploads.sh/gh/app/example/pull/123/app.
       > with <code>style: "solid"</code>
       for secrets — hosted files are public, and blurred text can be recoverable.
     </p>
-    <p>
+    <p class="note">
       Full spec format, selector vs pixel rules, and workflow notes live in the&#32;
       <a
         href="https://github.com/buildinternet/uploads/blob/main/skills/annotate-screenshots/SKILL.md"

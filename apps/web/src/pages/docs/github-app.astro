@@ -86,17 +86,12 @@ const TOC = [
     <h2>Install it <a class="anchor" href="#install" aria-label="Link to this section">#</a></h2>
     <p>
       <a href={GITHUB_APP_INSTALL_URL}>Install the App on GitHub</a> and pick the repositories you attach
-      files to (add more later in GitHub's settings). That's the whole setup — the next <code
-        >uploads attach</code
-      > against an installed repo posts as the bot:
+      files to (add more later in GitHub's settings). That's the whole setup — the next command run against
+      an installed repo posts as the bot instead of your own account:
     </p>
     <div class="cmd">
       <span class="text">uploads attach ./after.png</span>
       <button type="button" data-copy="uploads attach ./after.png" aria-live="polite">copy</button>
-    </div>
-    <div class="block" aria-label="Example output">
-      <pre>&gt;&gt; uploading ./after.png
-<span class="ok">&gt;&gt; attachments comment updated (uploads-sh[bot])</span></pre>
     </div>
   </section>
 
@@ -119,12 +114,11 @@ const TOC = [
       <code>path</code>/<code>url</code>/<code>env</code>/<code>viewport</code> metadata through promotion
       once the PR opens.
     </p>
-    <p>
-      <code>uploads attach --branch ./a.png ./b.png</code> is the explicit multi-file form of the same
-      thing. See&#32;
+    <p class="pointer">
+      Staging several files at once? Use <code>uploads attach --branch</code> instead —&#32;
       <a href="/docs/attach-pull-request-images#staging"
-        >Attach &amp; share: stage before a PR exists</a
-      > for <code>uploads staged</code> and the binding states.
+        >see staging &amp; binding states <span class="go">→</span></a
+      >.
     </p>
     <p>
       The moment a PR opens for that branch (or reopens, or gets new commits), the App promotes the
@@ -205,12 +199,8 @@ const TOC = [
       </li>
     </ul>
     <p>
-      <code>uploads github doctor</code> checks the subscriptions directly and reports anything missing:
+      <code>uploads github doctor</code> checks the subscriptions directly and reports anything missing.
     </p>
-    <div class="cmd">
-      <span class="text">uploads github doctor</span>
-      <button type="button" data-copy="uploads github doctor" aria-live="polite">copy</button>
-    </div>
   </section>
 
   <section id="bindings">
@@ -220,13 +210,8 @@ const TOC = [
     <p>
       Each repo maps to at most one workspace's managed comment. The binding is created implicitly
       the first time a workspace comments, attaches, or promotes against a repo; inspect or claim it
-      explicitly with:
+      explicitly with <code>uploads github link --status</code>.
     </p>
-    <div class="cmd">
-      <span class="text">uploads github link --status</span>
-      <button type="button" data-copy="uploads github link --status" aria-live="polite">copy</button
-      >
-    </div>
     <ul>
       <li>
         <strong>Bindings can't be stolen.</strong> Claiming a bound repo just reports the current owner.

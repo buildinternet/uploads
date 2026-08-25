@@ -324,15 +324,23 @@ const fullTitle = `${title} · uploads.sh`;
         border-top: 1px solid var(--line);
         scroll-margin-top: 24px;
         position: relative;
+        cursor: pointer;
       }
+      /* section-link anchor: parked in the left gutter, revealed on heading
+         hover (and on keyboard focus) so it declutters the resting state */
       .doc section h2 .anchor {
+        position: absolute;
+        left: -1.05em;
+        top: 24px;
         color: color-mix(in srgb, var(--accent) 55%, transparent);
         text-decoration: none;
-        margin-left: 8px;
         font-weight: var(--weight-regular);
+        opacity: 0;
+        transition: opacity 0.12s ease;
       }
-      .doc section h2 .anchor:hover,
+      .doc section h2:hover .anchor,
       .doc section h2 .anchor:focus-visible {
+        opacity: 1;
         color: var(--accent);
         background: none;
       }
@@ -341,6 +349,9 @@ const fullTitle = `${title} · uploads.sh`;
         border-top: none;
         padding-top: 0;
         margin-top: 22px;
+      }
+      .doc section.lead h2 .anchor {
+        top: 0;
       }
       .doc h3 {
         font: 600 var(--text-body)/1.4 var(--sans);
@@ -720,6 +731,19 @@ const fullTitle = `${title} · uploads.sh`;
       .doc .note a {
         color: var(--muted);
       }
+      /* Demoted secondary-command pointer sitting under a golden-path command:
+         reads as a quieter alternate path, while its verb (code) and link stay legible. */
+      .doc .pointer {
+        margin: 10px 0 0;
+        color: var(--muted);
+        font-size: var(--text-meta);
+      }
+      .doc .pointer code {
+        color: var(--body);
+      }
+      .doc .pointer a {
+        color: var(--accent);
+      }
 
       /* Geist Mono merges " --" into a joined dash via calt - keep CLI flags literal.
          Declared last: the font shorthand in earlier rules resets feature settings. */
@@ -833,6 +857,7 @@ const fullTitle = `${title} · uploads.sh`;
 
       let tocSpy: IntersectionObserver | null = null;
       let copyBound = false;
+      let headingBound = false;
 
       function bootDocsChrome(): void {
         tocSpy?.disconnect();
@@ -867,6 +892,23 @@ const fullTitle = `${title} · uploads.sh`;
         if (!copyBound) {
           copyBound = true;
           bindCopyButtons(document, ".doc .cmd button[data-copy]");
+        }
+
+        // Whole-heading click jumps to its section anchor (matching the visible
+        // gutter "#"), so the entire h2 is a hit target, not just the glyph.
+        if (!headingBound) {
+          headingBound = true;
+          document.addEventListener("click", (event) => {
+            const target = event.target as HTMLElement;
+            // The anchor itself is a real link — let it handle its own click.
+            if (target.closest(".doc section h2 .anchor")) return;
+            const heading = target.closest(".doc section h2");
+            if (!heading) return;
+            // Don't hijack a text selection inside the heading.
+            if (window.getSelection()?.toString()) return;
+            const anchor = heading.querySelector<HTMLAnchorElement>(".anchor");
+            anchor?.click();
+          });
         }
       }
 
