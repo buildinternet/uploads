@@ -58,12 +58,14 @@ one step (drives a local Chrome, or falls back to a server-side render), so you
 skip a separate host call. It takes `--viewport WxH@Nx`, `--wait`, `--selector`,
 `--full-page`, and `--out <file>` (to also save the PNG).
 
-Capturing your **own dev server**? It hides known framework dev toolbars
-(Astro/Next/Nuxt/Vite) automatically (opt out with `--no-hide-dev-tools`) and
-takes `--reduced-motion` to settle animations — no manual DOM surgery. Use
-`--hide <selector>` for any other overlay (repeatable), and `--eval <js>` /
-`--init-script <file>` (local backend) as an escape hatch to dismiss a banner or
-freeze a specific animation.
+Capturing your **own dev server**? No manual DOM surgery needed:
+
+- Known framework dev toolbars (Astro/Next/Nuxt/Vite) are hidden automatically
+  — opt out with `--no-hide-dev-tools`.
+- `--reduced-motion` settles animations.
+- `--hide <selector>` hides any other overlay (repeatable).
+- `--eval <js>` / `--init-script <file>` (local backend) are the escape hatch
+  to dismiss a banner or freeze a specific animation.
 
 Capturing a **clicked/selected state of a React/Next (or other hydrating) app**?
 A synthetic `el.click()` in `--eval` fires before the framework hydrates — the
@@ -107,18 +109,21 @@ Two tiers, pick by whether a PR already exists:
   staged set across a longer branch.
 
 **Default loop: stage as you go, from the first visual milestone.** Don't wait
-for a PR to exist. The moment you have something worth capturing — mid-task,
-still on a branch, no PR yet — attach it right then. A **bare `uploads put`** already does this automatically whenever you're inside
-a git repo on a non-default branch with no `--pr`/`--issue`/`--key`/`--ref`/
-`--prefix` — it stages under the same branch-keyed path `attach --branch`
-would produce, so a plain `uploads put step1-before.png --meta path=/settings
---state before` is enough. **`uploads screenshot`** (with no
-`--pr`/`--issue`/`--branch` target) stages the same way, so capturing directly
-from a URL before the PR exists carries every derived fact (path/url/env/
-viewport, plus `--state`) all the way through to the PR once it opens — no
-extra flag needed for the auto-derived ones. Reach for `attach --branch`
-explicitly when you want its extras (uploading several files at once with
-shared flags, or triggering promotion/comment sync as a side effect):
+for a PR to exist — the moment you have something worth capturing, mid-task on a
+branch, attach it right then.
+
+Two commands stage automatically, no extra flag needed:
+
+- A **bare `uploads put`**, whenever you're inside a git repo on a non-default
+  branch with no `--pr`/`--issue`/`--key`/`--ref`/`--prefix`. It stages under
+  the same branch-keyed path `attach --branch` would produce.
+- **`uploads screenshot`** with no `--pr`/`--issue`/`--branch` target.
+  Capturing straight from a URL carries every derived fact — path, url, env,
+  viewport, plus `--state` — through to the PR once it opens.
+
+Reach for `attach --branch` explicitly only when you want its extras: uploading
+several files at once with shared flags, or triggering promotion/comment sync as
+a side effect.
 
 ```bash
 uploads screenshot http://localhost:4321/settings --out step1-before.png --state before
@@ -140,36 +145,40 @@ layout — that's the opt-out, along with any explicit `--key`/`--ref`/
 `--prefix`/`--destination`.
 
 **Staging only auto-promotes into a bound repo — don't promise it blind.**
-Auto-promotion at PR-open time (webhook or CLI-triggered, below) requires the
-repo already bound to a workspace: any earlier successful attach/comment/
-promote call against that repo binds it implicitly, or `uploads github link`
-binds it explicitly. A repo that's never been bound and only ever staged with
-`--branch` sees **no error and no comment** when the PR opens — it's a silent
-no-op. If you can't confirm the repo is already bound (`uploads github link
---status`), don't tell the user the screenshot will "just show up" in the PR.
-The zero-setup fallback that works regardless of binding history: once the PR
-exists, run `uploads attach --promote` (or any targeted `uploads attach`
-against that PR) to promote and post explicitly.
+Auto-promotion at PR-open time (webhook or CLI-triggered, below) needs the repo
+already bound to a workspace. Binding happens two ways:
+
+- Implicitly, from any earlier successful attach/comment/promote call against
+  that repo.
+- Explicitly, via `uploads github link`.
+
+A repo that's never been bound and only ever staged with `--branch` sees **no
+error and no comment** when the PR opens — a silent no-op. So if you can't
+confirm the repo is bound (`uploads github link --status`), don't tell the user
+the screenshot will "just show up." The fallback that works regardless of
+binding history: once the PR exists, run `uploads attach --promote` (or any
+targeted `uploads attach` against that PR) to promote and post explicitly.
 
 **Pass `--state before`/`--state after` and `--meta path=/route` as a habit —
-both, every time.** Before/after is the whole point of most PR screenshots, and
-it's the one thing no tool can infer from the image; `path` is the other
-highest-value queryable tag, and it's just as easy to forget outside
-`uploads screenshot` (which derives it from the captured URL automatically —
-`uploads put`/`uploads attach` of an existing file have nothing to derive it
-from). Both cost one flag now and make `uploads find state=after` or
-`uploads find path=/settings` work months later, when the filenames mean
-nothing to anyone.
+both, every time.** They're the two highest-value queryable tags, and the two a
+tool can't recover later:
 
-**`uploads screenshot` for both sides of a same-URL before/after pair is the
-straightforward path** — its object name derives from the captured URL, and
-`--state` folds into that derived name (`localhost-docs-mcp.webp` becomes
-`localhost-docs-mcp-before.webp`/`-after.webp`), so capturing the same URL
-twice with different states lands two distinct objects instead of one
-overwriting the other. An explicit `--key` is unaffected — pass one when you
-need a specific object name. A `put` of an already-existing file still needs
-its own filenames or `--key` to keep before/after distinct, since there's no
-URL to derive a stem from:
+- `--state` before/after is the whole point of most PR screenshots, and nothing
+  can infer it from the image.
+- `path` is just as easy to forget, except on `uploads screenshot`, which
+  derives it from the captured URL. A `put`/`attach` of an existing file has no
+  URL to derive it from.
+
+Both cost one flag now and make `uploads find state=after` or `uploads find
+path=/settings` work months later, when the filenames mean nothing to anyone.
+
+**For a same-URL before/after pair, `uploads screenshot` is the straightforward
+path.** Its object name derives from the captured URL, and `--state` folds into
+that name — `localhost-docs-mcp.webp` becomes `-before.webp`/`-after.webp`. So
+capturing the same URL twice with different states lands two distinct objects
+instead of one overwriting the other. Pass an explicit `--key` when you need a
+specific object name. A `put` of an existing file has no URL to derive a stem
+from, so keep its before/after distinct with separate filenames or `--key`:
 
 ```bash
 uploads screenshot https://app.example/settings --pr 123 --state before
@@ -177,10 +186,10 @@ uploads screenshot https://app.example/settings --pr 123 --state after
 uploads put ./after.png --pr 123 --meta path=/settings --state after
 ```
 
-(`--state` also takes `empty`, `error`, and `loading`.) `attach`/`put --pr`/
-`put --issue` print a `tip: add --meta path=/route so this shot is findable by
-page` on stderr (and a JSON `hint` field) when an image lands with no `path`
-meta — don't ignore it. Viewport is derived for you on `screenshot` — see the
+(`--state` also takes `empty`, `error`, and `loading`.) When an image lands with
+no `path` meta, `attach`/`put --pr`/`put --issue` print `tip: add --meta
+path=/route so this shot is findable by page` on stderr (and a JSON `hint`
+field) — don't ignore it. Viewport is derived for you on `screenshot`. See the
 **uploads-cli** skill for the full canonical vocabulary.
 
 **The PR comment assembles itself — you don't drive that step.** Once the PR
