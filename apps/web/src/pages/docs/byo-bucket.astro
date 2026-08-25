@@ -33,7 +33,7 @@ const TOC = [
     </h2>
     <p>
       A workspace admin connects from the workspace settings page — one form, filled from three
-      things you set up on the Cloudflare dashboard first.
+      things you set up on the Cloudflare dashboard first (plus one optional cache rule).
     </p>
     <h3>1. Create an R2 bucket</h3>
     <p>
@@ -61,6 +61,21 @@ const TOC = [
       >, connect a domain on a Cloudflare zone in your account, then paste the URL (for example&#32;
       <code>https://media.example.com</code>) into the form as the public base URL. The settings
       page requires one — it's what makes links stable and embeddable. See the serving matrix below.
+    </p>
+    <h3>4. Optional but recommended: add a cache rule for GitHub embeds</h3>
+    <p>
+      On hosted storage, images embedded in GitHub comments refresh when a file is overwritten in
+      place, because a dedicated embed host serves badge-style no-cache headers that GitHub's Camo
+      proxy revalidates. You can give your own domain the same behavior with one rule on your zone:
+      <strong>Rules</strong> → <strong>Transform Rules</strong> →
+      <strong>Modify Response Header</strong>, matching your domain's hostname, setting
+      <code>Cache-Control</code> to <code>max-age=0, no-cache, no-store, must-revalidate</code>.
+      Verification checks for it and reminds you if it's missing — without it everything still
+      works, but a GitHub embed can keep showing the old bytes after an in-place overwrite. The
+      trade-off: these headers turn off edge caching for the whole domain, which is negligible for
+      screenshot workflows (R2 egress is free) but worth weighing if the same bucket serves
+      high-traffic assets — in that case, connect a second custom domain to the bucket and scope the
+      rule to just that host.
     </p>
     <p>
       Then <strong>Verify &amp; save</strong>: one click checks the settings, signs in to the
@@ -135,10 +150,11 @@ const TOC = [
     </h2>
     <ul>
       <li>
-        <strong>GitHub embeds.</strong> Shared-bucket images get an embed host that GitHub's Camo proxy
-        revalidates after overwrite. That twin doesn't extend to a custom domain, so a BYO image without
-        a public URL (signed-only) won't render inline in a GitHub comment. The file still uploads and
-        still has a share page.
+        <strong>GitHub embeds.</strong> Hosted-storage images get a dedicated embed host that GitHub's
+        Camo proxy revalidates after an in-place overwrite. On your own domain you get the same behavior
+        by adding the <a href="#setup">cache rule above</a> — without it, embeds still render but may
+        show stale bytes after an overwrite. A BYO image with no public URL at all (signed-only) won't
+        render inline in a GitHub comment; the file still uploads and still has a share page.
       </li>
       <li>
         <strong><code>retentionDays</code> auto-cleanup.</strong> Age-based retention walks a prefix on

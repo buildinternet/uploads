@@ -385,6 +385,60 @@ describe("verifyStorageConfig — recommended public-URL probe", () => {
     expect(fetchImpl).toHaveBeenCalledOnce();
   });
 
+  it("warns (embed-cache) when the domain serves cacheable headers, without gating ok", async () => {
+    const client = new FakeStorageClient();
+    const fetchImpl = vi.fn(async () => {
+      const [key] = [...client.store.keys()];
+      return new Response(client.store.get(key)!, {
+        status: 200,
+        headers: { "cache-control": "public, max-age=14400" },
+      });
+    });
+    const result = await run(
+      { ...VALID, publicBaseUrl: "https://media.example.com" },
+      client,
+      fetchImpl as unknown as typeof fetch,
+    );
+    expect(result.ok).toBe(true);
+    const embedCache = result.checks.find((c) => c.id === "embed-cache")!;
+    expect(embedCache.ok).toBe(false);
+    expect(embedCache.required).toBe(false);
+    expect(embedCache.hint).toMatch(/optional but recommended/);
+    expect(embedCache.hint).toMatch(/Transform Rule/);
+  });
+
+  it("passes embed-cache when Cache-Control carries no-store/no-cache", async () => {
+    const client = new FakeStorageClient();
+    const fetchImpl = vi.fn(async () => {
+      const [key] = [...client.store.keys()];
+      return new Response(client.store.get(key)!, {
+        status: 200,
+        headers: { "cache-control": "max-age=0, no-cache, no-store, must-revalidate" },
+      });
+    });
+    const result = await run(
+      { ...VALID, publicBaseUrl: "https://media.example.com" },
+      client,
+      fetchImpl as unknown as typeof fetch,
+    );
+    const embedCache = result.checks.find((c) => c.id === "embed-cache")!;
+    expect(embedCache.ok).toBe(true);
+    expect(embedCache.hint).toBeUndefined();
+  });
+
+  it("omits embed-cache entirely when the domain couldn't be reached", async () => {
+    const client = new FakeStorageClient();
+    const fetchImpl = vi.fn(async () => {
+      throw new Error("network error: ENOTFOUND");
+    });
+    const result = await run(
+      { ...VALID, publicBaseUrl: "https://media.example.com" },
+      client,
+      fetchImpl as unknown as typeof fetch,
+    );
+    expect(result.checks.find((c) => c.id === "embed-cache")).toBeUndefined();
+  });
+
   it("reports a thrown fetch (DNS/timeout/subrequest failure) as 'couldn't verify from here', not 'domain is broken'", async () => {
     const client = new FakeStorageClient();
     const fetchImpl = vi.fn(async () => {

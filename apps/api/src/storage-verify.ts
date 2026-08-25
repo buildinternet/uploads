@@ -43,7 +43,7 @@ export interface StorageVerifyCandidate {
 }
 
 export interface StorageVerifyCheck {
-  /** Stable identifier — `"shape" | "auth" | "round-trip" | "not-empty" | "public-url"`. */
+  /** Stable identifier — `"shape" | "auth" | "round-trip" | "not-empty" | "public-url" | "embed-cache"`. */
   id: string;
   ok: boolean;
   /** Required checks gate `StorageVerifyResult.ok`; recommended ones only ever warn. */
@@ -228,31 +228,41 @@ async function checkPublicUrl(
   probeKey: string,
   probeBytes: Uint8Array,
   fetchImpl: typeof fetch,
-): Promise<StorageVerifyCheck> {
+): Promise<{ check: StorageVerifyCheck; cacheControl: string | null | undefined }> {
   const url = `${publicBaseUrl.replace(/\/$/, "")}/${probeKey}`;
   try {
     const res = await fetchImpl(url, {
       redirect: "error",
       signal: AbortSignal.timeout(PUBLIC_URL_PROBE_TIMEOUT_MS),
     });
+    // Read the header before consuming the body: the embed-cache check
+    // (below) only makes sense when the domain actually answered, so the
+    // reading rides along with whichever public-url outcome this is.
+    const cacheControl = res.headers.get("cache-control");
     if (!res.ok) {
       return {
-        id: "public-url",
-        ok: false,
-        required: false,
-        hint: `fetching the probe object via publicBaseUrl returned HTTP ${res.status} — the domain may be connected to a different bucket, or public access isn't enabled yet`,
+        check: {
+          id: "public-url",
+          ok: false,
+          required: false,
+          hint: `fetching the probe object via publicBaseUrl returned HTTP ${res.status} — the domain may be connected to a different bucket, or public access isn't enabled yet`,
+        },
+        cacheControl: undefined,
       };
     }
     const body = new Uint8Array(await res.arrayBuffer());
     if (!bytesEqual(body, probeBytes)) {
       return {
-        id: "public-url",
-        ok: false,
-        required: false,
-        hint: "the bytes served from publicBaseUrl didn't match what was just written — this can mean a cached/stale response from an edge in front of the domain rather than a wiring problem; try again in a minute",
+        check: {
+          id: "public-url",
+          ok: false,
+          required: false,
+          hint: "the bytes served from publicBaseUrl didn't match what was just written — this can mean a cached/stale response from an edge in front of the domain rather than a wiring problem; try again in a minute",
+        },
+        cacheControl,
       };
     }
-    return { id: "public-url", ok: true, required: false };
+    return { check: { id: "public-url", ok: true, required: false }, cacheControl };
   } catch {
     // A thrown fetch means this probe — run from inside the API worker —
     // couldn't reach the domain; it does NOT mean the domain is broken. A
@@ -261,12 +271,37 @@ async function checkPublicUrl(
     // #783). Say "we couldn't verify it from here", not "your domain is
     // broken", and point at the one check that actually settles it.
     return {
-      id: "public-url",
-      ok: false,
-      required: false,
-      hint: "we couldn't verify publicBaseUrl from here — this can happen even when the domain is working fine (a same-account custom domain isn't always reachable as a server-side request). Open a known object's URL in a browser to check for yourself; if that loads, the domain is fine.",
+      check: {
+        id: "public-url",
+        ok: false,
+        required: false,
+        hint: "we couldn't verify publicBaseUrl from here — this can happen even when the domain is working fine (a same-account custom domain isn't always reachable as a server-side request). Open a known object's URL in a browser to check for yourself; if that loads, the domain is fine.",
+      },
+      cacheControl: undefined,
     };
   }
+}
+
+/**
+ * Recommended, non-blocking check (issue #592): whether the custom domain
+ * serves the badge-style no-cache headers GitHub's Camo proxy needs to
+ * revalidate an image after an in-place overwrite — the same Transform Rule
+ * `embed.uploads.sh` carries on hosted storage. Only emitted when the
+ * public-URL probe actually got a response; `null` (header absent) counts as
+ * missing. `no-store` or `no-cache` in Cache-Control is what makes Camo
+ * refetch reliably; a plain short max-age is not enough (issue #152).
+ */
+function checkEmbedCache(cacheControl: string | null): StorageVerifyCheck {
+  const value = (cacheControl ?? "").toLowerCase();
+  const ok = value.includes("no-store") || value.includes("no-cache");
+  return {
+    id: "embed-cache",
+    ok,
+    required: false,
+    hint: ok
+      ? undefined
+      : 'optional but recommended: add a Cloudflare Transform Rule on this domain setting Cache-Control to "max-age=0, no-cache, no-store, must-revalidate" so GitHub embeds refresh when a file is overwritten in place — see the setup guide (/docs/byo-bucket)',
+  };
 }
 
 /** Warning shown when no `publicBaseUrl` is configured — signed-only mode is allowed but degraded (issue #783 follow-up comment). */
@@ -339,6 +374,7 @@ export async function verifyStorageConfig(
   let roundTripOk = false;
   let roundTripHint: string | undefined;
   let publicUrlCheck: StorageVerifyCheck | undefined;
+  let publicUrlCacheControl: string | null | undefined;
   try {
     await client.upload(probeKey, probeBytes, { contentType: "application/octet-stream" });
     const downloaded = await client.download(probeKey);
@@ -348,12 +384,9 @@ export async function verifyStorageConfig(
       roundTripHint =
         "wrote and read back a probe object but the bytes didn't match — check for another writer racing this bucket";
     } else if (candidate.publicBaseUrl) {
-      publicUrlCheck = await checkPublicUrl(
-        candidate.publicBaseUrl,
-        probeKey,
-        probeBytes,
-        fetchImpl,
-      );
+      const probed = await checkPublicUrl(candidate.publicBaseUrl, probeKey, probeBytes, fetchImpl);
+      publicUrlCheck = probed.check;
+      publicUrlCacheControl = probed.cacheControl;
     }
   } catch (err) {
     roundTripHint =
@@ -396,6 +429,12 @@ export async function verifyStorageConfig(
         hint: "skipped — the write/read round-trip failed before the public URL could be verified",
       },
     );
+    // Cache-rule reading for GitHub embeds (issue #592) — only when the
+    // domain answered, so the check never piles "couldn't check" noise on
+    // top of an unreachable-domain public-url failure.
+    if (publicUrlCacheControl !== undefined) {
+      checks.push(checkEmbedCache(publicUrlCacheControl));
+    }
   } else {
     // Signed-only mode is allowed, but it's a degraded state, not a neutral
     // default — flag it the same warning-level way a failed recommended
