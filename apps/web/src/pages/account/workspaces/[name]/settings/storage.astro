@@ -282,6 +282,12 @@ if (!workspace) return Astro.redirect("/account/workspaces");
                 class="text-foreground">Custom Domains</strong
               >. That domain is the public base URL below.
             </li>
+            <li>
+              Optional but recommended: a Transform Rule on that domain setting <strong
+                class="text-foreground">Cache-Control</strong
+              > to <code>max-age=0, no-cache, no-store, must-revalidate</code> keeps GitHub embeds fresh
+              after overwrites.
+            </li>
           </ol>
           <p class="mt-1 mb-1 text-muted-foreground">
             Full walkthrough in the <a href="/docs/byo-bucket">setup guide</a>.
@@ -540,6 +546,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         "round-trip": "We couldn't write a test file to this bucket",
         "not-empty": "This bucket already has files in it",
         "public-url": "The public base URL didn't serve our test file",
+        "embed-cache": "GitHub embeds: add a cache rule to this domain",
       };
 
       let formMode: "connect" | "rotate" = "connect";
@@ -875,7 +882,11 @@ if (!workspace) return Astro.redirect("/account/workspaces");
             const hint = check.hint
               ? `<span class="storage-check-hint text-xs text-muted-foreground">${escapeHtml(check.hint)}</span>`
               : "";
-            return `<li class="flex flex-col gap-0.5 rounded-md border border-border px-3 py-2"><strong class="text-destructive text-[13px]">${escapeHtml(label)}</strong>${hint}</li>`;
+            // `embed-cache` is an optional-but-recommended tip (#592), not a
+            // blocker — render it in body color so it doesn't read as an
+            // error standing between the user and saving.
+            const tone = check.id === "embed-cache" ? "text-foreground" : "text-destructive";
+            return `<li class="flex flex-col gap-0.5 rounded-md border border-border px-3 py-2"><strong class="${tone} text-[13px]">${escapeHtml(label)}</strong>${hint}</li>`;
           })
           .join("");
       }
@@ -921,8 +932,13 @@ if (!workspace) return Astro.redirect("/account/workspaces");
           }
           // Any failing check keeps you on the form with the fix in reach —
           // including `public-url`, which the API treats as recommended but
-          // this form requires.
-          if (verify.result.checks.some((check) => !check.ok)) {
+          // this form requires. The one exception is `embed-cache` (#592):
+          // optional but recommended, so it never blocks the save — the tip
+          // is surfaced after the lane card appears instead.
+          const embedCacheWarn = verify.result.checks.find(
+            (check) => check.id === "embed-cache" && !check.ok,
+          );
+          if (verify.result.checks.some((check) => !check.ok && check.id !== "embed-cache")) {
             storageSaveBtn.disabled = false;
             renderFailures(verify.result);
             revealAdoptRowIfNotEmpty(verify.result);
@@ -940,6 +956,16 @@ if (!workspace) return Astro.redirect("/account/workspaces");
             // lane card appearing IS the confirmation — no "Saved." status
             // line lingering as page furniture (#788).
             applyStatus(saved.status);
+            // Saved fine, but the domain serves cacheable headers: leave the
+            // optional-but-recommended cache-rule tip on whichever lane card
+            // is now showing (#592). Plain text, no error state — the save
+            // succeeded.
+            if (embedCacheWarn) {
+              const tip =
+                "Optional but recommended: add a cache rule to this domain so GitHub embeds refresh after overwrites — see the setup guide.";
+              storageSavedActionStatus.textContent = tip;
+              storageActionStatus.textContent = tip;
+            }
             return;
           }
           if (saved.kind === "invalid") {
