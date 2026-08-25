@@ -2,6 +2,9 @@
 title: "Bring your own bucket"
 date: 2026-08-24
 tags: [platform, web]
+image:
+  url: https://storage.uploads.sh/default/screenshots/changelog/byo-bucket.webp
+  alt: "The workspace storage settings page with a connected bucket active, showing the bucket, masked credentials, public base URL, and the note that storage in your own bucket is unmetered"
 ---
 
 You can now point any workspace at your own storage bucket. Files upload
