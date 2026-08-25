@@ -228,4 +228,14 @@ const TOC = [
       "calt" 0,
       "liga" 0;
   }
+  /* Shiki's inner <code> otherwise inherits the inline-code border/background
+     from .doc code, which — being an inline box across several lines — paints a
+     border fragment on every line. Strip it back to plain highlighted text. */
+  :global(pre.astro-code.yaml-example code) {
+    background: none;
+    border: 0;
+    padding: 0;
+    border-radius: 0;
+    font: inherit;
+  }
 </style>
