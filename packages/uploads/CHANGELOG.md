@@ -1,5 +1,12 @@
 # @buildinternet/uploads
 
+## 0.48.0
+
+### Minor Changes
+
+- 7ede14e: `uploads usage` is BYO-bucket aware: when a workspace's own bucket is active, the storage meter counts only hosted-storage residue (the number the quota actually enforces) and a note explains that storage in your own bucket is unmetered.
+- 90d442f: `uploads doctor` now reports the workspace's storage lanes: hosted storage vs your own bucket, how many previous lanes still serve old files, and whether the active lane is healthy — read from a new bearer-safe summary on the usage endpoint. Against older servers it keeps the honest "not checked from the CLI" line.
+
 ## 0.47.0
 
 ### Minor Changes
