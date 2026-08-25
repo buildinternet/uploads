@@ -21,6 +21,11 @@ export type UsageSnapshotLike = {
   storageRemainingBytes?: number;
   maxUploadsPerPeriod?: number;
   uploadsRemaining?: number;
+  /** Bytes still on hosted storage (shared-lane residue). */
+  sharedBytes?: number;
+  /** "shared" = BYO bucket active: the storage cap meters only hosted
+   * residue; bytes in the customer's own bucket are unmetered. */
+  storageBudgetBasis?: "total" | "shared";
   /** Catalog plan id when the API reports it (`free` | `pro`). */
   plan?: string;
 };
@@ -37,9 +42,15 @@ export type FormatUsageOptions = {
 /** True when the API reported any cumulative workspace quota. */
 export function isUsageMetered(result: UsageSnapshotLike): boolean {
   return (
-    usagePct(result.bytes, result.maxStorageBytes) !== null ||
+    usagePct(storageMeteredBytes(result), result.maxStorageBytes) !== null ||
     usagePct(result.uploadsInPeriod, result.maxUploadsPerPeriod) !== null
   );
+}
+
+/** The usage number the storage cap actually meters — hosted residue only
+ * when a BYO bucket is active (`storageBudgetBasis: "shared"`). */
+function storageMeteredBytes(result: UsageSnapshotLike): number {
+  return result.storageBudgetBasis === "shared" ? (result.sharedBytes ?? 0) : result.bytes;
 }
 
 /** 0–100, one decimal. Missing/invalid caps → no bar. Matches web `usagePct`. */
@@ -146,20 +157,27 @@ export function formatUsageHuman(
   const label = planLabel(result.plan);
   if (label) lines.push(`plan:      ${label}`);
 
-  const storagePct = usagePct(result.bytes, result.maxStorageBytes);
+  const byoActive = result.storageBudgetBasis === "shared";
+  const meteredBytes = storageMeteredBytes(result);
+  const storagePct = usagePct(meteredBytes, result.maxStorageBytes);
   if (storagePct !== null && result.maxStorageBytes != null) {
     // Caps (and remaining-against-cap) use SI marketed formatting so Free's
     // 250_000_000 reads as "250 MB", not binary "238.4 MB". Used bytes share
     // the same base on this line so the three numbers stay coherent.
     const detail =
-      `${formatMarketedBytes(result.bytes)} / ${formatMarketedBytes(result.maxStorageBytes)}` +
+      `${formatMarketedBytes(meteredBytes)} / ${formatMarketedBytes(result.maxStorageBytes)}` +
       (result.storageRemainingBytes != null
         ? ` (${formatMarketedBytes(result.storageRemainingBytes)} free)`
         : "");
     const bar = formatProgressBar(storagePct, { width, color });
-    lines.push(`storage:   ${bar}  ${detail}`);
+    lines.push(`storage:   ${bar}  ${detail}${byoActive ? " on hosted storage" : ""}`);
   } else {
     lines.push(`storage:   ${formatByteSize(result.bytes)}`);
+  }
+  if (byoActive) {
+    lines.push(
+      "note:      your own bucket is unmetered — the storage quota only counts files on hosted storage",
+    );
   }
 
   lines.push(`objects:   ${formatCount(result.objects)}`);

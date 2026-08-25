@@ -129,16 +129,16 @@ describe("isUnprefixedDedicatedBucket (#583 lifecycle guards)", () => {
   });
 });
 
-describe("byoBucketAllowed (#583 Task 1.3 feature gate)", () => {
-  it("is false when byoBucketEnabled is absent (fail-closed default)", () => {
-    expect(byoBucketAllowed({})).toBe(false);
+describe("byoBucketAllowed (#583 Task 1.3 feature gate, GA default-on)", () => {
+  it("is true when byoBucketEnabled is absent (GA default)", () => {
+    expect(byoBucketAllowed({})).toBe(true);
   });
 
-  it("is false when byoBucketEnabled is explicitly false", () => {
+  it("is false only when byoBucketEnabled is explicitly false (operator kill switch)", () => {
     expect(byoBucketAllowed({ byoBucketEnabled: false })).toBe(false);
   });
 
-  it("is true only when byoBucketEnabled is explicitly true", () => {
+  it("is true when byoBucketEnabled is explicitly true", () => {
     expect(byoBucketAllowed({ byoBucketEnabled: true })).toBe(true);
   });
 });

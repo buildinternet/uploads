@@ -171,11 +171,13 @@ describe("usageWithLimits — storage fields use the active lane's budget attrib
     });
     expect(out.maxStorageBytes).toBe(1_000);
     expect(out.storageRemainingBytes).toBe(100);
+    expect(out.storageBudgetBasis).toBe("shared");
   });
 
   it("includes maxStorageBytes/storageRemainingBytes for a shared-bucket record", () => {
     const out = usageWithLimits(usage, { maxStorageBytes: 1_000 });
     expect(out.maxStorageBytes).toBe(1_000);
     expect(out.storageRemainingBytes).toBe(100);
+    expect(out.storageBudgetBasis).toBe("total");
   });
 });

@@ -69,6 +69,11 @@ export type UsageSnapshot = {
   uploadsInPeriod: number;
   maxStorageBytes?: number;
   maxUploadsPerPeriod?: number;
+  /** Bytes still on hosted storage (shared-lane residue). */
+  sharedBytes?: number;
+  /** "shared" = BYO bucket active: the storage cap meters only hosted
+   * residue, the customer's own bucket is unmetered. */
+  storageBudgetBasis?: "total" | "shared";
 };
 
 function formatUsagePlain(usage: UsageSnapshot): string {
@@ -104,11 +109,17 @@ function progressRowHtml(label: string, detail: string, pct: number): string {
 
 export function renderUsageHtml(usage: UsageSnapshot): string {
   const meters: { label: string; detail: string; pct: number }[] = [];
-  const storagePct = usagePct(usage.bytes, usage.maxStorageBytes);
+  // BYO-active workspaces (`storageBudgetBasis: "shared"`) meter only the
+  // residue still on hosted storage — bytes in the customer's own bucket are
+  // unmetered, so a total-bytes meter would overstate usage against a cap
+  // that doesn't apply to it.
+  const byoActive = usage.storageBudgetBasis === "shared";
+  const meteredBytes = byoActive ? (usage.sharedBytes ?? 0) : usage.bytes;
+  const storagePct = usagePct(meteredBytes, usage.maxStorageBytes);
   if (storagePct !== null && usage.maxStorageBytes) {
     meters.push({
-      label: "Storage",
-      detail: `${formatBytes(usage.bytes)} of ${formatBytes(usage.maxStorageBytes)}`,
+      label: byoActive ? "Hosted storage" : "Storage",
+      detail: `${formatBytes(meteredBytes)} of ${formatBytes(usage.maxStorageBytes)}`,
       pct: storagePct,
     });
   }
@@ -120,11 +131,14 @@ export function renderUsageHtml(usage: UsageSnapshot): string {
       pct: uploadsPct,
     });
   }
+  const byoNote = byoActive
+    ? `<div class="usage-meta">Storage on your own bucket is unmetered — the plan limit only counts files on hosted storage.</div>`
+    : "";
   if (!meters.length) {
-    return `<div class="usage-text">${escapeHtml(formatUsagePlain(usage))}</div>`;
+    return `<div class="usage-text">${escapeHtml(formatUsagePlain(usage))}</div>${byoNote}`;
   }
   const objects = `${usage.objects} object${usage.objects === 1 ? "" : "s"}`;
-  return `<div class="ul-progress">${meters.map((m) => progressRowHtml(m.label, m.detail, m.pct)).join("")}</div><div class="usage-meta">${escapeHtml(objects)}</div>`;
+  return `<div class="ul-progress">${meters.map((m) => progressRowHtml(m.label, m.detail, m.pct)).join("")}</div><div class="usage-meta">${escapeHtml(objects)}</div>${byoNote}`;
 }
 
 /** Minimal member shape `renderMembersHtml` needs — api-client's `WorkspaceMember` satisfies it. */

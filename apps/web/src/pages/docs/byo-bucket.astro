@@ -6,7 +6,6 @@
 import DocsLayout from "../../layouts/DocsLayout.astro";
 
 const TOC = [
-  { id: "status", label: "Current status" },
   { id: "setup", label: "Set up your bucket" },
   { id: "serving", label: "Serving: custom domain vs signed-only" },
   { id: "degraded", label: "What's different" },
@@ -23,10 +22,9 @@ const TOC = [
   active="byo-bucket"
   toc={TOC}
 >
-  <div class="callout" id="status">
-    <strong>In preview.</strong> Bring-your-own-bucket is available to a small set of workspaces while
-    we finish testing. If your workspace doesn't show "Connect your own bucket" on its settings page,
-    it isn't in the preview yet.
+  <div class="callout">
+    Available to every workspace, on any plan. Storage in your own bucket is unmetered — the plan's
+    storage limit only counts files on hosted storage.
   </div>
 
   <section class="lead" id="setup">

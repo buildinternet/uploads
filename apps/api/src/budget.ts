@@ -226,6 +226,13 @@ export function usageWithLimits(usage: WorkspaceUsage, limits: WorkspaceBudgetLi
     uploadsInPeriod: usage.uploadsInPeriod,
     periodStart: usage.periodStart,
     updatedAt: usage.updatedAt,
+    // Which usage number the storage cap is enforced against: "total" for a
+    // shared/hosted lane, "shared" for a BYO-active workspace where only
+    // hosted-storage residue is metered (BYO bytes are the customer's own
+    // bill). Lets clients render an honest meter + "your bucket is
+    // unmetered" note instead of comparing total bytes to a cap that
+    // doesn't apply to them.
+    storageBudgetBasis: storageBudgetApplies(limits) ? "total" : "shared",
   };
 
   if (maxStorageBytes !== undefined && usageBytes !== undefined) {

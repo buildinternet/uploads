@@ -31,7 +31,7 @@ export const prerender = false;
         </div>
         <p class="ws-hint muted">2–63 chars · lowercase letters, digits, hyphens</p>
 
-        <label class="storage-byo-option muted" id="byo-option" hidden>
+        <label class="storage-byo-option muted" id="byo-option">
           <input type="checkbox" id="byo-checkbox" />
           Bring your own storage bucket
           <span class="muted">— set up after the workspace is created.</span>
@@ -146,19 +146,12 @@ export const prerender = false;
       // workspace-less user can create one mid-authorization and resume.
       const nextPath = safeSameOriginPath(new URLSearchParams(location.search).get("next"));
 
-      // "Bring your own storage bucket" (issue #583 Task 2.1). There's no
-      // pre-creation capability signal to check — `byoBucketEnabled` is a
-      // per-workspace record flag that only exists once a workspace exists,
-      // and it's off by default for everyone. Rather than always showing an
-      // option that 403s for virtually every user, or inventing a new
-      // capability endpoint, this reveals the checkbox only for `?byo=1`
-      // (shared out-of-band with early-access workspaces/orgs) — an honest
-      // client-side gate the settings page's own `byoBucketEnabled` check
-      // still enforces for real: an unflagged workspace just lands on a
-      // normal settings page after creation.
-      const byoOption = requireElement<HTMLElement>("#byo-option", page);
+      // "Bring your own storage bucket" (issue #583 Task 2.1). Since the
+      // BYO-bucket GA the surface is on by default for every workspace, so
+      // the checkbox is always visible (the old `?byo=1` early-access reveal
+      // is gone). The settings page's own `byoBucketEnabled` check still
+      // enforces the operator kill switch for real.
       const byoCheckbox = requireElement<HTMLInputElement>("#byo-checkbox", page);
-      if (new URLSearchParams(location.search).get("byo") === "1") byoOption.hidden = false;
 
       void listAccounts(authOrigin).then((accounts) => {
         if (accounts && !accounts.some((a) => a.providerId === "github")) githubEl.hidden = false;
@@ -221,7 +214,7 @@ export const prerender = false;
           githubEl.hidden = true;
           successEl.hidden = true;
           const name = input.value.trim();
-          const wantsByo = !byoOption.hidden && byoCheckbox.checked;
+          const wantsByo = byoCheckbox.checked;
           if (submit) submit.disabled = true;
           // Creation itself stays one unchanged transaction — shared-bucket
           // record, normal path — regardless of the BYO checkbox. BYO is

@@ -155,6 +155,11 @@ export interface WorkspaceUsage {
   storageRemainingBytes?: number;
   maxUploadsPerPeriod?: number;
   uploadsRemaining?: number;
+  /** Bytes still on hosted storage (shared-lane residue). */
+  sharedBytes?: number;
+  /** "total" = cap meters all bytes; "shared" = BYO active, cap meters only
+   * hosted-storage residue and the customer's own bucket is unmetered. */
+  storageBudgetBasis?: "total" | "shared";
 }
 
 function parseWorkspaceUsage(body: unknown): WorkspaceUsage | null {

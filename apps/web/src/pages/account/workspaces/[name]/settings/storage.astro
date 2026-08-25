@@ -76,7 +76,8 @@ if (!workspace) return Astro.redirect("/account/workspaces");
               >
                 Uploads go to hosted storage at <code>storage.uploads.sh</code> — no setup, and links
                 just work. Prefer to own the data? Point this workspace at your own Cloudflare R2 bucket.
-                Nothing moves until you switch.
+                Nothing moves until you switch, and storage in your own bucket is unmetered — the plan's
+                storage limit doesn't apply to it.
               </div>
             </div>
             <div
@@ -200,7 +201,10 @@ if (!workspace) return Astro.redirect("/account/workspaces");
             </div>
           </div>
         </div>
-        <p class="settings-note muted" id="storage-byo-note">New uploads go to this bucket.</p>
+        <p class="settings-note muted" id="storage-byo-note">
+          New uploads go to this bucket. Storage here is unmetered — the plan's storage limit only
+          counts files still on hosted storage.
+        </p>
 
         <!-- Unhealthy-lane panel (#826).
              One plain-language sentence about what stopped working.

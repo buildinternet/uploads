@@ -305,16 +305,14 @@ export function newLaneId(): string {
 }
 
 /**
- * Fail-closed gate for the self-serve BYO-bucket surface (issue #583 Task
- * 1.3): only an explicit `true` unlocks it. Undefined, false, or any other
- * value is treated as blocked — same posture as `posterGenerationAllowed`'s
- * kill switches (`apps/api/src/poster.ts`), chosen because losing access to
- * an unshipped surface costs nothing, while accidentally exposing
- * customer-credential storage config to a workspace that was never enabled
- * for it would be a real incident. Only an operator can flip this today.
+ * Gate for the self-serve BYO-bucket surface (issue #583 Task 1.3). GA'd
+ * 2026-08-24: on by default for every workspace — only an operator-set
+ * explicit `false` (the admin panel's Storage toggle) blocks it, kept as a
+ * per-workspace kill switch. Plan-level gating, if a billing decision ever
+ * wants it, goes through `planAllowsByoBucket` (@uploads/billing), not here.
  */
 export function byoBucketAllowed(record: Pick<WorkspaceRecord, "byoBucketEnabled">): boolean {
-  return record.byoBucketEnabled === true;
+  return record.byoBucketEnabled !== false;
 }
 
 /**
