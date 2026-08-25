@@ -1,7 +1,9 @@
 ---
 // uploads.sh — docs hub. Overview of what the CLI does, the one-time install,
 // and cards out to the focused subject pages. Purpose-first: getting media onto
-// GitHub PRs, issues, and code reviews.
+// GitHub PRs, issues, and code reviews. Structure: understand → install → do —
+// one golden-path command (put), with attach demoted to a pointer into the
+// how-to guide; copy affordances reserved for commands you paste verbatim.
 import DocsLayout from "../layouts/DocsLayout.astro";
 
 const REPO = "https://github.com/buildinternet/uploads";
@@ -20,59 +22,19 @@ const REPO = "https://github.com/buildinternet/uploads";
       What it does <a class="anchor" href="#what-it-does" aria-label="Link to this section">#</a>
     </h2>
     <p>
-      Getting an image into a GitHub comment is easy for a person: you drag it in. For an agent or a
-      script, there is no drag-and-drop. uploads.sh fills that gap: it hosts your file at a stable
-      public URL and posts it to the right place on GitHub for you.
+      Dragging an image into a GitHub comment is easy for a person; an agent or script has no
+      drag-and-drop. uploads.sh closes that gap. With the CLI you can:
     </p>
-    <p>
-      The everyday flow is one command, on the branch you are already on. No pull request required:
-    </p>
-    <div class="cmd">
-      <span class="text">uploads put ./after.png</span>
-      <button type="button" data-copy="uploads put ./after.png" aria-live="polite">copy</button>
-    </div>
-    <div class="block" aria-label="Example output">
-      <pre>&gt;&gt; uploading ./after.png
-note: staged for branch feat/nav — auto-comments to pull request when opened
-(or run: uploads attach --promote once it exists)</pre>
-    </div>
-    <p>
-      Keep doing that as you work. When the PR opens, staged files land in one managed comment — via
-      the GitHub App, or the next <code>uploads attach --promote</code>. Tag a pair with&#32;
-      <code>--state before</code> and <code>--state after</code> and they render side by side. See&#32;
-      <a href="/docs/attach-pull-request-images#staging">Attach &amp; share</a> for what is queued.
-    </p>
-  </section>
-
-  <section id="before-the-pr">
-    <h2>
-      Already have a PR open? <a
-        class="anchor"
-        href="#before-the-pr"
-        aria-label="Link to this section">#</a
-      >
-    </h2>
-    <p>
-      <code>attach</code> is the direct path. The CLI finds the pull request, uploads the files, and keeps
-      one comment up to date:
-    </p>
-    <div class="cmd">
-      <span class="text">uploads attach ./before.png ./after.png</span>
-      <button type="button" data-copy="uploads attach ./before.png ./after.png" aria-live="polite"
-        >copy</button
-      >
-    </div>
-    <div class="block" aria-label="Example output">
-      <pre># optimizes each image, then keeps one comment on the PR up to date
-&gt;&gt; uploading ./before.png
-&gt;&gt; uploading ./after.png
-<span class="ok">&gt;&gt; attachments comment updated</span></pre>
-    </div>
-    <p>
-      Same pairing works here: <code>--state before</code> and <code>--state after</code> render side
-      by side — see&#32;
-      <a href="/docs/attach-pull-request-images#before-after">pair a before and after</a>.
-    </p>
+    <ul>
+      <li>
+        <a href="/docs/attach-pull-request-images">Attach screenshots and video</a> to a GitHub PR, issue,
+        or code review — kept in one managed comment.
+      </li>
+      <li>Get a stable public URL for any file, on the branch you're already on.</li>
+      <li>
+        Collect media into a <a href="/docs/galleries">gallery</a> behind one link.
+      </li>
+    </ul>
   </section>
 
   <section id="install">
@@ -80,37 +42,46 @@ note: staged for branch feat/nav — auto-comments to pull request when opened
       Install &amp; sign in <a class="anchor" href="#install" aria-label="Link to this section">#</a
       >
     </h2>
-    <p>Install the CLI globally, then sign in once:</p>
+    <p>Install the CLI globally:</p>
     <div class="cmd">
       <span class="text">npm install -g @buildinternet/uploads</span>
       <button type="button" data-copy="npm install -g @buildinternet/uploads" aria-live="polite"
         >copy</button
       >
     </div>
+    <p>
+      Then run <code>uploads login</code> to approve sign-in in your browser — GitHub or a magic link.
+      You'll need a workspace first: create your own with a linked GitHub account, or get invited by an
+      admin. It's a one-time step per machine.
+    </p>
+    <div class="note">
+      Prefer not to install? Prefix any command with <code>npx</code>. And <code
+        >uploads doctor</code
+      > checks your setup anytime.
+    </div>
+  </section>
+
+  <section id="first-upload">
+    <h2>
+      Your first upload <a class="anchor" href="#first-upload" aria-label="Link to this section"
+        >#</a
+      >
+    </h2>
+    <p>One command, on the branch you're already on — no pull request required:</p>
     <div class="cmd">
-      <span class="text">uploads login</span>
-      <button type="button" data-copy="uploads login" aria-live="polite">copy</button>
+      <span class="text">uploads put ./after.png</span>
+      <button type="button" data-copy="uploads put ./after.png" aria-live="polite">copy</button>
     </div>
     <p>
-      <code>uploads login</code> opens a browser so you can approve the sign-in (GitHub or a magic link).
-      You'll need a workspace first — create your own with a linked GitHub account, or get invited to
-      an existing one by an admin. Once you're in, the CLI mints a workspace token and saves it, so you
-      only do this once per machine.
+      That uploads the file and prints a public URL. With no PR yet, it stages the file to post
+      automatically when the PR opens — keep running <code>put</code> as you work. See&#32;
+      <a href="/docs/attach-pull-request-images#staging">Attach &amp; share</a> for staging and before/after
+      pairing.
     </p>
-    <p>Prefer not to install anything? Every command works as a one-off with <code>npx</code>:</p>
-    <div class="cmd">
-      <span class="text">npx @buildinternet/uploads put ./after.png</span>
-      <button
-        type="button"
-        data-copy="npx @buildinternet/uploads put ./after.png"
-        aria-live="polite">copy</button
-      >
-    </div>
-    <div class="cmd">
-      <span class="text">uploads doctor <span class="cm"># check everything is wired up</span></span
-      >
-      <button type="button" data-copy="uploads doctor" aria-live="polite">copy</button>
-    </div>
+    <p class="pointer">
+      Already have a PR open? Use <code>uploads attach</code> instead —&#32;
+      <a href="/docs/attach-pull-request-images">see the walkthrough <span class="go">→</span></a>.
+    </p>
   </section>
 
   <section id="explore">
@@ -125,13 +96,6 @@ note: staged for branch feat/nav — auto-comments to pull request when opened
           it.
         </p>
       </a>
-      <a class="card" href="/docs/galleries">
-        <h3>Galleries <span class="go">→</span></h3>
-        <p>
-          Ordered sets of media behind one public link at <code>/g/&lt;id&gt;</code>, linkable to a
-          PR or issue.
-        </p>
-      </a>
       <a class="card" href="/docs/github-app">
         <h3>GitHub App <span class="go">→</span></h3>
         <p>
@@ -139,16 +103,16 @@ note: staged for branch feat/nav — auto-comments to pull request when opened
           when the PR opens.
         </p>
       </a>
-      <a class="card" href="/docs/comment-config">
-        <h3>Comment config <span class="go">→</span></h3>
-        <p>
-          Commit <code>.uploads.yml</code> to a repo to control image width, inline caps, and a note on
-          its comment.
-        </p>
-      </a>
       <a class="card" href="/docs/agents">
         <h3>Set up your agent <span class="go">→</span></h3>
         <p>Install the agent skills and the MCP server so your agent uploads on its own.</p>
+      </a>
+      <a class="card" href="/docs/galleries">
+        <h3>Galleries <span class="go">→</span></h3>
+        <p>
+          Ordered sets of media behind one public link at <code>/g/&lt;id&gt;</code>, linkable to a
+          PR or issue.
+        </p>
       </a>
       <a class="card" href="/docs/reference">
         <h3>Reference <span class="go">→</span></h3>
@@ -158,22 +122,16 @@ note: staged for branch feat/nav — auto-comments to pull request when opened
         <h3>Plans &amp; limits <span class="go">→</span></h3>
         <p>Storage and file-size caps per plan, and how they compare with GitHub's.</p>
       </a>
-      <a class="card" href="/docs/byo-bucket">
-        <h3>Bring your own bucket <span class="go">→</span></h3>
-        <p>
-          Point a workspace at your own Cloudflare R2 bucket instead of the shared one. In preview.
-        </p>
-      </a>
-      <a class="card" href="/github-screenshots">
-        <h3>Agent walkthrough <span class="go">→</span></h3>
-        <p>A guided setup for getting a coding agent to upload screenshots and video to GitHub.</p>
-      </a>
     </div>
     <div class="note">
-      Looking for deeper material like the REST API, enrollment internals, self-hosting, or operator
-      docs? It all lives in <a href={REPO}>the GitHub repository</a>. Agents can also read <a
-        href="/llms.txt">/llms.txt</a
-      > (index) or <a href="/llms-full.txt">/llms-full.txt</a> (one-file guide).
+      More: <a href="/docs/comment-config">comment config</a>, <a href="/docs/byo-bucket"
+        >bring your own bucket</a
+      >, and the <a href="/github-screenshots">agent walkthrough</a>. Deeper material — the REST
+      API, enrollment internals, self-hosting, and operator docs — lives in <a href={REPO}
+        >the GitHub repository</a
+      >. Agents can also read <a href="/llms.txt">/llms.txt</a> (index) or <a href="/llms-full.txt"
+        >/llms-full.txt</a
+      > (one-file guide).
     </div>
   </section>
 </DocsLayout>

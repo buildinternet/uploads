@@ -24,9 +24,9 @@ const TOC = [
       What a gallery is <a class="anchor" href="#what" aria-label="Link to this section">#</a>
     </h2>
     <p>
-      A gallery is an ordered set of media behind one public link. You get a durable URL that stays
-      current as you add shots, instead of scattering individual file links. Each gallery has a
-      public share page at <code>/g/&lt;id&gt;</code>.
+      A gallery is an ordered set of media behind one public link, so you can share a whole batch of
+      shots as they're captured instead of one URL per file. Each gallery has a public page at
+      <code>/g/&lt;id&gt;</code>.
     </p>
   </section>
 
@@ -34,33 +34,21 @@ const TOC = [
     <h2>
       CLI workflow <a class="anchor" href="#workflow" aria-label="Link to this section">#</a>
     </h2>
-    <p>Create a gallery, then add files to it as you capture them:</p>
+    <p>Create a gallery — this prints its id:</p>
     <div class="cmd">
-      <span class="text"
-        >uploads gallery create --title "Release screenshots" <span class="cm"
-          ># returns a gallery id</span
-        ></span
-      >
+      <span class="text">uploads gallery create --title "Release screenshots"</span>
       <button
         type="button"
         data-copy='uploads gallery create --title "Release screenshots"'
         aria-live="polite">copy</button
       >
     </div>
+    <p>Then add files to it, passing that id to <code>--gallery</code>:</p>
     <div class="cmd">
-      <span class="text"
-        >uploads put ./shot.png --gallery &lt;id&gt; <span class="cm"
-          ># add a file to the gallery</span
-        ></span
-      >
-      <button type="button" data-copy="uploads put ./shot.png --gallery" aria-live="polite"
-        >copy</button
-      >
+      <span class="text">uploads put ./shot.png --gallery &lt;id&gt;</span>
+      <button type="button" data-copy="uploads put" aria-live="polite">copy</button>
     </div>
-    <p>
-      The create command prints a gallery id. Pass that id to <code>--gallery</code> on later uploads.
-      The public page at <code>/g/&lt;id&gt;</code> updates as items are added.
-    </p>
+    <p>The public page at <code>/g/&lt;id&gt;</code> updates as items are added.</p>
   </section>
 
   <section id="linking">
@@ -69,20 +57,13 @@ const TOC = [
       >
     </h2>
     <p>
-      Linking a gallery to a pull request or issue keeps the public link associated with that work.
-      It is metadata only — the gallery stays public at the same <code>/g/&lt;id&gt;</code> URL.
+      Optional — this is metadata only, the gallery stays public at the same <code
+        >/g/&lt;id&gt;</code
+      > URL:
     </p>
     <div class="cmd">
-      <span class="text"
-        >uploads gallery link &lt;id&gt; --github owner/repo#123 <span class="cm"
-          ># associate with a PR or issue</span
-        ></span
-      >
-      <button
-        type="button"
-        data-copy="uploads gallery link --github owner/repo#123"
-        aria-live="polite">copy</button
-      >
+      <span class="text">uploads gallery link &lt;id&gt; --github owner/repo#123</span>
+      <button type="button" data-copy="uploads gallery link" aria-live="polite">copy</button>
     </div>
   </section>
 

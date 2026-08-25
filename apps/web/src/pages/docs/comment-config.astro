@@ -33,9 +33,8 @@ const TOC = [
       >
     </h2>
     <p>
-      Every key is optional and lives under a top-level <code>comment:</code> map. Most of it is presentation
-      — how the managed comment looks — plus two keys that control whether GitHub-posted attachments get
-      <a href="/docs/github-app#ingest">imported into the workspace</a>.
+      Commit <code>.uploads.yml</code> at a repo's root to shape how its managed comment renders. Every
+      key lives under a top-level <code>comment:</code> map and is optional. With it you can set:
     </p>
     <ul>
       <li><strong>Image width</strong> for inline images, pair cells, and video posters.</li>
@@ -44,24 +43,25 @@ const TOC = [
       <li><strong>Whether images link</strong> to the file's share page.</li>
       <li><strong>A short note</strong> shown at the top of the comment.</li>
       <li>
-        <strong>Whether GitHub-posted attachments are imported</strong>, and whether bot-authored
-        ones count.
+        <strong
+          >Whether GitHub-posted attachments are <a href="/docs/github-app#ingest">imported</a> into the
+          workspace</strong
+        >, and whether bot-authored ones count.
       </li>
       <li>
         <strong>Whether uploads.sh links pasted into a PR or comment are adopted</strong> into that PR/issue's
         attachment context.
       </li>
     </ul>
-    <p>
-      Nothing in the file can change where files are hosted or which repo a workspace can post to —
-      it reshapes the comment body for a repo that's already allowed to receive one, and gates
-      whether that repo's GitHub-posted attachments get mirrored in.
-    </p>
+    <div class="note">
+      The file only reshapes the comment for a repo that's already allowed to receive one — it can't
+      change where files are hosted or which repo a workspace can post to.
+    </div>
   </section>
 
   <section id="example">
     <h2>Full example <a class="anchor" href="#example" aria-label="Link to this section">#</a></h2>
-    <p>Commit this at the repo root as <code>.uploads.yml</code>:</p>
+    <p>Save it at the repo root:</p>
     <div class="block" aria-label="Example .uploads.yml">
       <pre>comment:
   # "auto" (the default filename-based sizing), "full" (natural width up to
@@ -107,10 +107,10 @@ const TOC = [
   # level as a PR description. Empty or whitespace-only counts as absent.
   note: ""</pre>
     </div>
-    <p class="note">
+    <div class="note">
       A value outside its valid range doesn't fail the whole file: numbers clamp to their bounds,
       and an unrecognized value for a key drops just that key while every other key still applies.
-    </p>
+    </div>
   </section>
 
   <section id="file-location">

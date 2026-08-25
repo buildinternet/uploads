@@ -13,18 +13,25 @@ import DocsLayout from "../../layouts/DocsLayout.astro";
   active="agents"
 >
   <section class="lead" id="install">
-    <h2>One command <a class="anchor" href="#install" aria-label="Link to this section">#</a></h2>
+    <h2>Install <a class="anchor" href="#install" aria-label="Link to this section">#</a></h2>
     <p>
-      One command detects your agent runtime and installs the agent skills (attach workflow, CLI
-      reference, and screenshot annotations) plus the hosted MCP server:
+      One command detects your agent runtime and installs everything it needs: the agent skills
+      (attach workflow, CLI reference, and screenshot annotations) plus the hosted MCP server.
     </p>
     <div class="cmd">
       <span class="text">uploads install</span>
       <button type="button" data-copy="uploads install" aria-live="polite">copy</button>
     </div>
+    <p class="pointer">
+      Using Claude Code or Codex? Install everything as one plugin instead, with the pre-PR hook and
+      a slash command included —&#32;
+      <a href="#plugin">see Claude Code &amp; Codex plugins <span class="go">→</span></a>.
+    </p>
+
+    <h3>Or set up by hand</h3>
     <p>
-      Or set up each piece yourself — the skills via <code>npx skills</code>, the MCP server with
-      your runtime's MCP registration (shown here for Claude Code):
+      Add the skills with <code>npx skills</code>, then register the MCP server with your runtime's
+      own MCP registration — shown here for Claude Code:
     </p>
     <div class="cmd">
       <span class="text">npx skills add buildinternet/uploads</span>
@@ -55,10 +62,9 @@ import DocsLayout from "../../layouts/DocsLayout.astro";
       >
     </h2>
     <p>
-      On Claude Code you can install everything as one plugin — the agent skills (attach workflow,
-      CLI reference, annotations), an MCP server, an&#32;
-      <code>/uploads:attach</code> command, and a pre-PR screenshot reminder hook — from the uploads marketplace.
-      Add the marketplace, then install:
+      Install the agent skills, the MCP server, an <code>/uploads:attach</code> command, and a pre-PR
+      screenshot reminder hook as one plugin, from the uploads marketplace. Add the marketplace, then
+      install:
     </p>
     <div class="cmd slash">
       <span class="text">/plugin marketplace add buildinternet/uploads</span>
@@ -75,12 +81,10 @@ import DocsLayout from "../../layouts/DocsLayout.astro";
       >
     </div>
     <p>
-      Codex uses the same repo as a plugin (<code>.codex-plugin/plugin.json</code>): skills, the
-      hosted MCP server, and the same pre-PR hook. After enabling it, open <code>/hooks</code> once and
-      trust the hook if Codex asks. Both plugins run
-      <code>uploads hook pre-pr-screenshot</code>, so keep the <code>uploads</code> CLI on your <code
-        >PATH</code
-      > and run <code>uploads login</code> once.
+      Codex uses the same repo as a plugin (<code>.codex-plugin/plugin.json</code>) — the same
+      skills, MCP server, and hook. After enabling it, open <code>/hooks</code> once and trust the hook
+      if Codex asks. Both plugins run <code>uploads hook pre-pr-screenshot</code>, so keep the
+      <code>uploads</code> CLI on your <code>PATH</code> and run <code>uploads login</code> once.
     </p>
   </section>
 
@@ -89,20 +93,14 @@ import DocsLayout from "../../layouts/DocsLayout.astro";
       Skill vs. MCP <a class="anchor" href="#skill-vs-mcp" aria-label="Link to this section">#</a>
     </h2>
     <p>
-      The <strong>skills</strong> teach the agent when and how to use the CLI — for example staging a
-      before/after with <code>uploads put</code> as it works, or baking callouts onto a capture with <code
+      The skill teaches the agent when and how to use the CLI — for example staging a before/after
+      with <code>uploads put</code>, or baking callouts onto a capture with <code
         >uploads screenshot --annotate</code
-      >. The local stdio MCP (<code>uploads mcp</code>) gives the same tools as the CLI, including
-      <code>attach</code>. The hosted MCP at <code>agents.uploads.sh</code> is for agents without a local
-      checkout: it has <code>put</code>, <code>list</code>, <code>delete</code>, and more — not <code
-        >attach</code
-      >, and no git defaults. Stage with <code>put</code> plus <code>repo</code> and <code
-        >branch</code
-      >. Once a PR exists, <code>promote</code> with <code>repo</code>, <code>pr</code>, and <code
-        >branch</code
-      >. Hosted <code>put</code>/<code>comment</code> honor a repo's&#32;
-      <a href="/docs/comment-config"><code>.uploads.yml</code></a> the same way the bot does. Register
-      the local server with any MCP client, e.g.:
+      >.
+    </p>
+    <p>
+      The local stdio MCP (<code>uploads mcp</code>) exposes the same tools as the CLI, including
+      <code>attach</code>. Register it with any MCP client, e.g.:
     </p>
     <div class="cmd">
       <span class="text">claude mcp add uploads -- uploads mcp</span>
@@ -110,6 +108,14 @@ import DocsLayout from "../../layouts/DocsLayout.astro";
         >copy</button
       >
     </div>
+    <p>
+      The hosted MCP at <code>agents.uploads.sh</code> is for agents with no local checkout. It has
+      <code>put</code>, <code>list</code>, <code>delete</code>, and more, but not <code>attach</code
+      >, and no git defaults — pass <code>repo</code> and <code>branch</code> to <code>put</code> to stage,
+      then <code>repo</code>, <code>pr</code>, and <code>branch</code> to <code>promote</code> once a
+      PR exists. Hosted <code>put</code>/<code>comment</code> honor a repo's&#32;
+      <a href="/docs/comment-config"><code>.uploads.yml</code></a> the same way the bot does.
+    </p>
     <div class="note">
       Want the guided version? The <a href="/github-screenshots">agent walkthrough</a> takes a coding
       agent from install to a first staged before/after.
@@ -125,15 +131,28 @@ import DocsLayout from "../../layouts/DocsLayout.astro";
       >
     </h2>
     <p>
-      Any agent that can run a shell command can capture at each visual milestone and run a bare <code
-        >uploads put ./shot.png --state before|after</code
-      > — on a branch it stages automatically, no <code>--branch</code> flag required. A bare&#32;
-      <code>uploads screenshot</code> stages the same way, carrying its derived&#32;
-      <code>path</code>/<code>url</code>/<code>env</code>/<code>viewport</code> metadata through promotion.
-      <code>--state</code> is still worth keeping as a habit; it's the one thing no tool can infer from
-      the image. Let the PR comment assemble itself once a PR opens — via the GitHub App webhook, or the
-      next <code>uploads attach</code> (or <code>uploads attach --promote</code>) without the App.
-      See the <a href="/github-screenshots">stage-as-you-go walkthrough</a>&#32; for the full loop.
+      Any agent that can run a shell command can capture at each visual milestone and stage it — no
+      PR required yet, and no <code>--branch</code> flag needed on a branch:
+    </p>
+    <div class="cmd">
+      <span class="text"
+        >uploads put ./shot.png --state before <span class="cm"># or --state after</span></span
+      >
+      <button type="button" data-copy="uploads put ./shot.png --state before" aria-live="polite"
+        >copy</button
+      >
+    </div>
+    <p>
+      A bare <code>uploads screenshot</code> stages the same way, carrying its derived <code
+        >path</code
+      >, <code>url</code>, <code>env</code>, and <code>viewport</code> metadata through promotion. Keep
+      using <code>--state</code> — it's the one thing no tool can infer from the image.
+    </p>
+    <p>
+      Once a PR opens, the comment assembles itself: via the GitHub App webhook, or the next <code
+        >uploads attach</code
+      > (or <code>uploads attach --promote</code>) without the App. See the&#32;
+      <a href="/github-screenshots">stage-as-you-go walkthrough</a> for the full loop.
     </p>
   </section>
 
@@ -163,7 +182,7 @@ staged files are promoted into the PR's attachments comment automatically.</pre>
     </div>
     <p>
       Requires the <code>uploads</code> CLI on <code>PATH</code> and <code>uploads login</code>&#32;
-      already run once — see <a href="#install">One command</a> above.
+      already run once — see <a href="#install">Install</a> above.
     </p>
   </section>
 
