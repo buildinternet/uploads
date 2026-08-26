@@ -26,6 +26,7 @@ in one tidy comment that updates automatically on each revision. Built on
   <a href="https://skills.sh/buildinternet/uploads"><img alt="skills.sh" src="https://skills.sh/b/buildinternet/uploads"></a>
   <a href="https://github.com/buildinternet/uploads/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/buildinternet/uploads/actions/workflows/ci.yml/badge.svg"></a>
   <a href="https://www.npmjs.com/package/@buildinternet/uploads"><img alt="npm (CLI)" src="https://img.shields.io/npm/v/@buildinternet/uploads?color=cb3837&label=%40buildinternet%2Fuploads&logo=npm"></a>
+  <a href="https://registry.modelcontextprotocol.io/v0.1/servers?search=sh.uploads/mcp"><img alt="MCP server" src="https://img.shields.io/badge/exposes-MCP_server-000"></a>
   <a href="https://github.com/apps/uploads-sh"><img alt="GitHub App: uploads-sh" src="https://img.shields.io/badge/GitHub%20App-uploads--sh-181717?logo=github&logoColor=white"></a>
   <a href="https://deepwiki.com/buildinternet/uploads"><img alt="Ask DeepWiki" src="https://deepwiki.com/badge.svg"></a>
   <a href="LICENSE"><img alt="License: Apache 2.0" src="https://img.shields.io/badge/license-Apache%202.0-blue"></a>
@@ -136,6 +137,14 @@ an invite into one — see [enrollment](docs/enrollment.md). Hosted files are
 public URLs — private-repo attachments get non-guessable links
 ([how that works](docs/private-attachments.md)), but anyone holding a URL can
 view the file. Do not upload secrets or sensitive UI.
+
+**MCP.** Hosted at `agents.uploads.sh`, listed in the
+[MCP Registry](https://registry.modelcontextprotocol.io/v0.1/servers?search=sh.uploads/mcp)
+as `sh.uploads/mcp`. Local stdio is `uploads mcp` on the same npm package.
+
+```bash
+claude mcp add --transport http uploads https://agents.uploads.sh/mcp
+```
 
 **Teach your agent the loop.** `uploads install` wires in the agent skills and
 the MCP server, so future sessions capture at each visual milestone on their

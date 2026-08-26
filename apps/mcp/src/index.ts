@@ -32,7 +32,7 @@ import {
 import { protectedResourceMetadata, requestOrigin } from "@uploads/api/well-known";
 import { Hono, type Context, type Next } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
-import pkg from "../package.json";
+import { version as uploadsVersion } from "../../../packages/uploads/package.json";
 import { createRemoteTools } from "./tools";
 import { invalidTokenChallenge, isJwtShaped, missingTokenChallenge, verifyOAuthJwt } from "./oauth";
 import { ROBOTS_TXT } from "./robots";
@@ -165,7 +165,9 @@ async function workspacePathAuth(c: Context<WorkspaceVars>, next: Next): Promise
 /** Builds a fresh server for this request — same tool catalog for both eras, so they can't drift. */
 function buildServer(c: Context<WorkspaceVars>): McpServer {
   return createMcpServer({
-    serverInfo: { name: "uploads-mcp", version: pkg.version, icons: MCP_SERVER_ICONS },
+    // Advertise the published CLI version (the MCP Registry listing), not
+    // this worker's private package.json, which is inert.
+    serverInfo: { name: "uploads-mcp", version: uploadsVersion, icons: MCP_SERVER_ICONS },
     tools: createRemoteTools({
       env: c.env,
       workspace: c.get("workspace"),
@@ -256,13 +258,13 @@ function mcpServerCard() {
     // Plural, mirroring the ratified `server/discover` result. There is no
     // ratified server-card schema to key off — the `$schema` URL above 404s
     // and SEP-2127 is still an unmerged draft with a different shape — so the
-    // discover result is the closest thing to an authority. Keep this list in
-    // sync with apps/web/public/.well-known/mcp/server-card.json, which serves
-    // the same document from the uploads.sh origin.
+    // discover result is the closest thing to an authority. The same document
+    // is generated onto uploads.sh from server.json
+    // (scripts/build-mcp-server-card.mjs).
     supportedVersions: ["2026-07-28", "2025-06-18"],
     serverInfo: {
       name: "uploads-mcp",
-      version: pkg.version,
+      version: uploadsVersion,
       description:
         "Host files on uploads.sh from an agent — put, attach, list, delete, usage, and GitHub attachment comments.",
       homepage: "https://uploads.sh/",
