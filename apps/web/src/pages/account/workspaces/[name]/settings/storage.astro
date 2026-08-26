@@ -870,9 +870,10 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       /**
        * Renders only the FAILING checks, as plain what-went-wrong sentences
        * — the passing ones are process detail nobody needs to review. The
-       * public base URL is required by this form, so a failing `public-url`
-       * check blocks saving here even though the API still classifies it as
-       * recommended-only.
+       * public base URL is required by this form, so a conclusive `public-url`
+       * failure blocks saving here even though the API still classifies it as
+       * recommended-only — but an `inconclusive` one (the probe couldn't run)
+       * doesn't block and never reaches this renderer (#853).
        */
       function renderFailures(result: StorageVerifyResult): void {
         storageFormChecklist.innerHTML = result.checks
@@ -931,14 +932,25 @@ if (!workspace) return Astro.redirect("/account/workspaces");
             return;
           }
           // Any failing check keeps you on the form with the fix in reach —
-          // including `public-url`, which the API treats as recommended but
-          // this form requires. The one exception is `embed-cache` (#592):
-          // optional but recommended, so it never blocks the save — the tip
-          // is surfaced after the lane card appears instead.
+          // including a conclusive `public-url` failure (the domain answered
+          // with the wrong status or bytes), which the API treats as
+          // recommended but this form requires. Two exceptions never block
+          // the save: `embed-cache` (#592, optional-but-recommended tip) and
+          // any check marked `inconclusive` (#853 — the probe couldn't run
+          // at all, e.g. a same-account custom domain that's unreachable as
+          // a server-side request while serving the public internet fine).
+          // Both are surfaced after the lane card appears instead.
           const embedCacheWarn = verify.result.checks.find(
             (check) => check.id === "embed-cache" && !check.ok,
           );
-          if (verify.result.checks.some((check) => !check.ok && check.id !== "embed-cache")) {
+          const inconclusiveWarn = verify.result.checks.find(
+            (check) => !check.ok && check.inconclusive,
+          );
+          if (
+            verify.result.checks.some(
+              (check) => !check.ok && check.id !== "embed-cache" && !check.inconclusive,
+            )
+          ) {
             storageSaveBtn.disabled = false;
             renderFailures(verify.result);
             revealAdoptRowIfNotEmpty(verify.result);
@@ -965,6 +977,15 @@ if (!workspace) return Astro.redirect("/account/workspaces");
                 "Optional but recommended: add a cache rule to this domain so GitHub embeds refresh after overwrites — see the setup guide.";
               storageSavedActionStatus.textContent = tip;
               storageActionStatus.textContent = tip;
+            }
+            // Saved fine, but the public-URL probe couldn't run from the
+            // server (#853): tell the user to eyeball a known object's URL
+            // themselves — plain text, the save succeeded.
+            if (inconclusiveWarn) {
+              const note =
+                "Saved — but we couldn't reach the public base URL from our servers to double-check it (common with same-account custom domains). Open a file's public URL in your browser to confirm it loads.";
+              storageSavedActionStatus.textContent = note;
+              storageActionStatus.textContent = note;
             }
             return;
           }

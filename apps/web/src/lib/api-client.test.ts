@@ -1639,6 +1639,32 @@ describe("verifyWorkspaceStorage", () => {
     });
   });
 
+  it("passes through `inconclusive` on a check so the form can save past an unverifiable public URL (#853)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({
+          ok: true,
+          checks: [
+            { id: "round-trip", ok: true, required: true },
+            {
+              id: "public-url",
+              ok: false,
+              required: false,
+              inconclusive: true,
+              hint: "we couldn't verify publicBaseUrl from here",
+            },
+          ],
+        }),
+      ),
+    );
+    const result = await verifyWorkspaceStorage("http://127.0.0.1:8787", "acme", CANDIDATE);
+    expect(result.kind).toBe("ok");
+    if (result.kind !== "ok") return;
+    expect(result.result.checks.find((c) => c.id === "public-url")?.inconclusive).toBe(true);
+    expect(result.result.checks.find((c) => c.id === "round-trip")?.inconclusive).toBeUndefined();
+  });
+
   it("reports 403 as forbidden — byo_bucket_disabled", async () => {
     vi.stubGlobal(
       "fetch",

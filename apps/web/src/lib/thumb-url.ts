@@ -13,6 +13,11 @@
  * roughly 2× the CSS size so tiles stay crisp on retina displays.
  */
 
+// Only hosts on zones WE control, with Image Transformations enabled. Never
+// add customer-controlled hosts (BYO-bucket publicBaseUrl domains) here: the
+// `/cdn-cgi/image/` path and the `onerror=redirect` fallback both exist only
+// on Cloudflare zones with Transformations turned on — on anyone else's zone
+// the rewrite serves a 404 with no fallback to the original bytes.
 const TRANSFORMABLE_HOSTS = new Set(["embed.uploads.sh", "storage.uploads.sh", "store.uploads.sh"]);
 
 export function thumbUrl(src: string, width: number): string;

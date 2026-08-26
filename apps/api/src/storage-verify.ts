@@ -50,6 +50,14 @@ export interface StorageVerifyCheck {
   required: boolean;
   /** Human remediation text, present when `ok` is false. */
   hint?: string;
+  /**
+   * True when the check could not actually run rather than failing — today
+   * only the public-URL probe, when the fetch itself threw (a same-account
+   * custom domain is often unreachable as a Workers subrequest even while it
+   * serves the public internet fine, issues #783/#853). Callers that gate on
+   * a check should treat an inconclusive result as "unknown", not "broken".
+   */
+  inconclusive?: boolean;
 }
 
 export interface StorageVerifyResult {
@@ -275,6 +283,7 @@ async function checkPublicUrl(
         id: "public-url",
         ok: false,
         required: false,
+        inconclusive: true,
         hint: "we couldn't verify publicBaseUrl from here — this can happen even when the domain is working fine (a same-account custom domain isn't always reachable as a server-side request). Open a known object's URL in a browser to check for yourself; if that loads, the domain is fine.",
       },
       cacheControl: undefined,
