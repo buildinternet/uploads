@@ -59,6 +59,7 @@ import { makeFileOpener, newTabLinkProps, type FileOpener } from "../lib/file-op
 import {
   filterCatalog,
   focusIsKeyboardDriven,
+  formatShotCount,
   groupsFromCatalog,
   isRepoLabel,
   lastUpdatedLabel,
@@ -69,6 +70,7 @@ import {
   projectLabelFromItemMeta,
   readScreenshotsView,
   screenshotsSearch,
+  SHOT_COUNT_DISPLAY_CAP,
   shotKindFromKey,
   shotPreviewCaption,
   shotPreviewPosition,
@@ -576,7 +578,7 @@ function FilterBar({
                     {entry.path}
                   </span>
                   <span className="wsp-suggest__count ml-auto text-[12px] whitespace-nowrap text-muted-foreground">
-                    {entry.count} {entry.count === 1 ? "file" : "files"}
+                    {formatShotCount(entry.count)}
                   </span>
                 </button>
               </li>
@@ -1300,6 +1302,7 @@ function ScreenshotsByPathInner({
             const groups = matchingGroups.filter((group) => group.project === label);
             const previewGroups = filtering ? groups : groups.slice(0, PREVIEW_PATHS_PER_PROJECT);
             const ghItems = showGh ? ghByProject.get(label) : undefined;
+            const ghTruncated = showGh && ghState.status === "ready" && ghState.truncated;
             return (
               <ProjectSection
                 key={label}
@@ -1307,6 +1310,7 @@ function ScreenshotsByPathInner({
                 summary={projectSummary}
                 groups={previewGroups}
                 ghItems={ghItems}
+                ghTruncated={ghTruncated}
                 showViewProject={!view.project}
                 // Each subsequent project opens with a full-width hairline —
                 // the section boundary is structural, not just whitespace —
@@ -1355,6 +1359,7 @@ function ProjectSection({
   summary,
   groups,
   ghItems,
+  ghTruncated,
   showViewProject,
   bordered,
   onViewProject,
@@ -1366,6 +1371,8 @@ function ProjectSection({
   summary: ProjectSummary | undefined;
   groups: FilesPathGroup[];
   ghItems: SearchFileItem[] | undefined;
+  /** GitHub search page hit its cap — only affects a GH-only heading. */
+  ghTruncated: boolean;
   showViewProject: boolean;
   /** True for every project section after the first — see call site. */
   bordered: boolean;
@@ -1377,6 +1384,7 @@ function ProjectSection({
   // A GH-only label (no by-path groups) has no ProjectSummary — fall back to
   // the GitHub items' count so the header still reads sensibly.
   const count = summary?.count ?? ghItems?.length ?? 0;
+  const countTruncated = !summary && ghTruncated && count >= SHOT_COUNT_DISPLAY_CAP;
   const lastUpdated = summary?.lastUpdated;
 
   const labelBody = (
@@ -1415,7 +1423,7 @@ function ProjectSection({
           </span>
         )}
         <span className="wsp-group__meta text-muted-foreground text-[12px] whitespace-nowrap">
-          {count} {count === 1 ? "file" : "files"}
+          {formatShotCount(count, { truncated: countTruncated })}
           {lastUpdated ? ` · ${lastUpdatedLabel(lastUpdated, new Date())}` : ""}
         </span>
       </div>
@@ -1428,17 +1436,21 @@ function ProjectSection({
           preview={preview}
         />
       ))}
-      {ghItems && <GitHubSection items={ghItems} opener={opener} preview={preview} />}
+      {ghItems && (
+        <GitHubSection items={ghItems} truncated={ghTruncated} opener={opener} preview={preview} />
+      )}
     </div>
   );
 }
 
 function GitHubSection({
   items,
+  truncated,
   opener,
   preview,
 }: {
   items: SearchFileItem[];
+  truncated: boolean;
   opener: FileOpener;
   preview: PreviewHandlers;
 }) {
@@ -1449,7 +1461,9 @@ function GitHubSection({
           From GitHub
         </span>
         <span className="wsp-group__meta text-muted-foreground text-[12px] whitespace-nowrap">
-          {items.length} {items.length === 1 ? "file" : "files"}
+          {formatShotCount(items.length, {
+            truncated: truncated && items.length >= SHOT_COUNT_DISPLAY_CAP,
+          })}
         </span>
       </div>
       <div className="wsp-strip">
@@ -1495,8 +1509,7 @@ function PathGroupSection({
           {group.path}
         </span>
         <span className="wsp-group__meta text-muted-foreground text-[12px] whitespace-nowrap">
-          {group.count} {group.count === 1 ? "file" : "files"} ·{" "}
-          {lastUpdatedLabel(group.lastUpdated, new Date())}
+          {formatShotCount(group.count)} · {lastUpdatedLabel(group.lastUpdated, new Date())}
         </span>
         {/* Hint, not a control (the whole head is the drill-in button) — disclosed
             on hover/focus; opacity (not display) keeps it in the accessible name

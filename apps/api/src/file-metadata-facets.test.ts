@@ -11,6 +11,8 @@ import {
   projectLabelFromMeta,
   BY_PATH_CATALOG_LIMIT,
   BY_PATH_CATALOG_RECENT_LIMIT,
+  BY_PATH_COUNT_DISPLAY_CAP,
+  BY_PATH_COUNT_WINDOW_MS,
   BY_PATH_GROUP_LIMIT,
   BY_PATH_LATEST_LIMIT,
   BY_PATH_RECENT_LIMIT,
@@ -468,6 +470,8 @@ describe("groupObjectsByPath", () => {
         { workspace: "acme", key: "d.png", meta: { path: "/other", repo: "acme/web" } },
       ]),
       "acme",
+      // `db()` stamps 2026-07-25; pin the 30-day project-count window over it.
+      { now: new Date("2026-07-25T12:00:00.000Z") },
     );
     expect(result.groups.map((g) => [g.project, g.path, g.count])).toEqual(
       expect.arrayContaining([
@@ -481,6 +485,75 @@ describe("groupObjectsByPath", () => {
     const labels = result.projects.map((p) => p.label).sort();
     expect(labels).toEqual(["acme/api", "acme/web", "x.dev"]);
     expect(result.projects.find((p) => p.label === "acme/web")?.count).toBe(2);
+  });
+
+  it("counts project headings from the last 30 days and stops at cap+1", async () => {
+    const now = new Date("2026-08-20T00:00:00.000Z");
+    const inWindow = new Date(now.getTime() - BY_PATH_COUNT_WINDOW_MS + 86_400_000).toISOString();
+    const outside = new Date(now.getTime() - BY_PATH_COUNT_WINDOW_MS - 86_400_000).toISOString();
+    const rows = [
+      ...Array.from({ length: BY_PATH_COUNT_DISPLAY_CAP + 3 }, (_, i) => ({
+        workspace: "acme",
+        key: `new-${i}.png`,
+        meta: { path: "/home", repo: "acme/web" },
+        at: inWindow,
+      })),
+      {
+        workspace: "acme",
+        key: "old.png",
+        meta: { path: "/legacy", repo: "acme/web" },
+        at: outside,
+      },
+    ];
+    const result = await groupObjectsByPath(timedDb(rows), "acme", { now });
+    expect(result.projects).toHaveLength(1);
+    // 101st in-window file is enough to signal "100+"; older files are ignored.
+    expect(result.projects[0]).toMatchObject({
+      label: "acme/web",
+      count: BY_PATH_COUNT_DISPLAY_CAP + 1,
+    });
+    // Path groups share the window (and the cap). A path with nothing in
+    // the window falls back to its all-time total so it doesn't read "0".
+    const home = result.groups.find((g) => g.path === "/home")!;
+    const legacy = result.catalog.find((e) => e.path === "/legacy")!;
+    expect(home.count).toBe(BY_PATH_COUNT_DISPLAY_CAP + 1);
+    expect(legacy.count).toBe(1);
+  });
+
+  it("falls back to the capped all-time total when nothing in the window", async () => {
+    const now = new Date("2026-08-20T00:00:00.000Z");
+    const outside = new Date(now.getTime() - BY_PATH_COUNT_WINDOW_MS - 86_400_000).toISOString();
+    const result = await groupObjectsByPath(
+      timedDb([
+        {
+          workspace: "acme",
+          key: "old-a.png",
+          meta: { path: "/home", repo: "acme/web" },
+          at: outside,
+        },
+        {
+          workspace: "acme",
+          key: "old-b.png",
+          meta: { path: "/settings", repo: "acme/web" },
+          at: outside,
+        },
+      ]),
+      "acme",
+      { now },
+    );
+    expect(result.projects[0]).toMatchObject({ label: "acme/web", count: 2 });
+  });
+
+  it("keeps an exact 100 on a project heading when the 101st file is absent", async () => {
+    const now = new Date("2026-08-20T00:00:00.000Z");
+    const rows = Array.from({ length: BY_PATH_COUNT_DISPLAY_CAP }, (_, i) => ({
+      workspace: "acme",
+      key: `shot-${i}.png`,
+      meta: { path: "/home", repo: "acme/web" },
+      at: now.toISOString(),
+    }));
+    const result = await groupObjectsByPath(timedDb(rows), "acme", { now });
+    expect(result.projects[0]!.count).toBe(BY_PATH_COUNT_DISPLAY_CAP);
   });
 
   it("prefers repo over gh.repo over url when a file has several", async () => {

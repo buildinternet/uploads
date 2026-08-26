@@ -167,6 +167,21 @@ export function pairedShotKeys(items: Array<{ key: string; state?: string }>): S
   return paired;
 }
 
+/**
+ * Display cap for screenshots section counts. Matches the API's
+ * BY_PATH_COUNT_DISPLAY_CAP: a list page size must not read as an exact
+ * inventory, so anything past this (or a truncated search page) is "100+".
+ */
+export const SHOT_COUNT_DISPLAY_CAP = 100;
+
+/** "1 file" / "12 files" / "100+ files". */
+export function formatShotCount(count: number, opts?: { truncated?: boolean }): string {
+  if (opts?.truncated || count > SHOT_COUNT_DISPLAY_CAP) {
+    return `${SHOT_COUNT_DISPLAY_CAP}+ files`;
+  }
+  return count === 1 ? "1 file" : `${count} files`;
+}
+
 /** Overview layout: grouped by project/path, or one flat newest-first feed. */
 export type ScreenshotsFeed = "grouped" | "recent";
 
