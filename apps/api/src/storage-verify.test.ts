@@ -385,6 +385,39 @@ describe("verifyStorageConfig — recommended public-URL probe", () => {
     expect(fetchImpl).toHaveBeenCalledOnce();
   });
 
+  it("probes with redirect: 'manual', not 'error' — local workerd throws synchronously on 'error'", async () => {
+    const client = new FakeStorageClient();
+    const fetchImpl = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      expect(init?.redirect).toBe("manual");
+      return new Response(new Uint8Array([9]), { status: 200 });
+    });
+    await run(
+      { ...VALID, publicBaseUrl: "https://media.example.com" },
+      client,
+      fetchImpl as unknown as typeof fetch,
+    );
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  it("reports an un-followed redirect (redirect: 'manual' response) as a conclusive, non-inconclusive failure", async () => {
+    const client = new FakeStorageClient();
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(null, { status: 301, headers: { location: "https://other.example.com/" } }),
+    );
+    const result = await run(
+      { ...VALID, publicBaseUrl: "https://media.example.com" },
+      client,
+      fetchImpl as unknown as typeof fetch,
+    );
+    const publicUrl = result.checks.find((c) => c.id === "public-url")!;
+    expect(publicUrl.ok).toBe(false);
+    expect(publicUrl.required).toBe(false);
+    expect(publicUrl.inconclusive).toBeUndefined();
+    expect(publicUrl.hint).toMatch(/redirected/);
+    expect(result.ok).toBe(true);
+  });
+
   it("warns (embed-cache) when the domain serves cacheable headers, without gating ok", async () => {
     const client = new FakeStorageClient();
     const fetchImpl = vi.fn(async () => {

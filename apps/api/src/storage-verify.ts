@@ -52,10 +52,11 @@ export interface StorageVerifyCheck {
   hint?: string;
   /**
    * True when the check could not actually run rather than failing — today
-   * only the public-URL probe, when the fetch itself threw (a same-account
-   * custom domain is often unreachable as a Workers subrequest even while it
-   * serves the public internet fine, issues #783/#853). Callers that gate on
-   * a check should treat an inconclusive result as "unknown", not "broken".
+   * only the public-URL probe, when the fetch itself threw (any
+   * Cloudflare-fronted custom domain is often unreachable as a Workers
+   * subrequest even while it serves the public internet fine, issues
+   * #783/#853). Callers that gate on a check should treat an inconclusive
+   * result as "unknown", not "broken".
    */
   inconclusive?: boolean;
 }
@@ -240,7 +241,18 @@ async function checkPublicUrl(
   const url = `${publicBaseUrl.replace(/\/$/, "")}/${probeKey}`;
   try {
     const res = await fetchImpl(url, {
-      redirect: "error",
+      // NOT `redirect: "error"`: local workerd (wrangler dev) throws a
+      // synchronous TypeError for that value — it's simply unimplemented
+      // there ("won't be implemented since it does not make sense at the
+      // edge"), unrelated to the timeout below. Prod's real edge fetch does
+      // support it, so this was silently turning every local probe into the
+      // thrown-fetch/inconclusive branch. `"manual"` is supported
+      // everywhere (local and prod): it hands back the 3xx response
+      // un-followed instead of throwing, so the existing `!res.ok` branch
+      // below already fails a redirecting domain — same "never verified"
+      // outcome as `"error"`, just via a normal failed check instead of an
+      // inconclusive one.
+      redirect: "manual",
       signal: AbortSignal.timeout(PUBLIC_URL_PROBE_TIMEOUT_MS),
     });
     // Read the header before consuming the body: the embed-cache check
@@ -248,12 +260,15 @@ async function checkPublicUrl(
     // reading rides along with whichever public-url outcome this is.
     const cacheControl = res.headers.get("cache-control");
     if (!res.ok) {
+      const isRedirect = res.status >= 300 && res.status < 400;
       return {
         check: {
           id: "public-url",
           ok: false,
           required: false,
-          hint: `fetching the probe object via publicBaseUrl returned HTTP ${res.status} — the domain may be connected to a different bucket, or public access isn't enabled yet`,
+          hint: isRedirect
+            ? `fetching the probe object via publicBaseUrl redirected (HTTP ${res.status}) instead of serving it directly — connect a domain that serves the bucket without redirecting, or fix the redirect rule`
+            : `fetching the probe object via publicBaseUrl returned HTTP ${res.status} — the domain may be connected to a different bucket, or public access isn't enabled yet`,
         },
         cacheControl: undefined,
       };
@@ -273,18 +288,19 @@ async function checkPublicUrl(
     return { check: { id: "public-url", ok: true, required: false }, cacheControl };
   } catch {
     // A thrown fetch means this probe — run from inside the API worker —
-    // couldn't reach the domain; it does NOT mean the domain is broken. A
-    // same-account/zone-set customer domain in particular can be unreachable
-    // as a Workers subrequest while serving the public internet fine (issue
-    // #783). Say "we couldn't verify it from here", not "your domain is
-    // broken", and point at the one check that actually settles it.
+    // couldn't reach the domain; it does NOT mean the domain is broken. Any
+    // Cloudflare-fronted custom domain can be unreachable as a Workers
+    // subrequest while serving the public internet fine — not just a
+    // same-account one, per issue #853. Say "we couldn't verify it from
+    // here", not "your domain is broken", and point at the one check that
+    // actually settles it.
     return {
       check: {
         id: "public-url",
         ok: false,
         required: false,
         inconclusive: true,
-        hint: "we couldn't verify publicBaseUrl from here — this can happen even when the domain is working fine (a same-account custom domain isn't always reachable as a server-side request). Open a known object's URL in a browser to check for yourself; if that loads, the domain is fine.",
+        hint: "we couldn't verify publicBaseUrl from here — this can happen even when the domain is working fine (Cloudflare-fronted custom domains often aren't reachable as a server-side request). Open a known object's URL in a browser to check for yourself; if that loads, the domain is fine.",
       },
       cacheControl: undefined,
     };
