@@ -1921,6 +1921,14 @@ export interface StorageVerifyCheck {
   required: boolean;
   /** Human remediation text, present when `ok` is false. Surfaced verbatim. */
   hint?: string;
+  /**
+   * True when the check couldn't actually run rather than failing — e.g. the
+   * public-URL probe threw because a same-account custom domain isn't
+   * reachable as a server-side request even when it works publicly
+   * (issues #783/#853). Treat as "unknown", not "broken": it must not block
+   * saving.
+   */
+  inconclusive?: boolean;
 }
 
 export interface StorageVerifyResult {
@@ -1953,6 +1961,7 @@ function toStorageVerifyResult(body: unknown): StorageVerifyResult | null {
         // Normalized rather than passed through: a non-string hint would
         // reach the checklist renderer typed as string.
         hint: typeof check.hint === "string" ? check.hint : undefined,
+        inconclusive: check.inconclusive === true ? true : undefined,
       },
     ];
   });

@@ -457,6 +457,35 @@ describe("verifyStorageConfig — recommended public-URL probe", () => {
     expect(result.ok).toBe(true);
   });
 
+  it("marks only the thrown-fetch case inconclusive — conclusive failures (bad status, byte mismatch) stay definite (#853)", async () => {
+    const client = new FakeStorageClient();
+    const thrown = vi.fn(async () => {
+      throw new Error("network error: ENOTFOUND");
+    });
+    const unreachable = await run(
+      { ...VALID, publicBaseUrl: "https://media.example.com" },
+      client,
+      thrown as unknown as typeof fetch,
+    );
+    expect(unreachable.checks.find((c) => c.id === "public-url")!.inconclusive).toBe(true);
+
+    const notFound = vi.fn(async () => new Response(null, { status: 404 }));
+    const answered = await run(
+      { ...VALID, publicBaseUrl: "https://media.example.com" },
+      new FakeStorageClient(),
+      notFound as unknown as typeof fetch,
+    );
+    expect(answered.checks.find((c) => c.id === "public-url")!.inconclusive).toBeUndefined();
+
+    const wrongBytes = vi.fn(async () => new Response(new Uint8Array([9, 9, 9]), { status: 200 }));
+    const mismatch = await run(
+      { ...VALID, publicBaseUrl: "https://media.example.com" },
+      new FakeStorageClient(),
+      wrongBytes as unknown as typeof fetch,
+    );
+    expect(mismatch.checks.find((c) => c.id === "public-url")!.inconclusive).toBeUndefined();
+  });
+
   it("skips the public-url check (marked failed) when the round-trip itself failed", async () => {
     const client = new FakeStorageClient();
     client.uploadError = new FakeError("Unauthorized", "read-only token");
