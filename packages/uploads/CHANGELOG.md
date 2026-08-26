@@ -1,5 +1,12 @@
 # @buildinternet/uploads
 
+## 0.48.1
+
+### Patch Changes
+
+- 5309b81: Publish the stdio MCP server (`uploads mcp`) and the hosted remote to the official MCP Registry as `sh.uploads/mcp`.
+- 14dc745: Advertise the uploads chevron as the MCP server icon so inspector UIs can show it.
+
 ## 0.48.0
 
 ### Minor Changes
