@@ -21,8 +21,16 @@ import {
   magicLink,
   organization,
 } from "better-auth/plugins";
-import { fetchClientMetadataResource } from "./cimd-transport";
+import { fetchClientMetadataResource, rewriteClientMetadataGrantTypes } from "./cimd-transport";
 import { deviceWorkspacePlugin } from "./device-workspace";
+import {
+  oauthClientIdFromAuthorizationCode,
+  oauthClientIdFromConsentBody,
+  oauthClientIdFromQuery,
+  restrictAuthorizationCodeValue,
+  restrictOAuthConsentBody,
+  restrictOAuthQueryScopes,
+} from "./oauth-grant-scopes";
 import { sendAuthEmail } from "./email";
 import { localDemoEnabled, localDemoPlugin } from "./local-demo";
 import { memberCapDenial } from "./member-cap";
@@ -86,15 +94,60 @@ export const OAUTH_SCOPES = ["files:read", "files:write", "files:delete"] as con
 const OAUTH_CLIENT_REGISTRATION_DEFAULT_SCOPES = ["files:read", "files:write"] as const;
 
 /**
+ * Extra scopes a CIMD/DCR client may request (consent still required). Better
+ * Auth 1.7 persists self-registered clients as default ∪ allowed.
+ */
+const OAUTH_CLIENT_REGISTRATION_ALLOWED_SCOPES = ["files:delete"] as const;
+
+/**
+ * Fallback when the oauth_client row is missing (CIMD first-use: persist
+ * can run after hooks.before). Matches what Better Auth writes on the row.
+ * Do not expand this to a future elevated scope that should stay off CIMD.
+ */
+const OAUTH_SELF_REGISTERED_SCOPES = [
+  ...OAUTH_CLIENT_REGISTRATION_DEFAULT_SCOPES,
+  ...OAUTH_CLIENT_REGISTRATION_ALLOWED_SCOPES,
+] as const;
+
+/**
+ * Canonical MCP resource identifiers (`origin/mcp`). RFC 9728 metadata on
+ * the MCP worker advertises this form; generic clients often copy the
+ * origin instead. {@link oauthResources} adds both. Mirrored into
+ * apps/mcp's JWT verification config (`OAUTH_AUDIENCES`) — keep both in
+ * lockstep.
+ */
+const MCP_RESOURCE_IDENTIFIERS = [
+  "https://agents.uploads.sh/mcp",
+  "https://mcp.uploads.sh/mcp",
+] as const;
+
+/**
+ * `/mcp` identifier plus its RFC 9728 origin form. Non-`/mcp` URLs stay
+ * unchanged. Generic clients (MCPJam) copy the origin into authorize
+ * `resource=`; the MCP worker already needs to accept both as JWT `aud`.
+ */
+export function mcpResourceAndOrigin(resource: string): string[] {
+  try {
+    const url = new URL(resource);
+    if (url.pathname === "/mcp" || url.pathname === "/mcp/") {
+      return [resource, url.origin];
+    }
+  } catch {
+    // Non-URL env values stay as configured.
+  }
+  return [resource];
+}
+
+/**
  * Protected resources this AS issues access tokens for (Better Auth 1.7's
  * first-class `resources` model, which replaced the 1.6 `validAudiences`
  * list). Each identifier becomes an `oauth_resource` row (seeded at boot,
  * `resourceSeedMode: "insertOnly"`) and is the RFC 8707 `resource` value a
- * client requests; the minted token's `aud` is bound to it. Mirrored into
- * apps/mcp's JWT verification config (`OAUTH_AUDIENCES`) — keep both in
- * lockstep.
+ * client requests; the minted token's `aud` is bound to it.
  */
-const OAUTH_RESOURCES = ["https://agents.uploads.sh/mcp", "https://mcp.uploads.sh/mcp"];
+export function oauthResources(): string[] {
+  return [...new Set(MCP_RESOURCE_IDENTIFIERS.flatMap(mcpResourceAndOrigin))];
+}
 
 /**
  * Workspace claims embedded in every OAuth access-token JWT
@@ -195,12 +248,55 @@ async function getUserRoleState(
   return row;
 }
 
+type AuthBeforeCtx = {
+  path: string;
+  query?: Record<string, unknown>;
+  body?: unknown;
+};
+
+async function applyOAuthClientInterop(
+  ctx: AuthBeforeCtx,
+  registeredScopesForClientId: (clientId: string | undefined) => Promise<readonly string[]>,
+): Promise<{
+  context: { body?: Record<string, unknown>; query?: Record<string, unknown> };
+} | void> {
+  if (ctx.path === "/oauth2/register") {
+    const body = ctx.body as Record<string, unknown> | null;
+    const next = body ? rewriteClientMetadataGrantTypes(body) : undefined;
+    if (next) return { context: { body: next } };
+    return;
+  }
+  if (ctx.path === "/oauth2/authorize") {
+    const query = ctx.query;
+    const allowedScopes = await registeredScopesForClientId(oauthClientIdFromQuery(query));
+    const nextQuery = restrictOAuthQueryScopes(query, allowedScopes);
+    if (nextQuery) return { context: { query: nextQuery } };
+    return;
+  }
+  if (ctx.path === "/oauth2/consent") {
+    const body = ctx.body as Record<string, unknown> | undefined;
+    const allowedScopes = await registeredScopesForClientId(oauthClientIdFromConsentBody(body));
+    const nextBody = restrictOAuthConsentBody(body, allowedScopes);
+    if (nextBody) return { context: { body: nextBody } };
+  }
+}
+
+function authBeforeHook(
+  db: ReturnType<typeof drizzle<typeof schema>>,
+  registeredScopesForClientId: (clientId: string | undefined) => Promise<readonly string[]>,
+) {
+  return createAuthMiddleware(async (ctx) => {
+    const oauthOverride = await applyOAuthClientInterop(ctx, registeredScopesForClientId);
+    if (oauthOverride) return oauthOverride;
+    await enforceLastAdminGuard(ctx, db);
+  });
+}
+
 /**
- * `hooks.before` handler for the `admin()` plugin's remove-user/ban-user/
- * set-role/update-user endpoints (fail-closed guard, see `countActiveAdmins`
- * above). Runs on every request — it's the only per-request hook Better Auth
- * exposes at this level — so it no-ops for any path other than the ones it
- * guards.
+ * Last-admin check for the `admin()` plugin's remove-user/ban-user/
+ * set-role/update-user endpoints (fail-closed, see `countActiveAdmins`
+ * above). Called from `authBeforeHook` after the OAuth interop rewrite.
+ * No-ops for any path other than the ones it guards.
  *
  * - `/admin/remove-user`, `/admin/ban-user`: self-removal and self-ban are
  *   already rejected by the plugin itself; this only adds the last-admin
@@ -213,76 +309,77 @@ async function getUserRoleState(
  *   or banning them via `data.banned`. Verified against better-auth 1.6.23's
  *   `plugins/admin/routes.mjs` (`setRole`, `adminUpdateUser`).
  */
-function lastAdminGuardHook(db: ReturnType<typeof drizzle<typeof schema>>) {
-  return createAuthMiddleware(async (ctx) => {
-    if (ctx.path === "/admin/remove-user" || ctx.path === "/admin/ban-user") {
-      const userId = (ctx.body as { userId?: unknown } | undefined)?.userId;
-      if (typeof userId !== "string" || !userId) return;
+async function enforceLastAdminGuard(
+  ctx: AuthBeforeCtx,
+  db: ReturnType<typeof drizzle<typeof schema>>,
+): Promise<void> {
+  if (ctx.path === "/admin/remove-user" || ctx.path === "/admin/ban-user") {
+    const userId = (ctx.body as { userId?: unknown } | undefined)?.userId;
+    if (typeof userId !== "string" || !userId) return;
 
-      const target = await getUserRoleState(db, userId);
-      if (!target || !hasAdminRole(target.role)) return;
-      // A banned admin is not an active admin: removing or re-banning them
-      // cannot reduce the active-admin count, so the guard stays out of it.
-      if (target.banned) return;
+    const target = await getUserRoleState(db, userId);
+    if (!target || !hasAdminRole(target.role)) return;
+    // A banned admin is not an active admin: removing or re-banning them
+    // cannot reduce the active-admin count, so the guard stays out of it.
+    if (target.banned) return;
 
-      const activeAdmins = await countActiveAdmins(db);
-      if (activeAdmins <= 1) {
-        throw new APIError("BAD_REQUEST", {
-          message:
-            ctx.path === "/admin/remove-user"
-              ? "cannot remove the last admin"
-              : "cannot ban the last admin",
-        });
-      }
-      return;
+    const activeAdmins = await countActiveAdmins(db);
+    if (activeAdmins <= 1) {
+      throw new APIError("BAD_REQUEST", {
+        message:
+          ctx.path === "/admin/remove-user"
+            ? "cannot remove the last admin"
+            : "cannot ban the last admin",
+      });
     }
+    return;
+  }
 
-    if (ctx.path === "/admin/set-role") {
-      const body = ctx.body as { userId?: unknown; role?: unknown } | undefined;
-      const userId = body?.userId;
-      if (typeof userId !== "string" || !userId) return;
+  if (ctx.path === "/admin/set-role") {
+    const body = ctx.body as { userId?: unknown; role?: unknown } | undefined;
+    const userId = body?.userId;
+    if (typeof userId !== "string" || !userId) return;
 
-      const target = await getUserRoleState(db, userId);
-      // A banned target doesn't count toward `countActiveAdmins`, so it
-      // can't be "the last admin" being demoted — and if the incoming role
-      // still includes admin, nothing about admin-ness is changing.
-      if (!target || target.banned || !hasAdminRole(target.role)) return;
-      if (hasAdminRoleInput(body?.role)) return;
+    const target = await getUserRoleState(db, userId);
+    // A banned target doesn't count toward `countActiveAdmins`, so it
+    // can't be "the last admin" being demoted — and if the incoming role
+    // still includes admin, nothing about admin-ness is changing.
+    if (!target || target.banned || !hasAdminRole(target.role)) return;
+    if (hasAdminRoleInput(body?.role)) return;
 
-      const activeAdmins = await countActiveAdmins(db);
-      if (activeAdmins <= 1) {
-        throw new APIError("BAD_REQUEST", {
-          message: "cannot remove the last admin's admin role",
-        });
-      }
-      return;
+    const activeAdmins = await countActiveAdmins(db);
+    if (activeAdmins <= 1) {
+      throw new APIError("BAD_REQUEST", {
+        message: "cannot remove the last admin's admin role",
+      });
     }
+    return;
+  }
 
-    if (ctx.path === "/admin/update-user") {
-      const body = ctx.body as { userId?: unknown; data?: unknown } | undefined;
-      const userId = body?.userId;
-      if (typeof userId !== "string" || !userId) return;
-      const data = (body?.data ?? {}) as { role?: unknown; banned?: unknown };
+  if (ctx.path === "/admin/update-user") {
+    const body = ctx.body as { userId?: unknown; data?: unknown } | undefined;
+    const userId = body?.userId;
+    if (typeof userId !== "string" || !userId) return;
+    const data = (body?.data ?? {}) as { role?: unknown; banned?: unknown };
 
-      const target = await getUserRoleState(db, userId);
-      if (!target || target.banned || !hasAdminRole(target.role)) return;
+    const target = await getUserRoleState(db, userId);
+    if (!target || target.banned || !hasAdminRole(target.role)) return;
 
-      const willBan = data.banned === true;
-      const rolesInBody = Object.prototype.hasOwnProperty.call(data, "role");
-      const willStripAdmin = rolesInBody && !hasAdminRoleInput(data.role);
-      if (!willBan && !willStripAdmin) return;
+    const willBan = data.banned === true;
+    const rolesInBody = Object.prototype.hasOwnProperty.call(data, "role");
+    const willStripAdmin = rolesInBody && !hasAdminRoleInput(data.role);
+    if (!willBan && !willStripAdmin) return;
 
-      const activeAdmins = await countActiveAdmins(db);
-      if (activeAdmins <= 1) {
-        throw new APIError("BAD_REQUEST", {
-          message: willBan
-            ? "cannot ban the last admin"
-            : "cannot remove the last admin's admin role",
-        });
-      }
-      return;
+    const activeAdmins = await countActiveAdmins(db);
+    if (activeAdmins <= 1) {
+      throw new APIError("BAD_REQUEST", {
+        message: willBan
+          ? "cannot ban the last admin"
+          : "cannot remove the last admin's admin role",
+      });
     }
-  });
+    return;
+  }
 }
 
 export type AuthEnv = GitHubCredentialsEnv &
@@ -385,6 +482,27 @@ function buildAuth(
   const betterAuthUrl = env.BETTER_AUTH_URL || "https://auth.uploads.sh";
   const webOrigin = env.WEB_ORIGIN || "https://uploads.sh";
   const isProduction = env.ENVIRONMENT === "production";
+  /**
+   * Registered `oauth_client.scopes`, or {@link OAUTH_SELF_REGISTERED_SCOPES}
+   * when the row is missing (CIMD first-use: persist can run after this
+   * hook). Never the empty list: authorize still has to downscope extras
+   * such as `openid` on the first request.
+   */
+  const registeredScopesForClientId = async (
+    clientId: string | undefined,
+  ): Promise<readonly string[]> => {
+    if (!clientId) return OAUTH_SELF_REGISTERED_SCOPES;
+    try {
+      const rows = await db
+        .select({ scopes: schema.oauthClient.scopes })
+        .from(schema.oauthClient)
+        .where(eq(schema.oauthClient.clientId, clientId))
+        .limit(1);
+      return Array.isArray(rows[0]?.scopes) ? rows[0].scopes : OAUTH_SELF_REGISTERED_SCOPES;
+    } catch {
+      return OAUTH_SELF_REGISTERED_SCOPES;
+    }
+  };
 
   return betterAuth({
     appName: "uploads.sh",
@@ -577,14 +695,17 @@ function buildAuth(
         // files:delete here lets self-registered clients REQUEST it; every
         // grant still goes through the user's consent screen, and device-flow
         // workspace tokens already get files:delete by default.
-        clientRegistrationAllowedScopes: ["files:delete"],
+        // Generic clients also copy extras (openid, admin) that are not in
+        // this product's scope list; hooks.before downscopes those rather
+        // than expanding this allowlist further.
+        clientRegistrationAllowedScopes: [...OAUTH_CLIENT_REGISTRATION_ALLOWED_SCOPES],
         // Better Auth 1.7: `validAudiences` → the persisted `resources` model.
         // String form (plugin-level defaults) preserves the 1.6 accepted-audience
         // behavior; `resourceSeedMode` defaults to the safe "insertOnly".
         // (`silenceWarnings` was removed in 1.7 — the well-known warnings it
         // suppressed are gone; root /.well-known aliases are still served by
         // src/index.ts.)
-        resources: OAUTH_RESOURCES,
+        resources: oauthResources(),
         // `enforcePerClientResources` defaults to `true` in 1.7 (RFC 8707 §3):
         // /oauth2/authorize + /oauth2/token then require the client to be linked
         // to every requested resource via `oauth_client_resource`, else they
@@ -732,11 +853,26 @@ function buildAuth(
           },
         },
       },
+      verification: {
+        create: {
+          before: async (data) => {
+            const value = typeof data.value === "string" ? data.value : undefined;
+            if (!value || !value.includes("authorization_code")) return;
+            const allowedScopes = await registeredScopesForClientId(
+              oauthClientIdFromAuthorizationCode(value),
+            );
+            const next = restrictAuthorizationCodeValue(value, allowedScopes);
+            if (!next) return;
+            return { data: { ...data, value: next } };
+          },
+        },
+      },
     },
-    // Fail-closed last-admin guard for the admin() plugin's remove-user/
-    // ban-user endpoints — see lastAdminGuardHook above.
+    // CIMD/DCR grant_types + authorize/consent scope rewrite, then the
+    // fail-closed last-admin guard. One `hooks.before`: Better Auth takes a
+    // single middleware here.
     hooks: {
-      before: lastAdminGuardHook(db),
+      before: authBeforeHook(db, registeredScopesForClientId),
     },
     // Fail-closed in production, decoupled from secret resolution (D3/D7):
     // rate limiting is on whenever ENVIRONMENT === "production", regardless

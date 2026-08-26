@@ -530,12 +530,23 @@ describe("mcp worker", () => {
     const response = await app.request("/.well-known/mcp/server-card.json", { method: "GET" }, env);
     expect(response.status).toBe(200);
     const body = (await response.json()) as {
-      serverInfo: { name: string; version: string };
+      serverInfo: {
+        name: string;
+        version: string;
+        icons?: { src: string; mimeType?: string; sizes?: string[] }[];
+      };
       transport: { type: string; endpoint: string };
       authentication: { required: boolean };
     };
     expect(body.serverInfo.name).toBe("uploads-mcp");
     expect(body.serverInfo.version).toBeTruthy();
+    expect(body.serverInfo.icons).toEqual([
+      {
+        src: "https://uploads.sh/apple-touch-icon.png",
+        mimeType: "image/png",
+        sizes: ["180x180"],
+      },
+    ]);
     expect(body.transport.type).toBe("streamable-http");
     expect(body.transport.endpoint).toBe("https://agents.uploads.sh/mcp");
     expect(body.authentication.required).toBe(true);
@@ -626,10 +637,14 @@ describe("mcp worker", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("Content-Type")).toContain("application/json");
     const body = (await response.json()) as {
-      result: { protocolVersion: string; serverInfo: { name: string } };
+      result: {
+        protocolVersion: string;
+        serverInfo: { name: string; icons?: { src: string }[] };
+      };
     };
     expect(body.result.protocolVersion).toBe("2025-06-18");
     expect(body.result.serverInfo.name).toBe("uploads-mcp");
+    expect(body.result.serverInfo.icons?.[0]?.src).toBe("https://uploads.sh/apple-touch-icon.png");
   });
 
   it("lists exactly the remote tools", async () => {
@@ -1897,6 +1912,16 @@ describe("OAuth JWT bearer (issue #224)", () => {
     const jwt = await signOAuthToken(
       { sub: "user-1", workspace: "test-ws", workspaces: ["test-ws"], scope: "files:read" },
       { audience: "https://mcp.uploads.sh/mcp" },
+    );
+    const result = await callTool(env, "list", {}, jwt, "/mcp");
+    expect(result.isError).toBe(false);
+  });
+
+  it("accepts the origin-shaped audience generic clients copy from RFC 9728", async () => {
+    const { env } = await makeEnv();
+    const jwt = await signOAuthToken(
+      { sub: "user-1", workspace: "test-ws", workspaces: ["test-ws"], scope: "files:read" },
+      { audience: "https://agents.uploads.sh" },
     );
     const result = await callTool(env, "list", {}, jwt, "/mcp");
     expect(result.isError).toBe(false);

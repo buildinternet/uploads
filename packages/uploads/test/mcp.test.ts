@@ -424,6 +424,34 @@ describe("createMcpServer protocol", () => {
     });
   });
 
+  it("echoes serverInfo.icons on initialize and server/discover", async () => {
+    const { factory } = fakeFactory();
+    const icons = [
+      {
+        src: "https://uploads.sh/apple-touch-icon.png",
+        mimeType: "image/png",
+        sizes: ["180x180"],
+      },
+    ];
+    const server = createMcpServer({
+      serverInfo: { name: "uploads", version: "0.0.0-test", icons },
+      validator,
+      tools: createUploadsMcpTools({
+        globals: { apiUrl: "https://x.test", token: "up_test_x" },
+        runner: noRun,
+        clientFactory: factory,
+      }),
+    });
+    const init = await legacyRpc(server, "initialize", {
+      protocolVersion: "2025-06-18",
+      capabilities: {},
+      clientInfo: { name: "test", version: "0" },
+    });
+    expect(init.result.serverInfo.icons).toEqual(icons);
+    const discover = await rpc(server, "server/discover");
+    expect(discover.result._meta["io.modelcontextprotocol/serverInfo"].icons).toEqual(icons);
+  });
+
   it("rejects unknown methods with -32601", async () => {
     const { server } = serverWith();
     const res = await rpc(server, "resources/list");

@@ -35,6 +35,128 @@
 import { validateClientIdUrl } from "@better-auth/cimd";
 import type { ClientMetadataResourceFetch } from "@better-auth/oauth-provider";
 
+/**
+ * Grants this AS's oauth-provider token endpoint actually issues. Matches
+ * `@better-auth/oauth-provider`'s default set. CIMD `grant_types` is a
+ * capability advertisement, not a demand that we implement every listed
+ * grant: MCPJam includes `device_code` and claude.ai includes `jwt-bearer`
+ * on a normal authorization_code + PKCE authorize URL.
+ *
+ * `@better-auth/cimd` 1.7 has no option to ignore extras, so the transport
+ * intersects fetched metadata (and DCR POST /oauth2/register, via the
+ * rewrite helper) with this list before the plugin parses it.
+ *
+ * `urn:ietf:params:oauth:grant-type:device_code` is intentionally absent.
+ * This worker does implement RFC 8628 for the seeded `uploads-cli` client
+ * (`deviceAuthorization()`), but oauth-provider's CIMD/DCR ingest validator
+ * does not treat that plugin's grant as supported. Adding it here would
+ * persist it on CIMD rows and still fail ingest. Do not add `jwt-bearer`
+ * without shipping that grant.
+ */
+export const AS_SUPPORTED_GRANT_TYPES = [
+  "authorization_code",
+  "refresh_token",
+  "client_credentials",
+] as const;
+
+const AS_SUPPORTED_GRANT_TYPE_SET: ReadonlySet<string> = new Set(AS_SUPPORTED_GRANT_TYPES);
+
+/** Plugin body cap is 5 KiB; skip the JSON rewrite above that. */
+const CIMD_METADATA_REWRITE_MAX_BYTES = 5 * 1024;
+
+/**
+ * Intersect advertised CIMD/DCR `grant_types` with {@link AS_SUPPORTED_GRANT_TYPES}.
+ *
+ * Returns the supported subset (order preserved, duplicates dropped) when
+ * `authorization_code` remains. Returns `undefined` when the value is
+ * missing, malformed, or has no usable grant, so the caller leaves the
+ * document alone and the plugin still rejects an unsupported-only list.
+ */
+export function intersectAdvertisedGrantTypes(grantTypes: unknown): string[] | undefined {
+  if (!Array.isArray(grantTypes)) return undefined;
+  const supported: string[] = [];
+  const seen = new Set<string>();
+  for (const grant of grantTypes) {
+    if (typeof grant !== "string" || !AS_SUPPORTED_GRANT_TYPE_SET.has(grant) || seen.has(grant)) {
+      continue;
+    }
+    seen.add(grant);
+    supported.push(grant);
+  }
+  if (!supported.includes("authorization_code")) return undefined;
+  return supported;
+}
+
+function grantTypesUnchanged(advertised: unknown, next: string[]): boolean {
+  return (
+    Array.isArray(advertised) &&
+    advertised.length === next.length &&
+    advertised.every((grant, i) => grant === next[i])
+  );
+}
+
+/**
+ * Drop unsupported `grant_types` from a parsed metadata document or DCR body.
+ * `undefined` means leave the document as fetched.
+ */
+export function rewriteClientMetadataGrantTypes(
+  metadata: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  const next = intersectAdvertisedGrantTypes(metadata.grant_types);
+  if (next === undefined || grantTypesUnchanged(metadata.grant_types, next)) {
+    return undefined;
+  }
+  return { ...metadata, grant_types: next };
+}
+
+function shouldRewriteMetadataBody(res: Response): boolean {
+  if (res.status !== 200) return false;
+  const declared = Number(res.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > CIMD_METADATA_REWRITE_MAX_BYTES) {
+    return false;
+  }
+  const contentType = res.headers.get("content-type") ?? "";
+  return contentType === "" || /json/i.test(contentType);
+}
+
+async function rewriteFetchedMetadataGrantTypes(res: Response): Promise<Response> {
+  if (!shouldRewriteMetadataBody(res)) return res;
+
+  const text = await res.text();
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return new Response(text, {
+      status: res.status,
+      statusText: res.statusText,
+      headers: res.headers,
+    });
+  }
+  if (parsed == null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return new Response(text, {
+      status: res.status,
+      statusText: res.statusText,
+      headers: res.headers,
+    });
+  }
+
+  const rewritten = rewriteClientMetadataGrantTypes(parsed as Record<string, unknown>);
+  if (!rewritten) {
+    return new Response(text, {
+      status: res.status,
+      statusText: res.statusText,
+      headers: res.headers,
+    });
+  }
+
+  const body = JSON.stringify(rewritten);
+  const headers = new Headers(res.headers);
+  headers.set("content-length", String(new TextEncoder().encode(body).byteLength));
+  if (!headers.has("content-type")) headers.set("content-type", "application/json");
+  return new Response(body, { status: res.status, statusText: res.statusText, headers });
+}
+
 export const fetchClientMetadataResource: ClientMetadataResourceFetch = async (input, init) => {
   // The plugin calls this with `redirect: "error"`, which workerd's Request
   // constructor REJECTS outright ("won't be implemented... use manual and
@@ -58,5 +180,6 @@ export const fetchClientMetadataResource: ClientMetadataResourceFetch = async (i
   if (urlError) {
     throw new TypeError(`metadata URL rejected: ${urlError}`);
   }
-  return fetch(request);
+  const res = await fetch(request);
+  return rewriteFetchedMetadataGrantTypes(res);
 };

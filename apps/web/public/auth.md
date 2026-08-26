@@ -89,7 +89,13 @@ registration, no manual setup — preferably via Client ID Metadata Documents
 metadata JSON as the `client_id`; the metadata must include `client_name` and
 `redirect_uris`, and `redirect_uri` must exactly match a listed entry).
 Dynamic client registration (RFC 7591) remains supported for older clients.
-Discovery (advertises `client_id_metadata_document_supported`):
+A metadata document may list extra `grant_types` (`device_code`, `jwt-bearer`):
+the AS keeps `authorization_code` and `refresh_token` and ignores the rest.
+Authorize `scope=` may include extras (`openid`, `admin`): the AS downscopes to
+the client's registered `files:*` list instead of failing the whole request.
+Authorize `resource=` may be `https://agents.uploads.sh` or
+`https://agents.uploads.sh/mcp` (same pair for `mcp.uploads.sh`). Discovery
+(advertises `client_id_metadata_document_supported`):
 
 ```bash
 curl -s https://uploads.sh/.well-known/oauth-authorization-server

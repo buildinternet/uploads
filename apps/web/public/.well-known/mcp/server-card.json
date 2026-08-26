@@ -5,7 +5,14 @@
     "name": "uploads-mcp",
     "version": "0.6.0",
     "description": "Host files on uploads.sh from an agent — put (including branch staging and PR attach), promote, list, delete, usage, galleries, and GitHub attachment comments.",
-    "homepage": "https://uploads.sh/"
+    "homepage": "https://uploads.sh/",
+    "icons": [
+      {
+        "src": "https://uploads.sh/apple-touch-icon.png",
+        "mimeType": "image/png",
+        "sizes": ["180x180"]
+      }
+    ]
   },
   "transport": {
     "type": "streamable-http",

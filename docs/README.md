@@ -17,6 +17,7 @@ This folder is the repo companion: CLI and API reference, then contributor and o
 | [api](api.md)                                 | REST routes                               |
 | [private-attachments](private-attachments.md) | Private-repo URL prefixes                 |
 | [enrollment](enrollment.md)                   | uploads login, scopes, and token lifetime |
+| [mcp-cimd-interop](mcp-cimd-interop.md)       | Generic MCP client OAuth/CIMD failures    |
 
 ## Contributors
 
