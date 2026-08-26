@@ -586,14 +586,27 @@ describe("runPut --url", () => {
     ).rejects.toBeInstanceOf(UsageError);
   });
 
-  it("rejects a private --url without fetching", async () => {
+  it("rejects a LAN --url without fetching", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
     const { client } = fakeClient();
     await expect(
-      runPut(ctxWith(client), ["--url", "https://127.0.0.1/shot.png"], false, noRun),
+      runPut(ctxWith(client), ["--url", "https://10.0.0.5/shot.png"], false, noRun),
     ).rejects.toMatchObject({ message: expect.stringMatching(/private or internal/) });
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("fetches http://127.0.0.1 on the CLI", async () => {
+    stubPng("http://127.0.0.1:4321/shot.png");
+    const { client, puts } = fakeClient();
+    const code = await runPut(
+      ctxWith(client),
+      ["--url", "http://127.0.0.1:4321/shot.png", "--repo", "myapp", "--no-git"],
+      false,
+      noRun,
+    );
+    expect(code).toBe(0);
+    expect(puts[0].filename).toBe("shot.png");
   });
 
   it("requires --name when --url has no path leaf", async () => {

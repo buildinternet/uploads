@@ -374,7 +374,7 @@ export function createUploadsMcpTools(opts: {
       annotations: mcpDestroyPublic,
       securitySchemes: mcpOAuthWrite,
       description:
-        "Upload one or more files and get a public URL plus GitHub-ready markdown. Prefer `embedUrl` in GitHub markdown. Pass `contentUrl` for a public HTTPS file instead of a local path. With `pr`/`issue`, keys are stable and the managed comment is synced. All uploads are public.",
+        "Upload one or more files and get a public URL plus GitHub-ready markdown. Prefer `embedUrl` in GitHub markdown. Pass `contentUrl` for a public HTTPS file, or http://localhost on this machine, instead of a local path. With `pr`/`issue`, keys are stable and the managed comment is synced. All uploads are public.",
       inputSchema: {
         type: "object",
         properties: {
@@ -396,7 +396,7 @@ export function createUploadsMcpTools(opts: {
           contentUrl: {
             type: "string",
             description:
-              "Public HTTPS URL to fetch and upload. Filename is optional when the URL path has a leaf. Private/internal hosts are rejected. Exactly one of file, files, contentBase64, or contentUrl.",
+              "URL to fetch and upload. Public HTTPS, or http://localhost / 127.0.0.1 / *.localhost on this machine. Filename is optional when the URL path has a leaf. Other private/internal hosts are rejected. Exactly one of file, files, contentBase64, or contentUrl.",
           },
           filename: {
             type: "string",
@@ -703,13 +703,16 @@ export function createUploadsMcpTools(opts: {
           let sourceName: string;
           if (contentUrl !== undefined) {
             try {
-              sourceName = resolveUploadFilename(contentUrl, filenameArg, "contentUrl");
+              sourceName = resolveUploadFilename(contentUrl, filenameArg, "contentUrl", {
+                allowLoopback: true,
+              });
             } catch (err) {
               usage(err instanceof Error ? err.message : String(err));
             }
             bytes = await fetchUploadSource(contentUrl, {
               label: "contentUrl",
               userAgent: "uploads.sh/mcp",
+              allowLoopback: true,
             });
           } else {
             sourceName = filenameArg!;

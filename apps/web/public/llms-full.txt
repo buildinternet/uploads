@@ -115,6 +115,7 @@ uploads attach ./before.png ./after.png
 uploads attach ./shot.png --issue 45 --repo owner/name
 uploads put ./after.png --pr 123 --alt "Dashboard after" --width 700
 uploads put --url https://cdn.example/shot.png --pr 123
+uploads put --url http://localhost:4321/shot.png
 ```
 
 `--pr` / `--issue` keys are stable and hash-free:

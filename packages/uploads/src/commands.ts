@@ -187,11 +187,12 @@ export function readFileArg(fileArg: string): Uint8Array {
 // --- put ---
 
 const PUT_HELP = `uploads put <file...> [options]
-uploads put --url <https-url> [options]
+uploads put --url <url> [options]
 
 Upload one or more images for GitHub embeds. Use "-" for stdin (single file only).
-Pass --url (repeatable) to fetch a public HTTPS file instead of a local path.
-The filename comes from the URL path, or --name. Private/internal hosts are rejected.
+Pass --url (repeatable) to fetch a file instead of a local path. Public HTTPS,
+or http://localhost / 127.0.0.1 / *.localhost on this machine. Other private
+hosts are rejected. The filename comes from the URL path, or --name.
 
 Multiple files upload in parallel (bounded concurrency). One bad file does not
 block the rest; multi-file JSON is { uploads, failures } (exit 1 when any failed).
@@ -231,7 +232,7 @@ MARKDOWN prefers embedUrl for GitHub. Override: UPLOADS_EMBED_PUBLIC_BASE_URL.
 Options:
   --key <key>           Object key (default: <prefix>/<repo>/<ref>/<name>-<hash>.<ext>). Single file only
   --name <leaf>         Clean key leaf + default alt (no '/'); keeps --pr/default path. Single file only. Not with --key
-  --url <https-url>     Fetch this public HTTPS URL and upload its body (repeatable). Not with file arguments
+  --url <url>           Fetch this URL and upload its body (repeatable). Public HTTPS, or http://localhost on the CLI. Not with file arguments
   --destination <id>    Typed root: screenshots | gh | f (sets --prefix)
   --prefix <path>       Key prefix (default: screenshots, or UPLOADS_DEFAULT_PREFIX)
   --repo <owner/repo>   Repo segment (default: git remote, or UPLOADS_DEFAULT_REPO)
@@ -299,6 +300,7 @@ Examples:
   uploads put ./after.png --gallery gal_example
   uploads put ./shot.png --meta path=/settings --state after --app web
   uploads put --url https://cdn.example/shot.png --pr 128 --name hero.png
+  uploads put --url http://localhost:4321/shot.png
 `;
 
 /**
@@ -2845,7 +2847,9 @@ export async function runPut(
     for (const raw of urlArgs) {
       let filename: string;
       try {
-        filename = resolveUploadFilename(raw, !multi ? nameFlag : undefined, "--url");
+        filename = resolveUploadFilename(raw, !multi ? nameFlag : undefined, "--url", {
+          allowLoopback: true,
+        });
       } catch (err) {
         throw new UsageError(err instanceof Error ? err.message : String(err), {
           example: "uploads put --url https://cdn.example/id --name shot.png",
@@ -2854,6 +2858,7 @@ export async function runPut(
       const bytes = await fetchUploadSource(raw, {
         label: "--url",
         userAgent: "uploads.sh/cli",
+        allowLoopback: true,
       });
       byteSources.push({ bytes, filename, source: raw });
     }

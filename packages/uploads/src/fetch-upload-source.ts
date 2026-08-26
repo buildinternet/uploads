@@ -1,12 +1,14 @@
 /**
- * Fetch bytes from a caller-supplied HTTPS URL for `put --url` / MCP `contentUrl`.
+ * Fetch bytes from a caller-supplied URL for `put --url` / MCP `contentUrl`.
  *
- * Guardrails: HTTPS only, no URL credentials, private/internal hosts rejected
- * (same bar as remote screenshot render), redirects re-checked each hop, no
- * auth headers forwarded. The server still sniffs and size-caps after this.
+ * Guardrails: HTTPS only (http allowed on loopback when `allowLoopback` is
+ * set), no URL credentials, private/internal hosts rejected unless they are
+ * loopback and `allowLoopback` is set. Redirects re-checked each hop; a
+ * public origin cannot redirect onto loopback. No auth headers forwarded.
+ * The server still sniffs and size-caps after this.
  */
 import { UploadsError, type UploadsErrorCode } from "./errors.js";
-import { isPrivateOrLocalHost } from "./private-host.js";
+import { isLoopbackHost, isPrivateOrLocalHost } from "./private-host.js";
 
 export const FETCH_UPLOAD_SOURCE_TIMEOUT_MS = 15_000;
 export const FETCH_UPLOAD_SOURCE_MAX_REDIRECTS = 5;
@@ -15,7 +17,16 @@ export const FETCH_UPLOAD_SOURCE_DEFAULT_MAX_BYTES = 25 * 1024 * 1024;
 
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 
-export interface FetchUploadSourceOptions {
+export interface FetchableUploadUrlOptions {
+  /**
+   * CLI / stdio MCP only. Permit loopback (`localhost`, `*.localhost`,
+   * `127.0.0.0/8`, `::1`) and `http` on those hosts. LAN, link-local, and
+   * `.internal` stay rejected. Hosted MCP must not set this.
+   */
+  allowLoopback?: boolean;
+}
+
+export interface FetchUploadSourceOptions extends FetchableUploadUrlOptions {
   maxBytes?: number;
   fetch?: typeof fetch;
   timeoutMs?: number;
@@ -30,20 +41,28 @@ function fail(label: string, message: string, code: UploadsErrorCode = "USAGE"):
 }
 
 /** Parse and reject URLs we will not fetch. Used on the original URL and every redirect. */
-export function assertFetchableUploadUrl(raw: string, label = "url"): URL {
+export function assertFetchableUploadUrl(
+  raw: string,
+  label = "url",
+  opts: FetchableUploadUrlOptions = {},
+): URL {
   let url: URL;
   try {
     url = new URL(raw);
   } catch {
     fail(label, "must be a valid absolute URL");
   }
-  if (url.protocol !== "https:") {
+  const loopback = isLoopbackHost(url.hostname);
+  const allowThisLoopback = Boolean(opts.allowLoopback && loopback);
+  if (url.protocol === "http:") {
+    if (!allowThisLoopback) fail(label, "must be https");
+  } else if (url.protocol !== "https:") {
     fail(label, "must be https");
   }
   if (url.username !== "" || url.password !== "") {
     fail(label, "must not include credentials");
   }
-  if (isPrivateOrLocalHost(url.hostname)) {
+  if (isPrivateOrLocalHost(url.hostname) && !allowThisLoopback) {
     fail(label, "targets a private or internal network");
   }
   return url;
@@ -68,9 +87,10 @@ export function resolveUploadFilename(
   rawUrl: string,
   filename: string | undefined,
   label = "url",
+  opts: FetchableUploadUrlOptions = {},
 ): string {
   if (filename) return filename;
-  const derived = filenameFromUploadUrl(assertFetchableUploadUrl(rawUrl, label));
+  const derived = filenameFromUploadUrl(assertFetchableUploadUrl(rawUrl, label, opts));
   if (!derived) {
     throw new UploadsError(`${label} has no filename in the path; pass a filename`, "USAGE");
   }
@@ -134,8 +154,9 @@ async function readCappedBody(res: Response, maxBytes: number, label: string): P
 /**
  * GET `url` and return the body bytes, capped at `maxBytes`.
  *
- * Redirects are followed manually so each hop is re-validated (HTTPS, no
- * credentials, not a private/internal host). Auth headers are never forwarded.
+ * Redirects are followed manually so each hop is re-validated (scheme, no
+ * credentials, host policy). A public origin cannot redirect onto loopback
+ * even when `allowLoopback` is set. Auth headers are never forwarded.
  */
 export async function fetchUploadSource(
   raw: string,
@@ -147,8 +168,9 @@ export async function fetchUploadSource(
   const doFetch = opts.fetch ?? fetch;
   const timeout = AbortSignal.timeout(timeoutMs);
   const signal = opts.signal ? AbortSignal.any([opts.signal, timeout]) : timeout;
+  const urlOpts: FetchableUploadUrlOptions = { allowLoopback: opts.allowLoopback };
 
-  let url = assertFetchableUploadUrl(raw, label);
+  let url = assertFetchableUploadUrl(raw, label, urlOpts);
 
   for (let hop = 0; hop <= FETCH_UPLOAD_SOURCE_MAX_REDIRECTS; hop++) {
     let res: Response;
@@ -173,7 +195,11 @@ export async function fetchUploadSource(
       if (hop === FETCH_UPLOAD_SOURCE_MAX_REDIRECTS) {
         fail(label, "redirected too many times");
       }
-      url = assertFetchableUploadUrl(new URL(location, url).toString(), label);
+      // Loopback is only sticky while we are already on loopback. A public
+      // CDN cannot bounce the CLI onto http://127.0.0.1.
+      url = assertFetchableUploadUrl(new URL(location, url).toString(), label, {
+        allowLoopback: urlOpts.allowLoopback && isLoopbackHost(url.hostname),
+      });
       continue;
     }
 

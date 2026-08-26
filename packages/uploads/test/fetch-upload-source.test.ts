@@ -47,6 +47,30 @@ describe("assertFetchableUploadUrl", () => {
   ])("rejects a private/internal host: %s", (url) => {
     expect(() => assertFetchableUploadUrl(url)).toThrow(/private or internal/);
   });
+
+  it.each([
+    "http://localhost/shot.png",
+    "http://127.0.0.1:4321/shot.png",
+    "http://app.localhost/shot.png",
+    "https://localhost/shot.png",
+    "http://[::1]/shot.png",
+  ])("accepts loopback when allowLoopback is set: %s", (url) => {
+    expect(assertFetchableUploadUrl(url, "--url", { allowLoopback: true }).href).toBe(
+      new URL(url).href,
+    );
+  });
+
+  it("still rejects LAN and link-local when allowLoopback is set", () => {
+    expect(() =>
+      assertFetchableUploadUrl("https://10.0.0.5/shot.png", "--url", { allowLoopback: true }),
+    ).toThrow(/private or internal/);
+    expect(() =>
+      assertFetchableUploadUrl("http://169.254.169.254/latest", "--url", { allowLoopback: true }),
+    ).toThrow(/must be https/);
+    expect(() =>
+      assertFetchableUploadUrl("http://cdn.example/shot.png", "--url", { allowLoopback: true }),
+    ).toThrow(/must be https/);
+  });
 });
 
 describe("filenameFromUploadUrl", () => {
@@ -141,6 +165,53 @@ describe("fetchUploadSource", () => {
       }),
     ).rejects.toThrow(/private or internal/);
     expect(doFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("fetches http loopback when allowLoopback is set", async () => {
+    const doFetch = vi.fn(async () => pngResponse());
+    const bytes = await fetchUploadSource("http://127.0.0.1:4321/shot.png", {
+      maxBytes: MAX,
+      allowLoopback: true,
+      fetch: doFetch as unknown as typeof fetch,
+    });
+    expect(bytes).toEqual(PNG);
+    expect(doFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not let a public origin redirect onto loopback even with allowLoopback", async () => {
+    const doFetch = vi.fn(async () => {
+      return new Response(null, {
+        status: 302,
+        headers: { location: "http://127.0.0.1/secret" },
+      });
+    });
+    await expect(
+      fetchUploadSource("https://cdn.example/shot.png", {
+        maxBytes: MAX,
+        allowLoopback: true,
+        fetch: doFetch as unknown as typeof fetch,
+      }),
+    ).rejects.toThrow(/must be https|private or internal/);
+    expect(doFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("follows a loopback-to-loopback redirect when allowLoopback is set", async () => {
+    const doFetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(null, {
+          status: 302,
+          headers: { location: "http://127.0.0.1:4321/shot.png" },
+        }),
+      )
+      .mockResolvedValueOnce(pngResponse());
+    const bytes = await fetchUploadSource("http://localhost:4321/old.png", {
+      maxBytes: MAX,
+      allowLoopback: true,
+      fetch: doFetch as unknown as typeof fetch,
+    });
+    expect(bytes).toEqual(PNG);
+    expect(String(doFetch.mock.calls[1]![0])).toBe("http://127.0.0.1:4321/shot.png");
   });
 
   it("caps redirect hops", async () => {

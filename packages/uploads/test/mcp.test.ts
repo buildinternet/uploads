@@ -699,6 +699,25 @@ describe("tools/call put", () => {
     expect(res.result.content[0].text).toContain("file, files, contentBase64, or contentUrl");
   });
 
+  it("uploads from a loopback contentUrl", async () => {
+    const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(PNG, { status: 200 })),
+    );
+    const { server, puts } = serverWith();
+    const res = await rpc(server, "tools/call", {
+      name: "put",
+      arguments: {
+        contentUrl: "http://127.0.0.1:4321/shot.png",
+        key: "screenshots/x/shot.png",
+        noGit: true,
+      },
+    });
+    expect(res.result.isError).toBe(false);
+    expect(puts[0].filename).toBe("shot.png");
+  });
+
   it("uploads from contentUrl", async () => {
     const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
     vi.stubGlobal(
