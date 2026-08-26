@@ -15,8 +15,9 @@ project is in active development.
 ## What the product does
 
 GitHub's native image hosting only works through a browser session. Agents
-cannot drag-and-drop. uploads.sh is the missing step: put a local file (or
-base64 on the hosted MCP) and get back durable `url` / `embedUrl` markdown.
+cannot drag-and-drop. uploads.sh is the missing step: put a local file, a
+public HTTPS URL (`uploads put --url`, or hosted MCP `contentUrl`), or
+base64 on the hosted MCP, and get back durable `url` / `embedUrl` markdown.
 
 The intended loop is **stage as you go**:
 
@@ -113,6 +114,7 @@ uploads attach --promote
 uploads attach ./before.png ./after.png
 uploads attach ./shot.png --issue 45 --repo owner/name
 uploads put ./after.png --pr 123 --alt "Dashboard after" --width 700
+uploads put --url https://cdn.example/shot.png --pr 123
 ```
 
 `--pr` / `--issue` keys are stable and hash-free:
@@ -152,13 +154,15 @@ uploads comment --pr 123          # re-sync managed comment without uploading
 ## Hosted MCP (agents.uploads.sh)
 
 Use when the agent has **no local filesystem or git checkout**. Content is
-base64, not paths. Workspace is inferred from the bearer / OAuth token.
+base64 or a public HTTPS `contentUrl` (the worker fetches it; filename comes
+from the URL path when omitted), not local paths. Workspace is inferred from
+the bearer / OAuth token.
 
 Important tools (not exhaustive):
 
 | Tool | Role |
 | --- | --- |
-| `put` | Upload base64; with `pr`/`issue` + required `repo`, stable gh key + managed comment by default (`comment: false` to skip). With `branch` + `repo` (no pr/issue), stages under `gh/…/branch/…`. With `pr` + `branch`, also promotes that branch after upload |
+| `put` | Upload `contentBase64` or `contentUrl`; with `pr`/`issue` + required `repo`, stable gh key + managed comment by default (`comment: false` to skip). With `branch` + `repo` (no pr/issue), stages under `gh/…/branch/…`. With `pr` + `branch`, also promotes that branch after upload |
 | `promote` | Copy branch-staged files into a PR (`repo` + `pr` + `branch` required); optional comment refresh (default on) |
 | `comment` | Refresh managed attachments comment without re-uploading |
 | `list` / `find_files` / `get_metadata` / `set_metadata` | Browse and tag objects |

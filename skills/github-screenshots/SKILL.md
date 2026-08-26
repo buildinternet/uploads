@@ -36,12 +36,12 @@ and return a stable public URL plus ready-to-paste markdown.
 Pick one transport and stay on it. This skill is the workflow. The
 **uploads-cli** skill owns flags and MCP tool contracts.
 
-| You have                                           | Use                                                                                                                                                                                |
-| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| No shell (ChatGPT, or any host without a checkout) | Hosted MCP `put` with `filename` + `contentBase64` + `repo` + (`pr` or `branch`). Embed the returned `markdown` / `embedUrl`. Never imply you can run `uploads attach ./shot.png`. |
-| A checkout and the `uploads` binary                | The CLI examples below. Git can fill `repo` / `branch`.                                                                                                                            |
-| A `localhost` page or a selector annotate          | CLI only (`uploads screenshot --via local`). Remote render cannot reach your machine.                                                                                              |
-| Neither MCP nor the CLI                            | Stop and say so. Do not treat `npm install -g` as the ChatGPT path.                                                                                                                |
+| You have                                           | Use                                                                                                                                                                                                                                                                        |
+| -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| No shell (ChatGPT, or any host without a checkout) | Hosted MCP `put` with (`contentBase64` + `filename`, or `contentUrl`) + `repo` + (`pr` or `branch`). Filename is optional with `contentUrl` when the URL path has a leaf. Embed the returned `markdown` / `embedUrl`. Never imply you can run `uploads attach ./shot.png`. |
+| A checkout and the `uploads` binary                | The CLI examples below. Git can fill `repo` / `branch`.                                                                                                                                                                                                                    |
+| A `localhost` page or a selector annotate          | CLI only (`uploads screenshot --via local`). Remote render cannot reach your machine.                                                                                                                                                                                      |
+| Neither MCP nor the CLI                            | Stop and say so. Do not treat `npm install -g` as the ChatGPT path.                                                                                                                                                                                                        |
 
 On the hosted MCP there is no `attach` tool and no git defaults. Stage with
 `put` + `branch` + `repo`. Once the PR exists, `promote` with `repo` + `pr` +

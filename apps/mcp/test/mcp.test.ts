@@ -79,6 +79,25 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+/** Keep the JWKS stub and add extra HTTPS routes for contentUrl puts. */
+function stubFetchRoutes(routes: Record<string, Response | (() => Response)>): void {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (url === `${OAUTH_ISSUER}/jwks`) {
+        return new Response(JSON.stringify(oauthJwks), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      const hit = routes[url];
+      if (hit) return typeof hit === "function" ? hit() : hit.clone();
+      throw new Error(`unexpected fetch in test: ${url}`);
+    }),
+  );
+}
+
 async function signOAuthToken(
   claims: Record<string, unknown>,
   opts: { issuer?: string; audience?: string; expiresIn?: string } = {},
@@ -705,6 +724,142 @@ describe("mcp worker", () => {
     expect(bucket.store.get("shots/shot.png")?.contentType).toBe("image/png");
   });
 
+  it("uploads from a public HTTPS contentUrl and returns url + markdown", async () => {
+    stubFetchRoutes({
+      "https://cdn.example/shot.png": new Response(PNG_BYTES, { status: 200 }),
+    });
+    const { env, bucket } = await makeEnv();
+    const result = await callTool(env, "put", {
+      contentUrl: "https://cdn.example/shot.png",
+      filename: "shot.png",
+      key: "shots/from-url.png",
+    });
+    expect(result.isError).toBe(false);
+    expect(result.structuredContent).toMatchObject({
+      workspace: "test-ws",
+      key: "shots/from-url.png",
+      url: "https://storage.example.com/shots/from-url.png",
+      size: 11,
+      contentType: "image/png",
+      markdown: "![shot.png](https://storage.example.com/shots/from-url.png)",
+    });
+    expect(bucket.store.get("shots/from-url.png")?.data).toEqual(PNG_BYTES);
+  });
+
+  it("derives filename from contentUrl when filename is omitted", async () => {
+    stubFetchRoutes({
+      "https://cdn.example/shot.png": new Response(PNG_BYTES, { status: 200 }),
+    });
+    const { env, bucket } = await makeEnv();
+    const result = await callTool(env, "put", {
+      contentUrl: "https://cdn.example/shot.png",
+      key: "shots/derived.png",
+    });
+    expect(result.isError).toBe(false);
+    expect(result.structuredContent).toMatchObject({
+      key: "shots/derived.png",
+      markdown: "![shot.png](https://storage.example.com/shots/derived.png)",
+    });
+    expect(bucket.store.get("shots/derived.png")?.data).toEqual(PNG_BYTES);
+  });
+
+  it("requires filename when contentUrl has no path leaf", async () => {
+    const { env, bucket } = await makeEnv();
+    const result = await callTool(env, "put", {
+      contentUrl: "https://cdn.example/",
+    });
+    expect(result.isError).toBe(true);
+    expect((result.content[0] as { text: string }).text).toMatch(/no filename/);
+    expect(bucket.store.size).toBe(0);
+  });
+
+  it("rejects contentUrl together with contentBase64", async () => {
+    const { env, bucket } = await makeEnv();
+    const result = await callTool(env, "put", {
+      contentUrl: "https://cdn.example/shot.png",
+      contentBase64: PNG_B64,
+      filename: "shot.png",
+    });
+    expect(result.isError).toBe(true);
+    expect(result.content).toEqual([
+      {
+        type: "text",
+        text: "exactly one of contentBase64 or contentUrl is required (USAGE)",
+      },
+    ]);
+    expect(bucket.store.size).toBe(0);
+  });
+
+  it("rejects a private contentUrl without fetching it", async () => {
+    const { env, bucket } = await makeEnv();
+    const result = await callTool(env, "put", {
+      contentUrl: "https://127.0.0.1/shot.png",
+      filename: "shot.png",
+    });
+    expect(result.isError).toBe(true);
+    expect((result.content[0] as { text: string }).text).toMatch(/private or internal/);
+    expect(bucket.store.size).toBe(0);
+    expect(vi.mocked(fetch).mock.calls.map(([input]) => String(input))).not.toContain(
+      "https://127.0.0.1/shot.png",
+    );
+  });
+
+  it("rejects a contentUrl that the origin returns 404 for", async () => {
+    stubFetchRoutes({
+      "https://cdn.example/missing.png": new Response("nope", { status: 404 }),
+    });
+    const { env, bucket } = await makeEnv();
+    const result = await callTool(env, "put", {
+      contentUrl: "https://cdn.example/missing.png",
+      filename: "shot.png",
+    });
+    expect(result.isError).toBe(true);
+    expect((result.content[0] as { text: string }).text).toMatch(/HTTP 404/);
+    expect(bucket.store.size).toBe(0);
+  });
+
+  it("multi-file put accepts a mix of contentBase64 and contentUrl", async () => {
+    stubFetchRoutes({
+      "https://cdn.example/two.png": new Response(PNG_BYTES_2, { status: 200 }),
+    });
+    const { env, bucket } = await makeEnv();
+    const result = await callTool(env, "put", {
+      files: [
+        { filename: "one.png", contentBase64: PNG_B64 },
+        { filename: "two.png", contentUrl: "https://cdn.example/two.png" },
+      ],
+    });
+    expect(result.isError).toBe(false);
+    const body = result.structuredContent as {
+      uploads: Array<{ file: string }>;
+      failures: unknown[];
+    };
+    expect(body.failures).toEqual([]);
+    expect(body.uploads.map((u) => u.file)).toEqual(["one.png", "two.png"]);
+    expect(bucket.store.size).toBe(2);
+  });
+
+  it("multi-file put derives filename from contentUrl when omitted", async () => {
+    stubFetchRoutes({
+      "https://cdn.example/two.png": new Response(PNG_BYTES_2, { status: 200 }),
+    });
+    const { env, bucket } = await makeEnv();
+    const result = await callTool(env, "put", {
+      files: [
+        { filename: "one.png", contentBase64: PNG_B64 },
+        { contentUrl: "https://cdn.example/two.png" },
+      ],
+    });
+    expect(result.isError).toBe(false);
+    const body = result.structuredContent as {
+      uploads: Array<{ file: string }>;
+      failures: unknown[];
+    };
+    expect(body.failures).toEqual([]);
+    expect(body.uploads.map((u) => u.file)).toEqual(["one.png", "two.png"]);
+    expect(bucket.store.size).toBe(2);
+  });
+
   it("refuses to overwrite an existing strict (non-gh/) key without replace (issue #174)", async () => {
     const { env, bucket } = await makeEnv();
     const first = await callTool(env, "put", {
@@ -975,6 +1130,35 @@ describe("mcp worker", () => {
 
   it("multi-file put rejects invalid combinations and shapes before writing", async () => {
     const { env, bucket } = await makeEnv();
+    const combinedUrl = await callTool(env, "put", {
+      files: [{ filename: "one.png", contentBase64: PNG_B64 }],
+      contentUrl: "https://cdn.example/shot.png",
+    });
+    expect(combinedUrl.isError).toBe(true);
+    expect(combinedUrl.content).toEqual([
+      {
+        type: "text",
+        text: "contentBase64/contentUrl/filename cannot be combined with files (USAGE)",
+      },
+    ]);
+
+    const bothSources = await callTool(env, "put", {
+      files: [
+        {
+          filename: "one.png",
+          contentBase64: PNG_B64,
+          contentUrl: "https://cdn.example/shot.png",
+        },
+      ],
+    });
+    expect(bothSources.isError).toBe(true);
+    expect(bothSources.content).toEqual([
+      {
+        type: "text",
+        text: "files[0] needs exactly one of contentBase64 or contentUrl (USAGE)",
+      },
+    ]);
+
     const combined = await callTool(env, "put", {
       files: [{ filename: "one.png", contentBase64: PNG_B64 }],
       contentBase64: PNG_B64,
@@ -984,7 +1168,7 @@ describe("mcp worker", () => {
     expect(combined.content).toEqual([
       {
         type: "text",
-        text: "contentBase64/filename cannot be combined with files (USAGE)",
+        text: "contentBase64/contentUrl/filename cannot be combined with files (USAGE)",
       },
     ]);
 

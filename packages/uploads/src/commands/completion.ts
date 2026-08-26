@@ -138,7 +138,10 @@ ${subMaps.join("\n")}
 
   if [[ "$cur" == -* ]]; then
     case "$cmd" in
-      put|attach)
+      put)
+        COMPREPLY=( $(compgen -W "\${put_flags[*]} --url" -- "$cur") )
+        ;;
+      attach)
         COMPREPLY=( $(compgen -W "\${put_flags[*]}" -- "$cur") )
         ;;
       screenshot)
@@ -297,6 +300,7 @@ function fishScript(): string {
       `complete -c uploads -n '__fish_seen_subcommand_from put attach' -l ${flag.slice(2)}`,
     );
   }
+  lines.push(`complete -c uploads -n '__fish_seen_subcommand_from put' -l url`);
   for (const flag of SCREENSHOT_FLAGS) {
     if (!flag.startsWith("--")) continue;
     lines.push(

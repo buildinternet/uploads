@@ -14,10 +14,12 @@
 import {
   buildMarkdown,
   buildScreenshotKey,
+  fetchUploadSource,
   ghAttachmentKeyForMode,
   ghBranchAttachmentKeyForMode,
   ghMetadataForBranch,
   ghMetadataFromTarget,
+  resolveUploadFilename,
   type GhTarget,
 } from "@buildinternet/uploads";
 import {
@@ -143,6 +145,20 @@ function decodeBase64(value: string, maxBytes: number): Uint8Array {
   return Uint8Array.from(binary, (ch) => ch.charCodeAt(0));
 }
 
+async function bytesFromPutSource(
+  source: { contentBase64?: string; contentUrl?: string },
+  maxBytes: number,
+): Promise<Uint8Array> {
+  if (source.contentUrl) {
+    return fetchUploadSource(source.contentUrl, {
+      maxBytes,
+      label: "contentUrl",
+      userAgent: "uploads.sh/mcp",
+    });
+  }
+  return decodeBase64(source.contentBase64!, maxBytes);
+}
+
 /** Max items per multi-file put call — bounds decoded bytes held in isolate memory. */
 export const MAX_PUT_FILES = 20;
 /** Bounded parallelism for batch writes (each is a D1 budget check + R2 put). */
@@ -151,36 +167,64 @@ const hostedRepoRequired = "GitHub `owner/name`. Required — this server cannot
 
 interface PutFileItem {
   filename: string;
-  contentBase64: string;
+  contentBase64?: string;
+  contentUrl?: string;
   alt?: string;
 }
+
+const PUT_FILE_ITEM_KEYS = new Set(["filename", "contentBase64", "contentUrl", "alt"]);
 
 /** Validate the multi-file `files` argument shape (content, not paths — no filesystem here). */
 function optPutFileItems(args: Record<string, unknown>): PutFileItem[] | undefined {
   const v = args.files;
   if (v === undefined || v === null) return undefined;
-  if (!Array.isArray(v)) usage("files must be an array of { filename, contentBase64 } objects");
+  if (!Array.isArray(v)) {
+    usage("files must be an array of { filename, contentBase64 | contentUrl } objects");
+  }
   return v.map((entry, i) => {
     if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
-      usage(`files[${i}] must be an object with filename and contentBase64`);
+      usage(`files[${i}] must be an object with filename and contentBase64 or contentUrl`);
     }
     const rec = entry as Record<string, unknown>;
     for (const key of Object.keys(rec)) {
-      if (!["filename", "contentBase64", "alt"].includes(key)) {
+      if (!PUT_FILE_ITEM_KEYS.has(key)) {
         usage(`files[${i}].${key} is not a valid property`);
       }
     }
-    const { filename, contentBase64, alt } = rec;
-    if (typeof filename !== "string" || !filename) usage(`files[${i}].filename is required`);
-    if (typeof contentBase64 !== "string" || !contentBase64) {
-      usage(`files[${i}].contentBase64 is required`);
+    const { filename, contentBase64, contentUrl, alt } = rec;
+    if (filename !== undefined && typeof filename !== "string") {
+      usage(`files[${i}].filename must be a string`);
+    }
+    const hasB64 = typeof contentBase64 === "string" && contentBase64.length > 0;
+    const hasUrl = typeof contentUrl === "string" && contentUrl.length > 0;
+    if (hasB64 === hasUrl) {
+      usage(`files[${i}] needs exactly one of contentBase64 or contentUrl`);
+    }
+    if (contentBase64 !== undefined && typeof contentBase64 !== "string") {
+      usage(`files[${i}].contentBase64 must be a string`);
+    }
+    if (contentUrl !== undefined && typeof contentUrl !== "string") {
+      usage(`files[${i}].contentUrl must be a string`);
     }
     if (alt !== undefined && typeof alt !== "string") usage(`files[${i}].alt must be a string`);
-    return {
-      filename,
-      contentBase64,
-      ...(typeof alt === "string" ? { alt } : {}),
-    };
+    const nameArg = typeof filename === "string" && filename ? filename : undefined;
+    let name: string;
+    if (hasUrl) {
+      try {
+        name = resolveUploadFilename(contentUrl as string, nameArg, "contentUrl");
+      } catch (err) {
+        usage(`files[${i}]: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    } else if (!nameArg) {
+      usage(`files[${i}].filename is required`);
+    } else {
+      name = nameArg;
+    }
+    const item: PutFileItem = { filename: name };
+    if (hasB64) item.contentBase64 = contentBase64 as string;
+    if (hasUrl) item.contentUrl = contentUrl as string;
+    if (typeof alt === "string") item.alt = alt;
+    return item;
   });
 }
 
@@ -555,18 +599,24 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
       annotations: mcpDestroyPublic,
       securitySchemes: mcpOAuthWrite,
       description:
-        "Upload a file (or files) and get a public URL plus GitHub-ready markdown. Prefer the returned `embedUrl` in GitHub markdown. All uploads are public. Pass `pr`+`repo` to attach to a PR (stable key + managed comment). Pass `branch`+`repo` to stage for a PR that does not exist yet.",
+        "Upload a file (or files) and get a public URL plus GitHub-ready markdown. Prefer the returned `embedUrl` in GitHub markdown. All uploads are public. Pass `pr`+`repo` to attach to a PR (stable key + managed comment). Pass `branch`+`repo` to stage for a PR that does not exist yet. When the bytes are already at a public HTTPS URL, pass `contentUrl` instead of base64 — the server fetches them.",
       inputSchema: {
         type: "object",
         properties: {
           contentBase64: {
             type: "string",
             description:
-              "Base64-encoded file content to upload (must be non-empty). Exactly one of contentBase64 or files is required.",
+              "Base64-encoded file content to upload (must be non-empty). Exactly one of contentBase64, contentUrl, or files is required.",
+          },
+          contentUrl: {
+            type: "string",
+            description:
+              "Public HTTPS URL of an already-hosted file to fetch and re-host. Filename is optional when the URL path has a leaf. No auth headers are forwarded; private/internal hosts are rejected. Exactly one of contentBase64, contentUrl, or files is required.",
           },
           filename: {
             type: "string",
-            description: "Filename for the content (drives the key and content type).",
+            description:
+              "Filename for the content (drives the key and content type). Required with contentBase64; optional with contentUrl when the URL path has a leaf.",
           },
           files: {
             type: "array",
@@ -575,11 +625,18 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
               properties: {
                 filename: {
                   type: "string",
-                  description: "Filename for this item (drives the key and content type).",
+                  description:
+                    "Filename for this item (drives the key and content type). Required with contentBase64; optional with contentUrl when the URL path has a leaf.",
                 },
                 contentBase64: {
                   type: "string",
-                  description: "Base64-encoded content for this item (must be non-empty).",
+                  description:
+                    "Base64-encoded content for this item (must be non-empty). Exactly one of contentBase64 or contentUrl per item.",
+                },
+                contentUrl: {
+                  type: "string",
+                  description:
+                    "Public HTTPS URL to fetch for this item. Exactly one of contentBase64 or contentUrl per item.",
                 },
                 alt: {
                   type: "string",
@@ -587,10 +644,9 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
                     "Per-item alt text override (default: top-level alt, then filename).",
                 },
               },
-              required: ["filename", "contentBase64"],
               additionalProperties: false,
             },
-            description: `Multiple files in one call (max ${MAX_PUT_FILES}). Cannot combine with contentBase64, filename, or key.`,
+            description: `Multiple files in one call (max ${MAX_PUT_FILES}). Each item needs contentBase64 or contentUrl. Filename is optional with contentUrl when the URL path has a leaf. Cannot combine with contentBase64, contentUrl, filename, or key.`,
           },
           key: {
             type: "string",
@@ -668,6 +724,12 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
             state: "after",
           },
           {
+            contentUrl: "https://cdn.example/settings-after.png",
+            pr: 12,
+            repo: "acme/web",
+            state: "after",
+          },
+          {
             files: [
               { filename: "settings-before.png", contentBase64: MCP_EXAMPLE_PNG_BASE64 },
               { filename: "settings-after.png", contentBase64: MCP_EXAMPLE_PNG_BASE64 },
@@ -683,12 +745,13 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
         // ceiling is bounded by MAX_PUT_FILES instead.
         await requireWriteBudget();
         const contentBase64 = optString(args, "contentBase64");
-        const filename = optString(args, "filename");
+        const contentUrl = optString(args, "contentUrl");
+        let filename = optString(args, "filename");
         const items = optPutFileItems(args);
         const multi = items !== undefined;
         if (multi) {
-          if (contentBase64 !== undefined || filename !== undefined) {
-            usage("contentBase64/filename cannot be combined with files");
+          if (contentBase64 !== undefined || contentUrl !== undefined || filename !== undefined) {
+            usage("contentBase64/contentUrl/filename cannot be combined with files");
           }
           if (items.length === 0) usage("files must be a non-empty array");
           if (items.length > MAX_PUT_FILES) {
@@ -696,8 +759,20 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
           }
           if (optString(args, "key")) usage("key cannot be combined with files");
         } else {
-          if (!contentBase64) usage("contentBase64 is required");
-          if (!filename) usage("filename is required");
+          const hasB64 = Boolean(contentBase64);
+          const hasUrl = Boolean(contentUrl);
+          if (hasB64 === hasUrl) {
+            usage("exactly one of contentBase64 or contentUrl is required");
+          }
+          if (hasUrl) {
+            try {
+              filename = resolveUploadFilename(contentUrl!, filename, "contentUrl");
+            } catch (err) {
+              usage(err instanceof Error ? err.message : String(err));
+            }
+          } else if (!filename) {
+            usage("filename is required");
+          }
         }
 
         // Destinations (no git on this server — repo is always required when
@@ -834,16 +909,18 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
         }
 
         if (multi) {
-          // Decode every item before any write so a bad batch fails whole.
-          const decoded = items.map((item, i) => {
-            try {
-              return decodeBase64(item.contentBase64, maxBytes);
-            } catch (err) {
-              usage(
-                `files[${i}] (${item.filename}): ${err instanceof Error ? err.message : String(err)}`,
-              );
-            }
-          });
+          // Resolve every item before any write so a bad batch fails whole.
+          const decoded = await Promise.all(
+            items.map(async (item, i) => {
+              try {
+                return await bytesFromPutSource(item, maxBytes);
+              } catch (err) {
+                usage(
+                  `files[${i}] (${item.filename}): ${err instanceof Error ? err.message : String(err)}`,
+                );
+              }
+            }),
+          );
           const keys = await Promise.all(
             items.map((item, i) => resolveKey(item.filename, decoded[i]!)),
           );
@@ -902,7 +979,7 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
           return { workspace: workspaceName, uploads, failures, ...extras };
         }
 
-        const bytes = decodeBase64(contentBase64!, maxBytes);
+        const bytes = await bytesFromPutSource({ contentBase64, contentUrl }, maxBytes);
         const key = await resolveKey(filename!, bytes);
         const result = await putObject(env, workspace, key, bytes, workspaceName, putOpts);
         const markdown =

@@ -114,11 +114,14 @@ workspace may allowlist only those destinations. Use `--pr`/`--issue` for
 stable, hash-free GitHub keys; use `--key` only for an exact path under an
 allowed root.
 
-These flags give you more control over the output:
+These flags give you more control over the output. `--url` fetches a public
+HTTPS file instead of a local path (repeatable; filename from the URL, or
+`--name`):
 
 ```bash
 uploads put ./shot.png --format url
 uploads put ./shot.png --repo myorg/myapp --ref 1722 --width 700
+uploads put --url https://cdn.example/shot.png --pr 123
 uploads put ./mobile.png --frame phone
 uploads --version
 uploads doctor

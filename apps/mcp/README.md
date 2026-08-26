@@ -77,6 +77,13 @@ The REST API's upload guardrails apply: content type is sniffed server-side,
 size-capped, budget-checked, and subject to optional key policy
 (`allowedKeyPrefixes` / `maxKeyDepth`). Writes are rate limited per workspace.
 
+`put` accepts bytes as `contentBase64` or as `contentUrl` (a public HTTPS URL
+the worker fetches and re-hosts). `contentUrl` is for files that are already
+hosted somewhere the worker can reach. Filename is optional when the URL path
+has a leaf; pass `filename` to override, or when the path has none. It does
+not replace local paths on the stdio server, and it does not forward auth
+headers. Private, loopback, and internal hosts are rejected.
+
 ## Endpoint
 
 ```

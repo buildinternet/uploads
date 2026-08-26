@@ -27,8 +27,8 @@ must already point at something publicly hosted.
 
 This skill covers both transports: the **`uploads` CLI** (local files, git,
 localhost) and the hosted MCP at `https://agents.uploads.sh/mcp` (bytes you
-already have, no checkout). Both PUT to the uploads.sh API and return a stable
-public URL plus ready-to-paste markdown. For PRs and issues the managed
+already have, or a public HTTPS URL to fetch, no checkout). Both PUT to the
+uploads.sh API and return a stable public URL plus ready-to-paste markdown. For PRs and issues the managed
 attachments comment is available on both — CLI via local `gh` as a fallback,
 hosted MCP bot-only.
 
@@ -36,14 +36,15 @@ hosted MCP bot-only.
 
 Same product, two transports. Skills do not install a binary.
 
-| Need                                                  | Use                                             | Why                                                                                                                                                          |
-| ----------------------------------------------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Bytes already in context (ChatGPT attachment, base64) | Hosted MCP `put`                                | `files: [{ filename, contentBase64 }]`. Pass `repo` + (`pr` \| `branch`). No git inference.                                                                  |
-| List, find, metadata, comment, promote                | Either                                          | Hosted: `list`, `find_files`, `get_metadata` / `set_metadata`, `comment`, `promote`. CLI: `uploads list` / `find` / `meta` / `comment` / `attach --promote`. |
-| Local path or current-branch attach                   | CLI                                             | Hosted server has no filesystem and no `attach` tool. Use `put` instead.                                                                                     |
-| `localhost` / private-network screenshot              | CLI `uploads screenshot --via local`            | Remote render cannot reach your machine.                                                                                                                     |
-| Selector annotate on a live page                      | CLI `uploads screenshot --annotate --via local` | Remote backend rejects selector-bearing specs.                                                                                                               |
-| Neither transport                                     | Stop                                            | Do not treat `npm install -g` as the ChatGPT path. OAuth on `https://agents.uploads.sh/mcp` is the published remote path.                                    |
+| Need                                                  | Use                                             | Why                                                                                                                                                                                               |
+| ----------------------------------------------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Bytes already in context (ChatGPT attachment, base64) | Hosted MCP `put`                                | `files: [{ filename, contentBase64 }]`. Pass `repo` + (`pr` \| `branch`). No git inference.                                                                                                       |
+| File already at a public HTTPS URL                    | CLI `put --url` or hosted MCP `put`             | CLI: `uploads put --url https://… --pr 123`. Hosted: `{ contentUrl }` (filename optional when the URL path has a leaf). Worker/CLI fetches; no auth headers; private/internal hosts are rejected. |
+| List, find, metadata, comment, promote                | Either                                          | Hosted: `list`, `find_files`, `get_metadata` / `set_metadata`, `comment`, `promote`. CLI: `uploads list` / `find` / `meta` / `comment` / `attach --promote`.                                      |
+| Local path or current-branch attach                   | CLI                                             | Hosted server has no filesystem and no `attach` tool. Use `put` instead.                                                                                                                          |
+| `localhost` / private-network screenshot              | CLI `uploads screenshot --via local`            | Remote render cannot reach your machine.                                                                                                                                                          |
+| Selector annotate on a live page                      | CLI `uploads screenshot --annotate --via local` | Remote backend rejects selector-bearing specs.                                                                                                                                                    |
+| Neither transport                                     | Stop                                            | Do not treat `npm install -g` as the ChatGPT path. OAuth on `https://agents.uploads.sh/mcp` is the published remote path.                                                                         |
 
 CLI examples in the rest of this skill assume a checkout and the `uploads`
 binary. Hosted tool contracts live under **Notes and cautions** (the MCP
@@ -290,6 +291,7 @@ Multiple paths upload in parallel; multi-file JSON is `{ uploads, failures }`
 ```bash
 uploads put ./shot.png --repo myorg/myapp --ref 1722 --alt "New live feed cards" --width 700
 uploads put ./before.png ./after.png
+uploads put --url https://cdn.example/shot.png --pr 123 --name hero.png
 ```
 
 Human output goes to stderr; the URL and markdown to stdout, so you can pipe or
@@ -307,6 +309,7 @@ Key options (`uploads put --help` for all):
 | `--prefix <path>`                     | Key prefix (default: `screenshots`, or `UPLOADS_DEFAULT_PREFIX`).                                                                                                                                                    |
 | `--key <key>`                         | Set the object key explicitly; skips the auto-naming below.                                                                                                                                                          |
 | `--name <leaf>`                       | Clean filename for the key's leaf + default alt (no `/`); keeps the `--pr`/default path. Not with `--key`.                                                                                                           |
+| `--url <https-url>`                   | Fetch this public HTTPS URL and upload its body (repeatable). Not with file arguments. Filename comes from the URL path, or `--name`. Private/internal hosts are rejected; no auth is forwarded.                     |
 | `--replace`                           | Allow overwriting an existing object on a strict key (`--key`/default path). No effect on `--pr`/`--issue` (or `UPLOADS_OVERWRITE=1`).                                                                               |
 | `--dry-run`                           | Resolve + print the key and final public URL without uploading; reports if the key would replace (or, on a strict key, be refused). Not with `--gallery`; skips the managed comment sync even with `--pr`/`--issue`. |
 | `--content-type <mime>`               | Override the content type (else inferred from extension; ignored when optimize rewrites the body).                                                                                                                   |
@@ -338,6 +341,7 @@ the original is uploaded. Use `--no-optimize` when you need lossless originals.
 | Intent                                | Command                                                        |
 | ------------------------------------- | -------------------------------------------------------------- |
 | Just upload it, give me a URL         | `uploads put ./file.png`                                       |
+| Already hosted at a public HTTPS URL  | `uploads put --url https://cdn.example/file.png`               |
 | Explicit typed destination            | `uploads put ./file.png --destination screenshots`             |
 | Stable GitHub embed I might re-upload | `uploads put ./file.png --pr <num>`                            |
 | Stable `--pr` path but a clean leaf   | `uploads put ./capture-2026-…Z.png --pr <num> --name hero.png` |
@@ -967,16 +971,21 @@ uploads --api-url http://localhost:8787 doctor
   `--file ./trace.log`. Never auto-send logs. MCP tool: `report`.
 - **MCP:** `uploads mcp` (stdio) mirrors CLI tools; hosted MCP at
   `https://agents.uploads.sh/mcp` — the one to reach for when an agent has no
-  local filesystem or git checkout to shell out from (send base64 content
-  directly). Identity: `whoami` (workspace + scopes; also confirms the server
-  is up). Metadata: `get_metadata` / `set_metadata` / `find_files` /
-  `list_metadata_keys` (same as `meta get` / `meta set` / `find` /
-  `meta keys`|`meta values`). `find_files` accepts optional `name` (filename
-  substring) with or without `filters`. Both support multi-file `put` in one call
-  — stdio takes `files` as paths, hosted takes
-  `files: [{ filename, contentBase64, alt? }]` (max 20/call; per-item `alt`
-  overrides the top-level one) — returning `{ uploads, failures }` with
-  per-item results. `uploads install` sets up this skill + hosted MCP
+  local filesystem or git checkout to shell out from (send base64 content,
+  or `contentUrl` when the file is already at a public HTTPS URL). Identity:
+  `whoami` (workspace + scopes; also confirms the server is up). Metadata:
+  `get_metadata` / `set_metadata` / `find_files` / `list_metadata_keys` (same
+  as `meta get` / `meta set` / `find` / `meta keys`|`meta values`).
+  `find_files` accepts optional `name` (filename substring) with or without
+  `filters`. Both support multi-file `put` in one call — stdio takes `files`
+  as paths, hosted takes
+  `files: [{ filename?, contentBase64 | contentUrl, alt? }]` (max 20/call;
+  filename is required with `contentBase64`, optional with `contentUrl` when
+  the URL path has a leaf; per-item `alt` overrides the top-level one) —
+  returning `{ uploads, failures }` with per-item results. Hosted
+  `contentUrl` is HTTPS-only, does not forward auth, and rejects
+  private/internal hosts. GitHub `user-attachments` URLs are not public and
+  will fail the fetch. `uploads install` sets up this skill + hosted MCP
   (Claude Code, Codex, and Grok; each missing CLI is skipped) +
   Grok/Cursor hooks (short progress; `--verbose` / `--dry-run` available).
   Claude and Codex ship the same pre-PR reminder via their plugins
@@ -1023,6 +1032,7 @@ uploads --api-url http://localhost:8787 doctor
   ```text
   # Stage pre-PR (CLI attach --branch parity). repo + branch required.
   put  { contentBase64, filename, repo: "owner/name", branch: "feature/x", state: "after" }
+  put  { contentUrl: "https://cdn.example/after.png", repo: "owner/name", branch: "feature/x", state: "after" }
   # → key gh/owner/name/branch/feature-x/<filename>, gh.status=staged
 
   # Promote staged files into a PR once it exists (CLI attach --promote).

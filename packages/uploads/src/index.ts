@@ -46,6 +46,15 @@ export {
 } from "./config.js";
 export { UploadsError, type UploadsErrorCode } from "./errors.js";
 export {
+  assertFetchableUploadUrl,
+  fetchUploadSource,
+  filenameFromUploadUrl,
+  resolveUploadFilename,
+  FETCH_UPLOAD_SOURCE_DEFAULT_MAX_BYTES,
+  FETCH_UPLOAD_SOURCE_MAX_REDIRECTS,
+  FETCH_UPLOAD_SOURCE_TIMEOUT_MS,
+} from "./fetch-upload-source.js";
+export {
   createUploadsClient,
   type UploadsClient,
   type PutOptions,

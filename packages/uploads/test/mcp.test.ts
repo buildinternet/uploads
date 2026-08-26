@@ -323,6 +323,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
 });
 
 describe("createMcpServer protocol — 2025-era (legacy) clients", () => {
@@ -691,11 +692,41 @@ describe("tools/call put", () => {
     expect(res.result.content[0].text).toContain("mutually exclusive");
   });
 
-  it("requires exactly one of file, files, or contentBase64", async () => {
+  it("requires exactly one of file, files, contentBase64, or contentUrl", async () => {
     const { server } = serverWith();
     const res = await rpc(server, "tools/call", { name: "put", arguments: {} });
     expect(res.result.isError).toBe(true);
-    expect(res.result.content[0].text).toContain("file, files, or contentBase64");
+    expect(res.result.content[0].text).toContain("file, files, contentBase64, or contentUrl");
+  });
+
+  it("uploads from contentUrl", async () => {
+    const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(PNG, { status: 200 })),
+    );
+    const { server, puts } = serverWith();
+    const res = await rpc(server, "tools/call", {
+      name: "put",
+      arguments: {
+        contentUrl: "https://cdn.example/shot.png",
+        key: "screenshots/x/shot.png",
+        noGit: true,
+      },
+    });
+    expect(res.result.isError).toBe(false);
+    expect(puts[0].filename).toBe("shot.png");
+    expect(puts[0].key).toBe("screenshots/x/shot.png");
+  });
+
+  it("requires filename when contentUrl has no path leaf", async () => {
+    const { server } = serverWith();
+    const res = await rpc(server, "tools/call", {
+      name: "put",
+      arguments: { contentUrl: "https://cdn.example/", noGit: true },
+    });
+    expect(res.result.isError).toBe(true);
+    expect(res.result.content[0].text).toMatch(/no filename/);
   });
 
   it("uploads multiple files in parallel and returns uploads + failures", async () => {
