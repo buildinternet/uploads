@@ -394,7 +394,9 @@ const fullTitle = `${title} · uploads.sh`;
       .doc li {
         margin: 8px 0;
       }
-      .doc code {
+      /* Inline code only — `:not(pre) >` keeps this off `pre > code`, where it
+         would override Expressive Code's own block padding/background. */
+      .doc :not(pre) > code {
         background: var(--panel);
         border: 1px solid var(--line);
         border-radius: 5px;
@@ -486,15 +488,6 @@ const fullTitle = `${title} · uploads.sh`;
            ```yaml / ```json / ```text → plain highlighted block with copy */
       .doc .expressive-code {
         margin: 12px 0;
-      }
-      /* `.doc code` paints an inline-code border/background; inside a block that
-         would draw a border fragment on every line. Strip it back to plain text. */
-      .doc .expressive-code code {
-        background: none;
-        border: 0;
-        padding: 0;
-        border-radius: 0;
-        font: inherit;
       }
       /* The "$ " prompt the `.cmd` primitive drew with a ::before — rendered, not
          written into the source, so the copy button still yields a clean command. */
