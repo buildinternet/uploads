@@ -4,7 +4,7 @@
   "serverInfo": {
     "name": "uploads-mcp",
     "version": "0.48.1",
-    "description": "Host files on uploads.sh from an agent — put (including branch staging and PR attach), promote, list, delete, usage, galleries, and GitHub attachment comments.",
+    "description": "Host files on uploads.sh from an agent — put (including branch staging and PR attach), promote, list, delete, usage, galleries, whoami, and GitHub attachment comments.",
     "homepage": "https://uploads.sh/",
     "icons": [
       {

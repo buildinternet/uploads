@@ -27,7 +27,7 @@ function buildCard(server) {
       name: "uploads-mcp",
       version: server.version,
       description:
-        "Host files on uploads.sh from an agent — put (including branch staging and PR attach), promote, list, delete, usage, galleries, and GitHub attachment comments.",
+        "Host files on uploads.sh from an agent — put (including branch staging and PR attach), promote, list, delete, usage, galleries, whoami, and GitHub attachment comments.",
       homepage: `${String(server.websiteUrl).replace(/\/+$/, "")}/`,
       icons: server.icons ?? [],
     },
