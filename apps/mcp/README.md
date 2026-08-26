@@ -4,6 +4,7 @@ Remote MCP server for uploads.sh — a standalone Hono worker on
 `agents.uploads.sh` (with `mcp.uploads.sh` as an alternate), sibling to `apps/api`. It shares the API's bindings
 (registry KV, D1, R2 buckets) and its per-workspace bearer auth, and reuses
 the CLI package's transport-agnostic MCP core (`@buildinternet/uploads/mcp`).
+`serverInfo.version` is the published CLI version, not this package's `version`.
 
 Stateless MCP Streamable HTTP: one JSON-RPC message per POST, no sessions or
 SSE (GET/DELETE on the endpoint are 405). Tools cover put/list/delete, metadata

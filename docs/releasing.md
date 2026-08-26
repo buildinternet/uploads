@@ -85,13 +85,15 @@ request so `name`, `mcpName`, and the two version fields cannot drift.
 
 Publish authenticates with HTTP domain proof, not GitHub OIDC. The public
 record is `https://uploads.sh/.well-known/mcp-registry-auth` (served from
-`apps/web/public/.well-known/mcp-registry-auth`). The matching Ed25519
-private key is the `MCP_PRIVATE_KEY` Actions secret. The publish job runs
+`apps/web/public/.well-known/mcp-registry-auth`). Prefer the
+`MCP_REGISTRY_PRIVATE_KEY_PEM` Actions secret (PEM). The job still accepts the
+legacy hex secret `MCP_PRIVATE_KEY`. The publish job runs
 `mcp-publisher login http --domain uploads.sh`. That grant is `sh.uploads/*`.
 
-The proof file has to be live on uploads.sh before the first registry
-publish. Merge the change that adds the file, let the web worker deploy, then
-merge the version PR.
+`changeset version` also regenerates
+`apps/web/public/.well-known/mcp/server-card.json` from `server.json`. The
+hosted worker advertises the same CLI version in `serverInfo`, not
+`apps/mcp`'s private `package.json`.
 
 Do not change `server.json` `name` or `packages/uploads` `mcpName` without a
 matching npm publish. The registry treats those strings as the server's
@@ -107,9 +109,9 @@ pnpm run changeset:publish  # npm publish packages that need it (needs auth)
 
 Do not re-use or move a published version or release tag.
 
-If the MCP Registry step fails after npm already published, re-running the
-Release workflow will not retry: `changeset publish` prints no new tag, so the
-MCP step is skipped. Publish `server.json` locally instead:
+If the MCP Registry step fails after npm already published, re-run **Release**
+with `mcp_registry_only` (Actions → Release → Run workflow). Republishing the
+same version is a no-op. Or publish `server.json` locally:
 
 ```bash
 brew install mcp-publisher

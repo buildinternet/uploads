@@ -6,6 +6,7 @@ import { sha256Hex, type WorkspaceRecord } from "@uploads/api/workspace";
 import { FakeR2Bucket } from "@uploads/storage/test/fake-r2";
 import { resetOAuthJwksCacheForTests } from "../src/oauth";
 import { GalleryFakeD1 } from "./gallery-fake-d1";
+import { version as uploadsVersion } from "../../../packages/uploads/package.json";
 
 const TOKEN = "up_test-ws_legacy-token-value";
 const ALPHA_TOKEN = "up_alpha_gallery-test";
@@ -539,7 +540,7 @@ describe("mcp worker", () => {
       authentication: { required: boolean };
     };
     expect(body.serverInfo.name).toBe("uploads-mcp");
-    expect(body.serverInfo.version).toBeTruthy();
+    expect(body.serverInfo.version).toBe(uploadsVersion);
     expect(body.serverInfo.icons).toEqual([
       {
         src: "https://uploads.sh/apple-touch-icon.png",
