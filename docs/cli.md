@@ -15,7 +15,7 @@ the help you want. Output you trim in a script or an agent still carries the
 reason:
 
 ```text
-error: put requires at least one file
+error: put requires at least one file or --url
   uploads put ./shot.png --pr 123
 hint: uploads put --help
 ```
@@ -84,7 +84,7 @@ command to run by hand, rather than overwriting your build.
 | Command                    | What it does                                                                                                             |
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
 | `attach <file\|key\|url…>` | Attach media (local files, or already-uploaded keys/URLs via server-side copy) to the current PR (stable URLs + comment) |
-| `put <file>`               | Upload one file → public URL + GitHub markdown                                                                           |
+| `put <file\|--url…>`       | Upload a local file or a fetched URL → public URL + GitHub markdown                                                      |
 | `screenshot <url\|html>`   | Capture a page (or local HTML) and host it in one step                                                                   |
 | `annotate <image>`         | Bake boxes, arrows, labels, strokes, and redactions onto an image                                                        |
 | `comment`                  | Create/update a PR/issue attachments comment (via `gh`)                                                                  |
@@ -114,11 +114,15 @@ workspace may allowlist only those destinations. Use `--pr`/`--issue` for
 stable, hash-free GitHub keys; use `--key` only for an exact path under an
 allowed root.
 
-These flags give you more control over the output:
+These flags give you more control over the output. `--url` fetches a file
+instead of a local path (repeatable; filename from the URL, or `--name`).
+Public HTTPS, or `http://localhost` on the CLI:
 
 ```bash
 uploads put ./shot.png --format url
 uploads put ./shot.png --repo myorg/myapp --ref 1722 --width 700
+uploads put --url https://cdn.example/shot.png --pr 123
+uploads put --url http://localhost:4321/shot.png
 uploads put ./mobile.png --frame phone
 uploads --version
 uploads doctor

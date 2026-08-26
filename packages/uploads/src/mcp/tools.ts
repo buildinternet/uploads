@@ -34,6 +34,7 @@ import {
   type UploadsClientConfig,
 } from "../config.js";
 import { resolvePutPrefix } from "../destinations.js";
+import { fetchUploadSource, resolveUploadFilename } from "../fetch-upload-source.js";
 import { ghKeyPrefix, ghPrivateKeyPrefix, type GhTarget } from "../github.js";
 import { safeCaptureFacts } from "../capture-facts.js";
 import { deriveRepoSlugFromGit } from "../keys.js";
@@ -373,29 +374,34 @@ export function createUploadsMcpTools(opts: {
       annotations: mcpDestroyPublic,
       securitySchemes: mcpOAuthWrite,
       description:
-        "Upload one or more files and get a public URL plus GitHub-ready markdown. Prefer `embedUrl` in GitHub markdown. With `pr`/`issue`, keys are stable and the managed comment is synced. All uploads are public.",
+        "Upload one or more files and get a public URL plus GitHub-ready markdown. Prefer `embedUrl` in GitHub markdown. Pass `contentUrl` for a public HTTPS file, or http://localhost on this machine, instead of a local path. With `pr`/`issue`, keys are stable and the managed comment is synced. All uploads are public.",
       inputSchema: {
         type: "object",
         properties: {
           file: {
             type: "string",
             description:
-              "Path of a single file to upload. Exactly one of file, files, or contentBase64 is required.",
+              "Path of a single file to upload. Exactly one of file, files, contentBase64, or contentUrl is required.",
           },
           files: {
             type: "array",
             items: { type: "string" },
             description:
-              "Paths of multiple files to upload in parallel. Returns { uploads, failures }. Cannot combine with file, contentBase64, key, or filename.",
+              "Paths of multiple files to upload in parallel. Returns { uploads, failures }. Cannot combine with file, contentBase64, contentUrl, key, or filename.",
           },
           contentBase64: {
             type: "string",
             description: "Base64-encoded file content for in-memory uploads; requires filename.",
           },
+          contentUrl: {
+            type: "string",
+            description:
+              "URL to fetch and upload. Public HTTPS, or http://localhost / 127.0.0.1 / *.localhost on this machine. Filename is optional when the URL path has a leaf. Other private/internal hosts are rejected. Exactly one of file, files, contentBase64, or contentUrl.",
+          },
           filename: {
             type: "string",
             description:
-              "Filename for contentBase64 content (drives the key and content type). With single `file`, overrides the key's leaf (clean name) while keeping the pr/default path.",
+              "Filename for contentBase64/contentUrl (drives the key and content type). With single `file`, overrides the key's leaf (clean name) while keeping the pr/default path.",
           },
           key: {
             type: "string",
@@ -486,19 +492,30 @@ export function createUploadsMcpTools(opts: {
           { file: "./after.png", pr: 12, state: "after" },
           { file: "./after.png", branch: "feat/settings", state: "after" },
           { files: ["./before.png", "./after.png"], pr: 12 },
+          {
+            contentUrl: "https://cdn.example/settings-after.png",
+            pr: 12,
+            state: "after",
+          },
         ],
       },
       async handler(args) {
         const file = optString(args, "file");
         const filesArg = optStringArray(args, "files");
         const contentBase64 = optString(args, "contentBase64");
+        const contentUrl = optString(args, "contentUrl");
         if (filesArg !== undefined && filesArg.length === 0) {
           usage("files must be a non-empty array of paths");
         }
         const multi = filesArg !== undefined;
-        const sources = [file !== undefined, multi, contentBase64 !== undefined];
+        const sources = [
+          file !== undefined,
+          multi,
+          contentBase64 !== undefined,
+          contentUrl !== undefined,
+        ];
         if (sources.filter(Boolean).length !== 1) {
-          usage("exactly one of file, files, or contentBase64 is required");
+          usage("exactly one of file, files, contentBase64, or contentUrl is required");
         }
 
         const filenameArg = optString(args, "filename");
@@ -680,10 +697,27 @@ export function createUploadsMcpTools(opts: {
           return { uploads, failures, ...(hint ? { hint } : {}) };
         }
 
-        // Single-file: contentBase64 still supported; paths go through uploadPuts.
-        if (contentBase64 !== undefined) {
-          const sourceName = filenameArg!;
-          const bytes = new Uint8Array(Buffer.from(contentBase64, "base64"));
+        // Single-file: contentBase64 / contentUrl; paths go through uploadPuts.
+        if (contentBase64 !== undefined || contentUrl !== undefined) {
+          let bytes: Uint8Array;
+          let sourceName: string;
+          if (contentUrl !== undefined) {
+            try {
+              sourceName = resolveUploadFilename(contentUrl, filenameArg, "contentUrl", {
+                allowLoopback: true,
+              });
+            } catch (err) {
+              usage(err instanceof Error ? err.message : String(err));
+            }
+            bytes = await fetchUploadSource(contentUrl, {
+              label: "contentUrl",
+              userAgent: "uploads.sh/mcp",
+              allowLoopback: true,
+            });
+          } else {
+            sourceName = filenameArg!;
+            bytes = new Uint8Array(Buffer.from(contentBase64!, "base64"));
+          }
           const { result, prepared, markdown } = await uploadPreparedImage(
             client,
             bytes,

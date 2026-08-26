@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { UsageError } from "../src/cli-args.js";
 import { UploadsError } from "../src/errors.js";
 import type {
@@ -520,6 +520,180 @@ describe("runPut managed comment sync (#537)", () => {
     const payload = JSON.parse(stdout) as { comment?: unknown; commentError?: string };
     expect(typeof payload.commentError).toBe("string");
     expect("comment" in payload).toBe(false);
+  });
+});
+
+describe("runPut --url", () => {
+  const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function stubPng(url = "https://cdn.example/shot.png"): void {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL) => {
+        const href = String(input);
+        if (href === url || href.startsWith(url)) {
+          return new Response(PNG, { status: 200 });
+        }
+        throw new Error(`unexpected fetch: ${href}`);
+      }),
+    );
+  }
+
+  it("fetches a public HTTPS URL and uploads the body", async () => {
+    stubPng();
+    const { client, puts } = fakeClient();
+    const code = await runPut(
+      ctxWith(client),
+      ["--url", "https://cdn.example/shot.png", "--repo", "myapp", "--no-git"],
+      false,
+      noRun,
+    );
+    expect(code).toBe(0);
+    expect(puts[0].filename).toBe("shot.png");
+    expect(puts[0].body.byteLength).toBeGreaterThan(0);
+  });
+
+  it("lets --name override the URL leaf", async () => {
+    stubPng();
+    const { client, puts } = fakeClient();
+    await runPut(
+      ctxWith(client),
+      [
+        "--url",
+        "https://cdn.example/shot.png",
+        "--name",
+        "hero.png",
+        "--pr",
+        "12",
+        "--repo",
+        "o/r",
+      ],
+      false,
+      noRun,
+    );
+    expect(puts[0].filename).toBe("hero.png");
+    expect(puts[0].key).toBe("gh/o/r/pull/12/hero.png");
+  });
+
+  it("rejects --url together with a file argument", async () => {
+    const { client } = fakeClient();
+    await expect(
+      runPut(ctxWith(client), [tmpFile(), "--url", "https://cdn.example/shot.png"], false, noRun),
+    ).rejects.toBeInstanceOf(UsageError);
+  });
+
+  it("rejects a LAN --url without fetching", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const { client } = fakeClient();
+    await expect(
+      runPut(ctxWith(client), ["--url", "https://10.0.0.5/shot.png"], false, noRun),
+    ).rejects.toMatchObject({ message: expect.stringMatching(/private or internal/) });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("fetches http://127.0.0.1 on the CLI", async () => {
+    stubPng("http://127.0.0.1:4321/shot.png");
+    const { client, puts } = fakeClient();
+    const code = await runPut(
+      ctxWith(client),
+      ["--url", "http://127.0.0.1:4321/shot.png", "--repo", "myapp", "--no-git"],
+      false,
+      noRun,
+    );
+    expect(code).toBe(0);
+    expect(puts[0].filename).toBe("shot.png");
+  });
+
+  it("requires --name when --url has no path leaf", async () => {
+    const { client } = fakeClient();
+    await expect(
+      runPut(ctxWith(client), ["--url", "https://cdn.example/"], false, noRun),
+    ).rejects.toMatchObject({ message: expect.stringMatching(/no filename/) });
+  });
+
+  it("records a failed --url and continues with the rest", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL) => {
+        const href = String(input);
+        if (href.includes("one.png")) return new Response(PNG, { status: 200 });
+        return new Response("nope", { status: 404 });
+      }),
+    );
+    const { client, puts } = fakeClient();
+    const chunks: string[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation(((chunk: unknown) => {
+      chunks.push(String(chunk));
+      return true;
+    }) as typeof process.stdout.write);
+    const ctx = { ...ctxWith(client), json: true };
+    const code = await runPut(
+      ctx,
+      [
+        "--url",
+        "https://cdn.example/one.png",
+        "--url",
+        "https://cdn.example/missing.png",
+        "--repo",
+        "myapp",
+        "--no-git",
+      ],
+      false,
+      noRun,
+    );
+    expect(code).toBe(1);
+    expect(puts).toHaveLength(1);
+    const payload = JSON.parse(chunks.join("")) as {
+      uploads: Array<{ file: string }>;
+      failures: Array<{ file: string }>;
+    };
+    expect(payload.uploads).toHaveLength(1);
+    expect(payload.failures).toHaveLength(1);
+    expect(payload.failures[0]?.file).toBe("https://cdn.example/missing.png");
+  });
+
+  it("uploads multiple --url values", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL) => {
+        const href = String(input);
+        if (href.includes("one.png") || href.includes("two.png")) {
+          return new Response(PNG, { status: 200 });
+        }
+        throw new Error(`unexpected fetch: ${href}`);
+      }),
+    );
+    const { client, puts } = fakeClient();
+    const chunks: string[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation(((chunk: unknown) => {
+      chunks.push(String(chunk));
+      return true;
+    }) as typeof process.stdout.write);
+    const ctx = { ...ctxWith(client), json: true };
+    const code = await runPut(
+      ctx,
+      [
+        "--url",
+        "https://cdn.example/one.png",
+        "--url",
+        "https://cdn.example/two.png",
+        "--repo",
+        "myapp",
+        "--no-git",
+      ],
+      false,
+      noRun,
+    );
+    expect(code).toBe(0);
+    expect(puts).toHaveLength(2);
+    const payload = JSON.parse(chunks.join("")) as { uploads: unknown[]; failures: unknown[] };
+    expect(payload.uploads).toHaveLength(2);
+    expect(payload.failures).toEqual([]);
   });
 });
 

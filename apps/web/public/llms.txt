@@ -13,7 +13,7 @@ Landed on the GitHub monorepo instead? Start at [repo llms.txt](https://github.c
 - [Full agent guide (llms-full.txt)](https://uploads.sh/llms-full.txt): install, auth, stage/attach loops, hosted MCP contracts, cautions
 - [Docs](https://uploads.sh/docs): overview, one-time install, and links to the focused guides below
 - [Changelog](https://uploads.sh/changelog): platform updates and CLI releases, newest first (Atom feed at https://uploads.sh/changelog.xml)
-- [Docs: attach & share](https://uploads.sh/docs/attach-pull-request-images): attach media to PRs/issues, stage screenshots before a PR exists, pair a before/after with --state, get a URL for any file, capture a screenshot, annotate with callouts/redactions
+- [Docs: attach & share](https://uploads.sh/docs/attach-pull-request-images): attach media to PRs/issues, stage screenshots before a PR exists, pair a before/after with --state, get a URL for any file (local path or `put --url`), capture a screenshot, annotate with callouts/redactions
 - [Docs: annotate a screenshot](https://uploads.sh/docs/attach-pull-request-images#annotate): bake boxes, arrows, labels, freeform strokes, and solid redactions into a capture (`uploads screenshot --annotate` or `uploads annotate`)
 - [Docs: galleries](https://uploads.sh/docs/galleries): create an ordered set of media behind one public link at /g/<id>, add files with uploads put --gallery, and link the gallery to a PR or issue
 - [Docs: GitHub App](https://uploads.sh/docs/github-app): recommended install for bot-posted attachment comments, private-repo PR/issue titles, and zero-CLI promotion of branch-staged screenshots when a PR opens

@@ -33,6 +33,7 @@ import { buildUploadMarkdown } from "./embed.js";
 import { readLocalRepoCommentConfig, resolveCommentOptions } from "./comment-config.js";
 import { urlForGithubEmbed } from "./public-urls.js";
 import { UploadsError } from "./errors.js";
+import { fetchUploadSource, resolveUploadFilename } from "./fetch-upload-source.js";
 import { writeJson, writeStdout } from "./io.js";
 import { imageFactsFromBytes } from "./image-facts.js";
 import { parseMetaFlags, validateMetaMap } from "./metadata.js";
@@ -186,8 +187,12 @@ export function readFileArg(fileArg: string): Uint8Array {
 // --- put ---
 
 const PUT_HELP = `uploads put <file...> [options]
+uploads put --url <url> [options]
 
 Upload one or more images for GitHub embeds. Use "-" for stdin (single file only).
+Pass --url (repeatable) to fetch a file instead of a local path. Public HTTPS,
+or http://localhost / 127.0.0.1 / *.localhost on this machine. Other private
+hosts are rejected. The filename comes from the URL path, or --name.
 
 Multiple files upload in parallel (bounded concurrency). One bad file does not
 block the rest; multi-file JSON is { uploads, failures } (exit 1 when any failed).
@@ -227,6 +232,7 @@ MARKDOWN prefers embedUrl for GitHub. Override: UPLOADS_EMBED_PUBLIC_BASE_URL.
 Options:
   --key <key>           Object key (default: <prefix>/<repo>/<ref>/<name>-<hash>.<ext>). Single file only
   --name <leaf>         Clean key leaf + default alt (no '/'); keeps --pr/default path. Single file only. Not with --key
+  --url <url>           Fetch this URL and upload its body (repeatable). Public HTTPS, or http://localhost on the CLI. Not with file arguments
   --destination <id>    Typed root: screenshots | gh | f (sets --prefix)
   --prefix <path>       Key prefix (default: screenshots, or UPLOADS_DEFAULT_PREFIX)
   --repo <owner/repo>   Repo segment (default: git remote, or UPLOADS_DEFAULT_REPO)
@@ -293,6 +299,8 @@ Examples:
   uploads put ./shot.png --pr 128 --name hero.webp --dry-run --format url
   uploads put ./after.png --gallery gal_example
   uploads put ./shot.png --meta path=/settings --state after --app web
+  uploads put --url https://cdn.example/shot.png --pr 128 --name hero.png
+  uploads put --url http://localhost:4321/shot.png
 `;
 
 /**
@@ -1439,7 +1447,12 @@ export type PutUploadItem = PutResult & {
  */
 export async function uploadPuts(opts: {
   client: UploadsClient;
-  files: readonly string[];
+  files?: readonly string[];
+  /**
+   * In-memory bodies (CLI `--url`, MCP `contentUrl`). Mutually exclusive
+   * with `files`. `source` is the failure/progress label (the URL).
+   */
+  byteSources?: readonly { bytes: Uint8Array; filename: string; source: string }[];
   /** Single-file --name leaf override. */
   nameOverride?: string;
   /** Single-file --key. */
@@ -1474,13 +1487,20 @@ export async function uploadPuts(opts: {
   width?: number;
   concurrency?: number;
 }): Promise<UploadBatchResult<PutUploadItem>> {
-  if (opts.files.length > 1 && opts.files.some((f) => f === "-")) {
+  const files = opts.files ?? [];
+  const byteSources = opts.byteSources ?? [];
+  if (files.length > 0 && byteSources.length > 0) {
+    throw new UsageError("internal: uploadPuts files and byteSources are mutually exclusive");
+  }
+  const count = files.length + byteSources.length;
+  if (count === 0) throw new UsageError("put requires at least one file");
+  if (count > 1 && files.some((f) => f === "-")) {
     throw new UsageError("stdin (-) cannot be combined with multiple file arguments");
   }
-  if (opts.files.length > 1 && opts.explicitKey) {
+  if (count > 1 && opts.explicitKey) {
     throw new UsageError("--key cannot be combined with multiple files");
   }
-  if (opts.files.length > 1 && opts.nameOverride) {
+  if (count > 1 && opts.nameOverride) {
     throw new UsageError("--name cannot be combined with multiple files");
   }
 
@@ -1501,23 +1521,47 @@ export async function uploadPuts(opts: {
     | { ok: true; upload: PutUploadItem; sentMetadata?: Record<string, string> }
     | { ok: false; file: string; err: unknown };
 
+  type Item = {
+    source: string;
+    filename?: string;
+    bytes?: Uint8Array;
+    path?: string;
+  };
+
+  const items: Item[] =
+    byteSources.length > 0
+      ? byteSources.map((s) => ({
+          source: s.source,
+          filename: opts.nameOverride ?? s.filename,
+          bytes: s.bytes,
+        }))
+      : files.map((file) => ({
+          source: file,
+          path: file,
+        }));
+
   const slots = await mapBounded(
-    opts.files,
+    items,
     opts.concurrency ?? UPLOAD_BATCH_CONCURRENCY,
-    async (file): Promise<Slot> => {
+    async (item): Promise<Slot> => {
+      const file = item.source;
       try {
+        const bytes = item.bytes ?? readFileArg(item.path ?? file);
         const sourceName =
+          item.filename ??
           opts.nameOverride ??
           (file === "-"
             ? opts.explicitKey
               ? basename(opts.explicitKey)
               : "stdin.bin"
             : basename(file));
-        const bytes = readFileArg(file);
         // Sidecar manifest from a prior `screenshot --out` of this exact file
-        // (issue #469 lever 2) — see mergeSidecarMeta. Not applicable to stdin.
+        // (issue #469 lever 2) — see mergeSidecarMeta. Not applicable to stdin
+        // or URL fetches.
         const metadata =
-          file !== "-" ? mergeSidecarMeta(file, bytes, opts.metadata) : opts.metadata;
+          item.path && item.path !== "-"
+            ? mergeSidecarMeta(item.path, bytes, opts.metadata)
+            : opts.metadata;
         const { result, prepared, markdown, sentMetadata } = await uploadPreparedImage(
           opts.client,
           bytes,
@@ -2512,12 +2556,23 @@ export async function runPut(
   }
 
   const files = parsed.positionals;
-  if (files.length === 0) {
-    throw new UsageError("put requires at least one file", {
+  if (parsed.flags.get("--url") === true) {
+    throw new UsageError("missing value for --url", {
+      example: "uploads put --url https://cdn.example/shot.png --pr 123",
+    });
+  }
+  const urlArgs = flagValues(parsed.flags, "--url");
+  if (files.length > 0 && urlArgs.length > 0) {
+    throw new UsageError("--url cannot be combined with file arguments", {
+      example: "uploads put --url https://cdn.example/shot.png --pr 123",
+    });
+  }
+  if (files.length === 0 && urlArgs.length === 0) {
+    throw new UsageError("put requires at least one file or --url", {
       example: "uploads put ./shot.png --pr 123",
     });
   }
-  const multi = files.length > 1;
+  const multi = files.length > 1 || urlArgs.length > 1;
 
   // Resolved early (issue #700): both the auto-PR opt-out default and the
   // `--no-git`-gated staging/auto-PR detection below need it before the rest
@@ -2775,9 +2830,10 @@ export async function runPut(
   const logHuman = !ctx.quiet && format === "human";
   if (logHuman) {
     if (multi) {
-      process.stderr.write(`>> ${dryRun ? "dry run for" : "uploading"} ${files.length} files\n`);
+      const n = files.length > 0 ? files.length : urlArgs.length;
+      process.stderr.write(`>> ${dryRun ? "dry run for" : "uploading"} ${n} files\n`);
     } else {
-      const fileArg = files[0]!;
+      const fileArg = files[0] ?? urlArgs[0]!;
       process.stderr.write(
         `>> ${dryRun ? "dry run" : "uploading"} ${fileArg === "-" ? "stdin" : fileArg}\n`,
       );
@@ -2785,27 +2841,66 @@ export async function runPut(
     if (attachedRef) process.stderr.write(`>> attached to ${attachedRef}\n`);
   }
 
-  const { uploads, failures, firstError, sentMetadata } = await uploadPuts({
-    client: ctx.client,
-    files,
-    nameOverride: nameFlag,
-    explicitKey: keyHint,
-    ghTarget: effectiveGhTarget,
-    ghBranchTarget: stagingTarget,
-    prefix: resolvedPrefix ?? defaults.prefix,
-    repo: flagString(parsed.flags, "--repo") ?? defaults.repo,
-    ref: flagString(parsed.flags, "--ref") ?? defaults.ref,
-    deriveRepoFromGit: !noGit,
-    contentType: contentTypeOverride,
-    dryRun,
-    replace: replaceFlag,
-    optimize: optimizeOpts,
-    frame: frameOpts,
-    metadata,
-    deriveImageFacts: derivedMetaEnabled(parsed.flags, defaults),
-    alt: altFlag,
-    width,
-  });
+  let byteSources: { bytes: Uint8Array; filename: string; source: string }[] | undefined;
+  const urlFetchFailures: AttachFailure[] = [];
+  let urlFetchFirstError: unknown;
+  if (urlArgs.length > 0) {
+    byteSources = [];
+    for (const raw of urlArgs) {
+      try {
+        const filename = resolveUploadFilename(raw, !multi ? nameFlag : undefined, "--url", {
+          allowLoopback: true,
+        });
+        const bytes = await fetchUploadSource(raw, {
+          label: "--url",
+          userAgent: "uploads.sh/cli",
+          allowLoopback: true,
+        });
+        byteSources.push({ bytes, filename, source: raw });
+      } catch (err) {
+        urlFetchFirstError ??= err;
+        urlFetchFailures.push({ file: raw, error: errorDetail(err) });
+      }
+    }
+  }
+
+  let uploads: PutUploadItem[];
+  let failures: AttachFailure[];
+  let firstError: unknown;
+  let sentMetadata: (Record<string, string> | undefined)[];
+  if (byteSources && byteSources.length === 0) {
+    uploads = [];
+    failures = urlFetchFailures;
+    firstError = urlFetchFirstError;
+    sentMetadata = [];
+  } else {
+    const batch = await uploadPuts({
+      client: ctx.client,
+      files: byteSources ? undefined : files,
+      byteSources,
+      nameOverride: byteSources ? undefined : nameFlag,
+      explicitKey: keyHint,
+      ghTarget: effectiveGhTarget,
+      ghBranchTarget: stagingTarget,
+      prefix: resolvedPrefix ?? defaults.prefix,
+      repo: flagString(parsed.flags, "--repo") ?? defaults.repo,
+      ref: flagString(parsed.flags, "--ref") ?? defaults.ref,
+      deriveRepoFromGit: !noGit,
+      contentType: contentTypeOverride,
+      dryRun,
+      replace: replaceFlag,
+      optimize: optimizeOpts,
+      frame: frameOpts,
+      metadata,
+      deriveImageFacts: derivedMetaEnabled(parsed.flags, defaults),
+      alt: altFlag,
+      width,
+    });
+    uploads = batch.uploads;
+    failures = [...urlFetchFailures, ...batch.failures];
+    firstError = urlFetchFirstError ?? batch.firstError;
+    sentMetadata = batch.sentMetadata;
+  }
 
   // Single-file total failure: rethrow so CLI exit codes stay auth/network-aware.
   if (uploads.length === 0 && failures.length > 0 && !multi) {

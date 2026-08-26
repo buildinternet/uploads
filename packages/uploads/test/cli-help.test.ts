@@ -197,7 +197,7 @@ describe("runCli help", () => {
     const code = await runCli(["node", "uploads", "--json", "--token", "up_test_x", "put"]);
     expect(code).toBe(2);
     expect(JSON.parse(io.stdout())).toMatchObject({
-      error: "put requires at least one file",
+      error: "put requires at least one file or --url",
       code: "USAGE",
       example: "uploads put ./shot.png --pr 123",
     });

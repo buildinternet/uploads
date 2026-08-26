@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { UploadsError } from "../src/errors.js";
+import { isLoopbackHost } from "../src/private-host.js";
 import {
   captureScreenshot,
   classifyTarget,
@@ -114,6 +115,34 @@ describe("isPrivateOrLocalHost", () => {
 
   it("does not flag an IPv4-mapped IPv6 address when the mapped quad is public", () => {
     expect(isPrivateOrLocalHost("::ffff:8.8.8.8")).toBe(false);
+  });
+});
+
+describe("isLoopbackHost", () => {
+  it.each(["localhost", "app.localhost", "127.0.0.1", "127.0.0.8", "::1", "[::1]"])(
+    "flags %s",
+    (host) => {
+      expect(isLoopbackHost(host)).toBe(true);
+    },
+  );
+
+  it.each([
+    "10.0.0.4",
+    "192.168.1.5",
+    "169.254.169.254",
+    "foo.internal",
+    "foo.local",
+    "example.com",
+    "8.8.8.8",
+    "0.0.0.0",
+  ])("does not flag %s", (host) => {
+    expect(isLoopbackHost(host)).toBe(false);
+  });
+
+  it("flags IPv4-mapped loopback only", () => {
+    expect(isLoopbackHost("::ffff:127.0.0.1")).toBe(true);
+    expect(isLoopbackHost("::ffff:7f00:1")).toBe(true);
+    expect(isLoopbackHost("::ffff:10.0.0.1")).toBe(false);
   });
 });
 

@@ -100,7 +100,8 @@ import DocsLayout from "../../layouts/DocsLayout.astro";
     </p>
     <p>
       The local stdio MCP (<code>uploads mcp</code>) exposes the same tools as the CLI, including
-      <code>attach</code>. Register it with any MCP client, e.g.:
+      <code>attach</code> and <code>put</code> with <code>contentUrl</code>. Register it with any
+      MCP client, e.g.:
     </p>
     <div class="cmd">
       <span class="text">claude mcp add uploads -- uploads mcp</span>
@@ -113,7 +114,9 @@ import DocsLayout from "../../layouts/DocsLayout.astro";
       <code>put</code>, <code>list</code>, <code>delete</code>, and more, but not <code>attach</code
       >, and no git defaults — pass <code>repo</code> and <code>branch</code> to <code>put</code> to stage,
       then <code>repo</code>, <code>pr</code>, and <code>branch</code> to <code>promote</code> once a
-      PR exists. Hosted <code>put</code>/<code>comment</code> honor a repo's&#32;
+      PR exists. Hosted <code>put</code> takes <code>contentBase64</code> or <code>contentUrl</code> (a
+      public HTTPS file the worker fetches; the filename comes from the URL path when you omit it). Hosted
+      <code>put</code>/<code>comment</code> honor a repo's&#32;
       <a href="/docs/comment-config"><code>.uploads.yml</code></a> the same way the bot does.
     </p>
     <div class="note">

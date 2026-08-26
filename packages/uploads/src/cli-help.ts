@@ -152,6 +152,7 @@ ${section(style, "Examples:")}
   ${style.command("uploads whoami")}
   ${style.command("uploads put")} ./shot.png --pr 123 --name hero.png
   ${style.command("uploads put")} ./after.png --pr 123
+  ${style.command("uploads put")} --url https://cdn.example/shot.png --pr 123
   ${style.command("uploads put")} ./bug.png --issue 45
   ${style.command("uploads put")} ./shot.png --meta path=/settings --state after
   ${style.command("uploads attach")} ./before.png ./after.png
@@ -202,6 +203,7 @@ ${section(style, "Examples:")}
   ${style.command("uploads whoami")}
   ${style.command("uploads put")} ./shot.png --pr 123 --name hero.png
   ${style.command("uploads put")} ./after.png --pr 123
+  ${style.command("uploads put")} --url https://cdn.example/shot.png --pr 123
   ${style.command("uploads put")} ./bug.png --issue 45 --repo myorg/myapp
   ${style.command("uploads put")} ./shot.png --dry-run --format url
   ${style.command("uploads put")} ./shot.png --meta path=/settings --state after

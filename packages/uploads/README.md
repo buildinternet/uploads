@@ -27,6 +27,8 @@ uploads put ./ui.png --frame browser --frame-url "https://app.example"
 uploads put ./after.png --pr 123
 uploads put ./capture-2026-…Z.png --pr 123 --name hero.png   # clean leaf, stable path
 uploads put ./shot.png --pr 123 --name hero.png --dry-run --format url  # preview URL, no upload
+uploads put --url https://cdn.example/shot.png --pr 123
+uploads put --url http://localhost:4321/shot.png
 uploads gallery create --title "Release screenshots"
 uploads put ./after.png --gallery gal_example
 # custom metadata (queryable): page URL, in-app path, which surface

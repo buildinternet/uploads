@@ -30,7 +30,9 @@ the reviewer can write), and no MFA step after the first OAuth consent.
 ### 1. Host a file and get a public URL
 
 - **Prompt:** Give me a public URL for this PNG. (attach a small screenshot)
-- **Expected tools:** `put` with `filename` + `contentBase64`.
+- **Expected tools:** `put` with `filename` + `contentBase64`, or `contentUrl`
+  when the file is already at a public HTTPS URL (filename optional if the
+  URL path has a leaf).
 - **Expected result:** `{ url, embedUrl, markdown, key, size }` and a 200
   fetch of `url`.
 
