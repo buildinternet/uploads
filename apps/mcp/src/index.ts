@@ -8,7 +8,7 @@
  * bearer-token middleware; the protocol core is the CLI package's
  * `createMcpServer`, shared verbatim.
  */
-import { createMcpServer, type McpServer } from "@buildinternet/uploads/mcp";
+import { createMcpServer, MCP_SERVER_ICONS, type McpServer } from "@buildinternet/uploads/mcp";
 import {
   createMcpHandler,
   isLegacyRequest,
@@ -165,7 +165,7 @@ async function workspacePathAuth(c: Context<WorkspaceVars>, next: Next): Promise
 /** Builds a fresh server for this request — same tool catalog for both eras, so they can't drift. */
 function buildServer(c: Context<WorkspaceVars>): McpServer {
   return createMcpServer({
-    serverInfo: { name: "uploads-mcp", version: pkg.version },
+    serverInfo: { name: "uploads-mcp", version: pkg.version, icons: MCP_SERVER_ICONS },
     tools: createRemoteTools({
       env: c.env,
       workspace: c.get("workspace"),
@@ -266,6 +266,7 @@ function mcpServerCard() {
       description:
         "Host files on uploads.sh from an agent — put, attach, list, delete, usage, and GitHub attachment comments.",
       homepage: "https://uploads.sh/",
+      icons: MCP_SERVER_ICONS,
     },
     transport: {
       type: "streamable-http",

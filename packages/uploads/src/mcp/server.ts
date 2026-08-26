@@ -22,6 +22,7 @@ import {
   McpServer,
   type CacheHint,
   type CallToolResult,
+  type Implementation,
   type jsonSchemaValidator,
 } from "@modelcontextprotocol/server";
 import { UploadsError } from "../errors.js";
@@ -227,8 +228,21 @@ function wrapHandler(tool: McpTool, apiUrl: string | undefined) {
   };
 }
 
+/**
+ * Brand mark on `serverInfo.icons` (MCP `Icon`, spec 2026-07-28). PNG is the
+ * type clients that render icons MUST support. The file is the site's
+ * apple-touch-icon (180×180 pixel chevron), already public on uploads.sh.
+ */
+export const MCP_SERVER_ICONS: NonNullable<Implementation["icons"]> = [
+  {
+    src: "https://uploads.sh/apple-touch-icon.png",
+    mimeType: "image/png",
+    sizes: ["180x180"],
+  },
+];
+
 export function createMcpServer(opts: {
-  serverInfo: { name: string; version: string };
+  serverInfo: Implementation;
   tools: McpTool[];
   /** API base for telemetry (honors uploads --api-url). */
   apiUrl?: string;

@@ -2,7 +2,7 @@ import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import { AjvJsonSchemaValidator } from "@modelcontextprotocol/server/validators/ajv";
 import { parseCommandArgs, type GlobalFlags } from "../cli-args.js";
 import { resolveApiUrl } from "../config.js";
-import { createMcpServer } from "../mcp/server.js";
+import { createMcpServer, MCP_SERVER_ICONS } from "../mcp/server.js";
 import { createUploadsMcpTools } from "../mcp/tools.js";
 import { packageVersion } from "../package-version.js";
 import { writeCommandHelp } from "../cli-style.js";
@@ -42,7 +42,7 @@ export async function runMcp(
   const validator = new AjvJsonSchemaValidator();
   const handle = serveStdio(() =>
     createMcpServer({
-      serverInfo: { name: "uploads", version: packageVersion() },
+      serverInfo: { name: "uploads", version: packageVersion(), icons: MCP_SERVER_ICONS },
       tools: createUploadsMcpTools({ globals: opts.globals }),
       apiUrl: resolveApiUrl(opts.globals),
       validator,
