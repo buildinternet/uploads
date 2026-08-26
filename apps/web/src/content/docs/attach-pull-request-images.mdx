@@ -69,6 +69,7 @@ Run `uploads staged` to see what's queued for the current branch, and whether it
 auto-attach:
 
 ```ansi title="uploads staged"
+$ uploads staged
 after.webp  94.2 KB  staged 2026-07-22T14:00:00Z  https://storage.uploads.sh/gh/you/app/branch/feat-nav/after.webp
 binding: self — these auto-attach when this branch's PR opens
 once the PR exists: uploads attach --promote
@@ -129,11 +130,8 @@ it falls back to the normal stacked list. Only images pair.
 `put` is the simpler building block: upload one file, get back a public URL and Markdown you can
 paste anywhere.
 
-```bash
-uploads put ./shot.png
-```
-
-```ansi
+```ansi title="uploads put"
+$ uploads put ./shot.png
 # on a non-default git branch, bare put stages for that branch
 >> optimized 411.5 KB → 94.2 KB (shot.webp)
 URL: https://storage.uploads.sh/gh/you/app/branch/feat-shot/shot.webp
@@ -191,11 +189,8 @@ when you paste the page link. Details are in [Reference](/docs/reference#good-to
 Don't have the image yet? `screenshot` renders a URL or a local `.html` file and hosts the result in
 one step, with no browser install required.
 
-```bash
-uploads screenshot https://app.example --pr 123
-```
-
-```ansi
+```ansi title="uploads screenshot"
+$ uploads screenshot https://app.example --pr 123
 # renders the page, then hosts the WebP in one step
 >> captured via local backend
 URL: https://storage.uploads.sh/gh/app/example/pull/123/app.example.webp

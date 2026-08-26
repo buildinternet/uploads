@@ -178,6 +178,12 @@ Frames add hierarchy where a bare panel would read flat:
   (` ```md title="AGENTS.md" frame="code" `) and keeps its copy button.
 - Commands stay bare panels (`$ ` prompt is the affordance); don't wrap a
   one-liner in terminal chrome.
+- **A command shown together with its output is ONE `ansi` terminal block**,
+  not a `bash` block followed by an `ansi` block — the split reads as two
+  unrelated artifacts. Write the command as a literal `$ command` first line
+  (the only place a literal `$` is allowed — `ansi` has no copy button, so
+  nothing dirty gets copied) and title the frame with the command name:
+  ` ```ansi title="uploads staged" `.
 
 The `$ ` prompt is CSS, not source text, so the copy button still yields a clean
 command. Never write the `$` yourself. Comments (`# …`) inside a `bash` block are
