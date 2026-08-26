@@ -4,7 +4,8 @@
  * Overview = one `files/by-path` fetch; `?project=` / `?q=` filter that
  * payload in the toolbar (project select + path input). Drill-in (?path=)
  * = the existing `files/search?meta.path=…` route. Files without `path`
- * metadata never appear here — the empty state says how to get them.
+ * metadata never appear here — the empty state points at `uploads put`
+ * with `--meta path=`.
  *
  * Every rendered group's thumb strip comes from that one overview response:
  * its `catalog` carries a short strip per (project, path), so filtering past
@@ -21,7 +22,13 @@
  */
 import { Callout, Input, Select } from "@uploads/ui";
 import "@uploads/ui/styles.css";
-import { Empty, EmptyContent, EmptyHeader, EmptyTitle } from "@uploads/ui/components/ui/empty";
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyTitle,
+} from "@uploads/ui/components/ui/empty";
 import { Kbd } from "@uploads/ui/components/ui/kbd";
 import {
   useEffect,
@@ -73,12 +80,13 @@ import {
 /** How many path groups a project section previews before "view project →". */
 const PREVIEW_PATHS_PER_PROJECT = 3;
 
-const EMPTY_CTA_CMD = "uploads screenshot https://app.example/settings";
+const EMPTY_CTA_CMD = "uploads put ./shot.png --meta path=/settings";
 
 /**
  * Gallery-style empty state (renderGalleriesEmptyHtml's markup, React-side):
- * a title and ONE copyable command, nothing else competing for attention —
- * the rail tip carries the how-grouping-works detail.
+ * a title, a one-line hint, and ONE copyable command. `put` is the general
+ * upload path; `--meta path=` is what actually groups the file here. The
+ * rail tip still carries the how-grouping-works detail.
  */
 function EmptyShotsCta({ title }: { title: string }) {
   const [copied, setCopied] = useState(false);
@@ -95,10 +103,11 @@ function EmptyShotsCta({ title }: { title: string }) {
     <Empty>
       <EmptyHeader>
         <EmptyTitle>{title}</EmptyTitle>
+        <EmptyDescription>Upload a file with a page path and it groups here.</EmptyDescription>
       </EmptyHeader>
-      <EmptyContent>
+      <EmptyContent className="max-w-xl">
         <div className="ws-empty__command flex w-full min-w-0 items-center gap-2 rounded-[6px] border border-line bg-panel px-3 py-2">
-          <code className="min-w-0 flex-1 overflow-x-auto font-[var(--mono)] text-[13px] text-fg [overflow-wrap:anywhere]">
+          <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap font-[var(--mono)] text-[13px] text-fg">
             {EMPTY_CTA_CMD}
           </code>
           <button

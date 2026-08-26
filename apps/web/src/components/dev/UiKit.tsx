@@ -271,9 +271,7 @@ export default function UiKit() {
           <EmptyHeader>
             <EmptyMedia variant="icon">⌁</EmptyMedia>
             <EmptyTitle>No screenshots yet</EmptyTitle>
-            <EmptyDescription>
-              Capture one with <code>uploads screenshot &lt;url&gt;</code> and it shows up here.
-            </EmptyDescription>
+            <EmptyDescription>Upload a file with a page path and it groups here.</EmptyDescription>
           </EmptyHeader>
           <EmptyContent>
             <Button variant="outline" size="sm">
