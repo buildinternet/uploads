@@ -1,0 +1,11 @@
+---
+// One panel inside <Tabs>. The label is read back out of the rendered HTML by
+// Tabs.astro (which builds the tablist from it), so `data-tab-label` is a
+// contract between the two components — don't rename it in isolation.
+interface Props {
+  label: string;
+}
+const { label } = Astro.props;
+---
+
+<div role="tabpanel" data-tab-label={label} class="docs-tab-panel"><slot /></div>

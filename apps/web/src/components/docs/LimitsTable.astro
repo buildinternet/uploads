@@ -1,0 +1,38 @@
+---
+// Plan comparison table for /docs/limits. Values come from the plan catalog
+// (`@uploads/billing` PLANS) at build time, so the page cannot drift from what
+// the API enforces.
+import { PLAN_FACTS } from "../../lib/plan-facts";
+---
+
+<table>
+  <thead>
+    <tr>
+      <th></th>
+      <th>{PLAN_FACTS.freeName}</th>
+      <th>{PLAN_FACTS.proName}</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th scope="row">Storage</th>
+      <td>{PLAN_FACTS.freeStorage}</td>
+      <td>{PLAN_FACTS.proStorage}</td>
+    </tr>
+    <tr>
+      <th scope="row">Max file size</th>
+      <td>{PLAN_FACTS.freeMaxUpload}</td>
+      <td>{PLAN_FACTS.proMaxUpload}</td>
+    </tr>
+    <tr>
+      <th scope="row">Max video size</th>
+      <td>{PLAN_FACTS.freeMaxVideo}</td>
+      <td>{PLAN_FACTS.proMaxVideo}</td>
+    </tr>
+    <tr>
+      <th scope="row">Members</th>
+      <td>{PLAN_FACTS.freeMembers}</td>
+      <td>Unlimited</td>
+    </tr>
+  </tbody>
+</table>

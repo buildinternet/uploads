@@ -1,0 +1,54 @@
+---
+title: Galleries
+description: Create an ordered set of media behind one public link at /g/<id>, add files with uploads put --gallery, and link the gallery to a PR or issue.
+heading: Galleries
+tagline: An ordered set of media behind one public link, linkable to a pull request or issue.
+navLabel: Galleries
+navSlug: galleries
+navOrder: 2
+toc:
+  - { id: what, label: What a gallery is }
+  - { id: workflow, label: CLI workflow }
+  - { id: linking, label: Link to a PR or issue }
+---
+
+<section class="lead" id="what">
+
+## What a gallery is <a class="anchor" href="#what" aria-label="Link to this section">#</a>
+
+A gallery is an ordered set of media behind one public link, so you can share a whole batch of shots
+as they're captured instead of one URL per file. Each gallery has a public page at `/g/<id>`.
+
+</section>
+
+<section id="workflow">
+
+## CLI workflow <a class="anchor" href="#workflow" aria-label="Link to this section">#</a>
+
+Create a gallery — this prints its id:
+
+```bash
+uploads gallery create --title "Release screenshots"
+```
+
+Then add files to it, passing that id to `--gallery`:
+
+```bash
+uploads put ./shot.png --gallery <id>
+```
+
+The public page at `/g/<id>` updates as items are added.
+
+</section>
+
+<section id="linking">
+
+## Link to a PR or issue <a class="anchor" href="#linking" aria-label="Link to this section">#</a>
+
+Optional — this is metadata only, the gallery stays public at the same `/g/<id>` URL:
+
+```bash
+uploads gallery link <id> --github owner/repo#123
+```
+
+</section>

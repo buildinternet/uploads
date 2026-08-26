@@ -1,0 +1,91 @@
+---
+title: Reference
+description: Manage uploaded files with the uploads CLI (list, delete, usage), plus what to know about visibility, access, and stability.
+heading: Reference
+tagline: Manage what you've uploaded, and what's worth knowing before you rely on it.
+navLabel: Reference
+navSlug: reference
+navOrder: 6
+---
+
+import RefFigure from "../../components/docs/RefFigure.astro";
+
+export const REPO = "https://github.com/buildinternet/uploads";
+
+<section class="lead" id="manage">
+
+## Manage what you uploaded <a class="anchor" href="#manage" aria-label="Link to this section">#</a>
+
+Commands for managing what's already uploaded:
+
+```ansi
+uploads list          # see your files
+uploads delete <key>  # remove a file
+uploads usage         # storage used by your workspace
+uploads staged        # what's queued for this branch
+uploads --help        # everything else
+```
+
+</section>
+
+<section id="browsing">
+
+## Browsing your screenshots <a class="anchor" href="#browsing" aria-label="Link to this section">#</a>
+
+<div class="browsing-lead">
+  Everything you upload shows up in your workspace, grouped by where it came from — pages by `path`,
+  projects by `repo` or `app`. Open any file to get its share page: copy-ready embeds, the raw URL,
+  and a delete button.
+</div>
+
+<RefFigure
+  src="/reference/screenshots-view.webp"
+  width={1436}
+  height={1021}
+  alt="The screenshots view in a workspace, with uploads grouped into collapsible sections by project and path."
+  caption="The screenshots view groups uploads by project and path."
+/>
+
+<RefFigure
+  src="/reference/file-page.webp"
+  width={1276}
+  height={740}
+  alt="A file share page showing the media preview, a Copy-as embed menu, file details, and a Delete file action."
+  caption="Each file's share page: copy-ready embeds, details, and delete."
+/>
+
+</section>
+
+<section id="good-to-know">
+
+## Good to know <a class="anchor" href="#good-to-know" aria-label="Link to this section">#</a>
+
+- **Hosted files are public.** Anyone with the URL can view them, even media attached to private
+  repositories. Don't upload secrets or sensitive UI — if a capture shows credentials, solid-redact
+  them first with [`uploads annotate`](/docs/attach-pull-request-images#annotate) or
+  `screenshot --annotate` (blurred text can be recoverable).
+- **The visibility toggle unlists — it doesn't lock down bytes.** Marking a file "private" hides it
+  from your workspace's public file listing and gates the `/f/…` page behind sign-in. The raw file
+  URL (`storage.uploads.sh/…`) keeps serving the same bytes to anyone who already has it, and edge
+  caches can keep serving recently-public bytes for a short window after the toggle. Treat it as
+  "unlisted," not "private." True byte-level privacy would require a workspace with no public domain
+  (signed URLs only), which isn't how uploads.sh workspaces work today.
+- **Share pages support embeds.** Every public file and gallery has a page at `/f/…` or `/g/…` with
+  [oEmbed](https://oembed.com/) discovery, so tools that unfurl links can show the media. Resolve one
+  directly via `/oembed`, passing the page URL as its `url` query param.
+- **Getting access.** Sign in and create your own workspace with a linked GitHub account, or get
+  invited to an existing one by a workspace admin. Questions? Reach out via <a href={REPO}>the GitHub
+  repo</a>.
+- **Everything lands in your workspace.** Files are stored under a prefix for your workspace, and
+  PR/issue attachments get stable, predictable paths, so re-attaching an updated screenshot replaces
+  the old URL's spot instead of littering.
+- **Under active development.** uploads.sh is built in the open, so APIs (including auth) can still
+  change. Feedback is welcome — open an issue on <a href={REPO}>the GitHub repo</a>.
+
+<div class="note">
+  Looking for deeper material like the REST API, enrollment internals, self-hosting, or operator
+  docs? It all lives in <a href={REPO}>the GitHub repository</a>. Agents can also read
+  [/llms.txt](/llms.txt) (index) or [/llms-full.txt](/llms-full.txt) (one-file guide).
+</div>
+
+</section>

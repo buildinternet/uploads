@@ -1,13 +1,14 @@
 ---
 name: docs-page-style
 description: >-
-  House style and structure for uploads.sh documentation pages — the Astro
-  pages under apps/web/src/pages/docs/ (and docs.astro) built on DocsLayout.
+  House style and structure for uploads.sh documentation pages — the MDX
+  subject pages under apps/web/src/content/docs/ (and the docs.astro hub) built
+  on DocsLayout.
   Use this whenever you write, restructure, trim, or review a docs page:
   requests like "clean up the galleries docs", "this docs page has too much
   prose", "rework the agents page", "the flow on /docs/comment-config feels
   complicated", "make the reference page scannable", or any edit to a file
-  under apps/web/src/pages/docs/. Encodes the page structure (understand →
+  under apps/web/src/content/docs/. Encodes the page structure (understand →
   set up → do), the Stripe-style intro voice, the copy-affordance and
   inline-code rules, the prose diet, and the DocsLayout component vocabulary,
   so every docs page reads like one deliberate, scannable system rather than a
@@ -19,9 +20,12 @@ description: >-
 # uploads.sh docs page style
 
 These pages teach a developer (or their agent) to do one thing with the `uploads`
-CLI and then get out of the way. They are Astro pages built on `DocsLayout`, not
-Markdown — so you work in HTML using a small, fixed component vocabulary. The
-goal is a page that reads like reputable dev-tool docs (Stripe, Vercel, Wrangler):
+CLI and then get out of the way. Each subject page is one `.mdx` file in the
+`docs` content collection (`apps/web/src/content/docs/`), rendered through
+`DocsLayout` by the `apps/web/src/pages/docs/[...slug].astro` route: you write
+Markdown prose, fenced code blocks, and a small, fixed vocabulary of HTML
+wrappers and components. The hub page (`apps/web/src/pages/docs.astro`) is still
+a plain Astro page — it is a card index, not prose. The goal is a page that reads like reputable dev-tool docs (Stripe, Vercel, Wrangler):
 one short orientation, then commands you can actually run, with prose used only as
 connective tissue.
 
@@ -49,7 +53,43 @@ _structure_ makes the reader work.
 5. **Apply the prose, copy, and inline-code rules** below to what's left.
 6. **Verify it renders.** Reuse only the existing component classes, keep every
    command/flag/link real (never invent one — check a sibling page or the CLI),
-   and confirm the page still compiles.
+   and confirm the page still compiles (`pnpm build` in `apps/web`).
+
+## Adding or editing a page
+
+A new subject page is a new `.mdx` file in `apps/web/src/content/docs/`. The
+filename is the URL slug (`galleries.mdx` → `/docs/galleries`); the left nav,
+the prev/next chain, and the static path all derive from its frontmatter, so
+there is no route, nav, or pagination edit to make.
+
+```yaml
+---
+title: Galleries # <title> and og/twitter title
+description: … # meta description
+heading: Galleries # the <h1>
+tagline: … # one line under the <h1>
+navLabel: Galleries # sidebar label (often shorter than heading)
+navSlug: galleries # active-state key
+navOrder: 2 # sidebar order AND the prev/next chain
+toc: # optional "on this page" rail; omit it and no rail renders
+  - { id: what, label: What a gallery is }
+---
+```
+
+`navOrder` is the whole ordering story: the sidebar lists entries in that order,
+and the prev/next footer walks the same sequence, wrapping through the `/docs`
+hub at both ends. Inserting a page means renumbering the ones after it.
+
+MDX gotchas worth knowing before you write:
+
+- Leave a blank line after an opening `<section …>` tag and before its `</section>`
+  so the prose inside is parsed as Markdown.
+- Use `<div class="note">`, not `<p class="note">`: MDX wraps multi-line children
+  in their own `<p>`, and a `<p>` inside a `<p>` is invalid.
+- Never let an inline component or `{expression}` start a line inside a
+  paragraph — MDX reparses it as a block and splits the sentence around it. This
+  is why `*.mdx` is excluded from `oxfmt` (see `.oxfmtrc.json`): a reflow would
+  do exactly that. Wrap prose by hand.
 
 ## Structure & voice
 
@@ -106,44 +146,107 @@ multi-argument invocation — that lives on the linked page.
   instruction.
 - One idea per sentence; split compound sentences glued with a comma or dash.
 - **Never fabricate terminal output.** Reputable docs don't show scripted output.
-  Either show _real, verifiable_ output (a `.block` the reader can reproduce) or
+  Either show _real, verifiable_ output (an ` ```ansi ` block the reader can reproduce) or
   describe the effect in one sentence ("That uploads the file and prints a public
   URL."). Prefer the sentence.
 - Push troubleshooting and edge cases to the end, a `.note`, or a linked page —
   not into the main reading path.
 
+## Code blocks
+
+Fenced blocks are rendered by [Expressive Code](https://expressive-code.com/)
+(configured in `apps/web/src/lib/expressive-code-options.mjs`). The language tag
+is the affordance — three conventions carry what the old hand-rolled `.cmd` and
+`.block` markup used to:
+
+| Fence                     | Renders as                                                   | Copy button |
+| ------------------------- | ------------------------------------------------------------ | ----------- |
+| ` ```bash `               | A command, with a `$ ` prompt drawn in the gutter            | yes         |
+| ` ```ansi `               | Terminal output in a **terminal frame** (titlebar chrome)    | no          |
+| ` ```text `               | A plain block — slash commands typed into an agent, snippets | yes         |
+| ` ```yaml ` / ` ```json ` | A syntax-highlighted config example                          | yes         |
+
+Frames add hierarchy where a bare panel would read flat:
+
+- `ansi` blocks get terminal chrome automatically (configured in
+  `expressive-code-options.mjs`). Add `title="uploads staged"` to name the
+  command that produced the output — use the command the surrounding prose
+  already names, never an invented one. Untitled is fine for catalogs.
+- Config/file examples opt into an editor frame per-fence with
+  `title=".uploads.yml" frame="code"` — the title is the filename the reader
+  will save. A paste-into-your-instructions snippet works the same way
+  (` ```md title="AGENTS.md" frame="code" `) and keeps its copy button.
+- Commands stay bare panels (`$ ` prompt is the affordance); don't wrap a
+  one-liner in terminal chrome.
+- **A command shown together with its output is ONE `ansi` terminal block**,
+  not a `bash` block followed by an `ansi` block — the split reads as two
+  unrelated artifacts. Write the command as a literal `$ command` first line
+  (the only place a literal `$` is allowed — `ansi` has no copy button, so
+  nothing dirty gets copied) and title the frame with the command name:
+  ` ```ansi title="uploads staged" `.
+
+The `$ ` prompt is CSS, not source text, so the copy button still yields a clean
+command. Never write the `$` yourself. Comments (`# …`) inside a `bash` block are
+stripped from the copied text automatically.
+
+Config-file examples get syntax highlighting: a real `.uploads.yml` or JSON
+snippet goes in a ` ```yaml ` / ` ```json ` fence, not a plain block.
+Highlighting makes the keys and values pop out from explanatory comments.
+
 ## Copy-affordance rule
 
-A copy box (`.cmd`) signals "paste this verbatim." Putting one on every line
+A copyable block signals "paste this verbatim." Putting one on every line
 trains the eye to see many equally-weighted "do this" boxes when usually only one
 command matters. So:
 
-- **Use `.cmd`** for commands the reader genuinely pastes: the install line, the
-  golden-path command, a long `npx …` one-off.
-- **Use inline `<code>`** for short, memorable, or illustrative commands —
+- **Use a ` ```bash ` block** for commands the reader genuinely pastes: the
+  install line, the golden-path command, a long `npx …` one-off.
+- **Use inline `` `code` ``** for short, memorable, or illustrative commands —
   `uploads login`, `uploads doctor`, a bare `npx`, a flag, a filename. These are
   steps you _read_, not snippets you paste.
 
 Rule of thumb: **one copy target per action, not per line.** A typical page has
-one to three copy boxes, not one per command mentioned.
+one to three copyable command blocks, not one per command mentioned.
 
 **A reference list of sibling commands is one block, not N copy rows.** When a
 section just enumerates related commands (a "here's the command surface" menu,
-e.g. `list` / `delete` / `usage` / `--help`), a stack of `.cmd` copy rows reads
-as a wall of buttons. Put them in a single non-copyable `.block` instead —
-command in a `<span class="v">` (brighter), the `# comment` aligned in the muted
-base color:
+e.g. `list` / `delete` / `usage` / `--help`), a stack of copyable command blocks
+reads as a wall of buttons. Put them in a single non-copyable ` ```ansi `
+block instead, with the `# comment` aligned:
 
-```html
-<div class="block" aria-label="Commands for managing uploads">
-  <pre><span class="v">uploads list</span>          # see your files
-<span class="v">uploads delete &lt;key&gt;</span>  # remove a file
-<span class="v">uploads usage</span>         # storage used by your workspace</pre>
-</div>
+````
+```ansi
+uploads list          # see your files
+uploads delete <key>  # remove a file
+uploads usage         # storage used by your workspace
+```
+````
+
+Reserve ` ```bash ` for the one or two commands in that section a reader
+actually runs in sequence (an install line, a golden path) — not the whole
+catalog.
+
+**Genuinely equivalent alternatives go in tabs, not stacked blocks.** When one
+action has two interchangeable entry points (the two ways to bake annotations
+onto a capture, say), wrap them in `<Tabs>` / `<TabItem>` from
+`apps/web/src/components/docs/`:
+
+````mdx
+<Tabs syncKey="annotate-entry-point">
+  <TabItem label="screenshot --annotate">
+
+```bash
+uploads screenshot … --annotate ./callouts.json
+```
+````
+
+  </TabItem>
+</Tabs>
 ```
 
-Reserve `.cmd` for the one or two commands in that section a reader actually runs
-in sequence (an install line, a golden path) — not the whole catalog.
+Groups sharing a `syncKey` switch together across the page, and the choice is
+remembered per browser. Tabs are for real alternatives only — never a sequence of
+steps, and never an invented variant of a command.
 
 ## Inline-code rule
 
@@ -155,7 +258,7 @@ a flag, a package name, a path like `/g/<id>`. This is near-universal in good do
 switch between prose cadence and monospace in one breath, wraps awkwardly across
 lines, and makes a runnable command look like a passing mention. Instead:
 
-- Put the full command in a `.cmd` block, **or**
+- Put the full command in a ` ```bash ` block, **or**
 - Reference only the verb inline (`uploads attach`) and let the full form live in
   a block or on the linked page.
 
@@ -170,47 +273,46 @@ class you add and why). Headings and their `#` anchors, the copy-button behavior
 the table of contents, and section dividers are all handled by `DocsLayout`
 automatically; you don't wire them up per page.
 
-| Element                                                                   | Use for                                                                                                                                                                                           |
-| ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `<section class="lead" id="…">`                                           | The first section (no top divider under the page title).                                                                                                                                          |
-| `<section id="…">`                                                        | Every subsequent section; gets a top divider automatically.                                                                                                                                       |
-| `<h2>` with an `<a class="anchor" href="#id">#</a>` inside                | Section heading. The anchor sits in the left gutter and appears on hover; the whole heading is click-to-anchor. Keep the markup pattern; the layout styles it.                                    |
-| `<h3>`                                                                    | Sub-heading within a section (e.g. a card title, a labelled step).                                                                                                                                |
-| `<div class="cmd">` with `<span class="text">` + a `data-copy` `<button>` | A single, copyable command line. `$ ` prompt is auto-prepended; add `class="slash"` for slash-commands typed into an agent (no `$`).                                                              |
-| `<span class="cm">` inside `.text`                                        | A trailing `# comment` on a command (muted).                                                                                                                                                      |
-| `<div class="block">` with `<pre>`                                        | Multi-line, **non-copyable** output or a reference command listing. Only for real, reproducible output; `.ok` marks a success line, `.v` a value (also brightens the command in a listing).       |
-| `<div class="cards">` + `<a class="card">`                                | The "explore" grid of links to subject pages. Each card: `<h3>Title <span class="go">→</span></h3>` + one-sentence `<p>`. Trim to the highest-intent destinations rather than listing everything. |
-| `<div class="note">`                                                      | A muted aside — the place for asides, "more:" link lists, and edge cases pulled out of the main flow.                                                                                             |
-| `<p class="pointer">`                                                     | A demoted secondary-command line under the golden path (styled quieter than body text). Name only the verb inline; link to where it's covered in full.                                            |
-| `<div class="callout">`                                                   | An accent-tinted contextual banner near the top of a page (e.g. "landed here from a bot comment?"). Use sparingly, for orientation the reader needs before the content.                           |
-| `<div class="installed">`                                                 | A green post-install success banner, revealed by a `?setup_action=…` query param (used on the GitHub App page). Don't add new ones without the matching reveal logic.                             |
-| `<table>`                                                                 | Reference/comparison data (e.g. plans, limits). The natural form for a reference page — prefer it over prose for anything grid-shaped.                                                            |
-| `<nav class="page-nav">` with a `.next`                                   | The prev/next footer link row at the bottom of a subject page. Keep it; update the targets if you re-order pages.                                                                                 |
-| `<div class="ghc">`                                                       | A styled mock GitHub comment (avatar + bubble), for showing what a posted comment looks like. Specialised — only where a page illustrates GitHub output.                                          |
-| `<code>`                                                                  | Short inline identifiers (see the inline-code rule).                                                                                                                                              |
-| `<span class="go">→</span>`                                               | The trailing arrow on card titles and pointers.                                                                                                                                                   |
+| Element                                                    | Use for                                                                                                                                                                                           |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `<section class="lead" id="…">`                            | The first section (no top divider under the page title).                                                                                                                                          |
+| `<section id="…">`                                         | Every subsequent section; gets a top divider automatically.                                                                                                                                       |
+| `<h2>` with an `<a class="anchor" href="#id">#</a>` inside | Section heading. The anchor sits in the left gutter and appears on hover; the whole heading is click-to-anchor. Keep the markup pattern; the layout styles it.                                    |
+| `<h3>`                                                     | Sub-heading within a section (e.g. a card title, a labelled step).                                                                                                                                |
+| ` ```bash ` fence                                          | A copyable command. The `$ ` prompt is drawn by CSS — never type it. A trailing `# comment` is stripped from the copied text.                                                                     |
+| ` ```ansi ` fence                                          | Multi-line, **non-copyable** output or a reference command listing. Only for real, reproducible output.                                                                                           |
+| ` ```text ` fence                                          | A copyable non-shell line — a slash command typed into an agent, an instructions-file snippet.                                                                                                    |
+| `<Tabs>` / `<TabItem label="…">`                           | Two or more genuinely equivalent commands. `syncKey` links groups across the page. Not for sequences of steps.                                                                                    |
+| `<div class="cards">` + `<a class="card">`                 | The "explore" grid of links to subject pages. Each card: `<h3>Title <span class="go">→</span></h3>` + one-sentence `<p>`. Trim to the highest-intent destinations rather than listing everything. |
+| `<div class="note">`                                       | A muted aside — the place for asides, "more:" link lists, and edge cases pulled out of the main flow.                                                                                             |
+| `<div class="pointer">`                                    | A demoted secondary-command line under the golden path (styled quieter than body text). Name only the verb inline; link to where it's covered in full.                                            |
+| `<div class="callout">`                                    | An accent-tinted contextual banner near the top of a page (e.g. "landed here from a bot comment?"). Use sparingly, for orientation the reader needs before the content.                           |
+| `<GithubAppInstalledBanner />`                             | The green post-install success banner, revealed by a `?setup_action=…` query param (GitHub App page only). Don't add new ones without the matching reveal logic.                                  |
+| `<table>`                                                  | Reference/comparison data (e.g. plans, limits). The natural form for a reference page — prefer it over prose for anything grid-shaped.                                                            |
+| _(prev/next footer)_                                       | Generated from `navOrder` by the `[...slug].astro` route — don't hand-write one.                                                                                                                  |
+| `<GhComment />`                                            | A styled mock GitHub comment (avatar + bubble), for showing what a posted comment looks like. Specialised — only where a page illustrates GitHub output.                                          |
+| `` `code` ``                                               | Short inline identifiers (see the inline-code rule).                                                                                                                                              |
+| `<span class="go">→</span>`                                | The trailing arrow on card titles and pointers.                                                                                                                                                   |
 
-**Config-file examples get syntax highlighting.** For a real config file (a
-`.uploads.yml`, a JSON snippet), don't use a plain `.block` — render it with
-Astro's `<Code code={…} lang="yaml" theme="vitesse-dark" class="yaml-example" />`
-(from `astro:components`), with the file's text in a frontmatter constant.
-Highlighting makes the keys and values pop out from explanatory comments. The
-`.yaml-example` style in `comment-config.astro` drops the highlighted block into
-the same panel `.block` uses. Note: adding the `astro:components` import to a page
-for the first time needs a dev-server restart (Vite re-optimizes deps).
+Page-specific markup that doesn't generalize (a mock wireframe, a data table fed
+from code) belongs in a small `.astro` component under
+`apps/web/src/components/docs/`, imported by the MDX — not inlined as a slab of
+HTML in the prose.
 
-The canonical example of all of this working together is `apps/web/src/pages/docs.astro`
-(the hub page). Read it before reworking a subject page — it shows the intro +
-capability list, install-first ordering, the golden-path-plus-pointer pattern, the
-copy-affordance rule, and a trimmed card grid in practice.
+The canonical example of all of this working together is
+`apps/web/src/content/docs/attach-pull-request-images.mdx` (fenced-block
+conventions, tabs, an imported wireframe component) alongside
+`apps/web/src/pages/docs.astro` (the hub page: intro + capability list,
+install-first ordering, the golden-path-plus-pointer pattern, and a trimmed card
+grid). Read one of them before reworking a subject page.
 
 ## Hard constraints
 
 - **Don't invent facts.** Every command, flag, URL, and capability must already
   exist on the page, a sibling docs page, or the CLI. When unsure, check a sibling
-  page under `apps/web/src/pages/docs/` rather than guessing.
+  page under `apps/web/src/content/docs/` rather than guessing.
 - **Reuse the vocabulary above.** These are shared styles in `DocsLayout`; a new
   class means new CSS and drift. Flag it explicitly if you truly need one.
-- **Keep the page valid Astro/HTML** so it compiles, and verify it renders in the
+- **Keep the page valid MDX** so it compiles, and verify it renders in the
   browser preview (the `web` dev server) when you can — check the resting state is
   calm and scannable, not just that it builds.

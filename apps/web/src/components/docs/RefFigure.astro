@@ -1,0 +1,43 @@
+---
+// Screenshot figure for /docs/reference. Two of these stack in one `.shots`
+// grid; the grid and figure styles live alongside so the page's MDX stays prose.
+interface Props {
+  src: string;
+  width: number;
+  height: number;
+  alt: string;
+  caption: string;
+}
+const { src, width, height, alt, caption } = Astro.props;
+---
+
+<figure class="ref-shot">
+  <img src={src} width={width} height={height} loading="lazy" alt={alt} />
+  <figcaption>{caption}</figcaption>
+</figure>
+
+<style is:global>
+  /* Muted lead paragraph above the figures. */
+  .doc .browsing-lead {
+    color: var(--muted);
+    margin: 0 0 18px;
+  }
+  .doc .ref-shot {
+    margin: 0 0 20px;
+  }
+  .doc .ref-shot:last-child {
+    margin-bottom: 0;
+  }
+  .doc .ref-shot img {
+    display: block;
+    width: 100%;
+    height: auto;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+  }
+  .doc .ref-shot figcaption {
+    font: var(--text-micro) var(--sans);
+    color: var(--muted);
+    margin-top: 8px;
+  }
+</style>

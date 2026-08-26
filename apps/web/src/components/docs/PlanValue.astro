@@ -1,0 +1,13 @@
+---
+// A single number or name from the plan catalog, inlined into /docs/limits
+// prose. Keeps the MDX free of imports and interpolation while the value
+// still comes from `@uploads/billing` at build time.
+import { PLAN_FACTS, type PlanFact } from "../../lib/plan-facts";
+
+interface Props {
+  of: PlanFact;
+}
+const { of } = Astro.props;
+---
+
+<Fragment>{PLAN_FACTS[of]}</Fragment>
