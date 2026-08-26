@@ -57,6 +57,10 @@
     "run_worker_first": [
       "/*",
       "!/src/*",
+      // Hashed build assets (and expressive-code's dev-served ec.* files, which
+      // use literal /_astro/ URLs even under the dev server — without this the
+      // worker swallows them and serves the 404 page as their body).
+      "!/_astro/*",
       "!/@vite/*",
       "!/@fs/*",
       "!/@id/*",
