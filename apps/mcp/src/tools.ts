@@ -910,17 +910,16 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
 
         if (multi) {
           // Resolve every item before any write so a bad batch fails whole.
-          const decoded = await Promise.all(
-            items.map(async (item, i) => {
-              try {
-                return await bytesFromPutSource(item, maxBytes);
-              } catch (err) {
-                usage(
-                  `files[${i}] (${item.filename}): ${err instanceof Error ? err.message : String(err)}`,
-                );
-              }
-            }),
-          );
+          // Bounded fan-out: 20 parallel Worker fetches would pin isolate RAM.
+          const decoded = await mapBounded(items, PUT_CONCURRENCY, async (item, i) => {
+            try {
+              return await bytesFromPutSource(item, maxBytes);
+            } catch (err) {
+              usage(
+                `files[${i}] (${item.filename}): ${err instanceof Error ? err.message : String(err)}`,
+              );
+            }
+          });
           const keys = await Promise.all(
             items.map((item, i) => resolveKey(item.filename, decoded[i]!)),
           );

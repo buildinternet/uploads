@@ -15,7 +15,7 @@ the help you want. Output you trim in a script or an agent still carries the
 reason:
 
 ```text
-error: put requires at least one file
+error: put requires at least one file or --url
   uploads put ./shot.png --pr 123
 hint: uploads put --help
 ```
@@ -84,7 +84,7 @@ command to run by hand, rather than overwriting your build.
 | Command                    | What it does                                                                                                             |
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
 | `attach <file\|key\|url…>` | Attach media (local files, or already-uploaded keys/URLs via server-side copy) to the current PR (stable URLs + comment) |
-| `put <file>`               | Upload one file → public URL + GitHub markdown                                                                           |
+| `put <file\|--url…>`       | Upload a local file or a fetched URL → public URL + GitHub markdown                                                      |
 | `screenshot <url\|html>`   | Capture a page (or local HTML) and host it in one step                                                                   |
 | `annotate <image>`         | Bake boxes, arrows, labels, strokes, and redactions onto an image                                                        |
 | `comment`                  | Create/update a PR/issue attachments comment (via `gh`)                                                                  |

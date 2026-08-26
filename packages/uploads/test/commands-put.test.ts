@@ -616,6 +616,47 @@ describe("runPut --url", () => {
     ).rejects.toMatchObject({ message: expect.stringMatching(/no filename/) });
   });
 
+  it("records a failed --url and continues with the rest", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL) => {
+        const href = String(input);
+        if (href.includes("one.png")) return new Response(PNG, { status: 200 });
+        return new Response("nope", { status: 404 });
+      }),
+    );
+    const { client, puts } = fakeClient();
+    const chunks: string[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation(((chunk: unknown) => {
+      chunks.push(String(chunk));
+      return true;
+    }) as typeof process.stdout.write);
+    const ctx = { ...ctxWith(client), json: true };
+    const code = await runPut(
+      ctx,
+      [
+        "--url",
+        "https://cdn.example/one.png",
+        "--url",
+        "https://cdn.example/missing.png",
+        "--repo",
+        "myapp",
+        "--no-git",
+      ],
+      false,
+      noRun,
+    );
+    expect(code).toBe(1);
+    expect(puts).toHaveLength(1);
+    const payload = JSON.parse(chunks.join("")) as {
+      uploads: Array<{ file: string }>;
+      failures: Array<{ file: string }>;
+    };
+    expect(payload.uploads).toHaveLength(1);
+    expect(payload.failures).toHaveLength(1);
+    expect(payload.failures[0]?.file).toBe("https://cdn.example/missing.png");
+  });
+
   it("uploads multiple --url values", async () => {
     vi.stubGlobal(
       "fetch",

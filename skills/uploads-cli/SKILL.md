@@ -28,9 +28,9 @@ must already point at something publicly hosted.
 This skill covers both transports: the **`uploads` CLI** (local files, git,
 localhost) and the hosted MCP at `https://agents.uploads.sh/mcp` (bytes you
 already have, or a public HTTPS URL to fetch, no checkout). Both PUT to the
-uploads.sh API and return a stable public URL plus ready-to-paste markdown. For PRs and issues the managed
-attachments comment is available on both — CLI via local `gh` as a fallback,
-hosted MCP bot-only.
+uploads.sh API and return a stable public URL plus ready-to-paste markdown.
+For PRs and issues the managed attachments comment is available on both.
+The CLI can fall back to local `gh`. Hosted MCP is bot-only.
 
 ### MCP vs CLI
 
@@ -977,12 +977,12 @@ uploads --api-url http://localhost:8787 doctor
   `get_metadata` / `set_metadata` / `find_files` / `list_metadata_keys` (same
   as `meta get` / `meta set` / `find` / `meta keys`|`meta values`).
   `find_files` accepts optional `name` (filename substring) with or without
-  `filters`. Both support multi-file `put` in one call — stdio takes `files`
-  as paths, hosted takes
-  `files: [{ filename?, contentBase64 | contentUrl, alt? }]` (max 20/call;
-  filename is required with `contentBase64`, optional with `contentUrl` when
-  the URL path has a leaf; per-item `alt` overrides the top-level one) —
-  returning `{ uploads, failures }` with per-item results. Hosted
+  `filters`. Both support multi-file `put` in one call. Stdio takes `files`
+  as paths. Hosted takes
+  `files: [{ filename?, contentBase64 | contentUrl, alt? }]` (max 20/call).
+  Filename is required with `contentBase64`, and optional with `contentUrl`
+  when the URL path has a leaf. Per-item `alt` overrides the top-level one.
+  The result is `{ uploads, failures }` with per-item results. Hosted
   `contentUrl` is HTTPS-only, does not forward auth, and rejects
   private/internal hosts. GitHub `user-attachments` URLs are not public and
   will fail the fetch. `uploads install` sets up this skill + hosted MCP

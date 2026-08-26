@@ -15,9 +15,9 @@ project is in active development.
 ## What the product does
 
 GitHub's native image hosting only works through a browser session. Agents
-cannot drag-and-drop. uploads.sh is the missing step: put a local file, a
-public HTTPS URL (`uploads put --url`, or hosted MCP `contentUrl`), or
-base64 on the hosted MCP, and get back durable `url` / `embedUrl` markdown.
+cannot drag-and-drop. uploads.sh hosts a local file, a public HTTPS URL
+(`uploads put --url`, or hosted MCP `contentUrl`), or base64 on the hosted
+MCP. It returns durable `url` / `embedUrl` markdown.
 
 The intended loop is **stage as you go**:
 

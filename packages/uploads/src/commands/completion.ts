@@ -300,7 +300,7 @@ function fishScript(): string {
       `complete -c uploads -n '__fish_seen_subcommand_from put attach' -l ${flag.slice(2)}`,
     );
   }
-  lines.push(`complete -c uploads -n '__fish_seen_subcommand_from put' -l url`);
+  lines.push(`complete -c uploads -n '__fish_seen_subcommand_from put' -l url -r`);
   for (const flag of SCREENSHOT_FLAGS) {
     if (!flag.startsWith("--")) continue;
     lines.push(

@@ -2842,50 +2842,65 @@ export async function runPut(
   }
 
   let byteSources: { bytes: Uint8Array; filename: string; source: string }[] | undefined;
+  const urlFetchFailures: AttachFailure[] = [];
+  let urlFetchFirstError: unknown;
   if (urlArgs.length > 0) {
     byteSources = [];
     for (const raw of urlArgs) {
-      let filename: string;
       try {
-        filename = resolveUploadFilename(raw, !multi ? nameFlag : undefined, "--url", {
+        const filename = resolveUploadFilename(raw, !multi ? nameFlag : undefined, "--url", {
           allowLoopback: true,
         });
-      } catch (err) {
-        throw new UsageError(err instanceof Error ? err.message : String(err), {
-          example: "uploads put --url https://cdn.example/id --name shot.png",
+        const bytes = await fetchUploadSource(raw, {
+          label: "--url",
+          userAgent: "uploads.sh/cli",
+          allowLoopback: true,
         });
+        byteSources.push({ bytes, filename, source: raw });
+      } catch (err) {
+        urlFetchFirstError ??= err;
+        urlFetchFailures.push({ file: raw, error: errorDetail(err) });
       }
-      const bytes = await fetchUploadSource(raw, {
-        label: "--url",
-        userAgent: "uploads.sh/cli",
-        allowLoopback: true,
-      });
-      byteSources.push({ bytes, filename, source: raw });
     }
   }
 
-  const { uploads, failures, firstError, sentMetadata } = await uploadPuts({
-    client: ctx.client,
-    files: byteSources ? undefined : files,
-    byteSources,
-    nameOverride: byteSources ? undefined : nameFlag,
-    explicitKey: keyHint,
-    ghTarget: effectiveGhTarget,
-    ghBranchTarget: stagingTarget,
-    prefix: resolvedPrefix ?? defaults.prefix,
-    repo: flagString(parsed.flags, "--repo") ?? defaults.repo,
-    ref: flagString(parsed.flags, "--ref") ?? defaults.ref,
-    deriveRepoFromGit: !noGit,
-    contentType: contentTypeOverride,
-    dryRun,
-    replace: replaceFlag,
-    optimize: optimizeOpts,
-    frame: frameOpts,
-    metadata,
-    deriveImageFacts: derivedMetaEnabled(parsed.flags, defaults),
-    alt: altFlag,
-    width,
-  });
+  let uploads: PutUploadItem[];
+  let failures: AttachFailure[];
+  let firstError: unknown;
+  let sentMetadata: (Record<string, string> | undefined)[];
+  if (byteSources && byteSources.length === 0) {
+    uploads = [];
+    failures = urlFetchFailures;
+    firstError = urlFetchFirstError;
+    sentMetadata = [];
+  } else {
+    const batch = await uploadPuts({
+      client: ctx.client,
+      files: byteSources ? undefined : files,
+      byteSources,
+      nameOverride: byteSources ? undefined : nameFlag,
+      explicitKey: keyHint,
+      ghTarget: effectiveGhTarget,
+      ghBranchTarget: stagingTarget,
+      prefix: resolvedPrefix ?? defaults.prefix,
+      repo: flagString(parsed.flags, "--repo") ?? defaults.repo,
+      ref: flagString(parsed.flags, "--ref") ?? defaults.ref,
+      deriveRepoFromGit: !noGit,
+      contentType: contentTypeOverride,
+      dryRun,
+      replace: replaceFlag,
+      optimize: optimizeOpts,
+      frame: frameOpts,
+      metadata,
+      deriveImageFacts: derivedMetaEnabled(parsed.flags, defaults),
+      alt: altFlag,
+      width,
+    });
+    uploads = batch.uploads;
+    failures = [...urlFetchFailures, ...batch.failures];
+    firstError = urlFetchFirstError ?? batch.firstError;
+    sentMetadata = batch.sentMetadata;
+  }
 
   // Single-file total failure: rethrow so CLI exit codes stay auth/network-aware.
   if (uploads.length === 0 && failures.length > 0 && !multi) {

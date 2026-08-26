@@ -51,6 +51,7 @@ describe("generateCompletionScript", () => {
       /complete -c uploads -n '__fish_seen_subcommand_from gallery' -a 'create'/,
     );
     expect(script).toMatch(/__fish_seen_subcommand_from put attach/);
+    expect(script).toMatch(/complete -c uploads -n '__fish_seen_subcommand_from put' -l url -r/);
   });
 
   it("screenshot completions use their own explicit flag list, not put's --name/--no-comment", () => {

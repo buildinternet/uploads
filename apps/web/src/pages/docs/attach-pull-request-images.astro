@@ -241,11 +241,10 @@ URL: <span class="v">https://storage.uploads.sh/screenshots/app/2026-07-12/shot-
 MARKDOWN: ![shot.png](https://storage.uploads.sh/screenshots/app/2026-07-12/shot-9f2c1a.webp)</pre>
     </div>
     <p>
-      Useful flags: <code>--pr 123</code> also posts to that PR, <code>--url</code> fetches a public HTTPS
-      file (or <code>http://localhost</code> on the CLI) instead of a local path (filename from the URL,
-      or
-      <code>--name</code>), <code>--no-optimize</code> uploads the original bytes instead of re-encoding,
-      and <code>--frame phone</code> adds device chrome to a mobile screenshot.
+      Useful flags: <code>--pr 123</code> also posts to that PR. <code>--url</code> fetches a public HTTPS
+      file, or <code>http://localhost</code> on the CLI, instead of a local path. The filename comes from
+      the URL, or from <code>--name</code>. <code>--no-optimize</code> uploads the original bytes instead
+      of re-encoding. <code>--frame phone</code> adds device chrome to a mobile screenshot.
     </p>
     <div class="cmd">
       <span class="text">uploads put --url https://cdn.example/shot.png --pr 123</span>
