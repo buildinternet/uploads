@@ -1,6 +1,6 @@
 {
   "name": "@buildinternet/uploads",
-  "version": "0.48.1",
+  "version": "0.49.0",
   "mcpName": "sh.uploads/mcp",
   "description": "CLI and client for uploads.sh — workspace-scoped image hosting for GitHub embeds",
   "type": "module",

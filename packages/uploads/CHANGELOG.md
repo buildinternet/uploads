@@ -1,5 +1,12 @@
 # @buildinternet/uploads
 
+## 0.49.0
+
+### Minor Changes
+
+- 21b5aa9: Tighten MCP tool and parameter copy, add input schema examples, and replace the `health` ping with `whoami`.
+- d6ff396: `uploads put --url` and MCP `contentUrl` fetch a file and upload it. Filename comes from the URL path when omitted. The CLI and stdio MCP also fetch `http://localhost` (hosted MCP does not).
+
 ## 0.48.1
 
 ### Patch Changes
