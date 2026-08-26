@@ -1,0 +1,153 @@
+---
+title: Set up your agent
+description: Install the uploads agent skill and MCP server so your coding agent can attach screenshots to GitHub on its own.
+heading: Set up your agent
+tagline: Teach a coding agent to upload and attach media on its own.
+navLabel: Set up your agent
+navSlug: agents
+navOrder: 5
+---
+
+<section class="lead" id="install">
+
+## Install <a class="anchor" href="#install" aria-label="Link to this section">#</a>
+
+One command detects your agent runtime and installs everything it needs: the agent skills (attach
+workflow, CLI reference, and screenshot annotations) plus the hosted MCP server.
+
+```bash
+uploads install
+```
+
+<div class="pointer">
+  Using Claude Code or Codex? Install everything as one plugin instead, with the pre-PR hook and a
+  slash command included — [see Claude Code & Codex plugins <span class="go">→</span>](#plugin).
+</div>
+
+### Or set up by hand
+
+Add the skills with `npx skills`, then register the MCP server with your runtime's own MCP
+registration — shown here for Claude Code:
+
+```bash
+npx skills add buildinternet/uploads
+```
+
+```bash
+claude mcp add --transport http uploads https://agents.uploads.sh/mcp
+```
+
+</section>
+
+<section id="plugin">
+
+## Claude Code & Codex plugins <a class="anchor" href="#plugin" aria-label="Link to this section">#</a>
+
+Install the agent skills, the MCP server, an `/uploads:attach` command, and a pre-PR screenshot
+reminder hook as one plugin, from the uploads marketplace. Add the marketplace, then install:
+
+```text
+/plugin marketplace add buildinternet/uploads
+```
+
+```text
+/plugin install uploads@uploads
+```
+
+Codex uses the same repo as a plugin (`.codex-plugin/plugin.json`) — the same skills, MCP server, and
+hook. After enabling it, open `/hooks` once and trust the hook if Codex asks. Both plugins run
+`uploads hook pre-pr-screenshot`, so keep the `uploads` CLI on your `PATH` and run `uploads login`
+once.
+
+</section>
+
+<section id="skill-vs-mcp">
+
+## Skill vs. MCP <a class="anchor" href="#skill-vs-mcp" aria-label="Link to this section">#</a>
+
+The skill teaches the agent when and how to use the CLI — for example staging a before/after with
+`uploads put`, or baking callouts onto a capture with `uploads screenshot --annotate`.
+
+The local stdio MCP (`uploads mcp`) exposes the same tools as the CLI, including `attach` and `put`
+with `contentUrl`. Register it with any MCP client, e.g.:
+
+```bash
+claude mcp add uploads -- uploads mcp
+```
+
+The hosted MCP at `agents.uploads.sh` is for agents with no local checkout. It has `put`, `list`,
+`delete`, and more, but not `attach`, and no git defaults — pass `repo` and `branch` to `put` to
+stage, then `repo`, `pr`, and `branch` to `promote` once a PR exists. Hosted `put` takes
+`contentBase64` or `contentUrl` (a public HTTPS file the worker fetches; the filename comes from the
+URL path when you omit it). Hosted `put`/`comment` honor a repo's
+[`.uploads.yml`](/docs/comment-config) the same way the bot does.
+
+<div class="note">
+  Want the guided version? The [agent walkthrough](/github-screenshots) takes a coding agent from
+  install to a first staged before/after.
+</div>
+
+</section>
+
+<section id="stage-as-you-go">
+
+## Stage screenshots as the agent works <a class="anchor" href="#stage-as-you-go" aria-label="Link to this section">#</a>
+
+Any agent that can run a shell command can capture at each visual milestone and stage it — no PR
+required yet, and no `--branch` flag needed on a branch:
+
+```bash
+uploads put ./shot.png --state before   # or --state after
+```
+
+A bare `uploads screenshot` stages the same way, carrying its derived `path`, `url`, `env`, and
+`viewport` metadata through promotion. Keep using `--state` — it's the one thing no tool can infer
+from the image.
+
+Once a PR opens, the comment assembles itself: via the GitHub App webhook, or the next
+`uploads attach` (or `uploads attach --promote`) without the App. See the
+[stage-as-you-go walkthrough](/github-screenshots) for the full loop.
+
+</section>
+
+<section id="instructions-file">
+
+## Put it in your instructions file <a class="anchor" href="#instructions-file" aria-label="Link to this section">#</a>
+
+Add a block like this to your project's instructions file — `AGENTS.md`, `CLAUDE.md`,
+`.cursor/rules`, wherever your runtime reads project instructions:
+
+```ansi
+## Screenshots
+When a change is visually observable (UI, layout, styling), capture it as you
+go — don't wait until the PR is open. After each meaningful visual change:
+
+  uploads put ./shot.png --state before   # or --state after
+
+On a branch, that stages automatically — no --branch flag needed. Stage
+before/after pairs where it makes sense. No need to open the PR first —
+staged files are promoted into the PR's attachments comment automatically.
+```
+
+Requires the `uploads` CLI on `PATH` and `uploads login` already run once — see [Install](#install)
+above.
+
+</section>
+
+<section id="pre-pr-reminder">
+
+## Pre-PR screenshot reminder <a class="anchor" href="#pre-pr-reminder" aria-label="Link to this section">#</a>
+
+Before `gh pr create`, agents can get a non-blocking nudge when the branch touches UI files and
+nothing is staged on uploads.sh. The handler is `uploads hook pre-pr-screenshot` — fail-open, never
+blocks the PR. Disable with `UPLOADS_HOOK_DISABLE=1`.
+
+- **Claude Code** and **Codex** — bundled in the [plugin](#plugin) (Codex: trust once via `/hooks`).
+- **Grok** and **Cursor** — `uploads install hooks` writes a user-global manifest when those tools
+  are present (included in plain `uploads install`).
+
+No reminder is required — `uploads attach --promote` (no file arguments) right after opening a PR
+picks up everything staged against the branch and posts or refreshes the attachments comment; it
+exits `0` even if nothing was staged.
+
+</section>

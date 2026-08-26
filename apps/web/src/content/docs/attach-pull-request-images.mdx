@@ -1,0 +1,282 @@
+---
+title: Attach & share
+description: Attach screenshots and video to GitHub PRs and issues, get a public URL for any file, capture a screenshot, and bake callouts or redactions onto it with the uploads CLI.
+heading: Attach & share
+tagline: Stage as you work with put. Attach when a PR is already open. Capture, annotate, and share a URL.
+navLabel: Attach & share
+navSlug: attach
+navOrder: 1
+toc:
+  - { id: attach, label: Attach files to a PR }
+  - { id: staging, label: Stage before a PR exists }
+  - { id: before-after, label: Pair a before and after }
+  - { id: put, label: Get a URL for any file }
+  - { id: screenshot, label: Capture a screenshot }
+  - { id: annotate, label: Annotate a screenshot }
+---
+
+import GhComment from "../../components/docs/GhComment.astro";
+import TabItem from "../../components/docs/TabItem.astro";
+import Tabs from "../../components/docs/Tabs.astro";
+
+<section class="lead" id="attach">
+
+## Attach files to a PR <a class="anchor" href="#attach" aria-label="Link to this section">#</a>
+
+When a pull request is already open, `attach` is the direct command. From a checked-out branch it
+needs no arguments beyond the files:
+
+```bash
+uploads attach ./screenshot.png
+```
+
+…which lands on the pull request as one managed comment:
+
+<GhComment />
+
+Run `attach` again with new files and this same comment updates in place, instead of collecting a
+trail of stale screenshot comments.
+
+It uses the `gh` CLI to find the current repo and PR. Off a PR branch, or targeting somewhere else,
+add `--pr <n>` or `--issue <n>`, and `--repo owner/name` for a different repo. Add `--no-comment` to
+print the URLs and Markdown without posting anything.
+
+</section>
+
+<section id="staging">
+
+## Stage before a PR exists <a class="anchor" href="#staging" aria-label="Link to this section">#</a>
+
+Don't wait for a PR to capture something. A bare `put` on a non-default git branch already stages by
+default — no `--branch` flag needed:
+
+```bash
+uploads put ./after.png
+```
+
+A bare `uploads screenshot` (no `--pr`/`--issue`/`--branch`) stages the same way, carrying its
+derived `path`/`url`/`env`/`viewport` metadata through promotion — so capturing before the PR exists
+no longer loses that context.
+
+`attach --branch` is the explicit, multi-file form of the same thing — reach for it to upload several
+files at once with shared flags, or to force staging outside a plain upload:
+
+```bash
+uploads attach --branch ./before.png ./after.png
+```
+
+Run `uploads staged` to see what's queued for the current branch, and whether it'll actually
+auto-attach:
+
+```ansi
+after.webp  94.2 KB  staged 2026-07-22T14:00:00Z  https://storage.uploads.sh/gh/you/app/branch/feat-nav/after.webp
+binding: self — these auto-attach when this branch's PR opens
+once the PR exists: uploads attach --promote
+```
+
+The `binding` line is the thing worth reading: `self` means these files will actually auto-attach
+when the PR opens; `none` or `other` means they won't (the repo isn't linked to this workspace, or
+it's linked to a different one), and `unknown` means the check itself couldn't run. Pass
+`--format json` for a machine-readable version — it always prints a valid document, even with zero
+files staged. See [GitHub App: staging before a PR exists](/docs/github-app#staging) for what each
+binding state means and how to fix it.
+
+<div class="note">
+  Once the PR opens, the next `attach` against it promotes those staged files automatically — or run
+  `uploads attach --promote` with no files to do it explicitly (`--no-promote` opts out). Promotion
+  is copy-and-keep: the staged original is never deleted, so a URL you already embedded (in the PR
+  body, say, before it was even opened) keeps serving.
+</div>
+
+</section>
+
+<section id="before-after">
+
+## Pair a before and after <a class="anchor" href="#before-after" aria-label="Link to this section">#</a>
+
+Tag a capture with `--state before` or `--state after` and the two render side by side in the
+comment, under <b>Before</b> and <b>After</b> headings, instead of stacking:
+
+```bash
+uploads put ./hero-before.webp --state before
+```
+
+Its counterpart uses `--state after` in place of `before`. Two files pair when they share a
+`--meta path` value and one is `before` while the other is `after` — the form to use when a single
+comment carries several pairs, since `path` is what keeps them from crossing:
+
+```bash
+uploads put ./settings-old.webp --meta path=/settings --state before
+```
+
+With no usable `path`, filenames are the fallback: stems that differ only by a `before` or `after`
+token pair up, so `hero-before.webp` goes with `hero-after.webp`. The token has to be its own word —
+`beforehand.webp` doesn't match. A group with two befores and one after is ambiguous and won't pair;
+it falls back to the normal stacked list. Only images pair.
+
+<div class="note">
+  Pairing isn't only a comment thing — a file's public page shows its counterpart next to it, with a
+  link either way. `--state` also takes `empty`, `error`, and `loading` for the other states worth
+  capturing; those are searchable with `uploads find` but don't pair.
+</div>
+
+</section>
+
+<section id="put">
+
+## Get a URL for any file <a class="anchor" href="#put" aria-label="Link to this section">#</a>
+
+`put` is the simpler building block: upload one file, get back a public URL and Markdown you can
+paste anywhere.
+
+```bash
+uploads put ./shot.png
+```
+
+```ansi
+# on a non-default git branch, bare put stages for that branch
+>> optimized 411.5 KB → 94.2 KB (shot.webp)
+URL: https://storage.uploads.sh/gh/you/app/branch/feat-shot/shot.webp
+MARKDOWN: ![shot.png](https://storage.uploads.sh/gh/you/app/branch/feat-shot/shot.webp)
+note: staged for branch feat/shot — auto-comments to pull request when opened
+(or run: uploads attach --promote once it exists). Use --ref/--prefix for a
+plain dated upload.
+```
+
+On a branch, a bare `put` stages the file for that branch's future PR — same behavior as `attach`,
+above. Everywhere else it keeps the plain dated path shown next.
+
+```ansi
+# on the default branch (or --no-git), the classic dated layout applies
+>> optimized 411.5 KB → 94.2 KB (shot.webp)
+URL: https://storage.uploads.sh/screenshots/app/2026-07-12/shot-9f2c1a.webp
+MARKDOWN: ![shot.png](https://storage.uploads.sh/screenshots/app/2026-07-12/shot-9f2c1a.webp)
+```
+
+Useful flags: `--pr 123` also posts to that PR. `--url` fetches a public HTTPS file, or
+`http://localhost` on the CLI, instead of a local path. The filename comes from the URL, or from
+`--name`. `--no-optimize` uploads the original bytes instead of re-encoding. `--frame phone` adds
+device chrome to a mobile screenshot.
+
+```bash
+uploads put --url https://cdn.example/shot.png --pr 123
+```
+
+By default, images are re-encoded to WebP (capped size, high quality) so GitHub embeds stay fast,
+and **EXIF is stripped from the uploaded bytes**. Use `--keep-exif` to keep it, or `--no-optimize` to
+skip all processing.
+
+Before stripping, a small allowlist is read off the image and stored as searchable metadata:
+`viewport`, `device`, `software`, and `captured`. Those values are **publicly visible** on the file's
+page. GPS coordinates, serial numbers, and personal-name tags are never kept. Pass `--no-auto` to
+store none of it.
+
+Each file also gets a shareable page on uploads.sh (under `/f/…`) that supports
+[oEmbed](https://oembed.com/) — so chat apps, notes tools, and other unfurlers can embed the image
+when you paste the page link. Details are in [Reference](/docs/reference#good-to-know).
+
+<div class="note">
+  Also: any of `--pr`, `--issue`, `--key`, `--ref`, `--prefix`, or `--destination` opts a bare `put`
+  out of branch staging, as does `--no-git`. Staged keys have no content-hash suffix (unlike the
+  dated layout above) — they're stable per filename, so re-uploading the same file replaces it in
+  place instead of minting a new URL.
+</div>
+
+</section>
+
+<section id="screenshot">
+
+## Capture a screenshot <a class="anchor" href="#screenshot" aria-label="Link to this section">#</a>
+
+Don't have the image yet? `screenshot` renders a URL or a local `.html` file and hosts the result in
+one step, with no browser install required.
+
+```bash
+uploads screenshot https://app.example --pr 123
+```
+
+```ansi
+# renders the page, then hosts the WebP in one step
+>> captured via local backend
+URL: https://storage.uploads.sh/gh/app/example/pull/123/app.example.webp
+MARKDOWN: ![app.example](https://storage.uploads.sh/gh/app/example/pull/123/app.example.webp)
+```
+
+Useful flags: `--dark` renders in dark scheme, `--selector` captures one element instead of the full
+page, `--no-upload --out <path>` skips hosting and writes a local file, and `--reduced-motion`
+settles animations for a clean dev-server shot.
+
+If a Chrome or Chromium is already on the machine, `screenshot` drives it directly (nothing to
+download); otherwise it renders on uploads.sh servers. Force either side with `--via local` or
+`--via remote`. Note that `localhost` URLs are only reachable locally.
+
+`--out` also writes a sidecar, `<file>.uploads.json`, recording this capture's derived metadata
+(path/url/env/viewport, plus `--state` if given) and a content hash. A later `put` or `attach` of
+that same file picks the metadata back up automatically — pass `--no-sidecar` to skip writing it.
+
+When you shoot your own dev server, it hides known framework dev toolbars (Astro, Next, Nuxt, Vite)
+automatically (opt out with `--no-hide-dev-tools`). Hide any other overlay with `--hide <selector>`
+(repeatable), or run setup JS first with `--eval <js>` / `--init-script <file>` (local backend).
+
+<div class="note">
+  Capturing a clicked or selected state of a React/Next app? A synthetic `el.click()` in `--eval`
+  fires before the framework hydrates, so it silently does nothing — gate on the app's own
+  "interactive" signal with `--wait-for <js>` (local backend), which polls that expression until
+  truthy before `--eval` runs, e.g. `--wait-for 'document.querySelector("[data-hydrated]")'`.
+</div>
+
+</section>
+
+<section id="annotate">
+
+## Annotate a screenshot <a class="anchor" href="#annotate" aria-label="Link to this section">#</a>
+
+Point reviewers at what changed — boxes, arrows, labels, freeform strokes, and redactions bake into
+the image before it is hosted. Two entry points, same JSON spec:
+
+<Tabs syncKey="annotate-entry-point">
+  <TabItem label="screenshot --annotate">
+
+```bash
+uploads screenshot http://localhost:4321/settings --via local --annotate ./callouts.json
+```
+
+  </TabItem>
+  <TabItem label="annotate">
+
+```bash
+uploads annotate ./shot.png --spec ./callouts.json --out ./shot.marked.png
+```
+
+  </TabItem>
+</Tabs>
+
+Prefer `screenshot --annotate` when you control the page: CSS selectors resolve against the live DOM
+(local capture backend only in v1 — remote rejects selector-bearing specs). Use `annotate` on an
+image you already have — pixel coordinates only, no selectors.
+
+A minimal callouts file:
+
+```json
+{
+  "version": 1,
+  "annotations": [
+    { "type": "box", "selector": "#save-button" },
+    { "type": "label", "text": "New: bulk save", "selector": "#save-button" },
+    { "type": "redact", "selector": "[data-testid=api-key]", "style": "solid" }
+  ]
+}
+```
+
+Annotation types: `box`, `arrow`, `label`, `draw`, `redact`, and `svg`. House style is fixed
+(hand-drawn stroke); optional per-annotation `color` is the only style knob. Use `redact` with
+`style: "solid"` for secrets — hosted files are public, and blurred text can be recoverable.
+
+<div class="note">
+  Full spec format, selector vs pixel rules, and workflow notes live in the
+  [annotate-screenshots](https://github.com/buildinternet/uploads/blob/main/skills/annotate-screenshots/SKILL.md)
+  agent skill (`uploads install` or `npx skills add buildinternet/uploads`). See also `uploads
+  annotate --help` and `uploads screenshot --help`.
+</div>
+
+</section>

@@ -1,0 +1,173 @@
+---
+title: Comment config
+description: Reference for .uploads.yml — a repo-committed file that controls image width, inline-image caps, caption metadata, and an optional note on the managed PR/issue comment.
+heading: Comment config
+tagline: A repo-committed file that shapes how the managed comment renders.
+navLabel: Comment config
+navSlug: comment-config
+navOrder: 4
+toc:
+  - { id: what-it-controls, label: What it controls }
+  - { id: example, label: Full example }
+  - { id: file-location, label: File location }
+  - { id: precedence, label: Precedence }
+  - { id: note, label: The note field }
+  - { id: fail-closed, label: Fail-closed behavior }
+  - { id: preview, label: Preview before committing }
+---
+
+<section class="lead" id="what-it-controls">
+
+## What it controls <a class="anchor" href="#what-it-controls" aria-label="Link to this section">#</a>
+
+Commit `.uploads.yml` at a repo's root to shape how its managed comment renders. Every key lives
+under a top-level `comment:` map and is optional. With it you can set:
+
+- **Image width** for inline images, pair cells, and video posters.
+- **How many images** render inline before the rest collapse to links.
+- **Caption metadata** — the path and state labels under each image.
+- **Whether images link** to the file's share page.
+- **A short note** shown at the top of the comment.
+- **Whether GitHub-posted attachments are [imported](/docs/github-app#ingest) into the workspace**,
+  and whether bot-authored ones count.
+- **Whether uploads.sh links pasted into a PR or comment are adopted** into that PR/issue's
+  attachment context.
+
+<div class="note">
+  The file only reshapes the comment for a repo that's already allowed to receive one — it can't
+  change where files are hosted or which repo a workspace can post to.
+</div>
+
+</section>
+
+<section id="example">
+
+## Full example <a class="anchor" href="#example" aria-label="Link to this section">#</a>
+
+Save it at the repo root:
+
+```yaml
+comment:
+  # "auto" (the default filename-based sizing), "full" (natural width up to
+  # the comment column, no fixed attribute), or a pixel number from 160 to
+  # 1000. Applies to inline images, pair cells, and video posters alike;
+  # "full" and an explicit number override their sizing too, "auto" keeps it.
+  imageWidth: auto
+
+  # How many images render inline before the rest collapse to links.
+  # Clamped to 1-48. Default: 16.
+  maxInlineImages: 16
+
+  # Caption metadata under each image. Each key can be forced on or off.
+  # An omitted key follows the workspace default.
+  meta:
+    path: true
+    state: true
+
+  # Whether images link to the file's share page. Overrides the workspace
+  # setting.
+  linkToFilePage: true
+
+  # Whether images and video dropped directly on GitHub PRs and issues get
+  # imported into the workspace. On by default.
+  ingestGithubAttachments: true
+
+  # Whether attachments authored by [bot] accounts are imported too.
+  # Off by default — bot-posted media is usually noise (status GIFs, badges).
+  # Tiny images (under 200px on either side) are always skipped.
+  ingestBotAttachments: false
+
+  # Whether uploads.sh file links pasted directly into a PR body or comment
+  # (bypassing --pr/attach context — a bare paste, or a raw curl upload) get
+  # adopted into that PR/issue's attachment context. Only links to files
+  # already in this repo's own bound workspace are adopted; links to any
+  # other workspace's files are ignored. On by default for bound repos.
+  adoptLinkedFiles: true
+
+  # Optional short markdown at the top of the comment, before the media —
+  # repo-specific context, a link to a contributing guide, and so on.
+  # Trimmed, capped at 500 characters, rendered as-is: it's
+  # repo-owner-authored markdown in the owner's own repo, the same trust
+  # level as a PR description. Empty or whitespace-only counts as absent.
+  note: ""
+```
+
+<div class="note">
+  A value outside its valid range doesn't fail the whole file: numbers clamp to their bounds, and an
+  unrecognized value for a key drops just that key while every other key still applies.
+</div>
+
+</section>
+
+<section id="file-location">
+
+## File location <a class="anchor" href="#file-location" aria-label="Link to this section">#</a>
+
+The GitHub App bot, the hosted MCP, the REST comment endpoint, and the CLI's local `gh`-fallback all
+check these locations, in order, and use the first one they find:
+
+- `.uploads.yml`
+- `.uploads.yaml`
+- `.uploads.json`
+- `.github/uploads.yml`
+- `.github/uploads.yaml`
+- `.github/uploads.json`
+
+Only the file on the repo's default branch is read — config committed on a feature branch or a PR
+doesn't take effect until it lands on default.
+
+</section>
+
+<section id="precedence">
+
+## Precedence <a class="anchor" href="#precedence" aria-label="Link to this section">#</a>
+
+Each key resolves independently, in this order:
+
+1. **Repo config** — a value set in `.uploads.yml`.
+2. **Workspace default** — set on the workspace's [comment settings](/account) by a workspace admin.
+3. **Automatic behavior** — the built-in default when neither is set.
+
+A repo can set some keys and leave others out; the ones it leaves out fall through to the workspace
+default or the automatic behavior on a per-key basis, not as a single all-or-nothing switch.
+
+</section>
+
+<section id="note">
+
+## The note field <a class="anchor" href="#note" aria-label="Link to this section">#</a>
+
+`note` renders at the top of the comment, before the media — a good place for "these are staging
+shots" or a link to a contributing guide. It's capped at 500 characters.
+
+A note over the cap is dropped whole, not cut short. Truncating mid-sentence could post a note that
+reads as a different, unintended message, so the render falls back to no note at all rather than a
+partial one. Trim the note in the file and it posts normally.
+
+</section>
+
+<section id="fail-closed">
+
+## Fail-closed behavior <a class="anchor" href="#fail-closed" aria-label="Link to this section">#</a>
+
+A missing, unreadable, or unparseable config file never breaks the comment — it just falls back to
+the workspace defaults, the same as if no file existed. This applies to the whole file: a YAML syntax
+error anywhere in it means the whole file is ignored for that render, not just the broken part.
+
+The server caches a repo's config for about five minutes, so a commit that changes or removes the
+file can take up to that long to take effect on the next server-side comment. The CLI's
+`gh`-fallback path reads the file from your local working tree instead, with no cache, so every path
+ends up honoring the same file.
+
+</section>
+
+<section id="preview">
+
+## Preview before committing <a class="anchor" href="#preview" aria-label="Link to this section">#</a>
+
+The workspace's [comment settings](/account) page includes a live preview: pick a repo the workspace
+is bound to and it renders the resolved comment body using the same code path the bot uses, with a
+badge on each setting showing whether it came from the repo config, the workspace default, or
+automatic behavior. Use it to check a change before committing `.uploads.yml`.
+
+</section>

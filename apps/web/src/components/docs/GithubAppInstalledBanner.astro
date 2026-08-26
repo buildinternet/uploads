@@ -1,0 +1,27 @@
+---
+// Post-install landing banner for /docs/github-app. GitHub's Setup URL redirect
+// arrives with ?setup_action=install|update, which reveals this client-side —
+// the page itself is prerendered, so the query string is only readable here.
+---
+
+<aside class="installed" id="installed-note" hidden aria-live="polite">
+  <strong data-installed-heading>App installed — you're done.</strong> There is nothing to configure on
+  this side. The CLI notices the installation automatically the next time you run <code
+    >uploads attach</code
+  >.
+</aside>
+
+<script is:inline>
+  // GitHub's post-install redirect lands here with ?setup_action=install|update.
+  (() => {
+    const action = new URLSearchParams(location.search).get("setup_action");
+    if (action !== "install" && action !== "update") return;
+    const note = document.getElementById("installed-note");
+    if (!note) return;
+    if (action === "update") {
+      const heading = note.querySelector("[data-installed-heading]");
+      if (heading) heading.textContent = "Installation updated — you're done.";
+    }
+    note.hidden = false;
+  })();
+</script>
