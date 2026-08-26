@@ -205,7 +205,8 @@ export function initWorkspaceRail(
   // Tier 1 — last known value, no network. Runs at module-eval time, before
   // the session gate resolves. The server-rendered placeholder it overwrites
   // occupies the same height, so this repaint moves nothing on the page.
-  // `usageEl` (and so this whole tier) only exists on the billing tab.
+  // `usageEl` (and so this whole tier) only exists on tabs that pass
+  // `showUsage` (billing and screenshots).
   const cached = readWorkspaceSnapshot(workspace);
   if (cached?.usage) paint(cached.usage, true);
 

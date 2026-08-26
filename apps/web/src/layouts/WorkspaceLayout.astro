@@ -3,10 +3,11 @@
  * Workspace shell: `AccountLayout` + content slot + right-rail summary.
  * Section links live in the sidebar switcher; tab routes only wrap content.
  * Rail data is filled by `initWorkspaceRail` (connected work / usage). The
- * usage section only renders with `showUsage` — billing is the only tab that
- * sets it, since meters repeated on every tab were pure noise (issue #365
- * follow-up). `initWorkspaceRail` tolerates `[data-rail-usage]` being absent
- * from the DOM on every other tab.
+ * usage section only renders with `showUsage` — billing and screenshots set
+ * it. Meters on every tab were noise (issue #365 follow-up), but screenshots
+ * is the workspace home, so the meters belong there too.
+ * `initWorkspaceRail` tolerates `[data-rail-usage]` being absent from the
+ * DOM on every other tab.
  *
  * The details section (slug + base URL) that used to sit here was dropped —
  * the switcher/URL already carries the slug and the settings tab has its own
@@ -31,7 +32,7 @@ import AccountLayout from "./AccountLayout.astro";
 
 interface Props {
   workspace: string;
-  /** Show the rail's usage section. Billing only — see module doc. */
+  /** Show the rail's usage section. Billing and screenshots — see module doc. */
   showUsage?: boolean;
   /** Static per-tab hint. `body` may include inline markup (e.g. `<code>`). */
   tip?: { body: string; href?: string; linkLabel?: string; label?: string };
