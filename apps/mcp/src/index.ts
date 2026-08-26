@@ -266,7 +266,7 @@ function mcpServerCard() {
       name: "uploads-mcp",
       version: uploadsVersion,
       description:
-        "Host files on uploads.sh from an agent — put, attach, list, delete, usage, and GitHub attachment comments.",
+        "Host files on uploads.sh from an agent — put (including branch staging and PR attach), promote, list, delete, usage, galleries, whoami, and GitHub attachment comments.",
       homepage: "https://uploads.sh/",
       icons: MCP_SERVER_ICONS,
     },

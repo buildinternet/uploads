@@ -7,6 +7,7 @@ import { FakeR2Bucket } from "@uploads/storage/test/fake-r2";
 import { resetOAuthJwksCacheForTests } from "../src/oauth";
 import { GalleryFakeD1 } from "./gallery-fake-d1";
 import { version as uploadsVersion } from "../../../packages/uploads/package.json";
+import webServerCard from "../../../apps/web/public/.well-known/mcp/server-card.json";
 
 const TOKEN = "up_test-ws_legacy-token-value";
 const ALPHA_TOKEN = "up_alpha_gallery-test";
@@ -534,6 +535,7 @@ describe("mcp worker", () => {
       serverInfo: {
         name: string;
         version: string;
+        description?: string;
         icons?: { src: string; mimeType?: string; sizes?: string[] }[];
       };
       transport: { type: string; endpoint: string };
@@ -548,6 +550,7 @@ describe("mcp worker", () => {
         sizes: ["180x180"],
       },
     ]);
+    expect(body.serverInfo.description).toBe(webServerCard.serverInfo.description);
     expect(body.transport.type).toBe("streamable-http");
     expect(body.transport.endpoint).toBe("https://agents.uploads.sh/mcp");
     expect(body.authentication.required).toBe(true);
