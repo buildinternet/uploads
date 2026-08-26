@@ -19,11 +19,11 @@ captured a before/after has nowhere to put it.
 **Owner: the developer.** The developer installs the CLI once, signs in, owns
 the workspace, sets its limits and keys, and reads the result on the PR. They
 also use the product directly for one-off shares and screenshot capture. Every
-surface an agent cannot see — console, account, admin, billing, the `/f/` share
+surface an agent cannot see — account, admin, billing, the `/f/` share
 page — exists for them.
 
 The web surfaces serve two moments: **deciding** (landing page, docs, changelog,
-guides that explain the product) and **managing** (signed-in console, account,
+guides that explain the product) and **managing** (signed-in account,
 workspace, and admin pages for workspaces, keys, files, screenshots, galleries,
 people, storage, and billing).
 
@@ -88,7 +88,7 @@ on files-sdk, so the storage layer is provider-agnostic (R2 today).
 
 **Web routes in production:** marketing home, `/docs` hub with eight guides,
 `/changelog` (plus Atom feed), `/f/<workspace>/<key>` file share pages, `/g/<id>`
-public galleries, `/console`, `/account` (profile, developers, workspaces),
+public galleries, `/account` (profile, developers, workspaces),
 per-workspace files / screenshots / galleries / people / invite / settings /
 storage / billing, `/admin` (users, oauth, email, metrics), and the auth flows
 (login, device, invite, accept-invitation, oauth consent).

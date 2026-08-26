@@ -189,7 +189,7 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
       // origin into a global the bundled module script below can read. Imports
       // don't get processed inside a define:vars script, so the actual logic
       // lives in the second <script> tag, which Astro bundles normally (same as
-      // console.astro's/invite.astro's plain <script> tags elsewhere in this app).
+      // invite.astro's plain <script> tags elsewhere in this app).
       window.__UPLOADS_AUTH_ORIGIN__ = authOrigin;
     </script>
     <script>

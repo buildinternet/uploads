@@ -323,8 +323,9 @@ Operators can also mint single-use enrollment codes behind `ADMIN_TOKEN`. This
 is a secondary path retained for cases where you want to share a code or link
 without needing the recipient's email address in advance — org invitations
 above remain the primary, recommended way to onboard someone whose email you
-know. `uploads login --code` honors codes issued this way, and the `/console`
-scaffold (behind the console-mode flag) uses it internally.
+know. `uploads login --code` honors codes issued this way, and the `/admin`
+panel's per-workspace "Generate invite link" button mints the same records
+through the session-authed `/admin-ui` counterpart.
 
 ```bash
 ADMIN_TOKEN=<admin-credential> uploads admin invite create \
@@ -664,7 +665,6 @@ recommend removing.
 | `BROWSER`                                                                      | api       | `POST /v1/render` (CLI screenshot capture) answers 503 `renderer_unavailable`. Nothing else is affected.                                                                                                                                                                                                                                                                                                |
 | `MEDIA`                                                                        | api       | Video poster-frame generation is skipped; uploads still succeed, just without a generated poster image.                                                                                                                                                                                                                                                                                                 |
 | `FLAGS`                                                                        | api       | Poster generation's runtime kill switch always evaluates to disabled (fails closed) — same effect as never enabling the feature.                                                                                                                                                                                                                                                                        |
-| `FLAGS`                                                                        | web       | `/console` visibility falls back to the static `CONSOLE_MODE` var instead of a live-toggleable flag.                                                                                                                                                                                                                                                                                                    |
 | `GITHUB_WEBHOOK_QUEUE`                                                         | api       | GitHub webhook deliveries process inline (`waitUntil`) instead of through a durable queue — functionally the same, just without queue-level retry/DLQ semantics.                                                                                                                                                                                                                                        |
 | `AUTH`                                                                         | mcp       | Uploader attribution on hosted-MCP uploads degrades to the id-only `gh.uploader-id` tag (no `gh.uploader` login) — the binding backs `uploaderTags()` in `@uploads/api/uploader-identity`, called from `apps/mcp/src/tools.ts`, and every failure path there fails soft. Uploads still succeed. (Listed here because a grep of `apps/mcp/src` alone misses the usage — it lives in the shared package.) |
 | `WRITE_LIMITER`                                                                | api, mcp  | No per-workspace burst limit on uploads/deletes.                                                                                                                                                                                                                                                                                                                                                        |
@@ -683,12 +683,6 @@ recommend removing.
 ## Presign
 
 `POST /v1/:ws/files/sign` — workspace needs HTTP S3 credentials (not binding-only).
-
-## Console visibility
-
-Console visibility controls links, not security — the console is bearer-token authenticated, so anyone with a valid workspace token can use it regardless of this setting. Three modes: `"public"` links to it from `/account`; `"linked-only"` (default) keeps the route serving but drops those links, so people find it deliberately; `"off"` makes `/console` 404.
-
-Resolution order (see apps/web `src/lib/console-mode.ts`): the Flagship `console-mode` flag (app "uploads", `FLAGS` binding) wins when present, so prod can flip modes without a redeploy — `wrangler flagship flags update <app-id> console-mode --default <mode>`. The `CONSOLE_MODE` var in apps/web `wrangler.jsonc` is the fallback. Self-hosters without Flagship: delete the `flagship` block from wrangler.jsonc and set the var.
 
 ## CLI observability (telemetry + reports)
 

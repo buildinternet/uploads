@@ -53,7 +53,6 @@ for search engines. Agent discovery docs are public but not listed in the sitema
 | `/github-screenshots`                                       | yes       | SEO landing: agents uploading media to GitHub; FAQ JSON-LD                 |
 | `/changelog`                                                | yes       | Product updates + CLI releases; in `sitemap.xml`; Atom at `/changelog.xml` |
 | `/invite`                                                   | **no**    | Magic-link enrollment; robots + meta + `X-Robots-Tag`                      |
-| `/console`                                                  | **no**    | Operator scaffold; same triple coverage                                    |
 | `/404`,`/500`                                               | **no**    | Status pages                                                               |
 | `/auth.md`, `/llms.txt`, `/llms-full.txt`, `/.well-known/*` | n/a       | Machine-readable; not in sitemap                                           |
 
