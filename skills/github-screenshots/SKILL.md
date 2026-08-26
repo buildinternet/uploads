@@ -197,9 +197,8 @@ opens (whether via `gh pr create` or the GitHub UI), every branch-staged file
 gets promoted into that PR's attachments and the managed comment is created
 automatically. Files you never mention in the description still show up there.
 The comment is identified by a hidden HTML comment at the top:
-`<!-- uploads.sh:attachments ws=<workspace> -->` (legacy, no workspace:
-`<!-- uploads.sh:attachments -->`). Bot posts are from `uploads-sh[bot]`;
-the local-`gh` fallback uses the same marker.
+`<!-- uploads.sh:attachments ws=<workspace> -->`. Bot posts are from
+`uploads-sh[bot]`; the local-`gh` fallback uses the same marker.
 
 - **With the uploads-sh GitHub App installed** on the repo, a webhook does
   this the moment the PR opens, reopens, or gets a new commit — no CLI call

@@ -756,7 +756,7 @@ than failing the upload if `gh` can't resolve one).
 
 ### Option B — managed attachments comment (default with `--pr`/`--issue`, or `comment`)
 
-`put --pr`/`--issue` (like `attach`) uploads **and** creates/updates a single marker-owned comment on the PR/issue by default — no separate flag needed. It keeps loose `gh/...` attachments and every public gallery linked to that PR/issue in clearly separate sections, with up to three available gallery images inline. Staged files you never paste into the description still show up here. It finds its own prior comment via a hidden HTML comment at the top (`<!-- uploads.sh:attachments ws=<workspace> -->`, or the legacy `<!-- uploads.sh:attachments -->` with no workspace) and edits it in place — it never touches the description or other comments. Bot posts are from `uploads-sh[bot]`. The local-`gh` fallback uses the same marker and adds a footer asking to install the App:
+`put --pr`/`--issue` (like `attach`) uploads **and** creates/updates a single marker-owned comment on the PR/issue by default — no separate flag needed. It keeps loose `gh/...` attachments and every public gallery linked to that PR/issue in clearly separate sections, with up to three available gallery images inline. Staged files you never paste into the description still show up here. It finds its own prior comment via a hidden HTML comment at the top (`<!-- uploads.sh:attachments ws=<workspace> -->`) and edits it in place — it never touches the description or other comments. Bot posts are from `uploads-sh[bot]`. The local-`gh` fallback uses the same marker and adds a footer asking to install the App:
 
 ```bash
 uploads put ./after.png --pr 123
