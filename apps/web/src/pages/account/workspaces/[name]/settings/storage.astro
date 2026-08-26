@@ -937,8 +937,9 @@ if (!workspace) return Astro.redirect("/account/workspaces");
           // recommended but this form requires. Two exceptions never block
           // the save: `embed-cache` (#592, optional-but-recommended tip) and
           // any check marked `inconclusive` (#853 — the probe couldn't run
-          // at all, e.g. a same-account custom domain that's unreachable as
-          // a server-side request while serving the public internet fine).
+          // at all, e.g. a Cloudflare-fronted custom domain that's
+          // unreachable as a server-side request while serving the public
+          // internet fine).
           // Both are surfaced after the lane card appears instead.
           const embedCacheWarn = verify.result.checks.find(
             (check) => check.id === "embed-cache" && !check.ok,
@@ -983,7 +984,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
             // themselves — plain text, the save succeeded.
             if (inconclusiveWarn) {
               const note =
-                "Saved — but we couldn't reach the public base URL from our servers to double-check it (common with same-account custom domains). Open a file's public URL in your browser to confirm it loads.";
+                "Saved — but we couldn't reach the public base URL from our servers to double-check it (Cloudflare-fronted custom domains often aren't reachable as a server-side request). Open a file's public URL in your browser to confirm it loads.";
               storageSavedActionStatus.textContent = note;
               storageActionStatus.textContent = note;
             }
