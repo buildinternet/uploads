@@ -148,7 +148,7 @@ describe("accountNavSections", () => {
 
 describe("adminNavSections", () => {
   it("marks the active admin section", () => {
-    const sections = adminNavSections({ section: "metrics", showConsoleLinks: false });
+    const sections = adminNavSections({ section: "metrics" });
     expect(sections.map((s) => s.label)).toEqual(["Admin", "Personal"]);
     const items = sections[0]!.items;
     expect(items.map((i) => i.href)).toEqual([
@@ -161,17 +161,10 @@ describe("adminNavSections", () => {
     expect(items.filter((i) => i.current).map((i) => i.label)).toEqual(["Metrics"]);
   });
 
-  it("adds the console link only when enabled", () => {
-    expect(
-      adminNavSections({ section: "workspaces", showConsoleLinks: false })[1]!.items.map(
-        (i) => i.label,
-      ),
-    ).toEqual(["Account"]);
-    expect(
-      adminNavSections({ section: "workspaces", showConsoleLinks: true })[1]!.items.map(
-        (i) => i.label,
-      ),
-    ).toEqual(["Account", "Console"]);
+  it("keeps the Personal group to the account link", () => {
+    expect(adminNavSections({ section: "workspaces" })[1]!.items.map((i) => i.label)).toEqual([
+      "Account",
+    ]);
   });
 });
 

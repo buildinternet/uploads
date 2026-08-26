@@ -9,15 +9,11 @@ items that are on the list but not yet built.
 - **More storage providers** — the storage layer is provider-agnostic
   (files-sdk via `createStorage()` in `packages/storage`), but only R2 is
   wired up. Adding `s3`, `gcs`, etc. is one new case plus peer deps.
-- **Full web file management** — `/console` is a lightweight browser console;
-  longer-term, files-sdk's `createFilesRouter` + browser client could power
-  full browse/manage in the web app.
+- **Full web file management** — longer-term, files-sdk's `createFilesRouter`
+  and browser client could power full browse/manage in the web app.
 - **Key-policy polish** — destination-specific size rules, and exposing a
   workspace's key policy (`allowedKeyPrefixes`, `maxKeyDepth`) on `usage` and
   `doctor` output.
-- **Session-authed invite-link generator** — mint enrollment codes/links from
-  the session-authed `/admin` UI so link-style invites don't require holding
-  `ADMIN_TOKEN`. Org invitations remain the primary onboarding path.
 - **Enrollment "token used" notify** — org-membership accepts already email
   the inviter; the secondary CLI enrollment path (`/admin/enrollments` →
   `/invite#code`) has no durable inviter identity. Low priority.

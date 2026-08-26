@@ -201,16 +201,10 @@ const ADMIN_NAV: { id: AdminSectionId; label: string; href: string; icon: ShellN
  * here — it lives in the header avatar menu, the same place the account shell
  * has kept it since #601.
  */
-export function adminNavSections(options: {
-  section: AdminSectionId;
-  showConsoleLinks: boolean;
-}): ShellNavSection[] {
+export function adminNavSections(options: { section: AdminSectionId }): ShellNavSection[] {
   const personal: ShellNavItem[] = [
     { label: "Account", href: "/account", current: false, icon: "account" },
   ];
-  if (options.showConsoleLinks) {
-    personal.push({ label: "Console", href: "/console", current: false, icon: "developers" });
-  }
   return [
     {
       label: "Admin",

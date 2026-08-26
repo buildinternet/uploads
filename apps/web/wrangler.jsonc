@@ -18,11 +18,6 @@
     // apps/auth/wrangler.jsonc); override via .dev.vars for local dev, same
     // pattern as WEB_ORIGIN in apps/auth/.dev.vars.example.
     "UPLOADS_AUTH_ORIGIN": "https://auth.uploads.sh",
-    // Visibility knob for /console (not a security boundary — auth is
-    // bearer-token based): "public" | "linked-only" | "off". Fallback when
-    // the Flagship `console-mode` flag (FLAGS binding below) is unavailable;
-    // see src/lib/console-mode.ts for the resolution order.
-    "CONSOLE_MODE": "linked-only",
     // Gates the dev-only /dev/ui-kit kitchen sink (404s when "production").
     // Mirrors apps/api's/apps/auth's ENVIRONMENT convention: set here, unset
     // in local dev. #785 shipped the page reading this var without declaring
@@ -36,15 +31,6 @@
   "services": [
     { "binding": "AUTH", "service": "uploads-auth" },
     { "binding": "API", "service": "uploads-api" },
-  ],
-  // Flagship feature flags (app "uploads"). Runtime override for CONSOLE_MODE
-  // without a redeploy. Self-hosters without Flagship can delete this block —
-  // everything falls back to the CONSOLE_MODE var above.
-  "flagship": [
-    {
-      "binding": "FLAGS",
-      "app_id": "8371bfe7-9767-4b4d-b75a-37b94d2724f7",
-    },
   ],
   "assets": {
     "binding": "ASSETS",
@@ -100,7 +86,6 @@
     "vars": {
       "UPLOADS_API_ORIGIN": "https://api.uploads.sh",
       "UPLOADS_AUTH_ORIGIN": "https://auth.uploads.sh",
-      "CONSOLE_MODE": "linked-only",
     },
     // Same-origin auth proxy (#731 phase A), duplicated here because bindings
     // do not inherit into the previews block (see the top-level "services"

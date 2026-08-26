@@ -7,7 +7,6 @@
  * `frame-ancestors` is honored — browsers ignore that directive in meta.
  * Same delivery model as `applyPublicFileHeaders` / `applyPublicGalleryHeaders`.
  */
-import { resolveConsoleMode } from "./console-mode";
 import { CF_RUM_CONNECT_SRC, CF_RUM_SCRIPT_SRC, STYLE_SRC_SELF_AND_INLINE } from "./csp";
 import { safeSameOriginPath } from "./workspace-ui";
 
@@ -212,14 +211,4 @@ export function applyAuthSecurityHeaders(headers: Headers, csp: string): void {
   headers.set("Cross-Origin-Opener-Policy", "same-origin");
   headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
   headers.set("Cache-Control", "no-store");
-}
-
-/**
- * Visibility knob for /console links — not a security boundary (console auth
- * is bearer-token based). Only `"public"` surfaces links from account/admin.
- */
-export async function resolveShowConsoleLinks(
-  env: Parameters<typeof resolveConsoleMode>[0],
-): Promise<boolean> {
-  return (await resolveConsoleMode(env)) === "public";
 }

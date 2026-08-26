@@ -109,8 +109,8 @@
     "binding": "MEDIA",
     "remote": true,
   },
-  // Flagship feature flags (app "uploads" — same app apps/web binds for
-  // console-mode). Carries `video-poster-generation`, the seconds-fast kill
+  // Flagship feature flags (app "uploads").
+  // Carries `video-poster-generation`, the seconds-fast kill
   // switch for issue #299 poster generation:
   //   wrangler flagship flags disable <APP_ID> video-poster-generation
   // Deliberately fails CLOSED — posterGenerationAllowed passes `false` as the

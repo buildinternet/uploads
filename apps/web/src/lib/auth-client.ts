@@ -3,11 +3,11 @@
  *
  * Decision: plain `fetch()` wrappers against the auth worker's REST
  * endpoints, NOT the `better-auth/client` bundle. apps/web ships zero
- * client-side npm dependencies today — `invite.astro` and `console.astro`
- * are plain inline `<script>` tags with no component-island framework (no
+ * client-side npm dependencies today — `invite.astro` is a plain inline
+ * `<script>` tag with no component-island framework (no
  * React in this repo) and a deliberately strict CSP. Pulling in
  * `better-auth/client` would be this app's first client-bundle dependency,
- * for a page surface (`/login`, console, `/admin`, `/account/profile`) that
+ * for a page surface (`/login`, `/admin`, `/account/profile`) that
  * needs session, magic-link, sign-out, GitHub sign-in, and link-social — not a
  * full client SDK. The plan explicitly sanctions this fallback when the
  * client-bundle approach is awkward for the inline-script model (see plan D6).
