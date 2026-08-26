@@ -48,10 +48,15 @@
  * rescanned is marked detached — the copy is never deleted, only hidden
  * from the managed comment render (`gh.detached` metadata, same convention
  * ingest uses) — and reappearing un-detaches it without a re-copy.
+ *
+ * "Still referenced" is the source key **or** the destination key (issue
+ * #865). A body edit that only rewrites a staged branch URL to the promoted
+ * `pull/<n>/` URL is the same file, not a removal — detaching would hide
+ * the real `--pr` / promoted attachment, which shares that destination.
  */
 import { attachExistingObject, resolveAttachSourceKey } from "./github-attach";
 import { commentCacheKey, gatherCommentBody } from "./github-comment";
-import type { GhTarget } from "./github-comment-render";
+import { GH_PRIVATE_ROOT, ghKeyPrefix, type GhTarget } from "./github-comment-render";
 import { postManagedComment } from "./github-comment-service";
 import { setFileMetadata } from "./file-metadata";
 import {
@@ -107,6 +112,17 @@ export interface AdoptSummary {
  * before any workspace/storage lookup exists. */
 export function hasLinkCandidate(text: string): boolean {
   return /https?:\/\//i.test(text);
+}
+
+/**
+ * True when `key` already lives under this target's attachment prefix — a
+ * promoted / `--pr` object, or a dest URL pasted after adoption. Not a
+ * source to copy onto itself (issue #865).
+ */
+function isTargetAttachmentKey(key: string, target: GhTarget): boolean {
+  if (key.startsWith(ghKeyPrefix(target))) return true;
+  if (!key.startsWith(GH_PRIVATE_ROOT)) return false;
+  return key.includes(`/${target.kind}/${target.num}/`);
 }
 
 const URL_RE = /https?:\/\/[^\s)"'<>\]]+/gi;
@@ -240,6 +256,11 @@ export async function adoptLinkedFiles(
   const before = await gatherCommentBody(env, ws, workspaceName, target);
 
   for (const key of keys) {
+    // A URL that already points at this PR/issue's attachment prefix is the
+    // attachment itself (promoted copy, or a dest-URL rewrite). Don't copy
+    // it onto itself or take adopt-ownership; the dest-key check below
+    // still counts it as "referenced."
+    if (isTargetAttachmentKey(key, target)) continue;
     const row = await adoptLedgerRow(db, repo, kind, num, key);
     if (row) {
       if (row.detachedAt === null) {
@@ -293,14 +314,26 @@ export async function adoptLinkedFiles(
     }
   }
 
-  // Un-adoption: a ledgered, non-detached key for THIS source that's no
-  // longer found when this source is rescanned. Scoped by source (not the
-  // whole target) so a link still referenced from a different comment isn't
-  // detached just because this particular comment stopped mentioning it.
+  // Un-adoption: a ledgered key for THIS source that's no longer referenced
+  // when this source is rescanned. Scoped by source (not the whole target)
+  // so a link still referenced from a different comment isn't detached just
+  // because this particular comment stopped mentioning it.
+  //
+  // Referenced = the original source key OR the destination key still
+  // appears in the text (issue #865: a staged URL rewritten to the
+  // `pull/<n>/` dest is the same file, not a removal).
   const existingForSource = await adoptLedgerRowsForSource(db, repo, kind, num, source);
   for (const row of existingForSource) {
+    const referenced = foundKeys.has(row.sourceKey) || foundKeys.has(row.objectKey);
+    if (referenced) {
+      if (row.detachedAt !== null) {
+        await setFileMetadata(db, workspaceName, row.objectKey, { "gh.detached": "false" });
+        await setAdoptLedgerDetached(db, repo, kind, num, row.sourceKey, null);
+        summary.reattached.push(row.objectKey);
+      }
+      continue;
+    }
     if (row.detachedAt !== null) continue;
-    if (foundKeys.has(row.sourceKey)) continue;
     await setFileMetadata(db, workspaceName, row.objectKey, { "gh.detached": "true" });
     await setAdoptLedgerDetached(db, repo, kind, num, row.sourceKey, new Date().toISOString());
     summary.detached.push(row.objectKey);

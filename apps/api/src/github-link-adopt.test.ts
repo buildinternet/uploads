@@ -355,6 +355,73 @@ describe("adoptLinkedFiles", () => {
     const aMetaAfter = await getFileMetadata(seeded.env.DB, WS, `gh/acme/web/pull/${NUM}/a.png`);
     expect(aMetaAfter["gh.detached"]).toBe("false");
   });
+
+  it("PIN (#865): rewriting a staged URL to the pull dest URL does not detach", async () => {
+    const seeded = await seededEnv();
+    const branchKey = "gh/acme/web/branch/feat-x/shot.png";
+    const destKey = `gh/acme/web/pull/${NUM}/shot.png`;
+    await seedSource(seeded, branchKey);
+    seeded.kv.store.set("ghinst:acme/web", { value: "1" });
+
+    const first = await adoptLinkedFiles(
+      seeded.env,
+      WS,
+      null,
+      { repo: REPO, kind: "pull", num: NUM },
+      `https://storage.uploads.sh/acme/${branchKey}`,
+    );
+    expect(first.adopted).toEqual([destKey]);
+    expect(first.detached).toEqual([]);
+
+    // Body now embeds the promoted / `--pr` dest — same file, new spelling.
+    const rewritten = await adoptLinkedFiles(
+      seeded.env,
+      WS,
+      null,
+      { repo: REPO, kind: "pull", num: NUM },
+      `https://embed.uploads.sh/acme/${destKey}`,
+    );
+    expect(rewritten.adopted).toEqual([]);
+    expect(rewritten.detached).toEqual([]);
+    const destMeta = await getFileMetadata(seeded.env.DB, WS, destKey);
+    expect(destMeta["gh.detached"]).not.toBe("true");
+  });
+
+  it("PIN (#865): a dest URL reattaches after a real removal, without a re-copy", async () => {
+    const seeded = await seededEnv();
+    const branchKey = "gh/acme/web/branch/feat-x/shot.png";
+    const destKey = `gh/acme/web/pull/${NUM}/shot.png`;
+    await seedSource(seeded, branchKey);
+    seeded.kv.store.set("ghinst:acme/web", { value: "1" });
+
+    await adoptLinkedFiles(
+      seeded.env,
+      WS,
+      null,
+      { repo: REPO, kind: "pull", num: NUM },
+      `https://storage.uploads.sh/acme/${branchKey}`,
+    );
+    const removed = await adoptLinkedFiles(
+      seeded.env,
+      WS,
+      null,
+      { repo: REPO, kind: "pull", num: NUM },
+      "no links left",
+    );
+    expect(removed.detached).toEqual([destKey]);
+    expect((await getFileMetadata(seeded.env.DB, WS, destKey))["gh.detached"]).toBe("true");
+
+    const restored = await adoptLinkedFiles(
+      seeded.env,
+      WS,
+      null,
+      { repo: REPO, kind: "pull", num: NUM },
+      `https://storage.uploads.sh/acme/${destKey}`,
+    );
+    expect(restored.reattached).toEqual([destKey]);
+    expect(restored.adopted).toEqual([]);
+    expect((await getFileMetadata(seeded.env.DB, WS, destKey))["gh.detached"]).toBe("false");
+  });
 });
 
 describe("adoptLinkedFilesForWebhook", () => {

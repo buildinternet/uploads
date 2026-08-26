@@ -195,7 +195,10 @@ field) — don't ignore it. Viewport is derived for you on `screenshot`. See the
 **The PR comment assembles itself — you don't drive that step.** Once the PR
 opens (whether via `gh pr create` or the GitHub UI), every branch-staged file
 gets promoted into that PR's attachments and the managed comment is created
-automatically:
+automatically. Files you never mention in the description still show up there.
+The comment is identified by a hidden HTML comment at the top:
+`<!-- uploads.sh:attachments ws=<workspace> -->`. Bot posts are from
+`uploads-sh[bot]`; the local-`gh` fallback uses the same marker.
 
 - **With the uploads-sh GitHub App installed** on the repo, a webhook does
   this the moment the PR opens, reopens, or gets a new commit — no CLI call
@@ -218,8 +221,13 @@ uploads attach ./flow.gif --issue 45 --repo myorg/myapp
 uploads attach ./shot.png --no-comment      # stable URLs only, no comment
 ```
 
-For a URL you'll hard-code in a PR/issue body (re-uploads overwrite in place,
-URL never changes):
+For a URL you'll hard-code in a PR/issue **body** (re-uploads overwrite in
+place, URL never changes). Putting an image in the description works — that's
+the right place for a visual that belongs in the write-up (a before/after in
+"what it looks like"). You don't have to. Wait until the PR exists and use
+`--pr`, so the body gets the stable `pull/<n>/` key from the start. Don't
+paste a branch-staged URL into the description and later rewrite it to
+`pull/<n>/` just to "correct" it.
 
 ```bash
 uploads put ./after.png --pr 123 --alt "Dashboard after" --width 700
@@ -231,7 +239,7 @@ For a durable public link to share anywhere (Slack, docs, a teammate):
 uploads put ./demo.gif --format url
 ```
 
-Always embed the returned **markdown** (or `embedUrl`) in GitHub — it uses the
+When you do embed, use the returned **markdown** (or `embedUrl`) — the
 no-cache host so overwrites propagate. Don't hand-build storage URLs.
 
 **Comment briefly disappeared? Don't panic-repost.** If the App is installed

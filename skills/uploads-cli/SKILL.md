@@ -735,7 +735,9 @@ access-controlled — anyone who obtains it can read it until you rotate the id 
 assets). See `docs/private-attachments.md` for the full threat model.
 
 Then reference the **embed** URL in the PR/issue markdown you write with `gh`
-(CLI `--format markdown` / MCP `markdown` already do this):
+(CLI `--format markdown` / MCP `markdown` already do this). The description
+is optional — a visual that belongs in the write-up goes here; everything
+else is already in the managed comment:
 
 ```markdown
 <img width="700" alt="Dashboard after" src="https://embed.uploads.sh/default/gh/myorg/myapp/pull/123/after.webp">
@@ -754,7 +756,7 @@ than failing the upload if `gh` can't resolve one).
 
 ### Option B — managed attachments comment (default with `--pr`/`--issue`, or `comment`)
 
-`put --pr`/`--issue` (like `attach`) uploads **and** creates/updates a single marker-owned comment on the PR/issue by default — no separate flag needed. It keeps loose `gh/...` attachments and every public gallery linked to that PR/issue in clearly separate sections, with up to three available gallery images inline. It finds its own prior comment via a hidden marker and edits it in place — it never touches the description or other comments:
+`put --pr`/`--issue` (like `attach`) uploads **and** creates/updates a single marker-owned comment on the PR/issue by default — no separate flag needed. It keeps loose `gh/...` attachments and every public gallery linked to that PR/issue in clearly separate sections, with up to three available gallery images inline. Staged files you never paste into the description still show up here. It finds its own prior comment via a hidden HTML comment at the top (`<!-- uploads.sh:attachments ws=<workspace> -->`) and edits it in place — it never touches the description or other comments. Bot posts are from `uploads-sh[bot]`. The local-`gh` fallback uses the same marker and adds a footer asking to install the App:
 
 ```bash
 uploads put ./after.png --pr 123
