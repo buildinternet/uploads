@@ -97,6 +97,15 @@ function fakeFactory() {
         throw new Error("unexpected head");
       },
       health: async () => ({ ok: true }),
+      usage: async () => ({
+        workspace: config.workspace,
+        bytes: 0,
+        objects: 0,
+        uploadsInPeriod: 0,
+        periodStart: "",
+        updatedAt: "",
+        scopes: ["files:read", "files:write"] as const,
+      }),
       getMetadata: async (key: string) => ({ metadata: metadataStore.get(key) ?? {} }),
       patchMetadata: async (
         key: string,
@@ -493,7 +502,7 @@ describe("tools/list", () => {
       "reconcile",
       "purge_expired",
       "comment",
-      "health",
+      "whoami",
       "doctor",
       "report",
     ]);
@@ -539,7 +548,22 @@ describe("tools/list", () => {
       { type: "oauth2", scopes: ["files:delete"] },
     ]);
     expect(byName.list._meta.securitySchemes).toEqual([{ type: "oauth2", scopes: ["files:read"] }]);
-    expect(byName.health._meta.securitySchemes).toEqual([{ type: "noauth" }]);
+    expect(byName.whoami._meta.securitySchemes).toEqual([{ type: "noauth" }]);
+  });
+
+  it("advertises inputSchema examples on the complex tools", async () => {
+    const { server } = serverWith();
+    const res = await rpc(server, "tools/list");
+    const byName = Object.fromEntries(
+      (res.result.tools as Array<{ name: string; inputSchema: { examples?: unknown } }>).map(
+        (t) => [t.name, t],
+      ),
+    );
+    for (const name of ["put", "screenshot", "attach", "find_files", "comment", "set_metadata"]) {
+      const examples = byName[name]?.inputSchema.examples;
+      expect(Array.isArray(examples), `${name} examples`).toBe(true);
+      expect((examples as unknown[]).length, `${name} examples`).toBeGreaterThan(0);
+    }
   });
 });
 
@@ -1453,12 +1477,27 @@ describe("config resolution", () => {
     expect(res.result.content[0].text).toContain("MISSING_TOKEN");
   });
 
-  it("health works without a token", async () => {
+  it("whoami works without a token and reports signedIn false", async () => {
     vi.stubEnv("UPLOADS_TOKEN", "");
     const { server } = serverWith({ globals: { apiUrl: "https://x.test" } });
-    const res = await rpc(server, "tools/call", { name: "health", arguments: {} });
+    const res = await rpc(server, "tools/call", { name: "whoami", arguments: {} });
     expect(res.result.isError).toBe(false);
-    expect(res.result.structuredContent).toEqual({ ok: true, apiUrl: "https://x.test" });
+    expect(res.result.structuredContent).toMatchObject({
+      ok: true,
+      signedIn: false,
+      apiUrl: "https://x.test",
+    });
+  });
+
+  it("whoami reports workspace and scopes when signed in", async () => {
+    const { server } = serverWith();
+    const res = await rpc(server, "tools/call", { name: "whoami", arguments: {} });
+    expect(res.result.isError).toBe(false);
+    expect(res.result.structuredContent).toMatchObject({
+      ok: true,
+      signedIn: true,
+      scopes: ["files:read", "files:write"],
+    });
   });
 
   it("report rejects short messages", async () => {
@@ -1557,6 +1596,9 @@ describe("canonical metadata vocabulary in tool schemas", () => {
     expect(metadata.description).not.toMatch(/Suggested keys/);
     expect(metadata.description).not.toMatch(/resolution/);
     expect(metadata.description).toMatch(/\bpath\b/);
+    // Keep the path cue and omit-vs-replace gotcha; don't dump the key regex
+    // and canonical-key list into every tools/list.
+    expect(metadata.description.length).toBeLessThan(400);
   });
 });
 

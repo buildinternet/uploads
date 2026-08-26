@@ -33,6 +33,8 @@ export {
   appProp,
   canonicalMetaFromArgs,
   METADATA_DESCRIPTION,
+  METADATA_PATH_CUE,
+  MCP_EXAMPLE_PNG_BASE64,
   metadataArgWithCanonical,
   metadataProp,
   stateProp,
@@ -53,7 +55,6 @@ export {
   findFilesResultSchema,
   galleryFindResultSchema,
   galleryResultSchema,
-  healthResultSchema,
   hostedOutputSchemas,
   listResultSchema,
   metadataFacetsResultSchema,
@@ -75,7 +76,7 @@ export interface McpToolAnnotations {
   openWorldHint: boolean;
 }
 
-/** Lookup / list / health. Does not change workspace or public state. */
+/** Lookup / list / whoami. Does not change workspace or public state. */
 export const mcpRead: McpToolAnnotations = {
   readOnlyHint: true,
   destructiveHint: false,
@@ -116,9 +117,9 @@ function oauth(scopes: string[]): McpSecurityScheme[] {
 export const mcpOAuthRead = oauth(["files:read"]);
 export const mcpOAuthWrite = oauth(["files:write"]);
 export const mcpOAuthDelete = oauth(["files:delete"]);
-/** Authenticated, no particular file scope (hosted `health`). */
+/** Authenticated, no particular file scope (hosted `whoami`). */
 export const mcpOAuthAny = oauth([]);
-/** Callable without a token (stdio `health`). */
+/** Callable without a token (stdio `whoami` when unsigned-in). */
 export const mcpNoAuth: McpSecurityScheme[] = [{ type: "noauth" }];
 
 /**

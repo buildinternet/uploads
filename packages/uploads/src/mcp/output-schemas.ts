@@ -289,10 +289,17 @@ export const purgeExpiredResultSchema: JsonSchema = objectSchema({
   reconcile: reconcileResultSchema,
 });
 
-export const healthResultSchema: JsonSchema = objectSchema({
-  ok: { type: "boolean" },
-  apiUrl: { type: "string" },
-});
+export const whoamiResultSchema: JsonSchema = objectSchema(
+  {
+    ok: { type: "boolean" },
+    workspace: { type: "string" },
+    scopes: { type: "array", items: { type: "string" } },
+    userId: nullableString,
+    signedIn: { type: "boolean" },
+    apiUrl: { type: "string" },
+  },
+  ["ok", "workspace"],
+);
 
 export const promoteToolResultSchema: JsonSchema = objectSchema({
   // `promotion` is optional (issue #702): a `keys`-only call (no `branch`)
@@ -379,7 +386,7 @@ export const hostedOutputSchemas: Record<string, JsonSchema> = {
   usage: usageResultSchema,
   reconcile: reconcileResultSchema,
   purge_expired: purgeExpiredResultSchema,
-  health: healthResultSchema,
+  whoami: whoamiResultSchema,
 };
 
 /** Shared-shape stdio tools. Hosted-only tools (`promote`, `repo_link_status`) omitted. */
@@ -413,7 +420,7 @@ export const stdioOutputSchemas: Record<string, JsonSchema> = {
   usage: usageResultSchema,
   reconcile: reconcileResultSchema,
   purge_expired: purgeExpiredResultSchema,
-  health: healthResultSchema,
+  whoami: whoamiResultSchema,
   report: objectSchema(
     {
       ok: { type: "boolean" },

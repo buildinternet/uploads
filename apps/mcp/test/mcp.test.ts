@@ -668,7 +668,6 @@ describe("mcp worker", () => {
       "gallery_get",
       "gallery_link",
       "get_metadata",
-      "health",
       "list",
       "list_metadata_keys",
       "promote",
@@ -678,6 +677,7 @@ describe("mcp worker", () => {
       "repo_link_status",
       "set_metadata",
       "usage",
+      "whoami",
     ]);
   });
 
@@ -1397,10 +1397,14 @@ describe("mcp worker", () => {
     }
   });
 
-  it("answers health without a scope", async () => {
+  it("answers whoami without a particular file scope", async () => {
     const { env } = await makeEnv();
-    const result = await callTool(env, "health", {});
-    expect(result.structuredContent).toEqual({ ok: true });
+    const result = await callTool(env, "whoami", {});
+    expect(result.structuredContent).toMatchObject({
+      ok: true,
+      workspace: "test-ws",
+      scopes: expect.arrayContaining(["files:read", "files:write"]),
+    });
   });
 
   it("returns 202 with an empty body for notifications", async () => {
@@ -1556,16 +1560,16 @@ describe("modern-era (2026-07-28) requests", () => {
         jsonrpc: "2.0",
         id: 1,
         method: "tools/call",
-        params: { name: "health", arguments: {}, _meta: MODERN_META },
+        params: { name: "whoami", arguments: {}, _meta: MODERN_META },
       },
-      { "Mcp-Method": "tools/call", "Mcp-Name": "health" },
+      { "Mcp-Method": "tools/call", "Mcp-Name": "whoami" },
     );
     expect(response.status).toBe(200);
     const body = (await response.json()) as {
       result: { isError: boolean; structuredContent: Record<string, unknown>; resultType: string };
     };
     expect(body.result.isError).toBe(false);
-    expect(body.result.structuredContent).toEqual({ ok: true });
+    expect(body.result.structuredContent).toMatchObject({ ok: true, workspace: "test-ws" });
     expect(body.result.resultType).toBe("complete");
   });
 

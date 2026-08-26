@@ -23,6 +23,8 @@ import {
 import {
   appProp,
   METADATA_DESCRIPTION,
+  METADATA_PATH_CUE,
+  MCP_EXAMPLE_PNG_BASE64,
   metadataArgWithCanonical,
   stateProp,
   ToolBatchError,
@@ -145,6 +147,7 @@ function decodeBase64(value: string, maxBytes: number): Uint8Array {
 export const MAX_PUT_FILES = 20;
 /** Bounded parallelism for batch writes (each is a D1 budget check + R2 put). */
 const PUT_CONCURRENCY = 5;
+const hostedRepoRequired = "GitHub `owner/name`. Required — this server cannot infer it from git.";
 
 interface PutFileItem {
   filename: string;
@@ -552,7 +555,7 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
       annotations: mcpDestroyPublic,
       securitySchemes: mcpOAuthWrite,
       description:
-        "Upload base64-encoded content to the workspace and get a public URL plus GitHub-ready embed markdown (the returned `markdown` is ready to paste into a PR or issue). Single file: pass `contentBase64` + `filename` (flat result). Multiple files: pass `files` (uploaded in parallel; returns `uploads` + `failures`, one bad item does not abort the rest). The key defaults to <prefix>/<repo>/<ref>/<name>-<hash>.<ext>; pass `key` for an explicit path instead (single-file only). With `pr`/`issue` (+ required `repo`) the key is stable instead (gh/…, always overwrites) and the managed attachments comment is synced by default as uploads-sh[bot] (bot-only on this hosted server, no local gh fallback; body honors the repo's `.uploads.yml` when present) — pass `comment: false` to skip it. With `branch` (+ required `repo`, no pr/issue) stages under gh/…/branch/… for pre-PR capture (CLI attach --branch parity); no comment yet. With `pr` + `branch`, also best-effort promotes that branch's staged files into the PR before the comment sync (CLI attach --pr auto-promote parity). Uploads are public regardless of GitHub repository visibility; explicit predictable keys must contain only non-sensitive media. The stored content type is sniffed from the bytes and restricted to the workspace's allowlist (images plus mp4/webm by default).",
+        "Upload a file (or files) and get a public URL plus GitHub-ready markdown. Prefer the returned `embedUrl` in GitHub markdown. All uploads are public. Pass `pr`+`repo` to attach to a PR (stable key + managed comment). Pass `branch`+`repo` to stage for a PR that does not exist yet.",
       inputSchema: {
         type: "object",
         properties: {
@@ -587,12 +590,11 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
               required: ["filename", "contentBase64"],
               additionalProperties: false,
             },
-            description: `Multiple files to upload in one call (max ${MAX_PUT_FILES} items). Cannot be combined with contentBase64, filename, or key; prefix/repo/ref/pr/issue/branch/width/metadata apply to every item. Returns { uploads, failures } with per-item results (plus comment/commentError / promotion once for the whole batch when those run).`,
+            description: `Multiple files in one call (max ${MAX_PUT_FILES}). Cannot combine with contentBase64, filename, or key.`,
           },
           key: {
             type: "string",
-            description:
-              "Explicit object key (default: <prefix>/<repo>/<ref>/<name>-<hash>.<ext>). Cannot be combined with prefix/repo/ref/pr/issue/branch.",
+            description: "Override the object key. Cannot combine with `pr`/`issue`/`branch`.",
           },
           prefix: {
             type: "string",
@@ -601,32 +603,32 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
           repo: {
             type: "string",
             description:
-              "owner/name repo segment for the default key layout (default: misc). REQUIRED (and must be owner/name) with pr/issue/branch — there is no git context on this server to infer it from.",
+              "GitHub `owner/name`. Required with `pr`/`issue`/`branch`. Optional otherwise (default: misc).",
           },
           ref: {
             type: "string",
             description:
-              "PR/issue/branch key segment for the default key layout (default: today). Cannot be combined with pr/issue/branch.",
+              "Optional key segment (default: today). Cannot combine with `pr`/`issue`/`branch`.",
           },
           pr: {
             type: "number",
             description:
-              "Attach to this pull request: uses a stable gh/ key (always overwrites) and stamps canonical gh.* metadata. Mutually exclusive with issue. Cannot combine with key/prefix/ref, or with branch-only staging (branch alone stages; pr + branch uploads to the PR and promotes that branch). Requires repo.",
+              "Attach to this pull request (stable `gh/` key). Mutually exclusive with `issue`. Requires `repo`. With `branch`, also promotes that branch's staged files.",
           },
           issue: {
             type: "number",
             description:
-              "Attach to this issue: uses a stable gh/ key (always overwrites) and stamps canonical gh.* metadata. Mutually exclusive with pr and with branch (promotion is PR-only). Cannot combine with key/prefix/ref. Requires repo.",
+              "Attach to this issue (stable `gh/` key). Mutually exclusive with `pr` and `branch`. Requires `repo`.",
           },
           branch: {
             type: "string",
             description:
-              "Git branch name. Without pr/issue: stage under gh/<owner>/<repo>/branch/<branch>/<filename> (pre-PR; no comment). With pr: after upload, best-effort promote this branch's staged files into the PR (never fails the upload; see promotion/promoteError). Requires repo. Cannot combine with issue, key, prefix, or ref.",
+              "Git branch to stage under (no comment yet). With `pr`, also promote this branch's staged files into the PR. Requires `repo`.",
           },
           comment: {
             type: "boolean",
             description:
-              "With pr/issue: after a successful upload, create or update the managed attachments comment via the uploads.sh GitHub App (bot-only on this hosted server — no local gh fallback; body honors the repo's `.uploads.yml` when present). Defaults to true when pr/issue is given (requires the files:read scope; a write-only token skips the sync unless comment is explicitly true); pass false to skip. Requires pr or issue (not branch-only staging). A comment failure never fails the upload; see the response's `comment`/`commentError`.",
+              "With `pr` or `issue`: create or update the managed attachments comment after upload. Default true. Pass false to skip. A comment failure never fails the upload.",
           },
           alt: {
             type: "string",
@@ -639,19 +641,41 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
           metadata: {
             type: "object",
             additionalProperties: { type: "string" },
-            description:
-              METADATA_DESCRIPTION +
-              " On this hosted server the gh.* pairs are normally system-managed by the attach flow.",
+            description: METADATA_DESCRIPTION + " On `pr`/`issue`/`branch`, `gh.*` is set for you.",
           },
           state: stateProp,
           app: appProp,
           replace: {
             type: "boolean",
             description:
-              "Allow overwriting an existing object on a strict (non-gh/) key: an explicit `key`, or the default prefix/repo/ref layout. Default false — an existing object there is refused (error code key_exists, with the existing object's url) unless this is true. No effect on gh/-prefixed keys, which always overwrite. Applies to every item in a `files` batch.",
+              "Overwrite an existing object on a non-`gh/` key. Default false. No effect on `gh/` keys, which always overwrite.",
           },
         },
         additionalProperties: false,
+        examples: [
+          {
+            contentBase64: MCP_EXAMPLE_PNG_BASE64,
+            filename: "settings-after.png",
+            pr: 12,
+            repo: "acme/web",
+            state: "after",
+          },
+          {
+            contentBase64: MCP_EXAMPLE_PNG_BASE64,
+            filename: "settings-after.png",
+            branch: "feat/settings",
+            repo: "acme/web",
+            state: "after",
+          },
+          {
+            files: [
+              { filename: "settings-before.png", contentBase64: MCP_EXAMPLE_PNG_BASE64 },
+              { filename: "settings-after.png", contentBase64: MCP_EXAMPLE_PNG_BASE64 },
+            ],
+            pr: 12,
+            repo: "acme/web",
+          },
+        ],
       },
       async handler(args) {
         requireScope("files:write");
@@ -951,14 +975,13 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
       annotations: mcpDestroyPublic,
       securitySchemes: mcpOAuthRead,
       description:
-        "Create or update the managed attachments comment on a GitHub PR or issue, listing everything this workspace has uploaded for it. Refreshes the comment WITHOUT re-uploading — use after deleting media to re-sync (e.g. it will show a neutral empty state once the last attachment is removed). Posts as uploads-sh[bot] via the uploads.sh GitHub App — bot-only on this hosted server, no local gh fallback; body honors the repo's `.uploads.yml` when present (same as the bot path). If the App isn't installed/authorized the decline is returned honestly. Requires repo (owner/name — no git context on this server) and exactly one of pr/issue.",
+        "Refresh the managed attachments comment on a GitHub PR or issue without re-uploading. Use after deleting media. Requires `repo` and exactly one of `pr`/`issue`.",
       inputSchema: {
         type: "object",
         properties: {
           repo: {
             type: "string",
-            description:
-              "owner/name repo segment. REQUIRED (owner/name) — there is no git context on this server to infer it from.",
+            description: hostedRepoRequired,
           },
           pr: {
             type: "number",
@@ -968,6 +991,7 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
         },
         required: ["repo"],
         additionalProperties: false,
+        examples: [{ repo: "acme/web", pr: 12 }],
       },
       async handler(args) {
         // Reading the workspace's own objects/metadata/galleries to render the
@@ -992,14 +1016,13 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
       annotations: mcpDestroyPublic,
       securitySchemes: mcpOAuthWrite,
       description:
-        "Copy attachments into a PR's stable gh/…/pull/… prefix, then optionally refresh the managed attachments comment. Two independent sources, either or both: `branch` sweeps this workspace's branch-staged attachments (gh/…/branch/… keys from put with branch, or CLI attach --branch); `keys` (issue #702) copies explicit already-uploaded objects instead — a raw object key or an uploads.sh URL (storage host, embed host, or /f/ page), each attached with additive metadata merge (the source's own metadata rides along; gh.repo/gh.kind/gh.number/gh.ref are stamped fresh). Hosted stand-in for `uploads attach --promote` / `uploads attach <key-or-url> --pr` — no git context, so repo and pr are always required, and at least one of branch/keys is required. Does not delete staged/source originals unless `move: true` (keys only). Copies are pure workspace-data operations (no GitHub API); the comment path is bot-only like the comment tool. Returns { promotion?: { promoted, skipped }, attached?: { key, url, embedUrl, moved, source }[], attachFailures?, comment?, commentError? }.",
+        "Copy staged or existing files into a PR's stable `gh/…/pull/…` prefix, then refresh the managed comment. Pass `branch` and/or `keys`. Requires `repo` and `pr`.",
       inputSchema: {
         type: "object",
         properties: {
           repo: {
             type: "string",
-            description:
-              "owner/name repo. REQUIRED — there is no git context on this server to infer it from.",
+            description: hostedRepoRequired,
           },
           pr: {
             type: "number",
@@ -1007,8 +1030,7 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
           },
           branch: {
             type: "string",
-            description:
-              "Git branch whose staged prefix (gh/…/branch/<branch>/) should be copied into the PR.",
+            description: "Staged branch to copy into the PR.",
           },
           keys: {
             type: "array",
@@ -1016,21 +1038,25 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
             minItems: 1,
             maxItems: 20,
             description:
-              "Explicit already-uploaded sources to attach (issue #702): object keys or uploads.sh URLs (storage host, embed host, or /f/ page). Each is copied independently; one bad source does not abort the rest — see attachFailures.",
+              "Already-uploaded object keys or uploads.sh URLs to copy into the PR. One bad source does not abort the rest.",
           },
           move: {
             type: "boolean",
             description:
-              "For `keys` only: delete each source object after a successful copy (default false — copy, not move). Ignored for the branch sweep, which never deletes staged originals.",
+              "For `keys` only: delete each source after a successful copy. Default false. Ignored for the branch sweep.",
           },
           comment: {
             type: "boolean",
             description:
-              "After a successful promote/attach, create or update the managed attachments comment (default true when files:read is on the token; pass false to skip). A comment failure never fails the promote/attach; see commentError.",
+              "Refresh the managed attachments comment after a successful copy. Default true. A comment failure never fails the copy.",
           },
         },
         required: ["repo", "pr"],
         additionalProperties: false,
+        examples: [
+          { repo: "acme/web", pr: 12, branch: "feat/settings" },
+          { repo: "acme/web", pr: 12, keys: ["screenshots/hero.png"] },
+        ],
       },
       async handler(args) {
         requireScope("files:write");
@@ -1109,8 +1135,7 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
       title: "Get metadata",
       annotations: mcpRead,
       securitySchemes: mcpOAuthRead,
-      description:
-        "Read an object's queryable custom metadata (D1 key-value pairs, not R2 provenance). Returns `{ metadata }` (empty when none). Object must exist. Same as `uploads meta get`.",
+      description: "Read the queryable tags on one file. Returns `{ metadata }` (empty when none).",
       inputSchema: {
         type: "object",
         properties: {
@@ -1131,16 +1156,14 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
       annotations: mcpDestroyPublic,
       securitySchemes: mcpOAuthWrite,
       description:
-        "Merge-set and/or delete an object's queryable custom metadata (D1 key-value pairs, not R2 provenance). `set` wins over `delete` for the same key. " +
-        METADATA_DESCRIPTION +
-        " Metadata on public objects appears on the unauthenticated public file page, so do not store secrets or sensitive data. Requires at least one of `set` or `delete`. Same as `uploads meta set`.",
+        "Set or delete queryable tags on an existing file. `set` wins over `delete` for the same key. Tags appear on the public file page — do not store secrets. Requires `set` and/or `delete`.",
       inputSchema: {
         type: "object",
         properties: {
           key: { type: "string", description: "Object key to update." },
           set: {
             ...metadataProp,
-            description: "Keys to set/overwrite. " + METADATA_DESCRIPTION,
+            description: "Keys to set or overwrite. " + METADATA_PATH_CUE,
           },
           delete: {
             type: "array",
@@ -1150,6 +1173,7 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
         },
         required: ["key"],
         additionalProperties: false,
+        examples: [{ key: "screenshots/settings.png", set: { path: "/settings", state: "after" } }],
       },
       async handler(args) {
         requireScope("files:write");
@@ -1171,14 +1195,16 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
       annotations: mcpRead,
       securitySchemes: mcpOAuthRead,
       description:
-        "Find objects whose queryable custom metadata matches ALL of `filters` (ANDed equality) and/or whose key contains `name` (case-insensitive substring). At least one of `filters` or `name` is required. Returns each match's key, public URL, full metadata map, and optional `truncated`. Same as the CLI/local MCP's `find_files` tool.",
+        "Search files by metadata (`filters`) and/or filename substring (`name`). At least one is required.",
       inputSchema: {
         type: "object",
         properties: {
           filters: {
             ...metadataProp,
             description:
-              "Metadata equality filters (optional when `name` is set). " + METADATA_DESCRIPTION,
+              "Equality filters; all must match. " +
+              METADATA_PATH_CUE +
+              " Optional when `name` is set.",
           },
           name: {
             type: "string",
@@ -1200,6 +1226,7 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
           },
         },
         additionalProperties: false,
+        examples: [{ filters: { path: "/settings", state: "after" } }, { name: "hero.png" }],
       },
       async handler(args) {
         requireScope("files:read");
@@ -1241,7 +1268,7 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
       annotations: mcpRead,
       securitySchemes: mcpOAuthRead,
       description:
-        "List the distinct queryable metadata keys present in the workspace, with file counts and distinct-value counts. Use this to discover what is filterable before calling find_files — keys are user/agent-defined, not a fixed schema. Same as the CLI's `uploads meta keys`. Pass optional `key` to list that key's values instead (`uploads meta values <key>`).",
+        "List metadata keys in the workspace (with counts). Pass `key` to list that key's values instead. Use before `find_files`.",
       inputSchema: {
         type: "object",
         properties: {
@@ -1351,18 +1378,24 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
       },
     },
     {
-      name: "health",
-      title: "Check health",
+      name: "whoami",
+      title: "Who am I",
       annotations: mcpRead,
       securitySchemes: mcpOAuthAny,
-      description: "Check uploads.sh MCP server liveness. No scope required.",
+      description:
+        "Show the current uploads.sh identity: workspace and token scopes. Use this when you need to know which workspace you're in or which scopes you have before calling other tools. A successful result also means the server is up.",
       inputSchema: {
         type: "object",
         properties: {},
         additionalProperties: false,
       },
       async handler() {
-        return { ok: true };
+        return {
+          ok: true,
+          workspace: workspaceName,
+          scopes: [...ctx.authScopes],
+          userId: ctx.mintingUserId,
+        };
       },
     },
   ];
