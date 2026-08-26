@@ -1,8 +1,8 @@
 /**
- * Keep server.json in lockstep with the published CLI package. The MCP Registry
- * verifies `mcpName` on the npm tarball against `server.json` `name`, and
- * clients install from `packages[0].identifier` / `version`. Drift here fails
- * publish (ownership check) or installs the wrong binary.
+ * Lockstep: server.json vs packages/uploads. The MCP Registry verifies `mcpName`
+ * on the npm tarball against `server.json` `name`; clients install from
+ * `packages[0].identifier` / `version`. Drift fails publish or installs the
+ * wrong binary.
  *
  * Static by design: no network, no mcp-publisher. Schema validation runs in
  * the Release workflow via `mcp-publisher validate` before publish.
@@ -13,14 +13,17 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const pkg = JSON.parse(readFileSync(join(root, "packages/uploads/package.json"), "utf8"));
-const server = JSON.parse(readFileSync(join(root, "server.json"), "utf8"));
 
+function readJson(rel) {
+  return JSON.parse(readFileSync(join(root, rel), "utf8"));
+}
+
+const pkg = readJson("packages/uploads/package.json");
+const server = readJson("server.json");
 const NAME = "sh.uploads/mcp";
 
 assert.equal(pkg.mcpName, NAME, "packages/uploads/package.json mcpName");
 assert.equal(server.name, NAME, "server.json name");
-assert.equal(server.name, pkg.mcpName, "server.json name must equal package mcpName");
 assert.equal(server.version, pkg.version, "server.json version must equal the CLI version");
 
 assert.equal(typeof server.description, "string");

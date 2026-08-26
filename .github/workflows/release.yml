@@ -106,10 +106,9 @@ jobs:
               --notes "${NOTES:-@buildinternet/uploads ${VERSION}}"
           fi
 
-      # MCP Registry only hosts metadata. Ownership is the npm package's
+      # MCP Registry hosts metadata only. Ownership is the npm package's
       # `mcpName`, so this step follows a successful npm publish of that version.
-      # HTTP domain proof grants sh.uploads/* (uploads.sh). Private key is
-      # MCP_PRIVATE_KEY; public proof is /.well-known/mcp-registry-auth.
+      # HTTP domain proof: MCP_PRIVATE_KEY + /.well-known/mcp-registry-auth.
       - name: Publish to MCP Registry
         if: steps.publish.outputs.published == 'true'
         env:
@@ -122,25 +121,31 @@ jobs:
           fi
           node scripts/sync-server-json-version.mjs
 
-          curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" \
+          os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+          arch="$(uname -m)"
+          case "$arch" in
+            x86_64) arch=amd64 ;;
+            aarch64) arch=arm64 ;;
+          esac
+          curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_${os}_${arch}.tar.gz" \
             | tar xz mcp-publisher
 
           ./mcp-publisher login http --domain uploads.sh --private-key "${MCP_PRIVATE_KEY}"
           ./mcp-publisher validate
 
-          # npm's metadata can lag the publish by a few seconds; the registry
-          # fetches mcpName from registry.npmjs.org.
-          VERSION="$(node -p "require('./packages/uploads/package.json').version")"
+          # npm metadata can lag the publish; the registry reads mcpName from registry.npmjs.org.
+          version="$(node -p "require('./packages/uploads/package.json').version")"
+          name=""
           for attempt in 1 2 3 4 5 6 7 8 9 10; do
-            NAME="$(npm view "@buildinternet/uploads@${VERSION}" mcpName 2>/dev/null || true)"
-            if [ "$NAME" = "sh.uploads/mcp" ]; then
+            name="$(npm view "@buildinternet/uploads@${version}" mcpName 2>/dev/null || true)"
+            if [ "$name" = "sh.uploads/mcp" ]; then
               break
             fi
             echo "npm mcpName not visible yet (attempt ${attempt}); waiting"
             sleep 6
           done
-          if [ "$NAME" != "sh.uploads/mcp" ]; then
-            echo "npm has not published mcpName for @buildinternet/uploads@${VERSION} yet"
+          if [ "$name" != "sh.uploads/mcp" ]; then
+            echo "npm has not published mcpName for @buildinternet/uploads@${version} yet"
             exit 1
           fi
 

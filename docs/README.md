@@ -30,6 +30,6 @@ This folder is the repo companion: CLI and API reference, then contributor and o
 
 ## Operators and self-hosting
 
-ops, deploy, releasing (including the MCP Registry listing), contract-testing, admin-tokens, workspaces, and deletion assume you run or deploy the service. They are not getting-started docs.
+ops, deploy, releasing, contract-testing, admin-tokens, workspaces, and deletion assume you run or deploy the service. They are not getting-started docs.
 
 docs/superpowers/ is historical implementation plans, not product docs.
