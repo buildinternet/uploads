@@ -1923,7 +1923,7 @@ export interface StorageVerifyCheck {
   hint?: string;
   /**
    * True when the check couldn't actually run rather than failing — e.g. the
-   * public-URL probe threw because a same-account custom domain isn't
+   * public-URL probe threw because a Cloudflare-fronted custom domain isn't
    * reachable as a server-side request even when it works publicly
    * (issues #783/#853). Treat as "unknown", not "broken": it must not block
    * saving.
