@@ -2,7 +2,8 @@
 /**
  * Screenshots grouped by `path` metadata — `WorkspaceLayout` + the
  * `ScreenshotsByPath` island. Workspace home; files live at `[name]/files`.
- * cloned structure, own mount id.
+ * cloned structure, own mount id. The rail shows usage meters (`showUsage`)
+ * because this is where people land most often; quick actions stay off.
  *
  * SSR-first (plan 006, following plan 005's `WorkspaceFileTable`/`[name].astro`
  * shape): when the request carries a session, server-fetch the workspace
@@ -97,7 +98,7 @@ const screenshotsSeedJson = JSON.stringify({
 }).replace(/</g, "\\u003c");
 ---
 
-<WorkspaceLayout workspace={workspace} tip={tip} showQuickActions={false}>
+<WorkspaceLayout workspace={workspace} tip={tip} showUsage showQuickActions={false}>
   <div id="ws-screenshots">
     <ScreenshotsByPath
       apiOrigin={apiOrigin}
