@@ -71,19 +71,25 @@ export function optStringArray(args: ToolArgs, name: string): string[] | undefin
   return v as string[];
 }
 
-/**
- * Shared tool-description text for the metadata-shaped `metadata`/`set`/
- * `filters` params across the CLI/local MCP (put/attach/set_metadata/
- * find_files) and the remote MCP worker (set_metadata/find_files).
- */
+/** Shared cue: `path` is the route `find_files` searches by. */
+export const METADATA_PATH_CUE =
+  "Use `path` for the route (e.g. /settings), not route/page/screen.";
+
+/** put/screenshot/attach `metadata`. Key regex and caps stay in usage errors. */
 export const METADATA_DESCRIPTION =
-  "Queryable custom metadata (key→value), separate from provenance. Omit to leave any metadata already stored for this key untouched; pass an object (even {}) to fully replace it. Keys: lowercase, ^[a-z][a-z0-9._-]{0,63}$. Values: 1-512 printable ASCII characters. Caps: at most 24 keys, at most 8192 total key+value bytes. Canonical keys, which uploads.sh derives automatically where it can: url, path, env, theme, viewport, device, software, captured. Use `path` for the route (e.g. /settings) — that is the key `find_files` searches by, so spell it `path` and not route/page/screen. `gh.*` is reserved by convention for GitHub PR/issue attachment context (repo/kind/number/ref).";
+  "Queryable tags for later search (key→value). " +
+  METADATA_PATH_CUE +
+  " Omit to leave existing tags; pass an object (even {}) to replace them. `state` and `app` have their own fields.";
 
 export const metadataProp = {
   type: "object",
   additionalProperties: { type: "string" },
   description: METADATA_DESCRIPTION,
 };
+
+/** 1×1 PNG, used only in MCP `inputSchema.examples` so copy-paste from Inspector works. */
+export const MCP_EXAMPLE_PNG_BASE64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
 
 export const stateProp = {
   type: "string",

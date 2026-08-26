@@ -1,6 +1,6 @@
 /**
  * MCP tool set mirroring the CLI commands (put, attach, list, delete,
- * usage, reconcile, purge_expired, comment, health, doctor). Config is
+ * usage, reconcile, purge_expired, comment, whoami, doctor). Config is
  * resolved fresh per tool call so a
  * per-call `workspace` argument behaves like the CLI's --workspace flag, and
  * a missing token surfaces as a tool error rather than a startup failure.
@@ -51,7 +51,7 @@ import {
 import {
   appProp,
   canonicalMetaFromArgs,
-  METADATA_DESCRIPTION,
+  METADATA_PATH_CUE,
   metadataArgWithCanonical,
   metadataProp,
   optBool,
@@ -373,7 +373,7 @@ export function createUploadsMcpTools(opts: {
       annotations: mcpDestroyPublic,
       securitySchemes: mcpOAuthWrite,
       description:
-        "Upload one or more files to uploads.sh and get public URL(s) plus GitHub-ready embed markdown. Single-file: pass `file` or `contentBase64`+`filename` (flat result with `url`/`embedUrl`/`markdown`). Multi-file: pass `files` (paths; parallel; returns `uploads`+`failures`). Prefer `embedUrl` in PR/issue markdown. With `pr`/`issue` keys are stable and `comment` syncs the managed attachments comment. All uploads are public; pr/issue keys are predictable — upload only non-sensitive media.",
+        "Upload one or more files and get a public URL plus GitHub-ready markdown. Prefer `embedUrl` in GitHub markdown. With `pr`/`issue`, keys are stable and the managed comment is synced. All uploads are public.",
       inputSchema: {
         type: "object",
         properties: {
@@ -400,7 +400,7 @@ export function createUploadsMcpTools(opts: {
           key: {
             type: "string",
             description:
-              "Explicit object key (default: <prefix>/<repo>/<ref>/<name>-<hash>.<ext>). Single file only; cannot be combined with pr/issue.",
+              "Override the object key. Single file only; cannot combine with `pr`/`issue`.",
           },
           destination: {
             type: "string",
@@ -464,7 +464,7 @@ export function createUploadsMcpTools(opts: {
           comment: {
             type: "boolean",
             description:
-              "With pr/issue (or auto-detected PR context): create or update the managed attachments comment. Posts as uploads-sh[bot] when the GitHub App is installed on the repo; otherwise via local gh auth (best-effort).",
+              "With `pr`/`issue` (or an auto-detected PR): create or update the managed attachments comment. Best-effort.",
           },
           dryRun: {
             type: "boolean",
@@ -474,7 +474,7 @@ export function createUploadsMcpTools(opts: {
           replace: {
             type: "boolean",
             description:
-              "Allow overwriting an existing object on a strict (non-gh/) key: explicit key, or the default put path. Default false — an existing object there is refused (key_exists) unless this is true or UPLOADS_OVERWRITE=1 is set in the server's environment. No effect on pr/issue keys, which always overwrite.",
+              "Overwrite an existing object on a non-`gh/` key. Default false (or true if UPLOADS_OVERWRITE=1). No effect on `pr`/`issue` keys, which always overwrite.",
           },
           metadata: metadataProp,
           state: stateProp,
@@ -482,6 +482,11 @@ export function createUploadsMcpTools(opts: {
           workspace: workspaceProp,
         },
         additionalProperties: false,
+        examples: [
+          { file: "./after.png", pr: 12, state: "after" },
+          { file: "./after.png", branch: "feat/settings", state: "after" },
+          { files: ["./before.png", "./after.png"], pr: 12 },
+        ],
       },
       async handler(args) {
         const file = optString(args, "file");
@@ -783,7 +788,7 @@ export function createUploadsMcpTools(opts: {
       annotations: mcpDestroyPublic,
       securitySchemes: mcpOAuthWrite,
       description:
-        "Capture a URL or a local .html file and host it — a hosted, PR-embeddable image in one call. Backend `local` drives an already-installed Chrome/Chromium (dynamically loaded; unavailable in some runtimes); `remote` renders server-side via the workspace's render endpoint and counts against the monthly upload budget. Default via=auto prefers local when found, else remote. localhost/private-network URLs and .html files are local-only — via=remote (or auto falling back to remote) fails fast instead of a doomed request. Shares the put upload pipeline: optional frame, optimize-by-default, pr/issue attachment + comment, gallery, metadata. Uploads are public.",
+        "Capture a URL or local HTML file and host it. Shares put's attach, comment, and metadata options. `via=local` needs Chrome; `via=remote` renders server-side. localhost URLs are local-only.",
       inputSchema: {
         type: "object",
         properties: {
@@ -912,6 +917,10 @@ export function createUploadsMcpTools(opts: {
         },
         required: ["target"],
         additionalProperties: false,
+        examples: [
+          { target: "http://localhost:4321/settings", pr: 12, state: "after" },
+          { target: "http://localhost:4321/settings", fullPage: true, state: "empty" },
+        ],
       },
       async handler(args) {
         const targetArg = optString(args, "target");
@@ -1235,18 +1244,17 @@ export function createUploadsMcpTools(opts: {
               "Keep EXIF/XMP/ICC when optimizing (default: strip for privacy on public embeds).",
           },
           ...frameProps,
-          metadata: {
-            ...metadataProp,
-            description:
-              "Extra queryable metadata (key→value), merged with the automatic gh.repo/gh.kind/gh.number/gh.ref pairs — a gh.* pair here loses to the resolved target's own gh.* value. " +
-              METADATA_DESCRIPTION,
-          },
+          metadata: metadataProp,
           state: stateProp,
           app: appProp,
           workspace: workspaceProp,
         },
         required: ["files"],
         additionalProperties: false,
+        examples: [
+          { files: ["./after.png"], pr: 12, state: "after" },
+          { files: ["./before.png", "./after.png"], pr: 12 },
+        ],
       },
       async handler(args) {
         const files = optStringArray(args, "files");
@@ -1374,7 +1382,7 @@ export function createUploadsMcpTools(opts: {
       annotations: mcpRead,
       securitySchemes: mcpOAuthRead,
       description:
-        "Read-only view of what's staged for a git branch (attach --branch / bare put on a non-default branch) and whether it will auto-attach once a PR opens. One list call against the branch staging prefix plus a repo-binding check (files:read only). Returns { repo, branch, files, binding }; binding.state is self/other/none/unknown and binding.autoAttach is true only for self.",
+        "List files staged for a git branch and whether they will auto-attach when a PR opens. Returns `{ repo, branch, files, binding }`.",
       inputSchema: {
         type: "object",
         properties: {
@@ -1430,7 +1438,7 @@ export function createUploadsMcpTools(opts: {
       annotations: mcpRead,
       securitySchemes: mcpOAuthRead,
       description:
-        "Read an object's queryable custom metadata (D1 key-value pairs, not R2 provenance). Returns `{ metadata }` (empty when none). Object must exist. Same as `uploads meta get`.",
+        "Read the queryable tags on one file. Returns `{ metadata }` (empty when none). Same as `uploads meta get`.",
       inputSchema: {
         type: "object",
         properties: {
@@ -1452,14 +1460,15 @@ export function createUploadsMcpTools(opts: {
       annotations: mcpWritePublic,
       securitySchemes: mcpOAuthWrite,
       description:
-        "Merge-set and/or delete an object's queryable custom metadata (D1 key-value pairs, not R2 provenance). `set` wins over `delete` for the same key. " +
-        METADATA_DESCRIPTION +
-        " Requires at least one of `set` or `delete`. Same as `uploads meta set`.",
+        "Set or delete queryable tags on an existing file. `set` wins over `delete` for the same key. Requires `set` and/or `delete`. Same as `uploads meta set`.",
       inputSchema: {
         type: "object",
         properties: {
           key: { type: "string", description: "Object key to update." },
-          set: { ...metadataProp, description: "Keys to set/overwrite. " + METADATA_DESCRIPTION },
+          set: {
+            ...metadataProp,
+            description: "Keys to set or overwrite. " + METADATA_PATH_CUE,
+          },
           delete: {
             type: "array",
             items: { type: "string" },
@@ -1469,6 +1478,7 @@ export function createUploadsMcpTools(opts: {
         },
         required: ["key"],
         additionalProperties: false,
+        examples: [{ key: "screenshots/settings.png", set: { path: "/settings", state: "after" } }],
       },
       async handler(args) {
         const key = optString(args, "key");
@@ -1489,14 +1499,16 @@ export function createUploadsMcpTools(opts: {
       annotations: mcpRead,
       securitySchemes: mcpOAuthRead,
       description:
-        "Find objects whose queryable custom metadata matches ALL of `filters` (ANDed equality) and/or whose key contains `name` (case-insensitive substring). At least one of `filters` or `name` is required. Returns each match's key, public URL, full metadata map, optional `truncated`, and a `cursor` to pass back for the next page (null when there are none; set `all` to follow it for you). Same as `uploads find k=v...` / `uploads find --name <term>`.",
+        "Search files by metadata (`filters`) and/or filename substring (`name`). At least one is required. Same as `uploads find`.",
       inputSchema: {
         type: "object",
         properties: {
           filters: {
             ...metadataProp,
             description:
-              "Metadata equality filters (optional when `name` is set). " + METADATA_DESCRIPTION,
+              "Equality filters; all must match. " +
+              METADATA_PATH_CUE +
+              " Optional when `name` is set.",
           },
           name: {
             type: "string",
@@ -1521,6 +1533,7 @@ export function createUploadsMcpTools(opts: {
           workspace: workspaceProp,
         },
         additionalProperties: false,
+        examples: [{ filters: { path: "/settings", state: "after" } }, { name: "hero.png" }],
       },
       async handler(args) {
         const filters = optStringRecord(args, "filters") ?? {};
@@ -1550,7 +1563,7 @@ export function createUploadsMcpTools(opts: {
       annotations: mcpRead,
       securitySchemes: mcpOAuthRead,
       description:
-        "List the distinct queryable metadata keys present in the workspace, with file counts and distinct-value counts. Use this to discover what is filterable before calling find_files — keys are user/agent-defined, not a fixed schema. Same as `uploads meta keys`. Pass optional `key` to list that key's values instead (`uploads meta values <key>`).",
+        "List metadata keys in the workspace (with counts). Pass `key` to list that key's values instead. Use before `find_files`. Same as `uploads meta keys`.",
       inputSchema: {
         type: "object",
         properties: {
@@ -1634,6 +1647,7 @@ export function createUploadsMcpTools(opts: {
           workspace: workspaceProp,
         },
         additionalProperties: false,
+        examples: [{ pr: 12 }],
       },
       async handler(args) {
         const target = ghTargetFromArgs(args, run);
@@ -1647,16 +1661,32 @@ export function createUploadsMcpTools(opts: {
       },
     },
     {
-      name: "health",
-      title: "Check health",
+      name: "whoami",
+      title: "Who am I",
       annotations: mcpRead,
       securitySchemes: mcpNoAuth,
-      description: "Check uploads.sh API liveness. No auth or arguments required.",
+      description:
+        "Show the active uploads.sh identity: workspace, API URL, and token scopes. Use this to learn which workspace you're talking to. A successful result also means the API is up. For a full setup diagnosis, use `doctor`.",
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
       async handler(args) {
         const { config, client } = await clientFor(args, false);
-        const result = await client.health();
-        return { ...result, apiUrl: config.apiUrl };
+        const health = await client.health();
+        const signedIn = Boolean(config.token);
+        let scopes: string[] | undefined;
+        if (signedIn) {
+          try {
+            scopes = (await client.usage()).scopes;
+          } catch {
+            // Workspace and API URL are still useful if usage is unavailable.
+          }
+        }
+        return {
+          ok: health.ok,
+          signedIn,
+          workspace: config.workspace,
+          apiUrl: config.apiUrl,
+          ...(scopes ? { scopes } : {}),
+        };
       },
     },
     {

@@ -968,7 +968,8 @@ uploads --api-url http://localhost:8787 doctor
 - **MCP:** `uploads mcp` (stdio) mirrors CLI tools; hosted MCP at
   `https://agents.uploads.sh/mcp` — the one to reach for when an agent has no
   local filesystem or git checkout to shell out from (send base64 content
-  directly). Metadata: `get_metadata` / `set_metadata` / `find_files` /
+  directly). Identity: `whoami` (workspace + scopes; also confirms the server
+  is up). Metadata: `get_metadata` / `set_metadata` / `find_files` /
   `list_metadata_keys` (same as `meta get` / `meta set` / `find` /
   `meta keys`|`meta values`). `find_files` accepts optional `name` (filename
   substring) with or without `filters`. Both support multi-file `put` in one call
