@@ -57,15 +57,64 @@ they deploy via Workers Builds.
    - tests / builds / pack-checks the package
    - runs `changeset publish` (OIDC provenance)
    - creates a GitHub release tagged `uploads-v<version>` (same prefix as before)
+   - publishes `server.json` to the [MCP Registry](https://registry.modelcontextprotocol.io)
+     as `sh.uploads/mcp`
 
-Verify the version and provenance on npm after the workflow succeeds.
+Verify the version and provenance on npm after the workflow succeeds. Confirm
+the MCP listing with:
+
+```bash
+curl "https://registry.modelcontextprotocol.io/v0.1/servers?search=sh.uploads/mcp"
+```
+
+## MCP Registry
+
+The registry stores metadata only. It checks that the published npm package
+declares `mcpName` equal to `server.json` `name`, then records how clients
+run the server: stdio via `uploads mcp`, and the hosted remote at
+`https://agents.uploads.sh/mcp`.
+
+The listing name is the reverse-DNS of uploads.sh: `sh.uploads/mcp`. That
+string must match `mcpName` on `@buildinternet/uploads`. A registry publish
+always follows an npm publish of that version.
+
+`changeset version` copies the new package version into `server.json` so the
+version PR shows the stamp. The publish job stamps again before
+`mcp-publisher publish`. CI runs `pnpm server-json:check` on every pull
+request so `name`, `mcpName`, and the two version fields cannot drift.
+
+Publish authenticates with HTTP domain proof, not GitHub OIDC. The public
+record is `https://uploads.sh/.well-known/mcp-registry-auth` (served from
+`apps/web/public/.well-known/mcp-registry-auth`). The matching Ed25519
+private key is the `MCP_PRIVATE_KEY` Actions secret. The publish job runs
+`mcp-publisher login http --domain uploads.sh`. That grant is `sh.uploads/*`.
+
+The proof file has to be live on uploads.sh before the first registry
+publish. Merge the change that adds the file, let the web worker deploy, then
+merge the version PR.
+
+Do not change `server.json` `name` or `packages/uploads` `mcpName` without a
+matching npm publish. The registry treats those strings as the server's
+identity.
 
 ## Manual / recovery
 
 ```bash
 pnpm changeset              # add a pending bump
-pnpm run changeset:version  # apply pending → version + CHANGELOG (local only)
+pnpm run changeset:version  # apply pending → version + CHANGELOG + server.json (local only)
 pnpm run changeset:publish  # npm publish packages that need it (needs auth)
 ```
 
 Do not re-use or move a published version or release tag.
+
+If the MCP Registry step fails after npm already published, re-running the
+Release workflow will not retry: `changeset publish` prints no new tag, so the
+MCP step is skipped. Publish `server.json` locally instead:
+
+```bash
+brew install mcp-publisher
+mcp-publisher login http --domain uploads.sh --private-key "$MCP_PRIVATE_KEY"
+pnpm server-json:check
+mcp-publisher validate
+mcp-publisher publish
+```

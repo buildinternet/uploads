@@ -66,6 +66,10 @@ jobs:
       - name: Changeset lint
         run: pnpm changeset:lint
 
+      # Lockstep server.json name/version with packages/uploads mcpName/version.
+      - name: MCP Registry manifest
+        run: pnpm server-json:check
+
   test:
     name: Test
     runs-on: ubuntu-latest
