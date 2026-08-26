@@ -66,6 +66,11 @@ jobs:
       - name: Changeset lint
         run: pnpm changeset:lint
 
+      # server.json name/version must match packages/uploads mcpName and version.
+      # Schema validation is mcp-publisher's job at publish time.
+      - name: MCP Registry manifest
+        run: pnpm server-json:check
+
   test:
     name: Test
     runs-on: ubuntu-latest

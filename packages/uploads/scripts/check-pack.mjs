@@ -46,6 +46,11 @@ try {
   );
   assert.equal(manifest.private, undefined, "package must not be marked private");
   assert.equal(manifest.publishConfig?.access, "public");
+  assert.equal(
+    manifest.mcpName,
+    "sh.uploads/mcp",
+    "packed manifest must retain mcpName for MCP Registry ownership verification",
+  );
   // Workers (apps/mcp) import helpers from the main entry; without this, esbuild
   // keeps the optimize/frame re-exports and bundles native `sharp`, which fails
   // Cloudflare startup validation (createRequire / path undefined).

@@ -26,6 +26,9 @@ coverage/
 # in hooks/hooks.json, and the script that file points at is not installed here,
 # so it is inert. Ignored so a context.mjs run does not dirty the tree.
 .github/hooks/impeccable.json
+# mcp-publisher binary extracted into the repo root (see docs/releasing.md)
+/mcp-publisher
+
 # Local agent notes, private plans, pricing scratch (not for the public repo)
 .context/
 .superpowers/

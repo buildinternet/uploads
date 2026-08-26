@@ -181,7 +181,8 @@ version PR that blocks the next npm publish, which `pnpm changeset:lint` rejects
 as a CI gate. And never hand-edit the package `version`.
 
 Merging to `main` opens a "version packages" PR; merging that PR publishes to
-npm. Do not merge one unless shipping is intentional. The full process is in
+npm and then to the MCP Registry (`sh.uploads/mcp`). Do not
+merge one unless shipping is intentional. The full process is in
 [docs/releasing.md](docs/releasing.md).
 
 ## Deployment

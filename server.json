@@ -1,0 +1,74 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "sh.uploads/mcp",
+  "title": "uploads.sh",
+  "description": "Host files from coding agents; stage on a branch and attach to GitHub PRs.",
+  "websiteUrl": "https://uploads.sh",
+  "repository": {
+    "url": "https://github.com/buildinternet/uploads",
+    "source": "github",
+    "id": "1291468384"
+  },
+  "version": "0.48.0",
+  "icons": [
+    {
+      "src": "https://uploads.sh/apple-touch-icon.png",
+      "mimeType": "image/png",
+      "sizes": ["180x180"]
+    }
+  ],
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "@buildinternet/uploads",
+      "version": "0.48.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "packageArguments": [
+        {
+          "type": "positional",
+          "value": "mcp"
+        }
+      ],
+      "environmentVariables": [
+        {
+          "name": "UPLOADS_TOKEN",
+          "description": "Workspace bearer token (up_<workspace>_…). Mint with uploads login.",
+          "isRequired": true,
+          "isSecret": true,
+          "format": "string"
+        },
+        {
+          "name": "UPLOADS_WORKSPACE",
+          "description": "Workspace name. Inferred from the token when omitted.",
+          "isRequired": false,
+          "format": "string"
+        },
+        {
+          "name": "UPLOADS_API_URL",
+          "description": "API origin. Defaults to https://api.uploads.sh.",
+          "isRequired": false,
+          "format": "string",
+          "default": "https://api.uploads.sh"
+        }
+      ]
+    }
+  ],
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://agents.uploads.sh/mcp",
+      "headers": [
+        {
+          "name": "Authorization",
+          "description": "Bearer workspace token (up_<workspace>_…) or OAuth access token. Omit this header to use the OAuth browser flow.",
+          "isRequired": false,
+          "isSecret": true,
+          "format": "string"
+        }
+      ]
+    }
+  ]
+}
