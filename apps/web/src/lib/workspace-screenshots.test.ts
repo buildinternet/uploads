@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   filterCatalog,
   focusIsKeyboardDriven,
+  formatShotCount,
   groupsFromCatalog,
   isRepoLabel,
   lastUpdatedLabel,
@@ -12,6 +13,7 @@ import {
   projectLabelFromItemMeta,
   readScreenshotsView,
   screenshotsSearch,
+  SHOT_COUNT_DISPLAY_CAP,
   shotKindFromKey,
   shotPreviewCaption,
   shotPreviewPosition,
@@ -94,6 +96,22 @@ describe("lastUpdatedLabel", () => {
   });
   it("falls back to the raw string on an unparseable date", () => {
     expect(lastUpdatedLabel("garbage", now)).toBe("garbage");
+  });
+});
+
+describe("formatShotCount", () => {
+  it("pluralizes below the display cap", () => {
+    expect(formatShotCount(0)).toBe("0 files");
+    expect(formatShotCount(1)).toBe("1 file");
+    expect(formatShotCount(12)).toBe("12 files");
+    expect(formatShotCount(SHOT_COUNT_DISPLAY_CAP)).toBe("100 files");
+  });
+
+  it("renders 100+ once the count is past the cap or the page is truncated", () => {
+    expect(formatShotCount(SHOT_COUNT_DISPLAY_CAP + 1)).toBe("100+ files");
+    expect(formatShotCount(400)).toBe("100+ files");
+    expect(formatShotCount(SHOT_COUNT_DISPLAY_CAP, { truncated: true })).toBe("100+ files");
+    expect(formatShotCount(3, { truncated: true })).toBe("100+ files");
   });
 });
 

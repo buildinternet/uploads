@@ -734,6 +734,26 @@ export const BY_PATH_CATALOG_RECENT_LIMIT = 3;
 export const BY_PATH_CATALOG_LIMIT = 500;
 /** Newest keys returned in the flat `latest` feed alongside the groups. */
 export const BY_PATH_LATEST_LIMIT = 30;
+/**
+ * How far back section headings count files. The scan still returns older
+ * paths and thumbs; only the number on each heading uses this window.
+ */
+export const BY_PATH_COUNT_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+/**
+ * Display cap for section file counts. Count one past this so the UI can
+ * render "100+" instead of a number that matches the list page size.
+ */
+export const BY_PATH_COUNT_DISPLAY_CAP = 100;
+
+/** Increment `count` up to cap+1; the extra 1 is the "at least 101" signal. */
+function bumpDisplayCount(entry: { count: number }): void {
+  if (entry.count <= BY_PATH_COUNT_DISPLAY_CAP) entry.count += 1;
+}
+
+function inCountWindow(iso: string, nowMs: number): boolean {
+  const ts = Date.parse(iso);
+  return !Number.isNaN(ts) && ts >= nowMs - BY_PATH_COUNT_WINDOW_MS;
+}
 
 export type PathGroup = {
   project: string;
@@ -790,11 +810,17 @@ export type ProjectSummary = { label: string; count: number; lastUpdated: string
  * clause above, keeping only objects stamped `gh.merged=true`
  * (`MERGED_STATUS_SQL`). Applies to the single underlying query, so `groups`,
  * `catalog`, `projects`, and `latest` all reflect the same filtered rows.
+ *
+ * Section `count` is files in the last BY_PATH_COUNT_WINDOW_MS, capped at
+ * BY_PATH_COUNT_DISPLAY_CAP + 1 so the overview can say "100+" instead of
+ * echoing the list page size. A group with nothing in the window falls
+ * back to its capped all-time total rather than "0 files". `opts.now` is
+ * the window's right edge; tests freeze it.
  */
 export async function groupObjectsByPath(
   db: D1Queryable,
   workspace: string,
-  opts: { mergedOnly?: boolean } = {},
+  opts: { mergedOnly?: boolean; now?: Date } = {},
 ): Promise<{
   groups: PathGroup[];
   catalog: PathCatalogEntry[];
@@ -838,13 +864,27 @@ export async function groupObjectsByPath(
       app: string | null;
     }>();
 
+  const nowMs = (opts.now ?? new Date()).getTime();
   const groups: PathGroup[] = [];
   const byKey = new Map<string, PathGroup>();
   const catalog: PathCatalogEntry[] = [];
   const catalogByKey = new Map<string, PathCatalogEntry>();
+  const projectByLabel = new Map<string, ProjectSummary>();
+  const allTime = new Map<object, number>();
   const latest: LatestPathObject[] = [];
   let truncated = false;
   let catalogTruncated = false;
+
+  const bump = (entry: { count: number }, updatedAt: string) => {
+    allTime.set(entry, (allTime.get(entry) ?? 0) + 1);
+    if (inCountWindow(updatedAt, nowMs)) bumpDisplayCount(entry);
+  };
+  const applyCountFallback = (entry: { count: number }) => {
+    if (entry.count > 0) return;
+    const total = allTime.get(entry) ?? 0;
+    entry.count = Math.min(total, BY_PATH_COUNT_DISPLAY_CAP + 1);
+  };
+
   for (const row of result.results) {
     const project = projectLabelFromMeta({
       repo: row.repo,
@@ -870,9 +910,18 @@ export async function groupObjectsByPath(
       }
     }
     if (entry) {
-      entry.count += 1;
+      bump(entry, row.updated_at);
       if (entry.recent.length < BY_PATH_CATALOG_RECENT_LIMIT) entry.recent.push(row.object_key);
+      if (!projectByLabel.has(project)) {
+        projectByLabel.set(project, {
+          label: project,
+          count: 0,
+          lastUpdated: row.updated_at,
+        });
+      }
     }
+    const summary = projectByLabel.get(project);
+    if (summary) bump(summary, row.updated_at);
 
     let group = byKey.get(groupKey);
     if (!group) {
@@ -884,24 +933,13 @@ export async function groupObjectsByPath(
       byKey.set(groupKey, group);
       groups.push(group);
     }
-    group.count += 1;
+    bump(group, row.updated_at);
     if (group.recent.length < BY_PATH_RECENT_LIMIT) group.recent.push(row.object_key);
   }
 
-  const projectByLabel = new Map<string, ProjectSummary>();
-  for (const entry of catalog) {
-    const existing = projectByLabel.get(entry.project);
-    if (existing) {
-      existing.count += entry.count;
-      if (entry.lastUpdated > existing.lastUpdated) existing.lastUpdated = entry.lastUpdated;
-    } else {
-      projectByLabel.set(entry.project, {
-        label: entry.project,
-        count: entry.count,
-        lastUpdated: entry.lastUpdated,
-      });
-    }
-  }
+  for (const entry of catalog) applyCountFallback(entry);
+  for (const group of groups) applyCountFallback(group);
+  for (const summary of projectByLabel.values()) applyCountFallback(summary);
   const projects = [...projectByLabel.values()].sort((a, b) =>
     b.lastUpdated.localeCompare(a.lastUpdated),
   );
