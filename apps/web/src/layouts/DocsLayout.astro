@@ -14,6 +14,7 @@ import Footer from "../components/Footer.astro";
 import SiteHeader from "../components/SiteHeader.astro";
 import ViewTransitions from "../components/ViewTransitions.astro";
 import { SAME_ORIGIN_AUTH_BASE } from "../lib/auth-client";
+import { getDocsNav } from "../lib/docs-nav";
 import { OG_DEFAULT_IMAGE, OG_SITE_NAME } from "../lib/og";
 
 interface TocEntry {
@@ -34,27 +35,9 @@ const { title, description, path, heading, tagline, active, toc, ogType = "websi
 
 const authOrigin = SAME_ORIGIN_AUTH_BASE;
 
-// Left-nav sections. The four subject pages plus the standalone agent guide.
-const DOCS_NAV = [
-  {
-    title: "Docs",
-    items: [
-      { slug: "overview", href: "/docs", label: "Overview" },
-      { slug: "attach", href: "/docs/attach-pull-request-images", label: "Attach & share" },
-      { slug: "galleries", href: "/docs/galleries", label: "Galleries" },
-      { slug: "github-app", href: "/docs/github-app", label: "GitHub App" },
-      { slug: "comment-config", href: "/docs/comment-config", label: "Comment config" },
-      { slug: "agents", href: "/docs/agents", label: "Set up your agent" },
-      { slug: "reference", href: "/docs/reference", label: "Reference" },
-      { slug: "limits", href: "/docs/limits", label: "Plans & limits" },
-      { slug: "byo-bucket", href: "/docs/byo-bucket", label: "Bring your own bucket" },
-    ],
-  },
-  {
-    title: "Guides",
-    items: [{ slug: "walkthrough", href: "/github-screenshots", label: "Agent walkthrough" }],
-  },
-];
+// Left-nav sections: the hub plus every `docs` collection entry in navOrder,
+// then the hand-written Guides group. Adding an .mdx file adds a nav item.
+const DOCS_NAV = await getDocsNav();
 const currentLabel =
   DOCS_NAV.flatMap((s) => s.items).find((item) => item.slug === active)?.label ?? "Docs";
 const fullTitle = `${title} · uploads.sh`;
@@ -495,6 +478,38 @@ const fullTitle = `${title} · uploads.sh`;
         white-space: pre;
       }
 
+      /* ---------- Expressive Code fenced blocks (the MDX subject pages) ----------
+         The `.cmd` / `.block` rules above still serve the .astro hub; MDX pages
+         use fenced blocks instead. Three conventions carry the old affordances:
+           ```bash  → a command: "$ " prompt in the gutter, copy button
+           ```ansi  → terminal output: no prompt, no copy button
+           ```yaml / ```json / ```text → plain highlighted block with copy */
+      .doc .expressive-code {
+        margin: 12px 0;
+      }
+      /* `.doc code` paints an inline-code border/background; inside a block that
+         would draw a border fragment on every line. Strip it back to plain text. */
+      .doc .expressive-code code {
+        background: none;
+        border: 0;
+        padding: 0;
+        border-radius: 0;
+        font: inherit;
+      }
+      /* The "$ " prompt the `.cmd` primitive drew with a ::before — rendered, not
+         written into the source, so the copy button still yields a clean command. */
+      .doc .expressive-code pre[data-language="bash"] .ec-line .code::before {
+        content: "$ ";
+        color: var(--accent);
+      }
+      /* Terminal output was never copyable in the hand-rolled `.block` markup. */
+      .doc .expressive-code figure:has(pre[data-language="ansi"]) .copy {
+        display: none;
+      }
+      .doc .expressive-code pre[data-language="ansi"] code {
+        color: var(--muted);
+      }
+
       /* hub "explore" cards linking to the subject pages */
       .doc .cards {
         display: grid;
@@ -723,6 +738,20 @@ const fullTitle = `${title} · uploads.sh`;
       .doc .callout strong {
         color: var(--accent);
       }
+      /* MDX wraps a callout/note's prose in its own <p>; collapse the doubled
+         outer margins so the box hugs its text the way the .astro markup did. */
+      .doc .callout > :first-child,
+      .doc .installed > :first-child,
+      .doc .note > :first-child,
+      .doc .pointer > :first-child {
+        margin-top: 0;
+      }
+      .doc .callout > :last-child,
+      .doc .installed > :last-child,
+      .doc .note > :last-child,
+      .doc .pointer > :last-child {
+        margin-bottom: 0;
+      }
       .doc .note {
         margin: 20px 0 0;
         color: var(--muted);
@@ -750,7 +779,8 @@ const fullTitle = `${title} · uploads.sh`;
       .doc code,
       .doc pre,
       .doc .cmd,
-      .doc .block {
+      .doc .block,
+      .doc .expressive-code {
         font-variant-ligatures: none;
         font-feature-settings:
           "calt" 0,

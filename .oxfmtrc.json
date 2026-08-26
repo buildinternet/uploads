@@ -11,6 +11,7 @@
   "sortPackageJson": false,
   "ignorePatterns": [
     "node_modules",
+    "**/*.mdx",
     ".wrangler",
     "apps/web/dist",
     "apps/web/.astro",

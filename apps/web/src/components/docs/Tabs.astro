@@ -1,0 +1,179 @@
+---
+// Tabbed alternatives for equivalent commands — one row of tabs, one panel
+// visible. Modeled on Starlight's <Tabs>/<TabItem>: the tablist is built at
+// build time from the labels the <TabItem> children rendered, so there is no
+// flash of every panel before hydration, and the panels are real
+// role="tabpanel" elements with the ARIA wiring already in place.
+//
+// `syncKey` links every group on the page that shares the key: picking "MCP"
+// in one switches the others, and the choice is remembered per browser.
+//
+// Usage (MDX):
+//   <Tabs syncKey="annotate">
+//     <TabItem label="screenshot --annotate">```bash …```</TabItem>
+//     <TabItem label="annotate">```bash …```</TabItem>
+//   </Tabs>
+interface Props {
+  syncKey?: string;
+}
+const { syncKey } = Astro.props;
+
+// Rendered once, then read back: TabItem stamps `data-tab-label` on each panel,
+// which is both the tab's text and the marker to inject panel ids into.
+const rendered = await Astro.slots.render("default");
+const labels = [...rendered.matchAll(/data-tab-label="([^"]*)"/g)].map((match) => match[1]);
+
+// A per-page-unique base for the id pairs that tie each tab to its panel.
+const uid = Math.random().toString(36).slice(2, 8);
+let panelIndex = 0;
+const panels = rendered.replace(
+  /data-tab-label="([^"]*)"/g,
+  (_match, label: string) =>
+    `data-tab-label="${label}" id="tab-${uid}-panel-${panelIndex}" aria-labelledby="tab-${uid}-${panelIndex}" tabindex="0"${
+      panelIndex++ === 0 ? "" : " hidden"
+    }`,
+);
+---
+
+<uploads-tabs class="docs-tabs" data-sync-key={syncKey}>
+  <div class="docs-tablist" role="tablist">
+    {
+      labels.map((label, index) => (
+        <button
+          type="button"
+          role="tab"
+          id={`tab-${uid}-${index}`}
+          aria-controls={`tab-${uid}-panel-${index}`}
+          aria-selected={index === 0 ? "true" : "false"}
+          tabindex={index === 0 ? 0 : -1}
+        >
+          {label}
+        </button>
+      ))
+    }
+  </div>
+  <Fragment set:html={panels} />
+</uploads-tabs>
+
+<style is:global>
+  .docs-tabs {
+    display: block;
+    margin: 16px 0;
+  }
+  .docs-tablist {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px;
+    border-bottom: 1px solid var(--line);
+  }
+  .docs-tablist button {
+    appearance: none;
+    background: none;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    padding: 6px 12px;
+    font: var(--text-meta) var(--mono);
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .docs-tablist button:hover,
+  .docs-tablist button:focus-visible {
+    color: var(--fg);
+    outline: none;
+  }
+  .docs-tablist button[aria-selected="true"] {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+  }
+  .docs-tab-panel:focus-visible {
+    outline: none;
+  }
+  /* The first block inside a panel sits directly under the tab row. */
+  .docs-tab-panel > .expressive-code:first-child,
+  .docs-tab-panel > :first-child {
+    margin-top: 10px;
+  }
+</style>
+
+<script>
+  // Registered once per session; the element re-upgrades itself after a
+  // ClientRouter swap because custom-element definitions are global.
+  const STORAGE_PREFIX = "uploads:docs-tabs:";
+
+  class UploadsTabs extends HTMLElement {
+    connectedCallback(): void {
+      const tabs = [...this.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
+      const panels = [...this.querySelectorAll<HTMLElement>('[role="tabpanel"]')];
+      if (tabs.length === 0) return;
+
+      const syncKey = this.dataset.syncKey;
+      if (syncKey) {
+        let remembered: string | null = null;
+        try {
+          remembered = localStorage.getItem(STORAGE_PREFIX + syncKey);
+        } catch {
+          // Private mode / storage disabled — the default tab is fine.
+        }
+        if (remembered) {
+          const index = tabs.findIndex((tab) => tab.textContent?.trim() === remembered);
+          if (index > 0) this.select(tabs, panels, index);
+        }
+      }
+
+      for (const [index, tab] of tabs.entries()) {
+        tab.addEventListener("click", () => {
+          this.select(tabs, panels, index);
+          if (!syncKey) return;
+          const label = tab.textContent?.trim() ?? "";
+          try {
+            localStorage.setItem(STORAGE_PREFIX + syncKey, label);
+          } catch {
+            // Persistence is a nicety, not a requirement.
+          }
+          for (const group of document.querySelectorAll<UploadsTabs>("uploads-tabs")) {
+            if (group === this || group.dataset.syncKey !== syncKey) continue;
+            group.selectByLabel(label);
+          }
+        });
+        tab.addEventListener("keydown", (event) => {
+          const step =
+            event.key === "ArrowRight"
+              ? 1
+              : event.key === "ArrowLeft"
+                ? -1
+                : event.key === "Home"
+                  ? -index
+                  : event.key === "End"
+                    ? tabs.length - 1 - index
+                    : 0;
+          if (step === 0) return;
+          event.preventDefault();
+          const next = (index + step + tabs.length) % tabs.length;
+          this.select(tabs, panels, next);
+          tabs[next].focus();
+        });
+      }
+    }
+
+    /** Switch a sibling group to the tab carrying `label`, if it has one. */
+    selectByLabel(label: string): void {
+      const tabs = [...this.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
+      const panels = [...this.querySelectorAll<HTMLElement>('[role="tabpanel"]')];
+      const index = tabs.findIndex((tab) => tab.textContent?.trim() === label);
+      if (index >= 0) this.select(tabs, panels, index);
+    }
+
+    private select(tabs: HTMLButtonElement[], panels: HTMLElement[], index: number): void {
+      for (const [i, tab] of tabs.entries()) {
+        const selected = i === index;
+        tab.setAttribute("aria-selected", selected ? "true" : "false");
+        tab.tabIndex = selected ? 0 : -1;
+        const panel = panels[i];
+        if (panel) panel.hidden = !selected;
+      }
+    }
+  }
+
+  if (!customElements.get("uploads-tabs")) customElements.define("uploads-tabs", UploadsTabs);
+</script>

@@ -4,8 +4,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "astro/config";
 import cloudflare from "@astrojs/cloudflare";
+import mdx from "@astrojs/mdx";
 import react from "@astrojs/react";
 import tailwindcss from "@tailwindcss/vite";
+import expressiveCode from "astro-expressive-code";
+import { expressiveCodeOptions } from "./src/lib/expressive-code-options.mjs";
 
 /**
  * Serve `public/` during `astro dev`.
@@ -86,7 +89,9 @@ function servePublicInDev() {
 export default defineConfig({
   site: "https://uploads.sh",
   adapter: cloudflare({ imageService: "compile" }),
-  integrations: [react()],
+  // astro-expressive-code MUST come before mdx() — it installs the remark/rehype
+  // handling that mdx() then picks up for fenced code blocks.
+  integrations: [expressiveCode(expressiveCodeOptions), mdx(), react()],
   trailingSlash: "never",
   redirects: {
     // Renamed for a more recognizable slug; keep the old path working.
