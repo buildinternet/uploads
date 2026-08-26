@@ -68,7 +68,7 @@ uploads attach --branch ./before.png ./after.png
 Run `uploads staged` to see what's queued for the current branch, and whether it'll actually
 auto-attach:
 
-```ansi
+```ansi title="uploads staged"
 after.webp  94.2 KB  staged 2026-07-22T14:00:00Z  https://storage.uploads.sh/gh/you/app/branch/feat-nav/after.webp
 binding: self — these auto-attach when this branch's PR opens
 once the PR exists: uploads attach --promote
@@ -257,7 +257,7 @@ image you already have — pixel coordinates only, no selectors.
 
 A minimal callouts file:
 
-```json
+```json title="callouts.json" frame="code"
 {
   "version": 1,
   "annotations": [

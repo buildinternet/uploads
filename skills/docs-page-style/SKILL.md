@@ -162,9 +162,22 @@ is the affordance — three conventions carry what the old hand-rolled `.cmd` an
 | Fence                     | Renders as                                                   | Copy button |
 | ------------------------- | ------------------------------------------------------------ | ----------- |
 | ` ```bash `               | A command, with a `$ ` prompt drawn in the gutter            | yes         |
-| ` ```ansi `               | Terminal output, muted, no prompt                            | no          |
+| ` ```ansi `               | Terminal output in a **terminal frame** (titlebar chrome)    | no          |
 | ` ```text `               | A plain block — slash commands typed into an agent, snippets | yes         |
 | ` ```yaml ` / ` ```json ` | A syntax-highlighted config example                          | yes         |
+
+Frames add hierarchy where a bare panel would read flat:
+
+- `ansi` blocks get terminal chrome automatically (configured in
+  `expressive-code-options.mjs`). Add `title="uploads staged"` to name the
+  command that produced the output — use the command the surrounding prose
+  already names, never an invented one. Untitled is fine for catalogs.
+- Config/file examples opt into an editor frame per-fence with
+  `title=".uploads.yml" frame="code"` — the title is the filename the reader
+  will save. A paste-into-your-instructions snippet works the same way
+  (` ```md title="AGENTS.md" frame="code" `) and keeps its copy button.
+- Commands stay bare panels (`$ ` prompt is the affordance); don't wrap a
+  one-liner in terminal chrome.
 
 The `$ ` prompt is CSS, not source text, so the copy button still yields a clean
 command. Never write the `$` yourself. Comments (`# …`) inside a `bash` block are

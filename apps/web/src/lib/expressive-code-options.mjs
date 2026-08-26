@@ -24,6 +24,13 @@ export const expressiveCodeOptions = {
     // Fenced blocks in the docs are short; wrapping beats a hidden scroll
     // region for prose-width commands with long flags.
     wrap: false,
+    // One-line commands stay bare panels, but terminal output gets the full
+    // terminal chrome so example output reads as a distinct artifact, not a
+    // flat text box. Config/file examples opt into an editor frame per-fence
+    // with `title="…" frame="code"`.
+    overridesByLang: {
+      ansi: { frame: "terminal" },
+    },
   },
   styleOverrides: {
     borderColor: "var(--line)",

@@ -770,6 +770,9 @@ const fullTitle = `${title} · uploads.sh`;
       /* Geist Mono merges " --" into a joined dash via calt - keep CLI flags literal.
          Declared last: the font shorthand in earlier rules resets feature settings. */
       .doc code,
+      /* must match the inline-code rule's specificity — its `font:` shorthand
+         resets feature settings, and at 0-1-1 this rule would lose to it */
+      .doc :not(pre) > code,
       .doc pre,
       .doc .cmd,
       .doc .block,
