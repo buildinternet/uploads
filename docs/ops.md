@@ -512,13 +512,9 @@ for every BYO workspace the moment you delete the previous key.
 2. Install both on **both** Workers. Use one `secret bulk` call per Worker so
    each Worker never has a half-rotated pair:
    ```bash
-   printf 'WORKSPACE_SECRETS_KEY_PREVIOUS=%s
-   WORKSPACE_SECRETS_KEY=%s
-   ' "$OLD" "$NEW" \
+   printf 'WORKSPACE_SECRETS_KEY_PREVIOUS=%s\nWORKSPACE_SECRETS_KEY=%s\n' "$OLD" "$NEW" \
      | pnpm --filter @uploads/api exec wrangler secret bulk
-   printf 'WORKSPACE_SECRETS_KEY_PREVIOUS=%s
-   WORKSPACE_SECRETS_KEY=%s
-   ' "$OLD" "$NEW" \
+   printf 'WORKSPACE_SECRETS_KEY_PREVIOUS=%s\nWORKSPACE_SECRETS_KEY=%s\n' "$OLD" "$NEW" \
      | pnpm --filter @uploads/mcp exec wrangler secret bulk
    ```
    Do `uploads-api` first, then `uploads-mcp`. Between the two calls both
