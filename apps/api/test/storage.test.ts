@@ -40,15 +40,46 @@ describe("storageConfig", () => {
     expect(body.error.message).toContain("NOT_A_REAL_BINDING");
   });
 
-  it("throws storage_credentials_unreadable when the ciphertext cannot be decrypted", async () => {
+  it("throws secrets_key_unconfigured when the worker holds no WORKSPACE_SECRETS_KEY", async () => {
     const sealed = await encryptSecret("some-other-master-secret", "AKIA");
     const ws: WorkspaceRecord = {
       ...sharedRecord,
       accessKeyId: sealed,
       secretAccessKey: sealed,
     };
-    // No WORKSPACE_SECRETS_KEY configured at all, so decrypt has no candidate key.
+    // No WORKSPACE_SECRETS_KEY configured at all, so decrypt has no candidate
+    // key. That is a deployment gap on this worker, not a workspace problem.
     const env = {} as unknown as Env;
+
+    await expect(storageConfig(env, ws)).rejects.toMatchObject({
+      code: "secrets_key_unconfigured",
+      status: 503,
+    });
+  });
+
+  it("does not tell the caller to reconfigure storage when the key ring is empty", async () => {
+    const sealed = await encryptSecret("some-other-master-secret", "AKIA");
+    const ws: WorkspaceRecord = {
+      ...sharedRecord,
+      accessKeyId: sealed,
+      secretAccessKey: sealed,
+    };
+    const env = {} as unknown as Env;
+
+    // Re-entering credentials re-seals with uploads-api's key; a worker with no
+    // key still cannot read them. The message must not send anyone there.
+    await expect(storageConfig(env, ws)).rejects.toThrow(/will not fix it/);
+    await expect(storageConfig(env, ws)).rejects.not.toThrow(/workspace settings/);
+  });
+
+  it("throws storage_credentials_unreadable when a key is present but does not open the ciphertext", async () => {
+    const sealed = await encryptSecret("some-other-master-secret", "AKIA");
+    const ws: WorkspaceRecord = {
+      ...sharedRecord,
+      accessKeyId: sealed,
+      secretAccessKey: sealed,
+    };
+    const env = { WORKSPACE_SECRETS_KEY: "wrong-master-secret!!!!" } as unknown as Env;
 
     await expect(storageConfig(env, ws)).rejects.toMatchObject({
       code: "storage_credentials_unreadable",

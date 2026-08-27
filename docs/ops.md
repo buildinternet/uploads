@@ -439,33 +439,90 @@ SQLite WAL/SHM files under `.wrangler/state` are what miniflare locks.
 
 ## Secrets
 
-| Secret                           | Purpose                                                                                           |
-| -------------------------------- | ------------------------------------------------------------------------------------------------- |
-| `ADMIN_TOKEN`                    | `/admin/*` — break-glass ops/CI use, not routine admin work (see [admin-tokens](admin-tokens.md)) |
-| `WORKSPACE_SECRETS_KEY`          | **Current** KEK for BYO credentials in KV (`enc:v1:…`)                                            |
-| `WORKSPACE_SECRETS_KEY_PREVIOUS` | **Previous** KEK during rotation only (decrypt fallback, then remove)                             |
+Every secret belongs to one or more **named Workers**, and `wrangler secret put`
+sets it on exactly one of them. A secret that two Workers read must be installed
+on both, with byte-identical values. Nothing in Cloudflare enforces that, so this
+table is the source of truth. Keep it current when a Worker starts or stops
+reading a secret.
+
+| Secret                           | Workers                            | Purpose                                                                                           |
+| -------------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `WORKSPACE_SECRETS_KEY`          | **`uploads-api` + `uploads-mcp`**  | **Current** KEK for BYO credentials in KV (`enc:v1:…`)                                            |
+| `WORKSPACE_SECRETS_KEY_PREVIOUS` | **`uploads-api` + `uploads-mcp`**  | **Previous** KEK during rotation only (decrypt fallback, then remove from both)                   |
+| `GITHUB_APP_PRIVATE_KEY`         | **`uploads-api` + `uploads-mcp`**  | GitHub App identity (PKCS#8 PEM). Both Workers post managed comments in-process.                  |
+| `BILLING_INTERNAL_KEY`           | **`uploads-api` + `uploads-auth`** | Shared key gating `POST /internal/billing/plan`. The two values must match.                       |
+| `ADMIN_TOKEN`                    | `uploads-api`                      | `/admin/*` — break-glass ops/CI use, not routine admin work (see [admin-tokens](admin-tokens.md)) |
+| `ANALYTICS_API_TOKEN`            | `uploads-api`                      | Analytics Engine SQL API token for the `/admin/metrics` breakdown panel                           |
+| `GITHUB_APP_WEBHOOK_SECRET`      | `uploads-api`                      | HMAC secret for GitHub App webhook deliveries (`X-Hub-Signature-256`)                             |
+| `OPENAI_APPS_CHALLENGE`          | `uploads-mcp`                      | Domain-verification token served at `/.well-known/openai-apps-challenge`                          |
+| The eight in `secrets.required`  | `uploads-auth`                     | Better Auth, GitHub OAuth, Stripe, billing — listed in `apps/auth/wrangler.jsonc`                 |
+
+`uploads-web` reads no secrets. Absence behavior for each of the above is in
+[Minimal-binding profile](#minimal-binding-profile-self-hosting-uploads754-item-3).
+
+**Why `uploads-mcp` needs the same KEK.** The hosted MCP worker resolves BYO
+storage in-process — it imports `@uploads/api/storage` rather than proxying to
+`uploads-api` — so it opens the same `enc:v1:…` ciphertext with its own copy of
+the key. A shared-lane (binding-mode) workspace never touches the key ring, so a
+missing KEK on `uploads-mcp` is invisible until the first BYO workspace calls a
+storage tool, and then every such call 503s. This gap was live in production
+until 2026-08-27.
 
 ```bash
 # Generate
 openssl rand -base64 32
 
-# First-time install (production, from apps/api)
-pnpm exec wrangler secret put WORKSPACE_SECRETS_KEY
+# First-time install (production) — BOTH workers, the SAME value
+pnpm --filter @uploads/api exec wrangler secret put WORKSPACE_SECRETS_KEY
+pnpm --filter @uploads/mcp exec wrangler secret put WORKSPACE_SECRETS_KEY
 ```
 
+Paste the value identically on both. The KDF hashes the raw string, so one
+trailing newline or space silently breaks decrypt on that Worker only.
+
 `workspace:add --bucket …` encrypts keys when `WORKSPACE_SECRETS_KEY` is in the env. Plaintext legacy values still work until re-written. Decrypt tries **current**, then **previous**, so rotation does not brick BYO workspaces mid-cutover.
+
+**Verify both Workers hold it** (read-only — `wrangler secret list` prints names,
+never values):
+
+```bash
+pnpm --filter @uploads/api exec wrangler secret list
+pnpm --filter @uploads/mcp exec wrangler secret list
+```
+
+If a Worker is missing the key, its logs carry
+`secrets_key_unconfigured_on_read` on the first BYO request, and the API answers
+503 `secrets_key_unconfigured`. That error deliberately does **not** tell the
+user to reconfigure storage: re-entering credentials re-seals them with
+`uploads-api`'s key, and the Worker that lacks the key still cannot read them.
+A 503 `storage_credentials_unreadable` is the different case — a key was
+present but did not open the ciphertext — and reconfiguring does fix that one.
+A skipped fallback lane logs `storage_lane_skipped` with the same `code`.
 
 ### Rotating `WORKSPACE_SECRETS_KEY`
 
 **Putting secrets** is always `wrangler secret put` (the Worker config).
 **Re-sealing records** is an **admin API** so the KEK stays on the worker (not in shell history).
 
+Rotate on **every Worker that reads the key** — `uploads-api` and `uploads-mcp`
+today (see the table above). Rotating only `uploads-api` breaks the hosted MCP
+for every BYO workspace the moment you delete the previous key.
+
 1. Generate a new key: `openssl rand -base64 32` → keep OLD and NEW.
-2. Install both on the worker (from `apps/api`):
+2. Install both on **both** Workers. Use one `secret bulk` call per Worker so
+   each Worker never has a half-rotated pair:
    ```bash
-   pnpm exec wrangler secret put WORKSPACE_SECRETS_KEY_PREVIOUS   # paste OLD
-   pnpm exec wrangler secret put WORKSPACE_SECRETS_KEY            # paste NEW
+   printf 'WORKSPACE_SECRETS_KEY_PREVIOUS=%s
+   WORKSPACE_SECRETS_KEY=%s
+   ' "$OLD" "$NEW" \
+     | pnpm --filter @uploads/api exec wrangler secret bulk
+   printf 'WORKSPACE_SECRETS_KEY_PREVIOUS=%s
+   WORKSPACE_SECRETS_KEY=%s
+   ' "$OLD" "$NEW" \
+     | pnpm --filter @uploads/mcp exec wrangler secret bulk
    ```
+   Do `uploads-api` first, then `uploads-mcp`. Between the two calls both
+   Workers can still decrypt, because each holds OLD as its previous key.
 3. Re-seal registry credentials under the **current** key:
    ```bash
    # dry-run
@@ -476,14 +533,20 @@ pnpm exec wrangler secret put WORKSPACE_SECRETS_KEY
      https://api.uploads.sh/admin/credentials/reencrypt
    # or: pnpm workspace:reencrypt-secrets --dry-run
    ```
-4. Verify BYO / presign. Logs may show `credential_decrypted_with_previous_key`
+   The re-seal runs on `uploads-api` only. It rewrites KV, which both Workers
+   read, so `uploads-mcp` needs no separate re-seal — it only needs the key.
+4. Verify BYO on **both** origins, not just the API. Call a storage-touching
+   hosted-MCP tool (`list`) against a BYO workspace as well as an
+   `api.uploads.sh` read. Logs may show `credential_decrypted_with_previous_key`
    until re-seal finishes.
-5. Drop the previous secret:
+5. Drop the previous secret from **both** Workers:
    ```bash
-   pnpm exec wrangler secret delete WORKSPACE_SECRETS_KEY_PREVIOUS
+   pnpm --filter @uploads/api exec wrangler secret delete WORKSPACE_SECRETS_KEY_PREVIOUS
+   pnpm --filter @uploads/mcp exec wrangler secret delete WORKSPACE_SECRETS_KEY_PREVIOUS
    ```
 
-Do **not** delete PREVIOUS before re-encrypt completes.
+Do **not** delete PREVIOUS before re-encrypt completes, and do not delete it from
+either Worker until step 4 passes on both origins.
 
 ### Auth worker: dedicated D1 → merged D1 cutover (uploads#754 item 1)
 

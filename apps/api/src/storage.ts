@@ -1,4 +1,4 @@
-import { ServiceUnavailableError } from "@uploads/errors";
+import { AppError, ServiceUnavailableError } from "@uploads/errors";
 import {
   createStorage,
   publicAndEmbedUrls,
@@ -7,7 +7,11 @@ import {
   type Files,
   type StorageConfig,
 } from "@uploads/storage";
-import { openCredentialFields, secretsKeyRingFromEnv } from "./secrets";
+import {
+  openCredentialFields,
+  SecretsKeyUnconfiguredError,
+  secretsKeyRingFromEnv,
+} from "./secrets";
 import type { StorageLane, StorageLaneFields, WorkspaceRecord } from "./workspace";
 
 /** Worker env override for the embed CDN base (self-host / disable). */
@@ -62,9 +66,26 @@ async function resolveStorageConfig(env: Env, fields: StorageLaneFields): Promis
       secretAccessKey: fields.secretAccessKey,
     });
   } catch (err) {
-    // Missing/rotated WORKSPACE_SECRETS_KEY, or corrupt ciphertext — surface
-    // as a typed, non-retryable-looking 503 with a settings-page hint instead
-    // of letting the raw decrypt error bubble as an opaque 500.
+    if (err instanceof SecretsKeyUnconfiguredError) {
+      // This Worker holds no KEK at all, so it can read no BYO workspace. That
+      // is an operator problem, and the settings page cannot fix it — a re-seal
+      // there uses uploads-api's key and this Worker still has none. Log it
+      // distinctly so a missing secret is greppable, and tell the caller the
+      // truth instead of sending them round a loop.
+      console.error(
+        JSON.stringify({
+          message: "secrets_key_unconfigured_on_read",
+          hint: "set WORKSPACE_SECRETS_KEY on this worker to the same value uploads-api holds — see docs/ops.md#secrets",
+        }),
+      );
+      throw new ServiceUnavailableError(
+        "workspace storage is unavailable because of a server configuration problem; reconfiguring storage will not fix it",
+        { code: "secrets_key_unconfigured", cause: err },
+      );
+    }
+    // A key was present but did not open the ciphertext (rotation gap, or
+    // corrupt stored data) — surface as a typed 503 with a settings-page hint
+    // instead of letting the raw decrypt error bubble as an opaque 500.
     throw new ServiceUnavailableError(
       "workspace storage credentials could not be decrypted; reconfigure storage in workspace settings",
       { code: "storage_credentials_unreadable", cause: err },
@@ -134,10 +155,17 @@ async function resolveFallbackLane(env: Env, lane: StorageLane): Promise<Storage
   try {
     return await resolveStorageConfig(env, lane);
   } catch (err) {
+    // Skipping is quiet by design at the request level (a stale fallback must
+    // never take down the active lane), but it is never quiet in the logs: a
+    // read that 404s because its only lane was skipped is otherwise
+    // indistinguishable from a genuinely missing object. `code` carries the
+    // typed reason, so `secrets_key_unconfigured` — the whole-worker
+    // misconfiguration — is greppable rather than buried in prose.
     console.error(
       JSON.stringify({
         message: "storage_lane_skipped",
         laneId: lane.id,
+        code: err instanceof AppError ? err.code : undefined,
         reason: err instanceof Error ? err.message : String(err),
       }),
     );

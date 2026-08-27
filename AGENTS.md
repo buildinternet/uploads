@@ -96,7 +96,8 @@ playbook in [docs/previews.md](docs/previews.md); the Workers Builds bot's
 against production bindings.
 
 Operator runbook: [docs/ops.md](docs/ops.md). Daily retention cron on the API
-worker; BYO secrets use `WORKSPACE_SECRETS_KEY`; bare upload keys get `f/<id>/…`.
+worker; BYO secrets use `WORKSPACE_SECRETS_KEY`, set on both `uploads-api` and
+`uploads-mcp`; bare upload keys get `f/<id>/…`.
 
 ### Local Wrangler / agent hygiene
 
