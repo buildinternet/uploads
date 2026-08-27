@@ -16,6 +16,7 @@ const MIGRATIONS = [
   "migrations/20260712230000_token_minting_user.sql",
   "migrations/20260817180000_token_last_used.sql",
   "migrations/20260827160000_auth_enrollments_kind.sql",
+  "migrations/20260827170000_auth_enrollments_multi_use.sql",
 ];
 
 const USER = { id: "u-joiner", email: "joiner@example.com", name: "Joiner" };
@@ -73,11 +74,25 @@ function makeEnv(opts: EnvOpts = {}) {
 
 const sessionHeaders = { cookie: "session=x", "content-type": "application/json" };
 
-async function mintMemberLink(db: SqliteD1, workspace = "acme") {
+// Issue #876: member-kind links default to unlimited use. `maxUses` defaults
+// to 1 here (not the createEnrollment default) so every pre-existing
+// regression test below — written against the pre-#876 single-use
+// semantics — keeps exercising the same "the link is burned/not burned"
+// behavior unchanged. Multi-use/unlimited/non-expiring get their own tests
+// further down, which pass `maxUses`/`expiresIn` explicitly.
+async function mintMemberLink(
+  db: SqliteD1,
+  workspace = "acme",
+  opts: { maxUses?: number | null; enrollmentSeconds?: number | null } = {},
+) {
   return createEnrollment(database(db) as unknown as D1Database, {
     workspace,
     scopes: [],
     kind: "member",
+    // `??` would collapse an explicit `maxUses: null` (unlimited) into the
+    // 1-use default below — use `in` so callers can request unlimited.
+    maxUses: "maxUses" in opts ? opts.maxUses : 1,
+    ...(opts.enrollmentSeconds !== undefined ? { enrollmentSeconds: opts.enrollmentSeconds } : {}),
   });
 }
 
@@ -413,6 +428,73 @@ describe("POST /auth/enrollments/join", () => {
       makeEnv({ db, inviteAllowed: false }),
     );
     expect(res.status).toBe(429);
+  });
+
+  // Issue #876: an unlimited-use link (createEnrollment's default when
+  // maxUses is omitted) redeems successfully for two different users.
+  it("redeems a multi-use link twice, by different users", async () => {
+    const db = new SqliteD1(MIGRATIONS);
+    const link = await mintMemberLink(db, "acme", { maxUses: null });
+    const first = await app.request(
+      "/auth/enrollments/join",
+      { method: "POST", headers: sessionHeaders, body: JSON.stringify({ code: link.code }) },
+      makeEnv({ db }),
+    );
+    expect(first.status).toBe(200);
+
+    const otherUser = { id: "u-other", email: "other@example.com", name: "Other" };
+    const second = await app.request(
+      "/auth/enrollments/join",
+      { method: "POST", headers: sessionHeaders, body: JSON.stringify({ code: link.code }) },
+      makeEnv({ db, sessionUser: otherUser }),
+    );
+    expect(second.status).toBe(200);
+    expect(await second.json()).toEqual({ workspace: "acme", alreadyMember: false });
+  });
+
+  // Issue #876: a link with an explicit max_uses fails uniformly (same
+  // INVALID_ENROLLMENT shape as unknown/expired) once exhausted.
+  it("uniformly fails an exhausted max_uses link", async () => {
+    const db = new SqliteD1(MIGRATIONS);
+    const link = await mintMemberLink(db, "acme", { maxUses: 2 });
+    const otherUser = { id: "u-other", email: "other@example.com", name: "Other" };
+
+    const first = await app.request(
+      "/auth/enrollments/join",
+      { method: "POST", headers: sessionHeaders, body: JSON.stringify({ code: link.code }) },
+      makeEnv({ db }),
+    );
+    expect(first.status).toBe(200);
+    const second = await app.request(
+      "/auth/enrollments/join",
+      { method: "POST", headers: sessionHeaders, body: JSON.stringify({ code: link.code }) },
+      makeEnv({ db, sessionUser: otherUser }),
+    );
+    expect(second.status).toBe(200);
+
+    const third = await app.request(
+      "/auth/enrollments/join",
+      { method: "POST", headers: sessionHeaders, body: JSON.stringify({ code: link.code }) },
+      makeEnv({ db, sessionUser: { id: "u-third", email: "third@example.com", name: "Third" } }),
+    );
+    expect(third.status).toBe(400);
+    expect(((await third.json()) as { error: { code: string } }).error.code).toBe(
+      "invalid_enrollment",
+    );
+  });
+
+  // Issue #876: a non-expiring member link (`expiresIn: "never"` at mint,
+  // `expires_at IS NULL`) redeems normally, arbitrarily far in the future.
+  it("redeems a non-expiring link", async () => {
+    const db = new SqliteD1(MIGRATIONS);
+    const link = await mintMemberLink(db, "acme", { enrollmentSeconds: null });
+    const res = await app.request(
+      "/auth/enrollments/join",
+      { method: "POST", headers: sessionHeaders, body: JSON.stringify({ code: link.code }) },
+      makeEnv({ db }),
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ workspace: "acme", alreadyMember: false });
   });
 
   it("uses the same 1KB/single-key/prefix hygiene as exchange", async () => {
