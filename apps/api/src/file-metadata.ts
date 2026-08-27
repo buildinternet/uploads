@@ -32,10 +32,12 @@ const RESERVED_META_KEYS = new Set<string>([...PROVENANCE_SERVER_KEYS, "visibili
  * Namespaces the server owns outright (issue #299). A client must never write
  * these: `video.poster` decides whether a poster `<img>` renders in a public
  * PR comment, so a user-settable row would be a spoofable input to public
- * output. Reserved as a *prefix* rather than four exact keys so future derived
+ * output. `image.*` (issue #365 follow-up) carries the server-detected pixel
+ * dimensions the managed comment sizes embeds with — same spoofable-input
+ * rationale. Reserved as *prefixes* rather than exact keys so future derived
  * facts can't collide.
  */
-export const SERVER_META_PREFIXES = ["video."] as const;
+export const SERVER_META_PREFIXES = ["video.", "image."] as const;
 
 export function isServerMetaKey(key: string): boolean {
   return SERVER_META_PREFIXES.some((prefix) => key.startsWith(prefix));

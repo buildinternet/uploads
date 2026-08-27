@@ -76,7 +76,7 @@ export async function gatherCommentBody(
 
 /**
  * The only metadata keys the managed comment reads or renders (issue #365,
- * extended for #299). The `video.*` keys are server-owned derived facts about
+ * extended for #299). The `video.*`/`image.*` keys are server-owned derived facts about
  * the file itself — not EXIF-derived keys like `device`/`software` — so the
  * narrowness rationale still holds for a surface that posts publicly.
  */
@@ -87,6 +87,8 @@ const COMMENT_META_KEYS = [
   "video.duration",
   "video.width",
   "video.height",
+  "image.width",
+  "image.height",
 ];
 
 /**
@@ -209,6 +211,19 @@ async function gatherAttachments(
         ...(Number.isFinite(duration) && duration > 0 ? { durationSeconds: duration } : {}),
         ...(Number.isFinite(width) && width > 0 ? { width } : {}),
         ...(Number.isFinite(height) && height > 0 ? { height } : {}),
+      };
+    }
+    // Server-derived image dimensions (never client-settable — `image.*` is a
+    // reserved prefix). Omitted entirely when neither parses so renders
+    // without dims stay byte-identical to the pre-dimension goldens.
+    const imgWidth = Number(meta["image.width"]);
+    const imgHeight = Number(meta["image.height"]);
+    const hasImgWidth = Number.isFinite(imgWidth) && imgWidth > 0;
+    const hasImgHeight = Number.isFinite(imgHeight) && imgHeight > 0;
+    if (hasImgWidth || hasImgHeight) {
+      item.imageMeta = {
+        ...(hasImgWidth ? { width: imgWidth } : {}),
+        ...(hasImgHeight ? { height: imgHeight } : {}),
       };
     }
   }

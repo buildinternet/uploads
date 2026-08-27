@@ -924,6 +924,13 @@ export async function syncAttachmentsComment(
         // byte-identical.
         const path = metadata?.path;
         const state = metadata?.state;
+        // Server-derived image dimensions (parity with the bot path's
+        // COMMENT_META_KEYS hydration): finite positive numbers only, field
+        // omitted entirely when neither parses.
+        const imgWidth = Number(metadata?.["image.width"]);
+        const imgHeight = Number(metadata?.["image.height"]);
+        const hasImgWidth = Number.isFinite(imgWidth) && imgWidth > 0;
+        const hasImgHeight = Number.isFinite(imgHeight) && imgHeight > 0;
         return {
           key,
           url,
@@ -931,6 +938,14 @@ export async function syncAttachmentsComment(
           pageUrl,
           ...(path || state
             ? { meta: { ...(path ? { path } : {}), ...(state ? { state } : {}) } }
+            : {}),
+          ...(hasImgWidth || hasImgHeight
+            ? {
+                imageMeta: {
+                  ...(hasImgWidth ? { width: imgWidth } : {}),
+                  ...(hasImgHeight ? { height: imgHeight } : {}),
+                },
+              }
             : {}),
         };
       },
