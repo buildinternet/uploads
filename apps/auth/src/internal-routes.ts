@@ -9,7 +9,7 @@ import { and, count, countDistinct, eq, gt, gte, isNull, max, sql } from "drizzl
 import { Hono } from "hono";
 import { OAUTH_SCOPES, type AuthEnv } from "./auth";
 import { sendAuthEmail } from "./email";
-import { memberCapDenial } from "./member-cap";
+import { memberCapDenial, resolveMemberCapStrict } from "./member-cap";
 import * as schema from "./schema";
 
 function errorJson(code: string, message: string) {
@@ -867,6 +867,162 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
       },
       201,
     );
+  })
+  // Issue #869 phase B: the mint-time member-cap check for a workspace-admin
+  // "join" invite link (`POST /v1/workspaces/:workspace/invite-links` in
+  // apps/api's routes/workspace-members.ts). Mirrors `memberCapDenial`'s
+  // fail-open posture exactly like `/invite` above — a missing/erroring cap
+  // lookup must not block minting a link, only an actually-resolved cap does.
+  // Unlike `/invite`, there is no `inviterIsGlobalAdmin` bypass here: minting
+  // is workspace-admin-gated by `sessionAdminGate` in apps/api, not something
+  // a site operator does on someone else's behalf.
+  .post("/member-cap/check", async (c) => {
+    const body = await c.req
+      .json<{ workspace?: unknown }>()
+      .catch(() => ({}) as { workspace?: unknown });
+    const workspace = typeof body.workspace === "string" ? body.workspace.trim() : "";
+    if (!workspace) {
+      return c.json(errorJson("invalid_request", "workspace is required"), 400);
+    }
+
+    const db = drizzle(c.env.DB, { schema });
+    const [org] = await db
+      .select()
+      .from(schema.organization)
+      .where(eq(schema.organization.slug, workspace))
+      .limit(1);
+    if (!org) {
+      return c.json(errorJson("organization_not_found", "no organization with that slug"), 404);
+    }
+
+    const denial = await memberCapDenial(c.env, db, {
+      organizationId: org.id,
+      organizationSlug: org.slug,
+    });
+    if (denial) return c.json(errorJson(denial.code, denial.message), 403);
+    return c.json({ ok: true }, 200);
+  })
+  // Issue #869 phase B: redeems a workspace-admin "join" link. Called by
+  // apps/api's `POST /auth/enrollments/join` AFTER it has already atomically
+  // claimed the enrollment row (conditional UPDATE on `used_at IS NULL`) —
+  // this route only ever runs at most once per link, and its caller restores
+  // `used_at` to NULL if this call fails, so a transient error here doesn't
+  // permanently burn the link.
+  //
+  // Redemption-time cap check fails CLOSED (unlike mint-time and the
+  // email-invite path above, which keep `memberCapDenial`'s fail-open
+  // posture unchanged) — a lookup failure here must deny the join, not let
+  // it through uncounted. `resolveMemberCapStrict` is the one caller of the
+  // strict variant; see its docblock in member-cap.ts.
+  //
+  // The insert itself is the authoritative guard against a concurrent join
+  // exceeding the cap or double-adding the same user: a plain check-then-
+  // insert has a race window between the SELECT above and the INSERT, so the
+  // membership row is written by a single atomic `INSERT ... SELECT ...
+  // WHERE NOT EXISTS (...) AND (<cap>)` — 0 rows affected means either the
+  // membership already existed or the cap was hit, disambiguated by a
+  // read-after. Seat-counting semantics (members + pending invitations)
+  // mirror `countSeatsInUse` in member-cap.ts exactly.
+  .post("/join", async (c) => {
+    const body = await c.req
+      .json<{ organizationSlug?: unknown; userId?: unknown }>()
+      .catch(() => ({}) as { organizationSlug?: unknown; userId?: unknown });
+    const organizationSlug =
+      typeof body.organizationSlug === "string" ? body.organizationSlug.trim() : "";
+    const userId = typeof body.userId === "string" ? body.userId.trim() : "";
+    if (!organizationSlug || !userId) {
+      return c.json(errorJson("invalid_request", "organizationSlug and userId are required"), 400);
+    }
+
+    const db = drizzle(c.env.DB, { schema });
+    // Independent lookups — run them concurrently, but keep the same
+    // not-found precedence (organization before user) that a sequential
+    // await gave: the organization result is checked first below regardless
+    // of which resolves first.
+    const [[org], [user]] = await Promise.all([
+      db
+        .select()
+        .from(schema.organization)
+        .where(eq(schema.organization.slug, organizationSlug))
+        .limit(1),
+      db.select().from(schema.user).where(eq(schema.user.id, userId)).limit(1),
+    ]);
+    if (!org) {
+      return c.json(errorJson("organization_not_found", "no organization with that slug"), 404);
+    }
+    if (!user) {
+      return c.json(errorJson("user_not_found", "no user with that id"), 404);
+    }
+
+    // Fast path only — not the guard. A hit here skips the cap lookup for
+    // the common "already a member" case; a miss still has to go through
+    // the atomic insert below, which is what actually decides.
+    const [existingMembership] = await db
+      .select({ id: schema.member.id })
+      .from(schema.member)
+      .where(and(eq(schema.member.organizationId, org.id), eq(schema.member.userId, userId)))
+      .limit(1);
+    if (existingMembership) {
+      return c.json({ alreadyMember: true }, 200);
+    }
+
+    const capResolution = await resolveMemberCapStrict(c.env, org.slug);
+    if (capResolution.status === "unavailable") {
+      return c.json(
+        errorJson("cap_check_unavailable", "couldn't verify this workspace's member limit"),
+        503,
+      );
+    }
+    const cap = capResolution.status === "capped" ? capResolution.cap : null;
+
+    const insert = await c.env.DB.prepare(
+      `INSERT INTO member (id, organization_id, user_id, role, created_at)
+       SELECT ?, ?, ?, 'member', ?
+       WHERE NOT EXISTS (
+         SELECT 1 FROM member WHERE organization_id = ? AND user_id = ?
+       )
+       AND (
+         ? IS NULL OR (
+           (SELECT COUNT(*) FROM member WHERE organization_id = ?) +
+           (SELECT COUNT(*) FROM invitation WHERE organization_id = ? AND status = 'pending')
+         ) < ?
+       )`,
+    )
+      .bind(
+        crypto.randomUUID(),
+        org.id,
+        userId,
+        Math.floor(Date.now() / 1000),
+        org.id,
+        userId,
+        cap,
+        org.id,
+        org.id,
+        cap,
+      )
+      .run();
+
+    if ((insert.meta?.changes ?? 0) === 1) {
+      return c.json({ alreadyMember: false }, 201);
+    }
+
+    // 0 rows affected: either a concurrent request already added this user
+    // (alreadyMember) or the cap was hit (denial) — the pre-check above
+    // can't tell these apart since both happen strictly after it ran.
+    const [nowMember] = await db
+      .select({ id: schema.member.id })
+      .from(schema.member)
+      .where(and(eq(schema.member.organizationId, org.id), eq(schema.member.userId, userId)))
+      .limit(1);
+    if (nowMember) {
+      return c.json({ alreadyMember: true }, 200);
+    }
+    const message =
+      capResolution.status === "capped"
+        ? (capResolution.message ??
+          `This workspace includes ${capResolution.cap} members — cap reached.`)
+        : "This workspace has reached its member limit.";
+    return c.json(errorJson("member_cap_reached", message), 403);
   })
   // Self-serve provisioning (spec 2026-07-14): create an org WITH the caller
   // as owner member, non-idempotent — a taken slug is a 409 the API surfaces

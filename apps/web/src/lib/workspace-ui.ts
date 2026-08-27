@@ -259,6 +259,33 @@ export function renderInvitesHtml(
     .join("");
 }
 
+/**
+ * Issue #869 phase B: the People page's outstanding `kind: 'member'`
+ * join-link list — a plain `<ul>`, not the people table (these aren't
+ * teammates or pending email invites, just live shareable links). Each row
+ * shows the label (or a generic fallback) and expiry, plus a revoke button
+ * matching the `text-btn` treatment `renderInvitesHtml`'s revoke uses.
+ * `[]` → `""` (caller renders its own empty state).
+ */
+export function renderInviteLinksHtml(
+  links: { id: string; label: string | null; expiresAt: string }[],
+): string {
+  return links
+    .map((link) => {
+      const label = link.label ? escapeHtml(link.label) : "Unlabeled link";
+      const when = new Date(link.expiresAt).toLocaleString([], {
+        dateStyle: "medium",
+        timeStyle: "short",
+      });
+      return `<li class="invite-link-row">
+  <span class="invite-link-row__label">${label}</span>
+  <span class="invite-link-row__expiry text-muted-foreground">expires ${escapeHtml(when)}</span>
+  <button type="button" class="text-btn invite-link-row__revoke" data-link-id="${escapeHtml(link.id)}" data-link-label="${label}">Revoke</button>
+</li>`;
+    })
+    .join("");
+}
+
 export function isWorkspaceAdminRole(role: string): boolean {
   return role === "admin" || role === "owner";
 }

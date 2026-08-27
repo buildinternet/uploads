@@ -94,7 +94,8 @@ import Footer from "../components/Footer.astro";
       .command button {
         flex-shrink: 0;
       }
-      button {
+      button,
+      a.button {
         font-size: var(--text-micro);
         letter-spacing: 0.06em;
         border: 1px solid var(--line);
@@ -104,11 +105,30 @@ import Footer from "../components/Footer.astro";
         color: var(--accent);
         cursor: pointer;
         font-family: inherit;
+        text-decoration: none;
+        display: inline-block;
       }
       button:hover,
-      button:focus-visible {
+      button:focus-visible,
+      a.button:hover,
+      a.button:focus-visible {
         border-color: var(--accent);
         outline: none;
+      }
+      #join-actions {
+        margin: 24px 0;
+      }
+      #join-btn,
+      #join-signin {
+        font-size: var(--text-ui);
+        padding: 10px 18px;
+        border-color: var(--accent);
+        color: var(--fg);
+        background: var(--accent);
+      }
+      #join-btn:disabled {
+        opacity: 0.6;
+        cursor: default;
       }
       .security {
         margin-top: 26px;
@@ -125,8 +145,8 @@ import Footer from "../components/Footer.astro";
   <body>
     <main>
       <div class="brandbar"><Brand /></div>
-      <h1>Accept your invite to uploads.sh</h1>
-      <p>
+      <h1 id="heading">Accept your invite to uploads.sh</h1>
+      <p id="lead">
         Host files and screenshots straight from your terminal — upload, get a public link, attach
         them to a pull request.
       </p>
@@ -152,34 +172,190 @@ import Footer from "../components/Footer.astro";
           </li>
         </ol>
       </section>
-      <p class="security">
+      <section id="join-actions" hidden>
+        <a id="join-signin" class="button" hidden>Sign in to join</a>
+        <button id="join-btn" type="button" hidden>Join workspace</button>
+      </section>
+      <p class="security" id="security-note">
         Treat this link like a password — it's single-use and stops working once you log in.
       </p>
       <Footer compact />
     </main>
     <script>
+      import { getSession } from "../lib/auth-client";
+      import {
+        codeFromHash,
+        loginHref as buildLoginHref,
+        readStashedCode,
+        safeSessionStorage,
+        stashCode as stashCodeIn,
+      } from "../lib/invite-code";
+
       function requireElement<T extends Element>(selector: string): T {
         const element = document.querySelector<T>(selector);
         if (!element) throw new Error(`invite page is missing ${selector}`);
         return element;
       }
 
+      const heading = requireElement<HTMLElement>("#heading");
+      const lead = requireElement<HTMLElement>("#lead");
       const meta = requireElement<HTMLElement>("#meta");
       const instructions = requireElement<HTMLElement>("#instructions");
       const loginCmd = requireElement<HTMLElement>("#login-cmd");
       const loginCopy = requireElement<HTMLButtonElement>("#login-copy");
+      const joinActions = requireElement<HTMLElement>("#join-actions");
+      const joinSignin = requireElement<HTMLAnchorElement>("#join-signin");
+      const joinBtn = requireElement<HTMLButtonElement>("#join-btn");
+      const securityNote = requireElement<HTMLElement>("#security-note");
 
       const url = new URL(location.href);
       const pageId = url.searchParams.get("id") ?? "";
+
       // The one-time code rides in the URL fragment, which browsers never send to the
-      // server. Read it, then scrub it from the address bar; the CLI still redeems it.
-      const code = new URLSearchParams(url.hash.replace(/^#/, "")).get("code") ?? "";
+      // server. Read it, then scrub it from the address bar; the CLI still redeems it
+      // (token-kind) straight from the fragment.
+      let code = codeFromHash(url.hash);
       if (url.hash) history.replaceState(null, "", url.pathname + url.search);
+
+      if (!code && pageId) {
+        // No fragment — this may be the return trip from /login, where the
+        // join flow (member-kind) stashed the code in sessionStorage instead
+        // of putting it back in a URL (see stashCode below). A private
+        // window or disabled storage just means the code doesn't resume;
+        // nothing was ever exposed in a URL either way.
+        code = readStashedCode(safeSessionStorage(), pageId);
+      }
 
       if (/^upe_[A-Za-z0-9_-]{20,}$/.test(code)) {
         const command = `uploads login --code ${code}`;
         loginCmd.textContent = command;
         loginCopy.dataset.copy = command;
+      }
+
+      /** `/login?callbackURL=` back to this exact invite — deliberately WITHOUT the
+       * code, fragment or otherwise: `callbackURL` travels through a server-visible
+       * query string (magic-link emails, OAuth state), so a single-use bearer code
+       * must never ride in it. `stashCode()` below is how the join flow resumes the
+       * code on return instead. */
+      function loginHref(): string {
+        return buildLoginHref(location.origin, pageId);
+      }
+
+      /** Stashes `code` in sessionStorage (private-window/storage-disabled safe —
+       * returns false rather than throwing) so it survives the round trip through
+       * /login without ever appearing in a URL. Callers must NOT fall back to
+       * putting the code in the URL when this returns false. */
+      function stashCode(): boolean {
+        return stashCodeIn(safeSessionStorage(), pageId, code);
+      }
+
+      /** Prepares the code to survive sign-in, then either navigates to /login or,
+       * if storage isn't available, shows guidance instead of silently leaking the
+       * code into the URL. */
+      function goToSignIn(): void {
+        if (code && !stashCode()) {
+          joinActions.hidden = true;
+          meta.textContent =
+            "Couldn't prepare this invite for sign-in — after you log in, open the original invite link again.";
+          meta.dataset.state = "closed";
+          return;
+        }
+        location.href = loginHref();
+      }
+
+      async function setUpJoinFlow(workspace: string) {
+        heading.textContent = `Join ${workspace} on uploads.sh`;
+        lead.textContent = `You've been invited to join the ${workspace} workspace.`;
+        securityNote.textContent = "Treat this link like a password — it's single-use.";
+        joinActions.hidden = false;
+
+        // Same-origin ("" — SAME_ORIGIN_AUTH_BASE): the browser only ever
+        // needs this page's own `/api/auth/get-session` proxy, never a
+        // configured auth-worker origin. `unavailable` (outage or a
+        // malformed response) folds into "not signed in" here, same as the
+        // plain `fetch()` this replaced — no distinct outage state exists
+        // on this page for the session check, so the sign-in prompt is
+        // still the right fallback rather than leaving the join button
+        // hidden with no way forward.
+        const sessionResult = await getSession("");
+        const signedIn = sessionResult.kind === "signed_in";
+
+        if (!signedIn) {
+          // `href="#"` only for keyboard/focus semantics — the actual navigation
+          // goes through `goToSignIn()` so the code is stashed (or the guidance
+          // state shown) before the browser leaves this page, never via a real
+          // `href` a user could copy or middle-click and leak the code through.
+          joinSignin.href = "#";
+          joinSignin.addEventListener("click", (event) => {
+            event.preventDefault();
+            goToSignIn();
+          });
+          joinSignin.hidden = false;
+          return;
+        }
+
+        joinBtn.textContent = `Join ${workspace}`;
+        joinBtn.hidden = false;
+        joinBtn.addEventListener("click", async () => {
+          joinBtn.disabled = true;
+          joinBtn.textContent = "Joining…";
+          try {
+            const response = await fetch("/api/enrollments/join", {
+              method: "POST",
+              credentials: "include",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ code }),
+            });
+            if (response.status === 401) {
+              goToSignIn();
+              return;
+            }
+            const payload = (await response.json().catch(() => null)) as {
+              workspace?: string;
+              alreadyMember?: boolean;
+              error?: { code?: string; message?: string };
+            } | null;
+            if (response.status === 503 && payload?.error?.code === "cap_check_unavailable") {
+              // Retryable — the join wasn't denied, the cap check just
+              // couldn't run. Keep the button live rather than closing out
+              // the invite like an actual denial.
+              joinBtn.disabled = false;
+              joinBtn.textContent = `Join ${workspace}`;
+              meta.textContent = payload.error?.message ?? "Couldn't reach uploads.sh — try again.";
+              meta.dataset.state = "closed";
+              return;
+            }
+            if (!response.ok) {
+              joinActions.hidden = true;
+              if (payload?.error?.code === "member_cap_reached") {
+                meta.textContent =
+                  payload.error.message ?? "This workspace has reached its member limit.";
+              } else {
+                meta.textContent = "This invite is invalid or has expired.";
+              }
+              meta.dataset.state = "closed";
+              return;
+            }
+            joinActions.hidden = true;
+            meta.textContent = payload?.alreadyMember
+              ? `You're already a member of ${workspace}.`
+              : `You're a member of ${workspace}.`;
+            meta.dataset.state = "ready";
+            const link = document.createElement("a");
+            link.href = `/account/workspaces/${encodeURIComponent(workspace)}`;
+            link.textContent = `Go to ${workspace} →`;
+            link.className = "button";
+            link.style.marginTop = "16px";
+            link.style.display = "inline-block";
+            joinActions.hidden = false;
+            joinActions.replaceChildren(link);
+          } catch {
+            joinBtn.disabled = false;
+            joinBtn.textContent = `Join ${workspace}`;
+            meta.textContent = "Couldn't reach uploads.sh — try again.";
+            meta.dataset.state = "closed";
+          }
+        });
       }
 
       async function checkInvitation() {
@@ -193,6 +369,7 @@ import Footer from "../components/Footer.astro";
           used: boolean;
           expiresAt: string;
           workspace: string;
+          kind?: "token" | "member";
         };
         if (invitation.used) {
           meta.textContent = "This invite has already been used.";
@@ -204,6 +381,14 @@ import Footer from "../components/Footer.astro";
           timeStyle: "short",
         });
         const where = invitation.workspace ? `the ${invitation.workspace} workspace` : "uploads.sh";
+
+        if (invitation.kind === "member") {
+          meta.textContent = `Expires ${when}`;
+          meta.dataset.state = "ready";
+          await setUpJoinFlow(invitation.workspace);
+          return;
+        }
+
         meta.textContent = `You'll join ${where} · expires ${when}`;
         meta.dataset.state = "ready";
         instructions.hidden = false;

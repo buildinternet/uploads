@@ -9,7 +9,7 @@ import { Hono } from "hono";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AuthEnv } from "./auth";
 import { internal } from "./internal-routes";
-import { memberCapDenial } from "./member-cap";
+import { memberCapDenial, resolveMemberCapStrict } from "./member-cap";
 import * as schema from "./schema";
 import { createFakeD1, type FakeD1Database } from "./test/fake-d1";
 
@@ -193,6 +193,69 @@ describe("memberCapDenial", () => {
       code: "member_cap_reached",
       message: expect.stringContaining("3"),
     });
+  });
+});
+
+describe("resolveMemberCapStrict", () => {
+  // Same env shape as `memberCapDenial`'s describe block above, but this
+  // variant is exercised standalone (no org/db needed — the strict resolver
+  // doesn't count seats, only resolves the cap itself).
+  function env(api?: Fetcher, key: string | null = INTERNAL_KEY): AuthEnv {
+    return {
+      DB: {} as unknown as D1Database,
+      WEB_ORIGIN: "https://uploads.sh",
+      ENVIRONMENT: "development",
+      ...(api ? { API: api } : {}),
+      ...(key ? { BILLING_INTERNAL_KEY: key } : {}),
+    } as AuthEnv;
+  }
+
+  it("resolves 'capped' with the cap and message when apps/api answers", async () => {
+    const api = capBinding({ workspace: "acme", cap: 3, message: "at cap" });
+    expect(await resolveMemberCapStrict(env(api), "acme")).toEqual({
+      status: "capped",
+      cap: 3,
+      message: "at cap",
+    });
+  });
+
+  it("resolves 'unlimited' when apps/api reports no cap", async () => {
+    const api = capBinding({ workspace: "acme", cap: null, message: null });
+    expect(await resolveMemberCapStrict(env(api), "acme")).toEqual({ status: "unlimited" });
+  });
+
+  it("resolves 'unlimited' when the API binding is not configured (matches fail-open elsewhere)", async () => {
+    expect(await resolveMemberCapStrict(env(undefined), "acme")).toEqual({ status: "unlimited" });
+  });
+
+  it("resolves 'unavailable' — not 'unlimited' — when apps/api answers non-ok", async () => {
+    const api = capBinding({ error: "boom" }, { status: 500 });
+    expect(await resolveMemberCapStrict(env(api), "acme")).toEqual({ status: "unavailable" });
+  });
+
+  it("resolves 'unavailable' when the fetch throws", async () => {
+    const api = {
+      fetch: async () => {
+        throw new Error("binding exploded");
+      },
+    } as unknown as Fetcher;
+    expect(await resolveMemberCapStrict(env(api), "acme")).toEqual({ status: "unavailable" });
+  });
+
+  it("resolves 'unavailable' when the response body is malformed JSON", async () => {
+    const fetch = vi.fn(async () => new Response("not json", { status: 200 }));
+    const api = { fetch: fetch as unknown as Fetcher["fetch"] } as unknown as Fetcher;
+    expect(await resolveMemberCapStrict(env(api), "acme")).toEqual({ status: "unavailable" });
+  });
+
+  it("does not change memberCapDenial's own fail-open behavior for the same failures", async () => {
+    // Same non-ok response, run through the pre-existing fail-open path —
+    // must stay null, unaffected by the strict variant's addition.
+    const orm = drizzle(createFakeD1(), { schema });
+    const api = capBinding({ error: "boom" }, { status: 500 });
+    expect(
+      await memberCapDenial(env(api), orm, { organizationId: "org1", organizationSlug: "acme" }),
+    ).toBeNull();
   });
 });
 

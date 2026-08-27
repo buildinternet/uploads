@@ -15,6 +15,7 @@ import {
   renderGalleriesPlaceholderHtml,
   renderGalleriesTableHtml,
   renderGalleriesViewToggleHtml,
+  renderInviteLinksHtml,
   renderInvitesHtml,
   renderMembersHtml,
   renderPeopleTableHtml,
@@ -115,6 +116,37 @@ describe("renderInvitesHtml", () => {
   });
   it("returns empty string for no invites", () => {
     expect(renderInvitesHtml([])).toBe("");
+  });
+});
+
+describe("renderInviteLinksHtml", () => {
+  it("renders a labeled row with expiry and revoke", () => {
+    const html = renderInviteLinksHtml([
+      { id: "l1", label: "for the design team", expiresAt: "2026-08-27T18:00:00.000Z" },
+    ]);
+    expect(html).toContain('data-link-id="l1"');
+    expect(html).toContain("for the design team");
+    expect(html).toContain("invite-link-row__revoke");
+    expect(html).toContain("expires");
+  });
+
+  it("falls back to a generic label when none was set", () => {
+    const html = renderInviteLinksHtml([
+      { id: "l1", label: null, expiresAt: "2026-08-27T18:00:00.000Z" },
+    ]);
+    expect(html).toContain("Unlabeled link");
+  });
+
+  it("escapes the label", () => {
+    const html = renderInviteLinksHtml([
+      { id: "l1", label: "<script>alert(1)</script>", expiresAt: "2026-08-27T18:00:00.000Z" },
+    ]);
+    expect(html).not.toContain("<script>");
+    expect(html).toContain("&lt;script&gt;");
+  });
+
+  it("returns empty string for no links", () => {
+    expect(renderInviteLinksHtml([])).toBe("");
   });
 });
 

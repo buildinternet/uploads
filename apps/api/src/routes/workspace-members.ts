@@ -31,6 +31,16 @@
  *    `POST /:workspace/invites` here would double-register/shadow that exact
  *    path — see that route's docblock for the "upgrade in place, don't
  *    parallel-register" reasoning.
+ *  - `POST /invite-links`, `GET /invite-links`, `DELETE /invite-links/:id`
+ *    (issue #869 phase B) — session-only, admin/owner-gated, same as the
+ *    email-invite routes above. Mint/list/revoke a `kind: 'member'`
+ *    `auth_enrollments` row: redeeming one (`POST /auth/enrollments/join` in
+ *    `routes/auth.ts`) adds the redeemer as an org member, member-cap
+ *    enforced at both mint and redemption. Distinct from the pre-existing
+ *    `kind: 'token'` invite links `/admin` mints for CLI onboarding (`POST
+ *    /admin-ui/workspaces/:name/invite-links`, `routes/admin-ui.ts`) — same
+ *    `auth_enrollments` table and `auth-db.ts` helpers, filtered by `kind` so
+ *    neither surface can list or revoke the other's links.
  *
  * Session auth here is session-only-with-admin-tier, NOT
  * `dualWorkspaceAuth`/`requireSessionAdmin` (those grant a session caller
@@ -43,9 +53,20 @@
  */
 import { ForbiddenError, NotFoundError, RateLimitedError, ValidationError } from "@uploads/errors";
 import { Hono, type Context, type MiddlewareHandler } from "hono";
+import {
+  createEnrollment,
+  DEFAULT_ENROLLMENT_SECONDS,
+  DEFAULT_TOKEN_SECONDS,
+  labelValue,
+  listOpenEnrollments,
+  revokeEnrollment,
+} from "../auth-db";
+import { dbFor } from "../db-session";
 import { hasPreresolvedSession, resolveSessionUserId } from "../dual-workspace-auth";
 import { respondError } from "../error-response";
 import { allowWrite } from "../guards";
+import { throwForInviteError } from "../invite-error";
+import { deriveWebOrigin, inviteLinkUrl } from "../invite-links";
 import {
   invitesForOrg,
   membersForOrg,
@@ -57,6 +78,7 @@ import {
   type OrgMember,
 } from "../org-workspaces";
 import type { SessionVars } from "../session-auth";
+import { isPurgedTombstone, loadWorkspaceRecordRaw } from "../workspace";
 
 /** Context vars a `sessionMemberGate`/`sessionAdminGate`-guarded route can rely on. */
 export type MembersVars = {
@@ -231,6 +253,119 @@ export async function memberRoleUpdateHandler(c: Context<MembersVars>) {
   return c.json({ member });
 }
 
+/**
+ * 404s minting a member-kind invite link for a soft-deleted or
+ * purged-tombstone workspace — same existence rule `loadEditableWorkspace`
+ * (`routes/admin-ui.ts`) applies to the admin-minted token-kind links. Mint
+ * only: list/revoke stay unguarded here, since seeing or clearing out
+ * outstanding links during a deletion grace period is still legitimately
+ * useful (and `sessionAdminGate` already means the caller was a member of a
+ * workspace that still exists in the membership lookup at some point).
+ */
+async function requireLiveWorkspace(env: Env, name: string): Promise<void> {
+  const record = await loadWorkspaceRecordRaw(env, name);
+  if (!record || isPurgedTombstone(record) || record.deletedAt) {
+    throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
+  }
+}
+
+/**
+ * `sessionAdminGate`'s `MembersVars["memberOrg"]["slug"]` IS the workspace
+ * name (the 1:1 org<->workspace mapping `org-workspaces.ts` documents), so
+ * every invite-link handler below reuses it instead of re-reading (and
+ * re-widening) the `:workspace` path param — same pattern as
+ * `inviteRevokeHandler`'s `allowWrite(c.env, org.slug)` call above.
+ *
+ * `POST /:workspace/invite-links` — mint a `kind: 'member'` invite link
+ * (issue #869 phase B). Its redemption (`POST /auth/enrollments/join`) adds
+ * the redeemer as an org member with role `member`, never a CLI token — so
+ * this route mints with `scopes: []` (never used by a member-kind exchange;
+ * `exchangeEnrollment` rejects non-'token' rows outright regardless) and
+ * checks the member cap at mint time, mirroring email invites' `POST
+ * /:workspace/invites` (`routes/workspaces.ts`): same `member_cap_reached`
+ * error shape via `throwForInviteError`, same fail-open posture on a cap
+ * lookup that can't be made (`memberCapDenial` in apps/auth). Redemption
+ * re-checks the cap independently — see `routes/auth.ts`'s join handler.
+ */
+export async function inviteLinkMintHandler(c: Context<MembersVars>) {
+  const org = c.get("memberOrg");
+  if (!(await allowWrite(c.env, org.slug))) throw new RateLimitedError("rate limit exceeded");
+
+  // requireLiveWorkspace (KV) and the AUTH member-cap-check fetch are
+  // independent lookups with no data dependency on each other — start both
+  // before awaiting either so their latencies overlap. requireLiveWorkspace
+  // is still awaited (and can still throw 404) before the label is
+  // validated and before the cap-check result is inspected, preserving
+  // today's precedence: not-found, then invalid label, then cap denial.
+  const liveWorkspace = requireLiveWorkspace(c.env, org.slug);
+  const capCheckFetch = c.env.AUTH.fetch("https://auth.internal/internal/member-cap/check", {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-uploads-internal": "1" },
+    body: JSON.stringify({ workspace: org.slug }),
+  });
+  await liveWorkspace;
+
+  const body = await c.req.json<{ label?: unknown }>().catch(() => ({}) as { label?: unknown });
+  const label = labelValue(body.label);
+  if (label === null) {
+    throw new ValidationError("label must be between 1 and 100 characters", {
+      code: "invalid_label",
+    });
+  }
+
+  const capCheck = await capCheckFetch;
+  if (!capCheck.ok) {
+    const payload = await capCheck.json().catch(() => null);
+    throwForInviteError(capCheck.status, payload);
+  }
+
+  const enrollment = await createEnrollment(dbFor(c.env), {
+    workspace: org.slug,
+    label,
+    scopes: [],
+    kind: "member",
+    enrollmentSeconds: DEFAULT_ENROLLMENT_SECONDS,
+    tokenSeconds: DEFAULT_TOKEN_SECONDS,
+  });
+
+  const webOrigin = c.env.WEB_ORIGIN || deriveWebOrigin(c.req.url);
+  const url = inviteLinkUrl(webOrigin, enrollment.pageId, enrollment.code);
+
+  return c.json(
+    {
+      workspace: org.slug,
+      id: enrollment.id,
+      pageId: enrollment.pageId,
+      label: label ?? null,
+      url,
+      expiresAt: enrollment.expiresAt,
+    },
+    201,
+  );
+}
+
+/** `GET /:workspace/invite-links` — outstanding `kind: 'member'` links only;
+ * never the plaintext code or its hash (show-once stays show-once). */
+export async function inviteLinkListHandler(c: Context<MembersVars>) {
+  const org = c.get("memberOrg");
+  const links = await listOpenEnrollments(dbFor(c.env), org.slug, new Date(), "member");
+  return c.json({ links });
+}
+
+/** `DELETE /:workspace/invite-links/:id` — revoke one outstanding
+ * `kind: 'member'` link before it's redeemed; the `kind` filter means this
+ * can never revoke a token-kind link minted from `/admin`. */
+export async function inviteLinkRevokeHandler(c: Context<MembersVars>) {
+  const org = c.get("memberOrg");
+  if (!(await allowWrite(c.env, org.slug))) throw new RateLimitedError("rate limit exceeded");
+  const id = c.req.param("id") ?? "";
+  const revoked = await revokeEnrollment(dbFor(c.env), org.slug, id, "member");
+  if (!revoked) {
+    throw new NotFoundError("invite link not found", { code: "invite_link_not_found" });
+  }
+  return c.json({ ok: true, id });
+}
+
 export const workspaceMembers = new Hono<MembersVars>()
   .get("/:workspace/members", sessionMemberGate(), membersHandler)
   .get("/:workspace/people", sessionMemberGate(), peopleHandler)
@@ -238,4 +373,7 @@ export const workspaceMembers = new Hono<MembersVars>()
   .delete("/:workspace/invites/:id", sessionAdminGate(), inviteRevokeHandler)
   .delete("/:workspace/members/:memberId", sessionAdminGate(), memberRemoveHandler)
   .patch("/:workspace/members/:memberId", sessionAdminGate(), memberRoleUpdateHandler)
+  .post("/:workspace/invite-links", sessionAdminGate(), inviteLinkMintHandler)
+  .get("/:workspace/invite-links", sessionAdminGate(), inviteLinkListHandler)
+  .delete("/:workspace/invite-links/:id", sessionAdminGate(), inviteLinkRevokeHandler)
   .onError((err, c) => respondError(c, err));

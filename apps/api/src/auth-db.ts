@@ -56,6 +56,18 @@ export interface AuthTokenRecord {
   last_used_at: string | null;
 }
 
+/**
+ * What redeeming an enrollment code does. `'token'` (the default, and the
+ * only kind that existed before issue #869 phase B) mints a workspace-scoped
+ * `auth_tokens` row via `exchangeEnrollment` — it never touches org
+ * membership or the member cap. `'member'` links are minted by workspace
+ * admins from the People page and redeemed through `POST
+ * /auth/enrollments/join` instead, which adds the signed-in redeemer as an
+ * org member (member-cap-enforced). `exchangeEnrollment` rejects any
+ * non-'token' row outright — see its docblock.
+ */
+export type EnrollmentKind = "token" | "member";
+
 interface EnrollmentRecord {
   id: string;
   workspace: string;
@@ -67,6 +79,20 @@ interface EnrollmentRecord {
   token_expires_at: string;
   used_at: string | null;
   page_id: string | null;
+  kind: EnrollmentKind;
+}
+
+/** One outstanding (unredeemed, unexpired) invite-link enrollment, as
+ * surfaced to the admin panel — deliberately excludes `code_hash`: a listed
+ * link's URL can never be reconstructed, only revoked. */
+export interface OpenEnrollment {
+  id: string;
+  pageId: string | null;
+  label: string | null;
+  scopes: FileScope[];
+  kind: EnrollmentKind;
+  createdAt: string;
+  expiresAt: string;
 }
 
 export function parseScopes(value: string): FileScope[] {
@@ -102,6 +128,21 @@ export function validateScopes(
     (opts?.allowWorkspace === true && isWorkspaceScope(v));
   if (!value.every(isValid)) return null;
   return [...new Set(value)] as (FileScope | OperatorScope | WorkspaceScope)[];
+}
+
+/**
+ * Validates a user-supplied invite-link label: `undefined` in means "no
+ * label was supplied" (caller applies its own default), `null` out means
+ * invalid, otherwise the trimmed 1-100 char label. Shared by both invite-link
+ * mint handlers — `routes/admin-ui.ts`'s `kind: 'token'` links and
+ * `routes/workspace-members.ts`'s `kind: 'member'` links — same
+ * `auth_enrollments.label` column, same rule.
+ */
+export function labelValue(value: unknown): string | undefined | null {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "string") return null;
+  const label = value.trim();
+  return label.length >= 1 && label.length <= 100 ? label : null;
 }
 
 function randomSecret(prefix: string, bytes = 24): string {
@@ -220,11 +261,19 @@ export async function createEnrollment(
     workspace: string;
     label?: string;
     scopes: FileScope[];
+    /** Defaults to `'token'` — the only kind that existed before #869 phase B. */
+    kind?: EnrollmentKind;
     enrollmentSeconds?: number;
     tokenSeconds?: number;
     now?: Date;
   },
-): Promise<{ pageId: string; code: string; expiresAt: string; tokenExpiresAt: string }> {
+): Promise<{
+  id: string;
+  pageId: string;
+  code: string;
+  expiresAt: string;
+  tokenExpiresAt: string;
+}> {
   const now = input.now ?? new Date();
   const expiresAt = new Date(
     now.getTime() + (input.enrollmentSeconds ?? DEFAULT_ENROLLMENT_SECONDS) * 1000,
@@ -234,15 +283,16 @@ export async function createEnrollment(
   );
   const code = randomSecret("upe_", 18);
   const pageId = randomSecret("upi_", 12);
+  const enrollmentId = id();
   await db
     .prepare(
       `INSERT INTO auth_enrollments
        (id, workspace, code_hash, label, scopes, created_at, expires_at, token_expires_at, used_at,
-        page_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
+        page_id, kind)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
     )
     .bind(
-      id(),
+      enrollmentId,
       input.workspace,
       await sha256Hex(code),
       input.label ?? null,
@@ -251,9 +301,11 @@ export async function createEnrollment(
       expiresAt.toISOString(),
       tokenExpiresAt.toISOString(),
       pageId,
+      input.kind ?? "token",
     )
     .run();
   return {
+    id: enrollmentId,
     pageId,
     code,
     expiresAt: expiresAt.toISOString(),
@@ -261,22 +313,149 @@ export async function createEnrollment(
   };
 }
 
+/**
+ * Outstanding (unredeemed, unexpired) invite-link enrollments for a
+ * workspace, newest first — backs the admin panel's invite-link list. Never
+ * selects `code_hash`; the plaintext code is never stored either, so a
+ * listed link's URL can't be reconstructed (show-once stays show-once).
+ */
+export async function listOpenEnrollments(
+  db: D1Queryable,
+  workspace: string,
+  now = new Date(),
+  /** Restrict to one `kind` — e.g. the People page's `'member'`-only list.
+   * Omitted keeps the pre-#869 behavior (every outstanding link, any kind) —
+   * the `/admin` panel deliberately shows both. */
+  kind?: EnrollmentKind,
+): Promise<OpenEnrollment[]> {
+  const result = await db
+    .prepare(
+      `SELECT id, page_id, label, scopes, kind, created_at, expires_at
+       FROM auth_enrollments
+       WHERE workspace = ? AND used_at IS NULL AND expires_at > ?${kind ? " AND kind = ?" : ""}
+       ORDER BY created_at DESC`,
+    )
+    .bind(...(kind ? [workspace, now.toISOString(), kind] : [workspace, now.toISOString()]))
+    .all<
+      Pick<
+        EnrollmentRecord,
+        "id" | "page_id" | "label" | "scopes" | "kind" | "created_at" | "expires_at"
+      >
+    >();
+  return result.results.map((row) => ({
+    id: row.id,
+    pageId: row.page_id,
+    label: row.label,
+    scopes: parseScopes(row.scopes),
+    kind: row.kind,
+    createdAt: row.created_at,
+    expiresAt: row.expires_at,
+  }));
+}
+
+/**
+ * Delete one outstanding enrollment, scoped by both workspace and id so an
+ * admin can't revoke another workspace's link. Returns whether a row was
+ * actually deleted (false for an unknown id or one owned by another
+ * workspace — same 404 either way at the route layer).
+ */
+export async function revokeEnrollment(
+  db: D1Queryable,
+  workspace: string,
+  id: string,
+  /** Restrict the delete to one `kind` — the People page's revoke can only
+   * touch its own `'member'` links, never a token-kind link minted from
+   * `/admin`. Omitted matches every kind (pre-#869 behavior). */
+  kind?: EnrollmentKind,
+): Promise<boolean> {
+  const result = await db
+    .prepare(
+      `DELETE FROM auth_enrollments WHERE workspace = ? AND id = ?${kind ? " AND kind = ?" : ""}`,
+    )
+    .bind(...(kind ? [workspace, id, kind] : [workspace, id]))
+    .run();
+  return (result.meta?.changes ?? 0) > 0;
+}
+
 export async function findEnrollmentPage(
   db: D1Queryable,
   pageId: string,
   now = new Date(),
-): Promise<{ workspace: string; expiresAt: string; used: boolean } | null> {
+): Promise<{ workspace: string; expiresAt: string; used: boolean; kind: EnrollmentKind } | null> {
   if (!/^upi_[A-Za-z0-9_-]{16}$/.test(pageId)) return null;
   const record = await db
     .prepare(
-      `SELECT workspace, expires_at, used_at FROM auth_enrollments
+      `SELECT workspace, expires_at, used_at, kind FROM auth_enrollments
        WHERE page_id = ? AND expires_at > ? LIMIT 1`,
     )
     .bind(pageId, now.toISOString())
-    .first<Pick<EnrollmentRecord, "workspace" | "expires_at" | "used_at">>();
+    .first<Pick<EnrollmentRecord, "workspace" | "expires_at" | "used_at" | "kind">>();
   return record
-    ? { workspace: record.workspace, expiresAt: record.expires_at, used: record.used_at !== null }
+    ? {
+        workspace: record.workspace,
+        expiresAt: record.expires_at,
+        used: record.used_at !== null,
+        kind: record.kind,
+      }
     : null;
+}
+
+/**
+ * Claims an outstanding `kind: 'member'` invite link for redemption (issue
+ * #869 phase B) — the single-use, race-safe first half of `POST
+ * /auth/enrollments/join` (`routes/auth.ts`): a conditional UPDATE that only
+ * the first concurrent redeemer wins, done BEFORE the caller adds the member,
+ * so a lost race is indistinguishable from any other invalid code. Returns
+ * `null` for an unknown/expired/already-used/wrong-kind code — same uniform
+ * failure shape callers collapse to `INVALID_ENROLLMENT`. The returned
+ * `codeHash` is what {@link releaseEnrollmentClaim} needs to restore the
+ * claim; recomputing it there would mean hashing the code twice.
+ */
+export async function claimMemberEnrollment(
+  db: D1Queryable,
+  code: string,
+  now = new Date(),
+): Promise<{ id: string; workspace: string; codeHash: string } | null> {
+  const nowIso = now.toISOString();
+  const codeHash = await sha256Hex(code);
+  const enrollment = await db
+    .prepare(
+      `SELECT id, workspace FROM auth_enrollments
+       WHERE code_hash = ? AND used_at IS NULL AND expires_at > ? AND kind = 'member'
+       LIMIT 1`,
+    )
+    .bind(codeHash, nowIso)
+    .first<{ id: string; workspace: string }>();
+  if (!enrollment) return null;
+
+  const claim = await db
+    .prepare(
+      `UPDATE auth_enrollments SET used_at = ?
+       WHERE id = ? AND code_hash = ? AND used_at IS NULL AND expires_at > ? AND kind = 'member'`,
+    )
+    .bind(nowIso, enrollment.id, codeHash, nowIso)
+    .run();
+  if ((claim.meta?.changes ?? 0) !== 1) return null;
+
+  return { id: enrollment.id, workspace: enrollment.workspace, codeHash };
+}
+
+/**
+ * Restores a claim {@link claimMemberEnrollment} made (`used_at = NULL`),
+ * scoped by both `id` and `code_hash` so it can only ever touch the row it
+ * claimed. Shared by every `/auth/enrollments/join` path where the
+ * redemption didn't actually happen (or didn't consume a seat) — the link
+ * isn't permanently burned for something that never occurred.
+ */
+export async function releaseEnrollmentClaim(
+  db: D1Queryable,
+  id: string,
+  codeHash: string,
+): Promise<void> {
+  await db
+    .prepare(`UPDATE auth_enrollments SET used_at = NULL WHERE id = ? AND code_hash = ?`)
+    .bind(id, codeHash)
+    .run();
 }
 
 export async function exchangeEnrollment(
@@ -287,12 +466,16 @@ export async function exchangeEnrollment(
   if (!/^upe_[A-Za-z0-9_-]{20,}$/.test(code)) return null;
   const nowIso = now.toISOString();
   const codeHash = await sha256Hex(code);
+  // `kind = 'token'` (issue #869 phase B): a workspace-admin `'member'` join
+  // link must never be exchangeable for a CLI token — same uniform `null`
+  // failure as an expired/unknown/already-used code, so a caller can't tell
+  // "wrong kind" apart from "invalid" by probing this endpoint.
   const enrollment = await db
     .prepare(
       `SELECT id, workspace, code_hash, label, scopes, created_at, expires_at,
-              token_expires_at, used_at
+              token_expires_at, used_at, kind
        FROM auth_enrollments
-       WHERE code_hash = ? AND used_at IS NULL AND expires_at > ?
+       WHERE code_hash = ? AND used_at IS NULL AND expires_at > ? AND kind = 'token'
        LIMIT 1`,
     )
     .bind(codeHash, nowIso)
