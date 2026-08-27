@@ -18,8 +18,10 @@ import { SqliteD1, database } from "./helpers/sqlite-d1";
 
 const MIGRATIONS = [
   "migrations/20260710120000_auth.sql",
+  "migrations/20260711120000_invite_pages.sql",
   "migrations/20260712230000_token_minting_user.sql",
   "migrations/20260817180000_token_last_used.sql",
+  "migrations/20260827160000_auth_enrollments_kind.sql",
 ];
 
 const ADMIN = { id: "u-admin", email: "admin@example.com", name: "Admin" };
@@ -53,6 +55,9 @@ interface EnvOpts {
   db?: SqliteD1;
   onDelete?: (path: string) => Response;
   onPatch?: (path: string, body: unknown) => Response;
+  /** `undefined` = the cap check always 200s ok. */
+  memberCapDenied?: boolean;
+  onJoin?: (body: { organizationSlug?: string; userId?: string }) => Response;
 }
 
 function makeEnv(opts: EnvOpts = {}) {
@@ -67,6 +72,8 @@ function makeEnv(opts: EnvOpts = {}) {
     db = new SqliteD1(MIGRATIONS),
     onDelete,
     onPatch,
+    memberCapDenied = false,
+    onJoin,
   } = opts;
 
   const auth = stubAuth(async (req) => {
@@ -102,6 +109,25 @@ function makeEnv(opts: EnvOpts = {}) {
         { invitation: { id: "inv-1", email: body.email, role: "member", status: "pending" } },
         { status: 201 },
       );
+    }
+    if (url.pathname === "/internal/member-cap/check" && req.method === "POST") {
+      if (memberCapDenied) {
+        return Response.json(
+          {
+            error: {
+              code: "member_cap_reached",
+              message: "This workspace has reached its member limit.",
+            },
+          },
+          { status: 403 },
+        );
+      }
+      return Response.json({ ok: true });
+    }
+    if (url.pathname === "/internal/join" && req.method === "POST") {
+      const body = (await req.json()) as { organizationSlug?: string; userId?: string };
+      if (onJoin) return onJoin(body);
+      return Response.json({ alreadyMember: false }, { status: 201 });
     }
     if (req.method === "DELETE" && onDelete) return onDelete(url.pathname);
     if (req.method === "DELETE") return new Response(null, { status: 200 });
@@ -465,6 +491,234 @@ describe("POST /v1/workspaces/:workspace/invites (dual governance auth)", () => 
     expect(res.status).toBe(201);
     const body = (await res.json()) as { invitation: { email: string } };
     expect(body.invitation.email).toBe("bearer-session@example.com");
+  });
+});
+
+// Issue #869 phase B: workspace-admin "join" invite links.
+describe("POST /v1/workspaces/:workspace/invite-links", () => {
+  it("mints a kind:'member' link for an admin session", async () => {
+    const env = makeEnv();
+    const res = await app.request(
+      "/v1/workspaces/acme/invite-links",
+      {
+        method: "POST",
+        headers: { ...sessionHeaders, "content-type": "application/json" },
+        body: JSON.stringify({ label: "for the design team" }),
+      },
+      env,
+    );
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as {
+      workspace: string;
+      id: string;
+      pageId: string;
+      label: string;
+      url: string;
+      expiresAt: string;
+    };
+    expect(body.workspace).toBe("acme");
+    expect(body.label).toBe("for the design team");
+    expect(body.pageId).toMatch(/^upi_/);
+    expect(body.url).toContain(body.pageId);
+    expect(body.url).toContain("#code=");
+    // The plaintext code is never persisted — only the show-once URL carries it.
+    expect(JSON.stringify(body)).not.toContain("code_hash");
+  });
+
+  it("defaults label to null when omitted", async () => {
+    const env = makeEnv();
+    const res = await app.request(
+      "/v1/workspaces/acme/invite-links",
+      {
+        method: "POST",
+        headers: { ...sessionHeaders, "content-type": "application/json" },
+        body: "{}",
+      },
+      env,
+    );
+    expect(res.status).toBe(201);
+    expect(((await res.json()) as { label: unknown }).label).toBeNull();
+  });
+
+  it("400s for an invalid label", async () => {
+    const env = makeEnv();
+    const res = await app.request(
+      "/v1/workspaces/acme/invite-links",
+      {
+        method: "POST",
+        headers: { ...sessionHeaders, "content-type": "application/json" },
+        body: JSON.stringify({ label: "" }),
+      },
+      env,
+    );
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe("invalid_label");
+  });
+
+  it("403s with member_cap_reached when the workspace is at cap, and mints no row", async () => {
+    const db = new SqliteD1(MIGRATIONS);
+    const env = makeEnv({ db, memberCapDenied: true });
+    const res = await app.request(
+      "/v1/workspaces/acme/invite-links",
+      {
+        method: "POST",
+        headers: { ...sessionHeaders, "content-type": "application/json" },
+        body: "{}",
+      },
+      env,
+    );
+    expect(res.status).toBe(403);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+      "member_cap_reached",
+    );
+    const list = await app.request(
+      "/v1/workspaces/acme/invite-links",
+      { headers: sessionHeaders },
+      makeEnv({ db }),
+    );
+    expect(((await list.json()) as { links: unknown[] }).links).toHaveLength(0);
+  });
+
+  it("non-admin member session 403s", async () => {
+    const env = makeEnv({
+      sessionUser: MEMBER,
+      memberships: [{ organizationId: "org-1", organizationSlug: "acme", role: "member" }],
+    });
+    const res = await app.request(
+      "/v1/workspaces/acme/invite-links",
+      {
+        method: "POST",
+        headers: { ...sessionHeaders, "content-type": "application/json" },
+        body: "{}",
+      },
+      env,
+    );
+    expect(res.status).toBe(403);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+      "workspace_admin_required",
+    );
+  });
+
+  it("non-member session 404s", async () => {
+    const env = makeEnv({ memberships: [] });
+    const res = await app.request(
+      "/v1/workspaces/acme/invite-links",
+      {
+        method: "POST",
+        headers: { ...sessionHeaders, "content-type": "application/json" },
+        body: "{}",
+      },
+      env,
+    );
+    expect(res.status).toBe(404);
+  });
+
+  it("bearer token 403s (no bearer capability for this route)", async () => {
+    const env = makeEnv();
+    const res = await app.request(
+      "/v1/workspaces/acme/invite-links",
+      { method: "POST", headers: { Authorization: "Bearer up_acme_whatever" }, body: "{}" },
+      env,
+    );
+    expect(res.status).toBe(403);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+      "members_requires_session",
+    );
+  });
+});
+
+describe("GET /v1/workspaces/:workspace/invite-links + DELETE .../:id", () => {
+  async function mint(db: SqliteD1, label?: string) {
+    const res = await app.request(
+      "/v1/workspaces/acme/invite-links",
+      {
+        method: "POST",
+        headers: { ...sessionHeaders, "content-type": "application/json" },
+        body: JSON.stringify(label ? { label } : {}),
+      },
+      makeEnv({ db }),
+    );
+    return (await res.json()) as { id: string; pageId: string };
+  }
+
+  it("lists only outstanding kind:'member' links, isolated per workspace", async () => {
+    const db = new SqliteD1(MIGRATIONS);
+    await mint(db, "one");
+    await mint(db, "two");
+
+    const res = await app.request(
+      "/v1/workspaces/acme/invite-links",
+      { headers: sessionHeaders },
+      makeEnv({ db }),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { links: { label: string | null; kind?: string }[] };
+    expect(body.links.map((l) => l.label).sort()).toEqual(["one", "two"]);
+    // code_hash (or the plaintext code) is never exposed by the list.
+    expect(JSON.stringify(body)).not.toContain("code_hash");
+  });
+
+  it("revoke deletes the link so it no longer appears in the list", async () => {
+    const db = new SqliteD1(MIGRATIONS);
+    const link = await mint(db, "revoke-me");
+
+    const del = await app.request(
+      `/v1/workspaces/acme/invite-links/${link.id}`,
+      { method: "DELETE", headers: sessionHeaders },
+      makeEnv({ db }),
+    );
+    expect(del.status).toBe(200);
+    expect(await del.json()).toEqual({ ok: true, id: link.id });
+
+    const list = await app.request(
+      "/v1/workspaces/acme/invite-links",
+      { headers: sessionHeaders },
+      makeEnv({ db }),
+    );
+    expect(((await list.json()) as { links: unknown[] }).links).toHaveLength(0);
+  });
+
+  it("revoke 404s for an unknown id", async () => {
+    const db = new SqliteD1(MIGRATIONS);
+    const res = await app.request(
+      "/v1/workspaces/acme/invite-links/nope",
+      { method: "DELETE", headers: sessionHeaders },
+      makeEnv({ db }),
+    );
+    expect(res.status).toBe(404);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+      "invite_link_not_found",
+    );
+  });
+
+  it("list: non-admin member 403s, non-member 404s, bearer 403s", async () => {
+    const db = new SqliteD1(MIGRATIONS);
+    await mint(db, "one");
+
+    const memberRes = await app.request(
+      "/v1/workspaces/acme/invite-links",
+      { headers: sessionHeaders },
+      makeEnv({
+        db,
+        sessionUser: MEMBER,
+        memberships: [{ organizationId: "org-1", organizationSlug: "acme", role: "member" }],
+      }),
+    );
+    expect(memberRes.status).toBe(403);
+
+    const nonMemberRes = await app.request(
+      "/v1/workspaces/acme/invite-links",
+      { headers: sessionHeaders },
+      makeEnv({ db, memberships: [] }),
+    );
+    expect(nonMemberRes.status).toBe(404);
+
+    const bearerRes = await app.request(
+      "/v1/workspaces/acme/invite-links",
+      { headers: { Authorization: "Bearer up_acme_whatever" } },
+      makeEnv({ db }),
+    );
+    expect(bearerRes.status).toBe(403);
   });
 });
 

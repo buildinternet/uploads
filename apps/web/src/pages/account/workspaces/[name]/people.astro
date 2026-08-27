@@ -93,6 +93,32 @@ if (cookie.trim()) {
         <p class="muted cli-note" id="ws-invite-link" hidden></p>
       </div>
     </div>
+
+    <div class="settings-section" id="ws-invite-links-section" hidden>
+      <h2>Invite links</h2>
+      <p class="settings-note muted">
+        Anyone with the link can join this workspace once — no email required.
+      </p>
+      <form class="ws-form" id="ws-invite-link-form">
+        <div class="input-group">
+          <label class="input-group__field">
+            <span class="sr-only">Label (optional)</span>
+            <input type="text" name="label" maxlength="100" placeholder="Label (optional)" />
+          </label>
+          <button type="submit" class="input-group__action">Generate link</button>
+        </div>
+      </form>
+      <div class="ws-messages">
+        <p class="muted cli-note" id="ws-invite-link-status" role="status" hidden></p>
+        <div class="command" id="ws-invite-link-url" hidden>
+          <code id="ws-invite-link-url-code"></code>
+          <button type="button" id="ws-invite-link-url-copy" data-copy="" aria-live="polite"
+            >copy</button
+          >
+        </div>
+      </div>
+      <ul class="invite-link-list" id="ws-invite-link-list"></ul>
+    </div>
   </section>
 
   <script>
@@ -104,18 +130,24 @@ if (cookie.trim()) {
       requireElement,
     } from "../../../../lib/account-shell";
     import {
+      createInviteLink,
       getWorkspacePeople,
       inviteToWorkspace,
+      listInviteLinks,
+      revokeInviteLink,
       revokeWorkspaceInvite,
       removeWorkspaceMember,
       updateWorkspaceMemberRole,
       type ManageResult,
+      type WorkspaceInviteLink,
     } from "../../../../lib/api-client";
     import { resolveActiveWorkspace } from "../../../../lib/workspace-browse-url";
     import { loadWorkspaceSummary } from "../../../../lib/workspace-summary-source";
     import {
+      bindCopyButtons,
       escapeHtml,
       isWorkspaceAdminRole,
+      renderInviteLinksHtml,
       renderInvitesHtml,
       renderMembersHtml,
       renderPeopleTableHtml,
@@ -147,6 +179,16 @@ if (cookie.trim()) {
       const inviteForm = requireElement<HTMLFormElement>("#ws-invite-form", page);
       const inviteSection = requireElement<HTMLElement>("#ws-invite-section", page);
       const membersEl = requireElement<HTMLElement>("#ws-members", page);
+
+      // Issue #869 phase B: workspace-admin join links.
+      const inviteLinksSection = requireElement<HTMLElement>("#ws-invite-links-section", page);
+      const inviteLinkForm = requireElement<HTMLFormElement>("#ws-invite-link-form", page);
+      const inviteLinkStatus = requireElement<HTMLElement>("#ws-invite-link-status", page);
+      const inviteLinkUrl = requireElement<HTMLElement>("#ws-invite-link-url", page);
+      const inviteLinkUrlCode = requireElement<HTMLElement>("#ws-invite-link-url-code", page);
+      const inviteLinkUrlCopy = requireElement<HTMLButtonElement>("#ws-invite-link-url-copy", page);
+      const inviteLinkList = requireElement<HTMLElement>("#ws-invite-link-list", page);
+      bindCopyButtons(inviteLinkUrl);
 
       let sessionEmail: string | undefined;
       /** People-list controls: canManage + viewerRole feed renderMembersHtml. */
@@ -216,8 +258,22 @@ if (cookie.trim()) {
         const canInvite = isWorkspaceAdminRole(result.role);
         inviteSection.hidden = !canInvite;
         inviteForm.hidden = !canInvite;
+        inviteLinksSection.hidden = !canInvite;
         applyMemberOpts(result);
         paintPeopleList(result.members, result.invites);
+        if (canInvite) void loadInviteLinks();
+      }
+
+      function paintInviteLinks(links: WorkspaceInviteLink[]): void {
+        inviteLinkList.innerHTML = links.length
+          ? renderInviteLinksHtml(links)
+          : '<li class="muted">No outstanding invite links.</li>';
+      }
+
+      async function loadInviteLinks(): Promise<void> {
+        const result = await listInviteLinks(apiOrigin, workspaceName);
+        if (!stillHere() || result.kind !== "ok") return;
+        paintInviteLinks(result.links);
       }
 
       async function loadInvitePage(): Promise<void> {
@@ -263,19 +319,20 @@ if (cookie.trim()) {
         return `Couldn’t ${action}. Try again.`;
       }
 
-      /** Confirm → disable → API → refresh; shared by remove/revoke. */
+      /** Confirm → disable → API → refresh; shared by remove/revoke/invite-link revoke. */
       function runManageAction(
         btn: HTMLButtonElement,
         confirmMessage: string,
         actionLabel: string,
         request: () => Promise<ManageResult>,
+        onSuccess: () => void = () => void refreshPeopleLists(),
       ): void {
         if (!confirm(confirmMessage)) return;
         void (async () => {
           btn.disabled = true;
           const res = await request();
           if (!stillHere()) return;
-          if (res.kind === "ok") void refreshPeopleLists();
+          if (res.kind === "ok") onSuccess();
           else {
             btn.disabled = false;
             alert(manageErrorText(res.reason, actionLabel));
@@ -329,6 +386,62 @@ if (cookie.trim()) {
             inviteStatus.textContent = "Couldn’t create the invite. Try again.";
           }
         })();
+      });
+
+      inviteLinkForm.addEventListener("submit", (event) => {
+        void (async () => {
+          event.preventDefault();
+          if (!stillHere()) return;
+          const form = event.currentTarget as HTMLFormElement;
+          const labelInput = form.querySelector<HTMLInputElement>('input[name="label"]');
+          const submit = form.querySelector<HTMLButtonElement>('button[type="submit"]');
+          const label = labelInput?.value.trim() || undefined;
+          if (!submit) return;
+
+          inviteLinkStatus.hidden = false;
+          inviteLinkStatus.textContent = "Generating link…";
+          inviteLinkUrl.hidden = true;
+          submit.disabled = true;
+          const result = await createInviteLink(apiOrigin, workspaceName, label);
+          if (!stillHere()) return;
+          submit.disabled = false;
+
+          if (result.kind === "ok") {
+            inviteLinkStatus.textContent = "Link created — copy it now, it won't be shown again.";
+            inviteLinkUrlCode.textContent = result.url;
+            inviteLinkUrlCopy.dataset.copy = result.url;
+            inviteLinkUrl.hidden = false;
+            if (labelInput) labelInput.value = "";
+            void loadInviteLinks();
+            return;
+          }
+          if (result.reason === "member_cap") {
+            inviteLinkStatus.textContent =
+              result.message ?? "This workspace has reached its member limit.";
+          } else if (result.reason === "forbidden") {
+            inviteLinkStatus.textContent = "You need workspace admin access to generate a link.";
+          } else if (result.reason === "invalid") {
+            inviteLinkStatus.textContent = "That label isn’t valid.";
+          } else {
+            inviteLinkStatus.textContent = "Couldn’t generate a link. Try again.";
+          }
+        })();
+      });
+
+      inviteLinkList.addEventListener("click", (event) => {
+        const target = event.target as HTMLElement;
+        const revokeBtn = target.closest<HTMLButtonElement>(".invite-link-row__revoke");
+        if (!revokeBtn) return;
+        const linkId = revokeBtn.dataset.linkId ?? "";
+        const label = revokeBtn.dataset.linkLabel || "this link";
+        if (!linkId) return;
+        runManageAction(
+          revokeBtn,
+          `Revoke the invite link "${label}"? Anyone still holding it will no longer be able to join.`,
+          "revoke this invite link",
+          () => revokeInviteLink(apiOrigin, workspaceName, linkId),
+          () => void loadInviteLinks(),
+        );
       });
 
       membersEl.addEventListener("click", (event) => {

@@ -1474,4 +1474,200 @@ describe("DB-backed behavior", () => {
       });
     });
   });
+
+  // Issue #869 phase B: mint-time member-cap check backing
+  // `POST /v1/workspaces/:workspace/invite-links` (apps/api). No `API`
+  // binding is configured in `dbEnv()`, so `memberCapDenial` fails open
+  // (unlimited) unless a test wires one up — matching `member-cap.test.ts`'s
+  // fail-open coverage, not re-litigated here.
+  describe("POST /internal/member-cap/check", () => {
+    it("400s when workspace is missing", async () => {
+      const res = await app().request(
+        "/internal/member-cap/check",
+        { method: "POST", headers: { "content-type": "application/json" }, body: "{}" },
+        dbEnv(),
+      );
+      expect(res.status).toBe(400);
+      expect((await res.json()) as { error: { code: string } }).toMatchObject({
+        error: { code: "invalid_request" },
+      });
+    });
+
+    it("404s for an unknown workspace", async () => {
+      const res = await app().request(
+        "/internal/member-cap/check",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ workspace: "nope" }),
+        },
+        dbEnv(),
+      );
+      expect(res.status).toBe(404);
+      expect((await res.json()) as { error: { code: string } }).toMatchObject({
+        error: { code: "organization_not_found" },
+      });
+    });
+
+    it("200s (ok:true) when under cap or the cap lookup fails open", async () => {
+      const org = await seedOrg();
+      const res = await app().request(
+        "/internal/member-cap/check",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ workspace: org.slug }),
+        },
+        dbEnv(),
+      );
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ ok: true });
+    });
+
+    it("403s with member_cap_reached when the workspace is at cap", async () => {
+      const org = await seedOrg();
+      const owner = await seedUser();
+      await orm.insert(schema.member).values({
+        id: crypto.randomUUID(),
+        organizationId: org.id,
+        userId: owner.id,
+        role: "owner",
+        createdAt: new Date(),
+      });
+      const api = {
+        fetch: async () =>
+          new Response(JSON.stringify({ workspace: org.slug, cap: 1, message: "At cap." }), {
+            status: 200,
+          }),
+      } as unknown as Fetcher;
+      const res = await app().request(
+        "/internal/member-cap/check",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ workspace: org.slug }),
+        },
+        dbEnv({ API: api, BILLING_INTERNAL_KEY: "shh-internal" } as unknown as Partial<AuthEnv>),
+      );
+      expect(res.status).toBe(403);
+      expect((await res.json()) as { error: { code: string; message: string } }).toMatchObject({
+        error: { code: "member_cap_reached", message: "At cap." },
+      });
+    });
+  });
+
+  // Issue #869 phase B: redemption of a workspace-admin join link. Called by
+  // apps/api's `POST /auth/enrollments/join` after it has already atomically
+  // claimed the D1 enrollment row — this route only ever adds the member (or
+  // no-ops for an existing one) and re-checks the cap independently of mint.
+  describe("POST /internal/join", () => {
+    function join(body: Record<string, unknown>, e: AuthEnv = dbEnv()) {
+      return app().request(
+        "/internal/join",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        },
+        e,
+      );
+    }
+
+    it("400s when organizationSlug or userId is missing", async () => {
+      const res = await join({});
+      expect(res.status).toBe(400);
+      expect((await res.json()) as { error: { code: string } }).toMatchObject({
+        error: { code: "invalid_request" },
+      });
+    });
+
+    it("404s for an unknown organization", async () => {
+      const user = await seedUser();
+      const res = await join({ organizationSlug: "nope", userId: user.id });
+      expect(res.status).toBe(404);
+      expect((await res.json()) as { error: { code: string } }).toMatchObject({
+        error: { code: "organization_not_found" },
+      });
+    });
+
+    it("404s for an unknown user", async () => {
+      const org = await seedOrg();
+      const res = await join({ organizationSlug: org.slug, userId: "nope" });
+      expect(res.status).toBe(404);
+      expect((await res.json()) as { error: { code: string } }).toMatchObject({
+        error: { code: "user_not_found" },
+      });
+    });
+
+    it("adds the user as a member with role 'member'", async () => {
+      const org = await seedOrg();
+      const user = await seedUser();
+      const res = await join({ organizationSlug: org.slug, userId: user.id });
+      expect(res.status).toBe(201);
+      expect(await res.json()).toEqual({ alreadyMember: false });
+
+      const [member] = await orm
+        .select()
+        .from(schema.member)
+        .where(and(eq(schema.member.organizationId, org.id), eq(schema.member.userId, user.id)));
+      expect(member).toMatchObject({ role: "member" });
+    });
+
+    it("no-ops gracefully for an already-existing member", async () => {
+      const org = await seedOrg();
+      const user = await seedUser();
+      await orm.insert(schema.member).values({
+        id: crypto.randomUUID(),
+        organizationId: org.id,
+        userId: user.id,
+        role: "admin",
+        createdAt: new Date(),
+      });
+
+      const res = await join({ organizationSlug: org.slug, userId: user.id });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ alreadyMember: true });
+
+      // The pre-existing role is untouched — join never demotes.
+      const [member] = await orm
+        .select()
+        .from(schema.member)
+        .where(and(eq(schema.member.organizationId, org.id), eq(schema.member.userId, user.id)));
+      expect(member).toMatchObject({ role: "admin" });
+    });
+
+    it("403s with member_cap_reached at redemption, and adds no member row", async () => {
+      const org = await seedOrg();
+      const owner = await seedUser();
+      await orm.insert(schema.member).values({
+        id: crypto.randomUUID(),
+        organizationId: org.id,
+        userId: owner.id,
+        role: "owner",
+        createdAt: new Date(),
+      });
+      const joiner = await seedUser();
+      const api = {
+        fetch: async () =>
+          new Response(JSON.stringify({ workspace: org.slug, cap: 1, message: "At cap." }), {
+            status: 200,
+          }),
+      } as unknown as Fetcher;
+
+      const res = await join(
+        { organizationSlug: org.slug, userId: joiner.id },
+        dbEnv({ API: api, BILLING_INTERNAL_KEY: "shh-internal" } as unknown as Partial<AuthEnv>),
+      );
+      expect(res.status).toBe(403);
+      expect((await res.json()) as { error: { code: string } }).toMatchObject({
+        error: { code: "member_cap_reached" },
+      });
+
+      const rows = await orm
+        .select()
+        .from(schema.member)
+        .where(and(eq(schema.member.organizationId, org.id), eq(schema.member.userId, joiner.id)));
+      expect(rows).toHaveLength(0);
+    });
+  });
 });

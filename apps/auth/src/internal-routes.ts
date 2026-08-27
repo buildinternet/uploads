@@ -868,6 +868,103 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
       201,
     );
   })
+  // Issue #869 phase B: the mint-time member-cap check for a workspace-admin
+  // "join" invite link (`POST /v1/workspaces/:workspace/invite-links` in
+  // apps/api's routes/workspace-members.ts). Mirrors `memberCapDenial`'s
+  // fail-open posture exactly like `/invite` above — a missing/erroring cap
+  // lookup must not block minting a link, only an actually-resolved cap does.
+  // Unlike `/invite`, there is no `inviterIsGlobalAdmin` bypass here: minting
+  // is workspace-admin-gated by `sessionAdminGate` in apps/api, not something
+  // a site operator does on someone else's behalf.
+  .post("/member-cap/check", async (c) => {
+    const body = await c.req
+      .json<{ workspace?: unknown }>()
+      .catch(() => ({}) as { workspace?: unknown });
+    const workspace = typeof body.workspace === "string" ? body.workspace.trim() : "";
+    if (!workspace) {
+      return c.json(errorJson("invalid_request", "workspace is required"), 400);
+    }
+
+    const db = drizzle(c.env.DB, { schema });
+    const [org] = await db
+      .select()
+      .from(schema.organization)
+      .where(eq(schema.organization.slug, workspace))
+      .limit(1);
+    if (!org) {
+      return c.json(errorJson("organization_not_found", "no organization with that slug"), 404);
+    }
+
+    const denial = await memberCapDenial(c.env, db, {
+      organizationId: org.id,
+      organizationSlug: org.slug,
+    });
+    if (denial) return c.json(errorJson(denial.code, denial.message), 403);
+    return c.json({ ok: true }, 200);
+  })
+  // Issue #869 phase B: redeems a workspace-admin "join" link. Called by
+  // apps/api's `POST /auth/enrollments/join` AFTER it has already atomically
+  // claimed the enrollment row (conditional UPDATE on `used_at IS NULL`) —
+  // this route only ever runs at most once per link, and its caller restores
+  // `used_at` to NULL if this call fails, so a transient error here doesn't
+  // permanently burn the link.
+  //
+  // Deliberately re-runs `memberCapDenial` (redemption-time check, separate
+  // from the mint-time one above) with no bypass of any kind: unlike
+  // `/invite`, an over-cap join must never silently succeed just because the
+  // cap lookup happens to fail open on THIS call — but `memberCapDenial`
+  // itself still fails open on a binding outage (same as every other caller),
+  // which is judged an acceptable, matched-to-existing-behavior tradeoff
+  // rather than blocking every join whenever the billing binding hiccups.
+  .post("/join", async (c) => {
+    const body = await c.req
+      .json<{ organizationSlug?: unknown; userId?: unknown }>()
+      .catch(() => ({}) as { organizationSlug?: unknown; userId?: unknown });
+    const organizationSlug =
+      typeof body.organizationSlug === "string" ? body.organizationSlug.trim() : "";
+    const userId = typeof body.userId === "string" ? body.userId.trim() : "";
+    if (!organizationSlug || !userId) {
+      return c.json(errorJson("invalid_request", "organizationSlug and userId are required"), 400);
+    }
+
+    const db = drizzle(c.env.DB, { schema });
+    const [org] = await db
+      .select()
+      .from(schema.organization)
+      .where(eq(schema.organization.slug, organizationSlug))
+      .limit(1);
+    if (!org) {
+      return c.json(errorJson("organization_not_found", "no organization with that slug"), 404);
+    }
+    const [user] = await db.select().from(schema.user).where(eq(schema.user.id, userId)).limit(1);
+    if (!user) {
+      return c.json(errorJson("user_not_found", "no user with that id"), 404);
+    }
+
+    const [existingMembership] = await db
+      .select({ id: schema.member.id })
+      .from(schema.member)
+      .where(and(eq(schema.member.organizationId, org.id), eq(schema.member.userId, userId)))
+      .limit(1);
+    if (existingMembership) {
+      return c.json({ alreadyMember: true }, 200);
+    }
+
+    const denial = await memberCapDenial(c.env, db, {
+      organizationId: org.id,
+      organizationSlug: org.slug,
+    });
+    if (denial) return c.json(errorJson(denial.code, denial.message), 403);
+
+    await db.insert(schema.member).values({
+      id: crypto.randomUUID(),
+      organizationId: org.id,
+      userId,
+      role: "member",
+      createdAt: new Date(),
+    });
+    return c.json({ alreadyMember: false }, 201);
+  })
   // Self-serve provisioning (spec 2026-07-14): create an org WITH the caller
   // as owner member, non-idempotent — a taken slug is a 409 the API surfaces
   // to the user, unlike POST /orgs (admin backfill, idempotent by design).

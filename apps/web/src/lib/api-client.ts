@@ -784,6 +784,123 @@ export async function updateWorkspaceMemberRole(
   );
 }
 
+/**
+ * Issue #869 phase B: workspace-admin "join" invite links — a shareable URL
+ * whose redemption (on `/invite`) adds the redeemer as an org member.
+ * Distinct from `inviteToWorkspace`'s email invites (no recipient needed)
+ * and from `/admin`'s CLI-token links (this workspace's own People page can
+ * only see/revoke its own `kind: 'member'` links, never a token-kind one).
+ */
+export type CreateInviteLinkResult =
+  | { kind: "ok"; id: string; pageId: string; label: string | null; url: string; expiresAt: string }
+  | {
+      kind: "unavailable";
+      reason: RequestFailure | "server" | "forbidden" | "invalid" | "member_cap";
+      /** Server-authored copy for "member_cap" — same contract as `InviteResult`. */
+      message?: string;
+    };
+
+/** POST /v1/workspaces/:name/invite-links */
+export async function createInviteLink(
+  apiOrigin: string,
+  name: string,
+  label?: string,
+): Promise<CreateInviteLinkResult> {
+  const result = await fetchWithTimeout(
+    `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(name)}/invite-links`,
+    {
+      method: "POST",
+      credentials: "include",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(label ? { label } : {}),
+    },
+  );
+  if (result.kind === "unavailable") return result;
+  const { response } = result;
+  if (response.status === 403) {
+    const error = (await response.json().catch(() => null)) as {
+      error?: { code?: string; message?: string };
+    } | null;
+    if (error?.error?.code === "member_cap_reached") {
+      return { kind: "unavailable", reason: "member_cap", message: error.error.message };
+    }
+    return { kind: "unavailable", reason: "forbidden" };
+  }
+  if (response.status === 400) return { kind: "unavailable", reason: "invalid" };
+  if (!response.ok) return { kind: "unavailable", reason: "server" };
+  const body = (await response.json().catch(() => null)) as {
+    id?: string;
+    pageId?: string;
+    label?: string | null;
+    url?: string;
+    expiresAt?: string;
+  } | null;
+  if (
+    !body ||
+    typeof body.id !== "string" ||
+    typeof body.pageId !== "string" ||
+    typeof body.url !== "string" ||
+    typeof body.expiresAt !== "string"
+  ) {
+    return { kind: "unavailable", reason: "server" };
+  }
+  return {
+    kind: "ok",
+    id: body.id,
+    pageId: body.pageId,
+    label: typeof body.label === "string" ? body.label : null,
+    url: body.url,
+    expiresAt: body.expiresAt,
+  };
+}
+
+export interface WorkspaceInviteLink {
+  id: string;
+  pageId: string | null;
+  label: string | null;
+  createdAt: string;
+  expiresAt: string;
+}
+
+export type WorkspaceInviteLinksResult =
+  | { kind: "ok"; links: WorkspaceInviteLink[] }
+  | { kind: "unavailable" };
+
+/** GET /v1/workspaces/:name/invite-links — outstanding kind:'member' links, admin/owner only. */
+export async function listInviteLinks(
+  apiOrigin: string,
+  name: string,
+): Promise<WorkspaceInviteLinksResult> {
+  const result = await fetchWithTimeout(
+    `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(name)}/invite-links`,
+    { credentials: "include", cache: "no-store" },
+  );
+  if (result.kind === "unavailable" || !result.response.ok) return { kind: "unavailable" };
+  const body = (await result.response.json().catch(() => null)) as { links?: unknown } | null;
+  if (!body || !Array.isArray(body.links)) return { kind: "unavailable" };
+  return {
+    kind: "ok",
+    links: body.links.filter(
+      (v): v is WorkspaceInviteLink =>
+        !!v && typeof v === "object" && typeof (v as { id?: unknown }).id === "string",
+    ),
+  };
+}
+
+/** DELETE /v1/workspaces/:name/invite-links/:id */
+export async function revokeInviteLink(
+  apiOrigin: string,
+  name: string,
+  linkId: string,
+): Promise<ManageResult> {
+  return manageMutation(
+    apiOrigin,
+    `/v1/workspaces/${encodeURIComponent(name)}/invite-links/${encodeURIComponent(linkId)}`,
+    { method: "DELETE" },
+  );
+}
+
 export type CreateWorkspaceResult =
   | { kind: "created"; workspace: { name: string; publicBaseUrl?: string } }
   | { kind: "error"; code: string; message: string }

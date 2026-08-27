@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { proxyApiRequest, serverApiFetch, serverApiFetchImpl } from "./api-proxy";
+import {
+  proxyApiRequest,
+  proxyEnrollmentJoinRequest,
+  serverApiFetch,
+  serverApiFetchImpl,
+} from "./api-proxy";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -282,5 +287,63 @@ describe("proxyApiRequest — Server-Timing wiring (issue #812)", () => {
     const response = await proxyApiRequest({}, request);
     expect(response.status).toBe(404);
     expect(response.headers.get("Server-Timing")).toBeNull();
+  });
+});
+
+// Issue #869 phase B: `POST /auth/enrollments/join` needs its own fixed-target
+// route because `proxyApiRequest`'s generic `/api/[...path]` 404s every
+// `/api/auth/*` path (that prefix is reserved for the Better Auth proxy).
+describe("proxyEnrollmentJoinRequest", () => {
+  it("forwards to /auth/enrollments/join over env.API, cookie and body intact", async () => {
+    const { API, fetchMock } = fakeApiBinding(
+      Response.json({ workspace: "acme", alreadyMember: false }),
+    );
+    const request = new Request("https://uploads.sh/api/enrollments/join", {
+      method: "POST",
+      headers: { cookie: "better-auth.session_token=abc", "content-type": "application/json" },
+      body: JSON.stringify({ code: "upe_test" }),
+    });
+
+    const response = await proxyEnrollmentJoinRequest({ API }, request);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const forwarded = fetchMock.mock.calls[0]?.[0] as Request;
+    expect(forwarded.url).toBe("https://uploads.sh/auth/enrollments/join");
+    expect(forwarded.method).toBe("POST");
+    expect(forwarded.redirect).toBe("manual");
+    expect(forwarded.headers.get("cookie")).toBe("better-auth.session_token=abc");
+    expect(await forwarded.text()).toBe(JSON.stringify({ code: "upe_test" }));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ workspace: "acme", alreadyMember: false });
+  });
+
+  it("passes the upstream error response through untouched (e.g. 401/403)", async () => {
+    const { API } = fakeApiBinding(
+      Response.json({ error: { code: "member_cap_reached" } }, { status: 403 }),
+    );
+    const request = new Request("https://uploads.sh/api/enrollments/join", {
+      method: "POST",
+      body: JSON.stringify({ code: "upe_test" }),
+    });
+
+    const response = await proxyEnrollmentJoinRequest({ API }, request);
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: { code: "member_cap_reached" } });
+  });
+
+  it("falls back to HTTP when no API binding is configured", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ ok: true })),
+    );
+    const request = new Request("https://uploads.sh/api/enrollments/join", {
+      method: "POST",
+      body: "{}",
+    });
+
+    await proxyEnrollmentJoinRequest({ UPLOADS_API_ORIGIN: "https://api.example.com" }, request);
+
+    const forwarded = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as Request;
+    expect(forwarded.url).toBe("https://api.example.com/auth/enrollments/join");
   });
 });

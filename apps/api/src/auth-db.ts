@@ -56,6 +56,18 @@ export interface AuthTokenRecord {
   last_used_at: string | null;
 }
 
+/**
+ * What redeeming an enrollment code does. `'token'` (the default, and the
+ * only kind that existed before issue #869 phase B) mints a workspace-scoped
+ * `auth_tokens` row via `exchangeEnrollment` — it never touches org
+ * membership or the member cap. `'member'` links are minted by workspace
+ * admins from the People page and redeemed through `POST
+ * /auth/enrollments/join` instead, which adds the signed-in redeemer as an
+ * org member (member-cap-enforced). `exchangeEnrollment` rejects any
+ * non-'token' row outright — see its docblock.
+ */
+export type EnrollmentKind = "token" | "member";
+
 interface EnrollmentRecord {
   id: string;
   workspace: string;
@@ -67,6 +79,7 @@ interface EnrollmentRecord {
   token_expires_at: string;
   used_at: string | null;
   page_id: string | null;
+  kind: EnrollmentKind;
 }
 
 /** One outstanding (unredeemed, unexpired) invite-link enrollment, as
@@ -77,6 +90,7 @@ export interface OpenEnrollment {
   pageId: string | null;
   label: string | null;
   scopes: FileScope[];
+  kind: EnrollmentKind;
   createdAt: string;
   expiresAt: string;
 }
@@ -232,6 +246,8 @@ export async function createEnrollment(
     workspace: string;
     label?: string;
     scopes: FileScope[];
+    /** Defaults to `'token'` — the only kind that existed before #869 phase B. */
+    kind?: EnrollmentKind;
     enrollmentSeconds?: number;
     tokenSeconds?: number;
     now?: Date;
@@ -257,8 +273,8 @@ export async function createEnrollment(
     .prepare(
       `INSERT INTO auth_enrollments
        (id, workspace, code_hash, label, scopes, created_at, expires_at, token_expires_at, used_at,
-        page_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
+        page_id, kind)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
     )
     .bind(
       enrollmentId,
@@ -270,6 +286,7 @@ export async function createEnrollment(
       expiresAt.toISOString(),
       tokenExpiresAt.toISOString(),
       pageId,
+      input.kind ?? "token",
     )
     .run();
   return {
@@ -291,23 +308,31 @@ export async function listOpenEnrollments(
   db: D1Queryable,
   workspace: string,
   now = new Date(),
+  /** Restrict to one `kind` — e.g. the People page's `'member'`-only list.
+   * Omitted keeps the pre-#869 behavior (every outstanding link, any kind) —
+   * the `/admin` panel deliberately shows both. */
+  kind?: EnrollmentKind,
 ): Promise<OpenEnrollment[]> {
   const result = await db
     .prepare(
-      `SELECT id, page_id, label, scopes, created_at, expires_at
+      `SELECT id, page_id, label, scopes, kind, created_at, expires_at
        FROM auth_enrollments
-       WHERE workspace = ? AND used_at IS NULL AND expires_at > ?
+       WHERE workspace = ? AND used_at IS NULL AND expires_at > ?${kind ? " AND kind = ?" : ""}
        ORDER BY created_at DESC`,
     )
-    .bind(workspace, now.toISOString())
+    .bind(...(kind ? [workspace, now.toISOString(), kind] : [workspace, now.toISOString()]))
     .all<
-      Pick<EnrollmentRecord, "id" | "page_id" | "label" | "scopes" | "created_at" | "expires_at">
+      Pick<
+        EnrollmentRecord,
+        "id" | "page_id" | "label" | "scopes" | "kind" | "created_at" | "expires_at"
+      >
     >();
   return result.results.map((row) => ({
     id: row.id,
     pageId: row.page_id,
     label: row.label,
     scopes: parseScopes(row.scopes),
+    kind: row.kind,
     createdAt: row.created_at,
     expiresAt: row.expires_at,
   }));
@@ -323,10 +348,16 @@ export async function revokeEnrollment(
   db: D1Queryable,
   workspace: string,
   id: string,
+  /** Restrict the delete to one `kind` — the People page's revoke can only
+   * touch its own `'member'` links, never a token-kind link minted from
+   * `/admin`. Omitted matches every kind (pre-#869 behavior). */
+  kind?: EnrollmentKind,
 ): Promise<boolean> {
   const result = await db
-    .prepare(`DELETE FROM auth_enrollments WHERE workspace = ? AND id = ?`)
-    .bind(workspace, id)
+    .prepare(
+      `DELETE FROM auth_enrollments WHERE workspace = ? AND id = ?${kind ? " AND kind = ?" : ""}`,
+    )
+    .bind(...(kind ? [workspace, id, kind] : [workspace, id]))
     .run();
   return (result.meta?.changes ?? 0) > 0;
 }
@@ -335,17 +366,22 @@ export async function findEnrollmentPage(
   db: D1Queryable,
   pageId: string,
   now = new Date(),
-): Promise<{ workspace: string; expiresAt: string; used: boolean } | null> {
+): Promise<{ workspace: string; expiresAt: string; used: boolean; kind: EnrollmentKind } | null> {
   if (!/^upi_[A-Za-z0-9_-]{16}$/.test(pageId)) return null;
   const record = await db
     .prepare(
-      `SELECT workspace, expires_at, used_at FROM auth_enrollments
+      `SELECT workspace, expires_at, used_at, kind FROM auth_enrollments
        WHERE page_id = ? AND expires_at > ? LIMIT 1`,
     )
     .bind(pageId, now.toISOString())
-    .first<Pick<EnrollmentRecord, "workspace" | "expires_at" | "used_at">>();
+    .first<Pick<EnrollmentRecord, "workspace" | "expires_at" | "used_at" | "kind">>();
   return record
-    ? { workspace: record.workspace, expiresAt: record.expires_at, used: record.used_at !== null }
+    ? {
+        workspace: record.workspace,
+        expiresAt: record.expires_at,
+        used: record.used_at !== null,
+        kind: record.kind,
+      }
     : null;
 }
 
@@ -357,12 +393,16 @@ export async function exchangeEnrollment(
   if (!/^upe_[A-Za-z0-9_-]{20,}$/.test(code)) return null;
   const nowIso = now.toISOString();
   const codeHash = await sha256Hex(code);
+  // `kind = 'token'` (issue #869 phase B): a workspace-admin `'member'` join
+  // link must never be exchangeable for a CLI token — same uniform `null`
+  // failure as an expired/unknown/already-used code, so a caller can't tell
+  // "wrong kind" apart from "invalid" by probing this endpoint.
   const enrollment = await db
     .prepare(
       `SELECT id, workspace, code_hash, label, scopes, created_at, expires_at,
-              token_expires_at, used_at
+              token_expires_at, used_at, kind
        FROM auth_enrollments
-       WHERE code_hash = ? AND used_at IS NULL AND expires_at > ?
+       WHERE code_hash = ? AND used_at IS NULL AND expires_at > ? AND kind = 'token'
        LIMIT 1`,
     )
     .bind(codeHash, nowIso)

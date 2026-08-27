@@ -254,12 +254,13 @@ describe("invite-link routes", () => {
         token_expires_at: this.values[7],
         used_at: null,
         page_id: this.values[8],
+        kind: this.values[9],
       });
       return Promise.resolve({ success: true } as unknown as D1Result);
     }
     all(): Promise<D1Result> {
       const sql = this.sql.replace(/\s+/g, " ").trim();
-      if (sql.startsWith("SELECT id, page_id, label, scopes, created_at, expires_at")) {
+      if (sql.startsWith("SELECT id, page_id, label, scopes, kind, created_at, expires_at")) {
         const [workspace, now] = this.values as string[];
         const results = this.db.enrollments
           .filter(
@@ -274,6 +275,7 @@ describe("invite-link routes", () => {
             page_id: row.page_id,
             label: row.label,
             scopes: row.scopes,
+            kind: row.kind,
             created_at: row.created_at,
             expires_at: row.expires_at,
           }));

@@ -89,6 +89,39 @@ export async function proxyApiRequest(env: ApiProxyEnv, request: Request): Promi
 }
 
 /**
+ * Dedicated same-origin proxy for `POST /auth/enrollments/join` (issue #869
+ * phase B) — the one apps/api route under `/auth/*` a signed-in browser
+ * legitimately needs to reach cookie-authenticated. `proxyApiRequest`'s
+ * `/api/[...path]` catch-all deliberately 404s every `/api/auth/*` path (see
+ * its docblock) because that prefix is reserved for the Better Auth proxy
+ * (`/api/auth/[...path].ts`, a distinct, more specific route Astro matches
+ * first) — so this join call needs its own fixed-target route instead of
+ * going through either of those. Mounted at `/api/enrollments/join`
+ * (`pages/api/enrollments/join.ts`), forwarding straight to the api worker's
+ * `/auth/enrollments/join`, cookie included exactly like `proxyApiRequest`
+ * (same-origin browser request, cookie already rides along).
+ */
+export async function proxyEnrollmentJoinRequest(
+  env: ApiProxyEnv,
+  request: Request,
+): Promise<Response> {
+  const url = new URL(request.url);
+  url.pathname = "/auth/enrollments/join";
+  const manual = new Request(request, { redirect: "manual" });
+  const forwarded = new Request(url.toString(), manual);
+
+  const timing = new ServerTiming();
+  const upstream = await timeOp(
+    () =>
+      env.API
+        ? env.API.fetch(forwarded)
+        : fetch(rewriteOrigin(forwarded, env.UPLOADS_API_ORIGIN ?? LOCAL_API_ORIGIN_DEFAULT)),
+    { name: "api", timing, route: "/auth/enrollments/join", thresholdMs: slowOpThresholdMs(env) },
+  );
+  return timing.applyTo(upstream, { disabled: serverTimingDisabled(env) });
+}
+
+/**
  * SSR helper (Task D2): resolves one api call from Astro frontmatter over the
  * same transport as `proxyApiRequest`, forwarding the incoming request's
  * `cookie` header when `init` doesn't already carry one (see

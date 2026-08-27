@@ -94,7 +94,8 @@ import Footer from "../components/Footer.astro";
       .command button {
         flex-shrink: 0;
       }
-      button {
+      button,
+      a.button {
         font-size: var(--text-micro);
         letter-spacing: 0.06em;
         border: 1px solid var(--line);
@@ -104,11 +105,30 @@ import Footer from "../components/Footer.astro";
         color: var(--accent);
         cursor: pointer;
         font-family: inherit;
+        text-decoration: none;
+        display: inline-block;
       }
       button:hover,
-      button:focus-visible {
+      button:focus-visible,
+      a.button:hover,
+      a.button:focus-visible {
         border-color: var(--accent);
         outline: none;
+      }
+      #join-actions {
+        margin: 24px 0;
+      }
+      #join-btn,
+      #join-signin {
+        font-size: var(--text-ui);
+        padding: 10px 18px;
+        border-color: var(--accent);
+        color: var(--fg);
+        background: var(--accent);
+      }
+      #join-btn:disabled {
+        opacity: 0.6;
+        cursor: default;
       }
       .security {
         margin-top: 26px;
@@ -125,8 +145,8 @@ import Footer from "../components/Footer.astro";
   <body>
     <main>
       <div class="brandbar"><Brand /></div>
-      <h1>Accept your invite to uploads.sh</h1>
-      <p>
+      <h1 id="heading">Accept your invite to uploads.sh</h1>
+      <p id="lead">
         Host files and screenshots straight from your terminal — upload, get a public link, attach
         them to a pull request.
       </p>
@@ -152,7 +172,11 @@ import Footer from "../components/Footer.astro";
           </li>
         </ol>
       </section>
-      <p class="security">
+      <section id="join-actions" hidden>
+        <a id="join-signin" class="button" hidden>Sign in to join</a>
+        <button id="join-btn" type="button" hidden>Join workspace</button>
+      </section>
+      <p class="security" id="security-note">
         Treat this link like a password — it's single-use and stops working once you log in.
       </p>
       <Footer compact />
@@ -164,15 +188,22 @@ import Footer from "../components/Footer.astro";
         return element;
       }
 
+      const heading = requireElement<HTMLElement>("#heading");
+      const lead = requireElement<HTMLElement>("#lead");
       const meta = requireElement<HTMLElement>("#meta");
       const instructions = requireElement<HTMLElement>("#instructions");
       const loginCmd = requireElement<HTMLElement>("#login-cmd");
       const loginCopy = requireElement<HTMLButtonElement>("#login-copy");
+      const joinActions = requireElement<HTMLElement>("#join-actions");
+      const joinSignin = requireElement<HTMLAnchorElement>("#join-signin");
+      const joinBtn = requireElement<HTMLButtonElement>("#join-btn");
+      const securityNote = requireElement<HTMLElement>("#security-note");
 
       const url = new URL(location.href);
       const pageId = url.searchParams.get("id") ?? "";
       // The one-time code rides in the URL fragment, which browsers never send to the
-      // server. Read it, then scrub it from the address bar; the CLI still redeems it.
+      // server. Read it, then scrub it from the address bar; the CLI still redeems it
+      // (token-kind), and the join flow (member-kind) keeps it in memory for the POST.
       const code = new URLSearchParams(url.hash.replace(/^#/, "")).get("code") ?? "";
       if (url.hash) history.replaceState(null, "", url.pathname + url.search);
 
@@ -180,6 +211,91 @@ import Footer from "../components/Footer.astro";
         const command = `uploads login --code ${code}`;
         loginCmd.textContent = command;
         loginCopy.dataset.copy = command;
+      }
+
+      /** `/login?callbackURL=` back to this exact invite (code fragment included, so
+       * the join flow can resume immediately on return) — same pattern login.astro
+       * itself uses for its own `?callbackURL=` param. */
+      function signInHref(): string {
+        const returnTo = `${location.origin}/invite?id=${encodeURIComponent(pageId)}#code=${encodeURIComponent(code)}`;
+        return `/login?callbackURL=${encodeURIComponent(returnTo)}`;
+      }
+
+      async function setUpJoinFlow(workspace: string) {
+        heading.textContent = `Join ${workspace} on uploads.sh`;
+        lead.textContent = `You've been invited to join the ${workspace} workspace.`;
+        securityNote.textContent = "Treat this link like a password — it's single-use.";
+        joinActions.hidden = false;
+
+        let signedIn = false;
+        try {
+          const session = await fetch("/api/auth/get-session", {
+            credentials: "include",
+            cache: "no-store",
+          });
+          signedIn = session.ok && (await session.json().catch(() => null)) !== null;
+        } catch {
+          signedIn = false;
+        }
+
+        if (!signedIn) {
+          joinSignin.href = signInHref();
+          joinSignin.hidden = false;
+          return;
+        }
+
+        joinBtn.textContent = `Join ${workspace}`;
+        joinBtn.hidden = false;
+        joinBtn.addEventListener("click", async () => {
+          joinBtn.disabled = true;
+          joinBtn.textContent = "Joining…";
+          try {
+            const response = await fetch("/api/enrollments/join", {
+              method: "POST",
+              credentials: "include",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ code }),
+            });
+            if (response.status === 401) {
+              location.href = signInHref();
+              return;
+            }
+            const payload = (await response.json().catch(() => null)) as {
+              workspace?: string;
+              alreadyMember?: boolean;
+              error?: { code?: string; message?: string };
+            } | null;
+            if (!response.ok) {
+              joinActions.hidden = true;
+              if (payload?.error?.code === "member_cap_reached") {
+                meta.textContent =
+                  payload.error.message ?? "This workspace has reached its member limit.";
+              } else {
+                meta.textContent = "This invite is invalid or has expired.";
+              }
+              meta.dataset.state = "closed";
+              return;
+            }
+            joinActions.hidden = true;
+            meta.textContent = payload?.alreadyMember
+              ? `You're already a member of ${workspace}.`
+              : `You're a member of ${workspace}.`;
+            meta.dataset.state = "ready";
+            const link = document.createElement("a");
+            link.href = `/account/workspaces/${encodeURIComponent(workspace)}`;
+            link.textContent = `Go to ${workspace} →`;
+            link.className = "button";
+            link.style.marginTop = "16px";
+            link.style.display = "inline-block";
+            joinActions.hidden = false;
+            joinActions.replaceChildren(link);
+          } catch {
+            joinBtn.disabled = false;
+            joinBtn.textContent = `Join ${workspace}`;
+            meta.textContent = "Couldn't reach uploads.sh — try again.";
+            meta.dataset.state = "closed";
+          }
+        });
       }
 
       async function checkInvitation() {
@@ -193,6 +309,7 @@ import Footer from "../components/Footer.astro";
           used: boolean;
           expiresAt: string;
           workspace: string;
+          kind?: "token" | "member";
         };
         if (invitation.used) {
           meta.textContent = "This invite has already been used.";
@@ -204,6 +321,14 @@ import Footer from "../components/Footer.astro";
           timeStyle: "short",
         });
         const where = invitation.workspace ? `the ${invitation.workspace} workspace` : "uploads.sh";
+
+        if (invitation.kind === "member") {
+          meta.textContent = `Expires ${when}`;
+          meta.dataset.state = "ready";
+          await setUpJoinFlow(invitation.workspace);
+          return;
+        }
+
         meta.textContent = `You'll join ${where} · expires ${when}`;
         meta.dataset.state = "ready";
         instructions.hidden = false;

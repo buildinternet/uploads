@@ -807,6 +807,36 @@ section.card .ws-note {
 .settings-section .command {
   margin-top: 8px;
 }
+/* Issue #869 phase B: the People page's outstanding invite-link list. */
+.invite-link-list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  max-width: 28rem;
+}
+.invite-link-list:empty {
+  display: none;
+}
+.invite-link-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: var(--text-meta);
+}
+.invite-link-row:last-child {
+  border-bottom: none;
+}
+.invite-link-row__label {
+  color: var(--fg);
+  flex: 1;
+  min-width: 0;
+}
+.invite-link-row__expiry {
+  white-space: nowrap;
+}
 /* Joined control: one outer border, hairline between input and action. */
 .input-group {
   display: flex;

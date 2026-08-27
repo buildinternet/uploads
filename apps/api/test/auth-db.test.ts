@@ -61,6 +61,7 @@ class FakeD1 {
             workspace: enrollment.workspace,
             expires_at: enrollment.expires_at,
             used_at: enrollment.used_at,
+            kind: enrollment.kind,
           }
         : null;
     }
@@ -69,7 +70,10 @@ class FakeD1 {
       return (
         this.enrollments.find(
           (row) =>
-            row.code_hash === hash && row.used_at === null && (row.expires_at as string) > now,
+            row.code_hash === hash &&
+            row.used_at === null &&
+            (row.expires_at as string) > now &&
+            row.kind === "token",
         ) ?? null
       );
     }
@@ -91,8 +95,18 @@ class FakeD1 {
   run(statement: FakeStatement): { meta: { changes: number }; success: true; results: never[] } {
     const { sql, values } = statement;
     if (sql.startsWith("INSERT INTO auth_enrollments")) {
-      const [id, workspace, codeHash, label, scopes, createdAt, expiresAt, tokenExpiresAt, pageId] =
-        values;
+      const [
+        id,
+        workspace,
+        codeHash,
+        label,
+        scopes,
+        createdAt,
+        expiresAt,
+        tokenExpiresAt,
+        pageId,
+        kind,
+      ] = values;
       this.enrollments.push({
         id,
         workspace,
@@ -104,6 +118,7 @@ class FakeD1 {
         token_expires_at: tokenExpiresAt,
         used_at: null,
         page_id: pageId,
+        kind,
       });
       return result(1);
     }
@@ -143,10 +158,15 @@ class FakeD1 {
       return result(1);
     }
     if (sql.startsWith("DELETE FROM auth_enrollments")) {
-      const [workspace, enrollmentId] = values;
+      const [workspace, enrollmentId, kind] = values;
       const before = this.enrollments.length;
       this.enrollments = this.enrollments.filter(
-        (row) => !(row.workspace === workspace && row.id === enrollmentId),
+        (row) =>
+          !(
+            row.workspace === workspace &&
+            row.id === enrollmentId &&
+            (kind === undefined || row.kind === kind)
+          ),
       );
       return result(before - this.enrollments.length);
     }
@@ -155,12 +175,15 @@ class FakeD1 {
 
   all(statement: FakeStatement): Row[] {
     const { sql, values } = statement;
-    if (sql.startsWith("SELECT id, page_id, label, scopes, created_at, expires_at")) {
-      const [workspace, now] = values as string[];
+    if (sql.startsWith("SELECT id, page_id, label, scopes, kind, created_at, expires_at")) {
+      const [workspace, now, kind] = values as string[];
       return this.enrollments
         .filter(
           (row) =>
-            row.workspace === workspace && row.used_at === null && (row.expires_at as string) > now,
+            row.workspace === workspace &&
+            row.used_at === null &&
+            (row.expires_at as string) > now &&
+            (kind === undefined || row.kind === kind),
         )
         .sort((a, b) => (b.created_at as string).localeCompare(a.created_at as string))
         .map((row) => ({
@@ -168,6 +191,7 @@ class FakeD1 {
           page_id: row.page_id,
           label: row.label,
           scopes: row.scopes,
+          kind: row.kind,
           created_at: row.created_at,
           expires_at: row.expires_at,
         }));
@@ -234,6 +258,7 @@ describe("D1 enrollment exchange", () => {
       workspace: "default",
       expiresAt: enrollment.expiresAt,
       used: false,
+      kind: "token",
     });
     await expect(findEnrollmentPage(database(fake), "upi_invalid", now)).resolves.toBeNull();
   });
@@ -296,6 +321,40 @@ describe("D1 enrollment exchange", () => {
     expect(await exchangeEnrollment(database(fake), enrollment.code, later)).toBeNull();
     expect(await exchangeEnrollment(database(fake), "upe_unknown", later)).toBeNull();
   });
+
+  // Issue #869 phase B: a workspace-admin join link (`kind: 'member'`) must
+  // never mint a CLI token — same uniform null failure as any other invalid
+  // code, so probing this endpoint can't distinguish "wrong kind" from
+  // "invalid/expired/used".
+  it("rejects a member-kind code with the same uniform failure", async () => {
+    const fake = new FakeD1();
+    const now = new Date("2026-07-10T12:00:00.000Z");
+    const enrollment = await createEnrollment(database(fake), {
+      workspace: "default",
+      scopes: [],
+      kind: "member",
+      now,
+    });
+
+    expect(await exchangeEnrollment(database(fake), enrollment.code, now)).toBeNull();
+    expect(fake.tokens).toHaveLength(0);
+    // The link stays unredeemed — a rejected exchange doesn't burn it.
+    expect(fake.enrollments[0]?.used_at).toBeNull();
+  });
+});
+
+describe("enrollment kind", () => {
+  it("defaults to 'token' when not specified", async () => {
+    const fake = new FakeD1();
+    await createEnrollment(database(fake), { workspace: "acme", scopes: ["files:read"] });
+    expect(fake.enrollments[0]?.kind).toBe("token");
+  });
+
+  it("passes an explicit kind through to storage", async () => {
+    const fake = new FakeD1();
+    await createEnrollment(database(fake), { workspace: "acme", scopes: [], kind: "member" });
+    expect(fake.enrollments[0]?.kind).toBe("member");
+  });
 });
 
 describe("listOpenEnrollments", () => {
@@ -353,6 +412,31 @@ describe("listOpenEnrollments", () => {
     const fake = new FakeD1();
     expect(await listOpenEnrollments(database(fake), "empty")).toEqual([]);
   });
+
+  // Issue #869 phase B: the People page's list must show only its own
+  // 'member'-kind links, never a token-kind link minted from /admin.
+  it("filters by kind when passed, and includes kind in every row", async () => {
+    const fake = new FakeD1();
+    const now = new Date("2026-07-10T12:00:00.000Z");
+    await createEnrollment(database(fake), { workspace: "acme", scopes: ["files:read"], now });
+    await createEnrollment(database(fake), {
+      workspace: "acme",
+      scopes: [],
+      kind: "member",
+      now: new Date(now.getTime() + 1000),
+    });
+
+    const all = await listOpenEnrollments(database(fake), "acme", now);
+    expect(all.map((l) => l.kind).sort()).toEqual(["member", "token"]);
+
+    const memberOnly = await listOpenEnrollments(database(fake), "acme", now, "member");
+    expect(memberOnly).toHaveLength(1);
+    expect(memberOnly[0]?.kind).toBe("member");
+
+    const tokenOnly = await listOpenEnrollments(database(fake), "acme", now, "token");
+    expect(tokenOnly).toHaveLength(1);
+    expect(tokenOnly[0]?.kind).toBe("token");
+  });
 });
 
 describe("revokeEnrollment", () => {
@@ -385,6 +469,21 @@ describe("revokeEnrollment", () => {
 
     expect(await revokeEnrollment(database(fake), "other", enrollment.id)).toBe(false);
     expect(fake.enrollments).toHaveLength(1);
+  });
+
+  it("doesn't delete a row of the wrong kind when a kind filter is passed", async () => {
+    const fake = new FakeD1();
+    const now = new Date("2026-07-10T12:00:00.000Z");
+    const enrollment = await createEnrollment(database(fake), {
+      workspace: "acme",
+      scopes: ["files:read"],
+      now,
+    });
+
+    expect(await revokeEnrollment(database(fake), "acme", enrollment.id, "member")).toBe(false);
+    expect(fake.enrollments).toHaveLength(1);
+    expect(await revokeEnrollment(database(fake), "acme", enrollment.id, "token")).toBe(true);
+    expect(fake.enrollments).toHaveLength(0);
   });
 });
 
