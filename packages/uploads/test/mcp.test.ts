@@ -1358,6 +1358,97 @@ describe("tools/call list, delete, comment", () => {
   });
 });
 
+describe("tools/call usage, reconcile, purge_expired (output schema drift)", () => {
+  // Regression test for the shipped bug: the two-lane storage work added
+  // `sharedBytes`/`sharedObjects`/`storageBudgetBasis` (and the API route
+  // separately stamps `scopes`/`plan`/`storage`) to the real GET /v1/usage
+  // payload, but `usageResultSchema` in ../src/mcp/output-schemas.ts kept its
+  // narrower field list. Because that schema has `additionalProperties:
+  // false` and the SDK validates `structuredContent` against it, calling
+  // `usage` — or `reconcile`/`purge_expired`, which embed it — failed at
+  // runtime with "Invalid structured content" even though the handler ran
+  // fine. Returning the FULL real-world shape here (not just the fields the
+  // old schema knew about) is the point: a future field the API adds but the
+  // schema doesn't will fail this test the same way it failed in production.
+  const fullUsage = {
+    workspace: "acme",
+    bytes: 100,
+    objects: 2,
+    sharedBytes: 40,
+    sharedObjects: 1,
+    uploadsInPeriod: 3,
+    periodStart: "2026-08-01",
+    updatedAt: "2026-08-27T00:00:00.000Z",
+    storageBudgetBasis: "shared" as const,
+    maxStorageBytes: 1000,
+    storageRemainingBytes: 900,
+    maxUploadsPerPeriod: 50,
+    uploadsRemaining: 47,
+    scopes: ["files:read", "files:write"],
+    plan: "pro",
+    storage: {
+      mode: "byo" as const,
+      fallbackLanes: 1,
+      health: { ok: true },
+    },
+  };
+
+  function serverWithUsage() {
+    return serverWith({
+      factory: () =>
+        ({
+          usage: async () => fullUsage,
+          reconcile: async () => ({
+            workspace: "acme",
+            bytes: 100,
+            objects: 2,
+            previous: { bytes: 90, objects: 2 },
+            changed: true,
+            usage: fullUsage,
+          }),
+          purgeExpired: async () => ({
+            workspace: "acme",
+            retentionDays: 30,
+            cutoff: "2026-07-28T00:00:00.000Z",
+            deleted: 1,
+            freedBytes: 10,
+            keys: ["a.png"],
+            keysTruncated: false,
+            reconcile: {
+              workspace: "acme",
+              bytes: 100,
+              objects: 2,
+              previous: { bytes: 90, objects: 2 },
+              changed: true,
+              usage: fullUsage,
+            },
+          }),
+        }) as unknown as UploadsClient,
+    });
+  }
+
+  it("usage validates against the real GET /v1/usage response shape", async () => {
+    const { server } = serverWithUsage();
+    const res = await rpc(server, "tools/call", { name: "usage", arguments: {} });
+    expect(res.result.isError).toBe(false);
+    expect(res.result.structuredContent).toEqual(fullUsage);
+  });
+
+  it("reconcile validates when its embedded usage carries the full shape", async () => {
+    const { server } = serverWithUsage();
+    const res = await rpc(server, "tools/call", { name: "reconcile", arguments: {} });
+    expect(res.result.isError).toBe(false);
+    expect(res.result.structuredContent.usage).toEqual(fullUsage);
+  });
+
+  it("purge_expired validates when its nested reconcile.usage carries the full shape", async () => {
+    const { server } = serverWithUsage();
+    const res = await rpc(server, "tools/call", { name: "purge_expired", arguments: {} });
+    expect(res.result.isError).toBe(false);
+    expect(res.result.structuredContent.reconcile.usage).toEqual(fullUsage);
+  });
+});
+
 describe("tools/call get_metadata, set_metadata, find_files", () => {
   it("get_metadata returns the map (or empty) and requires key", async () => {
     const { server, metadataStore } = serverWith();
