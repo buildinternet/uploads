@@ -185,6 +185,11 @@ async function makeEnv(
             } else if (normalized.includes("meta_key = ?") && normalized.startsWith("DELETE")) {
               const [ws, objectKey, key] = values as [string, string, string];
               metadata.get(scopeKey(ws, objectKey))?.delete(key);
+            } else if (normalized.includes("meta_key IN (") && normalized.startsWith("DELETE")) {
+              // deleteServerFileMetadataKeys: drop only the named keys.
+              const [ws, objectKey, ...keys] = values as string[];
+              const map = metadata.get(scopeKey(ws, objectKey));
+              for (const key of keys) map?.delete(key);
             } else if (normalized.startsWith("DELETE FROM file_metadata")) {
               const [ws, objectKey] = values as [string, string];
               metadata.delete(scopeKey(ws, objectKey));

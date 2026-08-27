@@ -410,6 +410,42 @@ describe("gatherCommentBody poster hydration (issue #299)", () => {
     expect(result.body).toContain("0:14");
   });
 
+  it("hydrates imageMeta from server-owned image.width/height rows", async () => {
+    const { env, ws, workspaceName, bucket } = makeTestEnv();
+    const key = "gh/acme/web/pull/12/icon.png";
+    await bucket.put(`acme/${key}`, PNG, { httpMetadata: { contentType: "image/png" } });
+    await setServerFileMetadata(env.DB, workspaceName, key, {
+      "image.width": "96",
+      "image.height": "64",
+    });
+
+    const result = await gatherCommentBody(env, ws, workspaceName, {
+      repo: "acme/web",
+      num: 12,
+      kind: "pull",
+    });
+    // Solo density's tier would be 720; real dims cap at natural width.
+    expect(result.body).toContain('<img width="96"');
+  });
+
+  it("drops non-finite or non-positive image dimension rows", async () => {
+    const { env, ws, workspaceName, bucket } = makeTestEnv();
+    const key = "gh/acme/web/pull/12/icon.png";
+    await bucket.put(`acme/${key}`, PNG, { httpMetadata: { contentType: "image/png" } });
+    await setServerFileMetadata(env.DB, workspaceName, key, {
+      "image.width": "abc",
+      "image.height": "-5",
+    });
+
+    const result = await gatherCommentBody(env, ws, workspaceName, {
+      repo: "acme/web",
+      num: 12,
+      kind: "pull",
+    });
+    // Neither parses → no imageMeta → filename heuristic (solo default 720).
+    expect(result.body).toContain('<img width="720"');
+  });
+
   // Two-lane storage (simplify follow-up on PR #771): the poster resolves
   // its OWN lane, independent of where the primary video lives.
   it("resolves a poster living in a different (fallback) lane than the video", async () => {

@@ -32,7 +32,12 @@ import {
 } from "./content-hash";
 import { recordPrActivityFromMetadata } from "./github-pr-activity";
 import { noteStorageFailure, noteStorageSuccess } from "./storage-health";
-import { DEFAULT_MAX_UPLOAD_BYTES, inspectUpload, resolveUploadPolicy } from "./guards";
+import {
+  DEFAULT_MAX_UPLOAD_BYTES,
+  detectImageDimensions,
+  inspectUpload,
+  resolveUploadPolicy,
+} from "./guards";
 import { checkKeyPolicy, resolveKeyPolicy } from "./key-policy";
 import {
   decodeLaneCursor,
@@ -192,6 +197,43 @@ async function existingSize(store: Files, key: string): Promise<number | null> {
 
 /** Reserved keys `makePoster` may write, cleared together when it fails. */
 const POSTER_META_KEYS = ["video.poster", "video.duration", "video.width", "video.height"];
+
+/** Server-owned pixel-dimension rows for an image, written at upload time so
+ * the managed comment can size embeds without re-fetching bytes (issue #365
+ * follow-up). Cleared together, mirroring `POSTER_META_KEYS`. */
+const IMAGE_META_KEYS = ["image.width", "image.height"];
+
+/**
+ * Best-effort `image.width`/`image.height` derived metadata. Never throws:
+ * the object is durably stored by the time this runs, and missing dims simply
+ * mean the comment renderer falls back to its filename heuristic.
+ *
+ * Delete-first always, for every content type: an image replaced by a
+ * non-image (or by an image whose header can't be parsed) must not keep the
+ * prior upload's stale dimensions. Runs after `replaceFileMetadata` for the
+ * same reason `generateAndStorePoster` does — replace is delete-then-insert
+ * and would wipe these server-owned rows.
+ */
+async function storeImageDimensions(
+  env: Env,
+  workspaceName: string,
+  key: string,
+  bytes: Uint8Array,
+  contentType: string,
+): Promise<void> {
+  try {
+    await deleteServerFileMetadataKeys(dbFor(env), workspaceName, key, IMAGE_META_KEYS);
+    if (!contentType.startsWith("image/")) return;
+    const dims = detectImageDimensions(bytes, contentType);
+    if (!dims) return;
+    await setServerFileMetadata(dbFor(env), workspaceName, key, {
+      "image.width": String(dims.width),
+      "image.height": String(dims.height),
+    });
+  } catch (err) {
+    console.error({ event: "image_dimension_meta_failed", workspace: workspaceName, key, err });
+  }
+}
 
 /**
  * Upper bound on frame extraction (issue #299 review): the MEDIA binding
@@ -667,7 +709,8 @@ export async function putObject(
   await recordContentHash(dbFor(env), workspaceName, finalKey, contentSha256);
 
   // After the metadata replace, never before: replaceFileMetadata is
-  // delete-then-insert and would wipe the server-owned video.* rows.
+  // delete-then-insert and would wipe the server-owned video.*/image.* rows.
+  await storeImageDimensions(env, workspaceName, finalKey, bytes, inspection.contentType);
   await generateAndStorePoster(
     env,
     ws,

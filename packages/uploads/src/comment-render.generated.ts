@@ -192,6 +192,8 @@ export interface AttachmentItem {
   posterUrl?: string | null;
   /** Derived video facts used for the caption and display width. */
   videoMeta?: { durationSeconds?: number; width?: number; height?: number };
+  /** Server-derived pixel dimensions for an image (never client-settable). */
+  imageMeta?: { width?: number; height?: number };
 }
 
 /** A public gallery linked to the PR or issue whose managed comment is syncing. */
@@ -278,21 +280,36 @@ function formatDuration(seconds: number): string {
 }
 
 /**
- * Display width for a video poster. Real dimensions only *select* among the
- * density table's tiers — a raw 1920 would blow out the comment column — and
- * the result is capped at the real width so a small clip is never upscaled.
+ * Display width for an image or video-poster embed. Real dimensions only
+ * *select* among the density table's tiers — a raw 1920 would blow out the
+ * comment column — and the result is capped at the real width so a small
+ * asset is never upscaled into a blurry tile. Without dims (either missing),
+ * falls back to the filename heuristic exactly, keeping dimension-less
+ * renders byte-identical to before dims existed.
  */
-function posterImageWidth(
-  videoMeta: AttachmentItem["videoMeta"],
+function naturalMediaWidth(
+  dims: { width?: number; height?: number } | undefined,
   filename: string,
   density: AttachmentDensity = "dense",
 ): number {
-  const w = videoMeta?.width ?? 0;
-  const h = videoMeta?.height ?? 0;
+  const w = dims?.width ?? 0;
+  const h = dims?.height ?? 0;
   if (w <= 0 || h <= 0) return attachmentImageWidth(filename, density);
   const table = WIDTH_BY_DENSITY[density];
   const chosen = h > w ? table.portrait : w / h >= 16 / 9 ? table.wide : table.default;
   return Math.min(chosen, w);
+}
+
+/**
+ * Icons and other small assets: both dimensions known and no edge above this
+ * flow inline at natural size rather than each becoming a full row.
+ */
+export const SMALL_ASSET_MAX_EDGE = 200;
+
+function isSmallAsset(dims: AttachmentItem["imageMeta"]): boolean {
+  const w = dims?.width ?? 0;
+  const h = dims?.height ?? 0;
+  return w > 0 && h > 0 && Math.max(w, h) <= SMALL_ASSET_MAX_EDGE;
 }
 
 function escapeHtmlAttr(s: string): string {
@@ -471,7 +488,10 @@ function renderPairCell(
   const name = item.key.slice(item.key.lastIndexOf("/") + 1);
   const src = item.embedUrl ?? item.url;
   const link = item.pageUrl ?? item.url;
-  const autoPx = Math.min(attachmentImageWidth(name, density), attachmentPairWidth(density));
+  const autoPx = Math.min(
+    naturalMediaWidth(item.imageMeta, name, density),
+    attachmentPairWidth(density),
+  );
   const w = resolvedWidth(autoPx, options);
   const alt = escapeHtmlAttr(name);
   const href = escapeHtmlAttr((link ?? src) as string);
@@ -609,7 +629,7 @@ export function attachmentsCommentBody(
     }
     if (isPosterVideo) {
       inlinedImages++;
-      const autoPx = posterImageWidth(item.videoMeta, name, density);
+      const autoPx = naturalMediaWidth(item.videoMeta, name, density);
       const w = resolvedWidth(autoPx, options);
       const href = escapeHtmlAttr(link ?? (item.posterUrl as string));
       lines.push(
@@ -625,10 +645,54 @@ export function attachmentsCommentBody(
       if (metaCap) parts.push(metaCap);
       lines.push(parts.join(" · "), "");
     } else if (isImage) {
+      // Small-asset flow layout: consecutive captionless small images (icons)
+      // join onto one line so GitHub flows them horizontally at natural size
+      // instead of stacking a giant column per icon. Auto mode only — a
+      // numeric imageWidth override or "full" keeps today's one-per-row form.
+      const smallGroupable = (candidate: AttachmentItem, i: number): boolean => {
+        if (options.imageWidth !== "auto") return false;
+        if (consumedByPair.has(i) || partnerOf.has(i)) return false;
+        if (!isSmallAsset(candidate.imageMeta)) return false;
+        if (metaCaptionValues(candidate.meta, options).length > 0) return false;
+        const n = candidate.key.slice(candidate.key.lastIndexOf("/") + 1);
+        const s = candidate.embedUrl ?? candidate.url;
+        return Boolean(s) && inferContentType(n).startsWith("image/");
+      };
+      if (smallGroupable(item, idx)) {
+        const group = [item];
+        let j = idx + 1;
+        // Each grouped image still counts toward maxInlineImages.
+        while (
+          j < sorted.length &&
+          inlinedImages + group.length < options.maxInlineImages &&
+          smallGroupable(sorted[j], j)
+        ) {
+          group.push(sorted[j]);
+          j++;
+        }
+        if (group.length > 1) {
+          inlinedImages += group.length;
+          lines.push(
+            group
+              .map((g) => {
+                const gName = g.key.slice(g.key.lastIndexOf("/") + 1);
+                const gSrc = (g.embedUrl ?? g.url) as string;
+                const gHref = escapeHtmlAttr((g.pageUrl ?? g.url ?? gSrc) as string);
+                // Natural width — a small asset is never upscaled.
+                const gW = g.imageMeta?.width as number;
+                return `<a href="${gHref}">${imgTag(gW, escapeHtmlAttr(gName), escapeHtmlAttr(gSrc))}</a>`;
+              })
+              .join(" "),
+            "",
+          );
+          idx = j - 1;
+          continue;
+        }
+      }
       inlinedImages++;
       // Markdown ![]() has no width control — phone frames become full-column giants.
       // img src uses embed host when available (Camo revalidates); click-through prefers the file page.
-      const autoPx = attachmentImageWidth(name, density);
+      const autoPx = naturalMediaWidth(item.imageMeta, name, density);
       const w = resolvedWidth(autoPx, options);
       const alt = escapeHtmlAttr(name);
       const href = escapeHtmlAttr(link ?? (src as string));

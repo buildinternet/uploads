@@ -526,3 +526,102 @@ describe("attachmentsCommentBody (api copy)", () => {
     });
   });
 });
+
+describe("image dimensions (issue #365 follow-up)", () => {
+  const img = (key: string, extra: Record<string, unknown> = {}): AttachmentItem => ({
+    key,
+    url: `https://uploads.sh/f/${key}`,
+    embedUrl: `https://embed.uploads.sh/f/${key}`,
+    pageUrl: `https://uploads.sh/f/acme/${key}`,
+    ...extra,
+  });
+
+  it("renders a small icon at natural width, never upscaled to the solo tier", () => {
+    const body = attachmentsCommentBody([
+      img("gh/acme/web/pull/12/icon.png", {
+        imageMeta: { width: 96, height: 96 },
+        meta: { path: "/settings" },
+      }),
+    ]);
+    // Solo density would otherwise pick 720.
+    expect(body).toContain('<img width="96"');
+    expect(body).not.toContain('width="720"');
+  });
+
+  it("groups consecutive captionless small icons onto one flowing line", () => {
+    const body = attachmentsCommentBody([
+      img("gh/acme/web/pull/12/icon-a.png", { imageMeta: { width: 96, height: 96 } }),
+      img("gh/acme/web/pull/12/icon-b.png", { imageMeta: { width: 128, height: 64 } }),
+    ]);
+    const groupLine = body
+      .split("\n")
+      .find((line) => line.includes("icon-a.png") && line.includes("icon-b.png"));
+    expect(groupLine).toBeDefined();
+    // Adjacent anchors joined by a single space, each at natural width.
+    expect(groupLine).toMatch(/<\/a> <a /);
+    expect(groupLine).toContain('<img width="96"');
+    expect(groupLine).toContain('<img width="128"');
+  });
+
+  it("keeps a captioned small icon as a standalone entry at natural size", () => {
+    const body = attachmentsCommentBody([
+      img("gh/acme/web/pull/12/icon-a.png", {
+        imageMeta: { width: 96, height: 96 },
+        meta: { state: "after" },
+      }),
+      img("gh/acme/web/pull/12/icon-b.png", { imageMeta: { width: 96, height: 96 } }),
+    ]);
+    const lines = body.split("\n");
+    const aLine = lines.find((l) => l.includes("icon-a.png"));
+    const bLine = lines.find((l) => l.includes("icon-b.png"));
+    expect(aLine).not.toContain("icon-b.png");
+    expect(bLine).not.toContain("icon-a.png");
+    expect(aLine).toContain('<img width="96"');
+    expect(body).toContain("<code>after</code>");
+  });
+
+  it("keeps the density tier width for a large landscape image", () => {
+    const body = attachmentsCommentBody([
+      img("gh/acme/web/pull/12/shot.png", { imageMeta: { width: 2000, height: 1200 } }),
+    ]);
+    // Solo default tier (720) — real dims select the tier, never exceed it.
+    expect(body).toContain('<img width="720"');
+  });
+
+  it("selects the portrait tier for tall dims and the wide tier for >=16:9", () => {
+    const portrait = attachmentsCommentBody([
+      img("gh/acme/web/pull/12/tall.png", { imageMeta: { width: 800, height: 1400 } }),
+    ]);
+    expect(portrait).toContain('<img width="360"'); // solo portrait tier
+    const wide = attachmentsCommentBody([
+      img("gh/acme/web/pull/12/cinema.png", { imageMeta: { width: 3840, height: 2160 } }),
+    ]);
+    expect(wide).toContain('<img width="800"'); // solo wide tier
+  });
+
+  it("a numeric imageWidth override beats dims and disables grouping", () => {
+    const body = attachmentsCommentBody(
+      [
+        img("gh/acme/web/pull/12/icon-a.png", { imageMeta: { width: 96, height: 96 } }),
+        img("gh/acme/web/pull/12/icon-b.png", { imageMeta: { width: 96, height: 96 } }),
+      ],
+      [],
+      ATTACHMENTS_MARKER,
+      { ...AUTO_RENDER_OPTIONS, imageWidth: 500 },
+    );
+    const widths = [...body.matchAll(/<img width="(\d+)"/g)].map((m) => Number(m[1]));
+    expect(widths).toEqual([500, 500]);
+    const lines = body.split("\n");
+    expect(lines.find((l) => l.includes("icon-a.png"))).not.toContain("icon-b.png");
+  });
+
+  it("caps a paired image's cell width at its natural width", () => {
+    const body = attachmentsCommentBody([
+      img("gh/acme/web/pull/12/hero-before.png", { imageMeta: { width: 150, height: 100 } }),
+      img("gh/acme/web/pull/12/hero-after.png", { imageMeta: { width: 150, height: 100 } }),
+    ]);
+    expect(body).toContain("<table><tr>");
+    const widths = [...body.matchAll(/<img width="(\d+)"/g)].map((m) => Number(m[1]));
+    expect(widths).toEqual([150, 150]);
+  });
+});
