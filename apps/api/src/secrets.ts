@@ -16,6 +16,25 @@ import { ServiceUnavailableError } from "@uploads/errors";
 
 const PREFIX = "enc:v1:";
 
+/**
+ * No key material is configured on this Worker at all — the KEK was never
+ * installed here. This is a deployment gap, not a per-workspace problem, and
+ * no amount of re-entering credentials in workspace settings fixes it: the
+ * write path re-seals with `uploads-api`'s key, and a Worker without the key
+ * still cannot read the result. Callers distinguish this from a genuine
+ * decrypt failure (a key was present but did not open the ciphertext), where
+ * reconfiguring storage IS the right advice.
+ *
+ * Every Worker that resolves BYO storage needs its own copy of the secret —
+ * `uploads-api` and `uploads-mcp` today. See docs/ops.md#secrets.
+ */
+export class SecretsKeyUnconfiguredError extends Error {
+  constructor() {
+    super("encrypted credential requires WORKSPACE_SECRETS_KEY on this worker");
+    this.name = "SecretsKeyUnconfiguredError";
+  }
+}
+
 /** Current + optional previous master secrets for decrypt during rotation. */
 export type SecretsKeyRing = {
   current?: string;
@@ -104,7 +123,7 @@ export async function decryptSecret(
   }
 
   if (candidates.length === 0) {
-    throw new Error("encrypted credential requires WORKSPACE_SECRETS_KEY");
+    throw new SecretsKeyUnconfiguredError();
   }
 
   const packed = b64urlDecode(value.slice(PREFIX.length));
