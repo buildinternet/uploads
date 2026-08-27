@@ -22,6 +22,7 @@ const MIGRATIONS = [
   "migrations/20260712230000_token_minting_user.sql",
   "migrations/20260817180000_token_last_used.sql",
   "migrations/20260827160000_auth_enrollments_kind.sql",
+  "migrations/20260827170000_auth_enrollments_multi_use.sql",
 ];
 
 const ADMIN = { id: "u-admin", email: "admin@example.com", name: "Admin" };
@@ -536,6 +537,147 @@ describe("POST /v1/workspaces/:workspace/invite-links", () => {
     expect(JSON.stringify(body)).not.toContain("code_hash");
   });
 
+  // Issue #876: default expiry is 7 days (not the CLI-enrollment 2h
+  // default), and default max uses is unlimited (null, useCount 0).
+  it("defaults to a 7-day expiry and unlimited uses when expiresIn/maxUses are omitted", async () => {
+    const before = Date.now();
+    const env = makeEnv();
+    const res = await app.request(
+      "/v1/workspaces/acme/invite-links",
+      {
+        method: "POST",
+        headers: { ...sessionHeaders, "content-type": "application/json" },
+        body: "{}",
+      },
+      env,
+    );
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as {
+      expiresAt: string;
+      maxUses: number | null;
+      useCount: number;
+    };
+    const deltaMs = Date.parse(body.expiresAt) - before;
+    // Within a few seconds of exactly 7 days — tolerant of test wall-clock drift.
+    expect(Math.abs(deltaMs - 7 * 24 * 60 * 60 * 1000)).toBeLessThan(10_000);
+    expect(body.maxUses).toBeNull();
+    expect(body.useCount).toBe(0);
+  });
+
+  it('mints a non-expiring link when expiresIn is "never"', async () => {
+    const env = makeEnv();
+    const res = await app.request(
+      "/v1/workspaces/acme/invite-links",
+      {
+        method: "POST",
+        headers: { ...sessionHeaders, "content-type": "application/json" },
+        body: JSON.stringify({ expiresIn: "never" }),
+      },
+      env,
+    );
+    expect(res.status).toBe(201);
+    expect(((await res.json()) as { expiresAt: string | null }).expiresAt).toBeNull();
+  });
+
+  it("mints a non-expiring link when expiresIn is null", async () => {
+    const env = makeEnv();
+    const res = await app.request(
+      "/v1/workspaces/acme/invite-links",
+      {
+        method: "POST",
+        headers: { ...sessionHeaders, "content-type": "application/json" },
+        body: JSON.stringify({ expiresIn: null }),
+      },
+      env,
+    );
+    expect(res.status).toBe(201);
+    expect(((await res.json()) as { expiresAt: string | null }).expiresAt).toBeNull();
+  });
+
+  it("mints a link with an explicit expiresIn (seconds) and maxUses", async () => {
+    const before = Date.now();
+    const env = makeEnv();
+    const res = await app.request(
+      "/v1/workspaces/acme/invite-links",
+      {
+        method: "POST",
+        headers: { ...sessionHeaders, "content-type": "application/json" },
+        body: JSON.stringify({ expiresIn: 3600, maxUses: 5 }),
+      },
+      env,
+    );
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { expiresAt: string; maxUses: number };
+    expect(Math.abs(Date.parse(body.expiresAt) - before - 3600 * 1000)).toBeLessThan(10_000);
+    expect(body.maxUses).toBe(5);
+  });
+
+  it("400s for an expiresIn below the minimum", async () => {
+    const env = makeEnv();
+    const res = await app.request(
+      "/v1/workspaces/acme/invite-links",
+      {
+        method: "POST",
+        headers: { ...sessionHeaders, "content-type": "application/json" },
+        body: JSON.stringify({ expiresIn: 60 }),
+      },
+      env,
+    );
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+      "invalid_expires_in",
+    );
+  });
+
+  it("400s for an expiresIn above the maximum", async () => {
+    const env = makeEnv();
+    const res = await app.request(
+      "/v1/workspaces/acme/invite-links",
+      {
+        method: "POST",
+        headers: { ...sessionHeaders, "content-type": "application/json" },
+        body: JSON.stringify({ expiresIn: 91 * 24 * 60 * 60 }),
+      },
+      env,
+    );
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+      "invalid_expires_in",
+    );
+  });
+
+  it("400s for a non-integer/non-'never' expiresIn", async () => {
+    const env = makeEnv();
+    const res = await app.request(
+      "/v1/workspaces/acme/invite-links",
+      {
+        method: "POST",
+        headers: { ...sessionHeaders, "content-type": "application/json" },
+        body: JSON.stringify({ expiresIn: "sometime" }),
+      },
+      env,
+    );
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+      "invalid_expires_in",
+    );
+  });
+
+  it("400s for a zero or negative maxUses", async () => {
+    const env = makeEnv();
+    const res = await app.request(
+      "/v1/workspaces/acme/invite-links",
+      {
+        method: "POST",
+        headers: { ...sessionHeaders, "content-type": "application/json" },
+        body: JSON.stringify({ maxUses: 0 }),
+      },
+      env,
+    );
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe("invalid_max_uses");
+  });
+
   it("defaults label to null when omitted", async () => {
     const env = makeEnv();
     const res = await app.request(
@@ -730,6 +872,52 @@ describe("GET /v1/workspaces/:workspace/invite-links + DELETE .../:id", () => {
     expect(body.links.map((l) => l.label).sort()).toEqual(["one", "two"]);
     // code_hash (or the plaintext code) is never exposed by the list.
     expect(JSON.stringify(body)).not.toContain("code_hash");
+  });
+
+  // Issue #876: the list surfaces maxUses/useCount/nullable expiresAt so a
+  // standing link is auditable at a glance.
+  it("includes maxUses, useCount, and a nullable expiresAt per link", async () => {
+    const db = new SqliteD1(MIGRATIONS);
+    await app.request(
+      "/v1/workspaces/acme/invite-links",
+      {
+        method: "POST",
+        headers: { ...sessionHeaders, "content-type": "application/json" },
+        body: JSON.stringify({ label: "capped", maxUses: 3 }),
+      },
+      makeEnv({ db }),
+    );
+    await app.request(
+      "/v1/workspaces/acme/invite-links",
+      {
+        method: "POST",
+        headers: { ...sessionHeaders, "content-type": "application/json" },
+        body: JSON.stringify({ label: "standing", expiresIn: "never" }),
+      },
+      makeEnv({ db }),
+    );
+
+    const res = await app.request(
+      "/v1/workspaces/acme/invite-links",
+      { headers: sessionHeaders },
+      makeEnv({ db }),
+    );
+    const body = (await res.json()) as {
+      links: {
+        label: string | null;
+        maxUses: number | null;
+        useCount: number;
+        expiresAt: string | null;
+      }[];
+    };
+    const capped = body.links.find((l) => l.label === "capped");
+    const standing = body.links.find((l) => l.label === "standing");
+    expect(capped).toEqual(
+      expect.objectContaining({ maxUses: 3, useCount: 0, expiresAt: expect.any(String) }),
+    );
+    expect(standing).toEqual(
+      expect.objectContaining({ maxUses: null, useCount: 0, expiresAt: null }),
+    );
   });
 
   // Review finding 5 explicitly leaves list/revoke unguarded — useful during

@@ -54,7 +54,8 @@ class FakeD1 {
     if (sql.startsWith("SELECT workspace, expires_at, used_at")) {
       const [pageId, now] = values as string[];
       const enrollment = this.enrollments.find(
-        (row) => row.page_id === pageId && (row.expires_at as string) > now,
+        (row) =>
+          row.page_id === pageId && (row.expires_at === null || (row.expires_at as string) > now),
       );
       return enrollment
         ? {
@@ -62,6 +63,8 @@ class FakeD1 {
             expires_at: enrollment.expires_at,
             used_at: enrollment.used_at,
             kind: enrollment.kind,
+            max_uses: enrollment.max_uses,
+            use_count: enrollment.use_count,
           }
         : null;
     }
@@ -106,6 +109,7 @@ class FakeD1 {
         tokenExpiresAt,
         pageId,
         kind,
+        maxUses,
       ] = values;
       this.enrollments.push({
         id,
@@ -119,6 +123,8 @@ class FakeD1 {
         used_at: null,
         page_id: pageId,
         kind,
+        max_uses: maxUses,
+        use_count: 0,
       });
       return result(1);
     }
@@ -178,13 +184,19 @@ class FakeD1 {
     if (sql.startsWith("SELECT id, page_id, label, scopes, kind, created_at, expires_at")) {
       const [workspace, now, kind] = values as string[];
       return this.enrollments
-        .filter(
-          (row) =>
+        .filter((row) => {
+          const notExpired = row.expires_at === null || (row.expires_at as string) > now;
+          const notExhausted =
+            row.kind === "member"
+              ? row.max_uses === null || (row.use_count as number) < (row.max_uses as number)
+              : row.used_at === null;
+          return (
             row.workspace === workspace &&
-            row.used_at === null &&
-            (row.expires_at as string) > now &&
-            (kind === undefined || row.kind === kind),
-        )
+            notExpired &&
+            notExhausted &&
+            (kind === undefined || row.kind === kind)
+          );
+        })
         .sort((a, b) => (b.created_at as string).localeCompare(a.created_at as string))
         .map((row) => ({
           id: row.id,
@@ -194,6 +206,8 @@ class FakeD1 {
           kind: row.kind,
           created_at: row.created_at,
           expires_at: row.expires_at,
+          max_uses: row.max_uses,
+          use_count: row.use_count,
         }));
     }
     throw new Error(`unsupported all: ${sql}`);
@@ -237,7 +251,9 @@ describe("D1 enrollment exchange", () => {
     expect(enrollment.pageId).toMatch(/^upi_[A-Za-z0-9_-]{16}$/);
     expect(fake.enrollments[0]?.page_id).toBe(enrollment.pageId);
     expect(JSON.stringify(fake.enrollments)).not.toContain(enrollment.code);
-    expect(Date.parse(enrollment.expiresAt) - now.getTime()).toBe(
+    // kind: 'token' (the default here) always sets expiresAt — nullable is
+    // for issue #876's non-expiring kind: 'member' links only.
+    expect(Date.parse(enrollment.expiresAt!) - now.getTime()).toBe(
       DEFAULT_ENROLLMENT_SECONDS * 1000,
     );
     expect(Date.parse(enrollment.tokenExpiresAt) - now.getTime()).toBe(
@@ -436,6 +452,90 @@ describe("listOpenEnrollments", () => {
     const tokenOnly = await listOpenEnrollments(database(fake), "acme", now, "token");
     expect(tokenOnly).toHaveLength(1);
     expect(tokenOnly[0]?.kind).toBe("token");
+  });
+
+  // Issue #876: a non-expiring member-kind link (expires_at NULL) stays
+  // outstanding forever — the `expires_at IS NULL` branch, not just "> now".
+  it("includes a non-expiring member-kind link regardless of now", async () => {
+    const fake = new FakeD1();
+    const link = await createEnrollment(database(fake), {
+      workspace: "acme",
+      scopes: [],
+      kind: "member",
+      enrollmentSeconds: null,
+    });
+    const farFuture = new Date("2099-01-01T00:00:00.000Z");
+    const links = await listOpenEnrollments(database(fake), "acme", farFuture, "member");
+    expect(links).toHaveLength(1);
+    expect(links[0]?.id).toBe(link.id);
+    expect(links[0]?.expiresAt).toBeNull();
+  });
+
+  // Issue #876: an exhausted (use_count >= max_uses) member-kind link drops
+  // out of the outstanding list, same as a single-use token-kind link does
+  // once used_at is set.
+  it("excludes an exhausted member-kind link but keeps one under its cap", async () => {
+    const fake = new FakeD1();
+    const now = new Date("2026-07-10T12:00:00.000Z");
+    await createEnrollment(database(fake), { workspace: "acme", scopes: [], kind: "member", now });
+    fake.enrollments[0].max_uses = 2;
+    fake.enrollments[0].use_count = 2;
+
+    await createEnrollment(database(fake), {
+      workspace: "acme",
+      scopes: [],
+      kind: "member",
+      now: new Date(now.getTime() + 1000),
+    });
+    fake.enrollments[1].max_uses = 2;
+    fake.enrollments[1].use_count = 1;
+
+    const links = await listOpenEnrollments(database(fake), "acme", now, "member");
+    expect(links).toHaveLength(1);
+    expect(links[0]?.useCount).toBe(1);
+    expect(links[0]?.maxUses).toBe(2);
+  });
+});
+
+describe("createEnrollment — issue #876 multi-use/non-expiring member links", () => {
+  it("mints a non-expiring link when enrollmentSeconds is null", async () => {
+    const fake = new FakeD1();
+    const enrollment = await createEnrollment(database(fake), {
+      workspace: "acme",
+      scopes: [],
+      kind: "member",
+      enrollmentSeconds: null,
+    });
+    expect(enrollment.expiresAt).toBeNull();
+    expect(fake.enrollments[0]?.expires_at).toBeNull();
+  });
+
+  it("defaults max_uses to unlimited (null) for a member link", async () => {
+    const fake = new FakeD1();
+    await createEnrollment(database(fake), { workspace: "acme", scopes: [], kind: "member" });
+    expect(fake.enrollments[0]?.max_uses).toBeNull();
+    expect(fake.enrollments[0]?.use_count).toBe(0);
+  });
+
+  it("stores an explicit max_uses for a member link", async () => {
+    const fake = new FakeD1();
+    await createEnrollment(database(fake), {
+      workspace: "acme",
+      scopes: [],
+      kind: "member",
+      maxUses: 5,
+    });
+    expect(fake.enrollments[0]?.max_uses).toBe(5);
+  });
+
+  it("ignores maxUses for a token-kind link — always stored null", async () => {
+    const fake = new FakeD1();
+    await createEnrollment(database(fake), {
+      workspace: "acme",
+      scopes: ["files:read"],
+      maxUses: 5,
+    });
+    expect(fake.enrollments[0]?.max_uses).toBeNull();
   });
 });
 

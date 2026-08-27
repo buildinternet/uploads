@@ -120,26 +120,39 @@ describe("renderInvitesHtml", () => {
 });
 
 describe("renderInviteLinksHtml", () => {
-  it("renders a labeled row with expiry and revoke", () => {
+  it("renders a labeled row with expiry, uses, and revoke", () => {
     const html = renderInviteLinksHtml([
-      { id: "l1", label: "for the design team", expiresAt: "2026-08-27T18:00:00.000Z" },
+      {
+        id: "l1",
+        label: "for the design team",
+        expiresAt: "2026-08-27T18:00:00.000Z",
+        maxUses: null,
+        useCount: 3,
+      },
     ]);
     expect(html).toContain('data-link-id="l1"');
     expect(html).toContain("for the design team");
     expect(html).toContain("invite-link-row__revoke");
     expect(html).toContain("expires");
+    expect(html).toContain("3 joins");
   });
 
   it("falls back to a generic label when none was set", () => {
     const html = renderInviteLinksHtml([
-      { id: "l1", label: null, expiresAt: "2026-08-27T18:00:00.000Z" },
+      { id: "l1", label: null, expiresAt: "2026-08-27T18:00:00.000Z", maxUses: null, useCount: 0 },
     ]);
     expect(html).toContain("Unlabeled link");
   });
 
   it("escapes the label", () => {
     const html = renderInviteLinksHtml([
-      { id: "l1", label: "<script>alert(1)</script>", expiresAt: "2026-08-27T18:00:00.000Z" },
+      {
+        id: "l1",
+        label: "<script>alert(1)</script>",
+        expiresAt: "2026-08-27T18:00:00.000Z",
+        maxUses: null,
+        useCount: 0,
+      },
     ]);
     expect(html).not.toContain("<script>");
     expect(html).toContain("&lt;script&gt;");
@@ -147,6 +160,42 @@ describe("renderInviteLinksHtml", () => {
 
   it("returns empty string for no links", () => {
     expect(renderInviteLinksHtml([])).toBe("");
+  });
+
+  // Issue #876
+  it("shows 'never expires' for a non-expiring link", () => {
+    const html = renderInviteLinksHtml([
+      { id: "l1", label: "standing", expiresAt: null, maxUses: null, useCount: 1 },
+    ]);
+    expect(html).toContain("never expires");
+    expect(html).not.toContain("expires never");
+  });
+
+  it("shows N/max joins for a capped link", () => {
+    const html = renderInviteLinksHtml([
+      {
+        id: "l1",
+        label: "capped",
+        expiresAt: "2026-08-27T18:00:00.000Z",
+        maxUses: 10,
+        useCount: 3,
+      },
+    ]);
+    expect(html).toContain("3/10 joins");
+  });
+
+  it("singularizes one join", () => {
+    const html = renderInviteLinksHtml([
+      {
+        id: "l1",
+        label: "solo",
+        expiresAt: "2026-08-27T18:00:00.000Z",
+        maxUses: null,
+        useCount: 1,
+      },
+    ]);
+    expect(html).toContain("1 join");
+    expect(html).not.toContain("1 joins");
   });
 });
 

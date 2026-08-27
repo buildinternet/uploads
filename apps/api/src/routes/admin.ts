@@ -329,7 +329,11 @@ export const admin = new Hono<{ Bindings: Env }>()
       const webOrigin = c.env.WEB_ORIGIN || deriveWebOrigin(c.req.url);
       const link = inviteMagicLink(webOrigin, enrollment.pageId, enrollment.code);
       try {
-        await c.env.EMAIL.send(inviteEmail(email, name, link, enrollment.expiresAt));
+        // Non-null: this route always mints `kind: 'token'` with a numeric
+        // `enrollmentSeconds` (never `null`), so `expiresAt` is always set —
+        // the nullable type on `createEnrollment`'s return is for issue
+        // #876's non-expiring `kind: 'member'` links only.
+        await c.env.EMAIL.send(inviteEmail(email, name, link, enrollment.expiresAt!));
         emailed = true;
         // Audit only non-secret metadata — never the code, magic link, or URL.
         console.log(

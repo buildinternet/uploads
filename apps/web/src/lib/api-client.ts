@@ -800,9 +800,22 @@ export async function updateWorkspaceMemberRole(
  * Distinct from `inviteToWorkspace`'s email invites (no recipient needed)
  * and from `/admin`'s CLI-token links (this workspace's own People page can
  * only see/revoke its own `kind: 'member'` links, never a token-kind one).
+ *
+ * Issue #876: `expiresAt` is nullable (a `"never"`-expiring standing link),
+ * and links carry `maxUses`/`useCount` — multi-use by default (unlimited)
+ * unless the mint form sets a cap.
  */
 export type CreateInviteLinkResult =
-  | { kind: "ok"; id: string; pageId: string; label: string | null; url: string; expiresAt: string }
+  | {
+      kind: "ok";
+      id: string;
+      pageId: string;
+      label: string | null;
+      url: string;
+      expiresAt: string | null;
+      maxUses: number | null;
+      useCount: number;
+    }
   | {
       kind: "unavailable";
       reason: RequestFailure | "server" | "forbidden" | "invalid" | "member_cap";
@@ -810,12 +823,22 @@ export type CreateInviteLinkResult =
       message?: string;
     };
 
-/** POST /v1/workspaces/:name/invite-links */
+/**
+ * POST /v1/workspaces/:name/invite-links
+ *
+ * `expiresIn` — seconds (validated server-side to 1h..90d), `"never"` for a
+ * non-expiring standing link, or omitted for the server default (7 days).
+ * `maxUses` — a positive integer cap, or omitted for unlimited.
+ */
 export async function createInviteLink(
   apiOrigin: string,
   name: string,
-  label?: string,
+  opts: { label?: string; expiresIn?: number | "never"; maxUses?: number } = {},
 ): Promise<CreateInviteLinkResult> {
+  const body: Record<string, unknown> = {};
+  if (opts.label) body.label = opts.label;
+  if (opts.expiresIn !== undefined) body.expiresIn = opts.expiresIn;
+  if (opts.maxUses !== undefined) body.maxUses = opts.maxUses;
   const result = await fetchWithTimeout(
     `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(name)}/invite-links`,
     {
@@ -823,7 +846,7 @@ export async function createInviteLink(
       credentials: "include",
       cache: "no-store",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(label ? { label } : {}),
+      body: JSON.stringify(body),
     },
   );
   if (result.kind === "unavailable") return result;
@@ -833,38 +856,45 @@ export async function createInviteLink(
   }
   if (response.status === 400) return { kind: "unavailable", reason: "invalid" };
   if (!response.ok) return { kind: "unavailable", reason: "server" };
-  const body = (await response.json().catch(() => null)) as {
+  const respBody = (await response.json().catch(() => null)) as {
     id?: string;
     pageId?: string;
     label?: string | null;
     url?: string;
-    expiresAt?: string;
+    expiresAt?: string | null;
+    maxUses?: number | null;
+    useCount?: number;
   } | null;
   if (
-    !body ||
-    typeof body.id !== "string" ||
-    typeof body.pageId !== "string" ||
-    typeof body.url !== "string" ||
-    typeof body.expiresAt !== "string"
+    !respBody ||
+    typeof respBody.id !== "string" ||
+    typeof respBody.pageId !== "string" ||
+    typeof respBody.url !== "string" ||
+    (respBody.expiresAt !== null && typeof respBody.expiresAt !== "string")
   ) {
     return { kind: "unavailable", reason: "server" };
   }
   return {
     kind: "ok",
-    id: body.id,
-    pageId: body.pageId,
-    label: typeof body.label === "string" ? body.label : null,
-    url: body.url,
-    expiresAt: body.expiresAt,
+    id: respBody.id,
+    pageId: respBody.pageId,
+    label: typeof respBody.label === "string" ? respBody.label : null,
+    url: respBody.url,
+    expiresAt: respBody.expiresAt ?? null,
+    maxUses: typeof respBody.maxUses === "number" ? respBody.maxUses : null,
+    useCount: typeof respBody.useCount === "number" ? respBody.useCount : 0,
   };
 }
 
+/** Issue #876: `expiresAt` nullable (standing, non-expiring link); `maxUses`/`useCount` — see `renderInviteLinksHtml`. */
 export interface WorkspaceInviteLink {
   id: string;
   pageId: string | null;
   label: string | null;
   createdAt: string;
-  expiresAt: string;
+  expiresAt: string | null;
+  maxUses: number | null;
+  useCount: number;
 }
 
 export type WorkspaceInviteLinksResult =
