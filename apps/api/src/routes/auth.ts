@@ -1,10 +1,14 @@
 import { RateLimitedError, ServiceUnavailableError, ValidationError } from "@uploads/errors";
 import { Hono, type Context } from "hono";
-import { exchangeEnrollment, findEnrollmentPage } from "../auth-db";
+import {
+  claimMemberEnrollment,
+  exchangeEnrollment,
+  findEnrollmentPage,
+  releaseEnrollmentClaim,
+} from "../auth-db";
 import { dbFor } from "../db-session";
 import { resolveSessionUserId } from "../dual-workspace-auth";
 import { throwForInviteError } from "../invite-error";
-import { sha256Hex } from "../workspace";
 import type { SessionVars } from "../session-auth";
 
 const INVALID_ENROLLMENT = () =>
@@ -91,46 +95,24 @@ export const auth = new Hono<{ Bindings: Env } & SessionVars>()
 
     const db = dbFor(c.env);
     const now = new Date();
-    const nowIso = now.toISOString();
-    const codeHash = await sha256Hex(code);
-
-    const enrollment = await db
-      .prepare(
-        `SELECT id, workspace FROM auth_enrollments
-         WHERE code_hash = ? AND used_at IS NULL AND expires_at > ? AND kind = 'member'
-         LIMIT 1`,
-      )
-      .bind(codeHash, nowIso)
-      .first<{ id: string; workspace: string }>();
-    if (!enrollment) throw INVALID_ENROLLMENT();
 
     // Claim the link first (single-use, race-safe: a conditional UPDATE that
     // only the first concurrent redeemer wins), THEN add the member. A lost
     // race here is indistinguishable from any other invalid code.
-    const claim = await db
-      .prepare(
-        `UPDATE auth_enrollments SET used_at = ?
-         WHERE id = ? AND code_hash = ? AND used_at IS NULL AND expires_at > ? AND kind = 'member'`,
-      )
-      .bind(nowIso, enrollment.id, codeHash, nowIso)
-      .run();
-    if ((claim.meta?.changes ?? 0) !== 1) throw INVALID_ENROLLMENT();
+    const claim = await claimMemberEnrollment(db, code, now);
+    if (!claim) throw INVALID_ENROLLMENT();
 
     // Restores the claim above (`used_at = NULL`) — shared by every path where
     // the redemption didn't actually happen (or didn't consume a seat), so
     // the link isn't permanently burned for something that never occurred.
-    const restoreClaim = () =>
-      db
-        .prepare(`UPDATE auth_enrollments SET used_at = NULL WHERE id = ? AND code_hash = ?`)
-        .bind(enrollment.id, codeHash)
-        .run();
+    const restoreClaim = () => releaseEnrollmentClaim(db, claim.id, claim.codeHash);
 
     let response: Response;
     try {
       response = await c.env.AUTH.fetch("https://auth.internal/internal/join", {
         method: "POST",
         headers: { "content-type": "application/json", "x-uploads-internal": "1" },
-        body: JSON.stringify({ organizationSlug: enrollment.workspace, userId }),
+        body: JSON.stringify({ organizationSlug: claim.workspace, userId }),
       });
     } catch {
       // A rejected fetch (transport failure, not an HTTP error) never got to
@@ -167,7 +149,7 @@ export const auth = new Hono<{ Bindings: Env } & SessionVars>()
       // No seat was consumed — restore the claim so an existing member
       // clicking a shared link doesn't permanently burn it for anyone else.
       await restoreClaim();
-      return c.json({ workspace: enrollment.workspace, alreadyMember: true }, 200);
+      return c.json({ workspace: claim.workspace, alreadyMember: true }, 200);
     }
-    return c.json({ workspace: enrollment.workspace, alreadyMember: false }, 200);
+    return c.json({ workspace: claim.workspace, alreadyMember: false }, 200);
   });

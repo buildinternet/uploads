@@ -130,6 +130,21 @@ export function validateScopes(
   return [...new Set(value)] as (FileScope | OperatorScope | WorkspaceScope)[];
 }
 
+/**
+ * Validates a user-supplied invite-link label: `undefined` in means "no
+ * label was supplied" (caller applies its own default), `null` out means
+ * invalid, otherwise the trimmed 1-100 char label. Shared by both invite-link
+ * mint handlers — `routes/admin-ui.ts`'s `kind: 'token'` links and
+ * `routes/workspace-members.ts`'s `kind: 'member'` links — same
+ * `auth_enrollments.label` column, same rule.
+ */
+export function labelValue(value: unknown): string | undefined | null {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "string") return null;
+  const label = value.trim();
+  return label.length >= 1 && label.length <= 100 ? label : null;
+}
+
 function randomSecret(prefix: string, bytes = 24): string {
   return `${prefix}${btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(bytes))))
     .replace(/\+/g, "-")
@@ -383,6 +398,64 @@ export async function findEnrollmentPage(
         kind: record.kind,
       }
     : null;
+}
+
+/**
+ * Claims an outstanding `kind: 'member'` invite link for redemption (issue
+ * #869 phase B) — the single-use, race-safe first half of `POST
+ * /auth/enrollments/join` (`routes/auth.ts`): a conditional UPDATE that only
+ * the first concurrent redeemer wins, done BEFORE the caller adds the member,
+ * so a lost race is indistinguishable from any other invalid code. Returns
+ * `null` for an unknown/expired/already-used/wrong-kind code — same uniform
+ * failure shape callers collapse to `INVALID_ENROLLMENT`. The returned
+ * `codeHash` is what {@link releaseEnrollmentClaim} needs to restore the
+ * claim; recomputing it there would mean hashing the code twice.
+ */
+export async function claimMemberEnrollment(
+  db: D1Queryable,
+  code: string,
+  now = new Date(),
+): Promise<{ id: string; workspace: string; codeHash: string } | null> {
+  const nowIso = now.toISOString();
+  const codeHash = await sha256Hex(code);
+  const enrollment = await db
+    .prepare(
+      `SELECT id, workspace FROM auth_enrollments
+       WHERE code_hash = ? AND used_at IS NULL AND expires_at > ? AND kind = 'member'
+       LIMIT 1`,
+    )
+    .bind(codeHash, nowIso)
+    .first<{ id: string; workspace: string }>();
+  if (!enrollment) return null;
+
+  const claim = await db
+    .prepare(
+      `UPDATE auth_enrollments SET used_at = ?
+       WHERE id = ? AND code_hash = ? AND used_at IS NULL AND expires_at > ? AND kind = 'member'`,
+    )
+    .bind(nowIso, enrollment.id, codeHash, nowIso)
+    .run();
+  if ((claim.meta?.changes ?? 0) !== 1) return null;
+
+  return { id: enrollment.id, workspace: enrollment.workspace, codeHash };
+}
+
+/**
+ * Restores a claim {@link claimMemberEnrollment} made (`used_at = NULL`),
+ * scoped by both `id` and `code_hash` so it can only ever touch the row it
+ * claimed. Shared by every `/auth/enrollments/join` path where the
+ * redemption didn't actually happen (or didn't consume a seat) — the link
+ * isn't permanently burned for something that never occurred.
+ */
+export async function releaseEnrollmentClaim(
+  db: D1Queryable,
+  id: string,
+  codeHash: string,
+): Promise<void> {
+  await db
+    .prepare(`UPDATE auth_enrollments SET used_at = NULL WHERE id = ? AND code_hash = ?`)
+    .bind(id, codeHash)
+    .run();
 }
 
 export async function exchangeEnrollment(

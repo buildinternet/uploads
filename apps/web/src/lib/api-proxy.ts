@@ -58,6 +58,39 @@ function decodedStrippedPathForGuard(pathname: string): string | null {
   }
 }
 
+/**
+ * Shared transport for both `/api/*` proxy entry points below: rewrites
+ * `request`'s pathname to `targetPathname`, forwards it to the api worker
+ * (binding, else HTTP fallback), and applies Server-Timing. `routeLabel` is
+ * the Server-Timing route tag — the guarded, decoded path for
+ * `proxyApiRequest`, the fixed target for `proxyEnrollmentJoinRequest`.
+ *
+ * Structural choke point (issue #812): the one upstream hop every `/api/*`
+ * proxy request makes, api-worker-bound rather than auth-bound — see
+ * auth-proxy.ts's proxyAuthRequest for the "auth" counterpart.
+ */
+async function forwardToApi(
+  env: ApiProxyEnv,
+  request: Request,
+  targetPathname: string,
+  routeLabel: string,
+): Promise<Response> {
+  const url = new URL(request.url);
+  const manual = new Request(request, { redirect: "manual" });
+  url.pathname = targetPathname;
+  const forwarded = new Request(url.toString(), manual);
+
+  const timing = new ServerTiming();
+  const upstream = await timeOp(
+    () =>
+      env.API
+        ? env.API.fetch(forwarded)
+        : fetch(rewriteOrigin(forwarded, env.UPLOADS_API_ORIGIN ?? LOCAL_API_ORIGIN_DEFAULT)),
+    { name: "api", timing, route: routeLabel, thresholdMs: slowOpThresholdMs(env) },
+  );
+  return timing.applyTo(upstream, { disabled: serverTimingDisabled(env) });
+}
+
 /** Forwards `request` to the api worker (binding, else HTTP fallback), `/api` prefix stripped. */
 export async function proxyApiRequest(env: ApiProxyEnv, request: Request): Promise<Response> {
   const url = new URL(request.url);
@@ -69,23 +102,7 @@ export async function proxyApiRequest(env: ApiProxyEnv, request: Request): Promi
   // The guard runs on the decoded form above; the request forwarded
   // upstream keeps the original (still-encoded where applicable) pathname
   // unchanged, `/api` prefix stripped literally rather than re-encoded.
-  const strippedPath = stripApiPrefix(url.pathname);
-  const manual = new Request(request, { redirect: "manual" });
-  url.pathname = strippedPath;
-  const forwarded = new Request(url.toString(), manual);
-
-  // Structural choke point (issue #812): the one upstream hop every
-  // `/api/*` proxy request makes, api-worker-bound rather than auth-bound —
-  // see auth-proxy.ts's proxyAuthRequest for the "auth" counterpart.
-  const timing = new ServerTiming();
-  const upstream = await timeOp(
-    () =>
-      env.API
-        ? env.API.fetch(forwarded)
-        : fetch(rewriteOrigin(forwarded, env.UPLOADS_API_ORIGIN ?? LOCAL_API_ORIGIN_DEFAULT)),
-    { name: "api", timing, route: decodedPath, thresholdMs: slowOpThresholdMs(env) },
-  );
-  return timing.applyTo(upstream, { disabled: serverTimingDisabled(env) });
+  return forwardToApi(env, request, stripApiPrefix(url.pathname), decodedPath);
 }
 
 /**
@@ -105,20 +122,7 @@ export async function proxyEnrollmentJoinRequest(
   env: ApiProxyEnv,
   request: Request,
 ): Promise<Response> {
-  const url = new URL(request.url);
-  url.pathname = "/auth/enrollments/join";
-  const manual = new Request(request, { redirect: "manual" });
-  const forwarded = new Request(url.toString(), manual);
-
-  const timing = new ServerTiming();
-  const upstream = await timeOp(
-    () =>
-      env.API
-        ? env.API.fetch(forwarded)
-        : fetch(rewriteOrigin(forwarded, env.UPLOADS_API_ORIGIN ?? LOCAL_API_ORIGIN_DEFAULT)),
-    { name: "api", timing, route: "/auth/enrollments/join", thresholdMs: slowOpThresholdMs(env) },
-  );
-  return timing.applyTo(upstream, { disabled: serverTimingDisabled(env) });
+  return forwardToApi(env, request, "/auth/enrollments/join", "/auth/enrollments/join");
 }
 
 /**

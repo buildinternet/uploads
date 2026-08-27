@@ -57,6 +57,7 @@ import {
   createEnrollment,
   DEFAULT_ENROLLMENT_SECONDS,
   DEFAULT_TOKEN_SECONDS,
+  labelValue,
   listOpenEnrollments,
   revokeEnrollment,
 } from "../auth-db";
@@ -252,18 +253,6 @@ export async function memberRoleUpdateHandler(c: Context<MembersVars>) {
   return c.json({ member });
 }
 
-/** `sessionAdminGate`'s `MembersVars["memberOrg"]["slug"]` IS the workspace
- * name (the 1:1 org<->workspace mapping `org-workspaces.ts` documents), so
- * every invite-link handler below reuses it instead of re-reading (and
- * re-widening) the `:workspace` path param — same pattern as
- * `inviteRevokeHandler`'s `allowWrite(c.env, org.slug)` call above. */
-function labelValue(value: unknown): string | undefined | null {
-  if (value === undefined || value === null) return undefined;
-  if (typeof value !== "string") return null;
-  const label = value.trim();
-  return label.length >= 1 && label.length <= 100 ? label : null;
-}
-
 /**
  * 404s minting a member-kind invite link for a soft-deleted or
  * purged-tombstone workspace — same existence rule `loadEditableWorkspace`
@@ -281,6 +270,12 @@ async function requireLiveWorkspace(env: Env, name: string): Promise<void> {
 }
 
 /**
+ * `sessionAdminGate`'s `MembersVars["memberOrg"]["slug"]` IS the workspace
+ * name (the 1:1 org<->workspace mapping `org-workspaces.ts` documents), so
+ * every invite-link handler below reuses it instead of re-reading (and
+ * re-widening) the `:workspace` path param — same pattern as
+ * `inviteRevokeHandler`'s `allowWrite(c.env, org.slug)` call above.
+ *
  * `POST /:workspace/invite-links` — mint a `kind: 'member'` invite link
  * (issue #869 phase B). Its redemption (`POST /auth/enrollments/join`) adds
  * the redeemer as an org member with role `member`, never a CLI token — so
@@ -295,7 +290,20 @@ async function requireLiveWorkspace(env: Env, name: string): Promise<void> {
 export async function inviteLinkMintHandler(c: Context<MembersVars>) {
   const org = c.get("memberOrg");
   if (!(await allowWrite(c.env, org.slug))) throw new RateLimitedError("rate limit exceeded");
-  await requireLiveWorkspace(c.env, org.slug);
+
+  // requireLiveWorkspace (KV) and the AUTH member-cap-check fetch are
+  // independent lookups with no data dependency on each other — start both
+  // before awaiting either so their latencies overlap. requireLiveWorkspace
+  // is still awaited (and can still throw 404) before the label is
+  // validated and before the cap-check result is inspected, preserving
+  // today's precedence: not-found, then invalid label, then cap denial.
+  const liveWorkspace = requireLiveWorkspace(c.env, org.slug);
+  const capCheckFetch = c.env.AUTH.fetch("https://auth.internal/internal/member-cap/check", {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-uploads-internal": "1" },
+    body: JSON.stringify({ workspace: org.slug }),
+  });
+  await liveWorkspace;
 
   const body = await c.req.json<{ label?: unknown }>().catch(() => ({}) as { label?: unknown });
   const label = labelValue(body.label);
@@ -305,11 +313,7 @@ export async function inviteLinkMintHandler(c: Context<MembersVars>) {
     });
   }
 
-  const capCheck = await c.env.AUTH.fetch("https://auth.internal/internal/member-cap/check", {
-    method: "POST",
-    headers: { "content-type": "application/json", "x-uploads-internal": "1" },
-    body: JSON.stringify({ workspace: org.slug }),
-  });
+  const capCheck = await capCheckFetch;
   if (!capCheck.ok) {
     const payload = await capCheck.json().catch(() => null);
     throwForInviteError(capCheck.status, payload);

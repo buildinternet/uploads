@@ -631,6 +631,24 @@ export async function getWorkspaceBilling(
 }
 
 /**
+ * Classifies a 403 shared by `inviteToWorkspace` and `createInviteLink`: a
+ * plan member cap (issue #450), which the user can act on, vs. the
+ * pre-existing "you aren't an admin here". Both callers' result unions carry
+ * the same `"member_cap" | "forbidden"` shape for their 403 branch.
+ */
+async function classifyInviteForbidden(
+  response: Response,
+): Promise<{ reason: "member_cap"; message?: string } | { reason: "forbidden" }> {
+  const error = (await response.json().catch(() => null)) as {
+    error?: { code?: string; message?: string };
+  } | null;
+  if (error?.error?.code === "member_cap_reached") {
+    return { reason: "member_cap", message: error.error.message };
+  }
+  return { reason: "forbidden" };
+}
+
+/**
  * POST /v1/workspaces/:name/invites — workspace admin|owner invites an email.
  * Always prefer showing `acceptUrl` (works without outbound email).
  */
@@ -652,15 +670,7 @@ export async function inviteToWorkspace(
   if (result.kind === "unavailable") return result;
   const { response } = result;
   if (response.status === 403) {
-    // Two different 403s: a plan member cap (issue #450), which the user can
-    // act on, and the pre-existing "you aren't an admin here".
-    const error = (await response.json().catch(() => null)) as {
-      error?: { code?: string; message?: string };
-    } | null;
-    if (error?.error?.code === "member_cap_reached") {
-      return { kind: "unavailable", reason: "member_cap", message: error.error.message };
-    }
-    return { kind: "unavailable", reason: "forbidden" };
+    return { kind: "unavailable", ...(await classifyInviteForbidden(response)) };
   }
   if (response.status === 400) return { kind: "unavailable", reason: "invalid" };
   if (!response.ok) return { kind: "unavailable", reason: "server" };
@@ -819,13 +829,7 @@ export async function createInviteLink(
   if (result.kind === "unavailable") return result;
   const { response } = result;
   if (response.status === 403) {
-    const error = (await response.json().catch(() => null)) as {
-      error?: { code?: string; message?: string };
-    } | null;
-    if (error?.error?.code === "member_cap_reached") {
-      return { kind: "unavailable", reason: "member_cap", message: error.error.message };
-    }
-    return { kind: "unavailable", reason: "forbidden" };
+    return { kind: "unavailable", ...(await classifyInviteForbidden(response)) };
   }
   if (response.status === 400) return { kind: "unavailable", reason: "invalid" };
   if (!response.ok) return { kind: "unavailable", reason: "server" };

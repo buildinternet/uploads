@@ -935,15 +935,21 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
     }
 
     const db = drizzle(c.env.DB, { schema });
-    const [org] = await db
-      .select()
-      .from(schema.organization)
-      .where(eq(schema.organization.slug, organizationSlug))
-      .limit(1);
+    // Independent lookups — run them concurrently, but keep the same
+    // not-found precedence (organization before user) that a sequential
+    // await gave: the organization result is checked first below regardless
+    // of which resolves first.
+    const [[org], [user]] = await Promise.all([
+      db
+        .select()
+        .from(schema.organization)
+        .where(eq(schema.organization.slug, organizationSlug))
+        .limit(1),
+      db.select().from(schema.user).where(eq(schema.user.id, userId)).limit(1),
+    ]);
     if (!org) {
       return c.json(errorJson("organization_not_found", "no organization with that slug"), 404);
     }
-    const [user] = await db.select().from(schema.user).where(eq(schema.user.id, userId)).limit(1);
     if (!user) {
       return c.json(errorJson("user_not_found", "no user with that id"), 404);
     }

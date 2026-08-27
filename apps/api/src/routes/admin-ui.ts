@@ -31,6 +31,7 @@ import {
   DEFAULT_ENROLLMENT_SECONDS,
   DEFAULT_TOKEN_SECONDS,
   createEnrollment,
+  labelValue,
   listOpenEnrollments,
   revokeEnrollment,
   revokeTokensForMintingUser,
@@ -172,13 +173,8 @@ function parseBanReason(body: unknown): string {
 // POST /admin/enrollments path (apps/api/src/routes/admin.ts) — same code
 // format, same TTL defaults, same redemption flow (apps/web's /invite page
 // and `uploads login --code`). This route only adds a session-authed way to
-// mint one without an email recipient.
-function labelValue(value: unknown): string | undefined | null {
-  if (value === undefined || value === null) return undefined;
-  if (typeof value !== "string") return null;
-  const label = value.trim();
-  return label.length >= 1 && label.length <= 100 ? label : null;
-}
+// mint one without an email recipient. `labelValue` (shared with
+// `routes/workspace-members.ts`'s member-kind links) lives in `auth-db.ts`.
 
 interface OrgSummary {
   organization: { id: string; slug: string; name: string };

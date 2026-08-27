@@ -182,6 +182,7 @@ import Footer from "../components/Footer.astro";
       <Footer compact />
     </main>
     <script>
+      import { getSession } from "../lib/auth-client";
       import {
         codeFromHash,
         loginHref as buildLoginHref,
@@ -267,16 +268,16 @@ import Footer from "../components/Footer.astro";
         securityNote.textContent = "Treat this link like a password — it's single-use.";
         joinActions.hidden = false;
 
-        let signedIn = false;
-        try {
-          const session = await fetch("/api/auth/get-session", {
-            credentials: "include",
-            cache: "no-store",
-          });
-          signedIn = session.ok && (await session.json().catch(() => null)) !== null;
-        } catch {
-          signedIn = false;
-        }
+        // Same-origin ("" — SAME_ORIGIN_AUTH_BASE): the browser only ever
+        // needs this page's own `/api/auth/get-session` proxy, never a
+        // configured auth-worker origin. `unavailable` (outage or a
+        // malformed response) folds into "not signed in" here, same as the
+        // plain `fetch()` this replaced — no distinct outage state exists
+        // on this page for the session check, so the sign-in prompt is
+        // still the right fallback rather than leaving the join button
+        // hidden with no way forward.
+        const sessionResult = await getSession("");
+        const signedIn = sessionResult.kind === "signed_in";
 
         if (!signedIn) {
           // `href="#"` only for keyboard/focus semantics — the actual navigation
