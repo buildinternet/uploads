@@ -37,11 +37,29 @@ export interface CodeStorage {
 }
 
 /**
- * Reads and clears a code previously stashed by `stashCode`, tolerating a
- * storage that throws (private window, storage disabled). Never throws;
- * returns `""` when nothing was stashed or storage is unavailable.
+ * Safely accesses `window.sessionStorage`, tolerating a browser that throws
+ * on the property access itself (not just on `getItem`/`setItem`) — e.g. a
+ * SecurityError in some private-browsing/storage-disabled configurations.
+ * Never throws; returns `null` when the getter itself throws or storage
+ * isn't available, so callers can fall back to the same storage-unavailable
+ * recovery path `readStashedCode`/`stashCode` already use.
  */
-export function readStashedCode(storage: CodeStorage, pageId: string): string {
+export function safeSessionStorage(): Storage | null {
+  try {
+    return window.sessionStorage;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Reads and clears a code previously stashed by `stashCode`, tolerating a
+ * storage that throws (private window, storage disabled) or is unavailable
+ * (`null`). Never throws; returns `""` when nothing was stashed or storage
+ * is unavailable.
+ */
+export function readStashedCode(storage: CodeStorage | null, pageId: string): string {
+  if (!storage) return "";
   try {
     const key = codeStorageKey(pageId);
     const stashed = storage.getItem(key);
@@ -56,10 +74,11 @@ export function readStashedCode(storage: CodeStorage, pageId: string): string {
 /**
  * Stashes `code` in `storage` so it survives the round trip through
  * `/login` without ever appearing in a URL. Never throws; returns `false`
- * when storage isn't available — callers MUST NOT fall back to putting the
- * code in a URL when this returns `false`.
+ * when storage isn't available (including a `null` storage) — callers MUST
+ * NOT fall back to putting the code in a URL when this returns `false`.
  */
-export function stashCode(storage: CodeStorage, pageId: string, code: string): boolean {
+export function stashCode(storage: CodeStorage | null, pageId: string, code: string): boolean {
+  if (!storage) return false;
   try {
     storage.setItem(codeStorageKey(pageId), code);
     return true;

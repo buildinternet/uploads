@@ -227,10 +227,81 @@ describe("POST /auth/enrollments/join", () => {
     expect(retry.status).toBe(200);
   });
 
-  // Review finding 6: a rejected AUTH.fetch (transport failure, not an HTTP
-  // error) must not skip the restore — otherwise the link is burned with no
-  // member ever added.
-  it("restores the link when the AUTH fetch itself rejects (transport failure)", async () => {
+  // CodeRabbit review (issue #869 follow-up): a thrown first attempt to
+  // `/internal/join` is reconciled by retrying the identical call, not by
+  // blindly restoring the claim — `/internal/join` is idempotent, so the
+  // retry tells us the real outcome.
+  it("retries once on a rejected AUTH fetch and succeeds if the retry is ok", async () => {
+    const db = new SqliteD1(MIGRATIONS);
+    const link = await mintMemberLink(db);
+    let calls = 0;
+    const res = await app.request(
+      "/auth/enrollments/join",
+      { method: "POST", headers: sessionHeaders, body: JSON.stringify({ code: link.code }) },
+      makeEnv({
+        db,
+        joinResponse: () => {
+          calls++;
+          if (calls === 1) throw new Error("network exploded");
+          return Response.json({ alreadyMember: false }, { status: 201 });
+        },
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ workspace: "acme", alreadyMember: false });
+    expect(calls).toBe(2);
+
+    // The claim was consumed by the retry's success — the code is single-use.
+    const replay = await app.request(
+      "/auth/enrollments/join",
+      { method: "POST", headers: sessionHeaders, body: JSON.stringify({ code: link.code }) },
+      makeEnv({ db }),
+    );
+    expect(replay.status).toBe(400);
+  });
+
+  // A thrown first attempt followed by a retry that reports `alreadyMember`
+  // may mean OUR OWN first attempt actually committed the membership before
+  // the transport failed — restoring the claim there would hand the code a
+  // second seat, so the claim-restore is skipped on the retry path.
+  it("does not restore the claim when a retry after a throw reports alreadyMember", async () => {
+    const db = new SqliteD1(MIGRATIONS);
+    const link = await mintMemberLink(db);
+    let calls = 0;
+    const res = await app.request(
+      "/auth/enrollments/join",
+      { method: "POST", headers: sessionHeaders, body: JSON.stringify({ code: link.code }) },
+      makeEnv({
+        db,
+        joinResponse: () => {
+          calls++;
+          if (calls === 1) throw new Error("network exploded");
+          return Response.json({ alreadyMember: true }, { status: 200 });
+        },
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ workspace: "acme", alreadyMember: true });
+
+    // The claim was NOT restored — a second user cannot reuse the code.
+    const otherUser = { id: "u-other", email: "other@example.com", name: "Other" };
+    const replay = await app.request(
+      "/auth/enrollments/join",
+      { method: "POST", headers: sessionHeaders, body: JSON.stringify({ code: link.code }) },
+      makeEnv({ db, sessionUser: otherUser }),
+    );
+    expect(replay.status).toBe(400);
+    expect(((await replay.json()) as { error: { code: string } }).error.code).toBe(
+      "invalid_enrollment",
+    );
+  });
+
+  // When both the first attempt AND the retry reject, the outcome is
+  // genuinely unknown (the downstream worker may have committed the
+  // membership before either transport failure) — fail closed: don't
+  // restore the claim, and surface the same retryable service-unavailable
+  // error as the cap-lookup outage path.
+  it("fails closed (no restore) when both the AUTH fetch and its retry reject", async () => {
     const db = new SqliteD1(MIGRATIONS);
     const link = await mintMemberLink(db);
     const res = await app.request(
@@ -243,17 +314,21 @@ describe("POST /auth/enrollments/join", () => {
         },
       }),
     );
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(503);
     expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
-      "invalid_enrollment",
+      "cap_check_unavailable",
     );
 
+    // The link stays burned — it was never restored.
     const retry = await app.request(
       "/auth/enrollments/join",
       { method: "POST", headers: sessionHeaders, body: JSON.stringify({ code: link.code }) },
       makeEnv({ db }),
     );
-    expect(retry.status).toBe(200);
+    expect(retry.status).toBe(400);
+    expect(((await retry.json()) as { error: { code: string } }).error.code).toBe(
+      "invalid_enrollment",
+    );
   });
 
   it("rejects a token-kind code uniformly (not exchangeable for membership)", async () => {

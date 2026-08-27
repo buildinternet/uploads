@@ -187,6 +187,7 @@ import Footer from "../components/Footer.astro";
         codeFromHash,
         loginHref as buildLoginHref,
         readStashedCode,
+        safeSessionStorage,
         stashCode as stashCodeIn,
       } from "../lib/invite-code";
 
@@ -222,7 +223,7 @@ import Footer from "../components/Footer.astro";
         // of putting it back in a URL (see stashCode below). A private
         // window or disabled storage just means the code doesn't resume;
         // nothing was ever exposed in a URL either way.
-        code = readStashedCode(sessionStorage, pageId);
+        code = readStashedCode(safeSessionStorage(), pageId);
       }
 
       if (/^upe_[A-Za-z0-9_-]{20,}$/.test(code)) {
@@ -245,7 +246,7 @@ import Footer from "../components/Footer.astro";
        * /login without ever appearing in a URL. Callers must NOT fall back to
        * putting the code in the URL when this returns false. */
       function stashCode(): boolean {
-        return stashCodeIn(sessionStorage, pageId, code);
+        return stashCodeIn(safeSessionStorage(), pageId, code);
       }
 
       /** Prepares the code to survive sign-in, then either navigates to /login or,

@@ -272,7 +272,24 @@ if (cookie.trim()) {
 
       async function loadInviteLinks(): Promise<void> {
         const result = await listInviteLinks(apiOrigin, workspaceName);
-        if (!stillHere() || result.kind !== "ok") return;
+        if (!stillHere()) return;
+        if (result.kind !== "ok") {
+          // Matches the page's existing error copy (see `showError` above)
+          // and offers the same "Try again" affordance rather than leaving
+          // the list silently empty.
+          inviteLinkStatus.hidden = false;
+          inviteLinkStatus.dataset.state = "error";
+          inviteLinkStatus.innerHTML =
+            'Invite links are temporarily unavailable. <button type="button" id="ws-invite-link-status-retry">Try again</button>';
+          return;
+        }
+        // Success clears a previous load-failure message, but leaves alone
+        // any unrelated status text (e.g. "Link created…") the generate form
+        // just set — this function never owned that message on success.
+        if (inviteLinkStatus.dataset.state === "error") {
+          inviteLinkStatus.hidden = true;
+          inviteLinkStatus.removeAttribute("data-state");
+        }
         paintInviteLinks(result.links);
       }
 
@@ -407,7 +424,7 @@ if (cookie.trim()) {
           submit.disabled = false;
 
           if (result.kind === "ok") {
-            inviteLinkStatus.textContent = "Link created — copy it now, it won't be shown again.";
+            inviteLinkStatus.textContent = "Link created. Copy it now. It won't be shown again.";
             inviteLinkUrlCode.textContent = result.url;
             inviteLinkUrlCopy.dataset.copy = result.url;
             inviteLinkUrl.hidden = false;
@@ -426,6 +443,12 @@ if (cookie.trim()) {
             inviteLinkStatus.textContent = "Couldn’t generate a link. Try again.";
           }
         })();
+      });
+
+      inviteLinkStatus.addEventListener("click", (event) => {
+        const target = event.target as HTMLElement;
+        if (!target.closest("#ws-invite-link-status-retry")) return;
+        void loadInviteLinks();
       });
 
       inviteLinkList.addEventListener("click", (event) => {

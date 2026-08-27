@@ -1,9 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   codeFromHash,
   codeStorageKey,
   loginHref,
   readStashedCode,
+  safeSessionStorage,
   stashCode,
   type CodeStorage,
 } from "./invite-code";
@@ -96,5 +97,41 @@ describe("stashCode / readStashedCode", () => {
   it('readStashedCode returns "" when nothing was stashed', () => {
     const storage = fakeStorage();
     expect(readStashedCode(storage, "upi_never-stashed")).toBe("");
+  });
+
+  it("readStashedCode/stashCode treat a null storage as unavailable, not a throw", () => {
+    expect(() => readStashedCode(null, "upi_1")).not.toThrow();
+    expect(readStashedCode(null, "upi_1")).toBe("");
+    expect(() => stashCode(null, "upi_1", "upe_secret")).not.toThrow();
+    expect(stashCode(null, "upi_1", "upe_secret")).toBe(false);
+  });
+});
+
+describe("safeSessionStorage", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("returns window.sessionStorage when accessible", () => {
+    const stub = fakeStorage();
+    vi.stubGlobal("window", { sessionStorage: stub });
+    expect(safeSessionStorage()).toBe(stub);
+  });
+
+  // CodeRabbit review (issue #869 follow-up): some private-browsing /
+  // storage-disabled configurations throw on the `sessionStorage` property
+  // access itself (a SecurityError), not just on `getItem`/`setItem` — this
+  // must be caught too, before it ever reaches readStashedCode/stashCode's
+  // own try/catch.
+  it("returns null (never throws) when the sessionStorage getter itself throws", () => {
+    const fakeWindow: { sessionStorage?: Storage } = {};
+    Object.defineProperty(fakeWindow, "sessionStorage", {
+      get() {
+        throw new DOMException("access denied", "SecurityError");
+      },
+    });
+    vi.stubGlobal("window", fakeWindow);
+    expect(() => safeSessionStorage()).not.toThrow();
+    expect(safeSessionStorage()).toBeNull();
   });
 });

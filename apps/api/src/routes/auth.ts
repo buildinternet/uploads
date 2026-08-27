@@ -107,19 +107,38 @@ export const auth = new Hono<{ Bindings: Env } & SessionVars>()
     // the link isn't permanently burned for something that never occurred.
     const restoreClaim = () => releaseEnrollmentClaim(db, claim.id, claim.codeHash);
 
-    let response: Response;
-    try {
-      response = await c.env.AUTH.fetch("https://auth.internal/internal/join", {
+    const callInternalJoin = () =>
+      c.env.AUTH.fetch("https://auth.internal/internal/join", {
         method: "POST",
         headers: { "content-type": "application/json", "x-uploads-internal": "1" },
         body: JSON.stringify({ organizationSlug: claim.workspace, userId }),
       });
+
+    let response: Response;
+    let isRetry = false;
+    try {
+      response = await callInternalJoin();
     } catch {
-      // A rejected fetch (transport failure, not an HTTP error) never got to
-      // `!response.ok` below — restore here too, or the link is burned with
-      // no member ever added.
-      await restoreClaim();
-      throw INVALID_ENROLLMENT();
+      // A rejected fetch is a transport failure, not an HTTP error — we don't
+      // know whether the downstream worker committed the membership before
+      // the transport broke. `/internal/join` is idempotent (atomic
+      // NOT-EXISTS insert; an already-member retry returns 200
+      // `{alreadyMember:true}` without consuming a seat), so reconcile by
+      // retrying the identical call rather than blindly restoring the claim.
+      isRetry = true;
+      try {
+        response = await callInternalJoin();
+      } catch {
+        // Still unknown after a retry — fail closed. Do NOT restore the
+        // claim: if the first (or second) attempt actually committed the
+        // membership, restoring would let the code be redeemed a second
+        // time (CWE-863). The link stays burned; surface the same
+        // retryable error as the cap-lookup outage path below.
+        throw new ServiceUnavailableError(
+          "Couldn't verify this workspace's member limit — try again.",
+          { code: "cap_check_unavailable" },
+        );
+      }
     }
     if (!response.ok) {
       // The member add failed (cap denial, a cap-check outage, or a transient
@@ -148,7 +167,14 @@ export const auth = new Hono<{ Bindings: Env } & SessionVars>()
     if (payload?.alreadyMember === true) {
       // No seat was consumed — restore the claim so an existing member
       // clicking a shared link doesn't permanently burn it for anyone else.
-      await restoreClaim();
+      //
+      // Exception: on the retry path, `alreadyMember` may mean our own
+      // first (transport-failed) attempt actually committed the membership
+      // before the failure — in that case restoring would hand the code a
+      // second seat. Only restore when this was a clean, non-retried call.
+      if (!isRetry) {
+        await restoreClaim();
+      }
       return c.json({ workspace: claim.workspace, alreadyMember: true }, 200);
     }
     return c.json({ workspace: claim.workspace, alreadyMember: false }, 200);

@@ -58,6 +58,7 @@ export const prerender = false;
       clearExpandGroups,
       escapeHtml,
       loadOnce,
+      type LoadOnceFlag,
       wireExpandGroup,
     } from "../../lib/admin-ui";
 
@@ -561,8 +562,8 @@ export const prerender = false;
       /**
        * Outstanding invite links for a workspace, with a revoke button per
        * row. `onRevoke` fires after a successful DELETE so the caller can
-       * refresh the list; failures render an inline status message instead
-       * of throwing.
+       * refresh the list. A failed DELETE renders an inline status message
+       * instead of throwing.
        */
       function renderInviteLinks(
         host: HTMLElement,
@@ -696,9 +697,21 @@ export const prerender = false;
         const limitsLoaded = { done: false };
         const storageLoaded = { done: false };
         const githubLinksLoaded = { done: false };
-        const inviteLinksLoaded = { done: false };
+        const inviteLinksLoaded: LoadOnceFlag = { done: false };
+
+        // A reload requested while the initial GET is still in flight can't
+        // just clear `inviteLinksLoaded.done` and call `loadOnce` again —
+        // `loadOnce` no-ops while `flag.inflight` is set, so that reload
+        // would be silently dropped (a just-created link wouldn't show up
+        // until a full page reload). Track it as a pending flag instead and
+        // re-run once the in-flight load settles.
+        let inviteLinksReloadPending = false;
 
         function reloadInviteLinks(): void {
+          if (inviteLinksLoaded.inflight) {
+            inviteLinksReloadPending = true;
+            return;
+          }
           inviteLinksLoaded.done = false;
           loadInviteLinks();
         }
@@ -716,6 +729,12 @@ export const prerender = false;
               inviteLinksEl.innerHTML = `<p class="muted">Failed to load invite links.</p>`;
               throw new Error("invite-links");
             }
+          });
+          void inviteLinksLoaded.inflight?.then(() => {
+            if (!inviteLinksReloadPending) return;
+            inviteLinksReloadPending = false;
+            inviteLinksLoaded.done = false;
+            loadInviteLinks();
           });
         }
 
