@@ -97,13 +97,32 @@ if (cookie.trim()) {
     <div class="settings-section" id="ws-invite-links-section" hidden>
       <h2>Invite links</h2>
       <p class="settings-note muted">
-        Anyone with the link can join this workspace once — no email required.
+        Anyone with the link can join this workspace — no email required.
       </p>
       <form class="ws-form" id="ws-invite-link-form">
         <div class="input-group">
           <label class="input-group__field">
             <span class="sr-only">Label (optional)</span>
             <input type="text" name="label" maxlength="100" placeholder="Label (optional)" />
+          </label>
+          <label class="input-group__field">
+            <span class="sr-only">Expires</span>
+            <select name="expiresIn">
+              <option value="86400">Expires in 1 day</option>
+              <option value="604800" selected>Expires in 7 days</option>
+              <option value="2592000">Expires in 30 days</option>
+              <option value="never">Never expires</option>
+            </select>
+          </label>
+          <label class="input-group__field">
+            <span class="sr-only">Max uses (optional)</span>
+            <input
+              type="number"
+              name="maxUses"
+              min="1"
+              step="1"
+              placeholder="Max uses (optional)"
+            />
           </label>
           <button type="submit" class="input-group__action">Generate link</button>
         </div>
@@ -411,15 +430,31 @@ if (cookie.trim()) {
           if (!stillHere()) return;
           const form = event.currentTarget as HTMLFormElement;
           const labelInput = form.querySelector<HTMLInputElement>('input[name="label"]');
+          // Not querySelector<HTMLSelectElement>: worker-configuration.d.ts's
+          // HTMLRewriter ambient `Element` redeclares `remove()`, which makes
+          // HTMLSelectElement fail the `T extends Element` constraint (see
+          // the role-select handler below). Fetch as HTMLElement and cast.
+          const expiresInSelect = form.querySelector<HTMLElement>(
+            'select[name="expiresIn"]',
+          ) as unknown as HTMLSelectElement | null;
+          const maxUsesInput = form.querySelector<HTMLInputElement>('input[name="maxUses"]');
           const submit = form.querySelector<HTMLButtonElement>('button[type="submit"]');
           const label = labelInput?.value.trim() || undefined;
+          const expiresInRaw = expiresInSelect?.value ?? "604800";
+          const expiresIn = expiresInRaw === "never" ? "never" : Number(expiresInRaw);
+          const maxUsesRaw = maxUsesInput?.value.trim();
+          const maxUses = maxUsesRaw ? Number(maxUsesRaw) : undefined;
           if (!submit) return;
 
           inviteLinkStatus.hidden = false;
           inviteLinkStatus.textContent = "Generating link…";
           inviteLinkUrl.hidden = true;
           submit.disabled = true;
-          const result = await createInviteLink(apiOrigin, workspaceName, label);
+          const result = await createInviteLink(apiOrigin, workspaceName, {
+            label,
+            expiresIn,
+            maxUses,
+          });
           if (!stillHere()) return;
           submit.disabled = false;
 
@@ -429,6 +464,7 @@ if (cookie.trim()) {
             inviteLinkUrlCopy.dataset.copy = result.url;
             inviteLinkUrl.hidden = false;
             if (labelInput) labelInput.value = "";
+            if (maxUsesInput) maxUsesInput.value = "";
             void loadInviteLinks();
             return;
           }

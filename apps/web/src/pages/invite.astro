@@ -266,7 +266,9 @@ import Footer from "../components/Footer.astro";
       async function setUpJoinFlow(workspace: string) {
         heading.textContent = `Join ${workspace} on uploads.sh`;
         lead.textContent = `You've been invited to join the ${workspace} workspace.`;
-        securityNote.textContent = "Treat this link like a password — it's single-use.";
+        // Issue #876: member-kind links may be multi-use, so this no longer
+        // claims "single-use" — just the general "treat it like a secret" advice.
+        securityNote.textContent = "Treat this link like a password.";
         joinActions.hidden = false;
 
         // Same-origin ("" — SAME_ORIGIN_AUTH_BASE): the browser only ever
@@ -367,29 +369,35 @@ import Footer from "../components/Footer.astro";
         if (!response.ok) throw new Error("invalid");
         const invitation = (await response.json()) as {
           used: boolean;
-          expiresAt: string;
+          // Issue #876: nullable — a non-expiring `kind: 'member'` link.
+          expiresAt: string | null;
           workspace: string;
           kind?: "token" | "member";
         };
         if (invitation.used) {
-          meta.textContent = "This invite has already been used.";
+          meta.textContent =
+            invitation.kind === "member"
+              ? "This invite link is no longer accepting new members."
+              : "This invite has already been used.";
           meta.dataset.state = "closed";
           return;
         }
-        const when = new Date(invitation.expiresAt).toLocaleString([], {
-          dateStyle: "medium",
-          timeStyle: "short",
-        });
+        const when = invitation.expiresAt
+          ? new Date(invitation.expiresAt).toLocaleString([], {
+              dateStyle: "medium",
+              timeStyle: "short",
+            })
+          : null;
         const where = invitation.workspace ? `the ${invitation.workspace} workspace` : "uploads.sh";
 
         if (invitation.kind === "member") {
-          meta.textContent = `Expires ${when}`;
+          meta.textContent = when ? `Expires ${when}` : "This link never expires.";
           meta.dataset.state = "ready";
           await setUpJoinFlow(invitation.workspace);
           return;
         }
 
-        meta.textContent = `You'll join ${where} · expires ${when}`;
+        meta.textContent = when ? `You'll join ${where} · expires ${when}` : `You'll join ${where}`;
         meta.dataset.state = "ready";
         instructions.hidden = false;
       }

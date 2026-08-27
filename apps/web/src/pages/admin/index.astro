@@ -96,7 +96,11 @@ export const prerender = false;
         scopes: string[];
         kind?: "token" | "member";
         createdAt: string;
-        expiresAt: string;
+        // Issue #876: nullable (a non-expiring `kind: 'member'` link);
+        // maxUses/useCount are meaningful for `kind: 'member'` only.
+        expiresAt: string | null;
+        maxUses?: number | null;
+        useCount?: number;
       }
 
       async function apiGet<T>(path: string): Promise<T> {
@@ -575,12 +579,19 @@ export const prerender = false;
           ? `<h4 class="${ADMIN_DETAIL_HEADING}">Invite links</h4>
            <ul class="invite-links-items ${ADMIN_MINI_LIST}">
              ${links
-               .map(
-                 (link) => `<li class="${ADMIN_MINI_LIST_ITEM}" data-id="${escapeHtml(link.id)}">
-                   <span>${link.label ? escapeHtml(link.label) : `<span class="muted">unlabeled</span>`} · ${escapeHtml(link.kind === "member" ? "member" : link.scopes.join(", "))} · expires ${escapeHtml(formatDate(link.expiresAt) ?? link.expiresAt)}</span>
+               .map((link) => {
+                 const expiry = link.expiresAt
+                   ? `expires ${formatDate(link.expiresAt) ?? link.expiresAt}`
+                   : "never expires";
+                 const uses =
+                   link.kind === "member"
+                     ? ` · ${link.useCount ?? 0}${link.maxUses ? `/${link.maxUses}` : ""} joins`
+                     : "";
+                 return `<li class="${ADMIN_MINI_LIST_ITEM}" data-id="${escapeHtml(link.id)}">
+                   <span>${link.label ? escapeHtml(link.label) : `<span class="muted">unlabeled</span>`} · ${escapeHtml(link.kind === "member" ? "member" : link.scopes.join(", "))} · ${escapeHtml(expiry)}${escapeHtml(uses)}</span>
                    <button type="button" class="invite-link-revoke ${ADMIN_BTN} ${ADMIN_BTN_DANGER}" data-id="${escapeHtml(link.id)}">Revoke</button>
-                 </li>`,
-               )
+                 </li>`;
+               })
                .join("")}
            </ul>
            <div class="invite-links-status text-(length:--text-micro)" role="status" aria-live="polite" hidden></div>`

@@ -263,23 +263,36 @@ export function renderInvitesHtml(
  * Issue #869 phase B: the People page's outstanding `kind: 'member'`
  * join-link list — a plain `<ul>`, not the people table (these aren't
  * teammates or pending email invites, just live shareable links). Each row
- * shows the label (or a generic fallback) and expiry, plus a revoke button
- * matching the `text-btn` treatment `renderInvitesHtml`'s revoke uses.
- * `[]` → `""` (caller renders its own empty state).
+ * shows the label (or a generic fallback), expiry, and use count, plus a
+ * revoke button matching the `text-btn` treatment `renderInvitesHtml`'s
+ * revoke uses. `[]` → `""` (caller renders its own empty state).
+ *
+ * Issue #876: `expiresAt` nullable — a standing link shows "never expires".
+ * Uses show as "N joins" (unlimited) or "N/max joins" (capped) so a
+ * multi-use link is auditable at a glance.
  */
 export function renderInviteLinksHtml(
-  links: { id: string; label: string | null; expiresAt: string }[],
+  links: {
+    id: string;
+    label: string | null;
+    expiresAt: string | null;
+    maxUses: number | null;
+    useCount: number;
+  }[],
 ): string {
   return links
     .map((link) => {
       const label = link.label ? escapeHtml(link.label) : "Unlabeled link";
-      const when = new Date(link.expiresAt).toLocaleString([], {
-        dateStyle: "medium",
-        timeStyle: "short",
-      });
+      const when = link.expiresAt
+        ? new Date(link.expiresAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })
+        : "never expires";
+      const uses =
+        link.maxUses === null
+          ? `${link.useCount} ${link.useCount === 1 ? "join" : "joins"}`
+          : `${link.useCount}/${link.maxUses} joins`;
       return `<li class="invite-link-row">
   <span class="invite-link-row__label">${label}</span>
-  <span class="invite-link-row__expiry text-muted-foreground">expires ${escapeHtml(when)}</span>
+  <span class="invite-link-row__expiry text-muted-foreground">${link.expiresAt ? `expires ${escapeHtml(when)}` : escapeHtml(when)} · ${escapeHtml(uses)}</span>
   <button type="button" class="text-btn invite-link-row__revoke" data-link-id="${escapeHtml(link.id)}" data-link-label="${label}">Revoke</button>
 </li>`;
     })
