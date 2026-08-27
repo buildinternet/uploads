@@ -254,13 +254,36 @@ export const usageResultSchema: JsonSchema = objectSchema({
   workspace: { type: "string" },
   bytes: { type: "number" },
   objects: { type: "number" },
+  sharedBytes: { type: "number" },
+  sharedObjects: { type: "number" },
   uploadsInPeriod: { type: "number" },
   periodStart: { type: "string" },
   updatedAt: { type: "string" },
+  storageBudgetBasis: { type: "string", enum: ["total", "shared"] },
   maxStorageBytes: { type: "number" },
   storageRemainingBytes: { type: "number" },
   maxUploadsPerPeriod: { type: "number" },
   uploadsRemaining: { type: "number" },
+  // GET /:workspace/usage (routes/workspace-usage.ts) also stamps these on
+  // every response — not part of `usageWithLimits`'s return, so easy to miss.
+  scopes: { type: "array", items: { type: "string" } },
+  plan: { type: "string" },
+  storage: objectSchema(
+    {
+      mode: { type: "string", enum: ["shared", "byo"] },
+      fallbackLanes: { type: "number" },
+      health: objectSchema(
+        {
+          ok: { type: "boolean" },
+          code: { type: "string" },
+          message: { type: "string" },
+          since: { type: "string" },
+        },
+        ["ok"],
+      ),
+    },
+    ["mode", "fallbackLanes", "health"],
+  ),
 });
 
 export const reconcileResultSchema: JsonSchema = objectSchema({
