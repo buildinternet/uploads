@@ -112,7 +112,7 @@ describe("POST /auth/enrollments/join", () => {
     );
   });
 
-  it("passes through alreadyMember: true without erroring", async () => {
+  it("passes through alreadyMember: true and restores the link — no seat was consumed", async () => {
     const db = new SqliteD1(MIGRATIONS);
     const link = await mintMemberLink(db);
     const res = await app.request(
@@ -122,6 +122,17 @@ describe("POST /auth/enrollments/join", () => {
     );
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ workspace: "acme", alreadyMember: true });
+
+    // Review finding 2: an alreadyMember redemption must not burn the link —
+    // a different user can still redeem it afterward.
+    const otherUser = { id: "u-other", email: "other@example.com", name: "Other" };
+    const retry = await app.request(
+      "/auth/enrollments/join",
+      { method: "POST", headers: sessionHeaders, body: JSON.stringify({ code: link.code }) },
+      makeEnv({ db, sessionUser: otherUser }),
+    );
+    expect(retry.status).toBe(200);
+    expect(await retry.json()).toEqual({ workspace: "acme", alreadyMember: false });
   });
 
   it("403s with member_cap_reached on cap denial, and restores the link (not burned)", async () => {
@@ -165,6 +176,72 @@ describe("POST /auth/enrollments/join", () => {
       "/auth/enrollments/join",
       { method: "POST", headers: sessionHeaders, body: JSON.stringify({ code: link.code }) },
       makeEnv({ db, joinResponse: () => new Response(null, { status: 500 }) }),
+    );
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+      "invalid_enrollment",
+    );
+
+    const retry = await app.request(
+      "/auth/enrollments/join",
+      { method: "POST", headers: sessionHeaders, body: JSON.stringify({ code: link.code }) },
+      makeEnv({ db }),
+    );
+    expect(retry.status).toBe(200);
+  });
+
+  // Review finding 3: redemption-time cap enforcement fails CLOSED — a
+  // lookup-failure 503 from apps/auth must surface as a distinct, retryable
+  // error, not the generic "invalid or expired" a plain cap denial gets.
+  it("maps a 503 cap_check_unavailable to a retryable error, and restores the link", async () => {
+    const db = new SqliteD1(MIGRATIONS);
+    const link = await mintMemberLink(db);
+    const res = await app.request(
+      "/auth/enrollments/join",
+      { method: "POST", headers: sessionHeaders, body: JSON.stringify({ code: link.code }) },
+      makeEnv({
+        db,
+        joinResponse: () =>
+          Response.json(
+            {
+              error: {
+                code: "cap_check_unavailable",
+                message: "couldn't verify this workspace's member limit",
+              },
+            },
+            { status: 503 },
+          ),
+      }),
+    );
+    expect(res.status).toBe(503);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+      "cap_check_unavailable",
+    );
+
+    // Not burned — retryable really means retryable.
+    const retry = await app.request(
+      "/auth/enrollments/join",
+      { method: "POST", headers: sessionHeaders, body: JSON.stringify({ code: link.code }) },
+      makeEnv({ db }),
+    );
+    expect(retry.status).toBe(200);
+  });
+
+  // Review finding 6: a rejected AUTH.fetch (transport failure, not an HTTP
+  // error) must not skip the restore — otherwise the link is burned with no
+  // member ever added.
+  it("restores the link when the AUTH fetch itself rejects (transport failure)", async () => {
+    const db = new SqliteD1(MIGRATIONS);
+    const link = await mintMemberLink(db);
+    const res = await app.request(
+      "/auth/enrollments/join",
+      { method: "POST", headers: sessionHeaders, body: JSON.stringify({ code: link.code }) },
+      makeEnv({
+        db,
+        joinResponse: () => {
+          throw new Error("network exploded");
+        },
+      }),
     );
     expect(res.status).toBe(400);
     expect(((await res.json()) as { error: { code: string } }).error.code).toBe(

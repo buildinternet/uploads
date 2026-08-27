@@ -1,4 +1,4 @@
-import { RateLimitedError, ValidationError } from "@uploads/errors";
+import { RateLimitedError, ServiceUnavailableError, ValidationError } from "@uploads/errors";
 import { Hono, type Context } from "hono";
 import { exchangeEnrollment, findEnrollmentPage } from "../auth-db";
 import { dbFor } from "../db-session";
@@ -116,30 +116,58 @@ export const auth = new Hono<{ Bindings: Env } & SessionVars>()
       .run();
     if ((claim.meta?.changes ?? 0) !== 1) throw INVALID_ENROLLMENT();
 
-    const response = await c.env.AUTH.fetch("https://auth.internal/internal/join", {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-uploads-internal": "1" },
-      body: JSON.stringify({ organizationSlug: enrollment.workspace, userId }),
-    });
-    if (!response.ok) {
-      // The member add failed (cap denial, or a transient auth-worker
-      // error) — restore the link so a redemption that didn't actually
-      // happen doesn't permanently burn it.
-      await db
+    // Restores the claim above (`used_at = NULL`) — shared by every path where
+    // the redemption didn't actually happen (or didn't consume a seat), so
+    // the link isn't permanently burned for something that never occurred.
+    const restoreClaim = () =>
+      db
         .prepare(`UPDATE auth_enrollments SET used_at = NULL WHERE id = ? AND code_hash = ?`)
         .bind(enrollment.id, codeHash)
         .run();
+
+    let response: Response;
+    try {
+      response = await c.env.AUTH.fetch("https://auth.internal/internal/join", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-uploads-internal": "1" },
+        body: JSON.stringify({ organizationSlug: enrollment.workspace, userId }),
+      });
+    } catch {
+      // A rejected fetch (transport failure, not an HTTP error) never got to
+      // `!response.ok` below — restore here too, or the link is burned with
+      // no member ever added.
+      await restoreClaim();
+      throw INVALID_ENROLLMENT();
+    }
+    if (!response.ok) {
+      // The member add failed (cap denial, a cap-check outage, or a transient
+      // auth-worker error) — restore the link so a redemption that didn't
+      // actually happen doesn't permanently burn it.
+      await restoreClaim();
       const payload = (await response.json().catch(() => null)) as {
         error?: { code?: unknown; message?: unknown };
       } | null;
       if (response.status === 403 && payload?.error?.code === "member_cap_reached") {
         throwForInviteError(response.status, payload);
       }
+      if (response.status === 503 && payload?.error?.code === "cap_check_unavailable") {
+        // Redemption-time cap enforcement fails closed (unlike mint-time,
+        // which fails open) — the client sees a distinct, retryable error
+        // rather than "invalid or expired".
+        const message =
+          typeof payload?.error?.message === "string" && payload.error.message
+            ? payload.error.message
+            : "Couldn't verify this workspace's member limit — try again.";
+        throw new ServiceUnavailableError(message, { code: "cap_check_unavailable" });
+      }
       throw INVALID_ENROLLMENT();
     }
     const payload = (await response.json().catch(() => null)) as { alreadyMember?: unknown } | null;
-    return c.json(
-      { workspace: enrollment.workspace, alreadyMember: payload?.alreadyMember === true },
-      200,
-    );
+    if (payload?.alreadyMember === true) {
+      // No seat was consumed — restore the claim so an existing member
+      // clicking a shared link doesn't permanently burn it for anyone else.
+      await restoreClaim();
+      return c.json({ workspace: enrollment.workspace, alreadyMember: true }, 200);
+    }
+    return c.json({ workspace: enrollment.workspace, alreadyMember: false }, 200);
   });

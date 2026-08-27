@@ -93,6 +93,7 @@ export const prerender = false;
         pageId: string | null;
         label: string | null;
         scopes: string[];
+        kind?: "token" | "member";
         createdAt: string;
         expiresAt: string;
       }
@@ -575,7 +576,7 @@ export const prerender = false;
              ${links
                .map(
                  (link) => `<li class="${ADMIN_MINI_LIST_ITEM}" data-id="${escapeHtml(link.id)}">
-                   <span>${link.label ? escapeHtml(link.label) : `<span class="muted">unlabeled</span>`} · ${escapeHtml(link.scopes.join(", "))} · expires ${escapeHtml(formatDate(link.expiresAt) ?? link.expiresAt)}</span>
+                   <span>${link.label ? escapeHtml(link.label) : `<span class="muted">unlabeled</span>`} · ${escapeHtml(link.kind === "member" ? "member" : link.scopes.join(", "))} · expires ${escapeHtml(formatDate(link.expiresAt) ?? link.expiresAt)}</span>
                    <button type="button" class="invite-link-revoke ${ADMIN_BTN} ${ADMIN_BTN_DANGER}" data-id="${escapeHtml(link.id)}">Revoke</button>
                  </li>`,
                )

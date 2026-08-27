@@ -58,6 +58,10 @@ interface EnvOpts {
   /** `undefined` = the cap check always 200s ok. */
   memberCapDenied?: boolean;
   onJoin?: (body: { organizationSlug?: string; userId?: string }) => Response;
+  /** `undefined` = a live workspace record; `null` = no record at all (KV
+   * miss); otherwise a raw record shape (e.g. `{ deletedAt: "..." }` or
+   * `{ status: "purged", ... }`) for review finding 5's soft-delete guard. */
+  workspaceRecord?: Record<string, unknown> | null;
 }
 
 function makeEnv(opts: EnvOpts = {}) {
@@ -74,6 +78,7 @@ function makeEnv(opts: EnvOpts = {}) {
     onPatch,
     memberCapDenied = false,
     onJoin,
+    workspaceRecord = { provider: "r2", bucket: "test" },
   } = opts;
 
   const auth = stubAuth(async (req) => {
@@ -138,7 +143,13 @@ function makeEnv(opts: EnvOpts = {}) {
     return new Response(null, { status: 404 });
   });
 
-  return { AUTH: auth, DB: database(db) } as unknown as Env;
+  const REGISTRY = {
+    get: async (_key: string, _opts?: unknown) =>
+      workspaceRecord === null ? null : { ...workspaceRecord, name: "acme" },
+    put: async () => undefined,
+  };
+
+  return { AUTH: auth, DB: database(db), REGISTRY } as unknown as Env;
 }
 
 const sessionHeaders = { cookie: "session=x" };
@@ -625,6 +636,69 @@ describe("POST /v1/workspaces/:workspace/invite-links", () => {
       "members_requires_session",
     );
   });
+
+  // Review finding 5: minting a member-kind link for a workspace mid-deletion
+  // must 404, same existence rule `loadEditableWorkspace` (routes/admin-ui.ts)
+  // already applies to the admin-minted token-kind links.
+  it("404s minting for a soft-deleted workspace, and mints no row", async () => {
+    const db = new SqliteD1(MIGRATIONS);
+    const env = makeEnv({
+      db,
+      workspaceRecord: { provider: "r2", bucket: "test", deletedAt: "2026-08-01T00:00:00.000Z" },
+    });
+    const res = await app.request(
+      "/v1/workspaces/acme/invite-links",
+      {
+        method: "POST",
+        headers: { ...sessionHeaders, "content-type": "application/json" },
+        body: "{}",
+      },
+      env,
+    );
+    expect(res.status).toBe(404);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+      "workspace_not_found",
+    );
+    const list = await app.request(
+      "/v1/workspaces/acme/invite-links",
+      { headers: sessionHeaders },
+      makeEnv({ db }),
+    );
+    expect(((await list.json()) as { links: unknown[] }).links).toHaveLength(0);
+  });
+
+  it("404s minting for a purged-tombstone workspace", async () => {
+    const env = makeEnv({
+      workspaceRecord: { status: "purged", name: "acme", purgedAt: "2026-08-15T00:00:00.000Z" },
+    });
+    const res = await app.request(
+      "/v1/workspaces/acme/invite-links",
+      {
+        method: "POST",
+        headers: { ...sessionHeaders, "content-type": "application/json" },
+        body: "{}",
+      },
+      env,
+    );
+    expect(res.status).toBe(404);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+      "workspace_not_found",
+    );
+  });
+
+  it("404s minting for a workspace with no registry record at all", async () => {
+    const env = makeEnv({ workspaceRecord: null });
+    const res = await app.request(
+      "/v1/workspaces/acme/invite-links",
+      {
+        method: "POST",
+        headers: { ...sessionHeaders, "content-type": "application/json" },
+        body: "{}",
+      },
+      env,
+    );
+    expect(res.status).toBe(404);
+  });
 });
 
 describe("GET /v1/workspaces/:workspace/invite-links + DELETE .../:id", () => {
@@ -656,6 +730,42 @@ describe("GET /v1/workspaces/:workspace/invite-links + DELETE .../:id", () => {
     expect(body.links.map((l) => l.label).sort()).toEqual(["one", "two"]);
     // code_hash (or the plaintext code) is never exposed by the list.
     expect(JSON.stringify(body)).not.toContain("code_hash");
+  });
+
+  // Review finding 5 explicitly leaves list/revoke unguarded — useful during
+  // a soft-delete's grace period (unlike mint, which 404s: see the "POST"
+  // describe block above).
+  it("list still works for a soft-deleted workspace's outstanding links", async () => {
+    const db = new SqliteD1(MIGRATIONS);
+    await mint(db, "minted-while-live");
+
+    const res = await app.request(
+      "/v1/workspaces/acme/invite-links",
+      { headers: sessionHeaders },
+      makeEnv({
+        db,
+        workspaceRecord: { provider: "r2", bucket: "test", deletedAt: "2026-08-01T00:00:00.000Z" },
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(
+      ((await res.json()) as { links: { label: string | null }[] }).links.map((l) => l.label),
+    ).toEqual(["minted-while-live"]);
+  });
+
+  it("revoke still works for a soft-deleted workspace", async () => {
+    const db = new SqliteD1(MIGRATIONS);
+    const link = await mint(db, "revoke-me-while-deleted");
+
+    const del = await app.request(
+      `/v1/workspaces/acme/invite-links/${link.id}`,
+      { method: "DELETE", headers: sessionHeaders },
+      makeEnv({
+        db,
+        workspaceRecord: { provider: "r2", bucket: "test", deletedAt: "2026-08-01T00:00:00.000Z" },
+      }),
+    );
+    expect(del.status).toBe(200);
   });
 
   it("revoke deletes the link so it no longer appears in the list", async () => {

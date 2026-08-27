@@ -43,30 +43,63 @@ export interface MemberCapDenial {
   message: string;
 }
 
-/** The resolved cap for a workspace, or `null` when unlimited/unknown. */
-async function fetchMemberCap(
-  env: MemberCapEnv,
-  slug: string,
-): Promise<{ cap: number; message: string | null } | null> {
-  if (!env.API || !env.BILLING_INTERNAL_KEY) return null;
+/**
+ * Discriminated outcome of the member-cap lookup: `ok: true` with `cap: null`
+ * means no cap applies (unlimited plan, or the binding isn't configured at
+ * all — e.g. local/test); `ok: false` means the lookup itself failed (thrown
+ * fetch, non-OK response, malformed body) and no conclusion could be drawn.
+ * `fetchMemberCap` below collapses both "no cap" cases into `null` for the
+ * existing fail-open callers; `resolveMemberCapStrict` keeps the distinction
+ * for the one caller that must fail closed instead.
+ */
+type MemberCapLookup =
+  | { ok: true; cap: number; message: string | null }
+  | { ok: true; cap: null }
+  | { ok: false };
+
+async function lookupMemberCap(env: MemberCapEnv, slug: string): Promise<MemberCapLookup> {
+  if (!env.API || !env.BILLING_INTERNAL_KEY) return { ok: true, cap: null };
 
   const url = `https://internal/internal/billing/member-cap?workspace=${encodeURIComponent(slug)}`;
-  const response = await env.API.fetch(url, {
-    headers: { "x-internal-billing-key": env.BILLING_INTERNAL_KEY },
-  });
+  let response: Response;
+  try {
+    response = await env.API.fetch(url, {
+      headers: { "x-internal-billing-key": env.BILLING_INTERNAL_KEY },
+    });
+  } catch (error) {
+    console.error(`memberCap: GET /internal/billing/member-cap for ${slug} threw`, error);
+    return { ok: false };
+  }
   if (!response.ok) {
     console.error(
       `memberCap: GET /internal/billing/member-cap for ${slug} failed with status ${response.status}`,
     );
-    return null;
+    return { ok: false };
   }
   const body = (await response.json().catch(() => null)) as {
     cap?: unknown;
     message?: unknown;
   } | null;
-  const cap = body?.cap;
-  if (typeof cap !== "number" || !Number.isFinite(cap) || cap <= 0) return null;
-  return { cap, message: typeof body?.message === "string" ? body.message : null };
+  if (body === null) {
+    console.error(
+      `memberCap: GET /internal/billing/member-cap for ${slug} returned malformed JSON`,
+    );
+    return { ok: false };
+  }
+  const cap = body.cap;
+  if (typeof cap !== "number" || !Number.isFinite(cap) || cap <= 0) return { ok: true, cap: null };
+  return { ok: true, cap, message: typeof body.message === "string" ? body.message : null };
+}
+
+/** The resolved cap for a workspace, or `null` when unlimited/unknown —
+ * fail-open: a lookup failure is indistinguishable here from "no cap". */
+async function fetchMemberCap(
+  env: MemberCapEnv,
+  slug: string,
+): Promise<{ cap: number; message: string | null } | null> {
+  const result = await lookupMemberCap(env, slug);
+  if (!result.ok || result.cap === null) return null;
+  return { cap: result.cap, message: result.message };
 }
 
 /**
@@ -126,5 +159,37 @@ export async function memberCapDenial(
     // Fail open: an invite is worth more than a perfectly enforced cap.
     console.error(`memberCap: check failed for ${args.organizationSlug}`, error);
     return null;
+  }
+}
+
+/** The resolved cap for redemption-time enforcement (`POST /internal/join`
+ * only) — distinct from `null`-collapsing `fetchMemberCap`/`memberCapDenial`
+ * above so that caller can fail CLOSED on a lookup failure instead of
+ * treating it as "no cap". */
+export type MemberCapResolution =
+  | { status: "unlimited" }
+  | { status: "capped"; cap: number; message: string | null }
+  | { status: "unavailable" };
+
+/**
+ * Strict counterpart to `memberCapDenial`, for `/internal/join`'s
+ * redemption-time check only — every other caller (mint-time checks, the
+ * email-invite path) keeps `memberCapDenial`'s fail-open posture unchanged.
+ * A lookup failure here returns `"unavailable"` instead of being silently
+ * treated as unlimited, so the caller can deny the join rather than let it
+ * through uncounted.
+ */
+export async function resolveMemberCapStrict(
+  env: MemberCapEnv,
+  slug: string,
+): Promise<MemberCapResolution> {
+  try {
+    const result = await lookupMemberCap(env, slug);
+    if (!result.ok) return { status: "unavailable" };
+    if (result.cap === null) return { status: "unlimited" };
+    return { status: "capped", cap: result.cap, message: result.message };
+  } catch (error) {
+    console.error(`memberCap: strict check failed for ${slug}`, error);
+    return { status: "unavailable" };
   }
 }

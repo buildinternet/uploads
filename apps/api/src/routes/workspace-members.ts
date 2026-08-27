@@ -77,6 +77,7 @@ import {
   type OrgMember,
 } from "../org-workspaces";
 import type { SessionVars } from "../session-auth";
+import { isPurgedTombstone, loadWorkspaceRecordRaw } from "../workspace";
 
 /** Context vars a `sessionMemberGate`/`sessionAdminGate`-guarded route can rely on. */
 export type MembersVars = {
@@ -264,6 +265,22 @@ function labelValue(value: unknown): string | undefined | null {
 }
 
 /**
+ * 404s minting a member-kind invite link for a soft-deleted or
+ * purged-tombstone workspace — same existence rule `loadEditableWorkspace`
+ * (`routes/admin-ui.ts`) applies to the admin-minted token-kind links. Mint
+ * only: list/revoke stay unguarded here, since seeing or clearing out
+ * outstanding links during a deletion grace period is still legitimately
+ * useful (and `sessionAdminGate` already means the caller was a member of a
+ * workspace that still exists in the membership lookup at some point).
+ */
+async function requireLiveWorkspace(env: Env, name: string): Promise<void> {
+  const record = await loadWorkspaceRecordRaw(env, name);
+  if (!record || isPurgedTombstone(record) || record.deletedAt) {
+    throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
+  }
+}
+
+/**
  * `POST /:workspace/invite-links` — mint a `kind: 'member'` invite link
  * (issue #869 phase B). Its redemption (`POST /auth/enrollments/join`) adds
  * the redeemer as an org member with role `member`, never a CLI token — so
@@ -278,6 +295,7 @@ function labelValue(value: unknown): string | undefined | null {
 export async function inviteLinkMintHandler(c: Context<MembersVars>) {
   const org = c.get("memberOrg");
   if (!(await allowWrite(c.env, org.slug))) throw new RateLimitedError("rate limit exceeded");
+  await requireLiveWorkspace(c.env, org.slug);
 
   const body = await c.req.json<{ label?: unknown }>().catch(() => ({}) as { label?: unknown });
   const label = labelValue(body.label);

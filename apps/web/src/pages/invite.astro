@@ -182,6 +182,13 @@ import Footer from "../components/Footer.astro";
       <Footer compact />
     </main>
     <script>
+      import {
+        codeFromHash,
+        loginHref as buildLoginHref,
+        readStashedCode,
+        stashCode as stashCodeIn,
+      } from "../lib/invite-code";
+
       function requireElement<T extends Element>(selector: string): T {
         const element = document.querySelector<T>(selector);
         if (!element) throw new Error(`invite page is missing ${selector}`);
@@ -201,11 +208,21 @@ import Footer from "../components/Footer.astro";
 
       const url = new URL(location.href);
       const pageId = url.searchParams.get("id") ?? "";
+
       // The one-time code rides in the URL fragment, which browsers never send to the
       // server. Read it, then scrub it from the address bar; the CLI still redeems it
-      // (token-kind), and the join flow (member-kind) keeps it in memory for the POST.
-      const code = new URLSearchParams(url.hash.replace(/^#/, "")).get("code") ?? "";
+      // (token-kind) straight from the fragment.
+      let code = codeFromHash(url.hash);
       if (url.hash) history.replaceState(null, "", url.pathname + url.search);
+
+      if (!code && pageId) {
+        // No fragment — this may be the return trip from /login, where the
+        // join flow (member-kind) stashed the code in sessionStorage instead
+        // of putting it back in a URL (see stashCode below). A private
+        // window or disabled storage just means the code doesn't resume;
+        // nothing was ever exposed in a URL either way.
+        code = readStashedCode(sessionStorage, pageId);
+      }
 
       if (/^upe_[A-Za-z0-9_-]{20,}$/.test(code)) {
         const command = `uploads login --code ${code}`;
@@ -213,12 +230,35 @@ import Footer from "../components/Footer.astro";
         loginCopy.dataset.copy = command;
       }
 
-      /** `/login?callbackURL=` back to this exact invite (code fragment included, so
-       * the join flow can resume immediately on return) — same pattern login.astro
-       * itself uses for its own `?callbackURL=` param. */
-      function signInHref(): string {
-        const returnTo = `${location.origin}/invite?id=${encodeURIComponent(pageId)}#code=${encodeURIComponent(code)}`;
-        return `/login?callbackURL=${encodeURIComponent(returnTo)}`;
+      /** `/login?callbackURL=` back to this exact invite — deliberately WITHOUT the
+       * code, fragment or otherwise: `callbackURL` travels through a server-visible
+       * query string (magic-link emails, OAuth state), so a single-use bearer code
+       * must never ride in it. `stashCode()` below is how the join flow resumes the
+       * code on return instead. */
+      function loginHref(): string {
+        return buildLoginHref(location.origin, pageId);
+      }
+
+      /** Stashes `code` in sessionStorage (private-window/storage-disabled safe —
+       * returns false rather than throwing) so it survives the round trip through
+       * /login without ever appearing in a URL. Callers must NOT fall back to
+       * putting the code in the URL when this returns false. */
+      function stashCode(): boolean {
+        return stashCodeIn(sessionStorage, pageId, code);
+      }
+
+      /** Prepares the code to survive sign-in, then either navigates to /login or,
+       * if storage isn't available, shows guidance instead of silently leaking the
+       * code into the URL. */
+      function goToSignIn(): void {
+        if (code && !stashCode()) {
+          joinActions.hidden = true;
+          meta.textContent =
+            "Couldn't prepare this invite for sign-in — after you log in, open the original invite link again.";
+          meta.dataset.state = "closed";
+          return;
+        }
+        location.href = loginHref();
       }
 
       async function setUpJoinFlow(workspace: string) {
@@ -239,7 +279,15 @@ import Footer from "../components/Footer.astro";
         }
 
         if (!signedIn) {
-          joinSignin.href = signInHref();
+          // `href="#"` only for keyboard/focus semantics — the actual navigation
+          // goes through `goToSignIn()` so the code is stashed (or the guidance
+          // state shown) before the browser leaves this page, never via a real
+          // `href` a user could copy or middle-click and leak the code through.
+          joinSignin.href = "#";
+          joinSignin.addEventListener("click", (event) => {
+            event.preventDefault();
+            goToSignIn();
+          });
           joinSignin.hidden = false;
           return;
         }
@@ -257,7 +305,7 @@ import Footer from "../components/Footer.astro";
               body: JSON.stringify({ code }),
             });
             if (response.status === 401) {
-              location.href = signInHref();
+              goToSignIn();
               return;
             }
             const payload = (await response.json().catch(() => null)) as {
@@ -265,6 +313,16 @@ import Footer from "../components/Footer.astro";
               alreadyMember?: boolean;
               error?: { code?: string; message?: string };
             } | null;
+            if (response.status === 503 && payload?.error?.code === "cap_check_unavailable") {
+              // Retryable — the join wasn't denied, the cap check just
+              // couldn't run. Keep the button live rather than closing out
+              // the invite like an actual denial.
+              joinBtn.disabled = false;
+              joinBtn.textContent = `Join ${workspace}`;
+              meta.textContent = payload.error?.message ?? "Couldn't reach uploads.sh — try again.";
+              meta.dataset.state = "closed";
+              return;
+            }
             if (!response.ok) {
               joinActions.hidden = true;
               if (payload?.error?.code === "member_cap_reached") {
