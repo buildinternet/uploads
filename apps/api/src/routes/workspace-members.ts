@@ -55,10 +55,12 @@ import { ForbiddenError, NotFoundError, RateLimitedError, ValidationError } from
 import { Hono, type Context, type MiddlewareHandler } from "hono";
 import {
   createEnrollment,
-  DEFAULT_ENROLLMENT_SECONDS,
+  DEFAULT_MEMBER_LINK_SECONDS,
   DEFAULT_TOKEN_SECONDS,
   labelValue,
   listOpenEnrollments,
+  MAX_MEMBER_LINK_SECONDS,
+  MIN_MEMBER_LINK_SECONDS,
   revokeEnrollment,
 } from "../auth-db";
 import { dbFor } from "../db-session";
@@ -270,6 +272,39 @@ async function requireLiveWorkspace(env: Env, name: string): Promise<void> {
 }
 
 /**
+ * Validates the mint body's `expiresIn` (issue #876): `undefined` → caller
+ * applies `DEFAULT_MEMBER_LINK_SECONDS`; `"never"` or `null` → non-expiring
+ * (`createEnrollment`'s `enrollmentSeconds: null`); a positive integer
+ * within `[MIN_MEMBER_LINK_SECONDS, MAX_MEMBER_LINK_SECONDS]` → that many
+ * seconds. Anything else (a string other than `"never"`, a non-integer, an
+ * out-of-range number) is `{ ok: false }`.
+ */
+function validExpiresIn(
+  value: unknown,
+): { ok: true; value: number | null | undefined } | { ok: false } {
+  if (value === undefined) return { ok: true, value: undefined };
+  if (value === null || value === "never") return { ok: true, value: null };
+  if (
+    typeof value === "number" &&
+    Number.isInteger(value) &&
+    value >= MIN_MEMBER_LINK_SECONDS &&
+    value <= MAX_MEMBER_LINK_SECONDS
+  ) {
+    return { ok: true, value };
+  }
+  return { ok: false };
+}
+
+/** Validates the mint body's `maxUses`: `undefined`/`null` → unlimited; a positive integer → that cap. */
+function validMaxUses(value: unknown): { ok: true; value: number | null } | { ok: false } {
+  if (value === undefined || value === null) return { ok: true, value: null };
+  if (typeof value === "number" && Number.isInteger(value) && value >= 1) {
+    return { ok: true, value };
+  }
+  return { ok: false };
+}
+
+/**
  * `sessionAdminGate`'s `MembersVars["memberOrg"]["slug"]` IS the workspace
  * name (the 1:1 org<->workspace mapping `org-workspaces.ts` documents), so
  * every invite-link handler below reuses it instead of re-reading (and
@@ -305,11 +340,27 @@ export async function inviteLinkMintHandler(c: Context<MembersVars>) {
   });
   await liveWorkspace;
 
-  const body = await c.req.json<{ label?: unknown }>().catch(() => ({}) as { label?: unknown });
+  const body = await c.req
+    .json<{ label?: unknown; expiresIn?: unknown; maxUses?: unknown }>()
+    .catch(() => ({}) as { label?: unknown; expiresIn?: unknown; maxUses?: unknown });
   const label = labelValue(body.label);
   if (label === null) {
     throw new ValidationError("label must be between 1 and 100 characters", {
       code: "invalid_label",
+    });
+  }
+  const expiresIn = validExpiresIn(body.expiresIn);
+  if (!expiresIn.ok) {
+    throw new ValidationError(
+      `expiresIn must be "never", null, or an integer number of seconds between ` +
+        `${MIN_MEMBER_LINK_SECONDS} and ${MAX_MEMBER_LINK_SECONDS}`,
+      { code: "invalid_expires_in" },
+    );
+  }
+  const maxUses = validMaxUses(body.maxUses);
+  if (!maxUses.ok) {
+    throw new ValidationError("maxUses must be null or a positive integer", {
+      code: "invalid_max_uses",
     });
   }
 
@@ -324,8 +375,10 @@ export async function inviteLinkMintHandler(c: Context<MembersVars>) {
     label,
     scopes: [],
     kind: "member",
-    enrollmentSeconds: DEFAULT_ENROLLMENT_SECONDS,
+    enrollmentSeconds:
+      expiresIn.value === undefined ? DEFAULT_MEMBER_LINK_SECONDS : expiresIn.value,
     tokenSeconds: DEFAULT_TOKEN_SECONDS,
+    maxUses: maxUses.value,
   });
 
   const webOrigin = c.env.WEB_ORIGIN || deriveWebOrigin(c.req.url);
@@ -339,6 +392,8 @@ export async function inviteLinkMintHandler(c: Context<MembersVars>) {
       label: label ?? null,
       url,
       expiresAt: enrollment.expiresAt,
+      maxUses: maxUses.value,
+      useCount: 0,
     },
     201,
   );
