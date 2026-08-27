@@ -5,6 +5,21 @@
   "compatibility_date": "2026-07-06",
   "compatibility_flags": ["nodejs_compat"],
   "preview_urls": true,
+  // Deploy-time guard: `wrangler deploy` fails if this secret is not set on
+  // the worker, rather than shipping a build that 503s on every BYO-storage
+  // request. Both this worker and uploads-mcp decrypt workspace credentials
+  // in-process, so both need the same KEK; uploads-mcp shipped without it and
+  // every BYO workspace lost storage until it was noticed. Only the current
+  // key is listed — WORKSPACE_SECRETS_KEY_PREVIOUS is set during a rotation
+  // and removed after, so requiring it would block ordinary deploys.
+  // Secrets that degrade gracefully when unset (GITHUB_APP_PRIVATE_KEY,
+  // GITHUB_APP_WEBHOOK_SECRET, OPENAI_APPS_CHALLENGE) are deliberately absent:
+  // this list is for secrets whose absence silently breaks core function.
+  // Like apps/auth's list, these are worker-level; Workers Builds branch
+  // previews run against production bindings and are unaffected.
+  "secrets": {
+    "required": ["WORKSPACE_SECRETS_KEY"],
+  },
   "vars": {
     // Origin of the invite page that magic links point at. Defaults to the API
     // host without the `api.` prefix; set explicitly for other deployments.
