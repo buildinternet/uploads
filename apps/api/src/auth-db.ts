@@ -32,9 +32,20 @@ export function isWorkspaceScope(value: unknown): value is WorkspaceScope {
 // Invite code lifetime. 2h gives a human time to onboard after receiving the
 // link out-of-band, while keeping the single-use secret short-lived. Override
 // per-invite with --expires-in up to MAX_ENROLLMENT_SECONDS (see routes/admin).
+// `kind: 'token'` links only — `kind: 'member'` join links (issue #876) use
+// the DEFAULT/MIN/MAX_MEMBER_LINK_SECONDS trio below instead.
 export const DEFAULT_ENROLLMENT_SECONDS = 2 * 60 * 60;
 export const DEFAULT_TOKEN_SECONDS = 90 * 24 * 60 * 60;
 export const MAX_TOKEN_SECONDS = 365 * 24 * 60 * 60;
+
+// Issue #876: `kind: 'member'` join-link expiry, deliberately longer-lived
+// and admin-configurable than the CLI-enrollment defaults above — these
+// links get dropped in a team chat and read days later, not redeemed
+// immediately. `expiresIn: "never"`/`null` at mint time bypasses this range
+// entirely (NULL `expires_at`, see `createEnrollment`).
+export const DEFAULT_MEMBER_LINK_SECONDS = 7 * 24 * 60 * 60;
+export const MIN_MEMBER_LINK_SECONDS = 60 * 60;
+export const MAX_MEMBER_LINK_SECONDS = 90 * 24 * 60 * 60;
 /** How stale last_used_at must be before a successful auth rewrites it. */
 export const LAST_USED_TOUCH_SECONDS = 60 * 60;
 
@@ -75,16 +86,26 @@ interface EnrollmentRecord {
   label: string | null;
   scopes: string;
   created_at: string;
-  expires_at: string;
+  // Nullable since issue #876: a non-expiring `kind: 'member'` link has no
+  // expiry at all. `kind: 'token'` rows always have one — the minting paths
+  // for that kind still require an explicit TTL.
+  expires_at: string | null;
   token_expires_at: string;
   used_at: string | null;
   page_id: string | null;
   kind: EnrollmentKind;
+  // Issue #876: `kind: 'member'` lifecycle columns. NULL/0 (and untouched)
+  // for `kind: 'token'` rows, which keep using `used_at` exactly as before.
+  max_uses: number | null;
+  use_count: number;
 }
 
-/** One outstanding (unredeemed, unexpired) invite-link enrollment, as
- * surfaced to the admin panel — deliberately excludes `code_hash`: a listed
- * link's URL can never be reconstructed, only revoked. */
+/** One outstanding (unredeemed/not-exhausted, unexpired) invite-link
+ * enrollment, as surfaced to the admin panel and the People page —
+ * deliberately excludes `code_hash`: a listed link's URL can never be
+ * reconstructed, only revoked. `expiresAt` is nullable (issue #876:
+ * non-expiring `kind: 'member'` links); `maxUses`/`useCount` are meaningful
+ * for `kind: 'member'` only (always `null`/`0` for `kind: 'token'`). */
 export interface OpenEnrollment {
   id: string;
   pageId: string | null;
@@ -92,7 +113,9 @@ export interface OpenEnrollment {
   scopes: FileScope[];
   kind: EnrollmentKind;
   createdAt: string;
-  expiresAt: string;
+  expiresAt: string | null;
+  maxUses: number | null;
+  useCount: number;
 }
 
 export function parseScopes(value: string): FileScope[] {
@@ -263,24 +286,41 @@ export async function createEnrollment(
     scopes: FileScope[];
     /** Defaults to `'token'` — the only kind that existed before #869 phase B. */
     kind?: EnrollmentKind;
-    enrollmentSeconds?: number;
+    /**
+     * Seconds until the enrollment code expires. `null` mints a
+     * non-expiring row (`expires_at = NULL`) — issue #876, `kind: 'member'`
+     * only; callers minting `kind: 'token'` links never pass `null`.
+     * Omitted defaults to `DEFAULT_ENROLLMENT_SECONDS`.
+     */
+    enrollmentSeconds?: number | null;
     tokenSeconds?: number;
+    /**
+     * `kind: 'member'` only (issue #876): caps how many times the link can
+     * be redeemed. `null`/omitted = unlimited. Always stored as `null` for
+     * `kind: 'token'` regardless of what's passed.
+     */
+    maxUses?: number | null;
     now?: Date;
   },
 ): Promise<{
   id: string;
   pageId: string;
   code: string;
-  expiresAt: string;
+  expiresAt: string | null;
   tokenExpiresAt: string;
 }> {
   const now = input.now ?? new Date();
-  const expiresAt = new Date(
-    now.getTime() + (input.enrollmentSeconds ?? DEFAULT_ENROLLMENT_SECONDS) * 1000,
-  );
+  const expiresAt =
+    input.enrollmentSeconds === null
+      ? null
+      : new Date(
+          now.getTime() + (input.enrollmentSeconds ?? DEFAULT_ENROLLMENT_SECONDS) * 1000,
+        ).toISOString();
   const tokenExpiresAt = new Date(
     now.getTime() + (input.tokenSeconds ?? DEFAULT_TOKEN_SECONDS) * 1000,
   );
+  const kind = input.kind ?? "token";
+  const maxUses = kind === "member" ? (input.maxUses ?? null) : null;
   const code = randomSecret("upe_", 18);
   const pageId = randomSecret("upi_", 12);
   const enrollmentId = id();
@@ -288,8 +328,8 @@ export async function createEnrollment(
     .prepare(
       `INSERT INTO auth_enrollments
        (id, workspace, code_hash, label, scopes, created_at, expires_at, token_expires_at, used_at,
-        page_id, kind)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
+        page_id, kind, max_uses, use_count)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, 0)`,
     )
     .bind(
       enrollmentId,
@@ -298,26 +338,34 @@ export async function createEnrollment(
       input.label ?? null,
       JSON.stringify(input.scopes),
       now.toISOString(),
-      expiresAt.toISOString(),
+      expiresAt,
       tokenExpiresAt.toISOString(),
       pageId,
-      input.kind ?? "token",
+      kind,
+      maxUses,
     )
     .run();
   return {
     id: enrollmentId,
     pageId,
     code,
-    expiresAt: expiresAt.toISOString(),
+    expiresAt,
     tokenExpiresAt: tokenExpiresAt.toISOString(),
   };
 }
 
 /**
- * Outstanding (unredeemed, unexpired) invite-link enrollments for a
- * workspace, newest first — backs the admin panel's invite-link list. Never
- * selects `code_hash`; the plaintext code is never stored either, so a
- * listed link's URL can't be reconstructed (show-once stays show-once).
+ * Outstanding invite-link enrollments for a workspace, newest first — backs
+ * the admin panel's and the People page's invite-link lists. Never selects
+ * `code_hash`; the plaintext code is never stored either, so a listed link's
+ * URL can't be reconstructed (show-once stays show-once).
+ *
+ * "Outstanding" (issue #876): unexpired (`expires_at IS NULL` — non-expiring
+ * — or in the future) AND not exhausted. Exhaustion means different things
+ * per `kind`: a `'token'` row is exhausted once `used_at` is set (unchanged
+ * single-use semantics); a `'member'` row is exhausted only once
+ * `use_count` reaches `max_uses` (unlimited when `max_uses IS NULL`) —
+ * `used_at` is never touched for `'member'` rows any more.
  */
 export async function listOpenEnrollments(
   db: D1Queryable,
@@ -330,16 +378,30 @@ export async function listOpenEnrollments(
 ): Promise<OpenEnrollment[]> {
   const result = await db
     .prepare(
-      `SELECT id, page_id, label, scopes, kind, created_at, expires_at
+      `SELECT id, page_id, label, scopes, kind, created_at, expires_at, max_uses, use_count
        FROM auth_enrollments
-       WHERE workspace = ? AND used_at IS NULL AND expires_at > ?${kind ? " AND kind = ?" : ""}
+       WHERE workspace = ?
+         AND (expires_at IS NULL OR expires_at > ?)
+         AND (
+           (kind = 'member' AND (max_uses IS NULL OR use_count < max_uses))
+           OR (kind != 'member' AND used_at IS NULL)
+         )
+         ${kind ? "AND kind = ?" : ""}
        ORDER BY created_at DESC`,
     )
     .bind(...(kind ? [workspace, now.toISOString(), kind] : [workspace, now.toISOString()]))
     .all<
       Pick<
         EnrollmentRecord,
-        "id" | "page_id" | "label" | "scopes" | "kind" | "created_at" | "expires_at"
+        | "id"
+        | "page_id"
+        | "label"
+        | "scopes"
+        | "kind"
+        | "created_at"
+        | "expires_at"
+        | "max_uses"
+        | "use_count"
       >
     >();
   return result.results.map((row) => ({
@@ -350,6 +412,8 @@ export async function listOpenEnrollments(
     kind: row.kind,
     createdAt: row.created_at,
     expiresAt: row.expires_at,
+    maxUses: row.max_uses,
+    useCount: row.use_count,
   }));
 }
 
@@ -377,39 +441,74 @@ export async function revokeEnrollment(
   return (result.meta?.changes ?? 0) > 0;
 }
 
+/**
+ * Public (unauthenticated) status lookup for `/invite`'s "is this link still
+ * good" check, by the non-secret `page_id` — never the code or its hash.
+ * `expiresAt` is nullable (issue #876: a non-expiring `kind: 'member'` link).
+ * `used` means "no longer redeemable": for `kind: 'token'` that's still
+ * `used_at IS NOT NULL` (unchanged single-use meaning); for `kind: 'member'`
+ * it's exhaustion (`use_count >= max_uses`, never true when `max_uses` is
+ * `NULL`) — `used_at` is never set for `'member'` rows any more, so a
+ * still-live multi-use link never shows "already used" just because someone
+ * else already joined through it.
+ */
 export async function findEnrollmentPage(
   db: D1Queryable,
   pageId: string,
   now = new Date(),
-): Promise<{ workspace: string; expiresAt: string; used: boolean; kind: EnrollmentKind } | null> {
+): Promise<{
+  workspace: string;
+  expiresAt: string | null;
+  used: boolean;
+  kind: EnrollmentKind;
+} | null> {
   if (!/^upi_[A-Za-z0-9_-]{16}$/.test(pageId)) return null;
   const record = await db
     .prepare(
-      `SELECT workspace, expires_at, used_at, kind FROM auth_enrollments
-       WHERE page_id = ? AND expires_at > ? LIMIT 1`,
+      `SELECT workspace, expires_at, used_at, kind, max_uses, use_count FROM auth_enrollments
+       WHERE page_id = ? AND (expires_at IS NULL OR expires_at > ?) LIMIT 1`,
     )
     .bind(pageId, now.toISOString())
-    .first<Pick<EnrollmentRecord, "workspace" | "expires_at" | "used_at" | "kind">>();
-  return record
-    ? {
-        workspace: record.workspace,
-        expiresAt: record.expires_at,
-        used: record.used_at !== null,
-        kind: record.kind,
-      }
-    : null;
+    .first<
+      Pick<
+        EnrollmentRecord,
+        "workspace" | "expires_at" | "used_at" | "kind" | "max_uses" | "use_count"
+      >
+    >();
+  if (!record) return null;
+  const used =
+    record.kind === "member"
+      ? record.max_uses !== null && record.use_count >= record.max_uses
+      : record.used_at !== null;
+  return {
+    workspace: record.workspace,
+    expiresAt: record.expires_at,
+    used,
+    kind: record.kind,
+  };
 }
 
 /**
- * Claims an outstanding `kind: 'member'` invite link for redemption (issue
- * #869 phase B) — the single-use, race-safe first half of `POST
- * /auth/enrollments/join` (`routes/auth.ts`): a conditional UPDATE that only
- * the first concurrent redeemer wins, done BEFORE the caller adds the member,
- * so a lost race is indistinguishable from any other invalid code. Returns
- * `null` for an unknown/expired/already-used/wrong-kind code — same uniform
- * failure shape callers collapse to `INVALID_ENROLLMENT`. The returned
- * `codeHash` is what {@link releaseEnrollmentClaim} needs to restore the
- * claim; recomputing it there would mean hashing the code twice.
+ * Claims an outstanding `kind: 'member'` invite link for redemption — the
+ * race-safe first half of `POST /auth/enrollments/join` (`routes/auth.ts`):
+ * an atomic conditional `UPDATE … SET use_count = use_count + 1` that only
+ * succeeds while the link is still redeemable, done BEFORE the caller adds
+ * the member, so a lost race (cap already hit) is indistinguishable from any
+ * other invalid code.
+ *
+ * Issue #876: this used to be a single-winner `used_at` stamp (`kind:
+ * 'member'` links were single-use). It's now a conditional increment, so
+ * concurrent redemptions of the same link are legal — each one only wins if
+ * `use_count < max_uses` (or `max_uses IS NULL`, unlimited) still holds at
+ * UPDATE time; D1/SQLite's single-writer serialization means a concurrent
+ * loser's WHERE re-evaluates against the just-written row and correctly
+ * fails once the cap is reached. The per-redemption member-cap gate is a
+ * separate, unrelated check — the atomic insert in `/internal/join`.
+ *
+ * Returns `null` for an unknown/expired/exhausted/revoked/wrong-kind code —
+ * same uniform failure shape callers collapse to `INVALID_ENROLLMENT`. The
+ * returned `codeHash` is what {@link releaseEnrollmentClaim} needs to
+ * release the claim; recomputing it there would mean hashing the code twice.
  */
 export async function claimMemberEnrollment(
   db: D1Queryable,
@@ -418,11 +517,12 @@ export async function claimMemberEnrollment(
 ): Promise<{ id: string; workspace: string; codeHash: string } | null> {
   const nowIso = now.toISOString();
   const codeHash = await sha256Hex(code);
+  const REDEEMABLE = `kind = 'member'
+       AND (expires_at IS NULL OR expires_at > ?)
+       AND (max_uses IS NULL OR use_count < max_uses)`;
   const enrollment = await db
     .prepare(
-      `SELECT id, workspace FROM auth_enrollments
-       WHERE code_hash = ? AND used_at IS NULL AND expires_at > ? AND kind = 'member'
-       LIMIT 1`,
+      `SELECT id, workspace FROM auth_enrollments WHERE code_hash = ? AND ${REDEEMABLE} LIMIT 1`,
     )
     .bind(codeHash, nowIso)
     .first<{ id: string; workspace: string }>();
@@ -430,10 +530,10 @@ export async function claimMemberEnrollment(
 
   const claim = await db
     .prepare(
-      `UPDATE auth_enrollments SET used_at = ?
-       WHERE id = ? AND code_hash = ? AND used_at IS NULL AND expires_at > ? AND kind = 'member'`,
+      `UPDATE auth_enrollments SET use_count = use_count + 1
+       WHERE id = ? AND code_hash = ? AND ${REDEEMABLE}`,
     )
-    .bind(nowIso, enrollment.id, codeHash, nowIso)
+    .bind(enrollment.id, codeHash, nowIso)
     .run();
   if ((claim.meta?.changes ?? 0) !== 1) return null;
 
@@ -441,11 +541,12 @@ export async function claimMemberEnrollment(
 }
 
 /**
- * Restores a claim {@link claimMemberEnrollment} made (`used_at = NULL`),
- * scoped by both `id` and `code_hash` so it can only ever touch the row it
- * claimed. Shared by every `/auth/enrollments/join` path where the
- * redemption didn't actually happen (or didn't consume a seat) — the link
- * isn't permanently burned for something that never occurred.
+ * Releases (decrements) a claim {@link claimMemberEnrollment} made, scoped
+ * by both `id` and `code_hash` so it can only ever touch the row it claimed,
+ * and by `use_count > 0` so it can never underflow. Shared by every `/auth/
+ * enrollments/join` path where the redemption didn't actually happen (or
+ * didn't consume a seat) — the link isn't permanently burned (nor a seat
+ * permanently lost) for something that never occurred.
  */
 export async function releaseEnrollmentClaim(
   db: D1Queryable,
@@ -453,7 +554,10 @@ export async function releaseEnrollmentClaim(
   codeHash: string,
 ): Promise<void> {
   await db
-    .prepare(`UPDATE auth_enrollments SET used_at = NULL WHERE id = ? AND code_hash = ?`)
+    .prepare(
+      `UPDATE auth_enrollments SET use_count = use_count - 1
+       WHERE id = ? AND code_hash = ? AND use_count > 0`,
+    )
     .bind(id, codeHash)
     .run();
 }
