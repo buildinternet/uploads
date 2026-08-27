@@ -45,6 +45,7 @@ export const prerender = false;
     import { formatDate } from "../../lib/subscription-copy";
     import {
       ADMIN_BTN,
+      ADMIN_BTN_DANGER,
       ADMIN_CELL_MONO,
       ADMIN_CELL_MUTED,
       ADMIN_CELL_PRIMARY,
@@ -86,6 +87,14 @@ export const prerender = false;
         email: string;
         role: string | null;
         status: string;
+      }
+      interface InviteLink {
+        id: string;
+        pageId: string | null;
+        label: string | null;
+        scopes: string[];
+        createdAt: string;
+        expiresAt: string;
       }
 
       async function apiGet<T>(path: string): Promise<T> {
@@ -548,6 +557,66 @@ export const prerender = false;
         links: GithubLink[];
       }
 
+      /**
+       * Outstanding invite links for a workspace, with a revoke button per
+       * row. `onRevoke` fires after a successful DELETE so the caller can
+       * refresh the list; failures render an inline status message instead
+       * of throwing.
+       */
+      function renderInviteLinks(
+        host: HTMLElement,
+        workspace: string,
+        links: InviteLink[],
+        onRevoke: () => void,
+      ): void {
+        host.innerHTML = links.length
+          ? `<h4 class="${ADMIN_DETAIL_HEADING}">Invite links</h4>
+           <ul class="invite-links-items ${ADMIN_MINI_LIST}">
+             ${links
+               .map(
+                 (link) => `<li class="${ADMIN_MINI_LIST_ITEM}" data-id="${escapeHtml(link.id)}">
+                   <span>${link.label ? escapeHtml(link.label) : `<span class="muted">unlabeled</span>`} · ${escapeHtml(link.scopes.join(", "))} · expires ${escapeHtml(formatDate(link.expiresAt) ?? link.expiresAt)}</span>
+                   <button type="button" class="invite-link-revoke ${ADMIN_BTN} ${ADMIN_BTN_DANGER}" data-id="${escapeHtml(link.id)}">Revoke</button>
+                 </li>`,
+               )
+               .join("")}
+           </ul>
+           <div class="invite-links-status text-(length:--text-micro)" role="status" aria-live="polite" hidden></div>`
+          : `<p class="muted">No outstanding invite links.</p>`;
+
+        const statusEl = host.querySelector<HTMLElement>(".invite-links-status");
+        host.querySelectorAll<HTMLButtonElement>(".invite-link-revoke").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            void (async () => {
+              const id = btn.dataset.id;
+              if (!id) return;
+              btn.disabled = true;
+              try {
+                const res = await fetch(
+                  `${apiOrigin}/admin-ui/workspaces/${encodeURIComponent(workspace)}/invite-links/${encodeURIComponent(id)}`,
+                  { method: "DELETE", credentials: "include" },
+                );
+                if (!res.ok) {
+                  const payload = (await res.json().catch(() => null)) as {
+                    error?: { message?: string };
+                  } | null;
+                  throw new Error(payload?.error?.message || `revoke failed: ${res.status}`);
+                }
+                onRevoke();
+              } catch (err) {
+                btn.disabled = false;
+                if (statusEl) {
+                  statusEl.dataset.state = "error";
+                  statusEl.textContent =
+                    err instanceof Error && err.message ? err.message : "Couldn't revoke the link.";
+                  statusEl.hidden = false;
+                }
+              }
+            })();
+          });
+        });
+      }
+
       function renderGithubLinks(host: HTMLElement, links: GithubLink[]): void {
         host.innerHTML = links.length
           ? `<h4 class="github-links-heading ${ADMIN_DETAIL_HEADING}">GitHub repos claimed</h4>
@@ -600,12 +669,23 @@ export const prerender = false;
                   <div class="invite-status text-(length:--text-micro)" hidden></div>`
                 : `<p class="muted admin-detail-block">No organization provisioned for this workspace yet - run the org backfill.</p>`
             }
-            <div class="invite-link-row admin-detail-block flex gap-2 items-center flex-wrap">
-              <button type="button" class="invite-link-generate ${ADMIN_BTN}">Generate invite link</button>
-              <input type="text" class="invite-link-url flex-1 min-w-[200px] bg-background border border-border rounded-sm text-foreground px-[9px] py-[7px] font-mono text-(length:--text-micro)" readonly hidden aria-label="Invite link" />
-              <button type="button" class="invite-link-copy ${ADMIN_BTN}" hidden>Copy</button>
+            <div class="invite-link-row admin-detail-block grid gap-2 max-w-[480px]">
+              <div class="flex flex-wrap gap-2 items-end">
+                <label class="grid gap-1 text-muted-foreground text-(length:--text-micro) uppercase tracking-[0.06em]">Label (optional)<input type="text" class="invite-link-label bg-background border border-border rounded-sm text-foreground normal-case tracking-normal px-[9px] py-[7px] font-sans text-(length:--text-micro) flex-1 min-w-[160px]" placeholder="e.g. contractor" maxlength="100" /></label>
+                <fieldset class="invite-link-scopes flex gap-3 items-center border-0 p-0 m-0 text-(length:--text-micro) text-body">
+                  <legend class="sr-only">Scopes</legend>
+                  <label class="flex items-center gap-1"><input type="checkbox" class="invite-link-scope" value="files:read" checked /> files:read</label>
+                  <label class="flex items-center gap-1"><input type="checkbox" class="invite-link-scope" value="files:write" checked /> files:write</label>
+                </fieldset>
+              </div>
+              <div class="flex gap-2 items-center flex-wrap">
+                <button type="button" class="invite-link-generate ${ADMIN_BTN}">Generate invite link</button>
+                <input type="text" class="invite-link-url flex-1 min-w-[200px] bg-background border border-border rounded-sm text-foreground px-[9px] py-[7px] font-mono text-(length:--text-micro)" readonly hidden aria-label="Invite link" />
+                <button type="button" class="invite-link-copy ${ADMIN_BTN}" hidden>Copy</button>
+              </div>
             </div>
             <div class="invite-status invite-link-status text-(length:--text-micro)" role="status" aria-live="polite" hidden></div>
+            <div class="invite-links-list admin-detail-block" data-state="unloaded"></div>
           </div>
         </td>
       </tr>`;
@@ -615,6 +695,28 @@ export const prerender = false;
         const limitsLoaded = { done: false };
         const storageLoaded = { done: false };
         const githubLinksLoaded = { done: false };
+        const inviteLinksLoaded = { done: false };
+
+        function reloadInviteLinks(): void {
+          inviteLinksLoaded.done = false;
+          loadInviteLinks();
+        }
+
+        function loadInviteLinks(): void {
+          loadOnce(inviteLinksLoaded, async () => {
+            const inviteLinksEl = group.querySelector<HTMLElement>(".invite-links-list");
+            if (!inviteLinksEl) return;
+            try {
+              const { links } = await apiGet<{ links: InviteLink[] }>(
+                `/admin-ui/workspaces/${encodeURIComponent(ws.workspace)}/invite-links`,
+              );
+              renderInviteLinks(inviteLinksEl, ws.workspace, links, reloadInviteLinks);
+            } catch {
+              inviteLinksEl.innerHTML = `<p class="muted">Failed to load invite links.</p>`;
+              throw new Error("invite-links");
+            }
+          });
+        }
 
         function loadDetail() {
           const membersEl = group.querySelector<HTMLElement>(".members");
@@ -705,6 +807,8 @@ export const prerender = false;
               throw new Error("github");
             }
           });
+
+          loadInviteLinks();
         }
 
         const { setOpen } = wireExpandGroup(group, loadDetail);
@@ -764,8 +868,22 @@ export const prerender = false;
         const urlInput = group.querySelector<HTMLInputElement>(".invite-link-url");
         const copyBtn = group.querySelector<HTMLButtonElement>(".invite-link-copy");
         const linkStatusEl = group.querySelector<HTMLElement>(".invite-link-status");
+        const labelInput = group.querySelector<HTMLInputElement>(".invite-link-label");
+        const scopeInputs = Array.from(
+          group.querySelectorAll<HTMLInputElement>(".invite-link-scope"),
+        );
         generateBtn?.addEventListener("click", () => {
           void (async () => {
+            const label = labelInput?.value.trim() ?? "";
+            const scopes = scopeInputs.filter((s) => s.checked).map((s) => s.value);
+            if (scopes.length === 0) {
+              if (linkStatusEl) {
+                linkStatusEl.dataset.state = "error";
+                linkStatusEl.textContent = "Pick at least one scope.";
+                linkStatusEl.hidden = false;
+              }
+              return;
+            }
             generateBtn.disabled = true;
             if (linkStatusEl) linkStatusEl.hidden = true;
             if (urlInput) urlInput.hidden = true;
@@ -777,7 +895,7 @@ export const prerender = false;
                   method: "POST",
                   credentials: "include",
                   headers: { "Content-Type": "application/json" },
-                  body: "{}",
+                  body: JSON.stringify({ label: label || undefined, scopes }),
                 },
               );
               if (!res.ok) {
@@ -792,6 +910,8 @@ export const prerender = false;
                 urlInput.hidden = false;
               }
               if (copyBtn) copyBtn.hidden = false;
+              if (labelInput) labelInput.value = "";
+              reloadInviteLinks();
             } catch (err) {
               if (linkStatusEl) {
                 linkStatusEl.dataset.state = "error";

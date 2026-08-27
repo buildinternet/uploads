@@ -219,7 +219,7 @@ describe("POST /admin-ui/workspaces/:name/invites", () => {
   });
 });
 
-describe("POST /admin-ui/workspaces/:name/invite-links", () => {
+describe("invite-link routes", () => {
   type Row = Record<string, unknown>;
 
   class FakeStatement {
@@ -233,6 +233,16 @@ describe("POST /admin-ui/workspaces/:name/invite-links", () => {
       return this;
     }
     run(): Promise<D1Result> {
+      const sql = this.sql.replace(/\s+/g, " ").trim();
+      if (sql.startsWith("DELETE FROM auth_enrollments")) {
+        const [workspace, id] = this.values;
+        const before = this.db.enrollments.length;
+        this.db.enrollments = this.db.enrollments.filter(
+          (row) => !(row.workspace === workspace && row.id === id),
+        );
+        const changes = before - this.db.enrollments.length;
+        return Promise.resolve({ success: true, meta: { changes } } as unknown as D1Result);
+      }
       this.db.enrollments.push({
         id: this.values[0],
         workspace: this.values[1],
@@ -246,6 +256,30 @@ describe("POST /admin-ui/workspaces/:name/invite-links", () => {
         page_id: this.values[8],
       });
       return Promise.resolve({ success: true } as unknown as D1Result);
+    }
+    all(): Promise<D1Result> {
+      const sql = this.sql.replace(/\s+/g, " ").trim();
+      if (sql.startsWith("SELECT id, page_id, label, scopes, created_at, expires_at")) {
+        const [workspace, now] = this.values as string[];
+        const results = this.db.enrollments
+          .filter(
+            (row) =>
+              row.workspace === workspace &&
+              row.used_at === null &&
+              (row.expires_at as string) > now,
+          )
+          .sort((a, b) => (b.created_at as string).localeCompare(a.created_at as string))
+          .map((row) => ({
+            id: row.id,
+            page_id: row.page_id,
+            label: row.label,
+            scopes: row.scopes,
+            created_at: row.created_at,
+            expires_at: row.expires_at,
+          }));
+        return Promise.resolve({ success: true, results } as unknown as D1Result);
+      }
+      throw new Error(`unsupported all: ${sql}`);
     }
   }
 
@@ -262,132 +296,313 @@ describe("POST /admin-ui/workspaces/:name/invite-links", () => {
   ): Env & { DB: FakeD1 } {
     const base = stubEnv(user, () => new Response(null, { status: 404 }));
     const db = new FakeD1();
+    const registry = fakeRegistry(Object.fromEntries(registryNames.map((n) => [n, {}])));
     return {
       ...base,
-      REGISTRY: {
-        get: (async (key: string) =>
-          registryNames.some((n) => `ws:${n}` === key)
-            ? "{}"
-            : null) as unknown as KVNamespace["get"],
-      } as unknown as KVNamespace,
+      REGISTRY: registry,
       DB: db,
     } as unknown as Env & { DB: FakeD1 };
   }
 
-  it("mints a redeemable code for an admin session", async () => {
-    const env = envWithDb(ADMIN_USER, ["acme"]);
-    const res = await app().request(
-      "/admin-ui/workspaces/acme/invite-links",
-      { method: "POST", headers: { "content-type": "application/json" }, body: "{}" },
-      env,
-    );
-    expect(res.status).toBe(201);
-    const payload = (await res.json()) as {
-      workspace: string;
-      code: string;
-      pageId: string;
-      url: string;
-      scopes: string[];
-      expiresAt: string;
-    };
-    expect(payload.workspace).toBe("acme");
-    expect(payload.code).toMatch(/^upe_/);
-    expect(payload.pageId).toMatch(/^upi_/);
-    expect(payload.url).toContain(payload.pageId);
-    expect(payload.url).toContain("#code=");
-    expect(payload.scopes).toEqual(["files:read", "files:write"]);
-    expect(env.DB.enrollments).toHaveLength(1);
+  /** Same shape as `envWithDb`, but the named workspace is soft-deleted. */
+  function envWithSoftDeletedWorkspace(
+    user: typeof ADMIN_USER | null,
+    name: string,
+  ): Env & { DB: FakeD1 } {
+    const base = stubEnv(user, () => new Response(null, { status: 404 }));
+    const db = new FakeD1();
+    const registry = fakeRegistry({ [name]: { deletedAt: "2026-08-01T00:00:00.000Z" } });
+    return {
+      ...base,
+      REGISTRY: registry,
+      DB: db,
+    } as unknown as Env & { DB: FakeD1 };
+  }
+
+  describe("POST /admin-ui/workspaces/:name/invite-links", () => {
+    it("mints a redeemable code for an admin session", async () => {
+      const env = envWithDb(ADMIN_USER, ["acme"]);
+      const res = await app().request(
+        "/admin-ui/workspaces/acme/invite-links",
+        { method: "POST", headers: { "content-type": "application/json" }, body: "{}" },
+        env,
+      );
+      expect(res.status).toBe(201);
+      const payload = (await res.json()) as {
+        workspace: string;
+        code: string;
+        pageId: string;
+        url: string;
+        scopes: string[];
+        expiresAt: string;
+      };
+      expect(payload.workspace).toBe("acme");
+      expect(payload.code).toMatch(/^upe_/);
+      expect(payload.pageId).toMatch(/^upi_/);
+      expect(payload.url).toContain(payload.pageId);
+      expect(payload.url).toContain("#code=");
+      expect(payload.scopes).toEqual(["files:read", "files:write"]);
+      expect(env.DB.enrollments).toHaveLength(1);
+    });
+
+    it("401s with no session", async () => {
+      const env = envWithDb(null, ["acme"]);
+      const res = await app().request(
+        "/admin-ui/workspaces/acme/invite-links",
+        { method: "POST", headers: { "content-type": "application/json" }, body: "{}" },
+        env,
+      );
+      expect(res.status).toBe(401);
+    });
+
+    it("403s for a non-admin session", async () => {
+      const env = envWithDb(NON_ADMIN_USER, ["acme"]);
+      const res = await app().request(
+        "/admin-ui/workspaces/acme/invite-links",
+        { method: "POST", headers: { "content-type": "application/json" }, body: "{}" },
+        env,
+      );
+      expect(res.status).toBe(403);
+    });
+
+    it("404s for an unknown workspace", async () => {
+      const env = envWithDb(ADMIN_USER, []);
+      const res = await app().request(
+        "/admin-ui/workspaces/nope/invite-links",
+        { method: "POST", headers: { "content-type": "application/json" }, body: "{}" },
+        env,
+      );
+      expect(res.status).toBe(404);
+    });
+
+    it("400s for an empty label", async () => {
+      const env = envWithDb(ADMIN_USER, ["acme"]);
+      const res = await app().request(
+        "/admin-ui/workspaces/acme/invite-links",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ label: "" }),
+        },
+        env,
+      );
+      expect(res.status).toBe(400);
+      const payload = (await res.json()) as { error?: { code?: string } };
+      expect(payload.error?.code).toBe("invalid_label");
+    });
+
+    it("400s for a label over 100 characters", async () => {
+      const env = envWithDb(ADMIN_USER, ["acme"]);
+      const res = await app().request(
+        "/admin-ui/workspaces/acme/invite-links",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ label: "x".repeat(101) }),
+        },
+        env,
+      );
+      expect(res.status).toBe(400);
+      const payload = (await res.json()) as { error?: { code?: string } };
+      expect(payload.error?.code).toBe("invalid_label");
+    });
+
+    it("400s for invalid scopes", async () => {
+      const env = envWithDb(ADMIN_USER, ["acme"]);
+      const res = await app().request(
+        "/admin-ui/workspaces/acme/invite-links",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ scopes: ["not:a:real:scope"] }),
+        },
+        env,
+      );
+      expect(res.status).toBe(400);
+      const payload = (await res.json()) as { error?: { code?: string } };
+      expect(payload.error?.code).toBe("invalid_scopes");
+    });
+
+    it("429s when the per-workspace write budget is exhausted", async () => {
+      const env = envWithDb(ADMIN_USER, ["acme"]) as Env & {
+        WRITE_LIMITER: { limit: (opts: { key: string }) => Promise<{ success: boolean }> };
+      };
+      env.WRITE_LIMITER = { limit: async () => ({ success: false }) };
+      const res = await app().request(
+        "/admin-ui/workspaces/acme/invite-links",
+        { method: "POST", headers: { "content-type": "application/json" }, body: "{}" },
+        env,
+      );
+      expect(res.status).toBe(429);
+    });
+
+    it("404s for a soft-deleted workspace instead of minting", async () => {
+      const env = envWithSoftDeletedWorkspace(ADMIN_USER, "gone");
+      const res = await app().request(
+        "/admin-ui/workspaces/gone/invite-links",
+        { method: "POST", headers: { "content-type": "application/json" }, body: "{}" },
+        env,
+      );
+      expect(res.status).toBe(404);
+      const payload = (await res.json()) as { error?: { code?: string } };
+      expect(payload.error?.code).toBe("workspace_not_found");
+      expect(env.DB.enrollments).toHaveLength(0);
+    });
+
+    it("passes an admin-supplied label and scopes through to the minted enrollment", async () => {
+      const env = envWithDb(ADMIN_USER, ["acme"]);
+      const res = await app().request(
+        "/admin-ui/workspaces/acme/invite-links",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ label: "contractor", scopes: ["files:read"] }),
+        },
+        env,
+      );
+      expect(res.status).toBe(201);
+      const payload = (await res.json()) as { label: string | null; scopes: string[] };
+      expect(payload.label).toBe("contractor");
+      expect(payload.scopes).toEqual(["files:read"]);
+      expect(env.DB.enrollments[0]?.label).toBe("contractor");
+    });
   });
 
-  it("401s with no session", async () => {
-    const env = envWithDb(null, ["acme"]);
-    const res = await app().request(
-      "/admin-ui/workspaces/acme/invite-links",
-      { method: "POST", headers: { "content-type": "application/json" }, body: "{}" },
-      env,
-    );
-    expect(res.status).toBe(401);
+  describe("GET /admin-ui/workspaces/:name/invite-links", () => {
+    it("lists outstanding links without leaking code_hash", async () => {
+      const env = envWithDb(ADMIN_USER, ["acme"]);
+      await app().request(
+        "/admin-ui/workspaces/acme/invite-links",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ label: "sales" }),
+        },
+        env,
+      );
+      const res = await app().request("/admin-ui/workspaces/acme/invite-links", {}, env);
+      expect(res.status).toBe(200);
+      const payload = (await res.json()) as {
+        links: { id: string; pageId: string | null; label: string | null; scopes: string[] }[];
+      };
+      expect(payload.links).toHaveLength(1);
+      expect(payload.links[0]?.label).toBe("sales");
+      expect(payload.links[0]?.scopes).toEqual(["files:read", "files:write"]);
+      expect(JSON.stringify(payload)).not.toContain("code_hash");
+      expect(JSON.stringify(payload)).not.toMatch(/upe_/);
+    });
+
+    it("200s empty for a workspace with no outstanding links", async () => {
+      const env = envWithDb(ADMIN_USER, ["acme"]);
+      const res = await app().request("/admin-ui/workspaces/acme/invite-links", {}, env);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ links: [] });
+    });
+
+    it("404s for an unknown workspace", async () => {
+      const env = envWithDb(ADMIN_USER, []);
+      const res = await app().request("/admin-ui/workspaces/nope/invite-links", {}, env);
+      expect(res.status).toBe(404);
+    });
+
+    it("401s with no session", async () => {
+      const env = envWithDb(null, ["acme"]);
+      const res = await app().request("/admin-ui/workspaces/acme/invite-links", {}, env);
+      expect(res.status).toBe(401);
+    });
+
+    it("403s for a non-admin session", async () => {
+      const env = envWithDb(NON_ADMIN_USER, ["acme"]);
+      const res = await app().request("/admin-ui/workspaces/acme/invite-links", {}, env);
+      expect(res.status).toBe(403);
+    });
   });
 
-  it("403s for a non-admin session", async () => {
-    const env = envWithDb(NON_ADMIN_USER, ["acme"]);
-    const res = await app().request(
-      "/admin-ui/workspaces/acme/invite-links",
-      { method: "POST", headers: { "content-type": "application/json" }, body: "{}" },
-      env,
-    );
-    expect(res.status).toBe(403);
-  });
+  describe("DELETE /admin-ui/workspaces/:name/invite-links/:id", () => {
+    async function mintOne(env: Env & { DB: FakeD1 }, workspace: string, label?: string) {
+      const res = await app().request(
+        `/admin-ui/workspaces/${workspace}/invite-links`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(label ? { label } : {}),
+        },
+        env,
+      );
+      const payload = (await res.json()) as { id: string };
+      return payload.id;
+    }
 
-  it("404s for an unknown workspace", async () => {
-    const env = envWithDb(ADMIN_USER, []);
-    const res = await app().request(
-      "/admin-ui/workspaces/nope/invite-links",
-      { method: "POST", headers: { "content-type": "application/json" }, body: "{}" },
-      env,
-    );
-    expect(res.status).toBe(404);
-  });
+    it("revokes an outstanding link", async () => {
+      const env = envWithDb(ADMIN_USER, ["acme"]);
+      const id = await mintOne(env, "acme");
+      const res = await app().request(
+        `/admin-ui/workspaces/acme/invite-links/${id}`,
+        { method: "DELETE" },
+        env,
+      );
+      expect(res.status).toBe(200);
+      expect(env.DB.enrollments).toHaveLength(0);
+    });
 
-  it("400s for an empty label", async () => {
-    const env = envWithDb(ADMIN_USER, ["acme"]);
-    const res = await app().request(
-      "/admin-ui/workspaces/acme/invite-links",
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ label: "" }),
-      },
-      env,
-    );
-    expect(res.status).toBe(400);
-    const payload = (await res.json()) as { error?: { code?: string } };
-    expect(payload.error?.code).toBe("invalid_label");
-  });
+    it("404s for an unknown id", async () => {
+      const env = envWithDb(ADMIN_USER, ["acme"]);
+      const res = await app().request(
+        "/admin-ui/workspaces/acme/invite-links/nope",
+        { method: "DELETE" },
+        env,
+      );
+      expect(res.status).toBe(404);
+      const payload = (await res.json()) as { error?: { code?: string } };
+      expect(payload.error?.code).toBe("invite_link_not_found");
+    });
 
-  it("400s for a label over 100 characters", async () => {
-    const env = envWithDb(ADMIN_USER, ["acme"]);
-    const res = await app().request(
-      "/admin-ui/workspaces/acme/invite-links",
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ label: "x".repeat(101) }),
-      },
-      env,
-    );
-    expect(res.status).toBe(400);
-    const payload = (await res.json()) as { error?: { code?: string } };
-    expect(payload.error?.code).toBe("invalid_label");
-  });
+    it("404s when the id belongs to a different workspace", async () => {
+      const env = envWithDb(ADMIN_USER, ["acme", "other"]);
+      const id = await mintOne(env, "other");
+      const res = await app().request(
+        `/admin-ui/workspaces/acme/invite-links/${id}`,
+        { method: "DELETE" },
+        env,
+      );
+      expect(res.status).toBe(404);
+      expect(env.DB.enrollments).toHaveLength(1);
+    });
 
-  it("400s for invalid scopes", async () => {
-    const env = envWithDb(ADMIN_USER, ["acme"]);
-    const res = await app().request(
-      "/admin-ui/workspaces/acme/invite-links",
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ scopes: ["not:a:real:scope"] }),
-      },
-      env,
-    );
-    expect(res.status).toBe(400);
-    const payload = (await res.json()) as { error?: { code?: string } };
-    expect(payload.error?.code).toBe("invalid_scopes");
-  });
+    it("401s with no session", async () => {
+      const env = envWithDb(null, ["acme"]);
+      const res = await app().request(
+        "/admin-ui/workspaces/acme/invite-links/anything",
+        { method: "DELETE" },
+        env,
+      );
+      expect(res.status).toBe(401);
+    });
 
-  it("429s when the per-workspace write budget is exhausted", async () => {
-    const env = envWithDb(ADMIN_USER, ["acme"]) as Env & {
-      WRITE_LIMITER: { limit: (opts: { key: string }) => Promise<{ success: boolean }> };
-    };
-    env.WRITE_LIMITER = { limit: async () => ({ success: false }) };
-    const res = await app().request(
-      "/admin-ui/workspaces/acme/invite-links",
-      { method: "POST", headers: { "content-type": "application/json" }, body: "{}" },
-      env,
-    );
-    expect(res.status).toBe(429);
+    it("403s for a non-admin session", async () => {
+      const env = envWithDb(NON_ADMIN_USER, ["acme"]);
+      const res = await app().request(
+        "/admin-ui/workspaces/acme/invite-links/anything",
+        { method: "DELETE" },
+        env,
+      );
+      expect(res.status).toBe(403);
+    });
+
+    it("429s when the per-workspace write budget is exhausted", async () => {
+      const env = envWithDb(ADMIN_USER, ["acme"]) as Env & {
+        DB: FakeD1;
+        WRITE_LIMITER: { limit: (opts: { key: string }) => Promise<{ success: boolean }> };
+      };
+      const id = await mintOne(env, "acme");
+      env.WRITE_LIMITER = { limit: async () => ({ success: false }) };
+      const res = await app().request(
+        `/admin-ui/workspaces/acme/invite-links/${id}`,
+        { method: "DELETE" },
+        env,
+      );
+      expect(res.status).toBe(429);
+    });
   });
 });
 

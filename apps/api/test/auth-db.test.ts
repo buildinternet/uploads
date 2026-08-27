@@ -6,7 +6,9 @@ import {
   exchangeEnrollment,
   findActiveToken,
   findEnrollmentPage,
+  listOpenEnrollments,
   parseScopes,
+  revokeEnrollment,
   touchTokenLastUsed,
 } from "../src/auth-db";
 
@@ -27,6 +29,10 @@ class FakeStatement {
 
   first<T>(): Promise<T | null> {
     return Promise.resolve(this.db.first(this) as T | null);
+  }
+
+  all<T>(): Promise<{ results: T[] }> {
+    return Promise.resolve({ results: this.db.all(this) as T[] });
   }
 
   run(): Promise<D1Result> {
@@ -136,7 +142,37 @@ class FakeD1 {
       enrollment.used_at = usedAt;
       return result(1);
     }
+    if (sql.startsWith("DELETE FROM auth_enrollments")) {
+      const [workspace, enrollmentId] = values;
+      const before = this.enrollments.length;
+      this.enrollments = this.enrollments.filter(
+        (row) => !(row.workspace === workspace && row.id === enrollmentId),
+      );
+      return result(before - this.enrollments.length);
+    }
     throw new Error(`unsupported run: ${sql}`);
+  }
+
+  all(statement: FakeStatement): Row[] {
+    const { sql, values } = statement;
+    if (sql.startsWith("SELECT id, page_id, label, scopes, created_at, expires_at")) {
+      const [workspace, now] = values as string[];
+      return this.enrollments
+        .filter(
+          (row) =>
+            row.workspace === workspace && row.used_at === null && (row.expires_at as string) > now,
+        )
+        .sort((a, b) => (b.created_at as string).localeCompare(a.created_at as string))
+        .map((row) => ({
+          id: row.id,
+          page_id: row.page_id,
+          label: row.label,
+          scopes: row.scopes,
+          created_at: row.created_at,
+          expires_at: row.expires_at,
+        }));
+    }
+    throw new Error(`unsupported all: ${sql}`);
   }
 
   async batch(statements: FakeStatement[]): Promise<D1Result[]> {
@@ -259,6 +295,96 @@ describe("D1 enrollment exchange", () => {
 
     expect(await exchangeEnrollment(database(fake), enrollment.code, later)).toBeNull();
     expect(await exchangeEnrollment(database(fake), "upe_unknown", later)).toBeNull();
+  });
+});
+
+describe("listOpenEnrollments", () => {
+  it("lists unredeemed, unexpired rows newest first, without code_hash", async () => {
+    const fake = new FakeD1();
+    const now = new Date("2026-07-10T12:00:00.000Z");
+    await createEnrollment(database(fake), {
+      workspace: "acme",
+      label: "first",
+      scopes: ["files:read"],
+      now,
+    });
+    await createEnrollment(database(fake), {
+      workspace: "acme",
+      label: "second",
+      scopes: ["files:read", "files:write"],
+      now: new Date(now.getTime() + 1000),
+    });
+
+    const links = await listOpenEnrollments(database(fake), "acme", now);
+    expect(links.map((l) => l.label)).toEqual(["second", "first"]);
+    expect(links[0]?.scopes).toEqual(["files:read", "files:write"]);
+    expect(links[0]?.pageId).toMatch(/^upi_/);
+    expect(JSON.stringify(links)).not.toContain("code_hash");
+  });
+
+  it("excludes other workspaces, used, and expired rows", async () => {
+    const fake = new FakeD1();
+    const now = new Date("2026-07-10T12:00:00.000Z");
+    const other = await createEnrollment(database(fake), {
+      workspace: "other",
+      scopes: ["files:read"],
+      now,
+    });
+    const used = await createEnrollment(database(fake), {
+      workspace: "acme",
+      scopes: ["files:read"],
+      now,
+    });
+    await exchangeEnrollment(database(fake), used.code, now);
+    await createEnrollment(database(fake), {
+      workspace: "acme",
+      scopes: ["files:read"],
+      enrollmentSeconds: 60,
+      now,
+    });
+
+    const later = new Date(now.getTime() + 61_000);
+    const links = await listOpenEnrollments(database(fake), "acme", later);
+    expect(links).toEqual([]);
+    expect(other).toBeDefined();
+  });
+
+  it("returns an empty list for a workspace with no rows", async () => {
+    const fake = new FakeD1();
+    expect(await listOpenEnrollments(database(fake), "empty")).toEqual([]);
+  });
+});
+
+describe("revokeEnrollment", () => {
+  it("deletes a matching row and reports success", async () => {
+    const fake = new FakeD1();
+    const now = new Date("2026-07-10T12:00:00.000Z");
+    const enrollment = await createEnrollment(database(fake), {
+      workspace: "acme",
+      scopes: ["files:read"],
+      now,
+    });
+
+    expect(await revokeEnrollment(database(fake), "acme", enrollment.id)).toBe(true);
+    expect(fake.enrollments).toHaveLength(0);
+  });
+
+  it("is a no-op for an unknown id", async () => {
+    const fake = new FakeD1();
+    expect(await revokeEnrollment(database(fake), "acme", "nope")).toBe(false);
+  });
+
+  it("doesn't delete another workspace's row with the same id", async () => {
+    const fake = new FakeD1();
+    const now = new Date("2026-07-10T12:00:00.000Z");
+    const enrollment = await createEnrollment(database(fake), {
+      workspace: "acme",
+      scopes: ["files:read"],
+      now,
+    });
+
+    expect(await revokeEnrollment(database(fake), "other", enrollment.id)).toBe(false);
+    expect(fake.enrollments).toHaveLength(1);
   });
 });
 

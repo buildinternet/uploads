@@ -69,6 +69,18 @@ interface EnrollmentRecord {
   page_id: string | null;
 }
 
+/** One outstanding (unredeemed, unexpired) invite-link enrollment, as
+ * surfaced to the admin panel — deliberately excludes `code_hash`: a listed
+ * link's URL can never be reconstructed, only revoked. */
+export interface OpenEnrollment {
+  id: string;
+  pageId: string | null;
+  label: string | null;
+  scopes: FileScope[];
+  createdAt: string;
+  expiresAt: string;
+}
+
 export function parseScopes(value: string): FileScope[] {
   try {
     const parsed: unknown = JSON.parse(value);
@@ -224,7 +236,13 @@ export async function createEnrollment(
     tokenSeconds?: number;
     now?: Date;
   },
-): Promise<{ pageId: string; code: string; expiresAt: string; tokenExpiresAt: string }> {
+): Promise<{
+  id: string;
+  pageId: string;
+  code: string;
+  expiresAt: string;
+  tokenExpiresAt: string;
+}> {
   const now = input.now ?? new Date();
   const expiresAt = new Date(
     now.getTime() + (input.enrollmentSeconds ?? DEFAULT_ENROLLMENT_SECONDS) * 1000,
@@ -234,6 +252,7 @@ export async function createEnrollment(
   );
   const code = randomSecret("upe_", 18);
   const pageId = randomSecret("upi_", 12);
+  const enrollmentId = id();
   await db
     .prepare(
       `INSERT INTO auth_enrollments
@@ -242,7 +261,7 @@ export async function createEnrollment(
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
     )
     .bind(
-      id(),
+      enrollmentId,
       input.workspace,
       await sha256Hex(code),
       input.label ?? null,
@@ -254,11 +273,62 @@ export async function createEnrollment(
     )
     .run();
   return {
+    id: enrollmentId,
     pageId,
     code,
     expiresAt: expiresAt.toISOString(),
     tokenExpiresAt: tokenExpiresAt.toISOString(),
   };
+}
+
+/**
+ * Outstanding (unredeemed, unexpired) invite-link enrollments for a
+ * workspace, newest first — backs the admin panel's invite-link list. Never
+ * selects `code_hash`; the plaintext code is never stored either, so a
+ * listed link's URL can't be reconstructed (show-once stays show-once).
+ */
+export async function listOpenEnrollments(
+  db: D1Queryable,
+  workspace: string,
+  now = new Date(),
+): Promise<OpenEnrollment[]> {
+  const result = await db
+    .prepare(
+      `SELECT id, page_id, label, scopes, created_at, expires_at
+       FROM auth_enrollments
+       WHERE workspace = ? AND used_at IS NULL AND expires_at > ?
+       ORDER BY created_at DESC`,
+    )
+    .bind(workspace, now.toISOString())
+    .all<
+      Pick<EnrollmentRecord, "id" | "page_id" | "label" | "scopes" | "created_at" | "expires_at">
+    >();
+  return result.results.map((row) => ({
+    id: row.id,
+    pageId: row.page_id,
+    label: row.label,
+    scopes: parseScopes(row.scopes),
+    createdAt: row.created_at,
+    expiresAt: row.expires_at,
+  }));
+}
+
+/**
+ * Delete one outstanding enrollment, scoped by both workspace and id so an
+ * admin can't revoke another workspace's link. Returns whether a row was
+ * actually deleted (false for an unknown id or one owned by another
+ * workspace — same 404 either way at the route layer).
+ */
+export async function revokeEnrollment(
+  db: D1Queryable,
+  workspace: string,
+  id: string,
+): Promise<boolean> {
+  const result = await db
+    .prepare(`DELETE FROM auth_enrollments WHERE workspace = ? AND id = ?`)
+    .bind(workspace, id)
+    .run();
+  return (result.meta?.changes ?? 0) > 0;
 }
 
 export async function findEnrollmentPage(
