@@ -1,5 +1,15 @@
 # @buildinternet/uploads
 
+## 0.50.0
+
+### Minor Changes
+
+- 4515259: Managed comment sizes images by their real dimensions: uploads now record server-derived `image.width`/`image.height`, small assets render at natural size instead of being upscaled into blurry tiles, and consecutive captionless icons flow on one line instead of stacking one per row.
+
+### Patch Changes
+
+- 1fce158: Fix `usage`, `reconcile`, and `purge_expired` MCP tools failing with an output validation error. The two-lane storage work added `sharedBytes`, `sharedObjects`, and `storageBudgetBasis` to the usage payload, and the usage route separately stamps `scopes`, `plan`, and `storage`, but the MCP output schema didn't list them, so the strict (`additionalProperties: false`) schema rejected real responses.
+
 ## 0.49.0
 
 ### Minor Changes
