@@ -1541,3 +1541,19 @@ button.wft-row {
 .wsp-preview__pr .wsp-ghicon {
   margin-right: 2px;
 }
+
+/* Folder/project heads are real anchors (middle-click, copy link) but must
+   not pick up the shell's global `a { underline }` / accent hover. */
+a.wsp-project__label,
+a.wsp-group__head {
+  color: inherit;
+  text-decoration: none;
+}
+a.wsp-project__label:hover,
+a.wsp-project__label:focus-visible {
+  color: var(--fg);
+}
+a.wsp-group__head:hover,
+a.wsp-group__head:focus-visible {
+  color: inherit;
+}

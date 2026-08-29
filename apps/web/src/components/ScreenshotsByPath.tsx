@@ -3,7 +3,10 @@
  * docs/superpowers/specs/2026-08-10-screenshots-by-path-design.md).
  * Overview = one `files/by-path` fetch; `?project=` / `?q=` filter that
  * payload in the toolbar (project select + path input). Drill-in (?path=)
- * = the existing `files/search?meta.path=…` route. Files without `path`
+ * = the existing `files/search?meta.path=…` route. Project labels and page
+ * paths both contain slashes, so folder state stays on the query string;
+ * `project`/`path` changes push a history entry so Back returns to the
+ * previous folder instead of leaving the page. Files without `path`
  * metadata never appear here — the empty state points at `uploads put`
  * with `--meta path=`.
  *
@@ -62,6 +65,7 @@ import {
   formatShotCount,
   groupsFromCatalog,
   isRepoLabel,
+  isScreenshotsNavState,
   lastUpdatedLabel,
   leafName,
   pairedShotKeys,
@@ -69,11 +73,15 @@ import {
   pathSuggestions,
   projectLabelFromItemMeta,
   readScreenshotsView,
-  screenshotsSearch,
+  screenshotsHistoryMode,
+  screenshotsSearchFromView,
+  screenshotsViewHref,
+  screenshotsViewsEqual,
   SHOT_COUNT_DISPLAY_CAP,
   shotKindFromKey,
   shotPreviewCaption,
   shotPreviewPosition,
+  writeScreenshotsLocation,
   type ScreenshotsFeed,
   type ScreenshotsView,
   type ShotPreviewBox,
@@ -181,6 +189,28 @@ type DrillState =
 function extLabel(key: string): string {
   const match = /\.([a-z0-9]{1,8})$/i.exec(key);
   return match ? match[1].toLowerCase() : "file";
+}
+
+/**
+ * Left-click without a modifier stays on this page (`setView` + history).
+ * Middle/cmd/ctrl-click keeps the real `href` so a folder opens in a new tab.
+ */
+function sameDocumentClick(
+  event: {
+    metaKey: boolean;
+    ctrlKey: boolean;
+    shiftKey: boolean;
+    altKey: boolean;
+    button: number;
+    preventDefault(): void;
+  },
+  go: () => void,
+): void {
+  if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) {
+    return;
+  }
+  event.preventDefault();
+  go();
 }
 
 // ── Small GitHub glyphs (Octicons, 16-grid paths at 12px) ──────────────
@@ -691,6 +721,13 @@ function ScreenshotsByPathInner({
   // against here: the server and the client's first render already agree as
   // long as both read the same `seedSearch`, which is exactly what this does.
   const [view, setView] = useState<ScreenshotsView>(() => readScreenshotsView(seedSearch));
+  // Previous view for history mode (push vs replace). Seeded to `view` so
+  // the first URL-sync effect is a no-op when the address bar already matches.
+  const viewRef = useRef(view);
+  // One-shot override: in-page back from a shared drill-in link replaces
+  // instead of pushing, so Back then leaves the page rather than returning
+  // to the same drill-in.
+  const locationWriteRef = useRef<"auto" | "replace">("auto");
   const previewTimer = useRef<number | null>(null);
   const [preview, setPreview] = useState<{
     src: string;
@@ -806,17 +843,45 @@ function ScreenshotsByPathInner({
     };
   }, [apiOrigin, workspace]);
 
+  // Keep the address bar in sync. Project/path changes push so Back returns
+  // to the previous folder; q/feed/merged replace the current entry. Skip
+  // when the URL already matches (popstate, first paint). Preserve
+  // ClientRouter's history.state — a `replaceState(null)` here used to wipe
+  // it, which is part of why Back left the page.
+  useEffect(() => {
+    const prev = viewRef.current;
+    viewRef.current = view;
+    const forced = locationWriteRef.current;
+    locationWriteRef.current = "auto";
+    const target = window.location.pathname + screenshotsSearchFromView(view);
+    const current = window.location.pathname + window.location.search;
+    if (target === current) return;
+    const mode = forced === "replace" ? "replace" : screenshotsHistoryMode(prev, view);
+    writeScreenshotsLocation(target, mode);
+  }, [view]);
+
+  // ClientRouter also listens for popstate and would treat a query-only
+  // change as a full page swap. While this island is mounted and the
+  // destination is still this screenshots URL, steal the event in capture
+  // and update `view` in place. Leaving the page (sidebar, browser Back
+  // off the overview) does not match, so ClientRouter handles that swap.
+  useEffect(() => {
+    const screenshotsPath = `/account/workspaces/${encodeURIComponent(workspace)}/screenshots`;
+    const onPop = (event: PopStateEvent) => {
+      if (window.location.pathname !== screenshotsPath) return;
+      event.stopImmediatePropagation();
+      const next = readScreenshotsView(window.location.search);
+      setView((prev) => (screenshotsViewsEqual(prev, next) ? prev : next));
+    };
+    window.addEventListener("popstate", onPop, true);
+    return () => window.removeEventListener("popstate", onPop, true);
+  }, [workspace]);
+
   // Drill-in fetch — URL-synced so a reload or shared link lands on the
   // same view. Clearing view.path ("") goes back to the overview/project
   // view without a search fetch. Bare legacy `?path=` links keep working —
   // they simply carry an empty view.project, so no project filter applies.
   useEffect(() => {
-    history.replaceState(
-      null,
-      "",
-      window.location.pathname +
-        screenshotsSearch(view.project, view.path, view.q, view.feed, view.merged),
-    );
     if (!view.path) {
       setDrill({ status: "idle" });
       return;
@@ -846,16 +911,7 @@ function ScreenshotsByPathInner({
     return () => {
       cancelled = true;
     };
-  }, [
-    apiOrigin,
-    workspace,
-    view.project,
-    view.path,
-    view.q,
-    view.feed,
-    view.merged,
-    drillRetryNonce,
-  ]);
+  }, [apiOrigin, workspace, view.path, view.merged, drillRetryNonce]);
 
   useEffect(() => {
     const dismiss = () => {
@@ -1126,13 +1182,27 @@ function ScreenshotsByPathInner({
       drillEmptyMessage = "No screenshots at this path for this project.";
     }
 
+    const parentView = { ...view, path: "" };
     return (
       <div className="wsp grid gap-8" aria-busy={overviewRefreshing || undefined}>
         {filterBar}
         <div className="wsp-drill__head grid gap-2 justify-items-start">
-          <button type="button" className="text-btn" onClick={() => setView({ ...view, path: "" })}>
+          <a
+            href={screenshotsViewHref(workspace, parentView)}
+            className="text-btn"
+            onClick={(event) =>
+              sameDocumentClick(event, () => {
+                if (isScreenshotsNavState(window.history.state)) {
+                  window.history.back();
+                  return;
+                }
+                locationWriteRef.current = "replace";
+                setView(parentView);
+              })
+            }
+          >
             {view.project ? `← ${view.project}` : "← all projects"}
-          </button>
+          </a>
           <h2 className="wsp-drill__heading m-0 text-base font-semibold [overflow-wrap:anywhere]">
             {view.path}
           </h2>
@@ -1316,8 +1386,20 @@ function ScreenshotsByPathInner({
                 // the section boundary is structural, not just whitespace —
                 // so a project head can't be misread as one more path row.
                 bordered={index > 0}
+                projectHref={screenshotsViewHref(workspace, {
+                  ...view,
+                  project: label,
+                  path: "",
+                })}
                 onViewProject={() => setView({ ...view, project: label, path: "" })}
                 onDrill={onDrill}
+                drillHref={(group) =>
+                  screenshotsViewHref(workspace, {
+                    ...view,
+                    project: group.project,
+                    path: group.path,
+                  })
+                }
                 opener={opener}
                 preview={previewHandlers}
               />
@@ -1362,8 +1444,10 @@ function ProjectSection({
   ghTruncated,
   showViewProject,
   bordered,
+  projectHref,
   onViewProject,
   onDrill,
+  drillHref,
   opener,
   preview,
 }: {
@@ -1376,8 +1460,10 @@ function ProjectSection({
   showViewProject: boolean;
   /** True for every project section after the first — see call site. */
   bordered: boolean;
+  projectHref: string;
   onViewProject: () => void;
   onDrill: (group: { project: string; path: string }) => void;
+  drillHref: (group: { project: string; path: string }) => string;
   opener: FileOpener;
   preview: PreviewHandlers;
 }) {
@@ -1404,10 +1490,10 @@ function ProjectSection({
             down the page. The arrow affordance discloses on hover/focus
             (always visible on hover-less devices). */}
         {showViewProject ? (
-          <button
-            type="button"
+          <a
+            href={projectHref}
             className="wsp-project__label flex-[1_0_100%] sm:flex-none bg-none border-0 p-0 text-left cursor-pointer text-fg font-semibold text-[19px] leading-[1.3] [overflow-wrap:anywhere] hover:underline focus-visible:underline [text-underline-offset:4px] hover:decoration-muted-foreground focus-visible:decoration-muted-foreground [text-decoration-thickness:1px]"
-            onClick={onViewProject}
+            onClick={(event) => sameDocumentClick(event, onViewProject)}
           >
             {labelBody}
             <span
@@ -1416,7 +1502,7 @@ function ProjectSection({
             >
               →
             </span>
-          </button>
+          </a>
         ) : (
           <span className="wsp-project__label flex-[1_0_100%] sm:flex-none text-fg font-semibold text-[19px] leading-[1.3] [overflow-wrap:anywhere]">
             {labelBody}
@@ -1431,6 +1517,7 @@ function ProjectSection({
         <PathGroupSection
           key={group.path}
           group={group}
+          href={drillHref(group)}
           onDrill={onDrill}
           opener={opener}
           preview={preview}
@@ -1488,11 +1575,13 @@ function GitHubSection({
 
 function PathGroupSection({
   group,
+  href,
   onDrill,
   opener,
   preview,
 }: {
   group: FilesPathGroup;
+  href: string;
   onDrill: (group: { project: string; path: string }) => void;
   opener: FileOpener;
   preview: PreviewHandlers;
@@ -1500,10 +1589,10 @@ function PathGroupSection({
   const paired = pairedShotKeys(group.recent);
   return (
     <div className="wsp-group grid gap-2.5">
-      <button
-        type="button"
+      <a
+        href={href}
         className="wsp-group__head group flex items-baseline gap-2.5 w-full bg-none border-0 p-0 text-left cursor-pointer text-inherit font-[inherit]"
-        onClick={() => onDrill(group)}
+        onClick={(event) => sameDocumentClick(event, () => onDrill(group))}
       >
         <span className="wsp-group__path font-semibold text-[13px] [overflow-wrap:anywhere]">
           {group.path}
@@ -1511,14 +1600,14 @@ function PathGroupSection({
         <span className="wsp-group__meta text-muted-foreground text-[12px] whitespace-nowrap">
           {formatShotCount(group.count)} · {lastUpdatedLabel(group.lastUpdated, new Date())}
         </span>
-        {/* Hint, not a control (the whole head is the drill-in button) — disclosed
+        {/* Hint, not a control (the whole head is the drill-in link) — disclosed
             on hover/focus; opacity (not display) keeps it in the accessible name
             and keeps the row's layout stable. Hover-less devices keep a compact
             trailing chevron always visible instead (no hover reveal moment). */}
         <span className="wsp-group__viewall ml-auto text-muted-foreground text-[12px] whitespace-nowrap opacity-0 transition-opacity duration-[120ms] ease-linear group-hover:opacity-100 group-hover:text-fg group-focus-visible:opacity-100 group-focus-visible:text-fg [@media(hover:none)]:opacity-100">
           <span className="wsp-group__viewall-text [@media(hover:none)]:hidden">view all </span>→
         </span>
-      </button>
+      </a>
       {group.recent.length > 0 && (
         <div className="wsp-strip">
           {group.recent.map((item) => (

@@ -5,6 +5,7 @@ import {
   formatShotCount,
   groupsFromCatalog,
   isRepoLabel,
+  isScreenshotsNavState,
   lastUpdatedLabel,
   leafName,
   pairedShotKeys,
@@ -12,8 +13,13 @@ import {
   pathSuggestions,
   projectLabelFromItemMeta,
   readScreenshotsView,
+  screenshotsHistoryMode,
   screenshotsSearch,
+  screenshotsSearchFromView,
+  screenshotsViewHref,
+  screenshotsViewsEqual,
   SHOT_COUNT_DISPLAY_CAP,
+  type ScreenshotsView,
   shotKindFromKey,
   shotPreviewCaption,
   shotPreviewPosition,
@@ -238,6 +244,56 @@ describe("screenshots view URL state", () => {
     expect(screenshotsSearch("acme/web", "", "", "recent", true)).toBe(
       "?project=acme%2Fweb&view=recent&merged=1",
     );
+  });
+});
+
+describe("screenshots view hrefs and history mode", () => {
+  const overview: ScreenshotsView = {
+    project: "",
+    path: "",
+    q: "",
+    feed: "grouped",
+    merged: false,
+  };
+
+  it("builds a path-based screenshots URL with encoded query state", () => {
+    expect(
+      screenshotsViewHref("acme", {
+        project: "acme/web",
+        path: "/admin",
+        q: "",
+        feed: "grouped",
+        merged: false,
+      }),
+    ).toBe("/account/workspaces/acme/screenshots?project=acme%2Fweb&path=%2Fadmin");
+    expect(screenshotsViewHref("acme", overview)).toBe("/account/workspaces/acme/screenshots");
+    expect(screenshotsSearchFromView(overview)).toBe("");
+  });
+
+  it("pushes history for project or path changes, replaces for filter tweaks", () => {
+    expect(screenshotsHistoryMode(overview, { ...overview, path: "/settings" })).toBe("push");
+    expect(screenshotsHistoryMode(overview, { ...overview, project: "acme/web" })).toBe("push");
+    expect(screenshotsHistoryMode(overview, { ...overview, q: "/cat" })).toBe("replace");
+    expect(screenshotsHistoryMode(overview, { ...overview, feed: "recent" })).toBe("replace");
+    expect(screenshotsHistoryMode(overview, { ...overview, merged: true })).toBe("replace");
+  });
+
+  it("treats views as equal only when every field matches", () => {
+    expect(screenshotsViewsEqual(overview, { ...overview })).toBe(true);
+    expect(screenshotsViewsEqual(overview, { ...overview, path: "/x" })).toBe(false);
+  });
+
+  it("recognizes the nav marker on a ClientRouter-shaped history state", () => {
+    expect(isScreenshotsNavState({ index: 2, scrollX: 0, scrollY: 0 })).toBe(false);
+    expect(
+      isScreenshotsNavState({
+        index: 2,
+        scrollX: 0,
+        scrollY: 0,
+        uploadsScreenshotsNav: true,
+      }),
+    ).toBe(true);
+    expect(isScreenshotsNavState(null)).toBe(false);
   });
 });
 

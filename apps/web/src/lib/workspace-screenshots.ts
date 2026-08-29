@@ -226,6 +226,74 @@ export function screenshotsSearch(
   return qs ? `?${qs}` : "";
 }
 
+export function screenshotsSearchFromView(view: ScreenshotsView): string {
+  return screenshotsSearch(view.project, view.path, view.q, view.feed, view.merged);
+}
+
+/**
+ * Shareable URL for a screenshots view. Project labels and page paths both
+ * contain slashes (`acme/web`, `/settings/team`), so they stay on the query
+ * string — a pathname rest segment would need the same encoding and a second
+ * Astro route. History participation is `writeScreenshotsLocation`'s job.
+ */
+export function screenshotsViewHref(workspace: string, view: ScreenshotsView): string {
+  const path = `/account/workspaces/${encodeURIComponent(workspace)}/screenshots`;
+  return `${path}${screenshotsSearchFromView(view)}`;
+}
+
+export function screenshotsViewsEqual(a: ScreenshotsView, b: ScreenshotsView): boolean {
+  return (
+    a.project === b.project &&
+    a.path === b.path &&
+    a.q === b.q &&
+    a.feed === b.feed &&
+    a.merged === b.merged
+  );
+}
+
+/**
+ * Folder navigation (`project` / `path`) gets its own history entry so Back
+ * returns to the previous folder. Filter tweaks (`q`, feed, merged) rewrite
+ * the current entry in place so typing does not spam the stack.
+ */
+export function screenshotsHistoryMode(
+  prev: ScreenshotsView,
+  next: ScreenshotsView,
+): "push" | "replace" {
+  if (prev.project !== next.project || prev.path !== next.path) return "push";
+  return "replace";
+}
+
+/**
+ * Marker on history entries this page pushed. The in-page "back" control
+ * uses `history.back()` when the current entry carries it, so browser Back
+ * and that control walk the same stack. Spread onto ClientRouter's existing
+ * `{ index, scrollX, scrollY }` rather than replacing it.
+ */
+export const SCREENSHOTS_NAV_STATE = "uploadsScreenshotsNav";
+
+export function isScreenshotsNavState(state: unknown): boolean {
+  return Boolean(
+    state &&
+    typeof state === "object" &&
+    (state as Record<string, unknown>)[SCREENSHOTS_NAV_STATE] === true,
+  );
+}
+
+/** Write a screenshots view into the address bar. No-op when already there. */
+export function writeScreenshotsLocation(target: string, mode: "push" | "replace"): void {
+  if (typeof window === "undefined") return;
+  const current = `${window.location.pathname}${window.location.search}`;
+  if (target === current) return;
+  const prev = window.history.state;
+  if (mode === "push") {
+    const base = prev && typeof prev === "object" ? (prev as object) : {};
+    window.history.pushState({ ...base, [SCREENSHOTS_NAV_STATE]: true }, "", target);
+    return;
+  }
+  window.history.replaceState(prev, "", target);
+}
+
 /**
  * True when a project label names a GitHub repo. Labels come from
  * projectLabelFromMeta's coalesce, where only the repo branches
