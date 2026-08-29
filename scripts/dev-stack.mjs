@@ -10,6 +10,7 @@ import { dirname, resolve } from "node:path";
 import {
   API_ORIGIN,
   AUTH_ORIGIN,
+  isLocalDemoWebOrigin,
   PORTLESS_BASE,
   PREVIEW_URL,
   USE_PORTLESS,
@@ -237,14 +238,13 @@ async function main() {
 
   await seedFixtures(token);
   if (stopping) return;
-  // Real-TLD mode (e.g. *.uploads.local.buildinternet.dev for OAuth testing —
-  // see docs/local-dev.md) intentionally disables the dev-session bypass the
-  // smoke relies on; report ready without it. The bypass is gated on the WEB
-  // origin's shape (auth's localDemoEnabled → isLocalStackWebOrigin), so key
-  // off WEB_ORIGIN here — AUTH_ORIGIN is now always a bare loopback port and no
-  // longer signals the mode.
-  const demoAvailable = /(\.localhost|^127\.0\.0\.1)$/.test(new URL(WEB_ORIGIN).hostname);
-  const smoke = demoAvailable ? await runSmoke() : "skipped (real-TLD mode has no dev-session)";
+  // The bypass is gated on WEB_ORIGIN's shape (auth's localDemoEnabled).
+  // AUTH_ORIGIN is always a bare loopback port and no longer signals the mode.
+  // The owned `uploads.local.buildinternet.dev` zone is local (DNS → 127.0.0.1)
+  // and is the default portless origin, so smoke runs there too.
+  const smoke = isLocalDemoWebOrigin(WEB_ORIGIN)
+    ? await runSmoke()
+    : "skipped (WEB_ORIGIN is not a recognized local-stack origin)";
   if (stopping) return;
   console.log(JSON.stringify({ ready: true, previewUrl: PREVIEW_URL, smoke }));
 

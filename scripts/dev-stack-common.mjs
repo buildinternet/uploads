@@ -6,15 +6,18 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 // Portless (see the `portless` skill) gives WEB a stable named HTTPS origin
-// (`https://uploads.localhost`), the only origin the browser ever talks to.
-// Since #731 auth and api are internal upstreams reached through web's
-// same-origin `/api/auth` + `/api` proxies, so they need no hostname of their
-// own — they run as plain loopback ports (dynamically assigned here so
-// concurrent worktree stacks don't collide). `PORTLESS=0` falls back to the
-// legacy pinned ports (also the path for the dev GitHub OAuth app, whose
-// callback is pinned to 127.0.0.1:8788).
+// (`https://uploads.local.buildinternet.dev`), the only origin the browser
+// ever talks to. Same sibling-repo convention as Either: TLD `dev` plus the
+// long name under the owned `local.buildinternet.dev` zone (OAuth providers
+// reject `*.localhost`). Since #731 auth and api are internal upstreams
+// reached through web's same-origin `/api/auth` + `/api` proxies, so they
+// need no hostname of their own — they run as plain loopback ports
+// (dynamically assigned here so concurrent worktree stacks don't collide).
+// `PORTLESS=0` falls back to the legacy pinned ports (also the path for the
+// dev GitHub OAuth app, whose callback is pinned to 127.0.0.1:8788).
 export const USE_PORTLESS = process.env.PORTLESS !== "0";
-export const PORTLESS_BASE = process.env.PORTLESS_NAME || "uploads";
+export const PORTLESS_BASE = process.env.PORTLESS_NAME || "uploads.local.buildinternet";
+export const LOCAL_STACK_DEV_HOST = "uploads.local.buildinternet.dev";
 
 const PORTLESS_CA = join(process.env.PORTLESS_STATE_DIR || join(homedir(), ".portless"), "ca.pem");
 
@@ -87,6 +90,27 @@ export const API_ORIGIN = USE_PORTLESS
   : "http://127.0.0.1:8787";
 export const WEB_ORIGIN = USE_PORTLESS ? portlessUrl(PORTLESS_BASE) : "http://127.0.0.1:4321";
 export const PREVIEW_URL = `${WEB_ORIGIN}/account/workspaces`;
+
+/**
+ * Same gate as `isLocalDemoStack` / `isLocalStackWebOrigin`: the pinned
+ * loopback stack, a `*.localhost` leftover, or the owned infra zone
+ * (including a worktree prefix). Bare `uploads.dev` is not local.
+ */
+export function isLocalDemoWebOrigin(origin) {
+  const normalized = String(origin ?? "").replace(/\/$/, "");
+  if (normalized === "http://127.0.0.1:4321") return true;
+  let url;
+  try {
+    url = new URL(normalized);
+  } catch {
+    return false;
+  }
+  if (!/^https?:$/.test(url.protocol)) return false;
+  const host = url.hostname;
+  if (host === LOCAL_STACK_DEV_HOST || host.endsWith(`.${LOCAL_STACK_DEV_HOST}`)) return true;
+  const parts = host.split(".");
+  return parts.length >= 2 && parts.at(-1) === "localhost";
+}
 export const DEMO_WORKSPACE = "dev-demo";
 
 // A valid 1×1 PNG. Fixture uploads traverse the same magic-byte validation as

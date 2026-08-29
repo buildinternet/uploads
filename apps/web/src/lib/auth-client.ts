@@ -111,11 +111,15 @@ export type SessionResult =
   | { kind: "unavailable"; reason: RequestFailure | "server" | "malformed" };
 
 const LOCAL_STACK_WEB_ORIGIN = "http://127.0.0.1:4321";
+/** Keep in sync with `LOCAL_STACK_DEV_HOST` in `apps/auth/src/local-demo.ts`. */
+const LOCAL_STACK_DEV_HOST = "uploads.local.buildinternet.dev";
 
 /**
  * True only when `pageOrigin` is a recognized local-stack web origin: the
- * raw stack's pinned loopback port, or a portless `*.localhost` origin
- * (optionally worktree-prefixed, e.g. `https://fix-ui.uploads.localhost`).
+ * raw stack's pinned loopback port, a leftover portless `*.localhost`
+ * origin (optionally worktree-prefixed), or the owned
+ * `uploads.local.buildinternet.dev` zone (worktree prefix
+ * `fix-ui.uploads.local.buildinternet.dev`).
  *
  * #731 phase C: this used to compare the injected auth origin against its
  * own pinned loopback port, but Phase B made every injected auth origin `""`
@@ -139,7 +143,9 @@ export function isLocalDemoStack(pageOrigin: string): boolean {
     return false;
   }
   if (!/^https?:$/.test(url.protocol)) return false;
-  const parts = url.hostname.split(".");
+  const host = url.hostname;
+  if (host === LOCAL_STACK_DEV_HOST || host.endsWith(`.${LOCAL_STACK_DEV_HOST}`)) return true;
+  const parts = host.split(".");
   return parts.length >= 2 && parts.at(-1) === "localhost";
 }
 

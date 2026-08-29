@@ -12,8 +12,9 @@
 #
 # NOTE: `pnpm dev:stack` runs through portless (see docs/local-dev.md) and
 # injects the resolved auth/API upstream origins (plain loopback ports; only
-# web gets a named `.localhost` origin) via process env at startup — it does
-# not need this file. If you run the portless stack and signed-in pages still
-# resolve loopback/prod origins, a stale .dev.vars here is the usual culprit.
+# web gets https://uploads.local.buildinternet.dev) via process env at
+# startup — it does not need this file. If you run the portless stack and
+# signed-in pages still resolve loopback/prod origins, a stale .dev.vars here
+# is the usual culprit.
 UPLOADS_AUTH_ORIGIN=http://127.0.0.1:8788
 UPLOADS_API_ORIGIN=http://127.0.0.1:8787
