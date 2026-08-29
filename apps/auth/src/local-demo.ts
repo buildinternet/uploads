@@ -23,13 +23,22 @@ import * as schema from "./schema";
 export const LOCAL_STACK_WEB_ORIGIN = "http://127.0.0.1:4321";
 
 /**
- * True for a local-stack WEB origin shape: the raw stack's pinned loopback
- * port, or a portless `*.localhost` origin (see the `portless` skill —
- * optionally worktree-prefixed, optionally on the sudo-less proxy port, e.g.
- * `http://uploads.localhost:1355`). `.localhost` names resolve to loopback
- * by spec, so this stays as local-only as the IP-literal case.
+ * Default portless hostname (TLD `dev` + name `uploads.local.buildinternet`).
+ * Keep in sync with `portless.json`, `PORTLESS_BASE` in
+ * `scripts/dev-stack-common.mjs`, and `isLocalDemoStack` in the web app.
  */
-function isLocalStackWebOrigin(webOrigin: string | undefined): boolean {
+export const LOCAL_STACK_DEV_HOST = "uploads.local.buildinternet.dev";
+
+/**
+ * True for a local-stack WEB origin shape: the raw stack's pinned loopback
+ * port, a leftover portless `*.localhost` origin (optionally worktree-
+ * prefixed, optionally on the sudo-less proxy port), or the owned
+ * `uploads.local.buildinternet.dev` zone (same sibling convention as Either;
+ * worktree prefix `fix-ui.uploads.local.buildinternet.dev`). Bare
+ * `uploads.dev` is not local — that is the collision you get if the app name
+ * stays `uploads` under `--tld dev`.
+ */
+export function isLocalStackWebOrigin(webOrigin: string | undefined): boolean {
   if (!webOrigin) return false;
   if (webOrigin === LOCAL_STACK_WEB_ORIGIN) return true;
   let web: URL;
@@ -39,7 +48,9 @@ function isLocalStackWebOrigin(webOrigin: string | undefined): boolean {
     return false;
   }
   if (!/^https?:$/.test(web.protocol)) return false;
-  const parts = web.hostname.split(".");
+  const host = web.hostname;
+  if (host === LOCAL_STACK_DEV_HOST || host.endsWith(`.${LOCAL_STACK_DEV_HOST}`)) return true;
+  const parts = host.split(".");
   return parts.length >= 2 && parts.at(-1) === "localhost";
 }
 
@@ -56,9 +67,9 @@ const DEMO_ORGANIZATION = { id: "local-dev-demo-org", slug: "dev-demo", name: "D
  * same-origin mode (`BETTER_AUTH_URL === WEB_ORIGIN`, mirroring production —
  * see scripts/dev-stack.mjs), so this requires that equality PLUS a
  * recognized local-stack web-origin shape (the raw stack's pinned loopback
- * port, or a portless `*.localhost` origin) — a real-TLD or otherwise
- * unrecognized origin never enables the bypass, even if it happens to be
- * same-origin.
+ * port, a leftover `*.localhost` origin, or the owned
+ * `uploads.local.buildinternet.dev` zone). Unrelated real TLDs never enable
+ * the bypass, even if they happen to be same-origin.
  */
 export function localDemoEnabled(env: AuthEnv): boolean {
   if (env.LOCAL_STACK !== "true" || env.ENVIRONMENT !== "development") return false;

@@ -18,35 +18,64 @@ pnpm typecheck        # wrangler types + tsc across workspaces
 
 ## Named local URLs (portless)
 
-`pnpm dev:stack` runs through [portless](https://npmjs.com/portless), so WEB
-gets a stable named `.localhost` origin instead of a bare port:
+`pnpm dev:stack` runs through [portless](https://npmjs.com/portless) on the
+shared `local.buildinternet.dev` infra zone, same as the sibling repos. WEB
+gets a stable named HTTPS origin instead of a bare port. Google and Apple
+reject `*.localhost` redirect URIs; this hostname is a real Public Suffix
+domain that they accept.
 
-| Service | URL                         | Browser-visible?                                      |
-| ------- | --------------------------- | ----------------------------------------------------- |
-| web     | `https://uploads.localhost` | yes — the only origin the browser talks to            |
-| auth    | plain loopback (dynamic)    | no — internal upstream behind web's `/api/auth` proxy |
-| api     | plain loopback (dynamic)    | no — internal upstream behind web's `/api` proxy      |
+| Service | URL                                       | Browser-visible?                                      |
+| ------- | ----------------------------------------- | ----------------------------------------------------- |
+| web     | `https://uploads.local.buildinternet.dev` | yes — the only origin the browser talks to            |
+| auth    | plain loopback (dynamic)                  | no — internal upstream behind web's `/api/auth` proxy |
+| api     | plain loopback (dynamic)                  | no — internal upstream behind web's `/api` proxy      |
 
-Since #731 the browser only ever talks to `uploads.localhost`: auth and api
+The name and TLD live in the repo (`portless.json` plus `PORTLESS_TLD=dev` on
+`dev:stack`). You do not set `PORTLESS_NAME` in a local env file. A short
+name under `--tld dev` would be `uploads.dev`, which can collide with a real
+domain.
+
+Since #731 the browser only ever talks to that web origin: auth and api
 are served same-origin through web's `/api/auth` and `/api` proxies (mirroring
 production), so they're internal upstreams the web worker forwards to, not
 origins a signed-in page's own requests hit. Because nothing browser-facing
 needs their hostnames, only WEB gets a portless-named origin; auth and api run
 as plain `127.0.0.1` loopback processes on ports assigned dynamically at boot
 (so concurrent worktree stacks don't collide). The Better Auth session cookie
-is host-only on `uploads.localhost` (same shape as prod's host-only
-`uploads.sh` cookie), and signed-in pages (`/account/*`, `/admin/*`) just work
-in a local browser, including agent browser panels. In a linked git worktree,
-portless prefixes the branch name (`fix-ui.uploads.localhost`); nothing else
-changes. `dev:stack` prints the resolved `previewUrl` when ready, and
+is host-only on the web origin (same shape as prod's host-only `uploads.sh`
+cookie), and signed-in pages (`/account/*`, `/admin/*`) just work in a local
+browser, including agent browser panels. In a linked git worktree, portless
+prefixes the branch name (`fix-ui.uploads.local.buildinternet.dev`); nothing
+else changes. `dev:stack` prints the resolved `previewUrl` when ready, and
 `pnpm dev:stack:check --json` reports it too.
+
+The zone is deliberately not under uploads.sh. Prod's session cookie is
+host-only on `uploads.sh`, and keeping local dev off that host means a local
+stack never shares an origin with production. DNS:
+`local.buildinternet.dev` + `*.local.buildinternet.dev` are public DNS-only
+A records → `127.0.0.1` (never proxy them), so the names resolve to loopback
+on any machine, worktree prefixes included.
+`pnpm exec portless hosts sync` is only a fallback for offline work.
+
+Register OAuth redirect URIs on the web origin:
+`https://uploads.local.buildinternet.dev/api/auth/callback/<provider>`.
+Auth has no named subdomain — it is a loopback upstream that web forwards
+`/api/auth/*` to. `pnpm dev:stack:oauth` is an alias of `pnpm dev:stack`.
+
+The zero-input `/api/auth/dev-session` bypass stays fail-closed: it only
+enables for a recognized local-stack web-origin shape (the pinned loopback
+stack, a leftover `*.localhost` origin, or this owned zone). It never
+enables for `uploads.dev` or other unrelated real TLDs.
 
 Notes:
 
 - First run may prompt for sudo so the proxy can bind :443 (HTTPS). If sudo
   is unavailable, portless falls back to plain HTTP on `:1355` — the stack
-  handles both. `pnpm exec portless doctor` diagnoses routing/CA issues, and
-  `pnpm exec portless service install` keeps the proxy across reboots.
+  handles both. `pnpm exec portless doctor` diagnoses routing/CA issues.
+  The shared proxy should serve TLD `dev`
+  (`portless service install --tld dev`), matching the other repos. If the
+  proxy is still `.localhost` only, restart it with `--tld dev` so the
+  default hostname does not fall through to a second proxy on `:1355`.
 - `pnpm dev:stack:raw` (or `PORTLESS=0 pnpm dev:stack`) restores the legacy
   pinned loopback ports (`127.0.0.1:4321/8787/8788`) — same-origin mode there
   too (the auth worker's `BETTER_AUTH_URL` is set to the web origin,
@@ -62,52 +91,6 @@ Notes:
   real GitHub OAuth flow. The `stack-raw` launch config (.claude/launch.json)
   boots the same thing with a port-based preview; in portless mode the web
   port is dynamic, so open the printed `previewUrl` directly instead.
-- `pnpm dev:stack:oauth` is the named alias for the real-TLD mode below.
-- The zero-input `/api/auth/dev-session` bypass stays fail-closed: it only
-  enables for a recognized local-stack web-origin shape (the exact loopback
-  pair or a matched `*.localhost` origin) — never for real-TLD origins, even
-  when they happen to be same-origin.
-
-### Real-TLD mode for OAuth (`*.uploads.local.buildinternet.dev`)
-
-Some OAuth providers (Google, Apple) reject `*.localhost` redirect URIs, so
-the stack can run under a real TLD instead — on the shared
-`local.buildinternet.dev` infra zone, same as the sibling repos:
-
-```bash
-PORTLESS_TLD=dev PORTLESS_NAME=uploads.local.buildinternet pnpm dev:stack
-# -> https://uploads.local.buildinternet.dev   (web; auth + api stay on plain
-#    loopback ports, same as the default `.localhost` mode)
-```
-
-The zone is deliberately NOT under uploads.sh: even though prod's session
-cookie is host-only (scoped to `uploads.sh` itself, not a shared parent
-domain), keeping local dev off `uploads.sh` entirely avoids any local stack
-ever sharing an origin — or being confused for one — with prod. The infra
-domain has no production cookies to overlap.
-
-DNS: `local.buildinternet.dev` + `*.local.buildinternet.dev` are public
-DNS-only A records → `127.0.0.1` (never proxy them), so the names resolve to
-loopback on any machine, worktree prefixes included.
-`pnpm exec portless hosts sync` is only a fallback for offline work.
-
-The proxy only serves TLDs it was started with, so if yours runs with the
-default `.localhost` only, this mode auto-starts a second proxy on `:1355`
-and the web URL carries that port. For a clean port-free URL, run one proxy
-with both TLDs: `sudo portless proxy stop && sudo portless proxy start --https
---tld localhost --tld dev` (or bake it in with
-`portless service install --tld localhost --tld dev`).
-
-The web origin is trusted by the auth worker outside production (https only).
-Same-origin mode applies here too (`BETTER_AUTH_URL` is the web origin), so
-register the provider's redirect URI on the web origin:
-`https://uploads.local.buildinternet.dev/api/auth/callback/<provider>`. Auth
-has no real-TLD subdomain of its own — it's a plain loopback upstream web
-forwards `/api/auth/*` to, exactly as in the default mode.
-Note the `dev-session` bypass is intentionally unavailable in this mode —
-sign in through the real provider flow you're testing. GitHub accepts
-loopback callbacks, so day-to-day GitHub testing can stay on `PORTLESS=0`
-instead.
 
 `bootstrap` is idempotent (safe to re-run; never overwrites your env files or
 re-mints an existing local workspace) and `doctor` is read-only. `dev:stack`
@@ -147,21 +130,21 @@ curl -X PUT http://127.0.0.1:8787/v1/default/files/test.txt \
 
 `/account/workspaces/[name]/screenshots` needs a signed-in session, fixture
 uploads, and a place to actually serve their bytes from — none of which the
-smoke test above sets up. This is the raw loopback stack
+smoke test above sets up. This recipe uses the raw loopback stack
 (`pnpm dev:stack:raw`, or `pnpm dev` + `pnpm dev:auth` + `pnpm dev:web`
-separately), not portless, since the `dev-session` bypass below only
-recognizes the pinned loopback origin. A few steps here aren't obvious from
-the API alone:
+separately) so thumbnail bytes can come from a loopback `publicBaseUrl`.
+`pnpm dev:stack` also enables the `dev-session` bypass on
+`https://uploads.local.buildinternet.dev`. A few steps here aren't obvious
+from the API alone:
 
 1. **Sign in with the `dev-session` bypass, from a page already on
    `http://127.0.0.1:4321`.** The endpoint
    (`POST /api/auth/dev-session`, `apps/auth/src/local-demo.ts`) checks the
    request's `Origin` header against `WEB_ORIGIN` exactly, so it only works
    called from a page already loaded there — not from a bare `curl`. It also
-   only exists when local-demo mode is enabled (the raw loopback stack, never
-   a real TLD). Send a JSON body, even an empty one: better-call 415s a POST
-   with no `Content-Type: application/json`, the same gotcha `signOut`
-   documents in `apps/web/src/lib/auth-client.ts`.
+   only exists when local-demo mode is enabled. Send a JSON body, even an
+   empty one: better-call 415s a POST with no `Content-Type: application/json`,
+   the same gotcha `signOut` documents in `apps/web/src/lib/auth-client.ts`.
 
    ```js
    // from the browser console on http://127.0.0.1:4321

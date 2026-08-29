@@ -146,11 +146,16 @@ describe("local demo session", () => {
 
   it("is absent for a same-origin pair that isn't a recognized local-stack web-origin shape", async () => {
     for (const env of [
-      // Real TLD, not `.localhost` and not the pinned loopback port — never
-      // enables the bypass, even though BETTER_AUTH_URL === WEB_ORIGIN here.
+      // Unrelated real TLD — never enables the bypass, even though
+      // BETTER_AUTH_URL === WEB_ORIGIN here. Includes the `uploads.dev`
+      // collision (app name `uploads` + `--tld dev` without the owned zone).
       localEnv({
         BETTER_AUTH_URL: "https://local.uploads.sh",
         WEB_ORIGIN: "https://local.uploads.sh",
+      }),
+      localEnv({
+        BETTER_AUTH_URL: "https://uploads.dev",
+        WEB_ORIGIN: "https://uploads.dev",
       }),
       // Bare `.localhost` (no subdomain) doesn't match the portless shape.
       localEnv({ BETTER_AUTH_URL: "https://localhost", WEB_ORIGIN: "https://localhost" }),
@@ -166,6 +171,21 @@ describe("local demo session", () => {
 
   it("is available for a same-origin portless *.localhost pair, including worktree-prefixed", async () => {
     for (const webOrigin of ["https://uploads.localhost", "https://fix-ui.uploads.localhost"]) {
+      const env = localEnv({ BETTER_AUTH_URL: webOrigin, WEB_ORIGIN: webOrigin });
+      const res = await app.request(
+        "/api/auth/dev-session",
+        { method: "POST", headers: { Origin: webOrigin } },
+        env,
+      );
+      expect(res.status).toBe(200);
+    }
+  });
+
+  it("is available for the owned local.buildinternet.dev zone, including worktree-prefixed", async () => {
+    for (const webOrigin of [
+      "https://uploads.local.buildinternet.dev",
+      "https://fix-ui.uploads.local.buildinternet.dev",
+    ]) {
       const env = localEnv({ BETTER_AUTH_URL: webOrigin, WEB_ORIGIN: webOrigin });
       const res = await app.request(
         "/api/auth/dev-session",

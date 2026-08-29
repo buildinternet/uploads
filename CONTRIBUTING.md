@@ -62,11 +62,11 @@ pnpm dev:stack               # authenticated Auth + API + Web stack (portless)
 pnpm dev:stack:check --json  # machine-readable readiness + session smoke proof
 ```
 
-`pnpm dev:stack` runs through [portless](https://npmjs.com/portless), so the
-stack gets named `.localhost` origins instead of bare ports and local sign-in
-behaves like production — `/account/*` and `/admin/*` work in a local browser.
-[docs/local-dev.md](docs/local-dev.md#named-local-urls-portless) has the origin
-table, the real-TLD mode for OAuth, and a curl smoke test.
+`pnpm dev:stack` runs through [portless](https://npmjs.com/portless), so WEB
+gets `https://uploads.local.buildinternet.dev` instead of a bare port. Local
+sign-in behaves like production — `/account/*` and `/admin/*` work in a
+browser. [docs/local-dev.md](docs/local-dev.md#named-local-urls-portless) has
+the origin table, OAuth redirect URIs, and a curl smoke test.
 
 Local `wrangler … --local` calls boot miniflare, and an orphaned one can balloon
 to multiple gigabytes of RAM. Prefer the repo scripts (`pnpm doctor`,
