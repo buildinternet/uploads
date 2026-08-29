@@ -74,30 +74,40 @@ function render(args: SendAuthEmailArgs, webOrigin: string): RenderedEmail {
  * Auth hooks/callbacks stay fire-and-forget.
  */
 export async function sendAuthEmail(env: SendAuthEmailEnv, args: SendAuthEmailArgs): Promise<void> {
-  const webOrigin = env.WEB_ORIGIN || "https://uploads.sh";
-  const { subject, text, html } = render(args, webOrigin);
-  const isDev = env.ENVIRONMENT !== "production";
-  const magicLink = args.template === "magic-link" && isDev ? ` Link: ${args.context.url}` : "";
-
-  if (!env.EMAIL) {
-    // Invitation accept URLs are always logged so self-hosted operators without
-    // Email Sending can copy them. Magic-link URLs stay dev-only (secrets).
-    const inviteLink =
-      args.template === "invitation" && typeof args.context.url === "string"
-        ? ` Link: ${args.context.url}`
-        : "";
-    console.warn(
-      `[auth email] no EMAIL binding — not sent. To: ${args.to}. "${subject}".${inviteLink || magicLink}`,
-    );
-    return;
-  }
-
   try {
-    await env.EMAIL.send({ to: args.to, from: FROM, subject, text, html });
-    console.log(`[auth email] sent "${subject}" to ${args.to}${magicLink}`);
+    const webOrigin = env.WEB_ORIGIN || "https://uploads.sh";
+    const { subject, text, html } = render(args, webOrigin);
+    const isDev = env.ENVIRONMENT !== "production";
+    const magicLink = args.template === "magic-link" && isDev ? ` Link: ${args.context.url}` : "";
+
+    if (!env.EMAIL) {
+      // Invitation accept URLs are always logged so self-hosted operators without
+      // Email Sending can copy them. Magic-link URLs stay dev-only (secrets).
+      const inviteLink =
+        args.template === "invitation" && typeof args.context.url === "string"
+          ? ` Link: ${args.context.url}`
+          : "";
+      console.warn(
+        `[auth email] no EMAIL binding — not sent. To: ${args.to}. "${subject}".${inviteLink || magicLink}`,
+      );
+      return;
+    }
+
+    try {
+      await env.EMAIL.send({ to: args.to, from: FROM, subject, text, html });
+      console.log(`[auth email] sent "${subject}" to ${args.to}${magicLink}`);
+    } catch (err) {
+      console.error(
+        `[auth email] send failed for "${subject}" to ${args.to}`,
+        err instanceof Error ? err.message : String(err),
+      );
+    }
   } catch (err) {
+    // Belt-and-suspenders: render() (or anything else above) throwing must
+    // not propagate — callers (e.g. notifyAdminsOfMemberJoin's send loop)
+    // rely on this being genuinely fire-and-forget.
     console.error(
-      `[auth email] send failed for "${subject}" to ${args.to}`,
+      `[auth email] failed to prepare email "${args.template}" for ${args.to}`,
       err instanceof Error ? err.message : String(err),
     );
   }
