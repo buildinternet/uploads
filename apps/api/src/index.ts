@@ -19,6 +19,7 @@ import { workspaceMembers } from "./routes/workspace-members";
 import { workspaceSettings } from "./routes/workspace-settings";
 import { me } from "./routes/me";
 import { runRetentionSweep } from "./retention-sweep";
+import { runUsageAlertSweep } from "./usage-alert-sweep";
 import { runObservabilityRetention } from "./observability-retention";
 import { purgeExpiredIdempotencyRequests } from "./idempotency-core";
 import { galleries } from "./routes/galleries";
@@ -262,6 +263,18 @@ export default {
         console.error(
           JSON.stringify({
             message: "idempotency_retention_failed",
+            error: appErr.message,
+            code: appErr.code,
+          }),
+        );
+      }),
+    );
+    ctx.waitUntil(
+      runUsageAlertSweep(env).catch((err) => {
+        const appErr = AppError.from(err);
+        console.error(
+          JSON.stringify({
+            message: "usage_alert_sweep_failed",
             error: appErr.message,
             code: appErr.code,
           }),

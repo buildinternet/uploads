@@ -56,6 +56,8 @@ export interface SessionUser {
   cliOnboardedAt?: string | Date | null;
   /** Per-user pref: email me when someone joins a workspace I administer. */
   notifyMemberJoin?: boolean | null;
+  /** Per-user pref: email me when a workspace I administer nears its usage limit. */
+  notifyUsageLimits?: boolean | null;
 }
 
 /** Operator-facing copy when sign-in is refused for a banned account. */
@@ -299,6 +301,26 @@ export async function updateNotifyMemberJoin(origin: string, value: boolean): Pr
       credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ notifyMemberJoin: value }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Write the "email me when a workspace I administer nears its usage limit"
+ * preference via Better Auth's update-user endpoint (an `input: true`
+ * additionalField). Same-origin through the /api/auth proxy; returns false on
+ * any failure so the toggle can revert.
+ */
+export async function updateNotifyUsageLimits(origin: string, value: boolean): Promise<boolean> {
+  try {
+    const res = await fetch(`${authOrigin(origin)}/api/auth/update-user`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ notifyUsageLimits: value }),
     });
     return res.ok;
   } catch {

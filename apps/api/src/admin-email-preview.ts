@@ -8,6 +8,7 @@ import {
   renderMemberJoinAdminNoticeEmail,
   renderMemberJoinedEmail,
   renderOrgInvitationEmail,
+  renderUsageAlertEmail,
   renderWelcomeEmail,
 } from "@uploads/email";
 import { ServiceUnavailableError, ValidationError } from "@uploads/errors";
@@ -17,6 +18,7 @@ export const EMAIL_PREVIEW_TYPES = [
   { id: "org-invitation", label: "Workspace invitation", category: "Auth" },
   { id: "member-joined", label: "Member joined notify", category: "Auth" },
   { id: "member-join-admin-notice", label: "Admin: member joined notify", category: "Auth" },
+  { id: "usage-limit-alert", label: "Admin: usage limit alert", category: "Auth" },
   { id: "welcome", label: "Welcome / next steps", category: "Auth" },
   { id: "enrollment-invitation", label: "Enrollment invitation", category: "Invites" },
 ] as const;
@@ -84,6 +86,19 @@ function renderPreview(type: EmailPreviewType, origin: string) {
           organizationName: "preview-workspace",
           organizationSlug: "preview-workspace",
           memberEmail: "new-member@example.com",
+          webOrigin: origin,
+        }),
+      };
+    case "usage-limit-alert":
+      return {
+        from: AUTH_FROM,
+        ...renderUsageAlertEmail({
+          organizationName: "preview-workspace",
+          organizationSlug: "preview-workspace",
+          events: [
+            { cap: "storage", threshold: 90, used: 225_000_000, limit: 250_000_000 },
+            { cap: "uploads", threshold: 50, used: 1500, limit: 3000 },
+          ],
           webOrigin: origin,
         }),
       };

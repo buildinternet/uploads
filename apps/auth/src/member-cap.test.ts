@@ -72,6 +72,7 @@ describe("memberCapDenial", () => {
       cliOnboardedAt: null,
       stripeCustomerId: null,
       notifyMemberJoin: true,
+      notifyUsageLimits: true,
     });
     return userId;
   }
@@ -297,6 +298,7 @@ describe("POST /internal/invite at cap", () => {
       cliOnboardedAt: null,
       stripeCustomerId: null,
       notifyMemberJoin: true,
+      notifyUsageLimits: true,
     });
     await orm.insert(schema.member).values({
       id: crypto.randomUUID(),

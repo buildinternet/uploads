@@ -11,7 +11,28 @@ import { OAUTH_SCOPES, type AuthEnv } from "./auth";
 import { sendAuthEmail } from "./email";
 import { memberCapDenial, resolveMemberCapStrict } from "./member-cap";
 import { notifyAdminsOfMemberJoin } from "./notify-member-join";
+import { notifyAdminsOfUsageAlert } from "./notify-usage-alert";
 import * as schema from "./schema";
+import type { UsageAlertCap, UsageAlertEvent, UsageAlertThreshold } from "@uploads/email";
+
+const USAGE_ALERT_CAPS = new Set<UsageAlertCap>(["storage", "uploads"]);
+const USAGE_ALERT_THRESHOLDS = new Set<UsageAlertThreshold>([50, 90, 100]);
+
+/** Validate one usage-alert event from an (internal, trusted) request body. */
+function parseUsageAlertEvent(raw: unknown): UsageAlertEvent | null {
+  if (!raw || typeof raw !== "object") return null;
+  const { cap, threshold, used, limit } = raw as Record<string, unknown>;
+  if (typeof cap !== "string" || !USAGE_ALERT_CAPS.has(cap as UsageAlertCap)) return null;
+  if (
+    typeof threshold !== "number" ||
+    !USAGE_ALERT_THRESHOLDS.has(threshold as UsageAlertThreshold)
+  ) {
+    return null;
+  }
+  if (typeof used !== "number" || !Number.isFinite(used)) return null;
+  if (typeof limit !== "number" || !Number.isFinite(limit) || limit <= 0) return null;
+  return { cap: cap as UsageAlertCap, threshold: threshold as UsageAlertThreshold, used, limit };
+}
 
 function errorJson(code: string, message: string) {
   return { error: { code, message } } as const;
@@ -1031,6 +1052,43 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
           `This workspace includes ${capResolution.cap} members — cap reached.`)
         : "This workspace has reached its member limit.";
     return c.json(errorJson("member_cap_reached", message), 403);
+  })
+  // Usage-limit alerts: the API worker's daily sweep detects a workspace
+  // crossing a 50/90/100% storage or uploads band and calls this to fan the
+  // email out to admins/owners whose `notifyUsageLimits` pref is on. The pref
+  // and the member roster live only here, so filtering + send happen here.
+  .post("/usage-alerts/notify", async (c) => {
+    const body = await c.req
+      .json<{ slug?: unknown; events?: unknown }>()
+      .catch(() => ({}) as { slug?: unknown; events?: unknown });
+    const slug = typeof body.slug === "string" ? body.slug.trim() : "";
+    if (!slug) {
+      return c.json(errorJson("invalid_request", "slug is required"), 400);
+    }
+    const events = Array.isArray(body.events)
+      ? body.events.map(parseUsageAlertEvent).filter((e): e is UsageAlertEvent => e !== null)
+      : [];
+    if (events.length === 0) {
+      return c.json(errorJson("invalid_request", "at least one valid event is required"), 400);
+    }
+
+    const db = drizzle(c.env.DB, { schema });
+    const [org] = await db
+      .select()
+      .from(schema.organization)
+      .where(eq(schema.organization.slug, slug))
+      .limit(1);
+    if (!org) {
+      return c.json(errorJson("organization_not_found", "no organization with that slug"), 404);
+    }
+
+    await notifyAdminsOfUsageAlert(c.env, db, {
+      organizationId: org.id,
+      organizationName: org.name,
+      organizationSlug: org.slug,
+      events,
+    });
+    return c.json({ ok: true }, 200);
   })
   // Self-serve provisioning (spec 2026-07-14): create an org WITH the caller
   // as owner member, non-idempotent — a taken slug is a 409 the API surfaces

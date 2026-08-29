@@ -1,11 +1,17 @@
 import { drizzle } from "drizzle-orm/d1";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { UsageAlertEvent } from "@uploads/email";
 import type { EmailBinding } from "./email";
-import { notifyAdminsOfMemberJoin } from "./notify-member-join";
+import { notifyAdminsOfUsageAlert } from "./notify-usage-alert";
 import * as schema from "./schema";
 import { createFakeD1, type FakeD1Database } from "./test/fake-d1";
 
-describe("notifyAdminsOfMemberJoin", () => {
+const orgId = "org-1";
+const EVENTS: UsageAlertEvent[] = [
+  { cap: "storage", threshold: 90, used: 225_000_000, limit: 250_000_000 },
+];
+
+describe("notifyAdminsOfUsageAlert", () => {
   let db: FakeD1Database;
   let orm: ReturnType<typeof drizzle<typeof schema>>;
 
@@ -45,10 +51,10 @@ describe("notifyAdminsOfMemberJoin", () => {
     return u;
   }
 
-  async function seedMember(organizationId: string, userId: string, role: string): Promise<void> {
+  async function seedMember(userId: string, role: string): Promise<void> {
     await orm.insert(schema.member).values({
       id: crypto.randomUUID(),
-      organizationId,
+      organizationId: orgId,
       userId,
       role,
       createdAt: new Date(),
@@ -60,64 +66,54 @@ describe("notifyAdminsOfMemberJoin", () => {
     return { EMAIL: { send }, send };
   }
 
-  const orgId = "org-1";
   const baseEnv = { WEB_ORIGIN: "https://uploads.sh", ENVIRONMENT: "production" as const };
 
-  it("emails admins and owners, not plain members or the joiner", async () => {
+  it("emails admins and owners, not plain members", async () => {
     const admin = await seedUser();
     const owner = await seedUser();
     const plain = await seedUser();
-    const joiner = await seedUser();
-    await seedMember(orgId, admin.id, "admin");
-    await seedMember(orgId, owner.id, "owner");
-    await seedMember(orgId, plain.id, "member");
-    await seedMember(orgId, joiner.id, "owner"); // joiner even as owner is excluded
+    await seedMember(admin.id, "admin");
+    await seedMember(owner.id, "owner");
+    await seedMember(plain.id, "member");
     const { EMAIL, send } = emailCapture();
 
-    await notifyAdminsOfMemberJoin({ ...baseEnv, EMAIL }, orm, {
+    await notifyAdminsOfUsageAlert({ ...baseEnv, EMAIL }, orm, {
       organizationId: orgId,
       organizationName: "Acme",
       organizationSlug: "acme",
-      joinerUserId: joiner.id,
-      joinerEmail: joiner.email,
+      events: EVENTS,
     });
 
     const recipients = send.mock.calls.map((c) => c[0].to).sort();
     expect(recipients).toEqual([admin.email, owner.email].sort());
+    // The usage template rode through, not some other email.
+    expect(send.mock.calls[0]?.[0].subject).toContain("90%");
   });
 
   it("skips recipients who turned the preference off", async () => {
-    const admin = await seedUser({ notifyMemberJoin: false });
-    const joiner = await seedUser();
-    await seedMember(orgId, admin.id, "admin");
+    const admin = await seedUser({ notifyUsageLimits: false });
+    await seedMember(admin.id, "admin");
     const { EMAIL, send } = emailCapture();
-    await notifyAdminsOfMemberJoin({ ...baseEnv, EMAIL }, orm, {
+    await notifyAdminsOfUsageAlert({ ...baseEnv, EMAIL }, orm, {
       organizationId: orgId,
       organizationName: "Acme",
       organizationSlug: "acme",
-      joinerUserId: joiner.id,
-      joinerEmail: joiner.email,
+      events: EVENTS,
     });
     expect(send).not.toHaveBeenCalled();
   });
 
-  it("excludes extra excludeUserIds (the inviter)", async () => {
-    const inviter = await seedUser();
-    const otherAdmin = await seedUser();
-    const joiner = await seedUser();
-    await seedMember(orgId, inviter.id, "admin");
-    await seedMember(orgId, otherAdmin.id, "admin");
+  it("does nothing when there are no events", async () => {
+    const admin = await seedUser();
+    await seedMember(admin.id, "admin");
     const { EMAIL, send } = emailCapture();
-    await notifyAdminsOfMemberJoin({ ...baseEnv, EMAIL }, orm, {
+    await notifyAdminsOfUsageAlert({ ...baseEnv, EMAIL }, orm, {
       organizationId: orgId,
       organizationName: "Acme",
       organizationSlug: "acme",
-      joinerUserId: joiner.id,
-      joinerEmail: joiner.email,
-      excludeUserIds: [inviter.id],
+      events: [],
     });
-    const recipients = send.mock.calls.map((c) => c[0].to);
-    expect(recipients).toEqual([otherAdmin.email]);
+    expect(send).not.toHaveBeenCalled();
   });
 
   it("never throws when the DB read fails", async () => {
@@ -131,12 +127,11 @@ describe("notifyAdminsOfMemberJoin", () => {
     ) as never;
     const { EMAIL, send } = emailCapture();
     await expect(
-      notifyAdminsOfMemberJoin({ ...baseEnv, EMAIL }, poison, {
+      notifyAdminsOfUsageAlert({ ...baseEnv, EMAIL }, poison, {
         organizationId: orgId,
         organizationName: "Acme",
         organizationSlug: "acme",
-        joinerUserId: "j",
-        joinerEmail: "j@example.com",
+        events: EVENTS,
       }),
     ).resolves.toBeUndefined();
     expect(send).not.toHaveBeenCalled();

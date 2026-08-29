@@ -839,6 +839,12 @@ function buildAuth(
           input: true,
           defaultValue: true,
         },
+        notifyUsageLimits: {
+          type: "boolean",
+          required: false,
+          input: true,
+          defaultValue: true,
+        },
       },
     },
     session: {

@@ -22,6 +22,7 @@ import {
   submitOAuthConsent,
   unbanUser,
   updateNotifyMemberJoin,
+  updateNotifyUsageLimits,
   upgradeOrganizationSubscription,
 } from "./auth-client";
 import { BROWSER_REQUEST_TIMEOUT_MS, fetchWithTimeout } from "./request";
@@ -937,6 +938,28 @@ describe("updateNotifyMemberJoin", () => {
       .spyOn(globalThis, "fetch")
       .mockResolvedValue(new Response("nope", { status: 500 }));
     expect(await updateNotifyMemberJoin("", true)).toBe(false);
+    fetchMock.mockRestore();
+  });
+});
+
+describe("updateNotifyUsageLimits", () => {
+  it("POSTs update-user with the boolean and returns true on ok", async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response("{}", { status: 200 }));
+    const ok = await updateNotifyUsageLimits("", false);
+    expect(ok).toBe(true);
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(String(url)).toContain("/api/auth/update-user");
+    expect(JSON.parse(String(init?.body))).toEqual({ notifyUsageLimits: false });
+    fetchMock.mockRestore();
+  });
+
+  it("returns false on a non-ok response", async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response("nope", { status: 500 }));
+    expect(await updateNotifyUsageLimits("", true)).toBe(false);
     fetchMock.mockRestore();
   });
 });
