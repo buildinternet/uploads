@@ -131,6 +131,7 @@ describe("DB-backed behavior", () => {
       banExpires: overrides.banExpires ?? null,
       cliOnboardedAt: overrides.cliOnboardedAt ?? null,
       stripeCustomerId: overrides.stripeCustomerId ?? null,
+      notifyMemberJoin: overrides.notifyMemberJoin ?? true,
     };
     await orm.insert(schema.user).values(user);
     return user;
@@ -151,6 +152,12 @@ describe("DB-backed behavior", () => {
     await orm.insert(schema.organization).values(org);
     return org;
   }
+
+  it("defaults notify_member_join to on for a seeded user", async () => {
+    const user = await seedUser();
+    const [row] = await orm.select().from(schema.user).where(eq(schema.user.id, user.id));
+    expect(row.notifyMemberJoin).toBe(true);
+  });
 
   describe("POST /internal/promote-admin", () => {
     it("promotes an existing user to admin", async () => {

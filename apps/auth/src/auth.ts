@@ -820,6 +820,12 @@ function buildAuth(
     user: {
       additionalFields: {
         cliOnboardedAt: { type: "date", required: false, input: false },
+        notifyMemberJoin: {
+          type: "boolean",
+          required: false,
+          input: true,
+          defaultValue: true,
+        },
       },
     },
     session: {
