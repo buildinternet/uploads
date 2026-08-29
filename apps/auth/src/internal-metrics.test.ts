@@ -43,6 +43,7 @@ describe("GET /internal/metrics", () => {
       banExpires: null,
       cliOnboardedAt: null,
       stripeCustomerId: null,
+      notifyMemberJoin: true,
     } as schema.AuthUser);
   }
 

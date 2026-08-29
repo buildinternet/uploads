@@ -1,4 +1,4 @@
-import { escapeHtml, renderEmailCard, strong, type RenderedEmail } from "./card";
+import { escapeHtml, renderEmailCard, resolveWebOrigin, strong, type RenderedEmail } from "./card";
 
 const CTA = "Accept invitation →";
 const IGNORE = "If you weren't expecting this, you can ignore this email.";
@@ -99,6 +99,38 @@ export function renderMemberJoinedEmail(ctx: {
     bodyHtml: `${strong(ctx.memberEmail)} accepted your invitation and joined ${strong(ctx.organizationName)} on uploads.sh.`,
     text: [lead, "", "—", "uploads.sh · a Build Internet project"].join("\n"),
     footNoteHtml: "You received this because you invited them to this workspace.",
+    webOrigin: ctx.webOrigin,
+  });
+}
+
+/** Notify a workspace's admins/owners when a new member joins (either path). */
+export function renderMemberJoinAdminNoticeEmail(ctx: {
+  organizationName: string;
+  organizationSlug: string;
+  memberEmail: string;
+  webOrigin?: string;
+}): RenderedEmail {
+  const origin = resolveWebOrigin(ctx.webOrigin);
+  const manageUrl = `${origin}/account/workspaces/${ctx.organizationSlug}/settings`;
+  const settingsUrl = `${origin}/account/profile`;
+  const lead = `${ctx.memberEmail} joined ${ctx.organizationName} on uploads.sh.`;
+  return renderEmailCard({
+    subject: `${ctx.memberEmail} joined ${ctx.organizationName} on uploads.sh`,
+    preheader: lead,
+    eyebrow: "Membership",
+    title: "New member joined",
+    bodyHtml: `${strong(ctx.memberEmail)} joined ${strong(ctx.organizationName)} on uploads.sh.`,
+    text: [
+      lead,
+      "",
+      `Manage members: ${manageUrl}`,
+      "",
+      "—",
+      "uploads.sh · a Build Internet project",
+      `Turn this notification off in your account settings: ${settingsUrl}`,
+    ].join("\n"),
+    cta: { url: manageUrl, label: "Manage members →" },
+    footNoteHtml: `You administer this workspace. <a href="${escapeHtml(settingsUrl)}" style="color:#b9b0cf;">Manage notifications</a> to turn this off.`,
     webOrigin: ctx.webOrigin,
   });
 }

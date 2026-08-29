@@ -5,6 +5,7 @@
 import {
   renderEnrollmentInvitationEmail,
   renderMagicLinkEmail,
+  renderMemberJoinAdminNoticeEmail,
   renderMemberJoinedEmail,
   renderOrgInvitationEmail,
   renderWelcomeEmail,
@@ -15,6 +16,7 @@ export const EMAIL_PREVIEW_TYPES = [
   { id: "magic-link", label: "Magic sign-in link", category: "Auth" },
   { id: "org-invitation", label: "Workspace invitation", category: "Auth" },
   { id: "member-joined", label: "Member joined notify", category: "Auth" },
+  { id: "member-join-admin-notice", label: "Admin: member joined notify", category: "Auth" },
   { id: "welcome", label: "Welcome / next steps", category: "Auth" },
   { id: "enrollment-invitation", label: "Enrollment invitation", category: "Invites" },
 ] as const;
@@ -71,6 +73,16 @@ function renderPreview(type: EmailPreviewType, origin: string) {
         from: AUTH_FROM,
         ...renderMemberJoinedEmail({
           organizationName: "preview-workspace",
+          memberEmail: "new-member@example.com",
+          webOrigin: origin,
+        }),
+      };
+    case "member-join-admin-notice":
+      return {
+        from: AUTH_FROM,
+        ...renderMemberJoinAdminNoticeEmail({
+          organizationName: "preview-workspace",
+          organizationSlug: "preview-workspace",
           memberEmail: "new-member@example.com",
           webOrigin: origin,
         }),

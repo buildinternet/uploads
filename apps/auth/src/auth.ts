@@ -34,6 +34,7 @@ import {
 import { sendAuthEmail } from "./email";
 import { localDemoEnabled, localDemoPlugin } from "./local-demo";
 import { memberCapDenial } from "./member-cap";
+import { notifyAdminsOfMemberJoin } from "./notify-member-join";
 import { createDurableRateLimitStorage, type RateLimitNamespaceLike } from "./rate-limit";
 import * as schema from "./schema";
 import { stripePluginOrNone } from "./stripe-plugin";
@@ -647,6 +648,18 @@ function buildAuth(
               }
             }
 
+            // Notify the workspace's other admins/owners. The inviter already
+            // got the tailored `member-joined` email above, so exclude them to
+            // avoid a double-send; the joiner is always excluded by the helper.
+            await notifyAdminsOfMemberJoin(env, db, {
+              organizationId: org.id,
+              organizationName: org.name,
+              organizationSlug: org.slug,
+              joinerUserId: user.id,
+              joinerEmail: user.email,
+              excludeUserIds: invitation.inviterId ? [invitation.inviterId] : [],
+            });
+
             // Welcome only on the invitee's first membership.
             if (!user.email) return;
             const memberships = await db
@@ -820,6 +833,12 @@ function buildAuth(
     user: {
       additionalFields: {
         cliOnboardedAt: { type: "date", required: false, input: false },
+        notifyMemberJoin: {
+          type: "boolean",
+          required: false,
+          input: true,
+          defaultValue: true,
+        },
       },
     },
     session: {

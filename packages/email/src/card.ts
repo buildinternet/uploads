@@ -91,8 +91,13 @@ export function strong(value: string): string {
   return `<strong style="color:${FG};font-weight:600;">${escapeHtml(value)}</strong>`;
 }
 
+/** Normalize a caller-supplied web origin: default when absent, no trailing slash. */
+export function resolveWebOrigin(webOrigin?: string): string {
+  return (webOrigin || DEFAULT_WEB_ORIGIN).replace(/\/$/, "");
+}
+
 function webOriginOf(input: EmailCardInput): string {
-  if (input.webOrigin) return input.webOrigin.replace(/\/$/, "");
+  if (input.webOrigin) return resolveWebOrigin(input.webOrigin);
   if (input.cta?.url) {
     try {
       return new URL(input.cta.url).origin;

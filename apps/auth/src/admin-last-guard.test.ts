@@ -56,6 +56,7 @@ async function seedUser(
     banExpires: overrides.banExpires ?? null,
     cliOnboardedAt: overrides.cliOnboardedAt ?? null,
     stripeCustomerId: overrides.stripeCustomerId ?? null,
+    notifyMemberJoin: overrides.notifyMemberJoin ?? true,
   };
   await orm.insert(schema.user).values(user);
   return user;

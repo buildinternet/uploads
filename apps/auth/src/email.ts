@@ -6,6 +6,7 @@
 
 import {
   renderMagicLinkEmail,
+  renderMemberJoinAdminNoticeEmail,
   renderMemberJoinedEmail,
   renderOrgInvitationEmail,
   renderWelcomeEmail,
@@ -44,6 +45,11 @@ export type SendAuthEmailArgs =
     }
   | {
       to: string;
+      template: "member-join-admin-notice";
+      context: { organizationName: string; organizationSlug: string; memberEmail: string };
+    }
+  | {
+      to: string;
       template: "welcome";
       context: { workspaceName?: string };
     };
@@ -56,6 +62,8 @@ function render(args: SendAuthEmailArgs, webOrigin: string): RenderedEmail {
       return renderOrgInvitationEmail({ ...args.context, webOrigin });
     case "member-joined":
       return renderMemberJoinedEmail({ ...args.context, webOrigin });
+    case "member-join-admin-notice":
+      return renderMemberJoinAdminNoticeEmail({ ...args.context, webOrigin });
     case "welcome":
       return renderWelcomeEmail({ ...args.context, webOrigin });
   }
@@ -67,7 +75,20 @@ function render(args: SendAuthEmailArgs, webOrigin: string): RenderedEmail {
  */
 export async function sendAuthEmail(env: SendAuthEmailEnv, args: SendAuthEmailArgs): Promise<void> {
   const webOrigin = env.WEB_ORIGIN || "https://uploads.sh";
-  const { subject, text, html } = render(args, webOrigin);
+
+  // render() must not propagate — callers (e.g. notifyAdminsOfMemberJoin's
+  // send loop) rely on this being genuinely fire-and-forget.
+  let rendered: RenderedEmail;
+  try {
+    rendered = render(args, webOrigin);
+  } catch (err) {
+    console.error(
+      `[auth email] failed to prepare email "${args.template}" for ${args.to}`,
+      err instanceof Error ? err.message : String(err),
+    );
+    return;
+  }
+  const { subject, text, html } = rendered;
   const isDev = env.ENVIRONMENT !== "production";
   const magicLink = args.template === "magic-link" && isDev ? ` Link: ${args.context.url}` : "";
 

@@ -54,6 +54,12 @@ export const user = sqliteTable("user", {
    * better-auth-plugin.md). Paired migration:
    * `migrations/20260722190000_stripe_subscription.sql`. */
   stripeCustomerId: text("stripe_customer_id"),
+  /** Per-user pref: email me when someone joins a workspace I administer.
+   * Default on. Declared as a better-auth additionalField (src/auth.ts) so
+   * /api/auth/update-user writes it and the session returns it. */
+  notifyMemberJoin: integer("notify_member_join", { mode: "boolean" })
+    .notNull()
+    .$defaultFn(() => true),
 });
 
 /**

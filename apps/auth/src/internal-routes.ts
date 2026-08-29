@@ -10,6 +10,7 @@ import { Hono } from "hono";
 import { OAUTH_SCOPES, type AuthEnv } from "./auth";
 import { sendAuthEmail } from "./email";
 import { memberCapDenial, resolveMemberCapStrict } from "./member-cap";
+import { notifyAdminsOfMemberJoin } from "./notify-member-join";
 import * as schema from "./schema";
 
 function errorJson(code: string, message: string) {
@@ -1003,6 +1004,13 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
       .run();
 
     if ((insert.meta?.changes ?? 0) === 1) {
+      await notifyAdminsOfMemberJoin(c.env, db, {
+        organizationId: org.id,
+        organizationName: org.name,
+        organizationSlug: org.slug,
+        joinerUserId: userId,
+        joinerEmail: user.email,
+      });
       return c.json({ alreadyMember: false }, 201);
     }
 
