@@ -9,6 +9,7 @@ export {
 export { renderMagicLinkEmail } from "./auth";
 export {
   renderEnrollmentInvitationEmail,
+  renderMemberJoinAdminNoticeEmail,
   renderMemberJoinedEmail,
   renderOrgInvitationEmail,
 } from "./invites";

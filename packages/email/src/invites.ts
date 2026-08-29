@@ -102,3 +102,35 @@ export function renderMemberJoinedEmail(ctx: {
     webOrigin: ctx.webOrigin,
   });
 }
+
+/** Notify a workspace's admins/owners when a new member joins (either path). */
+export function renderMemberJoinAdminNoticeEmail(ctx: {
+  organizationName: string;
+  organizationSlug: string;
+  memberEmail: string;
+  webOrigin?: string;
+}): RenderedEmail {
+  const origin = (ctx.webOrigin ?? "https://uploads.sh").replace(/\/$/, "");
+  const manageUrl = `${origin}/account/workspaces/${ctx.organizationSlug}/settings`;
+  const settingsUrl = `${origin}/account/profile`;
+  const lead = `${ctx.memberEmail} joined ${ctx.organizationName} on uploads.sh.`;
+  return renderEmailCard({
+    subject: `${ctx.memberEmail} joined ${ctx.organizationName} on uploads.sh`,
+    preheader: lead,
+    eyebrow: "Membership",
+    title: "New member joined",
+    bodyHtml: `${strong(ctx.memberEmail)} joined ${strong(ctx.organizationName)} on uploads.sh.`,
+    text: [
+      lead,
+      "",
+      `Manage members: ${manageUrl}`,
+      "",
+      "—",
+      "uploads.sh · a Build Internet project",
+      `Turn this notification off in your account settings: ${settingsUrl}`,
+    ].join("\n"),
+    cta: { url: manageUrl, label: "Manage members →" },
+    footNoteHtml: `You administer this workspace. <a href="${settingsUrl}" style="color:#b9b0cf;">Manage notifications</a> to turn this off.`,
+    webOrigin: ctx.webOrigin,
+  });
+}
