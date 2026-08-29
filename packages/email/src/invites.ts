@@ -110,7 +110,7 @@ export function renderMemberJoinAdminNoticeEmail(ctx: {
   memberEmail: string;
   webOrigin?: string;
 }): RenderedEmail {
-  const origin = (ctx.webOrigin ?? "https://uploads.sh").replace(/\/$/, "");
+  const origin = (ctx.webOrigin || "https://uploads.sh").replace(/\/$/, "");
   const manageUrl = `${origin}/account/workspaces/${ctx.organizationSlug}/settings`;
   const settingsUrl = `${origin}/account/profile`;
   const lead = `${ctx.memberEmail} joined ${ctx.organizationName} on uploads.sh.`;
@@ -130,7 +130,7 @@ export function renderMemberJoinAdminNoticeEmail(ctx: {
       `Turn this notification off in your account settings: ${settingsUrl}`,
     ].join("\n"),
     cta: { url: manageUrl, label: "Manage members →" },
-    footNoteHtml: `You administer this workspace. <a href="${settingsUrl}" style="color:#b9b0cf;">Manage notifications</a> to turn this off.`,
+    footNoteHtml: `You administer this workspace. <a href="${escapeHtml(settingsUrl)}" style="color:#b9b0cf;">Manage notifications</a> to turn this off.`,
     webOrigin: ctx.webOrigin,
   });
 }
