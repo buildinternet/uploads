@@ -99,6 +99,7 @@ function renderPreview(type: EmailPreviewType, origin: string) {
             { cap: "storage", threshold: 90, used: 225_000_000, limit: 250_000_000 },
             { cap: "uploads", threshold: 50, used: 1500, limit: 3000 },
           ],
+          plan: "free",
           webOrigin: origin,
         }),
       };

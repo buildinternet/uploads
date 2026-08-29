@@ -1059,8 +1059,8 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
   // and the member roster live only here, so filtering + send happen here.
   .post("/usage-alerts/notify", async (c) => {
     const body = await c.req
-      .json<{ slug?: unknown; events?: unknown }>()
-      .catch(() => ({}) as { slug?: unknown; events?: unknown });
+      .json<{ slug?: unknown; events?: unknown; plan?: unknown }>()
+      .catch(() => ({}) as { slug?: unknown; events?: unknown; plan?: unknown });
     const slug = typeof body.slug === "string" ? body.slug.trim() : "";
     if (!slug) {
       return c.json(errorJson("invalid_request", "slug is required"), 400);
@@ -1071,6 +1071,7 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
     if (events.length === 0) {
       return c.json(errorJson("invalid_request", "at least one valid event is required"), 400);
     }
+    const plan = typeof body.plan === "string" ? body.plan : undefined;
 
     const db = drizzle(c.env.DB, { schema });
     const [org] = await db
@@ -1087,6 +1088,7 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
       organizationName: org.name,
       organizationSlug: org.slug,
       events,
+      plan,
     });
     return c.json({ ok: true }, 200);
   })

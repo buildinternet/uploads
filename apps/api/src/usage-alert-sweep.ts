@@ -79,11 +79,16 @@ async function evaluateCap(
 }
 
 /** POST a workspace's crossings to the auth worker, which filters + sends. */
-async function postUsageAlert(env: Env, slug: string, events: UsageAlertEvent[]): Promise<void> {
+async function postUsageAlert(
+  env: Env,
+  slug: string,
+  events: UsageAlertEvent[],
+  plan: string | undefined,
+): Promise<void> {
   const res = await env.AUTH.fetch(`${INTERNAL_ORIGIN}/internal/usage-alerts/notify`, {
     method: "POST",
     headers: { "x-uploads-internal": "1", "content-type": "application/json" },
-    body: JSON.stringify({ slug, events }),
+    body: JSON.stringify({ slug, events, plan }),
   });
   if (!res.ok) {
     console.warn(
@@ -157,7 +162,7 @@ export async function runUsageAlertSweep(env: Env): Promise<UsageAlertSweepResul
         }
 
         if (crossed.length > 0) {
-          await postUsageAlert(env, name, crossed);
+          await postUsageAlert(env, name, crossed, record.plan);
           result.workspacesAlerted += 1;
           result.crossings += crossed.length;
         }

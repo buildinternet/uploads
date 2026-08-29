@@ -57,6 +57,7 @@ export type SendAuthEmailArgs =
         organizationName: string;
         organizationSlug: string;
         events: UsageAlertEvent[];
+        plan?: string;
       };
     }
   | {

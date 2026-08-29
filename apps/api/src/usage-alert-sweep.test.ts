@@ -57,7 +57,7 @@ function fakeRegistry(records: Record<string, unknown>, markers = new Map<string
 }
 
 function fakeAuth() {
-  const posts: Array<{ slug: string; events: UsageAlertEvent[] }> = [];
+  const posts: Array<{ slug: string; events: UsageAlertEvent[]; plan?: string }> = [];
   return {
     posts,
     fetch: vi.fn(async (_url: string, init: RequestInit) => {
@@ -116,6 +116,15 @@ describe("runUsageAlertSweep", () => {
     const env2 = makeEnv(setup).env; // reuse the same markers map
     const r2 = await runUsageAlertSweep(env2);
     expect(r2.crossings).toBe(0);
+  });
+
+  it("forwards the workspace plan so the email copy can stay plan-accurate", async () => {
+    const { env, AUTH } = makeEnv({
+      records: { "ws:acme": wsRecord({ plan: "pro", maxStorageBytes: 10_000_000_000 }) },
+      usage: { acme: { bytes: 9_500_000_000 } }, // 95%
+    });
+    await runUsageAlertSweep(env);
+    expect(AUTH.posts[0].plan).toBe("pro");
   });
 
   it("fires at 100% when uploads hit the cap", async () => {

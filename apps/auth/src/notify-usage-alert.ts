@@ -10,6 +10,8 @@ export interface NotifyAdminsOfUsageAlertOpts {
   organizationSlug: string;
   /** Caps that crossed a new band this sweep (storage and/or uploads). */
   events: UsageAlertEvent[];
+  /** The workspace's billing plan, so remedy copy stays honest for `pro`. */
+  plan?: string;
 }
 
 /**
@@ -51,6 +53,7 @@ export async function notifyAdminsOfUsageAlert(
               organizationName: opts.organizationName,
               organizationSlug: opts.organizationSlug,
               events: opts.events,
+              plan: opts.plan,
             },
           }),
         ),

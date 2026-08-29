@@ -68,6 +68,57 @@ function eventLineText(event: UsageAlertEvent): string {
   return `${capLabel(event.cap)} — ${state} (${usageOf(event)})`;
 }
 
+/** "a", "a or b", "a, b or c". */
+function joinOr(parts: string[]): string {
+  if (parts.length <= 1) return parts[0] ?? "";
+  return `${parts.slice(0, -1).join(", ")} or ${parts[parts.length - 1]}`;
+}
+
+/**
+ * The actionable next step. Which remedies apply depends on the caps that
+ * crossed and the plan:
+ * - Upgrading to a paid plan raises both caps — but only offer it when the
+ *   workspace isn't already on the top paid plan (`pro`).
+ * - Connecting your own storage bucket lifts the *storage* cap only; it does
+ *   not change the monthly upload-count allowance, so only offer it for storage.
+ * When neither applies (a `pro` workspace that hit only its upload cap), the
+ * honest next step is that the count resets next month.
+ */
+function remedy(opts: {
+  hasStorage: boolean;
+  hasUploads: boolean;
+  plan?: string;
+  manageUrl: string;
+}): { html: string; text: string } {
+  const subject =
+    opts.hasStorage && opts.hasUploads
+      ? "these limits"
+      : opts.hasStorage
+        ? "your storage limit"
+        : "your monthly upload limit";
+  const link = (label: string) =>
+    `<a href="${escapeHtml(opts.manageUrl)}" style="color:#b9b0cf;">${label}</a>`;
+
+  const htmlParts: string[] = [];
+  const textParts: string[] = [];
+  if (opts.plan !== "pro") {
+    htmlParts.push(link("upgrade to a paid plan"));
+    textParts.push("upgrade to a paid plan");
+  }
+  if (opts.hasStorage) {
+    htmlParts.push(link("connect your own storage bucket"));
+    textParts.push("connect your own storage bucket");
+  }
+  if (htmlParts.length === 0) {
+    const fallback = "Your monthly upload count resets at the start of next month.";
+    return { html: fallback, text: fallback };
+  }
+  return {
+    html: `To raise ${subject}, ${joinOr(htmlParts)}.`,
+    text: `To raise ${subject}, ${joinOr(textParts)}.`,
+  };
+}
+
 /**
  * Notify a workspace's admins/owners when its storage and/or upload usage
  * crosses a 50 / 90 / 100% band. Sent from the daily usage sweep. One email
@@ -77,6 +128,9 @@ export function renderUsageAlertEmail(ctx: {
   organizationName: string;
   organizationSlug: string;
   events: UsageAlertEvent[];
+  /** The workspace's billing plan, so the remedy copy stays honest (a `pro`
+   * workspace can't "upgrade" further). Absent = treat as upgradeable. */
+  plan?: string;
   webOrigin?: string;
 }): RenderedEmail {
   const origin = resolveWebOrigin(ctx.webOrigin);
@@ -101,8 +155,15 @@ export function renderUsageAlertEmail(ctx: {
     ? `${ctx.organizationName} has reached a usage limit on uploads.sh.`
     : `${ctx.organizationName} is approaching a usage limit on uploads.sh.`;
 
+  const fix = remedy({
+    hasStorage: events.some((e) => e.cap === "storage"),
+    hasUploads: events.some((e) => e.cap === "uploads"),
+    plan: ctx.plan,
+    manageUrl,
+  });
+
   const linesHtml = events.map((e) => `<br>${eventLineHtml(e)}`).join("");
-  const bodyHtml = `${escapeHtml(lead)}${linesHtml}`;
+  const bodyHtml = `${escapeHtml(lead)}${linesHtml}<br><br>${fix.html}`;
 
   return renderEmailCard({
     subject,
@@ -114,6 +175,8 @@ export function renderUsageAlertEmail(ctx: {
       lead,
       "",
       ...events.map(eventLineText),
+      "",
+      fix.text,
       "",
       `Manage this workspace: ${manageUrl}`,
       "",
