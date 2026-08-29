@@ -6,6 +6,7 @@
 
 import {
   renderMagicLinkEmail,
+  renderMemberJoinAdminNoticeEmail,
   renderMemberJoinedEmail,
   renderOrgInvitationEmail,
   renderWelcomeEmail,
@@ -44,6 +45,11 @@ export type SendAuthEmailArgs =
     }
   | {
       to: string;
+      template: "member-join-admin-notice";
+      context: { organizationName: string; organizationSlug: string; memberEmail: string };
+    }
+  | {
+      to: string;
       template: "welcome";
       context: { workspaceName?: string };
     };
@@ -56,6 +62,8 @@ function render(args: SendAuthEmailArgs, webOrigin: string): RenderedEmail {
       return renderOrgInvitationEmail({ ...args.context, webOrigin });
     case "member-joined":
       return renderMemberJoinedEmail({ ...args.context, webOrigin });
+    case "member-join-admin-notice":
+      return renderMemberJoinAdminNoticeEmail({ ...args.context, webOrigin });
     case "welcome":
       return renderWelcomeEmail({ ...args.context, webOrigin });
   }
