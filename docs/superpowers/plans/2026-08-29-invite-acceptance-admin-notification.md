@@ -674,7 +674,7 @@ In `apps/auth/src/auth.ts`, add near the other local imports: `import { notifyAd
 
 - [ ] **Step 2: Call the helper in `afterAcceptInvitation`**
 
-In `apps/auth/src/auth.ts`, at the end of the `afterAcceptInvitation` hook body (after the welcome-email block, before the closing `}` at line ~663), add:
+In `apps/auth/src/auth.ts`, place this call so it runs UNCONDITIONALLY on every acceptance — immediately after the inviter `member-joined` block and BEFORE the `if (!user.email) return;` guard. Do NOT put it at the end of the hook: the welcome-email block is preceded by two early returns (`if (!user.email) return;` and the first-membership gate `if (memberships.length !== 1) return;`), so a call placed there would only fire on the joiner's first-ever membership and would skip admins when an existing user joins a second workspace. Add:
 
 ```ts
 // Notify the workspace's other admins/owners. The inviter already

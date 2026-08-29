@@ -132,8 +132,11 @@ returning, call `notifyAdminsOfMemberJoin` with `joinerUserId = userId`,
 are already in scope. This path emails nobody today.
 
 **Email invites** — `apps/auth/src/auth.ts` `afterAcceptInvitation`
-(line 634). After the existing inviter `member-joined` email (641-647) and
-the welcome email, call `notifyAdminsOfMemberJoin` with
+(line 634). Call `notifyAdminsOfMemberJoin` immediately after the existing
+inviter `member-joined` email block and BEFORE the hook's early returns
+(`if (!user.email) return;` and the first-membership gate `if
+(memberships.length !== 1) return;`) so it fires on every acceptance, not
+only the joiner's first membership. Pass
 `joinerUserId = user.id`, `joinerEmail = user.email`, and
 `excludeUserIds = invitation.inviterId ? [invitation.inviterId] : []`. The
 existing inviter email stays untouched — it's a different, inviter-specific
