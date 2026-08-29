@@ -41,6 +41,19 @@ const sessionsEmpty = sessionsReady && (initial.sessions?.length ?? 0) === 0;
     </div>
 
     <div class="settings-section">
+      <h2>Email notifications</h2>
+      <label class="notify-row">
+        <input
+          type="checkbox"
+          id="notify-member-join"
+          checked={initial.user?.notifyMemberJoin ?? true}
+        />
+        <span>Email me when someone joins a workspace I administer.</span>
+      </label>
+      <p id="notify-status" class="muted settings-note" role="status" aria-live="polite"></p>
+    </div>
+
+    <div class="settings-section">
       <h2>Sign-in methods</h2>
       <div id="accounts-status" class="muted detail-status" hidden></div>
       <ul
@@ -135,6 +148,15 @@ const sessionsEmpty = sessionsReady && (initial.sessions?.length ?? 0) === 0;
       gap: 8px;
       margin: 0;
     }
+    .notify-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: var(--text-meta);
+    }
+    .notify-row input {
+      margin: 0;
+    }
   </style>
 
   <script>
@@ -147,6 +169,7 @@ const sessionsEmpty = sessionsReady && (initial.sessions?.length ?? 0) === 0;
       listAccounts,
       listSessions,
       revokeSession,
+      updateNotifyMemberJoin,
       type AuthSession,
     } from "../../lib/auth-client";
     import {
@@ -389,11 +412,32 @@ const sessionsEmpty = sessionsReady && (initial.sessions?.length ?? 0) === 0;
         history.replaceState(null, "", clean.pathname + clean.search + clean.hash);
       }
 
+      const notifyToggle = document.getElementById("notify-member-join") as HTMLInputElement | null;
+      const notifyStatus = document.getElementById("notify-status");
+      notifyToggle?.addEventListener("change", () => {
+        void (async () => {
+          const desired = notifyToggle.checked;
+          notifyToggle.disabled = true;
+          if (notifyStatus) notifyStatus.textContent = "Saving…";
+          const ok = await updateNotifyMemberJoin(authOrigin, desired);
+          if (!ok) {
+            notifyToggle.checked = !desired; // revert
+            if (notifyStatus) notifyStatus.textContent = "Couldn’t save — try again.";
+          } else if (notifyStatus) {
+            notifyStatus.textContent = desired ? "You’ll be notified." : "Notifications off.";
+          }
+          notifyToggle.disabled = false;
+        })();
+      });
+
       onSession((user) => {
         requireElement<HTMLElement>("#acct-email", "account profile").textContent = user.email;
         requireElement<HTMLElement>("#acct-name", "account profile").textContent = user.name || "—";
         requireElement<HTMLElement>("#acct-role", "account profile").textContent =
           user.role || "member";
+        if (notifyToggle && typeof user.notifyMemberJoin === "boolean") {
+          notifyToggle.checked = user.notifyMemberJoin;
+        }
         void loadAccounts();
         void loadSessions();
       });

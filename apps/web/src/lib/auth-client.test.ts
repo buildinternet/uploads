@@ -21,6 +21,7 @@ import {
   startLocalDemoSession,
   submitOAuthConsent,
   unbanUser,
+  updateNotifyMemberJoin,
   upgradeOrganizationSubscription,
 } from "./auth-client";
 import { BROWSER_REQUEST_TIMEOUT_MS, fetchWithTimeout } from "./request";
@@ -915,6 +916,28 @@ describe("upgradeOrganizationSubscription", () => {
         cancelUrl: "https://uploads.sh/x",
       }),
     ).resolves.toEqual({ ok: false, message: "Couldn't reach the auth service. Try again." });
+  });
+});
+
+describe("updateNotifyMemberJoin", () => {
+  it("POSTs update-user with the boolean and returns true on ok", async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response("{}", { status: 200 }));
+    const ok = await updateNotifyMemberJoin("", false);
+    expect(ok).toBe(true);
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(String(url)).toContain("/api/auth/update-user");
+    expect(JSON.parse(String(init?.body))).toEqual({ notifyMemberJoin: false });
+    fetchMock.mockRestore();
+  });
+
+  it("returns false on a non-ok response", async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response("nope", { status: 500 }));
+    expect(await updateNotifyMemberJoin("", true)).toBe(false);
+    fetchMock.mockRestore();
   });
 });
 

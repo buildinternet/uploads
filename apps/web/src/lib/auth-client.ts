@@ -54,6 +54,8 @@ export interface SessionUser {
   banned?: boolean | null;
   /** First CLI device-flow session (sticky); de-emphasizes account setup. */
   cliOnboardedAt?: string | Date | null;
+  /** Per-user pref: email me when someone joins a workspace I administer. */
+  notifyMemberJoin?: boolean | null;
 }
 
 /** Operator-facing copy when sign-in is refused for a banned account. */
@@ -282,6 +284,26 @@ export async function linkGitHub(origin: string, callbackURL: string): Promise<b
     callbackURL,
     errorCallbackURL: callbackURL,
   });
+}
+
+/**
+ * Write the "email me when someone joins a workspace I administer" preference
+ * via Better Auth's update-user endpoint (the field is an `input: true`
+ * additionalField). Same-origin through the /api/auth proxy; session cookie
+ * rides along. Returns false on any failure so the toggle can revert.
+ */
+export async function updateNotifyMemberJoin(origin: string, value: boolean): Promise<boolean> {
+  try {
+    const res = await fetch(`${authOrigin(origin)}/api/auth/update-user`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ notifyMemberJoin: value }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
 }
 
 /**
