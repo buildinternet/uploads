@@ -414,17 +414,20 @@ const sessionsEmpty = sessionsReady && (initial.sessions?.length ?? 0) === 0;
 
       const notifyToggle = document.getElementById("notify-member-join") as HTMLInputElement | null;
       const notifyStatus = document.getElementById("notify-status");
+      function setNotifyStatus(message: string): void {
+        if (notifyStatus) notifyStatus.textContent = message;
+      }
       notifyToggle?.addEventListener("change", () => {
         void (async () => {
           const desired = notifyToggle.checked;
           notifyToggle.disabled = true;
-          if (notifyStatus) notifyStatus.textContent = "Saving…";
+          setNotifyStatus("Saving…");
           const ok = await updateNotifyMemberJoin(authOrigin, desired);
           if (!ok) {
             notifyToggle.checked = !desired; // revert
-            if (notifyStatus) notifyStatus.textContent = "Couldn’t save — try again.";
-          } else if (notifyStatus) {
-            notifyStatus.textContent = desired ? "You’ll be notified." : "Notifications off.";
+            setNotifyStatus("Couldn’t save — try again.");
+          } else {
+            setNotifyStatus(desired ? "You’ll be notified." : "Notifications off.");
           }
           notifyToggle.disabled = false;
         })();

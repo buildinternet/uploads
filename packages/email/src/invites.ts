@@ -1,4 +1,4 @@
-import { escapeHtml, renderEmailCard, strong, type RenderedEmail } from "./card";
+import { escapeHtml, renderEmailCard, resolveWebOrigin, strong, type RenderedEmail } from "./card";
 
 const CTA = "Accept invitation →";
 const IGNORE = "If you weren't expecting this, you can ignore this email.";
@@ -110,7 +110,7 @@ export function renderMemberJoinAdminNoticeEmail(ctx: {
   memberEmail: string;
   webOrigin?: string;
 }): RenderedEmail {
-  const origin = (ctx.webOrigin || "https://uploads.sh").replace(/\/$/, "");
+  const origin = resolveWebOrigin(ctx.webOrigin);
   const manageUrl = `${origin}/account/workspaces/${ctx.organizationSlug}/settings`;
   const settingsUrl = `${origin}/account/profile`;
   const lead = `${ctx.memberEmail} joined ${ctx.organizationName} on uploads.sh.`;

@@ -1,4 +1,4 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, notInArray } from "drizzle-orm";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
 import { sendAuthEmail, type SendAuthEmailEnv } from "./email";
 import * as schema from "./schema";
@@ -25,10 +25,12 @@ export async function notifyAdminsOfMemberJoin(
   db: DrizzleD1Database<typeof schema>,
   opts: NotifyAdminsOfMemberJoinOpts,
 ): Promise<void> {
-  const excluded = new Set([opts.joinerUserId, ...(opts.excludeUserIds ?? [])]);
+  // Joiner (always) and the inviter (invite path) are excluded in SQL, so the
+  // query returns exactly the recipients to mail.
+  const excludedUserIds = [opts.joinerUserId, ...(opts.excludeUserIds ?? [])];
   try {
     const rows = await db
-      .select({ userId: schema.member.userId, email: schema.user.email })
+      .select({ email: schema.user.email })
       .from(schema.member)
       .innerJoin(schema.user, eq(schema.member.userId, schema.user.id))
       .where(
@@ -36,21 +38,28 @@ export async function notifyAdminsOfMemberJoin(
           eq(schema.member.organizationId, opts.organizationId),
           inArray(schema.member.role, ["admin", "owner"]),
           eq(schema.user.notifyMemberJoin, true),
+          notInArray(schema.member.userId, excludedUserIds),
         ),
       );
 
-    for (const row of rows) {
-      if (excluded.has(row.userId) || !row.email) continue;
-      await sendAuthEmail(env, {
-        to: row.email,
-        template: "member-join-admin-notice",
-        context: {
-          organizationName: opts.organizationName,
-          organizationSlug: opts.organizationSlug,
-          memberEmail: opts.joinerEmail,
-        },
-      });
-    }
+    // Independent sends — fire them concurrently rather than serializing the
+    // whole join response behind N sequential email round trips. sendAuthEmail
+    // never rejects, so plain Promise.all is safe.
+    await Promise.all(
+      rows
+        .filter((row) => row.email)
+        .map((row) =>
+          sendAuthEmail(env, {
+            to: row.email,
+            template: "member-join-admin-notice",
+            context: {
+              organizationName: opts.organizationName,
+              organizationSlug: opts.organizationSlug,
+              memberEmail: opts.joinerEmail,
+            },
+          }),
+        ),
+    );
   } catch (err) {
     console.error(
       "[notify-member-join] recipient lookup failed",
