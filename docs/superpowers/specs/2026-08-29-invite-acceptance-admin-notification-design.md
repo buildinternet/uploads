@@ -178,18 +178,20 @@ join (invite accept OR join-link redeem)
             └─ for each: sendAuthEmail("member-join-admin-notice")   [never throws]
 
 settings toggle
-  profile.astro form → POST /api/account/notification-prefs (web, session)
-    → POST /internal/user/notification-prefs (auth, session-guarded)
-      → UPDATE user SET notify_member_join = ? WHERE id = <session user>
+  profile.astro checkbox change → updateNotifyMemberJoin(origin, value)
+    → POST /api/auth/update-user (same-origin proxy, session cookie)
+      → better-auth writes user.notifyMemberJoin (input:true additionalField)
 ```
 
 ## Error handling
 
-- All mail is fire-and-forget via `sendAuthEmail` (logs, never throws).
+- All mail is fire-and-forget via `sendAuthEmail` (logs, never throws — the
+  whole body is wrapped so even a template-render error is caught).
 - `notifyAdminsOfMemberJoin` wraps its DB read in try/catch and log-only;
   a failure there must not affect the join response.
-- The prefs write route returns 401 when unauthenticated, 400 on a
-  malformed body, 200 on success.
+- The settings write goes through better-auth's `update-user` endpoint,
+  which requires the session cookie and only writes input-allowed fields on
+  the caller's own user row.
 
 ## Testing (plain vitest + in-process fakes)
 
