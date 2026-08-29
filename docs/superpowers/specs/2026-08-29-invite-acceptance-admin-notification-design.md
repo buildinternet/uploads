@@ -52,11 +52,21 @@ notifyMemberJoin: integer("notify_member_join", { mode: "boolean" })
   .$defaultFn(() => true),
 ```
 
-Paired migration in `apps/auth/migrations/` (D1 migrations auto-apply on
-merge to prod):
+Paired migration in **`apps/api/migrations/`** — that is the single D1
+migration chain for the AUTH worker's tables (the old `apps/auth/migrations/`
+chain is retired; see the note in `apps/auth/src/test/fake-d1.ts`). D1
+migrations auto-apply on merge to prod:
 
 ```sql
 ALTER TABLE user ADD COLUMN notify_member_join INTEGER NOT NULL DEFAULT 1;
+```
+
+Also declare it as a better-auth additional field so the framework returns
+it on the session and accepts writes to it (see §5) — in `apps/auth/src/auth.ts`
+`user.additionalFields`:
+
+```ts
+notifyMemberJoin: { type: "boolean", required: false, input: true, defaultValue: true },
 ```
 
 A single typed column (not a JSON blob, not a new table) — queryable and
@@ -130,26 +140,30 @@ existing inviter email stays untouched — it's a different, inviter-specific
 message; excluding the inviter from the admin-notice avoids double-emailing
 them.
 
-### 5. Settings toggle (web, SSR-first, no framework JS)
+### 5. Settings toggle (web, SSR-first, via better-auth update-user)
 
+The write path uses better-auth's built-in `POST /api/auth/update-user`
+endpoint (allowed because `notifyMemberJoin` is declared `input: true` in
+`user.additionalFields`), reached through the app's existing same-origin
+`/api/auth/[...path]` proxy with `credentials: "include"`. No custom
+internal route and no custom web proxy — the field also rides on the
+session object automatically, so the page reads current state directly.
+
+- **Type:** add `notifyMemberJoin?: boolean | null` to `SessionUser`
+  (`apps/web/src/lib/auth-client.ts:47`). Because `session.user` is a
+  passthrough of the better-auth JSON body, the new field arrives with no
+  extra parsing; `loadProfilePageData` already returns `session.user`.
+- **Client helper:** add `updateNotifyMemberJoin(origin, value)` to
+  `apps/web/src/lib/auth-client.ts` — `POST ${authOrigin(origin)}/api/auth/update-user`,
+  `credentials: "include"`, `Content-Type: application/json`, body
+  `{ notifyMemberJoin: value }`; returns ok/failure like the other wrappers.
 - **UI:** add an "Email notifications" `.settings-section` to
   `apps/web/src/pages/account/profile.astro` with a single checkbox
-  ("Email me when someone joins a workspace I administer"), reflecting the
-  user's current `notifyMemberJoin`. Progressive-enhancement form (checkbox
-  - Save button) — no React (signed-in account pages are Astro/SSR).
-- **Same-origin proxy:** new route
-  `apps/web/src/pages/api/account/notification-prefs.ts` (POST), mirroring
-  the `apps/web/src/pages/api/enrollments/join.ts` proxy pattern. Reads the
-  session, forwards to the AUTH internal route.
-- **AUTH write route:** new `POST /internal/user/notification-prefs` in
-  `apps/auth/src/internal-routes.ts`, session/user-guarded, updates
-  `user.notifyMemberJoin` for the authenticated user only. Body:
-  `{ notifyMemberJoin: boolean }`.
-- The current session-user shape (`SessionUser`,
-  `apps/web/src/lib/auth-client.ts:47`) gains `notifyMemberJoin` so the
-  page can render the current state; confirm better-auth surfaces the new
-  column on the session (it selects `user.*`), otherwise fetch it in the
-  page loader.
+  ("Email me when someone joins a workspace I administer"), initial `checked`
+  from `initial.user?.notifyMemberJoin` (defaulting to checked when
+  undefined). The page's bundled `<script>` wires a `change` handler that
+  calls the helper and shows a saved/error status; `onSession` reconciles
+  the checkbox from the live session. No new client dependency.
 
 ## Data flow
 
