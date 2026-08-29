@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { Hono } from "hono";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AuthEnv } from "./auth";
 import { internal } from "./internal-routes";
 import * as schema from "./schema";
@@ -1618,6 +1618,34 @@ describe("DB-backed behavior", () => {
         .from(schema.member)
         .where(and(eq(schema.member.organizationId, org.id), eq(schema.member.userId, user.id)));
       expect(member).toMatchObject({ role: "member" });
+    });
+
+    it("emails workspace admins when a new member joins via /internal/join", async () => {
+      const org = await seedOrg();
+      const admin = await seedUser();
+      const joiner = await seedUser();
+      await orm.insert(schema.member).values({
+        id: crypto.randomUUID(),
+        organizationId: org.id,
+        userId: admin.id,
+        role: "admin",
+        createdAt: new Date(),
+      });
+      const send = vi.fn().mockResolvedValue({});
+
+      const res = await app().request(
+        "/internal/join",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ organizationSlug: org.slug, userId: joiner.id }),
+        },
+        dbEnv({ EMAIL: { send } }),
+      );
+
+      expect(res.status).toBe(201);
+      const recipients = send.mock.calls.map((c) => c[0].to);
+      expect(recipients).toEqual([admin.email]);
     });
 
     it("no-ops gracefully for an already-existing member", async () => {
