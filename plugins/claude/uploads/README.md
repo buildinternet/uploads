@@ -5,9 +5,8 @@ manifest is [`.claude-plugin/plugin.json`](../../../.claude-plugin/plugin.json).
 The catalog that lists it is
 [`.claude-plugin/marketplace.json`](../../../.claude-plugin/marketplace.json)
 (`source: "./"`), so the whole repo is a one-plugin marketplace. The hosted MCP
-server is declared in [`.mcp.json`](../../../.mcp.json). Commands live at the
-repo root in [`commands/`](../../../commands/), shared with the generic
-[Agent Plugins](https://agent-plugins.org) manifest
+server is declared in [`.mcp.json`](../../../.mcp.json). The repo also carries
+a generic [Agent Plugins](https://agent-plugins.org) manifest
 ([`plugin.json`](../../../plugin.json) + [`mcp.json`](../../../mcp.json)) that
 Cursor and other spec-compliant clients load directly. Per-client adapters
 (`.claude-plugin/`, `.codex-plugin/`) are enumerated in the root manifest's
@@ -22,11 +21,10 @@ allowlist); the Claude marketplace entry lists the three public skills.
 | github-screenshots skill    | `/uploads:github-screenshots`   | Capture + host + embed a visual in a PR/issue                               |
 | annotate-screenshots skill  | `/uploads:annotate-screenshots` | Bake boxes, arrows, labels, and redactions onto a capture                   |
 | uploads-cli skill           | `/uploads:uploads-cli`          | Full `uploads` CLI reference                                                |
-| attach command              | `/uploads:attach`               | Explicit host / attach entry point                                          |
 | uploads MCP server          | (tools)                         | Hosted `https://agents.uploads.sh/mcp`                                      |
 | PR screenshot reminder hook | (automatic)                     | Advisory nudge before `gh pr create` on a UI-touching branch with no stages |
 
-Plugin skills and commands are namespaced (`/uploads:…`).
+Plugin skills are namespaced (`/uploads:…`).
 
 ## Pre-PR screenshot reminder
 
