@@ -113,7 +113,7 @@ export function readSidebarDefaultOpen(cookieHeader: string | null | undefined):
   return true;
 }
 
-export type AccountSectionId = "workspaces" | "profile" | "developers";
+export type AccountSectionId = "workspaces" | "profile" | "developers" | "connected-apps";
 
 /** Nav rows read as proper nouns; the shared tab list keeps its lowercase ids. */
 function capitalize(label: string): string {
@@ -179,6 +179,12 @@ export function accountNavSections(options: {
         href: "/account/developers",
         current: section === "developers",
         icon: "developers",
+      },
+      {
+        label: "Connected apps",
+        href: "/account/connected-apps",
+        current: section === "connected-apps",
+        icon: "oauth",
       },
     ],
   });

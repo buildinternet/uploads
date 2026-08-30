@@ -53,7 +53,11 @@ describe("accountNavSections", () => {
       section: "profile",
     });
     expect(sections.map((s) => s.label)).toEqual(["Personal"]);
-    expect(sections[0]!.items.map((i) => i.label)).toEqual(["Account", "Developers"]);
+    expect(sections[0]!.items.map((i) => i.label)).toEqual([
+      "Account",
+      "Developers",
+      "Connected apps",
+    ]);
     expect(sections[0]!.items[0]!.current).toBe(true);
     expect(sections[0]!.items[1]!.current).toBe(false);
   });

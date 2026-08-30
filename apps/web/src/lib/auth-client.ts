@@ -984,6 +984,78 @@ export function openOrganizationBillingPortal(
 }
 
 /**
+ * Issue #890: one OAuth grant on `/account/connected-apps` — consent ⋈
+ * client, plus an active-token indicator. Mirrors `ConnectedAppGrant` in
+ * apps/auth/src/connected-apps.ts.
+ */
+export interface ConnectedAppGrant {
+  id: string;
+  clientId: string;
+  clientName: string | null;
+  clientIcon: string | null;
+  clientUri: string | null;
+  scopes: string[];
+  referenceId: string | null;
+  activeTokenCount: number;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+function isConnectedAppGrant(value: unknown): value is ConnectedAppGrant {
+  if (!value || typeof value !== "object") return false;
+  const r = value as Record<string, unknown>;
+  return typeof r.id === "string" && typeof r.clientId === "string" && Array.isArray(r.scopes);
+}
+
+/**
+ * GET /api/auth/oauth2/connected-apps — the session user's OAuth grants,
+ * newest first. `opts.cookie` forwards a caller-supplied cookie header for
+ * an Astro frontmatter's server-side fetch (same pattern as `getSession`).
+ * Returns null on any failure/no-session so the page can fall back to a
+ * placeholder rather than an empty list.
+ */
+export async function listConnectedApps(
+  origin: string,
+  opts?: { cookie?: string; fetchImpl?: typeof fetch },
+): Promise<ConnectedAppGrant[] | null> {
+  const result = await fetchWithTimeout(
+    `${authOrigin(origin)}/api/auth/oauth2/connected-apps`,
+    {
+      credentials: "include",
+      cache: "no-store",
+      ...(opts?.cookie ? { headers: { cookie: opts.cookie } } : {}),
+    },
+    { fetchImpl: opts?.fetchImpl },
+  );
+  if (result.kind === "unavailable" || !result.response.ok) return null;
+  const body = (await result.response.json().catch(() => undefined)) as
+    | { grants?: unknown }
+    | undefined;
+  if (!Array.isArray(body?.grants)) return null;
+  return body.grants.filter(isConnectedAppGrant);
+}
+
+/**
+ * POST /api/auth/oauth2/connected-apps/revoke — revoke one OAuth grant
+ * (deletes the consent row and revokes its access/refresh tokens). Returns
+ * false on any non-2xx or thrown fetch, matching this file's other
+ * never-throw wrappers.
+ */
+export async function revokeConnectedApp(origin: string, id: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${authOrigin(origin)}/api/auth/oauth2/connected-apps/revoke`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * OAuth AS client metadata (issue #224, Lane B): fields the `/oauth/consent`
  * page reads off `@better-auth/oauth-provider`'s public-client response.
  * `client_uri`/`logo_uri` are attacker-controlled (any registered DCR

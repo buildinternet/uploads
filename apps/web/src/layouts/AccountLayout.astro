@@ -32,7 +32,7 @@ import "../styles/signed-in-shell.css";
 import "../styles/account-content.css";
 import "../styles/account-shell.css";
 
-export type AccountSection = "workspaces" | "profile" | "developers";
+export type AccountSection = "workspaces" | "profile" | "developers" | "connected-apps";
 
 interface Props {
   section: AccountSection;
@@ -55,6 +55,7 @@ const titles: Record<AccountSection, string> = {
   workspaces: "Workspaces",
   profile: "Account",
   developers: "Developers",
+  "connected-apps": "Connected apps",
 };
 const pageHeading = title ?? (workspace || titles[section]);
 const docTitle = `${pageHeading} · uploads.sh`;
