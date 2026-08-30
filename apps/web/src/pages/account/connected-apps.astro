@@ -1,0 +1,143 @@
+---
+import { env } from "cloudflare:workers";
+import AccountLayout from "../../layouts/AccountLayout.astro";
+import { loadConnectedAppsPageData, renderConnectedAppsHtml } from "../../lib/connected-apps-ui";
+import { serverAuthFetchImpl } from "../../lib/auth-proxy";
+import { resolveSignedInOrigins } from "../../lib/signed-in-page";
+import { renderDetailListPlaceholderHtml, renderEmptyStateHtml } from "../../lib/workspace-ui";
+
+export const prerender = false;
+
+const { authOrigin } = resolveSignedInOrigins();
+const initial = await loadConnectedAppsPageData(
+  authOrigin,
+  Astro.request.headers.get("cookie") ?? "",
+  serverAuthFetchImpl(env, Astro.request),
+);
+const grantsReady = initial.grants !== null;
+const grantsEmpty = grantsReady && (initial.grants?.length ?? 0) === 0;
+---
+
+<AccountLayout section="connected-apps">
+  <section class="card settings-page">
+    <div class="settings-section">
+      <h2>Connected apps</h2>
+      <p class="muted settings-note">
+        Third-party apps and tools you've granted access to your uploads.sh account. Revoking one
+        signs out every token it was issued.
+      </p>
+      <div
+        id="connected-apps-status"
+        class="muted detail-status"
+        hidden={grantsEmpty ? undefined : true}
+        set:html={grantsEmpty
+          ? renderEmptyStateHtml({ title: "No connected apps.", variant: "inline" })
+          : ""}
+      />
+      <ul
+        class="detail-list"
+        id="connected-apps-list"
+        aria-busy={grantsReady ? "false" : "true"}
+        hidden={grantsEmpty ? true : undefined}
+        set:html={grantsReady
+          ? renderConnectedAppsHtml(initial.grants ?? [])
+          : renderDetailListPlaceholderHtml()}
+      />
+      <p id="connected-apps-error" class="detail-error" role="alert" hidden></p>
+    </div>
+  </section>
+
+  <style>
+    .connected-app-scopes {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 6px;
+    }
+  </style>
+
+  <script>
+    import { onAstroPageLoad, onSession, requireElement } from "../../lib/account-shell";
+    import { listConnectedApps, revokeConnectedApp } from "../../lib/auth-client";
+    import { renderConnectedAppsHtml } from "../../lib/connected-apps-ui";
+    import { renderDetailListPlaceholderHtml, renderEmptyStateHtml } from "../../lib/workspace-ui";
+
+    onAstroPageLoad(() => {
+      if (!document.getElementById("connected-apps-list")) return;
+
+      const authOrigin = (window as unknown as { __UPLOADS_AUTH_ORIGIN__: string })
+        .__UPLOADS_AUTH_ORIGIN__;
+
+      // Bumped per load; stale responses (an older reload finishing after a
+      // newer one) are dropped so they can't repaint a revoked grant.
+      let loadGeneration = 0;
+
+      async function loadConnectedApps(): Promise<void> {
+        const generation = ++loadGeneration;
+        const status = requireElement<HTMLElement>("#connected-apps-status", "connected apps");
+        const list = requireElement<HTMLUListElement>("#connected-apps-list", "connected apps");
+        const error = requireElement<HTMLElement>("#connected-apps-error", "connected apps");
+        error.hidden = true;
+        status.hidden = true;
+        list.hidden = false;
+        list.setAttribute("aria-busy", "true");
+        list.innerHTML = renderDetailListPlaceholderHtml();
+
+        const grants = await listConnectedApps(authOrigin);
+        if (generation !== loadGeneration) return;
+        if (grants === null) {
+          list.hidden = true;
+          list.removeAttribute("aria-busy");
+          status.hidden = true;
+          error.textContent = "Couldn’t load connected apps.";
+          error.hidden = false;
+          return;
+        }
+        if (!grants.length) {
+          list.hidden = true;
+          list.removeAttribute("aria-busy");
+          status.innerHTML = renderEmptyStateHtml({
+            title: "No connected apps.",
+            variant: "inline",
+          });
+          status.hidden = false;
+          return;
+        }
+
+        status.hidden = true;
+        list.hidden = false;
+        list.removeAttribute("aria-busy");
+        list.innerHTML = renderConnectedAppsHtml(grants);
+      }
+
+      requireElement<HTMLUListElement>("#connected-apps-list", "connected apps").addEventListener(
+        "click",
+        (event) => {
+          void (async () => {
+            const button = (event.target as HTMLElement).closest<HTMLButtonElement>(
+              "button[data-revoke]",
+            );
+            if (!button?.dataset.revoke) return;
+            if (!confirm("Revoke access for this app? It will be signed out immediately.")) return;
+            button.disabled = true;
+            button.textContent = "Revoking…";
+            const error = requireElement<HTMLElement>("#connected-apps-error", "connected apps");
+            error.hidden = true;
+            if (!(await revokeConnectedApp(authOrigin, button.dataset.revoke))) {
+              error.textContent = "Couldn’t revoke that app.";
+              error.hidden = false;
+              button.disabled = false;
+              button.textContent = "Revoke";
+              return;
+            }
+            await loadConnectedApps();
+          })();
+        },
+      );
+
+      onSession(() => {
+        void loadConnectedApps();
+      });
+    });
+  </script>
+</AccountLayout>
