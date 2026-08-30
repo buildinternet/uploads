@@ -11,6 +11,7 @@ import { drizzle } from "drizzle-orm/d1";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AuthEnv } from "./auth";
 import {
+  defaultRegistrationApplicationType,
   fetchClientMetadataResource,
   intersectAdvertisedGrantTypes,
   rewriteClientMetadataGrantTypes,
@@ -335,5 +336,57 @@ describe("dynamic client registration (SEP-837)", () => {
     expect(res.status).toBe(201);
     const body = (await res.json()) as { client_id?: string };
     expect(typeof body.client_id).toBe("string");
+  });
+});
+
+describe("defaultRegistrationApplicationType", () => {
+  it("defaults to native when every redirect is http loopback or a private-use scheme", () => {
+    const body = {
+      client_name: "opencode",
+      redirect_uris: [
+        "http://127.0.0.1:19876/mcp/oauth/callback",
+        "http://localhost:8080/cb",
+        "http://[::1]:9000/cb",
+        "com.example.app:/oauth",
+      ],
+    };
+    expect(defaultRegistrationApplicationType(body)).toEqual({
+      ...body,
+      application_type: "native",
+    });
+    // Input is not mutated.
+    expect(body).not.toHaveProperty("application_type");
+  });
+
+  it("leaves an explicit application_type alone", () => {
+    expect(
+      defaultRegistrationApplicationType({
+        application_type: "web",
+        redirect_uris: ["http://127.0.0.1:1234/cb"],
+      }),
+    ).toBeUndefined();
+  });
+
+  it("leaves bodies with any https or non-loopback http redirect alone", () => {
+    for (const uri of [
+      "https://client.example.com/cb",
+      "https://localhost:1234/cb",
+      "http://example.com/cb",
+      "http://127.0.0.1.evil.com/cb",
+    ]) {
+      expect(
+        defaultRegistrationApplicationType({
+          redirect_uris: ["http://127.0.0.1:1234/cb", uri],
+        }),
+      ).toBeUndefined();
+    }
+  });
+
+  it("leaves missing, empty, or malformed redirect_uris alone", () => {
+    expect(defaultRegistrationApplicationType({})).toBeUndefined();
+    expect(defaultRegistrationApplicationType({ redirect_uris: [] })).toBeUndefined();
+    expect(defaultRegistrationApplicationType({ redirect_uris: "nope" })).toBeUndefined();
+    expect(defaultRegistrationApplicationType({ redirect_uris: [42] })).toBeUndefined();
+    expect(defaultRegistrationApplicationType({ redirect_uris: ["not a url"] })).toBeUndefined();
   });
 });

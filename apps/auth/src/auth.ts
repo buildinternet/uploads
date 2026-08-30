@@ -21,7 +21,11 @@ import {
   magicLink,
   organization,
 } from "better-auth/plugins";
-import { fetchClientMetadataResource, rewriteClientMetadataGrantTypes } from "./cimd-transport";
+import {
+  defaultRegistrationApplicationType,
+  fetchClientMetadataResource,
+  rewriteClientMetadataGrantTypes,
+} from "./cimd-transport";
 import { deviceWorkspacePlugin } from "./device-workspace";
 import {
   oauthClientIdFromAuthorizationCode,
@@ -263,8 +267,10 @@ async function applyOAuthClientInterop(
 } | void> {
   if (ctx.path === "/oauth2/register") {
     const body = ctx.body as Record<string, unknown> | null;
-    const next = body ? rewriteClientMetadataGrantTypes(body) : undefined;
-    if (next) return { context: { body: next } };
+    if (!body) return;
+    const withGrantTypes = rewriteClientMetadataGrantTypes(body) ?? body;
+    const next = defaultRegistrationApplicationType(withGrantTypes) ?? withGrantTypes;
+    if (next !== body) return { context: { body: next } };
     return;
   }
   if (ctx.path === "/oauth2/authorize") {
