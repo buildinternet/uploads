@@ -27,14 +27,21 @@ uploads install
 ### Or set up by hand
 
 Add the skills with `npx skills`, then register the MCP server with your runtime's own MCP
-registration — shown here for Claude Code:
+registration. These examples cover Claude Code, Codex, and OpenCode:
 
 ```bash
 npx skills add buildinternet/uploads
 ```
 
 ```bash
+# Claude Code
 claude mcp add --transport http uploads https://agents.uploads.sh/mcp
+
+# Codex
+codex mcp add uploads --url https://agents.uploads.sh/mcp
+
+# OpenCode
+opencode mcp add uploads --url https://agents.uploads.sh/mcp
 ```
 
 </section>
@@ -69,17 +76,21 @@ The skill teaches the agent when and how to use the CLI — for example staging 
 `uploads put`, or baking callouts onto a capture with `uploads screenshot --annotate`.
 
 The local stdio MCP (`uploads mcp`) exposes the same tools as the CLI, including `attach` and `put`
-with `contentUrl`. Register it with any MCP client, e.g.:
+with `contentUrl`. Register it with either client:
 
 ```bash
+# Claude Code
 claude mcp add uploads -- uploads mcp
+
+# Codex
+codex mcp add uploads -- uploads mcp
 ```
 
-The hosted MCP at `agents.uploads.sh` is for agents with no local checkout. It has `put`, `list`,
-`delete`, and more, but not `attach`, and no git defaults — pass `repo` and `branch` to `put` to
-stage, then `repo`, `pr`, and `branch` to `promote` once a PR exists. Hosted `put` takes
-`contentBase64` or `contentUrl` (a public HTTPS file the worker fetches; the filename comes from the
-URL path when you omit it). Hosted `put`/`comment` honor a repo's
+The hosted MCP at `https://agents.uploads.sh/mcp` is for agents with no local checkout. It has
+`put`, `list`, `delete`, and more, but not `attach`, and no git defaults — pass `repo` and `branch`
+to `put` to stage, then `repo`, `pr`, and `branch` to `promote` once a PR exists. Hosted `put`
+takes `contentBase64` or `contentUrl` (a public HTTPS file the worker fetches; the filename comes
+from the URL path when you omit it). Hosted `put`/`comment` honor a repo's
 [`.uploads.yml`](/docs/comment-config) the same way the bot does.
 
 <div class="note">
