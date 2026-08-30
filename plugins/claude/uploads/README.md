@@ -5,7 +5,15 @@ manifest is [`.claude-plugin/plugin.json`](../../../.claude-plugin/plugin.json).
 The catalog that lists it is
 [`.claude-plugin/marketplace.json`](../../../.claude-plugin/marketplace.json)
 (`source: "./"`), so the whole repo is a one-plugin marketplace. The hosted MCP
-server is declared in [`.mcp.json`](../../../.mcp.json).
+server is declared in [`.mcp.json`](../../../.mcp.json). Commands live at the
+repo root in [`commands/`](../../../commands/), shared with the generic
+[Agent Plugins](https://agent-plugins.org) manifest
+([`plugin.json`](../../../plugin.json) + [`mcp.json`](../../../mcp.json)) that
+Cursor and other spec-compliant clients load directly. Per-client adapters
+(`.claude-plugin/`, `.codex-plugin/`) are enumerated in the root manifest's
+`extensions` block. Open-spec clients auto-discover every `skills/` child
+(including the maintainer-oriented docs-page-style skill — the spec has no
+allowlist); the Claude marketplace entry lists the three public skills.
 
 ## What it bundles
 
