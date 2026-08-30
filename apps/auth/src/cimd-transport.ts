@@ -109,6 +109,52 @@ export function rewriteClientMetadataGrantTypes(
   return { ...metadata, grant_types: next };
 }
 
+/**
+ * Hosts on which Better Auth 1.7 permits a native client's plain-http
+ * redirect URI (RFC 8252 §7.3's exact loopback set).
+ */
+const NATIVE_HTTP_LOOPBACK_HOSTNAMES: ReadonlySet<string> = new Set([
+  "localhost",
+  "127.0.0.1",
+  "[::1]",
+]);
+
+function isNativeStyleRedirectUri(value: unknown): boolean {
+  if (typeof value !== "string") return false;
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return false;
+  }
+  if (url.protocol === "http:") {
+    return NATIVE_HTTP_LOOPBACK_HOSTNAMES.has(url.hostname === "::1" ? "[::1]" : url.hostname);
+  }
+  // Private-use (reverse-domain) schemes are also a native-only shape; https
+  // is ambiguous, so it never triggers the default.
+  return url.protocol !== "https:";
+}
+
+/**
+ * Default a DCR body's omitted `application_type` to `"native"` when every
+ * redirect URI is a shape only a native client may use (http loopback or a
+ * private-use scheme). Better Auth 1.7 defaults omitted `application_type`
+ * to `"web"` and rejects web clients with loopback redirects, which broke
+ * bare-DCR MCP clients such as opencode (http://127.0.0.1:<port> callback).
+ * `undefined` means leave the body alone — an explicit `application_type`,
+ * any https/ambiguous redirect, or a malformed body all fall through to the
+ * plugin's own validation.
+ */
+export function defaultRegistrationApplicationType(
+  body: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  if (body.application_type !== undefined) return undefined;
+  const redirectUris = body.redirect_uris;
+  if (!Array.isArray(redirectUris) || redirectUris.length === 0) return undefined;
+  if (!redirectUris.every(isNativeStyleRedirectUri)) return undefined;
+  return { ...body, application_type: "native" };
+}
+
 function shouldRewriteMetadataBody(res: Response): boolean {
   if (res.status !== 200) return false;
   const declared = Number(res.headers.get("content-length"));

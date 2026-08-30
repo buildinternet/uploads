@@ -84,6 +84,69 @@ describe("dynamic client registration", () => {
     expect(typeof body.client_id).toBe("string");
     expect(body.redirect_uris).toEqual(["https://client.example.com/callback"]);
   });
+
+  // Better Auth 1.7 defaults DCR clients without `application_type` to "web",
+  // and web clients reject http loopback redirect URIs outright — which broke
+  // every bare-DCR MCP client with a http://127.0.0.1:<port> callback
+  // (opencode, reported 2026-08-30). The hooks.before interop defaults such
+  // registrations to "native", where RFC 8252 loopback redirects are allowed.
+  it("registers a DCR client with only http loopback redirects as native (opencode regression)", async () => {
+    const res = await app.request(
+      "/api/auth/oauth2/register",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          client_name: "opencode",
+          redirect_uris: ["http://127.0.0.1:19876/mcp/oauth/callback"],
+        }),
+      },
+      dbEnv(),
+    );
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { application_type?: string; redirect_uris?: string[] };
+    expect(body.application_type).toBe("native");
+    expect(body.redirect_uris).toEqual(["http://127.0.0.1:19876/mcp/oauth/callback"]);
+  });
+
+  // Pins current upstream behavior (better-auth#10913: the web-client check
+  // rejects ALL loopback redirects, even https). If a Better Auth release
+  // starts allowing web+loopback, this test failing is the signal to revisit
+  // — the interop default above stays correct either way.
+  it("still rejects an explicit web client with a http loopback redirect", async () => {
+    const res = await app.request(
+      "/api/auth/oauth2/register",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          client_name: "explicit web",
+          application_type: "web",
+          redirect_uris: ["http://127.0.0.1:19876/callback"],
+        }),
+      },
+      dbEnv(),
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it("leaves registrations with a non-loopback redirect defaulting to web", async () => {
+    const res = await app.request(
+      "/api/auth/oauth2/register",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          client_name: "mixed",
+          redirect_uris: ["https://client.example.com/callback"],
+        }),
+      },
+      dbEnv(),
+    );
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { application_type?: string };
+    expect(body.application_type).toBe("web");
+  });
 });
 
 describe("JWKS endpoint", () => {
