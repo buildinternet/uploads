@@ -1,4 +1,5 @@
 {
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "uploads",
   "version": "0.2.0",
   "description": "Host screenshots, GIFs, recordings, and files on uploads.sh and embed them in GitHub PRs and issues.",
@@ -9,10 +10,16 @@
   "homepage": "https://uploads.sh",
   "repository": "https://github.com/buildinternet/uploads",
   "license": "Apache-2.0",
-  "icon": "./assets/logo.png",
   "keywords": ["uploads", "screenshots", "github", "file-hosting", "images", "mcp"],
-  "skills": "./skills/",
-  "commands": "./commands",
-  "mcpServers": "./.mcp.json",
-  "hooks": "./hooks/hooks.json"
+  "extensions": {
+    "com.anthropic.claude-code": {
+      "pluginManifest": ".claude-plugin/plugin.json",
+      "marketplace": ".claude-plugin/marketplace.json",
+      "mcp": ".mcp.json",
+      "hooks": "hooks/hooks.json"
+    },
+    "com.openai.codex": {
+      "pluginManifest": ".codex-plugin/plugin.json"
+    }
+  }
 }

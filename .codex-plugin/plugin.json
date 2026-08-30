@@ -4,7 +4,7 @@
   "description": "Host screenshots, GIFs, recordings, and files on uploads.sh and embed them in GitHub PRs and issues.",
   "author": {
     "name": "Build Internet",
-    "url": "https://uploads.sh"
+    "url": "https://buildinternet.com"
   },
   "homepage": "https://uploads.sh",
   "repository": "https://github.com/buildinternet/uploads",

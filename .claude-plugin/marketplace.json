@@ -2,7 +2,7 @@
   "name": "uploads",
   "owner": {
     "name": "Build Internet",
-    "url": "https://uploads.sh"
+    "url": "https://buildinternet.com"
   },
   "description": "Host screenshots, GIFs, recordings, and files on uploads.sh and embed them in GitHub PRs and issues.",
   "plugins": [
@@ -24,7 +24,7 @@
         "./skills/annotate-screenshots",
         "./skills/uploads-cli"
       ],
-      "commands": "./plugins/claude/uploads/commands",
+      "commands": "./commands",
       "mcpServers": "./.mcp.json",
       "hooks": "./hooks/hooks.json"
     }
