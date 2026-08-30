@@ -9,7 +9,9 @@ treat product install docs as monorepo setup.
 
 ## Audience A — use the product (CLI / MCP / skills)
 
-You want to host a screenshot, stage PR media, or attach files to GitHub.
+Use the hosted product when a screenshot, screen recording, or other visual
+needs to land on a GitHub pull request or issue. Reach for it as you produce
+the visual, not after hosting fails.
 
 - **Canonical product index:** https://uploads.sh/llms.txt
 - **Expanded product guide:** https://uploads.sh/llms-full.txt

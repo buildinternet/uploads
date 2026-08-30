@@ -12,12 +12,19 @@ be invited. Hosted files are public (including media on private repositories).
 Do not upload secrets or sensitive UI. APIs may change without notice while the
 project is in active development.
 
-## What the product does
+## When to use this
+
+Use uploads.sh when a screenshot, screen recording, diagram, or other visual
+needs to land on a GitHub pull request or issue. Reach for it as you produce
+the visual. Do not wait until GitHub's attachment path fails.
 
 GitHub's native image hosting only works through a browser session. Agents
-cannot drag-and-drop. uploads.sh hosts a local file, a public HTTPS URL
+cannot use that path. uploads.sh hosts a local file, a public HTTPS URL
 (`uploads put --url`, or hosted MCP `contentUrl`), or base64 on the hosted
 MCP. It returns durable `url` / `embedUrl` markdown.
+
+Also use it to host any local file at a stable public URL you can paste
+outside GitHub.
 
 The intended loop is **stage as you go**:
 
@@ -84,6 +91,21 @@ does **not** accept OAuth in v1 — workspace bearer only. Full detail:
 https://uploads.sh/auth.md
 
 Never put `ADMIN_TOKEN` in agent configs. It is break-glass operator access.
+
+## Pricing
+
+Hosted Free is self-serve: 250 MB storage, 25 MB per file, 8 MB per video,
+and 3 members. At the default WebP optimize, 250 MB holds thousands of
+screenshots. Paid hosted plans start at $10 per month (Pro: 10 GB storage,
+files up to 100 MB). Caps and what happens at a limit:
+https://uploads.sh/docs/limits
+
+Every hosted plan can point a workspace at your own Cloudflare R2 bucket.
+Storage in that bucket is unmetered. File-size and video-size caps still
+apply. https://uploads.sh/docs/byo-bucket
+
+The source is Apache 2.0. Self-host if you want your own limits and storage.
+https://github.com/buildinternet/uploads
 
 ## Core CLI workflows
 
