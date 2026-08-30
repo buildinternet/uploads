@@ -6,17 +6,16 @@
 
 **The missing upload command for coding agents.**
 
-A lightweight file-hosting service on Cloudflare Workers. Agents capture
-screenshots as they work. When the pull request opens, all screenshots appear
-in one tidy comment that updates automatically on each revision. Built on
-[files-sdk](https://files-sdk.dev) so the storage layer is provider-agnostic
-(R2 today; any files-sdk adapter later).
+Capture screenshots as you work. When the pull request opens, uploads.sh puts
+them in one tidy comment that updates automatically on each revision. Hosted
+uploads.sh is free to start. Connect your own Cloudflare R2 bucket so storage
+in that bucket is unmetered, or self-host the open-source service.
 
 <p>
   <a href="https://uploads.sh"><b>uploads.sh</b></a> &nbsp;·&nbsp;
   <a href="https://uploads.sh/docs"><b>Docs</b></a> &nbsp;·&nbsp;
   <a href="https://www.npmjs.com/package/@buildinternet/uploads"><b>npm →</b></a> &nbsp;·&nbsp;
-  <a href="#use-it">Use it</a> &nbsp;·&nbsp;
+  <a href="#quick-start">Quick start</a> &nbsp;·&nbsp;
   <a href="#what-it-looks-like">What it looks like</a> &nbsp;·&nbsp;
   <a href="#whats-in-this-repo">What's in this repo</a> &nbsp;·&nbsp;
   <a href="#local-development">Develop</a>
@@ -34,25 +33,23 @@ in one tidy comment that updates automatically on each revision. Built on
 
 <p><sub>
   <b>Under active development.</b> uploads.sh is being built in the open, so
-  APIs (including auth) can still change. Feedback is welcome — open an issue.
+  APIs can still change. Feedback is welcome — open an issue.
 </sub></p>
 
 </div>
 
 ---
 
-## What is this?
+## Screenshots ready when the pull request opens
 
-You add a screenshot to GitHub by dragging it into the comment box. Agents
-can't — GitHub's native image hosting only works through a browser session, so
-an agent that just captured a before/after has nowhere to put it.
+**uploads** hosts screenshots and other files at stable URLs that coding agents
+can use in pull requests and issues. On a branch, `uploads put` stages each file
+as soon as it is ready. When the pull request opens, uploads.sh promotes the
+staged files into one managed comment.
 
-**uploads** gives agents that missing step, and it works while the branch is
-still in progress. An agent runs `uploads put ./after.png` the moment a change
-is visible; on a branch that stages the file automatically — no PR required, no
-flag to remember. Capture at every milestone and there is nothing to reassemble
-at the end: when the pull request opens, everything staged is promoted into one
-tidy comment that updates automatically on each revision.
+GitHub's native image hosting requires a browser session. uploads.sh gives
+agents a command they can run from the same terminal where they build and test
+the change, while the branch is still in progress.
 
 Keys are hash-free, so re-uploading the same filename overwrites in place and
 the URL never changes — every embed of it updates at once. Workspaces keep
@@ -99,7 +96,7 @@ the raw URL, and a delete button.
 
 <sub>Each file's share page — copy-ready embeds, details, and delete.</sub>
 
-## Use it
+## Quick start
 
 Install the CLI and sign in once:
 
@@ -108,29 +105,41 @@ npm install --global @buildinternet/uploads
 uploads login
 ```
 
-Then capture as you work. On a branch, a bare `put` stages the file against
-that branch — no PR needed yet, and no flag to remember:
+Upload a file and tag the page it shows:
 
 ```bash
-uploads put ./before.png --state before
-uploads put ./after.png --state after
-uploads staged                 # what's queued, and whether it will auto-attach
+uploads put ./settings.png --meta path=/settings
 ```
 
-Open the PR however you normally would (`gh pr create`, the GitHub UI) and the
-staged files promote themselves into one managed attachments comment —
-instantly if the [GitHub App](https://uploads.sh/docs/github-app) is installed,
-otherwise on your next `uploads attach` (or `uploads attach --promote`).
+On a branch, `put` stages the file automatically. Open the pull request however
+you normally would. The [GitHub App](https://uploads.sh/docs/github-app)
+promotes the staged files into one managed attachments comment.
 
-Already have a PR or issue open? Target it directly, no staging step:
+## More ways to upload
+
+Use the same commands for before-and-after evidence, an open pull request, a
+browser capture, or an annotated image:
 
 ```bash
+# Pair two states from the same page in the pull request comment.
+uploads put ./before.png --meta path=/settings --state before
+uploads put ./after.png --meta path=/settings --state after
+
+# See what this branch will attach when the pull request opens.
+uploads staged
+
+# Attach files directly when a pull request or issue is already open.
 uploads attach ./before.png ./after.png
+
+# Capture, annotate, and upload a page in one command.
+uploads screenshot http://localhost:4321/settings --via local --annotate ./callouts.json
 ```
 
 `attach` detects the repository and current PR through `gh`, uploads all files,
-and creates or updates that same one comment. Both commands run under `npx
-@buildinternet/uploads …` without a global install.
+and creates or updates that same one comment. Without the GitHub App, run
+`uploads attach --promote` after opening the pull request to promote files that
+you staged earlier. All commands run under `npx @buildinternet/uploads …`
+without a global install.
 
 Sign in with GitHub or a magic link, then create your own workspace or accept
 an invite into one — see [enrollment](docs/enrollment.md). Hosted files are
@@ -138,7 +147,9 @@ public URLs — private-repo attachments get non-guessable links
 ([how that works](docs/private-attachments.md)), but anyone holding a URL can
 view the file. Do not upload secrets or sensitive UI.
 
-**MCP.** Hosted at `agents.uploads.sh`, listed in the
+## Connect your agent
+
+The hosted MCP server runs at `agents.uploads.sh` and is listed in the
 [MCP Registry](https://registry.modelcontextprotocol.io/v0.1/servers?search=sh.uploads/mcp)
 as `sh.uploads/mcp`. Local stdio is `uploads mcp` on the same npm package.
 
@@ -146,10 +157,9 @@ as `sh.uploads/mcp`. Local stdio is `uploads mcp` on the same npm package.
 claude mcp add --transport http uploads https://agents.uploads.sh/mcp
 ```
 
-**Teach your agent the loop.** `uploads install` wires in the agent skills and
-the MCP server, so future sessions capture at each visual milestone on their
-own instead of being asked. The skills also install standalone, into any agent
-runtime, without checking anything out:
+`uploads install` adds the agent skills and the MCP server, so future sessions
+can capture each visual milestone without being asked. The skills also install
+standalone into any agent runtime:
 
 ```bash
 npx skills add buildinternet/uploads
@@ -159,16 +169,8 @@ That installs three skills: `github-screenshots` (visuals → PRs/issues),
 `uploads-cli` (full CLI reference), and `annotate-screenshots` (callouts and
 redaction on a capture).
 
-Point at what changed before you attach — bake boxes, arrows, labels, or a
-solid redaction into the image:
-
-```bash
-uploads screenshot http://localhost:4321/settings --via local --annotate ./callouts.json
-uploads annotate ./shot.png --spec ./callouts.json --out ./shot.marked.png
-```
-
-Full CLI usage — key conventions, stable PR/issue attachments, annotations,
-managed comments, and public galleries — lives in [docs/cli.md](docs/cli.md).
+Full CLI usage, including annotations, managed comments, and public galleries,
+lives in [docs/cli.md](docs/cli.md).
 REST routes are in [docs/api.md](docs/api.md).
 
 ## What's in this repo
