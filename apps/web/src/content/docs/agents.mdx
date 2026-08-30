@@ -27,7 +27,7 @@ uploads install
 ### Or set up by hand
 
 Add the skills with `npx skills`, then register the MCP server with your runtime's own MCP
-registration. These examples cover Claude Code and Codex:
+registration. These examples cover Claude Code, Codex, and OpenCode:
 
 ```bash
 npx skills add buildinternet/uploads
@@ -39,6 +39,9 @@ claude mcp add --transport http uploads https://agents.uploads.sh/mcp
 
 # Codex
 codex mcp add uploads --url https://agents.uploads.sh/mcp
+
+# OpenCode
+opencode mcp add uploads --url https://agents.uploads.sh/mcp
 ```
 
 </section>

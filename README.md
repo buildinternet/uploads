@@ -159,6 +159,9 @@ claude mcp add --transport http uploads https://agents.uploads.sh/mcp
 
 # Codex
 codex mcp add uploads --url https://agents.uploads.sh/mcp
+
+# OpenCode
+opencode mcp add uploads --url https://agents.uploads.sh/mcp
 ```
 
 `uploads install` adds the agent skills and the MCP server, so future sessions
