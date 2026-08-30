@@ -424,6 +424,33 @@ describe("defaultRegistrationApplicationType", () => {
       ).toBeUndefined();
     });
 
+    // Cursor's real prod registration (2026-08-30) pairs cursor:// with an
+    // https redirect — a claimed URI, valid for native (RFC 8252 §7.2).
+    it("coerces web + cursor:// mixed with a non-loopback https redirect", () => {
+      const body = {
+        application_type: "web",
+        redirect_uris: [
+          "cursor://anysphere.cursor-mcp/oauth/callback",
+          "https://cursor.com/api/mcp/oauth/callback",
+        ],
+      };
+      expect(coerceExplicitWebToNativeForPrivateUseScheme(body)).toEqual({
+        ...body,
+        application_type: "native",
+      });
+    });
+
+    // https loopback is invalid for NATIVE clients in Better Auth — coercing
+    // would trade one registration error for another.
+    it("does not coerce when a mixed body includes an https loopback redirect", () => {
+      expect(
+        coerceExplicitWebToNativeForPrivateUseScheme({
+          application_type: "web",
+          redirect_uris: ["cursor://anysphere.cursor-mcp/oauth/callback", "https://localhost/cb"],
+        }),
+      ).toBeUndefined();
+    });
+
     it("does not touch an already-explicit native application_type", () => {
       expect(
         coerceExplicitWebToNativeForPrivateUseScheme({

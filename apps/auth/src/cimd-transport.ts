@@ -151,7 +151,14 @@ export function defaultRegistrationApplicationType(
   if (body.application_type !== undefined) return undefined;
   const redirectUris = body.redirect_uris;
   if (!Array.isArray(redirectUris) || redirectUris.length === 0) return undefined;
-  if (!redirectUris.every(isNativeStyleRedirectUri)) return undefined;
+  // All native-only shapes, or a private-use scheme anywhere (a web client
+  // cannot have one) alongside only native-valid URIs — same rule as the
+  // explicit-web coercion below.
+  const allNativeOnly = redirectUris.every(isNativeStyleRedirectUri);
+  const privateUseMix =
+    redirectUris.some(isPrivateUseSchemeRedirectUri) &&
+    redirectUris.every(isNativeCompatibleRedirectUri);
+  if (!allNativeOnly && !privateUseMix) return undefined;
   return { ...body, application_type: "native" };
 }
 
@@ -166,14 +173,38 @@ function isPrivateUseSchemeRedirectUri(value: unknown): boolean {
 }
 
 /**
- * Coerce an explicit `application_type: "web"` to `"native"` when every
- * redirect URI is native-only shaped and at least one uses a private-use
- * scheme. No legitimate web client has a custom-scheme callback (e.g.
+ * Valid under Better Auth's NATIVE redirect rules: http on exact loopback,
+ * https on a NON-loopback host (an RFC 8252 §7.2 claimed URI — native
+ * rejects https loopback), or a private-use scheme. Coercing a body with a
+ * URI outside this set would swap one registration error for another.
+ */
+function isNativeCompatibleRedirectUri(value: unknown): boolean {
+  if (typeof value !== "string") return false;
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return false;
+  }
+  const isLoopback = NATIVE_HTTP_LOOPBACK_HOSTNAMES.has(
+    url.hostname === "::1" ? "[::1]" : url.hostname,
+  );
+  if (url.protocol === "http:") return isLoopback;
+  if (url.protocol === "https:") return !isLoopback;
+  return true;
+}
+
+/**
+ * Coerce an explicit `application_type: "web"` to `"native"` when at least
+ * one redirect URI uses a private-use scheme and every URI is valid under
+ * native rules. No legitimate web client has a custom-scheme callback (e.g.
  * `cursor://...`); Cursor's MCP client sends "web" here regardless — a known
- * client bug (https://forum.cursor.com/t/cursor-does-not-send-application-type-native-when-registering-mcp-oauth-clients/136907).
- * Web + loopback-only http redirects are deliberately left alone (pinned
- * 400 in oauth.test.ts, better-auth#10913). `undefined` means leave the body
- * alone.
+ * client bug (https://forum.cursor.com/t/cursor-does-not-send-application-type-native-when-registering-mcp-oauth-clients/136907)
+ * — and pairs it with an https redirect, which is fine for native as an
+ * RFC 8252 §7.2 claimed URI (observed in prod 2026-08-30; requiring every
+ * URI to be native-ONLY shaped left Cursor broken). Web + loopback-only http
+ * redirects are deliberately left alone (pinned 400 in oauth.test.ts,
+ * better-auth#10913). `undefined` means leave the body alone.
  */
 export function coerceExplicitWebToNativeForPrivateUseScheme(
   body: Record<string, unknown>,
@@ -181,8 +212,8 @@ export function coerceExplicitWebToNativeForPrivateUseScheme(
   if (body.application_type !== "web") return undefined;
   const redirectUris = body.redirect_uris;
   if (!Array.isArray(redirectUris) || redirectUris.length === 0) return undefined;
-  if (!redirectUris.every(isNativeStyleRedirectUri)) return undefined;
   if (!redirectUris.some(isPrivateUseSchemeRedirectUri)) return undefined;
+  if (!redirectUris.every(isNativeCompatibleRedirectUri)) return undefined;
   return { ...body, application_type: "native" };
 }
 
