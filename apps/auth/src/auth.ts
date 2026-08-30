@@ -27,6 +27,7 @@ import {
   fetchClientMetadataResource,
   rewriteClientMetadataGrantTypes,
 } from "./cimd-transport";
+import { connectedAppsPlugin } from "./connected-apps";
 import { deviceWorkspacePlugin } from "./device-workspace";
 import {
   oauthClientIdFromAuthorizationCode,
@@ -830,6 +831,12 @@ function buildAuth(
       // page resolve and rewrite the workspace a device login mints for
       // before it approves.
       deviceWorkspacePlugin(db),
+      // Issue #890: GET /oauth2/connected-apps + POST /oauth2/connected-apps/revoke,
+      // backing the signed-in /account/connected-apps page — lists a user's
+      // OAuth grants (consent ⋈ client) and lets them revoke one, which also
+      // stamps `revoked` on that grant's access/refresh token rows (unlike
+      // the plugin's own delete-consent, which only removes the consent row).
+      connectedAppsPlugin(db),
       // Hosted dashboard (`@better-auth/infra`). Omit when the API key is unset.
       ...(dashApiKey ? [dash({ apiKey: dashApiKey })] : []),
       // This endpoint is omitted entirely unless the lifecycle runner supplies
