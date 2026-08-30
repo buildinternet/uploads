@@ -9,7 +9,7 @@
     {
       "name": "uploads",
       "source": "./",
-      "description": "Get screenshots, GIFs, recordings, and files into GitHub PRs and issues via uploads.sh. Bundles the github-screenshots, annotate-screenshots, and uploads-cli skills, the hosted MCP server, and the /uploads:attach command.",
+      "description": "Get screenshots, GIFs, recordings, and files into GitHub PRs and issues via uploads.sh. Bundles the github-screenshots, annotate-screenshots, and uploads-cli skills, and the hosted MCP server.",
       "version": "0.2.0",
       "author": {
         "name": "Build Internet"
@@ -24,7 +24,6 @@
         "./skills/annotate-screenshots",
         "./skills/uploads-cli"
       ],
-      "commands": "./commands",
       "mcpServers": "./.mcp.json",
       "hooks": "./hooks/hooks.json"
     }
