@@ -68,7 +68,12 @@ const grantsEmpty = grantsReady && (initial.grants?.length ?? 0) === 0;
       const authOrigin = (window as unknown as { __UPLOADS_AUTH_ORIGIN__: string })
         .__UPLOADS_AUTH_ORIGIN__;
 
+      // Bumped per load; stale responses (an older reload finishing after a
+      // newer one) are dropped so they can't repaint a revoked grant.
+      let loadGeneration = 0;
+
       async function loadConnectedApps(): Promise<void> {
+        const generation = ++loadGeneration;
         const status = requireElement<HTMLElement>("#connected-apps-status", "connected apps");
         const list = requireElement<HTMLUListElement>("#connected-apps-list", "connected apps");
         const error = requireElement<HTMLElement>("#connected-apps-error", "connected apps");
@@ -79,6 +84,7 @@ const grantsEmpty = grantsReady && (initial.grants?.length ?? 0) === 0;
         list.innerHTML = renderDetailListPlaceholderHtml();
 
         const grants = await listConnectedApps(authOrigin);
+        if (generation !== loadGeneration) return;
         if (grants === null) {
           list.hidden = true;
           list.removeAttribute("aria-busy");

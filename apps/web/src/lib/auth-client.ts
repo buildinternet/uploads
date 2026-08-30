@@ -1004,7 +1004,20 @@ export interface ConnectedAppGrant {
 function isConnectedAppGrant(value: unknown): value is ConnectedAppGrant {
   if (!value || typeof value !== "object") return false;
   const r = value as Record<string, unknown>;
-  return typeof r.id === "string" && typeof r.clientId === "string" && Array.isArray(r.scopes);
+  const stringOrNull = (v: unknown) => typeof v === "string" || v === null;
+  return (
+    typeof r.id === "string" &&
+    typeof r.clientId === "string" &&
+    Array.isArray(r.scopes) &&
+    r.scopes.every((s) => typeof s === "string") &&
+    stringOrNull(r.clientName) &&
+    stringOrNull(r.clientIcon) &&
+    stringOrNull(r.clientUri) &&
+    stringOrNull(r.referenceId) &&
+    typeof r.activeTokenCount === "number" &&
+    stringOrNull(r.createdAt) &&
+    stringOrNull(r.updatedAt)
+  );
 }
 
 /**
@@ -1042,17 +1055,16 @@ export async function listConnectedApps(
  * never-throw wrappers.
  */
 export async function revokeConnectedApp(origin: string, id: string): Promise<boolean> {
-  try {
-    const res = await fetch(`${authOrigin(origin)}/api/auth/oauth2/connected-apps/revoke`, {
+  const result = await fetchWithTimeout(
+    `${authOrigin(origin)}/api/auth/oauth2/connected-apps/revoke`,
+    {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id }),
-    });
-    return res.ok;
-  } catch {
-    return false;
-  }
+    },
+  );
+  return result.kind !== "unavailable" && result.response.ok;
 }
 
 /**
