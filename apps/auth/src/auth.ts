@@ -22,6 +22,7 @@ import {
   organization,
 } from "better-auth/plugins";
 import {
+  coerceExplicitWebToNativeForPrivateUseScheme,
   defaultRegistrationApplicationType,
   fetchClientMetadataResource,
   rewriteClientMetadataGrantTypes,
@@ -269,7 +270,8 @@ async function applyOAuthClientInterop(
     const body = ctx.body as Record<string, unknown> | null;
     if (!body) return;
     const withGrantTypes = rewriteClientMetadataGrantTypes(body) ?? body;
-    const next = defaultRegistrationApplicationType(withGrantTypes) ?? withGrantTypes;
+    const withDefaultType = defaultRegistrationApplicationType(withGrantTypes) ?? withGrantTypes;
+    const next = coerceExplicitWebToNativeForPrivateUseScheme(withDefaultType) ?? withDefaultType;
     if (next !== body) return { context: { body: next } };
     return;
   }

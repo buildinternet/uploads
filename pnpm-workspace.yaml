@@ -27,3 +27,5 @@ minimumReleaseAgeExclude:
   - "@cloudflare/workers-types@5.20260706.1"
   - files-sdk@2.2.4
   - hono@4.12.28
+patchedDependencies:
+  "@better-auth/oauth-provider": patches/@better-auth__oauth-provider.patch

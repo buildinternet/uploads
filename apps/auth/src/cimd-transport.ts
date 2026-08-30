@@ -155,6 +155,37 @@ export function defaultRegistrationApplicationType(
   return { ...body, application_type: "native" };
 }
 
+function isPrivateUseSchemeRedirectUri(value: unknown): boolean {
+  if (typeof value !== "string") return false;
+  try {
+    const url = new URL(value);
+    return url.protocol !== "http:" && url.protocol !== "https:";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Coerce an explicit `application_type: "web"` to `"native"` when every
+ * redirect URI is native-only shaped and at least one uses a private-use
+ * scheme. No legitimate web client has a custom-scheme callback (e.g.
+ * `cursor://...`); Cursor's MCP client sends "web" here regardless — a known
+ * client bug (https://forum.cursor.com/t/cursor-does-not-send-application-type-native-when-registering-mcp-oauth-clients/136907).
+ * Web + loopback-only http redirects are deliberately left alone (pinned
+ * 400 in oauth.test.ts, better-auth#10913). `undefined` means leave the body
+ * alone.
+ */
+export function coerceExplicitWebToNativeForPrivateUseScheme(
+  body: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  if (body.application_type !== "web") return undefined;
+  const redirectUris = body.redirect_uris;
+  if (!Array.isArray(redirectUris) || redirectUris.length === 0) return undefined;
+  if (!redirectUris.every(isNativeStyleRedirectUri)) return undefined;
+  if (!redirectUris.some(isPrivateUseSchemeRedirectUri)) return undefined;
+  return { ...body, application_type: "native" };
+}
+
 function shouldRewriteMetadataBody(res: Response): boolean {
   if (res.status !== 200) return false;
   const declared = Number(res.headers.get("content-length"));

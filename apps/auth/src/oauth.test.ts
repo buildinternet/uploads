@@ -130,6 +130,58 @@ describe("dynamic client registration", () => {
     expect(res.status).toBe(400);
   });
 
+  // Cursor's MCP client sends an explicit `application_type: "web"` with a
+  // cursor:// private-use-scheme redirect — a known Cursor bug (no legitimate
+  // web client can register a custom-scheme callback):
+  // https://forum.cursor.com/t/cursor-does-not-send-application-type-native-when-registering-mcp-oauth-clients/136907
+  // The interop coerces this to "native" before the plugin validates it.
+  it("registers Cursor's explicit web + cursor:// DCR body as native", async () => {
+    const res = await app.request(
+      "/api/auth/oauth2/register",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          application_type: "web",
+          redirect_uris: ["cursor://anysphere.cursor-mcp/oauth/callback"],
+          token_endpoint_auth_method: "none",
+          grant_types: ["authorization_code", "refresh_token"],
+          response_types: ["code"],
+        }),
+      },
+      dbEnv(),
+    );
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { application_type?: string; redirect_uris?: string[] };
+    expect(body.application_type).toBe("native");
+    expect(body.redirect_uris).toEqual(["cursor://anysphere.cursor-mcp/oauth/callback"]);
+  });
+
+  // Pins the pnpm patch of @better-auth/oauth-provider (better-auth#10956,
+  // porting the upstream fix for better-auth#10946): the dist's native
+  // redirect validator rejected host-bearing private-use-scheme redirects
+  // like `cursor://host/path` even for an explicit `application_type:
+  // "native"` client. Delete this test (and patches/@better-auth__oauth-provider@1.7.1.patch)
+  // once a Better Auth release ships #10956 or equivalent.
+  it("registers an explicit native client with a host-bearing cursor:// redirect", async () => {
+    const res = await app.request(
+      "/api/auth/oauth2/register",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          application_type: "native",
+          redirect_uris: ["cursor://anysphere.cursor-mcp/oauth/callback"],
+        }),
+      },
+      dbEnv(),
+    );
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { application_type?: string; redirect_uris?: string[] };
+    expect(body.application_type).toBe("native");
+    expect(body.redirect_uris).toEqual(["cursor://anysphere.cursor-mcp/oauth/callback"]);
+  });
+
   it("leaves registrations with a non-loopback redirect defaulting to web", async () => {
     const res = await app.request(
       "/api/auth/oauth2/register",
