@@ -157,6 +157,38 @@ describe("dynamic client registration", () => {
     expect(body.redirect_uris).toEqual(["cursor://anysphere.cursor-mcp/oauth/callback"]);
   });
 
+  // Cursor's real registration (observed in prod 2026-08-30, unlike the
+  // approximation in better-auth#10946) pairs the cursor:// callback with an
+  // https redirect. Native clients may use claimed https URIs (RFC 8252
+  // §7.2), so a private-use scheme ANYWHERE in redirect_uris still means the
+  // client cannot be web — coercion must not require every URI to be
+  // native-only shaped.
+  it("registers Cursor's mixed cursor:// + https DCR body as native", async () => {
+    const res = await app.request(
+      "/api/auth/oauth2/register",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          application_type: "web",
+          redirect_uris: [
+            "cursor://anysphere.cursor-mcp/oauth/callback",
+            "https://cursor.com/api/mcp/oauth/callback",
+          ],
+          token_endpoint_auth_method: "none",
+        }),
+      },
+      dbEnv(),
+    );
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { application_type?: string; redirect_uris?: string[] };
+    expect(body.application_type).toBe("native");
+    expect(body.redirect_uris).toEqual([
+      "cursor://anysphere.cursor-mcp/oauth/callback",
+      "https://cursor.com/api/mcp/oauth/callback",
+    ]);
+  });
+
   // Pins the pnpm patch of @better-auth/oauth-provider (better-auth#10956,
   // porting the upstream fix for better-auth#10946): the dist's native
   // redirect validator rejected host-bearing private-use-scheme redirects
