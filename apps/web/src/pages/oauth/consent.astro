@@ -58,10 +58,78 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
       .status {
         margin: 16px 0;
       }
+      /* Connection visual: app tile -- dashed connector w/ lock node -- uploads.sh tile. */
+      .connection {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        margin: 4px 0 20px;
+      }
+      .tile {
+        width: 52px;
+        height: 52px;
+        flex: none;
+        display: grid;
+        place-items: center;
+        border-radius: var(--radius-md);
+        background: var(--bg);
+        border: 1px solid var(--line);
+      }
+      .tile img {
+        width: 28px;
+        height: 28px;
+        border-radius: var(--radius-sm);
+        object-fit: cover;
+      }
+      .tile .initial {
+        font: var(--text-h2) var(--sans);
+        font-weight: var(--weight-semibold);
+        color: var(--muted);
+        text-transform: uppercase;
+      }
+      .tile.brand-tile svg {
+        width: 28px;
+        height: 28px;
+      }
+      .connector {
+        flex: 1;
+        max-width: 64px;
+        display: flex;
+        align-items: center;
+        gap: 0;
+      }
+      .connector::before,
+      .connector::after {
+        content: "";
+        flex: 1;
+        height: 0;
+        border-top: 1px dashed var(--line);
+      }
+      .connector .lock-node {
+        flex: none;
+        width: 22px;
+        height: 22px;
+        display: grid;
+        place-items: center;
+        margin: 0 4px;
+        border-radius: 50%;
+        background: var(--bg);
+        border: 1px solid var(--line);
+        color: var(--muted);
+      }
+      .connector .lock-node svg {
+        width: 12px;
+        height: 12px;
+      }
+      h1.title {
+        text-align: center;
+      }
       .client-host {
         color: var(--muted);
         font-size: var(--text-meta);
         margin: -14px 0 20px;
+        text-align: center;
         word-break: break-all;
       }
       .client-host :global(a) {
@@ -78,29 +146,48 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
         text-transform: uppercase;
         margin-bottom: 6px;
       }
+      .divider {
+        border: none;
+        border-top: 1px solid var(--line);
+        margin: 0 0 18px;
+      }
       .scopes {
         list-style: none;
         margin: 0 0 22px;
         padding: 0;
         display: grid;
-        gap: 10px;
+        gap: 8px;
       }
       .scopes :global(li) {
         display: flex;
-        align-items: baseline;
-        gap: 10px;
+        align-items: center;
+        gap: 12px;
         padding: 10px 12px;
         background: var(--bg);
         border: 1px solid var(--line);
         border-radius: var(--radius-md);
       }
-      .scopes :global(.dot) {
-        width: 6px;
-        height: 6px;
-        border-radius: 50%;
-        background: var(--accent);
+      .scopes :global(.chip) {
+        width: 30px;
+        height: 30px;
         flex: none;
-        margin-top: 6px;
+        display: grid;
+        place-items: center;
+        border-radius: var(--radius-sm);
+        background: color-mix(in srgb, var(--accent) 14%, transparent);
+        color: var(--accent);
+      }
+      .scopes :global(.chip svg) {
+        width: 16px;
+        height: 16px;
+      }
+      .scopes :global(.chip--delete) {
+        background: color-mix(in srgb, var(--amber, #d99a2b) 16%, transparent);
+        color: var(--amber, #d99a2b);
+      }
+      .scopes :global(.chip--unknown) {
+        background: var(--panel);
+        color: var(--muted);
       }
       .scopes :global(.desc) {
         color: var(--fg);
@@ -114,6 +201,12 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
       .actions {
         display: flex;
         gap: 10px;
+      }
+      .revoke-note {
+        color: var(--muted);
+        font-size: var(--text-meta);
+        text-align: center;
+        margin: 16px 0 0;
       }
       a.linkbtn {
         display: block;
@@ -144,12 +237,17 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
         padding: 11px 13px;
         cursor: pointer;
       }
+      button.primary {
+        color: var(--bg);
+        background: var(--accent);
+        border-color: var(--accent);
+      }
       button.secondary {
         color: var(--muted);
       }
       button.primary:hover,
       button.primary:focus-visible {
-        border-color: var(--accent);
+        filter: brightness(1.06);
         outline: none;
       }
       button.secondary:hover,
@@ -223,18 +321,57 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
       </div>
 
       <div id="confirm" hidden>
-        <p>
-          <strong id="client-name"></strong> wants to access your uploads.sh account.
-        </p>
+        <div class="connection" aria-hidden="true">
+          <div class="tile app-tile" id="app-tile">
+            <img id="app-logo" alt="" hidden />
+            <span class="initial" id="app-initial"></span>
+          </div>
+          <div class="connector">
+            <span class="lock-node">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <rect x="4" y="10" width="16" height="10" rx="2"></rect>
+                <path d="M8 10V7a4 4 0 0 1 8 0v3"></path>
+              </svg>
+            </span>
+          </div>
+          <div class="tile brand-tile">
+            <svg viewBox="0 0 32 32" shape-rendering="crispEdges">
+              <path d="M4 0H28V4H32V28H28V32H4V28H0V4H4Z" fill="var(--panel, #121214)"></path>
+              <g fill="var(--accent, #c27eff)">
+                <path d="M14 4h4v4h-4z M10 6h4v4h-4z M18 6h4v4h-4z M6 8h4v4h-4z M22 8h4v4h-4z"
+                ></path>
+                <path
+                  opacity=".55"
+                  d="M14 12h4v4h-4z M10 14h4v4h-4z M18 14h4v4h-4z M6 16h4v4h-4z M22 16h4v4h-4z"
+                ></path>
+                <path
+                  opacity=".28"
+                  d="M14 20h4v4h-4z M10 22h4v4h-4z M18 22h4v4h-4z M6 24h4v4h-4z M22 24h4v4h-4z"
+                ></path>
+              </g>
+            </svg>
+          </div>
+        </div>
+        <h1 class="title">
+          <strong id="client-name"></strong> wants to access your uploads.sh account
+        </h1>
         <div class="client-host" id="client-host" hidden></div>
         <div class="workspace-picker" id="workspace-picker" hidden>
           <label for="workspace-select">Workspace</label>
           <select id="workspace-select" class="ul-select"></select>
         </div>
+        <hr class="divider" />
         <ul class="scopes" id="scope-list"></ul>
         <div class="actions">
-          <button type="button" class="primary" id="allow-btn">Allow</button>
           <button type="button" class="secondary" id="deny-btn">Deny</button>
+          <button type="button" class="primary" id="allow-btn">Allow access</button>
         </div>
         <div class="ul-callout status" id="confirm-error" data-state="error" role="alert" hidden>
         </div>
@@ -284,6 +421,8 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
       const nwClientName = requireElement<HTMLElement>("#nw-client-name");
       const createWorkspaceLink = requireElement<HTMLAnchorElement>("#create-workspace-link");
       const confirmBox = requireElement<HTMLElement>("#confirm");
+      const appLogo = requireElement<HTMLImageElement>("#app-logo");
+      const appInitial = requireElement<HTMLElement>("#app-initial");
       const clientName = requireElement<HTMLElement>("#client-name");
       const clientHost = requireElement<HTMLElement>("#client-host");
       const workspacePicker = requireElement<HTMLElement>("#workspace-picker");
@@ -300,14 +439,35 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
       const confirmError = requireElement<HTMLElement>("#confirm-error");
       const redirecting = requireElement<HTMLElement>("#redirecting");
 
-      // Human copy for the scopes this AS issues (see docs/superpowers/specs/
-      // 2026-07-17-oauth-authorization-server-design.md — files:read/write/delete).
-      // Unrecognized scopes fall back to the raw identifier.
+      // Human copy + iconography for the scopes this AS issues (see
+      // docs/superpowers/specs/2026-07-17-oauth-authorization-server-design.md —
+      // files:read/write/delete). Unrecognized scopes fall back to the raw
+      // identifier and a neutral shield icon.
       const SCOPE_DESCRIPTIONS: Record<string, string> = {
         "files:read": "Read your files",
         "files:write": "Upload and modify files",
         "files:delete": "Delete files",
       };
+
+      // Hand-rolled lucide-style icons (stroke=currentColor, strokeWidth=2,
+      // viewBox 24) — no icon library on this no-framework-JS page.
+      const SCOPE_ICONS: Record<string, string> = {
+        "files:read":
+          '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"></path><circle cx="12" cy="12" r="3"></circle>',
+        "files:write":
+          '<path d="M12 3v12"></path><path d="m7 8 5-5 5 5"></path><path d="M5 21h14"></path>',
+        "files:delete":
+          '<path d="M3 6h18"></path><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>',
+      };
+      const UNKNOWN_SCOPE_ICON = '<path d="M12 2 4 5v6c0 5 3.5 9 8 11 4.5-2 8-6 8-11V5Z"></path>';
+      const SCOPE_CHIP_TONE: Record<string, string> = {
+        "files:delete": "chip--delete",
+      };
+
+      function scopeIconSvg(scope: string): string {
+        const inner = SCOPE_ICONS[scope] ?? UNKNOWN_SCOPE_ICON;
+        return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${inner}</svg>`;
+      }
 
       const params = new URLSearchParams(location.search);
       const clientId = params.get("client_id")?.trim() ?? "";
@@ -343,8 +503,9 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
         scopeList.replaceChildren();
         for (const scope of requestedScopes) {
           const li = document.createElement("li");
-          const dot = document.createElement("span");
-          dot.className = "dot";
+          const chip = document.createElement("span");
+          chip.className = ["chip", SCOPE_CHIP_TONE[scope] ?? ""].filter(Boolean).join(" ");
+          chip.innerHTML = scopeIconSvg(scope);
           const text = document.createElement("span");
           const desc = document.createElement("span");
           desc.className = "desc";
@@ -354,7 +515,7 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
           id.textContent = scope;
           text.appendChild(desc);
           text.appendChild(id);
-          li.appendChild(dot);
+          li.appendChild(chip);
           li.appendChild(text);
           scopeList.appendChild(li);
         }
@@ -383,7 +544,8 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
       }
 
       // A registered client (DCR) fully controls client_uri/logo_uri — only
-      // render it as a link if it's actually http(s), never javascript:/data:/etc.
+      // render it as a link (or an <img src>) if it's actually http(s), never
+      // javascript:/data:/etc.
       function safeHttpUrl(value: string | undefined): URL | null {
         if (!value) return null;
         try {
@@ -392,6 +554,24 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
         } catch {
           return null;
         }
+      }
+
+      // Purely decorative: an initials tile by default, swapped for the
+      // client's logo if it declares one and the image actually loads.
+      function renderAppTile(name: string, logoUri: string | undefined) {
+        appLogo.hidden = true;
+        appInitial.hidden = false;
+        appInitial.textContent = (name.trim()[0] ?? "?").toUpperCase();
+        const logo = safeHttpUrl(logoUri);
+        if (!logo) return;
+        appLogo.onload = () => {
+          appInitial.hidden = true;
+          appLogo.hidden = false;
+        };
+        appLogo.onerror = () => {
+          appLogo.hidden = true;
+        };
+        appLogo.src = logo.href;
       }
 
       async function proceed() {
@@ -455,7 +635,9 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
           orderedOrgs.length > 1 ? await getOAuthWorkspaceChoice(authOrigin) : null;
         renderWorkspacePicker(serverDefault);
 
-        clientName.textContent = client?.client_name || clientId;
+        const displayName = client?.client_name || clientId;
+        clientName.textContent = displayName;
+        renderAppTile(displayName, client?.logo_uri);
         const host = safeHttpUrl(client?.client_uri);
         if (host) {
           clientHost.replaceChildren();
