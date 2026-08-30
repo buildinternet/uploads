@@ -1,0 +1,71 @@
+# Nightly encrypted backup of the production D1 database to R2.
+#
+# Exports uploads-production with `wrangler d1 export`, gzips, encrypts with
+# age (public-key only — CI cannot decrypt anything it produces), and uploads
+# to the shared buildinternet-backups bucket under the uploads/ prefix. A
+# lifecycle rule on that prefix expires objects after 365 days.
+#
+# Restore: age -d -i <private key> backup.sql.gz.age | gunzip > dump.sql,
+# then import into a fresh migrated database. The age private key lives only
+# in 1Password ("uploads D1 backup key") — it exists nowhere in CI or the
+# repo, and without it the backups are unrecoverable.
+#
+# Public repo: nothing sensitive may reach CI output — no GHA artifacts, no
+# row counts or dump excerpts in logs.
+#
+# Secrets (same as d1-migrations.yml): CLOUDFLARE_API_TOKEN (D1 read + R2
+# write), CLOUDFLARE_ACCOUNT_ID. The export briefly pauses D1 writes, hence
+# the off-peak schedule.
+
+name: Backup prod D1
+
+on:
+  schedule:
+    - cron: "0 8 * * *" # 4am ET
+  workflow_dispatch:
+
+concurrency:
+  group: backup-db
+
+permissions:
+  contents: read
+
+env:
+  DB_NAME: uploads-production
+  R2_DEST: buildinternet-backups/uploads
+  AGE_RECIPIENT: age197ensn9u5dy8zn2t5qzhlkkdgsvhlsqlz3c786jk7htnaek4pafqmxdf2h
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      # Workspace install so apps/api resolves its wrangler devDependency.
+      - run: pnpm install --frozen-lockfile
+
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq age
+
+      - name: Export, encrypt, upload
+        working-directory: apps/api
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+          pnpm exec wrangler d1 export "$DB_NAME" --remote --output dump.sql
+          grep -q "^INSERT INTO" dump.sql # refuse an empty backup
+          gzip -9 dump.sql
+          age -r "$AGE_RECIPIENT" -o "db-${STAMP}.sql.gz.age" dump.sql.gz
+          pnpm exec wrangler r2 object put "${R2_DEST}/db-${STAMP}.sql.gz.age" \
+            --file "db-${STAMP}.sql.gz.age" --remote
