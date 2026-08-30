@@ -18,7 +18,11 @@ const MANUAL_SETUP = `# install the agent skills
 npx skills add buildinternet/uploads
 
 # register the hosted MCP server
-claude mcp add --transport http uploads https://agents.uploads.sh/mcp`;
+# Claude Code
+claude mcp add --transport http uploads https://agents.uploads.sh/mcp
+
+# Codex
+codex mcp add uploads --url https://agents.uploads.sh/mcp`;
 
 const STAGE_EXAMPLE = `$ uploads put ./after.png --state after
 
@@ -158,7 +162,7 @@ const FAQ_JSON_LD = JSON.stringify({
       That installs the <strong>agent skills</strong> (when to capture as you go, when to annotate, and
       the full CLI reference) and registers the <strong>MCP server</strong> so the agent can upload without
       shelling out. The skills and MCP are also what a browserless agent — CI job, review bot, or one
-      on <code>agents.uploads.sh</code> with no local git — uses to stage and promote.
+      using <code>https://agents.uploads.sh/mcp</code> with no local git — uses to stage and promote.
     </p>
     <p>
       Hosted <code>put</code> accepts base64 or a public HTTPS <code>contentUrl</code>. <a

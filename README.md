@@ -149,12 +149,16 @@ view the file. Do not upload secrets or sensitive UI.
 
 ## Connect your agent
 
-The hosted MCP server runs at `agents.uploads.sh` and is listed in the
+The hosted MCP server runs at `https://agents.uploads.sh/mcp` and is listed in the
 [MCP Registry](https://registry.modelcontextprotocol.io/v0.1/servers?search=sh.uploads/mcp)
 as `sh.uploads/mcp`. Local stdio is `uploads mcp` on the same npm package.
 
 ```bash
+# Claude Code
 claude mcp add --transport http uploads https://agents.uploads.sh/mcp
+
+# Codex
+codex mcp add uploads --url https://agents.uploads.sh/mcp
 ```
 
 `uploads install` adds the agent skills and the MCP server, so future sessions
