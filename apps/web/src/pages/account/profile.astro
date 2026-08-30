@@ -50,6 +50,14 @@ const sessionsEmpty = sessionsReady && (initial.sessions?.length ?? 0) === 0;
         />
         <span>Email me when someone joins a workspace I administer.</span>
       </label>
+      <label class="notify-row">
+        <input
+          type="checkbox"
+          id="notify-usage-limits"
+          checked={initial.user?.notifyUsageLimits ?? true}
+        />
+        <span>Email me when a workspace I administer nears its usage limit.</span>
+      </label>
       <p id="notify-status" class="muted settings-note" role="status" aria-live="polite"></p>
     </div>
 
@@ -170,6 +178,7 @@ const sessionsEmpty = sessionsReady && (initial.sessions?.length ?? 0) === 0;
       listSessions,
       revokeSession,
       updateNotifyMemberJoin,
+      updateNotifyUsageLimits,
       type AuthSession,
     } from "../../lib/auth-client";
     import {
@@ -413,25 +422,35 @@ const sessionsEmpty = sessionsReady && (initial.sessions?.length ?? 0) === 0;
       }
 
       const notifyToggle = document.getElementById("notify-member-join") as HTMLInputElement | null;
+      const usageToggle = document.getElementById("notify-usage-limits") as HTMLInputElement | null;
       const notifyStatus = document.getElementById("notify-status");
       function setNotifyStatus(message: string): void {
         if (notifyStatus) notifyStatus.textContent = message;
       }
-      notifyToggle?.addEventListener("change", () => {
-        void (async () => {
-          const desired = notifyToggle.checked;
-          notifyToggle.disabled = true;
-          setNotifyStatus("Saving…");
-          const ok = await updateNotifyMemberJoin(authOrigin, desired);
-          if (!ok) {
-            notifyToggle.checked = !desired; // revert
-            setNotifyStatus("Couldn’t save — try again.");
-          } else {
-            setNotifyStatus(desired ? "You’ll be notified." : "Notifications off.");
-          }
-          notifyToggle.disabled = false;
-        })();
-      });
+      // Both toggles share one status line and the same save-and-revert dance.
+      // Only the persistence call differs.
+      function wireNotifyToggle(
+        el: HTMLInputElement | null,
+        save: (origin: string, value: boolean) => Promise<boolean>,
+      ): void {
+        el?.addEventListener("change", () => {
+          void (async () => {
+            const desired = el.checked;
+            el.disabled = true;
+            setNotifyStatus("Saving…");
+            const ok = await save(authOrigin, desired);
+            if (!ok) {
+              el.checked = !desired; // revert
+              setNotifyStatus("Couldn’t save — try again.");
+            } else {
+              setNotifyStatus(desired ? "Notifications on." : "Notifications off.");
+            }
+            el.disabled = false;
+          })();
+        });
+      }
+      wireNotifyToggle(notifyToggle, updateNotifyMemberJoin);
+      wireNotifyToggle(usageToggle, updateNotifyUsageLimits);
 
       onSession((user) => {
         requireElement<HTMLElement>("#acct-email", "account profile").textContent = user.email;
@@ -440,6 +459,9 @@ const sessionsEmpty = sessionsReady && (initial.sessions?.length ?? 0) === 0;
           user.role || "member";
         if (notifyToggle && typeof user.notifyMemberJoin === "boolean") {
           notifyToggle.checked = user.notifyMemberJoin;
+        }
+        if (usageToggle && typeof user.notifyUsageLimits === "boolean") {
+          usageToggle.checked = user.notifyUsageLimits;
         }
         void loadAccounts();
         void loadSessions();

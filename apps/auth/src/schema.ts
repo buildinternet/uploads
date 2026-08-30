@@ -60,6 +60,12 @@ export const user = sqliteTable("user", {
   notifyMemberJoin: integer("notify_member_join", { mode: "boolean" })
     .notNull()
     .$defaultFn(() => true),
+  /** Per-user pref: email me when a workspace I administer nears its usage
+   * limit (50/90/100% of storage or monthly uploads). Default on. Same
+   * additionalField mechanism as notifyMemberJoin. */
+  notifyUsageLimits: integer("notify_usage_limits", { mode: "boolean" })
+    .notNull()
+    .$defaultFn(() => true),
 });
 
 /**

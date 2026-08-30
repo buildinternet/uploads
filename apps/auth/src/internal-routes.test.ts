@@ -132,6 +132,7 @@ describe("DB-backed behavior", () => {
       cliOnboardedAt: overrides.cliOnboardedAt ?? null,
       stripeCustomerId: overrides.stripeCustomerId ?? null,
       notifyMemberJoin: overrides.notifyMemberJoin ?? true,
+      notifyUsageLimits: overrides.notifyUsageLimits ?? true,
     };
     await orm.insert(schema.user).values(user);
     return user;
@@ -157,6 +158,77 @@ describe("DB-backed behavior", () => {
     const user = await seedUser();
     const [row] = await orm.select().from(schema.user).where(eq(schema.user.id, user.id));
     expect(row.notifyMemberJoin).toBe(true);
+  });
+
+  it("defaults notify_usage_limits to on for a seeded user", async () => {
+    const user = await seedUser();
+    const [row] = await orm.select().from(schema.user).where(eq(schema.user.id, user.id));
+    expect(row.notifyUsageLimits).toBe(true);
+  });
+
+  describe("POST /internal/usage-alerts/notify", () => {
+    const storageEvent = { cap: "storage", threshold: 90, used: 225_000_000, limit: 250_000_000 };
+    function notify(body: unknown, overrides: Partial<AuthEnv> = {}) {
+      return app().request(
+        "/internal/usage-alerts/notify",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        },
+        dbEnv(overrides),
+      );
+    }
+
+    it("400s when slug is missing", async () => {
+      const res = await notify({ events: [storageEvent] });
+      expect(res.status).toBe(400);
+      expect((await res.json()) as { error: { code: string } }).toMatchObject({
+        error: { code: "invalid_request" },
+      });
+    });
+
+    it("400s when no valid event is present", async () => {
+      const res = await notify({ slug: "acme", events: [{ cap: "bogus", threshold: 42 }] });
+      expect(res.status).toBe(400);
+    });
+
+    it("404s for an unknown org", async () => {
+      const res = await notify({ slug: "nope", events: [storageEvent] });
+      expect(res.status).toBe(404);
+      expect((await res.json()) as { error: { code: string } }).toMatchObject({
+        error: { code: "organization_not_found" },
+      });
+    });
+
+    it("emails admins/owners whose pref is on", async () => {
+      const org = await seedOrg();
+      const admin = await seedUser();
+      const owner = await seedUser();
+      const optedOut = await seedUser({ notifyUsageLimits: false });
+      const plain = await seedUser();
+      for (const [user, role] of [
+        [admin, "admin"],
+        [owner, "owner"],
+        [optedOut, "admin"],
+        [plain, "member"],
+      ] as const) {
+        await orm.insert(schema.member).values({
+          id: crypto.randomUUID(),
+          organizationId: org.id,
+          userId: user.id,
+          role,
+          createdAt: new Date(),
+        });
+      }
+      const send = vi.fn().mockResolvedValue({});
+
+      const res = await notify({ slug: org.slug, events: [storageEvent] }, { EMAIL: { send } });
+
+      expect(res.status).toBe(200);
+      const recipients = send.mock.calls.map((c) => c[0].to).sort();
+      expect(recipients).toEqual([admin.email, owner.email].sort());
+    });
   });
 
   describe("POST /internal/promote-admin", () => {

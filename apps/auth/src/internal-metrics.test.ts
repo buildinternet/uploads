@@ -44,6 +44,7 @@ describe("GET /internal/metrics", () => {
       cliOnboardedAt: null,
       stripeCustomerId: null,
       notifyMemberJoin: true,
+      notifyUsageLimits: true,
     } as schema.AuthUser);
   }
 

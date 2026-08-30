@@ -15,3 +15,9 @@ export {
 } from "./invites";
 export { renderWelcomeEmail } from "./welcome";
 export { renderAbuseReportEmail, type AbuseReportEmailInput } from "./abuse";
+export {
+  renderUsageAlertEmail,
+  type UsageAlertCap,
+  type UsageAlertEvent,
+  type UsageAlertThreshold,
+} from "./usage";

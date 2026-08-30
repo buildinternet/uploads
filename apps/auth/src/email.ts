@@ -9,8 +9,10 @@ import {
   renderMemberJoinAdminNoticeEmail,
   renderMemberJoinedEmail,
   renderOrgInvitationEmail,
+  renderUsageAlertEmail,
   renderWelcomeEmail,
   type RenderedEmail,
+  type UsageAlertEvent,
 } from "@uploads/email";
 
 const FROM = { name: "uploads.sh", email: "noreply@uploads.sh" } as const;
@@ -50,6 +52,16 @@ export type SendAuthEmailArgs =
     }
   | {
       to: string;
+      template: "usage-limit-alert";
+      context: {
+        organizationName: string;
+        organizationSlug: string;
+        events: UsageAlertEvent[];
+        plan?: string;
+      };
+    }
+  | {
+      to: string;
       template: "welcome";
       context: { workspaceName?: string };
     };
@@ -64,6 +76,8 @@ function render(args: SendAuthEmailArgs, webOrigin: string): RenderedEmail {
       return renderMemberJoinedEmail({ ...args.context, webOrigin });
     case "member-join-admin-notice":
       return renderMemberJoinAdminNoticeEmail({ ...args.context, webOrigin });
+    case "usage-limit-alert":
+      return renderUsageAlertEmail({ ...args.context, webOrigin });
     case "welcome":
       return renderWelcomeEmail({ ...args.context, webOrigin });
   }
