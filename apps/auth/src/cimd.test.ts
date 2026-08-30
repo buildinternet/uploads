@@ -11,6 +11,7 @@ import { drizzle } from "drizzle-orm/d1";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AuthEnv } from "./auth";
 import {
+  coerceExplicitWebToNativeForPrivateUseScheme,
   defaultRegistrationApplicationType,
   fetchClientMetadataResource,
   intersectAdvertisedGrantTypes,
@@ -388,5 +389,48 @@ describe("defaultRegistrationApplicationType", () => {
     expect(defaultRegistrationApplicationType({ redirect_uris: "nope" })).toBeUndefined();
     expect(defaultRegistrationApplicationType({ redirect_uris: [42] })).toBeUndefined();
     expect(defaultRegistrationApplicationType({ redirect_uris: ["not a url"] })).toBeUndefined();
+  });
+
+  describe("coerceExplicitWebToNativeForPrivateUseScheme", () => {
+    // Cursor's MCP client: https://forum.cursor.com/t/cursor-does-not-send-application-type-native-when-registering-mcp-oauth-clients/136907
+    it("coerces web + a private-use-scheme redirect to native", () => {
+      const body = {
+        application_type: "web",
+        redirect_uris: ["cursor://anysphere.cursor-mcp/oauth/callback"],
+      };
+      expect(coerceExplicitWebToNativeForPrivateUseScheme(body)).toEqual({
+        ...body,
+        application_type: "native",
+      });
+    });
+
+    // Pinned upstream behavior (better-auth#10913) keeps this a 400 in
+    // oauth.test.ts; the coercion must not intervene here.
+    it("does not coerce web + loopback-only http redirects", () => {
+      expect(
+        coerceExplicitWebToNativeForPrivateUseScheme({
+          application_type: "web",
+          redirect_uris: ["http://127.0.0.1:1234/cb"],
+        }),
+      ).toBeUndefined();
+    });
+
+    it("does not coerce web + an https redirect", () => {
+      expect(
+        coerceExplicitWebToNativeForPrivateUseScheme({
+          application_type: "web",
+          redirect_uris: ["https://client.example.com/callback"],
+        }),
+      ).toBeUndefined();
+    });
+
+    it("does not touch an already-explicit native application_type", () => {
+      expect(
+        coerceExplicitWebToNativeForPrivateUseScheme({
+          application_type: "native",
+          redirect_uris: ["cursor://anysphere.cursor-mcp/oauth/callback"],
+        }),
+      ).toBeUndefined();
+    });
   });
 });
