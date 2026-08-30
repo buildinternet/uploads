@@ -56,13 +56,16 @@ function fakeRegistry(records: Record<string, unknown>, markers = new Map<string
   };
 }
 
-function fakeAuth() {
+function fakeAuth(statuses: number[] = []) {
   const posts: Array<{ slug: string; events: UsageAlertEvent[]; plan?: string }> = [];
+  let call = 0;
   return {
     posts,
     fetch: vi.fn(async (_url: string, init: RequestInit) => {
       posts.push(JSON.parse(String(init.body)));
-      return new Response(null, { status: 200 });
+      const status = statuses[call] ?? 200;
+      call += 1;
+      return new Response(null, { status });
     }),
   };
 }
@@ -71,9 +74,10 @@ function makeEnv(opts: {
   records: Record<string, unknown>;
   usage: Record<string, UsageSeed>;
   markers?: Map<string, string>;
+  authStatuses?: number[];
 }) {
   const REGISTRY = fakeRegistry(opts.records, opts.markers);
-  const AUTH = fakeAuth();
+  const AUTH = fakeAuth(opts.authStatuses);
   const DB = fakeDb(opts.usage);
   const env = { REGISTRY, AUTH, DB } as unknown as Env;
   return { env, REGISTRY, AUTH };
@@ -116,6 +120,33 @@ describe("runUsageAlertSweep", () => {
     const env2 = makeEnv(setup).env; // reuse the same markers map
     const r2 = await runUsageAlertSweep(env2);
     expect(r2.crossings).toBe(0);
+  });
+
+  it("does not commit the marker when delivery fails, and retries next sweep", async () => {
+    const markers = new Map<string, string>();
+
+    // First sweep: the auth worker rejects the notification.
+    const failed = makeEnv({
+      records: { "ws:acme": wsRecord() },
+      usage: { acme: { bytes: 230_000_000 } }, // 92% → band 90
+      markers,
+      authStatuses: [500],
+    });
+    const r1 = await runUsageAlertSweep(failed.env);
+    expect(failed.AUTH.posts).toHaveLength(1); // it tried
+    expect(r1.crossings).toBe(0); // but nothing counted as alerted
+    expect(markers.has("usage:alert:acme:storage")).toBe(false); // marker NOT raised
+
+    // Next sweep: the crossing is still fresh, delivery succeeds, marker commits.
+    const ok = makeEnv({
+      records: { "ws:acme": wsRecord() },
+      usage: { acme: { bytes: 230_000_000 } },
+      markers,
+      authStatuses: [200],
+    });
+    await runUsageAlertSweep(ok.env);
+    expect(ok.AUTH.posts).toHaveLength(1);
+    expect(markers.get("usage:alert:acme:storage")).toBe("90");
   });
 
   it("forwards the workspace plan so the email copy can stay plan-accurate", async () => {

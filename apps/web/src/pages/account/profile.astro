@@ -427,8 +427,8 @@ const sessionsEmpty = sessionsReady && (initial.sessions?.length ?? 0) === 0;
       function setNotifyStatus(message: string): void {
         if (notifyStatus) notifyStatus.textContent = message;
       }
-      // Both notification toggles share the one status line and the same
-      // save-and-revert dance; only the persistence call differs.
+      // Both toggles share one status line and the same save-and-revert dance.
+      // Only the persistence call differs.
       function wireNotifyToggle(
         el: HTMLInputElement | null,
         save: (origin: string, value: boolean) => Promise<boolean>,

@@ -44,9 +44,13 @@ function bandFor(pct: number): number {
 }
 
 /**
- * Compare a cap's current usage against its marker. Pushes a crossing when the
- * band rose; always reconciles the marker to the current band (re-arming on a
- * recede). Never throws — a KV hiccup on one cap must not abort the sweep.
+ * Compare a cap's current usage against its marker. On a new crossing it pushes
+ * the event and defers the raised marker write onto `pendingRaises` — the caller
+ * commits those only after the notification is accepted, so a failed send is
+ * retried next sweep instead of being suppressed by an already-raised marker.
+ * A non-crossing marker (recede/steady) is reconciled immediately: lowering or
+ * TTL-refreshing it can only make a future alert more likely. Never throws — a
+ * KV hiccup on one cap must not abort the sweep.
  */
 async function evaluateCap(
   kv: KVNamespace,
@@ -54,6 +58,7 @@ async function evaluateCap(
   ttlSeconds: number,
   event: { cap: UsageAlertEvent["cap"]; used: number; limit: number },
   crossed: UsageAlertEvent[],
+  pendingRaises: Array<() => Promise<void>>,
 ): Promise<void> {
   const pct = (event.used / event.limit) * 100;
   const current = bandFor(pct);
@@ -67,6 +72,9 @@ async function evaluateCap(
       used: event.used,
       limit: event.limit,
     });
+    // Hold the raise until delivery is confirmed (see runUsageAlertSweep).
+    pendingRaises.push(() => kv.put(markerKey, String(current), { expirationTtl: ttlSeconds }));
+    return;
   }
 
   if (current === 0) {
@@ -78,13 +86,18 @@ async function evaluateCap(
   await kv.put(markerKey, String(current), { expirationTtl: ttlSeconds });
 }
 
-/** POST a workspace's crossings to the auth worker, which filters + sends. */
+/**
+ * POST a workspace's crossings to the auth worker, which filters + sends.
+ * Returns whether the notification was accepted — a rejection leaves the raised
+ * markers uncommitted so the next sweep retries. A transport error throws to the
+ * caller's per-workspace catch, with the same effect (markers not committed).
+ */
 async function postUsageAlert(
   env: Env,
   slug: string,
   events: UsageAlertEvent[],
   plan: string | undefined,
-): Promise<void> {
+): Promise<boolean> {
   const res = await env.AUTH.fetch(`${INTERNAL_ORIGIN}/internal/usage-alerts/notify`, {
     method: "POST",
     headers: { "x-uploads-internal": "1", "content-type": "application/json" },
@@ -98,7 +111,9 @@ async function postUsageAlert(
         status: res.status,
       }),
     );
+    return false;
   }
+  return true;
 }
 
 export async function runUsageAlertSweep(env: Env): Promise<UsageAlertSweepResult> {
@@ -137,6 +152,7 @@ export async function runUsageAlertSweep(env: Env): Promise<UsageAlertSweepResul
 
         const usage = await getWorkspaceUsage(db, name);
         const crossed: UsageAlertEvent[] = [];
+        const pendingRaises: Array<() => Promise<void>> = [];
 
         if (maxStorageBytes !== undefined) {
           const used = enforcedStorageUsageBytes(record, usage);
@@ -147,6 +163,7 @@ export async function runUsageAlertSweep(env: Env): Promise<UsageAlertSweepResul
               STORAGE_MARKER_TTL_S,
               { cap: "storage", used, limit: maxStorageBytes },
               crossed,
+              pendingRaises,
             );
           }
         }
@@ -158,13 +175,18 @@ export async function runUsageAlertSweep(env: Env): Promise<UsageAlertSweepResul
             UPLOADS_MARKER_TTL_S,
             { cap: "uploads", used: usage.uploadsInPeriod, limit: maxUploadsPerPeriod },
             crossed,
+            pendingRaises,
           );
         }
 
         if (crossed.length > 0) {
-          await postUsageAlert(env, name, crossed, record.plan);
-          result.workspacesAlerted += 1;
-          result.crossings += crossed.length;
+          const delivered = await postUsageAlert(env, name, crossed, record.plan);
+          if (delivered) {
+            // Only now commit the raised markers, so a failed delivery retries.
+            for (const commit of pendingRaises) await commit();
+            result.workspacesAlerted += 1;
+            result.crossings += crossed.length;
+          }
         }
       } catch (err) {
         result.errors.push({
