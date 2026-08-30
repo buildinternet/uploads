@@ -68,12 +68,12 @@ describe("renderConnectedAppsHtml", () => {
     expect(html).toMatch(/&lt;img/);
   });
 
-  it("orders grants most-recently-granted first", () => {
+  it("renders grants in the order the endpoint returned them", () => {
     const html = renderConnectedAppsHtml([
-      grant({ id: "older", clientName: "Older", createdAt: "2026-01-01T00:00:00.000Z" }),
-      grant({ id: "newer", clientName: "Newer", createdAt: "2026-08-01T00:00:00.000Z" }),
+      grant({ id: "first", clientName: "First" }),
+      grant({ id: "second", clientName: "Second" }),
     ]);
-    expect(html.indexOf("Newer")).toBeLessThan(html.indexOf("Older"));
+    expect(html.indexOf("First")).toBeLessThan(html.indexOf("Second"));
   });
 });
 

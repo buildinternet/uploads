@@ -44,18 +44,13 @@ function scopeChipsHtml(scopes: string[]): string {
 }
 
 /**
- * Connected-apps list rows, most-recently-granted first. `[]` → `""` — the
- * caller decides the empty-state text and hides the list, same branching
- * `renderSessionsHtml` uses.
+ * Connected-apps list rows in the order the endpoint returns them (it
+ * guarantees newest-first). `[]` → `""` — the caller decides the empty-state
+ * text and hides the list, same branching `renderSessionsHtml` uses.
  */
 export function renderConnectedAppsHtml(grants: ConnectedAppGrant[]): string {
   if (!grants.length) return "";
-  const ordered = [...grants].sort((a, b) => {
-    const at = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-    const bt = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-    return bt - at;
-  });
-  return ordered
+  return grants
     .map((grant) => {
       const name = grant.clientName || grant.clientId;
       const workspace = connectedAppWorkspaceLabel(grant.referenceId);
