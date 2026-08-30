@@ -22,6 +22,19 @@ import canonicalSpec from "../public/.well-known/openapi.json";
 import { GET } from "./pages/openapi.json";
 
 const CANONICAL_SOURCE = "https://uploads.sh/.well-known/integrations.json";
+const FILE_SCOPES = ["files:delete", "files:read", "files:write"] as const;
+const OPENAPI_HTTP_METHODS = ["get", "post", "put", "patch", "delete"] as const;
+
+function expectedFileScope(path: string, method: string): string | null {
+  if (path === "/public/galleries/{galleryId}") return null;
+  if (path === "/v1/workspaces/{workspace}/files/{key}" && method === "delete") {
+    return "files:delete";
+  }
+  if (path === "/v1/workspaces/{workspace}/usage/purge-expired" && method === "post") {
+    return "files:delete";
+  }
+  return method === "get" ? "files:read" : "files:write";
+}
 
 type Basis = { via: string; source: string };
 type Mechanics = Record<string, unknown> & { source: string };
@@ -206,6 +219,32 @@ describe("/openapi.json", () => {
     const add = paths["/v1/workspaces/{workspace}/galleries/{galleryId}/items"]?.post;
     expect(add.responses).toHaveProperty("200");
     expect(add.responses).toHaveProperty("201");
+  });
+
+  it("declares named files:* scopes and lists one on each authenticated operation", () => {
+    const schemes = canonicalSpec.components.securitySchemes as {
+      oauth2?: { type: string; flows?: { authorizationCode?: { scopes?: object } } };
+    };
+    expect(schemes.oauth2?.type).toBe("oauth2");
+    expect(Object.keys(schemes.oauth2?.flows?.authorizationCode?.scopes ?? {}).sort()).toEqual([
+      ...FILE_SCOPES,
+    ]);
+
+    type Operation = { security?: Record<string, string[]>[] };
+    const paths = canonicalSpec.paths as Record<string, Record<string, Operation>>;
+    for (const [path, item] of Object.entries(paths)) {
+      for (const method of OPENAPI_HTTP_METHODS) {
+        const operation = item[method];
+        if (!operation) continue;
+        const scope = expectedFileScope(path, method);
+        const label = `${method.toUpperCase()} ${path}`;
+        if (scope === null) {
+          expect(operation.security, label).toEqual([]);
+          continue;
+        }
+        expect(operation.security, label).toEqual([{ bearerAuth: [scope] }]);
+      }
+    }
   });
 
   it("resolves every local reference and keeps operation ids unique", () => {

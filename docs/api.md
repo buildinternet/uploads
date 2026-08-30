@@ -4,7 +4,9 @@ Public developer routes use `Authorization: Bearer <token>`. That is a
 workspace token (`up_<workspace>_…`) from `uploads login` or
 `/account/developers`. The workspace is always in the URL path. The CLI infers
 it from the token. `POST /v1/tokens` defaults to 90 days; `ttlSeconds: null`
-mints a token that does not expire.
+mints a token that does not expire. Tokens carry named scopes `files:read`,
+`files:write`, and `files:delete`. The OpenAPI document lists the required
+scope on each operation. REST v1 does not accept OAuth access tokens.
 
 The canonical resource hierarchy is `/v1/workspaces/:workspace/…`. These
 routes also accept a signed-in uploads.sh session when the caller uses the web

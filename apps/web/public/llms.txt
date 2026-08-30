@@ -7,6 +7,20 @@ Access requires a workspace — create your own with a linked GitHub account, or
 Expanded one-file guide: [llms-full.txt](https://uploads.sh/llms-full.txt).
 Landed on the GitHub monorepo instead? Start at [repo llms.txt](https://github.com/buildinternet/uploads/blob/main/llms.txt) (product use vs contribute).
 
+## When to use this
+
+Use uploads.sh when a screenshot, screen recording, diagram, or other visual needs to land on a GitHub pull request or issue. Reach for it as you produce the visual. Do not wait until GitHub's attachment path fails.
+
+Also use it to host a local file (or a public HTTPS URL) at a stable public URL you can paste anywhere.
+
+Do not upload secrets, tokens, or sensitive UI.
+
+How to call it:
+
+- Local checkout: `uploads put` / `uploads attach`, or the github-screenshots skill
+- No filesystem: hosted MCP at https://agents.uploads.sh/mcp
+- Exact flags and contracts: uploads-cli skill
+
 ## Start here
 
 - [Home](https://uploads.sh/): product overview and copyable install commands

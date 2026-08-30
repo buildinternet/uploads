@@ -42,6 +42,7 @@
       "parameters": [{ "$ref": "#/components/parameters/Workspace" }],
       "get": {
         "operationId": "listFiles",
+        "security": [{ "bearerAuth": ["files:read"] }],
         "summary": "List workspace files",
         "parameters": [
           { "$ref": "#/components/parameters/Prefix" },
@@ -70,6 +71,7 @@
       "parameters": [{ "$ref": "#/components/parameters/Workspace" }],
       "get": {
         "operationId": "searchFiles",
+        "security": [{ "bearerAuth": ["files:read"] }],
         "summary": "Search workspace files",
         "description": "Requires at least one `meta.<key>` equality filter or a `name` substring. Metadata filter names are dynamic query parameters.",
         "parameters": [
@@ -103,6 +105,7 @@
       "parameters": [{ "$ref": "#/components/parameters/Workspace" }],
       "get": {
         "operationId": "listFileFacets",
+        "security": [{ "bearerAuth": ["files:read"] }],
         "summary": "List metadata keys or values",
         "parameters": [
           {
@@ -128,6 +131,7 @@
       "parameters": [{ "$ref": "#/components/parameters/Workspace" }],
       "post": {
         "operationId": "signFileUpload",
+        "security": [{ "bearerAuth": ["files:write"] }],
         "summary": "Create a presigned upload",
         "requestBody": {
           "required": true,
@@ -149,6 +153,7 @@
       "parameters": [{ "$ref": "#/components/parameters/Workspace" }],
       "get": {
         "operationId": "listFilesByPath",
+        "security": [{ "bearerAuth": ["files:read"] }],
         "summary": "Group workspace files by GitHub path",
         "description": "Powers the web Screenshots page's grouped-by-path view. Groups recently uploaded `gh.*`-tagged files by project and path.",
         "parameters": [
@@ -175,6 +180,7 @@
       "parameters": [{ "$ref": "#/components/parameters/Workspace" }],
       "get": {
         "operationId": "getFileUrl",
+        "security": [{ "bearerAuth": ["files:read"] }],
         "summary": "Resolve a usable URL for a file",
         "description": "Returns the workspace's public URL when configured, otherwise a short-lived signed download URL. Resolves across storage lanes so a file uploaded before a storage switch still resolves.",
         "parameters": [
@@ -204,6 +210,7 @@
       "parameters": [{ "$ref": "#/components/parameters/Workspace" }],
       "patch": {
         "operationId": "setFileVisibility",
+        "security": [{ "bearerAuth": ["files:write"] }],
         "summary": "Set a file's visibility flag",
         "parameters": [
           { "name": "key", "in": "query", "required": true, "schema": { "type": "string" } }
@@ -253,6 +260,7 @@
       ],
       "put": {
         "operationId": "putFile",
+        "security": [{ "bearerAuth": ["files:write"] }],
         "summary": "Upload a file",
         "description": "Send an Idempotency-Key to make retries safe for 24 hours. Reusing the key with the same effective request (keyed on the uploaded content) returns the original 201 response. Reusing it with a different request returns 409.",
         "parameters": [
@@ -306,6 +314,7 @@
       },
       "get": {
         "operationId": "getFile",
+        "security": [{ "bearerAuth": ["files:read"] }],
         "summary": "Read file metadata",
         "parameters": [
           {
@@ -336,6 +345,7 @@
       },
       "patch": {
         "operationId": "patchFileMetadata",
+        "security": [{ "bearerAuth": ["files:write"] }],
         "summary": "Merge file metadata",
         "requestBody": {
           "required": true,
@@ -359,6 +369,7 @@
       },
       "delete": {
         "operationId": "deleteFile",
+        "security": [{ "bearerAuth": ["files:delete"] }],
         "summary": "Delete a file",
         "responses": {
           "200": {
@@ -378,6 +389,7 @@
       "parameters": [{ "$ref": "#/components/parameters/Workspace" }],
       "get": {
         "operationId": "getUsage",
+        "security": [{ "bearerAuth": ["files:read"] }],
         "summary": "Read workspace usage",
         "responses": {
           "200": {
@@ -395,6 +407,7 @@
       "parameters": [{ "$ref": "#/components/parameters/Workspace" }],
       "post": {
         "operationId": "reconcileUsage",
+        "security": [{ "bearerAuth": ["files:write"] }],
         "summary": "Rebuild workspace usage counters",
         "tags": ["Maintenance"],
         "description": "Potentially expensive: scans every object in the workspace's active storage lanes and rebuilds the usage ledger. Requires a bearer token with `files:write`; browser sessions are not accepted.",
@@ -410,6 +423,7 @@
       "parameters": [{ "$ref": "#/components/parameters/Workspace" }],
       "post": {
         "operationId": "purgeExpiredFiles",
+        "security": [{ "bearerAuth": ["files:delete"] }],
         "summary": "Purge files past the retention window",
         "tags": ["Maintenance"],
         "description": "Destructive: permanently deletes objects older than the workspace's `retentionDays`, then reconciles usage. Requires a bearer token with `files:delete`; browser sessions are not accepted. The response is either `{ skipped: true }` or a purge and reconciliation result.",
@@ -425,6 +439,7 @@
       "parameters": [{ "$ref": "#/components/parameters/Workspace" }],
       "post": {
         "operationId": "createGallery",
+        "security": [{ "bearerAuth": ["files:write"] }],
         "summary": "Create a gallery",
         "description": "Send an Idempotency-Key to make retries safe for 24 hours. Reusing the key with the same effective body returns the original 201 response. Reusing it with a different body returns 409.",
         "parameters": [{ "$ref": "#/components/parameters/IdempotencyKey" }],
@@ -456,6 +471,7 @@
       },
       "get": {
         "operationId": "listGalleries",
+        "security": [{ "bearerAuth": ["files:read"] }],
         "summary": "List workspace galleries",
         "parameters": [
           { "$ref": "#/components/parameters/GalleryLimit" },
@@ -477,6 +493,7 @@
       "parameters": [{ "$ref": "#/components/parameters/Workspace" }],
       "get": {
         "operationId": "findGalleriesByReference",
+        "security": [{ "bearerAuth": ["files:read"] }],
         "summary": "Find galleries by external reference",
         "parameters": [
           { "name": "provider", "in": "query", "required": true, "schema": { "type": "string" } },
@@ -509,6 +526,7 @@
       ],
       "get": {
         "operationId": "getGallery",
+        "security": [{ "bearerAuth": ["files:read"] }],
         "summary": "Read a gallery",
         "responses": {
           "200": {
@@ -524,6 +542,7 @@
       },
       "patch": {
         "operationId": "updateGallery",
+        "security": [{ "bearerAuth": ["files:write"] }],
         "summary": "Update a gallery",
         "requestBody": {
           "required": true,
@@ -548,6 +567,7 @@
       },
       "delete": {
         "operationId": "deleteGallery",
+        "security": [{ "bearerAuth": ["files:write"] }],
         "summary": "Delete a gallery",
         "requestBody": {
           "required": true,
@@ -578,6 +598,7 @@
       ],
       "post": {
         "operationId": "addGalleryItem",
+        "security": [{ "bearerAuth": ["files:write"] }],
         "summary": "Add a file to a gallery",
         "requestBody": {
           "required": true,
@@ -614,6 +635,7 @@
       ],
       "put": {
         "operationId": "reorderGalleryItems",
+        "security": [{ "bearerAuth": ["files:write"] }],
         "summary": "Replace the gallery item order",
         "requestBody": {
           "required": true,
@@ -640,6 +662,7 @@
       ],
       "delete": {
         "operationId": "removeGalleryItem",
+        "security": [{ "bearerAuth": ["files:write"] }],
         "summary": "Remove an item from a gallery",
         "requestBody": {
           "required": true,
@@ -670,6 +693,7 @@
       ],
       "get": {
         "operationId": "listGalleryReferences",
+        "security": [{ "bearerAuth": ["files:read"] }],
         "summary": "List gallery external references",
         "responses": {
           "200": { "description": "The gallery references." },
@@ -680,6 +704,7 @@
       },
       "post": {
         "operationId": "addGalleryReference",
+        "security": [{ "bearerAuth": ["files:write"] }],
         "summary": "Add an external reference",
         "requestBody": {
           "required": true,
@@ -714,6 +739,7 @@
       ],
       "delete": {
         "operationId": "removeGalleryReference",
+        "security": [{ "bearerAuth": ["files:write"] }],
         "summary": "Remove an external reference",
         "requestBody": {
           "required": true,
@@ -1169,7 +1195,22 @@
       "bearerAuth": {
         "type": "http",
         "scheme": "bearer",
-        "description": "Workspace token from `uploads login` or `/account/developers`. Canonical routes can also accept an uploads.sh browser session, but public API integrations should use a workspace token."
+        "description": "Workspace token from `uploads login` or `/account/developers`. Canonical routes can also accept an uploads.sh browser session, but public API integrations should use a workspace token. Tokens carry named scopes `files:read`, `files:write`, and `files:delete`; each operation lists the required scope as a role name on this scheme. REST v1 does not accept OAuth access tokens (those are for the hosted MCP). Scope catalog: https://api.uploads.sh/.well-known/oauth-protected-resource"
+      },
+      "oauth2": {
+        "type": "oauth2",
+        "description": "Named permission scopes for workspace tokens (this API) and for OAuth 2.1 access tokens on the hosted MCP at https://agents.uploads.sh/mcp. REST v1 authenticates with `bearerAuth` only. Request the scopes listed on each operation. Discovery: https://uploads.sh/.well-known/oauth-authorization-server and https://api.uploads.sh/.well-known/oauth-protected-resource",
+        "flows": {
+          "authorizationCode": {
+            "authorizationUrl": "https://uploads.sh/api/auth/oauth2/authorize",
+            "tokenUrl": "https://auth.uploads.sh/api/auth/oauth2/token",
+            "scopes": {
+              "files:read": "List, search, read metadata, usage, and galleries.",
+              "files:write": "Upload, update metadata, galleries, and usage reconcile.",
+              "files:delete": "Delete stored objects and purge expired objects."
+            }
+          }
+        }
       }
     }
   }
