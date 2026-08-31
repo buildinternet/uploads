@@ -295,7 +295,29 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         </details>
 
         <form class="ws-form flex flex-col gap-3.5 max-w-[32rem]" id="storage-form">
-          <div class="ul-field">
+          <fieldset
+            class="ul-field flex flex-col gap-1.5 border-0 p-0 m-0"
+            id="storage-provider-field"
+          >
+            <legend class="ul-label p-0">Provider</legend>
+            <div class="flex flex-wrap items-center gap-4">
+              <label class="flex items-center gap-1.5 text-sm font-normal">
+                <input
+                  type="radio"
+                  name="storage-provider"
+                  id="storage-provider-r2"
+                  value="r2"
+                  checked
+                /> Cloudflare R2
+              </label>
+              <label class="flex items-center gap-1.5 text-sm font-normal">
+                <input type="radio" name="storage-provider" id="storage-provider-s3" value="s3" /> Other
+                S3-compatible
+              </label>
+            </div>
+          </fieldset>
+
+          <div class="ul-field" id="storage-account-id-field">
             <label for="storage-account-id" class="ul-label">Account ID or endpoint URL</label>
             <input
               type="text"
@@ -305,6 +327,28 @@ if (!workspace) return Astro.redirect("/account/workspaces");
               spellcheck="false"
               placeholder="Paste either — we work out the rest"
               required
+            />
+          </div>
+          <div class="ul-field" id="storage-endpoint-field" hidden>
+            <label for="storage-endpoint" class="ul-label">Endpoint URL</label>
+            <input
+              type="text"
+              id="storage-endpoint"
+              class="ul-input"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="https://s3.us-east-1.amazonaws.com"
+            />
+          </div>
+          <div class="ul-field" id="storage-region-field" hidden>
+            <label for="storage-region" class="ul-label">Region</label>
+            <input
+              type="text"
+              id="storage-region"
+              class="ul-input"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="us-east-1"
             />
           </div>
           <div class="ul-field">
@@ -415,6 +459,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       type WorkspaceStorageStatus,
     } from "../../../../../lib/api-client";
     import { parseAccountIdOrEndpoint } from "../../../../../lib/r2-endpoint";
+    import { parseS3Endpoint } from "../../../../../lib/s3-endpoint";
     import { loadWorkspaces } from "../../../../../lib/workspaces-nav";
     import { resolveActiveWorkspace } from "../../../../../lib/workspace-browse-url";
     import { renderDetailsHtml } from "../../../../../lib/workspace-rail";
@@ -508,6 +553,13 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         page,
       );
       const storageForm = requireElement<HTMLFormElement>("#storage-form", page);
+      const storageProviderR2 = requireElement<HTMLInputElement>("#storage-provider-r2", page);
+      const storageProviderS3 = requireElement<HTMLInputElement>("#storage-provider-s3", page);
+      const storageAccountIdField = requireElement<HTMLElement>("#storage-account-id-field", page);
+      const storageEndpointField = requireElement<HTMLElement>("#storage-endpoint-field", page);
+      const storageEndpoint = requireElement<HTMLInputElement>("#storage-endpoint", page);
+      const storageRegionField = requireElement<HTMLElement>("#storage-region-field", page);
+      const storageRegion = requireElement<HTMLInputElement>("#storage-region", page);
       const storageAccountId = requireElement<HTMLInputElement>("#storage-account-id", page);
       const storageBucketText = requireElement<HTMLInputElement>("#storage-bucket", page);
       // Same worker-configuration.d.ts `Element.remove()` workaround as the
@@ -614,30 +666,42 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       }
 
       function renderByoDetails(status: WorkspaceStorageStatus): void {
-        const rows: [string, string][] = [
-          ["Bucket", escapeHtml(status.bucket ?? "—")],
-          ["Account ID", escapeHtml(status.accountIdMasked ?? "—")],
-          [
-            "Access key ID",
-            escapeHtml(status.accessKeyIdLast4 ? `…${status.accessKeyIdLast4}` : "—"),
-          ],
-          ["Public base URL", publicBaseUrlRowValue(status.publicBaseUrl)],
-          ["Verified", escapeHtml(formatTimestamp(status.verifiedAt))],
-        ];
-        if (status.jurisdiction) rows.push(["Jurisdiction", escapeHtml(status.jurisdiction)]);
+        const isS3 = status.provider === "s3";
+        const rows: [string, string][] = [["Bucket", escapeHtml(status.bucket ?? "—")]];
+        if (isS3) {
+          rows.push(["Endpoint", escapeHtml(status.endpoint ?? "—")]);
+          rows.push(["Region", escapeHtml(status.region ?? "—")]);
+        } else {
+          rows.push(["Account ID", escapeHtml(status.accountIdMasked ?? "—")]);
+        }
+        rows.push([
+          "Access key ID",
+          escapeHtml(status.accessKeyIdLast4 ? `…${status.accessKeyIdLast4}` : "—"),
+        ]);
+        rows.push(["Public base URL", publicBaseUrlRowValue(status.publicBaseUrl)]);
+        rows.push(["Verified", escapeHtml(formatTimestamp(status.verifiedAt))]);
+        if (!isS3 && status.jurisdiction)
+          rows.push(["Jurisdiction", escapeHtml(status.jurisdiction)]);
         storageByoDetails.innerHTML = rows
           .map(([label, value]) => `<dt>${escapeHtml(label)}</dt><dd>${value}</dd>`)
           .join("");
       }
 
       function renderSavedDetails(lane: WorkspaceStorageLane): void {
-        const rows: [string, string][] = [
-          ["Bucket", escapeHtml(lane.bucket)],
-          ["Account ID", escapeHtml(lane.accountIdMasked ?? "—")],
-          ["Access key ID", escapeHtml(lane.accessKeyIdLast4 ? `…${lane.accessKeyIdLast4}` : "—")],
-          ["Public base URL", publicBaseUrlRowValue(lane.publicBaseUrl)],
-          ["Verified", escapeHtml(formatTimestamp(lane.verifiedAt))],
-        ];
+        const isS3 = lane.provider === "s3";
+        const rows: [string, string][] = [["Bucket", escapeHtml(lane.bucket)]];
+        if (isS3) {
+          rows.push(["Endpoint", escapeHtml(lane.endpoint ?? "—")]);
+          rows.push(["Region", escapeHtml(lane.region ?? "—")]);
+        } else {
+          rows.push(["Account ID", escapeHtml(lane.accountIdMasked ?? "—")]);
+        }
+        rows.push([
+          "Access key ID",
+          escapeHtml(lane.accessKeyIdLast4 ? `…${lane.accessKeyIdLast4}` : "—"),
+        ]);
+        rows.push(["Public base URL", publicBaseUrlRowValue(lane.publicBaseUrl)]);
+        rows.push(["Verified", escapeHtml(formatTimestamp(lane.verifiedAt))]);
         storageSavedDetails.innerHTML = rows
           .map(([label, value]) => `<dt>${escapeHtml(label)}</dt><dd>${value}</dd>`)
           .join("");
@@ -781,8 +845,56 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       }
 
       for (const el of [storageAccountId, storageAccessKeyId, storageSecretAccessKey]) {
-        el.addEventListener("blur", () => void maybeLookupBuckets());
+        el.addEventListener("blur", () => {
+          // ListBuckets is an R2-only lookup (issue #783 Part A item 2) —
+          // the server's `/storage/buckets` route 400s `unsupported_provider`
+          // for s3, so s3 mode never fires it and stays on the plain
+          // bucket-name field.
+          if (provider() === "s3") return;
+          void maybeLookupBuckets();
+        });
       }
+
+      /** Which provider the connect form is currently configuring. */
+      function provider(): "r2" | "s3" {
+        return storageProviderS3.checked ? "s3" : "r2";
+      }
+
+      /**
+       * Swaps the "Account ID or endpoint URL" field for "Endpoint URL" +
+       * "Region", and hides the Cloudflare-only setup walkthrough — the s3
+       * mode has no bucket picker either, so it always stays on the plain
+       * text field.
+       */
+      function applyProviderMode(): void {
+        const isS3 = provider() === "s3";
+        storageAccountIdField.hidden = isS3;
+        storageAccountId.required = !isS3;
+        storageEndpointField.hidden = !isS3;
+        storageEndpoint.required = isS3;
+        storageRegionField.hidden = !isS3;
+        storageRegion.required = isS3;
+        storageSetupHelp.hidden = isS3 || formMode === "rotate";
+        if (isS3) setBucketMode("text");
+      }
+
+      storageProviderR2.addEventListener("change", applyProviderMode);
+      storageProviderS3.addEventListener("change", applyProviderMode);
+
+      /**
+       * Fires on blur of the Endpoint URL field: auto-fills Region (and
+       * Bucket, when the pasted endpoint named one) from `parseS3Endpoint`.
+       * Never overwrites a Region/Bucket the user already typed themselves.
+       */
+      storageEndpoint.addEventListener("blur", () => {
+        const parsed = parseS3Endpoint(storageEndpoint.value);
+        if (!parsed) return;
+        storageEndpoint.value = parsed.endpoint;
+        if (parsed.region && !storageRegion.value.trim()) storageRegion.value = parsed.region;
+        if (parsed.bucket && !storageBucketText.value.trim()) {
+          storageBucketText.value = parsed.bucket;
+        }
+      });
 
       function resetForm(): void {
         storageForm.reset();
@@ -797,11 +909,15 @@ if (!workspace) return Astro.redirect("/account/workspaces");
           "Enter your access keys above and we'll look up your buckets.";
         setBucketMode("text");
         storageSetupHelp.open = false;
+        applyProviderMode();
       }
 
       interface FormPrefill {
         bucket?: string;
         publicBaseUrl?: string;
+        provider?: "r2" | "s3";
+        endpoint?: string;
+        region?: string;
       }
 
       function openForm(mode: "connect" | "rotate", prefill?: FormPrefill): void {
@@ -811,8 +927,6 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         storageConnect.hidden = false;
         storageConnectHeading.textContent =
           mode === "rotate" ? "Rotate credentials" : "Connect your bucket";
-        // Rotating is keys-only housekeeping — the setup help is noise there.
-        storageSetupHelp.hidden = mode === "rotate";
         // One state at a time (#788): while the form is open it IS the
         // page — the lane cards hide so their buttons (Use this bucket,
         // Switch back…) can't fire mid-edit. `closeForm` restores whichever
@@ -820,15 +934,25 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         storageSharedEl.hidden = true;
         storageByoEl.hidden = true;
         if (mode === "rotate" && prefill) {
-          // "Same form, keys only": bucket/public URL are already known and
-          // prefilled; account id can't be — the API only ever returns the
-          // masked tail, never the plaintext — so the field starts blank.
-          // Jurisdiction is never prefilled either — re-verifying re-probes
-          // it the same way a fresh connect would, and `PUT` only overwrites
-          // the saved value on success.
+          // "Same form, keys only": bucket/public URL/provider/endpoint/
+          // region are already known and prefilled; account id can't be —
+          // the API only ever returns the masked tail, never the plaintext —
+          // so that field starts blank. Jurisdiction is never prefilled
+          // either — re-verifying re-probes it the same way a fresh connect
+          // would, and `PUT` only overwrites the saved value on success.
           storageBucketText.value = prefill.bucket ?? "";
           storagePublicBaseUrl.value = prefill.publicBaseUrl ?? "";
+          if (prefill.provider === "s3") {
+            storageProviderS3.checked = true;
+            storageEndpoint.value = prefill.endpoint ?? "";
+            storageRegion.value = prefill.region ?? "";
+            applyProviderMode();
+          }
         }
+        // Rotating is keys-only housekeeping — the setup help is noise there
+        // (and it's R2-only regardless — `applyProviderMode` also hides it
+        // in s3 mode).
+        applyProviderMode();
       }
 
       /** Hides the form without re-rendering the cards — `applyStatus` calls this before it repaints from a fresh status. */
@@ -844,26 +968,46 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       }
 
       function collectCandidate(): StorageCandidate {
+        const isS3 = provider() === "s3";
+        const bucket =
+          bucketMode === "select" ? storageBucketSelect.value : storageBucketText.value.trim();
+        const publicBaseUrl = storagePublicBaseUrl.value.trim() || undefined;
+        const accessKeyId = storageAccessKeyId.value.trim();
+        const secretAccessKey = storageSecretAccessKey.value;
+        // Rotating credentials targets the bucket this workspace already
+        // owns and is actively serving from, so its non-empty contents are
+        // expected, not a mistake — same rationale as the PUT route's
+        // `adoptExistingContents` escape hatch for the empty-workspace guard.
+        // In connect mode the user opts in via the checkbox that appears
+        // when the not-empty check fails.
+        const adoptExistingContents =
+          formMode === "rotate" || storageAdopt.checked ? true : undefined;
+        if (isS3) {
+          return {
+            provider: "s3",
+            bucket,
+            accountId: "",
+            accessKeyId,
+            secretAccessKey,
+            publicBaseUrl,
+            adoptExistingContents,
+            endpoint: storageEndpoint.value.trim(),
+            region: storageRegion.value.trim(),
+          };
+        }
         // Parsed client-side — a bare account id or a pasted endpoint URL
         // both land here as `{ accountId, jurisdiction }`; the API contract
         // is unchanged, it just usually gets `jurisdiction: undefined` now
         // and auto-probes it server-side.
         const parsed = parseAccountIdOrEndpoint(storageAccountId.value);
         return {
-          bucket:
-            bucketMode === "select" ? storageBucketSelect.value : storageBucketText.value.trim(),
+          bucket,
           accountId: parsed?.accountId ?? storageAccountId.value.trim(),
-          accessKeyId: storageAccessKeyId.value.trim(),
-          secretAccessKey: storageSecretAccessKey.value,
-          publicBaseUrl: storagePublicBaseUrl.value.trim() || undefined,
+          accessKeyId,
+          secretAccessKey,
+          publicBaseUrl,
           jurisdiction: parsed?.jurisdiction,
-          // Rotating credentials targets the bucket this workspace already
-          // owns and is actively serving from, so its non-empty contents are
-          // expected, not a mistake — same rationale as the PUT route's
-          // `adoptExistingContents` escape hatch for the empty-workspace guard.
-          // In connect mode the user opts in via the checkbox that appears
-          // when the not-empty check fails.
-          adoptExistingContents: formMode === "rotate" || storageAdopt.checked ? true : undefined,
+          adoptExistingContents,
         };
       }
 
@@ -913,7 +1057,19 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         event.preventDefault();
         void (async () => {
           showStorageError(null);
-          if (!parseAccountIdOrEndpoint(storageAccountId.value)) {
+          if (provider() === "s3") {
+            if (!parseS3Endpoint(storageEndpoint.value)) {
+              storageSaveStatus.textContent =
+                "Enter a valid endpoint URL, e.g. https://s3.us-east-1.amazonaws.com.";
+              storageSaveStatus.dataset.state = "error";
+              return;
+            }
+            if (!storageRegion.value.trim()) {
+              storageSaveStatus.textContent = "Enter the bucket's region, e.g. us-east-1.";
+              storageSaveStatus.dataset.state = "error";
+              return;
+            }
+          } else if (!parseAccountIdOrEndpoint(storageAccountId.value)) {
             storageSaveStatus.textContent =
               "Enter a 32-character account id, or paste the R2 endpoint URL Cloudflare gave you.";
             storageSaveStatus.dataset.state = "error";
