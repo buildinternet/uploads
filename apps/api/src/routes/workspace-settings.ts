@@ -351,6 +351,14 @@ function validateCommentSettingsPatch(body: unknown): CommentSettingsPatch {
   return patch;
 }
 
+/**
+ * Wire type for `GET`/`PATCH /:workspace/comment-settings` (issue #896
+ * pattern), inferred from the serializer below so apps/web imports the shape
+ * it receives (via `@uploads/api/workspace-settings`) instead of re-declaring
+ * it. Type-only — never imported at runtime across workers.
+ */
+export type CommentSettingsResponse = ReturnType<typeof commentSettingsResponse>;
+
 /** Response body shared by GET and PATCH: the workspace-level comment defaults. */
 function commentSettingsResponse(record: WorkspaceRecord) {
   return {

@@ -212,12 +212,36 @@ export function checkPutBudget(
   return null;
 }
 
+/**
+ * Wire shape of `usageWithLimits` — the usage snapshot plus resolved limits
+ * and remaining headroom when capped. Exported so consumers (apps/web via
+ * `@uploads/api/workspace-usage`) import the shape the route actually sends
+ * instead of re-declaring it.
+ */
+export interface UsageWithLimits {
+  workspace: string;
+  bytes: number;
+  objects: number;
+  sharedBytes: number;
+  sharedObjects: number;
+  uploadsInPeriod: number;
+  periodStart: string;
+  updatedAt: string;
+  storageBudgetBasis: "total" | "shared";
+  maxStorageBytes?: number;
+  storageRemainingBytes?: number;
+  maxUploadsPerPeriod?: number;
+  uploadsRemaining?: number;
+}
+
 /** Fields for GET /usage — limits + remaining when capped. */
 export function usageWithLimits(usage: WorkspaceUsage, limits: WorkspaceBudgetLimits) {
   const resolved = resolveBudgetLimits(limits);
   const maxStorageBytes = enforcedMaxStorageBytes(limits);
   const usageBytes = enforcedStorageUsageBytes(limits, usage);
-  const out: Record<string, unknown> = {
+  // Typed literal (not Record<string, unknown>) so the response shape is
+  // inferable — apps/web imports it via @uploads/api/workspace-usage.
+  const out: UsageWithLimits = {
     workspace: usage.workspace,
     bytes: usage.bytes,
     objects: usage.objects,

@@ -41,6 +41,7 @@
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@uploads/api": "workspace:^",
+    "@uploads/auth": "workspace:^",
     "typescript": "^6.0.3",
     "vitest": "^4.1.10",
     "wrangler": "^4.125.0"

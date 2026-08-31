@@ -8,6 +8,14 @@
  */
 import { fetchWithTimeout, type RequestFailure } from "./request";
 import { buildSearchQuery, type MetaFilter } from "./workspace-search-url";
+// Wire types imported from the producing route modules (issue #896 pattern:
+// type-only, inferred from the real serializers) instead of re-declared here.
+// The runtime guards below still validate every body field-by-field — the
+// imports only make server/client drift a compile error.
+import type { WorkspaceCreateQuota } from "@uploads/billing";
+import type { OpenEnrollment, OrgInvite, WorkspaceMemberRow } from "@uploads/api/workspace-members";
+import type { WorkspaceUsageResponse } from "@uploads/api/workspace-usage";
+import type { CommentSettingsResponse } from "@uploads/api/workspace-settings";
 
 /**
  * `apiOrigin` is either an absolute origin (`https://api.uploads.sh`, or a
@@ -88,13 +96,10 @@ function mapMyWorkspace(ws: MyWorkspaceCore): MyWorkspace {
 /**
  * Whether this user may create another workspace (spec 2026-07-24). Purely
  * advisory — `POST /v1/workspaces` is the enforcement point, so the UI is
- * free to fail open when this is missing.
+ * free to fail open when this is missing. The shape is the producer's
+ * (`resolveWorkspaceCreateQuota` in @uploads/billing), imported not re-declared.
  */
-export interface WorkspaceCreateQuota {
-  used: number;
-  cap: number;
-  allowed: boolean;
-}
+export type { WorkspaceCreateQuota } from "@uploads/billing";
 
 export type WorkspacesResult =
   | { kind: "success"; workspaces: MyWorkspace[]; quota?: WorkspaceCreateQuota }
@@ -144,23 +149,15 @@ export async function getMyWorkspaces(
   };
 }
 
-export interface WorkspaceUsage {
-  workspace: string;
-  bytes: number;
-  objects: number;
-  uploadsInPeriod: number;
-  periodStart: string;
-  updatedAt: string;
-  maxStorageBytes?: number;
-  storageRemainingBytes?: number;
-  maxUploadsPerPeriod?: number;
-  uploadsRemaining?: number;
-  /** Bytes still on hosted storage (shared-lane residue). */
-  sharedBytes?: number;
-  /** "total" = cap meters all bytes; "shared" = BYO active, cap meters only
-   * hosted-storage residue and the customer's own bucket is unmetered. */
-  storageBudgetBasis?: "total" | "shared";
-}
+/**
+ * `GET /v1/workspaces/:name/usage` body — the producer's response type
+ * (apps/api's `workspace-usage` route), imported not re-declared. The
+ * credential-shaped extras (`scopes`/`plan`/`storage`) are made optional
+ * here because the same parser also reads the `/summary` route's embedded
+ * `usage` object, which carries the usage fields without them.
+ */
+export type WorkspaceUsage = Omit<WorkspaceUsageResponse, "scopes" | "plan" | "storage"> &
+  Partial<Pick<WorkspaceUsageResponse, "scopes" | "plan" | "storage">>;
 
 function parseWorkspaceUsage(body: unknown): WorkspaceUsage | null {
   if (
@@ -433,13 +430,12 @@ export type InviteResult =
       message?: string;
     };
 
-export interface WorkspaceMember {
-  id?: string;
-  email: string;
-  name: string;
-  role: string;
-  createdAt?: string;
-}
+/**
+ * One roster row from `/members` / `/people` — the producer's projection
+ * (`projectMembers` in apps/api's `workspace-members` route), imported not
+ * re-declared. `id` is present only for managers.
+ */
+export type WorkspaceMember = WorkspaceMemberRow;
 
 export type WorkspaceMembersResult =
   | { kind: "ok"; members: WorkspaceMember[] }
@@ -688,13 +684,8 @@ export async function inviteToWorkspace(
   };
 }
 
-export interface WorkspaceInvite {
-  id: string;
-  email: string;
-  role: string | null;
-  status: string;
-  expiresAt: string | number | null;
-}
+/** One pending invite — the auth worker's `OrgInvite` projection, imported not re-declared. */
+export type WorkspaceInvite = OrgInvite;
 
 export type WorkspaceInvitesResult =
   | { kind: "ok"; invites: WorkspaceInvite[] }
@@ -886,16 +877,13 @@ export async function createInviteLink(
   };
 }
 
-/** Issue #876: `expiresAt` nullable (standing, non-expiring link); `maxUses`/`useCount` — see `renderInviteLinksHtml`. */
-export interface WorkspaceInviteLink {
-  id: string;
-  pageId: string | null;
-  label: string | null;
-  createdAt: string;
-  expiresAt: string | null;
-  maxUses: number | null;
-  useCount: number;
-}
+/**
+ * One outstanding invite link — the producer's `OpenEnrollment` row
+ * (apps/api's `auth-db`, re-exported through `workspace-members`), imported
+ * not re-declared. Issue #876: `expiresAt` nullable (standing link);
+ * `maxUses`/`useCount` — see `renderInviteLinksHtml`.
+ */
+export type WorkspaceInviteLink = OpenEnrollment;
 
 export type WorkspaceInviteLinksResult =
   | { kind: "ok"; links: WorkspaceInviteLink[] }
@@ -1716,19 +1704,12 @@ export async function listWorkspaceFolder(
 
 /**
  * Workspace-level managed-comment defaults (issue #307, Task 7 — the
- * settings-tab block). Mirrors `commentSettingsResponse` in
- * apps/api/src/routes/me.ts exactly: `null` means "unset/auto" for every
- * field, never a separate "not configured" state.
+ * settings-tab block). The producer's inferred `commentSettingsResponse`
+ * type (apps/api's `workspace-settings` route), imported not re-declared:
+ * `null` means "unset/auto" for every field, never a separate "not
+ * configured" state.
  */
-export interface CommentSettings {
-  imageWidth: "full" | number | null;
-  maxInlineImages: number | null;
-  showMetadata: boolean | null;
-  linkToFilePage: boolean | null;
-  note: string | null;
-  /** `null` (auto) defaults to `false` — unlike the other tri-state fields, which default to `true`. */
-  ingestGithubAttachments: boolean | null;
-}
+export type CommentSettings = CommentSettingsResponse;
 
 export type CommentSettingsResult =
   | { kind: "ok"; settings: CommentSettings }

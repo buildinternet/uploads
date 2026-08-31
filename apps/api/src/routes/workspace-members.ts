@@ -95,6 +95,21 @@ function canManageRole(role: string): boolean {
   return role === "admin" || role === "owner";
 }
 
+/**
+ * Wire types for this vertical's responses (issue #896 pattern), inferred
+ * from the serializers/rows the handlers actually send so apps/web
+ * (`src/lib/api-client.ts`, via `@uploads/api/workspace-members`) imports the
+ * shape it receives instead of re-declaring it. Type-only — nothing here is
+ * imported at runtime across workers.
+ */
+export type WorkspaceMemberRow = ReturnType<typeof projectMembers>[number];
+/** `GET /:workspace/invites` rows — the auth worker's pending-invite projection. */
+export type { OrgInvite } from "../org-workspaces";
+/** `GET /:workspace/invite-links` rows — open `kind: 'member'` enrollments. */
+export type { OpenEnrollment } from "../auth-db";
+/** `POST /:workspace/invite-links` 201 body. */
+export type InviteLinkMintResponse = ReturnType<typeof inviteLinkMintResponse>;
+
 /** Sanitize org members for the account people UI (opaque `id` only for managers). */
 function projectMembers(members: OrgMember[], canManage: boolean) {
   return members.map((m) => {
@@ -384,19 +399,27 @@ export async function inviteLinkMintHandler(c: Context<MembersVars>) {
   const webOrigin = c.env.WEB_ORIGIN || deriveWebOrigin(c.req.url);
   const url = inviteLinkUrl(webOrigin, enrollment.pageId, enrollment.code);
 
-  return c.json(
-    {
-      workspace: org.slug,
-      id: enrollment.id,
-      pageId: enrollment.pageId,
-      label: label ?? null,
-      url,
-      expiresAt: enrollment.expiresAt,
-      maxUses: maxUses.value,
-      useCount: 0,
-    },
-    201,
-  );
+  return c.json(inviteLinkMintResponse(org.slug, enrollment, label, url, maxUses.value), 201);
+}
+
+/** The `POST /:workspace/invite-links` 201 body — the minted link, URL included (show-once). */
+function inviteLinkMintResponse(
+  workspace: string,
+  enrollment: { id: string; pageId: string | null; expiresAt: string | null },
+  label: string | undefined,
+  url: string,
+  maxUses: number | null,
+) {
+  return {
+    workspace,
+    id: enrollment.id,
+    pageId: enrollment.pageId,
+    label: label ?? null,
+    url,
+    expiresAt: enrollment.expiresAt,
+    maxUses,
+    useCount: 0,
+  };
 }
 
 /** `GET /:workspace/invite-links` — outstanding `kind: 'member'` links only;
