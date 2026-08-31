@@ -620,6 +620,24 @@ describe("verifyStorageConfig — s3 candidates", () => {
     expect(result.checks[0].hint).toMatch(/endpoint/);
   });
 
+  it("fails shape when the endpoint host is a shorthand IPv4 literal (127.1)", async () => {
+    const result = await verifyStorageConfig(
+      { ...VALID_S3, endpoint: "https://127.1" },
+      { createClient: () => new FakeStorageClient() },
+    );
+    expect(result.ok).toBe(false);
+    expect(result.checks[0].hint).toMatch(/endpoint/);
+  });
+
+  it("fails shape when the endpoint host is a three-part IPv4 shorthand (1.2.3)", async () => {
+    const result = await verifyStorageConfig(
+      { ...VALID_S3, endpoint: "https://1.2.3" },
+      { createClient: () => new FakeStorageClient() },
+    );
+    expect(result.ok).toBe(false);
+    expect(result.checks[0].hint).toMatch(/endpoint/);
+  });
+
   it("fails shape when the endpoint host is a single-integer IP literal (2130706433)", async () => {
     const result = await verifyStorageConfig(
       { ...VALID_S3, endpoint: "https://2130706433" },

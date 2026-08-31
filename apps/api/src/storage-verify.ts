@@ -228,15 +228,6 @@ function checkShape(candidate: StorageVerifyCandidate): StorageVerifyCheck {
 }
 
 /**
- * True when a dotted-decimal label is a plain base-10 octet (no leading
- * zero padding tricks, no hex/octal prefixes) that a browser/URL parser
- * would treat the same way we do.
- */
-function isPlainDecimalOctet(label: string): boolean {
-  return /^\d{1,3}$/.test(label) && Number(label) <= 255;
-}
-
-/**
  * True when `label` is a numeric-ish IPv4 octet encoding — hex (`0x7f`),
  * octal (`0177`), or a bare decimal digit string — the kind of thing
  * browsers and `fetch()` will still resolve as part of an IP literal even
@@ -273,22 +264,14 @@ function isInternalOrLiteralHost(host: string): boolean {
     return true;
   }
 
-  // Reject alternate IPv4 encodings (hex/octal octets, or a single
-  // all-digit label standing in for the whole 32-bit address) that some
-  // resolvers still accept but the plain dotted-decimal regex above
-  // misses, e.g. "0x7f.0x0.0x0.0x1", "0177.0.0.1", "2130706433". Fail
-  // closed: if every label looks numeric-ish, treat it as an IP literal
-  // even though we don't fully parse the value.
-  const labels = normalized.split(".");
-  if (
-    labels.length >= 1 &&
-    labels.every(looksLikeNumericIPv4Label) &&
-    !labels.every(isPlainDecimalOctet)
-  ) {
-    return true;
-  }
-
-  return false;
+  // Reject alternate IPv4 encodings (hex/octal octets, shorthand forms
+  // like "127.1", or a single all-digit label standing in for the whole
+  // 32-bit address) that resolvers still accept but the plain
+  // dotted-decimal regex above misses, e.g. "0x7f.0x0.0x0.0x1",
+  // "0177.0.0.1", "2130706433". All-numeric labels can never form a real
+  // domain (TLDs are never numeric), so fail closed: if every label looks
+  // numeric-ish, treat the host as an IP literal without fully parsing it.
+  return normalized.split(".").every(looksLikeNumericIPv4Label);
 }
 
 /** Shape-checks an s3 candidate's `endpoint`: https origin only, no path/query/fragment, public host. */
