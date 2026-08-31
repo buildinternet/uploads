@@ -81,9 +81,17 @@ describe("dynamic client registration", () => {
     );
     // Better Auth 1.7 returns RFC 7591-compliant 201 Created for DCR (was 200).
     expect(res.status).toBe(201);
-    const body = (await res.json()) as { client_id?: string; redirect_uris?: string[] };
+    const body = (await res.json()) as {
+      client_id?: string;
+      redirect_uris?: string[];
+      scope?: string;
+    };
     expect(typeof body.client_id).toBe("string");
     expect(body.redirect_uris).toEqual(["https://client.example.com/callback"]);
+    // Issue #911: without offline_access in the registered scopes the plugin
+    // never issues a refresh token, forcing interactive re-auth at access
+    // token expiry.
+    expect(body.scope?.split(" ")).toContain("offline_access");
   });
 
   // Better Auth 1.7 defaults DCR clients without `application_type` to "web",
@@ -359,16 +367,8 @@ describe("refresh token rotation reuse grace", () => {
       updatedAt: new Date(),
     });
     // The plugin only issues refresh tokens when the grant carries
-    // offline_access (introspect createUserTokens), and validates a refresh
-    // grant's scopes against the client's registered list — grant the client
-    // offline_access directly (DCR discards requested scope; see the
-    // clientRegistrationAllowedScopes comment in auth.ts).
-    (env.DB as FakeD1Database).__sqlite
-      .prepare("UPDATE oauth_client SET scopes = ? WHERE client_id = ?")
-      .run(
-        JSON.stringify(["files:read", "files:write", "files:delete", "offline_access"]),
-        clientId,
-      );
+    // offline_access (issue #911) — registration defaults now include it,
+    // so the DCR client above can hold one with no extra setup.
     const rawToken = "reuse-grace-raw-refresh-token";
     await orm.insert(schema.oauthRefreshToken).values({
       id: crypto.randomUUID(),

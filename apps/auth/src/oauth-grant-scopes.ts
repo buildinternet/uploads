@@ -12,12 +12,37 @@
  * Known ids stay in lockstep with `OAUTH_SCOPES` in auth.ts (duplicated
  * rather than imported: auth.ts wires this module from `hooks.before`).
  */
-const KNOWN_SCOPES: ReadonlySet<string> = new Set(["files:read", "files:write", "files:delete"]);
+const KNOWN_SCOPES: ReadonlySet<string> = new Set([
+  "files:read",
+  "files:write",
+  "files:delete",
+  "offline_access",
+]);
+
+/**
+ * Issue #911: the plugin only issues a refresh token when the grant carries
+ * `offline_access`, but MCP clients build `scope=` from the resource
+ * metadata's `scopes_supported` (files:* only) and so never request it.
+ * Union it in server-side for any client registered with it — but only when
+ * the filtered request still grants a real resource scope, so a
+ * nothing-grantable request keeps its RFC 6749 §3.3 `invalid_scope` and an
+ * offline_access-only grant can't be minted from garbage.
+ */
+const OFFLINE_ACCESS = "offline_access";
 
 function filterScopeString(scope: string, allowedScopes: readonly string[]): string | undefined {
   const requested = scope.split(/\s+/).filter(Boolean);
   const allow = new Set(allowedScopes);
-  const permitted = requested.filter((id) => KNOWN_SCOPES.has(id) && allow.has(id));
+  let permitted = requested.filter((id) => KNOWN_SCOPES.has(id) && allow.has(id));
+  const grantsResourceScope = permitted.some((id) => id !== OFFLINE_ACCESS);
+  if (!grantsResourceScope) {
+    // An offline_access-only request must not survive: it would mint a
+    // refresh-token-only grant with no resource access. Dropping it lands in
+    // the plugin's invalid_scope path like any other nothing-grantable request.
+    permitted = [];
+  } else if (allow.has(OFFLINE_ACCESS) && !permitted.includes(OFFLINE_ACCESS)) {
+    permitted.push(OFFLINE_ACCESS);
+  }
   const next = permitted.join(" ");
   return next === requested.join(" ") ? undefined : next;
 }
