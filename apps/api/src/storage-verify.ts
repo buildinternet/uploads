@@ -26,8 +26,9 @@ import {
 
 /** Candidate config a workspace admin is trying to attach — not yet saved. */
 export interface StorageVerifyCandidate {
+  /** Defaults to `"r2"` when omitted. */
+  provider?: "r2" | "s3";
   bucket: string;
-  accountId: string;
   accessKeyId: string;
   secretAccessKey: string;
   /** Custom domain fronting the bucket for public reads. Omit for signed-only serving. */
@@ -38,8 +39,16 @@ export interface StorageVerifyCandidate {
    * empty-bucket guard (required check `not-empty`).
    */
   adoptExistingContents?: boolean;
-  /** R2 jurisdiction of the bucket; validated by the shape check. */
+  /** R2-only. Cloudflare account id. */
+  accountId?: string;
+  /** R2 jurisdiction of the bucket; validated by the shape check. Ignored for s3 candidates. */
   jurisdiction?: string;
+  /** s3-only. Service endpoint origin, https, no path/query/fragment. */
+  endpoint?: string;
+  /** s3-only. SigV4 signing region. */
+  region?: string;
+  /** s3-only. Use path-style addressing. */
+  forcePathStyle?: boolean;
 }
 
 export interface StorageVerifyCheck {
@@ -93,6 +102,19 @@ export function defaultStorageClientFactory(candidate: StorageVerifyCandidate): 
   // `verifyStorageConfig` shape-checks before calling this, but the factory is
   // exported — re-guard so a direct caller can never interpolate an arbitrary
   // string into the S3 endpoint.
+  if (candidate.provider === "s3") {
+    const config: StorageConfig = {
+      provider: "s3",
+      bucket: candidate.bucket,
+      endpoint: candidate.endpoint ?? "",
+      region: candidate.region,
+      forcePathStyle: candidate.forcePathStyle,
+      accessKeyId: candidate.accessKeyId,
+      secretAccessKey: candidate.secretAccessKey,
+      publicBaseUrl: candidate.publicBaseUrl,
+    };
+    return createStorage(config);
+  }
   const { jurisdiction } = candidate;
   if (jurisdiction !== undefined && !isR2Jurisdiction(jurisdiction)) {
     throw new Error(`invalid jurisdiction: ${JSON.stringify(jurisdiction)}`);
@@ -125,21 +147,56 @@ const PUBLIC_URL_PROBE_TIMEOUT_MS = 5_000;
 const ACCOUNT_ID_RE = /^[0-9a-f]{32}$/;
 /** R2 bucket naming rules: 3-63 chars, lowercase alphanumeric + hyphen, not leading/trailing hyphen. */
 const BUCKET_NAME_RE = /^[a-z0-9][a-z0-9-]*[a-z0-9]$/;
+/** AWS S3 bucket naming rules: 3-63 chars, lowercase alphanumeric/dot/hyphen, must start and end alphanumeric. */
+const S3_BUCKET_NAME_RE = /^[a-z0-9]([a-z0-9.-]{1,61})[a-z0-9]$/;
+/** SigV4 region: lowercase alphanumeric/hyphen, up to 32 chars — allows literal "auto" (R2-compatible providers). */
+const S3_REGION_RE = /^[a-z0-9-]{1,32}$/;
 
 function checkShape(candidate: StorageVerifyCandidate): StorageVerifyCheck {
   const problems: string[] = [];
-  if (!ACCOUNT_ID_RE.test(candidate.accountId)) {
-    problems.push("accountId must be a 32-character lowercase hex Cloudflare account id");
+  const provider = candidate.provider ?? "r2";
+
+  if (provider === "s3") {
+    if (
+      candidate.bucket.length < 3 ||
+      candidate.bucket.length > 63 ||
+      !S3_BUCKET_NAME_RE.test(candidate.bucket)
+    ) {
+      problems.push(
+        "bucket name must be 3-63 characters, lowercase letters/digits/dots/hyphens, and can't start or end with a hyphen or dot",
+      );
+    }
+    if (!candidate.endpoint) {
+      problems.push("endpoint is required for an s3-compatible bucket");
+    } else {
+      const endpointProblem = checkEndpointShape(candidate.endpoint);
+      if (endpointProblem) problems.push(endpointProblem);
+    }
+    if (!candidate.region) {
+      problems.push("region is required for an s3-compatible bucket");
+    } else if (!S3_REGION_RE.test(candidate.region)) {
+      problems.push('region must match /^[a-z0-9-]{1,32}$/ (e.g. "us-east-1" or "auto")');
+    }
+  } else {
+    if (!candidate.accountId || !ACCOUNT_ID_RE.test(candidate.accountId)) {
+      problems.push("accountId must be a 32-character lowercase hex Cloudflare account id");
+    }
+    if (
+      candidate.bucket.length < 3 ||
+      candidate.bucket.length > 63 ||
+      !BUCKET_NAME_RE.test(candidate.bucket)
+    ) {
+      problems.push(
+        "bucket name must be 3-63 characters, lowercase letters/digits/hyphens, and can't start or end with a hyphen",
+      );
+    }
+    if (candidate.jurisdiction !== undefined && !isR2Jurisdiction(candidate.jurisdiction)) {
+      problems.push(
+        `jurisdiction must be one of: ${R2_JURISDICTIONS.join(", ")} (or omitted for the default endpoint)`,
+      );
+    }
   }
-  if (
-    candidate.bucket.length < 3 ||
-    candidate.bucket.length > 63 ||
-    !BUCKET_NAME_RE.test(candidate.bucket)
-  ) {
-    problems.push(
-      "bucket name must be 3-63 characters, lowercase letters/digits/hyphens, and can't start or end with a hyphen",
-    );
-  }
+
   if (!candidate.accessKeyId || !candidate.secretAccessKey) {
     problems.push("access key id and secret access key are both required");
   }
@@ -147,17 +204,51 @@ function checkShape(candidate: StorageVerifyCandidate): StorageVerifyCheck {
     const urlProblem = checkPublicBaseUrlShape(candidate.publicBaseUrl);
     if (urlProblem) problems.push(urlProblem);
   }
-  if (candidate.jurisdiction !== undefined && !isR2Jurisdiction(candidate.jurisdiction)) {
-    problems.push(
-      `jurisdiction must be one of: ${R2_JURISDICTIONS.join(", ")} (or omitted for the default endpoint)`,
-    );
-  }
   return {
     id: "shape",
     ok: problems.length === 0,
     required: true,
     hint: problems.length ? problems.join("; ") : undefined,
   };
+}
+
+/**
+ * True when `host` looks like an internal name or literal address that must
+ * never be reached from inside the worker — shared by the `publicBaseUrl`
+ * shape check and the s3 `endpoint` shape check.
+ */
+function isInternalOrLiteralHost(host: string): boolean {
+  return (
+    host === "localhost" ||
+    host.endsWith(".localhost") ||
+    !host.includes(".") ||
+    /^\d{1,3}(\.\d{1,3}){3}$/.test(host) ||
+    host.startsWith("[")
+  );
+}
+
+/** Shape-checks an s3 candidate's `endpoint`: https origin only, no path/query/fragment, public host. */
+function checkEndpointShape(endpoint: string): string | undefined {
+  let url: URL;
+  try {
+    url = new URL(endpoint);
+  } catch {
+    return "endpoint must be a valid URL";
+  }
+  if (url.protocol !== "https:") {
+    return "endpoint must use https";
+  }
+  if (url.pathname !== "/" && url.pathname !== "") {
+    return "endpoint must not include a path";
+  }
+  if (url.search || url.hash) {
+    return "endpoint must not include a query string or fragment";
+  }
+  const host = url.hostname.toLowerCase();
+  if (isInternalOrLiteralHost(host)) {
+    return "endpoint must be a public hostname (not an IP address or internal hostname)";
+  }
+  return undefined;
 }
 
 /**
@@ -180,13 +271,7 @@ function checkPublicBaseUrlShape(publicBaseUrl: string): string | undefined {
   // inside the worker, so anything that could resolve to an internal name or
   // literal address would turn verify into a reachability probe — reject
   // before any network I/O happens.
-  if (
-    host === "localhost" ||
-    host.endsWith(".localhost") ||
-    !host.includes(".") ||
-    /^\d{1,3}(\.\d{1,3}){3}$/.test(host) ||
-    host.startsWith("[")
-  ) {
+  if (isInternalOrLiteralHost(host)) {
     return "publicBaseUrl must be a public custom domain (not an IP address or internal hostname)";
   }
   if (host === "r2.dev" || host.endsWith(".r2.dev")) {
@@ -207,14 +292,22 @@ function errorCode(err: unknown): string | undefined {
   return undefined;
 }
 
-function hintForAuthError(err: unknown): string {
+function hintForAuthError(err: unknown, provider: "r2" | "s3"): string {
+  const scopedTo =
+    provider === "s3"
+      ? "an access key scoped to this bucket"
+      : "the R2 API token is scoped to this bucket";
   switch (errorCode(err)) {
     case "Unauthorized":
-      return "the access key was rejected — check the key id/secret and that the R2 API token is scoped to this bucket";
+      return `the access key was rejected — check the key id/secret and that ${scopedTo}`;
     case "NotFound":
-      return "bucket not found at this account id — check the bucket name for typos";
+      return provider === "s3"
+        ? "bucket not found at this endpoint — check the bucket name for typos"
+        : "bucket not found at this account id — check the bucket name for typos";
     default:
-      return "could not reach the bucket — check the account id, bucket name, and network path";
+      return provider === "s3"
+        ? "could not reach the bucket — check the endpoint, bucket name, and network path"
+        : "could not reach the bucket — check the account id, bucket name, and network path";
   }
 }
 
@@ -363,17 +456,23 @@ export async function verifyStorageConfig(
   // auth/lookup at the other endpoints, so trying in order costs at most two
   // extra calls and never a false positive. Its `list()` result also seeds
   // the empty-bucket guard below, so attaching a bucket costs one list call.
+  // s3 candidates have no jurisdiction concept — one client, one attempt.
+  const provider = candidate.provider ?? "r2";
   const jurisdictionOrder: (R2Jurisdiction | undefined)[] =
-    candidate.jurisdiction !== undefined
-      ? [candidate.jurisdiction as R2Jurisdiction]
-      : [undefined, ...R2_JURISDICTIONS];
+    provider === "s3"
+      ? [undefined]
+      : candidate.jurisdiction !== undefined
+        ? [candidate.jurisdiction as R2Jurisdiction]
+        : [undefined, ...R2_JURISDICTIONS];
 
   let client: StorageProbeClient | undefined;
   let existingItems: { key: string }[] | undefined;
   let jurisdiction: R2Jurisdiction | undefined;
   let authErr: unknown;
   for (const attemptJurisdiction of jurisdictionOrder) {
-    const attemptClient = createClient({ ...candidate, jurisdiction: attemptJurisdiction });
+    const attemptClient = createClient(
+      provider === "s3" ? candidate : { ...candidate, jurisdiction: attemptJurisdiction },
+    );
     try {
       const listed = await attemptClient.list({ limit: 1000 });
       client = attemptClient;
@@ -386,7 +485,12 @@ export async function verifyStorageConfig(
   }
 
   if (!client || !existingItems) {
-    checks.push({ id: "auth", ok: false, required: true, hint: hintForAuthError(authErr) });
+    checks.push({
+      id: "auth",
+      ok: false,
+      required: true,
+      hint: hintForAuthError(authErr, provider),
+    });
     return { ok: false, checks };
   }
   checks.push({ id: "auth", ok: true, required: true });

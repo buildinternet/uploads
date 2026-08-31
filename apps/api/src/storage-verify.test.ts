@@ -536,3 +536,137 @@ describe("verifyStorageConfig — recommended public-URL probe", () => {
     expect(result.ok).toBe(false); // round-trip (required) failed
   });
 });
+
+const VALID_S3: StorageVerifyCandidate = {
+  provider: "s3",
+  bucket: "my.bucket",
+  endpoint: "https://s3.us-east-1.amazonaws.com",
+  region: "us-east-1",
+  accessKeyId: "AKIAEXAMPLE",
+  secretAccessKey: "s3cr3t",
+};
+
+describe("verifyStorageConfig — s3 candidates", () => {
+  it("passes shape/auth/round-trip for a valid s3 candidate with a single client attempt and no jurisdiction", async () => {
+    const client = new FakeStorageClient();
+    const createClient = vi.fn(() => client);
+    const result = await verifyStorageConfig(VALID_S3, { createClient });
+    expect(result.ok).toBe(true);
+    expect(createClient).toHaveBeenCalledOnce();
+    expect(createClient).toHaveBeenCalledWith(expect.objectContaining(VALID_S3));
+    expect(result.jurisdiction).toBeUndefined();
+  });
+
+  it("fails shape when region is missing", async () => {
+    const { region, ...withoutRegion } = VALID_S3;
+    const createClient = vi.fn(() => new FakeStorageClient());
+    const result = await verifyStorageConfig(withoutRegion, { createClient });
+    expect(result.ok).toBe(false);
+    expect(result.checks[0].hint).toMatch(/region/);
+    expect(createClient).not.toHaveBeenCalled();
+  });
+
+  it("fails shape when the endpoint has a path", async () => {
+    const result = await verifyStorageConfig(
+      { ...VALID_S3, endpoint: "https://s3.amazonaws.com/foo" },
+      { createClient: () => new FakeStorageClient() },
+    );
+    expect(result.ok).toBe(false);
+    expect(result.checks[0].hint).toMatch(/endpoint/);
+  });
+
+  it("fails shape when the endpoint is http", async () => {
+    const result = await verifyStorageConfig(
+      { ...VALID_S3, endpoint: "http://s3.amazonaws.com" },
+      { createClient: () => new FakeStorageClient() },
+    );
+    expect(result.ok).toBe(false);
+    expect(result.checks[0].hint).toMatch(/https/);
+  });
+
+  it("fails shape when the endpoint host is an internal IP (169.254.169.254)", async () => {
+    const result = await verifyStorageConfig(
+      { ...VALID_S3, endpoint: "https://169.254.169.254" },
+      { createClient: () => new FakeStorageClient() },
+    );
+    expect(result.ok).toBe(false);
+    expect(result.checks[0].hint).toMatch(/endpoint/);
+  });
+
+  it("fails shape when the endpoint host is localhost", async () => {
+    const result = await verifyStorageConfig(
+      { ...VALID_S3, endpoint: "https://localhost" },
+      { createClient: () => new FakeStorageClient() },
+    );
+    expect(result.ok).toBe(false);
+    expect(result.checks[0].hint).toMatch(/endpoint/);
+  });
+
+  it("fails shape for an invalid s3 bucket name", async () => {
+    const result = await verifyStorageConfig(
+      { ...VALID_S3, bucket: "-bad-" },
+      { createClient: () => new FakeStorageClient() },
+    );
+    expect(result.ok).toBe(false);
+    expect(result.checks[0].hint).toMatch(/bucket/);
+  });
+
+  it("allows dots in the s3 bucket name", async () => {
+    const client = new FakeStorageClient();
+    const result = await verifyStorageConfig(
+      { ...VALID_S3, bucket: "my.bucket.name" },
+      { createClient: () => client },
+    );
+    expect(result.checks.find((c) => c.id === "shape")!.ok).toBe(true);
+  });
+
+  it("still rejects dots in an r2 bucket name", async () => {
+    const result = await verifyStorageConfig(
+      { bucket: "my.bucket", accountId: "a".repeat(32), accessKeyId: "x", secretAccessKey: "y" },
+      { createClient: () => new FakeStorageClient() },
+    );
+    expect(result.ok).toBe(false);
+    expect(result.checks[0].hint).toMatch(/bucket name/);
+  });
+
+  it("passes shape with region 'auto'", async () => {
+    const client = new FakeStorageClient();
+    const result = await verifyStorageConfig(
+      { ...VALID_S3, region: "auto" },
+      { createClient: () => client },
+    );
+    expect(result.checks.find((c) => c.id === "shape")!.ok).toBe(true);
+  });
+
+  it("runs public-url and embed-cache identically for s3", async () => {
+    const client = new FakeStorageClient();
+    const fetchImpl = vi.fn(async () => {
+      const [key] = [...client.store.keys()];
+      return new Response(client.store.get(key)!, {
+        status: 200,
+        headers: { "cache-control": "max-age=0, no-cache, no-store, must-revalidate" },
+      });
+    });
+    const result = await verifyStorageConfig(
+      { ...VALID_S3, publicBaseUrl: "https://media.example.com" },
+      { createClient: () => client, fetch: fetchImpl as unknown as typeof fetch },
+    );
+    expect(result.ok).toBe(true);
+    expect(result.checks.find((c) => c.id === "public-url")!.ok).toBe(true);
+    expect(result.checks.find((c) => c.id === "embed-cache")!.ok).toBe(true);
+  });
+
+  it("uses the s3-specific auth-hint copy referencing an access key scoped to this bucket", async () => {
+    const client = new FakeStorageClient();
+    client.listError = new FakeError("Unauthorized", "denied");
+    const result = await verifyStorageConfig(VALID_S3, { createClient: () => client });
+    const auth = result.checks.find((c) => c.id === "auth")!;
+    expect(auth.hint).toMatch(/an access key scoped to this bucket/);
+    expect(auth.hint).not.toMatch(/R2 API token/);
+  });
+
+  it("defaultStorageClientFactory builds an s3 createStorage config", () => {
+    const client = defaultStorageClientFactory(VALID_S3);
+    expect(client).toBeDefined();
+  });
+});
