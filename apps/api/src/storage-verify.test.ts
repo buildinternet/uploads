@@ -593,6 +593,52 @@ describe("verifyStorageConfig — s3 candidates", () => {
     expect(result.checks[0].hint).toMatch(/endpoint/);
   });
 
+  it("fails shape when the endpoint host is an internal IP with a trailing dot (169.254.169.254.)", async () => {
+    const result = await verifyStorageConfig(
+      { ...VALID_S3, endpoint: "https://169.254.169.254." },
+      { createClient: () => new FakeStorageClient() },
+    );
+    expect(result.ok).toBe(false);
+    expect(result.checks[0].hint).toMatch(/endpoint/);
+  });
+
+  it("fails shape when the endpoint host is a hex-encoded internal IP (0x7f.0x0.0x0.0x1)", async () => {
+    const result = await verifyStorageConfig(
+      { ...VALID_S3, endpoint: "https://0x7f.0x0.0x0.0x1" },
+      { createClient: () => new FakeStorageClient() },
+    );
+    expect(result.ok).toBe(false);
+    expect(result.checks[0].hint).toMatch(/endpoint/);
+  });
+
+  it("fails shape when the endpoint host is an octal-encoded internal IP (0177.0.0.1)", async () => {
+    const result = await verifyStorageConfig(
+      { ...VALID_S3, endpoint: "https://0177.0.0.1" },
+      { createClient: () => new FakeStorageClient() },
+    );
+    expect(result.ok).toBe(false);
+    expect(result.checks[0].hint).toMatch(/endpoint/);
+  });
+
+  it("fails shape when the endpoint host is a single-integer IP literal (2130706433)", async () => {
+    const result = await verifyStorageConfig(
+      { ...VALID_S3, endpoint: "https://2130706433" },
+      { createClient: () => new FakeStorageClient() },
+    );
+    expect(result.ok).toBe(false);
+    expect(result.checks[0].hint).toMatch(/endpoint/);
+  });
+
+  // A trailing dot on an otherwise-legit hostname is normalized away rather
+  // than rejected — "example.com." and "example.com" mean the same host.
+  it("passes shape for a legit hostname with a trailing dot (example.com.)", async () => {
+    const result = await verifyStorageConfig(
+      { ...VALID_S3, endpoint: "https://example.com." },
+      { createClient: () => new FakeStorageClient() },
+    );
+    expect(result.checks.find((c) => c.id === "shape")!.ok).toBe(true);
+  });
+
   it("fails shape when the endpoint host is localhost", async () => {
     const result = await verifyStorageConfig(
       { ...VALID_S3, endpoint: "https://localhost" },

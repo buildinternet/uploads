@@ -228,18 +228,67 @@ function checkShape(candidate: StorageVerifyCandidate): StorageVerifyCheck {
 }
 
 /**
+ * True when a dotted-decimal label is a plain base-10 octet (no leading
+ * zero padding tricks, no hex/octal prefixes) that a browser/URL parser
+ * would treat the same way we do.
+ */
+function isPlainDecimalOctet(label: string): boolean {
+  return /^\d{1,3}$/.test(label) && Number(label) <= 255;
+}
+
+/**
+ * True when `label` is a numeric-ish IPv4 octet encoding — hex (`0x7f`),
+ * octal (`0177`), or a bare decimal digit string — the kind of thing
+ * browsers and `fetch()` will still resolve as part of an IP literal even
+ * though it doesn't match plain dotted-decimal. We don't need to compute
+ * the resulting address, just recognize the shape so it can be rejected.
+ */
+function looksLikeNumericIPv4Label(label: string): boolean {
+  return (
+    /^0x[0-9a-f]+$/i.test(label) || // hex octet, e.g. 0x7f
+    /^0[0-7]+$/.test(label) || // octal octet, e.g. 0177
+    /^\d+$/.test(label) // plain decimal, including >255 or a single 32-bit integer
+  );
+}
+
+/**
  * True when `host` looks like an internal name or literal address that must
  * never be reached from inside the worker — shared by the `publicBaseUrl`
  * shape check and the s3 `endpoint` shape check.
  */
 function isInternalOrLiteralHost(host: string): boolean {
-  return (
-    host === "localhost" ||
-    host.endsWith(".localhost") ||
-    !host.includes(".") ||
-    /^\d{1,3}(\.\d{1,3}){3}$/.test(host) ||
-    host.startsWith("[")
-  );
+  // A single trailing dot is a valid (if unusual) way to write an absolute
+  // hostname, e.g. "example.com." or "169.254.169.254." — strip exactly one
+  // before checking so it can't be used to slip a literal past the regex
+  // below.
+  const normalized = host.endsWith(".") && host.length > 1 ? host.slice(0, -1) : host;
+
+  if (
+    normalized === "localhost" ||
+    normalized.endsWith(".localhost") ||
+    !normalized.includes(".") ||
+    /^\d{1,3}(\.\d{1,3}){3}$/.test(normalized) ||
+    normalized.startsWith("[")
+  ) {
+    return true;
+  }
+
+  // Reject alternate IPv4 encodings (hex/octal octets, or a single
+  // all-digit label standing in for the whole 32-bit address) that some
+  // resolvers still accept but the plain dotted-decimal regex above
+  // misses, e.g. "0x7f.0x0.0x0.0x1", "0177.0.0.1", "2130706433". Fail
+  // closed: if every label looks numeric-ish, treat it as an IP literal
+  // even though we don't fully parse the value.
+  const labels = normalized.split(".");
+  if (
+    labels.length >= 1 &&
+    labels.every(looksLikeNumericIPv4Label) &&
+    !labels.every(isPlainDecimalOctet)
+  ) {
+    return true;
+  }
+
+  return false;
 }
 
 /** Shape-checks an s3 candidate's `endpoint`: https origin only, no path/query/fragment, public host. */
