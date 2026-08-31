@@ -127,9 +127,12 @@ describe("toWorkspaceSnapshot", () => {
         workspace: "buildinternet",
         bytes: 8_500_000,
         objects: 78,
+        sharedBytes: 8_500_000,
+        sharedObjects: 78,
         uploadsInPeriod: 15,
         periodStart: "2026-07-01",
         updatedAt: "2026-07-24",
+        storageBudgetBasis: "total",
         maxStorageBytes: 10_000_000_000,
       },
     );
@@ -142,6 +145,8 @@ describe("toWorkspaceSnapshot", () => {
       usage: {
         bytes: 8_500_000,
         objects: 78,
+        sharedBytes: 8_500_000,
+        storageBudgetBasis: "total",
         uploadsInPeriod: 15,
         maxStorageBytes: 10_000_000_000,
         maxUploadsPerPeriod: undefined,

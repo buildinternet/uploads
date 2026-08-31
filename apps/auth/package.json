@@ -4,7 +4,9 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./oauth-client-serialize": "./src/oauth-client-serialize.ts"
+    "./oauth-client-serialize": "./src/oauth-client-serialize.ts",
+    "./connected-apps-wire": "./src/connected-apps-wire.ts",
+    "./billing-prices": "./src/billing-prices.ts"
   },
   "scripts": {
     "dev": "wrangler dev --persist-to ../api/.wrangler/state",

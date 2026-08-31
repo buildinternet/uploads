@@ -18,11 +18,13 @@
  * `proxyAuthRequest`-backed adapter) rather than rely on the default.
  */
 
-export interface PlanPrice {
-  unitAmount: number;
-  currency: string;
-  interval: string;
-}
+import type { PriceInfo } from "@uploads/auth/billing-prices";
+
+/**
+ * The wire shape `GET /billing/prices` sends for one price — imported from
+ * the producing route module (issue #896 pattern) rather than re-declared.
+ */
+export type PlanPrice = PriceInfo;
 
 interface PricesResponseBody {
   prices?: { pro?: unknown };

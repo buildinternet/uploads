@@ -252,6 +252,9 @@ importers:
       '@uploads/api':
         specifier: workspace:^
         version: link:../api
+      '@uploads/auth':
+        specifier: workspace:^
+        version: link:../auth
       typescript:
         specifier: ^6.0.3
         version: 6.0.3

@@ -25,7 +25,10 @@
     "./github-promote-service": "./src/github-promote-service.ts",
     "./github-attach-service": "./src/github-attach-service.ts",
     "./github-repo-binding": "./src/github-repo-binding.ts",
-    "./admin-ui": "./src/routes/admin-ui.ts"
+    "./admin-ui": "./src/routes/admin-ui.ts",
+    "./workspace-usage": "./src/routes/workspace-usage.ts",
+    "./workspace-members": "./src/routes/workspace-members.ts",
+    "./workspace-settings": "./src/routes/workspace-settings.ts"
   },
   "scripts": {
     "dev": "wrangler dev",
