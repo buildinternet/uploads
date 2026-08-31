@@ -915,6 +915,9 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         if (parsed.bucket && !storageBucketText.value.trim()) {
           storageBucketText.value = parsed.bucket;
         }
+        // A path-style paste demonstrates the deployment needs path-style
+        // addressing — turn it on (never off: an already-checked box stays).
+        if (parsed.pathStyle) storagePathStyle.checked = true;
       });
 
       function resetForm(): void {

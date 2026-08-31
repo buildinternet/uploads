@@ -19,6 +19,13 @@ export interface ParsedS3Endpoint {
   endpoint: string;
   region?: string;
   bucket?: string;
+  /**
+   * True when the bucket came from the URL *path* of a non-AWS host — the
+   * paste itself demonstrates the deployment uses path-style addressing, so
+   * the form should turn `forcePathStyle` on. AWS shapes never set this:
+   * AWS accepts virtual-hosted requests against the canonical endpoint.
+   */
+  pathStyle?: boolean;
 }
 
 // `s3.<region>.amazonaws.com`, optionally preceded by `<bucket>.` (virtual-hosted style).
@@ -91,7 +98,7 @@ export function parseS3Endpoint(input: string): ParsedS3Endpoint | null {
   if (url.pathname !== "/" && url.pathname !== "") {
     const bucket = pathBucket(url.pathname);
     if (!bucket) return null;
-    return { endpoint: `https://${url.host}`, region: undefined, bucket };
+    return { endpoint: `https://${url.host}`, region: undefined, bucket, pathStyle: true };
   }
   return { endpoint: `https://${url.host}`, region: undefined, bucket: undefined };
 }

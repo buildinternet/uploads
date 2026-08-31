@@ -115,6 +115,7 @@ describe("parseS3Endpoint", () => {
       endpoint: "https://minio.example.com",
       region: undefined,
       bucket: "my-bucket",
+      pathStyle: true,
     });
   });
 
