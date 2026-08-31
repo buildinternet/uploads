@@ -51,5 +51,5 @@ export function parseS3Endpoint(input: string): ParsedS3Endpoint | null {
     };
   }
 
-  return { endpoint: `https://${host}`, region: undefined, bucket: undefined };
+  return { endpoint: `https://${url.host}`, region: undefined, bucket: undefined };
 }

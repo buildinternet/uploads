@@ -34,6 +34,14 @@ describe("parseS3Endpoint", () => {
     });
   });
 
+  it("keeps the port for a non-AWS host that specifies one", () => {
+    expect(parseS3Endpoint("https://minio.example.com:9000")).toEqual({
+      endpoint: "https://minio.example.com:9000",
+      region: undefined,
+      bucket: undefined,
+    });
+  });
+
   it("trims surrounding whitespace", () => {
     expect(parseS3Endpoint("  https://s3.us-east-1.amazonaws.com  ")).toEqual({
       endpoint: "https://s3.us-east-1.amazonaws.com",
