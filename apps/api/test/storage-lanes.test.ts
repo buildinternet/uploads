@@ -5,9 +5,9 @@
  * walks them in order and returns the first lane whose store has the key.
  * See docs/superpowers/specs/2026-08-22-two-lane-storage-design.md.
  */
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FakeR2Bucket } from "./fake-r2";
-import { resolveObjectLane, storageConfigs } from "../src/storage";
+import { createLaneResolver, resolveObjectLane, storageConfigs } from "../src/storage";
 import type { StorageLane, WorkspaceRecord } from "../src/workspace";
 
 function makeEnv(bindings: Record<string, FakeR2Bucket>) {
@@ -79,16 +79,82 @@ describe("storageConfigs", () => {
     expect(configs[0]?.role).toBe("active");
   });
 
-  it("skips a fallback lane whose provider is not r2", async () => {
+  it("skips an s3 fallback lane missing endpoint/region (storage_misconfigured), keeping the active lane", async () => {
     const env = makeEnv({
       UPLOADS_DEFAULT: new FakeR2Bucket(),
       UPLOADS_FALLBACK: new FakeR2Bucket(),
     });
     const badLane: StorageLane = { ...FALLBACK_LANE, provider: "s3" };
     const ws: WorkspaceRecord = { ...ACTIVE_WS, storageLanes: [badLane] };
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const configs = await storageConfigs(env, ws);
+      expect(configs).toHaveLength(1);
+      expect(configs[0]?.role).toBe("active");
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
+  it("skips a fallback lane naming a genuinely unsupported provider, keeping the active lane", async () => {
+    const env = makeEnv({
+      UPLOADS_DEFAULT: new FakeR2Bucket(),
+      UPLOADS_FALLBACK: new FakeR2Bucket(),
+    });
+    const badLane = { ...FALLBACK_LANE, provider: "azure" } as unknown as StorageLane;
+    const ws: WorkspaceRecord = { ...ACTIVE_WS, storageLanes: [badLane] };
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const configs = await storageConfigs(env, ws);
+      expect(configs).toHaveLength(1);
+      expect(configs[0]?.role).toBe("active");
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+});
+
+// A well-formed s3 fallback lane — plaintext creds (`openCredentialFields`
+// tolerates unsealed values, same convention `byo-storage-budget.test.ts`
+// relies on) plus the endpoint/region an s3 lane needs to resolve at all.
+const S3_FALLBACK_LANE: StorageLane = {
+  id: "lane_s3fallback1",
+  provider: "s3",
+  bucket: "customer-bucket",
+  endpoint: "https://s3.us-east-1.amazonaws.com",
+  region: "us-east-1",
+  accessKeyId: "s3-key",
+  secretAccessKey: "s3-secret",
+  lastActiveAt: "2026-08-01T00:00:00.000Z",
+};
+
+describe("storageConfigs with a well-formed s3 fallback lane", () => {
+  beforeEach(() => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("", { status: 200 })),
+    );
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("resolves an s3 fallback lane via storageConfigs", async () => {
+    const env = makeEnv({ UPLOADS_DEFAULT: new FakeR2Bucket() });
+    const ws: WorkspaceRecord = { ...ACTIVE_WS, storageLanes: [S3_FALLBACK_LANE] };
     const configs = await storageConfigs(env, ws);
-    expect(configs).toHaveLength(1);
-    expect(configs[0]?.role).toBe("active");
+    expect(configs).toHaveLength(2);
+    expect(configs[1]).toMatchObject({ laneId: "lane_s3fallback1", role: "fallback" });
+    expect(configs[1]?.config.provider).toBe("s3");
+  });
+
+  it("serves a read from an s3 fallback lane via createLaneResolver", async () => {
+    const env = makeEnv({ UPLOADS_DEFAULT: new FakeR2Bucket() });
+    const ws: WorkspaceRecord = { ...ACTIVE_WS, storageLanes: [S3_FALLBACK_LANE] };
+    const resolver = createLaneResolver(env, ws);
+    const resolved = await resolver.resolve("default/only-in-s3-fallback.png");
+    expect(resolved?.laneId).toBe("lane_s3fallback1");
+    expect(resolved?.role).toBe("fallback");
   });
 });
 
