@@ -463,6 +463,7 @@ const slowOpsSkeleton = renderAdminTableSkeletonRowsHtml(
     import { onAstroPageLoad, onSession, requireElement } from "../../lib/account-shell";
     import { ADMIN_TD, ADMIN_TD_NUM, escapeHtml } from "../../lib/admin-ui";
     import { formatBytes } from "../../lib/workspace-ui";
+    import type { MetricsOverview } from "@uploads/api/admin-ui";
 
     onAstroPageLoad(() => {
       if (!document.getElementById("metrics-tiles")) return;
@@ -471,49 +472,6 @@ const slowOpsSkeleton = renderAdminTableSkeletonRowsHtml(
       const apiOrigin = w.__UPLOADS_API_ORIGIN__.replace(/\/$/, "");
       const status = requireElement<HTMLElement>("#metrics-status", "admin metrics");
       const content = requireElement<HTMLElement>("#metrics-content", "admin metrics");
-
-      interface DayPoint {
-        day: string;
-        count: number;
-        bytes: number;
-      }
-      interface SignupPoint {
-        day: string;
-        count: number;
-      }
-      interface WorkspaceRow {
-        workspace: string;
-        uploads: number;
-        bytes: number;
-        lastActive: string;
-      }
-      interface MultiIdentityWorkspaceRow {
-        workspace: string;
-        users: number;
-      }
-      // Mirrors apps/api/src/metrics-overview.ts's MetricsOverview exactly.
-      // `totals.workspaces` is workspaces with >=1 recorded upload — not the
-      // registration count (idle workspaces have no workspace_usage row).
-      // `totals.orgs` is the registration figure. `totals.storedBytes` is
-      // current absolute stored bytes; `totals.bytes` is bytes uploaded
-      // within the selected window, not stored bytes.
-      interface Overview {
-        window: { days: number; since: string };
-        totals: {
-          users: number;
-          orgs: number;
-          workspaces: number;
-          storedBytes: number;
-          activeWorkspaces7d: number;
-          activeWorkspaces30d: number;
-          uploads: number;
-          bytes: number;
-        };
-        series: { uploads: DayPoint[]; users: SignupPoint[]; orgs: SignupPoint[] };
-        features: Record<string, number>;
-        workspaces: WorkspaceRow[];
-        multiIdentityWorkspaces: MultiIdentityWorkspaceRow[];
-      }
 
       let days = 30;
 
@@ -816,7 +774,7 @@ const slowOpsSkeleton = renderAdminTableSkeletonRowsHtml(
         wrap?.addEventListener("focusout", hide);
       }
 
-      function render(overview: Overview): void {
+      function render(overview: MetricsOverview): void {
         const tile = (id: string, value: string) => {
           const el = document.getElementById(id);
           if (el) el.textContent = value;
@@ -1034,7 +992,7 @@ const slowOpsSkeleton = renderAdminTableSkeletonRowsHtml(
           });
           if (seq !== loadSeq) return;
           if (!res.ok) throw new Error(`request failed: ${res.status}`);
-          const overview = (await res.json()) as Overview;
+          const overview = (await res.json()) as MetricsOverview;
           if (seq !== loadSeq) return;
           render(overview);
           status.hidden = true;

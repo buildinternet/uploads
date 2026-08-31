@@ -61,6 +61,16 @@ export const prerender = false;
       type LoadOnceFlag,
       wireExpandGroup,
     } from "../../lib/admin-ui";
+    import type {
+      AdminGithubLink,
+      AdminLimitsResponse,
+      AdminPlanResponse,
+      AdminStorageResponse,
+      AdminWorkspaceSummary,
+      OpenEnrollment,
+      OrgInvite,
+      OrgMember,
+    } from "@uploads/api/admin-ui";
 
     onAstroPageLoad(() => {
       if (!document.getElementById("workspaces-list")) return;
@@ -71,38 +81,6 @@ export const prerender = false;
       const workspacesStatus = requireElement<HTMLElement>("#workspaces-status", "admin");
       const workspacesList = requireElement<HTMLElement>("#workspaces-list", "admin");
 
-      interface WorkspaceSummary {
-        workspace: string;
-        organization: { id: string; slug: string; name: string } | null;
-        memberCount: number;
-        pendingInviteCount: number;
-      }
-      interface Member {
-        id: string;
-        email: string;
-        name: string;
-        role: string;
-      }
-      interface Invite {
-        id: string;
-        email: string;
-        role: string | null;
-        status: string;
-      }
-      interface InviteLink {
-        id: string;
-        pageId: string | null;
-        label: string | null;
-        scopes: string[];
-        kind?: "token" | "member";
-        createdAt: string;
-        // Issue #876: nullable (a non-expiring `kind: 'member'` link);
-        // maxUses/useCount are meaningful for `kind: 'member'` only.
-        expiresAt: string | null;
-        maxUses?: number | null;
-        useCount?: number;
-      }
-
       async function apiGet<T>(path: string): Promise<T> {
         const res = await fetch(`${apiOrigin}${path}`, {
           credentials: "include",
@@ -112,52 +90,26 @@ export const prerender = false;
         return (await res.json()) as T;
       }
 
-      interface Limits {
-        maxStorageBytes: number | null;
-        maxUploadsPerPeriod: number | null;
-        maxUploadBytes: number | null;
-        maxVideoUploadBytes: number | null;
-        maxMembers: number | null;
-      }
-      interface LimitsResponse {
-        workspace: string;
-        limits: Limits;
-        usage: { bytes: number; uploads: number } | null;
-      }
-
       // Issue #445: subscription enrichment, additive to the plan
       // GET/PATCH response shape (see apps/api/src/routes/admin-ui.ts's
       // adminSubscriptionInfo). `stripeCustomerId` is admin-ui-only — never
       // sent to /me — and only present when a subscription row exists.
-      interface AdminSubscription {
-        status: string;
-        periodEnd: string | null;
-        cancelAtPeriodEnd: boolean;
-        stripeCustomerId: string | null;
-      }
-      interface PlanResponse {
-        workspace: string;
-        plan: "free" | "pro";
-        available: boolean;
-        planApplied: boolean;
-        limits: Limits;
-        overrides: string[];
-        planSource: "stripe" | "admin" | "none";
-        subscription: AdminSubscription | null;
-      }
-
       const PLAN_OPTIONS: { id: "free" | "pro"; label: string }[] = [
         { id: "free", label: "Free" },
         { id: "pro", label: "Pro (unavailable to self-serve)" },
       ];
 
-      const PLAN_SOURCE_LABEL: Record<PlanResponse["planSource"], string> = {
+      const PLAN_SOURCE_LABEL: Record<AdminPlanResponse["planSource"], string> = {
         stripe: "Stripe-backed",
         admin: "Admin-set (comped)",
         none: "None",
       };
 
-      function renderPlanSelector(host: HTMLElement, workspace: string, data: PlanResponse): void {
+      function renderPlanSelector(
+        host: HTMLElement,
+        workspace: string,
+        data: AdminPlanResponse,
+      ): void {
         const options = PLAN_OPTIONS.map(
           (opt) =>
             `<option value="${opt.id}"${opt.id === data.plan ? " selected" : ""}>${escapeHtml(opt.label)}</option>`,
@@ -220,7 +172,7 @@ export const prerender = false;
                 } | null;
                 throw new Error(payload?.error?.message || `save failed: ${res.status}`);
               }
-              const updated = (await res.json()) as PlanResponse;
+              const updated = (await res.json()) as AdminPlanResponse;
               renderPlanSelector(host, workspace, updated);
               const freshStatus = host.querySelector<HTMLElement>(".plan-status");
               if (freshStatus) {
@@ -247,7 +199,11 @@ export const prerender = false;
         { label: "MB", mult: 1_000_000 },
         { label: "GB", mult: 1_000_000_000 },
       ];
-      const LIMIT_FIELDS: { key: keyof Limits; label: string; byte: boolean }[] = [
+      const LIMIT_FIELDS: {
+        key: keyof AdminLimitsResponse["limits"];
+        label: string;
+        byte: boolean;
+      }[] = [
         { key: "maxStorageBytes", label: "Storage", byte: true },
         { key: "maxUploadsPerPeriod", label: "Uploads / month", byte: false },
         { key: "maxUploadBytes", label: "Max file size", byte: true },
@@ -269,7 +225,11 @@ export const prerender = false;
         return `${value} ${unit}`;
       }
 
-      function renderLimitsForm(host: HTMLElement, workspace: string, data: LimitsResponse): void {
+      function renderLimitsForm(
+        host: HTMLElement,
+        workspace: string,
+        data: AdminLimitsResponse,
+      ): void {
         const rows = LIMIT_FIELDS.map((f) => {
           const raw = data.limits[f.key];
           const unlimited = raw === null;
@@ -363,7 +323,7 @@ export const prerender = false;
                 } | null;
                 throw new Error(payload?.error?.message || `save failed: ${res.status}`);
               }
-              const updated = (await res.json()) as LimitsResponse;
+              const updated = (await res.json()) as AdminLimitsResponse;
               renderLimitsForm(host, workspace, updated);
               const freshStatus = host.querySelector<HTMLElement>(".limit-status");
               if (freshStatus) {
@@ -423,37 +383,77 @@ export const prerender = false;
       // value, only masked/presence fields — see workspace-storage.ts) plus
       // `configuredBy` (admin-ui-only, like `stripeCustomerId` on the plan
       // response above).
-      /** A saved-but-inactive lane (spec: "Configure, then switch") — read-only here, never a credential value. */
-      interface StorageLaneResponse {
-        laneId: string;
-        role: "standby" | "fallback";
-        bucket: string;
-        publicBaseUrl?: string;
-        verifiedAt?: string;
-        lastActiveAt?: string;
-        accountIdMasked?: string;
-        accessKeyIdLast4?: string;
-      }
+      /**
+       * Outstanding invite links for a workspace, with a revoke button per
+       * row. `onRevoke` fires after a successful DELETE so the caller can
+       * refresh the list. A failed DELETE renders an inline status message
+       * instead of throwing.
+       */
+      function renderInviteLinks(
+        host: HTMLElement,
+        workspace: string,
+        links: OpenEnrollment[],
+        onRevoke: () => void,
+      ): void {
+        host.innerHTML = links.length
+          ? `<h4 class="${ADMIN_DETAIL_HEADING}">Invite links</h4>
+           <ul class="invite-links-items ${ADMIN_MINI_LIST}">
+             ${links
+               .map((link) => {
+                 const expiry = link.expiresAt
+                   ? `expires ${formatDate(link.expiresAt) ?? link.expiresAt}`
+                   : "never expires";
+                 const uses =
+                   link.kind === "member"
+                     ? ` · ${link.useCount ?? 0}${link.maxUses ? `/${link.maxUses}` : ""} joins`
+                     : "";
+                 return `<li class="${ADMIN_MINI_LIST_ITEM}" data-id="${escapeHtml(link.id)}">
+                   <span>${link.label ? escapeHtml(link.label) : `<span class="muted">unlabeled</span>`} · ${escapeHtml(link.kind === "member" ? "member" : link.scopes.join(", "))} · ${escapeHtml(expiry)}${escapeHtml(uses)}</span>
+                   <button type="button" class="invite-link-revoke ${ADMIN_BTN} ${ADMIN_BTN_DANGER}" data-id="${escapeHtml(link.id)}">Revoke</button>
+                 </li>`;
+               })
+               .join("")}
+           </ul>
+           <div class="invite-links-status text-(length:--text-micro)" role="status" aria-live="polite" hidden></div>`
+          : `<p class="muted">No outstanding invite links.</p>`;
 
-      interface StorageResponse {
-        workspace: string;
-        mode: "shared" | "byo";
-        byoBucketEnabled: boolean;
-        bucket?: string;
-        accountIdMasked?: string;
-        accessKeyIdLast4?: string;
-        publicBaseUrl?: string;
-        configuredAt?: string;
-        verifiedAt?: string;
-        configuredBy: string | null;
-        activeLaneId?: string;
-        lanes?: StorageLaneResponse[];
+        const statusEl = host.querySelector<HTMLElement>(".invite-links-status");
+        host.querySelectorAll<HTMLButtonElement>(".invite-link-revoke").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            void (async () => {
+              const id = btn.dataset.id;
+              if (!id) return;
+              btn.disabled = true;
+              try {
+                const res = await fetch(
+                  `${apiOrigin}/admin-ui/workspaces/${encodeURIComponent(workspace)}/invite-links/${encodeURIComponent(id)}`,
+                  { method: "DELETE", credentials: "include" },
+                );
+                if (!res.ok) {
+                  const payload = (await res.json().catch(() => null)) as {
+                    error?: { message?: string };
+                  } | null;
+                  throw new Error(payload?.error?.message || `revoke failed: ${res.status}`);
+                }
+                onRevoke();
+              } catch (err) {
+                btn.disabled = false;
+                if (statusEl) {
+                  statusEl.dataset.state = "error";
+                  statusEl.textContent =
+                    err instanceof Error && err.message ? err.message : "Couldn't revoke the link.";
+                  statusEl.hidden = false;
+                }
+              }
+            })();
+          });
+        });
       }
 
       function renderStorageForm(
         host: HTMLElement,
         workspace: string,
-        data: StorageResponse,
+        data: AdminStorageResponse,
       ): void {
         const provenance =
           data.mode === "byo"
@@ -527,7 +527,7 @@ export const prerender = false;
                 } | null;
                 throw new Error(payload?.error?.message || `save failed: ${res.status}`);
               }
-              const updated = (await res.json()) as StorageResponse;
+              const updated = (await res.json()) as AdminStorageResponse;
               renderStorageForm(host, workspace, updated);
               const freshStatus = host.querySelector<HTMLElement>(".storage-status");
               if (freshStatus) {
@@ -551,86 +551,7 @@ export const prerender = false;
         });
       }
 
-      interface GithubLink {
-        repo: string;
-        workspace: string;
-        source: string;
-        installationId: number | null;
-        createdAt: string;
-      }
-      interface GithubLinksResponse {
-        workspace: string;
-        links: GithubLink[];
-      }
-
-      /**
-       * Outstanding invite links for a workspace, with a revoke button per
-       * row. `onRevoke` fires after a successful DELETE so the caller can
-       * refresh the list. A failed DELETE renders an inline status message
-       * instead of throwing.
-       */
-      function renderInviteLinks(
-        host: HTMLElement,
-        workspace: string,
-        links: InviteLink[],
-        onRevoke: () => void,
-      ): void {
-        host.innerHTML = links.length
-          ? `<h4 class="${ADMIN_DETAIL_HEADING}">Invite links</h4>
-           <ul class="invite-links-items ${ADMIN_MINI_LIST}">
-             ${links
-               .map((link) => {
-                 const expiry = link.expiresAt
-                   ? `expires ${formatDate(link.expiresAt) ?? link.expiresAt}`
-                   : "never expires";
-                 const uses =
-                   link.kind === "member"
-                     ? ` · ${link.useCount ?? 0}${link.maxUses ? `/${link.maxUses}` : ""} joins`
-                     : "";
-                 return `<li class="${ADMIN_MINI_LIST_ITEM}" data-id="${escapeHtml(link.id)}">
-                   <span>${link.label ? escapeHtml(link.label) : `<span class="muted">unlabeled</span>`} · ${escapeHtml(link.kind === "member" ? "member" : link.scopes.join(", "))} · ${escapeHtml(expiry)}${escapeHtml(uses)}</span>
-                   <button type="button" class="invite-link-revoke ${ADMIN_BTN} ${ADMIN_BTN_DANGER}" data-id="${escapeHtml(link.id)}">Revoke</button>
-                 </li>`;
-               })
-               .join("")}
-           </ul>
-           <div class="invite-links-status text-(length:--text-micro)" role="status" aria-live="polite" hidden></div>`
-          : `<p class="muted">No outstanding invite links.</p>`;
-
-        const statusEl = host.querySelector<HTMLElement>(".invite-links-status");
-        host.querySelectorAll<HTMLButtonElement>(".invite-link-revoke").forEach((btn) => {
-          btn.addEventListener("click", () => {
-            void (async () => {
-              const id = btn.dataset.id;
-              if (!id) return;
-              btn.disabled = true;
-              try {
-                const res = await fetch(
-                  `${apiOrigin}/admin-ui/workspaces/${encodeURIComponent(workspace)}/invite-links/${encodeURIComponent(id)}`,
-                  { method: "DELETE", credentials: "include" },
-                );
-                if (!res.ok) {
-                  const payload = (await res.json().catch(() => null)) as {
-                    error?: { message?: string };
-                  } | null;
-                  throw new Error(payload?.error?.message || `revoke failed: ${res.status}`);
-                }
-                onRevoke();
-              } catch (err) {
-                btn.disabled = false;
-                if (statusEl) {
-                  statusEl.dataset.state = "error";
-                  statusEl.textContent =
-                    err instanceof Error && err.message ? err.message : "Couldn't revoke the link.";
-                  statusEl.hidden = false;
-                }
-              }
-            })();
-          });
-        });
-      }
-
-      function renderGithubLinks(host: HTMLElement, links: GithubLink[]): void {
+      function renderGithubLinks(host: HTMLElement, links: AdminGithubLink[]): void {
         host.innerHTML = links.length
           ? `<h4 class="github-links-heading ${ADMIN_DETAIL_HEADING}">GitHub repos claimed</h4>
            <ul class="github-links-list list-none m-0 p-0 grid gap-1">
@@ -644,7 +565,7 @@ export const prerender = false;
           : "";
       }
 
-      function renderWorkspace(ws: WorkspaceSummary): HTMLElement {
+      function renderWorkspace(ws: AdminWorkspaceSummary): HTMLElement {
         const group = document.createElement("tbody");
         group.className = "admin-row-group workspace";
         const org = ws.organization ? ws.organization.name : "no organization yet";
@@ -732,7 +653,7 @@ export const prerender = false;
             const inviteLinksEl = group.querySelector<HTMLElement>(".invite-links-list");
             if (!inviteLinksEl) return;
             try {
-              const { links } = await apiGet<{ links: InviteLink[] }>(
+              const { links } = await apiGet<{ links: OpenEnrollment[] }>(
                 `/admin-ui/workspaces/${encodeURIComponent(ws.workspace)}/invite-links`,
               );
               renderInviteLinks(inviteLinksEl, ws.workspace, links, reloadInviteLinks);
@@ -759,10 +680,10 @@ export const prerender = false;
             loadOnce(membersLoaded, async () => {
               try {
                 const [{ members }, { invites }] = await Promise.all([
-                  apiGet<{ members: Member[] }>(
+                  apiGet<{ members: OrgMember[] }>(
                     `/admin-ui/workspaces/${encodeURIComponent(ws.workspace)}/members`,
                   ),
-                  apiGet<{ invites: Invite[] }>(
+                  apiGet<{ invites: OrgInvite[] }>(
                     `/admin-ui/workspaces/${encodeURIComponent(ws.workspace)}/invites`,
                   ),
                 ]);
@@ -787,7 +708,7 @@ export const prerender = false;
             const planEl = group.querySelector<HTMLElement>(".plan");
             if (!planEl) return;
             try {
-              const planData = await apiGet<PlanResponse>(
+              const planData = await apiGet<AdminPlanResponse>(
                 `/admin-ui/workspaces/${encodeURIComponent(ws.workspace)}/plan`,
               );
               renderPlanSelector(planEl, ws.workspace, planData);
@@ -801,7 +722,7 @@ export const prerender = false;
             const limitsEl = group.querySelector<HTMLElement>(".limits");
             if (!limitsEl) return;
             try {
-              const limitsData = await apiGet<LimitsResponse>(
+              const limitsData = await apiGet<AdminLimitsResponse>(
                 `/admin-ui/workspaces/${encodeURIComponent(ws.workspace)}/limits`,
               );
               renderLimitsForm(limitsEl, ws.workspace, limitsData);
@@ -815,7 +736,7 @@ export const prerender = false;
             const storageEl = group.querySelector<HTMLElement>(".storage");
             if (!storageEl) return;
             try {
-              const storageData = await apiGet<StorageResponse>(
+              const storageData = await apiGet<AdminStorageResponse>(
                 `/admin-ui/workspaces/${encodeURIComponent(ws.workspace)}/storage`,
               );
               renderStorageForm(storageEl, ws.workspace, storageData);
@@ -829,7 +750,7 @@ export const prerender = false;
             const githubLinksEl = group.querySelector<HTMLElement>(".github-links");
             if (!githubLinksEl) return;
             try {
-              const { links } = await apiGet<GithubLinksResponse>(
+              const { links } = await apiGet<{ links: AdminGithubLink[] }>(
                 `/admin-ui/workspaces/${encodeURIComponent(ws.workspace)}/github-links`,
               );
               renderGithubLinks(githubLinksEl, links);
@@ -986,7 +907,7 @@ export const prerender = false;
       async function loadWorkspaces() {
         const tableWrap = document.getElementById("workspaces-table-wrap");
         try {
-          const { workspaces } = await apiGet<{ workspaces: WorkspaceSummary[] }>(
+          const { workspaces } = await apiGet<{ workspaces: AdminWorkspaceSummary[] }>(
             "/admin-ui/workspaces",
           );
           workspacesStatus.hidden = true;

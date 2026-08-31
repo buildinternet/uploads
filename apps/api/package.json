@@ -24,7 +24,8 @@
     "./github-comment-render": "./src/github-comment-render.ts",
     "./github-promote-service": "./src/github-promote-service.ts",
     "./github-attach-service": "./src/github-attach-service.ts",
-    "./github-repo-binding": "./src/github-repo-binding.ts"
+    "./github-repo-binding": "./src/github-repo-binding.ts",
+    "./admin-ui": "./src/routes/admin-ui.ts"
   },
   "scripts": {
     "dev": "wrangler dev",
@@ -54,6 +55,7 @@
     "@types/node": "^26.1.0",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10",
-    "wrangler": "^4.125.0"
+    "wrangler": "^4.125.0",
+    "@uploads/auth": "workspace:^"
   }
 }
