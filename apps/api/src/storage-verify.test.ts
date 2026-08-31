@@ -669,4 +669,23 @@ describe("verifyStorageConfig — s3 candidates", () => {
     const client = defaultStorageClientFactory(VALID_S3);
     expect(client).toBeDefined();
   });
+
+  it("uses s3-specific round-trip write-rejection copy, not R2 API token wording", async () => {
+    const client = new FakeStorageClient();
+    client.uploadError = new FakeError("Unauthorized", "read-only key");
+    const result = await verifyStorageConfig(VALID_S3, { createClient: () => client });
+    const roundTrip = result.checks.find((c) => c.id === "round-trip")!;
+    expect(roundTrip.ok).toBe(false);
+    expect(roundTrip.hint).toMatch(/the access key needs write permissions/);
+    expect(roundTrip.hint).not.toMatch(/R2 API token/);
+  });
+
+  it("keeps the r2 round-trip write-rejection copy referencing the R2 API token unchanged", async () => {
+    const client = new FakeStorageClient();
+    client.uploadError = new FakeError("Unauthorized", "read-only token");
+    const result = await run(VALID, client);
+    const roundTrip = result.checks.find((c) => c.id === "round-trip")!;
+    expect(roundTrip.ok).toBe(false);
+    expect(roundTrip.hint).toMatch(/the R2 API token needs Object Read & Write, not read-only/);
+  });
 });

@@ -518,10 +518,15 @@ export async function verifyStorageConfig(
       publicUrlCacheControl = probed.cacheControl;
     }
   } catch (err) {
-    roundTripHint =
-      errorCode(err) === "Unauthorized"
-        ? "the access key can read this bucket but was rejected on write — the R2 API token needs Object Read & Write, not read-only"
-        : "could not write/read/delete a test object in this bucket — check the token's permissions";
+    if (errorCode(err) === "Unauthorized") {
+      roundTripHint =
+        provider === "s3"
+          ? "the access key can read this bucket but was rejected on write — the access key needs write permissions, not just read"
+          : "the access key can read this bucket but was rejected on write — the R2 API token needs Object Read & Write, not read-only";
+    } else {
+      roundTripHint =
+        "could not write/read/delete a test object in this bucket — check the token's permissions";
+    }
   } finally {
     try {
       await client.delete(probeKey);
