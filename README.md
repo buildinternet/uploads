@@ -8,8 +8,9 @@
 
 Capture screenshots as you work. When the pull request opens, uploads.sh puts
 them in one tidy comment that updates automatically on each revision. Hosted
-uploads.sh is free to start. Connect your own Cloudflare R2 bucket so storage
-in that bucket is unmetered, or self-host the open-source service.
+uploads.sh is free to start. Connect your own bucket — Cloudflare R2 or any
+S3-compatible provider — so storage in that bucket is unmetered, or self-host
+the open-source service.
 
 <p>
   <a href="https://uploads.sh"><b>uploads.sh</b></a> &nbsp;·&nbsp;

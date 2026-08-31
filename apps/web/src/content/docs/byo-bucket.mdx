@@ -1,6 +1,6 @@
 ---
 title: Bring your own bucket
-description: Point a workspace at your own Cloudflare R2 bucket instead of hosted storage on storage.uploads.sh.
+description: Point a workspace at your own Cloudflare R2 or S3-compatible bucket instead of hosted storage on storage.uploads.sh.
 heading: Bring your own bucket
 tagline: Point a workspace at storage you already pay for, instead of hosted storage.
 navLabel: Bring your own bucket
@@ -8,6 +8,7 @@ navSlug: byo-bucket
 navOrder: 8
 toc:
   - { id: setup, label: Set up your bucket }
+  - { id: s3-compatible, label: Other S3-compatible providers }
   - { id: serving, label: "Serving: custom domain vs signed-only" }
   - { id: degraded, label: What's different }
   - { id: ownership, label: Data ownership & switching back }
@@ -33,7 +34,8 @@ Point a workspace at a Cloudflare R2 bucket you already control. With your own b
 - See [what's different](#degraded) on a BYO bucket before you switch.
 
 A workspace admin connects from the workspace settings page — one form, filled from three things you
-set up on the Cloudflare dashboard first (plus one optional cache rule).
+set up on the Cloudflare dashboard first (plus one optional cache rule). Any other S3-compatible
+provider works too — see [Other S3-compatible providers](#s3-compatible).
 
 ### 1. Create an R2 bucket
 
@@ -85,6 +87,33 @@ clean pass saves. Saving never changes where uploads go — the bucket sits on y
   keep resolving from wherever they already are, and only new uploads move to the newly active
   bucket. File-size and video-size limits still apply on a BYO bucket; the storage-quota budget does
   not.
+</div>
+
+</section>
+
+<section id="s3-compatible">
+
+## Other S3-compatible providers <a class="anchor" href="#s3-compatible" aria-label="Link to this section">#</a>
+
+The connect form also takes any S3-compatible bucket — AWS S3, Backblaze B2, MinIO, and the rest.
+Pick **Other S3-compatible** on the form and it swaps the Cloudflare-only fields for:
+
+- **Endpoint URL** — your provider's S3 endpoint, for example `https://s3.us-east-1.amazonaws.com`.
+  Must be `https://`.
+- **Region** — the bucket's region, for example `us-east-1`.
+- **Bucket** — typed in directly. There's no bucket picker for S3 providers the way there is for R2;
+  paste the name your provider gave you. AWS bucket names may contain dots.
+
+Access keys and public base URL work the same as the R2 walkthrough above. The verify pipeline runs
+the same checks — shape, auth, a write/read/delete round-trip, and (for a first attach) that the
+bucket is empty — a public URL and the [embed-cache rule](#setup) are still recommended, not
+required. There's no jurisdiction concept for S3 providers.
+
+<div class="note">
+  The embed-cache tip above is written for Cloudflare's Transform Rules. On another provider, add the
+  CDN-equivalent no-cache rule on the public domain instead — set `Cache-Control` to
+  `max-age=0, no-cache, no-store, must-revalidate` for that host so GitHub's Camo proxy revalidates
+  overwritten images.
 </div>
 
 </section>
@@ -151,8 +180,8 @@ clean pass saves. Saving never changes where uploads go — the bucket sits on y
 - **`retentionDays` auto-cleanup.** Age-based retention walks a prefix on the hosted bucket. A BYO
   bucket has no hosted prefix, so automatic retention isn't available — delete old files yourself if
   you need that.
-- **Storage quota.** On a BYO bucket the plan's storage budget doesn't apply (you pay Cloudflare for
-  the bucket). File-size and video-size upload limits still do.
+- **Storage quota.** On a BYO bucket the plan's storage budget doesn't apply (you pay your provider
+  for the bucket). File-size and video-size upload limits still do.
 
 </section>
 

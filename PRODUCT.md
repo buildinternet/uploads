@@ -84,7 +84,8 @@ Three things a neighboring product could not truthfully copy:
 MCP server (`agents.uploads.sh`), the Astro site at uploads.sh, and the
 `@buildinternet/uploads` CLI on npm. Each deploys separately on Cloudflare
 Workers. All storage goes through `createStorage()` in `packages/storage`, built
-on files-sdk, so the storage layer is provider-agnostic (R2 today).
+on files-sdk, so the storage layer is provider-agnostic (R2 and any
+S3-compatible bucket today).
 
 **Web routes in production:** marketing home, `/docs` hub with eight guides,
 `/changelog` (plus Atom feed), `/f/<workspace>/<key>` file share pages, `/g/<id>`

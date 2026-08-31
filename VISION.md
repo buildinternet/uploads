@@ -92,8 +92,9 @@ org-scoped. Tokens are scoped tightly (file, workspace, operator tiers) and
 fail closed. Deletion is soft with a grace period, because agents make
 mistakes and humans change their minds.
 
-The storage layer is provider-agnostic by construction (files-sdk; R2 today).
-The service should never be the reason your files are stuck somewhere.
+The storage layer is provider-agnostic by construction (files-sdk; R2 and any
+S3-compatible bucket today). The service should never be the reason your files
+are stuck somewhere.
 
 ## Roadmap
 
@@ -106,9 +107,9 @@ unless artifacts were captured along the way. uploads should make both of
 these normal.
 
 - **More storage providers.** The storage layer is provider-agnostic by
-  construction (files-sdk), but today it is strictly R2. We know that needs to
-  change — especially for self-hosted deployments, where files-sdk already
-  does most of the work.
+  construction (files-sdk). R2 and any S3-compatible bucket are wired up
+  today; other provider families are still ahead — especially for
+  self-hosted deployments, where files-sdk already does most of the work.
 - **Bring your own storage.** A world where a team points uploads at their
   existing storage and uses the product as a gateway — the workflow layer on
   top of infrastructure they already pay for, at minimal to no cost, in the

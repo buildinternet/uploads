@@ -7,8 +7,9 @@ items that are on the list but not yet built.
 ## Open items
 
 - **More storage providers** — the storage layer is provider-agnostic
-  (files-sdk via `createStorage()` in `packages/storage`), but only R2 is
-  wired up. Adding `s3`, `gcs`, etc. is one new case plus peer deps.
+  (files-sdk via `createStorage()` in `packages/storage`); R2 and any
+  S3-compatible bucket are wired up. Adding `gcs` and others is one new case
+  plus peer deps.
 - **Full web file management** — longer-term, files-sdk's `createFilesRouter`
   and browser client could power full browse/manage in the web app.
 - **Key-policy polish** — destination-specific size rules, and exposing a
