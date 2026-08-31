@@ -104,10 +104,13 @@ Pick **Other S3-compatible** on the form and it swaps the Cloudflare-only fields
 - **Bucket** — typed in directly. There's no bucket picker for S3 providers the way there is for R2;
   paste the name your provider gave you. AWS bucket names may contain dots.
 
-Access keys and public base URL work the same as the R2 walkthrough above. The verify pipeline runs
-the same checks — shape, auth, a write/read/delete round-trip, and (for a first attach) that the
-bucket is empty — a public URL and the [embed-cache rule](#setup) are still recommended, not
-required. There's no jurisdiction concept for S3 providers.
+Access keys work the same as the R2 walkthrough above. The public base URL does too, except the
+domain itself: [step 3](#setup)'s Cloudflare Custom Domain is specific to R2. For an S3-compatible
+provider, set up a public domain the way that provider (or a CDN in front of it) supports, then paste
+that URL into the form. The verify pipeline runs the same checks — shape, auth, a write/read/delete
+round-trip, and (for a first attach) that the bucket is empty — a public URL and the
+[embed-cache rule](#setup) are still recommended, not required. There's no jurisdiction concept for
+S3 providers.
 
 <div class="note">
   The embed-cache tip above is written for Cloudflare's Transform Rules. On another provider, add the
