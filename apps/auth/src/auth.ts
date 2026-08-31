@@ -742,6 +742,18 @@ function buildAuth(
         enforcePerClientResources: false,
         allowDynamicClientRegistration: true,
         allowUnauthenticatedClientRegistration: true,
+        // Refresh tokens rotate on every refresh, and the plugin's default
+        // reuse grace is 0 — a second use of a just-rotated token (a network
+        // retry whose first attempt landed, or two processes of the same
+        // client sharing one stored token, e.g. multiple OpenCode sessions)
+        // is treated as theft and tears down the ENTIRE refresh-token family
+        // per RFC 9700 §4.14, forcing a full interactive re-auth. Within this
+        // window the plugin instead replays the stored rotation response
+        // (`rotationReplayResponse`), so concurrent refreshers all end up
+        // with the same valid token pair. 60s matches the order of Auth0's
+        // recommended rotation leeway and is far too short to matter for
+        // actual stolen-token replay.
+        refreshTokenReuseInterval: 60,
         // Explicit abuse ceiling on the public /oauth2/register endpoint —
         // pinned here rather than the plugin's library default so it's
         // auditable and can't silently drift. Enforced only when Better
