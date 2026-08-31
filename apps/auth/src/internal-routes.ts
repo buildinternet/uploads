@@ -193,7 +193,7 @@ async function statsForClient(
 function serializeClient(row: OauthClientRow, stats: OauthClientStats) {
   return {
     clientId: row.clientId,
-    name: row.name,
+    name: row.name ?? row.clientId,
     type: row.type,
     public: Boolean(row.public),
     disabled: Boolean(row.disabled),

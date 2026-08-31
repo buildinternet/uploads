@@ -144,7 +144,7 @@ export const prerender = false;
 
       interface OAuthClient {
         clientId: string;
-        name: string;
+        name: string | null;
         type: string;
         public: boolean;
         disabled: boolean;
@@ -189,7 +189,7 @@ export const prerender = false;
         row.innerHTML = `
           <td class="keep ${ADMIN_TD}">
             <a class="admin-row-link group text-inherit no-underline" href="${href}">
-              <span class="primary ${ADMIN_CELL_PRIMARY} group-hover:text-primary group-focus-visible:text-primary">${escapeHtml(client.name)}</span>
+              <span class="primary ${ADMIN_CELL_PRIMARY} group-hover:text-primary group-focus-visible:text-primary">${escapeHtml(client.name ?? client.clientId)}</span>
             </a>
           </td>
           <td class="optional mono muted ${ADMIN_TD} ${ADMIN_CELL_MONO} ${ADMIN_CELL_MUTED}">${escapeHtml(client.clientId)}</td>
@@ -202,23 +202,25 @@ export const prerender = false;
       }
 
       async function loadClients() {
+        let clients: OAuthClient[];
         try {
-          const { clients } = await apiGet<{ clients: OAuthClient[] }>("/admin-ui/oauth-clients");
-          oauthStatus.hidden = true;
-          oauthListBody.innerHTML = "";
-          if (!clients.length) {
-            oauthStatus.hidden = false;
-            oauthStatus.textContent = "No OAuth apps yet.";
-            tableWrap.hidden = true;
-            return;
-          }
-          tableWrap.hidden = false;
-          for (const client of clients) oauthListBody.appendChild(renderClient(client));
+          ({ clients } = await apiGet<{ clients: OAuthClient[] }>("/admin-ui/oauth-clients"));
         } catch {
           oauthStatus.hidden = false;
           oauthStatus.textContent = "Failed to load OAuth apps.";
           tableWrap.hidden = true;
+          return;
         }
+        oauthStatus.hidden = true;
+        oauthListBody.innerHTML = "";
+        if (!clients.length) {
+          oauthStatus.hidden = false;
+          oauthStatus.textContent = "No OAuth apps yet.";
+          tableWrap.hidden = true;
+          return;
+        }
+        tableWrap.hidden = false;
+        for (const client of clients) oauthListBody.appendChild(renderClient(client));
       }
 
       const createForm = requireElement<HTMLFormElement>("#oauth-create-form", "admin oauth");

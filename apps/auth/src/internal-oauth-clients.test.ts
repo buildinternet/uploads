@@ -155,6 +155,25 @@ describe("GET /internal/oauth-clients", () => {
     expect(created[0].clientId).toBe(secondBody.clientId);
     expect(created[1].clientId).toBe(firstBody.clientId);
   });
+
+  it("falls back to clientId for DCR clients registered without a name", async () => {
+    // DCR (RFC 7591) makes client_name optional, so rows with name = NULL exist.
+    const orm = drizzle(db, { schema });
+    await orm.insert(schema.oauthClient).values({
+      id: "row-dcr",
+      clientId: "dcr-client",
+      redirectUris: ["http://127.0.0.1:33418/callback"],
+      scopes: ["files:read"],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    const res = await jsonReq("GET", "/internal/oauth-clients");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { clients: Array<{ clientId: string; name: string }> };
+    const dcr = body.clients.find((c) => c.clientId === "dcr-client");
+    expect(dcr?.name).toBe("dcr-client");
+  });
 });
 
 describe("GET /internal/oauth-clients/:clientId", () => {
