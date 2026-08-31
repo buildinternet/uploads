@@ -10,7 +10,7 @@ import { dash } from "@better-auth/infra";
 import { oauthProvider } from "@better-auth/oauth-provider";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { betterAuth } from "better-auth";
-import { APIError, createAuthMiddleware } from "better-auth/api";
+import { APIError, createAuthMiddleware, isAPIError } from "better-auth/api";
 import { and, asc, eq, isNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import {
@@ -41,6 +41,7 @@ import { sendAuthEmail } from "./email";
 import { localDemoEnabled, localDemoPlugin } from "./local-demo";
 import { memberCapDenial } from "./member-cap";
 import { notifyAdminsOfMemberJoin } from "./notify-member-join";
+import { buildTokenGrantAfterHandler, captureRefreshTokenPriorState } from "./oauth-observability";
 import { createDurableRateLimitStorage, type RateLimitNamespaceLike } from "./rate-limit";
 import * as schema from "./schema";
 import { stripePluginOrNone } from "./stripe-plugin";
@@ -314,8 +315,23 @@ function authBeforeHook(
   return createAuthMiddleware(async (ctx) => {
     const oauthOverride = await applyOAuthClientInterop(ctx, registeredScopesForClientId);
     if (oauthOverride) return oauthOverride;
+    // Issue #912: snapshot the presented refresh token's D1 rotation state
+    // BEFORE the plugin's own /oauth2/token handler runs — see
+    // oauth-observability.ts's file doc comment for why this can't be done
+    // from the after hook alone. Cheap no-op for every other path/grant_type.
+    await captureRefreshTokenPriorState(db, ctx);
     await enforceLastAdminGuard(ctx, db);
   });
+}
+
+/**
+ * Issue #912: completes the refresh-grant/replay/teardown/no-refresh
+ * classification once the `/oauth2/token` response (success or thrown
+ * `APIError`) is known, and writes the resulting event(s) to Analytics
+ * Engine. See oauth-observability.ts for the full design.
+ */
+function oauthObservabilityAfterHook(env: { AUTH_EVENTS?: AnalyticsEngineDataset }) {
+  return createAuthMiddleware(buildTokenGrantAfterHandler(env, isAPIError));
 }
 
 /**
@@ -439,6 +455,14 @@ export type AuthEnv = GitHubCredentialsEnv &
     STRIPE_SECRET_KEY?: string;
     STRIPE_WEBHOOK_SECRET?: string;
     STRIPE_PRO_PRICE_ID?: string;
+    /**
+     * Issue #912: Analytics Engine dataset for the OAuth refresh-grant/
+     * replay/teardown/no-refresh signals (see oauth-observability.ts).
+     * Optional and purely additive, same contract as apps/api's ANALYTICS/
+     * SLOW_OPS bindings — absent in tests and local dev, and every writer
+     * here treats that as a silent no-op.
+     */
+    AUTH_EVENTS?: AnalyticsEngineDataset;
   };
 
 export type BetterAuthInstance = ReturnType<typeof buildAuth>;
@@ -941,6 +965,7 @@ function buildAuth(
     // single middleware here.
     hooks: {
       before: authBeforeHook(db, registeredScopesForClientId),
+      after: oauthObservabilityAfterHook(env),
     },
     // Fail-closed in production, decoupled from secret resolution (D3/D7):
     // rate limiting is on whenever ENVIRONMENT === "production", regardless
