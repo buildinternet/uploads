@@ -27,6 +27,7 @@ const workspaceActivitySkeleton = renderAdminTableSkeletonRowsHtml(
     { width: "34px", num: true },
     { width: "58px", num: true },
     { width: "76px" },
+    { width: "48px" },
   ],
   5,
 );
@@ -129,6 +130,19 @@ const slowOpsSkeleton = renderAdminTableSkeletonRowsHtml(
           </dt>
           <dd
             id="tile-workspaces"
+            class="mt-1.5 mb-0 text-foreground text-(length:--text-h3) font-semibold tabular-nums"
+          >
+            —
+          </dd>
+        </div>
+        <div class="metrics-tile border border-border rounded-md px-3.5 py-3">
+          <dt
+            class="m-0 text-muted-foreground text-(length:--text-micro) uppercase tracking-[0.06em]"
+          >
+            GitHub App workspaces
+          </dt>
+          <dd
+            id="tile-github-app"
             class="mt-1.5 mb-0 text-foreground text-(length:--text-h3) font-semibold tabular-nums"
           >
             —
@@ -245,6 +259,7 @@ const slowOpsSkeleton = renderAdminTableSkeletonRowsHtml(
                 <th class={`keep num ${ADMIN_TH_NUM}`} scope="col">Uploads</th>
                 <th class={`keep num ${ADMIN_TH_NUM}`} scope="col">Bytes</th>
                 <th class={`keep ${ADMIN_TH}`} scope="col">Last active</th>
+                <th class={`keep ${ADMIN_TH}`} scope="col">GitHub App</th>
               </tr>
             </thead>
             <tbody set:html={workspaceActivitySkeleton} />
@@ -774,6 +789,237 @@ const slowOpsSkeleton = renderAdminTableSkeletonRowsHtml(
         wrap?.addEventListener("focusout", hide);
       }
 
+      /** Stacked-bar segment keys, in bottom-to-top draw order. */
+      const UPLOAD_CLASS_KEYS = ["image", "video", "other"] as const;
+      type UploadClassKey = (typeof UPLOAD_CLASS_KEYS)[number];
+      const UPLOAD_CLASS_LABELS: Record<UploadClassKey, string> = {
+        image: "Image",
+        video: "Video",
+        other: "Other",
+      };
+
+      /**
+       * Stacked variant of `drawChart` for `series.uploadClasses` (Analytics
+       * Engine-backed, sampled — see the panel note below the chart): each
+       * day's bar splits into image/video/other segments instead of one
+       * solid fill. Shares drawChart's scale/gridline/tooltip machinery but
+       * can't reuse it directly since niceMax has to cover the *stacked*
+       * total per day, not a single series value, and the tooltip needs a
+       * per-class breakdown rather than one number.
+       */
+      function drawStackedChart(
+        elementId: string,
+        days: { day: string; image: number; video: number; other: number }[],
+        windowDays: number,
+      ): void {
+        const container = document.getElementById(elementId);
+        if (!container) return;
+        container.removeAttribute("aria-busy");
+        if (!days.length) {
+          container.innerHTML = `<p class="muted">No data yet.</p>`;
+          return;
+        }
+
+        const rows = days.map((d) => ({
+          day: d.day,
+          image: Math.max(0, Number(d.image) || 0),
+          video: Math.max(0, Number(d.video) || 0),
+          other: Math.max(0, Number(d.other) || 0),
+        }));
+        const totals = rows.map((r) => r.image + r.video + r.other);
+        const niceMax = niceCeil(Math.max(1, ...totals));
+
+        const W = 480;
+        const H = 200;
+        const marginLeft = 36;
+        const marginRight = 8;
+        const marginTop = 10;
+        const marginBottom = 26;
+        const plotW = W - marginLeft - marginRight;
+        const plotH = H - marginTop - marginBottom;
+        const baseline = marginTop + plotH;
+        const bandWidth = plotW / rows.length;
+        const gap = Math.min(6, Math.max(2, bandWidth * 0.25));
+        const barWidth = Math.max(1, Math.min(24, bandWidth - gap));
+        const labelIdx = pickLabelIndices(rows.length);
+
+        const yTicks = buildYTicks(niceMax);
+        const gridlines = yTicks
+          .map((t) => {
+            const labelValue = Math.round(t);
+            const y = baseline - (labelValue / niceMax) * plotH;
+            return (
+              `<line x1="${marginLeft}" y1="${y}" x2="${W - marginRight}" y2="${y}" class="metrics-gridline" />` +
+              `<text x="${marginLeft - 6}" y="${y}" class="metrics-axis-label" text-anchor="end" dominant-baseline="middle">${escapeHtml(labelValue.toLocaleString())}</text>`
+            );
+          })
+          .join("");
+
+        const bars = rows
+          .map((row, i) => {
+            const x = marginLeft + i * bandWidth + (bandWidth - barWidth) / 2;
+            const dayLabel = escapeHtml(formatDay(row.day));
+            const xLabel = labelIdx.has(i)
+              ? `<text x="${x + barWidth / 2}" y="${H - 8}" class="metrics-axis-label" text-anchor="middle">${dayLabel}</text>`
+              : "";
+
+            // Segments stack bottom-up in UPLOAD_CLASS_KEYS order; only the
+            // topmost segment with any height gets a rounded top, so the
+            // rounding follows whichever class happens to top the stack on
+            // a given day rather than always "video" or always "other".
+            const lastNonZero = [...UPLOAD_CLASS_KEYS].reverse().find((key) => row[key] > 0);
+            let cursor = baseline;
+            const segments = UPLOAD_CLASS_KEYS.map((key) => {
+              const value = row[key];
+              const height = (value / niceMax) * plotH;
+              const y = cursor - height;
+              cursor = y;
+              if (height <= 0) return "";
+              const path =
+                key === lastNonZero
+                  ? roundedTopRectPath(x, y, barWidth, height, 4)
+                  : `M${x},${y} H${x + barWidth} V${y + height} H${x} Z`;
+              return `<path d="${path}" class="metrics-bar-fill metrics-bar-fill--${key}" />`;
+            }).join("");
+
+            const total = totals[i];
+            const ariaParts = UPLOAD_CLASS_KEYS.map(
+              (key) => `${row[key].toLocaleString()} ${UPLOAD_CLASS_LABELS[key].toLowerCase()}`,
+            ).join(", ");
+
+            return `<g class="metrics-bar" data-index="${i}">
+                ${segments}
+                <rect
+                  class="metrics-bar-hit"
+                  data-index="${i}"
+                  x="${x - gap / 2}"
+                  y="${marginTop}"
+                  width="${barWidth + gap}"
+                  height="${plotH}"
+                  tabindex="0"
+                  role="img"
+                  aria-label="${dayLabel}: ${escapeHtml(total.toLocaleString())} uploads (${escapeHtml(ariaParts)})"
+                />
+                ${xLabel}
+              </g>`;
+          })
+          .join("");
+
+        const windowLabel = `last ${windowDays} day${windowDays === 1 ? "" : "s"}`;
+        const legend = UPLOAD_CLASS_KEYS.map(
+          (key) =>
+            `<span class="metrics-legend-item"><span class="metrics-legend-swatch metrics-legend-swatch--${key}"></span>${UPLOAD_CLASS_LABELS[key]}</span>`,
+        ).join("");
+
+        const svg = `<svg class="metrics-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Uploads per day by media type, ${windowLabel}">
+            <line x1="${marginLeft}" y1="${baseline}" x2="${W - marginRight}" y2="${baseline}" class="metrics-axis-line" />
+            ${gridlines}
+            ${bars}
+          </svg>`;
+
+        const tableRows = rows
+          .map(
+            (row, i) =>
+              `<tr><td>${escapeHtml(row.day)}</td><td class="num">${escapeHtml(row.image.toLocaleString())}</td><td class="num">${escapeHtml(row.video.toLocaleString())}</td><td class="num">${escapeHtml(row.other.toLocaleString())}</td><td class="num">${escapeHtml(totals[i].toLocaleString())}</td></tr>`,
+          )
+          .join("");
+
+        container.innerHTML = `
+          <div class="metrics-legend">${legend}</div>
+          <div class="metrics-chart-wrap relative">
+            ${svg}
+            <div class="metrics-chart-tooltip" data-visible="false" role="presentation"></div>
+          </div>
+          <table class="sr-only">
+            <caption>Uploads per day by media type</caption>
+            <thead><tr><th scope="col">Day</th><th scope="col">Image</th><th scope="col">Video</th><th scope="col">Other</th><th scope="col">Total</th></tr></thead>
+            <tbody>${tableRows}</tbody>
+          </table>`;
+
+        const wrap = container.querySelector<HTMLElement>(".metrics-chart-wrap");
+        const tooltip = container.querySelector<HTMLElement>(".metrics-chart-tooltip");
+        let liftedGroup: SVGGElement | null = null;
+
+        const groupByIndex = new Map<number, SVGGElement>();
+        wrap?.querySelectorAll<SVGGElement>(".metrics-bar[data-index]").forEach((bar) => {
+          const idx = Number(bar.getAttribute("data-index"));
+          if (!Number.isNaN(idx)) groupByIndex.set(idx, bar);
+        });
+
+        function setLift(index: number | null): void {
+          if (liftedGroup) {
+            liftedGroup.removeAttribute("style");
+            liftedGroup = null;
+          }
+          if (index === null) return;
+          const group = groupByIndex.get(index);
+          if (group) {
+            group.setAttribute("style", "opacity:0.8");
+            liftedGroup = group;
+          }
+        }
+
+        let lastShownIndex: number | null = null;
+
+        function show(index: number): void {
+          const row = rows[index];
+          if (!row || !tooltip) return;
+          const total = totals[index];
+          const height = (total / niceMax) * plotH;
+          const x = marginLeft + index * bandWidth + bandWidth / 2;
+          const y = baseline - height;
+          tooltip.style.left = `${(x / W) * 100}%`;
+          tooltip.style.top = `${(y / H) * 100}%`;
+          tooltip.innerHTML = "";
+          const dayEl = document.createElement("span");
+          dayEl.className = "day";
+          dayEl.textContent = formatDay(row.day);
+          tooltip.appendChild(dayEl);
+          for (const key of UPLOAD_CLASS_KEYS) {
+            const line = document.createElement("div");
+            line.className = "metrics-tooltip-row";
+            const swatch = document.createElement("span");
+            swatch.className = `metrics-legend-swatch metrics-legend-swatch--${key}`;
+            const text = document.createElement("span");
+            text.textContent = `${UPLOAD_CLASS_LABELS[key]} ${row[key].toLocaleString()}`;
+            line.appendChild(swatch);
+            line.appendChild(text);
+            tooltip.appendChild(line);
+          }
+          const totalEl = document.createElement("span");
+          totalEl.className = "value";
+          totalEl.textContent = `Total ${total.toLocaleString()}`;
+          tooltip.appendChild(totalEl);
+          tooltip.dataset.visible = "true";
+          setLift(index);
+          lastShownIndex = index;
+        }
+
+        function hide(): void {
+          if (tooltip) tooltip.dataset.visible = "false";
+          setLift(null);
+          lastShownIndex = null;
+        }
+
+        function indexFromEvent(event: Event): number | null {
+          const el = (event.target as Element | null)?.closest("[data-index]");
+          const raw = el?.getAttribute("data-index");
+          const idx = raw === null || raw === undefined ? NaN : Number(raw);
+          return Number.isNaN(idx) ? null : idx;
+        }
+
+        wrap?.addEventListener("pointermove", (event) => {
+          const idx = indexFromEvent(event);
+          if (idx !== null && idx !== lastShownIndex) show(idx);
+        });
+        wrap?.addEventListener("pointerleave", hide);
+        wrap?.addEventListener("focusin", (event) => {
+          const idx = indexFromEvent(event);
+          if (idx !== null) show(idx);
+        });
+        wrap?.addEventListener("focusout", hide);
+      }
+
       function render(overview: MetricsOverview): void {
         const tile = (id: string, value: string) => {
           const el = document.getElementById(id);
@@ -786,6 +1032,7 @@ const slowOpsSkeleton = renderAdminTableSkeletonRowsHtml(
         tile("tile-active-7", num(overview.totals.activeWorkspaces7d));
         tile("tile-active-30", num(overview.totals.activeWorkspaces30d));
         tile("tile-uploads", num(overview.totals.uploads));
+        tile("tile-github-app", num(overview.totals.workspacesWithGithubApp));
 
         // `upload`/`delete` are deliberately excluded — they're already the
         // "Uploads in window" tile and the uploads chart above; repeating
@@ -813,10 +1060,10 @@ const slowOpsSkeleton = renderAdminTableSkeletonRowsHtml(
           ? overview.workspaces
               .map(
                 (row) =>
-                  `<tr class="admin-row"><td class="${ADMIN_TD}">${escapeHtml(row.workspace)}</td><td class="num ${ADMIN_TD_NUM}">${num(row.uploads)}</td><td class="num ${ADMIN_TD_NUM}">${bytes(row.bytes)}</td><td class="${ADMIN_TD}">${escapeHtml(row.lastActive)}</td></tr>`,
+                  `<tr class="admin-row"><td class="${ADMIN_TD}">${escapeHtml(row.workspace)}</td><td class="num ${ADMIN_TD_NUM}">${num(row.uploads)}</td><td class="num ${ADMIN_TD_NUM}">${bytes(row.bytes)}</td><td class="${ADMIN_TD}">${escapeHtml(row.lastActive)}</td><td class="${ADMIN_TD}">${row.githubApp ? `<span class="metrics-gh-badge">GH App</span>` : ""}</td></tr>`,
               )
               .join("")
-          : `<tr class="admin-row"><td colspan="4" class="muted ${ADMIN_TD}">No workspace activity in this window.</td></tr>`;
+          : `<tr class="admin-row"><td colspan="5" class="muted ${ADMIN_TD}">No workspace activity in this window.</td></tr>`;
         const tableBody = table.querySelector<HTMLElement>("tbody");
         if (tableBody) tableBody.innerHTML = rows;
         table.removeAttribute("aria-busy");
@@ -837,12 +1084,41 @@ const slowOpsSkeleton = renderAdminTableSkeletonRowsHtml(
         if (multiIdentityBody) multiIdentityBody.innerHTML = multiIdentityRows;
         multiIdentityTable.removeAttribute("aria-busy");
 
-        drawChart(
-          "chart-uploads",
-          overview.series.uploads.map((p) => ({ day: p.day, value: p.count })),
-          "Uploads per day",
-          overview.window.days,
-        );
+        // uploadClasses is Analytics Engine-sampled while series.uploads is
+        // D1-exact — the two totals may differ slightly; the stacked chart
+        // is rendered whenever class data is available rather than
+        // reconciled against the D1 series.
+        if (overview.series.uploadClasses?.available) {
+          document
+            .getElementById("chart-uploads")
+            ?.parentElement?.querySelector(".metrics-chart-note")
+            ?.remove();
+          drawStackedChart(
+            "chart-uploads",
+            overview.series.uploadClasses.days,
+            overview.window.days,
+          );
+        } else {
+          drawChart(
+            "chart-uploads",
+            overview.series.uploads.map((p) => ({ day: p.day, value: p.count })),
+            "Uploads per day",
+            overview.window.days,
+          );
+          const reason = overview.series.uploadClasses?.reason;
+          const container = document.getElementById("chart-uploads");
+          container?.parentElement?.querySelector(".metrics-chart-note")?.remove();
+          if (container && reason) {
+            const note = document.createElement("p");
+            note.className =
+              "metrics-chart-note m-0 mt-2 text-muted-foreground text-(length:--text-micro)";
+            note.textContent =
+              reason === "not_configured"
+                ? "Media-type breakdown unavailable: Analytics Engine is not configured."
+                : "Media-type breakdown is temporarily unavailable.";
+            container.insertAdjacentElement("afterend", note);
+          }
+        }
         drawChart(
           "chart-signups",
           overview.series.users.map((p) => ({ day: p.day, value: p.count })),

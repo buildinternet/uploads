@@ -14,6 +14,7 @@ const MIGRATIONS = [
   "migrations/20260712230000_token_minting_user.sql",
   "migrations/20260817180000_token_last_used.sql",
   "migrations/20260728120000_daily_metrics.sql",
+  "migrations/20260720120000_github_repo_links.sql",
 ];
 const ADMIN_USER = { id: "u-admin", email: "admin@b.com", name: "Admin", role: "admin" };
 const NON_ADMIN_USER = { id: "u-plain", email: "plain@b.com", name: "Plain", role: "user" };
@@ -183,7 +184,7 @@ describe("GET /admin-ui/metrics/overview", () => {
       const env = { AUTH: stubAuth(ADMIN_USER), DB: db, REGISTRY: kv.binding } as unknown as Env;
       await app().request("/admin-ui/metrics/overview?days=30", {}, env);
       expect(kv.puts).toBe(1);
-      expect(kv.store.has("metrics:overview:v1:30")).toBe(true);
+      expect(kv.store.has("metrics:overview:v2:30")).toBe(true);
       const res = await app().request("/admin-ui/metrics/overview?days=30", {}, env);
       expect(res.status).toBe(200);
       expect(kv.puts).toBe(1);

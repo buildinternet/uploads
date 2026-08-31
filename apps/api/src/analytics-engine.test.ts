@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { breakdownQuery, fetchBreakdown, fetchSlowOps, slowOpsQuery } from "./analytics-engine";
+import {
+  breakdownQuery,
+  fetchBreakdown,
+  fetchSlowOps,
+  fetchUploadClassSeries,
+  slowOpsQuery,
+  uploadClassSeriesQuery,
+} from "./analytics-engine";
 
 function env(overrides: Record<string, unknown> = {}): Env {
   return {
@@ -146,6 +153,87 @@ describe("breakdownQuery non-finite days guard", () => {
 
   it("falls back to a 30-day window when days is Infinity", () => {
     expect(breakdownQuery("surface", Number.POSITIVE_INFINITY)).toContain("INTERVAL '30' DAY");
+  });
+});
+
+describe("uploadClassSeriesQuery", () => {
+  it("buckets contentType (blob3) into image/video/other with a CASE", () => {
+    const sql = uploadClassSeriesQuery(30);
+    expect(sql).toContain("blob3 LIKE 'image/%'");
+    expect(sql).toContain("blob3 LIKE 'video/%'");
+    expect(sql).toContain("ELSE 'other'");
+  });
+
+  it("groups by day and class, scaling by _sample_interval", () => {
+    const sql = uploadClassSeriesQuery(30);
+    expect(sql).toContain("toDate(timestamp) AS day");
+    expect(sql).toContain("_sample_interval");
+    expect(sql).toContain("GROUP BY day, class");
+  });
+
+  it("windows by the requested number of days", () => {
+    expect(uploadClassSeriesQuery(7)).toContain("INTERVAL '7' DAY");
+  });
+
+  it("falls back to a 30-day window when days is not finite", () => {
+    expect(uploadClassSeriesQuery(Number.NaN)).toContain("INTERVAL '30' DAY");
+  });
+});
+
+describe("fetchUploadClassSeries", () => {
+  it("aggregates rows per day across classes", async () => {
+    const impl = jsonFetch({
+      data: [
+        { day: "2026-08-01", class: "image", events: 10 },
+        { day: "2026-08-01", class: "video", events: 2 },
+        { day: "2026-08-01", class: "other", events: 1 },
+        { day: "2026-08-02", class: "image", events: 5 },
+      ],
+    });
+    const result = await fetchUploadClassSeries(env(), 30, impl);
+    expect(result).toEqual({
+      available: true,
+      days: [
+        { day: "2026-08-01", image: 10, video: 2, other: 1 },
+        { day: "2026-08-02", image: 5, video: 0, other: 0 },
+      ],
+    });
+  });
+
+  it("folds an unrecognized class into other", async () => {
+    const impl = jsonFetch({ data: [{ day: "2026-08-01", class: "weird", events: 3 }] });
+    const result = await fetchUploadClassSeries(env(), 30, impl);
+    expect(result).toEqual({
+      available: true,
+      days: [{ day: "2026-08-01", image: 0, video: 0, other: 3 }],
+    });
+  });
+
+  it("reports unavailable when not configured", async () => {
+    const result = await fetchUploadClassSeries(
+      env({ ANALYTICS_API_TOKEN: undefined }),
+      30,
+      jsonFetch({}),
+    );
+    expect(result).toEqual({ available: false, reason: "not_configured" });
+  });
+
+  it("reports unavailable on a non-OK response rather than throwing", async () => {
+    const result = await fetchUploadClassSeries(env(), 30, jsonFetch({ errors: ["nope"] }, 500));
+    expect(result).toEqual({ available: false, reason: "query_failed" });
+  });
+
+  it("reports unavailable when the request throws", async () => {
+    const impl = (async () => {
+      throw new Error("network down");
+    }) as unknown as typeof fetch;
+    const result = await fetchUploadClassSeries(env(), 30, impl);
+    expect(result).toEqual({ available: false, reason: "query_failed" });
+  });
+
+  it("reports unavailable when the response body's data field is not an array", async () => {
+    const result = await fetchUploadClassSeries(env(), 30, jsonFetch({ data: "nope" }));
+    expect(result).toEqual({ available: false, reason: "query_failed" });
   });
 });
 

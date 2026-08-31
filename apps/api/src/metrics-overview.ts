@@ -9,6 +9,7 @@
  * that governs `ws:` keys does not apply here.
  */
 
+import { fetchUploadClassSeries, type UploadClassSeriesResult } from "./analytics-engine";
 import { dbFor } from "./db-session";
 import {
   activeWorkspacesSince,
@@ -18,6 +19,7 @@ import {
   platformStorage,
   windowStart,
   workspaceActivity,
+  workspacesWithGithubApp,
   type DayPoint,
   type MultiIdentityWorkspace,
   type WorkspaceActivity,
@@ -50,11 +52,15 @@ export interface MetricsOverview {
     uploads: number;
     /** Bytes uploaded within the selected window — not stored bytes. */
     bytes: number;
+    /** Workspaces with at least one `github_repo_links` row that has the GitHub App installed. */
+    workspacesWithGithubApp: number;
   };
   series: {
     uploads: DayPoint[];
     users: SignupPoint[];
     orgs: SignupPoint[];
+    /** Per-day upload counts by media class, from Analytics Engine. Degrades when AE is unavailable. */
+    uploadClasses: UploadClassSeriesResult;
   };
   features: Record<string, number>;
   workspaces: WorkspaceActivity[];
@@ -80,7 +86,7 @@ const EMPTY_AUTH: AuthMetrics = {
 };
 
 export function overviewCacheKey(days: number): string {
-  return `metrics:overview:v1:${days}`;
+  return `metrics:overview:v2:${days}`;
 }
 
 /**
@@ -122,7 +128,17 @@ export async function buildOverview(
   const since7 = windowStart(7, now);
   const since30 = windowStart(30, now);
 
-  const [uploads, features, table, active30, storage, auth, multiIdentity] = await Promise.all([
+  const [
+    uploads,
+    features,
+    table,
+    active30,
+    storage,
+    auth,
+    multiIdentity,
+    githubApp,
+    uploadClasses,
+  ] = await Promise.all([
     platformSeries(dbFor(env), "upload", since),
     featureTotals(dbFor(env), since),
     workspaceActivity(dbFor(env), since),
@@ -135,6 +151,8 @@ export async function buildOverview(
     platformStorage(dbFor(env)),
     authMetrics(env, since),
     multiIdentityWorkspaces(dbFor(env)),
+    workspacesWithGithubApp(dbFor(env)),
+    fetchUploadClassSeries(env, days),
   ]);
 
   return {
@@ -148,8 +166,9 @@ export async function buildOverview(
       activeWorkspaces30d: active30.length,
       uploads: uploads.reduce((sum, point) => sum + point.count, 0),
       bytes: uploads.reduce((sum, point) => sum + point.bytes, 0),
+      workspacesWithGithubApp: githubApp.size,
     },
-    series: { uploads, users: auth.users, orgs: auth.orgs },
+    series: { uploads, users: auth.users, orgs: auth.orgs, uploadClasses },
     features,
     workspaces: table,
     multiIdentityWorkspaces: multiIdentity,

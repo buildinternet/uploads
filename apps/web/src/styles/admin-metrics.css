@@ -31,6 +31,21 @@
   transition: opacity 0.1s ease;
 }
 
+/* Stacked media-class fills (drawStackedChart) — three theme-aware colors
+   derived from existing tokens rather than new hex values, so they track
+   light/dark without a separate palette. */
+.metrics-chart .metrics-bar-fill--image {
+  fill: var(--accent);
+}
+
+.metrics-chart .metrics-bar-fill--video {
+  fill: var(--green);
+}
+
+.metrics-chart .metrics-bar-fill--other {
+  fill: color-mix(in srgb, var(--muted) 55%, var(--fg));
+}
+
 .metrics-chart .metrics-bar-hit {
   fill: transparent;
   cursor: pointer;
@@ -73,6 +88,78 @@
 .metrics-chart-tooltip .day {
   color: var(--muted);
   margin-right: 4px;
+}
+
+/* Per-class rows inside the stacked chart's tooltip (drawStackedChart's
+   show()) — the day label above, one swatch+count row per media class,
+   then the bold total, all in the same tooltip box as the single-series
+   chart. */
+.metrics-tooltip-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--fg);
+}
+
+.metrics-chart-tooltip .value {
+  display: block;
+  margin-top: 2px;
+}
+
+/* Legend above the stacked chart (drawStackedChart) — one swatch + label
+   per media class, matching the fills in .metrics-bar-fill--*. */
+.metrics-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-block-end: 8px;
+  font-size: var(--text-micro);
+  color: var(--muted);
+}
+
+.metrics-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.metrics-legend-swatch {
+  display: inline-block;
+  inline-size: 9px;
+  block-size: 9px;
+  border-radius: 2px;
+}
+
+.metrics-legend-swatch--image {
+  background: var(--accent);
+}
+
+.metrics-legend-swatch--video {
+  background: var(--green);
+}
+
+.metrics-legend-swatch--other {
+  background: color-mix(in srgb, var(--muted) 55%, var(--fg));
+}
+
+/* Fallback-mode note under the single-series uploads chart when
+   series.uploadClasses is unavailable (metrics.astro's render()). */
+.metrics-chart-note {
+  font-style: italic;
+}
+
+/* "GH App" pill in the workspace-activity table (metrics.astro's render()),
+   matching the outline look of .admin-btn/.pill elsewhere in admin. */
+.metrics-gh-badge {
+  display: inline-block;
+  font-size: var(--text-micro);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line));
+  border-radius: var(--radius-sm);
+  padding: 2px 6px;
+  white-space: nowrap;
 }
 
 /* Loading placeholder emitted by workspace-ui.ts's skeletonBarHtml (reused by

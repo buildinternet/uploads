@@ -9,12 +9,14 @@ import {
   platformStorage,
   windowStart,
   workspaceActivity,
+  workspacesWithGithubApp,
 } from "../src/adoption-queries";
 import { SqliteD1, database } from "./helpers/sqlite-d1";
 
 const MIGRATION = "migrations/20260728120000_daily_metrics.sql";
 const USAGE_MIGRATION = "migrations/20260710140000_workspace_usage.sql";
 const SHARED_USAGE_MIGRATION = "migrations/20260822120100_workspace_usage_shared_subset.sql";
+const REPO_LINKS_MIGRATION = "migrations/20260720120000_github_repo_links.sql";
 
 async function seed(db: D1Database): Promise<void> {
   const day = (d: string) => new Date(`${d}T10:00:00Z`);
@@ -65,13 +67,13 @@ describe("platformSeries", () => {
 
 describe("workspaceActivity", () => {
   it("aggregates per workspace and sorts by uploads descending", async () => {
-    const sqlite = new SqliteD1(MIGRATION);
+    const sqlite = new SqliteD1([MIGRATION, REPO_LINKS_MIGRATION]);
     try {
       const db = database(sqlite);
       await seed(db);
       expect(await workspaceActivity(db, "2026-07-01")).toEqual([
-        { workspace: "acme", uploads: 2, bytes: 300, lastActive: "2026-07-28" },
-        { workspace: "beta", uploads: 1, bytes: 50, lastActive: "2026-07-28" },
+        { workspace: "acme", uploads: 2, bytes: 300, lastActive: "2026-07-28", githubApp: false },
+        { workspace: "beta", uploads: 1, bytes: 50, lastActive: "2026-07-28", githubApp: false },
       ]);
     } finally {
       sqlite.close();
@@ -79,12 +81,79 @@ describe("workspaceActivity", () => {
   });
 
   it("never includes the platform sentinel row", async () => {
-    const sqlite = new SqliteD1(MIGRATION);
+    const sqlite = new SqliteD1([MIGRATION, REPO_LINKS_MIGRATION]);
     try {
       const db = database(sqlite);
       await seed(db);
       const rows = await workspaceActivity(db, "2026-07-01");
       expect(rows.some((row) => row.workspace === "")).toBe(false);
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("sets githubApp true only for a workspace with a linked, installed repo", async () => {
+    const sqlite = new SqliteD1([MIGRATION, REPO_LINKS_MIGRATION]);
+    try {
+      const db = database(sqlite);
+      await seed(db);
+      await db
+        .prepare(
+          `INSERT INTO github_repo_links (repo_full_name, workspace_name, installation_id, source, created_at)
+           VALUES ('acme/repo', 'acme', 42, 'comment', '2026-07-28T00:00:00Z')`,
+        )
+        .run();
+      const rows = await workspaceActivity(db, "2026-07-01");
+      expect(rows.find((r) => r.workspace === "acme")?.githubApp).toBe(true);
+      expect(rows.find((r) => r.workspace === "beta")?.githubApp).toBe(false);
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("does not count a repo link with a null installation_id as the GitHub App", async () => {
+    const sqlite = new SqliteD1([MIGRATION, REPO_LINKS_MIGRATION]);
+    try {
+      const db = database(sqlite);
+      await seed(db);
+      await db
+        .prepare(
+          `INSERT INTO github_repo_links (repo_full_name, workspace_name, installation_id, source, created_at)
+           VALUES ('acme/repo', 'acme', NULL, 'comment', '2026-07-28T00:00:00Z')`,
+        )
+        .run();
+      const rows = await workspaceActivity(db, "2026-07-01");
+      expect(rows.find((r) => r.workspace === "acme")?.githubApp).toBe(false);
+    } finally {
+      sqlite.close();
+    }
+  });
+});
+
+describe("workspacesWithGithubApp", () => {
+  it("returns the set of workspace names with a non-null installation_id link", async () => {
+    const sqlite = new SqliteD1([MIGRATION, REPO_LINKS_MIGRATION]);
+    try {
+      const db = database(sqlite);
+      await db
+        .prepare(
+          `INSERT INTO github_repo_links (repo_full_name, workspace_name, installation_id, source, created_at)
+           VALUES ('acme/one', 'acme', 1, 'comment', '2026-07-28T00:00:00Z'),
+                  ('acme/two', 'acme', 2, 'comment', '2026-07-28T00:00:00Z'),
+                  ('beta/one', 'beta', NULL, 'comment', '2026-07-28T00:00:00Z')`,
+        )
+        .run();
+      const result = await workspacesWithGithubApp(db);
+      expect(result).toEqual(new Set(["acme"]));
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("returns an empty set when no links exist", async () => {
+    const sqlite = new SqliteD1([MIGRATION, REPO_LINKS_MIGRATION]);
+    try {
+      expect(await workspacesWithGithubApp(database(sqlite))).toEqual(new Set());
     } finally {
       sqlite.close();
     }

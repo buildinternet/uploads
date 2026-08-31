@@ -39,6 +39,8 @@ export interface WorkspaceActivity {
   bytes: number;
   /** Most recent day with an upload, `YYYY-MM-DD`. */
   lastActive: string;
+  /** Whether the workspace has any `github_repo_links` row with a non-null `installation_id`. */
+  githubApp: boolean;
 }
 
 /** Default cap on the per-workspace table. */
@@ -77,21 +79,41 @@ export async function workspaceActivity(
   since: string,
   limit = DEFAULT_LIMIT,
 ): Promise<WorkspaceActivity[]> {
+  const [result, linked] = await Promise.all([
+    db
+      .prepare(
+        `SELECT workspace,
+                SUM(count) AS uploads,
+                SUM(bytes) AS bytes,
+                MAX(day)   AS lastActive
+         FROM daily_metrics
+         WHERE metric = 'upload' AND workspace <> '' AND day >= ?
+         GROUP BY workspace
+         ORDER BY uploads DESC, workspace ASC
+         LIMIT ?`,
+      )
+      .bind(since, limit)
+      .all<Omit<WorkspaceActivity, "githubApp">>(),
+    workspacesWithGithubApp(db),
+  ]);
+  return result.results.map((row) => ({ ...row, githubApp: linked.has(row.workspace) }));
+}
+
+/**
+ * Workspace names with at least one `github_repo_links` row whose
+ * `installation_id` is set — i.e. the workspace has the GitHub App
+ * installed, not merely a self-serve repo link (`installation_id IS NULL`).
+ * One query, joined against callers in JS rather than a SQL join, since the
+ * set of linked workspaces is small and shared by both `workspaceActivity`
+ * and the `workspacesWithGithubApp` total.
+ */
+export async function workspacesWithGithubApp(db: D1Queryable): Promise<Set<string>> {
   const result = await db
     .prepare(
-      `SELECT workspace,
-              SUM(count) AS uploads,
-              SUM(bytes) AS bytes,
-              MAX(day)   AS lastActive
-       FROM daily_metrics
-       WHERE metric = 'upload' AND workspace <> '' AND day >= ?
-       GROUP BY workspace
-       ORDER BY uploads DESC, workspace ASC
-       LIMIT ?`,
+      `SELECT DISTINCT workspace_name FROM github_repo_links WHERE installation_id IS NOT NULL`,
     )
-    .bind(since, limit)
-    .all<WorkspaceActivity>();
-  return result.results;
+    .all<{ workspace_name: string }>();
+  return new Set(result.results.map((row) => row.workspace_name));
 }
 
 /** One row per workspace that uploaded at least once since `since`, with its most recent active day. */

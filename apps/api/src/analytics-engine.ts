@@ -120,6 +120,86 @@ export async function fetchBreakdown(
   }
 }
 
+export interface UploadClassDayPoint {
+  day: string;
+  image: number;
+  video: number;
+  other: number;
+}
+
+export type UploadClassSeriesResult =
+  | { available: true; days: UploadClassDayPoint[] }
+  | { available: false; reason: string };
+
+/**
+ * Per-day upload counts bucketed by media class (image/video/other), from
+ * `uploads_adoption`'s `contentType` blob (see BLOB_COLUMN above). Buckets
+ * with SQL CASE rather than grouping on the raw content type, since the
+ * panel only cares about the three coarse classes, and scales by
+ * `_sample_interval` the same way `breakdownQuery` does.
+ */
+export function uploadClassSeriesQuery(days: number): string {
+  const column = BLOB_COLUMN.contentType;
+  const window = Number.isFinite(days) ? Math.max(1, Math.min(90, Math.floor(days))) : 30;
+  return `SELECT toDate(timestamp) AS day,
+                 CASE
+                   WHEN ${column} LIKE 'image/%' THEN 'image'
+                   WHEN ${column} LIKE 'video/%' THEN 'video'
+                   ELSE 'other'
+                 END AS class,
+                 SUM(_sample_interval) AS events
+          FROM ${DATASET}
+          WHERE timestamp > NOW() - INTERVAL '${window}' DAY
+          GROUP BY day, class
+          ORDER BY day`;
+}
+
+interface UploadClassRow {
+  day: string;
+  class: "image" | "video" | "other" | string;
+  events: number;
+}
+
+export async function fetchUploadClassSeries(
+  env: Env,
+  days: number,
+  fetchImpl: typeof fetch = fetch,
+): Promise<UploadClassSeriesResult> {
+  const account = (env as { CLOUDFLARE_ACCOUNT_ID?: string }).CLOUDFLARE_ACCOUNT_ID;
+  const token = (env as { ANALYTICS_API_TOKEN?: string }).ANALYTICS_API_TOKEN;
+  if (!account || !token) return { available: false, reason: "not_configured" };
+
+  try {
+    const res = await fetchImpl(`${SQL_ENDPOINT}/${account}/analytics_engine/sql`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}` },
+      body: uploadClassSeriesQuery(days),
+    });
+    if (!res.ok) return { available: false, reason: "query_failed" };
+    const payload = (await res.json()) as { data?: unknown };
+    if (payload.data !== undefined && !Array.isArray(payload.data)) {
+      return { available: false, reason: "query_failed" };
+    }
+    const rows = (payload.data as UploadClassRow[] | undefined) ?? [];
+    const byDay = new Map<string, UploadClassDayPoint>();
+    for (const row of rows) {
+      const point = byDay.get(row.day) ?? { day: row.day, image: 0, video: 0, other: 0 };
+      if (row.class === "image" || row.class === "video" || row.class === "other") {
+        point[row.class] += row.events;
+      } else {
+        point.other += row.events;
+      }
+      byDay.set(row.day, point);
+    }
+    return {
+      available: true,
+      days: [...byDay.values()].sort((a, b) => a.day.localeCompare(b.day)),
+    };
+  } catch {
+    return { available: false, reason: "query_failed" };
+  }
+}
+
 /** Windows the /admin-ui/metrics/slow-ops panel offers — 24 hours or 7 days. */
 export type SlowOpWindow = "24h" | "7d";
 
