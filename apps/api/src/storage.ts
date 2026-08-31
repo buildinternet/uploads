@@ -135,11 +135,19 @@ export interface LaneConfig {
  * lane. Accepts either shape a caller has on hand — unresolved fields
  * (`WorkspaceRecord`/`StorageLane`/`StorageLaneFields`, which carry
  * `binding`) or an already-resolved `StorageConfig` (which carries
- * `r2Binding` instead) — so every call site derives the same signal from
- * whichever bag it happens to be holding, rather than hand-computing
- * `Boolean(x.binding)`/`Boolean(x.r2Binding)` at each one.
+ * `r2Binding` instead, and only on the `"r2"` variant) — so every call site
+ * derives the same signal from whichever bag it happens to be holding,
+ * rather than hand-computing `Boolean(x.binding)`/`Boolean(x.r2Binding)` at
+ * each one. `provider` is optional here so `WorkspaceRecord`/`StorageLane`
+ * (which don't carry it) still satisfy this shape; an S3 config is never a
+ * shared lane, regardless of stray `binding`/`r2Binding` fields.
  */
-export function isSharedLane(fields: { binding?: string; r2Binding?: R2Bucket }): boolean {
+export function isSharedLane(fields: {
+  provider?: string;
+  binding?: string;
+  r2Binding?: R2Bucket;
+}): boolean {
+  if (fields.provider === "s3") return false;
   return Boolean(fields.binding) || Boolean(fields.r2Binding);
 }
 

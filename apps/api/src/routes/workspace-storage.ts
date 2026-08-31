@@ -267,6 +267,12 @@ export async function laneVerifyCandidate(
   lane: StorageLane,
 ): Promise<StorageVerifyCandidate> {
   const config = await storageConfig(env, lane as unknown as WorkspaceRecord);
+  // `storageConfig` only ever resolves `"r2"` today (it throws on any other
+  // provider) — narrow explicitly rather than casting, so this keeps
+  // compiling honestly once an `"s3"` lane becomes resolvable here too.
+  if (config.provider !== "r2") {
+    throw new Error(`unsupported storage provider for lane verify: ${config.provider}`);
+  }
   return {
     bucket: config.bucket,
     accountId: config.accountId ?? "",

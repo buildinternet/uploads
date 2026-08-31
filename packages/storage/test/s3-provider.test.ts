@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createStorage, type StorageConfig } from "../src/index.js";
+import { createStorage, type S3StorageConfig } from "../src/index.js";
 
-const base: StorageConfig = {
+const base: S3StorageConfig = {
   provider: "s3",
   bucket: "my-bucket",
   region: "us-east-1",
@@ -14,6 +14,15 @@ describe("createStorage s3 provider", () => {
   it("returns a Files instance whose adapter name is s3-http-fetch", () => {
     const files = createStorage(base);
     expect(files.adapter.name).toBe("s3-http-fetch");
+  });
+
+  it("rejects a config missing credentials at runtime (backstop for untyped callers)", () => {
+    // `S3StorageConfig` requires these at compile time; this simulates an
+    // untyped/deserialized caller that bypasses that check.
+    const incomplete = { ...base, secretAccessKey: undefined } as unknown as S3StorageConfig;
+    expect(() => createStorage(incomplete)).toThrow(
+      /requires endpoint, accessKeyId, and secretAccessKey/,
+    );
   });
 });
 

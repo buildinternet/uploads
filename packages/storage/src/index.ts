@@ -2,11 +2,7 @@ import { Files } from "files-sdk";
 export { createFilesRouter } from "files-sdk/api";
 import { r2, s3FetchAdapter } from "files-sdk/r2";
 
-/**
- * Provider-agnostic storage config. `provider` selects the files-sdk adapter;
- * everything else is the superset of fields the supported adapters need.
- * Adding a provider = add a case in `createStorage` plus its peer deps.
- */
+/** Discriminant for {@link StorageConfig}. Adding a provider = add a case in `createStorage` plus its peer deps. */
 export type StorageProvider = "r2" | "s3";
 
 /** R2 jurisdictions with dedicated S3 endpoints (Cloudflare: eu = European Union, fedramp = FedRAMP). */
@@ -18,11 +14,20 @@ export function isR2Jurisdiction(value: string): value is R2Jurisdiction {
   return (R2_JURISDICTIONS as readonly string[]).includes(value);
 }
 
-export interface StorageConfig {
-  provider: StorageProvider;
+/** Fields shared by every provider's config. */
+interface StorageConfigBase {
   bucket: string;
   /** Public base URL for objects served off a custom domain (e.g. https://media.example.com). */
   publicBaseUrl?: string;
+  /**
+   * Key prefix all operations are confined under (e.g. "myws/"). Must end
+   * with "/". Applied via files-sdk's instance prefix; clients never see it.
+   */
+  prefix?: string;
+}
+
+export interface R2StorageConfig extends StorageConfigBase {
+  provider: "r2";
   /** R2: Workers binding. When set, reads/writes go through the binding (no egress). */
   r2Binding?: R2Bucket;
   /** S3-style HTTP credentials — required for url()/signedUploadUrl(), optional otherwise when a binding exists. */
@@ -38,32 +43,36 @@ export interface StorageConfig {
    * ever touches the S3 endpoint.
    */
   jurisdiction?: R2Jurisdiction;
+}
+
+/** Config shape for `provider: "s3"` — a BYO S3-compatible bucket driven purely over HTTP. */
+export interface S3StorageConfig extends StorageConfigBase {
+  provider: "s3";
   /**
-   * Key prefix all operations are confined under (e.g. "myws/"). Must end
-   * with "/". Applied via files-sdk's instance prefix; clients never see it.
+   * Service endpoint origin, e.g. `https://s3.us-east-1.amazonaws.com` or an
+   * S3-compatible provider's endpoint.
    */
-  prefix?: string;
-  /**
-   * S3: service endpoint origin, e.g. `https://s3.us-east-1.amazonaws.com`
-   * or an S3-compatible provider's endpoint. Required for `provider: "s3"`.
-   */
-  endpoint?: string;
-  /** S3: SigV4 signing region, e.g. "us-east-1". Defaults to "us-east-1". */
+  endpoint: string;
+  accessKeyId: string;
+  secretAccessKey: string;
+  /** SigV4 signing region, e.g. "us-east-1". Defaults to "us-east-1". */
   region?: string;
   /**
-   * S3: use path-style addressing (`https://endpoint/bucket/key`) instead of
+   * Use path-style addressing (`https://endpoint/bucket/key`) instead of
    * virtual-hosted style (`https://bucket.endpoint/key`).
    */
   forcePathStyle?: boolean;
 }
 
-/** Config shape for `provider: "s3"` — the fields `createStorage` requires for BYO S3-compatible buckets. */
-export type S3StorageConfig = StorageConfig & {
-  provider: "s3";
-  endpoint: string;
-  accessKeyId: string;
-  secretAccessKey: string;
-};
+/**
+ * Provider-agnostic storage config. `provider` selects both the files-sdk
+ * adapter and which variant's fields are required — a discriminated union so
+ * an incomplete `"s3"` config (missing `endpoint`/`accessKeyId`/`secretAccessKey`)
+ * fails to compile rather than reaching `createStorage` with `undefined`
+ * credentials. Adding a provider = add a variant here plus a case in
+ * `createStorage`.
+ */
+export type StorageConfig = R2StorageConfig | S3StorageConfig;
 
 /** Segments of lowercase alphanumerics/._- each ending in "/"; first char alphanumeric (so "." and ".." are impossible). */
 const PREFIX_RE = /^([a-z0-9][a-z0-9._-]*\/)+$/;
@@ -98,22 +107,33 @@ export function createStorage(config: StorageConfig): Files {
       return new Files({ adapter, prefix: config.prefix });
     }
     case "s3": {
-      const s3Config = config as S3StorageConfig;
+      // `config` is narrowed to `S3StorageConfig` by the discriminant, so
+      // `endpoint`/`accessKeyId`/`secretAccessKey` are guaranteed present at
+      // compile time — an incomplete config fails to build before it gets
+      // here. Re-check at runtime anyway: `config` can still arrive from an
+      // untyped caller (JS, `as`, a deserialized request body), and a missing
+      // credential must fail loudly here rather than as an opaque signing
+      // error deep inside aws4fetch.
+      if (!config.endpoint || !config.accessKeyId || !config.secretAccessKey) {
+        throw new Error("s3 storage config requires endpoint, accessKeyId, and secretAccessKey");
+      }
       const adapter = s3FetchAdapter({
-        accessKeyId: s3Config.accessKeyId,
-        bucket: s3Config.bucket,
-        endpoint: s3Config.endpoint,
+        accessKeyId: config.accessKeyId,
+        bucket: config.bucket,
+        endpoint: config.endpoint,
         name: "s3-http-fetch",
         providerLabel: "S3 error",
-        region: s3Config.region,
-        secretAccessKey: s3Config.secretAccessKey,
-        ...(s3Config.forcePathStyle !== undefined && { forcePathStyle: s3Config.forcePathStyle }),
-        ...(s3Config.publicBaseUrl && { publicBaseUrl: s3Config.publicBaseUrl }),
+        region: config.region,
+        secretAccessKey: config.secretAccessKey,
+        ...(config.forcePathStyle !== undefined && { forcePathStyle: config.forcePathStyle }),
+        ...(config.publicBaseUrl && { publicBaseUrl: config.publicBaseUrl }),
       });
       return new Files({ adapter, prefix: config.prefix });
     }
-    default:
-      throw new Error(`Unsupported storage provider: ${config.provider satisfies never}`);
+    default: {
+      const exhaustive: never = config;
+      throw new Error(`Unsupported storage provider: ${JSON.stringify(exhaustive)}`);
+    }
   }
 }
 
