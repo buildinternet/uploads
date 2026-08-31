@@ -196,6 +196,7 @@ if (!clientId) return Astro.redirect("/admin/oauth");
   <script>
     import { onAstroPageLoad, onSession, requireElement } from "../../../lib/account-shell";
     import { escapeHtml } from "../../../lib/admin-ui";
+    import type { SerializedOauthClient } from "@uploads/api/admin-ui";
 
     onAstroPageLoad(() => {
       const detailEl = document.getElementById("oauth-detail");
@@ -204,26 +205,6 @@ if (!clientId) return Astro.redirect("/admin/oauth");
       const w = window as unknown as { __UPLOADS_API_ORIGIN__: string };
       const apiOrigin = w.__UPLOADS_API_ORIGIN__.replace(/\/$/, "");
       const clientId = decodeURIComponent(location.pathname.split("/").pop() ?? "");
-
-      interface OAuthClient {
-        clientId: string;
-        name: string;
-        type: string;
-        public: boolean;
-        disabled: boolean;
-        official: boolean;
-        redirectUris: string[];
-        scopes: string[];
-        uri: string | null;
-        icon: string | null;
-        userId: string | null;
-        skipConsent: boolean;
-        createdAt: number;
-        updatedAt: number;
-        consentCount: number;
-        activeTokenCount: number;
-        lastConsentAt: number | null;
-      }
 
       function errorMessage(payload: unknown, fallback: string): string {
         if (payload && typeof payload === "object") {
@@ -281,9 +262,9 @@ if (!clientId) return Astro.redirect("/admin/oauth");
         "admin oauth detail",
       );
 
-      let current: OAuthClient | null = null;
+      let current: SerializedOauthClient | null = null;
 
-      function badges(client: OAuthClient): string {
+      function badges(client: SerializedOauthClient): string {
         const parts: string[] = [];
         if (client.official)
           parts.push(`<span class="pill is-admin text-primary border-primary">Official</span>`);
@@ -294,7 +275,7 @@ if (!clientId) return Astro.redirect("/admin/oauth");
         return parts.join(" ");
       }
 
-      function render(client: OAuthClient): void {
+      function render(client: SerializedOauthClient): void {
         current = client;
         document.title = `${client.name} · OAuth apps · Admin · uploads.sh`;
         nameEl.textContent = client.name;
@@ -310,7 +291,9 @@ if (!clientId) return Astro.redirect("/admin/oauth");
         lastConsentEl.textContent = client.lastConsentAt
           ? new Date(client.lastConsentAt).toLocaleString()
           : "Never";
-        createdEl.textContent = new Date(client.createdAt).toLocaleString();
+        createdEl.textContent = client.createdAt
+          ? new Date(client.createdAt).toLocaleString()
+          : "Unknown";
         disableToggleBtn.textContent = client.disabled ? "Enable" : "Disable";
         deleteBtn.disabled = client.official;
         deleteHintEl.hidden = !client.official;
@@ -353,7 +336,7 @@ if (!clientId) return Astro.redirect("/admin/oauth");
             return;
           }
           if (!res.ok) throw new Error(`request failed: ${res.status}`);
-          const client = (await res.json()) as OAuthClient;
+          const client = (await res.json()) as SerializedOauthClient;
           statusEl.hidden = true;
           detail.hidden = false;
           render(client);
@@ -422,7 +405,7 @@ if (!clientId) return Astro.redirect("/admin/oauth");
               const payload = await res.json().catch(() => null);
               throw new Error(errorMessage(payload, `save failed: ${res.status}`));
             }
-            const client = (await res.json()) as OAuthClient;
+            const client = (await res.json()) as SerializedOauthClient;
             render(client);
             editForm.hidden = true;
             actionStatus.dataset.state = "ready";
@@ -458,7 +441,7 @@ if (!clientId) return Astro.redirect("/admin/oauth");
               const payload = await res.json().catch(() => null);
               throw new Error(errorMessage(payload, `update failed: ${res.status}`));
             }
-            const client = (await res.json()) as OAuthClient;
+            const client = (await res.json()) as SerializedOauthClient;
             render(client);
           } catch (err) {
             actionStatus.dataset.state = "error";

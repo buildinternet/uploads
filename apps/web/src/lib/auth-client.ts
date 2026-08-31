@@ -17,6 +17,7 @@
  * rides along.
  */
 import { fetchWithTimeout, type RequestFailure } from "./request";
+import type { ConnectedAppGrant } from "@uploads/auth/connected-apps-wire";
 
 /**
  * Same-origin (#731 phase B): browser auth traffic goes through this
@@ -985,21 +986,10 @@ export function openOrganizationBillingPortal(
 
 /**
  * Issue #890: one OAuth grant on `/account/connected-apps` — consent ⋈
- * client, plus an active-token indicator. Mirrors `ConnectedAppGrant` in
- * apps/auth/src/connected-apps.ts.
+ * client, plus an active-token indicator. Imported from the producing auth
+ * module (issue #896 pattern) rather than re-declared here.
  */
-export interface ConnectedAppGrant {
-  id: string;
-  clientId: string;
-  clientName: string | null;
-  clientIcon: string | null;
-  clientUri: string | null;
-  scopes: string[];
-  referenceId: string | null;
-  activeTokenCount: number;
-  createdAt: string | null;
-  updatedAt: string | null;
-}
+export type { ConnectedAppGrant } from "@uploads/auth/connected-apps-wire";
 
 function isConnectedAppGrant(value: unknown): value is ConnectedAppGrant {
   if (!value || typeof value !== "object") return false;

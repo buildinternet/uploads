@@ -214,6 +214,15 @@ records; any future global secrets go through `wrangler secret put` (prod) or
   in `wrangler.jsonc`); it no-ops when the binding is absent.
 - Follow Cloudflare Workers best practices: no floating promises, no
   module-level request state, secrets never in config or source.
+- Wire types (PR #896 pattern): a JSON response's type lives next to its
+  serializer in the producing worker (usually inferred, e.g.
+  `ReturnType<typeof fooResponse>`) and is exported through a `package.json`
+  `exports` entry (`@uploads/api/admin-ui`,
+  `@uploads/auth/oauth-client-serialize`). Consumers `import type` it —
+  never re-declare the shape and cast `res.json() as T`. Shared modules must
+  not reference the ambient `Env` global (each worker's
+  `worker-configuration.d.ts` declares its own; the importer's wins and
+  typecheck breaks) — extract Env-free serializer modules where needed.
 
 ## Codex subagents
 

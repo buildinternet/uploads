@@ -42,6 +42,18 @@ const requireToken: MiddlewareHandler<DualAuthVars> = async (c, next) => {
   await next();
 };
 
+/**
+ * Wire type for `GET /:workspace/usage` (issue #896 pattern): the
+ * `usageWithLimits` projection plus the credential's scopes, catalog plan id,
+ * and the bearer-safe storage lane summary. Type-only — apps/web imports it
+ * via `@uploads/api/workspace-usage` instead of re-declaring the shape.
+ */
+export type WorkspaceUsageResponse = ReturnType<typeof usageWithLimits> & {
+  scopes: readonly string[];
+  plan: string;
+  storage: ReturnType<typeof storageUsageSummary>;
+};
+
 export const workspaceUsage = new Hono<DualAuthVars>()
   .get("/:workspace/usage", dualWorkspaceAuth(), scoped("files:read"), async (c) => {
     const snapshot = await boundedDataRead(

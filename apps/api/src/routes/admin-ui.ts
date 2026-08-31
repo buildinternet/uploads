@@ -198,6 +198,16 @@ async function allOrgSummaries(env: Env): Promise<Map<string, OrgSummary>> {
   return map;
 }
 
+/** One row of the `/admin-ui/workspaces` list: the KV workspace + its org counts. */
+function workspaceSummaryResponse(name: string, summary: OrgSummary | undefined) {
+  return {
+    workspace: name,
+    organization: summary?.organization ?? null,
+    memberCount: summary?.memberCount ?? 0,
+    pendingInviteCount: summary?.pendingInviteCount ?? 0,
+  };
+}
+
 /**
  * Proxies a request to `path` over the AUTH service binding (Lane 1's
  * `/internal/oauth-clients*` routes) and passes the status code + JSON body
@@ -438,6 +448,7 @@ async function limitsResponse(env: Env, name: string, record: WorkspaceRecord) {
     maxUploadsPerPeriod: record.maxUploadsPerPeriod ?? null,
     maxUploadBytes: record.maxUploadBytes ?? null,
     maxVideoUploadBytes: record.maxVideoUploadBytes ?? null,
+    maxMembers: record.maxMembers ?? null,
   };
   let usage: { bytes: number; uploads: number } | null = null;
   try {
@@ -489,6 +500,24 @@ function validateByoBucketPatch(body: unknown): boolean {
   }
   return value;
 }
+
+/**
+ * Wire types for the `/admin-ui/*` responses, inferred from the serializers
+ * above so the operator pages in apps/web (`src/pages/admin/*`) import the
+ * shape they actually receive instead of re-declaring it. Type-only — nothing
+ * here is imported at runtime across workers.
+ */
+export type AdminWorkspaceSummary = ReturnType<typeof workspaceSummaryResponse>;
+export type AdminLimitsResponse = Awaited<ReturnType<typeof limitsResponse>>;
+export type AdminPlanResponse = ReturnType<typeof planResponse> &
+  Awaited<ReturnType<typeof adminSubscriptionInfo>>;
+export type AdminStorageResponse = ReturnType<typeof adminStorageResponse>;
+export type AdminGithubLink = ReturnType<typeof repoLinkResponse>;
+export type { MetricsOverview } from "../metrics-overview";
+export type { OrgInvite, OrgMember } from "../org-workspaces";
+export type { OpenEnrollment } from "../auth-db";
+/** `/admin-ui/oauth-clients*` passes the auth worker's body through unchanged. */
+export type { SerializedOauthClient } from "@uploads/auth/oauth-client-serialize";
 
 export const adminUi = new Hono<SessionVars>()
   .use("/*", sessionAuth, requireSessionUser, requireAdminUser)
@@ -542,15 +571,7 @@ export const adminUi = new Hono<SessionVars>()
     } while (cursor);
 
     const summaries = await allOrgSummaries(c.env);
-    const workspaces = names.map((name) => {
-      const summary = summaries.get(name);
-      return {
-        workspace: name,
-        organization: summary?.organization ?? null,
-        memberCount: summary?.memberCount ?? 0,
-        pendingInviteCount: summary?.pendingInviteCount ?? 0,
-      };
-    });
+    const workspaces = names.map((name) => workspaceSummaryResponse(name, summaries.get(name)));
     return c.json({ workspaces });
   })
 

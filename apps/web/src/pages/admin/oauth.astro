@@ -131,6 +131,7 @@ export const prerender = false;
       ADMIN_TD_NUM,
       escapeHtml,
     } from "../../lib/admin-ui";
+    import type { SerializedOauthClient } from "@uploads/api/admin-ui";
 
     onAstroPageLoad(() => {
       if (!document.getElementById("oauth-list-body")) return;
@@ -142,26 +143,6 @@ export const prerender = false;
       const oauthListBody = requireElement<HTMLElement>("#oauth-list-body", "admin oauth");
       const tableWrap = requireElement<HTMLElement>("#oauth-table-wrap", "admin oauth");
 
-      interface OAuthClient {
-        clientId: string;
-        name: string | null;
-        type: string;
-        public: boolean;
-        disabled: boolean;
-        official: boolean;
-        redirectUris: string[];
-        scopes: string[];
-        uri: string | null;
-        icon: string | null;
-        userId: string | null;
-        skipConsent: boolean;
-        createdAt: number;
-        updatedAt: number;
-        consentCount: number;
-        activeTokenCount: number;
-        lastConsentAt: number | null;
-      }
-
       async function apiGet<T>(path: string): Promise<T> {
         const res = await fetch(`${apiOrigin}${path}`, {
           credentials: "include",
@@ -171,7 +152,7 @@ export const prerender = false;
         return (await res.json()) as T;
       }
 
-      function badges(client: OAuthClient): string {
+      function badges(client: SerializedOauthClient): string {
         const parts: string[] = [];
         if (client.official)
           parts.push(`<span class="pill is-admin text-primary border-primary">Official</span>`);
@@ -182,7 +163,7 @@ export const prerender = false;
         return parts.join(" ") || `<span class="muted">-</span>`;
       }
 
-      function renderClient(client: OAuthClient): HTMLElement {
+      function renderClient(client: SerializedOauthClient): HTMLElement {
         const row = document.createElement("tr");
         row.className = "admin-row";
         const href = `/admin/oauth/${encodeURIComponent(client.clientId)}`;
@@ -194,7 +175,7 @@ export const prerender = false;
           </td>
           <td class="optional mono muted ${ADMIN_TD} ${ADMIN_CELL_MONO} ${ADMIN_CELL_MUTED}">${escapeHtml(client.clientId)}</td>
           <td class="optional muted ${ADMIN_TD} ${ADMIN_CELL_MUTED}">${client.scopes.map(escapeHtml).join(", ") || "-"}</td>
-          <td class="optional muted ${ADMIN_TD} ${ADMIN_CELL_MUTED}">${new Date(client.createdAt).toLocaleDateString()}</td>
+          <td class="optional muted ${ADMIN_TD} ${ADMIN_CELL_MUTED}">${client.createdAt ? new Date(client.createdAt).toLocaleDateString() : "-"}</td>
           <td class="num optional ${ADMIN_TD_NUM}">${client.consentCount}</td>
           <td class="actions ${ADMIN_TD_ACTIONS}">${badges(client)}</td>
         `;
@@ -202,9 +183,11 @@ export const prerender = false;
       }
 
       async function loadClients() {
-        let clients: OAuthClient[];
+        let clients: SerializedOauthClient[];
         try {
-          ({ clients } = await apiGet<{ clients: OAuthClient[] }>("/admin-ui/oauth-clients"));
+          ({ clients } = await apiGet<{ clients: SerializedOauthClient[] }>(
+            "/admin-ui/oauth-clients",
+          ));
         } catch {
           oauthStatus.hidden = false;
           oauthStatus.textContent = "Failed to load OAuth apps.";
@@ -288,7 +271,7 @@ export const prerender = false;
                 `create failed: ${res.status}`;
               throw new Error(message);
             }
-            const client = (await res.json()) as OAuthClient;
+            const client = (await res.json()) as SerializedOauthClient;
 
             createClientIdInput.value = client.clientId;
             createResult.hidden = false;

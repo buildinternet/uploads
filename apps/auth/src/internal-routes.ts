@@ -13,6 +13,13 @@ import { memberCapDenial, resolveMemberCapStrict } from "./member-cap";
 import { notifyAdminsOfMemberJoin } from "./notify-member-join";
 import { notifyAdminsOfUsageAlert } from "./notify-usage-alert";
 import * as schema from "./schema";
+import {
+  isOfficial,
+  serializeClient,
+  toEpochMs,
+  type OauthClientRow,
+  type OauthClientStats,
+} from "./oauth-client-serialize";
 import type { UsageAlertCap, UsageAlertEvent, UsageAlertThreshold } from "@uploads/email";
 
 const USAGE_ALERT_CAPS = new Set<UsageAlertCap>(["storage", "uploads"]);
@@ -143,25 +150,6 @@ function isAllowedRedirectUrl(value: string): boolean {
   return url.hash === "";
 }
 
-type OauthClientRow = typeof schema.oauthClient.$inferSelect;
-
-/** Reads the `official` flag out of the client's metadata JSON blob. */
-function isOfficial(row: OauthClientRow): boolean {
-  const metadata = row.metadata as Record<string, unknown> | null;
-  return Boolean(metadata && metadata.official === true);
-}
-
-function toEpochMs(value: Date | number | null | undefined): number | null {
-  if (value === null || value === undefined) return null;
-  return value instanceof Date ? value.getTime() : value;
-}
-
-type OauthClientStats = {
-  consentCount: number;
-  activeTokenCount: number;
-  lastConsentAt: number | null;
-};
-
 async function statsForClient(
   db: ReturnType<typeof drizzle<typeof schema>>,
   clientId: string,
@@ -187,26 +175,6 @@ async function statsForClient(
     consentCount: consentRow?.consentCount ?? 0,
     activeTokenCount: tokenRow?.activeTokenCount ?? 0,
     lastConsentAt: toEpochMs(consentRow?.lastConsentAt ?? null),
-  };
-}
-
-function serializeClient(row: OauthClientRow, stats: OauthClientStats) {
-  return {
-    clientId: row.clientId,
-    name: row.name ?? row.clientId,
-    type: row.type,
-    public: Boolean(row.public),
-    disabled: Boolean(row.disabled),
-    official: isOfficial(row),
-    redirectUris: row.redirectUris ?? [],
-    scopes: row.scopes ?? [],
-    uri: row.uri,
-    icon: row.icon,
-    userId: row.userId,
-    skipConsent: Boolean(row.skipConsent),
-    createdAt: toEpochMs(row.createdAt),
-    updatedAt: toEpochMs(row.updatedAt),
-    ...stats,
   };
 }
 
