@@ -97,8 +97,24 @@ export function isCliSessionUserAgent(ua?: string | null): boolean {
  */
 export const OAUTH_SCOPES = ["files:read", "files:write", "files:delete"] as const;
 
+/**
+ * Issue #911: `@better-auth/oauth-provider` only issues a refresh token when
+ * the grant's scopes include `offline_access` (see createUserTokens in the
+ * plugin) — without it every OAuth/MCP client got a 1h access token and a
+ * forced interactive re-auth on expiry. Registered by default on every
+ * self-registered client, unioned into authorize requests by
+ * oauth-grant-scopes.ts (clients copy `scope` from the resource metadata,
+ * which advertises only files:*), and backfilled onto existing clients by
+ * migration 20260831120000_oauth_client_offline_access.sql.
+ */
+export const OAUTH_OFFLINE_ACCESS_SCOPE = "offline_access";
+
 /** Default scopes granted to a dynamically registered client that requests none. */
-const OAUTH_CLIENT_REGISTRATION_DEFAULT_SCOPES = ["files:read", "files:write"] as const;
+const OAUTH_CLIENT_REGISTRATION_DEFAULT_SCOPES = [
+  "files:read",
+  "files:write",
+  OAUTH_OFFLINE_ACCESS_SCOPE,
+] as const;
 
 /**
  * Extra scopes a CIMD/DCR client may request (consent still required). Better
@@ -705,7 +721,7 @@ function buildAuth(
       oauthProvider({
         loginPage: `${webOrigin}/login`,
         consentPage: `${webOrigin}/oauth/consent`,
-        scopes: [...OAUTH_SCOPES],
+        scopes: [...OAUTH_SCOPES, OAUTH_OFFLINE_ACCESS_SCOPE],
         clientRegistrationDefaultScopes: [...OAUTH_CLIENT_REGISTRATION_DEFAULT_SCOPES],
         // Better Auth 1.7 persists every self-registered client (DCR and
         // CIMD alike) with scope = defaultScopes ∪ allowedScopes, DISCARDING

@@ -44,6 +44,35 @@ describe("restrictOAuthQueryScopes", () => {
       scope: "",
     });
   });
+
+  // Issue #911: MCP clients copy `scope=` from the resource metadata
+  // (files:* only), so offline_access — required for a refresh token —
+  // must be unioned in server-side for clients registered with it.
+  const WITH_OFFLINE = [...SELF_REGISTERED, "offline_access"] as const;
+
+  it("unions offline_access into a files:* request when the client is registered for it", () => {
+    expect(restrictOAuthQueryScopes({ scope: "files:read files:write" }, WITH_OFFLINE)).toEqual({
+      scope: "files:read files:write offline_access",
+    });
+  });
+
+  it("keeps an already-requested offline_access without duplicating it", () => {
+    expect(
+      restrictOAuthQueryScopes({ scope: "files:read offline_access" }, WITH_OFFLINE),
+    ).toBeUndefined();
+  });
+
+  it("does not union offline_access for a client not registered for it", () => {
+    expect(
+      restrictOAuthQueryScopes({ scope: "files:read files:write" }, SELF_REGISTERED),
+    ).toBeUndefined();
+  });
+
+  it("does not mint an offline_access-only grant from a nothing-grantable request", () => {
+    expect(restrictOAuthQueryScopes({ scope: "openid admin" }, WITH_OFFLINE)).toEqual({
+      scope: "",
+    });
+  });
 });
 
 describe("restrictOAuthConsentBody", () => {
