@@ -103,6 +103,10 @@ export function defaultStorageClientFactory(candidate: StorageVerifyCandidate): 
   // exported — re-guard so a direct caller can never interpolate an arbitrary
   // string into the S3 endpoint.
   if (candidate.provider === "s3") {
+    const endpointProblem = checkEndpointShape(candidate.endpoint ?? "");
+    if (endpointProblem) {
+      throw new Error(`invalid endpoint: ${endpointProblem}`);
+    }
     const config: StorageConfig = {
       provider: "s3",
       bucket: candidate.bucket,
