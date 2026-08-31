@@ -41,6 +41,11 @@ import { sendAuthEmail } from "./email";
 import { localDemoEnabled, localDemoPlugin } from "./local-demo";
 import { memberCapDenial } from "./member-cap";
 import { notifyAdminsOfMemberJoin } from "./notify-member-join";
+import {
+  refreshTokenAfterHook,
+  snapshotBeforeOAuthTokenRequest,
+  type AuthEventsEnv,
+} from "./oauth-observability";
 import { createDurableRateLimitStorage, type RateLimitNamespaceLike } from "./rate-limit";
 import * as schema from "./schema";
 import { stripePluginOrNone } from "./stripe-plugin";
@@ -310,11 +315,19 @@ async function applyOAuthClientInterop(
 function authBeforeHook(
   db: ReturnType<typeof drizzle<typeof schema>>,
   registeredScopesForClientId: (clientId: string | undefined) => Promise<readonly string[]>,
+  env: { DB: D1Database },
 ) {
   return createAuthMiddleware(async (ctx) => {
     const oauthOverride = await applyOAuthClientInterop(ctx, registeredScopesForClientId);
     if (oauthOverride) return oauthOverride;
     await enforceLastAdminGuard(ctx, db);
+    // Issue #912: snapshots a presented refresh token's D1 state ahead of
+    // oauthProvider()'s own /oauth2/token handler — see
+    // oauth-observability.ts's module doc comment for why this rides here
+    // instead of a dedicated hook slot (Better Auth's `hooks.before` takes
+    // exactly one handler). No-op for every path other than a
+    // grant_type=refresh_token request at /oauth2/token.
+    await snapshotBeforeOAuthTokenRequest(ctx, env);
   });
 }
 
@@ -409,7 +422,8 @@ async function enforceLastAdminGuard(
 }
 
 export type AuthEnv = GitHubCredentialsEnv &
-  DashApiKeyEnv & {
+  DashApiKeyEnv &
+  AuthEventsEnv & {
     DB: D1Database;
     EMAIL?: import("./email").EmailBinding;
     BETTER_AUTH_URL?: string;
@@ -936,11 +950,13 @@ function buildAuth(
         },
       },
     },
-    // CIMD/DCR grant_types + authorize/consent scope rewrite, then the
-    // fail-closed last-admin guard. One `hooks.before`: Better Auth takes a
-    // single middleware here.
+    // CIMD/DCR grant_types + authorize/consent scope rewrite, the
+    // fail-closed last-admin guard, then the #912 refresh-token snapshot.
+    // One `hooks.before`: Better Auth takes a single middleware here.
+    // `hooks.after` is #912's other half — see oauth-observability.ts.
     hooks: {
-      before: authBeforeHook(db, registeredScopesForClientId),
+      before: authBeforeHook(db, registeredScopesForClientId, env),
+      after: refreshTokenAfterHook(env),
     },
     // Fail-closed in production, decoupled from secret resolution (D3/D7):
     // rate limiting is on whenever ENVIRONMENT === "production", regardless

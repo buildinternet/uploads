@@ -94,6 +94,18 @@
       "database_id": "5f73946b-edd5-414c-856c-8f9bd3c644ba",
     },
   ],
+  // Issue #912: lightweight signal for OAuth refresh-grant failures and
+  // rotation-replay hits — see src/oauth-observability.ts. Same pattern as
+  // apps/api's ANALYTICS/SLOW_OPS datasets (apps/api/wrangler.jsonc);
+  // writeAuthEventPoint treats an absent binding as a silent no-op, so this
+  // is purely additive and tests/local dev need no binding. Dataset
+  // auto-creates on first write.
+  "analytics_engine_datasets": [
+    {
+      "binding": "AUTH_EVENTS",
+      "dataset": "uploads_auth_events",
+    },
+  ],
   // Plain per-worker secrets (uploads#754 item 2 — moved off the
   // account-level Cloudflare Secrets Store: each of these had exactly one
   // consumer, this worker, so the store's cross-worker propagation never
@@ -214,6 +226,14 @@
         "binding": "DB",
         "database_name": "uploads-preview",
         "database_id": "b8c82095-b471-4e3a-8634-56e0861e43f1",
+      },
+    ],
+    // Separate dataset out of preview traffic, same convention as apps/api's
+    // previews block for ANALYTICS/SLOW_OPS.
+    "analytics_engine_datasets": [
+      {
+        "binding": "AUTH_EVENTS",
+        "dataset": "uploads_auth_events_preview",
       },
     ],
     "send_email": [{ "name": "EMAIL", "allowed_sender_addresses": ["noreply@uploads.sh"] }],
