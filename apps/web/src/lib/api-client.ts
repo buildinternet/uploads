@@ -1915,6 +1915,8 @@ export interface WorkspaceStorageLane {
   endpoint?: string;
   /** s3-only. SigV4 signing region. Never present on an r2 lane. */
   region?: string;
+  /** s3-only, advanced. Path-style addressing (`endpoint/bucket`) instead of virtual-hosted-style. Never present on an r2 lane. */
+  forcePathStyle?: boolean;
   /** Set when this lane was demoted while its credentials were failing (issue #826). */
   unhealthyAt?: string;
   /**
@@ -1952,6 +1954,8 @@ export interface WorkspaceStorageStatus {
   endpoint?: string;
   /** s3-only. SigV4 signing region of the active lane. */
   region?: string;
+  /** s3-only, advanced. Path-style addressing (`endpoint/bucket`) of the active lane. */
+  forcePathStyle?: boolean;
   /** Id of the active lane (the top-level fields above). Absent on a record that predates lanes. */
   activeLaneId?: string;
   /** Every other configured lane: saved-but-never-used configs and demoted former actives. */
@@ -1982,6 +1986,7 @@ function toWorkspaceStorageLane(value: unknown): WorkspaceStorageLane | null {
     accessKeyIdLast4: typeof v.accessKeyIdLast4 === "string" ? v.accessKeyIdLast4 : undefined,
     endpoint: typeof v.endpoint === "string" ? v.endpoint : undefined,
     region: typeof v.region === "string" ? v.region : undefined,
+    forcePathStyle: v.forcePathStyle === true ? true : undefined,
     unhealthyAt: typeof v.unhealthyAt === "string" ? v.unhealthyAt : undefined,
   };
 }
@@ -2029,6 +2034,7 @@ function toWorkspaceStorageStatus(body: unknown): WorkspaceStorageStatus | null 
     jurisdiction: typeof b.jurisdiction === "string" ? b.jurisdiction : undefined,
     endpoint: typeof b.endpoint === "string" ? b.endpoint : undefined,
     region: typeof b.region === "string" ? b.region : undefined,
+    forcePathStyle: b.forcePathStyle === true ? true : undefined,
     activeLaneId: typeof b.activeLaneId === "string" ? b.activeLaneId : undefined,
     lanes: Array.isArray(b.lanes) ? b.lanes.flatMap((l) => toWorkspaceStorageLane(l) ?? []) : [],
     health: toWorkspaceStorageHealth(b.health),

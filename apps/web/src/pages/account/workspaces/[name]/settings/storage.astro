@@ -351,6 +351,13 @@ if (!workspace) return Astro.redirect("/account/workspaces");
               placeholder="us-east-1"
             />
           </div>
+          <div class="ul-field" id="storage-path-style-field" hidden>
+            <label class="flex items-center gap-1.5 text-sm font-normal">
+              <input type="checkbox" id="storage-path-style" /> Use path-style addressing (<code
+                >endpoint/bucket</code
+              >) — needed by MinIO and some self-hosted servers
+            </label>
+          </div>
           <div class="ul-field">
             <label for="storage-access-key-id" class="ul-label">Access key ID</label>
             <input
@@ -560,6 +567,8 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       const storageEndpoint = requireElement<HTMLInputElement>("#storage-endpoint", page);
       const storageRegionField = requireElement<HTMLElement>("#storage-region-field", page);
       const storageRegion = requireElement<HTMLInputElement>("#storage-region", page);
+      const storagePathStyleField = requireElement<HTMLElement>("#storage-path-style-field", page);
+      const storagePathStyle = requireElement<HTMLInputElement>("#storage-path-style", page);
       const storageAccountId = requireElement<HTMLInputElement>("#storage-account-id", page);
       const storageBucketText = requireElement<HTMLInputElement>("#storage-bucket", page);
       // Same worker-configuration.d.ts `Element.remove()` workaround as the
@@ -874,6 +883,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         storageEndpoint.required = isS3;
         storageRegionField.hidden = !isS3;
         storageRegion.required = isS3;
+        storagePathStyleField.hidden = !isS3;
         storageSetupHelp.hidden = isS3 || formMode === "rotate";
         if (isS3) setBucketMode("text");
       }
@@ -918,6 +928,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         provider?: "r2" | "s3";
         endpoint?: string;
         region?: string;
+        forcePathStyle?: boolean;
       }
 
       function openForm(mode: "connect" | "rotate", prefill?: FormPrefill): void {
@@ -946,6 +957,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
             storageProviderS3.checked = true;
             storageEndpoint.value = prefill.endpoint ?? "";
             storageRegion.value = prefill.region ?? "";
+            storagePathStyle.checked = prefill.forcePathStyle === true;
             applyProviderMode();
           }
         }
@@ -993,6 +1005,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
             adoptExistingContents,
             endpoint: storageEndpoint.value.trim(),
             region: storageRegion.value.trim(),
+            forcePathStyle: storagePathStyle.checked ? true : undefined,
           };
         }
         // Parsed client-side — a bare account id or a pasted endpoint URL
@@ -1058,11 +1071,23 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         void (async () => {
           showStorageError(null);
           if (provider() === "s3") {
-            if (!parseS3Endpoint(storageEndpoint.value)) {
+            const parsedEndpoint = parseS3Endpoint(storageEndpoint.value);
+            if (!parsedEndpoint) {
               storageSaveStatus.textContent =
                 "Enter a valid endpoint URL, e.g. https://s3.us-east-1.amazonaws.com.";
               storageSaveStatus.dataset.state = "error";
               return;
+            }
+            // Apply the parse the same way the endpoint field's blur handler
+            // does (canonical endpoint always; region/bucket only into empty
+            // fields) — submitting via Enter never fires that blur, so
+            // without this the inferred region/bucket would be lost.
+            storageEndpoint.value = parsedEndpoint.endpoint;
+            if (parsedEndpoint.region && !storageRegion.value.trim()) {
+              storageRegion.value = parsedEndpoint.region;
+            }
+            if (parsedEndpoint.bucket && !storageBucketText.value.trim()) {
+              storageBucketText.value = parsedEndpoint.bucket;
             }
             if (!storageRegion.value.trim()) {
               storageSaveStatus.textContent = "Enter the bucket's region, e.g. us-east-1.";

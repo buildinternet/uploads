@@ -409,6 +409,7 @@ describe("storage vertical (self-serve BYO bucket)", () => {
               bucket: "s3-bucket",
               endpoint: "https://s3.us-east-1.amazonaws.com",
               region: "us-east-1",
+              forcePathStyle: true,
               accessKeyId: "enc:v1:x",
               secretAccessKey: "enc:v1:y",
             },
@@ -427,6 +428,7 @@ describe("storage vertical (self-serve BYO bucket)", () => {
           provider?: string;
           endpoint?: string;
           region?: string;
+          forcePathStyle?: boolean;
           accountIdMasked?: string;
           jurisdiction?: string;
         }>;
@@ -439,6 +441,7 @@ describe("storage vertical (self-serve BYO bucket)", () => {
         provider: "s3",
         endpoint: "https://s3.us-east-1.amazonaws.com",
         region: "us-east-1",
+        forcePathStyle: true,
       });
       expect(s3Lane?.accountIdMasked).toBeUndefined();
     });

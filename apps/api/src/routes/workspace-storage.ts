@@ -63,6 +63,8 @@ export interface StorageLaneStatus {
   endpoint?: string;
   /** s3-only. SigV4 signing region. Never present on an r2 lane. */
   region?: string;
+  /** s3-only, advanced. Path-style addressing (`endpoint/bucket`) instead of virtual-hosted-style. Never present on an r2 lane. */
+  forcePathStyle?: boolean;
   /** Set when this lane was demoted while flagged unhealthy (issue #826). */
   unhealthyAt?: string;
   /**
@@ -91,6 +93,8 @@ export interface StorageStatusResponse {
   endpoint?: string;
   /** s3-only. SigV4 signing region of the active lane. */
   region?: string;
+  /** s3-only, advanced. Path-style addressing (`endpoint/bucket`) of the active lane. */
+  forcePathStyle?: boolean;
   /** Id of the active lane (the top-level fields above). Absent on a record that predates lanes. */
   activeLaneId?: string;
   /** Every other configured lane: saved-but-never-used configs and demoted former actives. */
@@ -124,6 +128,7 @@ function laneStatus(lane: StorageLane): StorageLaneStatus {
     accessKeyIdLast4: lane.storageAccessKeyIdLast4,
     endpoint: isS3 ? lane.endpoint : undefined,
     region: isS3 ? lane.region : undefined,
+    forcePathStyle: isS3 ? lane.forcePathStyle : undefined,
     unhealthyAt: lane.unhealthyAt,
   };
 }
@@ -160,6 +165,7 @@ export function storageStatusResponse(
     jurisdiction: byo && !isS3 ? record.jurisdiction : undefined,
     endpoint: isS3 ? record.endpoint : undefined,
     region: isS3 ? record.region : undefined,
+    forcePathStyle: isS3 ? record.forcePathStyle : undefined,
     activeLaneId: record.storageLaneId,
     lanes: (record.storageLanes ?? []).map(laneStatus),
     health: byo ? storageHealth(record) : { ok: true },
