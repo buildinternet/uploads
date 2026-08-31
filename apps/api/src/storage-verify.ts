@@ -156,20 +156,38 @@ const S3_BUCKET_NAME_RE = /^[a-z0-9]([a-z0-9.-]{1,61})[a-z0-9]$/;
 /** SigV4 region: lowercase alphanumeric/hyphen, up to 32 chars — allows literal "auto" (R2-compatible providers). */
 const S3_REGION_RE = /^[a-z0-9-]{1,32}$/;
 
+/**
+ * Bucket-name shape per provider — same length bound (3-63 chars), different
+ * allowed-character regex and wording (S3 additionally permits dots).
+ */
+const BUCKET_NAME_SHAPE: Record<"r2" | "s3", { re: RegExp; label: string }> = {
+  r2: {
+    re: BUCKET_NAME_RE,
+    label:
+      "bucket name must be 3-63 characters, lowercase letters/digits/hyphens, and can't start or end with a hyphen",
+  },
+  s3: {
+    re: S3_BUCKET_NAME_RE,
+    label:
+      "bucket name must be 3-63 characters, lowercase letters/digits/dots/hyphens, and can't start or end with a hyphen or dot",
+  },
+};
+
+function checkBucketNameShape(bucket: string, provider: "r2" | "s3"): string | undefined {
+  const { re, label } = BUCKET_NAME_SHAPE[provider];
+  if (bucket.length < 3 || bucket.length > 63 || !re.test(bucket)) {
+    return label;
+  }
+  return undefined;
+}
+
 function checkShape(candidate: StorageVerifyCandidate): StorageVerifyCheck {
   const problems: string[] = [];
   const provider = candidate.provider ?? "r2";
 
   if (provider === "s3") {
-    if (
-      candidate.bucket.length < 3 ||
-      candidate.bucket.length > 63 ||
-      !S3_BUCKET_NAME_RE.test(candidate.bucket)
-    ) {
-      problems.push(
-        "bucket name must be 3-63 characters, lowercase letters/digits/dots/hyphens, and can't start or end with a hyphen or dot",
-      );
-    }
+    const bucketProblem = checkBucketNameShape(candidate.bucket, "s3");
+    if (bucketProblem) problems.push(bucketProblem);
     if (!candidate.endpoint) {
       problems.push("endpoint is required for an s3-compatible bucket");
     } else {
@@ -185,15 +203,8 @@ function checkShape(candidate: StorageVerifyCandidate): StorageVerifyCheck {
     if (!candidate.accountId || !ACCOUNT_ID_RE.test(candidate.accountId)) {
       problems.push("accountId must be a 32-character lowercase hex Cloudflare account id");
     }
-    if (
-      candidate.bucket.length < 3 ||
-      candidate.bucket.length > 63 ||
-      !BUCKET_NAME_RE.test(candidate.bucket)
-    ) {
-      problems.push(
-        "bucket name must be 3-63 characters, lowercase letters/digits/hyphens, and can't start or end with a hyphen",
-      );
-    }
+    const bucketProblem = checkBucketNameShape(candidate.bucket, "r2");
+    if (bucketProblem) problems.push(bucketProblem);
     if (candidate.jurisdiction !== undefined && !isR2Jurisdiction(candidate.jurisdiction)) {
       problems.push(
         `jurisdiction must be one of: ${R2_JURISDICTIONS.join(", ")} (or omitted for the default endpoint)`,
@@ -296,22 +307,32 @@ function errorCode(err: unknown): string | undefined {
   return undefined;
 }
 
+/** Per-provider auth-error hint text, keyed the same way as the round-trip write-rejection hints below. */
+const AUTH_ERROR_HINTS: Record<
+  "r2" | "s3",
+  { scopedTo: string; notFound: string; unreachable: string }
+> = {
+  r2: {
+    scopedTo: "the R2 API token is scoped to this bucket",
+    notFound: "bucket not found at this account id — check the bucket name for typos",
+    unreachable: "could not reach the bucket — check the account id, bucket name, and network path",
+  },
+  s3: {
+    scopedTo: "an access key scoped to this bucket",
+    notFound: "bucket not found at this endpoint — check the bucket name for typos",
+    unreachable: "could not reach the bucket — check the endpoint, bucket name, and network path",
+  },
+};
+
 function hintForAuthError(err: unknown, provider: "r2" | "s3"): string {
-  const scopedTo =
-    provider === "s3"
-      ? "an access key scoped to this bucket"
-      : "the R2 API token is scoped to this bucket";
+  const hints = AUTH_ERROR_HINTS[provider];
   switch (errorCode(err)) {
     case "Unauthorized":
-      return `the access key was rejected — check the key id/secret and that ${scopedTo}`;
+      return `the access key was rejected — check the key id/secret and that ${hints.scopedTo}`;
     case "NotFound":
-      return provider === "s3"
-        ? "bucket not found at this endpoint — check the bucket name for typos"
-        : "bucket not found at this account id — check the bucket name for typos";
+      return hints.notFound;
     default:
-      return provider === "s3"
-        ? "could not reach the bucket — check the endpoint, bucket name, and network path"
-        : "could not reach the bucket — check the account id, bucket name, and network path";
+      return hints.unreachable;
   }
 }
 

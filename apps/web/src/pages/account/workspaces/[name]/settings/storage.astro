@@ -674,46 +674,57 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         );
       }
 
-      function renderByoDetails(status: WorkspaceStorageStatus): void {
-        const isS3 = status.provider === "s3";
-        const rows: [string, string][] = [["Bucket", escapeHtml(status.bucket ?? "—")]];
+      /**
+       * Shared row-list builder for the active-BYO and saved-lane detail
+       * panels: same fields, same order (bucket → provider-specific id →
+       * access key → public URL → verified), just a different source object
+       * and an optional trailing jurisdiction row the saved-lane panel never
+       * shows.
+       */
+      function buildStorageRows(
+        fields: Pick<
+          WorkspaceStorageStatus | WorkspaceStorageLane,
+          | "provider"
+          | "bucket"
+          | "endpoint"
+          | "region"
+          | "accountIdMasked"
+          | "accessKeyIdLast4"
+          | "publicBaseUrl"
+          | "verifiedAt"
+        >,
+        jurisdiction?: string,
+      ): [string, string][] {
+        const isS3 = fields.provider === "s3";
+        const rows: [string, string][] = [["Bucket", escapeHtml(fields.bucket ?? "—")]];
         if (isS3) {
-          rows.push(["Endpoint", escapeHtml(status.endpoint ?? "—")]);
-          rows.push(["Region", escapeHtml(status.region ?? "—")]);
+          rows.push(["Endpoint", escapeHtml(fields.endpoint ?? "—")]);
+          rows.push(["Region", escapeHtml(fields.region ?? "—")]);
         } else {
-          rows.push(["Account ID", escapeHtml(status.accountIdMasked ?? "—")]);
+          rows.push(["Account ID", escapeHtml(fields.accountIdMasked ?? "—")]);
         }
         rows.push([
           "Access key ID",
-          escapeHtml(status.accessKeyIdLast4 ? `…${status.accessKeyIdLast4}` : "—"),
+          escapeHtml(fields.accessKeyIdLast4 ? `…${fields.accessKeyIdLast4}` : "—"),
         ]);
-        rows.push(["Public base URL", publicBaseUrlRowValue(status.publicBaseUrl)]);
-        rows.push(["Verified", escapeHtml(formatTimestamp(status.verifiedAt))]);
-        if (!isS3 && status.jurisdiction)
-          rows.push(["Jurisdiction", escapeHtml(status.jurisdiction)]);
-        storageByoDetails.innerHTML = rows
+        rows.push(["Public base URL", publicBaseUrlRowValue(fields.publicBaseUrl)]);
+        rows.push(["Verified", escapeHtml(formatTimestamp(fields.verifiedAt))]);
+        if (!isS3 && jurisdiction) rows.push(["Jurisdiction", escapeHtml(jurisdiction)]);
+        return rows;
+      }
+
+      function renderStorageRows(el: HTMLElement, rows: [string, string][]): void {
+        el.innerHTML = rows
           .map(([label, value]) => `<dt>${escapeHtml(label)}</dt><dd>${value}</dd>`)
           .join("");
       }
 
+      function renderByoDetails(status: WorkspaceStorageStatus): void {
+        renderStorageRows(storageByoDetails, buildStorageRows(status, status.jurisdiction));
+      }
+
       function renderSavedDetails(lane: WorkspaceStorageLane): void {
-        const isS3 = lane.provider === "s3";
-        const rows: [string, string][] = [["Bucket", escapeHtml(lane.bucket)]];
-        if (isS3) {
-          rows.push(["Endpoint", escapeHtml(lane.endpoint ?? "—")]);
-          rows.push(["Region", escapeHtml(lane.region ?? "—")]);
-        } else {
-          rows.push(["Account ID", escapeHtml(lane.accountIdMasked ?? "—")]);
-        }
-        rows.push([
-          "Access key ID",
-          escapeHtml(lane.accessKeyIdLast4 ? `…${lane.accessKeyIdLast4}` : "—"),
-        ]);
-        rows.push(["Public base URL", publicBaseUrlRowValue(lane.publicBaseUrl)]);
-        rows.push(["Verified", escapeHtml(formatTimestamp(lane.verifiedAt))]);
-        storageSavedDetails.innerHTML = rows
-          .map(([label, value]) => `<dt>${escapeHtml(label)}</dt><dd>${value}</dd>`)
-          .join("");
+        renderStorageRows(storageSavedDetails, buildStorageRows(lane));
       }
 
       /**

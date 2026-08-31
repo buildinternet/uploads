@@ -94,38 +94,6 @@ async function makeByoEnv(overrides: Partial<WorkspaceRecord> = {}) {
   };
 }
 
-// Same shape as `makeByoEnv`, but an s3-provider record — exercises the
-// `isSharedLane`/usage-attribution path for the s3 branch specifically
-// (`storageBudgetApplies`/`isSharedLane` both key off `provider === "s3"`
-// alongside the credential fields, not just credential presence). I/O is
-// still routed through the mocked `../src/storage` (`forceBinding`), which
-// only adds a `binding` — it never rewrites `provider` — so this record's
-// `provider: "s3"` reaches `isSharedLane(ws)` in files-core.ts unchanged.
-async function makeByoS3Env(overrides: Partial<WorkspaceRecord> = {}) {
-  const record: WorkspaceRecord = {
-    provider: "s3",
-    bucket: "customer-bucket",
-    endpoint: "https://s3.us-east-1.amazonaws.com",
-    region: "us-east-1",
-    publicBaseUrl: "https://customer-bucket.example.com",
-    tokenHash: await sha256Hex(TOKEN),
-    plan: "free",
-    accessKeyId: "customer-key",
-    secretAccessKey: "customer-secret",
-    ...overrides,
-  };
-  const db = new UsageFakeD1();
-  return {
-    env: {
-      REGISTRY: { get: async () => record, put: async () => undefined },
-      DB: db,
-      UPLOADS_DEFAULT: fakeBucket,
-      WRITE_LIMITER: { limit: async () => ({ success: true }) },
-    },
-    db,
-  };
-}
-
 async function makeSharedEnv(overrides: Partial<WorkspaceRecord> = {}) {
   const record: WorkspaceRecord = {
     provider: "r2",
@@ -207,7 +175,19 @@ describe("BYO-bucket workspace storage budget attribution", () => {
   });
 
   it("records usage as non-shared for an s3-provider BYO workspace (sharedBytes untouched)", async () => {
-    const { env, db } = await makeByoS3Env();
+    // Exercises the `isSharedLane`/usage-attribution path for the s3 branch
+    // specifically (`storageBudgetApplies`/`isSharedLane` both key off
+    // `provider === "s3"` alongside the credential fields, not just
+    // credential presence). I/O is still routed through the mocked
+    // `../src/storage` (`forceBinding`), which only adds a `binding` — it
+    // never rewrites `provider` — so this record's `provider: "s3"` reaches
+    // `isSharedLane(ws)` in files-core.ts unchanged.
+    const { env, db } = await makeByoEnv({
+      provider: "s3",
+      endpoint: "https://s3.us-east-1.amazonaws.com",
+      region: "us-east-1",
+      accountId: undefined,
+    });
     expect((await put(env, "byo-s3.png")).status).toBe(201);
     const row = db.usage.get("default")!;
     expect(row.bytes).toBe(PNG.byteLength);

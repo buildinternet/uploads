@@ -101,6 +101,7 @@ import {
   isLaneVerifyStale,
   laneIdentity,
   promoteLane,
+  providerCredentialFields,
   upsertDemotedLane,
   upsertStandbyLane,
 } from "../workspace-lanes";
@@ -601,7 +602,7 @@ export async function storagePutHandler(c: Context<SettingsVars>) {
 
       const rotatesActiveLane =
         isByoRecord(current) &&
-        Boolean(current.provider === "s3") === isS3 &&
+        (current.provider === "s3") === isS3 &&
         laneIdentity(current) === laneIdentity(candidate);
 
       if (rotatesActiveLane) {
@@ -642,13 +643,13 @@ export async function storagePutHandler(c: Context<SettingsVars>) {
         storageAccessKeyIdLast4: accessKeyIdLast4,
         // s3 candidates carry no accountId/jurisdiction; r2 candidates carry
         // no endpoint/region/forcePathStyle — never both on one lane.
-        ...(isS3
-          ? {
-              endpoint: candidate.endpoint,
-              region: candidate.region,
-              forcePathStyle: candidate.forcePathStyle,
-            }
-          : { accountId: candidate.accountId, jurisdiction }),
+        ...providerCredentialFields(isS3, {
+          accountId: candidate.accountId,
+          jurisdiction,
+          endpoint: candidate.endpoint,
+          region: candidate.region,
+          forcePathStyle: candidate.forcePathStyle,
+        }),
       };
       return { ...current, storageLanes: upsertStandbyLane(current.storageLanes, lane) };
     },

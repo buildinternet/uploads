@@ -22,6 +22,7 @@ import { healthFromFields, storageHealth, type StorageHealth } from "../storage-
 import { reconcileWorkspaceUsage } from "../reconcile";
 import { isSharedLane, storageConfig } from "../storage";
 import type { StorageLane, WorkspaceRecord } from "../workspace";
+import { providerCredentialFields } from "../workspace-lanes";
 
 /** Last 4 chars only, prefixed with an ellipsis (e.g. `"…abcd"`). `undefined` for an empty/missing value. */
 export function maskTrailing(value: string | undefined): string | undefined {
@@ -107,6 +108,38 @@ export interface StorageStatusResponse {
   health: StorageHealth;
 }
 
+/**
+ * The r2-vs-s3 field split shared by every masked storage projection: an s3
+ * lane/record carries `endpoint`/`region`/`forcePathStyle`, never an
+ * `accountId`; an r2 one carries a masked `accountId`, never those three.
+ * One source of truth for that split so `laneStatus` and
+ * `storageStatusResponse` can't drift on which fields are omitted per
+ * provider.
+ */
+function providerFields(
+  isS3: boolean,
+  fields: {
+    accountId: string | undefined;
+    endpoint: string | undefined;
+    region: string | undefined;
+    forcePathStyle: boolean | undefined;
+  },
+): {
+  accountIdMasked?: string;
+  endpoint?: string;
+  region?: string;
+  forcePathStyle?: boolean;
+} {
+  if (isS3) {
+    return {
+      endpoint: fields.endpoint,
+      region: fields.region,
+      forcePathStyle: fields.forcePathStyle,
+    };
+  }
+  return { accountIdMasked: maskTrailing(fields.accountId) };
+}
+
 /** Masked projection of one `StorageLane` for `storageStatusResponse` — never a credential value. */
 function laneStatus(lane: StorageLane): StorageLaneStatus {
   const health = healthFromFields(lane.unhealthyAt, lane.unhealthyCode);
@@ -124,11 +157,13 @@ function laneStatus(lane: StorageLane): StorageLaneStatus {
     verifiedAt: lane.verifiedAt,
     lastActiveAt: lane.lastActiveAt,
     // Never both — an s3 lane carries endpoint/region, never an accountId.
-    accountIdMasked: isS3 ? undefined : maskTrailing(lane.accountId),
+    ...providerFields(isS3, {
+      accountId: lane.accountId,
+      endpoint: lane.endpoint,
+      region: lane.region,
+      forcePathStyle: lane.forcePathStyle,
+    }),
     accessKeyIdLast4: lane.storageAccessKeyIdLast4,
-    endpoint: isS3 ? lane.endpoint : undefined,
-    region: isS3 ? lane.region : undefined,
-    forcePathStyle: isS3 ? lane.forcePathStyle : undefined,
     unhealthyAt: lane.unhealthyAt,
   };
 }
@@ -155,7 +190,18 @@ export function storageStatusResponse(
     bucket: record.bucket,
     provider: byo ? (isS3 ? "s3" : "r2") : undefined,
     publicBaseUrl: record.publicBaseUrl,
-    accountIdMasked: byo && !isS3 ? maskTrailing(record.accountId) : undefined,
+    // Never both — an s3 record carries endpoint/region, never an accountId
+    // or jurisdiction. Only projected at all when `byo` (a shared-mode
+    // record has neither field populated, but `providerFields` alone can't
+    // express the outer `byo` gate).
+    ...(byo
+      ? providerFields(isS3, {
+          accountId: record.accountId,
+          endpoint: record.endpoint,
+          region: record.region,
+          forcePathStyle: record.forcePathStyle,
+        })
+      : {}),
     // Never derived from `record.accessKeyId` — after a self-serve save that
     // field holds the sealed `enc:v1:` blob, so its last 4 characters would
     // be ciphertext. The PUT route stamps the plaintext fragment at seal time.
@@ -163,9 +209,6 @@ export function storageStatusResponse(
     configuredAt: record.storageConfiguredAt,
     verifiedAt: record.storageVerifiedAt,
     jurisdiction: byo && !isS3 ? record.jurisdiction : undefined,
-    endpoint: isS3 ? record.endpoint : undefined,
-    region: isS3 ? record.region : undefined,
-    forcePathStyle: isS3 ? record.forcePathStyle : undefined,
     activeLaneId: record.storageLaneId,
     lanes: (record.storageLanes ?? []).map(laneStatus),
     health: byo ? storageHealth(record) : { ok: true },
@@ -273,22 +316,25 @@ export function setListBucketsForTests(
 export function candidateFromBody(body: unknown): StorageVerifyCandidate {
   const b = (body ?? {}) as Record<string, unknown>;
   const provider = b.provider === "s3" ? "s3" : "r2";
+  const isS3 = provider === "s3";
   return {
     provider,
     bucket: typeof b.bucket === "string" ? b.bucket : "",
-    // s3 lanes never carry an accountId — leaving it undefined (rather than
-    // "") keeps `laneIdentity` falling through to `endpoint` for s3
-    // candidates, matching how a stored s3 lane's identity is computed.
-    accountId: provider === "s3" ? undefined : typeof b.accountId === "string" ? b.accountId : "",
     accessKeyId: typeof b.accessKeyId === "string" ? b.accessKeyId : "",
     secretAccessKey: typeof b.secretAccessKey === "string" ? b.secretAccessKey : "",
     publicBaseUrl: typeof b.publicBaseUrl === "string" ? b.publicBaseUrl : undefined,
     adoptExistingContents: b.adoptExistingContents === true,
-    jurisdiction:
-      typeof b.jurisdiction === "string" && b.jurisdiction !== "" ? b.jurisdiction : undefined,
-    endpoint: typeof b.endpoint === "string" ? b.endpoint : undefined,
-    region: typeof b.region === "string" ? b.region : undefined,
-    forcePathStyle: b.forcePathStyle === true,
+    // s3 lanes never carry an accountId — leaving it undefined (rather than
+    // "") keeps `laneIdentity` falling through to `endpoint` for s3
+    // candidates, matching how a stored s3 lane's identity is computed.
+    ...providerCredentialFields(isS3, {
+      accountId: typeof b.accountId === "string" ? b.accountId : "",
+      jurisdiction:
+        typeof b.jurisdiction === "string" && b.jurisdiction !== "" ? b.jurisdiction : undefined,
+      endpoint: typeof b.endpoint === "string" ? b.endpoint : undefined,
+      region: typeof b.region === "string" ? b.region : undefined,
+      forcePathStyle: b.forcePathStyle === true,
+    }),
   };
 }
 
@@ -314,20 +360,24 @@ export async function laneVerifyCandidate(
       secretAccessKey: config.secretAccessKey,
       publicBaseUrl: config.publicBaseUrl,
       adoptExistingContents: true,
-      endpoint: config.endpoint,
-      region: config.region,
-      forcePathStyle: config.forcePathStyle,
+      ...providerCredentialFields(true, {
+        endpoint: config.endpoint,
+        region: config.region,
+        forcePathStyle: config.forcePathStyle,
+      }),
     };
   }
   return {
     provider: "r2",
     bucket: config.bucket,
-    accountId: config.accountId ?? "",
     accessKeyId: config.accessKeyId ?? "",
     secretAccessKey: config.secretAccessKey ?? "",
     publicBaseUrl: config.publicBaseUrl,
     adoptExistingContents: true,
-    jurisdiction: config.jurisdiction,
+    ...providerCredentialFields(false, {
+      accountId: config.accountId ?? "",
+      jurisdiction: config.jurisdiction,
+    }),
   };
 }
 

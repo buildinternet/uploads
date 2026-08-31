@@ -176,6 +176,32 @@ export function upsertDemotedLane(
   return [...existing, lane];
 }
 
+/**
+ * The r2-vs-s3 credential-field split shared by every candidate/lane builder
+ * that hand-rolls a `StorageVerifyCandidate`/`StorageLane` shape:
+ * `workspace-storage.ts`'s `candidateFromBody` and `laneVerifyCandidate`, and
+ * `workspace-settings.ts`'s `storagePutHandler` (new-lane path). An s3
+ * candidate/lane carries `endpoint`/`region`/`forcePathStyle`, never
+ * `accountId`/`jurisdiction`; an r2 one carries the reverse — never both, so
+ * one source of truth for the split keeps the three sites from drifting.
+ */
+export function providerCredentialFields<J = string>(
+  isS3: boolean,
+  fields: {
+    accountId?: string;
+    jurisdiction?: J;
+    endpoint?: string;
+    region?: string;
+    forcePathStyle?: boolean;
+  },
+):
+  | { accountId?: string; jurisdiction?: J }
+  | { endpoint?: string; region?: string; forcePathStyle?: boolean } {
+  return isS3
+    ? { endpoint: fields.endpoint, region: fields.region, forcePathStyle: fields.forcePathStyle }
+    : { accountId: fields.accountId, jurisdiction: fields.jurisdiction };
+}
+
 /** Milliseconds a lane's `verifiedAt` may age before `activate` re-runs verify against it. */
 export const LANE_VERIFY_STALE_MS = 10 * 60 * 1000;
 

@@ -1964,6 +1964,11 @@ export interface WorkspaceStorageStatus {
   health: WorkspaceStorageHealth;
 }
 
+/** Narrows an unknown `provider` field to `"r2" | "s3" | undefined` — shared by every storage-status parser below. */
+function toProvider(value: unknown): "r2" | "s3" | undefined {
+  return value === "s3" ? "s3" : value === "r2" ? "r2" : undefined;
+}
+
 function toWorkspaceStorageLane(value: unknown): WorkspaceStorageLane | null {
   if (!value || typeof value !== "object") return null;
   const v = value as Record<string, unknown>;
@@ -1977,7 +1982,7 @@ function toWorkspaceStorageLane(value: unknown): WorkspaceStorageLane | null {
     laneId: v.laneId,
     role: v.role,
     mode: v.mode,
-    provider: v.provider === "s3" ? "s3" : v.provider === "r2" ? "r2" : undefined,
+    provider: toProvider(v.provider),
     bucket: v.bucket,
     publicBaseUrl: typeof v.publicBaseUrl === "string" ? v.publicBaseUrl : undefined,
     verifiedAt: typeof v.verifiedAt === "string" ? v.verifiedAt : undefined,
@@ -1986,7 +1991,7 @@ function toWorkspaceStorageLane(value: unknown): WorkspaceStorageLane | null {
     accessKeyIdLast4: typeof v.accessKeyIdLast4 === "string" ? v.accessKeyIdLast4 : undefined,
     endpoint: typeof v.endpoint === "string" ? v.endpoint : undefined,
     region: typeof v.region === "string" ? v.region : undefined,
-    forcePathStyle: v.forcePathStyle === true ? true : undefined,
+    forcePathStyle: v.forcePathStyle === true || undefined,
     unhealthyAt: typeof v.unhealthyAt === "string" ? v.unhealthyAt : undefined,
   };
 }
@@ -2025,7 +2030,7 @@ function toWorkspaceStorageStatus(body: unknown): WorkspaceStorageStatus | null 
     mode: b.mode,
     byoBucketEnabled: b.byoBucketEnabled === true,
     bucket: typeof b.bucket === "string" ? b.bucket : undefined,
-    provider: b.provider === "s3" ? "s3" : b.provider === "r2" ? "r2" : undefined,
+    provider: toProvider(b.provider),
     accountIdMasked: typeof b.accountIdMasked === "string" ? b.accountIdMasked : undefined,
     accessKeyIdLast4: typeof b.accessKeyIdLast4 === "string" ? b.accessKeyIdLast4 : undefined,
     publicBaseUrl: typeof b.publicBaseUrl === "string" ? b.publicBaseUrl : undefined,
@@ -2034,7 +2039,7 @@ function toWorkspaceStorageStatus(body: unknown): WorkspaceStorageStatus | null 
     jurisdiction: typeof b.jurisdiction === "string" ? b.jurisdiction : undefined,
     endpoint: typeof b.endpoint === "string" ? b.endpoint : undefined,
     region: typeof b.region === "string" ? b.region : undefined,
-    forcePathStyle: b.forcePathStyle === true ? true : undefined,
+    forcePathStyle: b.forcePathStyle === true || undefined,
     activeLaneId: typeof b.activeLaneId === "string" ? b.activeLaneId : undefined,
     lanes: Array.isArray(b.lanes) ? b.lanes.flatMap((l) => toWorkspaceStorageLane(l) ?? []) : [],
     health: toWorkspaceStorageHealth(b.health),
