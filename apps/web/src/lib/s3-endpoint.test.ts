@@ -69,4 +69,57 @@ describe("parseS3Endpoint", () => {
       bucket: undefined,
     });
   });
+
+  it("infers the bucket from a regional path-style AWS URL", () => {
+    expect(parseS3Endpoint("https://s3.us-east-1.amazonaws.com/my-bucket")).toEqual({
+      endpoint: "https://s3.us-east-1.amazonaws.com",
+      region: "us-east-1",
+      bucket: "my-bucket",
+    });
+  });
+
+  it("infers the bucket from a regional path-style AWS URL with a trailing slash", () => {
+    expect(parseS3Endpoint("https://s3.us-east-1.amazonaws.com/my-bucket/")).toEqual({
+      endpoint: "https://s3.us-east-1.amazonaws.com",
+      region: "us-east-1",
+      bucket: "my-bucket",
+    });
+  });
+
+  it("treats a bare legacy AWS host as us-east-1 with no bucket", () => {
+    expect(parseS3Endpoint("s3.amazonaws.com")).toEqual({
+      endpoint: "https://s3.us-east-1.amazonaws.com",
+      region: "us-east-1",
+      bucket: undefined,
+    });
+  });
+
+  it("treats an https legacy AWS host as us-east-1 with no bucket", () => {
+    expect(parseS3Endpoint("https://s3.amazonaws.com")).toEqual({
+      endpoint: "https://s3.us-east-1.amazonaws.com",
+      region: "us-east-1",
+      bucket: undefined,
+    });
+  });
+
+  it("infers bucket + us-east-1 from a legacy virtual-hosted-style AWS host", () => {
+    expect(parseS3Endpoint("https://my-bucket.s3.amazonaws.com")).toEqual({
+      endpoint: "https://s3.us-east-1.amazonaws.com",
+      region: "us-east-1",
+      bucket: "my-bucket",
+    });
+  });
+
+  it("infers the bucket from a single path segment on a non-AWS host (path-style MinIO et al.)", () => {
+    expect(parseS3Endpoint("https://minio.example.com/my-bucket")).toEqual({
+      endpoint: "https://minio.example.com",
+      region: undefined,
+      bucket: "my-bucket",
+      pathStyle: true,
+    });
+  });
+
+  it("rejects a multi-segment path on a non-AWS host", () => {
+    expect(parseS3Endpoint("https://minio.example.com/console/buckets")).toBeNull();
+  });
 });
