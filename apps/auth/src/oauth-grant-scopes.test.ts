@@ -73,6 +73,12 @@ describe("restrictOAuthQueryScopes", () => {
       scope: "",
     });
   });
+
+  it("rejects an explicit offline_access-only request (no refresh-token-only grants)", () => {
+    expect(restrictOAuthQueryScopes({ scope: "offline_access" }, WITH_OFFLINE)).toEqual({
+      scope: "",
+    });
+  });
 });
 
 describe("restrictOAuthConsentBody", () => {

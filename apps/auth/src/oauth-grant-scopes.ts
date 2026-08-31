@@ -33,9 +33,14 @@ const OFFLINE_ACCESS = "offline_access";
 function filterScopeString(scope: string, allowedScopes: readonly string[]): string | undefined {
   const requested = scope.split(/\s+/).filter(Boolean);
   const allow = new Set(allowedScopes);
-  const permitted = requested.filter((id) => KNOWN_SCOPES.has(id) && allow.has(id));
+  let permitted = requested.filter((id) => KNOWN_SCOPES.has(id) && allow.has(id));
   const grantsResourceScope = permitted.some((id) => id !== OFFLINE_ACCESS);
-  if (grantsResourceScope && allow.has(OFFLINE_ACCESS) && !permitted.includes(OFFLINE_ACCESS)) {
+  if (!grantsResourceScope) {
+    // An offline_access-only request must not survive: it would mint a
+    // refresh-token-only grant with no resource access. Dropping it lands in
+    // the plugin's invalid_scope path like any other nothing-grantable request.
+    permitted = [];
+  } else if (allow.has(OFFLINE_ACCESS) && !permitted.includes(OFFLINE_ACCESS)) {
     permitted.push(OFFLINE_ACCESS);
   }
   const next = permitted.join(" ");
