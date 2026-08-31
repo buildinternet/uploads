@@ -1,13 +1,13 @@
 import { Files } from "files-sdk";
 export { createFilesRouter } from "files-sdk/api";
-import { r2 } from "files-sdk/r2";
+import { r2, s3FetchAdapter } from "files-sdk/r2";
 
 /**
  * Provider-agnostic storage config. `provider` selects the files-sdk adapter;
  * everything else is the superset of fields the supported adapters need.
  * Adding a provider = add a case in `createStorage` plus its peer deps.
  */
-export type StorageProvider = "r2";
+export type StorageProvider = "r2" | "s3";
 
 /** R2 jurisdictions with dedicated S3 endpoints (Cloudflare: eu = European Union, fedramp = FedRAMP). */
 export const R2_JURISDICTIONS = ["eu", "fedramp"] as const;
@@ -43,7 +43,27 @@ export interface StorageConfig {
    * with "/". Applied via files-sdk's instance prefix; clients never see it.
    */
   prefix?: string;
+  /**
+   * S3: service endpoint origin, e.g. `https://s3.us-east-1.amazonaws.com`
+   * or an S3-compatible provider's endpoint. Required for `provider: "s3"`.
+   */
+  endpoint?: string;
+  /** S3: SigV4 signing region, e.g. "us-east-1". Defaults to "us-east-1". */
+  region?: string;
+  /**
+   * S3: use path-style addressing (`https://endpoint/bucket/key`) instead of
+   * virtual-hosted style (`https://bucket.endpoint/key`).
+   */
+  forcePathStyle?: boolean;
 }
+
+/** Config shape for `provider: "s3"` — the fields `createStorage` requires for BYO S3-compatible buckets. */
+export type S3StorageConfig = StorageConfig & {
+  provider: "s3";
+  endpoint: string;
+  accessKeyId: string;
+  secretAccessKey: string;
+};
 
 /** Segments of lowercase alphanumerics/._- each ending in "/"; first char alphanumeric (so "." and ".." are impossible). */
 const PREFIX_RE = /^([a-z0-9][a-z0-9._-]*\/)+$/;
@@ -75,6 +95,21 @@ export function createStorage(config: StorageConfig): Files {
       const adapter = config.r2Binding
         ? r2({ binding: config.r2Binding, bucket: config.bucket, ...shared })
         : r2({ bucket: config.bucket, client: "fetch", ...shared });
+      return new Files({ adapter, prefix: config.prefix });
+    }
+    case "s3": {
+      const s3Config = config as S3StorageConfig;
+      const adapter = s3FetchAdapter({
+        accessKeyId: s3Config.accessKeyId,
+        bucket: s3Config.bucket,
+        endpoint: s3Config.endpoint,
+        name: "s3-http-fetch",
+        providerLabel: "S3 error",
+        region: s3Config.region,
+        secretAccessKey: s3Config.secretAccessKey,
+        ...(s3Config.forcePathStyle !== undefined && { forcePathStyle: s3Config.forcePathStyle }),
+        ...(s3Config.publicBaseUrl && { publicBaseUrl: s3Config.publicBaseUrl }),
+      });
       return new Files({ adapter, prefix: config.prefix });
     }
     default:
