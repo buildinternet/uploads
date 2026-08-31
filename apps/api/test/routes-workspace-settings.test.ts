@@ -727,6 +727,63 @@ describe("storage vertical (self-serve BYO bucket)", () => {
       expect(saved?.accessKeyId).toMatch(/^enc:v1:/);
     });
 
+    // Regression coverage: `laneIdentity` (workspace-lanes.ts) used `??`
+    // between `accountId` and `endpoint`, and `candidateFromBody` stamped an
+    // s3 candidate's `accountId` as `""` rather than leaving it `undefined`
+    // — `"" ?? endpoint` never falls through to `endpoint`, so an s3
+    // candidate's identity never matched its own active lane's, and
+    // "rotate credentials" on an active s3 lane silently appended a
+    // duplicate standby instead of refreshing the active lane's creds.
+    it("rotating the active s3 lane's own bucket+endpoint updates it in place, creating no standby lane", async () => {
+      const BYO_S3_RECORD = {
+        provider: "s3",
+        bucket: "s3-bucket",
+        endpoint: "https://s3.us-east-1.amazonaws.com",
+        region: "us-east-1",
+        accessKeyId: "enc:v1:sealed-key-id",
+        secretAccessKey: "enc:v1:already-sealed",
+        publicBaseUrl: "https://media.example.com",
+        byoBucketEnabled: true,
+        storageConfiguredAt: "2026-01-01T00:00:00.000Z",
+        storageVerifiedAt: "2026-01-01T00:00:00.000Z",
+        storageConfiguredBy: "u-plain",
+        storageAccessKeyIdLast4: "1234",
+      };
+      const { env, registry } = makeEnv({ role: "owner", record: BYO_S3_RECORD });
+      setStorageVerifyForTests(async () => okVerifyResult);
+      const res = await app.request(
+        "/v1/workspaces/acme/storage",
+        {
+          method: "PUT",
+          headers: { ...sessionHeaders, "content-type": "application/json" },
+          body: JSON.stringify({ ...CANDIDATE_BODY_S3, accessKeyId: "AKIDROTATED0000" }),
+        },
+        env,
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        mode: string;
+        lanes: unknown[];
+        accessKeyIdLast4?: string;
+      };
+      // Still the active lane — no standby was created for the rotation.
+      expect(body.mode).toBe("byo");
+      expect(body.lanes).toHaveLength(0);
+      expect(body.accessKeyIdLast4).toBe("0000");
+
+      const saved = registry.record<{
+        storageLanes?: unknown[];
+        accessKeyId?: string;
+        bucket?: string;
+        endpoint?: string;
+      }>("acme");
+      expect(saved?.storageLanes ?? []).toHaveLength(0);
+      expect(saved?.bucket).toBe("s3-bucket");
+      expect(saved?.endpoint).toBe("https://s3.us-east-1.amazonaws.com");
+      expect(saved?.accessKeyId).not.toBe("AKIDROTATED0000");
+      expect(saved?.accessKeyId).toMatch(/^enc:v1:/);
+    });
+
     it("saving a DIFFERENT bucket while a BYO lane is active still creates a standby, active lane untouched", async () => {
       const { env, registry } = makeEnv({ role: "owner", record: BYO_RECORD });
       setStorageVerifyForTests(async () => okVerifyResult);

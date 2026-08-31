@@ -107,13 +107,14 @@ export interface StorageStatusResponse {
 function laneStatus(lane: StorageLane): StorageLaneStatus {
   const health = healthFromFields(lane.unhealthyAt, lane.unhealthyCode);
   const isS3 = lane.provider === "s3";
+  const shared = isSharedLane(lane);
   return {
     // Only present on an actually-flagged lane; see `StorageLaneStatus.health`.
     ...(health.ok ? {} : { health }),
     laneId: lane.id,
     role: lane.lastActiveAt ? "fallback" : "standby",
-    mode: isSharedLane(lane) ? "shared" : "byo",
-    provider: isS3 ? "s3" : "r2",
+    mode: shared ? "shared" : "byo",
+    provider: shared ? undefined : isS3 ? "s3" : "r2",
     bucket: lane.bucket,
     publicBaseUrl: lane.publicBaseUrl,
     verifiedAt: lane.verifiedAt,
@@ -265,10 +266,14 @@ export function setListBucketsForTests(
 /** Parses the request body into a `StorageVerifyCandidate` shape (no validation — `verifyStorageConfig`'s `shape` check does that). */
 export function candidateFromBody(body: unknown): StorageVerifyCandidate {
   const b = (body ?? {}) as Record<string, unknown>;
+  const provider = b.provider === "s3" ? "s3" : "r2";
   return {
-    provider: b.provider === "s3" ? "s3" : "r2",
+    provider,
     bucket: typeof b.bucket === "string" ? b.bucket : "",
-    accountId: typeof b.accountId === "string" ? b.accountId : "",
+    // s3 lanes never carry an accountId — leaving it undefined (rather than
+    // "") keeps `laneIdentity` falling through to `endpoint` for s3
+    // candidates, matching how a stored s3 lane's identity is computed.
+    accountId: provider === "s3" ? undefined : typeof b.accountId === "string" ? b.accountId : "",
     accessKeyId: typeof b.accessKeyId === "string" ? b.accessKeyId : "",
     secretAccessKey: typeof b.secretAccessKey === "string" ? b.secretAccessKey : "",
     publicBaseUrl: typeof b.publicBaseUrl === "string" ? b.publicBaseUrl : undefined,
