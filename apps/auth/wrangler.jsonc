@@ -142,6 +142,21 @@
       "service": "uploads-api",
     },
   ],
+  // Issue #912: OAuth refresh-grant/replay/teardown/no-refresh signals (see
+  // src/oauth-observability.ts). This worker had no Analytics Engine
+  // binding before this — follows apps/api's ANALYTICS/SLOW_OPS pattern
+  // (wrangler.jsonc there). Purely additive: every writer treats an absent
+  // binding as a silent no-op, so deleting this block just turns the
+  // signals off. Datasets auto-create on first write; no read binding
+  // needed here (a future /admin/metrics tile would read it the same way
+  // apps/api's analytics-engine.ts reads ANALYTICS/SLOW_OPS, via the SQL
+  // API + an account token).
+  "analytics_engine_datasets": [
+    {
+      "binding": "AUTH_EVENTS",
+      "dataset": "uploads_auth_events",
+    },
+  ],
   // Rate limiting (2026-08-23 incident follow-up): Better Auth's limiter is
   // backed by one `RateLimitCounter` Durable Object per rate-limit key —
   // `rateLimit.customStorage` in src/auth.ts, class in src/rate-limit-do.ts,
@@ -221,6 +236,15 @@
       {
         "binding": "API",
         "service": "uploads-api",
+      },
+    ],
+    // Separate preview dataset (apps/api's own previews block does the same
+    // for ANALYTICS/SLOW_OPS) — keeps preview traffic out of the prod
+    // signal.
+    "analytics_engine_datasets": [
+      {
+        "binding": "AUTH_EVENTS",
+        "dataset": "uploads_auth_events_preview",
       },
     ],
     // Repeated verbatim because `previews` bindings do not inherit. No
