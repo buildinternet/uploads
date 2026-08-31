@@ -110,11 +110,15 @@ describe("parseS3Endpoint", () => {
     });
   });
 
-  it("ignores a path on a non-AWS host rather than treating it as a bucket", () => {
+  it("infers the bucket from a single path segment on a non-AWS host (path-style MinIO et al.)", () => {
     expect(parseS3Endpoint("https://minio.example.com/my-bucket")).toEqual({
       endpoint: "https://minio.example.com",
       region: undefined,
-      bucket: undefined,
+      bucket: "my-bucket",
     });
+  });
+
+  it("rejects a multi-segment path on a non-AWS host", () => {
+    expect(parseS3Endpoint("https://minio.example.com/console/buckets")).toBeNull();
   });
 });

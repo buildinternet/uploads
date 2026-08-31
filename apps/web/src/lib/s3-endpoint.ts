@@ -10,9 +10,9 @@
  *   - legacy (no region in the host, implies us-east-1): `s3.amazonaws.com`
  *   - legacy virtual-hosted-style: `https://<bucket>.s3.amazonaws.com`
  * Any other https host is accepted as a plain S3-compatible endpoint
- * (MinIO, Backblaze, etc.) with no region/bucket inference, and any path on
- * a non-AWS host is ignored rather than treated as a bucket — the user
- * fills region/bucket in themselves for those.
+ * (MinIO, Backblaze, etc.) with no region inference; a single path segment
+ * on such a host is treated as the bucket (path-style is the norm there),
+ * and deeper paths are rejected as unrecognizable.
  */
 
 export interface ParsedS3Endpoint {
@@ -84,7 +84,14 @@ export function parseS3Endpoint(input: string): ParsedS3Endpoint | null {
     };
   }
 
-  // Any other https host: a path is ignored (not treated as a bucket) —
-  // only recognized AWS shapes infer a bucket from the path.
+  // Any other https host (MinIO, Backblaze, ...): path-style is the norm
+  // for these, so a single path segment is treated as the bucket — the form
+  // only fills empty fields, so a wrong inference is visible and editable.
+  // A deeper path isn't a recognizable endpoint shape at all.
+  if (url.pathname !== "/" && url.pathname !== "") {
+    const bucket = pathBucket(url.pathname);
+    if (!bucket) return null;
+    return { endpoint: `https://${url.host}`, region: undefined, bucket };
+  }
   return { endpoint: `https://${url.host}`, region: undefined, bucket: undefined };
 }
