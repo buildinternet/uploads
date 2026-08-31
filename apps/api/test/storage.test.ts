@@ -174,6 +174,24 @@ describe("storageConfig — provider: s3 (BYO S3-compatible bucket)", () => {
     });
   });
 
+  it("throws storage_misconfigured when bucket is missing (regression)", async () => {
+    const env = {} as unknown as Env;
+    const { bucket, ...rest } = s3Record;
+    await expect(storageConfig(env, rest as WorkspaceRecord)).rejects.toMatchObject({
+      code: "storage_misconfigured",
+      status: 503,
+    });
+  });
+
+  it("throws storage_misconfigured when bucket is an empty string (regression)", async () => {
+    const env = {} as unknown as Env;
+    const ws: WorkspaceRecord = { ...s3Record, bucket: "" };
+    await expect(storageConfig(env, ws)).rejects.toMatchObject({
+      code: "storage_misconfigured",
+      status: 503,
+    });
+  });
+
   it("throws storage_misconfigured for an unknown provider (regression)", async () => {
     const env = {} as unknown as Env;
     const ws = { ...sharedRecord, provider: "gcs" } as unknown as WorkspaceRecord;

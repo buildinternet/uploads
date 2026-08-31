@@ -43,11 +43,14 @@ async function resolveStorageConfig(env: Env, fields: StorageLaneFields): Promis
       details: { provider: fields.provider },
     });
   }
-  if (fields.provider === "s3" && (!fields.endpoint || !fields.region)) {
-    throw new ServiceUnavailableError("workspace s3 storage lane is missing endpoint or region", {
-      code: "storage_misconfigured",
-      details: { provider: "s3" },
-    });
+  if (fields.provider === "s3" && (!fields.endpoint || !fields.region || !fields.bucket)) {
+    throw new ServiceUnavailableError(
+      "workspace s3 storage lane is missing endpoint, region, or bucket",
+      {
+        code: "storage_misconfigured",
+        details: { provider: "s3" },
+      },
+    );
   }
   let binding: R2Bucket | undefined;
   if (fields.binding) {
