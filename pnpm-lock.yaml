@@ -6,6 +6,7 @@ settings:
 
 patchedDependencies:
   '@better-auth/oauth-provider': 44cdf8c2aeeab967305abd7fa5ecc4cced9191215780a6e7229b2d23e7f5f84e
+  files-sdk: 0744b0288e3d37d2265c916db102f8c50a9e75af934e79e18699959f97e13605
 
 importers:
 
@@ -211,7 +212,7 @@ importers:
         version: 0.44.1(astro@7.2.4(@astrojs/markdown-remark@7.2.4)(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.2)(@types/node@26.1.0)(aws4fetch@1.0.20)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.0))
       files-sdk:
         specifier: ^2.2.5
-        version: 2.2.5(@aws-sdk/client-s3@3.1080.0)(@aws-sdk/s3-presigned-post@3.1080.0)(@aws-sdk/s3-request-presigner@3.1080.0)(@opentelemetry/api@1.9.1)(ai@6.0.220(zod@4.4.3))(astro@7.2.4(@astrojs/markdown-remark@7.2.4)(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.2)(@types/node@26.1.0)(aws4fetch@1.0.20)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.0))(h3@1.15.11)(hono@4.13.3)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.4.3)
+        version: 2.2.5(patch_hash=0744b0288e3d37d2265c916db102f8c50a9e75af934e79e18699959f97e13605)(@aws-sdk/client-s3@3.1080.0)(@aws-sdk/s3-presigned-post@3.1080.0)(@aws-sdk/s3-request-presigner@3.1080.0)(@opentelemetry/api@1.9.1)(ai@6.0.220(zod@4.4.3))(astro@7.2.4(@astrojs/markdown-remark@7.2.4)(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.2)(@types/node@26.1.0)(aws4fetch@1.0.20)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.0))(h3@1.15.11)(hono@4.13.3)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.4.3)
       img-comparison-slider:
         specifier: ^8.0.7
         version: 8.0.7
@@ -330,7 +331,7 @@ importers:
         version: 3.1080.0
       files-sdk:
         specifier: ^2.2.5
-        version: 2.2.5(@aws-sdk/client-s3@3.1080.0)(@aws-sdk/s3-presigned-post@3.1080.0)(@aws-sdk/s3-request-presigner@3.1080.0)(@opentelemetry/api@1.9.1)(ai@6.0.220(zod@4.4.3))(astro@7.2.4(@astrojs/markdown-remark@7.2.4)(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.2)(@types/node@26.1.0)(aws4fetch@1.0.20)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.0))(h3@1.15.11)(hono@4.13.3)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.4.3)
+        version: 2.2.5(patch_hash=0744b0288e3d37d2265c916db102f8c50a9e75af934e79e18699959f97e13605)(@aws-sdk/client-s3@3.1080.0)(@aws-sdk/s3-presigned-post@3.1080.0)(@aws-sdk/s3-request-presigner@3.1080.0)(@opentelemetry/api@1.9.1)(ai@6.0.220(zod@4.4.3))(astro@7.2.4(@astrojs/markdown-remark@7.2.4)(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.2)(@types/node@26.1.0)(aws4fetch@1.0.20)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.0))(h3@1.15.11)(hono@4.13.3)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.4.3)
     devDependencies:
       '@cloudflare/workers-types':
         specifier: ^5.20260706.1
@@ -383,7 +384,7 @@ importers:
         version: 19.2.3(@types/react@19.2.17)
       files-sdk:
         specifier: ^2.2.5
-        version: 2.2.5(@aws-sdk/client-s3@3.1080.0)(@aws-sdk/s3-presigned-post@3.1080.0)(@aws-sdk/s3-request-presigner@3.1080.0)(@opentelemetry/api@1.9.1)(ai@6.0.220(zod@4.4.3))(astro@7.2.4(@astrojs/markdown-remark@7.2.4)(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.2)(@types/node@26.1.0)(aws4fetch@1.0.20)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.0))(h3@1.15.11)(hono@4.13.3)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.4.3)
+        version: 2.2.5(patch_hash=0744b0288e3d37d2265c916db102f8c50a9e75af934e79e18699959f97e13605)(@aws-sdk/client-s3@3.1080.0)(@aws-sdk/s3-presigned-post@3.1080.0)(@aws-sdk/s3-request-presigner@3.1080.0)(@opentelemetry/api@1.9.1)(ai@6.0.220(zod@4.4.3))(astro@7.2.4(@astrojs/markdown-remark@7.2.4)(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.2)(@types/node@26.1.0)(aws4fetch@1.0.20)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.0))(h3@1.15.11)(hono@4.13.3)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.4.3)
       react:
         specifier: ^19.2.7
         version: 19.2.7
@@ -429,7 +430,7 @@ importers:
         version: 6.0.220(zod@4.4.3)
       files-sdk:
         specifier: ^2.2.5
-        version: 2.2.5(@aws-sdk/client-s3@3.1080.0)(@aws-sdk/s3-presigned-post@3.1080.0)(@aws-sdk/s3-request-presigner@3.1080.0)(@opentelemetry/api@1.9.1)(ai@6.0.220(zod@4.4.3))(astro@7.2.4(@astrojs/markdown-remark@7.2.4)(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.2)(@types/node@26.1.0)(aws4fetch@1.0.20)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.0))(h3@1.15.11)(hono@4.13.3)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.4.3)
+        version: 2.2.5(patch_hash=0744b0288e3d37d2265c916db102f8c50a9e75af934e79e18699959f97e13605)(@aws-sdk/client-s3@3.1080.0)(@aws-sdk/s3-presigned-post@3.1080.0)(@aws-sdk/s3-request-presigner@3.1080.0)(@opentelemetry/api@1.9.1)(ai@6.0.220(zod@4.4.3))(astro@7.2.4(@astrojs/markdown-remark@7.2.4)(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.2)(@types/node@26.1.0)(aws4fetch@1.0.20)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.0))(h3@1.15.11)(hono@4.13.3)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.4.3)
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
@@ -11191,7 +11192,7 @@ snapshots:
     dependencies:
       is-unicode-supported: 2.1.0
 
-  files-sdk@2.2.5(@aws-sdk/client-s3@3.1080.0)(@aws-sdk/s3-presigned-post@3.1080.0)(@aws-sdk/s3-request-presigner@3.1080.0)(@opentelemetry/api@1.9.1)(ai@6.0.220(zod@4.4.3))(astro@7.2.4(@astrojs/markdown-remark@7.2.4)(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.2)(@types/node@26.1.0)(aws4fetch@1.0.20)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.0))(h3@1.15.11)(hono@4.13.3)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.4.3):
+  files-sdk@2.2.5(patch_hash=0744b0288e3d37d2265c916db102f8c50a9e75af934e79e18699959f97e13605)(@aws-sdk/client-s3@3.1080.0)(@aws-sdk/s3-presigned-post@3.1080.0)(@aws-sdk/s3-request-presigner@3.1080.0)(@opentelemetry/api@1.9.1)(ai@6.0.220(zod@4.4.3))(astro@7.2.4(@astrojs/markdown-remark@7.2.4)(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.2)(@types/node@26.1.0)(aws4fetch@1.0.20)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.0))(h3@1.15.11)(hono@4.13.3)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.4.3):
     dependencies:
       aws4fetch: 1.0.20
       commander: 15.0.0
