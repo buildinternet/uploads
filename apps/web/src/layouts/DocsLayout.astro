@@ -94,7 +94,7 @@ const fullTitle = `${title} · uploads.sh`;
          here — nesting would shrink the footer to the 1120px shell and leave
          no gap between article end and the footer border. */
       .docs-shell {
-        width: min(1120px, 100%);
+        width: min(1440px, 100%);
         margin: 0 auto;
         padding: 32px 24px 64px;
         flex: 1 0 auto;
@@ -109,7 +109,12 @@ const fullTitle = `${title} · uploads.sh`;
       main.docs-main {
         flex: 1 1 auto;
         min-width: 0;
-        max-width: 720px;
+        /* Fill the column between the nav and TOC rails rather than capping at
+           a fixed width — matches the releases.sh docs, which let the article
+           flex-fill the shell. Prose stays readable via the per-element
+           `--measure` cap below; wide blocks (code, tables, figures) get the
+           extra room. */
+        max-width: none;
       }
       main.docs-main > h1 {
         font-size: var(--text-h1);
