@@ -132,7 +132,11 @@ export function createStorage(config: StorageConfig): Files {
     }
     default: {
       const exhaustive: never = config;
-      throw new Error(`Unsupported storage provider: ${JSON.stringify(exhaustive)}`);
+      // Report only the provider tag, never the whole config — it carries
+      // `secretAccessKey`/`accessKeyId`, and stringifying `exhaustive` would
+      // leak them into logs and thrown-error surfaces.
+      const provider = (exhaustive as { provider?: unknown }).provider;
+      throw new Error(`Unsupported storage provider: ${JSON.stringify(provider)}`);
     }
   }
 }
