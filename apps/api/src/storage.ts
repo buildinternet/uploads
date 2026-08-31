@@ -32,16 +32,25 @@ export function objectPublicUrls(
 /**
  * Shared binding lookup + credential opening for both the active lane
  * (`storageConfig`) and fallback lanes (`storageConfigs`/`resolveObjectLane`).
- * Single enforcement point for `provider`: only `"r2"` is ever a valid
- * `StorageConfig.provider`, so every caller — active or fallback — goes
- * through this check rather than validating it themselves.
+ * Single enforcement point for `provider`: only `"r2"` and `"s3"` are ever
+ * valid `StorageConfig.provider` values, so every caller — active or
+ * fallback — goes through this check rather than validating it themselves.
  */
 async function resolveStorageConfig(env: Env, fields: StorageLaneFields): Promise<StorageConfig> {
-  if (fields.provider !== "r2") {
+  if (fields.provider !== "r2" && fields.provider !== "s3") {
     throw new ServiceUnavailableError(`unsupported storage provider "${fields.provider}"`, {
       code: "storage_misconfigured",
       details: { provider: fields.provider },
     });
+  }
+  if (fields.provider === "s3" && (!fields.endpoint || !fields.region || !fields.bucket)) {
+    throw new ServiceUnavailableError(
+      "workspace s3 storage lane is missing endpoint, region, or bucket",
+      {
+        code: "storage_misconfigured",
+        details: { provider: "s3" },
+      },
+    );
   }
   let binding: R2Bucket | undefined;
   if (fields.binding) {
@@ -100,6 +109,25 @@ async function resolveStorageConfig(env: Env, fields: StorageLaneFields): Promis
       }),
     );
   }
+  if (fields.provider === "s3") {
+    if (!opened.accessKeyId || !opened.secretAccessKey) {
+      throw new ServiceUnavailableError(
+        "workspace s3 storage lane is missing access key credentials",
+        { code: "storage_misconfigured", details: { provider: "s3" } },
+      );
+    }
+    return {
+      provider: "s3",
+      bucket: fields.bucket,
+      prefix: fields.prefix,
+      publicBaseUrl: fields.publicBaseUrl,
+      endpoint: fields.endpoint!,
+      region: fields.region,
+      forcePathStyle: fields.forcePathStyle,
+      accessKeyId: opened.accessKeyId,
+      secretAccessKey: opened.secretAccessKey,
+    };
+  }
   return {
     provider: "r2",
     bucket: fields.bucket,
@@ -135,11 +163,19 @@ export interface LaneConfig {
  * lane. Accepts either shape a caller has on hand — unresolved fields
  * (`WorkspaceRecord`/`StorageLane`/`StorageLaneFields`, which carry
  * `binding`) or an already-resolved `StorageConfig` (which carries
- * `r2Binding` instead) — so every call site derives the same signal from
- * whichever bag it happens to be holding, rather than hand-computing
- * `Boolean(x.binding)`/`Boolean(x.r2Binding)` at each one.
+ * `r2Binding` instead, and only on the `"r2"` variant) — so every call site
+ * derives the same signal from whichever bag it happens to be holding,
+ * rather than hand-computing `Boolean(x.binding)`/`Boolean(x.r2Binding)` at
+ * each one. `provider` is optional here so `WorkspaceRecord`/`StorageLane`
+ * (which don't carry it) still satisfy this shape; an S3 config is never a
+ * shared lane, regardless of stray `binding`/`r2Binding` fields.
  */
-export function isSharedLane(fields: { binding?: string; r2Binding?: R2Bucket }): boolean {
+export function isSharedLane(fields: {
+  provider?: string;
+  binding?: string;
+  r2Binding?: R2Bucket;
+}): boolean {
+  if (fields.provider === "s3") return false;
   return Boolean(fields.binding) || Boolean(fields.r2Binding);
 }
 

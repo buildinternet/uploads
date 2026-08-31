@@ -99,7 +99,9 @@ import {
 import {
   demoteActiveLane,
   isLaneVerifyStale,
+  laneIdentity,
   promoteLane,
+  providerCredentialFields,
   upsertDemotedLane,
   upsertStandbyLane,
 } from "../workspace-lanes";
@@ -506,6 +508,17 @@ export async function storageBucketsHandler(c: Context<SettingsVars>) {
   }
 
   const body = await c.req.json().catch(() => null);
+  // The picker is R2-only: `ListBuckets` is a Cloudflare-account-level call
+  // with no S3-compatible equivalent this route can drive generically, so an
+  // s3 candidate goes straight to a typed 400 rather than an
+  // always-`access_denied` round trip. The web form's s3 mode never calls
+  // this route (Task 5) — this guards direct API use too.
+  if ((body as { provider?: unknown } | null)?.provider === "s3") {
+    throw new ValidationError('the bucket picker only supports provider "r2"', {
+      code: "unsupported_provider",
+      details: { provider: "s3" },
+    });
+  }
   const creds = listBucketsCredentialsFromBody(body);
   const result: ListBucketsResult = await listBuckets(creds);
   return c.json(result);
@@ -585,10 +598,12 @@ export async function storagePutHandler(c: Context<SettingsVars>) {
       // before sealing — every sealed field below is ciphertext from here on.
       const accessKeyIdLast4 = candidate.accessKeyId.slice(-4);
 
+      const isS3 = candidate.provider === "s3";
+
       const rotatesActiveLane =
         isByoRecord(current) &&
-        current.bucket === candidate.bucket &&
-        current.accountId === candidate.accountId;
+        (current.provider === "s3") === isS3 &&
+        laneIdentity(current) === laneIdentity(candidate);
 
       if (rotatesActiveLane) {
         const next: WorkspaceRecord = { ...current };
@@ -596,8 +611,13 @@ export async function storagePutHandler(c: Context<SettingsVars>) {
         next.secretAccessKey = sealed.secretAccessKey;
         if (candidate.publicBaseUrl) next.publicBaseUrl = candidate.publicBaseUrl;
         else delete next.publicBaseUrl;
-        if (jurisdiction) next.jurisdiction = jurisdiction;
+        if (!isS3 && jurisdiction) next.jurisdiction = jurisdiction;
         else delete next.jurisdiction;
+        if (isS3) {
+          next.endpoint = candidate.endpoint;
+          next.region = candidate.region;
+          next.forcePathStyle = candidate.forcePathStyle;
+        }
         next.storageVerifiedAt = nowIso;
         next.storageConfiguredAt = nowIso;
         next.storageConfiguredBy = userId;
@@ -612,17 +632,24 @@ export async function storagePutHandler(c: Context<SettingsVars>) {
 
       const lane: StorageLane = {
         id: newLaneId(),
-        provider: "r2",
+        provider: isS3 ? "s3" : "r2",
         bucket: candidate.bucket,
-        accountId: candidate.accountId,
         accessKeyId: sealed.accessKeyId,
         secretAccessKey: sealed.secretAccessKey,
         publicBaseUrl: candidate.publicBaseUrl,
-        jurisdiction,
         verifiedAt: nowIso,
         storageConfiguredAt: nowIso,
         storageConfiguredBy: userId,
         storageAccessKeyIdLast4: accessKeyIdLast4,
+        // s3 candidates carry no accountId/jurisdiction; r2 candidates carry
+        // no endpoint/region/forcePathStyle — never both on one lane.
+        ...providerCredentialFields(isS3, {
+          accountId: candidate.accountId,
+          jurisdiction,
+          endpoint: candidate.endpoint,
+          region: candidate.region,
+          forcePathStyle: candidate.forcePathStyle,
+        }),
       };
       return { ...current, storageLanes: upsertStandbyLane(current.storageLanes, lane) };
     },

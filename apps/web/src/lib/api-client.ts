@@ -1903,12 +1903,20 @@ export interface WorkspaceStorageLane {
   role: "standby" | "fallback";
   /** "shared" = platform-owned binding lane; "byo" = customer HTTP-credential lane. Explicit from the server — never infer this from field absence (there is no `accountId` on this type to infer from; only `accountIdMasked`). */
   mode: "shared" | "byo";
+  /** "r2" (default) or "s3". Absent on the shared lane. */
+  provider?: "r2" | "s3";
   bucket: string;
   publicBaseUrl?: string;
   verifiedAt?: string;
   lastActiveAt?: string;
   accountIdMasked?: string;
   accessKeyIdLast4?: string;
+  /** s3-only. Service endpoint origin. Never present on an r2 lane. */
+  endpoint?: string;
+  /** s3-only. SigV4 signing region. Never present on an r2 lane. */
+  region?: string;
+  /** s3-only, advanced. Path-style addressing (`endpoint/bucket`) instead of virtual-hosted-style. Never present on an r2 lane. */
+  forcePathStyle?: boolean;
   /** Set when this lane was demoted while its credentials were failing (issue #826). */
   unhealthyAt?: string;
   /**
@@ -1934,18 +1942,31 @@ export interface WorkspaceStorageStatus {
   mode: "shared" | "byo";
   byoBucketEnabled: boolean;
   bucket?: string;
+  /** "r2" or "s3", only ever present in byo mode. */
+  provider?: "r2" | "s3";
   accountIdMasked?: string;
   accessKeyIdLast4?: string;
   publicBaseUrl?: string;
   configuredAt?: string;
   verifiedAt?: string;
   jurisdiction?: string;
+  /** s3-only. Service endpoint origin of the active lane. */
+  endpoint?: string;
+  /** s3-only. SigV4 signing region of the active lane. */
+  region?: string;
+  /** s3-only, advanced. Path-style addressing (`endpoint/bucket`) of the active lane. */
+  forcePathStyle?: boolean;
   /** Id of the active lane (the top-level fields above). Absent on a record that predates lanes. */
   activeLaneId?: string;
   /** Every other configured lane: saved-but-never-used configs and demoted former actives. */
   lanes: WorkspaceStorageLane[];
   /** Health of the active lane. Defaults to healthy when an older API omits it. */
   health: WorkspaceStorageHealth;
+}
+
+/** Narrows an unknown `provider` field to `"r2" | "s3" | undefined` — shared by every storage-status parser below. */
+function toProvider(value: unknown): "r2" | "s3" | undefined {
+  return value === "s3" ? "s3" : value === "r2" ? "r2" : undefined;
 }
 
 function toWorkspaceStorageLane(value: unknown): WorkspaceStorageLane | null {
@@ -1961,12 +1982,16 @@ function toWorkspaceStorageLane(value: unknown): WorkspaceStorageLane | null {
     laneId: v.laneId,
     role: v.role,
     mode: v.mode,
+    provider: toProvider(v.provider),
     bucket: v.bucket,
     publicBaseUrl: typeof v.publicBaseUrl === "string" ? v.publicBaseUrl : undefined,
     verifiedAt: typeof v.verifiedAt === "string" ? v.verifiedAt : undefined,
     lastActiveAt: typeof v.lastActiveAt === "string" ? v.lastActiveAt : undefined,
     accountIdMasked: typeof v.accountIdMasked === "string" ? v.accountIdMasked : undefined,
     accessKeyIdLast4: typeof v.accessKeyIdLast4 === "string" ? v.accessKeyIdLast4 : undefined,
+    endpoint: typeof v.endpoint === "string" ? v.endpoint : undefined,
+    region: typeof v.region === "string" ? v.region : undefined,
+    forcePathStyle: v.forcePathStyle === true || undefined,
     unhealthyAt: typeof v.unhealthyAt === "string" ? v.unhealthyAt : undefined,
   };
 }
@@ -2005,12 +2030,16 @@ function toWorkspaceStorageStatus(body: unknown): WorkspaceStorageStatus | null 
     mode: b.mode,
     byoBucketEnabled: b.byoBucketEnabled === true,
     bucket: typeof b.bucket === "string" ? b.bucket : undefined,
+    provider: toProvider(b.provider),
     accountIdMasked: typeof b.accountIdMasked === "string" ? b.accountIdMasked : undefined,
     accessKeyIdLast4: typeof b.accessKeyIdLast4 === "string" ? b.accessKeyIdLast4 : undefined,
     publicBaseUrl: typeof b.publicBaseUrl === "string" ? b.publicBaseUrl : undefined,
     configuredAt: typeof b.configuredAt === "string" ? b.configuredAt : undefined,
     verifiedAt: typeof b.verifiedAt === "string" ? b.verifiedAt : undefined,
     jurisdiction: typeof b.jurisdiction === "string" ? b.jurisdiction : undefined,
+    endpoint: typeof b.endpoint === "string" ? b.endpoint : undefined,
+    region: typeof b.region === "string" ? b.region : undefined,
+    forcePathStyle: b.forcePathStyle === true || undefined,
     activeLaneId: typeof b.activeLaneId === "string" ? b.activeLaneId : undefined,
     lanes: Array.isArray(b.lanes) ? b.lanes.flatMap((l) => toWorkspaceStorageLane(l) ?? []) : [],
     health: toWorkspaceStorageHealth(b.health),
@@ -2107,12 +2136,20 @@ function toStorageVerifyResult(body: unknown): StorageVerifyResult | null {
 /** Candidate config the wizard is trying to attach — never saved until a PUT. */
 export interface StorageCandidate {
   bucket: string;
+  /** "r2" (default) or "s3". Omitted for r2. */
+  provider?: "r2" | "s3";
   accountId: string;
   accessKeyId: string;
   secretAccessKey: string;
   publicBaseUrl?: string;
   adoptExistingContents?: boolean;
   jurisdiction?: string;
+  /** s3-only. Service endpoint origin. */
+  endpoint?: string;
+  /** s3-only. SigV4 signing region. */
+  region?: string;
+  /** s3-only, advanced. Server defaults false when omitted. */
+  forcePathStyle?: boolean;
 }
 
 /**

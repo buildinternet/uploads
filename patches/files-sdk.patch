@@ -1,0 +1,24 @@
+diff --git a/dist/r2/index.d.ts b/dist/r2/index.d.ts
+index e7e48a466c0115b114b9a043bcb531c59fe329ea..009444bbc35fd968bab93ea93d780bfdd5affc59 100644
+--- a/dist/r2/index.d.ts
++++ b/dist/r2/index.d.ts
+@@ -115,3 +115,5 @@ export type R2Adapter = Adapter<S3Client | R2Bucket | AwsClient>;
+ export declare const r2: (opts: R2AdapterOptions) => R2Adapter;
+ export type { R2Bucket } from "@cloudflare/workers-types";
+ //# sourceMappingURL=index.d.ts.map
++export { s3FetchAdapter } from "../internal/s3-fetch.js";
++export type { S3FetchAdapter, S3FetchAdapterOptions } from "../internal/s3-fetch.js";
+diff --git a/dist/r2/index.js b/dist/r2/index.js
+index c085afb21c34d6534b1db4ca288efc2cff2cd99b..996adea59f3c7c2fe1ea1c6b14dbe1818be2a743 100644
+--- a/dist/r2/index.js
++++ b/dist/r2/index.js
+@@ -855,7 +855,8 @@ var r2 = (opts) => {
+   return r2FromHttp(opts);
+ };
+ export {
+-  r2
++  r2,
++  s3FetchAdapter
+ };
+ 
+ //# debugId=2F52ECC6661FAB0164756E2164756E21

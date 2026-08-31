@@ -29,3 +29,4 @@ minimumReleaseAgeExclude:
   - hono@4.12.28
 patchedDependencies:
   "@better-auth/oauth-provider": patches/@better-auth__oauth-provider.patch
+  files-sdk: patches/files-sdk.patch

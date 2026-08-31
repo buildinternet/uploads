@@ -35,6 +35,26 @@ describe("createStorage client selection", () => {
   });
 });
 
+describe("createStorage unsupported provider", () => {
+  it("names only the provider in the error, never the secret", () => {
+    const secret = "super-secret-key-value";
+    const bogus = {
+      provider: "azure",
+      bucket: "shared",
+      accessKeyId: "key",
+      secretAccessKey: secret,
+    } as unknown as StorageConfig;
+    let message = "";
+    try {
+      createStorage(bogus);
+    } catch (err) {
+      message = err instanceof Error ? err.message : String(err);
+    }
+    expect(message).toContain("azure");
+    expect(message).not.toContain(secret);
+  });
+});
+
 describe("createStorage prefix", () => {
   it("applies the prefix to the Files instance (normalized, no trailing slash)", () => {
     const files = createStorage({ ...base, prefix: "myws/" });

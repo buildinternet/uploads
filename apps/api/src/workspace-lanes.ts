@@ -25,7 +25,9 @@ import {
 export function demoteActiveLane(current: WorkspaceRecord, nowIso: string): StorageLane {
   return {
     id: current.storageLaneId ?? newLaneId(),
-    provider: "r2",
+    // The outgoing active lane's own provider, never hardcoded — an s3
+    // active lane demotes into an s3 fallback lane, not an r2 one.
+    provider: current.provider,
     bucket: current.bucket,
     binding: current.binding,
     prefix: current.prefix,
@@ -34,6 +36,9 @@ export function demoteActiveLane(current: WorkspaceRecord, nowIso: string): Stor
     accessKeyId: current.accessKeyId,
     secretAccessKey: current.secretAccessKey,
     jurisdiction: current.jurisdiction,
+    endpoint: current.endpoint,
+    region: current.region,
+    forcePathStyle: current.forcePathStyle,
     lastActiveAt: nowIso,
     verifiedAt: current.storageVerifiedAt,
     storageConfiguredAt: current.storageConfiguredAt,
@@ -78,7 +83,10 @@ export function promoteLane(
   lane: PromotableLane,
   verifiedAt: string | undefined,
 ): void {
-  next.provider = "r2";
+  // The incoming lane's own provider, never hardcoded — promoting an s3
+  // standby (or reactivating a demoted s3 fallback) must land as an s3
+  // active lane, not silently become r2.
+  next.provider = lane.provider === "s3" ? "s3" : "r2";
   next.bucket = lane.bucket;
   if (lane.binding) next.binding = lane.binding;
   else delete next.binding;
@@ -94,6 +102,14 @@ export function promoteLane(
   else delete next.secretAccessKey;
   if (lane.jurisdiction) next.jurisdiction = lane.jurisdiction;
   else delete next.jurisdiction;
+  if (lane.endpoint) next.endpoint = lane.endpoint;
+  else delete next.endpoint;
+  if (lane.region) next.region = lane.region;
+  else delete next.region;
+  // `!== undefined`, not truthy — `forcePathStyle: false` is a meaningful
+  // explicit value (virtual-hosted addressing), not "absent".
+  if (lane.forcePathStyle !== undefined) next.forcePathStyle = lane.forcePathStyle;
+  else delete next.forcePathStyle;
   if (lane.id) next.storageLaneId = lane.id;
   else delete next.storageLaneId;
   if (lane.storageConfiguredAt) next.storageConfiguredAt = lane.storageConfiguredAt;
@@ -115,19 +131,29 @@ export function promoteLane(
 }
 
 /**
- * Upsert `lane` into `lanes` keyed by bucket+accountId identity, preserving
- * an existing match's `id` and `lastActiveAt` — re-saving a standby config
- * (credential rotation) refreshes creds/verification without minting a new
- * lane id or silently clearing fallback status.
+ * Lane identity for dedupe: bucket plus whichever account-scoping field the
+ * provider carries — `accountId` for r2, `endpoint` for s3 (an s3 lane never
+ * has an `accountId`). Two r2 lanes on the same bucket under different
+ * Cloudflare accounts are distinct; two s3 lanes on the same bucket name at
+ * different endpoints are distinct too.
+ */
+export function laneIdentity(lane: Pick<StorageLane, "bucket" | "accountId" | "endpoint">): string {
+  return `${lane.bucket} ${lane.accountId || lane.endpoint || ""}`;
+}
+
+/**
+ * Upsert `lane` into `lanes` keyed by bucket+(accountId ?? endpoint)
+ * identity, preserving an existing match's `id` and `lastActiveAt` —
+ * re-saving a standby config (credential rotation) refreshes
+ * creds/verification without minting a new lane id or silently clearing
+ * fallback status.
  */
 export function upsertStandbyLane(
   lanes: StorageLane[] | undefined,
   lane: StorageLane,
 ): StorageLane[] {
   const existing = lanes ?? [];
-  const idx = existing.findIndex(
-    (l) => l.bucket === lane.bucket && (l.accountId ?? null) === (lane.accountId ?? null),
-  );
+  const idx = existing.findIndex((l) => laneIdentity(l) === laneIdentity(lane));
   if (idx === -1) return [...existing, lane];
   const prior = existing[idx]!;
   const next = [...existing];
@@ -137,18 +163,43 @@ export function upsertStandbyLane(
 
 /**
  * Upsert a freshly-demoted (just-deactivated) lane into `lanes` keyed by
- * bucket+accountId, replacing any stale entry outright — the demoted lane's
- * id (derived from the record's own `storageLaneId`) is always authoritative
- * here, unlike `upsertStandbyLane`'s "preserve the existing id" rule.
+ * bucket+(accountId ?? endpoint), replacing any stale entry outright — the
+ * demoted lane's id (derived from the record's own `storageLaneId`) is
+ * always authoritative here, unlike `upsertStandbyLane`'s "preserve the
+ * existing id" rule.
  */
 export function upsertDemotedLane(
   lanes: StorageLane[] | undefined,
   lane: StorageLane,
 ): StorageLane[] {
-  const existing = (lanes ?? []).filter(
-    (l) => !(l.bucket === lane.bucket && (l.accountId ?? null) === (lane.accountId ?? null)),
-  );
+  const existing = (lanes ?? []).filter((l) => laneIdentity(l) !== laneIdentity(lane));
   return [...existing, lane];
+}
+
+/**
+ * The r2-vs-s3 credential-field split shared by every candidate/lane builder
+ * that hand-rolls a `StorageVerifyCandidate`/`StorageLane` shape:
+ * `workspace-storage.ts`'s `candidateFromBody` and `laneVerifyCandidate`, and
+ * `workspace-settings.ts`'s `storagePutHandler` (new-lane path). An s3
+ * candidate/lane carries `endpoint`/`region`/`forcePathStyle`, never
+ * `accountId`/`jurisdiction`; an r2 one carries the reverse — never both, so
+ * one source of truth for the split keeps the three sites from drifting.
+ */
+export function providerCredentialFields<J = string>(
+  isS3: boolean,
+  fields: {
+    accountId?: string;
+    jurisdiction?: J;
+    endpoint?: string;
+    region?: string;
+    forcePathStyle?: boolean;
+  },
+):
+  | { accountId?: string; jurisdiction?: J }
+  | { endpoint?: string; region?: string; forcePathStyle?: boolean } {
+  return isS3
+    ? { endpoint: fields.endpoint, region: fields.region, forcePathStyle: fields.forcePathStyle }
+    : { accountId: fields.accountId, jurisdiction: fields.jurisdiction };
 }
 
 /** Milliseconds a lane's `verifiedAt` may age before `activate` re-runs verify against it. */

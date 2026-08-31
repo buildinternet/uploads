@@ -84,7 +84,8 @@ Three things a neighboring product could not truthfully copy:
 MCP server (`agents.uploads.sh`), the Astro site at uploads.sh, and the
 `@buildinternet/uploads` CLI on npm. Each deploys separately on Cloudflare
 Workers. All storage goes through `createStorage()` in `packages/storage`, built
-on files-sdk, so the storage layer is provider-agnostic (R2 today).
+on files-sdk, so the storage layer is provider-agnostic (R2 and any
+S3-compatible bucket today).
 
 **Web routes in production:** marketing home, `/docs` hub with eight guides,
 `/changelog` (plus Atom feed), `/f/<workspace>/<key>` file share pages, `/g/<id>`
@@ -107,10 +108,11 @@ and roles are deliberately not sold — they are reserved for a future Team tier
 Self-serve signup is live (GitHub-gated, 3 free workspaces per user, paid users
 exempt); the invitation-only story is retired.
 
-**Bring your own bucket.** A workspace can point at its own Cloudflare R2 bucket
-instead of the shared `storage.uploads.sh` bucket. Available on both plans,
-gated per workspace by a `byoBucketEnabled` record flag, with its own docs page
-and a settings/storage connect wizard.
+**Bring your own bucket.** A workspace can point at its own bucket instead of
+the shared `storage.uploads.sh` bucket — a Cloudflare R2 bucket, or any
+S3-compatible bucket (AWS S3, Backblaze B2, MinIO, and the rest). Available on
+both plans, gated per workspace by a `byoBucketEnabled` record flag, with its
+own docs page and a settings/storage connect wizard.
 
 **Terminology that must stay stable:** _staged_ (attached to a branch, not yet
 promoted), _promote_ (staged → the PR comment), _attach_ (upload + sync the

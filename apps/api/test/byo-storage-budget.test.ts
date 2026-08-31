@@ -26,9 +26,14 @@ import { UsageFakeD1 } from "./usage-fake-d1";
 const fakeBucket = new FakeR2Bucket();
 
 // Function declaration (not const) so the hoisted vi.mock factory below can
-// reference it whenever the mocked module is first imported.
+// reference it whenever the mocked module is first imported. Also normalizes
+// `provider` to "r2" — an s3-provider BYO record (`makeByoS3Env` below) must
+// still route its actual bytes through the fake binding rather than a real
+// s3 endpoint; only `isSharedLane`/budget logic (which read the *unmocked*
+// `ws` passed into files-core.ts, not this forced copy) need to see the
+// record's real provider.
 function forceBinding(ws: Record<string, unknown>) {
-  return { ...ws, binding: "UPLOADS_DEFAULT" };
+  return { ...ws, provider: "r2", binding: "UPLOADS_DEFAULT" };
 }
 
 vi.mock("../src/storage", async (importOriginal) => {
@@ -167,6 +172,26 @@ describe("BYO-bucket workspace storage budget attribution", () => {
     const body = (await res.json()) as Record<string, unknown>;
     expect(body.maxStorageBytes).toBe(250_000_000);
     expect(body.storageRemainingBytes).toBe(250_000_000);
+  });
+
+  it("records usage as non-shared for an s3-provider BYO workspace (sharedBytes untouched)", async () => {
+    // Exercises the `isSharedLane`/usage-attribution path for the s3 branch
+    // specifically (`storageBudgetApplies`/`isSharedLane` both key off
+    // `provider === "s3"` alongside the credential fields, not just
+    // credential presence). I/O is still routed through the mocked
+    // `../src/storage` (`forceBinding`), which only adds a `binding` — it
+    // never rewrites `provider` — so this record's `provider: "s3"` reaches
+    // `isSharedLane(ws)` in files-core.ts unchanged.
+    const { env, db } = await makeByoEnv({
+      provider: "s3",
+      endpoint: "https://s3.us-east-1.amazonaws.com",
+      region: "us-east-1",
+      accountId: undefined,
+    });
+    expect((await put(env, "byo-s3.png")).status).toBe(201);
+    const row = db.usage.get("default")!;
+    expect(row.bytes).toBe(PNG.byteLength);
+    expect(row.shared_bytes).toBe(0);
   });
 
   it("still denies a shared-bucket (non-BYO) workspace over its cap with 507 storage_quota_exceeded", async () => {

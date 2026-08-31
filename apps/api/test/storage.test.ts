@@ -115,3 +115,89 @@ describe("storageConfig", () => {
     expect(cfg.prefix).toBe("acme/");
   });
 });
+
+describe("storageConfig — provider: s3 (BYO S3-compatible bucket)", () => {
+  const s3Record: WorkspaceRecord = {
+    provider: "s3",
+    bucket: "customer-bucket",
+    endpoint: "https://s3.us-east-1.amazonaws.com",
+    region: "us-east-1",
+    accessKeyId: "AKIAEXAMPLE",
+    secretAccessKey: "s3cr3t",
+  };
+
+  it("resolves an s3 lane and threads its fields through, unsealed", async () => {
+    const env = {} as unknown as Env;
+    const cfg = await storageConfig(env, s3Record);
+    expect(cfg).toMatchObject({
+      provider: "s3",
+      bucket: "customer-bucket",
+      endpoint: "https://s3.us-east-1.amazonaws.com",
+      region: "us-east-1",
+      accessKeyId: "AKIAEXAMPLE",
+      secretAccessKey: "s3cr3t",
+    });
+  });
+
+  it("resolves an s3 lane whose credentials are sealed, same as r2", async () => {
+    const env = { WORKSPACE_SECRETS_KEY: "test-master-secret" } as unknown as Env;
+    const sealedKey = await encryptSecret("test-master-secret", "AKIAEXAMPLE");
+    const sealedSecret = await encryptSecret("test-master-secret", "s3cr3t");
+    const ws: WorkspaceRecord = {
+      ...s3Record,
+      accessKeyId: sealedKey,
+      secretAccessKey: sealedSecret,
+    };
+    const cfg = await storageConfig(env, ws);
+    expect(cfg).toMatchObject({
+      provider: "s3",
+      accessKeyId: "AKIAEXAMPLE",
+      secretAccessKey: "s3cr3t",
+    });
+  });
+
+  it("throws storage_misconfigured when region is missing", async () => {
+    const env = {} as unknown as Env;
+    const { region, ...rest } = s3Record;
+    await expect(storageConfig(env, rest as WorkspaceRecord)).rejects.toMatchObject({
+      code: "storage_misconfigured",
+      status: 503,
+    });
+  });
+
+  it("throws storage_misconfigured when endpoint is missing", async () => {
+    const env = {} as unknown as Env;
+    const { endpoint, ...rest } = s3Record;
+    await expect(storageConfig(env, rest as WorkspaceRecord)).rejects.toMatchObject({
+      code: "storage_misconfigured",
+      status: 503,
+    });
+  });
+
+  it("throws storage_misconfigured when bucket is missing (regression)", async () => {
+    const env = {} as unknown as Env;
+    const { bucket, ...rest } = s3Record;
+    await expect(storageConfig(env, rest as WorkspaceRecord)).rejects.toMatchObject({
+      code: "storage_misconfigured",
+      status: 503,
+    });
+  });
+
+  it("throws storage_misconfigured when bucket is an empty string (regression)", async () => {
+    const env = {} as unknown as Env;
+    const ws: WorkspaceRecord = { ...s3Record, bucket: "" };
+    await expect(storageConfig(env, ws)).rejects.toMatchObject({
+      code: "storage_misconfigured",
+      status: 503,
+    });
+  });
+
+  it("throws storage_misconfigured for an unknown provider (regression)", async () => {
+    const env = {} as unknown as Env;
+    const ws = { ...sharedRecord, provider: "gcs" } as unknown as WorkspaceRecord;
+    await expect(storageConfig(env, ws)).rejects.toMatchObject({
+      code: "storage_misconfigured",
+      status: 503,
+    });
+  });
+});

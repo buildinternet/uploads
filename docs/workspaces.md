@@ -241,9 +241,10 @@ degraded) lives at [uploads.sh/docs/byo-bucket](https://uploads.sh/docs/byo-buck
 behind the per-workspace
 `byoBucketEnabled` flag (`byoBucketAllowed` in `apps/api/src/workspace.ts`,
 same pattern as `videoPosterEnabled`) — off by default, and readable but not
-writable until an operator turns it on for a workspace. R2-only,
-HTTP-credential-mode only in v1: no per-customer Workers bindings, since a
-binding needs a config edit and a deploy per customer. Attach is limited to
+writable until an operator turns it on for a workspace. R2 or any
+S3-compatible bucket, HTTP-credential-mode only in v1: no per-customer
+Workers bindings, since a binding needs a config edit and a deploy per
+customer. Attach is limited to
 workspace creation or an otherwise-empty existing workspace — there's no
 migration path yet for a populated workspace, since every published URL
 would break.

@@ -39,7 +39,10 @@ import type { WorkspaceRecord } from "./workspace";
  * to save four lines is not worth the import cycle.
  */
 function isByoRecord(
-  record: Pick<WorkspaceRecord, "binding" | "accountId" | "accessKeyId" | "secretAccessKey">,
+  record: Pick<
+    WorkspaceRecord,
+    "binding" | "accountId" | "accessKeyId" | "secretAccessKey" | "endpoint"
+  >,
 ): boolean {
   return !storageBudgetApplies(record);
 }

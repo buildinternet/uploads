@@ -76,6 +76,12 @@ export interface WorkspaceRecord {
   secretAccessKey?: string;
   /** R2 jurisdiction of a BYO bucket (issue #593). Only ever "eu" or "fedramp"; absent = default endpoint. */
   jurisdiction?: R2Jurisdiction;
+  /** S3-compatible service endpoint origin (e.g. an S3-compatible provider's URL). Required for `provider: "s3"`. */
+  endpoint?: string;
+  /** SigV4 signing region for a `provider: "s3"` bucket (e.g. "us-east-1"). Required for `provider: "s3"`. */
+  region?: string;
+  /** Path-style addressing (`https://endpoint/bucket/key`) instead of virtual-hosted style. `provider: "s3"` only. */
+  forcePathStyle?: boolean;
   /** Max bytes for a single image upload. Falls back to DEFAULT_MAX_UPLOAD_BYTES. */
   maxUploadBytes?: number;
   /**
@@ -266,6 +272,12 @@ export interface StorageLaneFields {
   /** Sealed (`enc:v1:`) on a `StorageLane`. */
   secretAccessKey?: string;
   jurisdiction?: R2Jurisdiction;
+  /** S3-compatible service endpoint origin. Required for `provider: "s3"`. */
+  endpoint?: string;
+  /** SigV4 signing region for `provider: "s3"`. Required for `provider: "s3"`. */
+  region?: string;
+  /** Path-style addressing instead of virtual-hosted style. `provider: "s3"` only. */
+  forcePathStyle?: boolean;
 }
 
 /**
