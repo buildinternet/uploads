@@ -6,6 +6,7 @@
  * migration drift between src/schema.ts and migrations/*.sql is caught here
  * — see src/test/fake-d1.ts.
  */
+import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { beforeEach, describe, expect, it } from "vitest";
 import { resolveWorkspaceClaims, type AuthEnv } from "./auth";
@@ -287,6 +288,127 @@ describe("root discovery aliases", () => {
     // (not a routing 404) and still stamps CORS.
     expect(res.status).toBe(404);
     expect(res.headers.get("access-control-allow-origin")).toBe("*");
+  });
+});
+
+describe("refresh token rotation reuse grace", () => {
+  // PR #909: `refreshTokenReuseInterval: 60` on oauthProvider(). Without it
+  // (the base plugin's default is 0), reusing a just-rotated refresh token —
+  // a network retry whose first attempt landed, or two processes of one
+  // client sharing a stored token (multiple OpenCode sessions) — is treated
+  // as theft and tears down the whole refresh-token family per RFC 9700
+  // §4.14, forcing interactive re-auth. This pins the grace surviving Better
+  // Auth upgrades (exactly the kind of default that shifted in 1.6→1.7).
+
+  /** Mirrors the plugin's defaultHasher: SHA-256, base64url, no padding. */
+  async function hashToken(raw: string): Promise<string> {
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(raw));
+    return btoa(String.fromCharCode(...new Uint8Array(digest)))
+      .replaceAll("+", "-")
+      .replaceAll("/", "_")
+      .replace(/=+$/, "");
+  }
+
+  async function refresh(env: AuthEnv, clientId: string, token: string) {
+    return app.request(
+      "/api/auth/oauth2/token",
+      {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          grant_type: "refresh_token",
+          client_id: clientId,
+          refresh_token: token,
+        }).toString(),
+      },
+      env,
+    );
+  }
+
+  it("replays the same rotated pair on reuse within the window instead of invalidating the family", async () => {
+    const env = dbEnv();
+    // Public native client via real DCR (same path OpenCode takes).
+    const register = await app.request(
+      "/api/auth/oauth2/register",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          client_name: "reuse-grace test",
+          redirect_uris: ["http://127.0.0.1:19876/callback"],
+          token_endpoint_auth_method: "none",
+          grant_types: ["authorization_code", "refresh_token"],
+        }),
+      },
+      env,
+    );
+    expect(register.status).toBe(201);
+    const { client_id: clientId } = (await register.json()) as { client_id: string };
+
+    // Seed the user + an active refresh token directly (skipping the
+    // interactive authorize/consent leg — token-endpoint behavior is what's
+    // under test).
+    const orm = drizzle(env.DB, { schema });
+    const userId = crypto.randomUUID();
+    await orm.insert(schema.user).values({
+      id: userId,
+      name: "Reuse Grace",
+      email: `reuse-grace-${userId}@example.com`,
+      emailVerified: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    // The plugin only issues refresh tokens when the grant carries
+    // offline_access (introspect createUserTokens), and validates a refresh
+    // grant's scopes against the client's registered list — grant the client
+    // offline_access directly (DCR discards requested scope; see the
+    // clientRegistrationAllowedScopes comment in auth.ts).
+    (env.DB as FakeD1Database).__sqlite
+      .prepare("UPDATE oauth_client SET scopes = ? WHERE client_id = ?")
+      .run(
+        JSON.stringify(["files:read", "files:write", "files:delete", "offline_access"]),
+        clientId,
+      );
+    const rawToken = "reuse-grace-raw-refresh-token";
+    await orm.insert(schema.oauthRefreshToken).values({
+      id: crypto.randomUUID(),
+      token: await hashToken(rawToken),
+      clientId,
+      userId,
+      scopes: ["files:read", "files:write", "offline_access"],
+      createdAt: new Date(),
+      expiresAt: new Date(Date.now() + 30 * 24 * 3600 * 1000),
+    });
+
+    // First refresh rotates: new pair issued, old row revoked with a replay
+    // window stamped ~60s out.
+    const first = await refresh(env, clientId, rawToken);
+    expect(first.status).toBe(200);
+    const firstBody = (await first.json()) as { access_token: string; refresh_token: string };
+    expect(firstBody.refresh_token).toBeTruthy();
+    const [rotated] = await orm
+      .select({
+        revoked: schema.oauthRefreshToken.revoked,
+        rotationReplayExpiresAt: schema.oauthRefreshToken.rotationReplayExpiresAt,
+      })
+      .from(schema.oauthRefreshToken)
+      .where(eq(schema.oauthRefreshToken.token, await hashToken(rawToken)));
+    expect(rotated?.revoked).toBeTruthy();
+    expect(rotated?.rotationReplayExpiresAt?.getTime()).toBeGreaterThan(Date.now() + 30_000);
+
+    // Reuse of the just-rotated token within the window: the SAME pair comes
+    // back (replayed response) — not invalid_grant, not a family teardown.
+    const replay = await refresh(env, clientId, rawToken);
+    expect(replay.status).toBe(200);
+    const replayBody = (await replay.json()) as { access_token: string; refresh_token: string };
+    expect(replayBody.refresh_token).toBe(firstBody.refresh_token);
+    expect(replayBody.access_token).toBe(firstBody.access_token);
+
+    // The rotated-to token is still alive: the family survived the reuse.
+    const second = await refresh(env, clientId, firstBody.refresh_token);
+    expect(second.status).toBe(200);
+    const secondBody = (await second.json()) as { refresh_token: string };
+    expect(secondBody.refresh_token).not.toBe(firstBody.refresh_token);
   });
 });
 
