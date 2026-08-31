@@ -32,15 +32,21 @@ export function objectPublicUrls(
 /**
  * Shared binding lookup + credential opening for both the active lane
  * (`storageConfig`) and fallback lanes (`storageConfigs`/`resolveObjectLane`).
- * Single enforcement point for `provider`: only `"r2"` is ever a valid
- * `StorageConfig.provider`, so every caller — active or fallback — goes
- * through this check rather than validating it themselves.
+ * Single enforcement point for `provider`: only `"r2"` and `"s3"` are ever
+ * valid `StorageConfig.provider` values, so every caller — active or
+ * fallback — goes through this check rather than validating it themselves.
  */
 async function resolveStorageConfig(env: Env, fields: StorageLaneFields): Promise<StorageConfig> {
-  if (fields.provider !== "r2") {
+  if (fields.provider !== "r2" && fields.provider !== "s3") {
     throw new ServiceUnavailableError(`unsupported storage provider "${fields.provider}"`, {
       code: "storage_misconfigured",
       details: { provider: fields.provider },
+    });
+  }
+  if (fields.provider === "s3" && (!fields.endpoint || !fields.region)) {
+    throw new ServiceUnavailableError("workspace s3 storage lane is missing endpoint or region", {
+      code: "storage_misconfigured",
+      details: { provider: "s3" },
     });
   }
   let binding: R2Bucket | undefined;
@@ -99,6 +105,25 @@ async function resolveStorageConfig(env: Env, fields: StorageLaneFields): Promis
         hint: "run scripts/reencrypt-workspace-secrets.mjs then remove WORKSPACE_SECRETS_KEY_PREVIOUS",
       }),
     );
+  }
+  if (fields.provider === "s3") {
+    if (!opened.accessKeyId || !opened.secretAccessKey) {
+      throw new ServiceUnavailableError(
+        "workspace s3 storage lane is missing access key credentials",
+        { code: "storage_misconfigured", details: { provider: "s3" } },
+      );
+    }
+    return {
+      provider: "s3",
+      bucket: fields.bucket,
+      prefix: fields.prefix,
+      publicBaseUrl: fields.publicBaseUrl,
+      endpoint: fields.endpoint!,
+      region: fields.region,
+      forcePathStyle: fields.forcePathStyle,
+      accessKeyId: opened.accessKeyId,
+      secretAccessKey: opened.secretAccessKey,
+    };
   }
   return {
     provider: "r2",

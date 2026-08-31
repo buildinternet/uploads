@@ -28,6 +28,8 @@ export interface WorkspaceBudgetLimits {
   accountId?: string;
   accessKeyId?: string;
   secretAccessKey?: string;
+  /** S3-compatible service endpoint — an s3-provider lane's BYO signal alongside credentials. See `storageBudgetApplies`. */
+  endpoint?: string;
 }
 
 /**
@@ -55,7 +57,7 @@ export interface WorkspaceBudgetLimits {
 export function storageBudgetApplies(record: WorkspaceBudgetLimits): boolean {
   const isCustomerCredentialStorage =
     !record.binding &&
-    Boolean(record.accountId) &&
+    (Boolean(record.accountId) || Boolean(record.endpoint)) &&
     Boolean(record.accessKeyId) &&
     Boolean(record.secretAccessKey);
   return !isCustomerCredentialStorage;

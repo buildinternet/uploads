@@ -92,6 +92,20 @@ describe("storageBudgetApplies (#583 Task 1.2 — BYO storage-ownership signal)"
   it("applies when the credential triple is incomplete (not really BYO yet)", () => {
     expect(storageBudgetApplies({ accountId: "a".repeat(32), accessKeyId: "key" })).toBe(true);
   });
+
+  it("does not apply to an s3-provider BYO record (endpoint + creds, no accountId, no binding)", () => {
+    expect(
+      storageBudgetApplies({
+        endpoint: "https://s3.us-east-1.amazonaws.com",
+        accessKeyId: "key",
+        secretAccessKey: "secret",
+      }),
+    ).toBe(false);
+  });
+
+  it("applies to a shared-bucket record even with a stray endpoint but no full credential pair", () => {
+    expect(storageBudgetApplies({ endpoint: "https://s3.us-east-1.amazonaws.com" })).toBe(true);
+  });
 });
 
 describe("checkPutBudget — storage cap skipped for BYO, upload cap unaffected", () => {
