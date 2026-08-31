@@ -2770,6 +2770,7 @@ describe("workspace storage routes (self-serve BYO bucket, issue #583 Task 1.1)"
         mode: "byo",
         byoBucketEnabled: true,
         bucket: "customer-bucket",
+        provider: "r2",
         publicBaseUrl: "https://media.example.com",
         accountIdMasked: `…${"a".repeat(4)}`,
         accessKeyIdLast4: "1234",

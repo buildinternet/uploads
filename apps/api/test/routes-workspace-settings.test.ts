@@ -353,6 +353,16 @@ describe("storage vertical (self-serve BYO bucket)", () => {
     publicBaseUrl: "https://media.example.com",
   };
 
+  const CANDIDATE_BODY_S3 = {
+    provider: "s3",
+    bucket: "s3-bucket",
+    endpoint: "https://s3.us-east-1.amazonaws.com",
+    region: "us-east-1",
+    accessKeyId: "AKIDEXAMPLE1234",
+    secretAccessKey: "super-secret-value",
+    publicBaseUrl: "https://media.example.com",
+  };
+
   afterEach(() => {
     setStorageVerifyForTests(undefined);
     setStorageReconcileForTests(undefined);
@@ -375,6 +385,62 @@ describe("storage vertical (self-serve BYO bucket)", () => {
       expect(body).not.toHaveProperty("accessKeyId");
       expect(body).not.toHaveProperty("secretAccessKey");
       expect(body).toMatchObject({ mode: "byo", accessKeyIdLast4: "1234" });
+    });
+
+    it("projects provider/endpoint/region on an s3 lane; an r2 lane still projects accountIdMasked/jurisdiction", async () => {
+      const { env } = makeEnv({
+        role: "owner",
+        record: {
+          ...SHARED_RECORD,
+          byoBucketEnabled: true,
+          storageLanes: [
+            {
+              id: "lane_r2test",
+              provider: "r2",
+              bucket: "r2-bucket",
+              accountId: "b".repeat(32),
+              accessKeyId: "enc:v1:x",
+              secretAccessKey: "enc:v1:y",
+              jurisdiction: "eu",
+            },
+            {
+              id: "lane_s3test",
+              provider: "s3",
+              bucket: "s3-bucket",
+              endpoint: "https://s3.us-east-1.amazonaws.com",
+              region: "us-east-1",
+              accessKeyId: "enc:v1:x",
+              secretAccessKey: "enc:v1:y",
+            },
+          ],
+        },
+      });
+      const res = await app.request(
+        "/v1/workspaces/acme/storage",
+        { headers: sessionHeaders },
+        env,
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        lanes: Array<{
+          laneId: string;
+          provider?: string;
+          endpoint?: string;
+          region?: string;
+          accountIdMasked?: string;
+          jurisdiction?: string;
+        }>;
+      };
+      const r2Lane = body.lanes.find((l) => l.laneId === "lane_r2test");
+      const s3Lane = body.lanes.find((l) => l.laneId === "lane_s3test");
+      expect(r2Lane).toMatchObject({ provider: "r2", accountIdMasked: `…${"b".repeat(4)}` });
+      expect(r2Lane?.endpoint).toBeUndefined();
+      expect(s3Lane).toMatchObject({
+        provider: "s3",
+        endpoint: "https://s3.us-east-1.amazonaws.com",
+        region: "us-east-1",
+      });
+      expect(s3Lane?.accountIdMasked).toBeUndefined();
     });
 
     it("403s a non-admin member session", async () => {
@@ -464,6 +530,29 @@ describe("storage vertical (self-serve BYO bucket)", () => {
       expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
         "settings_requires_session",
       );
+    });
+  });
+
+  describe("POST /v1/workspaces/:workspace/storage/buckets", () => {
+    it('400s a provider:"s3" body — the bucket picker only supports r2', async () => {
+      const { env, registry } = makeEnv({ role: "owner", record: BYO_RECORD });
+      const before = registry.record("acme");
+      const res = await app.request(
+        "/v1/workspaces/acme/storage/buckets",
+        {
+          method: "POST",
+          headers: { ...sessionHeaders, "content-type": "application/json" },
+          body: JSON.stringify({
+            provider: "s3",
+            accountId: "irrelevant",
+            accessKeyId: "irrelevant",
+            secretAccessKey: "irrelevant",
+          }),
+        },
+        env,
+      );
+      expect(res.status).toBe(400);
+      expect(registry.record("acme")).toEqual(before);
     });
   });
 
@@ -661,6 +750,139 @@ describe("storage vertical (self-serve BYO bucket)", () => {
       expect(saved?.bucket).toBe("customer-bucket");
       expect(saved?.accessKeyId).toBe(BYO_RECORD.accessKeyId);
     });
+
+    it("saves an s3 lane with provider/endpoint/region/forcePathStyle, sealed creds, no accountId/jurisdiction", async () => {
+      const { env, registry } = makeEnv({
+        role: "owner",
+        record: { ...SHARED_RECORD, byoBucketEnabled: true },
+        usage: { objects: 0 },
+      });
+      setStorageVerifyForTests(async (candidate) => {
+        expect(candidate.provider).toBe("s3");
+        expect(candidate.endpoint).toBe("https://s3.us-east-1.amazonaws.com");
+        expect(candidate.region).toBe("us-east-1");
+        return okVerifyResult;
+      });
+      const res = await app.request(
+        "/v1/workspaces/acme/storage",
+        {
+          method: "PUT",
+          headers: { ...sessionHeaders, "content-type": "application/json" },
+          body: JSON.stringify(CANDIDATE_BODY_S3),
+        },
+        env,
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        lanes: Array<{
+          bucket: string;
+          provider?: string;
+          endpoint?: string;
+          region?: string;
+          accountIdMasked?: string;
+        }>;
+      };
+      expect(body.lanes).toHaveLength(1);
+      expect(body.lanes[0]).toMatchObject({
+        bucket: "s3-bucket",
+        provider: "s3",
+        endpoint: "https://s3.us-east-1.amazonaws.com",
+        region: "us-east-1",
+      });
+      expect(body.lanes[0]!.accountIdMasked).toBeUndefined();
+
+      const saved = registry.record<{
+        storageLanes?: Array<{
+          provider?: string;
+          endpoint?: string;
+          region?: string;
+          forcePathStyle?: boolean;
+          accountId?: string;
+          jurisdiction?: string;
+          accessKeyId?: string;
+          secretAccessKey?: string;
+        }>;
+      }>("acme");
+      const savedLane = saved?.storageLanes?.[0];
+      expect(savedLane).toMatchObject({
+        provider: "s3",
+        endpoint: "https://s3.us-east-1.amazonaws.com",
+        region: "us-east-1",
+      });
+      expect(savedLane?.accountId).toBeUndefined();
+      expect(savedLane?.jurisdiction).toBeUndefined();
+      expect(savedLane?.accessKeyId).toMatch(/^enc:v1:/);
+      expect(savedLane?.secretAccessKey).toMatch(/^enc:v1:/);
+    });
+
+    it("saving again for the same bucket+endpoint replaces the saved s3 lane in place", async () => {
+      const { env, registry } = makeEnv({
+        role: "owner",
+        record: { ...SHARED_RECORD, byoBucketEnabled: true },
+        usage: { objects: 0 },
+      });
+      setStorageVerifyForTests(async () => okVerifyResult);
+      const first = await app.request(
+        "/v1/workspaces/acme/storage",
+        {
+          method: "PUT",
+          headers: { ...sessionHeaders, "content-type": "application/json" },
+          body: JSON.stringify(CANDIDATE_BODY_S3),
+        },
+        env,
+      );
+      const firstLaneId = ((await first.json()) as { lanes: Array<{ laneId: string }> }).lanes[0]!
+        .laneId;
+
+      const second = await app.request(
+        "/v1/workspaces/acme/storage",
+        {
+          method: "PUT",
+          headers: { ...sessionHeaders, "content-type": "application/json" },
+          body: JSON.stringify({ ...CANDIDATE_BODY_S3, accessKeyId: "AKIDROTATED0000" }),
+        },
+        env,
+      );
+      expect(second.status).toBe(200);
+      const body = (await second.json()) as { lanes: Array<{ laneId: string }> };
+      expect(body.lanes).toHaveLength(1);
+      expect(body.lanes[0]!.laneId).toBe(firstLaneId);
+      expect(registry.record<{ storageLanes?: unknown[] }>("acme")?.storageLanes).toHaveLength(1);
+    });
+
+    it("saving the same bucket at a different endpoint creates a second s3 lane", async () => {
+      const { env, registry } = makeEnv({
+        role: "owner",
+        record: { ...SHARED_RECORD, byoBucketEnabled: true },
+        usage: { objects: 0 },
+      });
+      setStorageVerifyForTests(async () => okVerifyResult);
+      await app.request(
+        "/v1/workspaces/acme/storage",
+        {
+          method: "PUT",
+          headers: { ...sessionHeaders, "content-type": "application/json" },
+          body: JSON.stringify(CANDIDATE_BODY_S3),
+        },
+        env,
+      );
+      const res = await app.request(
+        "/v1/workspaces/acme/storage",
+        {
+          method: "PUT",
+          headers: { ...sessionHeaders, "content-type": "application/json" },
+          body: JSON.stringify({
+            ...CANDIDATE_BODY_S3,
+            endpoint: "https://s3.eu-west-2.amazonaws.com",
+          }),
+        },
+        env,
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { lanes: unknown[] };
+      expect(body.lanes).toHaveLength(2);
+      expect(registry.record<{ storageLanes?: unknown[] }>("acme")?.storageLanes).toHaveLength(2);
+    });
   });
 
   describe("DELETE /v1/workspaces/:workspace/storage", () => {
@@ -827,6 +1049,42 @@ describe("storage vertical (self-serve BYO bucket)", () => {
       expect(saved?.storageLanes).toHaveLength(1);
       expect(saved?.storageLanes?.[0]?.bucket).toBe("uploads-default");
       expect(saved?.storageLanes?.[0]?.lastActiveAt).toBeTruthy();
+    });
+
+    it("re-verifies a stale s3 lane by passing an s3 candidate (provider/endpoint/region) into verify", async () => {
+      const staleS3Lane = {
+        id: "lane_s3stale",
+        provider: "s3",
+        bucket: "s3-bucket",
+        endpoint: "https://s3.us-east-1.amazonaws.com",
+        region: "us-east-1",
+        accessKeyId: await encryptSecret(SECRETS_KEY, "AKIDEXAMPLE1234"),
+        secretAccessKey: await encryptSecret(SECRETS_KEY, "super-secret-value"),
+        verifiedAt: "2020-01-01T00:00:00.000Z",
+        storageAccessKeyIdLast4: "1234",
+      };
+      const record = { ...SHARED_RECORD, byoBucketEnabled: true, storageLanes: [staleS3Lane] };
+      const { env } = makeEnv({ role: "owner", record });
+      let seenCandidate: { provider?: string; endpoint?: string; region?: string } | undefined;
+      setStorageVerifyForTests(async (candidate) => {
+        seenCandidate = candidate;
+        return okVerifyResult;
+      });
+      const res = await app.request(
+        "/v1/workspaces/acme/storage/activate",
+        {
+          method: "POST",
+          headers: { ...sessionHeaders, "content-type": "application/json" },
+          body: JSON.stringify({ laneId: "lane_s3stale" }),
+        },
+        env,
+      );
+      expect(res.status).toBe(200);
+      expect(seenCandidate).toMatchObject({
+        provider: "s3",
+        endpoint: "https://s3.us-east-1.amazonaws.com",
+        region: "us-east-1",
+      });
     });
 
     it("re-verifies a stale-verified lane before switching, and 422s without mutating on failure", async () => {

@@ -36,7 +36,10 @@ export function maskTrailing(value: string | undefined): string | undefined {
  * as BYO — `storageBudgetApplies` returns `false` for exactly this shape.
  */
 export function isByoRecord(
-  record: Pick<WorkspaceRecord, "binding" | "accountId" | "accessKeyId" | "secretAccessKey">,
+  record: Pick<
+    WorkspaceRecord,
+    "binding" | "accountId" | "accessKeyId" | "secretAccessKey" | "endpoint"
+  >,
 ): boolean {
   return !storageBudgetApplies(record);
 }
@@ -48,12 +51,18 @@ export interface StorageLaneStatus {
   role: "standby" | "fallback";
   /** "shared" = platform-owned binding lane; "byo" = customer HTTP-credential lane. Explicit, never inferred from field absence — a client picking the shared lane by "no accountId" would be wrong the moment a masked field is added. */
   mode: "shared" | "byo";
+  /** "r2" (default) or "s3". Absent only for the never-populated shared lane shape predating this field. */
+  provider?: "r2" | "s3";
   bucket: string;
   publicBaseUrl?: string;
   verifiedAt?: string;
   lastActiveAt?: string;
   accountIdMasked?: string;
   accessKeyIdLast4?: string;
+  /** s3-only. Service endpoint origin. Never present on an r2 lane. */
+  endpoint?: string;
+  /** s3-only. SigV4 signing region. Never present on an r2 lane. */
+  region?: string;
   /** Set when this lane was demoted while flagged unhealthy (issue #826). */
   unhealthyAt?: string;
   /**
@@ -70,12 +79,18 @@ export interface StorageStatusResponse {
   mode: "shared" | "byo";
   byoBucketEnabled: boolean;
   bucket?: string;
+  /** "r2" or "s3", only ever present in byo mode. */
+  provider?: "r2" | "s3";
   accountIdMasked?: string;
   accessKeyIdLast4?: string;
   publicBaseUrl?: string;
   configuredAt?: string;
   verifiedAt?: string;
   jurisdiction?: string;
+  /** s3-only. Service endpoint origin of the active lane. */
+  endpoint?: string;
+  /** s3-only. SigV4 signing region of the active lane. */
+  region?: string;
   /** Id of the active lane (the top-level fields above). Absent on a record that predates lanes. */
   activeLaneId?: string;
   /** Every other configured lane: saved-but-never-used configs and demoted former actives. */
@@ -91,18 +106,23 @@ export interface StorageStatusResponse {
 /** Masked projection of one `StorageLane` for `storageStatusResponse` — never a credential value. */
 function laneStatus(lane: StorageLane): StorageLaneStatus {
   const health = healthFromFields(lane.unhealthyAt, lane.unhealthyCode);
+  const isS3 = lane.provider === "s3";
   return {
     // Only present on an actually-flagged lane; see `StorageLaneStatus.health`.
     ...(health.ok ? {} : { health }),
     laneId: lane.id,
     role: lane.lastActiveAt ? "fallback" : "standby",
     mode: isSharedLane(lane) ? "shared" : "byo",
+    provider: isS3 ? "s3" : "r2",
     bucket: lane.bucket,
     publicBaseUrl: lane.publicBaseUrl,
     verifiedAt: lane.verifiedAt,
     lastActiveAt: lane.lastActiveAt,
-    accountIdMasked: maskTrailing(lane.accountId),
+    // Never both — an s3 lane carries endpoint/region, never an accountId.
+    accountIdMasked: isS3 ? undefined : maskTrailing(lane.accountId),
     accessKeyIdLast4: lane.storageAccessKeyIdLast4,
+    endpoint: isS3 ? lane.endpoint : undefined,
+    region: isS3 ? lane.region : undefined,
     unhealthyAt: lane.unhealthyAt,
   };
 }
@@ -122,19 +142,23 @@ export function storageStatusResponse(
   byoBucketEnabled: boolean,
 ): StorageStatusResponse {
   const byo = isByoRecord(record);
+  const isS3 = byo && record.provider === "s3";
   return {
     mode: byo ? "byo" : "shared",
     byoBucketEnabled,
     bucket: record.bucket,
+    provider: byo ? (isS3 ? "s3" : "r2") : undefined,
     publicBaseUrl: record.publicBaseUrl,
-    accountIdMasked: byo ? maskTrailing(record.accountId) : undefined,
+    accountIdMasked: byo && !isS3 ? maskTrailing(record.accountId) : undefined,
     // Never derived from `record.accessKeyId` — after a self-serve save that
     // field holds the sealed `enc:v1:` blob, so its last 4 characters would
     // be ciphertext. The PUT route stamps the plaintext fragment at seal time.
     accessKeyIdLast4: byo ? record.storageAccessKeyIdLast4 : undefined,
     configuredAt: record.storageConfiguredAt,
     verifiedAt: record.storageVerifiedAt,
-    jurisdiction: byo ? record.jurisdiction : undefined,
+    jurisdiction: byo && !isS3 ? record.jurisdiction : undefined,
+    endpoint: isS3 ? record.endpoint : undefined,
+    region: isS3 ? record.region : undefined,
     activeLaneId: record.storageLaneId,
     lanes: (record.storageLanes ?? []).map(laneStatus),
     health: byo ? storageHealth(record) : { ok: true },
@@ -242,6 +266,7 @@ export function setListBucketsForTests(
 export function candidateFromBody(body: unknown): StorageVerifyCandidate {
   const b = (body ?? {}) as Record<string, unknown>;
   return {
+    provider: b.provider === "s3" ? "s3" : "r2",
     bucket: typeof b.bucket === "string" ? b.bucket : "",
     accountId: typeof b.accountId === "string" ? b.accountId : "",
     accessKeyId: typeof b.accessKeyId === "string" ? b.accessKeyId : "",
@@ -250,6 +275,9 @@ export function candidateFromBody(body: unknown): StorageVerifyCandidate {
     adoptExistingContents: b.adoptExistingContents === true,
     jurisdiction:
       typeof b.jurisdiction === "string" && b.jurisdiction !== "" ? b.jurisdiction : undefined,
+    endpoint: typeof b.endpoint === "string" ? b.endpoint : undefined,
+    region: typeof b.region === "string" ? b.region : undefined,
+    forcePathStyle: b.forcePathStyle === true,
   };
 }
 
@@ -267,13 +295,21 @@ export async function laneVerifyCandidate(
   lane: StorageLane,
 ): Promise<StorageVerifyCandidate> {
   const config = await storageConfig(env, lane as unknown as WorkspaceRecord);
-  // `storageConfig` only ever resolves `"r2"` today (it throws on any other
-  // provider) — narrow explicitly rather than casting, so this keeps
-  // compiling honestly once an `"s3"` lane becomes resolvable here too.
-  if (config.provider !== "r2") {
-    throw new Error(`unsupported storage provider for lane verify: ${config.provider}`);
+  if (config.provider === "s3") {
+    return {
+      provider: "s3",
+      bucket: config.bucket,
+      accessKeyId: config.accessKeyId,
+      secretAccessKey: config.secretAccessKey,
+      publicBaseUrl: config.publicBaseUrl,
+      adoptExistingContents: true,
+      endpoint: config.endpoint,
+      region: config.region,
+      forcePathStyle: config.forcePathStyle,
+    };
   }
   return {
+    provider: "r2",
     bucket: config.bucket,
     accountId: config.accountId ?? "",
     accessKeyId: config.accessKeyId ?? "",
