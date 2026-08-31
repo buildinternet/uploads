@@ -87,6 +87,9 @@ importers:
       '@types/node':
         specifier: ^26.1.0
         version: 26.1.0
+      '@uploads/auth':
+        specifier: workspace:^
+        version: link:../auth
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
@@ -246,6 +249,9 @@ importers:
       '@types/react-dom':
         specifier: ^19.2.3
         version: 19.2.3(@types/react@19.2.17)
+      '@uploads/api':
+        specifier: workspace:^
+        version: link:../api
       typescript:
         specifier: ^6.0.3
         version: 6.0.3

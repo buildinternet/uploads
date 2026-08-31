@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "exports": {
+    "./oauth-client-serialize": "./src/oauth-client-serialize.ts"
+  },
   "scripts": {
     "dev": "wrangler dev --persist-to ../api/.wrangler/state",
     "deploy": "node --env-file-if-exists=../../.env node_modules/wrangler/bin/wrangler.js deploy",

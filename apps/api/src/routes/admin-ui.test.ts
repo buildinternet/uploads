@@ -710,6 +710,7 @@ describe("workspace limits editing", () => {
         maxUploadsPerPeriod: 3000,
         maxUploadBytes: null,
         maxVideoUploadBytes: null,
+        maxMembers: null,
       },
       usage: { bytes: 128, uploads: 5 },
     });
