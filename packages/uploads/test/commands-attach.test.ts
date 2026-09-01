@@ -8,6 +8,7 @@ import type {
   AttachExistingResult,
   GithubRepoLinkResult,
   PromoteBranchAttachmentsResult,
+  RegisterBranchRenameOptions,
   ResolveGhPrefixOptions,
   ResolveGhPrefixResult,
   UploadsClient,
@@ -36,6 +37,12 @@ function fakeClient(opts?: {
     branch: string;
   }) => Promise<PromoteBranchAttachmentsResult> | PromoteBranchAttachmentsResult;
   /**
+   * `client.registerBranchRename` behavior (issue #920). Omitted → the method
+   * is present and records every call; `"absent"` simulates an older client
+   * without it; an Error is thrown on every call.
+   */
+  registerRename?: "absent" | Error;
+  /**
    * `client.githubRepoLinkStatus` behavior (issue #398 stage-time binding
    * warning): a `GithubRepoLinkResult`, a thrown error, or omitted (method
    * absent — simulates an older server without the route).
@@ -61,6 +68,7 @@ function fakeClient(opts?: {
   const puts: string[] = [];
   const metadataByKey: Record<string, Record<string, string> | undefined> = {};
   const promoteCalls: { repo: string; num: number; branch: string }[] = [];
+  const renameCalls: RegisterBranchRenameOptions[] = [];
   const callOrder: string[] = [];
   const resolveGhPrefixCalls: ResolveGhPrefixOptions[] = [];
   const attachExistingCalls: AttachExistingOptions[] = [];
@@ -114,6 +122,16 @@ function fakeClient(opts?: {
           },
         }
       : {}),
+    ...(opts?.registerRename === "absent"
+      ? {}
+      : {
+          registerBranchRename: async (renameOpts: RegisterBranchRenameOptions) => {
+            renameCalls.push(renameOpts);
+            callOrder.push("register-rename");
+            if (opts?.registerRename instanceof Error) throw opts.registerRename;
+            return { recorded: true };
+          },
+        }),
     ...(opts?.promote
       ? {
           promoteBranchAttachments: async (promoteOpts: {
@@ -158,6 +176,7 @@ function fakeClient(opts?: {
     puts,
     metadataByKey,
     promoteCalls,
+    renameCalls,
     callOrder,
     resolveGhPrefixCalls,
     attachExistingCalls,
@@ -491,6 +510,7 @@ describe("runAttach --branch (branch-staged, pre-PR)", () => {
     const run: CommandRunner = (cmd, args) => {
       calls.push([cmd, ...args]);
       if (cmd === "git" && args[0] === "rev-parse") return `${branch}\n`;
+      if (cmd === "git" && args[0] === "reflog") return ""; // no renames (issue #920)
       throw new Error(`unexpected call: ${cmd} ${args.join(" ")}`);
     };
     return { run, calls };
@@ -539,7 +559,12 @@ describe("runAttach --branch (branch-staged, pre-PR)", () => {
       ),
     ).toBe(0);
     expect(puts).toEqual(["gh/o/r/branch/main/shot.png"]);
-    expect(calls).toEqual([["git", "rev-parse", "--abbrev-ref", "HEAD"]]);
+    // Branch resolution, then the rename-lineage read (issue #920) — no other
+    // git/gh shelling out on the staging path.
+    expect(calls).toEqual([
+      ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+      ["git", "reflog", "show", "--format=%gs", "refs/heads/main"],
+    ]);
   });
 
   it("throws UsageError on detached HEAD when --branch has no value", async () => {
@@ -662,6 +687,7 @@ describe("runAttach --branch stage-time binding warning (issue #398)", () => {
     (branch = "feature/thing"): CommandRunner =>
     (cmd, args) => {
       if (cmd === "git" && args[0] === "rev-parse") return `${branch}\n`;
+      if (cmd === "git" && args[0] === "reflog") return ""; // no renames (issue #920)
       throw new Error(`unexpected call: ${cmd} ${args.join(" ")}`);
     };
 
@@ -911,12 +937,28 @@ describe("runAttach gh.title metadata (issue #267)", () => {
  * endpoint. `branch: undefined` simulates detached HEAD ("HEAD").
  */
 function promoteRunner(
-  opts: { branch?: string | undefined; detached?: boolean; title?: string } = {},
+  opts: {
+    branch?: string | undefined;
+    detached?: boolean;
+    title?: string;
+    /** Reflog rename steps for the current branch, oldest-first (issue #920). */
+    renames?: Array<{ from: string; to: string }>;
+    /** Make `git reflog show` fail, as it does outside a repo. */
+    reflogFails?: boolean;
+  } = {},
 ): { run: CommandRunner; calls: string[][] } {
   const calls: string[][] = [];
   const branch = opts.detached ? "HEAD" : (opts.branch ?? "feature-x");
   const run: CommandRunner = (cmd, args) => {
     calls.push([cmd, ...args]);
+    if (cmd === "git" && args[0] === "reflog") {
+      if (opts.reflogFails) throw new Error("fatal: not a git repository");
+      // Real reflogs are newest-first; the parser reverses them.
+      return [...(opts.renames ?? [])]
+        .reverse()
+        .map((step) => `Branch: renamed refs/heads/${step.from} to refs/heads/${step.to}`)
+        .join("\n");
+    }
     if (cmd === "git" && args[0] === "rev-parse") return `${branch}\n`;
     if (args[0] === "repo") return "buildinternet/uploads\n";
     if ((args[0] === "pr" || args[0] === "issue") && args[1] === "view" && args.includes("title")) {
@@ -1146,6 +1188,150 @@ describe("runAttach auto-promote (default PR path)", () => {
   });
 });
 
+describe("runAttach branch-rename following (issue #920)", () => {
+  it("registers each reflog rename, oldest-first, before promoting", async () => {
+    const { client, renameCalls, promoteCalls, callOrder } = fakeClient({
+      promote: async () => ({ promoted: [], skipped: [] }),
+    });
+    const { run } = promoteRunner({
+      branch: "feat-c",
+      renames: [
+        { from: "feat-a", to: "feat-b" },
+        { from: "feat-b", to: "feat-c" },
+      ],
+    });
+    expect(await runAttach(ctxWith(client), files("shot.png"), false, run)).toBe(0);
+    expect(renameCalls).toEqual([
+      { repo: "buildinternet/uploads", from: "feat-a", to: "feat-b" },
+      { repo: "buildinternet/uploads", from: "feat-b", to: "feat-c" },
+    ]);
+    expect(callOrder.indexOf("register-rename")).toBeLessThan(callOrder.indexOf("promote"));
+    expect(promoteCalls).toEqual([{ repo: "buildinternet/uploads", num: 123, branch: "feat-c" }]);
+  });
+
+  it("registers nothing when the branch was never renamed", async () => {
+    const { client, renameCalls } = fakeClient({
+      promote: async () => ({ promoted: [], skipped: [] }),
+    });
+    const { run } = promoteRunner();
+    await runAttach(ctxWith(client), files("shot.png"), false, run);
+    expect(renameCalls).toEqual([]);
+  });
+
+  it("does not register renames for an explicit --from-branch", async () => {
+    const { client, renameCalls, promoteCalls } = fakeClient({
+      promote: async () => ({ promoted: [], skipped: [] }),
+    });
+    const { run } = promoteRunner({
+      branch: "feat-c",
+      renames: [{ from: "feat-b", to: "feat-c" }],
+    });
+    await runAttach(
+      ctxWith(client),
+      [...files("shot.png"), "--pr", "123", "--from-branch", "old/name"],
+      false,
+      run,
+    );
+    expect(renameCalls).toEqual([]);
+    expect(promoteCalls).toEqual([{ repo: "buildinternet/uploads", num: 123, branch: "old/name" }]);
+  });
+
+  it("still attaches and promotes when the register call fails", async () => {
+    const { client, promoteCalls } = fakeClient({
+      promote: async () => ({ promoted: [], skipped: [] }),
+      registerRename: new UploadsError("not found", "NOT_FOUND", 404),
+    });
+    const { run } = promoteRunner({
+      branch: "feat-c",
+      renames: [{ from: "feat-b", to: "feat-c" }],
+    });
+    expect(await runAttach(ctxWith(client), files("shot.png"), false, run)).toBe(0);
+    expect(promoteCalls).toEqual([{ repo: "buildinternet/uploads", num: 123, branch: "feat-c" }]);
+  });
+
+  it("still attaches when the client has no registerBranchRename method", async () => {
+    const { client, promoteCalls } = fakeClient({
+      promote: async () => ({ promoted: [], skipped: [] }),
+      registerRename: "absent",
+    });
+    const { run } = promoteRunner({
+      branch: "feat-c",
+      renames: [{ from: "feat-b", to: "feat-c" }],
+    });
+    expect(await runAttach(ctxWith(client), files("shot.png"), false, run)).toBe(0);
+    expect(promoteCalls).toHaveLength(1);
+  });
+
+  it("registers renames when staging with --branch", async () => {
+    const { client, renameCalls } = fakeClient();
+    const { run } = promoteRunner({
+      branch: "feat-c",
+      renames: [{ from: "feat-b", to: "feat-c" }],
+    });
+    expect(
+      await runAttach(
+        ctxWith(client),
+        [...files("shot.png"), "--branch", "--repo", "o/r"],
+        false,
+        run,
+      ),
+    ).toBe(0);
+    expect(renameCalls).toEqual([{ repo: "o/r", from: "feat-b", to: "feat-c" }]);
+  });
+
+  it("prints the followed-rename note when the promotion carries a lineage", async () => {
+    const { client } = fakeClient({
+      promote: async () => ({
+        promoted: ["gh/buildinternet/uploads/pull/123/hero.png"],
+        skipped: [],
+        lineage: ["feat-c", "feat-b", "feat-a"],
+      }),
+    });
+    const { run } = promoteRunner({ branch: "feat-c" });
+    const ctx = { ...ctxWith(client), quiet: false };
+    const stderr: string[] = [];
+    vi.spyOn(process.stderr, "write").mockImplementation(((chunk: unknown) => {
+      stderr.push(String(chunk));
+      return true;
+    }) as typeof process.stderr.write);
+    vi.spyOn(process.stdout, "write").mockImplementation(
+      (() => true) as typeof process.stdout.write,
+    );
+    try {
+      await runAttach(ctx, files("shot.png"), false, run);
+    } finally {
+      vi.restoreAllMocks();
+    }
+    expect(stderr.join("")).toContain(">> followed rename from feat-b, feat-a\n");
+  });
+
+  it("prints no followed-rename note for a single-name lineage", async () => {
+    const { client } = fakeClient({
+      promote: async () => ({
+        promoted: ["gh/buildinternet/uploads/pull/123/hero.png"],
+        skipped: [],
+        lineage: ["feature-x"],
+      }),
+    });
+    const { run } = promoteRunner();
+    const ctx = { ...ctxWith(client), quiet: false };
+    const stderr: string[] = [];
+    vi.spyOn(process.stderr, "write").mockImplementation(((chunk: unknown) => {
+      stderr.push(String(chunk));
+      return true;
+    }) as typeof process.stderr.write);
+    vi.spyOn(process.stdout, "write").mockImplementation(
+      (() => true) as typeof process.stdout.write,
+    );
+    try {
+      await runAttach(ctx, files("shot.png"), false, run);
+    } finally {
+      vi.restoreAllMocks();
+    }
+    expect(stderr.join("")).not.toContain("followed rename");
+  });
+});
+
 describe("runAttach --promote (explicit promote-only mode)", () => {
   it("uses --from-branch without reading the renamed current branch", async () => {
     const { client, promoteCalls } = fakeClient({
@@ -1162,6 +1348,20 @@ describe("runAttach --promote (explicit promote-only mode)", () => {
       ),
     ).toBe(0);
     expect(promoteCalls).toEqual([{ repo: "o/r", num: 77, branch: "old/name" }]);
+  });
+
+  it("registers renames for the resolved branch before promoting", async () => {
+    const { client, renameCalls, promoteCalls, callOrder } = fakeClient({
+      promote: async () => ({ promoted: [], skipped: [] }),
+    });
+    const { run } = promoteRunner({
+      branch: "feat-c",
+      renames: [{ from: "feat-b", to: "feat-c" }],
+    });
+    expect(await runAttach(ctxWith(client), ["--promote"], false, run)).toBe(0);
+    expect(renameCalls).toEqual([{ repo: "buildinternet/uploads", from: "feat-b", to: "feat-c" }]);
+    expect(callOrder.indexOf("register-rename")).toBeLessThan(callOrder.indexOf("promote"));
+    expect(promoteCalls).toEqual([{ repo: "buildinternet/uploads", num: 123, branch: "feat-c" }]);
   });
 
   it("promotes staged files with zero file arguments and refreshes the comment", async () => {

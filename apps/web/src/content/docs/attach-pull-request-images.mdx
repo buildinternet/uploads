@@ -89,7 +89,11 @@ binding state means and how to fix it.
   body, say, before it was even opened) keeps serving.
 </div>
 
-If you rename or delete the branch before the PR opens, name the old branch explicitly:
+If you rename the branch, running any `uploads` staging or promote command on it — `attach
+--branch`, `put`, `attach --pr`, `attach --promote` — reads the rename from the branch's git
+reflog and tells the server, so promote also sweeps the old name. This only works if you run
+`uploads` again before the PR opens; if you rename (or delete) the branch and go straight to
+opening the PR, name the old branch explicitly:
 
 ```bash
 uploads attach --pr 123 --from-branch old/branch

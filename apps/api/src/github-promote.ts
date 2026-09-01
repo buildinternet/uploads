@@ -19,7 +19,9 @@
 
 import { getMetadataForKeys, setFileMetadata } from "./file-metadata";
 import { putObject } from "./files-core";
+import { resolveBranchLineageSafe } from "./github-branch-renames";
 import { ghPrivateAttachmentKey, ghPrivateBranchKeyPrefix } from "./github-comment-render";
+import { getActivePrefixId } from "./github-private-prefixes";
 import { resolveGhKeyContextSafe } from "./github-private-prefix-service";
 import { storage } from "./storage";
 import { objectVisibility } from "./visibility";
@@ -86,6 +88,12 @@ export interface PromoteResult {
   /** Destination keys written by this call. */
   promoted: string[];
   skipped: PromoteSkip[];
+  /**
+   * The branch-name lineage swept, newest first (#920) — present only when
+   * the branch was renamed, i.e. when there is more than the current name, so
+   * a caller can report "followed rename from <old>".
+   */
+  lineage?: string[];
 }
 
 /** One staged key found under one of the prefixes swept for this branch. */
@@ -97,6 +105,12 @@ interface StagedEntry {
   filename: string;
   /** True when `key` was listed under the private branch prefix, not the plain one. */
   private: boolean;
+  /**
+   * Position of the branch name this entry was staged under within the
+   * lineage (0 = the branch's CURRENT name, higher = older name). Ties for
+   * one destination filename resolve to the lowest index (#920).
+   */
+  lineageIndex: number;
 }
 
 /** One filename's worth of work: the entry actually copied, plus any other
@@ -134,8 +148,17 @@ export async function promoteBranchAttachments(
   target: PromoteTarget,
 ): Promise<PromoteResult> {
   const [owner, name] = target.repo.split("/");
-  const plainPrefix = stagedPrefix(owner, name, target.branch);
   const store = await storage(env, ws);
+
+  // Rename lineage (#920): `[current, ...older names]`, or just
+  // `[target.branch]` when the branch was never renamed (or the lookup
+  // failed — `resolveBranchLineageSafe` degrades rather than aborting).
+  const lineage = await resolveBranchLineageSafe(
+    dbFor(env),
+    workspaceName,
+    target.repo,
+    target.branch,
+  );
 
   // Fail-open resolve (see `resolveGhKeyContextSafe`'s doc) — promote must
   // never abort just because the mode couldn't be determined.
@@ -155,7 +178,11 @@ export async function promoteBranchAttachments(
   // skipped rather than silently dropped.
   const entries: StagedEntry[] = [];
   const MAX_LIST_PAGES = 50; // 50k objects at the 1000-per-page ceiling; far beyond any real staging prefix.
-  async function listPrefix(prefix: string, isPrivate: boolean): Promise<void> {
+  async function listPrefix(
+    prefix: string,
+    isPrivate: boolean,
+    lineageIndex: number,
+  ): Promise<void> {
     let cursor: string | undefined;
     for (let page = 0; page < MAX_LIST_PAGES; page++) {
       const result = await store.list({ prefix, limit: 1000, cursor });
@@ -165,18 +192,30 @@ export async function promoteBranchAttachments(
           prefix,
           filename: item.key.slice(prefix.length),
           private: isPrivate,
+          lineageIndex,
         });
       }
       cursor = result.cursor ?? undefined;
       if (!cursor) break;
     }
   }
-  await listPrefix(plainPrefix, false);
-  if (mode.mode === "private") {
-    await listPrefix(ghPrivateBranchKeyPrefix(mode.prefixId), true);
+
+  // One pass per lineage name, current name first, plain-then-private within
+  // each name (so single-name lineages sweep exactly as they did pre-#920).
+  // Older names use whatever private prefix id they ALREADY have — never
+  // mint one for a name nothing was ever staged under.
+  for (const [lineageIndex, branchName] of lineage.entries()) {
+    await listPrefix(stagedPrefix(owner, name, branchName), false, lineageIndex);
+    if (mode.mode !== "private") continue;
+    const prefixId =
+      lineageIndex === 0
+        ? mode.prefixId
+        : await getActivePrefixId(dbFor(env), target.repo, branchName);
+    if (prefixId) await listPrefix(ghPrivateBranchKeyPrefix(prefixId), true, lineageIndex);
   }
 
-  if (entries.length === 0) return { promoted, skipped };
+  const lineageField = lineage.length > 1 ? { lineage } : {};
+  if (entries.length === 0) return { promoted, skipped, ...lineageField };
 
   // Dedupe by destination filename: the dual sweep above can list the SAME
   // filename under both the plain and private branch prefixes (a file
@@ -200,9 +239,15 @@ export async function promoteBranchAttachments(
       const unit: PromoteUnit = { primary: entry, shadows: [] };
       unitByFilename.set(entry.filename, unit);
       units.push(unit);
-    } else if (entry.private && !existing.primary.private) {
+    } else if (
+      entry.lineageIndex === existing.primary.lineageIndex &&
+      entry.private &&
+      !existing.primary.private
+    ) {
       // A private entry outranks an already-seen plain primary for the same
-      // filename — promote it to primary, demote the old primary to a shadow.
+      // filename — but only within the SAME lineage name (#920): a nearer
+      // name always wins over an older one, whichever prefix it was staged
+      // under. Promote it to primary, demote the old primary to a shadow.
       existing.shadows.push(existing.primary);
       existing.primary = entry;
     } else {
@@ -357,5 +402,5 @@ export async function promoteBranchAttachments(
     }
   }
 
-  return { promoted, skipped };
+  return { promoted, skipped, ...lineageField };
 }

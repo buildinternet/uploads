@@ -73,6 +73,7 @@ import {
   hasLinkCandidate,
   extractCandidateUrls,
   fetchAdoptionCandidateText,
+  renameLineageFromReflog,
   type CommandRunner,
 } from "./github-gh.js";
 import { deriveRepoFromGit, deriveRepoSlugFromGit } from "./keys.js";
@@ -1094,11 +1095,13 @@ takes effect with zero files and cannot combine with --branch/--issue/
 --no-promote. Promotion never applies to issues. Staged files stay findable
 with "uploads find gh.branch=<branch>" either way.
 
-If the branch was renamed or deleted before the PR opened, pass
-"--from-branch <old-name>" with "--pr <num>". With no file arguments, this
-promotes the stale branch prefix and refreshes the managed comment. With file
-or existing-key arguments, it promotes the stale prefix before the normal
-attach flow.
+A branch renamed with "git branch -m" is followed automatically: the rename
+is read from the branch reflog and registered, so promotion sweeps the older
+names too. That needs one uploads run after the rename. If the branch was
+renamed without one, or was deleted, pass "--from-branch <old-name>" with
+"--pr <num>". With no file arguments, this promotes the stale branch prefix
+and refreshes the managed comment. With file or existing-key arguments, it
+promotes the stale prefix before the normal attach flow.
 
 Options:
   --pr <num>            Attach to this pull request
@@ -1652,6 +1655,43 @@ export async function uploadPuts(opts: {
 }
 
 /**
+ * Best-effort branch-rename registration (issue #920): reads this branch's
+ * reflog for `git branch -m` steps and tells the server about each one, so a
+ * later promote sweeps the branch's whole name lineage instead of only its
+ * current name. No-op when the reflog has no rename (the common case) and
+ * when the client predates the route. Every failure is swallowed — this runs
+ * alongside staging and promote, and must never fail either. Set
+ * `UPLOADS_DEBUG=1` to see what was skipped.
+ */
+export async function registerRenamesBestEffort(
+  client: UploadsClient,
+  run: CommandRunner,
+  repo: string,
+  branch: string,
+): Promise<void> {
+  let lineage: ReturnType<typeof renameLineageFromReflog>;
+  try {
+    lineage = renameLineageFromReflog(run, branch);
+  } catch {
+    return;
+  }
+  if (lineage.length === 0) return;
+  for (const step of lineage) {
+    try {
+      await client.registerBranchRename({ repo, from: step.from, to: step.to });
+    } catch (err) {
+      if (process.env.UPLOADS_DEBUG === "1") {
+        const detail = err instanceof Error ? err.message : String(err);
+        process.stderr.write(
+          `debug: could not register branch rename ${step.from} -> ${step.to}: ${detail}\n`,
+        );
+      }
+      return; // one failure means the route is unavailable; don't retry the rest
+    }
+  }
+}
+
+/**
  * Best-effort call to `POST /v1/workspaces/:workspace/github/promote` (server contract,
  * PR #310). Degrade-safe like `syncAttachmentsComment`'s bot path: an older
  * or self-hosted worker without this route (404), a forbidden token (403),
@@ -1668,6 +1708,17 @@ async function attemptPromoteBranch(
   } catch {
     return undefined;
   }
+}
+
+/**
+ * Human-mode note for a promotion whose server-side sweep followed a rename
+ * (issue #920). `lineage` is current-name-first, so the older names are the
+ * tail. Returns undefined when nothing was renamed.
+ */
+function renameFollowNote(promotion: PromoteBranchAttachmentsResult): string | undefined {
+  const older = (promotion.lineage ?? []).slice(1);
+  if (older.length === 0) return undefined;
+  return `>> followed rename from ${older.join(", ")}\n`;
 }
 
 /** Human-mode note for a promotion that actually promoted something. */
@@ -1863,6 +1914,11 @@ export async function runAttach(
       }
     }
     if (promotedBranch !== undefined) {
+      // Only for a branch we resolved ourselves — an explicit --from-branch is
+      // a manual override, and its lineage (if any) belongs to another name.
+      if (fromBranch === undefined) {
+        await registerRenamesBestEffort(ctx.client, run, target.repo, promotedBranch);
+      }
       promotion = await attemptPromoteBranch(ctx.client, target, promotedBranch);
     }
   }
@@ -1928,6 +1984,8 @@ export async function runAttach(
     }
     if (!ctx.quiet && promotion && promotion.promoted.length > 0) {
       process.stderr.write(promotionNote(promotion, promotedBranch));
+      const followed = renameFollowNote(promotion);
+      if (followed) process.stderr.write(followed);
     }
     if (!ctx.quiet && comment)
       process.stderr.write(
@@ -1977,6 +2035,9 @@ async function runAttachBranch(
   }
 
   const target: BranchTarget = { repo, branch };
+  // Register any `git branch -m` steps behind this name (issue #920) so the
+  // promote that runs when the PR opens sweeps the older names too.
+  await registerRenamesBestEffort(ctx.client, run, repo, branch);
   const { uploads, failures, firstError } = await uploadBranchAttachments({
     client: ctx.client,
     target,
@@ -2113,8 +2174,14 @@ async function runAttachPromoteOnly(
   if (target.kind !== "pull") {
     throw new UsageError("--from-branch only promotes into a pull request");
   }
-  const branch = flagString(parsed.flags, "--from-branch") ?? resolveCurrentBranch(run);
+  const explicitFromBranch = flagString(parsed.flags, "--from-branch");
+  const branch = explicitFromBranch ?? resolveCurrentBranch(run);
 
+  // Rename following (issue #920) only applies to the branch we resolved
+  // ourselves; --from-branch is the manual escape hatch (PR #919).
+  if (explicitFromBranch === undefined) {
+    await registerRenamesBestEffort(ctx.client, run, target.repo, branch);
+  }
   const promotion = await attemptPromoteBranch(ctx.client, target, branch);
 
   let comment: AttachmentsCommentResult | undefined;
@@ -2142,6 +2209,8 @@ async function runAttachPromoteOnly(
   } else {
     if (!ctx.quiet && promotion && promotion.promoted.length > 0) {
       process.stderr.write(promotionNote(promotion, branch));
+      const followed = renameFollowNote(promotion);
+      if (followed) process.stderr.write(followed);
     }
     if (!ctx.quiet && comment)
       process.stderr.write(
@@ -2786,6 +2855,9 @@ export async function runPut(
     attachedRef = merged["gh.ref"];
   } else if (stagingTarget) {
     metadata = mergeStagingMeta(userMeta, stagingTarget);
+    // Branch staging: register any rename behind this name (issue #920) so
+    // the PR-time promote finds files staged under the older names too.
+    await registerRenamesBestEffort(ctx.client, run, stagingTarget.repo, stagingTarget.branch);
   } else {
     // gh.* additionally needs git, which the shared derived gate ignores.
     if (!noGit && derivedMetaEnabled(parsed.flags, defaults)) {

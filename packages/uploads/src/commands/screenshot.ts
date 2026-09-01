@@ -27,6 +27,7 @@ import {
   putStagingNoteText,
   resolveStageBindingWarning,
   mergeStagingMeta,
+  registerRenamesBestEffort,
   writeReplacedNote,
   resolveGhPrefixSafe,
   resolveAutoPrTarget,
@@ -513,6 +514,9 @@ export async function runScreenshot(
     validateMetaMap(metadata);
   } else if (stagingTarget !== undefined) {
     metadata = mergeStagingMeta(withFacts, stagingTarget);
+    // Same rename registration as `put`/`attach --branch` staging (issue
+    // #920): best-effort, never fails the capture.
+    await registerRenamesBestEffort(ctx.client, run, stagingTarget.repo, stagingTarget.branch);
   } else if (Object.keys(withFacts).length > 0) {
     validateMetaMap(withFacts);
   }

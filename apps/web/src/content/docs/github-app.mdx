@@ -140,6 +140,11 @@ _Subscribe to events_):
 
 `uploads github doctor` checks the subscriptions directly and reports anything missing.
 
+Branch-rename following for staged uploads (see
+[Attach & share](/docs/attach-pull-request-images)) is done client-side by the CLI on purpose, so
+the App doesn't need `Contents: read` ("read access to code"); that can be revisited if more use
+cases justify asking for it.
+
 </section>
 
 <section id="bindings">

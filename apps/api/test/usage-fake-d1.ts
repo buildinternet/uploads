@@ -4,6 +4,7 @@
  */
 
 import { AdoptLedgerTable } from "./helpers/fake-adopt-ledger-table";
+import { BranchRenamesTable } from "./helpers/fake-branch-renames-table";
 import { DeleteUsageClaimsTable } from "./helpers/fake-delete-usage-claims-table";
 import { FileMetadataTable } from "./helpers/fake-file-metadata-table";
 import { IngestLedgerTable } from "./helpers/fake-ingest-ledger-table";
@@ -66,6 +67,12 @@ export class UsageFakeD1 {
   get adoptLedger() {
     return this.adoptLedgerTable.rows;
   }
+  // Backs `github_branch_renames` — branch-rename aliases promote's lineage
+  // sweep walks (#920).
+  private branchRenamesTable = new BranchRenamesTable();
+  get branchRenames() {
+    return this.branchRenamesTable.rows;
+  }
 
   prepare = (sql: string) => {
     const normalized = sql.replace(/\s+/g, " ").trim();
@@ -104,6 +111,8 @@ export class UsageFakeD1 {
         if (prefixAllResult) return prefixAllResult;
         const adoptAllResult = this.adoptLedgerTable.tryAll<T>(normalized, values);
         if (adoptAllResult) return adoptAllResult;
+        const renameAllResult = this.branchRenamesTable.tryAll<T>(normalized, values);
+        if (renameAllResult) return renameAllResult;
         // Galleries aren't modeled by this fake (route/gallery-specific tests
         // bring their own D1 stand-in) — an empty page is a safe, honest
         // default for callers (e.g. the webhook auto-promote gather) that
@@ -126,6 +135,8 @@ export class UsageFakeD1 {
         if (prefixRunResult) return prefixRunResult;
         const adoptRunResult = this.adoptLedgerTable.tryRun(normalized, values);
         if (adoptRunResult) return adoptRunResult;
+        const renameRunResult = this.branchRenamesTable.tryRun(normalized, values);
+        if (renameRunResult) return renameRunResult;
         const claimResult = this.deleteUsageClaimsTable.tryRun(normalized, values);
         if (claimResult) return claimResult;
         if (normalized.startsWith("INSERT OR IGNORE INTO workspace_usage")) {
