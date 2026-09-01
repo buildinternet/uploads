@@ -69,8 +69,8 @@ export class BranchRenamesTable {
   /** `resolveBranchLineage`'s one query: old names for a given new name. */
   tryAll<T>(normalizedSql: string, args: unknown[]): FakeAllResult<T> | undefined {
     if (!normalizedSql.includes("FROM github_branch_renames")) return undefined;
-    const [workspace, repo, newBranch] = args as [string, string, string];
-    const results = [...this.rows.values()]
+    const [workspace, repo, newBranch, limit] = args as [string, string, string, number];
+    const matched = [...this.rows.values()]
       .filter(
         (row) =>
           row.workspace === workspace &&
@@ -79,6 +79,9 @@ export class BranchRenamesTable {
       )
       .sort((a, b) => a.recorded_at.localeCompare(b.recorded_at))
       .map((row) => ({ old_branch: row.old_branch }));
+    // The real query carries `LIMIT ?` (#920) — honor it so the fake can't
+    // hand callers more rows than production would.
+    const results = typeof limit === "number" ? matched.slice(0, limit) : matched;
     return { success: true, results: results as T[], meta: {} };
   }
 }

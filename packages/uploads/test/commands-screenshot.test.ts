@@ -38,7 +38,13 @@ function fakeClient(
     body: Uint8Array;
     metadata?: Record<string, string>;
   }[] = [];
+  const renameCalls: { repo: string; from: string; to: string }[] = [];
   const client = {
+    // Always present (issue #920): every rename registration is recorded.
+    registerBranchRename: async (renameOpts: { repo: string; from: string; to: string }) => {
+      renameCalls.push(renameOpts);
+      return { recorded: true };
+    },
     put: async (
       body: Uint8Array,
       putOpts: {
@@ -78,7 +84,7 @@ function fakeClient(
         }
       : {}),
   } as unknown as UploadsClient;
-  return { client, puts };
+  return { client, puts, renameCalls };
 }
 
 function ctxWith(client: UploadsClient, overrides: Partial<CliContext> = {}): CliContext {
@@ -602,8 +608,17 @@ function stagingRunner(opts: {
   defaultBranch?: string;
   originUrl?: string;
   repo?: string;
+  /** Reflog rename steps for the current branch, oldest-first (issue #920). */
+  renames?: Array<{ from: string; to: string }>;
 }): CommandRunner {
   return (cmd, args) => {
+    if (cmd === "git" && args[0] === "reflog") {
+      // Real reflogs list the newest entry first; the parser reverses them.
+      return [...(opts.renames ?? [])]
+        .reverse()
+        .map((step) => `Branch: renamed refs/heads/${step.from} to refs/heads/${step.to}`)
+        .join("\n");
+    }
     if (cmd === "git" && args[0] === "config") {
       if (opts.originUrl === undefined) throw new Error("not a git repo");
       return `${opts.originUrl}\n`;
@@ -956,6 +971,7 @@ function autoPrRunner(opts: {
   originUrl?: string;
   repo?: string;
   pr?: number;
+  renames?: Array<{ from: string; to: string }>;
 }): CommandRunner {
   return (cmd, args) => {
     if (cmd === "gh" && args[0] === "pr" && args[1] === "view") {
@@ -965,6 +981,68 @@ function autoPrRunner(opts: {
     return stagingRunner(opts)(cmd, args);
   };
 }
+
+describe("runScreenshot branch-rename registration (issue #920)", () => {
+  const withPr = {
+    branch: "feature/thing",
+    defaultBranch: "main",
+    originUrl: "git@github.com:o/r.git",
+    repo: "o/r",
+    pr: 1250,
+  };
+  const renames = [{ from: "old/thing", to: "feature/thing" }];
+
+  it("registers renames on the auto-staging path", async () => {
+    const { client, puts, renameCalls } = fakeClient();
+    const { pr: _pr, ...noPr } = withPr;
+    await runScreenshot(
+      ctxWith(client),
+      ["https://example.com"],
+      false,
+      autoPrRunner({ ...noPr, renames }),
+      fakeCapture("remote"),
+    );
+    expect(puts[0]?.key).toBe("gh/o/r/branch/feature-thing/example-com.png");
+    expect(renameCalls).toEqual([{ repo: "o/r", from: "old/thing", to: "feature/thing" }]);
+  });
+
+  it("registers renames on the auto-PR path, where staging is suppressed", async () => {
+    const { client, puts, renameCalls } = fakeClient();
+    await runScreenshot(
+      ctxWith(client),
+      ["https://example.com"],
+      false,
+      autoPrRunner({ ...withPr, renames }),
+      fakeCapture("remote"),
+    );
+    expect(puts[0]?.key).toBe("gh/o/r/pull/1250/example-com.png");
+    expect(renameCalls).toEqual([{ repo: "o/r", from: "old/thing", to: "feature/thing" }]);
+  });
+
+  it("registers nothing on an explicit --pr", async () => {
+    const { client, renameCalls } = fakeClient();
+    await runScreenshot(
+      ctxWith(client),
+      ["https://example.com", "--pr", "77", "--repo", "o/r"],
+      false,
+      autoPrRunner({ ...withPr, renames }),
+      fakeCapture("remote"),
+    );
+    expect(renameCalls).toEqual([]);
+  });
+
+  it("registers nothing when the branch was never renamed", async () => {
+    const { client, renameCalls } = fakeClient();
+    await runScreenshot(
+      ctxWith(client),
+      ["https://example.com"],
+      false,
+      autoPrRunner(withPr),
+      fakeCapture("remote"),
+    );
+    expect(renameCalls).toEqual([]);
+  });
+});
 
 describe("runScreenshot auto-PR context (issue #700)", () => {
   const withPr = {

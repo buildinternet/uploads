@@ -41,8 +41,31 @@ import { dbFor } from "./db-session";
  * 100 that's ~905 subrequests worst case — over 90% of the ceiling, too
  * little margin against list pagination or a workspace with extra budget
  * checks. At 50 it's ~455 (well under half), so this is set to 50.
+ *
+ * The LISTING side of that budget is bounded by `MAX_LIST_PAGES_TOTAL` and
+ * `LIST_ENTRY_BUDGET` below (#920): the rename lineage turned "one or two
+ * prefixes" into "up to 16 names x 2 prefixes", so the per-prefix page cap
+ * alone no longer bounds the sweep.
  */
 export const PROMOTE_STAGED_CAP = 50;
+
+/**
+ * List pages the whole sweep may spend, across every lineage name and both
+ * key modes — deliberately the pre-#920 ceiling (2 prefixes x 50 pages), so
+ * following a rename can never cost more list subrequests than a single
+ * branch already could.
+ */
+const MAX_LIST_PAGES_TOTAL = 100;
+
+/**
+ * Stop listing once this many staged entries are buffered. Anything past
+ * `PROMOTE_STAGED_CAP` is only ever reported as `cap_exceeded` anyway, so
+ * one cap's worth of overflow is enough to still report that the sweep was
+ * truncated without buffering an unbounded prefix. Because the lineage is
+ * listed current-name-first, an early stop drops the OLDEST names, never the
+ * current one's files.
+ */
+const LIST_ENTRY_BUDGET = PROMOTE_STAGED_CAP * 2;
 
 /** Staged files older than this (by their `gh.staged-at` D1 tag) are skipped, not promoted. */
 const FRESHNESS_WINDOW_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
@@ -178,6 +201,11 @@ export async function promoteBranchAttachments(
   // skipped rather than silently dropped.
   const entries: StagedEntry[] = [];
   const MAX_LIST_PAGES = 50; // 50k objects at the 1000-per-page ceiling; far beyond any real staging prefix.
+  let listPagesUsed = 0;
+  /** True once the sweep has spent its page budget or buffered enough entries. */
+  function listBudgetSpent(): boolean {
+    return listPagesUsed >= MAX_LIST_PAGES_TOTAL || entries.length >= LIST_ENTRY_BUDGET;
+  }
   async function listPrefix(
     prefix: string,
     isPrivate: boolean,
@@ -185,6 +213,8 @@ export async function promoteBranchAttachments(
   ): Promise<void> {
     let cursor: string | undefined;
     for (let page = 0; page < MAX_LIST_PAGES; page++) {
+      if (listBudgetSpent()) return;
+      listPagesUsed++;
       const result = await store.list({ prefix, limit: 1000, cursor });
       for (const item of result.items) {
         entries.push({
@@ -205,6 +235,9 @@ export async function promoteBranchAttachments(
   // Older names use whatever private prefix id they ALREADY have — never
   // mint one for a name nothing was ever staged under.
   for (const [lineageIndex, branchName] of lineage.entries()) {
+    // Stop before the older names' D1 prefix lookups too, not just their
+    // list calls — a spent budget means nothing more can be buffered.
+    if (listBudgetSpent()) break;
     await listPrefix(stagedPrefix(owner, name, branchName), false, lineageIndex);
     if (mode.mode !== "private") continue;
     const prefixId =

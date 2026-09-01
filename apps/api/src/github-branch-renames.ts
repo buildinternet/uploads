@@ -123,13 +123,20 @@ export async function resolveBranchLineage(
     if (frontier.length === 0 || lineage.length >= LINEAGE_TOTAL_CAP) break;
     const next: string[] = [];
     for (const name of frontier) {
+      // LIMIT to what the total cap can still absorb: a workspace that has
+      // registered hundreds of old names for one branch (a fan-in, or a
+      // deliberately seeded alias graph) must not materialize every row for
+      // a walk that can only ever use a handful more.
+      const remaining = LINEAGE_TOTAL_CAP - lineage.length;
+      if (remaining <= 0) return lineage;
       const { results } = await db
         .prepare(
           `SELECT old_branch FROM github_branch_renames
            WHERE workspace = ? AND repo_full_name = ? AND new_branch = ?
-           ORDER BY recorded_at ASC`,
+           ORDER BY recorded_at ASC
+           LIMIT ?`,
         )
-        .bind(workspace, repoFullName, name)
+        .bind(workspace, repoFullName, name, remaining)
         .all<OldBranchRow>();
       for (const row of results ?? []) {
         const lower = row.old_branch.toLowerCase();

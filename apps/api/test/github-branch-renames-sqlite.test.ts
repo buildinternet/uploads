@@ -152,6 +152,48 @@ describe("github branch renames (#920)", () => {
     }
   });
 
+  it("never fetches more rows than the total cap can still absorb", async () => {
+    const { sqlite, db: d } = db();
+    try {
+      for (let i = 0; i < 200; i++) await recordBranchRename(d, rename(`old-${i}`, "wide"));
+      // Count what each lineage query actually returns — a missing LIMIT
+      // would materialize all 200 rows for a walk that can use 15.
+      const pageSizes: number[] = [];
+      const counting = {
+        prepare: (sql: string) => {
+          const stmt = d.prepare(sql);
+          return {
+            bind: (...args: unknown[]) => {
+              const bound = stmt.bind(...args);
+              return {
+                first: () => bound.first(),
+                run: () => bound.run(),
+                all: async <T>() => {
+                  const result = await bound.all<T>();
+                  pageSizes.push(result.results.length);
+                  return result;
+                },
+              };
+            },
+          };
+        },
+        batch: async () => [],
+      };
+
+      const lineage = await resolveBranchLineage(
+        counting as unknown as Parameters<typeof resolveBranchLineage>[0],
+        WS,
+        REPO,
+        "wide",
+      );
+
+      expect(lineage).toHaveLength(16);
+      expect(Math.max(...pageSizes)).toBeLessThanOrEqual(15);
+    } finally {
+      sqlite.close();
+    }
+  });
+
   it("resolveBranchLineageSafe falls back to [branch] on a lookup error", async () => {
     const throwing = {
       prepare: () => {

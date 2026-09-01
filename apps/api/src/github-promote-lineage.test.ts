@@ -201,6 +201,35 @@ describe("promoteBranchAttachments — rename lineage (#920)", () => {
     expect((await getFileMetadata(seeded.env.DB, WS, oldPrivateKey))["gh.status"]).toBe("promoted");
   });
 
+  it("stops listing once the sweep's entry budget is spent, keeping the current name's files", async () => {
+    const seeded = await seededEnv();
+    // A 16-link rename chain (the depth cap trims the lineage to 9 names),
+    // each name's plain prefix holding 20 staged files — 180 entries if the
+    // sweep listed every name it resolved.
+    const names = Array.from({ length: 16 }, (_, i) => `n${i}`);
+    for (const [index, branch] of names.entries()) {
+      for (let f = 0; f < 20; f++) {
+        await seedAt(seeded, stagedKey(branch, `${branch}-${f}.png`), branch);
+      }
+      if (index > 0) await renamed(seeded, branch, names[index - 1]);
+    }
+    seeded.bucket.listCalls = 0;
+
+    const result = await promote(seeded, names[0]);
+
+    // LIST_ENTRY_BUDGET (PROMOTE_STAGED_CAP * 2 = 100) is reached after the
+    // 5th name's page — one list call per name, then the sweep stops rather
+    // than walking all 9 (and far short of the 100-page ceiling).
+    expect(seeded.bucket.listCalls).toBe(5);
+    expect(result.lineage).toHaveLength(9); // depth cap: the branch + 8 hops
+    // The current name is listed first, so it keeps every slot it needs: all
+    // 20 of its files promoted, the overflow reported as cap_exceeded.
+    expect(result.promoted).toHaveLength(50);
+    expect(result.promoted.filter((key) => key.includes(`${names[0]}-`))).toHaveLength(20);
+    expect(result.skipped).toHaveLength(50);
+    expect(new Set(result.skipped.map((s) => s.reason))).toEqual(new Set(["cap_exceeded"]));
+  });
+
   it("a lineage lookup failure degrades to the current name only", async () => {
     const seeded = await seededEnv();
     await seedAt(seeded, stagedKey(OLD_BRANCH, "old.png"), OLD_BRANCH);

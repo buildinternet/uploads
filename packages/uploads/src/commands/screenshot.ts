@@ -42,6 +42,7 @@ import { resolvePutPrefix } from "../destinations.js";
 import {
   execRunner,
   ghMetadataFromTargetWithTitle,
+  resolveCurrentBranch,
   resolveRepo,
   type CommandRunner,
 } from "../github-gh.js";
@@ -512,6 +513,23 @@ export async function runScreenshot(
   if (effectiveGhTarget) {
     metadata = { ...withFacts, ...ghMetadataFromTargetWithTitle(effectiveGhTarget, run) };
     validateMetaMap(metadata);
+    // The #700 auto-PR match suppresses staging, so the staging branch below
+    // never runs — but this capture still comes from a branch that may have
+    // been renamed while files were staged under the old name. Register the
+    // lineage here too (issue #920). Only for the auto-PR match: an explicit
+    // --pr/--issue names no branch of its own.
+    if (autoPrTarget && ghTarget === undefined) {
+      try {
+        await registerRenamesBestEffort(
+          ctx.client,
+          run,
+          autoPrTarget.repo,
+          resolveCurrentBranch(run),
+        );
+      } catch {
+        // detached HEAD or not a repo — nothing to follow
+      }
+    }
   } else if (stagingTarget !== undefined) {
     metadata = mergeStagingMeta(withFacts, stagingTarget);
     // Same rename registration as `put`/`attach --branch` staging (issue

@@ -2853,6 +2853,23 @@ export async function runPut(
     validateMetaMap(merged); // enforce 24-key/8KB caps on the merged map (matches attach)
     metadata = merged;
     attachedRef = merged["gh.ref"];
+    // Auto-PR (#700) suppresses staging, so the staging branch below never
+    // runs — but this put still comes from a branch that may have been
+    // renamed while files were staged under the old name. Register the
+    // lineage here too (issue #920) so the PR's next promote follows it.
+    // Only for the auto-PR match: an explicit --pr/--issue names no branch.
+    if (autoPrTarget && !ghTarget) {
+      try {
+        await registerRenamesBestEffort(
+          ctx.client,
+          run,
+          autoPrTarget.repo,
+          resolveCurrentBranch(run),
+        );
+      } catch {
+        // detached HEAD or not a repo — nothing to follow
+      }
+    }
   } else if (stagingTarget) {
     metadata = mergeStagingMeta(userMeta, stagingTarget);
     // Branch staging: register any rename behind this name (issue #920) so
