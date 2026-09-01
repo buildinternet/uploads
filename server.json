@@ -9,7 +9,7 @@
     "source": "github",
     "id": "1291468384"
   },
-  "version": "0.50.1",
+  "version": "0.51.0",
   "icons": [
     {
       "src": "https://uploads.sh/apple-touch-icon.png",
@@ -22,7 +22,7 @@
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "@buildinternet/uploads",
-      "version": "0.50.1",
+      "version": "0.51.0",
       "transport": {
         "type": "stdio"
       },
