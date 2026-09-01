@@ -321,8 +321,10 @@ no staging reaper (see `docs/deletion.md`); once a file ages out of the promotio
 window it just sits there, still reachable at its original URL, until
 per-workspace retention or an explicit `files:delete` removes it.
 
-Renaming the branch is followed automatically: any `uploads` staging or promote
-command run on it (`attach --branch`, `put`, `attach --pr`, `attach --promote`)
+Renaming the branch is followed automatically, best-effort (a reflog or
+registration failure is silent and only means the old name is not swept): any
+`uploads` staging or promote command run on it (`attach --branch`, `put`,
+`attach --pr`, `attach --promote`)
 reads the rename from the branch's git reflog and registers it with the
 server, so promote sweeps the old name too. That needs one more `uploads`
 run before the PR opens; if the branch is renamed or deleted and the PR opens

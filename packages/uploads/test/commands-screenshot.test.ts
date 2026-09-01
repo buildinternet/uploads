@@ -1019,6 +1019,69 @@ describe("runScreenshot branch-rename registration (issue #920)", () => {
     expect(renameCalls).toEqual([{ repo: "o/r", from: "old/thing", to: "feature/thing" }]);
   });
 
+  it("registers nothing under --dry-run on the auto-staging path", async () => {
+    const { client, puts, renameCalls } = fakeClient();
+    const { pr: _pr, ...noPr } = withPr;
+    await runScreenshot(
+      ctxWith(client),
+      ["https://example.com", "--dry-run"],
+      false,
+      autoPrRunner({ ...noPr, renames }),
+      fakeCapture("remote"),
+    );
+    // The staging path still ran — it just must not record anything server-side.
+    expect(puts[0]?.key).toBe("gh/o/r/branch/feature-thing/example-com.png");
+    expect(puts[0]?.dryRun).toBe(true);
+    expect(renameCalls).toEqual([]);
+  });
+
+  it("registers nothing under --dry-run on the auto-PR path", async () => {
+    const { client, puts, renameCalls } = fakeClient();
+    await runScreenshot(
+      ctxWith(client),
+      ["https://example.com", "--dry-run"],
+      false,
+      autoPrRunner({ ...withPr, renames }),
+      fakeCapture("remote"),
+    );
+    expect(puts[0]?.key).toBe("gh/o/r/pull/1250/example-com.png");
+    expect(puts[0]?.dryRun).toBe(true);
+    expect(renameCalls).toEqual([]);
+  });
+
+  // --dry-run and --no-upload are mutually exclusive (see the usage test
+  // above), so the no-upload cases are separate runs.
+  it("registers nothing under --no-upload on the auto-staging path", async () => {
+    const { client, puts, renameCalls } = fakeClient();
+    const dir = mkdtempSync(join(tmpdir(), "uploads-screenshot-"));
+    const out = join(dir, "shot.png");
+    const { pr: _pr, ...noPr } = withPr;
+    await runScreenshot(
+      ctxWith(client),
+      ["https://example.com", "--no-upload", "--out", out],
+      false,
+      autoPrRunner({ ...noPr, renames }),
+      fakeCapture("local"),
+    );
+    expect(puts).toEqual([]);
+    expect(renameCalls).toEqual([]);
+  });
+
+  it("registers nothing under --no-upload on the auto-PR path", async () => {
+    const { client, puts, renameCalls } = fakeClient();
+    const dir = mkdtempSync(join(tmpdir(), "uploads-screenshot-"));
+    const out = join(dir, "shot.png");
+    await runScreenshot(
+      ctxWith(client),
+      ["https://example.com", "--no-upload", "--out", out],
+      false,
+      autoPrRunner({ ...withPr, renames }),
+      fakeCapture("local"),
+    );
+    expect(puts).toEqual([]);
+    expect(renameCalls).toEqual([]);
+  });
+
   it("registers nothing on an explicit --pr", async () => {
     const { client, renameCalls } = fakeClient();
     await runScreenshot(

@@ -2848,14 +2848,16 @@ export async function runPut(
     // lineage here too (issue #920), reusing the branch the match already
     // resolved. Only for the auto-PR match: an explicit --pr/--issue names
     // no branch of its own.
-    if (autoPrMatch) {
+    if (autoPrMatch && !dryRun) {
       await registerRenamesBestEffort(ctx.client, run, autoPrMatch.target.repo, autoPrMatch.branch);
     }
   } else if (stagingTarget) {
     metadata = mergeStagingMeta(userMeta, stagingTarget);
     // Branch staging: register any rename behind this name (issue #920) so
     // the PR-time promote finds files staged under the older names too.
-    await registerRenamesBestEffort(ctx.client, run, stagingTarget.repo, stagingTarget.branch);
+    if (!dryRun) {
+      await registerRenamesBestEffort(ctx.client, run, stagingTarget.repo, stagingTarget.branch);
+    }
   } else {
     // gh.* additionally needs git, which the shared derived gate ignores.
     if (!noGit && derivedMetaEnabled(parsed.flags, defaults)) {

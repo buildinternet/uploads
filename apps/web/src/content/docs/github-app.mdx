@@ -143,7 +143,8 @@ _Subscribe to events_):
 Branch-rename following for staged uploads (see
 [Attach & share](/docs/attach-pull-request-images)) is done client-side by the CLI on purpose, so
 the App doesn't need `Contents: read` ("read access to code"); that can be revisited if more use
-cases justify asking for it.
+cases justify asking for it. The follow-up happens the next time `uploads` stages or promotes on the
+renamed branch; if the PR opens before that, `attach --from-branch <old>` still recovers the files.
 
 </section>
 

@@ -519,14 +519,16 @@ export async function runScreenshot(
     // lineage here too (issue #920), reusing the branch the match already
     // resolved. Only for the auto-PR match: an explicit --pr/--issue names
     // no branch of its own.
-    if (autoPrMatch) {
+    if (autoPrMatch && !dryRun && !noUpload) {
       await registerRenamesBestEffort(ctx.client, run, autoPrMatch.target.repo, autoPrMatch.branch);
     }
   } else if (stagingTarget !== undefined) {
     metadata = mergeStagingMeta(withFacts, stagingTarget);
     // Same rename registration as `put`/`attach --branch` staging (issue
     // #920): best-effort, never fails the capture.
-    await registerRenamesBestEffort(ctx.client, run, stagingTarget.repo, stagingTarget.branch);
+    if (!dryRun && !noUpload) {
+      await registerRenamesBestEffort(ctx.client, run, stagingTarget.repo, stagingTarget.branch);
+    }
   } else if (Object.keys(withFacts).length > 0) {
     validateMetaMap(withFacts);
   }

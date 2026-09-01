@@ -2377,6 +2377,35 @@ describe("runPut branch-rename registration (issue #920)", () => {
     expect(renameCalls).toEqual([{ repo: "o/r", from: "old/thing", to: "feature/thing" }]);
   });
 
+  it("registers nothing under --dry-run on the branch-staging path", async () => {
+    const { client, puts, renameCalls } = fakeClient();
+    const { pr: _pr, ...noPr } = withPr;
+    await runPut(
+      ctxWith(client),
+      [tmpFile(), "--dry-run"],
+      false,
+      nudgeRunner({ ...noPr, renames }),
+    );
+    // The staging path still ran (same key as the non-dry-run case above),
+    // it just must not record anything server-side.
+    expect(puts[0]?.key).toBe("gh/o/r/branch/feature-thing/shot.png");
+    expect(puts[0]?.dryRun).toBe(true);
+    expect(renameCalls).toEqual([]);
+  });
+
+  it("registers nothing under --dry-run on the auto-PR path", async () => {
+    const { client, puts, renameCalls } = fakeClient();
+    await runPut(
+      ctxWith(client),
+      [tmpFile(), "--dry-run"],
+      false,
+      nudgeRunner({ ...withPr, renames }),
+    );
+    expect(puts[0]?.key).toBe("gh/o/r/pull/1250/shot.png");
+    expect(puts[0]?.dryRun).toBe(true);
+    expect(renameCalls).toEqual([]);
+  });
+
   it("registers nothing on an explicit --pr (no branch resolution of our own)", async () => {
     const { client, renameCalls } = fakeClient();
     await runPut(
