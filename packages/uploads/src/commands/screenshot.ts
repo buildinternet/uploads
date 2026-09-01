@@ -42,7 +42,6 @@ import { resolvePutPrefix } from "../destinations.js";
 import {
   execRunner,
   ghMetadataFromTargetWithTitle,
-  resolveCurrentBranch,
   resolveRepo,
   type CommandRunner,
 } from "../github-gh.js";
@@ -430,7 +429,7 @@ export async function runScreenshot(
   // maps to exactly one open PR behaves as if --pr <n> had been passed —
   // stable key + managed comment sync — instead of the #469 auto-staging
   // default below. Mirrors put's #700 handling exactly (resolveAutoPrTarget).
-  const autoPrTarget =
+  const autoPrMatch =
     ghTarget || branchArg !== undefined
       ? undefined
       : resolveAutoPrTarget({
@@ -445,6 +444,7 @@ export async function runScreenshot(
           repoArg: flagString(parsed.flags, "--repo") ?? putDefaults.repo,
           run,
         });
+  const autoPrTarget = autoPrMatch?.target;
   const effectiveGhTarget = ghTarget ?? autoPrTarget;
 
   // Auto branch staging (issue #469 lever 1): mirrors bare `put`'s auto-staging
@@ -516,19 +516,11 @@ export async function runScreenshot(
     // The #700 auto-PR match suppresses staging, so the staging branch below
     // never runs — but this capture still comes from a branch that may have
     // been renamed while files were staged under the old name. Register the
-    // lineage here too (issue #920). Only for the auto-PR match: an explicit
-    // --pr/--issue names no branch of its own.
-    if (autoPrTarget && ghTarget === undefined) {
-      try {
-        await registerRenamesBestEffort(
-          ctx.client,
-          run,
-          autoPrTarget.repo,
-          resolveCurrentBranch(run),
-        );
-      } catch {
-        // detached HEAD or not a repo — nothing to follow
-      }
+    // lineage here too (issue #920), reusing the branch the match already
+    // resolved. Only for the auto-PR match: an explicit --pr/--issue names
+    // no branch of its own.
+    if (autoPrMatch) {
+      await registerRenamesBestEffort(ctx.client, run, autoPrMatch.target.repo, autoPrMatch.branch);
     }
   } else if (stagingTarget !== undefined) {
     metadata = mergeStagingMeta(withFacts, stagingTarget);

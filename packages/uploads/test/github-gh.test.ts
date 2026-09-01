@@ -9,6 +9,7 @@ import {
   resolveDefaultBranch,
   resolveGhTitle,
   renameLineageFromReflog,
+  resolveCurrentBranchSafe,
   resolveRepo,
   timedExecRunner,
   upsertAttachmentsComment,
@@ -132,6 +133,27 @@ describe("resolveCurrentBranch", () => {
       },
     });
     expect(() => resolveCurrentBranch(run)).toThrow(UsageError);
+  });
+});
+
+describe("resolveCurrentBranchSafe", () => {
+  it("returns the current branch name", () => {
+    const { run } = fakeRunner({ git: () => "feature/thing\n" });
+    expect(resolveCurrentBranchSafe(run)).toBe("feature/thing");
+  });
+
+  it("returns undefined on a detached HEAD", () => {
+    const { run } = fakeRunner({ git: () => "HEAD\n" });
+    expect(resolveCurrentBranchSafe(run)).toBeUndefined();
+  });
+
+  it("returns undefined when git fails (not a repo)", () => {
+    const { run } = fakeRunner({
+      git: () => {
+        throw new Error("not a git repository");
+      },
+    });
+    expect(resolveCurrentBranchSafe(run)).toBeUndefined();
   });
 });
 

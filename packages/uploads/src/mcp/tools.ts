@@ -50,6 +50,7 @@ import {
   execRunner,
   ghMetadataFromTargetWithTitle,
   resolveCurrentBranch,
+  resolveCurrentBranchSafe,
   resolveCurrentPullRequest,
   resolveRepo,
   type CommandRunner,
@@ -605,19 +606,21 @@ export function createUploadsMcpTools(opts: {
         // had been passed (stable key + managed comment sync) instead of
         // the #403 staging default below. Never throws — see
         // resolveAutoPrTarget.
-        const autoPrTarget = target
-          ? undefined
-          : resolveAutoPrTarget({
-              ghTarget: target,
-              keyHint: keyArg,
-              refArg,
-              prefixArg,
-              destinationArg: destArg,
-              noGit,
-              noAutoPr,
-              repoArg: optString(args, "repo") ?? defaults.repo,
-              run,
-            });
+        const autoPrTarget = (
+          target
+            ? undefined
+            : resolveAutoPrTarget({
+                ghTarget: target,
+                keyHint: keyArg,
+                refArg,
+                prefixArg,
+                destinationArg: destArg,
+                noGit,
+                noAutoPr,
+                repoArg: optString(args, "repo") ?? defaults.repo,
+                run,
+              })
+        )?.target;
         const effectiveTarget = target ?? autoPrTarget;
 
         // Bare-put branch staging (issue #403): local stdio MCP put mirrors
@@ -1035,19 +1038,21 @@ export function createUploadsMcpTools(opts: {
         // behaves as if `pr` had been passed (stable key + managed comment
         // sync) instead of the #469 auto-staging default below. Never
         // throws — see resolveAutoPrTarget.
-        const autoPrTarget = target
-          ? undefined
-          : resolveAutoPrTarget({
-              ghTarget: target,
-              keyHint: keyArg,
-              refArg,
-              prefixArg,
-              destinationArg: destArg,
-              noGit,
-              noAutoPr,
-              repoArg: optString(args, "repo") ?? defaults.repo,
-              run,
-            });
+        const autoPrTarget = (
+          target
+            ? undefined
+            : resolveAutoPrTarget({
+                ghTarget: target,
+                keyHint: keyArg,
+                refArg,
+                prefixArg,
+                destinationArg: destArg,
+                noGit,
+                noAutoPr,
+                repoArg: optString(args, "repo") ?? defaults.repo,
+                run,
+              })
+        )?.target;
         const effectiveTarget = target ?? autoPrTarget;
 
         // Auto branch staging (issue #469 lever 1): mirrors the CLI screenshot
@@ -1389,20 +1394,11 @@ export function createUploadsMcpTools(opts: {
         let promotion: PromoteBranchAttachmentsResult | undefined;
         let promoteError: string | undefined;
         if (target.kind === "pull" && !optBool(args, "noPromote")) {
-          let branch: string | undefined = fromBranch;
-          if (branch === undefined) {
-            try {
-              branch = resolveCurrentBranch(run);
-            } catch {
-              branch = undefined; // detached HEAD, or not a git repo
-            }
-          }
+          const branch = fromBranch ?? resolveCurrentBranchSafe(run);
           if (branch !== undefined) {
-            // --from-branch is a manual override; its lineage belongs to
-            // another name, so only a self-resolved branch registers renames.
-            if (fromBranch === undefined) {
-              await registerRenamesBestEffort(client, run, target.repo, branch);
-            }
+            await registerRenamesBestEffort(client, run, target.repo, branch, {
+              explicit: fromBranch !== undefined,
+            });
             ({ promotion, promoteError } = await attemptPromote(client, target, branch));
           }
         }

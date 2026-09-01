@@ -64,6 +64,7 @@ import {
   resolveRepo,
   resolveCurrentPullRequest,
   resolveCurrentBranch,
+  resolveCurrentBranchSafe,
   resolveDefaultBranch,
   classifyGhNumber,
   execRunner,
@@ -1662,13 +1663,20 @@ export async function uploadPuts(opts: {
  * when the client predates the route. Every failure is swallowed — this runs
  * alongside staging and promote, and must never fail either. Set
  * `UPLOADS_DEBUG=1` to see what was skipped.
+ *
+ * `opts.explicit` marks a branch the user named themselves (`--from-branch`
+ * / the MCP `fromBranch` argument): that is the manual escape hatch (PR
+ * #919), and its lineage belongs to a different name than the one we are
+ * standing on, so nothing is registered for it.
  */
 export async function registerRenamesBestEffort(
   client: UploadsClient,
   run: CommandRunner,
   repo: string,
   branch: string,
+  opts: { explicit?: boolean } = {},
 ): Promise<void> {
+  if (opts.explicit) return;
   let lineage: ReturnType<typeof renameLineageFromReflog>;
   try {
     lineage = renameLineageFromReflog(run, branch);
@@ -1711,24 +1719,21 @@ async function attemptPromoteBranch(
 }
 
 /**
- * Human-mode note for a promotion whose server-side sweep followed a rename
- * (issue #920). `lineage` is current-name-first, so the older names are the
- * tail. Returns undefined when nothing was renamed.
+ * Human-mode note(s) for a promotion that actually promoted something. When
+ * the server-side sweep followed a rename it adds a second line naming the
+ * older branch names (issue #920): `lineage` is current-name-first, so the
+ * older names are its tail.
  */
-function renameFollowNote(promotion: PromoteBranchAttachmentsResult): string | undefined {
-  const older = (promotion.lineage ?? []).slice(1);
-  if (older.length === 0) return undefined;
-  return `>> followed rename from ${older.join(", ")}\n`;
-}
-
-/** Human-mode note for a promotion that actually promoted something. */
 function promotionNote(
   promotion: PromoteBranchAttachmentsResult,
   branch: string | undefined,
 ): string {
   const n = promotion.promoted.length;
   const branchSuffix = branch ? ` from branch ${branch}` : "";
-  return `>> promoted ${n} staged attachment${n === 1 ? "" : "s"}${branchSuffix}\n`;
+  const promoted = `>> promoted ${n} staged attachment${n === 1 ? "" : "s"}${branchSuffix}\n`;
+  const older = (promotion.lineage ?? []).slice(1);
+  if (older.length === 0) return promoted;
+  return `${promoted}>> followed rename from ${older.join(", ")}\n`;
 }
 
 export async function runAttach(
@@ -1905,20 +1910,11 @@ export async function runAttach(
   let promotion: PromoteBranchAttachmentsResult | undefined;
   let promotedBranch: string | undefined;
   if (target.kind === "pull" && !parsed.flags.has("--no-promote")) {
-    promotedBranch = fromBranch;
-    if (promotedBranch === undefined) {
-      try {
-        promotedBranch = resolveCurrentBranch(run);
-      } catch {
-        promotedBranch = undefined;
-      }
-    }
+    promotedBranch = fromBranch ?? resolveCurrentBranchSafe(run);
     if (promotedBranch !== undefined) {
-      // Only for a branch we resolved ourselves — an explicit --from-branch is
-      // a manual override, and its lineage (if any) belongs to another name.
-      if (fromBranch === undefined) {
-        await registerRenamesBestEffort(ctx.client, run, target.repo, promotedBranch);
-      }
+      await registerRenamesBestEffort(ctx.client, run, target.repo, promotedBranch, {
+        explicit: fromBranch !== undefined,
+      });
       promotion = await attemptPromoteBranch(ctx.client, target, promotedBranch);
     }
   }
@@ -1984,8 +1980,6 @@ export async function runAttach(
     }
     if (!ctx.quiet && promotion && promotion.promoted.length > 0) {
       process.stderr.write(promotionNote(promotion, promotedBranch));
-      const followed = renameFollowNote(promotion);
-      if (followed) process.stderr.write(followed);
     }
     if (!ctx.quiet && comment)
       process.stderr.write(
@@ -2177,11 +2171,9 @@ async function runAttachPromoteOnly(
   const explicitFromBranch = flagString(parsed.flags, "--from-branch");
   const branch = explicitFromBranch ?? resolveCurrentBranch(run);
 
-  // Rename following (issue #920) only applies to the branch we resolved
-  // ourselves; --from-branch is the manual escape hatch (PR #919).
-  if (explicitFromBranch === undefined) {
-    await registerRenamesBestEffort(ctx.client, run, target.repo, branch);
-  }
+  await registerRenamesBestEffort(ctx.client, run, target.repo, branch, {
+    explicit: explicitFromBranch !== undefined,
+  });
   const promotion = await attemptPromoteBranch(ctx.client, target, branch);
 
   let comment: AttachmentsCommentResult | undefined;
@@ -2209,8 +2201,6 @@ async function runAttachPromoteOnly(
   } else {
     if (!ctx.quiet && promotion && promotion.promoted.length > 0) {
       process.stderr.write(promotionNote(promotion, branch));
-      const followed = renameFollowNote(promotion);
-      if (followed) process.stderr.write(followed);
     }
     if (!ctx.quiet && comment)
       process.stderr.write(
@@ -2289,12 +2279,8 @@ export function resolvePutNudgeContext(opts: {
   if (hasBranchFlag) return undefined; // not a real put flag today; defensive only
   try {
     if (deriveRepoFromGit(run) === undefined) return undefined; // not a (usable) git repo
-    let branch: string;
-    try {
-      branch = resolveCurrentBranch(run);
-    } catch {
-      return undefined; // detached HEAD, or git unavailable
-    }
+    const branch = resolveCurrentBranchSafe(run);
+    if (branch === undefined) return undefined; // detached HEAD, or git unavailable
     const defaultBranch = resolveDefaultBranch(run);
     const onDefaultBranch = defaultBranch
       ? branch === defaultBranch
@@ -2319,6 +2305,12 @@ export function resolvePutNudgeContext(opts: {
   }
 }
 
+/** A #700 auto-PR match: the PR the current branch maps to, plus that branch. */
+export interface AutoPrMatch {
+  target: GhTarget;
+  branch: string;
+}
+
 /**
  * Auto-PR context (issue #700): when a bare put/screenshot has no explicit
  * destination flag at all (`--pr`/`--issue`/`--key`/`--ref`/`--prefix`/
@@ -2335,6 +2327,10 @@ export function resolvePutNudgeContext(opts: {
  * default branch, or with `--no-git`; any failure (not a repo, detached
  * HEAD, gh missing/unauthenticated/timed out, no open PR) degrades to
  * undefined so the caller falls back to its normal staging/dated behavior.
+ *
+ * The match carries the `branch` it was resolved from, so callers that need
+ * the current branch (the #920 rename registration) reuse it instead of
+ * spawning `git rev-parse` a second time.
  */
 export function resolveAutoPrTarget(opts: {
   ghTarget: GhTarget | undefined;
@@ -2349,7 +2345,7 @@ export function resolveAutoPrTarget(opts: {
   noAutoPr: boolean;
   repoArg: string | undefined;
   run: CommandRunner;
-}): GhTarget | undefined {
+}): AutoPrMatch | undefined {
   const {
     ghTarget,
     keyHint,
@@ -2367,12 +2363,8 @@ export function resolveAutoPrTarget(opts: {
   if (refArg || prefixArg || destinationArg || branchArg !== undefined) return undefined;
   try {
     if (deriveRepoFromGit(run) === undefined) return undefined; // not a (usable) git repo
-    let branch: string;
-    try {
-      branch = resolveCurrentBranch(run);
-    } catch {
-      return undefined; // detached HEAD, or git unavailable
-    }
+    const branch = resolveCurrentBranchSafe(run);
+    if (branch === undefined) return undefined; // detached HEAD, or git unavailable
     const defaultBranch = resolveDefaultBranch(run);
     const onDefaultBranch = defaultBranch
       ? branch === defaultBranch
@@ -2383,7 +2375,7 @@ export function resolveAutoPrTarget(opts: {
     // this must never be felt as a hang.
     const timed = run === execRunner ? timedExecRunner(PUT_NUDGE_GH_TIMEOUT_MS) : run;
     const repo = resolveRepo(repoArg, timed);
-    return resolveCurrentPullRequest(repo, timed);
+    return { target: resolveCurrentPullRequest(repo, timed), branch };
   } catch {
     return undefined; // gh/git unavailable, no open PR, or repo unresolvable
   }
@@ -2425,12 +2417,8 @@ export function resolvePutStagingTarget(opts: {
   if (refArg || prefixArg || destinationArg) return undefined;
   try {
     if (deriveRepoFromGit(run) === undefined) return undefined; // not a (usable) git repo
-    let branch: string;
-    try {
-      branch = resolveCurrentBranch(run);
-    } catch {
-      return undefined; // detached HEAD, or git unavailable
-    }
+    const branch = resolveCurrentBranchSafe(run);
+    if (branch === undefined) return undefined; // detached HEAD, or git unavailable
     const defaultBranch = resolveDefaultBranch(run);
     const onDefaultBranch = defaultBranch
       ? branch === defaultBranch
@@ -2710,7 +2698,7 @@ export async function runPut(
   // resolveAutoPrTarget. Supersedes both the #403 staging default and the
   // #393 nudge for this case; computed before the gh.* metadata resolution
   // below since it takes over that resolution entirely.
-  const autoPrTarget: GhTarget | undefined = ghTarget
+  const autoPrMatch: AutoPrMatch | undefined = ghTarget
     ? undefined
     : resolveAutoPrTarget({
         ghTarget,
@@ -2723,6 +2711,7 @@ export async function runPut(
         repoArg: flagString(parsed.flags, "--repo") ?? defaults.repo,
         run,
       });
+  const autoPrTarget = autoPrMatch?.target;
   const effectiveGhTarget = ghTarget ?? autoPrTarget;
   // Comment sync runs by default with --pr/--issue (matches `attach`); opt
   // out with --no-comment. --comment is accepted as a redundant no-op for
@@ -2856,19 +2845,11 @@ export async function runPut(
     // Auto-PR (#700) suppresses staging, so the staging branch below never
     // runs — but this put still comes from a branch that may have been
     // renamed while files were staged under the old name. Register the
-    // lineage here too (issue #920) so the PR's next promote follows it.
-    // Only for the auto-PR match: an explicit --pr/--issue names no branch.
-    if (autoPrTarget && !ghTarget) {
-      try {
-        await registerRenamesBestEffort(
-          ctx.client,
-          run,
-          autoPrTarget.repo,
-          resolveCurrentBranch(run),
-        );
-      } catch {
-        // detached HEAD or not a repo — nothing to follow
-      }
+    // lineage here too (issue #920), reusing the branch the match already
+    // resolved. Only for the auto-PR match: an explicit --pr/--issue names
+    // no branch of its own.
+    if (autoPrMatch) {
+      await registerRenamesBestEffort(ctx.client, run, autoPrMatch.target.repo, autoPrMatch.branch);
     }
   } else if (stagingTarget) {
     metadata = mergeStagingMeta(userMeta, stagingTarget);

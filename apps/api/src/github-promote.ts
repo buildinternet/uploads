@@ -136,6 +136,26 @@ interface StagedEntry {
   lineageIndex: number;
 }
 
+/** One lineage name's worth of prefixes to sweep, resolved up front (#920). */
+interface SweepPlanEntry {
+  /** The branch name, spelled as it was staged. */
+  name: string;
+  /** 0 = the branch's CURRENT name, higher = older name. */
+  lineageIndex: number;
+  plainPrefix: string;
+  /** The name's ACTIVE private prefix id, or null in plain mode / when it has none. */
+  privatePrefixId: string | null;
+}
+
+/**
+ * Precedence for one destination filename: lowest rank wins. A nearer
+ * lineage name always beats an older one, and within one name a
+ * private-staged entry beats a plain one (it's the newer-mode staging).
+ */
+function entryRank(entry: StagedEntry): number {
+  return entry.lineageIndex * 2 + (entry.private ? 0 : 1);
+}
+
 /** One filename's worth of work: the entry actually copied, plus any other
  * staged entry that resolves to the SAME destination filename (issue #631's
  * dual-sweep can list the same filename under both the plain and private
@@ -173,23 +193,42 @@ export async function promoteBranchAttachments(
   const [owner, name] = target.repo.split("/");
   const store = await storage(env, ws);
 
-  // Rename lineage (#920): `[current, ...older names]`, or just
-  // `[target.branch]` when the branch was never renamed (or the lookup
-  // failed — `resolveBranchLineageSafe` degrades rather than aborting).
-  const lineage = await resolveBranchLineageSafe(
-    dbFor(env),
-    workspaceName,
-    target.repo,
-    target.branch,
-  );
+  // Two independent lookups, so they overlap:
+  //  - the rename lineage (#920): `[current, ...older names]`, or just
+  //    `[target.branch]` when the branch was never renamed (or the lookup
+  //    failed — `resolveBranchLineageSafe` degrades rather than aborting);
+  //  - the key mode, fail-open (see `resolveGhKeyContextSafe`'s doc) —
+  //    promote must never abort just because the mode couldn't be determined.
+  const [lineage, mode] = await Promise.all([
+    resolveBranchLineageSafe(dbFor(env), workspaceName, target.repo, target.branch),
+    resolveGhKeyContextSafe(
+      env,
+      workspaceName,
+      { repo: target.repo, branch: target.branch },
+      "promote",
+    ),
+  ]);
 
-  // Fail-open resolve (see `resolveGhKeyContextSafe`'s doc) — promote must
-  // never abort just because the mode couldn't be determined.
-  const mode = await resolveGhKeyContextSafe(
-    env,
-    workspaceName,
-    { repo: target.repo, branch: target.branch },
-    "promote",
+  // One uniform plan entry per lineage name, current name first: the plain
+  // prefix always, plus the private prefix the name ALREADY has when the
+  // head resolves to private mode. The current name's id comes from the
+  // resolve above (which mints if needed); older names use whatever id they
+  // already have, so a name nothing was ever staged under never gets one.
+  // Resolving these up front costs at most `LINEAGE_TOTAL_CAP - 1` D1 point
+  // reads (only in private mode) and buys a listing loop with no special
+  // cases in it.
+  const plan: SweepPlanEntry[] = await Promise.all(
+    lineage.map(async (branchName, lineageIndex) => ({
+      name: branchName,
+      lineageIndex,
+      plainPrefix: stagedPrefix(owner, name, branchName),
+      privatePrefixId:
+        mode.mode !== "private"
+          ? null
+          : lineageIndex === 0
+            ? mode.prefixId
+            : await getActivePrefixId(dbFor(env), target.repo, branchName),
+    })),
   );
 
   const promoted: string[] = [];
@@ -230,21 +269,14 @@ export async function promoteBranchAttachments(
     }
   }
 
-  // One pass per lineage name, current name first, plain-then-private within
+  // One pass per plan entry, current name first, plain-then-private within
   // each name (so single-name lineages sweep exactly as they did pre-#920).
-  // Older names use whatever private prefix id they ALREADY have — never
-  // mint one for a name nothing was ever staged under.
-  for (const [lineageIndex, branchName] of lineage.entries()) {
-    // Stop before the older names' D1 prefix lookups too, not just their
-    // list calls — a spent budget means nothing more can be buffered.
+  for (const entry of plan) {
     if (listBudgetSpent()) break;
-    await listPrefix(stagedPrefix(owner, name, branchName), false, lineageIndex);
-    if (mode.mode !== "private") continue;
-    const prefixId =
-      lineageIndex === 0
-        ? mode.prefixId
-        : await getActivePrefixId(dbFor(env), target.repo, branchName);
-    if (prefixId) await listPrefix(ghPrivateBranchKeyPrefix(prefixId), true, lineageIndex);
+    await listPrefix(entry.plainPrefix, false, entry.lineageIndex);
+    if (entry.privatePrefixId) {
+      await listPrefix(ghPrivateBranchKeyPrefix(entry.privatePrefixId), true, entry.lineageIndex);
+    }
   }
 
   const lineageField = lineage.length > 1 ? { lineage } : {};
@@ -272,15 +304,9 @@ export async function promoteBranchAttachments(
       const unit: PromoteUnit = { primary: entry, shadows: [] };
       unitByFilename.set(entry.filename, unit);
       units.push(unit);
-    } else if (
-      entry.lineageIndex === existing.primary.lineageIndex &&
-      entry.private &&
-      !existing.primary.private
-    ) {
-      // A private entry outranks an already-seen plain primary for the same
-      // filename — but only within the SAME lineage name (#920): a nearer
-      // name always wins over an older one, whichever prefix it was staged
-      // under. Promote it to primary, demote the old primary to a shadow.
+    } else if (entryRank(entry) < entryRank(existing.primary)) {
+      // This entry outranks the already-seen primary for the same filename —
+      // promote it to primary, demote the old primary to a shadow.
       existing.shadows.push(existing.primary);
       existing.primary = entry;
     } else {

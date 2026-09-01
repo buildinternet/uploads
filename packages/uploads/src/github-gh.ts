@@ -139,6 +139,20 @@ export function resolveCurrentBranch(run: CommandRunner = execRunner): string {
   return branch;
 }
 
+/**
+ * `resolveCurrentBranch` for best-effort callers: undefined instead of a
+ * throw when the branch can't be determined (detached HEAD, not a git repo,
+ * git unavailable). Use it wherever a missing branch means "skip this step",
+ * not "fail the command".
+ */
+export function resolveCurrentBranchSafe(run: CommandRunner = execRunner): string | undefined {
+  try {
+    return resolveCurrentBranch(run);
+  } catch {
+    return undefined;
+  }
+}
+
 /** One `git branch -m` step read out of a branch's reflog: `from` was renamed to `to`. */
 export interface BranchRenameStep {
   from: string;
