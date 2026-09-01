@@ -147,6 +147,13 @@ once a PR exists for that branch:
 Promotion only applies to PRs, never issues, and both paths degrade silently
 (no error) if the workspace's server doesn't support promotion yet.
 
+**Branch renamed or deleted before the PR existed?** Staged keys embed the
+branch name at stage time, so promotion under the new head ref finds nothing —
+the files sit staged (URLs still work) but never attach. Recover with
+`uploads attach --pr <n> --from-branch <old-branch-name>` (zero file arguments
+is fine): it promotes that stale branch prefix into the PR and refreshes the
+comment. Works for both plain and private-repo staging.
+
 **Promotion needs the repo already bound to the workspace.** Both the webhook
 and the CLI-triggered path above rely on the same repo↔workspace binding used
 by the managed comment (see "Repo binding" below) — any earlier successful

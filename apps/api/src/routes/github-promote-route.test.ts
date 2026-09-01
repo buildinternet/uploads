@@ -275,6 +275,31 @@ describe("POST /v1/:workspace/github/promote", () => {
     });
   });
 
+  it("promotes a plain-repo file from a caller-supplied stale branch", async () => {
+    const seeded = await seededEnv();
+    const staleBranch = "renamed/old";
+    const staleKey = `gh/acme/web/branch/renamed-old/stale.png`;
+    await seeded.bucket.put(`${PREFIX}${staleKey}`, PNG, {
+      httpMetadata: { contentType: "image/png" },
+    });
+    await replaceFileMetadata(seeded.env.DB, WS, staleKey, {
+      "gh.repo": REPO,
+      "gh.kind": "branch",
+      "gh.branch": staleBranch,
+      "gh.staged-at": new Date().toISOString(),
+      "gh.status": "staged",
+    });
+
+    const res = await post(seeded.env, { repo: REPO, num: NUM, branch: staleBranch });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ promoted: [destKey("stale.png")], skipped: [] });
+    expect((await getFileMetadata(seeded.env.DB, WS, staleKey))["gh.status"]).toBe("promoted");
+    expect((await getFileMetadata(seeded.env.DB, WS, destKey("stale.png")))["gh.branch"]).toBe(
+      staleBranch,
+    );
+  });
+
   it("treats a missing gh.staged-at as fresh (workspace's own data)", async () => {
     const seeded = await seededEnv();
     await seedStaged(seeded, "hero.png", { stagedAt: null });

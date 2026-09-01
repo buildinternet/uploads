@@ -96,6 +96,37 @@ async function seedPrivateStaged(seeded: Seeded, prefixId: string, filename: str
 }
 
 describe("promoteBranchAttachments — private prefixes (issue #631)", () => {
+  it("private repo: promotes from the caller-supplied stale branch prefix", async () => {
+    const seeded = await seededEnv({ isPrivate: true });
+    const staleBranch = "renamed/old";
+    const prefixId = await getOrMintPrefixId(seeded.db as unknown as D1Database, REPO, staleBranch);
+    const key = ghPrivateBranchAttachmentKey(prefixId, "stale.png");
+    await seeded.bucket.put(`${PREFIX}${key}`, PNG, {
+      httpMetadata: { contentType: "image/png" },
+    });
+    await replaceFileMetadata(seeded.env.DB, WS, key, {
+      "gh.repo": REPO,
+      "gh.kind": "branch",
+      "gh.branch": staleBranch,
+      "gh.staged-at": new Date().toISOString(),
+    });
+
+    const result = await promoteBranchAttachments(seeded.env, seeded.ws, WS, {
+      repo: REPO,
+      num: NUM,
+      branch: staleBranch,
+    });
+
+    const expectedDest = ghPrivateAttachmentKey(
+      prefixId,
+      { repo: REPO, kind: "pull", num: NUM },
+      "stale.png",
+    );
+    expect(result).toEqual({ promoted: [expectedDest], skipped: [] });
+    expect((await getFileMetadata(seeded.env.DB, WS, key))["gh.status"]).toBe("promoted");
+    expect((await getFileMetadata(seeded.env.DB, WS, expectedDest))["gh.branch"]).toBe(staleBranch);
+  });
+
   it("public repo: promotes into the plain destination, byte-identical to pre-#631 behavior", async () => {
     const seeded = await seededEnv({ isPrivate: false });
     await seedPlainStaged(seeded, "hero.png");

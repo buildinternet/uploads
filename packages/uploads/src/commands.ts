@@ -1094,6 +1094,12 @@ takes effect with zero files and cannot combine with --branch/--issue/
 --no-promote. Promotion never applies to issues. Staged files stay findable
 with "uploads find gh.branch=<branch>" either way.
 
+If the branch was renamed or deleted before the PR opened, pass
+"--from-branch <old-name>" with "--pr <num>". With no file arguments, this
+promotes the stale branch prefix and refreshes the managed comment. With file
+or existing-key arguments, it promotes the stale prefix before the normal
+attach flow.
+
 Options:
   --pr <num>            Attach to this pull request
   --issue <num>         Attach to this issue
@@ -1102,6 +1108,8 @@ Options:
   --promote             No files: promote branch-staged attachments into the
                         resolved PR and refresh the comment; not with
                         --branch/--issue/--no-promote
+  --from-branch <name>  Promote staged attachments from this branch instead of
+                        the current branch; requires a pull-request target
   --no-promote          Skip auto-promoting branch-staged attachments (default path only)
   --move                With an already-uploaded key/URL argument: delete the source
                         object after a successful server-side copy (default: copy)
@@ -1133,6 +1141,7 @@ Examples:
   uploads attach ./artifact.zip --issue 45 --no-comment
   uploads attach ./shot.png --meta path=/settings --state after
   uploads attach ./shot.png --branch
+  uploads attach --pr 123 --from-branch old/branch
   uploads attach ./shot.png --branch feature/new-settings
   uploads attach --promote
 `;
@@ -1694,8 +1703,16 @@ export async function runAttach(
   if (parsed.flags.has("--move") && typeof parsed.flags.get("--move") === "string") {
     throw new UsageError("--move takes no value — place it after the file arguments");
   }
+  if (parsed.flags.has("--from-branch") && !flagString(parsed.flags, "--from-branch")) {
+    throw new UsageError("--from-branch requires a branch name");
+  }
 
-  if (parsed.flags.has("--promote")) {
+  const fromBranch = flagString(parsed.flags, "--from-branch");
+
+  if (
+    parsed.flags.has("--promote") ||
+    (fromBranch !== undefined && parsed.positionals.length === 0)
+  ) {
     if (parsed.positionals.length > 0) {
       throw new UsageError(
         "--promote takes no file arguments — attaching a file to a PR already auto-promotes " +
@@ -1730,6 +1747,12 @@ export async function runAttach(
     if (parsed.flags.has("--comment"))
       throw new UsageError("--branch cannot be combined with --comment");
     return runAttachBranch(ctx, parsed, branchArg, run);
+  }
+  if (fromBranch !== undefined && parsed.flags.has("--issue")) {
+    throw new UsageError("--from-branch cannot be combined with --issue");
+  }
+  if (fromBranch !== undefined && parsed.flags.has("--no-promote")) {
+    throw new UsageError("--from-branch cannot be combined with --no-promote");
   }
 
   const explicitTarget = ghTargetFromFlags(parsed.flags, run);
@@ -1831,10 +1854,13 @@ export async function runAttach(
   let promotion: PromoteBranchAttachmentsResult | undefined;
   let promotedBranch: string | undefined;
   if (target.kind === "pull" && !parsed.flags.has("--no-promote")) {
-    try {
-      promotedBranch = resolveCurrentBranch(run);
-    } catch {
-      promotedBranch = undefined;
+    promotedBranch = fromBranch;
+    if (promotedBranch === undefined) {
+      try {
+        promotedBranch = resolveCurrentBranch(run);
+      } catch {
+        promotedBranch = undefined;
+      }
     }
     if (promotedBranch !== undefined) {
       promotion = await attemptPromoteBranch(ctx.client, target, promotedBranch);
@@ -1843,8 +1869,11 @@ export async function runAttach(
 
   let comment: AttachmentsCommentResult | undefined;
   let commentError: string | undefined;
-  // Skip comment refresh when every upload failed — nothing new from this batch.
-  if (!parsed.flags.has("--no-comment") && uploads.length > 0) {
+  // Existing-key attach syncs server-side, but a stale-branch promotion runs
+  // afterward. Refresh once more so that copy is visible in the same command.
+  const shouldRefreshComment =
+    uploads.length > 0 || (fromBranch !== undefined && attachedExisting.length > 0);
+  if (!parsed.flags.has("--no-comment") && shouldRefreshComment) {
     try {
       comment = await syncAttachmentsComment(ctx.client, target, run, ctx.config.workspace);
     } catch (err) {
@@ -2081,7 +2110,10 @@ async function runAttachPromoteOnly(
   const target =
     explicitTarget ??
     resolveCurrentPullRequest(resolveRepo(flagString(parsed.flags, "--repo"), run), run);
-  const branch = resolveCurrentBranch(run);
+  if (target.kind !== "pull") {
+    throw new UsageError("--from-branch only promotes into a pull request");
+  }
+  const branch = flagString(parsed.flags, "--from-branch") ?? resolveCurrentBranch(run);
 
   const promotion = await attemptPromoteBranch(ctx.client, target, branch);
 

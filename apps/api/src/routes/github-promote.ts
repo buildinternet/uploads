@@ -29,6 +29,7 @@ const BRANCH_VALUE_MAX = 512;
 interface PromoteBody {
   repo: string;
   num: number;
+  /** Caller-selected source branch; it does not need to match the PR's current head ref. */
   branch: string;
 }
 

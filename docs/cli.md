@@ -321,6 +321,16 @@ no staging reaper (see `docs/deletion.md`); once a file ages out of the promotio
 window it just sits there, still reachable at its original URL, until
 per-workspace retention or an explicit `files:delete` removes it.
 
+If the branch is renamed or deleted before the PR opens, promote from the old
+prefix explicitly:
+
+```bash
+uploads attach --pr 123 --from-branch old/branch
+```
+
+The command also accepts local files or existing object keys. It promotes the
+old branch prefix before it runs the normal attach and managed-comment flow.
+
 On a `gh.*`-tagged upload, the server also stamps `gh.uploader` (GitHub login)
 and `gh.uploader-id` from the user who minted the bearer token. These are
 attribution only, not access control, and the server overrides any

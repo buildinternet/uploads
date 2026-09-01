@@ -125,6 +125,10 @@ Reach for `attach --branch` explicitly only when you want its extras: uploading
 several files at once with shared flags, or triggering promotion/comment sync as
 a side effect.
 
+Staging keys embed the branch name, so renaming (or deleting) the branch before
+the PR opens strands staged files — recover them with
+`uploads attach --pr <n> --from-branch <old-branch-name>` (see uploads-cli).
+
 ```bash
 uploads screenshot http://localhost:4321/settings --out step1-before.png --state before
 uploads screenshot http://localhost:4321/settings --out step2-after.png --state after

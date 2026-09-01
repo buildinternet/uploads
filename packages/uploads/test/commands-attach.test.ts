@@ -931,6 +931,40 @@ function promoteRunner(
 }
 
 describe("runAttach auto-promote (default PR path)", () => {
+  it("promotes from an explicitly named stale branch before attaching an existing key", async () => {
+    const { client, promoteCalls, attachExistingCalls, callOrder } = fakeClient({
+      promote: async () => ({
+        promoted: ["gh/buildinternet/uploads/pull/123/staged.png"],
+        skipped: [],
+      }),
+      attachExisting: {
+        source: { key: "f/old.png" },
+        key: "gh/buildinternet/uploads/pull/123/old.png",
+        url: "https://x.test/gh/buildinternet/uploads/pull/123/old.png",
+        embedUrl: null,
+        moved: false,
+        comment: { posted: true, action: "updated", count: 1 },
+      },
+    });
+    const { run } = promoteRunner({ branch: "renamed-branch" });
+
+    expect(
+      await runAttach(
+        ctxWith(client),
+        ["f/old.png", "--pr", "123", "--from-branch", "original-branch"],
+        false,
+        run,
+      ),
+    ).toBe(0);
+
+    expect(attachExistingCalls).toHaveLength(1);
+    expect(promoteCalls).toEqual([
+      { repo: "buildinternet/uploads", num: 123, branch: "original-branch" },
+    ]);
+    expect(callOrder).toContain("promote");
+    expect(callOrder.indexOf("promote")).toBeLessThan(callOrder.indexOf("comment-gather"));
+  });
+
   it("calls promoteBranchAttachments with the resolved repo/num/branch before the comment sync", async () => {
     const { client, promoteCalls, callOrder } = fakeClient({
       promote: async () => ({
@@ -1113,6 +1147,23 @@ describe("runAttach auto-promote (default PR path)", () => {
 });
 
 describe("runAttach --promote (explicit promote-only mode)", () => {
+  it("uses --from-branch without reading the renamed current branch", async () => {
+    const { client, promoteCalls } = fakeClient({
+      promote: async () => ({ promoted: [], skipped: [] }),
+    });
+    const { run } = promoteRunner({ detached: true });
+
+    expect(
+      await runAttach(
+        ctxWith(client),
+        ["--pr", "77", "--repo", "o/r", "--from-branch", "old/name"],
+        false,
+        run,
+      ),
+    ).toBe(0);
+    expect(promoteCalls).toEqual([{ repo: "o/r", num: 77, branch: "old/name" }]);
+  });
+
   it("promotes staged files with zero file arguments and refreshes the comment", async () => {
     const { client, promoteCalls, callOrder } = fakeClient({
       promote: async () => ({
