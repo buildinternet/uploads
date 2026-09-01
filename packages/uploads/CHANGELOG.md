@@ -1,5 +1,11 @@
 # @buildinternet/uploads
 
+## 0.50.1
+
+### Patch Changes
+
+- 74dfc83: Add `uploads attach --pr <num> --from-branch <old-name>` to promote staged files after a branch is renamed or deleted.
+
 ## 0.50.0
 
 ### Minor Changes
