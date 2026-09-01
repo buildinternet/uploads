@@ -1248,6 +1248,172 @@ describe("tools/call attach", () => {
   });
 });
 
+describe("tools/call attach promote (issue #920)", () => {
+  /** gh/git runner with a controllable current branch and reflog. */
+  function promoteRunner(
+    opts: {
+      branch?: string;
+      detached?: boolean;
+      renames?: Array<{ from: string; to: string }>;
+    } = {},
+  ): CommandRunner {
+    const branch = opts.detached ? "HEAD" : (opts.branch ?? "feat-c");
+    return (cmd, args) => {
+      if (cmd === "git" && args[0] === "reflog") {
+        return [...(opts.renames ?? [])]
+          .reverse()
+          .map((step) => `Branch: renamed refs/heads/${step.from} to refs/heads/${step.to}`)
+          .join("\n");
+      }
+      if (cmd === "git" && args[0] === "rev-parse") return `${branch}\n`;
+      if (args[0] === "repo") return "buildinternet/uploads\n";
+      if ((args[0] === "pr" || args[0] === "issue") && args[1] === "view" && args.includes("title"))
+        throw new Error("gh: title not resolvable");
+      if (args[0] === "pr" && args[1] === "view") return "123\n";
+      if (args[1]?.includes("per_page=100")) return "[]";
+      return JSON.stringify({ id: 9 });
+    };
+  }
+
+  /** Client that records promote + rename registrations. */
+  function promoteFactory(opts: { promoteFails?: boolean } = {}) {
+    const promoteCalls: Array<{ repo: string; num: number; branch: string }> = [];
+    const renameCalls: Array<{ repo: string; from: string; to: string }> = [];
+    const factory = (): UploadsClient =>
+      ({
+        put: async (_body: Uint8Array, putOpts: { key: string }) => ({
+          workspace: "test",
+          key: putOpts.key,
+          url: `https://x.test/${putOpts.key}`,
+          embedUrl: null,
+          size: 3,
+          contentType: "image/png",
+        }),
+        list: async () => ({ items: [], cursor: null }),
+        listAll: async () => [],
+        findGalleriesByReference: async () => ({ galleries: [], nextCursor: null }),
+        getGallery: async () => ({ items: [] }),
+        registerBranchRename: async (renameOpts: { repo: string; from: string; to: string }) => {
+          renameCalls.push(renameOpts);
+          return { recorded: true };
+        },
+        promoteBranchAttachments: async (promoteOpts: {
+          repo: string;
+          num: number;
+          branch: string;
+        }) => {
+          promoteCalls.push(promoteOpts);
+          if (opts.promoteFails) throw new Error("promote unavailable");
+          return { promoted: [`gh/buildinternet/uploads/pull/123/staged.png`], skipped: [] };
+        },
+      }) as unknown as UploadsClient;
+    return { factory, promoteCalls, renameCalls };
+  }
+
+  function tempFile(name = "shot.png"): string {
+    const dir = mkdtempSync(join(tmpdir(), "uploads-mcp-test-"));
+    const file = join(dir, name);
+    writeFileSync(file, "png");
+    return file;
+  }
+
+  it("registers renames then promotes the current branch, reporting `promotion`", async () => {
+    const { factory, promoteCalls, renameCalls } = promoteFactory();
+    const { server } = serverWith({
+      runner: promoteRunner({ renames: [{ from: "feat-b", to: "feat-c" }] }),
+      factory,
+    });
+    const res = await rpc(server, "tools/call", {
+      name: "attach",
+      arguments: { files: [tempFile()], noComment: true },
+    });
+    expect(res.result.isError).toBe(false);
+    expect(renameCalls).toEqual([{ repo: "buildinternet/uploads", from: "feat-b", to: "feat-c" }]);
+    expect(promoteCalls).toEqual([{ repo: "buildinternet/uploads", num: 123, branch: "feat-c" }]);
+    expect(res.result.structuredContent.promotion).toEqual({
+      promoted: ["gh/buildinternet/uploads/pull/123/staged.png"],
+      skipped: [],
+    });
+  });
+
+  it("reports promoteError without failing the attach", async () => {
+    const { factory } = promoteFactory({ promoteFails: true });
+    const { server } = serverWith({ runner: promoteRunner(), factory });
+    const res = await rpc(server, "tools/call", {
+      name: "attach",
+      arguments: { files: [tempFile()], noComment: true },
+    });
+    expect(res.result.isError).toBe(false);
+    expect(res.result.structuredContent.uploads).toHaveLength(1);
+    expect(res.result.structuredContent.promotion).toBeUndefined();
+    expect(res.result.structuredContent.promoteError).toContain("promote unavailable");
+  });
+
+  it("fromBranch promotes the named branch and registers no renames", async () => {
+    const { factory, promoteCalls, renameCalls } = promoteFactory();
+    const { server } = serverWith({
+      runner: promoteRunner({ renames: [{ from: "feat-b", to: "feat-c" }] }),
+      factory,
+    });
+    const res = await rpc(server, "tools/call", {
+      name: "attach",
+      arguments: { files: [tempFile()], noComment: true, fromBranch: "old/name" },
+    });
+    expect(res.result.isError).toBe(false);
+    expect(renameCalls).toEqual([]);
+    expect(promoteCalls).toEqual([{ repo: "buildinternet/uploads", num: 123, branch: "old/name" }]);
+  });
+
+  it("noPromote skips promotion entirely", async () => {
+    const { factory, promoteCalls, renameCalls } = promoteFactory();
+    const { server } = serverWith({
+      runner: promoteRunner({ renames: [{ from: "feat-b", to: "feat-c" }] }),
+      factory,
+    });
+    const res = await rpc(server, "tools/call", {
+      name: "attach",
+      arguments: { files: [tempFile()], noComment: true, noPromote: true },
+    });
+    expect(res.result.isError).toBe(false);
+    expect(promoteCalls).toEqual([]);
+    expect(renameCalls).toEqual([]);
+    expect(res.result.structuredContent.promotion).toBeUndefined();
+  });
+
+  it("rejects fromBranch combined with noPromote", async () => {
+    const { factory } = promoteFactory();
+    const { server } = serverWith({ runner: promoteRunner(), factory });
+    const res = await rpc(server, "tools/call", {
+      name: "attach",
+      arguments: { files: [tempFile()], fromBranch: "old", noPromote: true },
+    });
+    expect(res.result.isError).toBe(true);
+    expect(res.result.content[0].text).toContain("noPromote");
+  });
+
+  it("never promotes for an issue target", async () => {
+    const { factory, promoteCalls } = promoteFactory();
+    const { server } = serverWith({ runner: promoteRunner(), factory });
+    const res = await rpc(server, "tools/call", {
+      name: "attach",
+      arguments: { files: [tempFile()], issue: 45, repo: "o/r", noComment: true },
+    });
+    expect(res.result.isError).toBe(false);
+    expect(promoteCalls).toEqual([]);
+  });
+
+  it("skips promotion on a detached HEAD", async () => {
+    const { factory, promoteCalls } = promoteFactory();
+    const { server } = serverWith({ runner: promoteRunner({ detached: true }), factory });
+    const res = await rpc(server, "tools/call", {
+      name: "attach",
+      arguments: { files: [tempFile()], pr: 123, repo: "buildinternet/uploads", noComment: true },
+    });
+    expect(res.result.isError).toBe(false);
+    expect(promoteCalls).toEqual([]);
+  });
+});
+
 describe("tools/call list, delete, comment", () => {
   it("lists a pr's attachments via the gh key prefix", async () => {
     const { server, puts } = serverWith();

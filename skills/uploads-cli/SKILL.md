@@ -147,9 +147,15 @@ once a PR exists for that branch:
 Promotion only applies to PRs, never issues, and both paths degrade silently
 (no error) if the workspace's server doesn't support promotion yet.
 
-**Branch renamed or deleted before the PR existed?** Staged keys embed the
-branch name at stage time, so promotion under the new head ref finds nothing —
-the files sit staged (URLs still work) but never attach. Recover with
+**Branch renamed before the PR existed?** Staged keys embed the branch name at
+stage time, so promotion under the new head ref would otherwise find nothing.
+This is followed automatically: any `uploads` staging or promote command run
+on the renamed branch (`attach --branch`, `put`, `attach --pr`, `attach
+--promote`) reads the rename from the branch's git reflog, registers it with
+the server, and promotion sweeps the old name too. That needs one more
+`uploads` run on the branch before the PR opens. If the branch was renamed or
+deleted and the PR opened without one, the files sit staged (URLs still work)
+but never attach — recover with
 `uploads attach --pr <n> --from-branch <old-branch-name>` (zero file arguments
 is fine): it promotes that stale branch prefix into the PR and refreshes the
 comment. Works for both plain and private-repo staging.
@@ -1034,6 +1040,13 @@ uploads --api-url http://localhost:8787 doctor
   tool and `put` with `pr`/`issue` honor the target repo's `.uploads.yml`
   (same as the bot path — no separate MCP config; see
   https://uploads.sh/docs/comment-config).
+
+  **Stdio MCP `attach` promote parity.** The stdio `attach` tool mirrors CLI
+  `uploads attach`: with `pr` it best-effort promotes the current branch's
+  staged files, same as `attach --pr` (result under `promotion` /
+  `promoteError`, the same shape as `put`'s hosted comment fields).
+  `fromBranch` overrides the source branch, mirroring `--from-branch`.
+  `noPromote` opts out, mirroring `--no-promote`.
 
   **Hosted MCP: branch staging + promote.** There is no `attach` tool
   on the hosted server (no filesystem paths) — use `put` instead:

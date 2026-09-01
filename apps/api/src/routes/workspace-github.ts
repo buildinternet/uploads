@@ -91,6 +91,7 @@ import {
   githubPrivatePrefixHandler,
   githubPrivatePrefixRotateHandler,
 } from "./github-private-prefix";
+import { githubBranchRenameHandler } from "./github-branch-rename";
 import { githubPromoteHandler } from "./github-promote";
 import { dbFor } from "../db-session";
 
@@ -290,6 +291,17 @@ export const workspaceGithub = new Hono<DualAuthVars>()
     scoped("files:write"),
     requireToken,
     githubPromoteHandler as unknown as MiddlewareHandler<DualAuthVars>,
+  )
+  .post(
+    "/:workspace/github/branch-rename",
+    dualWorkspaceAuth(),
+    rateLimited,
+    // New route (#920) — canonical surface only, no legacy bearer-path twin,
+    // same as `attach` below. Token-only like its `promote` sibling: it only
+    // ever widens what a token-only promote sweeps.
+    scoped("files:write"),
+    requireToken,
+    githubBranchRenameHandler as unknown as MiddlewareHandler<DualAuthVars>,
   )
   .post(
     "/:workspace/github/attach",

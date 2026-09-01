@@ -27,6 +27,7 @@ import {
   putStagingNoteText,
   resolveStageBindingWarning,
   mergeStagingMeta,
+  registerRenamesBestEffort,
   writeReplacedNote,
   resolveGhPrefixSafe,
   resolveAutoPrTarget,
@@ -428,7 +429,7 @@ export async function runScreenshot(
   // maps to exactly one open PR behaves as if --pr <n> had been passed —
   // stable key + managed comment sync — instead of the #469 auto-staging
   // default below. Mirrors put's #700 handling exactly (resolveAutoPrTarget).
-  const autoPrTarget =
+  const autoPrMatch =
     ghTarget || branchArg !== undefined
       ? undefined
       : resolveAutoPrTarget({
@@ -443,6 +444,7 @@ export async function runScreenshot(
           repoArg: flagString(parsed.flags, "--repo") ?? putDefaults.repo,
           run,
         });
+  const autoPrTarget = autoPrMatch?.target;
   const effectiveGhTarget = ghTarget ?? autoPrTarget;
 
   // Auto branch staging (issue #469 lever 1): mirrors bare `put`'s auto-staging
@@ -511,8 +513,22 @@ export async function runScreenshot(
   if (effectiveGhTarget) {
     metadata = { ...withFacts, ...ghMetadataFromTargetWithTitle(effectiveGhTarget, run) };
     validateMetaMap(metadata);
+    // The #700 auto-PR match suppresses staging, so the staging branch below
+    // never runs — but this capture still comes from a branch that may have
+    // been renamed while files were staged under the old name. Register the
+    // lineage here too (issue #920), reusing the branch the match already
+    // resolved. Only for the auto-PR match: an explicit --pr/--issue names
+    // no branch of its own.
+    if (autoPrMatch && !dryRun && !noUpload) {
+      await registerRenamesBestEffort(ctx.client, run, autoPrMatch.target.repo, autoPrMatch.branch);
+    }
   } else if (stagingTarget !== undefined) {
     metadata = mergeStagingMeta(withFacts, stagingTarget);
+    // Same rename registration as `put`/`attach --branch` staging (issue
+    // #920): best-effort, never fails the capture.
+    if (!dryRun && !noUpload) {
+      await registerRenamesBestEffort(ctx.client, run, stagingTarget.repo, stagingTarget.branch);
+    }
   } else if (Object.keys(withFacts).length > 0) {
     validateMetaMap(withFacts);
   }

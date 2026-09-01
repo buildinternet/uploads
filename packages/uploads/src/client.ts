@@ -364,6 +364,24 @@ export interface PromoteSkip {
 export interface PromoteBranchAttachmentsResult {
   promoted: string[];
   skipped: PromoteSkip[];
+  /** Branch-name lineage the sweep covered, current name first (issue #920).
+   * Present only when the branch was renamed at least once. */
+  lineage?: string[];
+}
+
+/** `POST /v1/workspaces/:workspace/github/branch-rename` request (server contract, issue #920). */
+export interface RegisterBranchRenameOptions {
+  repo: string;
+  /** Previous branch name (`git branch -m <from> <to>`). */
+  from: string;
+  /** Name the branch was renamed to. */
+  to: string;
+}
+
+/** `POST /v1/workspaces/:workspace/github/branch-rename` response. `recorded:
+ * false` means the pair was already known (or the server has no such route). */
+export interface RegisterBranchRenameResult {
+  recorded: boolean;
 }
 
 /**
@@ -1573,6 +1591,32 @@ export function createUploadsClient(config: UploadsClientConfig) {
           headers: { "Content-Type": "application/json" },
         },
       );
+    },
+
+    /**
+     * Record one `git branch -m` step so promote sweeps the branch's whole
+     * name lineage (issue #920). Degrade-safe on the one failure that is
+     * expected in the wild: a 404 from an older/self-hosted worker without
+     * this route collapses to `{ recorded: false }` — nothing recorded, same
+     * as `promoteBranchAttachments`' callers treat a missing route. Other
+     * failures throw; the CLI's `registerRenamesBestEffort` swallows those.
+     */
+    async registerBranchRename(
+      opts: RegisterBranchRenameOptions,
+    ): Promise<RegisterBranchRenameResult> {
+      try {
+        return await request<RegisterBranchRenameResult>(
+          "POST",
+          `${config.apiUrl}/v1/workspaces/${encodeURIComponent(config.workspace)}/github/branch-rename`,
+          {
+            body: new TextEncoder().encode(JSON.stringify(opts)),
+            headers: { "Content-Type": "application/json" },
+          },
+        );
+      } catch (err) {
+        if (err instanceof UploadsError && err.status === 404) return { recorded: false };
+        throw err;
+      }
     },
 
     /**

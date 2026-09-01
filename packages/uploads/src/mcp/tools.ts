@@ -6,7 +6,11 @@
  * a missing token surfaces as a tool error rather than a startup failure.
  */
 import type { GlobalFlags } from "../cli-args.js";
-import { createUploadsClient, type UploadsClient } from "../client.js";
+import {
+  createUploadsClient,
+  type PromoteBranchAttachmentsResult,
+  type UploadsClient,
+} from "../client.js";
 import {
   buildDoctorReport,
   ghListPrefixes,
@@ -16,6 +20,7 @@ import {
   resolveAutoPrTarget,
   resolveGhPrefixSafe,
   resolvePutNudgeContext,
+  registerRenamesBestEffort,
   resolvePutStagingTarget,
   resolveStaged,
   syncAttachmentsComment,
@@ -45,6 +50,7 @@ import {
   execRunner,
   ghMetadataFromTargetWithTitle,
   resolveCurrentBranch,
+  resolveCurrentBranchSafe,
   resolveCurrentPullRequest,
   resolveRepo,
   type CommandRunner,
@@ -226,6 +232,29 @@ export function createUploadsMcpTools(opts: {
       commentError = err instanceof Error ? err.message : String(err);
     }
     return { comment, commentError };
+  };
+
+  /**
+   * Best-effort branch promote for the stdio `attach` tool (CLI `attach --pr`
+   * parity, issue #920). Registers any `git branch -m` steps first so the
+   * sweep follows renames, then promotes. Never throws: a failure surfaces as
+   * `promoteError` so the uploads themselves still return.
+   */
+  const attemptPromote = async (
+    client: UploadsClient,
+    target: GhTarget,
+    branch: string,
+  ): Promise<{ promotion?: PromoteBranchAttachmentsResult; promoteError?: string }> => {
+    try {
+      const promotion = await client.promoteBranchAttachments({
+        repo: target.repo,
+        num: target.num,
+        branch,
+      });
+      return { promotion };
+    } catch (err) {
+      return { promoteError: err instanceof Error ? err.message : String(err) };
+    }
   };
 
   const tools: McpTool[] = [
@@ -577,19 +606,21 @@ export function createUploadsMcpTools(opts: {
         // had been passed (stable key + managed comment sync) instead of
         // the #403 staging default below. Never throws — see
         // resolveAutoPrTarget.
-        const autoPrTarget = target
-          ? undefined
-          : resolveAutoPrTarget({
-              ghTarget: target,
-              keyHint: keyArg,
-              refArg,
-              prefixArg,
-              destinationArg: destArg,
-              noGit,
-              noAutoPr,
-              repoArg: optString(args, "repo") ?? defaults.repo,
-              run,
-            });
+        const autoPrTarget = (
+          target
+            ? undefined
+            : resolveAutoPrTarget({
+                ghTarget: target,
+                keyHint: keyArg,
+                refArg,
+                prefixArg,
+                destinationArg: destArg,
+                noGit,
+                noAutoPr,
+                repoArg: optString(args, "repo") ?? defaults.repo,
+                run,
+              })
+        )?.target;
         const effectiveTarget = target ?? autoPrTarget;
 
         // Bare-put branch staging (issue #403): local stdio MCP put mirrors
@@ -1007,19 +1038,21 @@ export function createUploadsMcpTools(opts: {
         // behaves as if `pr` had been passed (stable key + managed comment
         // sync) instead of the #469 auto-staging default below. Never
         // throws — see resolveAutoPrTarget.
-        const autoPrTarget = target
-          ? undefined
-          : resolveAutoPrTarget({
-              ghTarget: target,
-              keyHint: keyArg,
-              refArg,
-              prefixArg,
-              destinationArg: destArg,
-              noGit,
-              noAutoPr,
-              repoArg: optString(args, "repo") ?? defaults.repo,
-              run,
-            });
+        const autoPrTarget = (
+          target
+            ? undefined
+            : resolveAutoPrTarget({
+                ghTarget: target,
+                keyHint: keyArg,
+                refArg,
+                prefixArg,
+                destinationArg: destArg,
+                noGit,
+                noAutoPr,
+                repoArg: optString(args, "repo") ?? defaults.repo,
+                run,
+              })
+        )?.target;
         const effectiveTarget = target ?? autoPrTarget;
 
         // Auto branch staging (issue #469 lever 1): mirrors the CLI screenshot
@@ -1240,7 +1273,7 @@ export function createUploadsMcpTools(opts: {
       annotations: mcpDestroyPublic,
       securitySchemes: mcpOAuthWrite,
       description:
-        "Upload one or more files as stable PR/issue attachments (in parallel) and maintain a managed GitHub comment. Returns `uploads` and `failures` (one bad file does not abort the batch). Each success has `url`, `embedUrl`, and `markdown` (prefer embedUrl for GitHub). With no pr/issue, targets the current branch PR. Attachments are public and keys are predictable; upload only non-sensitive media.",
+        "Upload one or more files as stable PR/issue attachments (in parallel) and maintain a managed GitHub comment. Returns `uploads` and `failures` (one bad file does not abort the batch). Each success has `url`, `embedUrl`, and `markdown` (prefer embedUrl for GitHub). With no pr/issue, targets the current branch PR, and files already staged for that branch are promoted into it (`promotion`/`promoteError`; renamed branches are followed automatically, or name the old branch with fromBranch). Attachments are public and keys are predictable; upload only non-sensitive media.",
       inputSchema: {
         type: "object",
         properties: {
@@ -1253,6 +1286,15 @@ export function createUploadsMcpTools(opts: {
           noComment: {
             type: "boolean",
             description: "Upload only; don't create/update the managed comment.",
+          },
+          noPromote: {
+            type: "boolean",
+            description: "Skip promoting files staged for the current branch into the PR.",
+          },
+          fromBranch: {
+            type: "string",
+            description:
+              "Promote files staged under this branch name instead of the current branch (for a branch renamed before the PR opened).",
           },
           contentType: {
             type: "string",
@@ -1288,6 +1330,7 @@ export function createUploadsMcpTools(opts: {
         examples: [
           { files: ["./after.png"], pr: 12, state: "after" },
           { files: ["./before.png", "./after.png"], pr: 12 },
+          { files: ["./after.png"], pr: 12, fromBranch: "old-branch-name" },
         ],
       },
       async handler(args) {
@@ -1298,6 +1341,13 @@ export function createUploadsMcpTools(opts: {
         const target =
           explicitTarget ??
           resolveCurrentPullRequest(resolveRepo(optString(args, "repo"), run), run);
+        const fromBranch = optString(args, "fromBranch");
+        if (fromBranch !== undefined && optBool(args, "noPromote")) {
+          usage("fromBranch cannot be combined with noPromote");
+        }
+        if (fromBranch !== undefined && target.kind !== "pull") {
+          usage("fromBranch only promotes into a pull request");
+        }
         const { config, client } = await clientFor(args);
         const contentType = optString(args, "contentType");
         const defaults = resolvePutDefaults({ envFile: globals.envFile });
@@ -1336,9 +1386,30 @@ export function createUploadsMcpTools(opts: {
           });
         }
 
-        if (optBool(args, "noComment")) return { target, uploads, failures };
+        // Auto-promote (CLI `attach --pr` parity, issue #920): before the
+        // comment sync, best-effort promote this workspace's branch-staged
+        // files into the PR, following any `git branch -m` rename. Never for
+        // issues, never with noPromote, and silently skipped when the current
+        // branch can't be resolved — this must not fail the attach.
+        let promotion: PromoteBranchAttachmentsResult | undefined;
+        let promoteError: string | undefined;
+        if (target.kind === "pull" && !optBool(args, "noPromote")) {
+          const branch = fromBranch ?? resolveCurrentBranchSafe(run);
+          if (branch !== undefined) {
+            await registerRenamesBestEffort(client, run, target.repo, branch, {
+              explicit: fromBranch !== undefined,
+            });
+            ({ promotion, promoteError } = await attemptPromote(client, target, branch));
+          }
+        }
+        const promoteFields = {
+          ...(promotion ? { promotion } : {}),
+          ...(promoteError ? { promoteError } : {}),
+        };
+
+        if (optBool(args, "noComment")) return { target, uploads, failures, ...promoteFields };
         const { comment, commentError } = await syncComment(client, target, config.workspace);
-        return { target, uploads, failures, comment, commentError };
+        return { target, uploads, failures, ...promoteFields, comment, commentError };
       },
     },
     {

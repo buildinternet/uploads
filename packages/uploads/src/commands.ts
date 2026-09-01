@@ -64,6 +64,7 @@ import {
   resolveRepo,
   resolveCurrentPullRequest,
   resolveCurrentBranch,
+  resolveCurrentBranchSafe,
   resolveDefaultBranch,
   classifyGhNumber,
   execRunner,
@@ -73,6 +74,7 @@ import {
   hasLinkCandidate,
   extractCandidateUrls,
   fetchAdoptionCandidateText,
+  renameLineageFromReflog,
   type CommandRunner,
 } from "./github-gh.js";
 import { deriveRepoFromGit, deriveRepoSlugFromGit } from "./keys.js";
@@ -1094,11 +1096,13 @@ takes effect with zero files and cannot combine with --branch/--issue/
 --no-promote. Promotion never applies to issues. Staged files stay findable
 with "uploads find gh.branch=<branch>" either way.
 
-If the branch was renamed or deleted before the PR opened, pass
-"--from-branch <old-name>" with "--pr <num>". With no file arguments, this
-promotes the stale branch prefix and refreshes the managed comment. With file
-or existing-key arguments, it promotes the stale prefix before the normal
-attach flow.
+A branch renamed with "git branch -m" is followed automatically: the rename
+is read from the branch reflog and registered, so promotion sweeps the older
+names too. That needs one uploads run after the rename. If the branch was
+renamed without one, or was deleted, pass "--from-branch <old-name>" with
+"--pr <num>". With no file arguments, this promotes the stale branch prefix
+and refreshes the managed comment. With file or existing-key arguments, it
+promotes the stale prefix before the normal attach flow.
 
 Options:
   --pr <num>            Attach to this pull request
@@ -1652,6 +1656,50 @@ export async function uploadPuts(opts: {
 }
 
 /**
+ * Best-effort branch-rename registration (issue #920): reads this branch's
+ * reflog for `git branch -m` steps and tells the server about each one, so a
+ * later promote sweeps the branch's whole name lineage instead of only its
+ * current name. No-op when the reflog has no rename (the common case) and
+ * when the client predates the route. Every failure is swallowed — this runs
+ * alongside staging and promote, and must never fail either. Set
+ * `UPLOADS_DEBUG=1` to see what was skipped.
+ *
+ * `opts.explicit` marks a branch the user named themselves (`--from-branch`
+ * / the MCP `fromBranch` argument): that is the manual escape hatch (PR
+ * #919), and its lineage belongs to a different name than the one we are
+ * standing on, so nothing is registered for it.
+ */
+export async function registerRenamesBestEffort(
+  client: UploadsClient,
+  run: CommandRunner,
+  repo: string,
+  branch: string,
+  opts: { explicit?: boolean } = {},
+): Promise<void> {
+  if (opts.explicit) return;
+  let lineage: ReturnType<typeof renameLineageFromReflog>;
+  try {
+    lineage = renameLineageFromReflog(run, branch);
+  } catch {
+    return;
+  }
+  if (lineage.length === 0) return;
+  for (const step of lineage) {
+    try {
+      await client.registerBranchRename({ repo, from: step.from, to: step.to });
+    } catch (err) {
+      if (process.env.UPLOADS_DEBUG === "1") {
+        const detail = err instanceof Error ? err.message : String(err);
+        process.stderr.write(
+          `debug: could not register branch rename ${step.from} -> ${step.to}: ${detail}\n`,
+        );
+      }
+      return; // one failure means the route is unavailable; don't retry the rest
+    }
+  }
+}
+
+/**
  * Best-effort call to `POST /v1/workspaces/:workspace/github/promote` (server contract,
  * PR #310). Degrade-safe like `syncAttachmentsComment`'s bot path: an older
  * or self-hosted worker without this route (404), a forbidden token (403),
@@ -1670,14 +1718,22 @@ async function attemptPromoteBranch(
   }
 }
 
-/** Human-mode note for a promotion that actually promoted something. */
+/**
+ * Human-mode note(s) for a promotion that actually promoted something. When
+ * the server-side sweep followed a rename it adds a second line naming the
+ * older branch names (issue #920): `lineage` is current-name-first, so the
+ * older names are its tail.
+ */
 function promotionNote(
   promotion: PromoteBranchAttachmentsResult,
   branch: string | undefined,
 ): string {
   const n = promotion.promoted.length;
   const branchSuffix = branch ? ` from branch ${branch}` : "";
-  return `>> promoted ${n} staged attachment${n === 1 ? "" : "s"}${branchSuffix}\n`;
+  const promoted = `>> promoted ${n} staged attachment${n === 1 ? "" : "s"}${branchSuffix}\n`;
+  const older = (promotion.lineage ?? []).slice(1);
+  if (older.length === 0) return promoted;
+  return `${promoted}>> followed rename from ${older.join(", ")}\n`;
 }
 
 export async function runAttach(
@@ -1854,15 +1910,11 @@ export async function runAttach(
   let promotion: PromoteBranchAttachmentsResult | undefined;
   let promotedBranch: string | undefined;
   if (target.kind === "pull" && !parsed.flags.has("--no-promote")) {
-    promotedBranch = fromBranch;
-    if (promotedBranch === undefined) {
-      try {
-        promotedBranch = resolveCurrentBranch(run);
-      } catch {
-        promotedBranch = undefined;
-      }
-    }
+    promotedBranch = fromBranch ?? resolveCurrentBranchSafe(run);
     if (promotedBranch !== undefined) {
+      await registerRenamesBestEffort(ctx.client, run, target.repo, promotedBranch, {
+        explicit: fromBranch !== undefined,
+      });
       promotion = await attemptPromoteBranch(ctx.client, target, promotedBranch);
     }
   }
@@ -1977,6 +2029,9 @@ async function runAttachBranch(
   }
 
   const target: BranchTarget = { repo, branch };
+  // Register any `git branch -m` steps behind this name (issue #920) so the
+  // promote that runs when the PR opens sweeps the older names too.
+  await registerRenamesBestEffort(ctx.client, run, repo, branch);
   const { uploads, failures, firstError } = await uploadBranchAttachments({
     client: ctx.client,
     target,
@@ -2113,8 +2168,12 @@ async function runAttachPromoteOnly(
   if (target.kind !== "pull") {
     throw new UsageError("--from-branch only promotes into a pull request");
   }
-  const branch = flagString(parsed.flags, "--from-branch") ?? resolveCurrentBranch(run);
+  const explicitFromBranch = flagString(parsed.flags, "--from-branch");
+  const branch = explicitFromBranch ?? resolveCurrentBranch(run);
 
+  await registerRenamesBestEffort(ctx.client, run, target.repo, branch, {
+    explicit: explicitFromBranch !== undefined,
+  });
   const promotion = await attemptPromoteBranch(ctx.client, target, branch);
 
   let comment: AttachmentsCommentResult | undefined;
@@ -2220,12 +2279,8 @@ export function resolvePutNudgeContext(opts: {
   if (hasBranchFlag) return undefined; // not a real put flag today; defensive only
   try {
     if (deriveRepoFromGit(run) === undefined) return undefined; // not a (usable) git repo
-    let branch: string;
-    try {
-      branch = resolveCurrentBranch(run);
-    } catch {
-      return undefined; // detached HEAD, or git unavailable
-    }
+    const branch = resolveCurrentBranchSafe(run);
+    if (branch === undefined) return undefined; // detached HEAD, or git unavailable
     const defaultBranch = resolveDefaultBranch(run);
     const onDefaultBranch = defaultBranch
       ? branch === defaultBranch
@@ -2250,6 +2305,12 @@ export function resolvePutNudgeContext(opts: {
   }
 }
 
+/** A #700 auto-PR match: the PR the current branch maps to, plus that branch. */
+export interface AutoPrMatch {
+  target: GhTarget;
+  branch: string;
+}
+
 /**
  * Auto-PR context (issue #700): when a bare put/screenshot has no explicit
  * destination flag at all (`--pr`/`--issue`/`--key`/`--ref`/`--prefix`/
@@ -2266,6 +2327,10 @@ export function resolvePutNudgeContext(opts: {
  * default branch, or with `--no-git`; any failure (not a repo, detached
  * HEAD, gh missing/unauthenticated/timed out, no open PR) degrades to
  * undefined so the caller falls back to its normal staging/dated behavior.
+ *
+ * The match carries the `branch` it was resolved from, so callers that need
+ * the current branch (the #920 rename registration) reuse it instead of
+ * spawning `git rev-parse` a second time.
  */
 export function resolveAutoPrTarget(opts: {
   ghTarget: GhTarget | undefined;
@@ -2280,7 +2345,7 @@ export function resolveAutoPrTarget(opts: {
   noAutoPr: boolean;
   repoArg: string | undefined;
   run: CommandRunner;
-}): GhTarget | undefined {
+}): AutoPrMatch | undefined {
   const {
     ghTarget,
     keyHint,
@@ -2298,12 +2363,8 @@ export function resolveAutoPrTarget(opts: {
   if (refArg || prefixArg || destinationArg || branchArg !== undefined) return undefined;
   try {
     if (deriveRepoFromGit(run) === undefined) return undefined; // not a (usable) git repo
-    let branch: string;
-    try {
-      branch = resolveCurrentBranch(run);
-    } catch {
-      return undefined; // detached HEAD, or git unavailable
-    }
+    const branch = resolveCurrentBranchSafe(run);
+    if (branch === undefined) return undefined; // detached HEAD, or git unavailable
     const defaultBranch = resolveDefaultBranch(run);
     const onDefaultBranch = defaultBranch
       ? branch === defaultBranch
@@ -2314,7 +2375,7 @@ export function resolveAutoPrTarget(opts: {
     // this must never be felt as a hang.
     const timed = run === execRunner ? timedExecRunner(PUT_NUDGE_GH_TIMEOUT_MS) : run;
     const repo = resolveRepo(repoArg, timed);
-    return resolveCurrentPullRequest(repo, timed);
+    return { target: resolveCurrentPullRequest(repo, timed), branch };
   } catch {
     return undefined; // gh/git unavailable, no open PR, or repo unresolvable
   }
@@ -2356,12 +2417,8 @@ export function resolvePutStagingTarget(opts: {
   if (refArg || prefixArg || destinationArg) return undefined;
   try {
     if (deriveRepoFromGit(run) === undefined) return undefined; // not a (usable) git repo
-    let branch: string;
-    try {
-      branch = resolveCurrentBranch(run);
-    } catch {
-      return undefined; // detached HEAD, or git unavailable
-    }
+    const branch = resolveCurrentBranchSafe(run);
+    if (branch === undefined) return undefined; // detached HEAD, or git unavailable
     const defaultBranch = resolveDefaultBranch(run);
     const onDefaultBranch = defaultBranch
       ? branch === defaultBranch
@@ -2641,7 +2698,7 @@ export async function runPut(
   // resolveAutoPrTarget. Supersedes both the #403 staging default and the
   // #393 nudge for this case; computed before the gh.* metadata resolution
   // below since it takes over that resolution entirely.
-  const autoPrTarget: GhTarget | undefined = ghTarget
+  const autoPrMatch: AutoPrMatch | undefined = ghTarget
     ? undefined
     : resolveAutoPrTarget({
         ghTarget,
@@ -2654,6 +2711,7 @@ export async function runPut(
         repoArg: flagString(parsed.flags, "--repo") ?? defaults.repo,
         run,
       });
+  const autoPrTarget = autoPrMatch?.target;
   const effectiveGhTarget = ghTarget ?? autoPrTarget;
   // Comment sync runs by default with --pr/--issue (matches `attach`); opt
   // out with --no-comment. --comment is accepted as a redundant no-op for
@@ -2784,8 +2842,22 @@ export async function runPut(
     validateMetaMap(merged); // enforce 24-key/8KB caps on the merged map (matches attach)
     metadata = merged;
     attachedRef = merged["gh.ref"];
+    // Auto-PR (#700) suppresses staging, so the staging branch below never
+    // runs — but this put still comes from a branch that may have been
+    // renamed while files were staged under the old name. Register the
+    // lineage here too (issue #920), reusing the branch the match already
+    // resolved. Only for the auto-PR match: an explicit --pr/--issue names
+    // no branch of its own.
+    if (autoPrMatch && !dryRun) {
+      await registerRenamesBestEffort(ctx.client, run, autoPrMatch.target.repo, autoPrMatch.branch);
+    }
   } else if (stagingTarget) {
     metadata = mergeStagingMeta(userMeta, stagingTarget);
+    // Branch staging: register any rename behind this name (issue #920) so
+    // the PR-time promote finds files staged under the older names too.
+    if (!dryRun) {
+      await registerRenamesBestEffort(ctx.client, run, stagingTarget.repo, stagingTarget.branch);
+    }
   } else {
     // gh.* additionally needs git, which the shared derived gate ignores.
     if (!noGit && derivedMetaEnabled(parsed.flags, defaults)) {

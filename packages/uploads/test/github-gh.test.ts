@@ -8,6 +8,8 @@ import {
   resolveCurrentPullRequest,
   resolveDefaultBranch,
   resolveGhTitle,
+  renameLineageFromReflog,
+  resolveCurrentBranchSafe,
   resolveRepo,
   timedExecRunner,
   upsertAttachmentsComment,
@@ -131,6 +133,102 @@ describe("resolveCurrentBranch", () => {
       },
     });
     expect(() => resolveCurrentBranch(run)).toThrow(UsageError);
+  });
+});
+
+describe("resolveCurrentBranchSafe", () => {
+  it("returns the current branch name", () => {
+    const { run } = fakeRunner({ git: () => "feature/thing\n" });
+    expect(resolveCurrentBranchSafe(run)).toBe("feature/thing");
+  });
+
+  it("returns undefined on a detached HEAD", () => {
+    const { run } = fakeRunner({ git: () => "HEAD\n" });
+    expect(resolveCurrentBranchSafe(run)).toBeUndefined();
+  });
+
+  it("returns undefined when git fails (not a repo)", () => {
+    const { run } = fakeRunner({
+      git: () => {
+        throw new Error("not a git repository");
+      },
+    });
+    expect(resolveCurrentBranchSafe(run)).toBeUndefined();
+  });
+});
+
+describe("renameLineageFromReflog (issue #920)", () => {
+  const REFLOG_ARGS = ["reflog", "show", "--format=%gs", "refs/heads/feat-c"];
+
+  it("returns nothing when the reflog has no rename entries", () => {
+    const { run, calls } = fakeRunner({
+      git: () => "commit: wire up the thing\ncommit (amend): wire up the thing\n",
+    });
+    expect(renameLineageFromReflog(run, "feat-c")).toEqual([]);
+    expect(calls[0]!.args).toEqual(REFLOG_ARGS);
+  });
+
+  it("parses one rename", () => {
+    const { run } = fakeRunner({
+      git: () => "Branch: renamed refs/heads/feat-b to refs/heads/feat-c\ncommit: initial\n",
+    });
+    expect(renameLineageFromReflog(run, "feat-c")).toEqual([{ from: "feat-b", to: "feat-c" }]);
+  });
+
+  it("returns chained renames oldest-first (the reflog lists them newest-first)", () => {
+    const { run } = fakeRunner({
+      git: () =>
+        [
+          "Branch: renamed refs/heads/feat-b to refs/heads/feat-c",
+          "commit: more work",
+          "Branch: renamed refs/heads/feat-a to refs/heads/feat-b",
+          "commit (initial): start",
+          "",
+        ].join("\n"),
+    });
+    expect(renameLineageFromReflog(run, "feat-c")).toEqual([
+      { from: "feat-a", to: "feat-b" },
+      { from: "feat-b", to: "feat-c" },
+    ]);
+  });
+
+  it("ignores unrelated reflog lines, including near-miss wording", () => {
+    const { run } = fakeRunner({
+      git: () =>
+        [
+          "Branch: renamed refs/heads/old to refs/heads/new",
+          "reset: moving to HEAD~1",
+          "merge main: Fast-forward",
+          "checkout: moving from main to feat-c",
+          "Branch: set up to track remote branch feat-c from origin",
+          "",
+        ].join("\n"),
+    });
+    expect(renameLineageFromReflog(run, "feat-c")).toEqual([{ from: "old", to: "new" }]);
+  });
+
+  it("keeps slashes in branch names", () => {
+    const { run } = fakeRunner({
+      git: () => "Branch: renamed refs/heads/zach/old-name to refs/heads/zach/new-name\n",
+    });
+    expect(renameLineageFromReflog(run, "zach/new-name")).toEqual([
+      { from: "zach/old-name", to: "zach/new-name" },
+    ]);
+  });
+
+  it("returns nothing when git fails (no reflog, not a repo)", () => {
+    const { run } = fakeRunner({
+      git: () => {
+        throw new Error("fatal: not a git repository");
+      },
+    });
+    expect(renameLineageFromReflog(run, "feat-c")).toEqual([]);
+  });
+
+  it("returns nothing (and does not shell out) without a branch name", () => {
+    const { run, calls } = fakeRunner({ git: () => "" });
+    expect(renameLineageFromReflog(run, "")).toEqual([]);
+    expect(calls).toEqual([]);
   });
 });
 

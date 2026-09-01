@@ -12,19 +12,8 @@ import { Hono, type Context } from "hono";
 import { postPromoteBranchAttachments } from "../github-promote-service";
 import { writeRateLimit } from "../guards";
 import { requireScope, type WorkspaceVars } from "../workspace";
+import { validateBranch, validateRepo } from "./github-target-validation";
 import { jsonBody } from "./json-body";
-
-// Same repo grammar as routes/github-comment.ts's parseTarget, plus the same
-// dot-only-segment guard (this repo string ends up interpolated into R2 key
-// segments here, not a GitHub API path, but the same traversal-shaped input
-// is worth rejecting up front).
-const REPO_RE = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
-const DOTS_ONLY_RE = /^\.+$/;
-
-// Printable ASCII only, matching file-metadata.ts's META_VALUE_MAX/VALUE_SAFE_RE
-// — the branch name is stored verbatim as the `gh.branch` D1 metadata value.
-const BRANCH_VALUE_RE = /^[\x20-\x7E]+$/;
-const BRANCH_VALUE_MAX = 512;
 
 interface PromoteBody {
   repo: string;
@@ -34,22 +23,12 @@ interface PromoteBody {
 }
 
 function parseBody(body: Record<string, unknown>): PromoteBody {
-  const repo = typeof body.repo === "string" ? body.repo : "";
+  const repo = validateRepo(body.repo);
   const num = typeof body.num === "number" ? body.num : NaN;
-  const branch = typeof body.branch === "string" ? body.branch : "";
-
-  if (!REPO_RE.test(repo) || repo.split("/").some((seg) => DOTS_ONLY_RE.test(seg))) {
-    throw new ValidationError("repo must be owner/name.", { code: "invalid_repo" });
-  }
   if (!Number.isSafeInteger(num) || num < 1) {
     throw new ValidationError("num must be a positive integer.");
   }
-  if (branch.length === 0 || branch.length > BRANCH_VALUE_MAX || !BRANCH_VALUE_RE.test(branch)) {
-    throw new ValidationError("branch must be a non-empty printable-ASCII string.", {
-      code: "invalid_branch",
-    });
-  }
-  return { repo, num, branch };
+  return { repo, num, branch: validateBranch(body.branch) };
 }
 
 /**

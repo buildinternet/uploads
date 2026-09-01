@@ -15,13 +15,8 @@ import { postManagedComment } from "../github-comment-service";
 import type { GhTargetKind } from "../github-comment-render";
 import { writeRateLimit } from "../guards";
 import { requireScope, type WorkspaceVars } from "../workspace";
+import { validateRepo } from "./github-target-validation";
 import { jsonBody } from "./json-body";
-
-// Same owner/name grammar as public-files.ts's deriveGithubContext, plus a guard
-// against dot-only segments (".", "..") — unlike public-files this repo string is
-// interpolated into a server-side api.github.com path, where "../" would traverse.
-const REPO_RE = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
-const DOTS_ONLY_RE = /^\.+$/;
 
 function parseTarget(body: Record<string, unknown>): {
   repo: string;
@@ -29,11 +24,12 @@ function parseTarget(body: Record<string, unknown>): {
   kind: GhTargetKind;
   resync: boolean;
 } {
-  const repo = typeof body.repo === "string" ? body.repo : "";
+  // Shared owner/name grammar + dot-only-segment guard (routes/github-target-validation.ts):
+  // this repo string is interpolated into a server-side api.github.com path,
+  // where "../" would traverse.
+  const repo = validateRepo(body.repo);
   const num = typeof body.num === "number" ? body.num : NaN;
   const kind = body.kind;
-  if (!REPO_RE.test(repo) || repo.split("/").some((seg) => DOTS_ONLY_RE.test(seg)))
-    throw new ValidationError("repo must be owner/name.", { code: "invalid_repo" });
   if (!Number.isSafeInteger(num) || num < 1)
     throw new ValidationError("num must be a positive integer.");
   if (kind !== "pull" && kind !== "issues")

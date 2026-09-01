@@ -140,6 +140,61 @@ export function resolveCurrentBranch(run: CommandRunner = execRunner): string {
 }
 
 /**
+ * `resolveCurrentBranch` for best-effort callers: undefined instead of a
+ * throw when the branch can't be determined (detached HEAD, not a git repo,
+ * git unavailable). Use it wherever a missing branch means "skip this step",
+ * not "fail the command".
+ */
+export function resolveCurrentBranchSafe(run: CommandRunner = execRunner): string | undefined {
+  try {
+    return resolveCurrentBranch(run);
+  } catch {
+    return undefined;
+  }
+}
+
+/** One `git branch -m` step read out of a branch's reflog: `from` was renamed to `to`. */
+export interface BranchRenameStep {
+  from: string;
+  to: string;
+}
+
+/**
+ * Rename lineage for `branch`, read from its own reflog (issue #920). `git
+ * branch -m old new` writes `Branch: renamed refs/heads/old to
+ * refs/heads/new` into the NEW branch's reflog, and chained renames
+ * accumulate there, newest entry first — so the parsed pairs are reversed
+ * into oldest-first order, which is the order the server wants them
+ * registered.
+ *
+ * Best-effort by construction: any git failure (not a repo, no reflog for
+ * the branch, git missing) and any non-rename reflog line yield an empty
+ * array. Callers must treat "no lineage" as the normal case.
+ */
+export function renameLineageFromReflog(
+  run: CommandRunner = execRunner,
+  branch?: string,
+): BranchRenameStep[] {
+  if (!branch) return [];
+  let out: string;
+  try {
+    out = run("git", ["reflog", "show", "--format=%gs", `refs/heads/${branch}`]);
+  } catch {
+    return []; // no reflog, not a repo, git unavailable — nothing to follow
+  }
+  const steps: BranchRenameStep[] = [];
+  for (const line of out.split("\n")) {
+    const match = /^Branch: renamed refs\/heads\/(.+) to refs\/heads\/(.+)$/.exec(line.trim());
+    if (!match) continue;
+    const from = match[1]!.trim();
+    const to = match[2]!.trim();
+    if (!from || !to || from === to) continue;
+    steps.push({ from, to });
+  }
+  return steps.reverse(); // reflog is newest-first; register oldest-first
+}
+
+/**
  * Best-effort default-branch name via the local `origin/HEAD` ref (no
  * network call — just reads the ref git already cached from the last
  * fetch/clone). Returns undefined when it can't be determined (no origin,
