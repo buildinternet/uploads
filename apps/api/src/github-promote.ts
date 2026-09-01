@@ -73,6 +73,7 @@ export interface PromoteTarget {
   /** "owner/name", already validated by the caller. */
   repo: string;
   num: number;
+  /** Source staging branch, including a stale name supplied through the escape hatch (#918). */
   branch: string;
 }
 

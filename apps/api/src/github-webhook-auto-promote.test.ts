@@ -195,6 +195,20 @@ describe("handleWebhook pull_request auto-promotion", () => {
     expect(bucket.store.has(`${PREFIX}${destKey("hero.png")}`)).toBe(true);
   });
 
+  it("keeps PR-open promotion scoped to the current head ref", async () => {
+    const { env, bucket } = await baseEnv();
+    await recordRepoLink(env.DB, REPO, WS, "promote");
+    await seedStaged(env, "current.png");
+    await bucket.put(`${PREFIX}gh/acme/web/branch/old-branch/stale.png`, PNG, {
+      httpMetadata: { contentType: "image/png" },
+    });
+
+    await withMockPost(() => handleWebhook(env, "pull_request", prPayload({ action: "opened" })));
+
+    expect(bucket.store.has(`${PREFIX}${destKey("current.png")}`)).toBe(true);
+    expect(bucket.store.has(`${PREFIX}${destKey("stale.png")}`)).toBe(false);
+  });
+
   it("does not create a comment on a bound PR that never had one", async () => {
     const { env } = await baseEnv();
     await recordRepoLink(env.DB, REPO, WS, "promote");

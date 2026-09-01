@@ -39,6 +39,7 @@ export const PUT_LIKE_FLAGS: readonly string[] = [
   "--pr",
   "--issue",
   "--branch",
+  "--from-branch",
   "--comment",
   "--no-comment",
   "--format",

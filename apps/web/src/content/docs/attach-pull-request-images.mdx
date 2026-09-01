@@ -89,6 +89,16 @@ binding state means and how to fix it.
   body, say, before it was even opened) keeps serving.
 </div>
 
+If you rename or delete the branch before the PR opens, name the old branch explicitly:
+
+```bash
+uploads attach --pr 123 --from-branch old/branch
+```
+
+This command promotes fresh files from the old branch prefix and refreshes the managed comment.
+You can also add local files or existing keys to the same command. The staged files must still be
+inside the 30-day promotion window.
+
 </section>
 
 <section id="before-after">
