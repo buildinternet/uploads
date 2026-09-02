@@ -82,7 +82,11 @@ export interface WorkspaceRecord {
   region?: string;
   /** Path-style addressing (`https://endpoint/bucket/key`) instead of virtual-hosted style. `provider: "s3"` only. */
   forcePathStyle?: boolean;
-  /** Max bytes for a single image upload. Falls back to DEFAULT_MAX_UPLOAD_BYTES. */
+  /**
+   * Max bytes for a single image upload. Omit to take the plan default
+   * (`resolveUploadPolicy`, guards.ts, via `resolveEffectiveLimits`); with
+   * no `plan` stamped, falls back to the legacy DEFAULT_MAX_UPLOAD_BYTES.
+   */
   maxUploadBytes?: number;
   /**
    * Max bytes for video/mp4 and video/webm. When unset, videos use maxUploadBytes.

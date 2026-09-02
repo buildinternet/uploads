@@ -156,6 +156,44 @@ describe("resolveUploadPolicy", () => {
     expect(allowed.has("text/html")).toBe(false);
     expect(allowed.has("image/svg+xml")).toBe(false);
   });
+
+  it("resolves pro-plan defaults for both image and video caps when unset", () => {
+    const policy = resolveUploadPolicy({ plan: "pro" });
+    expect(policy.maxBytes).toBe(100_000_000);
+    expect(policy.maxVideoBytes).toBe(100_000_000);
+  });
+
+  it("resolves free-plan defaults for both image and video caps when unset", () => {
+    const policy = resolveUploadPolicy({ plan: "free" });
+    expect(policy.maxBytes).toBe(25_000_000);
+    expect(policy.maxVideoBytes).toBe(25_000_000);
+  });
+
+  it("an explicit override beats the plan default", () => {
+    const policy = resolveUploadPolicy({ plan: "pro", maxUploadBytes: 1000 });
+    expect(policy.maxBytes).toBe(1000);
+    // video has no override of its own, so it resolves independently to the
+    // plan's video default (not to the overridden maxBytes).
+    expect(policy.maxVideoBytes).toBe(100_000_000);
+  });
+
+  it("an explicit video override beats the plan default independently of maxBytes", () => {
+    const policy = resolveUploadPolicy({ plan: "pro", maxVideoUploadBytes: 5000 });
+    expect(policy.maxBytes).toBe(100_000_000);
+    expect(policy.maxVideoBytes).toBe(5000);
+  });
+
+  it("falls back to the legacy DEFAULT_MAX_UPLOAD_BYTES when no plan is stamped", () => {
+    const policy = resolveUploadPolicy({});
+    expect(policy.maxBytes).toBe(DEFAULT_MAX_UPLOAD_BYTES);
+    expect(policy.maxVideoBytes).toBe(DEFAULT_MAX_UPLOAD_BYTES);
+  });
+
+  it("video falls back to maxBytes when only the video field is unresolved", () => {
+    const policy = resolveUploadPolicy({ plan: "pro", maxVideoUploadBytes: 0 });
+    expect(policy.maxBytes).toBe(100_000_000);
+    expect(policy.maxVideoBytes).toBe(100_000_000);
+  });
 });
 
 describe("looksLikeText", () => {

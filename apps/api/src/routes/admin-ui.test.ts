@@ -699,12 +699,13 @@ describe("workspace limits editing", () => {
     retentionDays: 90,
   };
 
-  it("GET returns current limits and usage", async () => {
+  it("GET returns current limits and usage — plan undefined (legacy), planApplied: false", async () => {
     const { env } = limitsEnv(ADMIN_USER, REC, { bytes: 128, uploadsInPeriod: 5 });
     const res = await app().request("/admin-ui/workspaces/acme/limits", {}, env);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
       workspace: "acme",
+      planApplied: false,
       limits: {
         maxStorageBytes: 250_000_000,
         maxUploadsPerPeriod: 3000,
@@ -712,8 +713,51 @@ describe("workspace limits editing", () => {
         maxVideoUploadBytes: null,
         maxMembers: null,
       },
+      overrides: ["maxStorageBytes", "maxUploadsPerPeriod"],
       usage: { bytes: 128, uploads: 5 },
     });
+  });
+
+  it("GET resolves free-plan defaults for a self-serve workspace with no overrides — issue #613", async () => {
+    const { env } = limitsEnv(ADMIN_USER, {
+      provider: "r2",
+      bucket: "uploads-default",
+      prefix: "acme/",
+      plan: "free",
+    });
+    const res = await app().request("/admin-ui/workspaces/acme/limits", {}, env);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      planApplied: boolean;
+      overrides: string[];
+      limits: Record<string, number | null>;
+    };
+    expect(body.planApplied).toBe(true);
+    expect(body.overrides).toEqual([]);
+    // Free plan defaults — not "Unlimited"/null (the pre-fix bug).
+    expect(body.limits.maxStorageBytes).toBe(250_000_000);
+    expect(body.limits.maxUploadsPerPeriod).toBe(3000);
+    expect(body.limits.maxUploadBytes).toBe(25_000_000);
+    expect(body.limits.maxVideoUploadBytes).toBe(25_000_000);
+    expect(body.limits.maxMembers).toBe(3);
+  });
+
+  it("GET lets an explicit override win over the plan default", async () => {
+    const { env } = limitsEnv(ADMIN_USER, {
+      provider: "r2",
+      bucket: "uploads-default",
+      prefix: "acme/",
+      plan: "free",
+      maxStorageBytes: 999,
+    });
+    const res = await app().request("/admin-ui/workspaces/acme/limits", {}, env);
+    const body = (await res.json()) as {
+      overrides: string[];
+      limits: Record<string, number | null>;
+    };
+    expect(body.overrides).toEqual(["maxStorageBytes"]);
+    expect(body.limits.maxStorageBytes).toBe(999);
+    expect(body.limits.maxUploadsPerPeriod).toBe(3000); // still the plan default
   });
 
   it("PATCH sets numeric limits on the record", async () => {

@@ -71,6 +71,7 @@ import {
 import { mutateWorkspaceRecord } from "../workspace-mutate";
 import { LIMIT_FIELDS, validateLimitsPatch } from "../workspace-limits";
 import { planResponse, planSourceFor, validatePlanPatch } from "../workspace-plan";
+import { resolveEffectiveLimits, type WorkspacePlanLimits } from "@uploads/billing";
 import { storageStatusResponse } from "./workspace-storage";
 import { dbFor } from "../db-session";
 
@@ -441,15 +442,30 @@ function repoLinkResponse(link: RepoLink) {
   };
 }
 
-/** Response body shared by GET and PATCH: current budget limits + usage. */
+/**
+ * Response body shared by GET and PATCH /admin-ui/workspaces/:name/limits.
+ *
+ * `limits` used to echo the record's raw override fields (`?? null`),
+ * which reads as "unlimited" for any self-serve workspace — those carry
+ * `plan: "free"` with no explicit overrides, so every field was `null`
+ * even though the free plan's defaults are enforced (issue #613 display
+ * bug; enforcement via `resolveEffectiveLimits`/budget.ts was always
+ * correct — only this projection lied). Mirrors `planResponse`'s shape
+ * (`workspace-plan.ts`) so the two admin panels agree: `limits` is the
+ * resolved effective value per field (null only when truly unlimited —
+ * i.e. `plan` is undefined/legacy, or an explicit override clears it),
+ * `overrides` lists which fields carry an explicit per-workspace override,
+ * and `planApplied` says whether plan defaults were consulted at all.
+ */
 async function limitsResponse(env: Env, name: string, record: WorkspaceRecord) {
-  const limits = {
-    maxStorageBytes: record.maxStorageBytes ?? null,
-    maxUploadsPerPeriod: record.maxUploadsPerPeriod ?? null,
-    maxUploadBytes: record.maxUploadBytes ?? null,
-    maxVideoUploadBytes: record.maxVideoUploadBytes ?? null,
-    maxMembers: record.maxMembers ?? null,
-  };
+  const planApplied = record.plan !== undefined;
+  const resolved = resolveEffectiveLimits(record);
+  const overrides = LIMIT_FIELDS.filter(
+    (field) => record[field as keyof WorkspacePlanLimits] !== undefined,
+  );
+  const limits = Object.fromEntries(
+    LIMIT_FIELDS.map((field) => [field, resolved[field as keyof WorkspacePlanLimits] ?? null]),
+  ) as Record<(typeof LIMIT_FIELDS)[number], number | null>;
   let usage: { bytes: number; uploads: number } | null = null;
   try {
     const u = await getWorkspaceUsage(dbFor(env), name);
@@ -457,7 +473,7 @@ async function limitsResponse(env: Env, name: string, record: WorkspaceRecord) {
   } catch {
     usage = null;
   }
-  return { workspace: name, limits, usage };
+  return { workspace: name, planApplied, limits, overrides, usage };
 }
 
 /**
