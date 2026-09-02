@@ -1366,6 +1366,16 @@ export async function deleteObject(
   ws: WorkspaceRecord,
   key: string,
   workspaceName: string,
+  opts?: {
+    /**
+     * Server-internal (issue #934): the caller has already moved this key's
+     * attachment-index row elsewhere, so the DELETE below could only ever
+     * match nothing. Private-prefix rotation sets it — it calls
+     * `rekeyAttachment` for the old key immediately before deleting it.
+     * Never set from a request: an ordinary delete must still clear the row.
+     */
+    skipAttachmentIndex?: boolean;
+  },
 ): Promise<{ key: string; deleted: true }> {
   if (badKey(key)) throw new ValidationError("invalid key", { code: "invalid_key" });
 
@@ -1406,7 +1416,7 @@ export async function deleteObject(
   // surviving attachment silently drops out of the managed comment.
   // Best-effort past that point: a stale row costs a broken image until
   // reconcile, never a failed delete.
-  await deleteAttachmentSafe(dbFor(env), workspaceName, key);
+  if (!opts?.skipAttachmentIndex) await deleteAttachmentSafe(dbFor(env), workspaceName, key);
 
   // Derived poster (issue #299), best-effort: a missing one is the norm for
   // every non-video object. Guarded so a transient poster-cleanup failure

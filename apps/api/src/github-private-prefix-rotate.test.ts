@@ -593,4 +593,54 @@ describe("rotatePrivatePrefix", () => {
     expect(bucket.store.has(`${PREFIX}${branchKey}`)).toBe(false);
     expect(statements.some((sql) => sql.startsWith("UPDATE github_attachments"))).toBe(false);
   });
+
+  it("issue #934: rotation's old-key delete skips its no-op index DELETE", async () => {
+    const seeded = await seededEnv();
+    const { db, ws } = seeded;
+    const oldId = await getOrMintPrefixId(db, REPO, BRANCH);
+    const pullKey = ghPrivateAttachmentKey(
+      oldId,
+      { repo: REPO, kind: "pull", num: NUM },
+      "hero.png",
+    );
+
+    const statements: string[] = [];
+    const spyDb = new Proxy(db, {
+      get(target, prop, receiver) {
+        if (prop === "prepare") {
+          return (sql: string) => {
+            statements.push(sql.replace(/\s+/g, " ").trim());
+            return target.prepare(sql);
+          };
+        }
+        return Reflect.get(target, prop, receiver);
+      },
+    });
+    const env = { ...(seeded.env as unknown as Record<string, unknown>), DB: spyDb } as Env;
+
+    await putObject(env, ws, pullKey, PNG, WS);
+    statements.length = 0;
+
+    const result = await withFetch(commentFlowFetch({ bodies: [] }), () =>
+      rotatePrivatePrefix(env, ws, WS, "user-1", REPO, BRANCH),
+    );
+
+    expect(result.rotated).toBe(true);
+    if (!result.rotated) throw new Error("expected rotated: true");
+    // Exactly one index DELETE: `rekeyAttachment`'s destination-first wipe,
+    // inside its batch. The row already moved with that re-key, so
+    // `deleteObject`'s own DELETE for the old key could only ever match
+    // nothing — rotation skips it.
+    const indexDeletes = statements.filter((sql) =>
+      sql.startsWith("DELETE FROM github_attachments"),
+    );
+    expect(indexDeletes).toHaveLength(1);
+    const newKey = ghPrivateAttachmentKey(
+      result.prefixId,
+      { repo: REPO, kind: "pull", num: NUM },
+      "hero.png",
+    );
+    expect(await attachmentRow(db, WS, pullKey)).toBeNull();
+    expect(await attachmentRow(db, WS, newKey)).not.toBeNull();
+  });
 });

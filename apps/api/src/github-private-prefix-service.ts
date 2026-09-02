@@ -381,7 +381,11 @@ export async function rotatePrivatePrefix(
           // any — `putObject` above already regenerated one for the new key
           // when applicable), so a rotation doesn't inflate the workspace's
           // storage usage or orphan a video's poster frame.
-          await deleteObject(env, ws, item.key, workspaceName);
+          // `skipAttachmentIndex` (issue #934): whatever index row this key
+          // had was just moved onto `newKey` by `rekeyAttachmentSafe` above
+          // (and a key that can't have one never had a row), so the delete's
+          // own index DELETE is a guaranteed no-op round trip per object.
+          await deleteObject(env, ws, item.key, workspaceName, { skipAttachmentIndex: true });
           moved++;
 
           const parsed = parseGhPrivateKey(newKey);
