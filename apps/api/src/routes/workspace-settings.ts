@@ -109,6 +109,7 @@ import { mutateWorkspaceRecord } from "../workspace-mutate";
 import { planResponse, planSourceFor } from "../workspace-plan";
 import type { ListBucketsResult } from "../r2-list-buckets";
 import {
+  activeContentStampFromVerify,
   candidateFromBody,
   isByoRecord,
   listBuckets,
@@ -576,6 +577,10 @@ export async function storagePutHandler(c: Context<SettingsVars>) {
   }
 
   const nowIso = new Date().toISOString();
+  // ok when the recommended `active-content-headers` check passed; absent
+  // (no publicBaseUrl, or the check failed/never ran) counts as not-verified
+  // — SVG/XML stay off for this lane until a check actually succeeds.
+  const activeContentVerifiedAt = activeContentStampFromVerify(result, nowIso);
   const updated = await mutateWorkspaceRecord(
     c.env,
     name,
@@ -619,6 +624,8 @@ export async function storagePutHandler(c: Context<SettingsVars>) {
           next.forcePathStyle = candidate.forcePathStyle;
         }
         next.storageVerifiedAt = nowIso;
+        if (activeContentVerifiedAt) next.storageActiveContentVerifiedAt = activeContentVerifiedAt;
+        else delete next.storageActiveContentVerifiedAt;
         next.storageConfiguredAt = nowIso;
         next.storageConfiguredBy = userId;
         next.storageAccessKeyIdLast4 = accessKeyIdLast4;
@@ -638,6 +645,7 @@ export async function storagePutHandler(c: Context<SettingsVars>) {
         secretAccessKey: sealed.secretAccessKey,
         publicBaseUrl: candidate.publicBaseUrl,
         verifiedAt: nowIso,
+        activeContentVerifiedAt,
         storageConfiguredAt: nowIso,
         storageConfiguredBy: userId,
         storageAccessKeyIdLast4: accessKeyIdLast4,
@@ -710,6 +718,9 @@ export async function storageActivateHandler(c: Context<SettingsVars>) {
 
   const nowIso = new Date().toISOString();
   let verifiedAt = target.verifiedAt;
+  // Carried forward unless a re-verify below runs and settles it fresh —
+  // same "carry, or refresh from the fresh result" posture as `verifiedAt`.
+  let activeContentVerifiedAt = target.activeContentVerifiedAt;
   // A lane carrying a health flag (issue #826) is re-verified however fresh
   // its `verifiedAt` looks: the flag is later evidence than the stamp, and
   // `promoteLane` clears the flag unconditionally — so without this a broken
@@ -720,6 +731,7 @@ export async function storageActivateHandler(c: Context<SettingsVars>) {
       return c.json(result, 422);
     }
     verifiedAt = nowIso;
+    activeContentVerifiedAt = activeContentStampFromVerify(result, nowIso);
   }
 
   const updated = await mutateWorkspaceRecord(
@@ -738,7 +750,7 @@ export async function storageActivateHandler(c: Context<SettingsVars>) {
         ...current,
         storageLanes: upsertDemotedLane(remaining, demoted),
       };
-      promoteLane(next, freshTarget, verifiedAt);
+      promoteLane(next, freshTarget, verifiedAt, activeContentVerifiedAt);
       return next;
     },
     { requireServing: true },
@@ -896,6 +908,7 @@ export async function storageDeleteHandler(c: Context<SettingsVars>) {
           prefix: shared.prefix,
           publicBaseUrl: shared.publicBaseUrl,
         },
+        undefined,
         undefined,
       );
       return next;

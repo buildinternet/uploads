@@ -57,6 +57,8 @@ export interface StorageLaneStatus {
   bucket: string;
   publicBaseUrl?: string;
   verifiedAt?: string;
+  /** Last successful `active-content-headers` verify check against this lane's public host (issue #929) — gates SVG/XML acceptance while this lane is active. */
+  activeContentVerifiedAt?: string;
   lastActiveAt?: string;
   accountIdMasked?: string;
   accessKeyIdLast4?: string;
@@ -89,6 +91,8 @@ export interface StorageStatusResponse {
   publicBaseUrl?: string;
   configuredAt?: string;
   verifiedAt?: string;
+  /** Active lane's last successful `active-content-headers` verify check (issue #929) — gates SVG/XML acceptance. */
+  activeContentVerifiedAt?: string;
   jurisdiction?: string;
   /** s3-only. Service endpoint origin of the active lane. */
   endpoint?: string;
@@ -155,6 +159,7 @@ function laneStatus(lane: StorageLane): StorageLaneStatus {
     bucket: lane.bucket,
     publicBaseUrl: lane.publicBaseUrl,
     verifiedAt: lane.verifiedAt,
+    activeContentVerifiedAt: lane.activeContentVerifiedAt,
     lastActiveAt: lane.lastActiveAt,
     // Never both — an s3 lane carries endpoint/region, never an accountId.
     ...providerFields(isS3, {
@@ -208,6 +213,7 @@ export function storageStatusResponse(
     accessKeyIdLast4: byo ? record.storageAccessKeyIdLast4 : undefined,
     configuredAt: record.storageConfiguredAt,
     verifiedAt: record.storageVerifiedAt,
+    activeContentVerifiedAt: record.storageActiveContentVerifiedAt,
     jurisdiction: byo && !isS3 ? record.jurisdiction : undefined,
     activeLaneId: record.storageLaneId,
     lanes: (record.storageLanes ?? []).map(laneStatus),
@@ -258,6 +264,22 @@ export function storageVerify(
   opts?: StorageVerifyOptions,
 ): Promise<StorageVerifyResult> {
   return runStorageVerify(candidate, opts);
+}
+
+/**
+ * Derives the active-content verification stamp from a verify pipeline
+ * result (issue #929): `nowIso` when the recommended `active-content-headers`
+ * check ran and passed, `undefined` otherwise — an absent check (no
+ * `publicBaseUrl`, or the public-url check itself failed) counts the same as
+ * a failing one. Callers stamp `StorageLane.activeContentVerifiedAt` /
+ * `WorkspaceRecord.storageActiveContentVerifiedAt` with the result.
+ */
+export function activeContentStampFromVerify(
+  result: StorageVerifyResult,
+  nowIso: string,
+): string | undefined {
+  const check = result.checks.find((c) => c.id === "active-content-headers");
+  return check?.ok ? nowIso : undefined;
 }
 
 /** Test-only: swap the verify implementation. Pass `undefined` to restore the real pipeline. */

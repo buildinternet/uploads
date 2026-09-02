@@ -10,7 +10,8 @@ import {
 } from "./storage-health";
 import { demoteActiveLane, promoteLane } from "./workspace-lanes";
 import type { WorkspaceRecord } from "./workspace";
-import { storageStatusResponse } from "./routes/workspace-storage";
+import { activeContentStampFromVerify, storageStatusResponse } from "./routes/workspace-storage";
+import type { StorageVerifyResult } from "./storage-verify";
 
 /** A BYO (HTTP-credential, no binding) active-lane record. */
 function byoRecord(extra: Partial<WorkspaceRecord> = {}): WorkspaceRecord {
@@ -218,6 +219,7 @@ describe("lane transitions carry health", () => {
       next,
       { provider: "r2", bucket: "uploads-shared", binding: "BUCKET", prefix: "acme/" },
       undefined,
+      undefined,
     );
     expect(next.storageUnhealthyAt).toBeUndefined();
     expect(next.storageUnhealthyCode).toBeUndefined();
@@ -326,5 +328,68 @@ describe("storageStatusResponse health projection", () => {
       true,
     );
     expect(response.lanes[0]).not.toHaveProperty("health");
+  });
+});
+
+describe("storageStatusResponse — active-content stamp (issue #929)", () => {
+  it("projects the active lane's storageActiveContentVerifiedAt", () => {
+    const response = storageStatusResponse(
+      byoRecord({ storageActiveContentVerifiedAt: "2026-09-01T00:00:00.000Z" }),
+      true,
+    );
+    expect(response.activeContentVerifiedAt).toBe("2026-09-01T00:00:00.000Z");
+  });
+
+  it("omits the active-content stamp when the active lane has never passed the probe", () => {
+    const response = storageStatusResponse(byoRecord(), true);
+    expect(response.activeContentVerifiedAt).toBeUndefined();
+  });
+
+  it("projects a saved lane's own activeContentVerifiedAt in the lanes list", () => {
+    const response = storageStatusResponse(
+      sharedRecord({
+        storageLanes: [
+          {
+            id: "lane_0000beef",
+            provider: "r2",
+            bucket: "acme-media",
+            accountId: "a".repeat(32),
+            accessKeyId: "enc:v1:key",
+            secretAccessKey: "enc:v1:secret",
+            activeContentVerifiedAt: "2026-08-20T00:00:00.000Z",
+          },
+        ],
+      }),
+      true,
+    );
+    expect(response.lanes[0]?.activeContentVerifiedAt).toBe("2026-08-20T00:00:00.000Z");
+  });
+});
+
+describe("activeContentStampFromVerify (issue #929)", () => {
+  const nowIso = "2026-09-02T00:00:00.000Z";
+
+  it("returns nowIso when the active-content-headers check passed", () => {
+    const result: StorageVerifyResult = {
+      ok: true,
+      checks: [{ id: "active-content-headers", ok: true, required: false }],
+    };
+    expect(activeContentStampFromVerify(result, nowIso)).toBe(nowIso);
+  });
+
+  it("returns undefined when the active-content-headers check failed", () => {
+    const result: StorageVerifyResult = {
+      ok: true,
+      checks: [{ id: "active-content-headers", ok: false, required: false, hint: "missing csp" }],
+    };
+    expect(activeContentStampFromVerify(result, nowIso)).toBeUndefined();
+  });
+
+  it("returns undefined when the check never ran (no publicBaseUrl, or the public-url check failed)", () => {
+    const result: StorageVerifyResult = {
+      ok: true,
+      checks: [{ id: "public-url", ok: false, required: false, hint: "no public base URL" }],
+    };
+    expect(activeContentStampFromVerify(result, nowIso)).toBeUndefined();
   });
 });

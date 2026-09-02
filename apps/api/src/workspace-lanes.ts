@@ -41,6 +41,7 @@ export function demoteActiveLane(current: WorkspaceRecord, nowIso: string): Stor
     forcePathStyle: current.forcePathStyle,
     lastActiveAt: nowIso,
     verifiedAt: current.storageVerifiedAt,
+    activeContentVerifiedAt: current.storageActiveContentVerifiedAt,
     storageConfiguredAt: current.storageConfiguredAt,
     storageConfiguredBy: current.storageConfiguredBy,
     storageAccessKeyIdLast4: current.storageAccessKeyIdLast4,
@@ -76,12 +77,17 @@ export type PromotableLane = StorageLaneFields &
  * `binding`/`prefix`; BYO → shared must drop the credential fields). A
  * `lane.id` of `undefined` (the laneless shared target) clears
  * `next.storageLaneId` instead of setting it — the restored shared lane has
- * no id until a future activate demotes it again.
+ * no id until a future activate demotes it again. `activeContentVerifiedAt`
+ * is a separate stamp from `verifiedAt` (issue #929) — a lane can pass
+ * overall verification while still failing the recommended SVG/XML
+ * sandboxing-CSP probe, so callers pass it independently rather than
+ * deriving it from `lane`.
  */
 export function promoteLane(
   next: WorkspaceRecord,
   lane: PromotableLane,
   verifiedAt: string | undefined,
+  activeContentVerifiedAt: string | undefined,
 ): void {
   // The incoming lane's own provider, never hardcoded — promoting an s3
   // standby (or reactivating a demoted s3 fallback) must land as an s3
@@ -120,6 +126,8 @@ export function promoteLane(
   else delete next.storageAccessKeyIdLast4;
   if (verifiedAt) next.storageVerifiedAt = verifiedAt;
   else delete next.storageVerifiedAt;
+  if (activeContentVerifiedAt) next.storageActiveContentVerifiedAt = activeContentVerifiedAt;
+  else delete next.storageActiveContentVerifiedAt;
   // A lane only ever becomes active after it has been proven to work — a
   // binding-mode (shared) lane needs no proof, and an HTTP-credential lane is
   // re-verified by `storageActivateHandler` before the swap (which forces a

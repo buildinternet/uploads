@@ -363,6 +363,31 @@ describe("storage vertical (self-serve BYO bucket)", () => {
     publicBaseUrl: "https://media.example.com",
   };
 
+  const SECRETS_KEY = "test-workspace-secrets-key-0000";
+
+  /**
+   * Real (not placeholder) sealed credentials — activate opens them for
+   * the stale-verify re-check, so a fake `enc:v1:` string that isn't
+   * actually valid ciphertext would 503 (`storage_credentials_unreadable`)
+   * on every test that reaches a stale lane, not just the ones testing it.
+   */
+  async function standbyLane(overrides: Partial<Record<string, unknown>> = {}) {
+    return {
+      id: "lane_standby1",
+      provider: "r2",
+      bucket: "customer-bucket",
+      accountId: "a".repeat(32),
+      accessKeyId: await encryptSecret(SECRETS_KEY, "AKIDEXAMPLE1234"),
+      secretAccessKey: await encryptSecret(SECRETS_KEY, "super-secret-value"),
+      publicBaseUrl: "https://media.example.com",
+      // Fresh by default — a test that wants the stale-verify path
+      // overrides this with a timestamp older than LANE_VERIFY_STALE_MS.
+      verifiedAt: new Date().toISOString(),
+      storageAccessKeyIdLast4: "1234",
+      ...overrides,
+    };
+  }
+
   afterEach(() => {
     setStorageVerifyForTests(undefined);
     setStorageReconcileForTests(undefined);
@@ -1042,31 +1067,6 @@ describe("storage vertical (self-serve BYO bucket)", () => {
   });
 
   describe("POST /v1/workspaces/:workspace/storage/activate", () => {
-    const SECRETS_KEY = "test-workspace-secrets-key-0000";
-
-    /**
-     * Real (not placeholder) sealed credentials — activate opens them for
-     * the stale-verify re-check, so a fake `enc:v1:` string that isn't
-     * actually valid ciphertext would 503 (`storage_credentials_unreadable`)
-     * on every test that reaches a stale lane, not just the ones testing it.
-     */
-    async function standbyLane(overrides: Partial<Record<string, unknown>> = {}) {
-      return {
-        id: "lane_standby1",
-        provider: "r2",
-        bucket: "customer-bucket",
-        accountId: "a".repeat(32),
-        accessKeyId: await encryptSecret(SECRETS_KEY, "AKIDEXAMPLE1234"),
-        secretAccessKey: await encryptSecret(SECRETS_KEY, "super-secret-value"),
-        publicBaseUrl: "https://media.example.com",
-        // Fresh by default — a test that wants the stale-verify path
-        // overrides this with a timestamp older than LANE_VERIFY_STALE_MS.
-        verifiedAt: new Date().toISOString(),
-        storageAccessKeyIdLast4: "1234",
-        ...overrides,
-      };
-    }
-
     it("promotes a standby lane to active and demotes the outgoing shared config to a fallback lane", async () => {
       const record = {
         ...SHARED_RECORD,
@@ -1283,6 +1283,188 @@ describe("storage vertical (self-serve BYO bucket)", () => {
         env,
       );
       expect(res.status).toBe(403);
+    });
+  });
+
+  describe("active-content verification stamp (issue #929)", () => {
+    const okVerifyResultWithActiveContent = {
+      ...okVerifyResult,
+      checks: [
+        ...okVerifyResult.checks,
+        { id: "active-content-headers", ok: true, required: false },
+      ],
+    };
+    const okVerifyResultWithFailedActiveContent = {
+      ...okVerifyResult,
+      checks: [
+        ...okVerifyResult.checks,
+        { id: "active-content-headers", ok: false, required: false, hint: "nope" },
+      ],
+    };
+
+    it("PUT stamps a new standby lane's activeContentVerifiedAt when the check passed", async () => {
+      const { env, registry } = makeEnv({
+        role: "owner",
+        record: { ...SHARED_RECORD, byoBucketEnabled: true },
+        usage: { objects: 0 },
+      });
+      setStorageVerifyForTests(async () => okVerifyResultWithActiveContent);
+      const res = await app.request(
+        "/v1/workspaces/acme/storage",
+        {
+          method: "PUT",
+          headers: { ...sessionHeaders, "content-type": "application/json" },
+          body: JSON.stringify(CANDIDATE_BODY),
+        },
+        env,
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        lanes: Array<{ activeContentVerifiedAt?: string }>;
+      };
+      expect(body.lanes[0]?.activeContentVerifiedAt).toBeTruthy();
+      const savedLane = registry.record<{
+        storageLanes?: Array<{ activeContentVerifiedAt?: string }>;
+      }>("acme")?.storageLanes?.[0];
+      expect(savedLane?.activeContentVerifiedAt).toBeTruthy();
+    });
+
+    it("PUT leaves a new standby lane's activeContentVerifiedAt unset when the check is absent", async () => {
+      const { env, registry } = makeEnv({
+        role: "owner",
+        record: { ...SHARED_RECORD, byoBucketEnabled: true },
+        usage: { objects: 0 },
+      });
+      setStorageVerifyForTests(async () => okVerifyResult);
+      await app.request(
+        "/v1/workspaces/acme/storage",
+        {
+          method: "PUT",
+          headers: { ...sessionHeaders, "content-type": "application/json" },
+          body: JSON.stringify(CANDIDATE_BODY),
+        },
+        env,
+      );
+      const savedLane = registry.record<{
+        storageLanes?: Array<{ activeContentVerifiedAt?: string }>;
+      }>("acme")?.storageLanes?.[0];
+      expect(savedLane?.activeContentVerifiedAt).toBeUndefined();
+    });
+
+    it("PUT rotating the active BYO lane stamps storageActiveContentVerifiedAt when the check passed", async () => {
+      const { env, registry } = makeEnv({ role: "owner", record: BYO_RECORD });
+      setStorageVerifyForTests(async () => okVerifyResultWithActiveContent);
+      const res = await app.request(
+        "/v1/workspaces/acme/storage",
+        {
+          method: "PUT",
+          headers: { ...sessionHeaders, "content-type": "application/json" },
+          body: JSON.stringify({ ...CANDIDATE_BODY, accessKeyId: "AKIDROTATED0000" }),
+        },
+        env,
+      );
+      expect(res.status).toBe(200);
+      expect(
+        registry.record<{ storageActiveContentVerifiedAt?: string }>("acme")
+          ?.storageActiveContentVerifiedAt,
+      ).toBeTruthy();
+    });
+
+    it("PUT rotating the active BYO lane clears a stale storageActiveContentVerifiedAt when the fresh check fails", async () => {
+      const { env, registry } = makeEnv({
+        role: "owner",
+        record: { ...BYO_RECORD, storageActiveContentVerifiedAt: "2026-01-01T00:00:00.000Z" },
+      });
+      setStorageVerifyForTests(async () => okVerifyResultWithFailedActiveContent);
+      const res = await app.request(
+        "/v1/workspaces/acme/storage",
+        {
+          method: "PUT",
+          headers: { ...sessionHeaders, "content-type": "application/json" },
+          body: JSON.stringify({ ...CANDIDATE_BODY, accessKeyId: "AKIDROTATED0000" }),
+        },
+        env,
+      );
+      expect(res.status).toBe(200);
+      expect(
+        registry.record<{ storageActiveContentVerifiedAt?: string }>("acme")
+          ?.storageActiveContentVerifiedAt,
+      ).toBeUndefined();
+    });
+
+    it("activate carries the target lane's own activeContentVerifiedAt when the fresh-verifiedAt lane skips re-verify", async () => {
+      const record = {
+        ...SHARED_RECORD,
+        byoBucketEnabled: true,
+        storageLanes: [await standbyLane({ activeContentVerifiedAt: "2026-08-15T00:00:00.000Z" })],
+      };
+      const { env, registry } = makeEnv({ role: "owner", record });
+      setStorageVerifyForTests(async () => okVerifyResult);
+      const res = await app.request(
+        "/v1/workspaces/acme/storage/activate",
+        {
+          method: "POST",
+          headers: { ...sessionHeaders, "content-type": "application/json" },
+          body: JSON.stringify({ laneId: "lane_standby1" }),
+        },
+        env,
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { activeContentVerifiedAt?: string };
+      expect(body.activeContentVerifiedAt).toBe("2026-08-15T00:00:00.000Z");
+      expect(
+        registry.record<{ storageActiveContentVerifiedAt?: string }>("acme")
+          ?.storageActiveContentVerifiedAt,
+      ).toBe("2026-08-15T00:00:00.000Z");
+    });
+
+    it("activate derives a fresh activeContentVerifiedAt from the re-verify result for a stale lane", async () => {
+      const staleLane = await standbyLane({ verifiedAt: "2020-01-01T00:00:00.000Z" });
+      const record = { ...SHARED_RECORD, byoBucketEnabled: true, storageLanes: [staleLane] };
+      const { env, registry } = makeEnv({ role: "owner", record });
+      setStorageVerifyForTests(async () => okVerifyResultWithActiveContent);
+      const res = await app.request(
+        "/v1/workspaces/acme/storage/activate",
+        {
+          method: "POST",
+          headers: { ...sessionHeaders, "content-type": "application/json" },
+          body: JSON.stringify({ laneId: "lane_standby1" }),
+        },
+        env,
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { activeContentVerifiedAt?: string };
+      expect(body.activeContentVerifiedAt).toBeTruthy();
+      expect(
+        registry.record<{ storageActiveContentVerifiedAt?: string }>("acme")
+          ?.storageActiveContentVerifiedAt,
+      ).toBeTruthy();
+    });
+
+    it("activate clears activeContentVerifiedAt when a stale lane re-verifies but the active-content check fails", async () => {
+      const staleLane = await standbyLane({
+        verifiedAt: "2020-01-01T00:00:00.000Z",
+        activeContentVerifiedAt: "2026-01-01T00:00:00.000Z",
+      });
+      const record = { ...SHARED_RECORD, byoBucketEnabled: true, storageLanes: [staleLane] };
+      const { env, registry } = makeEnv({ role: "owner", record });
+      setStorageVerifyForTests(async () => okVerifyResultWithFailedActiveContent);
+      const res = await app.request(
+        "/v1/workspaces/acme/storage/activate",
+        {
+          method: "POST",
+          headers: { ...sessionHeaders, "content-type": "application/json" },
+          body: JSON.stringify({ laneId: "lane_standby1" }),
+        },
+        env,
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { activeContentVerifiedAt?: string };
+      expect(body.activeContentVerifiedAt).toBeUndefined();
+      expect(
+        registry.record<{ storageActiveContentVerifiedAt?: string }>("acme")
+          ?.storageActiveContentVerifiedAt,
+      ).toBeUndefined();
     });
   });
 
