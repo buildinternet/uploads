@@ -152,6 +152,94 @@ export function detectContentType(bytes: Uint8Array): string | null {
   return null;
 }
 
+/** Bytes inspected by `looksLikeText`. Enough to catch binaries; cheap on a 25 MB log. */
+const TEXT_SAMPLE_BYTES = 8 * 1024;
+
+/**
+ * Plausibility check for declared text uploads (text has no magic bytes):
+ * the first 8 KiB must contain no NUL and decode as UTF-8. A multibyte
+ * sequence cut by the sample boundary is tolerated via streaming decode.
+ */
+export function looksLikeText(bytes: Uint8Array): boolean {
+  if (bytes.byteLength === 0) return false;
+  const sample = bytes.subarray(0, Math.min(bytes.byteLength, TEXT_SAMPLE_BYTES));
+  for (let i = 0; i < sample.length; i++) {
+    if (sample[i] === 0) return false;
+  }
+  try {
+    new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(sample, {
+      stream: sample.length < bytes.byteLength,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Extension → content type for the key-extension fallback in
+ * `resolveDeclaredContentType`. Mirrors `inferContentType` in
+ * packages/uploads/src/embed.ts; keep the two in step. html/svg are absent on
+ * purpose — they must never become a declared type.
+ */
+const CONTENT_TYPE_BY_EXTENSION: Readonly<Record<string, string>> = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+  avif: "image/avif",
+  mp4: "video/mp4",
+  webm: "video/webm",
+  mov: "video/quicktime",
+  pdf: "application/pdf",
+  zip: "application/zip",
+  gz: "application/gzip",
+  tgz: "application/gzip",
+  txt: "text/plain",
+  text: "text/plain",
+  log: "text/plain",
+  jsonl: "text/plain",
+  ndjson: "text/plain",
+  yaml: "text/plain",
+  yml: "text/plain",
+  md: "text/markdown",
+  markdown: "text/markdown",
+  csv: "text/csv",
+  json: "application/json",
+};
+
+/** Content type implied by a key's extension, or undefined when unknown. */
+export function contentTypeFromKey(key: string): string | undefined {
+  const base = key.slice(key.lastIndexOf("/") + 1);
+  const dot = base.lastIndexOf(".");
+  if (dot <= 0 || dot === base.length - 1) return undefined;
+  return CONTENT_TYPE_BY_EXTENSION[base.slice(dot + 1).toLowerCase()];
+}
+
+/** Normalize a client Content-Type for allowlist compare (type/subtype only, lowercased). */
+export function normalizeDeclaredContentType(raw: string): string {
+  const beforeParams = raw.split(";", 1)[0] ?? raw;
+  return beforeParams.trim().toLowerCase();
+}
+
+/**
+ * The type a client *claims* for an upload: its Content-Type header when
+ * specific, else the key's extension. Only consulted by `inspectUpload` for
+ * text types (everything else is sniffed). `application/octet-stream` and an
+ * empty header count as unspecified so older CLIs (which send octet-stream
+ * for `.log`) and the hosted MCP (which sends no type) still resolve via the
+ * key.
+ */
+export function resolveDeclaredContentType(
+  header: string | undefined,
+  key: string,
+): string | undefined {
+  const normalized = header ? normalizeDeclaredContentType(header) : "";
+  if (normalized && normalized !== "application/octet-stream") return normalized;
+  return contentTypeFromKey(key);
+}
+
 export interface ImageDimensions {
   width: number;
   height: number;

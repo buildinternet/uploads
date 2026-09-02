@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
   checkDeclaredLength,
+  contentTypeFromKey,
   DEFAULT_ALLOWED_CONTENT_TYPES,
   DEFAULT_MAX_UPLOAD_BYTES,
   detectContentType,
   detectImageDimensions,
   inspectUpload,
+  looksLikeText,
+  resolveDeclaredContentType,
   resolveUploadPolicy,
 } from "../src/guards";
 import { gifOf, pngOf } from "./helpers/image-fixtures";
@@ -165,6 +168,76 @@ describe("resolveUploadPolicy", () => {
     }
     expect(allowed.has("text/html")).toBe(false);
     expect(allowed.has("image/svg+xml")).toBe(false);
+  });
+});
+
+describe("looksLikeText", () => {
+  const enc = (s: string) => new TextEncoder().encode(s);
+
+  it("accepts ASCII and UTF-8 bodies", () => {
+    expect(looksLikeText(enc("plain log line\n"))).toBe(true);
+    expect(looksLikeText(enc("héllo — ünïcode ✓"))).toBe(true);
+  });
+
+  it("rejects NUL bytes and invalid UTF-8", () => {
+    expect(looksLikeText(new Uint8Array([0x61, 0x00, 0x62]))).toBe(false);
+    expect(looksLikeText(new Uint8Array([0xe9, 0x74, 0xe9]))).toBe(false); // Latin-1 "été"
+    expect(looksLikeText(new Uint8Array(0))).toBe(false);
+  });
+
+  it("does not fail on a multibyte sequence cut by the 8 KiB sample boundary", () => {
+    // 8190 ASCII bytes, then a 3-byte character straddling offset 8192.
+    const body = enc("a".repeat(8190) + "€" + "tail".repeat(50));
+    expect(looksLikeText(body)).toBe(true);
+  });
+
+  it("only samples the head: a NUL after 8 KiB is not inspected", () => {
+    const body = new Uint8Array(9000).fill(0x61);
+    body[8500] = 0;
+    expect(looksLikeText(body)).toBe(true);
+  });
+});
+
+describe("contentTypeFromKey", () => {
+  it("maps the accepted non-media extensions", () => {
+    expect(contentTypeFromKey("gh/o/r/pull/1/build.log")).toBe("text/plain");
+    expect(contentTypeFromKey("a/notes.TXT")).toBe("text/plain");
+    expect(contentTypeFromKey("a/out.jsonl")).toBe("text/plain");
+    expect(contentTypeFromKey("a/config.yaml")).toBe("text/plain");
+    expect(contentTypeFromKey("a/README.md")).toBe("text/markdown");
+    expect(contentTypeFromKey("a/data.csv")).toBe("text/csv");
+    expect(contentTypeFromKey("a/report.json")).toBe("application/json");
+    expect(contentTypeFromKey("a/report.pdf")).toBe("application/pdf");
+    expect(contentTypeFromKey("a/bundle.zip")).toBe("application/zip");
+    expect(contentTypeFromKey("a/bundle.tgz")).toBe("application/gzip");
+    expect(contentTypeFromKey("a/clip.mov")).toBe("video/quicktime");
+    expect(contentTypeFromKey("a/shot.png")).toBe("image/png");
+  });
+
+  it("returns undefined for unknown or missing extensions and never maps html/svg", () => {
+    expect(contentTypeFromKey("a/blob")).toBeUndefined();
+    expect(contentTypeFromKey("a/page.html")).toBeUndefined();
+    expect(contentTypeFromKey("a/icon.svg")).toBeUndefined();
+    expect(contentTypeFromKey("a/dir.v2/")).toBeUndefined();
+  });
+});
+
+describe("resolveDeclaredContentType", () => {
+  it("prefers a specific header, normalized", () => {
+    expect(resolveDeclaredContentType("Text/Plain; charset=utf-8", "a/x.json")).toBe("text/plain");
+  });
+
+  it("falls back to the key extension when the header is absent or octet-stream", () => {
+    expect(resolveDeclaredContentType(undefined, "a/build.log")).toBe("text/plain");
+    expect(resolveDeclaredContentType("application/octet-stream", "a/build.log")).toBe(
+      "text/plain",
+    );
+    expect(resolveDeclaredContentType("", "a/build.log")).toBe("text/plain");
+  });
+
+  it("is undefined when neither source is specific", () => {
+    expect(resolveDeclaredContentType(undefined, "a/blob")).toBeUndefined();
+    expect(resolveDeclaredContentType("application/octet-stream", "a/blob")).toBeUndefined();
   });
 });
 
