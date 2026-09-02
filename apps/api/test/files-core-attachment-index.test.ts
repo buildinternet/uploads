@@ -4,6 +4,8 @@
  * file_metadata + github_attachments table.
  */
 import { describe, expect, it } from "vitest";
+import { type D1Queryable } from "../src/db-session";
+import { detachAttachment } from "../src/github-attachment-index";
 import { deleteObject, putObject } from "../src/files-core";
 import { ghPrivateAttachmentKey } from "../src/github-comment-render";
 import { getOrMintPrefixId } from "../src/github-private-prefixes";
@@ -71,6 +73,28 @@ describe("putObject → attachment index", () => {
     await putObject(env, ws, key, PNG, WORKSPACE);
     await putObject(env, ws, key, PNG, WORKSPACE);
     expect(db.attachmentIndex.size).toBe(1);
+  });
+
+  it("a detached row survives a re-put of the same key (putObject writes source 'put')", async () => {
+    const { env, db, ws } = makePosterEnv();
+    const key = "gh/acme/web/pull/12/hero.png";
+    await putObject(env, ws, key, PNG, WORKSPACE);
+    await detachAttachment(
+      db as unknown as D1Queryable,
+      WORKSPACE,
+      key,
+      new Date("2026-09-05T00:00:00.000Z"),
+    );
+    expect(db.attachmentIndex.get(`${WORKSPACE}\0${key}`)).toMatchObject({
+      detached_at: "2026-09-05T00:00:00.000Z",
+    });
+
+    await putObject(env, ws, key, PNG, WORKSPACE);
+
+    expect(db.attachmentIndex.get(`${WORKSPACE}\0${key}`)).toMatchObject({
+      source: "put",
+      detached_at: "2026-09-05T00:00:00.000Z",
+    });
   });
 });
 

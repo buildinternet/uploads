@@ -76,7 +76,10 @@ export class AttachmentIndexTable {
         source,
         created_at: existing?.created_at ?? createdAt,
         updated_at: updatedAt,
-        detached_at: null,
+        // Mirrors the module's ON CONFLICT CASE: a "put" leaves an existing
+        // detached_at untouched (does not resurrect a deliberately detached
+        // row); any other source clears it.
+        detached_at: source === "put" ? (existing?.detached_at ?? null) : null,
       });
       return { success: true, meta: { changes: 1 }, results: [] };
     }

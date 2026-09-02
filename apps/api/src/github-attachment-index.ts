@@ -123,8 +123,14 @@ function fromRow(row: AttachmentDbRow): AttachmentIndexRow {
 /**
  * Upserts one attachment row. `ON CONFLICT(workspace, object_key)` makes a
  * re-put, a re-attach, and a webhook redelivery all converge on the same
- * row rather than duplicating; `created_at` is preserved and `detached_at`
- * is cleared, since writing an object at a key IS a re-attachment.
+ * row rather than duplicating; `created_at` is preserved. `detached_at` is
+ * cleared for every source EXCEPT `"put"`: attaching, promoting, adopting,
+ * backfilling, or reconciling a key IS a (re-)attachment and should
+ * reappear in the comment, but `putObject`'s own best-effort index write
+ * fires on every object write — including a plain re-upload of bytes at an
+ * already-detached key (e.g. `gh.detached` metadata never round-trips
+ * through `putObject`) — so a `"put"` alone must never resurrect a row the
+ * caller deliberately detached.
  */
 export async function recordAttachment(
   db: D1Queryable,
@@ -145,7 +151,7 @@ export async function recordAttachment(
          lane_id = excluded.lane_id,
          source = excluded.source,
          updated_at = excluded.updated_at,
-         detached_at = NULL`,
+         detached_at = CASE WHEN excluded.source = 'put' THEN github_attachments.detached_at ELSE NULL END`,
     )
     .bind(
       row.workspace,

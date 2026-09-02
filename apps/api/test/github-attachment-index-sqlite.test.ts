@@ -193,7 +193,7 @@ describe("detachAttachment / reattachAttachment", () => {
     }
   });
 
-  it("recordAttachment clears a previously-set detached_at", async () => {
+  it("recordAttachment clears a previously-set detached_at for a non-put source", async () => {
     const sqlite = new SqliteD1(MIGRATIONS);
     try {
       const db = database(sqlite);
@@ -201,6 +201,21 @@ describe("detachAttachment / reattachAttachment", () => {
       await detachAttachment(db, "acme", row().objectKey);
       await recordAttachment(db, row({ source: "attach" }));
       expect((await attachmentRow(db, "acme", row().objectKey))?.detachedAt).toBeNull();
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("recordAttachment leaves detached_at untouched for a 'put' re-record", async () => {
+    const sqlite = new SqliteD1(MIGRATIONS);
+    try {
+      const db = database(sqlite);
+      await recordAttachment(db, row());
+      await detachAttachment(db, "acme", row().objectKey, new Date("2026-09-05T00:00:00.000Z"));
+      await recordAttachment(db, row({ source: "put" }));
+      expect((await attachmentRow(db, "acme", row().objectKey))?.detachedAt).toBe(
+        "2026-09-05T00:00:00.000Z",
+      );
     } finally {
       sqlite.close();
     }
