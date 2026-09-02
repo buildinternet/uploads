@@ -122,11 +122,25 @@ const CONTENT_TYPE_BY_EXTENSION: Readonly<Record<string, string>> = {
   json: "application/json",
 };
 
-function inferContentType(filename: string): string {
+export function inferContentType(filename: string): string {
   const ext = filename.includes(".")
     ? filename.slice(filename.lastIndexOf(".") + 1).toLowerCase()
     : "";
   return CONTENT_TYPE_BY_EXTENSION[ext] ?? "application/octet-stream";
+}
+
+/**
+ * Coarse family a filename belongs to, for the callers that only branch on
+ * "is this an image / a video / something else" — `unknown` when the
+ * extension maps to nothing (an extension-less screenshot, say), which those
+ * callers treat as "might be an image, probe it".
+ */
+export function fileKindFromName(filename: string): "image" | "video" | "file" | "unknown" {
+  const type = inferContentType(filename);
+  if (type === "application/octet-stream") return "unknown";
+  if (type.startsWith("image/")) return "image";
+  if (type.startsWith("video/")) return "video";
+  return "file";
 }
 
 /** Hidden marker identifying the one comment this CLI manages. Never change it — existing comments are found by exact match. */

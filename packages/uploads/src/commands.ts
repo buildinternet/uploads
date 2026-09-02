@@ -29,7 +29,7 @@ import {
   workspaceFromToken,
   type ResolvedConfig,
 } from "./config.js";
-import { buildUploadMarkdown, inferContentType } from "./embed.js";
+import { buildUploadMarkdown, fileKindFromName } from "./embed.js";
 import { readLocalRepoCommentConfig, resolveCommentOptions } from "./comment-config.js";
 import { urlForGithubEmbed } from "./public-urls.js";
 import { UploadsError } from "./errors.js";
@@ -585,31 +585,30 @@ export async function prepareImageForUpload(
 }
 
 /**
- * Merge an image's own EXIF-derived facts under any explicit metadata.
+ * Merge an image's own EXIF-derived facts under any explicit metadata, when
+ * the caller asked for them and the filename could plausibly be an image —
+ * only an `image/*` extension, or none at all (an extension-less
+ * screenshot), is worth an `imageFactsFromBytes` probe
+ * (`sharp(bytes).metadata()` under the hood); a known non-image extension (a
+ * 25 MB zip, a `.log`, a PDF…) skips it rather than paying a sharp call that
+ * can only come back empty.
+ *
  * Best-effort by contract: `imageFactsFromBytes` never rejects, and a full key
  * budget drops the derived pairs rather than failing the upload. Returns the
  * input untouched (including `undefined`) when there is nothing to add, so a
  * metadata-free upload stays metadata-free.
  */
-async function mergeImageFacts(
+async function maybeDeriveImageFacts(
+  enabled: boolean | undefined,
+  sourceName: string,
   bytes: Uint8Array,
   metadata: Record<string, string> | undefined,
 ): Promise<Record<string, string> | undefined> {
+  const kind = fileKindFromName(sourceName);
+  if (!enabled || (kind !== "image" && kind !== "unknown")) return metadata;
   const facts = await imageFactsFromBytes(bytes);
   if (Object.keys(facts).length === 0) return metadata;
   return mergeDerivedMeta(metadata ?? {}, facts);
-}
-
-/**
- * Gate for `mergeImageFacts`: only a filename whose inferred type is
- * image/* (or unresolved — an extension-less screenshot) is worth an
- * `imageFactsFromBytes` probe (`sharp(bytes).metadata()` under the hood). A
- * known non-image extension (a 25 MB zip, a `.log`, a PDF…) skips the probe
- * entirely rather than paying a sharp call that can only come back empty.
- */
-function shouldProbeImageFacts(filename: string): boolean {
-  const guessed = inferContentType(filename);
-  return guessed === "application/octet-stream" || guessed.startsWith("image/");
 }
 
 export interface UploadPreparedImageOptions {
@@ -696,10 +695,12 @@ export async function uploadPreparedImage(
   opts: UploadPreparedImageOptions,
 ): Promise<UploadPreparedImageResult> {
   // Read EXIF from the original bytes before the optimizer strips it.
-  const metadata =
-    opts.deriveImageFacts && shouldProbeImageFacts(sourceName)
-      ? await mergeImageFacts(bytes, opts.metadata)
-      : opts.metadata;
+  const metadata = await maybeDeriveImageFacts(
+    opts.deriveImageFacts,
+    sourceName,
+    bytes,
+    opts.metadata,
+  );
   const prepared = await prepareImageForUpload(bytes, sourceName, {
     frameId: opts.frame.frameId,
     frameUrl: opts.frame.frameUrl,
@@ -1332,10 +1333,12 @@ async function uploadAttachmentBatch(
         const baseMetadata = mergeSidecarMeta(file, bytes, opts.metadata);
         // Same EXIF promotion uploadPreparedImage does; attach keeps its own
         // per-file tail (it builds keys differently), so it opts in here too.
-        const metadata =
-          opts.deriveImageFacts && shouldProbeImageFacts(sourceName)
-            ? await mergeImageFacts(bytes, baseMetadata)
-            : baseMetadata;
+        const metadata = await maybeDeriveImageFacts(
+          opts.deriveImageFacts,
+          sourceName,
+          bytes,
+          baseMetadata,
+        );
         const prepared = await prepareImageForUpload(bytes, sourceName, {
           ...opts.frame,
           optimize: opts.optimize,

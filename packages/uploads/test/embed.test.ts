@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { buildMarkdown, buildUploadMarkdown, inferContentType } from "../src/embed.js";
+import {
+  buildMarkdown,
+  buildUploadMarkdown,
+  fileKindFromName,
+  inferContentType,
+} from "../src/embed.js";
 
 describe("inferContentType", () => {
   it("maps media and the accepted non-media extensions", () => {
@@ -22,6 +27,20 @@ describe("inferContentType", () => {
   it("falls back to octet-stream for unknown extensions", () => {
     expect(inferContentType("blob")).toBe("application/octet-stream");
     expect(inferContentType("page.html")).toBe("application/octet-stream");
+  });
+});
+
+describe("fileKindFromName", () => {
+  it("classifies by the inferred type, with unknown for unmapped extensions", () => {
+    expect(fileKindFromName("shot.png")).toBe("image");
+    expect(fileKindFromName("icon.svg")).toBe("image");
+    expect(fileKindFromName("clip.MOV")).toBe("video");
+    expect(fileKindFromName("clip.webm")).toBe("video");
+    expect(fileKindFromName("report.pdf")).toBe("file");
+    expect(fileKindFromName("build.log")).toBe("file");
+    expect(fileKindFromName("data.csv")).toBe("file");
+    expect(fileKindFromName("screenshot")).toBe("unknown");
+    expect(fileKindFromName("page.html")).toBe("unknown");
   });
 });
 
