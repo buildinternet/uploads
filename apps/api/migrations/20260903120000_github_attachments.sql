@@ -30,8 +30,11 @@ CREATE INDEX github_attachments_target_idx
   WHERE detached_at IS NULL;
 
 -- Rotation sweep + repair: every row still pointing at a retired prefix id.
+-- Partial: most rows are plain-key rows with prefix_id NULL, which this
+-- index has no use for (rotation only ever looks up a specific non-NULL id).
 CREATE INDEX github_attachments_prefix_idx
-  ON github_attachments (workspace, prefix_id);
+  ON github_attachments (workspace, prefix_id)
+  WHERE prefix_id IS NOT NULL;
 
 -- Ops/reconcile entry by coordinate when the workspace is resolved later.
 CREATE INDEX github_attachments_repo_idx
