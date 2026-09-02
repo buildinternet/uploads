@@ -42,13 +42,15 @@ of these hold:
 - `gh --version` is 2.99 or newer and you have push access to the repo.
 - The PR or issue already exists, or you are creating it in the same command.
 - The file is an image or video under 10 MB (video up to 100 MB on paid plans).
-  uploads.sh takes PNG, JPEG, GIF, WebP, AVIF, MP4, and WebM only; `gh` also
-  takes SVG and MOV.
+  `gh --attach` takes media only.
 - Nobody needs the link outside GitHub. `user-attachments` URLs do not render
   in Slack, docs, or other tools, and other agents cannot fetch them.
 
 Use uploads.sh when any of these are true instead:
 
+- The artifact is not media: a Lighthouse or test report, a log, JSON, a PDF, or
+  a zip. `gh --attach` does not take those; `uploads put` does, and the managed
+  comment links them.
 - The PR does not exist yet. Stage on the branch with `uploads put`; the
   attachments comment appears when the PR opens.
 - The shot will be re-taken. Same filename, same URL, and the managed comment
