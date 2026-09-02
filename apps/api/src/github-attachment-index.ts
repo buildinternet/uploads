@@ -266,3 +266,30 @@ export async function deleteAttachmentsForWorkspace(
 ): Promise<void> {
   await db.prepare(`DELETE FROM github_attachments WHERE workspace = ?`).bind(workspace).run();
 }
+
+/**
+ * Follows an object through a private-prefix rotation. Destination-first
+ * wipe then UPDATE, mirroring how rotation re-keys `file_metadata`
+ * (github-private-prefix-service.ts): rotation's own `putObject` at the new
+ * key has already inserted a row there, and a second source id in the same
+ * sweep can produce the same tail — either way the OLD row is the sole
+ * source of truth for the new key, and a plain UPDATE onto an occupied
+ * (workspace, object_key) would throw a UNIQUE constraint violation.
+ */
+export async function rekeyAttachment(
+  db: D1Queryable,
+  workspace: string,
+  fromKey: string,
+  toKey: string,
+  newPrefixId: string | null,
+  now = new Date(),
+): Promise<void> {
+  await deleteAttachment(db, workspace, toKey);
+  await db
+    .prepare(
+      `UPDATE github_attachments SET object_key = ?, prefix_id = ?, updated_at = ?
+       WHERE workspace = ? AND object_key = ?`,
+    )
+    .bind(toKey, newPrefixId, now.toISOString(), workspace, fromKey)
+    .run();
+}

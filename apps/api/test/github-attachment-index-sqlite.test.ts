@@ -10,6 +10,7 @@ import {
   parseAttachmentKey,
   reattachAttachment,
   recordAttachment,
+  rekeyAttachment,
 } from "../src/github-attachment-index";
 import { database, SqliteD1 } from "./helpers/sqlite-d1";
 
@@ -245,6 +246,82 @@ describe("attachment index deletes", () => {
       await deleteAttachmentsForWorkspace(db, "acme");
       expect(await attachmentRow(db, "acme", row().objectKey)).toBeNull();
       expect(await attachmentRow(db, "other", row().objectKey)).not.toBeNull();
+    } finally {
+      sqlite.close();
+    }
+  });
+});
+
+describe("rekeyAttachment", () => {
+  it("moves a row to the new key and prefix id", async () => {
+    const sqlite = new SqliteD1(MIGRATIONS);
+    try {
+      const db = database(sqlite);
+      const oldId = "a".repeat(32);
+      const newId = "b".repeat(32);
+      const fromKey = `gh/private/${oldId}/pull/12/hero.png`;
+      const toKey = `gh/private/${newId}/pull/12/hero.png`;
+      await recordAttachment(db, row({ objectKey: fromKey, prefixId: oldId }));
+
+      await rekeyAttachment(
+        db,
+        "acme",
+        fromKey,
+        toKey,
+        newId,
+        new Date("2026-09-07T00:00:00.000Z"),
+      );
+
+      expect(await attachmentRow(db, "acme", fromKey)).toBeNull();
+      expect(await attachmentRow(db, "acme", toKey)).toMatchObject({
+        prefixId: newId,
+        updatedAt: "2026-09-07T00:00:00.000Z",
+        source: "put",
+      });
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("wipes an already-occupied destination row before the update", async () => {
+    const sqlite = new SqliteD1(MIGRATIONS);
+    try {
+      const db = database(sqlite);
+      const oldId = "a".repeat(32);
+      const newId = "b".repeat(32);
+      const fromKey = `gh/private/${oldId}/pull/12/hero.png`;
+      const toKey = `gh/private/${newId}/pull/12/hero.png`;
+      // putObject already wrote a row at the destination during rotation.
+      await recordAttachment(db, row({ objectKey: toKey, prefixId: newId, source: "rotate" }));
+      await recordAttachment(db, row({ objectKey: fromKey, prefixId: oldId, laneId: "lane-a" }));
+
+      await rekeyAttachment(db, "acme", fromKey, toKey, newId);
+
+      expect(await attachmentRow(db, "acme", fromKey)).toBeNull();
+      const dest = await attachmentRow(db, "acme", toKey);
+      expect(dest).toMatchObject({ prefixId: newId, laneId: "lane-a", source: "put" });
+      const count = await db
+        .prepare("SELECT COUNT(*) AS count FROM github_attachments")
+        .bind()
+        .first<{ count: number }>();
+      expect(count?.count).toBe(1);
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("is a no-op when the source key has no row", async () => {
+    const sqlite = new SqliteD1(MIGRATIONS);
+    try {
+      const db = database(sqlite);
+      await rekeyAttachment(
+        db,
+        "acme",
+        "gh/acme/web/pull/12/a.png",
+        "gh/acme/web/pull/12/b.png",
+        null,
+      );
+      expect(await attachmentRow(db, "acme", "gh/acme/web/pull/12/b.png")).toBeNull();
     } finally {
       sqlite.close();
     }
