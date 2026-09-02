@@ -29,7 +29,7 @@ import {
   workspaceFromToken,
   type ResolvedConfig,
 } from "./config.js";
-import { buildUploadMarkdown } from "./embed.js";
+import { buildUploadMarkdown, inferContentType } from "./embed.js";
 import { readLocalRepoCommentConfig, resolveCommentOptions } from "./comment-config.js";
 import { urlForGithubEmbed } from "./public-urls.js";
 import { UploadsError } from "./errors.js";
@@ -600,6 +600,18 @@ async function mergeImageFacts(
   return mergeDerivedMeta(metadata ?? {}, facts);
 }
 
+/**
+ * Gate for `mergeImageFacts`: only a filename whose inferred type is
+ * image/* (or unresolved — an extension-less screenshot) is worth an
+ * `imageFactsFromBytes` probe (`sharp(bytes).metadata()` under the hood). A
+ * known non-image extension (a 25 MB zip, a `.log`, a PDF…) skips the probe
+ * entirely rather than paying a sharp call that can only come back empty.
+ */
+function shouldProbeImageFacts(filename: string): boolean {
+  const guessed = inferContentType(filename);
+  return guessed === "application/octet-stream" || guessed.startsWith("image/");
+}
+
 export interface UploadPreparedImageOptions {
   frame: {
     frameId?: string;
@@ -684,9 +696,10 @@ export async function uploadPreparedImage(
   opts: UploadPreparedImageOptions,
 ): Promise<UploadPreparedImageResult> {
   // Read EXIF from the original bytes before the optimizer strips it.
-  const metadata = opts.deriveImageFacts
-    ? await mergeImageFacts(bytes, opts.metadata)
-    : opts.metadata;
+  const metadata =
+    opts.deriveImageFacts && shouldProbeImageFacts(sourceName)
+      ? await mergeImageFacts(bytes, opts.metadata)
+      : opts.metadata;
   const prepared = await prepareImageForUpload(bytes, sourceName, {
     frameId: opts.frame.frameId,
     frameUrl: opts.frame.frameUrl,
@@ -1319,9 +1332,10 @@ async function uploadAttachmentBatch(
         const baseMetadata = mergeSidecarMeta(file, bytes, opts.metadata);
         // Same EXIF promotion uploadPreparedImage does; attach keeps its own
         // per-file tail (it builds keys differently), so it opts in here too.
-        const metadata = opts.deriveImageFacts
-          ? await mergeImageFacts(bytes, baseMetadata)
-          : baseMetadata;
+        const metadata =
+          opts.deriveImageFacts && shouldProbeImageFacts(sourceName)
+            ? await mergeImageFacts(bytes, baseMetadata)
+            : baseMetadata;
         const prepared = await prepareImageForUpload(bytes, sourceName, {
           ...opts.frame,
           optimize: opts.optimize,

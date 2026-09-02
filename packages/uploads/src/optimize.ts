@@ -120,16 +120,21 @@ export async function optimizeImageForUpload(
   if (originalBytes === 0) {
     return passthrough(bytes, filename, inferContentType(filename), "empty");
   }
-  if (looksLikeSvg(bytes, filename)) {
-    return passthrough(bytes, filename, "image/svg+xml", "svg");
-  }
-
-  // A known non-image extension (log, pdf, zip, video…) never needs sharp.
-  // Unknown extensions still get probed so an extension-less screenshot is
-  // optimized as before.
+  // A known non-image extension (log, pdf, zip, video…) never needs sharp —
+  // and must be checked before `looksLikeSvg` below, since that check sniffs
+  // the leading bytes for an XML/SVG prologue with no regard for the actual
+  // extension: a `.log` or `.json` file that happens to start with `<?xml`
+  // (a JUnit report, say) would otherwise misreport as `skippedReason: "svg"`
+  // / `image/svg+xml`. Unknown extensions still fall through to the SVG sniff
+  // and the sharp probe below, so an extension-less screenshot is optimized
+  // as before.
   const guessed = inferContentType(filename);
   if (guessed !== "application/octet-stream" && !guessed.startsWith("image/")) {
     return passthrough(bytes, filename, guessed, "not_image");
+  }
+
+  if (looksLikeSvg(bytes, filename)) {
+    return passthrough(bytes, filename, "image/svg+xml", "svg");
   }
 
   const format: OptimizeOutputFormat = opts.format ?? "webp";

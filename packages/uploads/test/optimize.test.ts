@@ -85,6 +85,16 @@ describe("optimizeImageForUpload", () => {
     expect(result.bytes).toBe(bytes);
   });
 
+  it("passes a known non-image extension through even when its bytes start with an XML/SVG prologue", async () => {
+    const bytes = new TextEncoder().encode('<?xml version="1.0"?><testsuite/>');
+    const result = await optimizeImageForUpload(bytes, "junit.log");
+    expect(result.optimized).toBe(false);
+    expect(result.skippedReason).toBe("not_image");
+    expect(result.contentType).toBe("text/plain");
+    expect(result.filename).toBe("junit.log");
+    expect(result.bytes).toBe(bytes);
+  });
+
   it("caps the long edge when larger than maxEdge", async () => {
     const png = await solidPng(4000, 2000);
     const result = await optimizeImageForUpload(png, "wide.png", {
