@@ -329,6 +329,9 @@ const footnoteLine = footnoteParts.join(" · ");
               posterUrl={item.posterUrl}
               videoDimensions={item.videoDimensions}
               railId="item-caption"
+              contentType={item.contentType}
+              size={item.size}
+              downloadUrl={downloadUrl}
             >
               {item.caption && <div class="caption">{item.caption}</div>}
               {item.status === "available" && (
