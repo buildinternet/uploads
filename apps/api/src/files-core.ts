@@ -6,7 +6,7 @@
  * `message` in the tool error.
  */
 import { ConflictError, NotFoundError, ValidationError } from "@uploads/errors";
-import { createStorage, type Files } from "@uploads/storage";
+import { createStorage, type Files, type StoredFile } from "@uploads/storage";
 import { recordAdoptionSafe, type UploadSurface } from "./adoption";
 import {
   budgetDenialError,
@@ -390,6 +390,27 @@ export function publicObjectDateFields(meta: {
     return { uploaded: uploadedIso };
   }
   return { uploaded: uploadedIso, modified: modifiedIso };
+}
+
+/**
+ * Put options that carry a stored object's own attributes through a
+ * server-side copy (attach, promote, rotate): its provenance bag, the
+ * visibility that bag encodes, and its stored content type as the declared
+ * claim, so a text object under an extension-less key is admitted by
+ * `inspectUpload` at the destination the same way it was at the source.
+ * Every copy still runs the full `putObject` write path — nothing here
+ * bypasses inspection.
+ */
+export function putOptsFromStoredObject(source: Pick<StoredFile, "metadata" | "type">): {
+  provenance: Record<string, string> | undefined;
+  visibility: Visibility | undefined;
+  declaredContentType: string;
+} {
+  return {
+    provenance: source.metadata,
+    visibility: objectVisibility(source.metadata),
+    declaredContentType: source.type,
+  };
 }
 
 /**

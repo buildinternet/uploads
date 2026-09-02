@@ -27,11 +27,17 @@ import { NotFoundError, ValidationError } from "@uploads/errors";
 import { resolveEmbedBaseUrl, type Files, type StorageConfig } from "@uploads/storage";
 import type { GhTargetKind } from "@uploads/comment-render";
 import { ghKeyPrefix, ghPrivateAttachmentKey, sanitizeKeySegment } from "@uploads/comment-render";
-import { badKey, deleteObject, filePageUrl, putObject, sanitizeKeyBasename } from "./files-core";
+import {
+  badKey,
+  deleteObject,
+  filePageUrl,
+  putObject,
+  putOptsFromStoredObject,
+  sanitizeKeyBasename,
+} from "./files-core";
 import { getFileMetadata, setFileMetadata } from "./file-metadata";
 import { resolveGhKeyContextSafe } from "./github-private-prefix-service";
 import { storage, storageConfig } from "./storage";
-import { objectVisibility } from "./visibility";
 import { webOrigin } from "./web-url";
 import type { WorkspaceRecord } from "./workspace";
 import { dbFor } from "./db-session";
@@ -197,15 +203,12 @@ export async function attachExistingObject(
 
   const sourceMeta = await getFileMetadata(dbFor(env), workspaceName, sourceKey);
   const bytes = new Uint8Array(await source.arrayBuffer());
-  const visibility = objectVisibility(source.metadata);
   const ref = `${owner}/${name}#${req.target.num}`.toLowerCase();
   const nowIso = new Date().toISOString();
 
   const put = await putObject(env, ws, destKey, bytes, workspaceName, {
-    provenance: source.metadata,
-    visibility,
+    ...putOptsFromStoredObject(source),
     surface: "attach",
-    declaredContentType: source.type,
   });
 
   // Additive merge (PR #157 preserve mode): the source's existing metadata
