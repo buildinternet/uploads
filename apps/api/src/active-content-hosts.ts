@@ -13,9 +13,9 @@
  * Invoked daily from the Worker `scheduled` handler (index.ts) and on demand
  * from `POST /admin-ui/active-content/probe`.
  */
-import { DEFAULT_EMBED_PUBLIC_BASE_URL, DEFAULT_EMBEDDABLE_HOSTS } from "@uploads/storage";
+import { DEFAULT_EMBED_PUBLIC_BASE_URL, DEFAULT_EMBEDDABLE_HOSTS, hostOf } from "@uploads/storage";
 import { SELF_SERVE_PUBLIC_BASE_URL } from "./self-serve-defaults";
-import { ACTIVE_CONTENT_PROBE_SVG, checkActiveContentHeaders } from "./storage-verify";
+import { probeActiveContent } from "./storage-verify";
 
 /** KV `REGISTRY` record for one hosted host's most recent probe. No TTL — freshness is judged by the reader (`activeContentAllowed`). */
 export interface HostActiveContentRecord {
@@ -27,22 +27,6 @@ export interface HostActiveContentRecord {
 /** KV key a host's probe result lives under in `REGISTRY`. */
 export function hostActiveContentKey(host: string): string {
   return `host-active-content:${host}`;
-}
-
-/**
- * Hostname from a URL string, lowercased; `null` for an empty/unparseable
- * one. Exported (issue #929 final-review) as the one copy of this helper —
- * `./active-content.ts` and `./routes/workspace-settings.ts` each kept their
- * own before, drifting only in whether `url` was typed optional, never in
- * behavior.
- */
-export function hostOf(url: string | undefined | null): string | null {
-  if (!url) return null;
-  try {
-    return new URL(url).hostname.toLowerCase();
-  } catch {
-    return null;
-  }
 }
 
 /**
@@ -78,46 +62,45 @@ function hostsToSweep(env: Env): string[] {
   return [...hosts];
 }
 
-/** Prefix the CSP-verify probe object lives under in the shared bucket. */
-const CSP_PROBE_PREFIX = "_internal/uploads-csp-verify/";
+/**
+ * The two methods `probeActiveContent` needs, over an R2 binding — the
+ * hosted hosts are served straight out of the platform's own bucket, so
+ * there is no HTTP storage client here the way a BYO lane has one.
+ */
+function bucketProbeClient(bucket: R2Bucket) {
+  return {
+    upload: (key: string, body: Uint8Array, opts?: { contentType?: string }) =>
+      bucket.put(key, body, { httpMetadata: { contentType: opts?.contentType } }),
+    delete: async (key: string) => {
+      await bucket.delete(key);
+    },
+  };
+}
 
 /**
- * Probes one hosted host: writes `ACTIVE_CONTENT_PROBE_SVG` into
- * `env.UPLOADS_DEFAULT` under a fresh CSP-verify key, fetches it back
- * through `host`'s public URL, deletes the object (always — `finally`), and
- * persists the result to `REGISTRY`. Never throws: a write failure, a probe
- * failure, or a thrown fetch all resolve to an `ok: false` record with a
- * `detail`, which is exactly what `runActiveContentHostSweep` relies on to
- * keep one host's trouble from stopping the rest.
+ * Probes one hosted host through the shared `probeActiveContent` (write the
+ * inert SVG into `env.UPLOADS_DEFAULT`, fetch it back through `host`'s
+ * public URL, delete it) and persists the verdict to `REGISTRY`. Never
+ * throws: a write failure, a header failure, and a thrown fetch all resolve
+ * to an `ok: false` record with a `detail`, which is what
+ * `runActiveContentHostSweep` relies on to keep one host's trouble from
+ * stopping the rest.
  */
 export async function probeHostActiveContent(
   env: Env,
   host: string,
   fetchImpl: typeof fetch = fetch,
 ): Promise<HostActiveContentRecord> {
-  const key = `${CSP_PROBE_PREFIX}${crypto.randomUUID()}.svg`;
-  let record: HostActiveContentRecord;
-  try {
-    await env.UPLOADS_DEFAULT.put(key, ACTIVE_CONTENT_PROBE_SVG, {
-      httpMetadata: { contentType: "image/svg+xml" },
-    });
-    try {
-      const check = await checkActiveContentHeaders(`https://${host}`, key, fetchImpl);
-      record = {
-        ok: check.ok,
-        verifiedAt: new Date().toISOString(),
-        ...(check.hint ? { detail: check.hint } : {}),
-      };
-    } finally {
-      await env.UPLOADS_DEFAULT.delete(key).catch(() => {});
-    }
-  } catch (err) {
-    record = {
-      ok: false,
-      verifiedAt: new Date().toISOString(),
-      detail: err instanceof Error ? err.message : String(err),
-    };
-  }
+  const check = await probeActiveContent(
+    bucketProbeClient(env.UPLOADS_DEFAULT),
+    `https://${host}`,
+    fetchImpl,
+  );
+  const record: HostActiveContentRecord = {
+    ok: check.ok,
+    verifiedAt: new Date().toISOString(),
+    ...(check.hint ? { detail: check.hint } : {}),
+  };
   await env.REGISTRY.put(hostActiveContentKey(host), JSON.stringify(record));
   return record;
 }
@@ -133,19 +116,23 @@ export async function runActiveContentHostSweep(
   env: Env,
   fetchImpl: typeof fetch = fetch,
 ): Promise<Record<string, HostActiveContentRecord>> {
-  const results: Record<string, HostActiveContentRecord> = {};
-  for (const host of hostsToSweep(env)) {
-    try {
-      results[host] = await probeHostActiveContent(env, host, fetchImpl);
-    } catch (err) {
-      const detail = err instanceof Error ? err.message : String(err);
-      results[host] = { ok: false, verifiedAt: new Date().toISOString(), detail };
-      console.error(
-        JSON.stringify({ message: "active_content_host_probe_failed", host, error: detail }),
-      );
-    }
-  }
-  return results;
+  // In parallel: each probe already catches its own failures, the set is a
+  // handful of hosts, and a slow or hanging host shouldn't hold up the rest
+  // of a cron run.
+  const entries = await Promise.all(
+    hostsToSweep(env).map(async (host): Promise<[string, HostActiveContentRecord]> => {
+      try {
+        return [host, await probeHostActiveContent(env, host, fetchImpl)];
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : String(err);
+        console.error(
+          JSON.stringify({ message: "active_content_host_probe_failed", host, error: detail }),
+        );
+        return [host, { ok: false, verifiedAt: new Date().toISOString(), detail }];
+      }
+    }),
+  );
+  return Object.fromEntries(entries);
 }
 
 /** Reads a hosted host's most recent probe record, or `null` if it has never been probed. */

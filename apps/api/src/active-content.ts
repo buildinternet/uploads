@@ -25,9 +25,9 @@
  * so the shared-lane branch below requires a fresh `ok` record for *every*
  * host that can serve the object.
  */
-import { resolveEmbedBaseUrl } from "@uploads/storage";
+import { hostOf, resolveEmbedBaseUrl } from "@uploads/storage";
 import { isSharedLane } from "./storage";
-import { hostOf, readHostActiveContent } from "./active-content-hosts";
+import { readHostActiveContent } from "./active-content-hosts";
 import type { WorkspaceRecord } from "./workspace";
 
 /** Flagship kill switch, fail-closed like `POSTER_FLAG`. */
@@ -51,18 +51,49 @@ export const HOST_RECORD_MAX_AGE_MS = 48 * 60 * 60 * 1000;
  */
 export const LANE_STAMP_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 
-/** True when `iso` parses and is within `maxAgeMs` of `now`. Absent/unparseable is never fresh. */
-function fresh(iso: string | undefined, maxAgeMs: number, now: Date): boolean {
+/**
+ * True when `iso` parses and is within `maxAgeMs` of `now`. Absent or
+ * unparseable is never fresh. Exported so the settings projection
+ * (`routes/workspace-settings.ts`) judges a lane stamp by exactly the rule
+ * the gate below judges it by, instead of reimplementing the arithmetic.
+ */
+export function fresh(iso: string | undefined, maxAgeMs: number, now: Date): boolean {
   if (!iso) return false;
   const t = Date.parse(iso);
   if (!Number.isFinite(t)) return false;
   return now.getTime() - t <= maxAgeMs;
 }
 
-/** One host's KV record exists, passed, and is within `HOST_RECORD_MAX_AGE_MS` of `now`. */
-async function hostRecordFresh(env: Env, host: string, now: Date): Promise<boolean> {
+/** Why the gate is closed, when it is. Absent on an allowed status. */
+export type ActiveContentReason =
+  | "opted_out"
+  | "flag_off"
+  | "unhealthy"
+  | "host_stale"
+  | "host_missing"
+  | "lane_stale"
+  | "lane_missing";
+
+/**
+ * The gate's verdict plus what a display needs to explain it: the timestamp
+ * it actually trusted (a hosted host's KV record, or a BYO lane's own stamp)
+ * and, when the gate is closed, which check closed it.
+ */
+export interface ActiveContentStatus {
+  allowed: boolean;
+  /** Only ever set when the lane check passed — a fresh, passing stamp. */
+  verifiedAt?: string;
+  reason?: ActiveContentReason;
+}
+
+/** One hosted host's KV record as a status: fresh and `ok` allows; anything else says why not. */
+async function hostStatus(env: Env, host: string, now: Date): Promise<ActiveContentStatus> {
   const record = await readHostActiveContent(env, host);
-  return !!record && record.ok && fresh(record.verifiedAt, HOST_RECORD_MAX_AGE_MS, now);
+  if (!record?.ok) return { allowed: false, reason: "host_missing" };
+  if (!fresh(record.verifiedAt, HOST_RECORD_MAX_AGE_MS, now)) {
+    return { allowed: false, reason: "host_stale" };
+  }
+  return { allowed: true, verifiedAt: record.verifiedAt };
 }
 
 /**
@@ -81,38 +112,58 @@ async function hostRecordFresh(env: Env, host: string, now: Date): Promise<boole
  * is within `LANE_STAMP_MAX_AGE_MS` (the unhealthy check above already
  * covers the "lane broke" case, so this branch is freshness only; a BYO
  * lane has no separate embed twin to check).
+ *
+ * Returns the reason alongside the verdict so the settings page can say
+ * *why* SVG/XML are off without reimplementing any of this — a display that
+ * could disagree with the gate is worse than no display.
  */
-export async function activeContentAllowed(
+export async function activeContentStatus(
   env: Env,
   ws: WorkspaceRecord,
   now = new Date(),
-): Promise<boolean> {
-  if (ws.activeContentUploads === false) return false;
-  if (!env.FLAGS) return false;
+): Promise<ActiveContentStatus> {
+  if (ws.activeContentUploads === false) return { allowed: false, reason: "opted_out" };
+  if (!env.FLAGS) return { allowed: false, reason: "flag_off" };
   try {
-    if (!(await env.FLAGS.getBooleanValue(ACTIVE_CONTENT_FLAG, false))) return false;
+    if (!(await env.FLAGS.getBooleanValue(ACTIVE_CONTENT_FLAG, false))) {
+      return { allowed: false, reason: "flag_off" };
+    }
   } catch {
-    return false;
+    return { allowed: false, reason: "flag_off" };
   }
-  if (ws.storageUnhealthyAt) return false;
+  if (ws.storageUnhealthyAt) return { allowed: false, reason: "unhealthy" };
   if (isSharedLane(ws)) {
     // `REGISTRY` backs every workspace record too, so a real deployment
     // always has it bound — this guard exists so a caller/fixture that
     // wires up `FLAGS` without `REGISTRY` fails closed instead of throwing,
     // same fail-closed posture as the missing-`FLAGS` check above.
-    if (!env.REGISTRY) return false;
+    if (!env.REGISTRY) return { allowed: false, reason: "host_missing" };
     const host = hostOf(ws.publicBaseUrl);
-    if (!host) return false;
-    if (!(await hostRecordFresh(env, host, now))) return false;
+    if (!host) return { allowed: false, reason: "host_missing" };
+    const stable = await hostStatus(env, host, now);
+    if (!stable.allowed) return stable;
     // Same derivation `objectPublicUrls` (./storage.ts) uses for the embed
     // URL it hands every shared-lane caller — when it names a different
     // host than the stable one just checked, that host must be fresh and
     // `ok` too, or the object is still reachable un-sandboxed through it.
     const embedHost = hostOf(resolveEmbedBaseUrl(ws.publicBaseUrl, env.EMBED_PUBLIC_BASE_URL));
-    if (embedHost && embedHost !== host && !(await hostRecordFresh(env, embedHost, now))) {
-      return false;
+    if (embedHost && embedHost !== host) {
+      const twin = await hostStatus(env, embedHost, now);
+      if (!twin.allowed) return twin;
     }
-    return true;
+    return stable;
   }
-  return fresh(ws.storageActiveContentVerifiedAt, LANE_STAMP_MAX_AGE_MS, now);
+  if (!ws.storageActiveContentVerifiedAt) return { allowed: false, reason: "lane_missing" };
+  return fresh(ws.storageActiveContentVerifiedAt, LANE_STAMP_MAX_AGE_MS, now)
+    ? { allowed: true, verifiedAt: ws.storageActiveContentVerifiedAt }
+    : { allowed: false, reason: "lane_stale" };
+}
+
+/** The gate itself — `activeContentStatus`'s verdict, for the callers that only decide admission. */
+export async function activeContentAllowed(
+  env: Env,
+  ws: WorkspaceRecord,
+  now = new Date(),
+): Promise<boolean> {
+  return (await activeContentStatus(env, ws, now)).allowed;
 }

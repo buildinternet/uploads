@@ -59,7 +59,7 @@ import {
   RateLimitedError,
   ValidationError,
 } from "@uploads/errors";
-import { createStorage, type R2Jurisdiction } from "@uploads/storage";
+import { createStorage, hostOf, type R2Jurisdiction } from "@uploads/storage";
 import { dbFor } from "../db-session";
 import { Hono, type Context, type MiddlewareHandler } from "hono";
 import { usageWithLimits } from "../budget";
@@ -74,12 +74,13 @@ import {
   attachmentsMarker,
   type AttachmentItem,
 } from "../github-comment-render";
-import { HOST_RECORD_MAX_AGE_MS } from "../active-content";
 import {
-  hostOf,
-  readHostActiveContent,
-  type HostActiveContentRecord,
-} from "../active-content-hosts";
+  activeContentStatus,
+  fresh,
+  HOST_RECORD_MAX_AGE_MS,
+  LANE_STAMP_MAX_AGE_MS,
+} from "../active-content";
+import { readHostActiveContent } from "../active-content-hosts";
 import { allowWrite } from "../guards";
 import {
   adminWorkspaceOr403,
@@ -440,50 +441,61 @@ export async function storageGetHandler(c: Context<SettingsVars>) {
   const record = await loadWorkspaceRecord(c.env, name);
   if (!record) throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
   const status = storageStatusResponse(record, byoBucketAllowed(record));
-  return c.json(await withHostedActiveContent(c.env, status));
+  return c.json(await withActiveContentStatus(c.env, record, status));
 }
 
 /**
- * A hosted host's KV record projects as `verifiedAt` only when it's both
- * `ok` and within `HOST_RECORD_MAX_AGE_MS` — same freshness window
- * `activeContentAllowed` (`../active-content.ts`) enforces before it actually
- * lets SVG/XML through. Without this the settings page could show "Verified
- * <date>" for a host whose stale record no longer gates anything, which
- * reads as verified when the gate itself has already closed.
+ * Replaces the stamps the pure `storageStatusResponse` projection
+ * (`workspace-storage.ts`) can echo with what SVG/XML acceptance actually
+ * turns on right now (issue #929).
+ *
+ * The active lane's row comes straight from `activeContentStatus` — the gate
+ * itself — so the page can never say "Verified" about a lane the gate has
+ * already closed, whatever closed it: the workspace opt-out, the Flagship
+ * flag, an unhealthy lane, a stale hosted-host record, the embed twin's
+ * record, or a BYO stamp past `LANE_STAMP_MAX_AGE_MS`. The raw stamp on the
+ * record is not that answer; the projection has no KV or flag access to find
+ * it out for itself, which is exactly why this lives at the handler.
+ *
+ * The other lanes aren't the gate's subject — none of them is serving
+ * anything — so each is judged on its own evidence: a shared lane by its
+ * host's daily-probed record, a BYO lane by its own stamp's freshness. Host
+ * records are read once per distinct host, in parallel, since several
+ * fallback lanes commonly share one.
  */
-function freshVerifiedAt(record: HostActiveContentRecord | null, now: Date): string | undefined {
-  if (!record?.ok) return undefined;
-  const t = Date.parse(record.verifiedAt);
-  if (!Number.isFinite(t)) return undefined;
-  return now.getTime() - t <= HOST_RECORD_MAX_AGE_MS ? record.verifiedAt : undefined;
-}
-
-/**
- * Overlays the hosted host's daily-probed active-content verdict onto a
- * `storageStatusResponse` projection (issue #929 "Hosted lane display").
- * The pure projection (`workspace-storage.ts`) has no KV access and can only
- * echo a *lane's own* `activeContentVerifiedAt` stamp — meaningless for a
- * shared lane, which carries no stamp of its own and instead inherits
- * whatever the daily cron most recently wrote for its host
- * (`active-content-hosts.ts`). Applies to the top-level active lane when
- * it's shared, and to every `lanes[]` entry that's shared too. Mutates and
- * returns `status` in place.
- */
-async function withHostedActiveContent(
+async function withActiveContentStatus(
   env: Env,
+  record: WorkspaceRecord,
   status: StorageStatusResponse,
 ): Promise<StorageStatusResponse> {
   const now = new Date();
-  if (status.mode === "shared") {
-    const host = hostOf(status.publicBaseUrl);
-    const record = host ? await readHostActiveContent(env, host) : null;
-    status.activeContentVerifiedAt = freshVerifiedAt(record, now);
-  }
+  const gate = await activeContentStatus(env, record, now);
+  status.activeContentVerifiedAt = gate.verifiedAt;
+  status.activeContentReason = gate.reason;
+
+  const hosts = new Set(
+    status.lanes.flatMap((lane) => {
+      if (lane.mode !== "shared") return [];
+      const host = hostOf(lane.publicBaseUrl);
+      return host ? [host] : [];
+    }),
+  );
+  const hostRecords = new Map(
+    await Promise.all(
+      [...hosts].map(async (host) => [host, await readHostActiveContent(env, host)] as const),
+    ),
+  );
   for (const lane of status.lanes) {
-    if (lane.mode !== "shared") continue;
-    const host = hostOf(lane.publicBaseUrl);
-    const record = host ? await readHostActiveContent(env, host) : null;
-    lane.activeContentVerifiedAt = freshVerifiedAt(record, now);
+    if (lane.mode === "shared") {
+      const host = hostOf(lane.publicBaseUrl);
+      const hostRecord = host ? hostRecords.get(host) : null;
+      lane.activeContentVerifiedAt =
+        hostRecord?.ok && fresh(hostRecord.verifiedAt, HOST_RECORD_MAX_AGE_MS, now)
+          ? hostRecord.verifiedAt
+          : undefined;
+    } else if (!fresh(lane.activeContentVerifiedAt, LANE_STAMP_MAX_AGE_MS, now)) {
+      lane.activeContentVerifiedAt = undefined;
+    }
   }
   return status;
 }
@@ -1065,31 +1077,17 @@ export async function storageVerifyActiveContentHandler(c: Context<SettingsVars>
     throw new NotFoundError("storage lane not found", { code: "storage_lane_not_found" });
   }
 
+  /** A 422 shaped like the check this route would have returned, so one client branch renders both. */
+  const reject422 = (hint: string) =>
+    c.json({ check: { id: "active-content-headers", ok: false, required: false, hint } }, 422);
+
   if (isSharedLane(target)) {
-    return c.json(
-      {
-        check: {
-          id: "active-content-headers",
-          ok: false,
-          required: false,
-          hint: "hosted lanes are verified by the platform, not per workspace — see the hosted host's status instead",
-        },
-      },
-      422,
+    return reject422(
+      "hosted lanes are verified by the platform, not per workspace — see the hosted host's status instead",
     );
   }
   if (!target.publicBaseUrl) {
-    return c.json(
-      {
-        check: {
-          id: "active-content-headers",
-          ok: false,
-          required: false,
-          hint: "this lane has no public base URL to verify — add one first",
-        },
-      },
-      422,
-    );
+    return reject422("this lane has no public base URL to verify — add one first");
   }
   if (!(await allowWrite(c.env, name))) {
     throw new RateLimitedError("rate limit exceeded");

@@ -15,10 +15,17 @@ import {
   looksLikeXml,
   resolveDeclaredContentType,
   resolveUploadPolicy,
-  TEXT_CONTENT_TYPES,
 } from "../src/guards";
 import { gifOf, pngOf } from "./helpers/image-fixtures";
 import { AVIF, ftyp, GZIP, MOV, PDF, ZIP, ZIP_EMPTY } from "./helpers/media-fixtures";
+
+/**
+ * The ungated declared-only rows — the types guards.ts admits on a plain
+ * `looksLikeText` and nothing else. Spelled out here rather than derived from
+ * the table: nothing in production reads this set, and an assertion that
+ * re-derives its subject from the code under test asserts nothing.
+ */
+const TEXT_CONTENT_TYPES = ["text/plain", "text/markdown", "text/csv", "application/json"];
 
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]);
 const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0]);

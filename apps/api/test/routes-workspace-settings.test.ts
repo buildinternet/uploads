@@ -6,7 +6,7 @@
  * (phase 3, invites/members).
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { HOST_RECORD_MAX_AGE_MS } from "../src/active-content";
+import { HOST_RECORD_MAX_AGE_MS, LANE_STAMP_MAX_AGE_MS } from "../src/active-content";
 import { hostActiveContentKey } from "../src/active-content-hosts";
 import { app } from "../src/index";
 import {
@@ -43,9 +43,24 @@ interface EnvOpts {
   getSessionCalls?: { count: number };
   secretsKey?: string;
   writeLimiterOk?: boolean;
+  /**
+   * Flagship stand-in for the active-content gate (issue #929). Omitted = no
+   * `FLAGS` binding, which the gate treats as fail-closed — every test that
+   * doesn't care keeps its pre-#929 behavior.
+   */
+  activeContentFlag?: boolean;
 }
 
 const SHARED_RECORD = { provider: "r2", bucket: "uploads-default", prefix: "acme/" };
+
+/**
+ * The platform binding a real shared-bucket workspace carries. Spread into
+ * `SHARED_RECORD` by the active-content display tests (issue #929), which
+ * read the gate itself — and the gate calls a lane shared by its *binding*
+ * (`isSharedLane`), not by the absence of credentials the way the masked
+ * projection's `mode` does.
+ */
+const SHARED_LANE = { binding: "UPLOADS_DEFAULT" };
 
 function makeEnv(opts: EnvOpts = {}) {
   const {
@@ -58,6 +73,7 @@ function makeEnv(opts: EnvOpts = {}) {
     getSessionCalls,
     secretsKey = "test-workspace-secrets-key-0000",
     writeLimiterOk = true,
+    activeContentFlag,
   } = opts;
 
   const db = new UsageFakeD1();
@@ -104,6 +120,9 @@ function makeEnv(opts: EnvOpts = {}) {
       REGISTRY: registry,
       WORKSPACE_SECRETS_KEY: secretsKey,
       WRITE_LIMITER: { limit: async () => ({ success: writeLimiterOk }) },
+      ...(activeContentFlag === undefined
+        ? {}
+        : { FLAGS: { getBooleanValue: async () => activeContentFlag } }),
     } as unknown as Env,
     registry,
     db,
@@ -505,35 +524,73 @@ describe("storage vertical (self-serve BYO bucket)", () => {
     });
 
     // "Hosted lane display" (issue #929): the pure `storageStatusResponse`
-    // projection has no KV access and only ever echoes a lane's *own*
-    // `activeContentVerifiedAt` stamp — meaningless for a shared lane, which
-    // instead inherits the daily-cron-probed verdict for its host. The
-    // handler overlays that verdict on top for shared lanes only.
+    // projection has no KV or flag access, so the active lane's row comes
+    // from the gate itself (`activeContentStatus`) — the page can only ever
+    // say "Verified" about a lane SVG/XML is actually accepted on, including
+    // the embed twin's own host record.
     it("reflects the hosted host's active-content record on the shared active lane", async () => {
       const { env } = makeEnv({
         role: "admin",
-        record: { ...SHARED_RECORD, publicBaseUrl: "https://storage.uploads.sh" },
+        record: { ...SHARED_RECORD, ...SHARED_LANE, publicBaseUrl: "https://storage.uploads.sh" },
+        activeContentFlag: true,
       });
       const verifiedAt = new Date(Date.now() - 1000).toISOString();
-      await env.REGISTRY.put(
-        hostActiveContentKey("storage.uploads.sh"),
-        JSON.stringify({ ok: true, verifiedAt }),
-      );
+      for (const host of ["storage.uploads.sh", "embed.uploads.sh"]) {
+        await env.REGISTRY.put(
+          hostActiveContentKey(host),
+          JSON.stringify({ ok: true, verifiedAt }),
+        );
+      }
       const res = await app.request(
         "/v1/workspaces/acme/storage",
         { headers: sessionHeaders },
         env,
       );
       expect(res.status).toBe(200);
-      const body = (await res.json()) as { mode: string; activeContentVerifiedAt?: string };
+      const body = (await res.json()) as {
+        mode: string;
+        activeContentVerifiedAt?: string;
+        activeContentReason?: string;
+      };
       expect(body.mode).toBe("shared");
       expect(body.activeContentVerifiedAt).toBe(verifiedAt);
+      expect(body.activeContentReason).toBeUndefined();
+    });
+
+    it("reports the gate's reason on the active lane when a fresh host record isn't enough", async () => {
+      // Everything the host-record check wants is in place; the kill switch
+      // is off. The page must say so rather than showing "Verified <date>"
+      // for uploads the gate is refusing.
+      const { env } = makeEnv({
+        role: "admin",
+        record: { ...SHARED_RECORD, ...SHARED_LANE, publicBaseUrl: "https://storage.uploads.sh" },
+        activeContentFlag: false,
+      });
+      const verifiedAt = new Date(Date.now() - 1000).toISOString();
+      for (const host of ["storage.uploads.sh", "embed.uploads.sh"]) {
+        await env.REGISTRY.put(
+          hostActiveContentKey(host),
+          JSON.stringify({ ok: true, verifiedAt }),
+        );
+      }
+      const res = await app.request(
+        "/v1/workspaces/acme/storage",
+        { headers: sessionHeaders },
+        env,
+      );
+      const body = (await res.json()) as {
+        activeContentVerifiedAt?: string;
+        activeContentReason?: string;
+      };
+      expect(body.activeContentVerifiedAt).toBeUndefined();
+      expect(body.activeContentReason).toBe("flag_off");
     });
 
     it("omits activeContentVerifiedAt on a shared active lane when the host record has never probed ok", async () => {
       const { env } = makeEnv({
         role: "admin",
-        record: { ...SHARED_RECORD, publicBaseUrl: "https://storage.uploads.sh" },
+        record: { ...SHARED_RECORD, ...SHARED_LANE, publicBaseUrl: "https://storage.uploads.sh" },
+        activeContentFlag: true,
       });
       await env.REGISTRY.put(
         hostActiveContentKey("storage.uploads.sh"),
@@ -543,13 +600,23 @@ describe("storage vertical (self-serve BYO bucket)", () => {
           detail: "no sandbox",
         }),
       );
+      // The embed twin is fine — only the stable host's failing record is
+      // allowed to explain the omission.
+      await env.REGISTRY.put(
+        hostActiveContentKey("embed.uploads.sh"),
+        JSON.stringify({ ok: true, verifiedAt: new Date(Date.now() - 1000).toISOString() }),
+      );
       const res = await app.request(
         "/v1/workspaces/acme/storage",
         { headers: sessionHeaders },
         env,
       );
-      const body = (await res.json()) as { activeContentVerifiedAt?: string };
+      const body = (await res.json()) as {
+        activeContentVerifiedAt?: string;
+        activeContentReason?: string;
+      };
       expect(body.activeContentVerifiedAt).toBeUndefined();
+      expect(body.activeContentReason).toBe("host_missing");
     });
 
     // Item 6 (issue #929 final-review): the hosted host's record projects
@@ -561,7 +628,8 @@ describe("storage vertical (self-serve BYO bucket)", () => {
     it("omits activeContentVerifiedAt on a shared active lane when the host record is ok but stale (older than HOST_RECORD_MAX_AGE_MS)", async () => {
       const { env } = makeEnv({
         role: "admin",
-        record: { ...SHARED_RECORD, publicBaseUrl: "https://storage.uploads.sh" },
+        record: { ...SHARED_RECORD, ...SHARED_LANE, publicBaseUrl: "https://storage.uploads.sh" },
+        activeContentFlag: true,
       });
       await env.REGISTRY.put(
         hostActiveContentKey("storage.uploads.sh"),
@@ -570,13 +638,21 @@ describe("storage vertical (self-serve BYO bucket)", () => {
           verifiedAt: new Date(Date.now() - (HOST_RECORD_MAX_AGE_MS + 1000)).toISOString(),
         }),
       );
+      await env.REGISTRY.put(
+        hostActiveContentKey("embed.uploads.sh"),
+        JSON.stringify({ ok: true, verifiedAt: new Date(Date.now() - 1000).toISOString() }),
+      );
       const res = await app.request(
         "/v1/workspaces/acme/storage",
         { headers: sessionHeaders },
         env,
       );
-      const body = (await res.json()) as { activeContentVerifiedAt?: string };
+      const body = (await res.json()) as {
+        activeContentVerifiedAt?: string;
+        activeContentReason?: string;
+      };
       expect(body.activeContentVerifiedAt).toBeUndefined();
+      expect(body.activeContentReason).toBe("host_stale");
     });
 
     it("reflects the hosted host's active-content record on a shared entry in lanes[]", async () => {
@@ -614,6 +690,53 @@ describe("storage vertical (self-serve BYO bucket)", () => {
         mode: "shared",
         activeContentVerifiedAt: verifiedAt,
       });
+    });
+
+    it("drops a BYO lane entry's own stamp once it is past LANE_STAMP_MAX_AGE_MS", async () => {
+      // Same window the gate would apply if this lane were the active one —
+      // a lapsed stamp reads as "not verified" in the list too, rather than
+      // showing a date that no longer means anything (issue #929 simplify).
+      const fresh = new Date(Date.now() - 1000).toISOString();
+      const { env } = makeEnv({
+        role: "owner",
+        record: {
+          ...BYO_RECORD,
+          storageLanes: [
+            {
+              id: "lane_stale",
+              provider: "r2",
+              bucket: "old-bucket",
+              accountId: "a".repeat(32),
+              publicBaseUrl: "https://old.example.com",
+              activeContentVerifiedAt: new Date(
+                Date.now() - (LANE_STAMP_MAX_AGE_MS + 1000),
+              ).toISOString(),
+            },
+            {
+              id: "lane_fresh",
+              provider: "r2",
+              bucket: "new-bucket",
+              accountId: "b".repeat(32),
+              publicBaseUrl: "https://new.example.com",
+              activeContentVerifiedAt: fresh,
+            },
+          ],
+        },
+      });
+      const res = await app.request(
+        "/v1/workspaces/acme/storage",
+        { headers: sessionHeaders },
+        env,
+      );
+      const body = (await res.json()) as {
+        lanes: Array<{ laneId: string; activeContentVerifiedAt?: string }>;
+      };
+      expect(
+        body.lanes.find((l) => l.laneId === "lane_stale")?.activeContentVerifiedAt,
+      ).toBeUndefined();
+      expect(body.lanes.find((l) => l.laneId === "lane_fresh")?.activeContentVerifiedAt).toBe(
+        fresh,
+      );
     });
   });
 

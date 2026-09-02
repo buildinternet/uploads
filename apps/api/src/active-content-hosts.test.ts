@@ -83,12 +83,12 @@ describe("probeHostActiveContent", () => {
     expect(typeof record.verifiedAt).toBe("string");
     expect(Number.isFinite(Date.parse(record.verifiedAt))).toBe(true);
 
-    // Object written under the CSP-verify prefix as an SVG with the right
-    // content type, then deleted (finally) once the probe resolved.
+    // Object written under the shared verify-probe prefix as an SVG with the
+    // right content type, then deleted (finally) once the probe resolved.
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     const fetchedUrl = fetchImpl.mock.calls[0]?.[0];
     expect(fetchedUrl).toMatch(
-      /^https:\/\/storage\.uploads\.sh\/_internal\/uploads-csp-verify\/[0-9a-f-]+\.svg$/,
+      /^https:\/\/storage\.uploads\.sh\/_internal\/uploads-verify\/[0-9a-f-]+\.svg$/,
     );
     expect(bucket.store.size).toBe(0);
 
@@ -143,7 +143,12 @@ describe("probeHostActiveContent", () => {
     const record = await probeHostActiveContent(e, "storage.uploads.sh", asFetch(fetchImpl));
 
     expect(record.ok).toBe(false);
-    expect(record.detail).toContain("r2 unavailable");
+    // The shared probe reports a failed write as its own inconclusive check
+    // rather than echoing the storage client's raw error (house style: every
+    // verify hint is curated remediation text, never a provider message).
+    expect(record.detail).toBe(
+      "could not write the SVG probe to this bucket — check the storage credentials, then check again",
+    );
     expect(fetchImpl).not.toHaveBeenCalled();
     expect(registry.store.get("host-active-content:storage.uploads.sh")).toEqual(record);
   });

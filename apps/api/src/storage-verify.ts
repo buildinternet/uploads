@@ -574,6 +574,45 @@ export async function checkActiveContentHeaders(
   }
 }
 
+/**
+ * The whole active-content probe, in one place (issue #929): write an inert
+ * SVG under {@link PROBE_PREFIX}, fetch it back through `publicBaseUrl` and
+ * check the headers it came with, then delete the object — always, whatever
+ * the outcome, and best-effort (a failed cleanup never changes the verdict).
+ * Every caller runs exactly this: the save-time pipeline below, the
+ * on-demand per-lane route (`routes/workspace-storage.ts`), and the
+ * hosted-host sweep (`active-content-hosts.ts`), which adapts its R2 binding
+ * to the two client methods this needs.
+ *
+ * A write that throws is `inconclusive`, not a failure — the same "unknown,
+ * not broken" verdict `checkActiveContentHeaders` returns for a thrown
+ * fetch, and for the same reason: nothing was learned about the host's
+ * headers. Inconclusive never enables SVG/XML for a lane.
+ */
+export async function probeActiveContent(
+  client: Pick<StorageProbeClient, "upload" | "delete">,
+  publicBaseUrl: string,
+  fetchImpl: typeof fetch,
+): Promise<StorageVerifyCheck> {
+  const probeKey = `${PROBE_PREFIX}${crypto.randomUUID()}.svg`;
+  try {
+    await client.upload(probeKey, ACTIVE_CONTENT_PROBE_SVG, { contentType: "image/svg+xml" });
+  } catch {
+    return {
+      id: "active-content-headers",
+      ok: false,
+      required: false,
+      inconclusive: true,
+      hint: "could not write the SVG probe to this bucket — check the storage credentials, then check again",
+    };
+  }
+  try {
+    return await checkActiveContentHeaders(publicBaseUrl, probeKey, fetchImpl);
+  } finally {
+    await Promise.resolve(client.delete(probeKey)).catch(() => {});
+  }
+}
+
 /** Warning shown when no `publicBaseUrl` is configured — signed-only mode is allowed but degraded (issue #783 follow-up comment). */
 const NO_PUBLIC_URL_HINT =
   "no public base URL set — files will only be reachable through signed links that expire after an hour, and embeds/galleries won't work. Add one any time; it applies retroactively to files already uploaded (URLs are derived on request, nothing is stored per file).";
@@ -656,7 +695,6 @@ export async function verifyStorageConfig(
   let roundTripHint: string | undefined;
   let publicUrlCheck: StorageVerifyCheck | undefined;
   let publicUrlCacheControl: string | null | undefined;
-  let activeContentProbeKey: string | undefined;
   let activeContentCheck: StorageVerifyCheck | undefined;
   try {
     await client.upload(probeKey, probeBytes, { contentType: "application/octet-stream" });
@@ -671,15 +709,7 @@ export async function verifyStorageConfig(
       publicUrlCheck = probed.check;
       publicUrlCacheControl = probed.cacheControl;
       if (publicUrlCheck.ok) {
-        activeContentProbeKey = `${PROBE_PREFIX}${crypto.randomUUID()}.svg`;
-        await client.upload(activeContentProbeKey, ACTIVE_CONTENT_PROBE_SVG, {
-          contentType: "image/svg+xml",
-        });
-        activeContentCheck = await checkActiveContentHeaders(
-          candidate.publicBaseUrl,
-          activeContentProbeKey,
-          fetchImpl,
-        );
+        activeContentCheck = await probeActiveContent(client, candidate.publicBaseUrl, fetchImpl);
       }
     }
   } catch (err) {
@@ -699,13 +729,6 @@ export async function verifyStorageConfig(
       // Best-effort cleanup; a failed delete doesn't change the check result
       // above (round-trip already recorded), and we never want cleanup
       // failure to mask the real outcome.
-    }
-    if (activeContentProbeKey) {
-      try {
-        await client.delete(activeContentProbeKey);
-      } catch {
-        // Best-effort cleanup, same rationale as the round-trip probe above.
-      }
     }
   }
   checks.push({

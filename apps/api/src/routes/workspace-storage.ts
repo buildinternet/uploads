@@ -12,10 +12,8 @@ import {
   type ListBucketsResult,
 } from "../r2-list-buckets";
 import {
-  ACTIVE_CONTENT_PROBE_SVG,
-  checkActiveContentHeaders,
   defaultStorageClientFactory,
-  PROBE_PREFIX,
+  probeActiveContent,
   verifyStorageConfig,
   type StorageProbeClient,
   type StorageVerifyCandidate,
@@ -23,6 +21,7 @@ import {
   type StorageVerifyOptions,
   type StorageVerifyResult,
 } from "../storage-verify";
+import type { ActiveContentReason } from "../active-content";
 import { storageBudgetApplies } from "../budget";
 import { healthFromFields, storageHealth, type StorageHealth } from "../storage-health";
 import { reconcileWorkspaceUsage } from "../reconcile";
@@ -97,8 +96,17 @@ export interface StorageStatusResponse {
   publicBaseUrl?: string;
   configuredAt?: string;
   verifiedAt?: string;
-  /** Active lane's last successful `active-content-headers` verify check (issue #929) — gates SVG/XML acceptance. */
+  /**
+   * When SVG/XML acceptance is on for the active lane, the timestamp the
+   * gate is trusting (issue #929) — a hosted host's daily-probed record, or
+   * this lane's own `active-content-headers` stamp. Absent whenever
+   * acceptance is off, with `activeContentReason` saying which check said
+   * so. Both are filled in by the GET handler, which alone can ask the gate
+   * (`routes/workspace-settings.ts`); this projection is pure.
+   */
   activeContentVerifiedAt?: string;
+  /** Why SVG/XML acceptance is off for the active lane, when it is. */
+  activeContentReason?: ActiveContentReason;
   jurisdiction?: string;
   /** s3-only. Service endpoint origin of the active lane. */
   endpoint?: string;
@@ -426,46 +434,41 @@ export async function verifyLaneForActivate(
  * Runs *only* the active-content probe against `lane` (issue #929,
  * `POST .../storage/lanes/:laneId/verify-active-content`) — unlike
  * `verifyLaneForActivate`, this never runs the full shape/auth/round-trip
- * pipeline, just: open the lane's (possibly sealed) credentials into a real
- * client (`laneVerifyCandidate` + `defaultStorageClientFactory` — same
- * client-building steps `verifyLaneForActivate` uses, minus the
- * `verifyStorageConfig` wrapper), upload `ACTIVE_CONTENT_PROBE_SVG` under
- * `PROBE_PREFIX`, ask `checkActiveContentHeaders`, and delete the probe
- * object in `finally` regardless of the outcome. The caller is responsible
- * for confirming `lane.publicBaseUrl` is set before calling this — it is not
- * re-checked here.
+ * pipeline: it just opens the lane's (possibly sealed) credentials into a
+ * real client (`laneVerifyCandidate` + `defaultStorageClientFactory` — the
+ * same client-building steps `verifyLaneForActivate` uses, minus the
+ * `verifyStorageConfig` wrapper) and hands it to the shared
+ * `probeActiveContent`, which owns the write/fetch/delete. The caller is
+ * responsible for confirming `lane.publicBaseUrl` is set before calling
+ * this — it is not re-checked here.
  *
- * Everything from opening the lane's credentials through the probe upload is
- * wrapped in one try/catch (review follow-up, issue #929): bad/rotated
- * credentials, an unreachable bucket, or any other storage-client error
+ * Opening the credentials is wrapped in its own try/catch (review
+ * follow-up, issue #929): bad/rotated credentials or an unresolvable lane
  * would otherwise escape as an unhandled rejection (a 500 at the route
  * layer) instead of the same "unknown, not broken" `inconclusive` outcome
- * `checkActiveContentHeaders` itself already returns for a thrown fetch —
- * the route leaves the stamp untouched either way.
+ * the probe itself returns for a failed write or a thrown fetch — the route
+ * leaves the stamp untouched either way.
  */
 async function defaultLaneActiveContentCheck(
   env: Env,
   lane: StorageLane,
   fetchImpl: typeof fetch,
 ): Promise<StorageVerifyCheck> {
-  const probeKey = `${PROBE_PREFIX}${crypto.randomUUID()}.svg`;
-  let client: StorageProbeClient | undefined;
+  let candidate: StorageVerifyCandidate;
+  let client: StorageProbeClient;
   try {
-    const candidate = await laneVerifyCandidate(env, lane);
+    candidate = await laneVerifyCandidate(env, lane);
     client = defaultStorageClientFactory(candidate);
-    await client.upload(probeKey, ACTIVE_CONTENT_PROBE_SVG, { contentType: "image/svg+xml" });
-    return await checkActiveContentHeaders(candidate.publicBaseUrl ?? "", probeKey, fetchImpl);
   } catch {
     return {
       id: "active-content-headers",
       ok: false,
       required: false,
       inconclusive: true,
-      hint: "could not write the SVG probe to this bucket — check the lane's credentials, then check again",
+      hint: "could not open this lane's storage — check the lane's credentials, then check again",
     };
-  } finally {
-    if (client) await client.delete(probeKey).catch(() => {});
   }
+  return probeActiveContent(client, candidate.publicBaseUrl ?? "", fetchImpl);
 }
 
 /**

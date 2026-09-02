@@ -4,6 +4,7 @@ import {
   HOST_RECORD_MAX_AGE_MS,
   LANE_STAMP_MAX_AGE_MS,
   activeContentAllowed,
+  activeContentStatus,
 } from "./active-content";
 import type { WorkspaceRecord } from "./workspace";
 
@@ -254,5 +255,68 @@ describe("activeContentAllowed — BYO lane", () => {
         NOW,
       ),
     ).toBe(true);
+  });
+});
+
+/**
+ * The status behind the gate (issue #929 simplify): `activeContentAllowed` is
+ * `.allowed`, and the settings page reads the rest — so every closed gate has
+ * to name the check that closed it, and an open one has to hand over the
+ * timestamp it actually trusted.
+ */
+describe("activeContentStatus — the reason behind the verdict", () => {
+  const freshHosts = {
+    "host-active-content:storage.uploads.sh": { ok: true, verifiedAt: isoAgo(1000) },
+    "host-active-content:embed.uploads.sh": { ok: true, verifiedAt: isoAgo(1000) },
+  };
+
+  it("names the check that closed the gate", async () => {
+    const cases: Array<[string, Env, WorkspaceRecord]> = [
+      ["opted_out", env(), { ...SHARED_WS, activeContentUploads: false }],
+      ["flag_off", env({ FLAGS: undefined }), SHARED_WS],
+      ["flag_off", env({ FLAGS: flagsOff }), SHARED_WS],
+      ["flag_off", env({ FLAGS: flagsThrows }), SHARED_WS],
+      [
+        "unhealthy",
+        env({ REGISTRY: fakeRegistry(freshHosts) }),
+        { ...SHARED_WS, storageUnhealthyAt: isoAgo(0) },
+      ],
+      ["host_missing", env(), SHARED_WS],
+      [
+        "host_stale",
+        env({
+          REGISTRY: fakeRegistry({
+            ...freshHosts,
+            "host-active-content:storage.uploads.sh": {
+              ok: true,
+              verifiedAt: isoAgo(HOST_RECORD_MAX_AGE_MS + 1),
+            },
+          }),
+        }),
+        SHARED_WS,
+      ],
+      ["lane_missing", env(), BYO_WS],
+      [
+        "lane_stale",
+        env(),
+        { ...BYO_WS, storageActiveContentVerifiedAt: isoAgo(LANE_STAMP_MAX_AGE_MS + 1) },
+      ],
+    ];
+    for (const [reason, e, ws] of cases) {
+      expect(await activeContentStatus(e, ws, NOW), reason).toEqual({ allowed: false, reason });
+    }
+  });
+
+  it("reports the timestamp it trusted — the host record's for a shared lane, the lane's own for BYO", async () => {
+    expect(
+      await activeContentStatus(env({ REGISTRY: fakeRegistry(freshHosts) }), SHARED_WS, NOW),
+    ).toEqual({ allowed: true, verifiedAt: isoAgo(1000) });
+    expect(
+      await activeContentStatus(
+        env(),
+        { ...BYO_WS, storageActiveContentVerifiedAt: isoAgo(5000) },
+        NOW,
+      ),
+    ).toEqual({ allowed: true, verifiedAt: isoAgo(5000) });
   });
 });
