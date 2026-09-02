@@ -20,7 +20,7 @@ describe("backfillSelfServePlans", () => {
         maxStorageBytes: 250_000_000,
         maxUploadsPerPeriod: 3000,
         maxUploadBytes: 25_000_000,
-        maxVideoUploadBytes: 8_000_000,
+        maxVideoUploadBytes: 25_000_000,
       } satisfies WorkspaceRecord,
     });
 
