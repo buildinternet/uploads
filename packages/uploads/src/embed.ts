@@ -6,9 +6,12 @@
  * `comment-render.generated.ts`), so the CLI and the managed-comment renderer
  * cannot drift apart. Re-exported from this module because every existing
  * caller imports them from `./embed.js`. That map mirrors the upload table in
- * apps/api/src/guards.ts; keep the two in step. `svg` is the one deliberate
- * difference — it stays here only so the optimizer can pass it through, and
- * the server rejects it.
+ * apps/api/src/guards.ts; keep the two in step. `svg` maps to
+ * `image/svg+xml` here same as any other type (issue #929): the server no
+ * longer rejects it outright — it accepts SVG only on a storage lane
+ * verified to serve it behind a sandboxing CSP (`apps/api/src/active-content.ts`),
+ * so whether a given upload actually lands depends on that lane's state,
+ * not on anything this map decides.
  */
 export { fileKindFromName, inferContentType } from "./comment-render.generated.js";
 

@@ -451,6 +451,12 @@ export function looksLikeXml(bytes: Uint8Array): boolean {
  * the loop, so nothing here ever inspects it — which is exactly why the
  * sandboxing CSP the serving lane is verified to send (`./active-content.ts`)
  * is the actual control, not this filter.
+ *
+ * `\bon[a-z]+\s*=` is deliberately broad: it also matches ordinary
+ * non-handler attributes that happen to start with "on", e.g. `online=` or
+ * `once=` on an unrelated element — a false-positive 415, not a security
+ * gap, and reputation defense in depth is allowed to be loose. Revisit if
+ * that starts rejecting real uploads often enough to bite.
  */
 export function containsActiveMarkup(text: string): boolean {
   return /<script|\bon[a-z]+\s*=|javascript:|<foreignobject|<\?xml-stylesheet/i.test(text);

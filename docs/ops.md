@@ -81,16 +81,38 @@ checks, `apps/api/src/active-content-hosts.ts` is the hosted-lane half below.
 `embed.uploads.sh`):**
 
 1. Rules → Transform Rules → Modify Response Header:
-   - When:
+   - When — **validate this expression in the rule editor before relying on
+     it**; the editor's own syntax check catches an unescaped `+` or a plan
+     that can't evaluate it before the rule ever ships:
      ```
-     (http.host in {"storage.uploads.sh" "store.uploads.sh" "embed.uploads.sh"}) and (any(http.response.headers["content-type"][*] matches "^(image/svg\+xml|application/xml|text/xml)"))
+     (http.host in {"storage.uploads.sh" "store.uploads.sh" "embed.uploads.sh"}) and (any(http.response.headers["content-type"][*] matches "^(image/svg\\+xml|application/xml|text/xml)"))
+     ```
+     The `\+` is written `\\+` here because the Rules language, like most
+     expression languages, needs its own escape character escaped inside a
+     double-quoted string — a lone `\+` is a syntax error in the editor.
+     `matches` (regex) on response headers needs a Cloudflare plan with
+     regex support in Transform Rules; if the zone doesn't have one, use this
+     equivalent expression instead, which needs no regex:
+     ```
+     (http.host in {"storage.uploads.sh" "store.uploads.sh" "embed.uploads.sh"}) and (any(http.response.headers["content-type"][*] eq "image/svg+xml") or any(http.response.headers["content-type"][*] eq "application/xml") or any(http.response.headers["content-type"][*] eq "text/xml"))
      ```
    - Set:
      - `Content-Security-Policy` =
        `default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox`
      - `X-Content-Type-Options` = `nosniff`
-2. Confirm it worked — run the on-demand probe (below) and check the KV
-   record it writes.
+2. Confirm it worked:
+   ```bash
+   curl -X POST -H "Authorization: Bearer $ADMIN_TOKEN" \
+     https://api.uploads.sh/admin/active-content/probe
+   ```
+   Check the response: all three hosts (`storage.uploads.sh`,
+   `store.uploads.sh`, `embed.uploads.sh`) must read `ok: true`. Then spot-check
+   the headers directly against a real `.svg` on each host:
+   ```bash
+   curl -I https://storage.uploads.sh/<workspace-prefix>/<some-key>.svg
+   curl -I https://store.uploads.sh/<workspace-prefix>/<some-key>.svg
+   curl -I https://embed.uploads.sh/<workspace-prefix>/<some-key>.svg
+   ```
 
 **Daily sweep:** the Worker's `scheduled` handler (`0 6 * * *`, `index.ts`)
 calls `runActiveContentHostSweep` for every hosted host, writing
@@ -100,11 +122,13 @@ as untrusted — one missed cron tick doesn't flip every workspace on that
 host off, but a genuinely broken Transform Rule closes the gate within two
 days.
 
-**On-demand probe:** `POST /admin-ui/active-content/probe` (session,
-global admin — reachable from the `/admin` panel) runs the same sweep
-immediately, so a just-applied Transform Rule can be confirmed without
-waiting for the next cron tick. Returns the fresh per-host records; each is
-also persisted to `REGISTRY`, same as the cron.
+**On-demand probe:** two equivalent routes run the same sweep immediately, so
+a just-applied Transform Rule can be confirmed without waiting for the next
+cron tick — both return the fresh per-host records, each also persisted to
+`REGISTRY`, same as the cron: `POST /admin-ui/active-content/probe` (session,
+global admin — reachable from the `/admin` panel) for a logged-in operator,
+and `POST /admin/active-content/probe` (the `curl` above — `ADMIN_TOKEN` or
+an `operator:write` scoped token) for scripted/CI use.
 
 **Kill switch:** Flagship flag `active-content-uploads`, same app as
 `video-poster-generation` above:
