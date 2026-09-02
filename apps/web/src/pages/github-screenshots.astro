@@ -38,14 +38,14 @@ const TOC = [
   { id: "agents", label: "Teach your agent" },
   { id: "stage", label: "Stage as you go" },
   { id: "attach", label: "PR already open" },
-  { id: "video", label: "Video & everything else" },
+  { id: "video", label: "Video & GIFs" },
   { id: "faq", label: "FAQ" },
 ];
 
 const FAQ = [
   {
     q: "Can't my agent just use gh --attach?",
-    a: "Since September 2026, yes for the simple case. GitHub CLI 2.99 attaches images and video to an issue or pull request you have push access to, up to 10 MB per file. It needs the PR or issue to exist, the file stays private to GitHub, and there is still no API for it. Uploads covers what that leaves out: capturing the screenshot, staging it before the PR opens, one attachments comment that updates on every revision, metadata and search across every capture, and a public URL you can paste anywhere.",
+    a: "Since September 2026, yes, for images and video on an existing issue or pull request. Uploads is for the rest of the loop: capturing the shot, staging it before the PR opens, one comment that updates on every revision, and a public URL you can paste anywhere.",
   },
   {
     q: "Do the image URLs change when I re-upload a screenshot?",
@@ -94,24 +94,14 @@ const FAQ_JSON_LD = JSON.stringify({
 
   <aside class="callout">
     <p>
-      <strong>Good news (September 2026):</strong> GitHub CLI now has basic upload support. Version 2.99
-      adds a repeatable <code>--attach</code> flag to the issue and pull request create, edit, and comment
-      commands. It takes images and video up to 10 MB per file (video up to 100 MB on paid plans), needs
-      push access, and doesn't cover GitHub Enterprise Server yet. If you have a PR or issue open and
-      one image to drop on it, use it. See&#32;
-      <a
+      <strong>As of September 2026, GitHub CLI supports attachments.</strong>
+      <code>gh</code> 2.99 adds
+      <code>--attach</code> to the issue and pull request commands for images and video (<a
         href="https://github.blog/changelog/2026-09-01-github-cli-media-in-issues-pull-requests-and-comments/"
         >GitHub's changelog</a
-      > and <a
-        href="https://docs.github.com/en/github-cli/github-cli/attaching-files-with-github-cli"
-        >docs</a
-      >.
-    </p>
-    <p>
-      Uploads does the parts <code>gh</code> doesn't: capture the screenshot, stage it before a PR exists,
-      keep one attachments comment current across revisions, tag files with metadata and find them later,
-      browse every capture across projects, host any file type, and give you a public URL that works outside
-      GitHub. <a href="/changelog#github-cli-attach">Where Uploads still fits</a>.
+      >). If you have a PR open and a screenshot to drop on it, use it. This page covers the
+      workflow around that: capturing, staging before a PR exists, and keeping one comment current
+      as the branch changes.
     </p>
   </aside>
 
@@ -128,8 +118,7 @@ const FAQ_JSON_LD = JSON.stringify({
       hosts it at <code>github.com/user-attachments/…</code>. That only works in a signed-in
       browser. <del>There is no <code>gh</code> command and no API for it.</del>&#32;
       <strong>Update, September 2026:</strong>
-      <code>gh</code> 2.99 adds <code>--attach</code> for images and video on an existing PR or issue.
-      There is still no API, and the hosted file stays private to GitHub.
+      <code>gh</code> now has <code>--attach</code> for images and video.
     </p>
     <p>
       So an agent that just changed your UI has nowhere to put the proof until a PR exists, and even
@@ -257,24 +246,18 @@ const FAQ_JSON_LD = JSON.stringify({
       or README? <code>--no-comment</code> prints the URL and Markdown without posting.
     </p>
     <p class="pointer">
-      One image, one open PR, <code>gh</code> 2.99 and push access? <code
-        >gh pr comment --attach</code
-      >
-      is enough. Uploads earns its keep when the shot needs to exist before the PR does, update in place,
-      carry metadata, or live at a public URL.
+      One image on an open PR? <code>gh pr comment --attach</code> does that now too.
     </p>
   </section>
 
   <section id="video">
     <h2>
-      Video and everything else <a class="anchor" href="#video" aria-label="Link to this section"
-        >#</a
-      >
+      Video and GIFs <a class="anchor" href="#video" aria-label="Link to this section">#</a>
     </h2>
     <p>
       A short screen recording is often the best proof that a change works. The same <code>put</code
-      >&#32; handles it — MP4, WebM, GIFs, zips, and logs all upload as-is and stage on the branch.
-      One caveat: GitHub only plays videos it hosts itself, so outside video shows up as a&#32;
+      >&#32; handles it — MP4, WebM, and GIFs upload as-is and stage on the branch. One caveat:
+      GitHub only plays videos it hosts itself, so outside video shows up as a&#32;
       <strong>link, not a player</strong>. GIFs embed like images.
     </p>
     <p>

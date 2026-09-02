@@ -42,6 +42,8 @@ of these hold:
 - `gh --version` is 2.99 or newer and you have push access to the repo.
 - The PR or issue already exists, or you are creating it in the same command.
 - The file is an image or video under 10 MB (video up to 100 MB on paid plans).
+  uploads.sh takes PNG, JPEG, GIF, WebP, AVIF, MP4, and WebM only; `gh` also
+  takes SVG and MOV.
 - Nobody needs the link outside GitHub. `user-attachments` URLs do not render
   in Slack, docs, or other tools, and other agents cannot fetch them.
 
@@ -53,7 +55,7 @@ Use uploads.sh when any of these are true instead:
   updates in place instead of piling up.
 - The capture needs metadata (`--meta`), later retrieval (`uploads find`), or
   the Screenshots view across projects.
-- The URL must work outside GitHub, or the file is not an image or video.
+- The URL must work outside GitHub.
 - You are on the hosted MCP with no shell, lack push access, or the repo is on
   GitHub Enterprise Server.
 
