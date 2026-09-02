@@ -167,7 +167,12 @@ interface PullRequestPayload {
  * gate: a missing/tombstoned linked workspace cleans up the stale link and
  * no-ops, never creates a new one. Caller is responsible for catching.
  */
-async function gatherAndUpsert(env: Env, link: RepoLink, target: GhTarget): Promise<void> {
+async function gatherAndUpsert(
+  env: Env,
+  link: RepoLink,
+  target: GhTarget,
+  opts: { headBranch?: string } = {},
+): Promise<void> {
   const ws = await loadWorkspaceRecord(env, link.workspaceName);
   if (!ws) {
     // The bound workspace is gone or tombstoned — the link is stale;
@@ -177,7 +182,7 @@ async function gatherAndUpsert(env: Env, link: RepoLink, target: GhTarget): Prom
     return;
   }
 
-  const gathered = await gatherCommentBody(env, ws, link.workspaceName, target);
+  const gathered = await gatherCommentBody(env, ws, link.workspaceName, target, opts);
 
   const cfg = githubAppConfig(env);
   if (!cfg) return;
@@ -260,7 +265,9 @@ async function autoPromoteAndComment(
   // under the PR's attachment prefix, so this single gather call already
   // reflects them — no separate "promoted > 0" branch needed.
   const target: GhTarget = { repo, kind: "pull", num };
-  await gatherAndUpsert(env, link, target);
+  // The head branch is what a metadata-less private attachment resolves
+  // under (#934) — pass it so the gather can list that prefix.
+  await gatherAndUpsert(env, link, target, { headBranch: branch });
 }
 
 /**

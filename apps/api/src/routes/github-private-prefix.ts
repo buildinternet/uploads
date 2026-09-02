@@ -20,7 +20,7 @@ import {
   rotatePrivatePrefix,
   type ResolveGhKeyRequest,
 } from "../github-private-prefix-service";
-import { listActivePrefixIds } from "../github-private-prefixes";
+import { listActivePrefixIds, listPrefixIdsForTarget } from "../github-private-prefixes";
 import { writeRateLimit } from "../guards";
 import { requireScope, type WorkspaceVars } from "../workspace";
 import { jsonBody } from "./json-body";
@@ -85,7 +85,15 @@ export async function githubPrivatePrefixHandler(c: Context<WorkspaceVars>) {
   // `resolveGhKeyContext` itself) — degrade to an empty list instead.
   let activePrefixIds: string[] = [];
   try {
-    activePrefixIds = await listActivePrefixIds(dbFor(c.env), req.repo);
+    // With a target, only the prefixes that can hold that target's objects
+    // (issue #934) — the CLI's fallback gather lists each id it gets back,
+    // so a repo-wide list here fanned out one R2 list per branch. Without a
+    // target there is nothing to scope by; keep the repo-wide list.
+    activePrefixIds = req.target
+      ? await listPrefixIdsForTarget(dbFor(c.env), c.get("workspaceName"), req.repo, req.target, {
+          headBranch: req.branch,
+        })
+      : await listActivePrefixIds(dbFor(c.env), req.repo);
   } catch (err) {
     console.error(
       JSON.stringify({

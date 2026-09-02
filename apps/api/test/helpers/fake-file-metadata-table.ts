@@ -226,6 +226,32 @@ export class FileMetadataTable {
         .slice(0, limit);
       return { success: true, results: results as T[], meta: {} };
     }
+    // listPrefixIdsForTarget (issue #934): distinct private prefix ids whose
+    // keys carry this target's `/<kind>/<num>/` segment. Args: (id offset,
+    // workspace, segment offset, segment length, segment); offsets are
+    // 1-based per SQLite substr.
+    if (normalizedSql.startsWith("SELECT DISTINCT substr(object_key, ?, 32) AS prefix_id")) {
+      const [idOffset, workspace, segOffset, segLen, segment] = args as [
+        number,
+        string,
+        number,
+        number,
+        string,
+      ];
+      const scopePrefix = `${workspace} `;
+      const ids = new Set<string>();
+      for (const [scopedKey, map] of this.metadata) {
+        if (!scopedKey.startsWith(scopePrefix)) continue;
+        // A delete can leave an empty map behind; production has no row then.
+        if (map.size === 0) continue;
+        const objectKey = scopedKey.slice(scopePrefix.length);
+        if (!objectKey.startsWith("gh/private/")) continue;
+        if (objectKey.substr(segOffset - 1, segLen) !== segment) continue;
+        ids.add(objectKey.substr(idOffset - 1, 32));
+      }
+      const results = [...ids].map((prefix_id) => ({ prefix_id }));
+      return { success: true, results: results as T[], meta: {} };
+    }
     // facetValues: distinct values for one meta key (issue #528).
     if (normalizedSql.startsWith("SELECT meta_value, COUNT(*) AS count FROM file_metadata")) {
       const [workspace, key, limit] = args as [string, string, number];

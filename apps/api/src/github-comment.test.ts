@@ -117,13 +117,77 @@ describe("gatherCommentBody", () => {
       httpMetadata: { contentType: "image/png" },
     });
 
-    const result = await gatherCommentBody(env, ws, workspaceName, target);
+    // No metadata rows for the private object (a raw PUT): the PR head
+    // branch's prefix is what finds it.
+    const result = await gatherCommentBody(env, ws, workspaceName, target, {
+      headBranch: "main",
+    });
     expect(result.body.startsWith(attachmentsMarker(workspaceName))).toBe(true);
     expect(result.body).toContain("hero.png");
     expect(result.body).toContain("private.png");
     // Ordering: the plain-prefix object appears before the private one.
     expect(result.body.indexOf("hero.png")).toBeLessThan(result.body.indexOf("private.png"));
     expect(result.count).toBe(2);
+  });
+
+  it("lists only the private prefixes that hold this target's objects, not every active prefix in the repo (#934)", async () => {
+    const { env, ws, workspaceName, bucket } = makeTestEnv();
+    const target = { repo: "acme/web", num: 12, kind: "pull" as const };
+    // The prefix the attachment actually lives under, stamped the way
+    // `put --pr` / attach / promote stamp it.
+    const usedId = await getOrMintPrefixId(env.DB, "acme/web", "feature/shots");
+    const key = `${ghPrivateKeyPrefix(usedId, target)}private.png`;
+    await bucket.put(`acme/${key}`, PNG, { httpMetadata: { contentType: "image/png" } });
+    await replaceFileMetadata(env.DB, workspaceName, key, { "gh.ref": "acme/web#12" });
+    // Many other agent branches minted prefixes in this repo; none hold
+    // anything for PR 12.
+    for (const branch of ["claude/a", "claude/b", "claude/c", "claude/d"]) {
+      await getOrMintPrefixId(env.DB, "acme/web", branch);
+    }
+
+    bucket.listCalls = 0;
+    const result = await gatherCommentBody(env, ws, workspaceName, target);
+    expect(result.body).toContain("private.png");
+    expect(result.count).toBe(1);
+    // Plain prefix + the one private prefix that holds the object.
+    expect(bucket.listCalls).toBe(2);
+  });
+
+  it("never lists another repo's private prefix for the same target number (#934 isolation)", async () => {
+    const { env, ws, workspaceName, bucket } = makeTestEnv();
+    // One workspace bound to two private repos, both with a PR 12. Private
+    // keys omit the repo, so repo A's prefix must be excluded by ownership,
+    // not by key shape.
+    const targetA = { repo: "acme/web", num: 12, kind: "pull" as const };
+    const targetB = { repo: "acme/api", num: 12, kind: "pull" as const };
+    const idA = await getOrMintPrefixId(env.DB, targetA.repo, "feature/a");
+    const keyA = `${ghPrivateKeyPrefix(idA, targetA)}secret.png`;
+    await bucket.put(`acme/${keyA}`, PNG, { httpMetadata: { contentType: "image/png" } });
+    await replaceFileMetadata(env.DB, workspaceName, keyA, { "gh.ref": "acme/web#12" });
+
+    bucket.listCalls = 0;
+    const result = await gatherCommentBody(env, ws, workspaceName, targetB);
+    expect(result.body).not.toContain("secret.png");
+    expect(result.count).toBe(0);
+    // Plain prefix only: repo A's id is not a candidate for repo B.
+    expect(bucket.listCalls).toBe(1);
+  });
+
+  it("finds a metadata-less private object under the repo-level prefix for an issue target (#934)", async () => {
+    const { env, ws, workspaceName, bucket } = makeTestEnv();
+    const target = { repo: "acme/web", num: 45, kind: "issues" as const };
+    // Issues resolve to the branch-less sentinel prefix (branch = "").
+    const sentinelId = await getOrMintPrefixId(env.DB, "acme/web", "");
+    await bucket.put(`acme/${ghPrivateKeyPrefix(sentinelId, target)}shot.png`, PNG, {
+      httpMetadata: { contentType: "image/png" },
+    });
+    await getOrMintPrefixId(env.DB, "acme/web", "claude/unrelated");
+
+    bucket.listCalls = 0;
+    const result = await gatherCommentBody(env, ws, workspaceName, target);
+    expect(result.body).toContain("shot.png");
+    expect(result.count).toBe(1);
+    expect(bucket.listCalls).toBe(2);
   });
 
   it("links an attachment to its /f/ file page by default (flag absent)", async () => {
@@ -293,9 +357,10 @@ describe("gatherCommentBody attachment metadata (issue #365)", () => {
       { repo: "acme/web", num: 12, kind: "pull" },
     );
 
-    // One query: the unconditional gh.detached filter (issue #709) — the
-    // path/state fetch itself is still skipped, since neither renders here.
-    expect(metadataQueries).toBe(1);
+    // Two queries: the private-prefix discovery scan (issue #934) and the
+    // unconditional gh.detached filter (issue #709) — the path/state fetch
+    // itself is still skipped, since neither renders here.
+    expect(metadataQueries).toBe(2);
     expect(result.body).not.toContain("<code>/settings");
   });
 

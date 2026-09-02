@@ -15,7 +15,7 @@ import { galleryUrl, hydrateOwnerGallery } from "./gallery-service";
 import { parseExternalReference } from "./external-references";
 import { createLaneResolver, objectPublicUrls } from "./storage";
 import { posterKeyFor } from "./poster";
-import { listActivePrefixIds } from "./github-private-prefixes";
+import { listPrefixIdsForTarget } from "./github-private-prefixes";
 import type { WorkspaceRecord } from "./workspace";
 import { githubFetch, githubHeaders, installationToken, type GithubAppConfig } from "./github-app";
 import { resolveRepoCommentOptions } from "./repo-comment-config";
@@ -41,12 +41,16 @@ import {
  * @param workspaceName The calling workspace's slug — galleries are looked up
  *   scoped to this name only (D1 rows are tenant-scoped by this string, not
  *   by anything derived from `ws`).
+ * @param opts.headBranch The PR's head branch when the caller knows it (the
+ *   webhook payload does). Lets a metadata-less private attachment under
+ *   that branch's prefix be found; see `listPrefixIdsForTarget`.
  */
 export async function gatherCommentBody(
   env: Env,
   ws: WorkspaceRecord,
   workspaceName: string,
   target: GhTarget,
+  opts: { headBranch?: string } = {},
 ): Promise<{ body: string; count: number }> {
   // Resolve repo `.uploads.yml` (if any) against the workspace's own comment
   // defaults (issue #307). Never throws — a fetch/App degradation collapses
@@ -56,7 +60,7 @@ export async function gatherCommentBody(
   // Attachments (R2 list) and galleries (D1) are independent reads — overlap
   // them so the request only waits the longer of the two, not their sum.
   const [items, galleries] = await Promise.all([
-    gatherAttachments(env, ws, workspaceName, target, options),
+    gatherAttachments(env, ws, workspaceName, target, options, opts),
     gatherGalleries(env, ws, workspaceName, target),
   ]);
 
@@ -108,6 +112,7 @@ async function gatherAttachments(
   workspaceName: string,
   target: GhTarget,
   options: ResolvedCommentOptions,
+  gatherOpts: { headBranch?: string },
 ): Promise<AttachmentItem[]> {
   // Per-workspace/repo choice (issues #304, #307): default (auto/true) links
   // the managed comment's attachments to their `/f/` file page (issue #301's
@@ -118,11 +123,18 @@ async function gatherAttachments(
   // neither meta field would render anything.
   const showMetadata = options.metaPath || options.metaState;
 
-  // Every active private prefix id for this repo (across branches, #631) is
-  // also listed — a private-repo attachment can land under any of them, not
-  // just the plain `ghKeyPrefix`. Plain prefix listed first so ordering
-  // stays stable regardless of listActivePrefixIds' order.
-  const activePrefixIds = await listActivePrefixIds(dbFor(env), target.repo);
+  // A private-repo attachment (#631) can land under a randomized prefix, not
+  // just the plain `ghKeyPrefix`. Only the prefixes that can hold THIS
+  // target's objects are listed (issue #934) — never every active prefix in
+  // the repo, which grew one list per branch that ever ran `put --pr`. Plain
+  // prefix listed first so ordering stays stable regardless of id order.
+  const activePrefixIds = await listPrefixIdsForTarget(
+    dbFor(env),
+    workspaceName,
+    target.repo,
+    target,
+    gatherOpts,
+  );
   const prefixes = [
     ghKeyPrefix(target),
     ...activePrefixIds.map((id) => ghPrivateKeyPrefix(id, target)),
