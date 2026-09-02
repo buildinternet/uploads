@@ -86,7 +86,7 @@ export async function startAttachmentIndexShadow(
   try {
     return await Promise.race([read, timeout]);
   } finally {
-    clearTimeout(timer);
+    if (timer !== undefined) clearTimeout(timer);
   }
 }
 
