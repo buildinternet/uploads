@@ -205,6 +205,7 @@ export async function attachExistingObject(
     provenance: source.metadata,
     visibility,
     surface: "attach",
+    declaredContentType: source.type,
   });
 
   // Additive merge (PR #157 preserve mode): the source's existing metadata

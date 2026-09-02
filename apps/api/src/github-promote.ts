@@ -411,6 +411,7 @@ export async function promoteBranchAttachments(
           "gh.promoted-at": nowIso,
         },
         surface: "promote",
+        declaredContentType: source.type,
       });
     } catch (err) {
       // Never leak internal error detail (D1/R2 messages, key policy

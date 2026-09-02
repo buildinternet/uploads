@@ -241,6 +241,23 @@ describe("PUT /v1/:workspace/files upload guardrails", () => {
     expect(bucket.store.get("default/reports/build.log")?.contentType).toBe("text/plain");
   });
 
+  it("stores a text body with no Content-Type header at all as text/plain (hosted-MCP shape)", async () => {
+    const { env, bucket } = await makeEnv();
+    const res = await app.request(
+      "/v1/default/files/reports/build.log",
+      {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${TOKEN}` },
+        body: new TextEncoder().encode("ok 1\nok 2\n"),
+      },
+      env,
+    );
+    expect(res.status).toBe(201);
+    const json = (await res.json()) as { contentType: string };
+    expect(json.contentType).toBe("text/plain");
+    expect(bucket.store.get("default/reports/build.log")?.contentType).toBe("text/plain");
+  });
+
   it("rejects text declared as html, and text under a key with no known extension", async () => {
     const { env } = await makeEnv();
     const html = new TextEncoder().encode("<!doctype html><script>1</script>");
@@ -739,6 +756,9 @@ describe("POST /v1/:workspace/files/sign content-type policy", () => {
       env,
     );
     expect(res.status).not.toBe(415);
+    const json = (await res.json()) as { error?: { code: string } };
+    expect(json.error?.code).not.toBe("unsupported_media_type");
+    expect(json.error?.code).not.toBe("content_type_required");
   });
 
   it("does not include raw provider detail on presign_unavailable", async () => {

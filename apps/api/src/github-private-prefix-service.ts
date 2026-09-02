@@ -260,6 +260,7 @@ export async function rotatePrivatePrefix(
             provenance: source.metadata,
             visibility,
             surface: "rotate",
+            declaredContentType: source.type,
           });
 
           // Wipe whatever's already at `newKey` before renaming onto it —

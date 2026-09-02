@@ -45,7 +45,7 @@ export const DEFAULT_ALLOWED_CONTENT_TYPES: readonly string[] = [
   "application/json",
 ];
 
-const DEFAULT_ALLOWED_SET = new Set(DEFAULT_ALLOWED_CONTENT_TYPES);
+const DEFAULT_ALLOWED_SET: ReadonlySet<string> = new Set(DEFAULT_ALLOWED_CONTENT_TYPES);
 
 /** Video content types the upload path (and poster generation) accepts. */
 export const VIDEO_TYPES = new Set(["video/mp4", "video/webm", "video/quicktime"]);
@@ -66,14 +66,19 @@ export interface UploadPolicy {
   maxBytes: number;
   /** Max for video/* when set; otherwise maxBytes. */
   maxVideoBytes: number;
-  allowed: Set<string>;
+  allowed: ReadonlySet<string>;
 }
 
 /** Fields a workspace record may carry to override the default upload policy. */
 export interface UploadPolicyOverrides {
   maxUploadBytes?: number;
-  /** Cap for video/mp4 and video/webm. When unset, videos use maxUploadBytes. */
+  /** Cap for every type in VIDEO_TYPES (mp4, webm, quicktime). When unset, videos use maxUploadBytes. */
   maxVideoUploadBytes?: number;
+  /**
+   * A full replacement for the default allowlist, not an extension of it —
+   * a workspace with an override does not pick up types added to the
+   * default later.
+   */
   allowedContentTypes?: string[];
 }
 
