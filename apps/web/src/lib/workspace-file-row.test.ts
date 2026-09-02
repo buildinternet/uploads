@@ -54,14 +54,14 @@ describe("pickThumbnail", () => {
     ).toEqual({ kind: "none" });
   });
 
-  it("renders no tile for an unsupported image type (svg)", () => {
+  it("renders a real thumbnail for svg, same as any other image (#929)", () => {
     expect(
       pickThumbnail({
         contentType: "image/svg+xml",
         url: "https://s/x.svg",
         embedUrl: "https://e/x.svg",
       }),
-    ).toEqual({ kind: "none" });
+    ).toEqual({ kind: "image", src: "https://e/x.svg" });
   });
 
   it("treats a missing contentType as a plain file (no tile)", () => {

@@ -74,6 +74,7 @@ import {
   attachmentsMarker,
   type AttachmentItem,
 } from "../github-comment-render";
+import { readHostActiveContent } from "../active-content-hosts";
 import { allowWrite } from "../guards";
 import {
   adminWorkspaceOr403,
@@ -118,6 +119,7 @@ import {
   storageStatusResponse,
   storageVerify,
   verifyLaneForActivate,
+  type StorageStatusResponse,
 } from "./workspace-storage";
 
 /** `?repo=` shape for the comment preview endpoint: exactly one `/`, no empty segments. */
@@ -432,7 +434,47 @@ export async function storageGetHandler(c: Context<SettingsVars>) {
   const name = c.req.param("workspace") ?? "";
   const record = await loadWorkspaceRecord(c.env, name);
   if (!record) throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
-  return c.json(storageStatusResponse(record, byoBucketAllowed(record)));
+  const status = storageStatusResponse(record, byoBucketAllowed(record));
+  return c.json(await withHostedActiveContent(c.env, status));
+}
+
+/** Hostname from a URL string, or `null` for an empty/unparseable one. */
+function hostOf(url: string | undefined): string | null {
+  if (!url) return null;
+  try {
+    return new URL(url).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Overlays the hosted host's daily-probed active-content verdict onto a
+ * `storageStatusResponse` projection (issue #929 "Hosted lane display").
+ * The pure projection (`workspace-storage.ts`) has no KV access and can only
+ * echo a *lane's own* `activeContentVerifiedAt` stamp — meaningless for a
+ * shared lane, which carries no stamp of its own and instead inherits
+ * whatever the daily cron most recently wrote for its host
+ * (`active-content-hosts.ts`). Applies to the top-level active lane when
+ * it's shared, and to every `lanes[]` entry that's shared too. Mutates and
+ * returns `status` in place.
+ */
+async function withHostedActiveContent(
+  env: Env,
+  status: StorageStatusResponse,
+): Promise<StorageStatusResponse> {
+  if (status.mode === "shared") {
+    const host = hostOf(status.publicBaseUrl);
+    const record = host ? await readHostActiveContent(env, host) : null;
+    status.activeContentVerifiedAt = record?.ok ? record.verifiedAt : undefined;
+  }
+  for (const lane of status.lanes) {
+    if (lane.mode !== "shared") continue;
+    const host = hostOf(lane.publicBaseUrl);
+    const record = host ? await readHostActiveContent(env, host) : null;
+    lane.activeContentVerifiedAt = record?.ok ? record.verifiedAt : undefined;
+  }
+  return status;
 }
 
 /**

@@ -6,6 +6,7 @@
  * (phase 3, invites/members).
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { hostActiveContentKey } from "../src/active-content-hosts";
 import { app } from "../src/index";
 import {
   setLaneActiveContentCheckForTests,
@@ -500,6 +501,85 @@ describe("storage vertical (self-serve BYO bucket)", () => {
       expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
         "settings_requires_session",
       );
+    });
+
+    // "Hosted lane display" (issue #929): the pure `storageStatusResponse`
+    // projection has no KV access and only ever echoes a lane's *own*
+    // `activeContentVerifiedAt` stamp — meaningless for a shared lane, which
+    // instead inherits the daily-cron-probed verdict for its host. The
+    // handler overlays that verdict on top for shared lanes only.
+    it("reflects the hosted host's active-content record on the shared active lane", async () => {
+      const { env } = makeEnv({
+        role: "admin",
+        record: { ...SHARED_RECORD, publicBaseUrl: "https://storage.uploads.sh" },
+      });
+      await env.REGISTRY.put(
+        hostActiveContentKey("storage.uploads.sh"),
+        JSON.stringify({ ok: true, verifiedAt: "2026-08-20T00:00:00.000Z" }),
+      );
+      const res = await app.request(
+        "/v1/workspaces/acme/storage",
+        { headers: sessionHeaders },
+        env,
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { mode: string; activeContentVerifiedAt?: string };
+      expect(body.mode).toBe("shared");
+      expect(body.activeContentVerifiedAt).toBe("2026-08-20T00:00:00.000Z");
+    });
+
+    it("omits activeContentVerifiedAt on a shared active lane when the host record has never probed ok", async () => {
+      const { env } = makeEnv({
+        role: "admin",
+        record: { ...SHARED_RECORD, publicBaseUrl: "https://storage.uploads.sh" },
+      });
+      await env.REGISTRY.put(
+        hostActiveContentKey("storage.uploads.sh"),
+        JSON.stringify({ ok: false, verifiedAt: "2026-08-20T00:00:00.000Z", detail: "no sandbox" }),
+      );
+      const res = await app.request(
+        "/v1/workspaces/acme/storage",
+        { headers: sessionHeaders },
+        env,
+      );
+      const body = (await res.json()) as { activeContentVerifiedAt?: string };
+      expect(body.activeContentVerifiedAt).toBeUndefined();
+    });
+
+    it("reflects the hosted host's active-content record on a shared entry in lanes[]", async () => {
+      const { env } = makeEnv({
+        role: "owner",
+        record: {
+          ...BYO_RECORD,
+          storageLanes: [
+            {
+              id: "lane_sharedfallback",
+              provider: "r2",
+              bucket: "uploads-default",
+              binding: "UPLOADS_FALLBACK",
+              publicBaseUrl: "https://storage.uploads.sh",
+              lastActiveAt: "2026-01-01T00:00:00.000Z",
+            },
+          ],
+        },
+      });
+      await env.REGISTRY.put(
+        hostActiveContentKey("storage.uploads.sh"),
+        JSON.stringify({ ok: true, verifiedAt: "2026-08-21T00:00:00.000Z" }),
+      );
+      const res = await app.request(
+        "/v1/workspaces/acme/storage",
+        { headers: sessionHeaders },
+        env,
+      );
+      const body = (await res.json()) as {
+        lanes: Array<{ laneId: string; mode: string; activeContentVerifiedAt?: string }>;
+      };
+      const lane = body.lanes.find((l) => l.laneId === "lane_sharedfallback");
+      expect(lane).toMatchObject({
+        mode: "shared",
+        activeContentVerifiedAt: "2026-08-21T00:00:00.000Z",
+      });
     });
   });
 
@@ -1707,6 +1787,10 @@ describe("storage vertical (self-serve BYO bucket)", () => {
 });
 
 describe("/me alias forwards (issue #613 phase 3)", () => {
+  afterEach(() => {
+    setLaneActiveContentCheckForTests(undefined);
+  });
+
   it("GET /me/workspaces/:name/summary matches the canonical shape", async () => {
     const { env } = makeEnv({ sessionUser: MEMBER, role: "member", usage: { objects: 0 } });
     const canonical = await app.request(
@@ -1820,6 +1904,44 @@ describe("/me alias forwards (issue #613 phase 3)", () => {
     );
     expect(alias.status).toBe(200);
     expect(await alias.json()).toEqual(await canonical.json());
+  });
+
+  // The verify-active-content stamp is time-dependent (`new Date().toISOString()`
+  // at write time), so this checks the alias runs the same handler and has
+  // the same effect rather than diffing two live-timestamped bodies.
+  it("POST /me/workspaces/:name/storage/lanes/:laneId/verify-active-content forwards to the canonical route", async () => {
+    const BYO_RECORD = {
+      provider: "r2",
+      bucket: "customer-bucket",
+      accountId: "a".repeat(32),
+      accessKeyId: "enc:v1:sealed-key-id",
+      secretAccessKey: "enc:v1:already-sealed",
+      publicBaseUrl: "https://media.example.com",
+      byoBucketEnabled: true,
+      storageAccessKeyIdLast4: "1234",
+    };
+    const { env, registry } = makeEnv({ role: "owner", record: BYO_RECORD });
+    setLaneActiveContentCheckForTests(async () => ({
+      id: "active-content-headers",
+      ok: true,
+      required: false,
+    }));
+    const res = await app.request(
+      "/me/workspaces/acme/storage/lanes/active/verify-active-content",
+      { method: "POST", headers: sessionHeaders },
+      env,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      check: { ok: boolean };
+      status: { activeContentVerifiedAt?: string };
+    };
+    expect(body.check.ok).toBe(true);
+    expect(body.status.activeContentVerifiedAt).toBeTruthy();
+    expect(
+      registry.record<{ storageActiveContentVerifiedAt?: string }>("acme")
+        ?.storageActiveContentVerifiedAt,
+    ).toBeTruthy();
   });
 
   it("resolves the session exactly once per forwarded request (summary)", async () => {

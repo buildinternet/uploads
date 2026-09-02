@@ -326,13 +326,6 @@ const oembedHref = gallery ? oembedDiscoveryHref(canonical, Astro.url.origin) : 
                             filename={item.filename}
                           />
                         )}
-                        {mediaKind === "unsupported" && (
-                          <MediaFallback
-                            compact
-                            title="Unsupported media type"
-                            body="This item cannot be opened inline."
-                          />
-                        )}
                         {mediaKind === "missing" && (
                           <MediaFallback
                             compact
@@ -347,7 +340,7 @@ const oembedHref = gallery ? oembedDiscoveryHref(canonical, Astro.url.origin) : 
                         <a class="original" href={itemPage(item)}>
                           View page
                         </a>
-                        {item.status === "available" && mediaKind !== "unsupported" && (
+                        {item.status === "available" && (
                           <a class="original" href={item.url!} rel="noopener noreferrer">
                             Open original
                           </a>

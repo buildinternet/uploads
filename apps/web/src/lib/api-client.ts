@@ -1908,6 +1908,8 @@ export interface WorkspaceStorageLane {
   bucket: string;
   publicBaseUrl?: string;
   verifiedAt?: string;
+  /** Last successful SVG/XML sandboxing-CSP check against this lane's public host (issue #929) — gates SVG/XML acceptance while this lane is active. For a shared lane this is the hosted host's daily-probed verdict, not a per-lane stamp. */
+  activeContentVerifiedAt?: string;
   lastActiveAt?: string;
   accountIdMasked?: string;
   accessKeyIdLast4?: string;
@@ -1949,6 +1951,8 @@ export interface WorkspaceStorageStatus {
   publicBaseUrl?: string;
   configuredAt?: string;
   verifiedAt?: string;
+  /** Active lane's last successful SVG/XML sandboxing-CSP check (issue #929) — gates SVG/XML acceptance. For a shared active lane this is the hosted host's daily-probed verdict, not a per-workspace stamp. */
+  activeContentVerifiedAt?: string;
   jurisdiction?: string;
   /** s3-only. Service endpoint origin of the active lane. */
   endpoint?: string;
@@ -1986,6 +1990,8 @@ function toWorkspaceStorageLane(value: unknown): WorkspaceStorageLane | null {
     bucket: v.bucket,
     publicBaseUrl: typeof v.publicBaseUrl === "string" ? v.publicBaseUrl : undefined,
     verifiedAt: typeof v.verifiedAt === "string" ? v.verifiedAt : undefined,
+    activeContentVerifiedAt:
+      typeof v.activeContentVerifiedAt === "string" ? v.activeContentVerifiedAt : undefined,
     lastActiveAt: typeof v.lastActiveAt === "string" ? v.lastActiveAt : undefined,
     accountIdMasked: typeof v.accountIdMasked === "string" ? v.accountIdMasked : undefined,
     accessKeyIdLast4: typeof v.accessKeyIdLast4 === "string" ? v.accessKeyIdLast4 : undefined,
@@ -2036,6 +2042,8 @@ function toWorkspaceStorageStatus(body: unknown): WorkspaceStorageStatus | null 
     publicBaseUrl: typeof b.publicBaseUrl === "string" ? b.publicBaseUrl : undefined,
     configuredAt: typeof b.configuredAt === "string" ? b.configuredAt : undefined,
     verifiedAt: typeof b.verifiedAt === "string" ? b.verifiedAt : undefined,
+    activeContentVerifiedAt:
+      typeof b.activeContentVerifiedAt === "string" ? b.activeContentVerifiedAt : undefined,
     jurisdiction: typeof b.jurisdiction === "string" ? b.jurisdiction : undefined,
     endpoint: typeof b.endpoint === "string" ? b.endpoint : undefined,
     region: typeof b.region === "string" ? b.region : undefined,
@@ -2100,32 +2108,33 @@ export interface StorageVerifyResult {
   jurisdiction?: string;
 }
 
+/** Parses one `StorageVerifyCheck` — shared by the multi-check result parser below and `verifyLaneActiveContent`'s single-check `{ check }` body. */
+function toStorageVerifyCheck(value: unknown): StorageVerifyCheck | null {
+  if (!value || typeof value !== "object") return null;
+  const check = value as Record<string, unknown>;
+  if (
+    typeof check.id !== "string" ||
+    typeof check.ok !== "boolean" ||
+    typeof check.required !== "boolean"
+  ) {
+    return null;
+  }
+  return {
+    id: check.id,
+    ok: check.ok,
+    required: check.required,
+    // Normalized rather than passed through: a non-string hint would
+    // reach the checklist renderer typed as string.
+    hint: typeof check.hint === "string" ? check.hint : undefined,
+    inconclusive: check.inconclusive === true ? true : undefined,
+  };
+}
+
 function toStorageVerifyResult(body: unknown): StorageVerifyResult | null {
   if (!body || typeof body !== "object") return null;
   const b = body as Record<string, unknown>;
   if (typeof b.ok !== "boolean" || !Array.isArray(b.checks)) return null;
-  const checks = b.checks.flatMap((c): StorageVerifyCheck[] => {
-    if (!c || typeof c !== "object") return [];
-    const check = c as Record<string, unknown>;
-    if (
-      typeof check.id !== "string" ||
-      typeof check.ok !== "boolean" ||
-      typeof check.required !== "boolean"
-    ) {
-      return [];
-    }
-    return [
-      {
-        id: check.id,
-        ok: check.ok,
-        required: check.required,
-        // Normalized rather than passed through: a non-string hint would
-        // reach the checklist renderer typed as string.
-        hint: typeof check.hint === "string" ? check.hint : undefined,
-        inconclusive: check.inconclusive === true ? true : undefined,
-      },
-    ];
-  });
+  const checks = b.checks.flatMap((c) => toStorageVerifyCheck(c) ?? []);
   return {
     ok: b.ok,
     checks,
@@ -2348,6 +2357,50 @@ export async function activateWorkspaceStorage(
   const status = toWorkspaceStorageStatus(await response.json().catch(() => null));
   if (!status) return { kind: "unavailable", reason: "server" };
   return { kind: "ok", status };
+}
+
+export type VerifyLaneActiveContentResult =
+  | { kind: "ok"; check: StorageVerifyCheck; status: WorkspaceStorageStatus }
+  /** 422 — a shared lane, or a lane with no `publicBaseUrl` to probe. No `status` to re-apply; `check.hint` explains why. */
+  | { kind: "rejected"; check: StorageVerifyCheck }
+  | { kind: "unavailable"; reason: RequestFailure | "forbidden" | "not_found" | "server" };
+
+/**
+ * POST /v1/workspaces/:name/storage/lanes/:laneId/verify-active-content
+ * (issue #929) — runs only the SVG/XML sandboxing-CSP probe against one
+ * lane (`laneId`: a saved lane's id, or the active lane via `"active"` or
+ * its own id) and stamps the result. `laneId` is path-encoded like
+ * `activateWorkspaceStorage`'s.
+ */
+export async function verifyLaneActiveContent(
+  apiOrigin: string,
+  name: string,
+  laneId: string,
+): Promise<VerifyLaneActiveContentResult> {
+  const result = await fetchWithTimeout(
+    `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(name)}/storage/lanes/${encodeURIComponent(laneId)}/verify-active-content`,
+    { method: "POST", credentials: "include", cache: "no-store" },
+    { timeoutMs: STORAGE_PIPELINE_TIMEOUT_MS },
+  );
+  if (result.kind === "unavailable") return result;
+  const { response } = result;
+  if (response.status === 422) {
+    const rejectedBody = (await response.json().catch(() => null)) as { check?: unknown } | null;
+    const check = toStorageVerifyCheck(rejectedBody?.check);
+    if (check) return { kind: "rejected", check };
+    return { kind: "unavailable", reason: "server" };
+  }
+  if (response.status === 403) return { kind: "unavailable", reason: "forbidden" };
+  if (response.status === 404) return { kind: "unavailable", reason: "not_found" };
+  if (!response.ok) return { kind: "unavailable", reason: "server" };
+  const body = (await response.json().catch(() => null)) as {
+    check?: unknown;
+    status?: unknown;
+  } | null;
+  const check = toStorageVerifyCheck(body?.check);
+  const status = toWorkspaceStorageStatus(body?.status);
+  if (!check || !status) return { kind: "unavailable", reason: "server" };
+  return { kind: "ok", check, status };
 }
 
 export type StorageDetachResult =

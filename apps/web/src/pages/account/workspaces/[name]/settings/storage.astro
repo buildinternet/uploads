@@ -37,6 +37,12 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       <div id="storage-error" class="ul-callout" data-state="error" role="alert" hidden></div>
 
       <div id="storage-shared">
+        <!-- SVG/XML readiness of the hosted host (issue #929). Ops-owned:
+             a daily cron probes storage.uploads.sh and friends, so there is
+             no "Check now" here — that button lives on BYO lane cards
+             below, which each own their own host. -->
+        <p class="settings-note muted mb-3" id="storage-shared-active-content"></p>
+
         <!-- Empty state: shared `Empty` card shape (kept in sync with
              packages/ui/src/components/ui/empty.tsx, same convention as
              renderEmptyStateHtml in workspace-ui.ts), centered inside the
@@ -130,6 +136,29 @@ if (!workspace) return Astro.redirect("/account/workspaces");
             </div>
           </div>
           <dl class="kv" id="storage-saved-details"></dl>
+          <details
+            class="storage-active-content max-w-[32rem] rounded-md border border-border px-4 py-2.5 text-[13px] mt-3"
+            id="storage-saved-active-content"
+          >
+            <summary class="cursor-pointer text-foreground font-medium">Serve SVG and XML</summary>
+            <p class="mt-2 mb-1 text-muted-foreground">
+              Set these headers on this bucket's public host, then check:
+            </p>
+            <pre
+              class="storage-active-content__headers rounded-md border border-border bg-muted/40 p-2.5 text-xs overflow-x-auto"><code>Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox
+X-Content-Type-Options: nosniff</code></pre>
+            <div class="storage-actions flex flex-wrap items-center gap-3 mt-2">
+              <button type="button" class="ul-btn" id="storage-saved-check-active-content-btn"
+                >Check now</button
+              >
+            </div>
+            <p
+              class="muted mt-2 data-[state=error]:text-destructive data-[state=ok]:text-success"
+              id="storage-saved-active-content-status"
+              role="status"
+            >
+            </p>
+          </details>
           <div
             class="storage-actions flex flex-wrap items-center gap-3 mt-3"
             id="storage-saved-actions"
@@ -231,6 +260,29 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         </div>
 
         <dl class="kv" id="storage-byo-details"></dl>
+        <details
+          class="storage-active-content max-w-[32rem] rounded-md border border-border px-4 py-2.5 text-[13px] mt-3"
+          id="storage-byo-active-content"
+        >
+          <summary class="cursor-pointer text-foreground font-medium">Serve SVG and XML</summary>
+          <p class="mt-2 mb-1 text-muted-foreground">
+            Set these headers on this bucket's public host, then check:
+          </p>
+          <pre
+            class="storage-active-content__headers rounded-md border border-border bg-muted/40 p-2.5 text-xs overflow-x-auto"><code>Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox
+X-Content-Type-Options: nosniff</code></pre>
+          <div class="storage-actions flex flex-wrap items-center gap-3 mt-2">
+            <button type="button" class="ul-btn" id="storage-byo-check-active-content-btn"
+              >Check now</button
+            >
+          </div>
+          <p
+            class="muted mt-2 data-[state=error]:text-destructive data-[state=ok]:text-success"
+            id="storage-byo-active-content-status"
+            role="status"
+          >
+          </p>
+        </details>
         <div
           class="storage-confirm max-w-[32rem] mt-3 flex flex-col gap-2.5 rounded-md border border-border px-4 py-3"
           id="storage-byo-confirm"
@@ -459,6 +511,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       getWorkspaceStorageStatus,
       listWorkspaceStorageBuckets,
       putWorkspaceStorage,
+      verifyLaneActiveContent,
       verifyWorkspaceStorage,
       type StorageCandidate,
       type StorageVerifyResult,
@@ -515,6 +568,28 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       const storageSharedEl = requireElement<HTMLElement>("#storage-shared", page);
       const storageByoEl = requireElement<HTMLElement>("#storage-byo", page);
       const storageByoDetails = requireElement<HTMLElement>("#storage-byo-details", page);
+      // SVG/XML readiness (issue #929): the hosted-host row plus each BYO
+      // lane's own "Check now" details block.
+      const storageSharedActiveContent = requireElement<HTMLElement>(
+        "#storage-shared-active-content",
+        page,
+      );
+      const storageByoCheckActiveContentBtn = requireElement<HTMLButtonElement>(
+        "#storage-byo-check-active-content-btn",
+        page,
+      );
+      const storageByoActiveContentStatus = requireElement<HTMLElement>(
+        "#storage-byo-active-content-status",
+        page,
+      );
+      const storageSavedCheckActiveContentBtn = requireElement<HTMLButtonElement>(
+        "#storage-saved-check-active-content-btn",
+        page,
+      );
+      const storageSavedActiveContentStatus = requireElement<HTMLElement>(
+        "#storage-saved-active-content-status",
+        page,
+      );
       const storageConnectBtn = requireElement<HTMLButtonElement>("#storage-connect-btn", page);
       const storageIntro = requireElement<HTMLElement>("#storage-intro", page);
       const storageReplaceBtn = requireElement<HTMLButtonElement>("#storage-replace-btn", page);
@@ -675,11 +750,24 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       }
 
       /**
+       * "SVG & XML" row value (issue #929): the lane's last successful
+       * sandboxing-CSP check, or a nudge toward the header block + "Check
+       * now" button under the details panel.
+       */
+      function activeContentRowValue(verifiedAt: string | undefined): string {
+        if (verifiedAt) return escapeHtml(`Verified ${formatTimestamp(verifiedAt)}`);
+        return (
+          `<span class="ul-badge ul-badge--accent">Not verified</span> ` +
+          `<span class="storage-signed-only-note block mt-1 text-xs text-muted-foreground">set the headers below, then Check now.</span>`
+        );
+      }
+
+      /**
        * Shared row-list builder for the active-BYO and saved-lane detail
        * panels: same fields, same order (bucket → provider-specific id →
-       * access key → public URL → verified), just a different source object
-       * and an optional trailing jurisdiction row the saved-lane panel never
-       * shows.
+       * access key → public URL → verified → SVG & XML), just a different
+       * source object and an optional trailing jurisdiction row the
+       * saved-lane panel never shows.
        */
       function buildStorageRows(
         fields: Pick<
@@ -692,6 +780,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
           | "accessKeyIdLast4"
           | "publicBaseUrl"
           | "verifiedAt"
+          | "activeContentVerifiedAt"
         >,
         jurisdiction?: string,
       ): [string, string][] {
@@ -709,6 +798,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         ]);
         rows.push(["Public base URL", publicBaseUrlRowValue(fields.publicBaseUrl)]);
         rows.push(["Verified", escapeHtml(formatTimestamp(fields.verifiedAt))]);
+        rows.push(["SVG & XML", activeContentRowValue(fields.activeContentVerifiedAt)]);
         if (!isS3 && jurisdiction) rows.push(["Jurisdiction", escapeHtml(jurisdiction)]);
         return rows;
       }
@@ -725,6 +815,19 @@ if (!workspace) return Astro.redirect("/account/workspaces");
 
       function renderSavedDetails(lane: WorkspaceStorageLane): void {
         renderStorageRows(storageSavedDetails, buildStorageRows(lane));
+      }
+
+      /**
+       * The hosted host's own SVG/XML row (issue #929) — shown once at the
+       * top of `#storage-shared`, above whichever sub-state (empty intro or
+       * saved-lane card) is visible. `status.activeContentVerifiedAt` is
+       * already the hosted host's verdict here: `storageGetHandler`
+       * overlays it from the host record whenever the active lane is shared.
+       */
+      function renderSharedActiveContent(status: WorkspaceStorageStatus): void {
+        storageSharedActiveContent.innerHTML =
+          `<strong class="text-foreground">SVG &amp; XML:</strong> ` +
+          activeContentRowValue(status.activeContentVerifiedAt);
       }
 
       /**
@@ -1322,6 +1425,62 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         );
       });
 
+      /**
+       * "Check now" for the SVG/XML sandboxing-CSP probe (issue #929) — same
+       * shape on the active-BYO card and the saved (not-in-use) lane card,
+       * just a different `laneId` and status line. Re-applies the returned
+       * `status` on success (200 or the 422 rejections both carry a real
+       * `check`) so the new "SVG & XML" row updates immediately.
+       */
+      async function checkActiveContent(
+        laneId: string,
+        button: HTMLButtonElement,
+        statusEl: HTMLElement,
+      ): Promise<void> {
+        button.disabled = true;
+        statusEl.textContent = "Checking…";
+        statusEl.removeAttribute("data-state");
+        const result = await verifyLaneActiveContent(apiOrigin, workspaceName, laneId);
+        if (!stillHere()) return;
+        button.disabled = false;
+        if (result.kind === "ok") {
+          // `applyStatus` re-renders the "SVG & XML" row from the fresh
+          // status and clears this very status line (same reset every other
+          // action in this panel applies) — so the confirmation text below
+          // has to be set *after* it, not before.
+          applyStatus(result.status);
+          statusEl.textContent = result.check.ok
+            ? "Verified."
+            : (result.check.hint ?? "Not verified yet.");
+          statusEl.dataset.state = result.check.ok ? "ok" : "error";
+          return;
+        }
+        if (result.kind === "rejected") {
+          statusEl.textContent = result.check.hint ?? "Couldn’t check this lane.";
+          statusEl.dataset.state = "error";
+          return;
+        }
+        statusEl.textContent = "Couldn’t reach the server. Try again.";
+        statusEl.dataset.state = "error";
+      }
+
+      storageByoCheckActiveContentBtn.addEventListener("click", () => {
+        void checkActiveContent(
+          "active",
+          storageByoCheckActiveContentBtn,
+          storageByoActiveContentStatus,
+        );
+      });
+
+      storageSavedCheckActiveContentBtn.addEventListener("click", () => {
+        if (!savedLaneId) return;
+        void checkActiveContent(
+          savedLaneId,
+          storageSavedCheckActiveContentBtn,
+          storageSavedActiveContentStatus,
+        );
+      });
+
       storageDisconnectBtn.addEventListener("click", () => {
         void (async () => {
           if (sharedFallbackLaneId) {
@@ -1404,6 +1563,10 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         closeMenus();
         storageActionStatus.textContent = "";
         storageActionStatus.removeAttribute("data-state");
+        storageByoActiveContentStatus.textContent = "";
+        storageByoActiveContentStatus.removeAttribute("data-state");
+        storageSavedActiveContentStatus.textContent = "";
+        storageSavedActiveContentStatus.removeAttribute("data-state");
         storageSavedConfirm.hidden = true;
         storageByoConfirm.hidden = true;
         renderPreviousLine(status);
@@ -1424,6 +1587,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         } else {
           storageByoEl.hidden = true;
           storageSharedEl.hidden = false;
+          renderSharedActiveContent(status);
           const standby = status.lanes.find((lane) => lane.role === "standby");
           if (standby) {
             savedLaneId = standby.laneId;

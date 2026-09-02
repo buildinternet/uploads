@@ -333,7 +333,7 @@ const footnoteLine = footnoteParts.join(" · ");
               {item.caption && <div class="caption">{item.caption}</div>}
               {item.status === "available" && (
                 <CopyAsControls formats={embedFormats} downloadUrl={downloadUrl}>
-                  {kind(item) !== "unsupported" && item.url && (
+                  {item.url && (
                     <a class="original" href={item.url} rel="noopener noreferrer">
                       Open original ↗
                     </a>

@@ -236,10 +236,10 @@ describe("key safety + path building", () => {
 });
 
 describe("fileKind", () => {
-  it("maps images and videos, treats svg as unsupported, else file", () => {
+  it("maps images (including svg) and videos, else file", () => {
     expect(fileKind("image/png")).toBe("image");
     expect(fileKind("video/mp4")).toBe("video");
-    expect(fileKind("image/svg+xml")).toBe("unsupported");
+    expect(fileKind("image/svg+xml")).toBe("image");
     expect(fileKind("application/pdf")).toBe("file");
     expect(fileKind("video/quicktime")).toBe("video");
     expect(fileKind("text/plain")).toBe("file");
