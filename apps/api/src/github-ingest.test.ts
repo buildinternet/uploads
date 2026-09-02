@@ -265,6 +265,48 @@ describe("reconcileIngestSource", () => {
     expect(await ledgerRow(env.DB, REPO, ASSET_ID)).toBeNull();
   });
 
+  it("media gate is image/video only: a PDF is a permanent skip even though the upload allowlist accepts it", async () => {
+    const { env } = baseEnv();
+    const ref: IngestSourceRef = { repo: REPO, kind: "pull", num: 7, source: "body" };
+    const PDF = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x37, 0x0a]);
+    const fetchImpl = fakeFetch({
+      [ASSET_ID]: () =>
+        new Response(PDF, { status: 200, headers: { "content-type": "application/pdf" } }),
+    });
+    const { putImpl, calls } = spyPut();
+
+    const summary = await reconcileIngestSource(env, ws, WS, ref, `see ${ASSET_URL}`, null, {
+      fetchImpl,
+      putImpl,
+    });
+
+    expect(calls).toHaveLength(0);
+    expect(summary.skipped).toEqual([{ url: ASSET_URL, reason: "unsupported_media_type" }]);
+  });
+
+  it("an ingested MOV is named with the .mov extension override", async () => {
+    const { env } = baseEnv();
+    const ref: IngestSourceRef = { repo: REPO, kind: "pull", num: 7, source: "body" };
+    // ftyp box (offset 4) with major brand "qt  " — the exact bytes
+    // guards.ts's detectContentType sniffs as video/quicktime.
+    const MOV = new Uint8Array([
+      0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x71, 0x74, 0x20, 0x20,
+    ]);
+    const fetchImpl = fakeFetch({
+      [ASSET_ID]: () =>
+        new Response(MOV, { status: 200, headers: { "content-type": "video/quicktime" } }),
+    });
+    const { putImpl, calls } = spyPut();
+
+    const summary = await reconcileIngestSource(env, ws, WS, ref, `see ${ASSET_URL}`, null, {
+      fetchImpl,
+      putImpl,
+    });
+
+    expect(calls[0]!.key).toBe(`gh/acme-app/pull-7/${attachmentKeyBasename(ASSET_ID)}.mov`);
+    expect(summary.skipped).toEqual([]);
+  });
+
   it("media gate derives from the shared upload allowlist: AVIF (in guards.ts's allowlist) is accepted", async () => {
     const { env } = baseEnv();
     const ref: IngestSourceRef = { repo: REPO, kind: "pull", num: 7, source: "body" };
