@@ -101,7 +101,26 @@ export async function probeHostActiveContent(
     verifiedAt: new Date().toISOString(),
     ...(check.hint ? { detail: check.hint } : {}),
   };
-  await env.REGISTRY.put(hostActiveContentKey(host), JSON.stringify(record));
+  const key = hostActiveContentKey(host);
+  const value = JSON.stringify(record);
+  try {
+    await env.REGISTRY.put(key, value);
+  } catch {
+    // One retry after a short backoff: a bare failure here would leave
+    // yesterday's `ok: true` record in place for up to 24h (until the next
+    // sweep), holding the gate open on stale data. If the retry also fails,
+    // surface it rather than silently keeping the stale record.
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    try {
+      await env.REGISTRY.put(key, value);
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      console.error(
+        JSON.stringify({ message: "active_content_host_record_write_failed", host, error: detail }),
+      );
+      throw err;
+    }
+  }
   return record;
 }
 
