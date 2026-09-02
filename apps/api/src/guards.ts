@@ -18,9 +18,14 @@ import type { WorkspaceVars } from "./workspace";
 export const DEFAULT_MAX_UPLOAD_BYTES = 25 * 1024 * 1024; // 25 MiB
 
 /**
- * Intended payloads: static images plus the short gif/video clips embedded in
- * GitHub repos. Deliberately excludes `image/svg+xml` — an SVG served inline
- * from storage.uploads.sh can carry script (stored XSS on our own origin).
+ * Intended payloads: static images, the short gif/video clips embedded in
+ * GitHub repos, and the non-media artifacts agents produce (reports, logs,
+ * JSON, archives). Deliberately excludes `image/svg+xml` and `text/html` —
+ * storage.uploads.sh is a bare R2 custom domain with no Worker in front of
+ * it, so the stored content type is the only control, and either of those
+ * served inline can carry script (stored XSS on our own origin). Everything
+ * below renders as inert text, opens in a sandboxed viewer (PDF), or has no
+ * inline handler at all (zip/gzip).
  */
 export const DEFAULT_ALLOWED_CONTENT_TYPES: readonly string[] = [
   "image/png",
@@ -30,12 +35,31 @@ export const DEFAULT_ALLOWED_CONTENT_TYPES: readonly string[] = [
   "image/avif",
   "video/mp4",
   "video/webm",
+  "video/quicktime",
+  "application/pdf",
+  "application/zip",
+  "application/gzip",
+  "text/plain",
+  "text/markdown",
+  "text/csv",
+  "application/json",
 ];
 
 const DEFAULT_ALLOWED_SET = new Set(DEFAULT_ALLOWED_CONTENT_TYPES);
 
 /** Video content types the upload path (and poster generation) accepts. */
-export const VIDEO_TYPES = new Set(["video/mp4", "video/webm"]);
+export const VIDEO_TYPES = new Set(["video/mp4", "video/webm", "video/quicktime"]);
+
+/**
+ * Types with no magic bytes. Accepted only when the client declares one of
+ * them and the body passes `looksLikeText` — see `inspectUpload`.
+ */
+export const TEXT_CONTENT_TYPES: ReadonlySet<string> = new Set([
+  "text/plain",
+  "text/markdown",
+  "text/csv",
+  "application/json",
+]);
 
 export interface UploadPolicy {
   /** Max for images (and as fallback when maxVideoBytes is unset). */
@@ -110,8 +134,21 @@ export function detectContentType(bytes: Uint8Array): string | null {
   if (matches(bytes, [0x66, 0x74, 0x79, 0x70], 4)) {
     const brand = asciiAt(bytes, 8, 4);
     if (brand === "avif" || brand === "avis") return "image/avif";
+    if (brand === "qt  ") return "video/quicktime";
     return "video/mp4";
   }
+  // %PDF-
+  if (matches(bytes, [0x25, 0x50, 0x44, 0x46, 0x2d])) return "application/pdf";
+  // PK\x03\x04 (local file header), PK\x05\x06 (empty archive), PK\x07\x08 (spanned)
+  if (
+    matches(bytes, [0x50, 0x4b, 0x03, 0x04]) ||
+    matches(bytes, [0x50, 0x4b, 0x05, 0x06]) ||
+    matches(bytes, [0x50, 0x4b, 0x07, 0x08])
+  ) {
+    return "application/zip";
+  }
+  // gzip member header
+  if (matches(bytes, [0x1f, 0x8b])) return "application/gzip";
   return null;
 }
 

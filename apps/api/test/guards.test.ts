@@ -17,6 +17,10 @@ const WEBP = new Uint8Array([
   0x52, 0x49, 0x46, 0x46, 0x00, 0x00, 0x00, 0x00, 0x57, 0x45, 0x42, 0x50,
 ]);
 const WEBM = new Uint8Array([0x1a, 0x45, 0xdf, 0xa3, 0, 0]);
+const PDF = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x37]); // %PDF-1.7
+const ZIP = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0, 0, 0, 0]);
+const ZIP_EMPTY = new Uint8Array([0x50, 0x4b, 0x05, 0x06, 0, 0, 0, 0]);
+const GZIP = new Uint8Array([0x1f, 0x8b, 0x08, 0, 0, 0, 0, 0]);
 const ftyp = (brand: string) =>
   new Uint8Array([
     0,
@@ -43,10 +47,24 @@ describe("detectContentType", () => {
   });
 
   it("returns null for unrecognized or truncated payloads", () => {
-    expect(detectContentType(new Uint8Array([0x50, 0x4b, 0x03, 0x04]))).toBeNull(); // zip
     expect(detectContentType(new TextEncoder().encode("<svg></svg>"))).toBeNull();
     expect(detectContentType(new Uint8Array([0x89]))).toBeNull();
     expect(detectContentType(new Uint8Array(0))).toBeNull();
+  });
+
+  it("recognizes the non-media binary types and MOV from their magic bytes", () => {
+    expect(detectContentType(PDF)).toBe("application/pdf");
+    expect(detectContentType(ZIP)).toBe("application/zip");
+    expect(detectContentType(ZIP_EMPTY)).toBe("application/zip");
+    expect(detectContentType(GZIP)).toBe("application/gzip");
+    expect(detectContentType(ftyp("qt  "))).toBe("video/quicktime");
+    // MP4 brands still map to mp4, not quicktime.
+    expect(detectContentType(ftyp("isom"))).toBe("video/mp4");
+  });
+
+  it("does not sniff text: plain ASCII and UTF-8 bodies return null", () => {
+    expect(detectContentType(new TextEncoder().encode("hello world\n"))).toBeNull();
+    expect(detectContentType(new TextEncoder().encode('{"ok":true}'))).toBeNull();
   });
 });
 
@@ -130,6 +148,24 @@ describe("resolveUploadPolicy", () => {
     expect(policy.maxBytes).toBe(DEFAULT_MAX_UPLOAD_BYTES);
     expect(policy.allowed.size).toBe(DEFAULT_ALLOWED_CONTENT_TYPES.length);
   });
+
+  it("default allowlist includes the non-media families and quicktime", () => {
+    const { allowed } = resolveUploadPolicy({});
+    for (const t of [
+      "application/pdf",
+      "application/zip",
+      "application/gzip",
+      "video/quicktime",
+      "text/plain",
+      "text/markdown",
+      "text/csv",
+      "application/json",
+    ]) {
+      expect(allowed.has(t), t).toBe(true);
+    }
+    expect(allowed.has("text/html")).toBe(false);
+    expect(allowed.has("image/svg+xml")).toBe(false);
+  });
 });
 
 describe("inspectUpload", () => {
@@ -148,7 +184,8 @@ describe("inspectUpload", () => {
   });
 
   it("rejects a disallowed sniffed type with 415", () => {
-    const result = inspectUpload(new Uint8Array([0x50, 0x4b, 0x03, 0x04]), policy);
+    const imagesOnly = resolveUploadPolicy({ allowedContentTypes: ["image/png"] });
+    const result = inspectUpload(ZIP, imagesOnly);
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.status).toBe(415);
   });
