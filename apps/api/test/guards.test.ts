@@ -6,12 +6,15 @@ import {
   DEFAULT_MAX_UPLOAD_BYTES,
   detectContentType,
   detectImageDimensions,
+  extensionForContentType,
   inspectUpload,
   looksLikeText,
   resolveDeclaredContentType,
   resolveUploadPolicy,
+  TEXT_CONTENT_TYPES,
 } from "../src/guards";
 import { gifOf, pngOf } from "./helpers/image-fixtures";
+import { AVIF, ftyp, GZIP, MOV, PDF, ZIP, ZIP_EMPTY } from "./helpers/media-fixtures";
 
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]);
 const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0]);
@@ -20,22 +23,6 @@ const WEBP = new Uint8Array([
   0x52, 0x49, 0x46, 0x46, 0x00, 0x00, 0x00, 0x00, 0x57, 0x45, 0x42, 0x50,
 ]);
 const WEBM = new Uint8Array([0x1a, 0x45, 0xdf, 0xa3, 0, 0]);
-const PDF = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x37]); // %PDF-1.7
-const ZIP = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0, 0, 0, 0]);
-const ZIP_EMPTY = new Uint8Array([0x50, 0x4b, 0x05, 0x06, 0, 0, 0, 0]);
-const GZIP = new Uint8Array([0x1f, 0x8b, 0x08, 0, 0, 0, 0, 0]);
-const ftyp = (brand: string) =>
-  new Uint8Array([
-    0,
-    0,
-    0,
-    0x18,
-    0x66,
-    0x74,
-    0x79,
-    0x70,
-    ...[...brand].map((ch) => ch.charCodeAt(0)),
-  ]);
 
 describe("detectContentType", () => {
   it("recognizes each intended type from its magic bytes", () => {
@@ -44,7 +31,7 @@ describe("detectContentType", () => {
     expect(detectContentType(GIF)).toBe("image/gif");
     expect(detectContentType(WEBP)).toBe("image/webp");
     expect(detectContentType(WEBM)).toBe("video/webm");
-    expect(detectContentType(ftyp("avif"))).toBe("image/avif");
+    expect(detectContentType(AVIF)).toBe("image/avif");
     expect(detectContentType(ftyp("isom"))).toBe("video/mp4");
     expect(detectContentType(ftyp("mp42"))).toBe("video/mp4");
   });
@@ -60,7 +47,7 @@ describe("detectContentType", () => {
     expect(detectContentType(ZIP)).toBe("application/zip");
     expect(detectContentType(ZIP_EMPTY)).toBe("application/zip");
     expect(detectContentType(GZIP)).toBe("application/gzip");
-    expect(detectContentType(ftyp("qt  "))).toBe("video/quicktime");
+    expect(detectContentType(MOV)).toBe("video/quicktime");
     // MP4 brands still map to mp4, not quicktime.
     expect(detectContentType(ftyp("isom"))).toBe("video/mp4");
   });
@@ -202,6 +189,19 @@ describe("looksLikeText", () => {
   });
 });
 
+describe("the upload-type table", () => {
+  it("is coherent: every allowed type round-trips through its canonical extension, and text types are allowed", () => {
+    for (const type of DEFAULT_ALLOWED_CONTENT_TYPES) {
+      const ext = extensionForContentType(type);
+      expect(ext, type).toBeDefined();
+      expect(contentTypeFromKey(`a/file.${ext}`), type).toBe(type);
+    }
+    for (const type of TEXT_CONTENT_TYPES) {
+      expect(DEFAULT_ALLOWED_CONTENT_TYPES, type).toContain(type);
+    }
+  });
+});
+
 describe("contentTypeFromKey", () => {
   it("maps the accepted non-media extensions", () => {
     expect(contentTypeFromKey("gh/o/r/pull/1/build.log")).toBe("text/plain");
@@ -339,7 +339,7 @@ describe("inspectUpload", () => {
       expect(pdf.status).toBe(413);
       expect(pdf.error.details).toMatchObject({ kind: "file", contentType: "application/pdf" });
     }
-    const mov = inspectUpload(ftyp("qt  "), tight);
+    const mov = inspectUpload(MOV, tight);
     expect(mov).toEqual({ ok: true, contentType: "video/quicktime" });
   });
 });

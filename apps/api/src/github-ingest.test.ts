@@ -28,6 +28,7 @@ import { FakeKv } from "../test/fake-kv";
 import { GITHUB_APP_CFG_ENV } from "../test/github-app-env";
 import { fakeFetch, pngRoute, withGlobalFetch } from "../test/helpers/github-fetch-fakes";
 import { gifOf } from "../test/helpers/image-fixtures";
+import { AVIF, MOV, PDF } from "../test/helpers/media-fixtures";
 import { UsageFakeD1 } from "../test/usage-fake-d1";
 
 const REPO = "acme/app";
@@ -268,7 +269,6 @@ describe("reconcileIngestSource", () => {
   it("media gate is image/video only: a PDF is a permanent skip even though the upload allowlist accepts it", async () => {
     const { env } = baseEnv();
     const ref: IngestSourceRef = { repo: REPO, kind: "pull", num: 7, source: "body" };
-    const PDF = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x37, 0x0a]);
     const fetchImpl = fakeFetch({
       [ASSET_ID]: () =>
         new Response(PDF, { status: 200, headers: { "content-type": "application/pdf" } }),
@@ -287,11 +287,6 @@ describe("reconcileIngestSource", () => {
   it("an ingested MOV is named with the .mov extension override", async () => {
     const { env } = baseEnv();
     const ref: IngestSourceRef = { repo: REPO, kind: "pull", num: 7, source: "body" };
-    // ftyp box (offset 4) with major brand "qt  " — the exact bytes
-    // guards.ts's detectContentType sniffs as video/quicktime.
-    const MOV = new Uint8Array([
-      0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x71, 0x74, 0x20, 0x20,
-    ]);
     const fetchImpl = fakeFetch({
       [ASSET_ID]: () =>
         new Response(MOV, { status: 200, headers: { "content-type": "video/quicktime" } }),
@@ -310,11 +305,6 @@ describe("reconcileIngestSource", () => {
   it("media gate derives from the shared upload allowlist: AVIF (in guards.ts's allowlist) is accepted", async () => {
     const { env } = baseEnv();
     const ref: IngestSourceRef = { repo: REPO, kind: "pull", num: 7, source: "body" };
-    // ftyp box (offset 4) with major brand "avif" — the exact bytes
-    // guards.ts's detectContentType sniffs as image/avif.
-    const AVIF = new Uint8Array([
-      0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x61, 0x76, 0x69, 0x66,
-    ]);
     const fetchImpl = fakeFetch({
       [ASSET_ID]: () =>
         new Response(AVIF, { status: 200, headers: { "content-type": "image/avif" } }),

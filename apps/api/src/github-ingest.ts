@@ -46,6 +46,7 @@ import { updateFileMetadataValue } from "./file-metadata";
 import {
   detectContentType,
   detectImageDimensions,
+  extensionForContentType as guardsExtensionForContentType,
   maxBytesForContentType,
   resolveUploadPolicy,
   uploadKind,
@@ -125,19 +126,14 @@ function mergeSummary(into: IngestSummary, from: IngestSummary): void {
 }
 
 /**
- * Extensions that don't match their subtype verbatim. Every other content
- * type accepted by the workspace's upload policy derives its extension from
- * the subtype (`image/webp` → `webp`, `image/avif` → `avif`, `video/webm` →
- * `webm`), so this stays a short override list rather than a shadow table of
- * every allowed type — see the media-gate comment in `fetchAndStore`.
+ * Extension for an ingested asset's key. Accepted types get their canonical
+ * extension from the shared upload table in guards.ts (`image/jpeg` → `jpg`,
+ * `video/quicktime` → `mov`), so there is no shadow list to keep in sync —
+ * see the media-gate comment in `fetchAndStore`. The subtype fallback only
+ * covers a type outside that table, which the gate already refuses.
  */
-const EXT_OVERRIDES: Record<string, string> = {
-  "image/jpeg": "jpg",
-  "video/quicktime": "mov",
-};
-
-function extensionForContentType(contentType: string): string {
-  return EXT_OVERRIDES[contentType] ?? contentType.split("/")[1] ?? "bin";
+function extensionForKey(contentType: string): string {
+  return guardsExtensionForContentType(contentType) ?? contentType.split("/")[1] ?? "bin";
 }
 
 /**
@@ -268,7 +264,7 @@ async function fetchAndStore(
   }
 
   const mode: GhKeyMode = deps.mode ?? { mode: "plain" };
-  const key = ingestKeyForMode(mode, ref, attachment.id, extensionForContentType(sniffed));
+  const key = ingestKeyForMode(mode, ref, attachment.id, extensionForKey(sniffed));
   try {
     await putImpl(env, ws, key, bytes, workspaceName, {
       metadata: ingestMetadata(ref, author),

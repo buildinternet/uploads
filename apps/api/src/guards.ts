@@ -17,7 +17,27 @@ import type { WorkspaceVars } from "./workspace";
 /** Default ceiling on a single upload. Covers screenshots and short clips. */
 export const DEFAULT_MAX_UPLOAD_BYTES = 25 * 1024 * 1024; // 25 MiB
 
+/** Coarse family for 413 payloads and the optimizer/poster branches. */
+export type UploadKind = "image" | "video" | "file";
+
+type UploadTypeRow = {
+  readonly type: string;
+  readonly kind: UploadKind;
+  /**
+   * `sniff` — recognized by `detectContentType` from its magic bytes.
+   * `declared` — no magic bytes at all; accepted only when the client
+   * declares the type and the body passes `looksLikeText`.
+   */
+  readonly verify: "sniff" | "declared";
+  /** First entry is canonical: the extension derived when naming a key from a type. */
+  readonly extensions: readonly string[];
+};
+
 /**
+ * The single table behind every upload-type decision: the default allowlist,
+ * the video family, which types have no magic bytes, and the extension
+ * mapping in both directions.
+ *
  * Intended payloads: static images, the short gif/video clips embedded in
  * GitHub repos, and the non-media artifacts agents produce (reports, logs,
  * JSON, archives). Deliberately excludes `image/svg+xml` and `text/html` —
@@ -27,39 +47,58 @@ export const DEFAULT_MAX_UPLOAD_BYTES = 25 * 1024 * 1024; // 25 MiB
  * below renders as inert text, opens in a sandboxed viewer (PDF), or has no
  * inline handler at all (zip/gzip).
  */
-export const DEFAULT_ALLOWED_CONTENT_TYPES: readonly string[] = [
-  "image/png",
-  "image/jpeg",
-  "image/gif",
-  "image/webp",
-  "image/avif",
-  "video/mp4",
-  "video/webm",
-  "video/quicktime",
-  "application/pdf",
-  "application/zip",
-  "application/gzip",
-  "text/plain",
-  "text/markdown",
-  "text/csv",
-  "application/json",
+const UPLOAD_TYPES: readonly UploadTypeRow[] = [
+  { type: "image/png", kind: "image", verify: "sniff", extensions: ["png"] },
+  { type: "image/jpeg", kind: "image", verify: "sniff", extensions: ["jpg", "jpeg"] },
+  { type: "image/gif", kind: "image", verify: "sniff", extensions: ["gif"] },
+  { type: "image/webp", kind: "image", verify: "sniff", extensions: ["webp"] },
+  { type: "image/avif", kind: "image", verify: "sniff", extensions: ["avif"] },
+  { type: "video/mp4", kind: "video", verify: "sniff", extensions: ["mp4"] },
+  { type: "video/webm", kind: "video", verify: "sniff", extensions: ["webm"] },
+  { type: "video/quicktime", kind: "video", verify: "sniff", extensions: ["mov"] },
+  { type: "application/pdf", kind: "file", verify: "sniff", extensions: ["pdf"] },
+  { type: "application/zip", kind: "file", verify: "sniff", extensions: ["zip"] },
+  { type: "application/gzip", kind: "file", verify: "sniff", extensions: ["gz", "tgz"] },
+  {
+    type: "text/plain",
+    kind: "file",
+    verify: "declared",
+    extensions: ["txt", "text", "log", "jsonl", "ndjson", "yaml", "yml"],
+  },
+  { type: "text/markdown", kind: "file", verify: "declared", extensions: ["md", "markdown"] },
+  { type: "text/csv", kind: "file", verify: "declared", extensions: ["csv"] },
+  { type: "application/json", kind: "file", verify: "declared", extensions: ["json"] },
 ];
+
+const ROW_BY_TYPE: ReadonlyMap<string, UploadTypeRow> = new Map(
+  UPLOAD_TYPES.map((row) => [row.type, row]),
+);
+
+export const DEFAULT_ALLOWED_CONTENT_TYPES: readonly string[] = UPLOAD_TYPES.map((row) => row.type);
 
 const DEFAULT_ALLOWED_SET: ReadonlySet<string> = new Set(DEFAULT_ALLOWED_CONTENT_TYPES);
 
 /** Video content types the upload path (and poster generation) accepts. */
-export const VIDEO_TYPES = new Set(["video/mp4", "video/webm", "video/quicktime"]);
+export const VIDEO_TYPES = new Set(
+  UPLOAD_TYPES.filter((row) => row.kind === "video").map((row) => row.type),
+);
 
 /**
  * Types with no magic bytes. Accepted only when the client declares one of
  * them and the body passes `looksLikeText` — see `inspectUpload`.
  */
-export const TEXT_CONTENT_TYPES: ReadonlySet<string> = new Set([
-  "text/plain",
-  "text/markdown",
-  "text/csv",
-  "application/json",
-]);
+export const TEXT_CONTENT_TYPES: ReadonlySet<string> = new Set(
+  UPLOAD_TYPES.filter((row) => row.verify === "declared").map((row) => row.type),
+);
+
+export function uploadKind(contentType: string): UploadKind {
+  const row = ROW_BY_TYPE.get(contentType);
+  if (row) return row.kind;
+  // Only reachable for a type a workspace added via `allowedContentTypes`;
+  // classify it by family prefix.
+  if (contentType.startsWith("image/")) return "image";
+  return "file";
+}
 
 export interface UploadPolicy {
   /** Max for images (and as fallback when maxVideoBytes is unset). */
@@ -182,38 +221,23 @@ export function looksLikeText(bytes: Uint8Array): boolean {
 }
 
 /**
- * Server-side counterpart of `inferContentType` in
- * packages/uploads/src/embed.ts (the CLI's client-side guess). The two lists
- * share every accepted type but are deliberately not identical: embed.ts
- * keeps `svg` so the optimizer can pass it through, and this map must never
- * map svg or html — anything here can become a declared type.
+ * Extension → content type, built from `UPLOAD_TYPES`. Only the
+ * `verify: "declared"` rows can change an admission outcome (an extension is
+ * one of the two ways a client declares a text type — see
+ * `resolveDeclaredContentType`); the sniffed media rows are here so
+ * `details.declared` on a 415 is informative, so a key's extension still
+ * names a type, and so the CLI-side `inferContentType`
+ * (packages/uploads/src/embed.ts) stays a readable mirror of this list.
+ * Neither svg nor html appears in the table at all.
  */
-const CONTENT_TYPE_BY_EXTENSION: Readonly<Record<string, string>> = {
-  png: "image/png",
-  jpg: "image/jpeg",
-  jpeg: "image/jpeg",
-  gif: "image/gif",
-  webp: "image/webp",
-  avif: "image/avif",
-  mp4: "video/mp4",
-  webm: "video/webm",
-  mov: "video/quicktime",
-  pdf: "application/pdf",
-  zip: "application/zip",
-  gz: "application/gzip",
-  tgz: "application/gzip",
-  txt: "text/plain",
-  text: "text/plain",
-  log: "text/plain",
-  jsonl: "text/plain",
-  ndjson: "text/plain",
-  yaml: "text/plain",
-  yml: "text/plain",
-  md: "text/markdown",
-  markdown: "text/markdown",
-  csv: "text/csv",
-  json: "application/json",
-};
+const CONTENT_TYPE_BY_EXTENSION: Readonly<Record<string, string>> = Object.fromEntries(
+  UPLOAD_TYPES.flatMap((row) => row.extensions.map((ext) => [ext, row.type] as const)),
+);
+
+/** Canonical extension for an accepted content type, or undefined when it is not one. */
+export function extensionForContentType(type: string): string | undefined {
+  return ROW_BY_TYPE.get(type)?.extensions[0];
+}
 
 /** Content type implied by a key's extension, or undefined when unknown. */
 export function contentTypeFromKey(key: string): string | undefined {
@@ -330,15 +354,6 @@ export type UploadRejection = {
 };
 export type UploadInspection = { ok: true; contentType: string } | UploadRejection;
 
-/** Coarse family for 413 payloads and the optimizer/poster branches. */
-export type UploadKind = "image" | "video" | "file";
-
-export function uploadKind(contentType: string): UploadKind {
-  if (VIDEO_TYPES.has(contentType)) return "video";
-  if (contentType.startsWith("image/")) return "image";
-  return "file";
-}
-
 /** The shared 413 rejection for both the pre-buffer and post-buffer size checks. */
 function tooLarge(
   maxBytes: number,
@@ -387,7 +402,7 @@ export function inspectUpload(
     if (policy.allowed.has(detected)) contentType = detected;
   } else if (
     declaredType !== undefined &&
-    TEXT_CONTENT_TYPES.has(declaredType) &&
+    ROW_BY_TYPE.get(declaredType)?.verify === "declared" &&
     policy.allowed.has(declaredType) &&
     looksLikeText(bytes)
   ) {

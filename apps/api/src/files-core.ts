@@ -38,6 +38,7 @@ import {
   inspectUpload,
   resolveDeclaredContentType,
   resolveUploadPolicy,
+  uploadKind,
 } from "./guards";
 import { checkKeyPolicy, resolveKeyPolicy } from "./key-policy";
 import {
@@ -224,7 +225,7 @@ async function storeImageDimensions(
 ): Promise<void> {
   try {
     await deleteServerFileMetadataKeys(dbFor(env), workspaceName, key, IMAGE_META_KEYS);
-    if (!contentType.startsWith("image/")) return;
+    if (uploadKind(contentType) !== "image") return;
     const dims = detectImageDimensions(bytes, contentType);
     if (!dims) return;
     await setServerFileMetadata(dbFor(env), workspaceName, key, {

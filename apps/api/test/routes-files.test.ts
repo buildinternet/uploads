@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { FakeR2Bucket } from "./fake-r2";
+import { PDF, ZIP } from "./helpers/media-fixtures";
 import { DeleteUsageClaimsTable } from "./helpers/fake-delete-usage-claims-table";
 import { FileMetadataTable } from "./helpers/fake-file-metadata-table";
 import { app } from "../src/index";
@@ -283,15 +284,13 @@ describe("PUT /v1/:workspace/files upload guardrails", () => {
 
   it("stores a PDF and a zip by their sniffed types regardless of the header", async () => {
     const { env, bucket } = await makeEnv();
-    const pdf = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x37, 0x0a]);
-    const zip = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0, 0, 0, 0]);
-    expect((await putShot(env, { key: "reports/r.pdf", body: pdf })).status).toBe(201);
+    expect((await putShot(env, { key: "reports/r.pdf", body: PDF })).status).toBe(201);
     expect(bucket.store.get("default/reports/r.pdf")?.contentType).toBe("application/pdf");
     expect(
       (
         await putShot(env, {
           key: "reports/b.zip",
-          body: zip,
+          body: ZIP,
           headers: { "Content-Type": "text/plain" },
         })
       ).status,
