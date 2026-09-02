@@ -1,5 +1,29 @@
 import { describe, expect, it } from "vitest";
-import { buildMarkdown, buildUploadMarkdown } from "../src/embed.js";
+import { buildMarkdown, buildUploadMarkdown, inferContentType } from "../src/embed.js";
+
+describe("inferContentType", () => {
+  it("maps media and the accepted non-media extensions", () => {
+    expect(inferContentType("shot.png")).toBe("image/png");
+    expect(inferContentType("clip.webm")).toBe("video/webm");
+    expect(inferContentType("clip.MOV")).toBe("video/quicktime");
+    expect(inferContentType("report.pdf")).toBe("application/pdf");
+    expect(inferContentType("bundle.zip")).toBe("application/zip");
+    expect(inferContentType("bundle.tar.gz")).toBe("application/gzip");
+    expect(inferContentType("bundle.tgz")).toBe("application/gzip");
+    expect(inferContentType("build.log")).toBe("text/plain");
+    expect(inferContentType("notes.txt")).toBe("text/plain");
+    expect(inferContentType("events.jsonl")).toBe("text/plain");
+    expect(inferContentType("config.yml")).toBe("text/plain");
+    expect(inferContentType("README.md")).toBe("text/markdown");
+    expect(inferContentType("data.csv")).toBe("text/csv");
+    expect(inferContentType("lighthouse.json")).toBe("application/json");
+  });
+
+  it("falls back to octet-stream for unknown extensions", () => {
+    expect(inferContentType("blob")).toBe("application/octet-stream");
+    expect(inferContentType("page.html")).toBe("application/octet-stream");
+  });
+});
 
 describe("buildMarkdown", () => {
   it("emits image markdown without width", () => {

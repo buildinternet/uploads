@@ -94,27 +94,39 @@ export function parseGhPrivateKey(
 }
 
 /** GitHub-embed helper (content type). Copied from packages/uploads/src/embed.ts. */
+const CONTENT_TYPE_BY_EXTENSION: Readonly<Record<string, string>> = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+  avif: "image/avif",
+  svg: "image/svg+xml",
+  mp4: "video/mp4",
+  webm: "video/webm",
+  mov: "video/quicktime",
+  pdf: "application/pdf",
+  zip: "application/zip",
+  gz: "application/gzip",
+  tgz: "application/gzip",
+  txt: "text/plain",
+  text: "text/plain",
+  log: "text/plain",
+  jsonl: "text/plain",
+  ndjson: "text/plain",
+  yaml: "text/plain",
+  yml: "text/plain",
+  md: "text/markdown",
+  markdown: "text/markdown",
+  csv: "text/csv",
+  json: "application/json",
+};
+
 function inferContentType(filename: string): string {
   const ext = filename.includes(".")
     ? filename.slice(filename.lastIndexOf(".") + 1).toLowerCase()
     : "";
-  switch (ext) {
-    case "png":
-      return "image/png";
-    case "jpg":
-    case "jpeg":
-      return "image/jpeg";
-    case "gif":
-      return "image/gif";
-    case "webp":
-      return "image/webp";
-    case "svg":
-      return "image/svg+xml";
-    case "mp4":
-      return "video/mp4";
-    default:
-      return "application/octet-stream";
-  }
+  return CONTENT_TYPE_BY_EXTENSION[ext] ?? "application/octet-stream";
 }
 
 /** Hidden marker identifying the one comment this CLI manages. Never change it — existing comments are found by exact match. */

@@ -254,6 +254,22 @@ describe("attachmentsCommentBody", () => {
     expect(body).toContain('<a href="https://uploads.sh">uploads.sh</a>');
   });
 
+  it("renders pdf, json, and zip items as link bullets, never as embeds", () => {
+    const body = attachmentsCommentBody([
+      { key: "gh/o/r/pull/1/lighthouse.json", url: "https://x.test/lighthouse.json" },
+      {
+        key: "gh/o/r/pull/1/report.pdf",
+        url: "https://x.test/report.pdf",
+        pageUrl: "https://uploads.sh/f/w/report.pdf",
+      },
+      { key: "gh/o/r/pull/1/dist.zip", url: "https://x.test/dist.zip" },
+    ]);
+    expect(body).toContain("- [lighthouse.json](https://x.test/lighthouse.json)");
+    expect(body).toContain("- [report.pdf](https://uploads.sh/f/w/report.pdf)");
+    expect(body).toContain("- [dist.zip](https://x.test/dist.zip)");
+    expect(body).not.toContain("<img");
+  });
+
   it("uses a narrower width for phone-like filenames", () => {
     const body = attachmentsCommentBody([
       {
