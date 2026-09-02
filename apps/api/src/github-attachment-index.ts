@@ -105,6 +105,46 @@ interface AttachmentDbRow {
 const SELECT_COLUMNS =
   "workspace, repo, kind, num, object_key, prefix_id, lane_id, source, created_at, updated_at, detached_at";
 
+/**
+ * Every `github_attachments` statement this module issues, in one place.
+ * The route/webhook tests' in-memory stand-in
+ * (test/helpers/fake-attachment-index-table.ts) matches on these exact
+ * strings rather than on re-typed copies, so a reworded statement can never
+ * silently desync the fake into dropping writes.
+ */
+export const ATTACHMENT_INDEX_SQL = {
+  upsert: `INSERT INTO github_attachments
+         (workspace, repo, kind, num, object_key, prefix_id, lane_id, source, created_at, updated_at, detached_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+       ON CONFLICT(workspace, object_key) DO UPDATE SET
+         repo = excluded.repo,
+         kind = excluded.kind,
+         num = excluded.num,
+         prefix_id = excluded.prefix_id,
+         lane_id = excluded.lane_id,
+         source = excluded.source,
+         updated_at = excluded.updated_at,
+         detached_at = CASE WHEN excluded.source = 'put' THEN github_attachments.detached_at ELSE NULL END`,
+  listForTarget: `SELECT ${SELECT_COLUMNS} FROM github_attachments
+       WHERE workspace = ? AND repo = ? AND kind = ? AND num = ? AND detached_at IS NULL
+       ORDER BY object_key`,
+  selectOne: `SELECT ${SELECT_COLUMNS} FROM github_attachments
+       WHERE workspace = ? AND object_key = ?`,
+  detach: `UPDATE github_attachments SET detached_at = ?, updated_at = ?
+       WHERE workspace = ? AND object_key = ?`,
+  reattach: `UPDATE github_attachments SET detached_at = NULL, updated_at = ?
+       WHERE workspace = ? AND object_key = ?`,
+  rekey: `UPDATE github_attachments SET object_key = ?, prefix_id = ?, lane_id = ?, updated_at = ?
+       WHERE workspace = ? AND object_key = ?`,
+  deleteOne: `DELETE FROM github_attachments WHERE workspace = ? AND object_key = ?`,
+  /** `placeholders` is the comma-joined `?` list for one chunk of keys. */
+  deleteForKeys: (placeholders: string) =>
+    `${ATTACHMENT_INDEX_SQL.deleteForKeysPrefix}${placeholders})`,
+  /** The invariant head of `deleteForKeys`, for matchers that can't know the chunk size. */
+  deleteForKeysPrefix: `DELETE FROM github_attachments WHERE workspace = ? AND object_key IN (`,
+  deleteForWorkspace: `DELETE FROM github_attachments WHERE workspace = ?`,
+} as const;
+
 function fromRow(row: AttachmentDbRow): AttachmentIndexRow {
   return {
     workspace: row.workspace,
@@ -140,20 +180,7 @@ export async function recordAttachment(
 ): Promise<void> {
   const nowIso = now.toISOString();
   await db
-    .prepare(
-      `INSERT INTO github_attachments
-         (workspace, repo, kind, num, object_key, prefix_id, lane_id, source, created_at, updated_at, detached_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
-       ON CONFLICT(workspace, object_key) DO UPDATE SET
-         repo = excluded.repo,
-         kind = excluded.kind,
-         num = excluded.num,
-         prefix_id = excluded.prefix_id,
-         lane_id = excluded.lane_id,
-         source = excluded.source,
-         updated_at = excluded.updated_at,
-         detached_at = CASE WHEN excluded.source = 'put' THEN github_attachments.detached_at ELSE NULL END`,
-    )
+    .prepare(ATTACHMENT_INDEX_SQL.upsert)
     .bind(
       row.workspace,
       normalizeRepo(row.repo),
@@ -183,11 +210,7 @@ export async function listAttachmentsForTarget(
   target: { kind: "pull" | "issues"; num: number },
 ): Promise<AttachmentIndexRow[]> {
   const { results } = await db
-    .prepare(
-      `SELECT ${SELECT_COLUMNS} FROM github_attachments
-       WHERE workspace = ? AND repo = ? AND kind = ? AND num = ? AND detached_at IS NULL
-       ORDER BY object_key`,
-    )
+    .prepare(ATTACHMENT_INDEX_SQL.listForTarget)
     .bind(workspace, normalizeRepo(repo), target.kind, target.num)
     .all<AttachmentDbRow>();
   return (results ?? []).map(fromRow);
@@ -200,10 +223,7 @@ export async function attachmentRow(
   objectKey: string,
 ): Promise<AttachmentIndexRow | null> {
   const row = await db
-    .prepare(
-      `SELECT ${SELECT_COLUMNS} FROM github_attachments
-       WHERE workspace = ? AND object_key = ?`,
-    )
+    .prepare(ATTACHMENT_INDEX_SQL.selectOne)
     .bind(workspace, objectKey)
     .first<AttachmentDbRow>();
   return row ? fromRow(row) : null;
@@ -222,13 +242,7 @@ export async function detachAttachment(
   now = new Date(),
 ): Promise<void> {
   const nowIso = now.toISOString();
-  await db
-    .prepare(
-      `UPDATE github_attachments SET detached_at = ?, updated_at = ?
-       WHERE workspace = ? AND object_key = ?`,
-    )
-    .bind(nowIso, nowIso, workspace, objectKey)
-    .run();
+  await db.prepare(ATTACHMENT_INDEX_SQL.detach).bind(nowIso, nowIso, workspace, objectKey).run();
 }
 
 /** Inverse of `detachAttachment`: the link reappeared, so the row renders again. */
@@ -239,10 +253,7 @@ export async function reattachAttachment(
   now = new Date(),
 ): Promise<void> {
   await db
-    .prepare(
-      `UPDATE github_attachments SET detached_at = NULL, updated_at = ?
-       WHERE workspace = ? AND object_key = ?`,
-    )
+    .prepare(ATTACHMENT_INDEX_SQL.reattach)
     .bind(now.toISOString(), workspace, objectKey)
     .run();
 }
@@ -253,10 +264,7 @@ export async function deleteAttachment(
   workspace: string,
   objectKey: string,
 ): Promise<void> {
-  await db
-    .prepare(`DELETE FROM github_attachments WHERE workspace = ? AND object_key = ?`)
-    .bind(workspace, objectKey)
-    .run();
+  await db.prepare(ATTACHMENT_INDEX_SQL.deleteOne).bind(workspace, objectKey).run();
 }
 
 /**
@@ -274,9 +282,7 @@ export async function deleteAttachmentsForKeys(
     const chunk = keys.slice(i, i + chunkSize);
     const placeholders = chunk.map(() => "?").join(", ");
     await db
-      .prepare(
-        `DELETE FROM github_attachments WHERE workspace = ? AND object_key IN (${placeholders})`,
-      )
+      .prepare(ATTACHMENT_INDEX_SQL.deleteForKeys(placeholders))
       .bind(workspace, ...chunk)
       .run();
   }
@@ -287,7 +293,7 @@ export async function deleteAttachmentsForWorkspace(
   db: D1Queryable,
   workspace: string,
 ): Promise<void> {
-  await db.prepare(`DELETE FROM github_attachments WHERE workspace = ?`).bind(workspace).run();
+  await db.prepare(ATTACHMENT_INDEX_SQL.deleteForWorkspace).bind(workspace).run();
 }
 
 /**
@@ -311,14 +317,9 @@ export async function rekeyAttachment(
   now = new Date(),
 ): Promise<void> {
   await db.batch([
+    db.prepare(ATTACHMENT_INDEX_SQL.deleteOne).bind(workspace, toKey),
     db
-      .prepare(`DELETE FROM github_attachments WHERE workspace = ? AND object_key = ?`)
-      .bind(workspace, toKey),
-    db
-      .prepare(
-        `UPDATE github_attachments SET object_key = ?, prefix_id = ?, lane_id = ?, updated_at = ?
-       WHERE workspace = ? AND object_key = ?`,
-      )
+      .prepare(ATTACHMENT_INDEX_SQL.rekey)
       .bind(toKey, newPrefixId, laneId, now.toISOString(), workspace, fromKey),
   ]);
 }
