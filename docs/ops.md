@@ -70,9 +70,9 @@ No Worker proxies image bytes — dual host is DNS + zone rules only.
 
 **Applied 2026-09-02** (zone ruleset `1b295145ce4a4dc685498657af8a6956`, phase `http_response_headers_transform`, via the API):
 
-| Rule id | What |
-| --- | --- |
-| `030fcb7edf324c0b9c966550c8b7d870` | `X-Content-Type-Options: nosniff` on every response from the three storage hosts |
+| Rule id                            | What                                                                                                                                                                                                        |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `030fcb7edf324c0b9c966550c8b7d870` | `X-Content-Type-Options: nosniff` on every response from the three storage hosts                                                                                                                            |
 | `508226d5de4a4a0d8d861356b43cf912` | `Content-Security-Policy: … sandbox` + `nosniff` when the response content type is `image/svg+xml`, `application/xml`, or `text/xml` (the `eq` form; the zone is on Pro, so regex `matches` is unavailable) |
 
 The operator probe returned `ok: true` for all three hosts the same day. The `active-content-uploads` flag was still off at that point.
