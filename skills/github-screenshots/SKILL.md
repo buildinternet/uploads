@@ -27,8 +27,8 @@ description: >-
 
 GitHub's native image hosting (`github.com/user-attachments/…`) is reachable
 from a browser and, since GitHub CLI 2.99 (September 2026), from
-`gh issue|pr create|edit|comment --attach <file>`. There is still no REST
-endpoint, the upload needs push access, and the hosted file is private to
+`gh issue|pr create|edit|comment --attach <file>`. There is still no public REST
+endpoint (the CLI uses an undocumented upload host), the upload needs push access, and the hosted file is private to
 GitHub. Any other image URL in a PR/issue body written with `gh … --body-file`
 must already point at something publicly hosted. The **`uploads` CLI** and the
 hosted MCP at `https://agents.uploads.sh/mcp` both host the file on uploads.sh

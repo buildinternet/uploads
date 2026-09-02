@@ -22,7 +22,7 @@ description: >-
 
 GitHub's native image hosting (`github.com/user-attachments/…`) is reachable from
 a **browser session** and, since GitHub CLI 2.99 (September 2026), from
-`gh … --attach` on an existing PR or issue with push access. There is still no
+`gh … --attach` on an existing PR or issue with push access. There is still no public
 REST endpoint, and the hosted file is private to GitHub. Any other image URL you
 put in a PR/issue body written with `gh … --body-file` must already point at
 something publicly hosted. The github-screenshots skill says when `gh --attach`
