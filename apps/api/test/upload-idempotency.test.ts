@@ -19,6 +19,7 @@ function fingerprint(overrides: Partial<UploadFingerprintInput> = {}): UploadFin
     visibility: undefined,
     replace: false,
     metadata: undefined,
+    declaredContentType: undefined,
     ...overrides,
   };
 }
@@ -109,6 +110,20 @@ describe("upload PUT idempotency", () => {
           run: async () => response("f/abc/other.png"),
           reconcile: async () => null,
           now: new Date("2026-08-24T12:00:30Z"),
+        }),
+      ).rejects.toMatchObject({ code: "idempotency_key_reused" });
+
+      // Same bytes and key, different effective declared type (a `.log` retried
+      // as text/csv): the stored type would differ, so it must conflict too.
+      await expect(
+        putObjectIdempotently(database(sqlite), {
+          workspace: "alpha",
+          principal: "d1-token:one",
+          key: "put-3",
+          fingerprint: fingerprint({ declaredContentType: "text/csv" }),
+          run: async () => response("f/abc/photo.png"),
+          reconcile: async () => null,
+          now: new Date("2026-08-24T12:00:31Z"),
         }),
       ).rejects.toMatchObject({ code: "idempotency_key_reused" });
     } finally {

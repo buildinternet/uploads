@@ -29,7 +29,7 @@ import {
   workspaceFromToken,
   type ResolvedConfig,
 } from "./config.js";
-import { buildUploadMarkdown } from "./embed.js";
+import { buildUploadMarkdown, fileKindFromName } from "./embed.js";
 import { readLocalRepoCommentConfig, resolveCommentOptions } from "./comment-config.js";
 import { urlForGithubEmbed } from "./public-urls.js";
 import { UploadsError } from "./errors.js";
@@ -204,6 +204,8 @@ Still images (PNG/JPEG/…) are optimized to WebP by default (long edge capped,
 high quality; EXIF stripped) so GitHub embeds stay lean. Original bytes are kept
 when they are already smaller, animated, or not an image. Use --no-optimize to
 upload as-is, or --keep-exif when image metadata matters for the discussion.
+Non-media files (PDF, zip, gzip, logs, JSON, CSV, markdown) upload as-is and
+show up in the managed comment as links. HTML and SVG are rejected.
 
 Optional --frame wraps the image in a device/browser chrome before optimize
 (default off). See: uploads put --help frames
@@ -583,16 +585,27 @@ export async function prepareImageForUpload(
 }
 
 /**
- * Merge an image's own EXIF-derived facts under any explicit metadata.
+ * Merge an image's own EXIF-derived facts under any explicit metadata, when
+ * the caller asked for them and the filename could plausibly be an image —
+ * only an `image/*` extension, or none at all (an extension-less
+ * screenshot), is worth an `imageFactsFromBytes` probe
+ * (`sharp(bytes).metadata()` under the hood); a known non-image extension (a
+ * 25 MB zip, a `.log`, a PDF…) skips it rather than paying a sharp call that
+ * can only come back empty.
+ *
  * Best-effort by contract: `imageFactsFromBytes` never rejects, and a full key
  * budget drops the derived pairs rather than failing the upload. Returns the
  * input untouched (including `undefined`) when there is nothing to add, so a
  * metadata-free upload stays metadata-free.
  */
-async function mergeImageFacts(
+async function maybeDeriveImageFacts(
+  enabled: boolean | undefined,
+  sourceName: string,
   bytes: Uint8Array,
   metadata: Record<string, string> | undefined,
 ): Promise<Record<string, string> | undefined> {
+  const kind = fileKindFromName(sourceName);
+  if (!enabled || (kind !== "image" && kind !== "unknown")) return metadata;
   const facts = await imageFactsFromBytes(bytes);
   if (Object.keys(facts).length === 0) return metadata;
   return mergeDerivedMeta(metadata ?? {}, facts);
@@ -682,9 +695,12 @@ export async function uploadPreparedImage(
   opts: UploadPreparedImageOptions,
 ): Promise<UploadPreparedImageResult> {
   // Read EXIF from the original bytes before the optimizer strips it.
-  const metadata = opts.deriveImageFacts
-    ? await mergeImageFacts(bytes, opts.metadata)
-    : opts.metadata;
+  const metadata = await maybeDeriveImageFacts(
+    opts.deriveImageFacts,
+    sourceName,
+    bytes,
+    opts.metadata,
+  );
   const prepared = await prepareImageForUpload(bytes, sourceName, {
     frameId: opts.frame.frameId,
     frameUrl: opts.frame.frameUrl,
@@ -1317,9 +1333,12 @@ async function uploadAttachmentBatch(
         const baseMetadata = mergeSidecarMeta(file, bytes, opts.metadata);
         // Same EXIF promotion uploadPreparedImage does; attach keeps its own
         // per-file tail (it builds keys differently), so it opts in here too.
-        const metadata = opts.deriveImageFacts
-          ? await mergeImageFacts(bytes, baseMetadata)
-          : baseMetadata;
+        const metadata = await maybeDeriveImageFacts(
+          opts.deriveImageFacts,
+          sourceName,
+          bytes,
+          baseMetadata,
+        );
         const prepared = await prepareImageForUpload(bytes, sourceName, {
           ...opts.frame,
           optimize: opts.optimize,

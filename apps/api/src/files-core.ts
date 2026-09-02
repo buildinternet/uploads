@@ -6,7 +6,7 @@
  * `message` in the tool error.
  */
 import { ConflictError, NotFoundError, ValidationError } from "@uploads/errors";
-import { createStorage, type Files } from "@uploads/storage";
+import { createStorage, type Files, type StoredFile } from "@uploads/storage";
 import { recordAdoptionSafe, type UploadSurface } from "./adoption";
 import {
   budgetDenialError,
@@ -36,7 +36,9 @@ import {
   DEFAULT_MAX_UPLOAD_BYTES,
   detectImageDimensions,
   inspectUpload,
+  resolveDeclaredContentType,
   resolveUploadPolicy,
+  uploadKind,
 } from "./guards";
 import { checkKeyPolicy, resolveKeyPolicy } from "./key-policy";
 import {
@@ -223,7 +225,7 @@ async function storeImageDimensions(
 ): Promise<void> {
   try {
     await deleteServerFileMetadataKeys(dbFor(env), workspaceName, key, IMAGE_META_KEYS);
-    if (!contentType.startsWith("image/")) return;
+    if (uploadKind(contentType) !== "image") return;
     const dims = detectImageDimensions(bytes, contentType);
     if (!dims) return;
     await setServerFileMetadata(dbFor(env), workspaceName, key, {
@@ -391,6 +393,27 @@ export function publicObjectDateFields(meta: {
 }
 
 /**
+ * Put options that carry a stored object's own attributes through a
+ * server-side copy (attach, promote, rotate): its provenance bag, the
+ * visibility that bag encodes, and its stored content type as the declared
+ * claim, so a text object under an extension-less key is admitted by
+ * `inspectUpload` at the destination the same way it was at the source.
+ * Every copy still runs the full `putObject` write path — nothing here
+ * bypasses inspection.
+ */
+export function putOptsFromStoredObject(source: Pick<StoredFile, "metadata" | "type">): {
+  provenance: Record<string, string> | undefined;
+  visibility: Visibility | undefined;
+  declaredContentType: string;
+} {
+  return {
+    provenance: source.metadata,
+    visibility: objectVisibility(source.metadata),
+    declaredContentType: source.type,
+  };
+}
+
+/**
  * Upload with the workspace's guardrails applied: size cap and content-type
  * allowlist, the stored content type sniffed from the bytes rather than taken
  * from the caller — see guards.ts.
@@ -442,6 +465,13 @@ export async function putObject(
      * over a potentially multi-MB body. Omit to hash internally as usual.
      */
     contentSha256?: string;
+    /**
+     * The client's claimed Content-Type (already normalized to type/subtype)
+     * or undefined. Only text types are ever trusted, and only when sniffing
+     * finds nothing — see `inspectUpload`. When omitted, the key's extension
+     * is the claim, which is what the hosted MCP and older CLIs rely on.
+     */
+    declaredContentType?: string;
   },
 ): Promise<{
   key: string;
@@ -473,7 +503,8 @@ export async function putObject(
   // cap breach rejects the whole upload instead of landing bytes first.
   if (opts?.metadata) validateMetadataEntries(opts.metadata);
 
-  const inspection = inspectUpload(bytes, resolveUploadPolicy(ws));
+  const declared = resolveDeclaredContentType(opts?.declaredContentType, finalKey);
+  const inspection = inspectUpload(bytes, resolveUploadPolicy(ws), declared);
   if (!inspection.ok) throw inspection.error;
 
   const store = await storage(env, ws);

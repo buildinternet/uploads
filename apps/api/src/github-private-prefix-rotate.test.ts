@@ -181,6 +181,31 @@ describe("rotatePrivatePrefix", () => {
     expect(usage.bytes).toBe(PNG.byteLength * 2);
   });
 
+  it("a stored text/plain object under an extension-less key keeps its content type across rotation", async () => {
+    const { env, db, bucket, ws } = await seededEnv();
+    const oldId = await getOrMintPrefixId(db, REPO, BRANCH);
+    const notesKey = ghPrivateBranchAttachmentKey(oldId, "notes");
+    const notes = new TextEncoder().encode("build log\nno errors\n");
+
+    await putObject(env, ws, notesKey, notes, WS, {
+      metadata: { "gh.repo": REPO, "gh.kind": "branch" },
+      declaredContentType: "text/plain",
+    });
+
+    const result = await withFetch(commentFlowFetch({ bodies: [] }), () =>
+      rotatePrivatePrefix(env, ws, WS, "user-1", REPO, BRANCH),
+    );
+
+    expect(result.rotated).toBe(true);
+    if (!result.rotated) throw new Error("expected rotated: true");
+
+    const newKey = ghPrivateBranchAttachmentKey(result.prefixId, "notes");
+    const stored = bucket.store.get(`${PREFIX}${newKey}`);
+    expect(stored).toBeDefined();
+    expect(stored?.contentType).toBe("text/plain");
+    expect([...(stored?.data ?? [])]).toEqual([...notes]);
+  });
+
   it("review fix 1 (Critical): rotating an object carrying inheritable metadata (repo/path/url) doesn't throw a UNIQUE constraint violation — the new key ends up with exactly the old rows, once", async () => {
     const { env, db, ws } = await seededEnv();
     const oldId = await getOrMintPrefixId(db, REPO, BRANCH);

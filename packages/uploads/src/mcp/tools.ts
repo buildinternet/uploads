@@ -403,7 +403,7 @@ export function createUploadsMcpTools(opts: {
       annotations: mcpDestroyPublic,
       securitySchemes: mcpOAuthWrite,
       description:
-        "Upload one or more files and get a public URL plus GitHub-ready markdown. Prefer `embedUrl` in GitHub markdown. Pass `contentUrl` for a public HTTPS file, or http://localhost on this machine, instead of a local path. With `pr`/`issue`, keys are stable and the managed comment is synced. All uploads are public.",
+        "Upload one or more files and get a public URL plus GitHub-ready markdown. Prefer `embedUrl` in GitHub markdown. Pass `contentUrl` for a public HTTPS file, or http://localhost on this machine, instead of a local path. With `pr`/`issue`, keys are stable and the managed comment is synced. All uploads are public. Accepts images (PNG, JPEG, GIF, WebP, AVIF), video (MP4, WebM, MOV), PDF, zip, gzip, and text (plain, markdown, CSV, JSON). HTML and SVG are rejected.",
       inputSchema: {
         type: "object",
         properties: {

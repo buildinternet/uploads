@@ -241,6 +241,9 @@ describe("fileKind", () => {
     expect(fileKind("video/mp4")).toBe("video");
     expect(fileKind("image/svg+xml")).toBe("unsupported");
     expect(fileKind("application/pdf")).toBe("file");
+    expect(fileKind("video/quicktime")).toBe("video");
+    expect(fileKind("text/plain")).toBe("file");
+    expect(fileKind("application/zip")).toBe("file");
   });
 });
 

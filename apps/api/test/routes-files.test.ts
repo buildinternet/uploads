@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { FakeR2Bucket } from "./fake-r2";
+import { PDF, ZIP } from "./helpers/media-fixtures";
 import { DeleteUsageClaimsTable } from "./helpers/fake-delete-usage-claims-table";
 import { FileMetadataTable } from "./helpers/fake-file-metadata-table";
 import { app } from "../src/index";
@@ -211,10 +212,90 @@ describe("PUT /v1/:workspace/files upload guardrails", () => {
     expect(bucket.store.get("default/screenshots/shot.png")?.contentType).toBe("image/png");
   });
 
-  it("rejects a non-image payload with 415", async () => {
+  it("rejects an unrecognized binary payload with 415", async () => {
     const { env } = await makeEnv();
-    const res = await putShot(env, { body: new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0x00]) }); // zip
+    const res = await putShot(env, { body: new Uint8Array([0x00, 0x01, 0x02, 0x03, 0x04]) });
     expect(res.status).toBe(415);
+  });
+
+  it("stores a declared text/plain body as text/plain", async () => {
+    const { env, bucket } = await makeEnv();
+    const res = await putShot(env, {
+      key: "reports/build.log",
+      body: new TextEncoder().encode("ok 1\nok 2\n"),
+      headers: { "Content-Type": "text/plain; charset=utf-8" },
+    });
+    expect(res.status).toBe(201);
+    const json = (await res.json()) as { contentType: string };
+    expect(json.contentType).toBe("text/plain");
+    expect(bucket.store.get("default/reports/build.log")?.contentType).toBe("text/plain");
+  });
+
+  it("resolves the text type from the key extension when the header is octet-stream (old CLIs)", async () => {
+    const { env, bucket } = await makeEnv();
+    const res = await putShot(env, {
+      key: "reports/build.log",
+      body: new TextEncoder().encode("ok\n"),
+      headers: { "Content-Type": "application/octet-stream" },
+    });
+    expect(res.status).toBe(201);
+    expect(bucket.store.get("default/reports/build.log")?.contentType).toBe("text/plain");
+  });
+
+  it("stores a text body with no Content-Type header at all as text/plain (hosted-MCP shape)", async () => {
+    const { env, bucket } = await makeEnv();
+    const res = await app.request(
+      "/v1/default/files/reports/build.log",
+      {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${TOKEN}` },
+        body: new TextEncoder().encode("ok 1\nok 2\n"),
+      },
+      env,
+    );
+    expect(res.status).toBe(201);
+    const json = (await res.json()) as { contentType: string };
+    expect(json.contentType).toBe("text/plain");
+    expect(bucket.store.get("default/reports/build.log")?.contentType).toBe("text/plain");
+  });
+
+  it("rejects text declared as html, and text under a key with no known extension", async () => {
+    const { env } = await makeEnv();
+    const html = new TextEncoder().encode("<!doctype html><script>1</script>");
+    expect(
+      (
+        await putShot(env, {
+          key: "pages/x.html",
+          body: html,
+          headers: { "Content-Type": "text/html" },
+        })
+      ).status,
+    ).toBe(415);
+    expect(
+      (
+        await putShot(env, {
+          key: "pages/blob",
+          body: new TextEncoder().encode("hello"),
+          headers: { "Content-Type": "application/octet-stream" },
+        })
+      ).status,
+    ).toBe(415);
+  });
+
+  it("stores a PDF and a zip by their sniffed types regardless of the header", async () => {
+    const { env, bucket } = await makeEnv();
+    expect((await putShot(env, { key: "reports/r.pdf", body: PDF })).status).toBe(201);
+    expect(bucket.store.get("default/reports/r.pdf")?.contentType).toBe("application/pdf");
+    expect(
+      (
+        await putShot(env, {
+          key: "reports/b.zip",
+          body: ZIP,
+          headers: { "Content-Type": "text/plain" },
+        })
+      ).status,
+    ).toBe(201);
+    expect(bucket.store.get("default/reports/b.zip")?.contentType).toBe("application/zip");
   });
 
   it("rejects an oversized body with 413", async () => {
@@ -653,6 +734,23 @@ describe("POST /v1/:workspace/files/sign content-type policy", () => {
           key: "screenshots/ok.png",
           contentType: "image/png",
         }),
+      },
+      env,
+    );
+    expect(res.status).not.toBe(415);
+    const json = (await res.json()) as { error?: { code: string } };
+    expect(json.error?.code).not.toBe("unsupported_media_type");
+    expect(json.error?.code).not.toBe("content_type_required");
+  });
+
+  it("accepts a declared text/plain on presign", async () => {
+    const { env } = await makeEnv();
+    const res = await app.request(
+      "/v1/default/files/sign",
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ key: "reports/build.log", contentType: "text/plain" }),
       },
       env,
     );

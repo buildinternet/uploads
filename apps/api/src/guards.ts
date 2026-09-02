@@ -17,39 +17,107 @@ import type { WorkspaceVars } from "./workspace";
 /** Default ceiling on a single upload. Covers screenshots and short clips. */
 export const DEFAULT_MAX_UPLOAD_BYTES = 25 * 1024 * 1024; // 25 MiB
 
+/** Coarse family for 413 payloads and the optimizer/poster branches. */
+export type UploadKind = "image" | "video" | "file";
+
+type UploadTypeRow = {
+  readonly type: string;
+  readonly kind: UploadKind;
+  /**
+   * `sniff` — recognized by `detectContentType` from its magic bytes.
+   * `declared` — no magic bytes at all; accepted only when the client
+   * declares the type and the body passes `looksLikeText`.
+   */
+  readonly verify: "sniff" | "declared";
+  /** First entry is canonical: the extension derived when naming a key from a type. */
+  readonly extensions: readonly string[];
+};
+
 /**
- * Intended payloads: static images plus the short gif/video clips embedded in
- * GitHub repos. Deliberately excludes `image/svg+xml` — an SVG served inline
- * from storage.uploads.sh can carry script (stored XSS on our own origin).
+ * The single table behind every upload-type decision: the default allowlist,
+ * the video family, which types have no magic bytes, and the extension
+ * mapping in both directions.
+ *
+ * Intended payloads: static images, the short gif/video clips embedded in
+ * GitHub repos, and the non-media artifacts agents produce (reports, logs,
+ * JSON, archives). Deliberately excludes `image/svg+xml` and `text/html` —
+ * storage.uploads.sh is a bare R2 custom domain with no Worker in front of
+ * it, so the stored content type is the only control, and either of those
+ * served inline can carry script (stored XSS on our own origin). Everything
+ * below renders as inert text, opens in a sandboxed viewer (PDF), or has no
+ * inline handler at all (zip/gzip).
  */
-export const DEFAULT_ALLOWED_CONTENT_TYPES: readonly string[] = [
-  "image/png",
-  "image/jpeg",
-  "image/gif",
-  "image/webp",
-  "image/avif",
-  "video/mp4",
-  "video/webm",
+const UPLOAD_TYPES: readonly UploadTypeRow[] = [
+  { type: "image/png", kind: "image", verify: "sniff", extensions: ["png"] },
+  { type: "image/jpeg", kind: "image", verify: "sniff", extensions: ["jpg", "jpeg"] },
+  { type: "image/gif", kind: "image", verify: "sniff", extensions: ["gif"] },
+  { type: "image/webp", kind: "image", verify: "sniff", extensions: ["webp"] },
+  { type: "image/avif", kind: "image", verify: "sniff", extensions: ["avif"] },
+  { type: "video/mp4", kind: "video", verify: "sniff", extensions: ["mp4"] },
+  { type: "video/webm", kind: "video", verify: "sniff", extensions: ["webm"] },
+  { type: "video/quicktime", kind: "video", verify: "sniff", extensions: ["mov"] },
+  { type: "application/pdf", kind: "file", verify: "sniff", extensions: ["pdf"] },
+  { type: "application/zip", kind: "file", verify: "sniff", extensions: ["zip"] },
+  { type: "application/gzip", kind: "file", verify: "sniff", extensions: ["gz", "tgz"] },
+  {
+    type: "text/plain",
+    kind: "file",
+    verify: "declared",
+    extensions: ["txt", "text", "log", "jsonl", "ndjson", "yaml", "yml"],
+  },
+  { type: "text/markdown", kind: "file", verify: "declared", extensions: ["md", "markdown"] },
+  { type: "text/csv", kind: "file", verify: "declared", extensions: ["csv"] },
+  { type: "application/json", kind: "file", verify: "declared", extensions: ["json"] },
 ];
 
-const DEFAULT_ALLOWED_SET = new Set(DEFAULT_ALLOWED_CONTENT_TYPES);
+const ROW_BY_TYPE: ReadonlyMap<string, UploadTypeRow> = new Map(
+  UPLOAD_TYPES.map((row) => [row.type, row]),
+);
+
+export const DEFAULT_ALLOWED_CONTENT_TYPES: readonly string[] = UPLOAD_TYPES.map((row) => row.type);
+
+const DEFAULT_ALLOWED_SET: ReadonlySet<string> = new Set(DEFAULT_ALLOWED_CONTENT_TYPES);
 
 /** Video content types the upload path (and poster generation) accepts. */
-export const VIDEO_TYPES = new Set(["video/mp4", "video/webm"]);
+export const VIDEO_TYPES = new Set(
+  UPLOAD_TYPES.filter((row) => row.kind === "video").map((row) => row.type),
+);
+
+/**
+ * Types with no magic bytes. Accepted only when the client declares one of
+ * them and the body passes `looksLikeText` — see `inspectUpload`.
+ */
+export const TEXT_CONTENT_TYPES: ReadonlySet<string> = new Set(
+  UPLOAD_TYPES.filter((row) => row.verify === "declared").map((row) => row.type),
+);
+
+export function uploadKind(contentType: string): UploadKind {
+  const row = ROW_BY_TYPE.get(contentType);
+  if (row) return row.kind;
+  // Only reachable for a type a workspace added via `allowedContentTypes`;
+  // classify it by family prefix.
+  if (contentType.startsWith("image/")) return "image";
+  return "file";
+}
 
 export interface UploadPolicy {
   /** Max for images (and as fallback when maxVideoBytes is unset). */
   maxBytes: number;
   /** Max for video/* when set; otherwise maxBytes. */
   maxVideoBytes: number;
-  allowed: Set<string>;
+  allowed: ReadonlySet<string>;
 }
 
 /** Fields a workspace record may carry to override the default upload policy. */
 export interface UploadPolicyOverrides {
   maxUploadBytes?: number;
-  /** Cap for video/mp4 and video/webm. When unset, videos use maxUploadBytes. */
+  /** Cap for every type in VIDEO_TYPES (mp4, webm, quicktime). When unset, videos use maxUploadBytes. */
   maxVideoUploadBytes?: number;
+  /**
+   * A full replacement for the default allowlist, not an extension of it —
+   * a workspace with an override does not pick up types added to the
+   * default later.
+   */
   allowedContentTypes?: string[];
 }
 
@@ -110,9 +178,97 @@ export function detectContentType(bytes: Uint8Array): string | null {
   if (matches(bytes, [0x66, 0x74, 0x79, 0x70], 4)) {
     const brand = asciiAt(bytes, 8, 4);
     if (brand === "avif" || brand === "avis") return "image/avif";
+    if (brand === "qt  ") return "video/quicktime";
     return "video/mp4";
   }
+  // %PDF-
+  if (matches(bytes, [0x25, 0x50, 0x44, 0x46, 0x2d])) return "application/pdf";
+  // PK\x03\x04 (local file header), PK\x05\x06 (empty archive), PK\x07\x08 (spanned)
+  if (
+    matches(bytes, [0x50, 0x4b, 0x03, 0x04]) ||
+    matches(bytes, [0x50, 0x4b, 0x05, 0x06]) ||
+    matches(bytes, [0x50, 0x4b, 0x07, 0x08])
+  ) {
+    return "application/zip";
+  }
+  // gzip member header
+  if (matches(bytes, [0x1f, 0x8b])) return "application/gzip";
   return null;
+}
+
+/** Bytes inspected by `looksLikeText`. Enough to catch binaries; cheap on a 25 MB log. */
+const TEXT_SAMPLE_BYTES = 8 * 1024;
+
+/**
+ * Plausibility check for declared text uploads (text has no magic bytes):
+ * the first 8 KiB must contain no NUL and decode as UTF-8. A multibyte
+ * sequence cut by the sample boundary is tolerated via streaming decode.
+ */
+export function looksLikeText(bytes: Uint8Array): boolean {
+  if (bytes.byteLength === 0) return false;
+  const sample = bytes.subarray(0, Math.min(bytes.byteLength, TEXT_SAMPLE_BYTES));
+  for (let i = 0; i < sample.length; i++) {
+    if (sample[i] === 0) return false;
+  }
+  try {
+    new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(sample, {
+      stream: sample.length < bytes.byteLength,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Extension → content type, built from `UPLOAD_TYPES`. Only the
+ * `verify: "declared"` rows can change an admission outcome (an extension is
+ * one of the two ways a client declares a text type — see
+ * `resolveDeclaredContentType`); the sniffed media rows are here so
+ * `details.declared` on a 415 is informative, so a key's extension still
+ * names a type, and so the CLI-side `inferContentType`
+ * (packages/uploads/src/embed.ts) stays a readable mirror of this list.
+ * Neither svg nor html appears in the table at all.
+ */
+const CONTENT_TYPE_BY_EXTENSION: Readonly<Record<string, string>> = Object.fromEntries(
+  UPLOAD_TYPES.flatMap((row) => row.extensions.map((ext) => [ext, row.type] as const)),
+);
+
+/** Canonical extension for an accepted content type, or undefined when it is not one. */
+export function extensionForContentType(type: string): string | undefined {
+  return ROW_BY_TYPE.get(type)?.extensions[0];
+}
+
+/** Content type implied by a key's extension, or undefined when unknown. */
+export function contentTypeFromKey(key: string): string | undefined {
+  const base = key.slice(key.lastIndexOf("/") + 1);
+  const dot = base.lastIndexOf(".");
+  if (dot <= 0 || dot === base.length - 1) return undefined;
+  const ext = base.slice(dot + 1).toLowerCase();
+  return Object.hasOwn(CONTENT_TYPE_BY_EXTENSION, ext) ? CONTENT_TYPE_BY_EXTENSION[ext] : undefined;
+}
+
+/** Normalize a client Content-Type for allowlist compare (type/subtype only, lowercased). */
+export function normalizeDeclaredContentType(raw: string): string {
+  const beforeParams = raw.split(";", 1)[0] ?? raw;
+  return beforeParams.trim().toLowerCase();
+}
+
+/**
+ * The type a client *claims* for an upload: its Content-Type header when
+ * specific, else the key's extension. Only consulted by `inspectUpload` for
+ * text types (everything else is sniffed). `application/octet-stream` and an
+ * empty header count as unspecified so older CLIs (which send octet-stream
+ * for `.log`) and the hosted MCP (which sends no type) still resolve via the
+ * key.
+ */
+export function resolveDeclaredContentType(
+  header: string | undefined,
+  key: string,
+): string | undefined {
+  const normalized = header ? normalizeDeclaredContentType(header) : "";
+  if (normalized && normalized !== "application/octet-stream") return normalized;
+  return contentTypeFromKey(key);
 }
 
 export interface ImageDimensions {
@@ -201,7 +357,7 @@ export type UploadInspection = { ok: true; contentType: string } | UploadRejecti
 /** The shared 413 rejection for both the pre-buffer and post-buffer size checks. */
 function tooLarge(
   maxBytes: number,
-  extra?: { contentType?: string; kind?: "image" | "video" },
+  extra?: { contentType?: string; kind?: UploadKind },
 ): UploadRejection {
   return {
     ok: false,
@@ -229,26 +385,46 @@ export function checkDeclaredLength(
 }
 
 /**
- * Validate a fully-buffered upload body against the policy: sniffed type
- * against the allowlist, then the type-specific size cap.
+ * Validate a fully-buffered upload body against the policy. Sniffed bytes
+ * decide the stored type whenever they can; `declaredType` (from the request
+ * header or the key's extension — see `resolveDeclaredContentType`) is
+ * consulted only when sniffing finds nothing and the claim is one of the
+ * text types, which have no magic. Then the type-specific size cap.
  */
-export function inspectUpload(bytes: Uint8Array, policy: UploadPolicy): UploadInspection {
+export function inspectUpload(
+  bytes: Uint8Array,
+  policy: UploadPolicy,
+  declaredType?: string,
+): UploadInspection {
   const detected = detectContentType(bytes);
-  if (detected === null || !policy.allowed.has(detected)) {
+  let contentType: string | null = null;
+  if (detected !== null) {
+    if (policy.allowed.has(detected)) contentType = detected;
+  } else if (
+    declaredType !== undefined &&
+    ROW_BY_TYPE.get(declaredType)?.verify === "declared" &&
+    policy.allowed.has(declaredType) &&
+    looksLikeText(bytes)
+  ) {
+    contentType = declaredType;
+  }
+  if (contentType === null) {
     return {
       ok: false,
       status: 415,
       error: new UnsupportedMediaTypeError("unsupported media type", {
-        details: { allowed: [...policy.allowed] },
+        details: {
+          allowed: [...policy.allowed],
+          ...(declaredType !== undefined ? { declared: declaredType } : {}),
+        },
       }),
     };
   }
-  const maxBytes = maxBytesForContentType(policy, detected);
-  const kind = VIDEO_TYPES.has(detected) ? ("video" as const) : ("image" as const);
+  const maxBytes = maxBytesForContentType(policy, contentType);
   if (bytes.byteLength > maxBytes) {
-    return tooLarge(maxBytes, { contentType: detected, kind });
+    return tooLarge(maxBytes, { contentType, kind: uploadKind(contentType) });
   }
-  return { ok: true, contentType: detected };
+  return { ok: true, contentType };
 }
 
 /**

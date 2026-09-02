@@ -40,6 +40,8 @@ export interface UploadFingerprintInput {
   visibility: string | undefined;
   replace: boolean;
   metadata: Record<string, string> | undefined;
+  /** The effective declared type (`resolveDeclaredContentType`), since it can change the stored type for the same bytes. */
+  declaredContentType: string | undefined;
 }
 
 export type IdempotentUploadResult<T> = { value: T; replayed: boolean };
@@ -61,6 +63,7 @@ function fingerprintFor(input: UploadFingerprintInput): Promise<string> {
       visibility: input.visibility ?? null,
       replace: input.replace,
       metadata: stableStringify(input.metadata),
+      declaredContentType: input.declaredContentType ?? null,
     }),
   );
 }

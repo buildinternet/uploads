@@ -46,8 +46,10 @@ import { updateFileMetadataValue } from "./file-metadata";
 import {
   detectContentType,
   detectImageDimensions,
+  extensionForContentType as guardsExtensionForContentType,
   maxBytesForContentType,
   resolveUploadPolicy,
+  uploadKind,
 } from "./guards";
 import { putObject } from "./files-core";
 import { findRepoLinkStrict } from "./github-repo-links";
@@ -124,18 +126,14 @@ function mergeSummary(into: IngestSummary, from: IngestSummary): void {
 }
 
 /**
- * Extensions that don't match their subtype verbatim. Every other content
- * type accepted by the workspace's upload policy derives its extension from
- * the subtype (`image/webp` → `webp`, `image/avif` → `avif`, `video/webm` →
- * `webm`), so this stays a short override list rather than a shadow table of
- * every allowed type — see the media-gate comment in `fetchAndStore`.
+ * Extension for an ingested asset's key. Accepted types get their canonical
+ * extension from the shared upload table in guards.ts (`image/jpeg` → `jpg`,
+ * `video/quicktime` → `mov`), so there is no shadow list to keep in sync —
+ * see the media-gate comment in `fetchAndStore`. The subtype fallback only
+ * covers a type outside that table, which the gate already refuses.
  */
-const EXT_OVERRIDES: Record<string, string> = {
-  "image/jpeg": "jpg",
-};
-
-function extensionForContentType(contentType: string): string {
-  return EXT_OVERRIDES[contentType] ?? contentType.split("/")[1] ?? "bin";
+function extensionForKey(contentType: string): string {
+  return guardsExtensionForContentType(contentType) ?? contentType.split("/")[1] ?? "bin";
 }
 
 /**
@@ -241,15 +239,15 @@ async function fetchAndStore(
   }
   const bytes = new Uint8Array(await res.arrayBuffer());
 
-  // Media gate: membership in the workspace's own upload allowlist
-  // (`resolveUploadPolicy(ws).allowed`, guards.ts) rather than a shadow
-  // table duplicating it — a type this workspace's direct uploads accept
-  // (e.g. `image/avif`) is accepted here too, with no separate list to keep
-  // in sync. Non-sniffable bytes or a type outside the allowlist is the same
-  // permanent `unsupported_media_type` skip either way.
+  // Media gate: the Screenshots view mirrors images and video only. A type
+  // must be in the workspace's own upload allowlist (`resolveUploadPolicy(ws)
+  // .allowed`, guards.ts — no shadow table) AND be an image/video family;
+  // PDFs and archives pasted into a PR are left on GitHub. Non-sniffable
+  // bytes or a type outside the gate is the same permanent
+  // `unsupported_media_type` skip either way.
   const policy = resolveUploadPolicy(ws);
   const sniffed = detectContentType(bytes);
-  if (!sniffed || !policy.allowed.has(sniffed)) {
+  if (!sniffed || !policy.allowed.has(sniffed) || uploadKind(sniffed) === "file") {
     return { kind: "skip", reason: "unsupported_media_type" };
   }
 
@@ -266,7 +264,7 @@ async function fetchAndStore(
   }
 
   const mode: GhKeyMode = deps.mode ?? { mode: "plain" };
-  const key = ingestKeyForMode(mode, ref, attachment.id, extensionForContentType(sniffed));
+  const key = ingestKeyForMode(mode, ref, attachment.id, extensionForKey(sniffed));
   try {
     await putImpl(env, ws, key, bytes, workspaceName, {
       metadata: ingestMetadata(ref, author),

@@ -18,13 +18,12 @@
  */
 
 import { getMetadataForKeys, setFileMetadata } from "./file-metadata";
-import { putObject } from "./files-core";
+import { putObject, putOptsFromStoredObject } from "./files-core";
 import { resolveBranchLineageSafe } from "./github-branch-renames";
 import { ghPrivateAttachmentKey, ghPrivateBranchKeyPrefix } from "./github-comment-render";
 import { getActivePrefixId } from "./github-private-prefixes";
 import { resolveGhKeyContextSafe } from "./github-private-prefix-service";
 import { storage } from "./storage";
-import { objectVisibility } from "./visibility";
 import type { WorkspaceRecord } from "./workspace";
 import { dbFor } from "./db-session";
 
@@ -388,13 +387,11 @@ export async function promoteBranchAttachments(
     try {
       const source = await store.download(key);
       const bytes = new Uint8Array(await source.arrayBuffer());
-      const visibility = objectVisibility(source.metadata);
 
       // A full replace (opts.metadata): the copy gets a fresh, self-contained
       // gh.* tag set rather than inheriting the staged original's tags.
       await putObject(env, ws, destKey, bytes, workspaceName, {
-        provenance: source.metadata,
-        visibility,
+        ...putOptsFromStoredObject(source),
         metadata: {
           // Uploader attribution (issue #340) survives promotion: the copy is
           // written by the server, so the staged original's tags are the only

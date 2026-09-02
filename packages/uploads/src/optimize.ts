@@ -6,6 +6,7 @@
  * SVG, video, and non-images are left unchanged.
  */
 import sharp from "sharp";
+import { fileKindFromName, inferContentType } from "./embed.js";
 
 /** Longest edge in pixels (screenshots beyond this rarely help PR review). */
 export const DEFAULT_OPTIMIZE_MAX_EDGE = 2400;
@@ -113,12 +114,27 @@ export async function optimizeImageForUpload(
   opts: OptimizeImageOptions = {},
 ): Promise<OptimizeImageResult> {
   const originalBytes = bytes.byteLength;
+  // The filename's own claim, used by every passthrough exit below.
+  const guessed = inferContentType(filename);
   if (opts.enabled === false) {
-    return passthrough(bytes, filename, guessContentType(filename), "disabled");
+    return passthrough(bytes, filename, guessed, "disabled");
   }
   if (originalBytes === 0) {
-    return passthrough(bytes, filename, guessContentType(filename), "empty");
+    return passthrough(bytes, filename, guessed, "empty");
   }
+  // A known non-image extension (log, pdf, zip, video…) never needs sharp —
+  // and must be checked before `looksLikeSvg` below, since that check sniffs
+  // the leading bytes for an XML/SVG prologue with no regard for the actual
+  // extension: a `.log` or `.json` file that happens to start with `<?xml`
+  // (a JUnit report, say) would otherwise misreport as `skippedReason: "svg"`
+  // / `image/svg+xml`. An unknown extension is still "might be an image": it
+  // falls through to the SVG sniff and the sharp probe below, so an
+  // extension-less screenshot is optimized as before.
+  const kind = fileKindFromName(filename);
+  if (kind === "file" || kind === "video") {
+    return passthrough(bytes, filename, guessed, "not_image");
+  }
+
   if (looksLikeSvg(bytes, filename)) {
     return passthrough(bytes, filename, "image/svg+xml", "svg");
   }
@@ -138,21 +154,16 @@ export async function optimizeImageForUpload(
   try {
     meta = await image.metadata();
   } catch {
-    return passthrough(bytes, filename, guessContentType(filename), "not_image");
+    return passthrough(bytes, filename, guessed, "not_image");
   }
 
   if (!meta.format) {
-    return passthrough(bytes, filename, guessContentType(filename), "not_image");
+    return passthrough(bytes, filename, guessed, "not_image");
   }
 
   // Animated GIF/WebP: keep as-is (re-encoding often breaks or balloons size).
   if ((meta.pages ?? 1) > 1) {
-    return passthrough(
-      bytes,
-      filename,
-      meta.format === "gif" ? "image/gif" : guessContentType(filename),
-      "animated",
-    );
+    return passthrough(bytes, filename, meta.format === "gif" ? "image/gif" : guessed, "animated");
   }
 
   if (meta.format === "gif") {
@@ -189,11 +200,11 @@ export async function optimizeImageForUpload(
       encoded = await image.webp({ quality, effort: 4 }).toBuffer();
     }
   } catch {
-    return passthrough(bytes, filename, guessContentType(filename), "encode_failed");
+    return passthrough(bytes, filename, guessed, "encode_failed");
   }
 
   if (encoded.byteLength >= originalBytes) {
-    return passthrough(bytes, filename, guessContentType(filename), "not_smaller");
+    return passthrough(bytes, filename, guessed, "not_smaller");
   }
 
   const outFilename = withImageExtension(filename, format === "jpeg" ? "jpg" : "webp");
@@ -205,26 +216,6 @@ export async function optimizeImageForUpload(
     originalBytes,
     outputBytes: encoded.byteLength,
   };
-}
-
-function guessContentType(filename: string): string {
-  switch (extensionOf(filename)) {
-    case "png":
-      return "image/png";
-    case "jpg":
-    case "jpeg":
-      return "image/jpeg";
-    case "gif":
-      return "image/gif";
-    case "webp":
-      return "image/webp";
-    case "avif":
-      return "image/avif";
-    case "svg":
-      return "image/svg+xml";
-    default:
-      return "application/octet-stream";
-  }
 }
 
 /** Rewrite an object key's trailing image extension to match optimized output. */

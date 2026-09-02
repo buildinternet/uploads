@@ -1,27 +1,16 @@
 /** GitHub-embed helpers (content type + markdown). */
 
-export function inferContentType(filename: string): string {
-  const ext = filename.includes(".")
-    ? filename.slice(filename.lastIndexOf(".") + 1).toLowerCase()
-    : "";
-  switch (ext) {
-    case "png":
-      return "image/png";
-    case "jpg":
-    case "jpeg":
-      return "image/jpeg";
-    case "gif":
-      return "image/gif";
-    case "webp":
-      return "image/webp";
-    case "svg":
-      return "image/svg+xml";
-    case "mp4":
-      return "video/mp4";
-    default:
-      return "application/octet-stream";
-  }
-}
+/**
+ * The filename→type map and its two readers live in
+ * packages/comment-render/src/index.ts (inlined here as
+ * `comment-render.generated.ts`), so the CLI and the managed-comment renderer
+ * cannot drift apart. Re-exported from this module because every existing
+ * caller imports them from `./embed.js`. That map mirrors the upload table in
+ * apps/api/src/guards.ts; keep the two in step. `svg` is the one deliberate
+ * difference — it stays here only so the optimizer can pass it through, and
+ * the server rejects it.
+ */
+export { fileKindFromName, inferContentType } from "./comment-render.generated.js";
 
 export function buildMarkdown(url: string, opts: { alt: string; width?: number }): string {
   if (opts.width) {

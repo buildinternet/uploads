@@ -17,7 +17,7 @@ import { ForbiddenError } from "@uploads/errors";
 import { githubAppConfig, installationForRepo, prHeadBranch, repoIsPrivate } from "./github-app";
 import { checkRepoAuthorization, postManagedComment } from "./github-comment-service";
 import { GH_PRIVATE_ROOT, type GhTargetKind, parseGhPrivateKey } from "./github-comment-render";
-import { deleteObject, putObject } from "./files-core";
+import { deleteObject, putObject, putOptsFromStoredObject } from "./files-core";
 import { deleteFileMetadata } from "./file-metadata";
 import {
   getActivePrefixId,
@@ -26,7 +26,6 @@ import {
   retirePrefixId,
 } from "./github-private-prefixes";
 import { storage } from "./storage";
-import { objectVisibility } from "./visibility";
 import type { WorkspaceRecord } from "./workspace";
 import { dbFor } from "./db-session";
 
@@ -242,7 +241,6 @@ export async function rotatePrivatePrefix(
 
           const source = await store.download(item.key);
           const bytes = new Uint8Array(await source.arrayBuffer());
-          const visibility = objectVisibility(source.metadata);
           // Not a byte-for-byte metadata copy: `putObject` runs its normal
           // write path on `provenance: source.metadata` — `sanitizeProvenance`
           // strips it to the client-safe subset, `content-sha256` is
@@ -257,8 +255,7 @@ export async function rotatePrivatePrefix(
           // rows (`repo`, `path`, `url`, …) onto `newKey` before this
           // function's own rename below runs.
           await putObject(env, ws, newKey, bytes, workspaceName, {
-            provenance: source.metadata,
-            visibility,
+            ...putOptsFromStoredObject(source),
             surface: "rotate",
           });
 

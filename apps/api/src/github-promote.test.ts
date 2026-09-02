@@ -146,6 +146,32 @@ describe("promoteBranchAttachments — private prefixes (issue #631)", () => {
     expect(copyMeta["gh.number"]).toBe(String(NUM));
   });
 
+  it("public repo: a stored text/plain object under an extension-less key keeps its content type on promote", async () => {
+    const seeded = await seededEnv({ isPrivate: false });
+    const notes = new TextEncoder().encode("build log\nno errors\n");
+    await seeded.bucket.put(`${PREFIX}${stagedKey("notes")}`, notes, {
+      httpMetadata: { contentType: "text/plain" },
+    });
+    await replaceFileMetadata(seeded.env.DB, WS, stagedKey("notes"), {
+      "gh.repo": REPO,
+      "gh.kind": "branch",
+      "gh.branch": BRANCH,
+      "gh.staged-at": new Date().toISOString(),
+    });
+
+    const result = await promoteBranchAttachments(seeded.env, seeded.ws, WS, {
+      repo: REPO,
+      num: NUM,
+      branch: BRANCH,
+    });
+
+    expect(result.promoted).toEqual([destKey("notes")]);
+    expect(result.skipped).toEqual([]);
+    const stored = seeded.bucket.store.get(`${PREFIX}${destKey("notes")}`);
+    expect(stored?.contentType).toBe("text/plain");
+    expect([...(stored?.data ?? [])]).toEqual([...notes]);
+  });
+
   it("private repo: a file staged under the private branch prefix promotes to the private pull prefix with a metadata flip", async () => {
     const seeded = await seededEnv({ isPrivate: true });
     const prefixId = await getOrMintPrefixId(seeded.db as unknown as D1Database, REPO, BRANCH);

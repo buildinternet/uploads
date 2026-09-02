@@ -1056,11 +1056,13 @@ describe("mcp worker", () => {
 
   it("multi-file put returns partial failures without aborting the batch", async () => {
     const { env, bucket } = await makeEnv();
-    const textB64 = btoa("not an image");
+    // Unrecognized extension + non-sniffable bytes: no declared type resolves
+    // (unlike .txt, which the default allowlist now accepts — see guards.ts).
+    const junkB64 = btoa("not a known type");
     const result = await callTool(env, "put", {
       files: [
         { filename: "good.png", contentBase64: PNG_B64 },
-        { filename: "bad.txt", contentBase64: textB64 },
+        { filename: "bad.bin", contentBase64: junkB64 },
       ],
     });
     expect(result.isError).toBe(false);
@@ -1071,18 +1073,18 @@ describe("mcp worker", () => {
     expect(body.uploads).toHaveLength(1);
     expect(body.uploads[0].file).toBe("good.png");
     expect(body.failures).toHaveLength(1);
-    expect(body.failures[0].file).toBe("bad.txt");
+    expect(body.failures[0].file).toBe("bad.bin");
     expect(body.failures[0].error.message).toBeTruthy();
     expect(bucket.store.size).toBe(1);
   });
 
   it("multi-file total failure is isError with structured failures", async () => {
     const { env, bucket } = await makeEnv();
-    const textB64 = btoa("not an image");
+    const junkB64 = btoa("not a known type");
     const result = await callTool(env, "put", {
       files: [
-        { filename: "a.txt", contentBase64: textB64 },
-        { filename: "b.txt", contentBase64: textB64 },
+        { filename: "a.bin", contentBase64: junkB64 },
+        { filename: "b.bin", contentBase64: junkB64 },
       ],
     });
     expect(result.isError).toBe(true);
@@ -1091,7 +1093,7 @@ describe("mcp worker", () => {
       failures: Array<{ file: string }>;
     };
     expect(body.uploads).toEqual([]);
-    expect(body.failures.map((f) => f.file)).toEqual(["a.txt", "b.txt"]);
+    expect(body.failures.map((f) => f.file)).toEqual(["a.bin", "b.bin"]);
     expect(bucket.store.size).toBe(0);
   });
 

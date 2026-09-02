@@ -63,11 +63,11 @@ async function seededEnv(): Promise<Seeded> {
 async function seedSource(
   seeded: Seeded,
   key: string,
-  opts: { bytes?: Uint8Array; meta?: Record<string, string> } = {},
+  opts: { bytes?: Uint8Array; meta?: Record<string, string>; contentType?: string } = {},
 ) {
   const bytes = opts.bytes ?? PNG;
   await seeded.bucket.put(`${PREFIX}${key}`, bytes, {
-    httpMetadata: { contentType: "image/png" },
+    httpMetadata: { contentType: opts.contentType ?? "image/png" },
     customMetadata: {},
   });
   if (opts.meta) {
@@ -212,6 +212,27 @@ describe("POST /v1/workspaces/:workspace/github/attach", () => {
     expect(seeded.bucket.store.get(`${PREFIX}f/abc123/hero.png`)).toBeUndefined();
     // Destination still landed.
     expect(seeded.bucket.store.get(`${PREFIX}${destKey("hero.png")}`)).toBeDefined();
+  });
+
+  it("copies a stored text/plain object under an extension-less key, preserving its content type", async () => {
+    const seeded = await seededEnv();
+    const notes = new TextEncoder().encode("build log\nno errors\n");
+    await seedSource(seeded, "gh/acme/r/branch/feat/notes", {
+      bytes: notes,
+      contentType: "text/plain",
+    });
+
+    const res = await post(seeded.env, {
+      source: "gh/acme/r/branch/feat/notes",
+      repo: REPO,
+      pr: NUM,
+    });
+    expect(res.status).toBe(200);
+
+    const stored = seeded.bucket.store.get(`${PREFIX}${destKey("notes")}`);
+    expect(stored).toBeDefined();
+    expect(stored?.contentType).toBe("text/plain");
+    expect([...(stored?.data ?? [])]).toEqual([...notes]);
   });
 
   it("attaches to an issue with the issues key shape", async () => {
