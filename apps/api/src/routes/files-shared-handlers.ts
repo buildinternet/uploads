@@ -14,7 +14,12 @@ import {
   reconcileInterruptedUpload,
 } from "../files-core";
 import { getFileMetadata, META_MAX_KEYS, setFileMetadata } from "../file-metadata";
-import { checkDeclaredLength, maxBytesForContentType, resolveUploadPolicy } from "../guards";
+import {
+  checkDeclaredLength,
+  maxBytesForContentType,
+  normalizeDeclaredContentType,
+  resolveUploadPolicy,
+} from "../guards";
 import { contentSha256Hex, splitUploadMetaHeaders } from "../provenance";
 import { createLaneResolver, objectPublicUrls, resolveObjectLane, storage } from "../storage";
 import { hasGithubTags, uploaderTags } from "../uploader-identity";
@@ -25,12 +30,6 @@ import { dbFor, primaryDbFor } from "../db-session";
 
 /** Handler shape shared by the legacy bearer and canonical dual-auth routers. */
 export type SharedFilesHandler = Handler<WorkspaceVars>;
-
-/** Normalize a client Content-Type for allowlist compare (type/subtype only, lowercased). */
-function normalizePresignContentType(raw: string): string {
-  const beforeParams = raw.split(";", 1)[0] ?? raw;
-  return beforeParams.trim().toLowerCase();
-}
 
 export async function signFileHandler(c: Context<WorkspaceVars>) {
   const body = await c.req
@@ -68,7 +67,7 @@ export async function signFileHandler(c: Context<WorkspaceVars>) {
       code: "content_type_required",
     });
   }
-  const contentType = normalizePresignContentType(rawContentType);
+  const contentType = normalizeDeclaredContentType(rawContentType);
   if (!policy.allowed.has(contentType)) {
     throw new UnsupportedMediaTypeError("unsupported media type", {
       code: "unsupported_media_type",
@@ -228,6 +227,7 @@ export async function putFileHandler(c: Context<WorkspaceVars>) {
     metadata,
     replace: wantReplace,
     surface: "api" as const,
+    declaredContentType: c.req.header("Content-Type"),
   };
 
   const idempotencyKey = c.req.header("Idempotency-Key");

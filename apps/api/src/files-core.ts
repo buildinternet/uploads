@@ -36,6 +36,7 @@ import {
   DEFAULT_MAX_UPLOAD_BYTES,
   detectImageDimensions,
   inspectUpload,
+  resolveDeclaredContentType,
   resolveUploadPolicy,
 } from "./guards";
 import { checkKeyPolicy, resolveKeyPolicy } from "./key-policy";
@@ -442,6 +443,13 @@ export async function putObject(
      * over a potentially multi-MB body. Omit to hash internally as usual.
      */
     contentSha256?: string;
+    /**
+     * The client's claimed Content-Type (already normalized to type/subtype)
+     * or undefined. Only text types are ever trusted, and only when sniffing
+     * finds nothing — see `inspectUpload`. When omitted, the key's extension
+     * is the claim, which is what the hosted MCP and older CLIs rely on.
+     */
+    declaredContentType?: string;
   },
 ): Promise<{
   key: string;
@@ -473,7 +481,8 @@ export async function putObject(
   // cap breach rejects the whole upload instead of landing bytes first.
   if (opts?.metadata) validateMetadataEntries(opts.metadata);
 
-  const inspection = inspectUpload(bytes, resolveUploadPolicy(ws));
+  const declared = resolveDeclaredContentType(opts?.declaredContentType, finalKey);
+  const inspection = inspectUpload(bytes, resolveUploadPolicy(ws), declared);
   if (!inspection.ok) throw inspection.error;
 
   const store = await storage(env, ws);
