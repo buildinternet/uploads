@@ -1951,8 +1951,10 @@ export interface WorkspaceStorageStatus {
   publicBaseUrl?: string;
   configuredAt?: string;
   verifiedAt?: string;
-  /** Active lane's last successful SVG/XML sandboxing-CSP check (issue #929) — gates SVG/XML acceptance. For a shared active lane this is the hosted host's daily-probed verdict, not a per-workspace stamp. */
+  /** Active lane's last successful SVG/XML sandboxing-CSP check (issue #929) — gates SVG/XML acceptance. For a shared active lane this is the hosted host's daily-probed verdict, not a per-workspace stamp. Absent whenever acceptance is off, with `activeContentReason` saying which check said so. */
   activeContentVerifiedAt?: string;
+  /** Why SVG/XML acceptance is off for the active lane, when it is: `"opted_out" | "flag_off" | "unhealthy" | "host_stale" | "host_missing" | "lane_stale" | "lane_missing"`. Widened to `string` — an unrecognized value just falls back to the generic "Not verified" copy. */
+  activeContentReason?: string;
   jurisdiction?: string;
   /** s3-only. Service endpoint origin of the active lane. */
   endpoint?: string;
@@ -2044,6 +2046,8 @@ function toWorkspaceStorageStatus(body: unknown): WorkspaceStorageStatus | null 
     verifiedAt: typeof b.verifiedAt === "string" ? b.verifiedAt : undefined,
     activeContentVerifiedAt:
       typeof b.activeContentVerifiedAt === "string" ? b.activeContentVerifiedAt : undefined,
+    activeContentReason:
+      typeof b.activeContentReason === "string" ? b.activeContentReason : undefined,
     jurisdiction: typeof b.jurisdiction === "string" ? b.jurisdiction : undefined,
     endpoint: typeof b.endpoint === "string" ? b.endpoint : undefined,
     region: typeof b.region === "string" ? b.region : undefined,

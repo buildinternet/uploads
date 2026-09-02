@@ -15,6 +15,7 @@
  * sits inline at equal weight.
  */
 import WorkspaceLayout from "../../../../../layouts/WorkspaceLayout.astro";
+import ActiveContentDetails from "../../../../../components/settings/ActiveContentDetails.astro";
 import { isBrowseWorkspace } from "../../../../../lib/workspace-browse-url";
 
 export const prerender = false;
@@ -136,29 +137,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
             </div>
           </div>
           <dl class="kv" id="storage-saved-details"></dl>
-          <details
-            class="storage-active-content max-w-[32rem] rounded-md border border-border px-4 py-2.5 text-[13px] mt-3"
-            id="storage-saved-active-content"
-          >
-            <summary class="cursor-pointer text-foreground font-medium">Serve SVG and XML</summary>
-            <p class="mt-2 mb-1 text-muted-foreground">
-              Set these headers on this bucket's public host, then check:
-            </p>
-            <pre
-              class="storage-active-content__headers rounded-md border border-border bg-muted/40 p-2.5 text-xs overflow-x-auto"><code>Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox
-X-Content-Type-Options: nosniff</code></pre>
-            <div class="storage-actions flex flex-wrap items-center gap-3 mt-2">
-              <button type="button" class="ul-btn" id="storage-saved-check-active-content-btn"
-                >Check now</button
-              >
-            </div>
-            <p
-              class="muted mt-2 data-[state=error]:text-destructive data-[state=ok]:text-success"
-              id="storage-saved-active-content-status"
-              role="status"
-            >
-            </p>
-          </details>
+          <ActiveContentDetails idPrefix="storage-saved" />
           <div
             class="storage-actions flex flex-wrap items-center gap-3 mt-3"
             id="storage-saved-actions"
@@ -260,29 +239,7 @@ X-Content-Type-Options: nosniff</code></pre>
         </div>
 
         <dl class="kv" id="storage-byo-details"></dl>
-        <details
-          class="storage-active-content max-w-[32rem] rounded-md border border-border px-4 py-2.5 text-[13px] mt-3"
-          id="storage-byo-active-content"
-        >
-          <summary class="cursor-pointer text-foreground font-medium">Serve SVG and XML</summary>
-          <p class="mt-2 mb-1 text-muted-foreground">
-            Set these headers on this bucket's public host, then check:
-          </p>
-          <pre
-            class="storage-active-content__headers rounded-md border border-border bg-muted/40 p-2.5 text-xs overflow-x-auto"><code>Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox
-X-Content-Type-Options: nosniff</code></pre>
-          <div class="storage-actions flex flex-wrap items-center gap-3 mt-2">
-            <button type="button" class="ul-btn" id="storage-byo-check-active-content-btn"
-              >Check now</button
-            >
-          </div>
-          <p
-            class="muted mt-2 data-[state=error]:text-destructive data-[state=ok]:text-success"
-            id="storage-byo-active-content-status"
-            role="status"
-          >
-          </p>
-        </details>
+        <ActiveContentDetails idPrefix="storage-byo" />
         <div
           class="storage-confirm max-w-[32rem] mt-3 flex flex-col gap-2.5 rounded-md border border-border px-4 py-3"
           id="storage-byo-confirm"
@@ -750,15 +707,41 @@ X-Content-Type-Options: nosniff</code></pre>
       }
 
       /**
-       * "SVG & XML" row value (issue #929): the lane's last successful
-       * sandboxing-CSP check, or a nudge toward the header block + "Check
-       * now" button under the details panel.
+       * Plain words for each reason the server can give for SVG/XML being off
+       * (`activeContentReason`, issue #929). Unrecognized values fall through
+       * to the generic "Not verified" line — a reason we can't phrase is
+       * worse than none.
        */
-      function activeContentRowValue(verifiedAt: string | undefined): string {
+      const ACTIVE_CONTENT_REASONS: Record<string, string> = {
+        opted_out: "turned off for this workspace",
+        flag_off: "not available yet",
+        unhealthy: "this bucket isn't working right now",
+        host_missing: "this host hasn't passed the check",
+        host_stale: "this host's last check has expired",
+        lane_missing: "not checked yet",
+        lane_stale: "the last check has expired",
+      };
+
+      /**
+       * "SVG & XML" row value (issue #929): the timestamp the gate is
+       * trusting, or "Not verified" with whatever the server said closed it
+       * (`reason`) and, on a lane the workspace can actually fix, a nudge
+       * toward the header block and "Check now" button below the row.
+       */
+      function activeContentRowValue(
+        verifiedAt: string | undefined,
+        opts: { reason?: string; nudge?: boolean } = {},
+      ): string {
         if (verifiedAt) return escapeHtml(`Verified ${formatTimestamp(verifiedAt)}`);
+        const why = opts.reason ? ACTIVE_CONTENT_REASONS[opts.reason] : undefined;
+        const note = [why, opts.nudge ? "set the headers below, then Check now." : undefined]
+          .filter(Boolean)
+          .join(" — ");
         return (
           `<span class="ul-badge ul-badge--accent">Not verified</span> ` +
-          `<span class="storage-signed-only-note block mt-1 text-xs text-muted-foreground">set the headers below, then Check now.</span>`
+          (note
+            ? `<span class="storage-signed-only-note block mt-1 text-xs text-muted-foreground">${escapeHtml(note)}</span>`
+            : "")
         );
       }
 
@@ -782,7 +765,7 @@ X-Content-Type-Options: nosniff</code></pre>
           | "verifiedAt"
           | "activeContentVerifiedAt"
         >,
-        jurisdiction?: string,
+        opts: { jurisdiction?: string; activeContentReason?: string } = {},
       ): [string, string][] {
         const isS3 = fields.provider === "s3";
         const rows: [string, string][] = [["Bucket", escapeHtml(fields.bucket ?? "—")]];
@@ -798,8 +781,14 @@ X-Content-Type-Options: nosniff</code></pre>
         ]);
         rows.push(["Public base URL", publicBaseUrlRowValue(fields.publicBaseUrl)]);
         rows.push(["Verified", escapeHtml(formatTimestamp(fields.verifiedAt))]);
-        rows.push(["SVG & XML", activeContentRowValue(fields.activeContentVerifiedAt)]);
-        if (!isS3 && jurisdiction) rows.push(["Jurisdiction", escapeHtml(jurisdiction)]);
+        rows.push([
+          "SVG & XML",
+          activeContentRowValue(fields.activeContentVerifiedAt, {
+            reason: opts.activeContentReason,
+            nudge: true,
+          }),
+        ]);
+        if (!isS3 && opts.jurisdiction) rows.push(["Jurisdiction", escapeHtml(opts.jurisdiction)]);
         return rows;
       }
 
@@ -810,9 +799,18 @@ X-Content-Type-Options: nosniff</code></pre>
       }
 
       function renderByoDetails(status: WorkspaceStorageStatus): void {
-        renderStorageRows(storageByoDetails, buildStorageRows(status, status.jurisdiction));
+        renderStorageRows(
+          storageByoDetails,
+          buildStorageRows(status, {
+            jurisdiction: status.jurisdiction,
+            activeContentReason: status.activeContentReason,
+          }),
+        );
       }
 
+      // A saved lane isn't the one serving anything, so there is no gate
+      // reason for it — only its own stamp's freshness, which the server
+      // already applied.
       function renderSavedDetails(lane: WorkspaceStorageLane): void {
         renderStorageRows(storageSavedDetails, buildStorageRows(lane));
       }
@@ -820,14 +818,17 @@ X-Content-Type-Options: nosniff</code></pre>
       /**
        * The hosted host's own SVG/XML row (issue #929) — shown once at the
        * top of `#storage-shared`, above whichever sub-state (empty intro or
-       * saved-lane card) is visible. `status.activeContentVerifiedAt` is
-       * already the hosted host's verdict here: `storageGetHandler`
-       * overlays it from the host record whenever the active lane is shared.
+       * saved-lane card) is visible. The fields come from the gate itself
+       * (`storageGetHandler`), so this row always matches what uploads
+       * actually do. No nudge: nobody in a workspace can set headers on a
+       * hosted host, and there is no "Check now" here to point at.
        */
       function renderSharedActiveContent(status: WorkspaceStorageStatus): void {
         storageSharedActiveContent.innerHTML =
           `<strong class="text-foreground">SVG &amp; XML:</strong> ` +
-          activeContentRowValue(status.activeContentVerifiedAt);
+          activeContentRowValue(status.activeContentVerifiedAt, {
+            reason: status.activeContentReason,
+          });
       }
 
       /**
