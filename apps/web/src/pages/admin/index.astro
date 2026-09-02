@@ -230,9 +230,21 @@ export const prerender = false;
         workspace: string,
         data: AdminLimitsResponse,
       ): void {
+        // A field with no explicit override, on a plan-applied record, is
+        // pre-filled with the plan default rather than read as unlimited
+        // (issue #613) — the "plan default" hint marks that it's inherited,
+        // not an operator-set cap.
         const rows = LIMIT_FIELDS.map((f) => {
           const raw = data.limits[f.key];
           const unlimited = raw === null;
+          const isDefault = data.planApplied && !data.overrides.includes(f.key);
+          const defaultHint = isDefault
+            ? `<span class="limit-default-hint text-(length:--text-micro) text-muted-foreground whitespace-nowrap">plan default</span>`
+            : "";
+          // `data-default` carries the inherited value so `buildLimitsBody`
+          // can skip an untouched row instead of stamping an override equal
+          // to the plan default (which would pin the cap across a plan change).
+          const defaultAttr = isDefault && raw !== null ? ` data-default="${raw}"` : "";
           if (f.byte) {
             const split = raw === null ? { value: "", unit: "MB" } : splitBytes(raw);
             const options = LIMIT_UNITS.map(
@@ -240,20 +252,21 @@ export const prerender = false;
                 `<option value="${u.label}"${u.label === split.unit ? " selected" : ""}>${u.label}</option>`,
             ).join("");
             return `
-            <div class="limit-row grid grid-cols-[130px_1fr_70px_auto] max-[560px]:grid-cols-1 items-center gap-2 max-[560px]:gap-1" data-field="${f.key}" data-byte="1">
+            <div class="limit-row grid grid-cols-[130px_1fr_70px_auto_auto] max-[560px]:grid-cols-1 items-center gap-2 max-[560px]:gap-1" data-field="${f.key}" data-byte="1"${defaultAttr}>
               <label class="text-(length:--text-meta) text-body">${f.label}</label>
               <input type="number" min="1" step="1" class="limit-value bg-background border border-border rounded-sm text-foreground px-1.5 py-1 font-mono text-(length:--text-micro) disabled:opacity-50" value="${split.value}" ${unlimited ? "disabled" : ""} />
               <select class="limit-unit ul-select ul-select--sm" style="width:auto" ${unlimited ? "disabled" : ""}>${options}</select>
               <label class="limit-unlimited inline-flex items-center gap-1 text-(length:--text-micro) whitespace-nowrap text-muted-foreground"><input type="checkbox" class="limit-unlim" ${unlimited ? "checked" : ""} /> Unlimited</label>
+              ${defaultHint}
             </div>`;
           }
           return (
             `
-          <div class="limit-row grid grid-cols-[130px_1fr_auto_auto] max-[560px]:grid-cols-1 items-center gap-2 max-[560px]:gap-1" data-field="${f.key}">
+          <div class="limit-row grid grid-cols-[130px_1fr_auto_auto_auto] max-[560px]:grid-cols-1 items-center gap-2 max-[560px]:gap-1" data-field="${f.key}"${defaultAttr}>
             <label class="text-(length:--text-meta) text-body">${f.label}</label>
             <input type="number" min="1" step="1" class="limit-value bg-background border border-border rounded-sm text-foreground px-1.5 py-1 font-mono text-(length:--text-micro) disabled:opacity-50" value="${raw === null ? "" : raw}" ${unlimited ? "disabled" : ""} />
-            <label class="limit-unlimited inline-flex items-center gap-1 text-(length:--text-micro) whitespace-nowrap text-muted-foreground"><input type="checkbox" class="limit-unlim" ${unlimited ? "checked" : ""} /> Unlimited</label>` +
-            `</div>`
+            <label class="limit-unlimited inline-flex items-center gap-1 text-(length:--text-micro) whitespace-nowrap text-muted-foreground"><input type="checkbox" class="limit-unlim" ${unlimited ? "checked" : ""} /> Unlimited</label>
+            ${defaultHint}` + `</div>`
           );
         }).join("");
 
@@ -361,6 +374,7 @@ export const prerender = false;
           if (!valueInput?.value || !Number.isInteger(num) || num < 1) {
             throw new Error(`Enter a whole number ≥ 1 for "${field}", or check Unlimited.`);
           }
+          let value: number;
           if (row.dataset.byte) {
             // Not querySelector<HTMLSelectElement>: same worker-configuration.d.ts
             // `Element.remove()` drift noted above. Fetch as HTMLElement and cast.
@@ -369,10 +383,14 @@ export const prerender = false;
             ) as unknown as HTMLSelectElement | null;
             const unit = unitEl?.value ?? "MB";
             const mult = LIMIT_UNITS.find((u) => u.label === unit)?.mult ?? 1_000_000;
-            body[field] = Math.floor(num * mult);
+            value = Math.floor(num * mult);
           } else {
-            body[field] = num;
+            value = num;
           }
+          // An untouched plan-default row is not an override — leave the
+          // field absent so the plan keeps driving it.
+          if (row.dataset.default !== undefined && Number(row.dataset.default) === value) return;
+          body[field] = value;
         });
         return body;
       }

@@ -4,6 +4,7 @@ import {
   UnsupportedMediaTypeError,
   type AppError,
 } from "@uploads/errors";
+import { resolveEffectiveLimits } from "@uploads/billing";
 import type { MiddlewareHandler } from "hono";
 import type { WorkspaceVars } from "./workspace";
 
@@ -119,6 +120,14 @@ export interface UploadPolicyOverrides {
    * default later.
    */
   allowedContentTypes?: string[];
+  /**
+   * Subscription plan (issue #613). Set → `maxUploadBytes`/`maxVideoUploadBytes`
+   * fall back to that plan's `defaultLimits` (via `resolveEffectiveLimits`)
+   * instead of `DEFAULT_MAX_UPLOAD_BYTES` when the record carries no explicit
+   * override. Unset (legacy/operator-provisioned workspaces) reproduces
+   * pre-billing behavior byte-for-byte: no plan defaults apply.
+   */
+  plan?: string;
 }
 
 function positiveBytes(value: unknown): number | undefined {
@@ -126,8 +135,19 @@ function positiveBytes(value: unknown): number | undefined {
 }
 
 export function resolveUploadPolicy(record: UploadPolicyOverrides): UploadPolicy {
-  const maxBytes = positiveBytes(record.maxUploadBytes) ?? DEFAULT_MAX_UPLOAD_BYTES;
-  const maxVideoBytes = positiveBytes(record.maxVideoUploadBytes) ?? maxBytes;
+  // Sanitize before handing off to the shared resolution seam, same pattern
+  // as `budget.ts`'s `resolveBudgetLimits`: a zero/negative/non-finite
+  // override collapses to "unset" here, *before* `resolveEffectiveLimits`
+  // decides whether that counts as an explicit override or falls back to
+  // the plan default.
+  const resolved = resolveEffectiveLimits({
+    plan: record.plan,
+    maxUploadBytes: positiveBytes(record.maxUploadBytes),
+    maxVideoUploadBytes: positiveBytes(record.maxVideoUploadBytes),
+  });
+  // No plan stamped: reproduce the legacy fallback exactly.
+  const maxBytes = positiveBytes(resolved.maxUploadBytes) ?? DEFAULT_MAX_UPLOAD_BYTES;
+  const maxVideoBytes = positiveBytes(resolved.maxVideoUploadBytes) ?? maxBytes;
   const allowed =
     record.allowedContentTypes && record.allowedContentTypes.length > 0
       ? new Set(record.allowedContentTypes)
