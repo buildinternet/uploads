@@ -77,17 +77,19 @@ export type PromotableLane = StorageLaneFields &
  * `binding`/`prefix`; BYO → shared must drop the credential fields). A
  * `lane.id` of `undefined` (the laneless shared target) clears
  * `next.storageLaneId` instead of setting it — the restored shared lane has
- * no id until a future activate demotes it again. `activeContentVerifiedAt`
- * is a separate stamp from `verifiedAt` (issue #929) — a lane can pass
+ * no id until a future activate demotes it again.
+ *
+ * `stamps` are the two verification timestamps, passed together and
+ * independently of `lane`: whoever promotes a lane has just decided what
+ * they should be (carried forward from the lane, refreshed from a re-verify
+ * result, or cleared), and they don't move together — a lane can pass
  * overall verification while still failing the recommended SVG/XML
- * sandboxing-CSP probe, so callers pass it independently rather than
- * deriving it from `lane`.
+ * sandboxing-CSP probe (issue #929). An omitted stamp clears the field.
  */
 export function promoteLane(
   next: WorkspaceRecord,
   lane: PromotableLane,
-  verifiedAt: string | undefined,
-  activeContentVerifiedAt: string | undefined,
+  stamps: { verifiedAt?: string; activeContentVerifiedAt?: string },
 ): void {
   // The incoming lane's own provider, never hardcoded — promoting an s3
   // standby (or reactivating a demoted s3 fallback) must land as an s3
@@ -124,10 +126,11 @@ export function promoteLane(
   else delete next.storageConfiguredBy;
   if (lane.storageAccessKeyIdLast4) next.storageAccessKeyIdLast4 = lane.storageAccessKeyIdLast4;
   else delete next.storageAccessKeyIdLast4;
-  if (verifiedAt) next.storageVerifiedAt = verifiedAt;
+  if (stamps.verifiedAt) next.storageVerifiedAt = stamps.verifiedAt;
   else delete next.storageVerifiedAt;
-  if (activeContentVerifiedAt) next.storageActiveContentVerifiedAt = activeContentVerifiedAt;
-  else delete next.storageActiveContentVerifiedAt;
+  if (stamps.activeContentVerifiedAt) {
+    next.storageActiveContentVerifiedAt = stamps.activeContentVerifiedAt;
+  } else delete next.storageActiveContentVerifiedAt;
   // A lane only ever becomes active after it has been proven to work — a
   // binding-mode (shared) lane needs no proof, and an HTTP-credential lane is
   // re-verified by `storageActivateHandler` before the swap (which forces a

@@ -218,8 +218,7 @@ describe("lane transitions carry health", () => {
     promoteLane(
       next,
       { provider: "r2", bucket: "uploads-shared", binding: "BUCKET", prefix: "acme/" },
-      undefined,
-      undefined,
+      {},
     );
     expect(next.storageUnhealthyAt).toBeUndefined();
     expect(next.storageUnhealthyCode).toBeUndefined();

@@ -825,7 +825,7 @@ export async function storageActivateHandler(c: Context<SettingsVars>) {
         ...current,
         storageLanes: upsertDemotedLane(remaining, demoted),
       };
-      promoteLane(next, freshTarget, verifiedAt, activeContentVerifiedAt);
+      promoteLane(next, freshTarget, { verifiedAt, activeContentVerifiedAt });
       return next;
     },
     { requireServing: true },
@@ -983,8 +983,10 @@ export async function storageDeleteHandler(c: Context<SettingsVars>) {
           prefix: shared.prefix,
           publicBaseUrl: shared.publicBaseUrl,
         },
-        undefined,
-        undefined,
+        // A restored shared lane carries neither stamp: it was never verified
+        // as a customer lane, and its host's active-content state comes from
+        // the hosted-host records, not a per-workspace stamp.
+        {},
       );
       return next;
     },
