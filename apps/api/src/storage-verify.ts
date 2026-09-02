@@ -52,7 +52,7 @@ export interface StorageVerifyCandidate {
 }
 
 export interface StorageVerifyCheck {
-  /** Stable identifier — `"shape" | "auth" | "round-trip" | "not-empty" | "public-url" | "embed-cache"`. */
+  /** Stable identifier — `"shape" | "auth" | "round-trip" | "not-empty" | "public-url" | "embed-cache" | "active-content-headers"`. */
   id: string;
   ok: boolean;
   /** Required checks gate `StorageVerifyResult.ok`; recommended ones only ever warn. */
@@ -479,6 +479,88 @@ function checkEmbedCache(cacheControl: string | null): StorageVerifyCheck {
   };
 }
 
+/** A 1×1 inert SVG; what the active-content probe writes and fetches. */
+export const ACTIVE_CONTENT_PROBE_SVG = new TextEncoder().encode(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"><rect width="1" height="1"/></svg>',
+);
+
+/**
+ * Does a Content-Security-Policy sandbox the document? The `sandbox`
+ * directive puts the document in an opaque origin with script disabled;
+ * `allow-scripts` and `allow-same-origin` each undo the part we rely on.
+ * Any other directives are the host owner's business.
+ */
+export function parseSandboxCsp(header: string | null): { ok: boolean; reason?: string } {
+  if (!header) return { ok: false, reason: "missing Content-Security-Policy" };
+  const sandbox = header
+    .split(";")
+    .map((d) => d.trim().toLowerCase())
+    .find((d) => d === "sandbox" || d.startsWith("sandbox "));
+  if (!sandbox) return { ok: false, reason: "Content-Security-Policy has no sandbox directive" };
+  const tokens = new Set(sandbox.split(/\s+/).slice(1));
+  if (tokens.has("allow-scripts")) return { ok: false, reason: "sandbox allows scripts" };
+  if (tokens.has("allow-same-origin")) return { ok: false, reason: "sandbox allows same-origin" };
+  return { ok: true };
+}
+
+const ACTIVE_CONTENT_HINT =
+  "serve SVG/XML with `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox` and `X-Content-Type-Options: nosniff` on this host, then check again";
+
+/** Recommended check: the public host serves SVG sandboxed. Never required; gates SVG/XML acceptance per lane. */
+export async function checkActiveContentHeaders(
+  publicBaseUrl: string,
+  probeKey: string,
+  fetchImpl: typeof fetch,
+): Promise<StorageVerifyCheck> {
+  const id = "active-content-headers";
+  const url = `${publicBaseUrl.replace(/\/$/, "")}/${probeKey}`;
+  try {
+    const res = await fetchImpl(url, {
+      redirect: "manual",
+      signal: AbortSignal.timeout(PUBLIC_URL_PROBE_TIMEOUT_MS),
+    });
+    if (!res.ok)
+      return {
+        id,
+        ok: false,
+        required: false,
+        hint: `fetching the SVG probe returned HTTP ${res.status} — ${ACTIVE_CONTENT_HINT}`,
+      };
+    const type = (res.headers.get("content-type") ?? "").toLowerCase();
+    if (!type.startsWith("image/svg+xml"))
+      return {
+        id,
+        ok: false,
+        required: false,
+        hint: `the host served the SVG probe as ${type || "no content-type"} instead of image/svg+xml — ${ACTIVE_CONTENT_HINT}`,
+      };
+    const csp = parseSandboxCsp(res.headers.get("content-security-policy"));
+    if (!csp.ok)
+      return {
+        id,
+        ok: false,
+        required: false,
+        hint: `${csp.reason} (content-security-policy) — ${ACTIVE_CONTENT_HINT}`,
+      };
+    if ((res.headers.get("x-content-type-options") ?? "").toLowerCase() !== "nosniff")
+      return {
+        id,
+        ok: false,
+        required: false,
+        hint: `missing x-content-type-options: nosniff — ${ACTIVE_CONTENT_HINT}`,
+      };
+    return { id, ok: true, required: false };
+  } catch {
+    return {
+      id,
+      ok: false,
+      required: false,
+      inconclusive: true,
+      hint: "we couldn't fetch the SVG probe from here (Cloudflare-fronted domains are often unreachable as a server-side request); SVG/XML stay off for this lane until a check succeeds",
+    };
+  }
+}
+
 /** Warning shown when no `publicBaseUrl` is configured — signed-only mode is allowed but degraded (issue #783 follow-up comment). */
 const NO_PUBLIC_URL_HINT =
   "no public base URL set — files will only be reachable through signed links that expire after an hour, and embeds/galleries won't work. Add one any time; it applies retroactively to files already uploaded (URLs are derived on request, nothing is stored per file).";
@@ -561,6 +643,8 @@ export async function verifyStorageConfig(
   let roundTripHint: string | undefined;
   let publicUrlCheck: StorageVerifyCheck | undefined;
   let publicUrlCacheControl: string | null | undefined;
+  let activeContentProbeKey: string | undefined;
+  let activeContentCheck: StorageVerifyCheck | undefined;
   try {
     await client.upload(probeKey, probeBytes, { contentType: "application/octet-stream" });
     const downloaded = await client.download(probeKey);
@@ -573,6 +657,17 @@ export async function verifyStorageConfig(
       const probed = await checkPublicUrl(candidate.publicBaseUrl, probeKey, probeBytes, fetchImpl);
       publicUrlCheck = probed.check;
       publicUrlCacheControl = probed.cacheControl;
+      if (publicUrlCheck.ok) {
+        activeContentProbeKey = `${PROBE_PREFIX}${crypto.randomUUID()}.svg`;
+        await client.upload(activeContentProbeKey, ACTIVE_CONTENT_PROBE_SVG, {
+          contentType: "image/svg+xml",
+        });
+        activeContentCheck = await checkActiveContentHeaders(
+          candidate.publicBaseUrl,
+          activeContentProbeKey,
+          fetchImpl,
+        );
+      }
     }
   } catch (err) {
     if (errorCode(err) === "Unauthorized") {
@@ -591,6 +686,13 @@ export async function verifyStorageConfig(
       // Best-effort cleanup; a failed delete doesn't change the check result
       // above (round-trip already recorded), and we never want cleanup
       // failure to mask the real outcome.
+    }
+    if (activeContentProbeKey) {
+      try {
+        await client.delete(activeContentProbeKey);
+      } catch {
+        // Best-effort cleanup, same rationale as the round-trip probe above.
+      }
     }
   }
   checks.push({
@@ -625,6 +727,9 @@ export async function verifyStorageConfig(
     // top of an unreachable-domain public-url failure.
     if (publicUrlCacheControl !== undefined) {
       checks.push(checkEmbedCache(publicUrlCacheControl));
+    }
+    if (activeContentCheck) {
+      checks.push(activeContentCheck);
     }
   } else {
     // Signed-only mode is allowed, but it's a degraded state, not a neutral

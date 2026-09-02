@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  ACTIVE_CONTENT_PROBE_SVG,
+  checkActiveContentHeaders,
   defaultStorageClientFactory,
+  parseSandboxCsp,
   type StorageProbeClient,
   type StorageVerifyCandidate,
   verifyStorageConfig,
@@ -751,5 +754,120 @@ describe("verifyStorageConfig — s3 candidates", () => {
     const roundTrip = result.checks.find((c) => c.id === "round-trip")!;
     expect(roundTrip.ok).toBe(false);
     expect(roundTrip.hint).toMatch(/the R2 API token needs Object Read & Write, not read-only/);
+  });
+});
+
+describe("parseSandboxCsp", () => {
+  it("accepts the recommended policy, extra directives, and bare sandbox", () => {
+    expect(
+      parseSandboxCsp("default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox").ok,
+    ).toBe(true);
+    expect(parseSandboxCsp("sandbox; frame-ancestors 'none'").ok).toBe(true);
+    expect(parseSandboxCsp("sandbox").ok).toBe(true);
+    expect(parseSandboxCsp("SANDBOX allow-forms").ok).toBe(true);
+  });
+  it("rejects a missing header, a policy without sandbox, or a sandbox that re-enables script or origin", () => {
+    expect(parseSandboxCsp(null)).toMatchObject({ ok: false });
+    expect(parseSandboxCsp("default-src 'none'")).toMatchObject({ ok: false });
+    expect(parseSandboxCsp("sandbox allow-scripts")).toMatchObject({ ok: false });
+    expect(parseSandboxCsp("sandbox allow-same-origin allow-forms")).toMatchObject({ ok: false });
+  });
+});
+
+describe("checkActiveContentHeaders", () => {
+  const good = () =>
+    new Response(ACTIVE_CONTENT_PROBE_SVG, {
+      status: 200,
+      headers: {
+        "content-type": "image/svg+xml",
+        "content-security-policy": "default-src 'none'; sandbox",
+        "x-content-type-options": "nosniff",
+      },
+    });
+  it("passes when type, csp, and nosniff are all right", async () => {
+    const check = await checkActiveContentHeaders(
+      "https://cdn.example",
+      "_internal/x.svg",
+      async () => good(),
+    );
+    expect(check).toEqual({ id: "active-content-headers", ok: true, required: false });
+  });
+  it("fails on a rewritten content type, a missing csp, or a missing nosniff, naming the header", async () => {
+    const without = (h: string) => async () => {
+      const res = good();
+      const headers = new Headers(res.headers);
+      headers.delete(h);
+      return new Response(ACTIVE_CONTENT_PROBE_SVG, { status: 200, headers });
+    };
+    for (const h of ["content-security-policy", "x-content-type-options"]) {
+      const check = await checkActiveContentHeaders("https://cdn.example", "k.svg", without(h));
+      expect(check.ok).toBe(false);
+      expect(check.hint).toContain(h);
+    }
+    const typed = await checkActiveContentHeaders(
+      "https://cdn.example",
+      "k.svg",
+      async () =>
+        new Response("x", {
+          status: 200,
+          headers: {
+            "content-type": "text/plain",
+            "content-security-policy": "sandbox",
+            "x-content-type-options": "nosniff",
+          },
+        }),
+    );
+    expect(typed.ok).toBe(false);
+  });
+  it("is inconclusive when the fetch throws", async () => {
+    const check = await checkActiveContentHeaders("https://cdn.example", "k.svg", async () => {
+      throw new Error("boom");
+    });
+    expect(check).toMatchObject({ ok: false, inconclusive: true });
+  });
+});
+
+describe("verifyStorageConfig — active-content probe wiring", () => {
+  it("carries an active-content-headers check when the public-url check passes", async () => {
+    const client = new FakeStorageClient();
+    const fetchImpl = vi.fn(async (url: string) => {
+      const key = decodeURIComponent(new URL(url).pathname.slice(1));
+      const data = client.store.get(key);
+      if (!data) return new Response(null, { status: 404 });
+      if (key.endsWith(".svg")) {
+        return new Response(data, {
+          status: 200,
+          headers: {
+            "content-type": "image/svg+xml",
+            "content-security-policy": "default-src 'none'; sandbox",
+            "x-content-type-options": "nosniff",
+          },
+        });
+      }
+      return new Response(data, { status: 200 });
+    });
+    const result = await run(
+      { ...VALID, publicBaseUrl: "https://media.example.com" },
+      client,
+      fetchImpl as unknown as typeof fetch,
+    );
+    expect(result.checks.find((c) => c.id === "public-url")!.ok).toBe(true);
+    const activeContent = result.checks.find((c) => c.id === "active-content-headers");
+    expect(activeContent).toBeDefined();
+    expect(activeContent!.ok).toBe(true);
+    // The SVG probe object is cleaned up alongside the round-trip probe.
+    expect(client.store.size).toBe(0);
+  });
+
+  it("does not run the active-content probe when the public-url check fails", async () => {
+    const client = new FakeStorageClient();
+    const fetchImpl = vi.fn(async () => new Response(null, { status: 404 }));
+    const result = await run(
+      { ...VALID, publicBaseUrl: "https://media.example.com" },
+      client,
+      fetchImpl as unknown as typeof fetch,
+    );
+    expect(result.checks.find((c) => c.id === "public-url")!.ok).toBe(false);
+    expect(result.checks.find((c) => c.id === "active-content-headers")).toBeUndefined();
   });
 });
