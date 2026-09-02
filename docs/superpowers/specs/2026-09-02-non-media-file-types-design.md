@@ -27,13 +27,16 @@ The default allowlist grows to:
 
 Stays out: `text/html`, `image/svg+xml`, `application/xml`/`text/xml`, `application/javascript`,
 `application/octet-stream`, and anything else. The reason is the same as the existing SVG
-exclusion: `storage.uploads.sh` is a bare R2 custom domain with no Worker in front of it, so we
-cannot add a CSP or a `Content-Disposition` there, and the stored content type is the only
-control. HTML and SVG execute script in that origin. The types above do not: browsers render
-`text/*` and `application/json` as inert text, PDF opens in a sandboxed viewer (PDFium / PDF.js
-resource origin / PDFKit) that never runs in the page origin, and zip/gzip have no inline handler
-and always download. `files-sdk`'s `upload()` has no `contentDisposition` option, so forcing
-downloads is not available without an upstream change; it is also not needed for this set.
+exclusion: `storage.uploads.sh` is a bare R2 custom domain, and no Worker sits in front of it, so
+nothing in this repo sets headers on that path — headers there are zone-level Cloudflare Transform
+Rules (ops config, the same mechanism the nosniff follow-up below proposes), not something this
+code controls. The stored content type is the control this code does own. HTML and SVG execute
+script in that origin. The types above do not: browsers render `text/*` and `application/json` as
+inert text, PDF opens in a sandboxed viewer (PDFium / PDF.js resource origin / PDFKit) that never
+runs in the page origin, and zip/gzip have no inline handler and always download. `files-sdk`'s
+`upload()` has no `contentDisposition` option, so forcing downloads from application code is not
+available without an upstream change; a `Content-Disposition: attachment` Transform Rule scoped to
+`text/*` and `application/json` is an optional hardening on the ops side, not needed for this set.
 
 Ops follow-up (not code): add `X-Content-Type-Options: nosniff` on the storage hosts via the same
 Cloudflare Transform Rule mechanism that sets `Cache-Control`. Modern browsers already refuse to
@@ -90,9 +93,10 @@ test keeps its meaning; a new case asserts a PDF is a permanent `unsupported_med
   missing `webm`. The copy in `packages/comment-render/src/index.ts` and the generated
   `packages/uploads/src/comment-render.generated.ts` follow (regenerate, do not hand-edit the
   generated file; check how it is produced first).
-- `optimizeImageForUpload` already passes non-images through as `not_image`. The CLI skips
-  loading the optimizer entirely when the inferred type is not `image/*`, so a 20 MB zip never
-  touches sharp. Keys keep their original extension on passthrough (verify, do not assume).
+- `optimizeImageForUpload` already passes non-images through as `not_image`. `optimizeImageForUpload`
+  returns early for a known non-image extension before any sharp call, and the EXIF-facts probe is
+  gated the same way, so a 20 MB zip never touches sharp. Keys keep their original extension on
+  passthrough (verify, do not assume).
 - The managed comment already renders anything that is not an image or a poster-backed video as
   a `- [name](link)` bullet. No renderer change beyond the MIME map. MOV with a poster renders
   like MP4.
@@ -114,6 +118,8 @@ test keeps its meaning; a new case asserts a PDF is a permanent `unsupported_med
 
 Shipped in a second PR after the API change is live, so the site never claims what prod rejects:
 
+- The text families are the ones that carry secrets in practice (logs, CI JSON, env dumps): the
+  limits page and `put` help must say uploads are public and to scrub before uploading.
 - `apps/web/src/content/docs/limits.mdx` Formats bullet: list the families, keep the SVG sentence,
   add "HTML is not accepted for the same reason", drop "is coming".
 - `apps/web/src/pages/index.astro` "More file types" card: remove the Soon pill and the "Today:"
@@ -145,7 +151,10 @@ Shipped in a second PR after the API change is live, so the site never claims wh
 - `packages/comment-render` test: a `.pdf` item renders as a link bullet.
 - `apps/web` test for `fileKind("video/quicktime") === "video"`.
 - Prod verification after merge: `uploads put` a `.log`, `.pdf`, `.json`, `.zip`, `.mov`, and a
-  `.html` (expect 415); open each `/f/` page; confirm a PR comment renders the bullets.
+  `.html` (expect 415); open each `/f/` page; confirm a PR comment renders the bullets; confirm
+  `text/markdown` and `text/csv` are echoed verbatim by the storage hosts; confirm a `.tgz`
+  round-trips byte-for-byte (no transparent decompression, no `Content-Encoding: gzip` added at the
+  edge); confirm one MOV plays in Chrome on `/f/`.
 
 ## Out of scope
 
