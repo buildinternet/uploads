@@ -60,7 +60,7 @@ export type FileFetchResult =
 export type MediaKind = "image" | "video" | "file" | "unsupported";
 
 const imageTypes = new Set(["image/png", "image/jpeg", "image/gif", "image/webp", "image/avif"]);
-const videoTypes = new Set(["video/mp4", "video/webm"]);
+const videoTypes = new Set(["video/mp4", "video/webm", "video/quicktime"]);
 
 /** Classify a content type for rendering; SVG is unsupported per upload policy. */
 export function fileKind(contentType: string): MediaKind {
