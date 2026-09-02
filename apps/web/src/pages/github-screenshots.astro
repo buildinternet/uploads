@@ -108,22 +108,16 @@ const FAQ_JSON_LD = JSON.stringify({
 
   <section class="lead" id="problem">
     <h2>
-      The problem: no drag-and-drop from a terminal <a
+      The problem: the screenshot exists before the PR does <a
         class="anchor"
         href="#problem"
         aria-label="Link to this section">#</a
       >
     </h2>
     <p>
-      You put a screenshot on a pull request by dragging the file into the comment box. GitHub then
-      hosts it at <code>github.com/user-attachments/…</code>. That only works in a signed-in
-      browser. <del>There is no <code>gh</code> command and no API for it.</del>&#32;
-      <strong>Update, September 2026:</strong>
-      <code>gh</code> now has <code>--attach</code> for images and video.
-    </p>
-    <p>
-      So an agent that just changed your UI has nowhere to put the proof until a PR exists, and even
-      then only inside GitHub. The usual workarounds all hurt:
+      An agent that just changed your UI has a screenshot and nowhere to put it. There is no pull
+      request to attach it to yet, and GitHub's own hosting only works inside GitHub. The usual
+      workarounds all hurt:
     </p>
     <ul>
       <li>
