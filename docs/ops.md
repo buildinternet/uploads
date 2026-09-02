@@ -10,7 +10,7 @@ pnpm workspace:limits <name> \
   --max-storage 25GB \
   --max-uploads-per-month 10000 \
   --max-upload-bytes 25MB \
-  --max-video-bytes 8MB \
+  --max-video-bytes 25MB \
   --retention-days 90 \
   --allowed-prefixes default \
   --max-key-depth 8

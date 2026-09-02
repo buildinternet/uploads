@@ -96,12 +96,12 @@ storage / billing, `/admin` (users, oauth, email, metrics), and the auth flows
 
 **Plans (both live).**
 
-|           | Free         | Pro                                       |
-| --------- | ------------ | ----------------------------------------- |
-| Storage   | 250 MB       | 10 GB                                     |
-| Max file  | 25 MB        | 100 MB                                    |
-| Max video | 8 MB         | 100 MB (same as file cap)                 |
-| Members   | 3 (marketed) | seatless; 25 is an unmarketed abuse guard |
+|           | Free                     | Pro                                       |
+| --------- | ------------------------ | ----------------------------------------- |
+| Storage   | 250 MB                   | 10 GB                                     |
+| Max file  | 25 MB                    | 100 MB                                    |
+| Max video | 25 MB (same as file cap) | 100 MB (same as file cap)                 |
+| Members   | 3 (marketed)             | seatless; 25 is an unmarketed abuse guard |
 
 Free is available in perpetuity; Pro is purchased through Stripe Checkout. Seats
 and roles are deliberately not sold — they are reserved for a future Team tier.

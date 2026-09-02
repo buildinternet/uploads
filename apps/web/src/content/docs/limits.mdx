@@ -29,8 +29,9 @@ same caps.
 
 <LimitsTable />
 
-On <PlanValue of="proName" /> there is one file cap: videos get the same <PlanValue of="proMaxUpload" />
-ceiling as everything else. Only <PlanValue of="freeName" /> carves videos out with a smaller cap.
+Each plan has one file cap: videos get the same ceiling as everything else,
+<PlanValue of="freeMaxUpload" /> on <PlanValue of="freeName" /> and <PlanValue of="proMaxUpload" /> on
+<PlanValue of="proName" />.
 
 <div class="note">
   Both plans also carry internal rate guards against automated abuse. Normal use — even heavy
@@ -72,8 +73,9 @@ attachment caps never apply.
 - **Images:** up to <PlanValue of="freeMaxUpload" /> on free
   (<PlanValue of="proMaxUpload" /> on <PlanValue of="proName" />), vs GitHub's 10&nbsp;MB on every
   GitHub plan.
-- **Videos:** <PlanValue of="proMaxVideo" /> on <PlanValue of="proName" />, even when the repository
-  is on a free GitHub plan where direct attachments stop at 10&nbsp;MB.
+- **Videos:** <PlanValue of="freeMaxVideo" /> on <PlanValue of="freeName" /> vs GitHub's 10&nbsp;MB on
+  free GitHub plans, and <PlanValue of="proMaxVideo" /> on <PlanValue of="proName" /> even when the
+  repository is on a free GitHub plan.
 - **Formats:** PNG, JPEG, GIF, WebP, AVIF, MP4, and WebM. SVG is not accepted because inline SVG
   can carry script. Support for more file types (PDFs, logs, JSON, zips) is coming.
 

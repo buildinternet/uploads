@@ -23,7 +23,7 @@ function makeBilling(overrides: Partial<WorkspaceBilling> = {}): WorkspaceBillin
       maxStorageBytes: 250_000_000,
       maxUploadsPerPeriod: 3000,
       maxUploadBytes: 25_000_000,
-      maxVideoUploadBytes: 8_000_000,
+      maxVideoUploadBytes: 25_000_000,
     },
     usage: null,
     planSource: "none",
@@ -225,7 +225,7 @@ describe("renderPlanCardBodyHtml", () => {
     const html = renderPlanCardBodyHtml(makeBilling(), null);
     expect(html).toContain('<strong id="ws-plan-name">Free plan</strong>');
     expect(html).toContain("This plan is active on your workspace.");
-    expect(html).toContain("Max upload size: files up to 25 MB, videos up to 8 MB.");
+    expect(html).toContain("Max upload size: files up to 25 MB.");
     expect(html).toContain('id="ws-subscription-status" hidden');
   });
 
