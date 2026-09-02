@@ -19,7 +19,7 @@ import { checkRepoAuthorization, postManagedComment } from "./github-comment-ser
 import { GH_PRIVATE_ROOT, type GhTargetKind, parseGhPrivateKey } from "./github-comment-render";
 import { deleteObject, putObject, putOptsFromStoredObject } from "./files-core";
 import { deleteFileMetadata } from "./file-metadata";
-import { rekeyAttachmentSafe } from "./github-attachment-index";
+import { parseAttachmentKey, rekeyAttachmentSafe } from "./github-attachment-index";
 import {
   getActivePrefixId,
   getOrMintPrefixId,
@@ -361,21 +361,31 @@ export async function rotatePrivatePrefix(
           // whichever lane is CURRENTLY active for this workspace — the
           // moved row must reflect that, not the lane the object happened
           // to be written to originally.
-          await rekeyAttachmentSafe(
-            dbFor(env),
-            workspaceName,
-            item.key,
-            newKey,
-            newId,
-            ws.storageLaneId ?? null,
-          );
+          // Only for keys that CAN hold a row: a branch-staged or ingest
+          // key never has one, so the batch would be a guaranteed no-op
+          // DELETE + UPDATE per object — most of a rotation's objects, on
+          // the sweep that already re-uploads every one of them.
+          if (parseAttachmentKey(item.key)) {
+            await rekeyAttachmentSafe(
+              dbFor(env),
+              workspaceName,
+              item.key,
+              newKey,
+              newId,
+              ws.storageLaneId ?? null,
+            );
+          }
 
           // `deleteObject` (not a raw `store.delete`): it also releases the
           // old key's usage-ledger bytes/object count (and its poster, if
           // any — `putObject` above already regenerated one for the new key
           // when applicable), so a rotation doesn't inflate the workspace's
           // storage usage or orphan a video's poster frame.
-          await deleteObject(env, ws, item.key, workspaceName);
+          // `skipAttachmentIndex` (issue #934): whatever index row this key
+          // had was just moved onto `newKey` by `rekeyAttachmentSafe` above
+          // (and a key that can't have one never had a row), so the delete's
+          // own index DELETE is a guaranteed no-op round trip per object.
+          await deleteObject(env, ws, item.key, workspaceName, { skipAttachmentIndex: true });
           moved++;
 
           const parsed = parseGhPrivateKey(newKey);

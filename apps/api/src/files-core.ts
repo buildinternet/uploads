@@ -31,7 +31,11 @@ import {
   inheritableMetaForHash,
   recordContentHash,
 } from "./content-hash";
-import { deleteAttachmentSafe, recordAttachmentForKeySafe } from "./github-attachment-index";
+import {
+  type AttachmentSource,
+  deleteAttachmentSafe,
+  recordAttachmentForKeySafe,
+} from "./github-attachment-index";
 import { recordPrActivityFromMetadata } from "./github-pr-activity";
 import { noteStorageFailure, noteStorageSuccess } from "./storage-health";
 import {
@@ -510,6 +514,22 @@ export async function putObject(
      * question instead — see `serverCopy` above).
      */
     activeContent?: boolean;
+    /**
+     * Attribution for this put's attachment-index row (issue #934), for the
+     * server-side copy paths that already know what they are doing: attach,
+     * promote, adopt. Absent (every other caller — the REST PUT, the
+     * idempotent PUT, rotation) means `source: "put"` with the repo derived
+     * from the key, which is the historical behavior.
+     *
+     * `repo` must be a SERVER-RESOLVED repo (the request/webhook target),
+     * never `gh.*` file_metadata — see github-attachment-index.ts's trust
+     * boundary. Supplying it also avoids the plain key's lossy sanitized
+     * owner/name segments.
+     *
+     * A non-`"put"` source clears `detached_at`, exactly as the follow-up
+     * `recordAttachmentForKeySafe` these callers used to make did.
+     */
+    attachment?: { source: AttachmentSource; repo?: string };
   },
 ): Promise<{
   key: string;
@@ -753,6 +773,24 @@ export async function putObject(
         repo: opts?.metadata?.["gh.repo"],
       },
     }),
+    // Attachment index (issue #934): the single choke point covering every
+    // putObject caller — REST PUT, the idempotent PUT and its reconcile,
+    // attach, promote, and rotation. See github-attachment-index.ts's header
+    // doc comment for the trust-boundary rationale. `lane_id` is the active
+    // lane this write went to (`storage(env, ws)` above). Best-effort and
+    // never-throwing like its neighbours here, and the object is durably
+    // stored by the time this block runs — so it rides along with the rest
+    // of the post-write bookkeeping rather than costing its own serial round
+    // trip on every attachment upload.
+    isManagedGithubKey(finalKey)
+      ? recordAttachmentForKeySafe(dbFor(env), {
+          workspace: workspaceName,
+          objectKey: finalKey,
+          source: opts?.attachment?.source ?? "put",
+          laneId: ws.storageLaneId ?? null,
+          repo: opts?.attachment?.repo,
+        })
+      : Promise.resolve(),
   ]);
 
   // Derived metadata from a content-identical earlier upload in this workspace
@@ -792,21 +830,6 @@ export async function putObject(
   // the object is durably stored by now, so a failed index write costs a later
   // inheritance rather than this upload.
   await recordContentHash(dbFor(env), workspaceName, finalKey, contentSha256);
-
-  // Attachment index (issue #934): the single choke point covering every
-  // putObject caller — REST PUT, the idempotent PUT and its reconcile,
-  // attach, promote, and rotation. See github-attachment-index.ts's header
-  // doc comment for the trust-boundary rationale. `lane_id` is the active
-  // lane this write went to (`storage(env, ws)` above). Best-effort and
-  // last, like recordContentHash: the object is durably stored by now.
-  if (isManagedGithubKey(finalKey)) {
-    await recordAttachmentForKeySafe(dbFor(env), {
-      workspace: workspaceName,
-      objectKey: finalKey,
-      source: "put",
-      laneId: ws.storageLaneId ?? null,
-    });
-  }
 
   // After the metadata replace, never before: replaceFileMetadata is
   // delete-then-insert and would wipe the server-owned video.*/image.* rows.
@@ -1343,6 +1366,16 @@ export async function deleteObject(
   ws: WorkspaceRecord,
   key: string,
   workspaceName: string,
+  opts?: {
+    /**
+     * Server-internal (issue #934): the caller has already moved this key's
+     * attachment-index row elsewhere, so the DELETE below could only ever
+     * match nothing. Private-prefix rotation sets it — it calls
+     * `rekeyAttachment` for the old key immediately before deleting it.
+     * Never set from a request: an ordinary delete must still clear the row.
+     */
+    skipAttachmentIndex?: boolean;
+  },
 ): Promise<{ key: string; deleted: true }> {
   if (badKey(key)) throw new ValidationError("invalid key", { code: "invalid_key" });
 
@@ -1383,7 +1416,7 @@ export async function deleteObject(
   // surviving attachment silently drops out of the managed comment.
   // Best-effort past that point: a stale row costs a broken image until
   // reconcile, never a failed delete.
-  await deleteAttachmentSafe(dbFor(env), workspaceName, key);
+  if (!opts?.skipAttachmentIndex) await deleteAttachmentSafe(dbFor(env), workspaceName, key);
 
   // Derived poster (issue #299), best-effort: a missing one is the norm for
   // every non-video object. Guarded so a transient poster-cleanup failure

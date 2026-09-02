@@ -75,6 +75,41 @@ describe("putObject → attachment index", () => {
     expect(db.attachmentIndex.size).toBe(1);
   });
 
+  it("attributes the row to opts.attachment's source and repo when the caller supplies one", async () => {
+    const { env, db, ws } = makePosterEnv();
+    const key = "gh/acme/web/pull/12/hero.png";
+    await putObject(env, ws, key, PNG, WORKSPACE, {
+      attachment: { source: "attach", repo: "Acme/Web-Site" },
+    });
+    expect(db.attachmentIndexUpserts).toBe(1);
+    expect(db.attachmentIndex.get(`${WORKSPACE}\0${key}`)).toMatchObject({
+      source: "attach",
+      repo: "acme/web-site",
+      num: 12,
+    });
+  });
+
+  it("a caller-supplied non-put source clears detached_at, exactly like a re-record would", async () => {
+    const { env, db, ws } = makePosterEnv();
+    const key = "gh/acme/web/pull/12/hero.png";
+    await putObject(env, ws, key, PNG, WORKSPACE);
+    await detachAttachment(
+      db as unknown as D1Queryable,
+      WORKSPACE,
+      key,
+      new Date("2026-09-05T00:00:00.000Z"),
+    );
+
+    await putObject(env, ws, key, PNG, WORKSPACE, {
+      attachment: { source: "adopt", repo: "acme/web" },
+    });
+
+    expect(db.attachmentIndex.get(`${WORKSPACE}\0${key}`)).toMatchObject({
+      source: "adopt",
+      detached_at: null,
+    });
+  });
+
   it("a detached row survives a re-put of the same key (putObject writes source 'put')", async () => {
     const { env, db, ws } = makePosterEnv();
     const key = "gh/acme/web/pull/12/hero.png";
@@ -95,6 +130,30 @@ describe("putObject → attachment index", () => {
       source: "put",
       detached_at: "2026-09-05T00:00:00.000Z",
     });
+  });
+});
+
+describe("putObject → attachment index scheduling", () => {
+  it("issues the index write with the other post-write D1 bookkeeping, not serially after it", async () => {
+    const { env, ws } = makePosterEnv();
+    const statements: string[] = [];
+    const db = env.DB as unknown as { prepare: (sql: string) => unknown };
+    const realPrepare = db.prepare.bind(db);
+    db.prepare = (sql: string) => {
+      statements.push(sql.replace(/\s+/g, " ").trim());
+      return realPrepare(sql);
+    };
+
+    await putObject(env, ws, "gh/acme/web/pull/12/hero.png", PNG, WORKSPACE);
+
+    const indexAt = statements.findIndex((sql) => sql.startsWith("INSERT INTO github_attachments"));
+    const hashAt = statements.findIndex((sql) => sql.includes("INSERT INTO file_content_hash"));
+    expect(indexAt).toBeGreaterThanOrEqual(0);
+    expect(hashAt).toBeGreaterThanOrEqual(0);
+    // The index write now rides in putObject's post-write `Promise.all`,
+    // which runs before the metadata/content-hash tail — so it overlaps
+    // those round trips instead of adding its own after them.
+    expect(indexAt).toBeLessThan(hashAt);
   });
 });
 

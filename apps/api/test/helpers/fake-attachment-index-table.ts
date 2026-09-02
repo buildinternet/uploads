@@ -5,13 +5,29 @@
  * re-key) without a full sqlite-backed D1. See
  * github-attachment-index-sqlite.test.ts for the real-SQL coverage.
  *
- * The match arms below key off the EXACT statement text in
- * src/github-attachment-index.ts, whitespace-normalized. If a statement
- * there changes, change it here too or the suite fails loudly
- * ("unsupported run: …") rather than silently dropping writes.
+ * The match arms below key off `ATTACHMENT_INDEX_SQL` — the statement text
+ * exported by src/github-attachment-index.ts itself, whitespace-normalized
+ * here the same way usage-fake-d1.ts normalizes incoming SQL. Matching the
+ * module's own strings (rather than re-typed copies) means a reworded
+ * statement cannot silently desync this fake; it fails loudly instead
+ * ("unsupported run: …"). See fake-attachment-index-sql.test.ts.
  */
 
+import { ATTACHMENT_INDEX_SQL } from "../../src/github-attachment-index";
 import type { FakeRunResult } from "./fake-repo-links-table";
+
+const normalize = (sql: string) => sql.replace(/\s+/g, " ").trim();
+
+const SQL = {
+  upsert: normalize(ATTACHMENT_INDEX_SQL.upsert),
+  detach: normalize(ATTACHMENT_INDEX_SQL.detach),
+  reattach: normalize(ATTACHMENT_INDEX_SQL.reattach),
+  rekey: normalize(ATTACHMENT_INDEX_SQL.rekey),
+  deleteOne: normalize(ATTACHMENT_INDEX_SQL.deleteOne),
+  deleteForKeysPrefix: normalize(ATTACHMENT_INDEX_SQL.deleteForKeysPrefix),
+  deleteForWorkspace: normalize(ATTACHMENT_INDEX_SQL.deleteForWorkspace),
+  selectOne: normalize(ATTACHMENT_INDEX_SQL.selectOne),
+};
 
 export interface AttachmentIndexDbRow {
   workspace: string;
@@ -33,9 +49,15 @@ function key(workspace: string, objectKey: string): string {
 
 export class AttachmentIndexTable {
   readonly rows = new Map<string, AttachmentIndexDbRow>();
+  /**
+   * How many upsert statements have run. Lets a wiring test assert that a
+   * path writes the row ONCE (issue #934 cleanup: attach/promote/adopt used
+   * to write `put` and then immediately re-record their own source).
+   */
+  upserts = 0;
 
   tryRun(normalizedSql: string, args: unknown[]): FakeRunResult | undefined {
-    if (normalizedSql.startsWith("INSERT INTO github_attachments")) {
+    if (normalizedSql === SQL.upsert) {
       const [
         workspace,
         repo,
@@ -61,6 +83,7 @@ export class AttachmentIndexTable {
       ];
       const k = key(workspace, objectKey);
       const existing = this.rows.get(k);
+      this.upserts++;
       this.rows.set(k, {
         workspace,
         repo,
@@ -79,7 +102,7 @@ export class AttachmentIndexTable {
       });
       return { success: true, meta: { changes: 1 }, results: [] };
     }
-    if (normalizedSql.startsWith("UPDATE github_attachments SET detached_at = ?")) {
+    if (normalizedSql === SQL.detach) {
       const [detachedAt, updatedAt, workspace, objectKey] = args as [
         string,
         string,
@@ -92,7 +115,7 @@ export class AttachmentIndexTable {
       row.updated_at = updatedAt;
       return { success: true, meta: { changes: 1 }, results: [] };
     }
-    if (normalizedSql.startsWith("UPDATE github_attachments SET detached_at = NULL")) {
+    if (normalizedSql === SQL.reattach) {
       const [updatedAt, workspace, objectKey] = args as [string, string, string];
       const row = this.rows.get(key(workspace, objectKey));
       if (!row) return { success: true, meta: { changes: 0 }, results: [] };
@@ -100,7 +123,7 @@ export class AttachmentIndexTable {
       row.updated_at = updatedAt;
       return { success: true, meta: { changes: 1 }, results: [] };
     }
-    if (normalizedSql.startsWith("UPDATE github_attachments SET object_key = ?")) {
+    if (normalizedSql === SQL.rekey) {
       const [toKey, newPrefixId, laneId, updatedAt, workspace, fromKey] = args as [
         string,
         string | null,
@@ -122,7 +145,7 @@ export class AttachmentIndexTable {
       return { success: true, meta: { changes: 1 }, results: [] };
     }
     if (normalizedSql.startsWith("DELETE FROM github_attachments")) {
-      if (normalizedSql.includes("object_key IN (")) {
+      if (normalizedSql.startsWith(SQL.deleteForKeysPrefix)) {
         const [workspace, ...keys] = args as [string, ...string[]];
         let changes = 0;
         for (const objectKey of keys) {
@@ -130,11 +153,12 @@ export class AttachmentIndexTable {
         }
         return { success: true, meta: { changes }, results: [] };
       }
-      if (normalizedSql.includes("object_key = ?")) {
+      if (normalizedSql === SQL.deleteOne) {
         const [workspace, objectKey] = args as [string, string];
         const changes = this.rows.delete(key(workspace, objectKey)) ? 1 : 0;
         return { success: true, meta: { changes }, results: [] };
       }
+      if (normalizedSql !== SQL.deleteForWorkspace) return undefined;
       const [workspace] = args as [string];
       let changes = 0;
       for (const [k, row] of this.rows.entries()) {
@@ -149,7 +173,7 @@ export class AttachmentIndexTable {
   }
 
   tryFirst<T>(normalizedSql: string, args: unknown[]): T | null | undefined {
-    if (normalizedSql.includes("FROM github_attachments WHERE workspace = ? AND object_key = ?")) {
+    if (normalizedSql === SQL.selectOne) {
       const [workspace, objectKey] = args as [string, string];
       return (this.rows.get(key(workspace, objectKey)) as T) ?? null;
     }

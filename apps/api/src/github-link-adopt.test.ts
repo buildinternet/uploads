@@ -481,6 +481,9 @@ describe("adoptLinkedFiles → attachment index (issue #934)", () => {
       source: "adopt",
       detached_at: null,
     });
+    // One upsert for the adopted copy, not a "put" row re-recorded as
+    // "adopt" straight after (issue #934 cleanup).
+    expect(seeded.db.attachmentIndexUpserts).toBe(1);
   });
 
   it("detaches the row when the link stops being referenced, and re-attaches when it returns", async () => {
@@ -508,5 +511,51 @@ describe("adoptLinkedFiles → attachment index (issue #934)", () => {
     );
     expect(back.reattached).toEqual([key]);
     expect(seeded.db.attachmentIndex.get(`${WS}\0${key}`)?.detached_at).toBeNull();
+  });
+
+  it("issues a detach's independent per-link writes concurrently, not one round trip at a time", async () => {
+    const seeded = await seededEnv();
+    await seedSource(seeded, "f/shot.png");
+    const first = await adoptLinkedFiles(
+      seeded.env,
+      WS,
+      null,
+      target,
+      "see https://storage.uploads.sh/acme/f/shot.png",
+    );
+    const key = first.adopted[0]!;
+
+    // Hold the metadata stamp (a `db.batch`) open, then check the index and
+    // ledger writes were already issued while it was still in flight —
+    // impossible if they ran serially behind it.
+    const statements: string[] = [];
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const db = seeded.db as unknown as {
+      prepare: (sql: string) => unknown;
+      batch: (statements: unknown[]) => Promise<unknown>;
+    };
+    const realPrepare = db.prepare.bind(db);
+    const realBatch = db.batch.bind(db);
+    db.prepare = (sql: string) => {
+      statements.push(sql.replace(/\s+/g, " ").trim());
+      return realPrepare(sql);
+    };
+    db.batch = async (stmts: unknown[]) => {
+      await gate;
+      return realBatch(stmts);
+    };
+
+    const pending = adoptLinkedFiles(seeded.env, WS, null, target, "no links now");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(statements.some((sql) => sql.startsWith("UPDATE github_attachments"))).toBe(true);
+    expect(statements.some((sql) => sql.startsWith("UPDATE github_adopted_links"))).toBe(true);
+
+    release();
+    const removed = await pending;
+    expect(removed.detached).toEqual([key]);
+    expect(seeded.db.attachmentIndex.get(`${WS}\0${key}`)?.detached_at).not.toBeNull();
   });
 });

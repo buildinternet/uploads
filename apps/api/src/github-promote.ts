@@ -20,7 +20,6 @@
 import { UnsupportedMediaTypeError } from "@uploads/errors";
 import { getMetadataForKeys, setFileMetadata } from "./file-metadata";
 import { putObject, putOptsFromStoredObject } from "./files-core";
-import { recordAttachmentForKeySafe } from "./github-attachment-index";
 import { resolveBranchLineageSafe } from "./github-branch-renames";
 import { ghPrivateAttachmentKey, ghPrivateBranchKeyPrefix } from "./github-comment-render";
 import { getActivePrefixId } from "./github-private-prefixes";
@@ -410,6 +409,13 @@ export async function promoteBranchAttachments(
           "gh.promoted-at": nowIso,
         },
         surface: "promote",
+        // Attachment index (issue #934): the copy is indexed by `putObject`
+        // itself, as a promote with the repo the webhook/route resolved.
+        // The STAGED ORIGINAL deliberately gets no row — it lives under the
+        // branch prefix, outside the target's attachment prefix, and is not
+        // an attachment (`parseAttachmentKey` returns undefined for branch
+        // keys, so putObject never indexed it either).
+        attachment: { source: "promote", repo: target.repo },
       });
     } catch (err) {
       // A 415 is this one object's problem, not the batch's (issue #929
@@ -449,20 +455,6 @@ export async function promoteBranchAttachments(
     // below. Tagging the staged original is best-effort bookkeeping: a
     // failure here must not un-promote the file or land it in `skipped`.
     promoted.push(destKey);
-
-    // Attachment index (issue #934): re-record putObject's row as a
-    // promote, with the repo the webhook/route resolved. The STAGED
-    // ORIGINAL deliberately gets no row — it lives under the branch prefix,
-    // outside the target's attachment prefix, and is not an attachment
-    // (`parseAttachmentKey` returns undefined for branch keys, so putObject
-    // never indexed it either).
-    await recordAttachmentForKeySafe(dbFor(env), {
-      workspace: workspaceName,
-      objectKey: destKey,
-      source: "promote",
-      laneId: ws.storageLaneId ?? null,
-      repo: target.repo,
-    });
 
     try {
       // Merge (not replace) onto the staged original: mark it promoted

@@ -55,11 +55,7 @@
  * the real `--pr` / promoted attachment, which shares that destination.
  */
 import { attachExistingObject, resolveAttachSourceKey } from "./github-attach";
-import {
-  detachAttachmentSafe,
-  reattachAttachmentSafe,
-  recordAttachmentForKeySafe,
-} from "./github-attachment-index";
+import { detachAttachmentSafe, reattachAttachmentSafe } from "./github-attachment-index";
 import { commentCacheKey, gatherCommentBody } from "./github-comment";
 import { GH_PRIVATE_ROOT, ghKeyPrefix, type GhTarget } from "./github-comment-render";
 import { postManagedComment } from "./github-comment-service";
@@ -278,40 +274,53 @@ export async function adoptLinkedFiles(
       }
       // Previously detached, now referenced again — un-detach without a
       // re-copy; the object is still in storage untouched.
-      await setFileMetadata(db, workspaceName, row.objectKey, { "gh.detached": "false" });
-      await reattachAttachmentSafe(db, workspaceName, row.objectKey);
-      await setAdoptLedgerDetached(db, repo, kind, num, key, null);
-      if (row.source !== source) await setAdoptLedgerSource(db, repo, kind, num, key, source);
+      //
+      // The four writes land in three different tables (and, for the two
+      // ledger updates, disjoint columns of one row); none reads what
+      // another wrote, so they go out together rather than as serial D1
+      // round trips per re-referenced link.
+      await Promise.all([
+        setFileMetadata(db, workspaceName, row.objectKey, { "gh.detached": "false" }),
+        reattachAttachmentSafe(db, workspaceName, row.objectKey),
+        setAdoptLedgerDetached(db, repo, kind, num, key, null),
+        row.source !== source
+          ? setAdoptLedgerSource(db, repo, kind, num, key, source)
+          : Promise.resolve(),
+      ]);
       summary.reattached.push(row.objectKey);
       continue;
     }
 
     try {
-      const result = await attachExistingObject(env, ws, workspaceName, {
-        source: key,
-        target: { repo: target.repo, kind: target.kind, num: target.num },
-      });
-      await setFileMetadata(db, workspaceName, result.key, { "gh.detached": "false" });
-      // Attachment index (issue #934): attachExistingObject already wrote a
-      // `source: "attach"` row; overwrite it with "adopt" so the write path
-      // is attributable. `target.repo` is the webhook-resolved repo.
-      await recordAttachmentForKeySafe(db, {
-        workspace: workspaceName,
-        objectKey: result.key,
-        source: "adopt",
-        laneId: ws.storageLaneId ?? null,
-        repo: target.repo,
-      });
-      await recordAdoptedLink(db, {
-        repo,
-        kind,
-        num,
-        sourceKey: key,
-        workspace: workspaceName,
-        objectKey: result.key,
-        source,
-        createdAt: new Date().toISOString(),
-      });
+      // Attachment index (issue #934): `indexSource` makes the copy's own
+      // (single) row say "adopt" rather than "attach", so the write path
+      // stays attributable. The repo it records is `target.repo`, the
+      // webhook-resolved one, passed on by attachExistingObject.
+      const result = await attachExistingObject(
+        env,
+        ws,
+        workspaceName,
+        {
+          source: key,
+          target: { repo: target.repo, kind: target.kind, num: target.num },
+        },
+        { indexSource: "adopt" },
+      );
+      // Independent of each other (file_metadata vs the adopt ledger) and
+      // both only need `result.key`, so they overlap.
+      await Promise.all([
+        setFileMetadata(db, workspaceName, result.key, { "gh.detached": "false" }),
+        recordAdoptedLink(db, {
+          repo,
+          kind,
+          num,
+          sourceKey: key,
+          workspace: workspaceName,
+          objectKey: result.key,
+          source,
+          createdAt: new Date().toISOString(),
+        }),
+      ]);
       summary.adopted.push(result.key);
     } catch (err) {
       // Source vanished between resolve and copy (deleted concurrently), or a
@@ -343,17 +352,23 @@ export async function adoptLinkedFiles(
     const referenced = foundKeys.has(row.sourceKey) || foundKeys.has(row.objectKey);
     if (referenced) {
       if (row.detachedAt !== null) {
-        await setFileMetadata(db, workspaceName, row.objectKey, { "gh.detached": "false" });
-        await reattachAttachmentSafe(db, workspaceName, row.objectKey);
-        await setAdoptLedgerDetached(db, repo, kind, num, row.sourceKey, null);
+        // Three tables, no read-after-write between them — issued together.
+        await Promise.all([
+          setFileMetadata(db, workspaceName, row.objectKey, { "gh.detached": "false" }),
+          reattachAttachmentSafe(db, workspaceName, row.objectKey),
+          setAdoptLedgerDetached(db, repo, kind, num, row.sourceKey, null),
+        ]);
         summary.reattached.push(row.objectKey);
       }
       continue;
     }
     if (row.detachedAt !== null) continue;
-    await setFileMetadata(db, workspaceName, row.objectKey, { "gh.detached": "true" });
-    await detachAttachmentSafe(db, workspaceName, row.objectKey);
-    await setAdoptLedgerDetached(db, repo, kind, num, row.sourceKey, new Date().toISOString());
+    // Same three independent tables as the re-attach above, mirrored.
+    await Promise.all([
+      setFileMetadata(db, workspaceName, row.objectKey, { "gh.detached": "true" }),
+      detachAttachmentSafe(db, workspaceName, row.objectKey),
+      setAdoptLedgerDetached(db, repo, kind, num, row.sourceKey, new Date().toISOString()),
+    ]);
     summary.detached.push(row.objectKey);
   }
 

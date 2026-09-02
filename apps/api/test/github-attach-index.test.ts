@@ -55,6 +55,9 @@ describe("attachExistingObject → attachment index (issue #934)", () => {
       prefix_id: null,
       source: "attach",
     });
+    // One upsert, not putObject's "put" row followed by an attach
+    // re-record (issue #934 cleanup).
+    expect(db.attachmentIndexUpserts).toBe(1);
   });
 
   it("--move deletes the source object's row when the source was itself an attachment", async () => {
