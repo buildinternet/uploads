@@ -96,6 +96,19 @@ export class PrivatePrefixesTable {
 
   // listActivePrefixIds: every active row for a repo, across branches.
   tryAll<T>(normalizedSql: string, args: unknown[]): FakeAllResult<T> | undefined {
+    // listPrefixIdsForTarget ownership filter (#934): which of the given ids
+    // this repo minted, rotated or not. Args: (repo, ...ids).
+    if (
+      normalizedSql.includes("FROM github_private_prefixes") &&
+      normalizedSql.includes("prefix_id IN (")
+    ) {
+      const [repo, ...ids] = args as [string, ...string[]];
+      const wanted = new Set(ids);
+      const results = [...this.rows.values()]
+        .filter((row) => row.repo_full_name === repo && wanted.has(row.prefix_id))
+        .map((row) => ({ prefix_id: row.prefix_id }));
+      return { success: true, results: results as T[], meta: {} };
+    }
     if (
       normalizedSql.includes("FROM github_private_prefixes") &&
       normalizedSql.includes("rotated_at IS NULL") &&

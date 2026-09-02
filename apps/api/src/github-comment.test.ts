@@ -153,6 +153,26 @@ describe("gatherCommentBody", () => {
     expect(bucket.listCalls).toBe(2);
   });
 
+  it("never lists another repo's private prefix for the same target number (#934 isolation)", async () => {
+    const { env, ws, workspaceName, bucket } = makeTestEnv();
+    // One workspace bound to two private repos, both with a PR 12. Private
+    // keys omit the repo, so repo A's prefix must be excluded by ownership,
+    // not by key shape.
+    const targetA = { repo: "acme/web", num: 12, kind: "pull" as const };
+    const targetB = { repo: "acme/api", num: 12, kind: "pull" as const };
+    const idA = await getOrMintPrefixId(env.DB, targetA.repo, "feature/a");
+    const keyA = `${ghPrivateKeyPrefix(idA, targetA)}secret.png`;
+    await bucket.put(`acme/${keyA}`, PNG, { httpMetadata: { contentType: "image/png" } });
+    await replaceFileMetadata(env.DB, workspaceName, keyA, { "gh.ref": "acme/web#12" });
+
+    bucket.listCalls = 0;
+    const result = await gatherCommentBody(env, ws, workspaceName, targetB);
+    expect(result.body).not.toContain("secret.png");
+    expect(result.count).toBe(0);
+    // Plain prefix only: repo A's id is not a candidate for repo B.
+    expect(bucket.listCalls).toBe(1);
+  });
+
   it("finds a metadata-less private object under the repo-level prefix for an issue target (#934)", async () => {
     const { env, ws, workspaceName, bucket } = makeTestEnv();
     const target = { repo: "acme/web", num: 45, kind: "issues" as const };

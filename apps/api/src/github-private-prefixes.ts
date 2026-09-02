@@ -137,9 +137,26 @@ export async function listPrefixIdsForTarget(
     )
     .bind(GH_PRIVATE_ROOT_LEN + 1, workspace, GH_PRIVATE_TARGET_OFFSET, segment.length, segment)
     .all<PrefixRow>();
-  const ids = new Set(
-    (results ?? []).map((row) => row.prefix_id).filter((id) => PRIVATE_PREFIX_ID_RE.test(id)),
-  );
+  const discovered = (results ?? [])
+    .map((row) => row.prefix_id)
+    .filter((id) => PRIVATE_PREFIX_ID_RE.test(id));
+
+  // Private keys omit the repo, so a workspace bound to two private repos
+  // with the same PR/issue number would otherwise surface repo A's prefix
+  // for repo B's comment. Keep only ids this repo minted (rotated or not:
+  // ownership is what matters, and rotation re-keys objects anyway).
+  const ids = new Set<string>();
+  if (discovered.length > 0) {
+    const placeholders = discovered.map(() => "?").join(", ");
+    const owned = await db
+      .prepare(
+        `SELECT prefix_id FROM github_private_prefixes
+         WHERE repo_full_name = ? AND prefix_id IN (${placeholders})`,
+      )
+      .bind(normalizeRepo(repo), ...discovered)
+      .all<PrefixRow>();
+    for (const row of owned.results ?? []) ids.add(row.prefix_id);
+  }
 
   const sentinel = await getActivePrefixId(db, repo, "");
   if (sentinel) ids.add(sentinel);

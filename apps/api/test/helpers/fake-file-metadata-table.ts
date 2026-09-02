@@ -240,8 +240,10 @@ export class FileMetadataTable {
       ];
       const scopePrefix = `${workspace} `;
       const ids = new Set<string>();
-      for (const scopedKey of this.metadata.keys()) {
+      for (const [scopedKey, map] of this.metadata) {
         if (!scopedKey.startsWith(scopePrefix)) continue;
+        // A delete can leave an empty map behind; production has no row then.
+        if (map.size === 0) continue;
         const objectKey = scopedKey.slice(scopePrefix.length);
         if (!objectKey.startsWith("gh/private/")) continue;
         if (objectKey.substr(segOffset - 1, segLen) !== segment) continue;
