@@ -38,14 +38,14 @@ const TOC = [
   { id: "agents", label: "Teach your agent" },
   { id: "stage", label: "Stage as you go" },
   { id: "attach", label: "PR already open" },
-  { id: "video", label: "Video & everything else" },
+  { id: "video", label: "Video & GIFs" },
   { id: "faq", label: "FAQ" },
 ];
 
 const FAQ = [
   {
-    q: "Why can't my agent upload images to GitHub directly?",
-    a: "GitHub's own image hosting (github.com/user-attachments) only works when you drag a file into the comment box in a signed-in browser. There is no gh command or API for it. So any image an agent puts in a comment must already live at a public URL.",
+    q: "Can't my agent just use gh --attach?",
+    a: "Since September 2026, yes, for images and video on an existing issue or pull request. Uploads is for the rest of the loop: capturing the shot, staging it before the PR opens, one comment that updates on every revision, and a public URL you can paste anywhere.",
   },
   {
     q: "Do the image URLs change when I re-upload a screenshot?",
@@ -53,19 +53,19 @@ const FAQ = [
   },
   {
     q: "Can agents upload video to GitHub pull requests?",
-    a: "Yes. MP4, WebM, and other files upload as-is and get a stable public URL. GitHub only plays videos it hosts itself, so the comment links the file instead of embedding a player.",
+    a: "Yes. MP4, WebM, and GIFs upload as-is and get a stable public URL. GitHub only plays videos it hosts itself, so the comment links the file instead of embedding a player.",
   },
   {
     q: "How do I set up Claude Code to attach screenshots to its pull requests?",
-    a: "Run `uploads install` once. It installs the agent skills (stage-as-you-go workflow, CLI reference, and annotations) and registers the hosted MCP server with Claude Code. After that, the agent runs `uploads put <file>` on the branch as it works. When the PR opens, staged files land in one attachments comment.",
+    a: "Run uploads install once. It installs the agent skills (stage-as-you-go workflow, CLI reference, and annotations) and registers the hosted MCP server with Claude Code. After that, the agent runs uploads put <file> on the branch as it works. When the PR opens, staged files land in one attachments comment.",
   },
   {
     q: "Can I mark up a screenshot before attaching it?",
-    a: "Yes. `uploads screenshot --annotate` bakes boxes, arrows, labels, freeform strokes, and redactions into a capture (CSS selectors on a live page). `uploads annotate` does the same on an existing image with pixel coordinates. See the Attach & share docs and the annotate-screenshots skill.",
+    a: "Yes. uploads screenshot --annotate bakes boxes, arrows, labels, freeform strokes, and redactions into a capture (CSS selectors on a live page). uploads annotate does the same on an existing image with pixel coordinates. See the Attach & share docs and the annotate-screenshots skill.",
   },
   {
     q: "Are uploaded files private?",
-    a: "No. Files are public to anyone with the URL, even media attached to private repos. Don't upload secrets or sensitive UI — use a solid redaction (`uploads annotate` / `screenshot --annotate`) when a capture shows credentials. Create your own workspace (GitHub-linked) or accept an invite from a workspace admin.",
+    a: "No. Files are public to anyone with the URL, even media attached to private repos. Don't upload secrets or sensitive UI — use a solid redaction (uploads annotate / screenshot --annotate) when a capture shows credentials. Create your own workspace (GitHub-linked) or accept an invite from a workspace admin.",
   },
 ];
 
@@ -82,7 +82,7 @@ const FAQ_JSON_LD = JSON.stringify({
 
 <DocsLayout
   title="How to get agents to upload screenshots & video to GitHub"
-  description="Agents can't drag-and-drop into GitHub comments. Give Claude Code, CI jobs, and scripts one command that posts screenshots and video to PRs and issues."
+  description="One command for Claude Code, CI jobs, and scripts that captures, hosts, and posts screenshots and video to PRs and issues, before or after the PR exists."
   path="/github-screenshots"
   heading="How to get agents to upload screenshots & video to GitHub"
   tagline="Claude Code, CI jobs, review bots, plain scripts: anything without a browser."
@@ -92,21 +92,32 @@ const FAQ_JSON_LD = JSON.stringify({
 >
   <script type="application/ld+json" slot="head" set:html={FAQ_JSON_LD} />
 
+  <aside class="callout">
+    <p>
+      <strong>As of September 2026, GitHub CLI supports attachments.</strong>
+      <code>gh</code> 2.99 adds
+      <code>--attach</code> to the issue and pull request commands for images and video (<a
+        href="https://github.blog/changelog/2026-09-01-github-cli-media-in-issues-pull-requests-and-comments/"
+        >GitHub's changelog</a
+      >). If you have a PR open and a screenshot to drop on it, use it. With the&#32;
+      <a href="/docs/github-app#ingest">GitHub App</a> installed, those attachments are imported into
+      your workspace's Screenshots view too. This page covers the workflow around that: capturing, staging
+      before a PR exists, and keeping one comment current as the branch changes.
+    </p>
+  </aside>
+
   <section class="lead" id="problem">
     <h2>
-      The problem: no drag-and-drop from a terminal <a
+      The problem: the screenshot exists before the PR does <a
         class="anchor"
         href="#problem"
         aria-label="Link to this section">#</a
       >
     </h2>
     <p>
-      You put a screenshot on a pull request by dragging the file into the comment box. GitHub then
-      hosts it at <code>github.com/user-attachments/…</code>. That only works in a signed-in
-      browser. There is no <code>gh</code> command and no API for it.
-    </p>
-    <p>
-      So an agent that just changed your UI can't show its work. The usual workarounds all hurt:
+      An agent that just changed your UI has a screenshot and nowhere to put it. There is no pull
+      request to attach it to yet, and GitHub's own hosting only works inside GitHub. The usual
+      workarounds all hurt:
     </p>
     <ul>
       <li>
@@ -229,18 +240,19 @@ const FAQ_JSON_LD = JSON.stringify({
       >, and <code>--repo owner/name</code> for a different repo. Placing the image yourself in a PR description
       or README? <code>--no-comment</code> prints the URL and Markdown without posting.
     </p>
+    <p class="pointer">
+      One image on an open PR? <code>gh pr comment --attach</code> does that now too.
+    </p>
   </section>
 
   <section id="video">
     <h2>
-      Video and everything else <a class="anchor" href="#video" aria-label="Link to this section"
-        >#</a
-      >
+      Video and GIFs <a class="anchor" href="#video" aria-label="Link to this section">#</a>
     </h2>
     <p>
       A short screen recording is often the best proof that a change works. The same <code>put</code
-      >&#32; handles it — MP4, WebM, GIFs, zips, and logs all upload as-is and stage on the branch.
-      One caveat: GitHub only plays videos it hosts itself, so outside video shows up as a&#32;
+      >&#32; handles it — MP4, WebM, and GIFs upload as-is and stage on the branch. One caveat:
+      GitHub only plays videos it hosts itself, so outside video shows up as a&#32;
       <strong>link, not a player</strong>. GIFs embed like images.
     </p>
     <p>

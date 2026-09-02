@@ -22,9 +22,10 @@ const REPO = "https://github.com/buildinternet/uploads";
       What it does <a class="anchor" href="#what-it-does" aria-label="Link to this section">#</a>
     </h2>
     <p>
-      GitHub has no API for file uploads, so agents can't include screenshots in pull requests and
-      issues. Uploads gives agents a way to host files and show their work. When the pull request
-      opens, all screenshots appear in one tidy comment that updates automatically on each revision.
+      Agents take screenshots long before a pull request exists, and GitHub's own attachments only
+      work inside GitHub. Uploads hosts each file at a stable public URL the moment it's captured.
+      When the pull request opens, all screenshots appear in one tidy comment that updates
+      automatically on each revision.
     </p>
     <p>With the uploads CLI you can:</p>
     <ul>
@@ -32,7 +33,7 @@ const REPO = "https://github.com/buildinternet/uploads";
         <a href="/docs/attach-pull-request-images">Attach screenshots and video</a> to a GitHub PR, issue,
         or code review — kept in one managed comment.
       </li>
-      <li>Get a stable public URL for any file, on the branch you're already on.</li>
+      <li>Get a stable public URL for any image or clip, on the branch you're already on.</li>
       <li>
         Collect media into a <a href="/docs/galleries">gallery</a> behind one link.
       </li>
@@ -94,8 +95,8 @@ const REPO = "https://github.com/buildinternet/uploads";
       <a class="card" href="/docs/attach-pull-request-images">
         <h3>Attach &amp; share <span class="go">→</span></h3>
         <p>
-          Post files to a PR or issue, get a URL for any file, capture a screenshot, and annotate
-          it.
+          Post files to a PR or issue, get a URL for an image or video, capture a screenshot, and
+          annotate it.
         </p>
       </a>
       <a class="card" href="/docs/github-app">

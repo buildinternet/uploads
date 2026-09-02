@@ -48,9 +48,11 @@ can use in pull requests and issues. On a branch, `uploads put` stages each file
 as soon as it is ready. When the pull request opens, uploads.sh promotes the
 staged files into one managed comment.
 
-GitHub's native image hosting requires a browser session. uploads.sh gives
-agents a command they can run from the same terminal where they build and test
-the change, while the branch is still in progress.
+GitHub's own attachments work from a browser and, since GitHub CLI 2.99
+(September 2026), from `gh … --attach`, but only once a pull request or issue
+exists, and the files stay private to GitHub. uploads.sh gives agents a stable
+public URL from the same terminal where they build and test the change, while
+the branch is still in progress.
 
 Keys are hash-free, so re-uploading the same filename overwrites in place and
 the URL never changes — every embed of it updates at once. Workspaces keep
