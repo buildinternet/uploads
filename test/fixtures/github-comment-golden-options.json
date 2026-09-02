@@ -5,14 +5,14 @@
       "options": {
         "imageWidth": "full"
       },
-      "expected": "<!-- uploads.sh:attachments -->\n- [build.log](https://uploads.sh/f/acme/gh/acme/web/pull/12/build.log)\n<a href=\"https://uploads.sh/f/acme/gh/acme/web/pull/12/hero.png\"><img alt=\"hero.png\" src=\"https://embed.uploads.sh/f/hero.png\"></a>\n\n<sub>Maintained by <a href=\"https://uploads.sh\">uploads.sh</a> · add media: <code>uploads put &lt;file&gt; --pr &lt;N&gt;</code> · <a href=\"https://uploads.sh/docs/github-app\">docs</a></sub>"
+      "expected": "<!-- uploads.sh:attachments -->\n<a href=\"https://uploads.sh/f/acme/gh/acme/web/pull/12/hero.png\"><img alt=\"hero.png\" src=\"https://embed.uploads.sh/f/hero.png\"></a>\n\n| File | Type | Size |\n| --- | --- | --- |\n| [build.log](https://uploads.sh/f/build.log) · [page](https://uploads.sh/f/acme/gh/acme/web/pull/12/build.log) | LOG | — |\n\n<sub>Maintained by <a href=\"https://uploads.sh\">uploads.sh</a> · add media: <code>uploads put &lt;file&gt; --pr &lt;N&gt;</code> · <a href=\"https://uploads.sh/docs/github-app\">docs</a></sub>"
     },
     {
       "name": "px500",
       "options": {
         "imageWidth": 500
       },
-      "expected": "<!-- uploads.sh:attachments -->\n- [build.log](https://uploads.sh/f/acme/gh/acme/web/pull/12/build.log)\n<a href=\"https://uploads.sh/f/acme/gh/acme/web/pull/12/hero.png\"><img width=\"500\" alt=\"hero.png\" src=\"https://embed.uploads.sh/f/hero.png\"></a>\n\n<sub>Maintained by <a href=\"https://uploads.sh\">uploads.sh</a> · add media: <code>uploads put &lt;file&gt; --pr &lt;N&gt;</code> · <a href=\"https://uploads.sh/docs/github-app\">docs</a></sub>"
+      "expected": "<!-- uploads.sh:attachments -->\n<a href=\"https://uploads.sh/f/acme/gh/acme/web/pull/12/hero.png\"><img width=\"500\" alt=\"hero.png\" src=\"https://embed.uploads.sh/f/hero.png\"></a>\n\n| File | Type | Size |\n| --- | --- | --- |\n| [build.log](https://uploads.sh/f/build.log) · [page](https://uploads.sh/f/acme/gh/acme/web/pull/12/build.log) | LOG | — |\n\n<sub>Maintained by <a href=\"https://uploads.sh\">uploads.sh</a> · add media: <code>uploads put &lt;file&gt; --pr &lt;N&gt;</code> · <a href=\"https://uploads.sh/docs/github-app\">docs</a></sub>"
     },
     {
       "name": "cap2",
@@ -65,7 +65,7 @@
       "options": {
         "note": "Staging only."
       },
-      "expected": "<!-- uploads.sh:attachments -->\nStaging only.\n\n- [build.log](https://uploads.sh/f/acme/gh/acme/web/pull/12/build.log)\n<a href=\"https://uploads.sh/f/acme/gh/acme/web/pull/12/hero.png\"><img width=\"720\" alt=\"hero.png\" src=\"https://embed.uploads.sh/f/hero.png\"></a>\n\n<sub>Maintained by <a href=\"https://uploads.sh\">uploads.sh</a> · add media: <code>uploads put &lt;file&gt; --pr &lt;N&gt;</code> · <a href=\"https://uploads.sh/docs/github-app\">docs</a></sub>"
+      "expected": "<!-- uploads.sh:attachments -->\nStaging only.\n\n<a href=\"https://uploads.sh/f/acme/gh/acme/web/pull/12/hero.png\"><img width=\"720\" alt=\"hero.png\" src=\"https://embed.uploads.sh/f/hero.png\"></a>\n\n| File | Type | Size |\n| --- | --- | --- |\n| [build.log](https://uploads.sh/f/build.log) · [page](https://uploads.sh/f/acme/gh/acme/web/pull/12/build.log) | LOG | — |\n\n<sub>Maintained by <a href=\"https://uploads.sh\">uploads.sh</a> · add media: <code>uploads put &lt;file&gt; --pr &lt;N&gt;</code> · <a href=\"https://uploads.sh/docs/github-app\">docs</a></sub>"
     }
   ]
 }

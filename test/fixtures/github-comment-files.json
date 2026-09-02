@@ -1,0 +1,46 @@
+{
+  "items": [
+    {
+      "key": "gh/acme/web/pull/12/archive.zip",
+      "url": "https://uploads.sh/f/archive.zip",
+      "embedUrl": null,
+      "pageUrl": "https://uploads.sh/f/acme/gh/acme/web/pull/12/archive.zip",
+      "size": 5200000,
+      "contentType": "application/zip"
+    },
+    {
+      "key": "gh/acme/web/pull/12/data.csv",
+      "url": null,
+      "embedUrl": null,
+      "pageUrl": null,
+      "size": 850,
+      "contentType": "text/csv"
+    },
+    {
+      "key": "gh/acme/web/pull/12/diagram.png",
+      "url": "https://uploads.sh/f/diagram.png",
+      "embedUrl": "https://embed.uploads.sh/f/diagram.png",
+      "pageUrl": "https://uploads.sh/f/acme/gh/acme/web/pull/12/diagram.png"
+    },
+    {
+      "key": "gh/acme/web/pull/12/report.pdf",
+      "url": "https://uploads.sh/f/report.pdf",
+      "embedUrl": null,
+      "pageUrl": "https://uploads.sh/f/acme/gh/acme/web/pull/12/report.pdf",
+      "size": 2400000,
+      "contentType": "application/pdf",
+      "meta": {
+        "path": "/reports",
+        "state": "after"
+      }
+    },
+    {
+      "key": "gh/acme/web/pull/12/screenshot.png",
+      "url": "https://uploads.sh/f/screenshot.png",
+      "embedUrl": "https://embed.uploads.sh/f/screenshot.png",
+      "pageUrl": "https://uploads.sh/f/acme/gh/acme/web/pull/12/screenshot.png"
+    }
+  ],
+  "galleries": [],
+  "expected": "<!-- uploads.sh:attachments -->\n<a href=\"https://uploads.sh/f/acme/gh/acme/web/pull/12/diagram.png\"><img width=\"560\" alt=\"diagram.png\" src=\"https://embed.uploads.sh/f/diagram.png\"></a>\n\n<a href=\"https://uploads.sh/f/acme/gh/acme/web/pull/12/screenshot.png\"><img width=\"560\" alt=\"screenshot.png\" src=\"https://embed.uploads.sh/f/screenshot.png\"></a>\n\n| File | Type | Size |\n| --- | --- | --- |\n| [archive.zip](https://uploads.sh/f/archive.zip) · [page](https://uploads.sh/f/acme/gh/acme/web/pull/12/archive.zip) | ZIP | 5.2 MB |\n| data.csv | CSV | 850 B |\n| [report.pdf](https://uploads.sh/f/report.pdf) · [page](https://uploads.sh/f/acme/gh/acme/web/pull/12/report.pdf) · `/reports` · `after` | PDF | 2.4 MB |\n\n<sub>Maintained by <a href=\"https://uploads.sh\">uploads.sh</a> · add media: <code>uploads put &lt;file&gt; --pr &lt;N&gt;</code> · <a href=\"https://uploads.sh/docs/github-app\">docs</a></sub>"
+}

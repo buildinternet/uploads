@@ -69,6 +69,7 @@ const goldenCap = loadFixture("github-comment-golden-cap.json");
 const goldenMeta = loadFixture("github-comment-golden-meta.json");
 const goldenVideo = loadFixture("github-comment-golden-video.json");
 const goldenEmpty = loadFixture("github-comment-golden-empty.json");
+const goldenFiles = loadFixture("github-comment-files.json");
 const goldenOptions = loadOptionsFixture("github-comment-golden-options.json");
 const goldenPrivateKeys = loadPrivateKeyFixture("github-comment-golden-private-keys.json");
 
@@ -164,6 +165,12 @@ describe("attachmentsCommentBody (api copy)", () => {
   it("renders path/state captions, and nothing when they are absent", () => {
     expect(attachmentsCommentBody(goldenMeta.items, goldenMeta.galleries)).toBe(
       goldenMeta.expected,
+    );
+  });
+
+  it("renders non-media attachments as a file table, never bullets or overflow (issue #946)", () => {
+    expect(attachmentsCommentBody(goldenFiles.items, goldenFiles.galleries)).toBe(
+      goldenFiles.expected,
     );
   });
 

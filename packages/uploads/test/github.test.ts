@@ -240,7 +240,7 @@ describe("ghMetadataForBranch", () => {
 });
 
 describe("attachmentsCommentBody", () => {
-  it("starts with the marker and renders images with a width cap, other files as links", () => {
+  it("starts with the marker and renders images with a width cap, other files as a table (issue #946)", () => {
     const body = attachmentsCommentBody([
       { key: "gh/o/r/pull/1/notes.txt", url: "https://x.test/gh/o/r/pull/1/notes.txt" },
       { key: "gh/o/r/pull/1/after.png", url: "https://x.test/gh/o/r/pull/1/after.png" },
@@ -250,11 +250,12 @@ describe("attachmentsCommentBody", () => {
       '<a href="https://x.test/gh/o/r/pull/1/after.png"><img width="720" alt="after.png" src="https://x.test/gh/o/r/pull/1/after.png"></a>',
     );
     expect(body).not.toContain("![after.png]");
-    expect(body).toContain("- [notes.txt](https://x.test/gh/o/r/pull/1/notes.txt)");
+    expect(body).toContain("| File | Type | Size |");
+    expect(body).toContain("| [notes.txt](https://x.test/gh/o/r/pull/1/notes.txt) | TXT | — |");
     expect(body).toContain('<a href="https://uploads.sh">uploads.sh</a>');
   });
 
-  it("renders pdf, json, and zip items as link bullets, never as embeds", () => {
+  it("renders pdf, json, and zip items as a file table, never as embeds or bullets (issue #946)", () => {
     const body = attachmentsCommentBody([
       { key: "gh/o/r/pull/1/lighthouse.json", url: "https://x.test/lighthouse.json" },
       {
@@ -264,9 +265,12 @@ describe("attachmentsCommentBody", () => {
       },
       { key: "gh/o/r/pull/1/dist.zip", url: "https://x.test/dist.zip" },
     ]);
-    expect(body).toContain("- [lighthouse.json](https://x.test/lighthouse.json)");
-    expect(body).toContain("- [report.pdf](https://uploads.sh/f/w/report.pdf)");
-    expect(body).toContain("- [dist.zip](https://x.test/dist.zip)");
+    expect(body).toContain("| [lighthouse.json](https://x.test/lighthouse.json) | JSON | — |");
+    expect(body).toContain(
+      "| [report.pdf](https://x.test/report.pdf) · [page](https://uploads.sh/f/w/report.pdf) | PDF | — |",
+    );
+    expect(body).toContain("| [dist.zip](https://x.test/dist.zip) | ZIP | — |");
+    expect(body).not.toContain("- [lighthouse.json]");
     expect(body).not.toContain("<img");
   });
 
@@ -304,9 +308,9 @@ describe("attachmentsCommentBody", () => {
     expect(a.indexOf("a.png")).toBeLessThan(a.indexOf("b.png"));
   });
 
-  it("lists items without a url as plain names", () => {
+  it("lists items without a url as a plain, unlinked table row", () => {
     const body = attachmentsCommentBody([{ key: "gh/o/r/pull/1/x.bin", url: null }]);
-    expect(body).toContain("- x.bin");
+    expect(body).toContain("| x.bin | BIN | — |");
   });
 
   it("renders a distinct, safely escaped Galleries section without attachments", () => {

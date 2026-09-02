@@ -176,6 +176,8 @@ async function gatherAttachments(
             url: o.url,
             embedUrl: o.embedUrl,
             pageUrl: linkToFilePage ? o.pageUrl : null,
+            size: o.size,
+            contentType: o.contentType,
           });
         cursor = page.cursor ?? undefined;
       } while (cursor);

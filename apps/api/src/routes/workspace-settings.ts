@@ -1389,6 +1389,8 @@ export async function commentPreviewHandler(c: Context<SettingsVars>) {
     url: o.url,
     embedUrl: o.embedUrl,
     pageUrl: linkToFilePage ? (o.pageUrl ?? null) : null,
+    size: o.size,
+    contentType: o.contentType,
   }));
   let sample: "workspace" | "fixtures" = "workspace";
   if (items.length === 0) {
