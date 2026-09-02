@@ -161,6 +161,10 @@ describe("activeContentAllowed — shared lane", () => {
     const { publicBaseUrl: _unused, ...noUrl } = SHARED_WS;
     expect(await activeContentAllowed(env(), noUrl, NOW)).toBe(false);
   });
+
+  it("denies (fails closed) rather than throwing when the REGISTRY binding is absent", async () => {
+    expect(await activeContentAllowed(env({ REGISTRY: undefined }), SHARED_WS, NOW)).toBe(false);
+  });
 });
 
 describe("activeContentAllowed — BYO lane", () => {

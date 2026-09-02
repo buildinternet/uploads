@@ -86,6 +86,11 @@ export async function activeContentAllowed(
   }
   if (ws.storageUnhealthyAt) return false;
   if (isSharedLane(ws)) {
+    // `REGISTRY` backs every workspace record too, so a real deployment
+    // always has it bound — this guard exists so a caller/fixture that
+    // wires up `FLAGS` without `REGISTRY` fails closed instead of throwing,
+    // same fail-closed posture as the missing-`FLAGS` check above.
+    if (!env.REGISTRY) return false;
     const host = hostOf(ws.publicBaseUrl);
     if (!host) return false;
     const record = await readHostActiveContent(env, host);

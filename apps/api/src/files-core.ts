@@ -7,6 +7,7 @@
  */
 import { ConflictError, NotFoundError, ValidationError } from "@uploads/errors";
 import { createStorage, type Files, type StoredFile } from "@uploads/storage";
+import { activeContentAllowed } from "./active-content";
 import { recordAdoptionSafe, type UploadSurface } from "./adoption";
 import {
   budgetDenialError,
@@ -504,7 +505,8 @@ export async function putObject(
   if (opts?.metadata) validateMetadataEntries(opts.metadata);
 
   const declared = resolveDeclaredContentType(opts?.declaredContentType, finalKey);
-  const inspection = inspectUpload(bytes, resolveUploadPolicy(ws), declared);
+  const policy = resolveUploadPolicy(ws, { activeContent: await activeContentAllowed(env, ws) });
+  const inspection = inspectUpload(bytes, policy, declared);
   if (!inspection.ok) throw inspection.error;
 
   const store = await storage(env, ws);

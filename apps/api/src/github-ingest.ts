@@ -24,6 +24,7 @@
  */
 
 import { AppError, isRetryableType, NotFoundError } from "@uploads/errors";
+import { activeContentAllowed } from "./active-content";
 import { attachmentKeyBasename, extractUserAttachments } from "./github-attachment-extract";
 import { GH_PRIVATE_ROOT, sanitizeKeySegment } from "./github-comment-render";
 import {
@@ -244,8 +245,12 @@ async function fetchAndStore(
   // .allowed`, guards.ts — no shadow table) AND be an image/video family;
   // PDFs and archives pasted into a PR are left on GitHub. Non-sniffable
   // bytes or a type outside the gate is the same permanent
-  // `unsupported_media_type` skip either way.
-  const policy = resolveUploadPolicy(ws);
+  // `unsupported_media_type` skip either way. SVG is declared-only (never
+  // sniffed) so `detectContentType` alone never admits one here regardless
+  // of the gate — but the policy still needs the real gate result so its
+  // `allowed` set matches what every other caller would compute for this
+  // workspace (issue #929).
+  const policy = resolveUploadPolicy(ws, { activeContent: await activeContentAllowed(env, ws) });
   const sniffed = detectContentType(bytes);
   if (!sniffed || !policy.allowed.has(sniffed) || uploadKind(sniffed) === "file") {
     return { kind: "skip", reason: "unsupported_media_type" };

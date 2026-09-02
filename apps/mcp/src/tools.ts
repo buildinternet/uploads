@@ -845,7 +845,13 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
           }
         }
 
-        const policy = resolveUploadPolicy(workspace);
+        // `activeContent: false` here is deliberate, not a placeholder: this
+        // policy is only ever consulted below for `maxBytes`/`maxVideoBytes`
+        // (the pre-decode size ceiling), and the gated SVG/XML rows carry no
+        // byte-cap of their own — the real gate result would change nothing
+        // this call reads. `putObject`'s own `resolveUploadPolicy` call
+        // (files-core.ts) is what actually gates SVG/XML acceptance.
+        const policy = resolveUploadPolicy(workspace, { activeContent: false });
         // Pre-decode uses the policy ceiling (video may exceed maxBytes);
         // putObject's inspectUpload enforces the content-specific limit.
         const maxBytes = Math.max(policy.maxBytes, policy.maxVideoBytes);

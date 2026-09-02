@@ -7,12 +7,18 @@ const WEBM = new Uint8Array([0x1a, 0x45, 0xdf, 0xa3, 1, 2, 3, 4, 5, 6, 7, 8]);
 
 describe("per-type upload size", () => {
   it("allows a small image under maxUploadBytes", () => {
-    const policy = resolveUploadPolicy({ maxUploadBytes: 100, maxVideoUploadBytes: 4 });
+    const policy = resolveUploadPolicy(
+      { maxUploadBytes: 100, maxVideoUploadBytes: 4 },
+      { activeContent: false },
+    );
     expect(inspectUpload(PNG, policy).ok).toBe(true);
   });
 
   it("rejects video over maxVideoUploadBytes even if maxUploadBytes is higher", () => {
-    const policy = resolveUploadPolicy({ maxUploadBytes: 1000, maxVideoUploadBytes: 4 });
+    const policy = resolveUploadPolicy(
+      { maxUploadBytes: 1000, maxVideoUploadBytes: 4 },
+      { activeContent: false },
+    );
     const result = inspectUpload(WEBM, policy);
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -23,7 +29,7 @@ describe("per-type upload size", () => {
   });
 
   it("uses maxUploadBytes for video when maxVideoUploadBytes is unset", () => {
-    const policy = resolveUploadPolicy({ maxUploadBytes: 100 });
+    const policy = resolveUploadPolicy({ maxUploadBytes: 100 }, { activeContent: false });
     expect(policy.maxVideoBytes).toBe(100);
     expect(inspectUpload(WEBM, policy).ok).toBe(true);
   });

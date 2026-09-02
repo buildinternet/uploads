@@ -5,6 +5,7 @@ import {
   ValidationError,
 } from "@uploads/errors";
 import type { Context, Handler } from "hono";
+import { activeContentAllowed } from "../active-content";
 import {
   badKey,
   finalizeUploadKey,
@@ -58,7 +59,7 @@ export async function signFileHandler(c: Context<WorkspaceVars>) {
   const ws = c.get("workspace");
   const key = finalizeUploadKey(rawKey, ws);
 
-  const policy = resolveUploadPolicy(ws);
+  const policy = resolveUploadPolicy(ws, { activeContent: await activeContentAllowed(c.env, ws) });
 
   // Content-type is required on presign: the direct-to-bucket PUT cannot
   // magic-byte sniff, so the allowlist must be enforced at mint time.
@@ -188,7 +189,8 @@ export async function putFileHandler(c: Context<WorkspaceVars>) {
     });
   }
 
-  const policy = resolveUploadPolicy(c.get("workspace"));
+  const ws = c.get("workspace");
+  const policy = resolveUploadPolicy(ws, { activeContent: await activeContentAllowed(c.env, ws) });
   const declared = checkDeclaredLength(c.req.header("Content-Length"), policy);
   if (declared) throw declared.error;
 
@@ -220,7 +222,6 @@ export async function putFileHandler(c: Context<WorkspaceVars>) {
     }
   }
   const bytes = new Uint8Array(body);
-  const ws = c.get("workspace");
   const workspaceName = c.get("workspaceName");
   const putOpts = {
     provenance,

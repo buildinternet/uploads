@@ -1,14 +1,18 @@
 import { describe, expect, it } from "vitest";
 import {
   checkDeclaredLength,
+  containsActiveMarkup,
   contentTypeFromKey,
   DEFAULT_ALLOWED_CONTENT_TYPES,
   DEFAULT_MAX_UPLOAD_BYTES,
   detectContentType,
   detectImageDimensions,
   extensionForContentType,
+  GATED_CONTENT_TYPES,
   inspectUpload,
+  looksLikeSvg,
   looksLikeText,
+  looksLikeXml,
   resolveDeclaredContentType,
   resolveUploadPolicy,
   TEXT_CONTENT_TYPES,
@@ -104,7 +108,7 @@ describe("detectImageDimensions", () => {
 });
 
 describe("checkDeclaredLength", () => {
-  const policy = resolveUploadPolicy({ maxUploadBytes: 100 });
+  const policy = resolveUploadPolicy({ maxUploadBytes: 100 }, { activeContent: false });
 
   it("rejects a Content-Length over the cap with 413", () => {
     expect(checkDeclaredLength("999", policy)?.status).toBe(413);
@@ -119,28 +123,34 @@ describe("checkDeclaredLength", () => {
 
 describe("resolveUploadPolicy", () => {
   it("uses defaults when the record omits overrides", () => {
-    const policy = resolveUploadPolicy({});
+    const policy = resolveUploadPolicy({}, { activeContent: false });
     expect(policy.maxBytes).toBe(DEFAULT_MAX_UPLOAD_BYTES);
     expect([...policy.allowed].sort()).toEqual([...DEFAULT_ALLOWED_CONTENT_TYPES].sort());
   });
 
   it("applies per-workspace overrides", () => {
-    const policy = resolveUploadPolicy({
-      maxUploadBytes: 1000,
-      allowedContentTypes: ["image/png"],
-    });
+    const policy = resolveUploadPolicy(
+      {
+        maxUploadBytes: 1000,
+        allowedContentTypes: ["image/png"],
+      },
+      { activeContent: false },
+    );
     expect(policy.maxBytes).toBe(1000);
     expect([...policy.allowed]).toEqual(["image/png"]);
   });
 
   it("ignores empty or non-positive overrides and falls back", () => {
-    const policy = resolveUploadPolicy({ maxUploadBytes: 0, allowedContentTypes: [] });
+    const policy = resolveUploadPolicy(
+      { maxUploadBytes: 0, allowedContentTypes: [] },
+      { activeContent: false },
+    );
     expect(policy.maxBytes).toBe(DEFAULT_MAX_UPLOAD_BYTES);
     expect(policy.allowed.size).toBe(DEFAULT_ALLOWED_CONTENT_TYPES.length);
   });
 
   it("default allowlist includes the non-media families and quicktime", () => {
-    const { allowed } = resolveUploadPolicy({});
+    const { allowed } = resolveUploadPolicy({}, { activeContent: false });
     for (const t of [
       "application/pdf",
       "application/zip",
@@ -196,6 +206,44 @@ describe("resolveUploadPolicy", () => {
   });
 });
 
+describe("resolveUploadPolicy — active-content gate (issue #929)", () => {
+  it("gated types are absent from the default allowlist when the gate is closed", () => {
+    const policy = resolveUploadPolicy({}, { activeContent: false });
+    for (const t of GATED_CONTENT_TYPES) expect(policy.allowed.has(t), t).toBe(false);
+  });
+
+  it("gated types join the default allowlist when the gate is open", () => {
+    const policy = resolveUploadPolicy({}, { activeContent: true });
+    for (const t of GATED_CONTENT_TYPES) expect(policy.allowed.has(t), t).toBe(true);
+    // Ungated defaults are still present too — the gate only adds, never replaces.
+    for (const t of DEFAULT_ALLOWED_CONTENT_TYPES) expect(policy.allowed.has(t), t).toBe(true);
+  });
+
+  it("an allowedContentTypes override naming a gated type is stripped without the gate", () => {
+    const policy = resolveUploadPolicy(
+      { allowedContentTypes: ["image/png", "image/svg+xml"] },
+      { activeContent: false },
+    );
+    expect([...policy.allowed]).toEqual(["image/png"]);
+  });
+
+  it("an allowedContentTypes override naming a gated type keeps it with the gate open", () => {
+    const policy = resolveUploadPolicy(
+      { allowedContentTypes: ["image/png", "image/svg+xml"] },
+      { activeContent: true },
+    );
+    expect([...policy.allowed].sort()).toEqual(["image/png", "image/svg+xml"]);
+  });
+
+  it("an override cannot smuggle in a gated type it never named, even with the gate open", () => {
+    const policy = resolveUploadPolicy(
+      { allowedContentTypes: ["image/png"] },
+      { activeContent: true },
+    );
+    expect(policy.allowed.has("application/xml")).toBe(false);
+  });
+});
+
 describe("looksLikeText", () => {
   const enc = (s: string) => new TextEncoder().encode(s);
 
@@ -227,6 +275,70 @@ describe("looksLikeText", () => {
   });
 });
 
+describe("looksLikeSvg", () => {
+  const enc = (s: string) => new TextEncoder().encode(s);
+
+  it("accepts a bare <svg> root", () => {
+    expect(looksLikeSvg(enc('<svg xmlns="http://www.w3.org/2000/svg"></svg>'))).toBe(true);
+  });
+
+  it("accepts <svg> preceded by an XML prolog, a comment, and a DOCTYPE, in any order", () => {
+    expect(
+      looksLikeSvg(enc('<?xml version="1.0" encoding="UTF-8"?>\n<!-- generated --><svg></svg>')),
+    ).toBe(true);
+    expect(
+      looksLikeSvg(
+        enc(
+          '<?xml version="1.0"?>\n<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">\n<svg></svg>',
+        ),
+      ),
+    ).toBe(true);
+    expect(looksLikeSvg(enc("<!-- a --><!-- b -->\n<svg></svg>"))).toBe(true);
+  });
+
+  it("strips a leading BOM before checking", () => {
+    expect(looksLikeSvg(new Uint8Array([0xef, 0xbb, 0xbf, ...enc("<svg></svg>")]))).toBe(true);
+  });
+
+  it("rejects a non-SVG root element and non-text bytes", () => {
+    expect(looksLikeSvg(enc("<html><body>hi</body></html>"))).toBe(false);
+    expect(looksLikeSvg(enc('{"svg": true}'))).toBe(false);
+    expect(looksLikeSvg(new Uint8Array([0x00, 0x01, 0x02]))).toBe(false);
+  });
+});
+
+describe("looksLikeXml", () => {
+  const enc = (s: string) => new TextEncoder().encode(s);
+
+  it("accepts text whose first non-whitespace character is <", () => {
+    expect(looksLikeXml(enc('<?xml version="1.0"?><report></report>'))).toBe(true);
+    expect(looksLikeXml(enc("\n\n  <root/>"))).toBe(true);
+  });
+
+  it("rejects text not starting with < and non-text bytes", () => {
+    expect(looksLikeXml(enc("hello <world/>"))).toBe(false);
+    expect(looksLikeXml(new Uint8Array([0x00, 0x01]))).toBe(false);
+  });
+});
+
+describe("containsActiveMarkup", () => {
+  it("flags script tags, event handlers, javascript: URLs, foreignObject, and xml-stylesheet", () => {
+    expect(containsActiveMarkup("<svg><script>alert(1)</script></svg>")).toBe(true);
+    expect(containsActiveMarkup('<svg onload="alert(1)"></svg>')).toBe(true);
+    expect(containsActiveMarkup('<a href="javascript:alert(1)">x</a>')).toBe(true);
+    expect(containsActiveMarkup("<svg><foreignObject></foreignObject></svg>")).toBe(true);
+    expect(containsActiveMarkup('<?xml-stylesheet href="x.xsl"?><a/>')).toBe(true);
+    expect(containsActiveMarkup("<SCRIPT>x</SCRIPT>")).toBe(true);
+  });
+
+  it("passes inert markup", () => {
+    expect(containsActiveMarkup('<svg xmlns="http://www.w3.org/2000/svg"><rect/></svg>')).toBe(
+      false,
+    );
+    expect(containsActiveMarkup("<report><item>one</item></report>")).toBe(false);
+  });
+});
+
 describe("the upload-type table", () => {
   it("is coherent: every allowed type round-trips through its canonical extension, and text types are allowed", () => {
     for (const type of DEFAULT_ALLOWED_CONTENT_TYPES) {
@@ -237,6 +349,16 @@ describe("the upload-type table", () => {
     for (const type of TEXT_CONTENT_TYPES) {
       expect(DEFAULT_ALLOWED_CONTENT_TYPES, type).toContain(type);
     }
+  });
+
+  it("gated types with an extension round-trip too; text/xml is declaration-only and has none", () => {
+    expect(GATED_CONTENT_TYPES).toEqual(["image/svg+xml", "application/xml", "text/xml"]);
+    for (const type of ["image/svg+xml", "application/xml"]) {
+      const ext = extensionForContentType(type);
+      expect(ext, type).toBeDefined();
+      expect(contentTypeFromKey(`a/file.${ext}`), type).toBe(type);
+    }
+    expect(extensionForContentType("text/xml")).toBeUndefined();
   });
 });
 
@@ -256,11 +378,15 @@ describe("contentTypeFromKey", () => {
     expect(contentTypeFromKey("a/shot.png")).toBe("image/png");
   });
 
-  it("returns undefined for unknown or missing extensions and never maps html/svg", () => {
+  it("returns undefined for unknown or missing extensions and never maps html", () => {
     expect(contentTypeFromKey("a/blob")).toBeUndefined();
     expect(contentTypeFromKey("a/page.html")).toBeUndefined();
-    expect(contentTypeFromKey("a/icon.svg")).toBeUndefined();
     expect(contentTypeFromKey("a/dir.v2/")).toBeUndefined();
+  });
+
+  it("maps the gated extensions (issue #929) as a claim only — acceptance is separately gated", () => {
+    expect(contentTypeFromKey("a/icon.svg")).toBe("image/svg+xml");
+    expect(contentTypeFromKey("a/report.xml")).toBe("application/xml");
   });
 
   it("does not resolve through inherited Object.prototype keys", () => {
@@ -289,7 +415,7 @@ describe("resolveDeclaredContentType", () => {
 });
 
 describe("inspectUpload", () => {
-  const policy = resolveUploadPolicy({});
+  const policy = resolveUploadPolicy({}, { activeContent: false });
 
   it("accepts an allowed type and returns the sniffed content type", () => {
     const result = inspectUpload(PNG, policy);
@@ -297,21 +423,27 @@ describe("inspectUpload", () => {
   });
 
   it("rejects payloads over the size cap with 413", () => {
-    const small = resolveUploadPolicy({ maxUploadBytes: 4 });
+    const small = resolveUploadPolicy({ maxUploadBytes: 4 }, { activeContent: false });
     const result = inspectUpload(PNG, small);
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.status).toBe(413);
   });
 
   it("rejects a disallowed sniffed type with 415", () => {
-    const imagesOnly = resolveUploadPolicy({ allowedContentTypes: ["image/png"] });
+    const imagesOnly = resolveUploadPolicy(
+      { allowedContentTypes: ["image/png"] },
+      { activeContent: false },
+    );
     const result = inspectUpload(ZIP, imagesOnly);
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.status).toBe(415);
   });
 
   it("rejects a real image whose type is excluded by policy with 415", () => {
-    const gifOnly = resolveUploadPolicy({ allowedContentTypes: ["image/gif"] });
+    const gifOnly = resolveUploadPolicy(
+      { allowedContentTypes: ["image/gif"] },
+      { activeContent: false },
+    );
     const result = inspectUpload(PNG, gifOnly);
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.status).toBe(415);
@@ -354,7 +486,10 @@ describe("inspectUpload", () => {
   });
 
   it("honors a workspace allowlist that excludes text", () => {
-    const imagesOnly = resolveUploadPolicy({ allowedContentTypes: ["image/png"] });
+    const imagesOnly = resolveUploadPolicy(
+      { allowedContentTypes: ["image/png"] },
+      { activeContent: false },
+    );
     const result = inspectUpload(text, imagesOnly, "text/plain");
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.status).toBe(415);
@@ -370,7 +505,10 @@ describe("inspectUpload", () => {
   });
 
   it("caps non-media at maxBytes with kind file, and MOV at maxVideoBytes", () => {
-    const tight = resolveUploadPolicy({ maxUploadBytes: 4, maxVideoUploadBytes: 1000 });
+    const tight = resolveUploadPolicy(
+      { maxUploadBytes: 4, maxVideoUploadBytes: 1000 },
+      { activeContent: false },
+    );
     const pdf = inspectUpload(PDF, tight);
     expect(pdf.ok).toBe(false);
     if (!pdf.ok) {
@@ -379,5 +517,69 @@ describe("inspectUpload", () => {
     }
     const mov = inspectUpload(MOV, tight);
     expect(mov).toEqual({ ok: true, contentType: "video/quicktime" });
+  });
+});
+
+describe("inspectUpload — gated SVG/XML types (issue #929)", () => {
+  const enc = (s: string) => new TextEncoder().encode(s);
+  const gated = resolveUploadPolicy({}, { activeContent: true });
+
+  it("accepts an inert declared SVG, with or without a prolog/comment", () => {
+    expect(inspectUpload(enc("<svg></svg>"), gated, "image/svg+xml")).toEqual({
+      ok: true,
+      contentType: "image/svg+xml",
+    });
+    expect(
+      inspectUpload(enc('<?xml version="1.0"?>\n<!-- x --><svg></svg>'), gated, "image/svg+xml"),
+    ).toEqual({ ok: true, contentType: "image/svg+xml" });
+  });
+
+  it("415s a declared SVG containing <script>", () => {
+    const result = inspectUpload(
+      enc("<svg><script>alert(1)</script></svg>"),
+      gated,
+      "image/svg+xml",
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.status).toBe(415);
+  });
+
+  it("415s a declared SVG whose root is not <svg>", () => {
+    const result = inspectUpload(enc("<html></html>"), gated, "image/svg+xml");
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.status).toBe(415);
+  });
+
+  it("stores real PNG bytes as png even when declared as svg", () => {
+    expect(inspectUpload(PNG, gated, "image/svg+xml")).toEqual({
+      ok: true,
+      contentType: "image/png",
+    });
+  });
+
+  it("accepts declared application/xml starting with an XML prolog", () => {
+    expect(
+      inspectUpload(enc('<?xml version="1.0"?><report></report>'), gated, "application/xml"),
+    ).toEqual({ ok: true, contentType: "application/xml" });
+  });
+
+  it("415s a declared application/xml containing active markup", () => {
+    const result = inspectUpload(enc('<report onload="x()"></report>'), gated, "application/xml");
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.status).toBe(415);
+  });
+
+  it("a .log key with an XML-looking body declared text/plain stays text/plain, not xml", () => {
+    const result = inspectUpload(enc('<?xml version="1.0"?><a/>'), gated, "text/plain");
+    expect(result).toEqual({ ok: true, contentType: "text/plain" });
+  });
+
+  it("415s every gated type when the gate is closed, even for an otherwise-inert body", () => {
+    const closed = resolveUploadPolicy({}, { activeContent: false });
+    for (const declared of ["image/svg+xml", "application/xml", "text/xml"] as const) {
+      const result = inspectUpload(enc("<svg></svg>"), closed, declared);
+      expect(result.ok, declared).toBe(false);
+      if (!result.ok) expect(result.status).toBe(415);
+    }
   });
 });

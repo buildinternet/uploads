@@ -104,6 +104,20 @@ async function makeEnv(
     rateLimitOk?: boolean;
     scopedToken?: { rawToken: string; scopes: string[]; mintingUserId?: string };
     extraBindings?: Record<string, FakeR2Bucket>;
+    /**
+     * Flagship stand-in for the active-content gate (issue #929). Omitted =
+     * no `FLAGS` binding at all, which `activeContentAllowed` treats as
+     * fail-closed — every existing test keeps its pre-#929 behavior with no
+     * change here.
+     */
+    flags?: { getBooleanValue: (key: string, def: boolean) => Promise<boolean> };
+    /**
+     * Extra `REGISTRY` KV rows beyond the workspace record itself — keyed
+     * exactly as the real binding would be, e.g.
+     * `"host-active-content:storage.uploads.sh"` for a hosted host's
+     * active-content probe record (`./active-content-hosts.ts`).
+     */
+    registryExtra?: Record<string, unknown>;
   } = {},
 ) {
   const record: WorkspaceRecord = {
@@ -129,8 +143,16 @@ async function makeEnv(
         }
       : undefined,
   );
+  const registryExtra = opts.registryExtra ?? {};
   const env = {
-    REGISTRY: { get: async () => record, put: async () => undefined },
+    REGISTRY: {
+      // Every `ws:*` lookup (workspace load) resolves to the fixture record
+      // regardless of workspace name; anything else (e.g. a
+      // `host-active-content:*` probe record) comes from `registryExtra`,
+      // keyed exactly as written.
+      get: async (key: string) => (key.startsWith("ws:") ? record : (registryExtra[key] ?? null)),
+      put: async () => undefined,
+    },
     // No D1 token: force the legacy token path. run/batch no-op for usage
     // metering; file_metadata reads/writes are backed by makeFakeDB's store.
     DB: db,
@@ -147,6 +169,7 @@ async function makeEnv(
           headers: { "content-type": "application/json" },
         }),
     },
+    ...(opts.flags ? { FLAGS: opts.flags } : {}),
   };
   return { env, bucket, db };
 }
@@ -520,6 +543,61 @@ describe("PUT /v1/:workspace/files upload guardrails", () => {
   });
 });
 
+const INERT_SVG = new TextEncoder().encode(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"></svg>',
+);
+
+/** A fresh, passing `host-active-content:*` KV record for the default fixture's shared host. */
+const FRESH_HOST_RECORD = { ok: true, verifiedAt: new Date().toISOString() };
+const FLAGS_ON = { getBooleanValue: async () => true };
+
+describe("PUT /v1/:workspace/files SVG/XML active-content gate (issue #929)", () => {
+  it("415s a declared SVG on a workspace with no active-content verification", async () => {
+    const { env } = await makeEnv();
+    const res = await putShot(env, {
+      key: "diagrams/a.svg",
+      body: INERT_SVG,
+      headers: { "Content-Type": "image/svg+xml" },
+    });
+    expect(res.status).toBe(415);
+  });
+
+  it("201s an inert declared SVG once the flag is on and the shared host's probe record is fresh", async () => {
+    const { env, bucket } = await makeEnv(
+      {},
+      {
+        flags: FLAGS_ON,
+        registryExtra: { "host-active-content:storage.uploads.sh": FRESH_HOST_RECORD },
+      },
+    );
+    const res = await putShot(env, {
+      key: "diagrams/a.svg",
+      body: INERT_SVG,
+      headers: { "Content-Type": "image/svg+xml" },
+    });
+    expect(res.status).toBe(201);
+    const json = (await res.json()) as { contentType: string };
+    expect(json.contentType).toBe("image/svg+xml");
+    expect(bucket.store.get("default/diagrams/a.svg")?.contentType).toBe("image/svg+xml");
+  });
+
+  it("still 415s an SVG carrying <script> even on a fully verified lane", async () => {
+    const { env } = await makeEnv(
+      {},
+      {
+        flags: FLAGS_ON,
+        registryExtra: { "host-active-content:storage.uploads.sh": FRESH_HOST_RECORD },
+      },
+    );
+    const res = await putShot(env, {
+      key: "diagrams/evil.svg",
+      body: new TextEncoder().encode("<svg><script>alert(1)</script></svg>"),
+      headers: { "Content-Type": "image/svg+xml" },
+    });
+    expect(res.status).toBe(415);
+  });
+});
+
 describe("POST /v1/:workspace/files/sign strict-overwrite gate (review follow-up)", () => {
   it("refuses to sign an overwrite of an existing strict key without replace", async () => {
     const { env } = await makeEnv();
@@ -677,6 +755,35 @@ describe("POST /v1/:workspace/files/sign content-type policy", () => {
     expect(json.error.type).toBe("unsupported_media_type");
     // Must not echo provider internals via details.detail (presign_unavailable path).
     expect(json.error.details?.detail).toBeUndefined();
+  });
+
+  it("passes the content-type gate for image/svg+xml once the lane is verified (mirrors the PUT gate, issue #929)", async () => {
+    const { env } = await makeEnv(
+      {},
+      {
+        flags: FLAGS_ON,
+        registryExtra: { "host-active-content:storage.uploads.sh": FRESH_HOST_RECORD },
+      },
+    );
+    const res = await app.request(
+      "/v1/default/files/sign",
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
+        body: JSON.stringify({
+          key: "diagrams/a.svg",
+          contentType: "image/svg+xml",
+        }),
+      },
+      env,
+    );
+    // Binding-mode (shared) storage has no HTTP credentials to presign
+    // against, so this still can't succeed end to end — but it must now fail
+    // on `presign_unavailable`, not `unsupported_media_type`: proof the
+    // content-type gate itself passed once the lane verified.
+    expect(res.status).toBe(400);
+    const json = (await res.json()) as { error: { code: string } };
+    expect(json.error.code).toBe("presign_unavailable");
   });
 
   it("rejects text/html", async () => {
