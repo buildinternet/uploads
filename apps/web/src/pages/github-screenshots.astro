@@ -48,6 +48,10 @@ const FAQ = [
     a: "Since September 2026, yes, for images and video on an existing issue or pull request. Uploads is for the rest of the loop: capturing the shot, staging it before the PR opens, one comment that updates on every revision, and a public URL you can paste anywhere.",
   },
   {
+    q: "What if my agent has no shell or gh?",
+    a: "Use the hosted MCP server at agents.uploads.sh. Its put tool takes files as base64 or a public URL and posts them to a PR or issue, with no filesystem or gh required. GitHub has no API for attachments, so this is the path for agents that cannot run a command.",
+  },
+  {
     q: "Do the image URLs change when I re-upload a screenshot?",
     a: "No. PR and issue attachments get stable keys like gh/owner/repo/pull/123/shot.webp. Upload the same filename again and every embed shows the new image within about a minute.",
   },
