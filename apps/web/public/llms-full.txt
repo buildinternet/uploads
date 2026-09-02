@@ -96,7 +96,7 @@ Never put `ADMIN_TOKEN` in agent configs. It is break-glass operator access.
 
 ## Pricing
 
-Hosted Free is self-serve: 250 MB storage, 25 MB per file, 8 MB per video,
+Hosted Free is self-serve: 250 MB storage, 25 MB per file (video included),
 and 3 members. At the default WebP optimize, 250 MB holds thousands of
 screenshots. Paid hosted plans start at $10 per month (Pro: 10 GB storage,
 files up to 100 MB). Caps and what happens at a limit:

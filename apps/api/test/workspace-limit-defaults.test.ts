@@ -11,7 +11,7 @@ describe("workspace-limit-defaults.json", () => {
       maxStorageBytes: 25_000_000_000,
       maxUploadsPerPeriod: 10_000,
       maxUploadBytes: 25_000_000,
-      maxVideoUploadBytes: 8_000_000,
+      maxVideoUploadBytes: 25_000_000,
       allowedKeyPrefixes: ["f", "screenshots", "gh"],
       maxKeyDepth: 8,
     });

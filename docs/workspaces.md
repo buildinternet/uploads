@@ -172,7 +172,7 @@ and only an admin can raise them (`pnpm workspace:limits`, see above):
 | `maxStorageBytes`     | 1 GB                     |
 | `maxUploadsPerPeriod` | 3000 / UTC month         |
 | `maxUploadBytes`      | 25 MB                    |
-| `maxVideoUploadBytes` | 8 MB                     |
+| `maxVideoUploadBytes` | 25 MB                    |
 | `allowedKeyPrefixes`  | `f`, `screenshots`, `gh` |
 | `maxKeyDepth`         | 8                        |
 

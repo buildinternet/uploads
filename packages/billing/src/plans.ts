@@ -66,7 +66,9 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
       maxStorageBytes: 250_000_000,
       maxUploadsPerPeriod: 3000,
       maxUploadBytes: 25_000_000,
-      maxVideoUploadBytes: 8_000_000,
+      // Raised from 8 MB on 2026-09-01 so video shares the file cap on every
+      // plan. GitHub's own attachments stop at 10 MB for video on free plans.
+      maxVideoUploadBytes: 25_000_000,
       // Owner + 2 collaborators, pending invites included (issue #450).
       maxMembers: 3,
     },
@@ -80,7 +82,7 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
     byoBucket: true,
     // Decided 2026-07-22 (first-paid-plan memo): two marketed meters —
     // storage and one unified file cap (video ceiling = upload ceiling on
-    // pro; only free carves video out). maxUploadsPerPeriod is an internal
+    // every plan since 2026-09-01). maxUploadsPerPeriod is an internal
     // abuse guard, not a marketed limit.
     defaultLimits: {
       maxStorageBytes: 10_000_000_000,
