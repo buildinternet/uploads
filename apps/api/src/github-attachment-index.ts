@@ -178,3 +178,41 @@ export async function attachmentRow(
     .first<AttachmentDbRow>();
   return row ? fromRow(row) : null;
 }
+
+/**
+ * Hides an attachment from the managed comment without deleting the object
+ * or the row (issue #709's doctrine: detach means "removed from the
+ * comment", never "deleted"). Mirrors the `gh.detached='true'` metadata
+ * stamp the adopt path already writes.
+ */
+export async function detachAttachment(
+  db: D1Queryable,
+  workspace: string,
+  objectKey: string,
+  now = new Date(),
+): Promise<void> {
+  const nowIso = now.toISOString();
+  await db
+    .prepare(
+      `UPDATE github_attachments SET detached_at = ?, updated_at = ?
+       WHERE workspace = ? AND object_key = ?`,
+    )
+    .bind(nowIso, nowIso, workspace, objectKey)
+    .run();
+}
+
+/** Inverse of `detachAttachment`: the link reappeared, so the row renders again. */
+export async function reattachAttachment(
+  db: D1Queryable,
+  workspace: string,
+  objectKey: string,
+  now = new Date(),
+): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE github_attachments SET detached_at = NULL, updated_at = ?
+       WHERE workspace = ? AND object_key = ?`,
+    )
+    .bind(now.toISOString(), workspace, objectKey)
+    .run();
+}

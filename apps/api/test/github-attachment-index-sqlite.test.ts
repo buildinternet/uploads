@@ -3,7 +3,9 @@
 import { describe, expect, it } from "vitest";
 import {
   attachmentRow,
+  detachAttachment,
   parseAttachmentKey,
+  reattachAttachment,
   recordAttachment,
 } from "../src/github-attachment-index";
 import { database, SqliteD1 } from "./helpers/sqlite-d1";
@@ -130,6 +132,53 @@ describe("recordAttachment", () => {
       );
       expect(await attachmentRow(db, "other", "gh/acme/web/pull/12/hero.png")).not.toBeNull();
       expect(await attachmentRow(db, "nobody", "gh/acme/web/pull/12/hero.png")).toBeNull();
+    } finally {
+      sqlite.close();
+    }
+  });
+});
+
+describe("detachAttachment / reattachAttachment", () => {
+  it("flips detached_at and back, bumping updated_at", async () => {
+    const sqlite = new SqliteD1(MIGRATIONS);
+    try {
+      const db = database(sqlite);
+      await recordAttachment(db, row(), new Date("2026-09-03T00:00:00.000Z"));
+      await detachAttachment(db, "acme", row().objectKey, new Date("2026-09-05T00:00:00.000Z"));
+      expect(await attachmentRow(db, "acme", row().objectKey)).toMatchObject({
+        detachedAt: "2026-09-05T00:00:00.000Z",
+        updatedAt: "2026-09-05T00:00:00.000Z",
+      });
+      await reattachAttachment(db, "acme", row().objectKey, new Date("2026-09-06T00:00:00.000Z"));
+      expect(await attachmentRow(db, "acme", row().objectKey)).toMatchObject({
+        detachedAt: null,
+        updatedAt: "2026-09-06T00:00:00.000Z",
+      });
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("recordAttachment clears a previously-set detached_at", async () => {
+    const sqlite = new SqliteD1(MIGRATIONS);
+    try {
+      const db = database(sqlite);
+      await recordAttachment(db, row());
+      await detachAttachment(db, "acme", row().objectKey);
+      await recordAttachment(db, row({ source: "attach" }));
+      expect((await attachmentRow(db, "acme", row().objectKey))?.detachedAt).toBeNull();
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("is a no-op on a key with no row", async () => {
+    const sqlite = new SqliteD1(MIGRATIONS);
+    try {
+      const db = database(sqlite);
+      await detachAttachment(db, "acme", "gh/acme/web/pull/12/nope.png");
+      await reattachAttachment(db, "acme", "gh/acme/web/pull/12/nope.png");
+      expect(await attachmentRow(db, "acme", "gh/acme/web/pull/12/nope.png")).toBeNull();
     } finally {
       sqlite.close();
     }
