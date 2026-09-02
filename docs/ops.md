@@ -70,9 +70,9 @@ No Worker proxies image bytes — dual host is DNS + zone rules only.
 
 **Applied 2026-09-02** (zone ruleset `1b295145ce4a4dc685498657af8a6956`, phase `http_response_headers_transform`, via the API):
 
-| Rule id | What |
-| --- | --- |
-| `030fcb7edf324c0b9c966550c8b7d870` | `X-Content-Type-Options: nosniff` on every response from the three storage hosts |
+| Rule id                            | What                                                                                                                                                                                                        |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `030fcb7edf324c0b9c966550c8b7d870` | `X-Content-Type-Options: nosniff` on every response from the three storage hosts                                                                                                                            |
 | `508226d5de4a4a0d8d861356b43cf912` | `Content-Security-Policy: … sandbox` + `nosniff` when the response content type is `image/svg+xml`, `application/xml`, or `text/xml` (the `eq` form; the zone is on Pro, so regex `matches` is unavailable) |
 
 The operator probe returned `ok: true` for all three hosts the same day. The `active-content-uploads` flag was still off at that point.
@@ -835,7 +835,7 @@ recommend removing.
 | `ANALYTICS_API_TOKEN`                                                          | api       | Same as above — without it the breakdown panel reports `not_configured` even if `ANALYTICS` itself is bound.                                                                                                                                                                                                                                                                                            |
 | `BROWSER`                                                                      | api       | `POST /v1/render` (CLI screenshot capture) answers 503 `renderer_unavailable`. Nothing else is affected.                                                                                                                                                                                                                                                                                                |
 | `MEDIA`                                                                        | api       | Video poster-frame generation is skipped; uploads still succeed, just without a generated poster image.                                                                                                                                                                                                                                                                                                 |
-| `FLAGS`                                                                        | api       | Poster generation's runtime kill switch always evaluates to disabled (fails closed) — same effect as never enabling the feature.                                                                                                                                                                                                                                                                        |
+| `FLAGS`                                                                        | api       | Every Flagship-gated feature evaluates to off (fails closed): poster generation, active-content uploads, and the attachment index shadow — same effect as never enabling them.                                                                                                                                                                                                                          |
 | `GITHUB_WEBHOOK_QUEUE`                                                         | api       | GitHub webhook deliveries process inline (`waitUntil`) instead of through a durable queue — functionally the same, just without queue-level retry/DLQ semantics.                                                                                                                                                                                                                                        |
 | `AUTH`                                                                         | mcp       | Uploader attribution on hosted-MCP uploads degrades to the id-only `gh.uploader-id` tag (no `gh.uploader` login) — the binding backs `uploaderTags()` in `@uploads/api/uploader-identity`, called from `apps/mcp/src/tools.ts`, and every failure path there fails soft. Uploads still succeed. (Listed here because a grep of `apps/mcp/src` alone misses the usage — it lives in the shared package.) |
 | `WRITE_LIMITER`                                                                | api, mcp  | No per-workspace burst limit on uploads/deletes.                                                                                                                                                                                                                                                                                                                                                        |
@@ -1002,6 +1002,39 @@ large run:
 - Use `--limit <n>` to bound how much budget a single run spends.
 - Expect a large backfill to compete with real user uploads for the same
   budget, and to start failing with 429s if it exhausts it partway through.
+
+## Attachment index shadow (issue #934)
+
+The managed comment sync still renders from the R2 fan-out (one `ListObjects`
+per prefix that can hold the target). Phase 1 (#938) writes every attachment
+to the `github_attachments` D1 table; phase 2 reads that table alongside the
+fan-out and logs the difference, so the index's coverage can be measured
+before phase 3 switches the render to it.
+
+**Flag:** Flagship `attachment-index-shadow`, same app as
+`video-poster-generation`. Off by default; turning it on adds one D1 read per
+comment sync, overlapped with the R2 listing, and never changes what renders.
+
+```bash
+wrangler flagship flags update 8371bfe7-9767-4b4d-b75a-37b94d2724f7 \
+  attachment-index-shadow --default on
+```
+
+**Reading it:** one Workers Logs line per sync while the flag is on,
+`component: "attachment-index"`, `event: "shadow"`. `match: true` means the
+index and the post-detach fan-out agree. `missing` lists keys the fan-out
+rendered that the index lacks (a write path the index misses, or an object
+that predates #938 and needs the backfill); `extra` lists index rows the
+fan-out did not render (a stale row: the object was deleted or moved without
+the index hearing). Key lists are capped at five per side; `missingCount` /
+`extraCount` are exact. Private prefix ids are redacted from the keys.
+
+A `"attachment index: shadow read failed"` error line means the flag was on
+but the D1 read (or the flag evaluation) threw; the sync still completed from
+the fan-out.
+
+Fails closed like the other flags: a missing `FLAGS` binding, a disabled
+flag, or a thrown evaluation all mean no shadow.
 
 ## Deploys
 

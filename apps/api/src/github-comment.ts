@@ -16,6 +16,10 @@ import { parseExternalReference } from "./external-references";
 import { createLaneResolver, objectPublicUrls } from "./storage";
 import { posterKeyFor } from "./poster";
 import { listPrefixIdsForTarget } from "./github-private-prefixes";
+import {
+  reportAttachmentIndexShadow,
+  startAttachmentIndexShadow,
+} from "./github-attachment-shadow";
 import type { WorkspaceRecord } from "./workspace";
 import { githubFetch, githubHeaders, installationToken, type GithubAppConfig } from "./github-app";
 import { resolveRepoCommentOptions } from "./repo-comment-config";
@@ -123,6 +127,11 @@ async function gatherAttachments(
   // neither meta field would render anything.
   const showMetadata = options.metaPath || options.metaState;
 
+  // #934 phase 2: read the attachment index in the shadow of the fan-out
+  // below (flag-gated, never renders, never throws); compared once the
+  // detach filter has settled what actually renders.
+  const indexShadow = startAttachmentIndexShadow(env, workspaceName, target);
+
   // A private-repo attachment (#631) can land under a randomized prefix, not
   // just the plain `ghKeyPrefix`. Only the prefixes that can hold THIS
   // target's objects are listed (issue #934) — never every active prefix in
@@ -167,21 +176,28 @@ async function gatherAttachments(
   );
   let items: AttachmentItem[] = perPrefixItems.flat();
 
-  if (items.length === 0) return items;
-
   // Detach filter (issue #709) runs unconditionally — D1 rows are
   // tenant-scoped by `workspaceName` (the caller's own slug), not by
   // anything derived from `ws`, same trust boundary as gatherGalleries. The
   // path/state/video.* fetch below is skipped when the repo's meta display
   // settings are both off, but this one always runs since a detached copy
   // must never render regardless.
-  const detachByKey = await getMetadataForKeys(
-    dbFor(env),
+  if (items.length > 0) {
+    const detachByKey = await getMetadataForKeys(
+      dbFor(env),
+      workspaceName,
+      items.map((item) => item.key),
+      { metaKeys: [DETACH_META_KEY] },
+    );
+    items = items.filter((item) => detachByKey.get(item.key)?.[DETACH_META_KEY] !== "true");
+  }
+
+  reportAttachmentIndexShadow(
+    await indexShadow,
     workspaceName,
+    target,
     items.map((item) => item.key),
-    { metaKeys: [DETACH_META_KEY] },
   );
-  items = items.filter((item) => detachByKey.get(item.key)?.[DETACH_META_KEY] !== "true");
 
   if (!showMetadata || items.length === 0) return items;
 

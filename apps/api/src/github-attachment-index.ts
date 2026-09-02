@@ -169,6 +169,30 @@ export async function recordAttachment(
     .run();
 }
 
+/**
+ * The active (non-detached) rows for one PR/issue target, sorted by key —
+ * the read the phase-3 render will switch to, served by
+ * `github_attachments_target_idx`. Phase 2 runs it in the shadow of the R2
+ * fan-out (see github-attachment-shadow.ts). `repo` is normalized the same
+ * way the writers store it.
+ */
+export async function listAttachmentsForTarget(
+  db: D1Queryable,
+  workspace: string,
+  repo: string,
+  target: { kind: "pull" | "issues"; num: number },
+): Promise<AttachmentIndexRow[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT ${SELECT_COLUMNS} FROM github_attachments
+       WHERE workspace = ? AND repo = ? AND kind = ? AND num = ? AND detached_at IS NULL
+       ORDER BY object_key`,
+    )
+    .bind(workspace, normalizeRepo(repo), target.kind, target.num)
+    .all<AttachmentDbRow>();
+  return (results ?? []).map(fromRow);
+}
+
 /** One index row, or null. Test/ops read helper — NOT the phase-3 hot read. */
 export async function attachmentRow(
   db: D1Queryable,

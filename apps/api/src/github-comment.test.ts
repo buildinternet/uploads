@@ -1,6 +1,6 @@
 /// <reference types="node" />
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { gatherCommentBody, upsertBotComment } from "./github-comment";
 import { ATTACHMENTS_MARKER, attachmentsMarker, ghPrivateKeyPrefix } from "./github-comment-render";
 import { addExternalReference, addGalleryItem, createGallery } from "./galleries";
@@ -8,6 +8,7 @@ import { replaceFileMetadata, setServerFileMetadata } from "./file-metadata";
 import { objectPublicUrls, storageConfig } from "./storage";
 import { posterKeyFor } from "./poster";
 import { getOrMintPrefixId } from "./github-private-prefixes";
+import { detachAttachment, recordAttachment } from "./github-attachment-index";
 import type { WorkspaceRecord } from "./workspace";
 import { FakeR2Bucket } from "../test/fake-r2";
 import { FakeKv } from "../test/fake-kv";
@@ -17,6 +18,7 @@ const MIGRATION = [
   "migrations/20260711180000_galleries.sql",
   "migrations/20260713210559_file_metadata.sql",
   "migrations/20260811210000_github_private_prefixes.sql",
+  "migrations/20260903120000_github_attachments.sql",
 ];
 const PRAGMAS = ["PRAGMA foreign_keys = ON"];
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
@@ -280,6 +282,195 @@ describe("gatherCommentBody", () => {
     expect(result.body).toContain("Launch media");
     expect(result.body).not.toContain("Not ours");
     expect(result.count).toBe(1);
+  });
+});
+
+describe("gatherCommentBody attachment index shadow compare (#934 phase 2)", () => {
+  const FLAG_ON = { getBooleanValue: async () => true };
+  const FLAG_OFF = { getBooleanValue: async (_k: string, def: boolean) => def };
+  const target = { repo: "acme/web", num: 12, kind: "pull" as const };
+  const indexRow = (objectKey: string) => ({
+    workspace: "acme",
+    repo: "acme/web",
+    kind: "pull" as const,
+    num: 12,
+    objectKey,
+    prefixId: null,
+    laneId: null,
+    source: "put" as const,
+  });
+
+  function shadowLogs(spy: { mock: { calls: unknown[][] } }): Record<string, unknown>[] {
+    return spy.mock.calls
+      .map((call) => {
+        try {
+          return JSON.parse(String(call[0])) as Record<string, unknown>;
+        } catch {
+          return null;
+        }
+      })
+      .filter((line): line is Record<string, unknown> => line?.component === "attachment-index");
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("logs a match when the index agrees with the fan-out, and renders from the fan-out", async () => {
+    const { env, ws, workspaceName, bucket } = makeTestEnv();
+    (env as { FLAGS?: unknown }).FLAGS = FLAG_ON;
+    await bucket.put("acme/gh/acme/web/pull/12/hero.png", PNG, {
+      httpMetadata: { contentType: "image/png" },
+    });
+    await recordAttachment(env.DB, indexRow("gh/acme/web/pull/12/hero.png"));
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    const result = await gatherCommentBody(env, ws, workspaceName, target);
+    expect(result.count).toBe(1);
+    const lines = shadowLogs(log);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({
+      event: "shadow",
+      match: true,
+      fanout: 1,
+      index: 1,
+      missing: [],
+      extra: [],
+      workspace: "acme",
+      repo: "acme/web",
+      kind: "pull",
+      num: 12,
+    });
+  });
+
+  it("logs the keys the index is missing without changing the render", async () => {
+    const { env, ws, workspaceName, bucket } = makeTestEnv();
+    (env as { FLAGS?: unknown }).FLAGS = FLAG_ON;
+    await bucket.put("acme/gh/acme/web/pull/12/hero.png", PNG, {
+      httpMetadata: { contentType: "image/png" },
+    });
+    await bucket.put("acme/gh/acme/web/pull/12/unindexed.png", PNG, {
+      httpMetadata: { contentType: "image/png" },
+    });
+    await recordAttachment(env.DB, indexRow("gh/acme/web/pull/12/hero.png"));
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    const result = await gatherCommentBody(env, ws, workspaceName, target);
+    expect(result.count).toBe(2);
+    expect(result.body).toContain("unindexed.png");
+    expect(shadowLogs(log)[0]).toMatchObject({
+      match: false,
+      fanout: 2,
+      index: 1,
+      missing: ["gh/acme/web/pull/12/unindexed.png"],
+      extra: [],
+    });
+  });
+
+  it("logs extra index rows (including for an empty fan-out) without rendering them", async () => {
+    const { env, ws, workspaceName } = makeTestEnv();
+    (env as { FLAGS?: unknown }).FLAGS = FLAG_ON;
+    await recordAttachment(env.DB, indexRow("gh/acme/web/pull/12/ghost.png"));
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    const result = await gatherCommentBody(env, ws, workspaceName, target);
+    expect(result.count).toBe(0);
+    expect(result.body).not.toContain("ghost.png");
+    expect(shadowLogs(log)[0]).toMatchObject({
+      match: false,
+      fanout: 0,
+      index: 0 + 1,
+      missing: [],
+      extra: ["gh/acme/web/pull/12/ghost.png"],
+    });
+  });
+
+  it("compares against the post-detach render: a detached index row matches a gh.detached object", async () => {
+    const { env, ws, workspaceName, bucket } = makeTestEnv();
+    (env as { FLAGS?: unknown }).FLAGS = FLAG_ON;
+    await bucket.put("acme/gh/acme/web/pull/12/hero.png", PNG, {
+      httpMetadata: { contentType: "image/png" },
+    });
+    await bucket.put("acme/gh/acme/web/pull/12/detached.png", PNG, {
+      httpMetadata: { contentType: "image/png" },
+    });
+    await replaceFileMetadata(env.DB, workspaceName, "gh/acme/web/pull/12/detached.png", {
+      "gh.detached": "true",
+    });
+    await recordAttachment(env.DB, indexRow("gh/acme/web/pull/12/hero.png"));
+    await recordAttachment(env.DB, indexRow("gh/acme/web/pull/12/detached.png"));
+    await detachAttachment(env.DB, workspaceName, "gh/acme/web/pull/12/detached.png");
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    const result = await gatherCommentBody(env, ws, workspaceName, target);
+    expect(result.count).toBe(1);
+    expect(shadowLogs(log)[0]).toMatchObject({ match: true, fanout: 1, index: 1 });
+  });
+
+  it("redacts private prefix ids from logged keys", async () => {
+    const { env, ws, workspaceName } = makeTestEnv();
+    (env as { FLAGS?: unknown }).FLAGS = FLAG_ON;
+    const prefixId = await getOrMintPrefixId(env.DB, "acme/web", "main");
+    const key = `${ghPrivateKeyPrefix(prefixId, target)}ghost.png`;
+    await recordAttachment(env.DB, { ...indexRow(key), prefixId });
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await gatherCommentBody(env, ws, workspaceName, target);
+    const line = shadowLogs(log)[0];
+    expect(line.extra).toEqual(["gh/private/…/pull/12/ghost.png"]);
+    expect(JSON.stringify(line)).not.toContain(prefixId);
+  });
+
+  it("caps the logged key lists and reports full counts", async () => {
+    const { env, ws, workspaceName } = makeTestEnv();
+    (env as { FLAGS?: unknown }).FLAGS = FLAG_ON;
+    for (let i = 0; i < 8; i++) {
+      await recordAttachment(env.DB, indexRow(`gh/acme/web/pull/12/g${i}.png`));
+    }
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await gatherCommentBody(env, ws, workspaceName, target);
+    const line = shadowLogs(log)[0];
+    expect(line.index).toBe(8);
+    expect(line.extraCount).toBe(8);
+    expect(line.extra).toHaveLength(5);
+  });
+
+  it("does nothing when the flag is off or the FLAGS binding is absent", async () => {
+    const { env, ws, workspaceName } = makeTestEnv();
+    await recordAttachment(env.DB, indexRow("gh/acme/web/pull/12/ghost.png"));
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await gatherCommentBody(env, ws, workspaceName, target);
+    (env as { FLAGS?: unknown }).FLAGS = FLAG_OFF;
+    await gatherCommentBody(env, ws, workspaceName, target);
+    expect(shadowLogs(log)).toEqual([]);
+  });
+
+  it("never fails the sync when the index read or the flag lookup throws", async () => {
+    const { env, ws, workspaceName, bucket } = makeTestEnv();
+    await bucket.put("acme/gh/acme/web/pull/12/hero.png", PNG, {
+      httpMetadata: { contentType: "image/png" },
+    });
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    (env as { FLAGS?: unknown }).FLAGS = {
+      getBooleanValue: async () => {
+        throw new Error("flagship unreachable");
+      },
+    };
+    expect((await gatherCommentBody(env, ws, workspaceName, target)).count).toBe(1);
+
+    (env as { FLAGS?: unknown }).FLAGS = FLAG_ON;
+    const realPrepare = env.DB.prepare.bind(env.DB);
+    vi.spyOn(env.DB, "prepare").mockImplementation((sql: string) => {
+      if (sql.includes("FROM github_attachments")) throw new Error("d1 down");
+      return realPrepare(sql);
+    });
+    expect((await gatherCommentBody(env, ws, workspaceName, target)).count).toBe(1);
+    expect(shadowLogs(log)).toEqual([]);
+    expect(error.mock.calls.some((c) => String(c[0]).includes("shadow"))).toBe(true);
   });
 });
 
