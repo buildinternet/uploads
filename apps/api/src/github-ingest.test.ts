@@ -282,6 +282,7 @@ describe("reconcileIngestSource", () => {
 
     expect(calls).toHaveLength(0);
     expect(summary.skipped).toEqual([{ url: ASSET_URL, reason: "unsupported_media_type" }]);
+    expect(await ledgerRow(env.DB, REPO, ASSET_ID)).toBeNull();
   });
 
   it("an ingested MOV is named with the .mov extension override", async () => {

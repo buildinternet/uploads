@@ -18,6 +18,7 @@ import {
   checkDeclaredLength,
   maxBytesForContentType,
   normalizeDeclaredContentType,
+  resolveDeclaredContentType,
   resolveUploadPolicy,
 } from "../guards";
 import { contentSha256Hex, splitUploadMetaHeaders } from "../provenance";
@@ -253,6 +254,7 @@ export async function putFileHandler(c: Context<WorkspaceVars>) {
         visibility,
         replace: wantReplace,
         metadata,
+        declaredContentType: resolveDeclaredContentType(putOpts.declaredContentType, finalKey),
       },
       run: () => putObject(c.env, ws, key, bytes, workspaceName, idempotentPutOpts),
       reconcile: () =>
