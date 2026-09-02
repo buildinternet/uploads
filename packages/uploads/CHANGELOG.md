@@ -1,5 +1,13 @@
 # @buildinternet/uploads
 
+## 0.52.1
+
+### Patch Changes
+
+- ec42d24: Render non-media attachments (PDF, zip, text, CSV, JSON, markdown, tgz) in the managed GitHub attachments comment as a small file table (name, type, size) instead of bare list links.
+- c5e4f9f: The public file page's card for non-media files now labels its link "Download <name>" when it points at the forced-download URL.
+- b0f42da: Public file page shows a proper file card (name, type, size, download link) instead of a generic "Preview unavailable" fallback for non-media files, and inline-previews small text/markdown/csv/json files as server-rendered plain text.
+
 ## 0.52.0
 
 ### Minor Changes
