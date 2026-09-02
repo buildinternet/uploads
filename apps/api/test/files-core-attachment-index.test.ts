@@ -4,7 +4,7 @@
  * file_metadata + github_attachments table.
  */
 import { describe, expect, it } from "vitest";
-import { putObject } from "../src/files-core";
+import { deleteObject, putObject } from "../src/files-core";
 import { ghPrivateAttachmentKey } from "../src/github-comment-render";
 import { getOrMintPrefixId } from "../src/github-private-prefixes";
 import { makePosterEnv, PNG, WORKSPACE } from "./poster-fixtures";
@@ -71,5 +71,17 @@ describe("putObject → attachment index", () => {
     await putObject(env, ws, key, PNG, WORKSPACE);
     await putObject(env, ws, key, PNG, WORKSPACE);
     expect(db.attachmentIndex.size).toBe(1);
+  });
+});
+
+describe("deleteObject → attachment index", () => {
+  it("removes the index row alongside the object's metadata", async () => {
+    const { env, db, ws } = makePosterEnv();
+    const key = "gh/acme/web/pull/12/hero.png";
+    await putObject(env, ws, key, PNG, WORKSPACE);
+    expect(db.attachmentIndex.get(`${WORKSPACE}\0${key}`)).toBeDefined();
+
+    await deleteObject(env, ws, key, WORKSPACE);
+    expect(db.attachmentIndex.get(`${WORKSPACE}\0${key}`)).toBeUndefined();
   });
 });

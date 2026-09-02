@@ -1291,6 +1291,11 @@ export async function deleteObject(
   const configs = await storageConfigs(env, ws);
   const { hits, failures } = await deleteFromEveryLane(configs, key);
   await deleteFileMetadata(dbFor(env), workspaceName, key);
+  // The attachment index (issue #934) is keyed by (workspace, object_key)
+  // just like file_metadata, so it is cleaned up in exactly the same place.
+  // Best-effort: a stale row costs a broken image in a managed comment
+  // until reconcile, never a failed delete.
+  await deleteAttachmentSafe(dbFor(env), workspaceName, key);
 
   if (hits.length > 0) {
     // Single-winner claim (issue #570): concurrent DELETEs can both observe
