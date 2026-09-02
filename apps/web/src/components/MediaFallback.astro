@@ -9,13 +9,15 @@ interface Props {
   body?: string;
   href?: string | null;
   filename?: string;
+  /** Link text override; defaults to `Open <filename>` / `Open original`. */
+  label?: string;
   /** Start hidden until `applyMediaFailure` unhides it. */
   pending?: boolean;
   /** Tighter padding for gallery-grid tiles. */
   compact?: boolean;
 }
 
-const { title, body, href = null, filename, pending = false, compact = false } = Astro.props;
+const { title, body, href = null, filename, label, pending = false, compact = false } = Astro.props;
 ---
 
 <div
@@ -29,7 +31,7 @@ const { title, body, href = null, filename, pending = false, compact = false } =
   {
     href ? (
       <a href={href} rel="noopener noreferrer">
-        {filename ? `Open ${filename}` : "Open original"}
+        {label ?? (filename ? `Open ${filename}` : "Open original")}
       </a>
     ) : null
   }
