@@ -73,3 +73,108 @@ export function parseAttachmentKey(key: string): ParsedAttachmentKey | undefined
     repo: `${owner}/${name}`.toLowerCase(),
   };
 }
+
+export interface AttachmentIndexRow {
+  workspace: string;
+  repo: string;
+  kind: "pull" | "issues";
+  num: number;
+  objectKey: string;
+  prefixId: string | null;
+  laneId: string | null;
+  source: AttachmentSource;
+  createdAt: string;
+  updatedAt: string;
+  detachedAt: string | null;
+}
+
+interface AttachmentDbRow {
+  workspace: string;
+  repo: string;
+  kind: "pull" | "issues";
+  num: number;
+  object_key: string;
+  prefix_id: string | null;
+  lane_id: string | null;
+  source: AttachmentSource;
+  created_at: string;
+  updated_at: string;
+  detached_at: string | null;
+}
+
+const SELECT_COLUMNS =
+  "workspace, repo, kind, num, object_key, prefix_id, lane_id, source, created_at, updated_at, detached_at";
+
+function fromRow(row: AttachmentDbRow): AttachmentIndexRow {
+  return {
+    workspace: row.workspace,
+    repo: row.repo,
+    kind: row.kind,
+    num: row.num,
+    objectKey: row.object_key,
+    prefixId: row.prefix_id,
+    laneId: row.lane_id,
+    source: row.source,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    detachedAt: row.detached_at,
+  };
+}
+
+/**
+ * Upserts one attachment row. `ON CONFLICT(workspace, object_key)` makes a
+ * re-put, a re-attach, and a webhook redelivery all converge on the same
+ * row rather than duplicating; `created_at` is preserved and `detached_at`
+ * is cleared, since writing an object at a key IS a re-attachment.
+ */
+export async function recordAttachment(
+  db: D1Queryable,
+  row: Omit<AttachmentIndexRow, "createdAt" | "updatedAt" | "detachedAt">,
+  now = new Date(),
+): Promise<void> {
+  const nowIso = now.toISOString();
+  await db
+    .prepare(
+      `INSERT INTO github_attachments
+         (workspace, repo, kind, num, object_key, prefix_id, lane_id, source, created_at, updated_at, detached_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+       ON CONFLICT(workspace, object_key) DO UPDATE SET
+         repo = excluded.repo,
+         kind = excluded.kind,
+         num = excluded.num,
+         prefix_id = excluded.prefix_id,
+         lane_id = excluded.lane_id,
+         source = excluded.source,
+         updated_at = excluded.updated_at,
+         detached_at = NULL`,
+    )
+    .bind(
+      row.workspace,
+      row.repo.toLowerCase(),
+      row.kind,
+      row.num,
+      row.objectKey,
+      row.prefixId,
+      row.laneId,
+      row.source,
+      nowIso,
+      nowIso,
+    )
+    .run();
+}
+
+/** One index row, or null. Test/ops read helper — NOT the phase-3 hot read. */
+export async function attachmentRow(
+  db: D1Queryable,
+  workspace: string,
+  objectKey: string,
+): Promise<AttachmentIndexRow | null> {
+  const row = await db
+    .prepare(
+      `SELECT ${SELECT_COLUMNS} FROM github_attachments
+       WHERE workspace = ? AND object_key = ?`,
+    )
+    .bind(workspace, objectKey)
+    .first<AttachmentDbRow>();
+  return row ? fromRow(row) : null;
+}

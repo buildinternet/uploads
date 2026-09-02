@@ -1,7 +1,26 @@
 /// <reference types="node" />
 
 import { describe, expect, it } from "vitest";
-import { parseAttachmentKey } from "../src/github-attachment-index";
+import {
+  attachmentRow,
+  parseAttachmentKey,
+  recordAttachment,
+} from "../src/github-attachment-index";
+import { database, SqliteD1 } from "./helpers/sqlite-d1";
+
+const MIGRATIONS = ["migrations/20260903120000_github_attachments.sql"];
+
+const row = (over: Partial<Parameters<typeof recordAttachment>[1]> = {}) => ({
+  workspace: "acme",
+  repo: "acme/web",
+  kind: "pull" as const,
+  num: 12,
+  objectKey: "gh/acme/web/pull/12/hero.png",
+  prefixId: null,
+  laneId: null,
+  source: "put" as const,
+  ...over,
+});
 
 describe("parseAttachmentKey", () => {
   it("parses a plain gh key and recovers the sanitized repo", () => {
@@ -44,5 +63,75 @@ describe("parseAttachmentKey", () => {
     expect(parseAttachmentKey("gh/acme/web/pull/abc/hero.png")).toBeUndefined();
     expect(parseAttachmentKey("f/abc/hero.png")).toBeUndefined();
     expect(parseAttachmentKey("gh/private/short/pull/12/hero.png")).toBeUndefined();
+  });
+});
+
+describe("recordAttachment", () => {
+  it("inserts a row and reads it back", async () => {
+    const sqlite = new SqliteD1(MIGRATIONS);
+    try {
+      const db = database(sqlite);
+      await recordAttachment(db, row(), new Date("2026-09-03T00:00:00.000Z"));
+      const stored = await attachmentRow(db, "acme", "gh/acme/web/pull/12/hero.png");
+      expect(stored).toMatchObject({
+        workspace: "acme",
+        repo: "acme/web",
+        kind: "pull",
+        num: 12,
+        objectKey: "gh/acme/web/pull/12/hero.png",
+        prefixId: null,
+        laneId: null,
+        source: "put",
+        createdAt: "2026-09-03T00:00:00.000Z",
+        updatedAt: "2026-09-03T00:00:00.000Z",
+        detachedAt: null,
+      });
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("upserts on (workspace, object_key): one row, fields updated, created_at kept", async () => {
+    const sqlite = new SqliteD1(MIGRATIONS);
+    try {
+      const db = database(sqlite);
+      await recordAttachment(db, row(), new Date("2026-09-03T00:00:00.000Z"));
+      await recordAttachment(
+        db,
+        row({ source: "attach", laneId: "lane-b", prefixId: "d".repeat(32) }),
+        new Date("2026-09-04T00:00:00.000Z"),
+      );
+      const stored = await attachmentRow(db, "acme", "gh/acme/web/pull/12/hero.png");
+      expect(stored).toMatchObject({
+        source: "attach",
+        laneId: "lane-b",
+        prefixId: "d".repeat(32),
+        createdAt: "2026-09-03T00:00:00.000Z",
+        updatedAt: "2026-09-04T00:00:00.000Z",
+      });
+      const all = await db
+        .prepare("SELECT COUNT(*) AS count FROM github_attachments")
+        .bind()
+        .first<{ count: number }>();
+      expect(all?.count).toBe(1);
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("lowercases the repo and scopes by workspace", async () => {
+    const sqlite = new SqliteD1(MIGRATIONS);
+    try {
+      const db = database(sqlite);
+      await recordAttachment(db, row({ repo: "Acme/Web" }));
+      await recordAttachment(db, row({ workspace: "other" }));
+      expect((await attachmentRow(db, "acme", "gh/acme/web/pull/12/hero.png"))?.repo).toBe(
+        "acme/web",
+      );
+      expect(await attachmentRow(db, "other", "gh/acme/web/pull/12/hero.png")).not.toBeNull();
+      expect(await attachmentRow(db, "nobody", "gh/acme/web/pull/12/hero.png")).toBeNull();
+    } finally {
+      sqlite.close();
+    }
   });
 });
