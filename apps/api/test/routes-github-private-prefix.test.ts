@@ -10,6 +10,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { app } from "../src/index";
 import { recordRepoLink } from "../src/github-repo-links";
+import { getOrMintPrefixId } from "../src/github-private-prefixes";
 import { sha256Hex, type WorkspaceRecord } from "../src/workspace";
 import { FakeKv } from "./fake-kv";
 import { GITHUB_APP_CFG_ENV } from "./github-app-env";
@@ -122,6 +123,31 @@ describe("POST /v1/:workspace/github/private-prefix", () => {
     };
     expect(body.mode).toBe("private");
     expect(body.prefixId).toMatch(/^[0-9a-f]{32}$/);
+    expect(body.activePrefixIds).toEqual([body.prefixId]);
+  });
+
+  it("with a target: activePrefixIds is scoped to prefixes that can hold that target, not every branch in the repo (#934)", async () => {
+    const { env, db, githubCache } = await makeEnv();
+    githubCache.store.set(`ghinst:${REPO}`, { value: "42" });
+    githubCache.store.set(`ghpriv:${REPO}`, { value: "1" });
+    await recordRepoLink(db as unknown as D1Database, REPO, WS, "test");
+    // Other agent branches minted prefixes in this repo earlier.
+    for (const branch of ["claude/a", "claude/b", "claude/c"]) {
+      await getOrMintPrefixId(db as unknown as D1Database, REPO, branch);
+    }
+
+    const res = await post(
+      "/v1/acme/github/private-prefix",
+      { repo: REPO, branch: "feat-x", target: { kind: "pull", num: 12 } },
+      env,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      mode: string;
+      prefixId: string;
+      activePrefixIds: string[];
+    };
+    expect(body.mode).toBe("private");
     expect(body.activePrefixIds).toEqual([body.prefixId]);
   });
 

@@ -94,7 +94,67 @@ export async function getOrMintPrefixId(
   return active;
 }
 
-/** All active (non-retired) prefix ids for `repo`, across every branch. */
+/** `gh/private/` is 11 chars; the 32-hex id occupies 12..43; the target segment starts at 44. */
+const GH_PRIVATE_ROOT_LEN = "gh/private/".length;
+const GH_PRIVATE_TARGET_OFFSET = GH_PRIVATE_ROOT_LEN + 32 + 1;
+
+/**
+ * The private prefix ids worth listing for one PR/issue target — the
+ * O(1)-per-target replacement for `listActivePrefixIds` on the comment-sync
+ * hot path (issue #934: that fan-out issued one R2 list per branch that ever
+ * ran `put --pr`, and grew without bound).
+ *
+ * Union of three cheap D1 lookups, none of which is a trust decision — every
+ * id returned here is still *listed* under the target's own key path, which
+ * remains the boundary that decides what renders:
+ *
+ * 1. Ids parsed from this workspace's `file_metadata` keys shaped
+ *    `gh/private/<id>/<kind>/<num>/…`. Every server and CLI writer of a
+ *    private attachment stamps at least one metadata row, so this finds the
+ *    prefix an attachment actually landed under, whichever branch minted it.
+ * 2. The repo-level sentinel prefix (`branch = ""`), where issue attachments
+ *    and branch-less uploads resolve. Covers a metadata-less raw PUT there.
+ * 3. The PR head branch's prefix when the caller knows it (the webhook
+ *    payload carries `head.ref`). Covers a metadata-less raw PUT on a PR.
+ */
+export async function listPrefixIdsForTarget(
+  db: D1Queryable,
+  workspace: string,
+  repo: string,
+  target: { kind: "pull" | "issues"; num: number },
+  opts: { headBranch?: string } = {},
+): Promise<string[]> {
+  const segment = `/${target.kind}/${target.num}/`;
+  const { results } = await db
+    .prepare(
+      // Key-range on the PK (workspace, object_key) rather than LIKE/GLOB: D1
+      // caps pattern length (see file-metadata.ts PREFIX_FILTER_SQL), and a
+      // range scan is cheaper than a pattern over the workspace's rows.
+      `SELECT DISTINCT substr(object_key, ?, 32) AS prefix_id FROM file_metadata
+       WHERE workspace = ?
+         AND object_key >= 'gh/private/' AND object_key < 'gh/private0'
+         AND substr(object_key, ?, ?) = ?`,
+    )
+    .bind(GH_PRIVATE_ROOT_LEN + 1, workspace, GH_PRIVATE_TARGET_OFFSET, segment.length, segment)
+    .all<PrefixRow>();
+  const ids = new Set(
+    (results ?? []).map((row) => row.prefix_id).filter((id) => PRIVATE_PREFIX_ID_RE.test(id)),
+  );
+
+  const sentinel = await getActivePrefixId(db, repo, "");
+  if (sentinel) ids.add(sentinel);
+  if (opts.headBranch !== undefined && opts.headBranch !== "") {
+    const head = await getActivePrefixId(db, repo, opts.headBranch);
+    if (head) ids.add(head);
+  }
+  return [...ids].sort();
+}
+
+/**
+ * All active (non-retired) prefix ids for `repo`, across every branch.
+ * Grows with every branch that ever ran `put --pr`; not for per-target hot
+ * paths — use `listPrefixIdsForTarget` there (#934).
+ */
 export async function listActivePrefixIds(db: D1Queryable, repo: string): Promise<string[]> {
   const { results } = await db
     .prepare(
