@@ -382,3 +382,51 @@ describe("promoteBranchAttachments — private prefixes (issue #631)", () => {
     expect(ghPrivateBranchKeyPrefix("0".repeat(32))).toBe(`gh/private/${"0".repeat(32)}/branch/`);
   });
 });
+
+describe("promoteBranchAttachments → attachment index (issue #934)", () => {
+  it("records the promoted copy with source 'promote' and no row for the staged original", async () => {
+    const seeded = await seededEnv({ isPrivate: false });
+    await seedPlainStaged(seeded, "hero.png");
+
+    const result = await promoteBranchAttachments(seeded.env, seeded.ws, WS, {
+      repo: REPO,
+      num: NUM,
+      branch: BRANCH,
+    });
+
+    expect(result.promoted).toEqual([destKey("hero.png")]);
+    expect(seeded.db.attachmentIndex.get(`${WS}\0${destKey("hero.png")}`)).toMatchObject({
+      repo: "acme/web",
+      kind: "pull",
+      num: NUM,
+      prefix_id: null,
+      source: "promote",
+    });
+    expect(seeded.db.attachmentIndex.get(`${WS}\0${stagedKey("hero.png")}`)).toBeUndefined();
+    expect(seeded.db.attachmentIndex.size).toBe(1);
+  });
+
+  it("private mode records the promoted copy under its prefix id", async () => {
+    const seeded = await seededEnv({ isPrivate: true });
+    const prefixId = await getOrMintPrefixId(seeded.db as unknown as D1Database, REPO, BRANCH);
+    await seedPrivateStaged(seeded, prefixId, "hero.png");
+
+    const result = await promoteBranchAttachments(seeded.env, seeded.ws, WS, {
+      repo: REPO,
+      num: NUM,
+      branch: BRANCH,
+    });
+
+    const dest = ghPrivateAttachmentKey(
+      prefixId,
+      { repo: REPO, kind: "pull", num: NUM },
+      "hero.png",
+    );
+    expect(result.promoted).toEqual([dest]);
+    expect(seeded.db.attachmentIndex.get(`${WS}\0${dest}`)).toMatchObject({
+      repo: "acme/web",
+      prefix_id: prefixId,
+      source: "promote",
+    });
+  });
+});
