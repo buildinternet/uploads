@@ -683,12 +683,16 @@ export interface ImageDimensions {
   height: number;
 }
 
+/** Prefix of an `image/svg+xml` body decoded when looking for the root `<svg>` tag's dimensions. */
+const SVG_DIMENSION_SNIFF_BYTES = 8 * 1024;
+
 /**
  * Best-effort pixel dimensions read straight from an image's header —
  * PNG (IHDR), GIF (logical screen descriptor), JPEG (first SOF marker),
- * WebP (VP8X/VP8/VP8L chunk). Returns `undefined` for any other content
- * type or a header it can't decode; callers that gate on dimensions must
- * fail open on `undefined` rather than treating it as zero.
+ * WebP (VP8X/VP8/VP8L chunk), SVG (root `<svg>` tag's `width`/`height`, or
+ * `viewBox` as a fallback). Returns `undefined` for any other content type
+ * or a header it can't decode; callers that gate on dimensions must fail
+ * open on `undefined` rather than treating it as zero.
  */
 export function detectImageDimensions(
   bytes: Uint8Array,
@@ -748,6 +752,39 @@ export function detectImageDimensions(
       if (bytes[20] !== 0x2f) return undefined;
       const bits = view.getUint32(21, true);
       return valid((bits & 0x3fff) + 1, ((bits >> 14) & 0x3fff) + 1);
+    }
+    return undefined;
+  }
+  if (contentType === "image/svg+xml") {
+    // Declared-only, no magic bytes to sniff: decode a capped prefix as
+    // UTF-8, find the root `<svg …>` start tag, and read its `width`/
+    // `height` attributes (plain numbers or a `px` suffix only — percent,
+    // em, and other units aren't resolvable without a layout box, so they
+    // fall through to `viewBox`'s width/height, rounded to integers).
+    const head = decodeLossy(
+      bytes.subarray(0, Math.min(bytes.byteLength, SVG_DIMENSION_SNIFF_BYTES)),
+    );
+    const tag = /<svg[\s/>][\s\S]*?>/i.exec(head)?.[0];
+    if (!tag) return undefined;
+    const attr = (name: string): string | undefined =>
+      new RegExp(`\\b${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`, "i")
+        .exec(tag)
+        ?.slice(1, 3)
+        .find((v) => v !== undefined);
+    const parseLength = (raw: string | undefined): number | undefined => {
+      if (raw === undefined) return undefined;
+      const m = /^(\d+(?:\.\d+)?)(px)?$/.exec(raw.trim());
+      return m ? Math.round(Number(m[1])) : undefined;
+    };
+    const width = parseLength(attr("width"));
+    const height = parseLength(attr("height"));
+    if (width !== undefined && height !== undefined) return valid(width, height);
+    const viewBox = attr("viewBox")
+      ?.trim()
+      .split(/[\s,]+/)
+      .map(Number);
+    if (viewBox?.length === 4 && viewBox.every(Number.isFinite)) {
+      return valid(Math.round(viewBox[2]!), Math.round(viewBox[3]!));
     }
     return undefined;
   }
