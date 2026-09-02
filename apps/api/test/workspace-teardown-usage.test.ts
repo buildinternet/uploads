@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { attachmentRow, recordAttachment } from "../src/github-attachment-index";
 import { teardownWorkspace } from "../src/workspace-teardown";
 import type { WorkspaceRecord } from "../src/workspace";
 import { FakeR2Bucket } from "./fake-r2";
@@ -10,6 +11,7 @@ const MIGRATIONS = [
   "migrations/20260710140000_workspace_usage.sql",
   "migrations/20260822120100_workspace_usage_shared_subset.sql",
   "migrations/20260730170533_delete_usage_claims.sql",
+  "migrations/20260903120000_github_attachments.sql",
 ];
 
 // Prefixed shared-bucket record — mirrors retention-sweep.test.ts's RECORD.
@@ -130,6 +132,36 @@ describe("teardownWorkspace — usage ledger cleanup (#006)", () => {
 
       expect(await countRows(sqlite, "workspace_usage", "acme")).toBe(0);
       expect(await countRows(sqlite, "delete_usage_claims", "acme")).toBe(0);
+    } finally {
+      sqlite.close();
+    }
+  });
+});
+
+describe("teardownWorkspace — attachment index cleanup (issue #934)", () => {
+  it("clears this workspace's github_attachments rows and no other's", async () => {
+    const sqlite = new SqliteD1(MIGRATIONS);
+    try {
+      const db = database(sqlite);
+      const objectKey = "gh/acme/web/pull/12/hero.png";
+      for (const workspace of ["acme", "other"]) {
+        await recordAttachment(db, {
+          workspace,
+          repo: "acme/web",
+          kind: "pull",
+          num: 12,
+          objectKey,
+          prefixId: null,
+          laneId: null,
+          source: "put",
+        });
+      }
+      const { env } = makeEnv({ kvRecords: { "ws:acme": RECORD }, db: sqlite });
+
+      await teardownWorkspace(env, "acme", RECORD, { reason: "test" });
+
+      expect(await attachmentRow(db, "acme", objectKey)).toBeNull();
+      expect(await attachmentRow(db, "other", objectKey)).not.toBeNull();
     } finally {
       sqlite.close();
     }

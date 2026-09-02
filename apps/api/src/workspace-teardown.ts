@@ -18,6 +18,7 @@
 import { dbFor } from "./db-session";
 import { deleteFileMetadataForWorkspace } from "./file-metadata";
 import { deleteGalleriesForWorkspace } from "./galleries";
+import { deleteAttachmentsForWorkspaceSafe } from "./github-attachment-index";
 import { deleteOrg } from "./org-workspaces";
 import { storage } from "./storage";
 import { deleteUsageForWorkspace } from "./usage";
@@ -101,6 +102,9 @@ export async function teardownWorkspace(
 
   const { galleries } = await deleteGalleriesForWorkspace(dbFor(env), name);
   await deleteFileMetadataForWorkspace(dbFor(env), name);
+  // The attachment index is workspace-scoped like file_metadata (issue
+  // #934) — a torn-down workspace must not leave rows behind.
+  await deleteAttachmentsForWorkspaceSafe(dbFor(env), name);
   await deleteUsageForWorkspace(dbFor(env), name);
 
   // Best-effort, like the self-serve rollback path in routes/workspaces.ts
