@@ -31,7 +31,11 @@ import {
   inheritableMetaForHash,
   recordContentHash,
 } from "./content-hash";
-import { deleteAttachmentSafe, recordAttachmentForKeySafe } from "./github-attachment-index";
+import {
+  type AttachmentSource,
+  deleteAttachmentSafe,
+  recordAttachmentForKeySafe,
+} from "./github-attachment-index";
 import { recordPrActivityFromMetadata } from "./github-pr-activity";
 import { noteStorageFailure, noteStorageSuccess } from "./storage-health";
 import {
@@ -510,6 +514,22 @@ export async function putObject(
      * question instead — see `serverCopy` above).
      */
     activeContent?: boolean;
+    /**
+     * Attribution for this put's attachment-index row (issue #934), for the
+     * server-side copy paths that already know what they are doing: attach,
+     * promote, adopt. Absent (every other caller — the REST PUT, the
+     * idempotent PUT, rotation) means `source: "put"` with the repo derived
+     * from the key, which is the historical behavior.
+     *
+     * `repo` must be a SERVER-RESOLVED repo (the request/webhook target),
+     * never `gh.*` file_metadata — see github-attachment-index.ts's trust
+     * boundary. Supplying it also avoids the plain key's lossy sanitized
+     * owner/name segments.
+     *
+     * A non-`"put"` source clears `detached_at`, exactly as the follow-up
+     * `recordAttachmentForKeySafe` these callers used to make did.
+     */
+    attachment?: { source: AttachmentSource; repo?: string };
   },
 ): Promise<{
   key: string;
@@ -803,8 +823,9 @@ export async function putObject(
     await recordAttachmentForKeySafe(dbFor(env), {
       workspace: workspaceName,
       objectKey: finalKey,
-      source: "put",
+      source: opts?.attachment?.source ?? "put",
       laneId: ws.storageLaneId ?? null,
+      repo: opts?.attachment?.repo,
     });
   }
 

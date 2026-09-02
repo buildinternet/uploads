@@ -33,6 +33,12 @@ function key(workspace: string, objectKey: string): string {
 
 export class AttachmentIndexTable {
   readonly rows = new Map<string, AttachmentIndexDbRow>();
+  /**
+   * How many upsert statements have run. Lets a wiring test assert that a
+   * path writes the row ONCE (issue #934 cleanup: attach/promote/adopt used
+   * to write `put` and then immediately re-record their own source).
+   */
+  upserts = 0;
 
   tryRun(normalizedSql: string, args: unknown[]): FakeRunResult | undefined {
     if (normalizedSql.startsWith("INSERT INTO github_attachments")) {
@@ -61,6 +67,7 @@ export class AttachmentIndexTable {
       ];
       const k = key(workspace, objectKey);
       const existing = this.rows.get(k);
+      this.upserts++;
       this.rows.set(k, {
         workspace,
         repo,

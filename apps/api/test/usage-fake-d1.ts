@@ -80,6 +80,10 @@ export class UsageFakeD1 {
   get attachmentIndex() {
     return this.attachmentIndexTable.rows;
   }
+  /** Upsert statements run against `github_attachments` (see the table fake). */
+  get attachmentIndexUpserts() {
+    return this.attachmentIndexTable.upserts;
+  }
 
   prepare = (sql: string) => {
     const normalized = sql.replace(/\s+/g, " ").trim();

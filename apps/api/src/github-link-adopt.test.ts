@@ -481,6 +481,9 @@ describe("adoptLinkedFiles → attachment index (issue #934)", () => {
       source: "adopt",
       detached_at: null,
     });
+    // One upsert for the adopted copy, not a "put" row re-recorded as
+    // "adopt" straight after (issue #934 cleanup).
+    expect(seeded.db.attachmentIndexUpserts).toBe(1);
   });
 
   it("detaches the row when the link stops being referenced, and re-attaches when it returns", async () => {

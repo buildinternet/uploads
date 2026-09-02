@@ -55,11 +55,7 @@
  * the real `--pr` / promoted attachment, which shares that destination.
  */
 import { attachExistingObject, resolveAttachSourceKey } from "./github-attach";
-import {
-  detachAttachmentSafe,
-  reattachAttachmentSafe,
-  recordAttachmentForKeySafe,
-} from "./github-attachment-index";
+import { detachAttachmentSafe, reattachAttachmentSafe } from "./github-attachment-index";
 import { commentCacheKey, gatherCommentBody } from "./github-comment";
 import { GH_PRIVATE_ROOT, ghKeyPrefix, type GhTarget } from "./github-comment-render";
 import { postManagedComment } from "./github-comment-service";
@@ -287,21 +283,21 @@ export async function adoptLinkedFiles(
     }
 
     try {
-      const result = await attachExistingObject(env, ws, workspaceName, {
-        source: key,
-        target: { repo: target.repo, kind: target.kind, num: target.num },
-      });
+      // Attachment index (issue #934): `indexSource` makes the copy's own
+      // (single) row say "adopt" rather than "attach", so the write path
+      // stays attributable. The repo it records is `target.repo`, the
+      // webhook-resolved one, passed on by attachExistingObject.
+      const result = await attachExistingObject(
+        env,
+        ws,
+        workspaceName,
+        {
+          source: key,
+          target: { repo: target.repo, kind: target.kind, num: target.num },
+        },
+        { indexSource: "adopt" },
+      );
       await setFileMetadata(db, workspaceName, result.key, { "gh.detached": "false" });
-      // Attachment index (issue #934): attachExistingObject already wrote a
-      // `source: "attach"` row; overwrite it with "adopt" so the write path
-      // is attributable. `target.repo` is the webhook-resolved repo.
-      await recordAttachmentForKeySafe(db, {
-        workspace: workspaceName,
-        objectKey: result.key,
-        source: "adopt",
-        laneId: ws.storageLaneId ?? null,
-        repo: target.repo,
-      });
       await recordAdoptedLink(db, {
         repo,
         kind,
