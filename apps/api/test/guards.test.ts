@@ -578,6 +578,15 @@ describe("inspectUpload — gated SVG/XML types (issue #929)", () => {
     if (!result.ok) expect(result.status).toBe(415);
   });
 
+  it("accepts declared text/xml with a plausible XML body on a gated (activeContent: true) policy", () => {
+    // text/xml has no extension of its own (declaration-only) — this is the
+    // one gated type that can only ever be claimed by an explicit
+    // Content-Type header, never a key's extension.
+    expect(inspectUpload(enc('<?xml version="1.0"?><report></report>'), gated, "text/xml")).toEqual(
+      { ok: true, contentType: "text/xml" },
+    );
+  });
+
   it("a .log key with an XML-looking body declared text/plain stays text/plain, not xml", () => {
     const result = inspectUpload(enc('<?xml version="1.0"?><a/>'), gated, "text/plain");
     expect(result).toEqual({ ok: true, contentType: "text/plain" });
