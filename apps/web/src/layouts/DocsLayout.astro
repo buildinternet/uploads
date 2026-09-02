@@ -723,6 +723,11 @@ const fullTitle = `${title} · uploads.sh`;
       .doc .installed strong {
         color: var(--green);
       }
+      /* Struck-through claim kept for honesty next to its correction (github-screenshots). */
+      .doc del {
+        color: var(--muted);
+        text-decoration-color: color-mix(in srgb, var(--muted) 60%, transparent);
+      }
       /* Contextual callout (e.g. "landed here from a bot comment?" on docs/github-app). */
       .doc .callout {
         margin: 0 0 28px;

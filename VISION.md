@@ -18,9 +18,10 @@ human asked, not as a final assembly step, but because capturing evidence is
 part of the loop itself — as unremarkable as committing.
 
 uploads is deliberately infrastructure, not intelligence. It doesn't decide
-what to screenshot or judge whether the change is good. It removes the one step
-agents cannot perform — GitHub's image hosting only works through a browser
-drag-and-drop — and makes the surrounding workflow disappear.
+what to screenshot or judge whether the change is good. It gives every capture a
+public home the moment it exists — before there is a pull request to attach it
+to, and outside GitHub's own hosting, which stays private to GitHub — and makes
+the surrounding workflow disappear.
 
 ## Principles
 

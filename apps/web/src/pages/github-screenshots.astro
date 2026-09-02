@@ -44,8 +44,8 @@ const TOC = [
 
 const FAQ = [
   {
-    q: "Why can't my agent upload images to GitHub directly?",
-    a: "GitHub's own image hosting (github.com/user-attachments) only works when you drag a file into the comment box in a signed-in browser. There is no gh command or API for it. So any image an agent puts in a comment must already live at a public URL.",
+    q: "Can't my agent just use gh --attach?",
+    a: "Since September 2026, yes for the simple case. GitHub CLI 2.99 attaches images and video to an issue or pull request you have push access to, up to 10 MB per file. It needs the PR or issue to exist, the file stays private to GitHub, and there is still no API for it. Uploads covers what that leaves out: capturing the screenshot, staging it before the PR opens, one attachments comment that updates on every revision, metadata and search across every capture, and a public URL you can paste anywhere.",
   },
   {
     q: "Do the image URLs change when I re-upload a screenshot?",
@@ -82,7 +82,7 @@ const FAQ_JSON_LD = JSON.stringify({
 
 <DocsLayout
   title="How to get agents to upload screenshots & video to GitHub"
-  description="Agents can't drag-and-drop into GitHub comments. Give Claude Code, CI jobs, and scripts one command that posts screenshots and video to PRs and issues."
+  description="One command for Claude Code, CI jobs, and scripts that captures, hosts, and posts screenshots and video to PRs and issues, before or after the PR exists."
   path="/github-screenshots"
   heading="How to get agents to upload screenshots & video to GitHub"
   tagline="Claude Code, CI jobs, review bots, plain scripts: anything without a browser."
@@ -91,6 +91,30 @@ const FAQ_JSON_LD = JSON.stringify({
   toc={TOC}
 >
   <script type="application/ld+json" slot="head" set:html={FAQ_JSON_LD} />
+
+  <aside class="callout">
+    <p>
+      <strong>Good news (September 2026):</strong> GitHub CLI now has basic upload support. Version 2.99
+      adds a repeatable <code>--attach</code> flag to the issue and pull request create, edit, and comment
+      commands. It takes images and video up to 10 MB per file (video up to 100 MB on paid plans), needs
+      push access, and doesn't cover GitHub Enterprise Server yet. If you have a PR or issue open and
+      one image to drop on it, use it. See&#32;
+      <a
+        href="https://github.blog/changelog/2026-09-01-github-cli-media-in-issues-pull-requests-and-comments/"
+        >GitHub's changelog</a
+      > and <a
+        href="https://docs.github.com/en/github-cli/github-cli/attaching-files-with-github-cli"
+        >docs</a
+      >.
+    </p>
+    <p>
+      Uploads does the parts <code>gh</code> doesn't: capture the screenshot, stage it before a PR exists,
+      keep one attachments comment current across revisions, tag files with metadata and find them later,
+      browse every capture across projects, and give you a public URL that works outside GitHub. <a
+        href="/changelog#github-cli-attach">Where Uploads still fits</a
+      >.
+    </p>
+  </aside>
 
   <section class="lead" id="problem">
     <h2>
@@ -103,10 +127,14 @@ const FAQ_JSON_LD = JSON.stringify({
     <p>
       You put a screenshot on a pull request by dragging the file into the comment box. GitHub then
       hosts it at <code>github.com/user-attachments/…</code>. That only works in a signed-in
-      browser. There is no <code>gh</code> command and no API for it.
+      browser. <del>There is no <code>gh</code> command and no API for it.</del>&#32;
+      <strong>Update, September 2026:</strong>
+      <code>gh</code> 2.99 adds <code>--attach</code> for images and video on an existing PR or issue.
+      There is still no API, and the hosted file stays private to GitHub.
     </p>
     <p>
-      So an agent that just changed your UI can't show its work. The usual workarounds all hurt:
+      So an agent that just changed your UI has nowhere to put the proof until a PR exists, and even
+      then only inside GitHub. The usual workarounds all hurt:
     </p>
     <ul>
       <li>
@@ -228,6 +256,13 @@ const FAQ_JSON_LD = JSON.stringify({
         >--pr &lt;n&gt;</code
       >, and <code>--repo owner/name</code> for a different repo. Placing the image yourself in a PR description
       or README? <code>--no-comment</code> prints the URL and Markdown without posting.
+    </p>
+    <p class="pointer">
+      One image, one open PR, <code>gh</code> 2.99 and push access? <code
+        >gh pr comment --attach</code
+      >
+      is enough. Uploads earns its keep when the shot needs to exist before the PR does, update in place,
+      carry metadata, or live at a public URL.
     </p>
   </section>
 

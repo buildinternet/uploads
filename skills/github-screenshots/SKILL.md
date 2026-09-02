@@ -14,8 +14,9 @@ description: >-
   captured or changed something visual that a shot would make clearer — even
   mid-task, before a PR exists. Also applies when an agent has no local
   filesystem and is uploading via the hosted MCP (agents.uploads.sh). Reach
-  for this instead of drag-and-drop or github.com/user-attachments (agents
-  can't upload there) and instead of hand-rolling cloud-storage uploads.
+  for this instead of drag-and-drop or hand-rolling cloud-storage uploads.
+  GitHub CLI 2.99+ can attach a single image to an existing PR or issue with
+  `gh … --attach`; this skill says when that is enough and when it is not.
   Capture the visual with whatever browser or screenshot tooling you have;
   this skill covers hosting and embedding it.
 ---
@@ -24,12 +25,41 @@ description: >-
 
 ## Why this exists
 
-GitHub's native image hosting (`github.com/user-attachments/…`) only works
-from an authenticated browser session — there is no `gh` CLI or REST endpoint
-for it. Any image URL in a PR/issue body written with `gh … --body-file` must
-already point at something publicly hosted. The **`uploads` CLI** and the
+GitHub's native image hosting (`github.com/user-attachments/…`) is reachable
+from a browser and, since GitHub CLI 2.99 (September 2026), from
+`gh issue|pr create|edit|comment --attach <file>`. There is still no REST
+endpoint, the upload needs push access, and the hosted file is private to
+GitHub. Any other image URL in a PR/issue body written with `gh … --body-file`
+must already point at something publicly hosted. The **`uploads` CLI** and the
 hosted MCP at `https://agents.uploads.sh/mcp` both host the file on uploads.sh
 and return a stable public URL plus ready-to-paste markdown.
+
+## When `gh --attach` is enough
+
+Use plain `gh pr comment --attach ./shot.png` (or `create`/`edit`) when ALL
+of these hold:
+
+- `gh --version` is 2.99 or newer and you have push access to the repo.
+- The PR or issue already exists, or you are creating it in the same command.
+- The file is an image or video under 10 MB (video up to 100 MB on paid plans).
+- Nobody needs the link outside GitHub. `user-attachments` URLs do not render
+  in Slack, docs, or other tools, and other agents cannot fetch them.
+
+Use uploads.sh when any of these are true instead:
+
+- The PR does not exist yet. Stage on the branch with `uploads put`; the
+  attachments comment appears when the PR opens.
+- The shot will be re-taken. Same filename, same URL, and the managed comment
+  updates in place instead of piling up.
+- The capture needs metadata (`--meta`), later retrieval (`uploads find`), or
+  the Screenshots view across projects.
+- The URL must work outside GitHub, or the file is not an image or video.
+- You are on the hosted MCP with no shell, lack push access, or the repo is on
+  GitHub Enterprise Server.
+
+Do not mix the two on one PR: pick one so the comment history stays readable.
+To pull an existing `user-attachments` image out to a public URL, use
+`uploads ingest`.
 
 ## Which surface
 

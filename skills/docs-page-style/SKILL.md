@@ -118,8 +118,8 @@ wants to act, not read more).
 
 The thing to cut is _throat-clearing_ ("In this guide…", "uploads.sh is a service
 that…"), not substance. A concrete _why_ — a real constraint the tool exists to
-solve, like "GitHub has no API for file uploads, so agents can't include
-screenshots in pull requests" — earns its two or three sentences, because it
+solve, like "Agents take screenshots long before a pull request exists, and
+GitHub's own attachments only work inside GitHub" — earns its two or three sentences, because it
 tells the reader what problem they're actually solving. Lead with that when the
 page has one; keep it tight and get to the capability list.
 
