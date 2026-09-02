@@ -168,19 +168,22 @@ describe("resolveUploadPolicy", () => {
   });
 
   it("resolves pro-plan defaults for both image and video caps when unset", () => {
-    const policy = resolveUploadPolicy({ plan: "pro" });
+    const policy = resolveUploadPolicy({ plan: "pro" }, { activeContent: false });
     expect(policy.maxBytes).toBe(100_000_000);
     expect(policy.maxVideoBytes).toBe(100_000_000);
   });
 
   it("resolves free-plan defaults for both image and video caps when unset", () => {
-    const policy = resolveUploadPolicy({ plan: "free" });
+    const policy = resolveUploadPolicy({ plan: "free" }, { activeContent: false });
     expect(policy.maxBytes).toBe(25_000_000);
     expect(policy.maxVideoBytes).toBe(25_000_000);
   });
 
   it("an explicit override beats the plan default", () => {
-    const policy = resolveUploadPolicy({ plan: "pro", maxUploadBytes: 1000 });
+    const policy = resolveUploadPolicy(
+      { plan: "pro", maxUploadBytes: 1000 },
+      { activeContent: false },
+    );
     expect(policy.maxBytes).toBe(1000);
     // video has no override of its own, so it resolves independently to the
     // plan's video default (not to the overridden maxBytes).
@@ -188,19 +191,25 @@ describe("resolveUploadPolicy", () => {
   });
 
   it("an explicit video override beats the plan default independently of maxBytes", () => {
-    const policy = resolveUploadPolicy({ plan: "pro", maxVideoUploadBytes: 5000 });
+    const policy = resolveUploadPolicy(
+      { plan: "pro", maxVideoUploadBytes: 5000 },
+      { activeContent: false },
+    );
     expect(policy.maxBytes).toBe(100_000_000);
     expect(policy.maxVideoBytes).toBe(5000);
   });
 
   it("falls back to the legacy DEFAULT_MAX_UPLOAD_BYTES when no plan is stamped", () => {
-    const policy = resolveUploadPolicy({});
+    const policy = resolveUploadPolicy({}, { activeContent: false });
     expect(policy.maxBytes).toBe(DEFAULT_MAX_UPLOAD_BYTES);
     expect(policy.maxVideoBytes).toBe(DEFAULT_MAX_UPLOAD_BYTES);
   });
 
   it("video falls back to maxBytes when only the video field is unresolved", () => {
-    const policy = resolveUploadPolicy({ plan: "pro", maxVideoUploadBytes: 0 });
+    const policy = resolveUploadPolicy(
+      { plan: "pro", maxVideoUploadBytes: 0 },
+      { activeContent: false },
+    );
     expect(policy.maxBytes).toBe(100_000_000);
     expect(policy.maxVideoBytes).toBe(100_000_000);
   });
