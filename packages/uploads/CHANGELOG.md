@@ -1,5 +1,19 @@
 # @buildinternet/uploads
 
+## 0.52.0
+
+### Minor Changes
+
+- 286cafc: `put` and `attach` accept non-media files: PDF, zip, gzip, MOV, and text (plain, markdown, CSV, JSON, logs). They upload as-is, skip image optimization, and appear in the managed comment as links. Requires the matching platform release.
+- 99340ec: `put` and `attach` accept SVG and XML (`image/svg+xml`, `application/xml`, `text/xml`) on a storage lane once its public host is verified to serve them behind a sandboxing Content-Security-Policy. An unverified lane keeps 415ing these types. The managed comment embeds SVG as `<img>`. Requires the matching platform release.
+
+### Patch Changes
+
+- 3bdadcf: The active-content host probe now retries a failed `REGISTRY` KV write once before giving up, so a stale prior-day `ok: true` record can't survive a one-off KV hiccup and keep the SVG/XML sandboxing gate open.
+- e3b1f85: Sharpen the server-side reputation pre-filter for gated SVG/XML uploads (`containsActiveMarkup`): event-handler attribute matching no longer false-positives on ordinary attributes like `online=`/`once=`, and entity-encoded evasions (`&#106;avascript:`, SMIL `<set attributeName="onclick">`) are now rejected. The actual security control remains the sandboxing CSP on the serving lane; this filter is defense in depth.
+- 15d34d6: `put --help` now says uploads are public and to scrub secrets out of logs, JSON, and other text before uploading.
+- cada618: Read width/height for SVG uploads from the root `<svg>` tag's `width`/`height` attributes (or `viewBox` as a fallback), so `image.width`/`image.height` server metadata — and the managed GitHub comment's sizing — now cover SVGs the same as other image types.
+
 ## 0.51.0
 
 ### Minor Changes
