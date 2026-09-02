@@ -420,6 +420,38 @@ describe("attachment index safe writers", () => {
       expect(parsed.error).toBe("D1 exploded");
     }
   });
+
+  it("recordAttachmentForKeySafe swallows a throwing db for both a private and a plain key", async () => {
+    const errors: string[] = [];
+    const spy = vi.spyOn(console, "error").mockImplementation((msg) => {
+      errors.push(String(msg));
+    });
+    try {
+      // Private key: needs a `repoForPrefixId` D1 lookup before the write,
+      // and that lookup itself throws.
+      await recordAttachmentForKeySafe(throwingDb, {
+        workspace: "acme",
+        objectKey: `gh/private/${"a".repeat(32)}/pull/12/hero.png`,
+        source: "put",
+        laneId: null,
+      });
+      // Plain key: no D1 lookup needed before the write, so only the
+      // write itself throws.
+      await recordAttachmentForKeySafe(throwingDb, {
+        workspace: "acme",
+        objectKey: "gh/acme/web/pull/12/hero.png",
+        source: "put",
+        laneId: null,
+      });
+    } finally {
+      spy.mockRestore();
+    }
+    expect(errors).toHaveLength(2);
+    for (const line of errors) {
+      const parsed = JSON.parse(line) as { message: string; error: string };
+      expect(parsed.message).toContain("attachment index");
+    }
+  });
 });
 
 describe("recordAttachmentForKeySafe", () => {
