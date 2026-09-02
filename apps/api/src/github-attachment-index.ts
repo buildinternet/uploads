@@ -20,14 +20,7 @@ import { type D1Queryable } from "./db-session";
 import { repoForPrefixId } from "./github-private-prefixes";
 
 /** Which server-side path wrote (or last updated) an index row. */
-export type AttachmentSource =
-  | "put"
-  | "attach"
-  | "promote"
-  | "adopt"
-  | "rotate"
-  | "backfill"
-  | "reconcile";
+export type AttachmentSource = "put" | "attach" | "promote" | "adopt" | "backfill" | "reconcile";
 
 export interface ParsedAttachmentKey {
   kind: "pull" | "issues";

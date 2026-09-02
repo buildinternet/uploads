@@ -16,7 +16,7 @@ CREATE TABLE github_attachments (
   object_key  TEXT NOT NULL,
   prefix_id   TEXT,              -- NULL = plain gh/ prefix; else 32-hex private id
   lane_id     TEXT,              -- storage lane the object was written to; NULL = active/origin
-  source      TEXT NOT NULL,     -- put | attach | promote | adopt | rotate | backfill | reconcile
+  source      TEXT NOT NULL,     -- put | attach | promote | adopt | backfill | reconcile
   created_at  TEXT NOT NULL,
   updated_at  TEXT NOT NULL,
   detached_at TEXT,              -- mirrors gh.detached; hidden from the render
