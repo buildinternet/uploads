@@ -120,6 +120,7 @@ const CONTENT_TYPE_BY_EXTENSION: Readonly<Record<string, string>> = {
   markdown: "text/markdown",
   csv: "text/csv",
   json: "application/json",
+  xml: "application/xml",
 };
 
 export function inferContentType(filename: string): string {

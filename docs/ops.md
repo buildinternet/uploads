@@ -66,6 +66,61 @@ attachments comment prefer `embedUrl` for `<img src>`.
 
 No Worker proxies image bytes — dual host is DNS + zone rules only.
 
+## SVG and XML on the hosted hosts (issue #929)
+
+SVG and XML (`image/svg+xml`, `application/xml`, `text/xml`) are gated
+uploads: a lane only accepts them once its public host is **verified** to
+serve them behind a sandboxing Content-Security-Policy — these are bare R2
+custom domains with no Worker in front, so a malicious SVG's script would
+otherwise run with an origin. See
+`docs/superpowers/specs/2026-09-02-svg-xml-active-content-design.md` for the
+full design; `apps/api/src/active-content.ts` is the gate every write path
+checks, `apps/api/src/active-content-hosts.ts` is the hosted-lane half below.
+
+**Setup (once per hosted host — `storage.uploads.sh`, `store.uploads.sh`,
+`embed.uploads.sh`):**
+
+1. Rules → Transform Rules → Modify Response Header:
+   - When:
+     ```
+     (http.host in {"storage.uploads.sh" "store.uploads.sh" "embed.uploads.sh"}) and (any(http.response.headers["content-type"][*] matches "^(image/svg\+xml|application/xml|text/xml)"))
+     ```
+   - Set:
+     - `Content-Security-Policy` =
+       `default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox`
+     - `X-Content-Type-Options` = `nosniff`
+2. Confirm it worked — run the on-demand probe (below) and check the KV
+   record it writes.
+
+**Daily sweep:** the Worker's `scheduled` handler (`0 6 * * *`, `index.ts`)
+calls `runActiveContentHostSweep` for every hosted host, writing
+`host-active-content:<host>` to `REGISTRY` as `{ ok, verifiedAt, detail? }`.
+`activeContentAllowed` (`active-content.ts`) treats a record older than 48h
+as untrusted — one missed cron tick doesn't flip every workspace on that
+host off, but a genuinely broken Transform Rule closes the gate within two
+days.
+
+**On-demand probe:** `POST /admin-ui/active-content/probe` (session,
+global admin — reachable from the `/admin` panel) runs the same sweep
+immediately, so a just-applied Transform Rule can be confirmed without
+waiting for the next cron tick. Returns the fresh per-host records; each is
+also persisted to `REGISTRY`, same as the cron.
+
+**Kill switch:** Flagship flag `active-content-uploads`, same app as
+`video-poster-generation` above:
+
+```bash
+wrangler flagship flags update 8371bfe7-9767-4b4d-b75a-37b94d2724f7 \
+  active-content-uploads --default off
+```
+
+Fails closed like the poster flag — a missing binding, a disabled flag, or a
+thrown evaluation are all indistinguishable from "off"
+(`activeContentAllowed`). A BYO lane's own verification is unaffected by
+this Transform Rule: its owner sets the headers on their own host, and its
+`storageActiveContentVerifiedAt` stamp comes from the lane-verify pipeline
+or the settings page's "Check now" button, never this sweep.
+
 ## Cloudflare error pages
 
 Errors Cloudflare produces itself never reach `apps/web`, so the Astro

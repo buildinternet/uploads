@@ -77,9 +77,10 @@ attachment caps never apply.
   free GitHub plans, and <PlanValue of="proMaxVideo" /> on <PlanValue of="proName" /> even when the
   repository is on a free GitHub plan.
 - **Formats:** images (PNG, JPEG, GIF, WebP, AVIF), video (MP4, WebM, MOV), PDF, zip, gzip, and
-  text (plain, markdown, CSV, JSON, logs). SVG and HTML are not accepted — served inline, either
-  can run script; SVG support is planned behind a sandboxing header. Uploads are public: scrub
-  secrets out of logs, JSON, and other text files before uploading.
+  text (plain, markdown, CSV, JSON, logs). SVG and XML are accepted only on storage lanes verified
+  to serve them sandboxed (see [Bring your own bucket](/docs/byo-bucket#svg-xml)); HTML is not
+  accepted because served inline it can run script. Uploads are public: scrub secrets out of logs,
+  JSON, and other text files before uploading.
 
 <div class="note">
   One difference to know: GitHub renders inline video players only for its own uploads. Videos
