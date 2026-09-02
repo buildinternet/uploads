@@ -246,11 +246,10 @@ async function fetchAndStore(
   // bytes or a type outside the gate is the same permanent
   // `unsupported_media_type` skip either way. `activeContent: false` here,
   // not the real `activeContentAllowed(env, ws)` result (issue #929
-  // final-review): SVG is declared-only, never sniffed, so `detectContentType`
-  // below can't admit one regardless of what the gate says, and XML sniffs
-  // to `kind: "file"`, which the `uploadKind(sniffed) === "file"` check right
-  // below always skips anyway — so the real gate can never change this
-  // function's outcome. Passing `false` skips the per-asset Flagship
+  // final-review): the gated types (SVG, XML) are declared-only and have no
+  // magic bytes, so `detectContentType` below returns null for them and the
+  // `!sniffed` skip fires before the allowlist is ever consulted — the real
+  // gate can never change this function's outcome. Passing `false` skips the per-asset Flagship
   // evaluation and KV read that a real gate call would otherwise cost on
   // every ingested asset.
   const policy = resolveUploadPolicy(ws, { activeContent: false });
