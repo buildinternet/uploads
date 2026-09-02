@@ -177,10 +177,11 @@ export function looksLikeText(bytes: Uint8Array): boolean {
 }
 
 /**
- * Extension → content type for the key-extension fallback in
- * `resolveDeclaredContentType`. Mirrors `inferContentType` in
- * packages/uploads/src/embed.ts; keep the two in step. html/svg are absent on
- * purpose — they must never become a declared type.
+ * Server-side counterpart of `inferContentType` in
+ * packages/uploads/src/embed.ts (the CLI's client-side guess). The two lists
+ * share every accepted type but are deliberately not identical: embed.ts
+ * keeps `svg` so the optimizer can pass it through, and this map must never
+ * map svg or html — anything here can become a declared type.
  */
 const CONTENT_TYPE_BY_EXTENSION: Readonly<Record<string, string>> = {
   png: "image/png",
@@ -214,7 +215,8 @@ export function contentTypeFromKey(key: string): string | undefined {
   const base = key.slice(key.lastIndexOf("/") + 1);
   const dot = base.lastIndexOf(".");
   if (dot <= 0 || dot === base.length - 1) return undefined;
-  return CONTENT_TYPE_BY_EXTENSION[base.slice(dot + 1).toLowerCase()];
+  const ext = base.slice(dot + 1).toLowerCase();
+  return Object.hasOwn(CONTENT_TYPE_BY_EXTENSION, ext) ? CONTENT_TYPE_BY_EXTENSION[ext] : undefined;
 }
 
 /** Normalize a client Content-Type for allowlist compare (type/subtype only, lowercased). */

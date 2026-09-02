@@ -196,6 +196,10 @@ describe("looksLikeText", () => {
     body[8500] = 0;
     expect(looksLikeText(body)).toBe(true);
   });
+
+  it("rejects a multibyte sequence truncated at end of file", () => {
+    expect(looksLikeText(new Uint8Array([0x61, 0xe2]))).toBe(false);
+  });
 });
 
 describe("contentTypeFromKey", () => {
@@ -219,6 +223,11 @@ describe("contentTypeFromKey", () => {
     expect(contentTypeFromKey("a/page.html")).toBeUndefined();
     expect(contentTypeFromKey("a/icon.svg")).toBeUndefined();
     expect(contentTypeFromKey("a/dir.v2/")).toBeUndefined();
+  });
+
+  it("does not resolve through inherited Object.prototype keys", () => {
+    expect(contentTypeFromKey("a/x.constructor")).toBeUndefined();
+    expect(contentTypeFromKey("a/x.toString")).toBeUndefined();
   });
 });
 
