@@ -582,4 +582,54 @@ describe("inspectUpload — gated SVG/XML types (issue #929)", () => {
       if (!result.ok) expect(result.status).toBe(415);
     }
   });
+
+  it("413s an oversize declared SVG at its own 4 MiB cap, before plausibility ever runs (review follow-up)", () => {
+    // Not a valid <svg> root at all — if `plausible` ran on this body it
+    // would 415 (bad shape), not 413. Getting 413 back proves the size gate
+    // rejects it first, without ever decoding/regex-scanning the body.
+    const oversize = new Uint8Array(4 * 1024 * 1024 + 1).fill(0x61); // "aaaa…"
+    const result = inspectUpload(oversize, gated, "image/svg+xml");
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(413);
+      expect(result.error.details).toMatchObject({ maxBytes: 4 * 1024 * 1024 });
+    }
+  });
+
+  it("the gated 4 MiB cap holds even when the workspace's own maxUploadBytes is far higher", () => {
+    const roomyGated = resolveUploadPolicy(
+      { maxUploadBytes: 100 * 1024 * 1024 },
+      { activeContent: true },
+    );
+    const oversize = new Uint8Array(4 * 1024 * 1024 + 1).fill(0x61);
+    const result = inspectUpload(oversize, roomyGated, "application/xml");
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(413);
+      expect(result.error.details).toMatchObject({ maxBytes: 4 * 1024 * 1024 });
+    }
+  });
+
+  it("reports details.reason 'active_markup' when the shape passes but the reputation filter fails", () => {
+    const result = inspectUpload(
+      enc("<svg><script>alert(1)</script></svg>"),
+      gated,
+      "image/svg+xml",
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.details).toMatchObject({ reason: "active_markup" });
+  });
+
+  it("reports details.reason 'lane_not_verified' for a gated type declared on an unverified lane", () => {
+    const closed = resolveUploadPolicy({}, { activeContent: false });
+    const result = inspectUpload(enc("<svg></svg>"), closed, "image/svg+xml");
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.details).toMatchObject({ reason: "lane_not_verified" });
+  });
+
+  it("carries no reason for an unrelated 415 (wrong root element, gate open)", () => {
+    const result = inspectUpload(enc("<html></html>"), gated, "image/svg+xml");
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.details).not.toHaveProperty("reason");
+  });
 });

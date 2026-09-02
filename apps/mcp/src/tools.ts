@@ -599,7 +599,7 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
       annotations: mcpDestroyPublic,
       securitySchemes: mcpOAuthWrite,
       description:
-        "Upload a file (or files) and get a public URL plus GitHub-ready markdown. Prefer the returned `embedUrl` in GitHub markdown. All uploads are public. Pass `pr`+`repo` to attach to a PR (stable key + managed comment). Pass `branch`+`repo` to stage for a PR that does not exist yet. When the bytes are already at a public HTTPS URL, pass `contentUrl` instead of base64 — the server fetches them. Accepts images (PNG, JPEG, GIF, WebP, AVIF), video (MP4, WebM, MOV), PDF, zip, gzip, and text (plain, markdown, CSV, JSON). HTML and SVG are rejected.",
+        "Upload a file (or files) and get a public URL plus GitHub-ready markdown. Prefer the returned `embedUrl` in GitHub markdown. All uploads are public. Pass `pr`+`repo` to attach to a PR (stable key + managed comment). Pass `branch`+`repo` to stage for a PR that does not exist yet. When the bytes are already at a public HTTPS URL, pass `contentUrl` instead of base64 — the server fetches them. Accepts images (PNG, JPEG, GIF, WebP, AVIF), video (MP4, WebM, MOV), PDF, zip, gzip, and text (plain, markdown, CSV, JSON). SVG and XML are accepted only on storage lanes verified to serve them sandboxed (see the workspace's storage settings); HTML is rejected.",
       inputSchema: {
         type: "object",
         properties: {
@@ -847,10 +847,12 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
 
         // `activeContent: false` here is deliberate, not a placeholder: this
         // policy is only ever consulted below for `maxBytes`/`maxVideoBytes`
-        // (the pre-decode size ceiling), and the gated SVG/XML rows carry no
-        // byte-cap of their own — the real gate result would change nothing
-        // this call reads. `putObject`'s own `resolveUploadPolicy` call
-        // (files-core.ts) is what actually gates SVG/XML acceptance.
+        // (the pre-decode size ceiling), and those are workspace-level
+        // overrides — a row's own tighter `maxBytes` (the gated SVG/XML
+        // rows' 4 MiB cap, issue #929 review) never feeds into them, so the
+        // real gate result would change nothing this call reads. `putObject`'s
+        // own `resolveUploadPolicy` call (files-core.ts) is what actually
+        // gates SVG/XML acceptance.
         const policy = resolveUploadPolicy(workspace, { activeContent: false });
         // Pre-decode uses the policy ceiling (video may exceed maxBytes);
         // putObject's inspectUpload enforces the content-specific limit.

@@ -47,6 +47,25 @@ type UploadTypeRow = {
    * gated SVG/XML rows below compose `looksLikeText` themselves.
    */
   readonly plausible?: (bytes: Uint8Array) => boolean;
+  /**
+   * Per-row byte ceiling, tighter than the policy's own `maxBytes`/
+   * `maxVideoBytes` — set on the gated SVG/XML rows (issue #929 review) so
+   * `inspectUpload` can reject an oversize declared body with 413 *before*
+   * `plausible` ever decodes/regex-scans it (`decodeFull`/`containsActiveMarkup`
+   * are O(body size), and these rows are meant to stay small). Absent means
+   * "no tighter cap than the policy's own" — see `maxBytesForContentType`.
+   */
+  readonly maxBytes?: number;
+  /**
+   * Optional diagnostic companion to `plausible` (issue #929 review):
+   * called only when `plausible` returned false, this returns a
+   * machine-readable `details.reason` for the 415 when the failure is more
+   * specific than "declared type didn't pass its check" — today just
+   * `"active_markup"` on a gated row whose shape passed but
+   * `containsActiveMarkup` didn't. `undefined` (no reason) for every other
+   * failure, including on ungated declared rows, which don't set this at all.
+   */
+  readonly plausibleReason?: (bytes: Uint8Array) => string | undefined;
 };
 
 /**
@@ -96,10 +115,30 @@ const UNGATED_UPLOAD_TYPES: readonly UploadTypeRow[] = [
  * `.log` that starts with `<?xml` keeps being `text/plain`, and a `.png`
  * carrying SVG bytes still 415s (sniffing wins in `inspectUpload` whenever
  * it recognizes anything at all). Each row's `plausible` is a reputation
- * pre-filter, not the control — the sandboxing CSP on the serving host is
- * what actually neutralizes an active payload; this just keeps an obviously
- * hostile body from ever reaching a verified lane.
+ * pre-filter over a *buffered* body — PUT, MCP, and server-side copies all
+ * decode it — not the control: the sandboxing CSP on the serving host is
+ * what actually neutralizes an active payload, and a presigned upload
+ * writes straight to the bucket with no server inspection at all, `plausible`
+ * included. `maxBytes` caps every row at 4 MiB, well under the general
+ * upload ceiling, so `inspectUpload` can reject an oversize body with 413
+ * before `plausible` decodes/regex-scans it at all — see `maxBytesForContentType`.
  */
+const GATED_MAX_BYTES = 4 * 1024 * 1024;
+
+/** `plausibleReason` for the gated SVG row: "active_markup" when the shape passed but the reputation filter didn't, else no specific reason. */
+function svgPlausibleReason(bytes: Uint8Array): string | undefined {
+  return looksLikeSvg(bytes) && containsActiveMarkup(decodeFull(bytes))
+    ? "active_markup"
+    : undefined;
+}
+
+/** `plausibleReason` for the gated XML/text-xml rows — same shape as `svgPlausibleReason`, against `looksLikeXml`. */
+function xmlPlausibleReason(bytes: Uint8Array): string | undefined {
+  return looksLikeXml(bytes) && containsActiveMarkup(decodeFull(bytes))
+    ? "active_markup"
+    : undefined;
+}
+
 const GATED_UPLOAD_TYPES: readonly UploadTypeRow[] = [
   {
     type: "image/svg+xml",
@@ -107,7 +146,9 @@ const GATED_UPLOAD_TYPES: readonly UploadTypeRow[] = [
     verify: "declared",
     extensions: ["svg"],
     gate: "active-content",
+    maxBytes: GATED_MAX_BYTES,
     plausible: (bytes) => looksLikeSvg(bytes) && !containsActiveMarkup(decodeFull(bytes)),
+    plausibleReason: svgPlausibleReason,
   },
   {
     type: "application/xml",
@@ -115,7 +156,9 @@ const GATED_UPLOAD_TYPES: readonly UploadTypeRow[] = [
     verify: "declared",
     extensions: ["xml"],
     gate: "active-content",
+    maxBytes: GATED_MAX_BYTES,
     plausible: (bytes) => looksLikeXml(bytes) && !containsActiveMarkup(decodeFull(bytes)),
+    plausibleReason: xmlPlausibleReason,
   },
   {
     // Declaration-only: no extension maps to it, so a key's extension alone
@@ -125,7 +168,9 @@ const GATED_UPLOAD_TYPES: readonly UploadTypeRow[] = [
     verify: "declared",
     extensions: [],
     gate: "active-content",
+    maxBytes: GATED_MAX_BYTES,
     plausible: (bytes) => looksLikeXml(bytes) && !containsActiveMarkup(decodeFull(bytes)),
+    plausibleReason: xmlPlausibleReason,
   },
 ];
 
@@ -244,8 +289,16 @@ export function resolveUploadPolicy(
   return { maxBytes, maxVideoBytes, allowed };
 }
 
+/**
+ * The effective byte ceiling for one content type: the policy's own
+ * `maxVideoBytes`/`maxBytes`, tightened by the row's own `maxBytes` when it
+ * has one (issue #929 review — the gated SVG/XML rows cap at 4 MiB
+ * regardless of how high a workspace's general upload ceiling is set).
+ */
 export function maxBytesForContentType(policy: UploadPolicy, contentType: string): number {
-  return VIDEO_TYPES.has(contentType) ? policy.maxVideoBytes : policy.maxBytes;
+  const base = VIDEO_TYPES.has(contentType) ? policy.maxVideoBytes : policy.maxBytes;
+  const rowMax = ROW_BY_TYPE.get(contentType)?.maxBytes;
+  return rowMax !== undefined ? Math.min(base, rowMax) : base;
 }
 
 /** True when `bytes` contains `signature` at `offset` (bounds-checked). */
@@ -390,9 +443,14 @@ export function looksLikeXml(bytes: Uint8Array): boolean {
  * text contains a `<script` tag, an `on*=` event-handler attribute, a
  * `javascript:` URL, `<foreignObject` (SVG can embed arbitrary HTML through
  * it), or an `<?xml-stylesheet` processing instruction (can point at an XSLT
- * that runs script). This is defense in depth, not the control — the
+ * that runs script). This is defense in depth, not the control, and it only
+ * ever runs on a *buffered* body a server handler actually reads — the PUT
+ * route, the MCP `put` tool, and server-side copies (`putOptsFromStoredObject`
+ * bypasses the gate entirely, so this filter never even applies there). A
+ * presigned upload writes straight to the bucket over HTTP with no server in
+ * the loop, so nothing here ever inspects it — which is exactly why the
  * sandboxing CSP the serving lane is verified to send (`./active-content.ts`)
- * is what actually neutralizes anything this filter misses.
+ * is the actual control, not this filter.
  */
 export function containsActiveMarkup(text: string): boolean {
   return /<script|\bon[a-z]+\s*=|javascript:|<foreignobject|<\?xml-stylesheet/i.test(text);
@@ -579,18 +637,46 @@ export function inspectUpload(
 ): UploadInspection {
   const detected = detectContentType(bytes);
   let contentType: string | null = null;
+  let declaredOversize: UploadRejection | null = null;
   if (detected !== null) {
     if (policy.allowed.has(detected)) contentType = detected;
   } else if (declaredType !== undefined && policy.allowed.has(declaredType)) {
     const row = ROW_BY_TYPE.get(declaredType);
-    // Each declared row names its own plausibility check (SVG/XML: their own
-    // shape + reputation filter; every other declared row falls back to the
-    // plain `looksLikeText` this always used to call directly).
-    if (row?.verify === "declared" && (row.plausible ?? looksLikeText)(bytes)) {
-      contentType = declaredType;
+    if (row?.verify === "declared") {
+      // Size gate before plausibility, not after: a declared row's
+      // `plausible` (the gated SVG/XML rows especially) decodes and
+      // regex-scans the *whole* body, so an oversize payload must 413
+      // before that scan ever runs, not after (issue #929 review).
+      const declaredMaxBytes = maxBytesForContentType(policy, declaredType);
+      if (bytes.byteLength > declaredMaxBytes) {
+        declaredOversize = tooLarge(declaredMaxBytes, {
+          contentType: declaredType,
+          kind: uploadKind(declaredType),
+        });
+      } else if ((row.plausible ?? looksLikeText)(bytes)) {
+        // Each declared row names its own plausibility check (SVG/XML:
+        // their own shape + reputation filter; every other declared row
+        // falls back to the plain `looksLikeText` this always used to call
+        // directly).
+        contentType = declaredType;
+      }
     }
   }
+  if (contentType === null && declaredOversize) return declaredOversize;
   if (contentType === null) {
+    // A machine-readable `reason`, in the two cases that have a specific
+    // one (issue #929 review): the type is gated and this workspace's lane
+    // hasn't verified for it (`policy.allowed` never had it to begin with,
+    // regardless of what `plausible` would have said), or the gate is open
+    // but the body's own reputation filter (not its shape) is what failed.
+    // Every other rejection carries no `reason` — the generic 415 stands.
+    let reason: string | undefined;
+    if (declaredType !== undefined) {
+      reason =
+        GATED_SET.has(declaredType) && !policy.allowed.has(declaredType)
+          ? "lane_not_verified"
+          : ROW_BY_TYPE.get(declaredType)?.plausibleReason?.(bytes);
+    }
     return {
       ok: false,
       status: 415,
@@ -598,6 +684,7 @@ export function inspectUpload(
         details: {
           allowed: [...policy.allowed],
           ...(declaredType !== undefined ? { declared: declaredType } : {}),
+          ...(reason !== undefined ? { reason } : {}),
         },
       }),
     };

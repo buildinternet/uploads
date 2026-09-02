@@ -190,7 +190,15 @@ export async function putFileHandler(c: Context<WorkspaceVars>) {
   }
 
   const ws = c.get("workspace");
-  const policy = resolveUploadPolicy(ws, { activeContent: await activeContentAllowed(c.env, ws) });
+  // `activeContent: false` here is deliberate, not a placeholder: this
+  // policy is only ever consulted below for `maxBytes`/`maxVideoBytes` (the
+  // pre-buffer declared-length ceiling), and those are workspace-level
+  // overrides — a row's own tighter `maxBytes` (the gated SVG/XML rows'
+  // 4 MiB cap, issue #929 review) never feeds into them, so the real gate
+  // result would change nothing this call reads. `putObject`'s own
+  // `resolveUploadPolicy` call (files-core.ts) is what actually gates
+  // SVG/XML acceptance, against the fully-buffered body.
+  const policy = resolveUploadPolicy(ws, { activeContent: false });
   const declared = checkDeclaredLength(c.req.header("Content-Length"), policy);
   if (declared) throw declared.error;
 

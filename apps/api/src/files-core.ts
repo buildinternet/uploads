@@ -399,18 +399,27 @@ export function publicObjectDateFields(meta: {
  * visibility that bag encodes, and its stored content type as the declared
  * claim, so a text object under an extension-less key is admitted by
  * `inspectUpload` at the destination the same way it was at the source.
- * Every copy still runs the full `putObject` write path — nothing here
- * bypasses inspection.
+ * Every copy still runs the full `putObject` write path — the size cap,
+ * sniffing, and (for a declared type) the row's plausibility/reputation
+ * check all still apply. What `serverCopy: true` skips is only the
+ * active-content *lane gate* (issue #929 review): a copy of bytes already
+ * stored in this same workspace doesn't change exposure — same active lane,
+ * same serving host — so re-running `activeContentAllowed` on it would only
+ * make a stored SVG uncopyable the moment its lane's verification stamp
+ * lapses, and would wedge prefix rotation outright. See `putObject`'s
+ * `opts.serverCopy`.
  */
 export function putOptsFromStoredObject(source: Pick<StoredFile, "metadata" | "type">): {
   provenance: Record<string, string> | undefined;
   visibility: Visibility | undefined;
   declaredContentType: string;
+  serverCopy: true;
 } {
   return {
     provenance: source.metadata,
     visibility: objectVisibility(source.metadata),
     declaredContentType: source.type,
+    serverCopy: true as const,
   };
 }
 
@@ -473,6 +482,16 @@ export async function putObject(
      * is the claim, which is what the hosted MCP and older CLIs rely on.
      */
     declaredContentType?: string;
+    /**
+     * Set by `putOptsFromStoredObject` (issue #929 review): `bytes` are
+     * already stored in this same workspace (attach/promote/rotate copying
+     * an existing object to a new key), so the active-content lane gate does
+     * not re-run for this put — the destination is the same active lane as
+     * the source, so a copy changes nothing about exposure. Everything else
+     * `inspectUpload` checks (size, sniffing, plausibility/reputation) still
+     * applies; this only widens the *allowlist*, never the acceptance rules.
+     */
+    serverCopy?: boolean;
   },
 ): Promise<{
   key: string;
@@ -505,7 +524,11 @@ export async function putObject(
   if (opts?.metadata) validateMetadataEntries(opts.metadata);
 
   const declared = resolveDeclaredContentType(opts?.declaredContentType, finalKey);
-  const policy = resolveUploadPolicy(ws, { activeContent: await activeContentAllowed(env, ws) });
+  // A server-side copy of bytes already stored in this workspace doesn't
+  // re-run the active-content gate — see `opts.serverCopy`'s doc comment.
+  // `||` short-circuits before the `await`, so a copy never touches FLAGS/KV.
+  const activeContent = opts?.serverCopy === true || (await activeContentAllowed(env, ws));
+  const policy = resolveUploadPolicy(ws, { activeContent });
   const inspection = inspectUpload(bytes, policy, declared);
   if (!inspection.ok) throw inspection.error;
 

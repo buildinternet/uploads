@@ -17,6 +17,7 @@ import {
   defaultStorageClientFactory,
   PROBE_PREFIX,
   verifyStorageConfig,
+  type StorageProbeClient,
   type StorageVerifyCandidate,
   type StorageVerifyCheck,
   type StorageVerifyOptions,
@@ -433,20 +434,37 @@ export async function verifyLaneForActivate(
  * object in `finally` regardless of the outcome. The caller is responsible
  * for confirming `lane.publicBaseUrl` is set before calling this — it is not
  * re-checked here.
+ *
+ * Everything from opening the lane's credentials through the probe upload is
+ * wrapped in one try/catch (review follow-up, issue #929): bad/rotated
+ * credentials, an unreachable bucket, or any other storage-client error
+ * would otherwise escape as an unhandled rejection (a 500 at the route
+ * layer) instead of the same "unknown, not broken" `inconclusive` outcome
+ * `checkActiveContentHeaders` itself already returns for a thrown fetch —
+ * the route leaves the stamp untouched either way.
  */
 async function defaultLaneActiveContentCheck(
   env: Env,
   lane: StorageLane,
   fetchImpl: typeof fetch,
 ): Promise<StorageVerifyCheck> {
-  const candidate = await laneVerifyCandidate(env, lane);
-  const client = defaultStorageClientFactory(candidate);
   const probeKey = `${PROBE_PREFIX}${crypto.randomUUID()}.svg`;
+  let client: StorageProbeClient | undefined;
   try {
+    const candidate = await laneVerifyCandidate(env, lane);
+    client = defaultStorageClientFactory(candidate);
     await client.upload(probeKey, ACTIVE_CONTENT_PROBE_SVG, { contentType: "image/svg+xml" });
     return await checkActiveContentHeaders(candidate.publicBaseUrl ?? "", probeKey, fetchImpl);
+  } catch {
+    return {
+      id: "active-content-headers",
+      ok: false,
+      required: false,
+      inconclusive: true,
+      hint: "could not write the SVG probe to this bucket — check the lane's credentials, then check again",
+    };
   } finally {
-    await client.delete(probeKey).catch(() => {});
+    if (client) await client.delete(probeKey).catch(() => {});
   }
 }
 

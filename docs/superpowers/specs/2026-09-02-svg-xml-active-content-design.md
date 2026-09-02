@@ -70,7 +70,10 @@ override too, so an override can no longer smuggle SVG onto an unverified lane. 
 
 A reputation pre-filter `containsActiveMarkup(text)` rejects SVG/XML bodies containing
 `<script`, `on[a-z]+\s*=`, `javascript:`, `<foreignObject`, or `<?xml-stylesheet`. It is documented
-as reputation defense, not the control; the CSP is the control.
+as reputation defense, not the control; the CSP is the control. It only ever runs on a body a
+server handler actually buffers (PUT, MCP, server-side copies) — a presigned upload goes straight
+to the bucket with no server inspection at all, which is exactly why the CSP, not this filter, is
+the control.
 
 ### Gate (`apps/api/src/active-content.ts`, new)
 
