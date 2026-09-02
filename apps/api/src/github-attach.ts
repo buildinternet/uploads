@@ -35,7 +35,7 @@ import {
   putOptsFromStoredObject,
   sanitizeKeyBasename,
 } from "./files-core";
-import { getFileMetadata, setFileMetadata } from "./file-metadata";
+import { getFileMetadata, isServerMetaKey, setFileMetadata } from "./file-metadata";
 import { type AttachmentSource } from "./github-attachment-index";
 import { resolveGhKeyContextSafe } from "./github-private-prefix-service";
 import { storage, storageConfig } from "./storage";
@@ -225,10 +225,18 @@ export async function attachExistingObject(
     attachment: { source: opts?.indexSource ?? "attach", repo: req.target.repo },
   });
 
-  // Additive merge (PR #157 preserve mode): the source's existing metadata
-  // rides along unchanged, gh.* is stamped fresh on top and always wins.
+  // Additive merge (PR #157 preserve mode): the source's existing CLIENT
+  // metadata rides along unchanged, gh.* is stamped fresh on top and always
+  // wins. Server-owned keys (`image.*`, `video.*`) are dropped: putObject
+  // above derives the copy's own, and this write validates as a client
+  // write, so re-submitting them threw `reserved metadata key` for every
+  // source uploaded with dimensions (issue #870 onward) — which broke link
+  // adoption of branch-staged images.
+  const clientSourceMeta = Object.fromEntries(
+    Object.entries(sourceMeta).filter(([key]) => !isServerMetaKey(key)),
+  );
   await setFileMetadata(dbFor(env), workspaceName, destKey, {
-    ...sourceMeta,
+    ...clientSourceMeta,
     "gh.repo": `${owner}/${name}`.toLowerCase(),
     "gh.kind": req.target.kind,
     "gh.number": String(req.target.num),
