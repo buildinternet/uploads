@@ -60,8 +60,9 @@ Use uploads.sh when any of these are true instead:
   GitHub Enterprise Server.
 
 Do not mix the two on one PR: pick one so the comment history stays readable.
-To pull an existing `user-attachments` image out to a public URL, use
-`uploads ingest`.
+Media attached with `gh` is still indexed: the GitHub App imports attachments
+from PR and issue text into the workspace. To pull an existing
+`user-attachments` image out to a public URL by hand, use `uploads ingest`.
 
 ## Which surface
 

@@ -363,6 +363,18 @@ Source (and where to look if something breaks): https://github.com/buildinternet
         color: var(--fg);
         margin: 0 0 4px;
       }
+      .feature h3 .soon {
+        display: inline-block;
+        vertical-align: middle;
+        margin-left: 6px;
+        padding: 1px 6px;
+        border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+        border-radius: 999px;
+        color: var(--accent);
+        font: var(--weight-medium) var(--text-micro) / 1.4 var(--sans);
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
       .feature p {
         font: var(--text-meta)/1.6 var(--sans);
         color: var(--body);
@@ -767,6 +779,13 @@ Source (and where to look if something breaks): https://github.com/buildinternet
             <p>
               Group uploads into a gallery that can live across multiple PRs — one link for the
               whole set that shows linked issues and pull requests.
+            </p>
+          </div>
+          <div class="feature">
+            <h3>More file types <span class="soon">Soon</span></h3>
+            <p>
+              PDFs, logs, JSON, and zips alongside images and video, so test reports and build
+              output get the same stable URLs. Today: PNG, JPEG, GIF, WebP, AVIF, MP4, and WebM.
             </p>
           </div>
           <div class="feature">
