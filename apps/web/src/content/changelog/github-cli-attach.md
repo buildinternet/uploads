@@ -9,7 +9,10 @@ As of today, GitHub CLI supports attachments. `gh` 2.99 adds a repeatable
 Read [GitHub's changelog](https://github.blog/changelog/2026-09-01-github-cli-media-in-issues-pull-requests-and-comments/).
 
 Good news. If you have a PR open and a screenshot to drop on it, use `gh`.
-We've updated our docs and agent skills to say so.
+We've updated our docs and agent skills to say so. Media attached with `gh`
+still lands in Uploads: with the [GitHub App](/docs/github-app#ingest)
+installed, attachments in PR and issue text are imported into the workspace,
+so they show up in the Screenshots view next to CLI captures.
 
 What it doesn't change:
 
