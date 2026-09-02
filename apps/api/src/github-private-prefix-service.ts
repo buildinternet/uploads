@@ -19,7 +19,7 @@ import { checkRepoAuthorization, postManagedComment } from "./github-comment-ser
 import { GH_PRIVATE_ROOT, type GhTargetKind, parseGhPrivateKey } from "./github-comment-render";
 import { deleteObject, putObject, putOptsFromStoredObject } from "./files-core";
 import { deleteFileMetadata } from "./file-metadata";
-import { rekeyAttachmentSafe } from "./github-attachment-index";
+import { parseAttachmentKey, rekeyAttachmentSafe } from "./github-attachment-index";
 import {
   getActivePrefixId,
   getOrMintPrefixId,
@@ -361,14 +361,20 @@ export async function rotatePrivatePrefix(
           // whichever lane is CURRENTLY active for this workspace — the
           // moved row must reflect that, not the lane the object happened
           // to be written to originally.
-          await rekeyAttachmentSafe(
-            dbFor(env),
-            workspaceName,
-            item.key,
-            newKey,
-            newId,
-            ws.storageLaneId ?? null,
-          );
+          // Only for keys that CAN hold a row: a branch-staged or ingest
+          // key never has one, so the batch would be a guaranteed no-op
+          // DELETE + UPDATE per object — most of a rotation's objects, on
+          // the sweep that already re-uploads every one of them.
+          if (parseAttachmentKey(item.key)) {
+            await rekeyAttachmentSafe(
+              dbFor(env),
+              workspaceName,
+              item.key,
+              newKey,
+              newId,
+              ws.storageLaneId ?? null,
+            );
+          }
 
           // `deleteObject` (not a raw `store.delete`): it also releases the
           // old key's usage-ledger bytes/object count (and its poster, if

@@ -559,4 +559,38 @@ describe("rotatePrivatePrefix", () => {
       laneId: ws.storageLaneId ?? null,
     });
   });
+
+  it("issue #934: skips the index re-key entirely for keys that can never have a row", async () => {
+    const seeded = await seededEnv();
+    const { db, bucket, ws } = seeded;
+    const oldId = await getOrMintPrefixId(db, REPO, BRANCH);
+    // Branch-staged: not an attachment until promoted, so no index row can
+    // exist for it and the re-key would be a guaranteed no-op UPDATE.
+    const branchKey = ghPrivateBranchAttachmentKey(oldId, "b.png");
+
+    const statements: string[] = [];
+    const spyDb = new Proxy(db, {
+      get(target, prop, receiver) {
+        if (prop === "prepare") {
+          return (sql: string) => {
+            statements.push(sql.replace(/\s+/g, " ").trim());
+            return target.prepare(sql);
+          };
+        }
+        return Reflect.get(target, prop, receiver);
+      },
+    });
+    const env = { ...(seeded.env as unknown as Record<string, unknown>), DB: spyDb } as Env;
+
+    await putObject(env, ws, branchKey, PNG, WS);
+    statements.length = 0;
+
+    const result = await withFetch(commentFlowFetch({ bodies: [] }), () =>
+      rotatePrivatePrefix(env, ws, WS, "user-1", REPO, BRANCH),
+    );
+
+    expect(result.rotated).toBe(true);
+    expect(bucket.store.has(`${PREFIX}${branchKey}`)).toBe(false);
+    expect(statements.some((sql) => sql.startsWith("UPDATE github_attachments"))).toBe(false);
+  });
 });

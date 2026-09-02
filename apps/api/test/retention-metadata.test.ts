@@ -138,4 +138,42 @@ describe("purgeExpiredObjects — attachment index cleanup (issue #934)", () => 
       sqlite.close();
     }
   });
+
+  it("issues no index DELETE for a batch that holds no attachment keys", async () => {
+    const sqlite = new SqliteD1(MIGRATIONS);
+    try {
+      const bucket = new FakeR2Bucket();
+      // Neither key can ever have an index row: a bare upload, and a
+      // branch-staged key (not an attachment until promoted).
+      for (const key of ["shots/old.png", "gh/acme/web/branch/feat-x/old.png"]) {
+        await bucket.put(`acme/${key}`, new Uint8Array([1, 2, 3]));
+        bucket.setUploaded(`acme/${key}`, new Date("2020-01-01T00:00:00Z"));
+      }
+
+      const statements: string[] = [];
+      const db = database(sqlite);
+      const spyDb = new Proxy(db, {
+        get(target, prop, receiver) {
+          if (prop === "prepare") {
+            return (sql: string) => {
+              statements.push(sql.replace(/\s+/g, " ").trim());
+              return target.prepare(sql);
+            };
+          }
+          return Reflect.get(target, prop, receiver);
+        },
+      });
+
+      const result = await purgeExpiredObjects(
+        { BUCKET: bucket, DB: spyDb } as unknown as Env,
+        RECORD,
+        "acme",
+      );
+
+      expect(result).toMatchObject({ deleted: 2 });
+      expect(statements.some((sql) => sql.includes("DELETE FROM github_attachments"))).toBe(false);
+    } finally {
+      sqlite.close();
+    }
+  });
 });
