@@ -6,6 +6,7 @@
  * Workspaces slot on apps/web.
  */
 import { NOTE_MAX_CHARS } from "@uploads/comment-config";
+import { runActiveContentHostSweep } from "../active-content-hosts";
 import {
   ForbiddenError,
   NotFoundError,
@@ -1043,4 +1044,15 @@ export const adminUi = new Hono<SessionVars>()
     const to = resolvePreviewRecipient(c.get("sessionUser")?.email, body.to);
     const { subject } = await sendEmailPreview(c.env, type, to);
     return c.json({ ok: true, type, to, subject });
+  })
+
+  // On-demand run of the hosted-host SVG/XML sandboxing-CSP probe (issue
+  // #929) — the same sweep the daily cron runs (see index.ts's `scheduled`),
+  // exposed so an operator can confirm a just-applied Transform Rule without
+  // waiting for the next cron tick. Returns the fresh per-host records; each
+  // is also persisted to REGISTRY, which is what `activeContentAllowed`
+  // (../active-content.ts) reads.
+  .post("/active-content/probe", async (c) => {
+    const records = await runActiveContentHostSweep(c.env);
+    return c.json({ records });
   });

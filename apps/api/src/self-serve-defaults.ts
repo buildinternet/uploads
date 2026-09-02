@@ -15,6 +15,15 @@ import type { WorkspaceRecord } from "./workspace";
 
 const freeLimits = PLANS.free.defaultLimits;
 
+/**
+ * Public base URL every self-serve workspace is provisioned onto. Exported
+ * (issue #929) so the active-content host sweep
+ * (`apps/api/src/active-content-hosts.ts`) can fold this host into its
+ * hosted-host list without duplicating the literal — a self-hoster who
+ * changes this constant automatically changes what the sweep probes too.
+ */
+export const SELF_SERVE_PUBLIC_BASE_URL = "https://storage.uploads.sh";
+
 export const SELF_SERVE_LIMITS = {
   maxStorageBytes: freeLimits.maxStorageBytes!,
   maxUploadsPerPeriod: freeLimits.maxUploadsPerPeriod!,
@@ -38,7 +47,7 @@ export function selfServeWorkspaceRecord(args: {
     bucket: "uploads-default",
     binding: "UPLOADS_DEFAULT",
     prefix: `${args.name}/`,
-    publicBaseUrl: "https://storage.uploads.sh",
+    publicBaseUrl: SELF_SERVE_PUBLIC_BASE_URL,
     selfServe: true,
     createdByUserId: args.userId,
     createdAt: args.now.toISOString(),

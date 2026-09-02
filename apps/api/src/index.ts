@@ -20,6 +20,7 @@ import { workspaceSettings } from "./routes/workspace-settings";
 import { me } from "./routes/me";
 import { runRetentionSweep } from "./retention-sweep";
 import { runUsageAlertSweep } from "./usage-alert-sweep";
+import { runActiveContentHostSweep } from "./active-content-hosts";
 import { runObservabilityRetention } from "./observability-retention";
 import { purgeExpiredIdempotencyRequests } from "./idempotency-core";
 import { galleries } from "./routes/galleries";
@@ -275,6 +276,18 @@ export default {
         console.error(
           JSON.stringify({
             message: "usage_alert_sweep_failed",
+            error: appErr.message,
+            code: appErr.code,
+          }),
+        );
+      }),
+    );
+    ctx.waitUntil(
+      runActiveContentHostSweep(env).catch((err) => {
+        const appErr = AppError.from(err);
+        console.error(
+          JSON.stringify({
+            message: "active_content_sweep_failed",
             error: appErr.message,
             code: appErr.code,
           }),

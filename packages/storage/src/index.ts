@@ -156,8 +156,13 @@ export function publicUrl(config: StorageConfig, key: string): string | null {
  */
 export const DEFAULT_EMBED_PUBLIC_BASE_URL = "https://embed.uploads.sh";
 
-/** Hosts that get an automatic embed twin when no override is set. */
-const DEFAULT_EMBEDDABLE_HOSTS = new Set(["storage.uploads.sh", "store.uploads.sh"]);
+/**
+ * Hosts that get an automatic embed twin when no override is set. Exported
+ * (issue #929) so the API's daily active-content host sweep
+ * (`apps/api/src/active-content-hosts.ts`) derives its hosted-host list from
+ * this instead of duplicating the literal hostnames.
+ */
+export const DEFAULT_EMBEDDABLE_HOSTS = new Set(["storage.uploads.sh", "store.uploads.sh"]);
 
 export type EmbedUrlOptions = {
   /**
