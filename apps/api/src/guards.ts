@@ -444,26 +444,184 @@ export function looksLikeXml(bytes: Uint8Array): boolean {
 }
 
 /**
- * Reputation pre-filter for a gated SVG/XML body (issue #929): true when the
- * text contains a `<script` tag, an `on*=` event-handler attribute, a
- * `javascript:` URL, `<foreignObject` (SVG can embed arbitrary HTML through
- * it), or an `<?xml-stylesheet` processing instruction (can point at an XSLT
- * that runs script). This is defense in depth, not the control, and it only
- * ever runs on a *buffered* body a server handler actually reads — the PUT
- * route, the MCP `put` tool, and server-side copies. A presigned upload
- * writes straight to the bucket over HTTP with no server in the loop, so
- * nothing here ever inspects it — which is exactly why the
- * sandboxing CSP the serving lane is verified to send (`./active-content.ts`)
- * is the actual control, not this filter.
- *
- * `\bon[a-z]+\s*=` is deliberately broad: it also matches ordinary
+ * Known HTML/SVG/SMIL event-handler attribute names. Deliberately a fixed
+ * list rather than `on[a-z]+` — that broader pattern also matches ordinary
  * non-handler attributes that happen to start with "on", e.g. `online=` or
- * `once=` on an unrelated element — a false-positive 415, not a security
- * gap, and reputation defense in depth is allowed to be loose. Revisit if
- * that starts rejecting real uploads often enough to bite.
+ * `once=` on an unrelated element.
+ */
+const EVENT_HANDLER_ATTRS = [
+  "onabort",
+  "onactivate",
+  "onafterprint",
+  "onanimationend",
+  "onanimationiteration",
+  "onanimationstart",
+  "onbeforeprint",
+  "onbeforeunload",
+  "onbegin",
+  "onblur",
+  "oncancel",
+  "oncanplay",
+  "oncanplaythrough",
+  "onchange",
+  "onclick",
+  "onclose",
+  "oncontextmenu",
+  "oncopy",
+  "oncuechange",
+  "oncut",
+  "ondblclick",
+  "ondrag",
+  "ondragend",
+  "ondragenter",
+  "ondragleave",
+  "ondragover",
+  "ondragstart",
+  "ondrop",
+  "ondurationchange",
+  "onemptied",
+  "onend",
+  "onended",
+  "onerror",
+  "onfocus",
+  "onfocusin",
+  "onfocusout",
+  "onhashchange",
+  "oninput",
+  "oninvalid",
+  "onkeydown",
+  "onkeypress",
+  "onkeyup",
+  "onload",
+  "onloadeddata",
+  "onloadedmetadata",
+  "onloadstart",
+  "onmessage",
+  "onmousedown",
+  "onmouseenter",
+  "onmouseleave",
+  "onmousemove",
+  "onmouseout",
+  "onmouseover",
+  "onmouseup",
+  "onmousewheel",
+  "onoffline",
+  "ononline",
+  "onpagehide",
+  "onpageshow",
+  "onpaste",
+  "onpause",
+  "onplay",
+  "onplaying",
+  "onpointercancel",
+  "onpointerdown",
+  "onpointerenter",
+  "onpointerleave",
+  "onpointermove",
+  "onpointerout",
+  "onpointerover",
+  "onpointerup",
+  "onpopstate",
+  "onprogress",
+  "onratechange",
+  "onrepeat",
+  "onreset",
+  "onresize",
+  "onscroll",
+  "onsecuritypolicyviolation",
+  "onseeked",
+  "onseeking",
+  "onselect",
+  "onshow",
+  "onstalled",
+  "onstorage",
+  "onsubmit",
+  "onsuspend",
+  "ontimeupdate",
+  "ontoggle",
+  "ontouchcancel",
+  "ontouchend",
+  "ontouchmove",
+  "ontouchstart",
+  "ontransitionend",
+  "onunload",
+  "onvolumechange",
+  "onwaiting",
+  "onwheel",
+  "onzoom",
+] as const;
+
+const EVENT_HANDLER_ATTR_RE = new RegExp(`\\b(?:${EVENT_HANDLER_ATTRS.join("|")})\\s*=`, "i");
+
+/** SMIL `<set>`/`<animate>` retargeting an event attribute, e.g. `<set attributeName="onclick" ...>`. */
+const SET_OR_ANIMATE_EVENT_ATTR_RE = /<(?:set|animate)\b[^>]*\bAttributeName\s*=\s*["']?on[a-z]*/i;
+
+const NAMED_XML_ENTITIES: Readonly<Record<string, string>> = {
+  lt: "<",
+  gt: ">",
+  amp: "&",
+  quot: '"',
+  apos: "'",
+};
+
+/**
+ * Decode numeric character references (`&#106;`, `&#x6A;`) and the five
+ * named XML entities before scanning, so an evasion like `&#106;avascript:`
+ * or `&lt;script&gt;` is judged on what it decodes to, not its literal
+ * source text. Deliberately not a general XML/HTML parser — just enough to
+ * unwrap the handful of entities a reputation filter needs to see through.
+ */
+function decodeXmlEntities(text: string): string {
+  return text.replace(
+    /&(#x[0-9a-fA-F]+|#[0-9]+|lt|gt|amp|quot|apos);/g,
+    (match, entity: string) => {
+      if (entity.startsWith("#")) {
+        const codePoint =
+          entity[1] === "x" || entity[1] === "X"
+            ? Number.parseInt(entity.slice(2), 16)
+            : Number.parseInt(entity.slice(1), 10);
+        try {
+          return Number.isFinite(codePoint) ? String.fromCodePoint(codePoint) : match;
+        } catch {
+          return match;
+        }
+      }
+      return NAMED_XML_ENTITIES[entity] ?? match;
+    },
+  );
+}
+
+/**
+ * Reputation pre-filter for a gated SVG/XML body (issue #929, sharpened for
+ * #936): true when the (entity-decoded) text contains a `<script` tag, a
+ * known event-handler attribute (`onload=`, `onclick=`, …), a `javascript:`
+ * URL, `<foreignObject` (SVG can embed arbitrary HTML through it), an
+ * `<?xml-stylesheet` processing instruction (can point at an XSLT that runs
+ * script), or a SMIL `<set>`/`<animate>` retargeting an event attribute via
+ * `attributeName="onclick"`.
+ *
+ * This is a *reputation* filter, not the security control: it exists to
+ * reject the obviously-hostile case cheaply and without false positives, not
+ * to be sound against a determined attacker. The actual control is the
+ * sandboxing CSP the serving lane is verified to send
+ * (`./active-content.ts`) — every gated response ships it regardless of what
+ * this function decides, so a body that slips past this filter still can't
+ * execute script or navigate the top frame when served. Accordingly this
+ * function does not attempt full XML/HTML parsing, does not track element
+ * nesting or attribute boundaries precisely, and can both under- and
+ * over-reject unusual-but-inert markup; that's an acceptable, expected
+ * trade-off here, not a bug to chase. It only ever runs on a *buffered* body
+ * a server handler actually reads — the PUT route, the MCP `put` tool, and
+ * server-side copies. A presigned upload writes straight to the bucket over
+ * HTTP with no server in the loop, so nothing here ever inspects it.
  */
 export function containsActiveMarkup(text: string): boolean {
-  return /<script|\bon[a-z]+\s*=|javascript:|<foreignobject|<\?xml-stylesheet/i.test(text);
+  const decoded = decodeXmlEntities(text);
+  return (
+    /<script|javascript:|<foreignobject|<\?xml-stylesheet/i.test(decoded) ||
+    EVENT_HANDLER_ATTR_RE.test(decoded) ||
+    SET_OR_ANIMATE_EVENT_ATTR_RE.test(decoded)
+  );
 }
 
 /**

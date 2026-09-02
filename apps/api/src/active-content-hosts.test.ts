@@ -190,6 +190,73 @@ describe("probeHostActiveContent", () => {
     expect(fetchImpl).not.toHaveBeenCalled();
     expect(registry.store.get("host-active-content:storage.uploads.sh")).toEqual(record);
   });
+
+  it("retries a failing REGISTRY.put once and writes the record on the second attempt", async () => {
+    vi.useFakeTimers();
+    try {
+      const bucket = new FakeR2Bucket();
+      const registry = fakeRegistry();
+      let calls = 0;
+      registry.put = vi.fn(async (key: string, value: string) => {
+        calls++;
+        if (calls === 1) throw new Error("kv unavailable");
+        registry.store.set(key, JSON.parse(value));
+      }) as unknown as KVNamespace["put"];
+      const e = env({ UPLOADS_DEFAULT: bucket, REGISTRY: registry });
+      const fetchImpl = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(async (url) =>
+        okProbeResponse(url),
+      );
+
+      const promise = probeHostActiveContent(e, "storage.uploads.sh", asFetch(fetchImpl));
+      await vi.advanceTimersByTimeAsync(1000);
+      const record = await promise;
+
+      expect(record.ok).toBe(true);
+      expect(registry.put).toHaveBeenCalledTimes(2);
+      expect(registry.store.get("host-active-content:storage.uploads.sh")).toEqual(record);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("surfaces an error and never claims a stale success when REGISTRY.put fails twice", async () => {
+    vi.useFakeTimers();
+    try {
+      const bucket = new FakeR2Bucket();
+      const registry = fakeRegistry({
+        "host-active-content:storage.uploads.sh": {
+          ok: true,
+          verifiedAt: "2020-01-01T00:00:00.000Z",
+        },
+      });
+      registry.put = vi.fn(async () => {
+        throw new Error("kv unavailable");
+      }) as unknown as KVNamespace["put"];
+      const e = env({ UPLOADS_DEFAULT: bucket, REGISTRY: registry });
+      const fetchImpl = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(async (url) =>
+        okProbeResponse(url),
+      );
+
+      const promise = probeHostActiveContent(e, "storage.uploads.sh", asFetch(fetchImpl));
+      // Attach a rejection handler immediately so the fake-timer advance
+      // below doesn't race an unhandled rejection warning.
+      const settled = promise.catch((err: unknown) => err);
+      await vi.advanceTimersByTimeAsync(1000);
+      const err = await settled;
+
+      expect(err).toBeInstanceOf(Error);
+      expect((err as Error).message).toBe("kv unavailable");
+      expect(registry.put).toHaveBeenCalledTimes(2);
+      // The stale prior-day record must survive untouched — not be
+      // overwritten with a fabricated success.
+      expect(registry.store.get("host-active-content:storage.uploads.sh")).toEqual({
+        ok: true,
+        verifiedAt: "2020-01-01T00:00:00.000Z",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("runActiveContentHostSweep", () => {

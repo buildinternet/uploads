@@ -395,6 +395,25 @@ describe("containsActiveMarkup", () => {
     );
     expect(containsActiveMarkup("<report><item>one</item></report>")).toBe(false);
   });
+
+  it("does not false-positive on ordinary attributes that start with 'on'", () => {
+    expect(containsActiveMarkup('<user online="true"></user>')).toBe(false);
+    expect(containsActiveMarkup('<task once="false"></task>')).toBe(false);
+  });
+
+  it("still flags a plain onload= event handler", () => {
+    expect(containsActiveMarkup('<svg onload="alert(1)"></svg>')).toBe(true);
+  });
+
+  it("flags entity-encoded evasions after decoding", () => {
+    expect(containsActiveMarkup('<a href="&#106;avascript:alert(1)">x</a>')).toBe(true);
+    expect(containsActiveMarkup("&lt;script&gt;alert(1)&lt;/script&gt;")).toBe(true);
+  });
+
+  it("flags a SMIL <set>/<animate> retargeting an event attribute", () => {
+    expect(containsActiveMarkup('<set attributeName="onclick" to="alert(1)"/>')).toBe(true);
+    expect(containsActiveMarkup('<animate attributeName="onload" to="alert(1)"/>')).toBe(true);
+  });
 });
 
 describe("the upload-type table", () => {
