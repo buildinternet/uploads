@@ -102,8 +102,9 @@ export class AttachmentIndexTable {
       return { success: true, meta: { changes: 1 }, results: [] };
     }
     if (normalizedSql.startsWith("UPDATE github_attachments SET object_key = ?")) {
-      const [toKey, newPrefixId, updatedAt, workspace, fromKey] = args as [
+      const [toKey, newPrefixId, laneId, updatedAt, workspace, fromKey] = args as [
         string,
+        string | null,
         string | null,
         string,
         string,
@@ -116,6 +117,7 @@ export class AttachmentIndexTable {
         ...row,
         object_key: toKey,
         prefix_id: newPrefixId,
+        lane_id: laneId,
         updated_at: updatedAt,
       });
       return { success: true, meta: { changes: 1 }, results: [] };

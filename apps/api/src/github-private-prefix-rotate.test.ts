@@ -510,7 +510,11 @@ describe("rotatePrivatePrefix", () => {
       prefixId: newId,
       num: NUM,
       source: "attach",
-      laneId: "lane-a",
+      // Not "lane-a" (the OLD row's lane): rotation re-uploads the bytes
+      // through `putObject` into whichever lane is currently active for
+      // `ws`, and `seededEnv`'s `ws` has no `storageLaneId`, so the moved
+      // row must carry `ws.storageLaneId ?? null`, not the stale lane.
+      laneId: ws.storageLaneId ?? null,
     });
   });
 });

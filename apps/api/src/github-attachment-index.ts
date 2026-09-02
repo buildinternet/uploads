@@ -288,15 +288,16 @@ export async function rekeyAttachment(
   fromKey: string,
   toKey: string,
   newPrefixId: string | null,
+  laneId: string | null,
   now = new Date(),
 ): Promise<void> {
   await deleteAttachment(db, workspace, toKey);
   await db
     .prepare(
-      `UPDATE github_attachments SET object_key = ?, prefix_id = ?, updated_at = ?
+      `UPDATE github_attachments SET object_key = ?, prefix_id = ?, lane_id = ?, updated_at = ?
        WHERE workspace = ? AND object_key = ?`,
     )
-    .bind(toKey, newPrefixId, now.toISOString(), workspace, fromKey)
+    .bind(toKey, newPrefixId, laneId, now.toISOString(), workspace, fromKey)
     .run();
 }
 
@@ -390,10 +391,11 @@ export async function rekeyAttachmentSafe(
   fromKey: string,
   toKey: string,
   newPrefixId: string | null,
+  laneId: string | null,
   now = new Date(),
 ): Promise<void> {
   await safely("attachment index: rekey failed", { workspace, fromKey, toKey }, () =>
-    rekeyAttachment(db, workspace, fromKey, toKey, newPrefixId, now),
+    rekeyAttachment(db, workspace, fromKey, toKey, newPrefixId, laneId, now),
   );
 }
 

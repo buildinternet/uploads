@@ -291,7 +291,10 @@ describe("rekeyAttachment", () => {
       const newId = "b".repeat(32);
       const fromKey = `gh/private/${oldId}/pull/12/hero.png`;
       const toKey = `gh/private/${newId}/pull/12/hero.png`;
-      await recordAttachment(db, row({ objectKey: fromKey, prefixId: oldId }));
+      await recordAttachment(
+        db,
+        row({ objectKey: fromKey, prefixId: oldId, laneId: "lane-a", source: "attach" }),
+      );
 
       await rekeyAttachment(
         db,
@@ -299,14 +302,16 @@ describe("rekeyAttachment", () => {
         fromKey,
         toKey,
         newId,
+        "lane-b",
         new Date("2026-09-07T00:00:00.000Z"),
       );
 
       expect(await attachmentRow(db, "acme", fromKey)).toBeNull();
       expect(await attachmentRow(db, "acme", toKey)).toMatchObject({
         prefixId: newId,
+        laneId: "lane-b",
         updatedAt: "2026-09-07T00:00:00.000Z",
-        source: "put",
+        source: "attach",
       });
     } finally {
       sqlite.close();
@@ -322,14 +327,14 @@ describe("rekeyAttachment", () => {
       const fromKey = `gh/private/${oldId}/pull/12/hero.png`;
       const toKey = `gh/private/${newId}/pull/12/hero.png`;
       // putObject already wrote a row at the destination during rotation.
-      await recordAttachment(db, row({ objectKey: toKey, prefixId: newId, source: "rotate" }));
+      await recordAttachment(db, row({ objectKey: toKey, prefixId: newId, source: "put" }));
       await recordAttachment(db, row({ objectKey: fromKey, prefixId: oldId, laneId: "lane-a" }));
 
-      await rekeyAttachment(db, "acme", fromKey, toKey, newId);
+      await rekeyAttachment(db, "acme", fromKey, toKey, newId, "lane-b");
 
       expect(await attachmentRow(db, "acme", fromKey)).toBeNull();
       const dest = await attachmentRow(db, "acme", toKey);
-      expect(dest).toMatchObject({ prefixId: newId, laneId: "lane-a", source: "put" });
+      expect(dest).toMatchObject({ prefixId: newId, laneId: "lane-b", source: "put" });
       const count = await db
         .prepare("SELECT COUNT(*) AS count FROM github_attachments")
         .bind()
@@ -349,6 +354,7 @@ describe("rekeyAttachment", () => {
         "acme",
         "gh/acme/web/pull/12/a.png",
         "gh/acme/web/pull/12/b.png",
+        null,
         null,
       );
       expect(await attachmentRow(db, "acme", "gh/acme/web/pull/12/b.png")).toBeNull();
@@ -388,7 +394,7 @@ describe("attachment index safe writers", () => {
       await deleteAttachmentSafe(throwingDb, "acme", row().objectKey);
       await deleteAttachmentsForKeysSafe(throwingDb, "acme", [row().objectKey]);
       await deleteAttachmentsForWorkspaceSafe(throwingDb, "acme");
-      await rekeyAttachmentSafe(throwingDb, "acme", "a", "b", null);
+      await rekeyAttachmentSafe(throwingDb, "acme", "a", "b", null, null);
     } finally {
       spy.mockRestore();
     }
