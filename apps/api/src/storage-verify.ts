@@ -142,8 +142,14 @@ export interface StorageVerifyOptions {
   fetch?: typeof fetch;
 }
 
-/** Prefix every verify probe object lives under, excluded from the empty-bucket count. */
-const PROBE_PREFIX = "_internal/uploads-verify/";
+/**
+ * Prefix every verify probe object lives under, excluded from the
+ * empty-bucket count. Exported so the on-demand per-lane active-content
+ * check route (`routes/workspace-settings.ts`, issue #929) writes its probe
+ * SVG under the same prefix `verifyStorageConfig`'s own active-content
+ * sub-probe uses, rather than inventing a second one.
+ */
+export const PROBE_PREFIX = "_internal/uploads-verify/";
 
 /** Deadline for the recommended public-URL probe; a stalled customer domain must not stall verify. */
 const PUBLIC_URL_PROBE_TIMEOUT_MS = 5_000;

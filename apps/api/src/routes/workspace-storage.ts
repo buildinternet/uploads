@@ -12,8 +12,13 @@ import {
   type ListBucketsResult,
 } from "../r2-list-buckets";
 import {
+  ACTIVE_CONTENT_PROBE_SVG,
+  checkActiveContentHeaders,
+  defaultStorageClientFactory,
+  PROBE_PREFIX,
   verifyStorageConfig,
   type StorageVerifyCandidate,
+  type StorageVerifyCheck,
   type StorageVerifyOptions,
   type StorageVerifyResult,
 } from "../storage-verify";
@@ -414,4 +419,63 @@ export async function verifyLaneForActivate(
   lane: StorageLane,
 ): Promise<StorageVerifyResult> {
   return storageVerify(await laneVerifyCandidate(env, lane));
+}
+
+/**
+ * Runs *only* the active-content probe against `lane` (issue #929,
+ * `POST .../storage/lanes/:laneId/verify-active-content`) — unlike
+ * `verifyLaneForActivate`, this never runs the full shape/auth/round-trip
+ * pipeline, just: open the lane's (possibly sealed) credentials into a real
+ * client (`laneVerifyCandidate` + `defaultStorageClientFactory` — same
+ * client-building steps `verifyLaneForActivate` uses, minus the
+ * `verifyStorageConfig` wrapper), upload `ACTIVE_CONTENT_PROBE_SVG` under
+ * `PROBE_PREFIX`, ask `checkActiveContentHeaders`, and delete the probe
+ * object in `finally` regardless of the outcome. The caller is responsible
+ * for confirming `lane.publicBaseUrl` is set before calling this — it is not
+ * re-checked here.
+ */
+async function defaultLaneActiveContentCheck(
+  env: Env,
+  lane: StorageLane,
+  fetchImpl: typeof fetch,
+): Promise<StorageVerifyCheck> {
+  const candidate = await laneVerifyCandidate(env, lane);
+  const client = defaultStorageClientFactory(candidate);
+  const probeKey = `${PROBE_PREFIX}${crypto.randomUUID()}.svg`;
+  try {
+    await client.upload(probeKey, ACTIVE_CONTENT_PROBE_SVG, { contentType: "image/svg+xml" });
+    return await checkActiveContentHeaders(candidate.publicBaseUrl ?? "", probeKey, fetchImpl);
+  } finally {
+    await client.delete(probeKey).catch(() => {});
+  }
+}
+
+/**
+ * Indirected through this mutable binding for the same reason as
+ * `storageVerify`/`storageReconcile` above: building a real client resolves
+ * (possibly sealed) credentials and would otherwise hit the network, so
+ * route tests substitute a fake here instead. Restore the default with
+ * `setLaneActiveContentCheckForTests(undefined)` in an `afterEach`/`finally`.
+ */
+let runLaneActiveContentCheck: (
+  env: Env,
+  lane: StorageLane,
+  fetchImpl: typeof fetch,
+) => Promise<StorageVerifyCheck> = defaultLaneActiveContentCheck;
+
+export function laneActiveContentCheck(
+  env: Env,
+  lane: StorageLane,
+  fetchImpl: typeof fetch = fetch,
+): Promise<StorageVerifyCheck> {
+  return runLaneActiveContentCheck(env, lane, fetchImpl);
+}
+
+/** Test-only: swap the lane active-content check implementation. Pass `undefined` to restore the real one. */
+export function setLaneActiveContentCheckForTests(
+  fn:
+    | ((env: Env, lane: StorageLane, fetchImpl: typeof fetch) => Promise<StorageVerifyCheck>)
+    | undefined,
+): void {
+  runLaneActiveContentCheck = fn ?? defaultLaneActiveContentCheck;
 }

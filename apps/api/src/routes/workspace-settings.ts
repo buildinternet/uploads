@@ -112,6 +112,7 @@ import {
   activeContentStampFromVerify,
   candidateFromBody,
   isByoRecord,
+  laneActiveContentCheck,
   listBuckets,
   storageReconcile,
   storageStatusResponse,
@@ -931,6 +932,146 @@ export async function storageDeleteHandler(c: Context<SettingsVars>) {
   return c.json(storageStatusResponse(updated, byoBucketAllowed(updated)));
 }
 
+/**
+ * True when `laneIdParam` names the record's *active* lane — either the
+ * literal `"active"`, or the active lane's own id (`record.storageLaneId`,
+ * absent on a record that predates lanes, in which case only the literal
+ * matches).
+ */
+function isActiveLaneParam(record: WorkspaceRecord, laneIdParam: string): boolean {
+  return (
+    laneIdParam === "active" || (!!record.storageLaneId && laneIdParam === record.storageLaneId)
+  );
+}
+
+/**
+ * Resolves `laneIdParam` to a `StorageLane`-shaped view of the target lane —
+ * the active lane's top-level fields (via `demoteActiveLane`, the same
+ * field mapping `storageDeleteHandler`'s detach path uses to turn the active
+ * fields into a lane shape) when it names the active lane, else a saved
+ * entry in `storageLanes`. `null` when nothing matches.
+ */
+function resolveActiveContentLaneTarget(
+  record: WorkspaceRecord,
+  laneIdParam: string,
+): StorageLane | null {
+  if (isActiveLaneParam(record, laneIdParam)) {
+    return demoteActiveLane(record, new Date().toISOString());
+  }
+  return (record.storageLanes ?? []).find((lane) => lane.id === laneIdParam) ?? null;
+}
+
+/**
+ * `POST /:workspace/storage/lanes/:laneId/verify-active-content` (issue
+ * #929) — runs only the SVG/XML sandboxing-CSP probe against one lane
+ * (`laneActiveContentCheck`: upload the inert SVG probe through the lane's
+ * own storage client, ask `checkActiveContentHeaders`, delete the probe),
+ * then stamps the result:
+ *
+ *  - probe passed → `activeContentVerifiedAt`/`storageActiveContentVerifiedAt` set to now.
+ *  - probe failed (not inconclusive) → the stamp is cleared, even if it was
+ *    previously fresh — a lane that used to pass and now doesn't must stop
+ *    admitting SVG/XML immediately, not wait out `LANE_STAMP_MAX_AGE_MS`.
+ *  - probe inconclusive (the fetch itself threw — same "unknown, not
+ *    broken" semantics as the public-url check) → the stamp is left exactly
+ *    as it was; `mutateWorkspaceRecord` isn't even called.
+ *
+ * `laneId` is either a saved lane's id (`storageLanes[].id`) or the active
+ * lane, named either by the literal `active` or by its own id
+ * (`record.storageLaneId`). A shared (platform-owned, binding-mode) lane
+ * 422s outright — its state comes from the hosted host's daily-probed KV
+ * record (`./active-content-hosts.ts`), never a per-workspace stamp — and so
+ * does a lane with no `publicBaseUrl` to probe at all.
+ */
+export async function storageVerifyActiveContentHandler(c: Context<SettingsVars>) {
+  const name = c.req.param("workspace") ?? "";
+  const laneIdParam = c.req.param("laneId") ?? "";
+  const record = await loadWorkspaceRecord(c.env, name);
+  if (!record) throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
+
+  const target = resolveActiveContentLaneTarget(record, laneIdParam);
+  if (!target) {
+    throw new NotFoundError("storage lane not found", { code: "storage_lane_not_found" });
+  }
+
+  if (isSharedLane(target)) {
+    return c.json(
+      {
+        check: {
+          id: "active-content-headers",
+          ok: false,
+          required: false,
+          hint: "hosted lanes are verified by the platform, not per workspace — see the hosted host's status instead",
+        },
+      },
+      422,
+    );
+  }
+  if (!target.publicBaseUrl) {
+    return c.json(
+      {
+        check: {
+          id: "active-content-headers",
+          ok: false,
+          required: false,
+          hint: "this lane has no public base URL to verify — add one first",
+        },
+      },
+      422,
+    );
+  }
+  if (!(await allowWrite(c.env, name))) {
+    throw new RateLimitedError("rate limit exceeded");
+  }
+
+  const check = await laneActiveContentCheck(c.env, target);
+  const nowIso = new Date().toISOString();
+
+  // Inconclusive: leave the stamp exactly as it was — skip the write
+  // entirely rather than round-tripping a no-op mutation through KV.
+  const updated = check.inconclusive
+    ? record
+    : await mutateWorkspaceRecord(
+        c.env,
+        name,
+        (current) => {
+          if (isActiveLaneParam(current, laneIdParam)) {
+            const next: WorkspaceRecord = { ...current };
+            if (check.ok) next.storageActiveContentVerifiedAt = nowIso;
+            else delete next.storageActiveContentVerifiedAt;
+            return next;
+          }
+          const freshTarget = (current.storageLanes ?? []).find((lane) => lane.id === laneIdParam);
+          if (!freshTarget) {
+            throw new ConflictError("storage lane no longer exists", {
+              code: "storage_lane_not_found",
+            });
+          }
+          const storageLanes = (current.storageLanes ?? []).map((lane) => {
+            if (lane.id !== laneIdParam) return lane;
+            const nextLane: StorageLane = { ...lane };
+            if (check.ok) nextLane.activeContentVerifiedAt = nowIso;
+            else delete nextLane.activeContentVerifiedAt;
+            return nextLane;
+          });
+          return { ...current, storageLanes };
+        },
+        { requireServing: true },
+      );
+
+  console.log(
+    JSON.stringify({
+      event: "workspace_storage_active_content_checked",
+      workspace: name,
+      laneId: laneIdParam,
+      ok: check.ok,
+      inconclusive: check.inconclusive === true,
+    }),
+  );
+
+  return c.json({ check, status: storageStatusResponse(updated, byoBucketAllowed(updated)) });
+}
+
 /** `GET /:workspace/summary` — member-gated: membership + usage + public URL, one payload. */
 export async function summaryHandler(c: Context<SettingsVars>) {
   const name = c.req.param("workspace") ?? "";
@@ -1128,4 +1269,9 @@ export const workspaceSettings = new Hono<SettingsVars>()
   .put("/:workspace/storage", sessionAdminGate(), storagePutHandler)
   .post("/:workspace/storage/activate", sessionAdminGate(), storageActivateHandler)
   .delete("/:workspace/storage", sessionAdminGate(), storageDeleteHandler)
+  .post(
+    "/:workspace/storage/lanes/:laneId/verify-active-content",
+    sessionAdminGate(),
+    storageVerifyActiveContentHandler,
+  )
   .onError((err, c) => respondError(c, err));

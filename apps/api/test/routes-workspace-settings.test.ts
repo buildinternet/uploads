@@ -5,9 +5,10 @@
  * composed `app` (index.ts) — same style as `routes-workspace-members.test.ts`
  * (phase 3, invites/members).
  */
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { app } from "../src/index";
 import {
+  setLaneActiveContentCheckForTests,
   setStorageReconcileForTests,
   setStorageVerifyForTests,
 } from "../src/routes/workspace-storage";
@@ -391,6 +392,7 @@ describe("storage vertical (self-serve BYO bucket)", () => {
   afterEach(() => {
     setStorageVerifyForTests(undefined);
     setStorageReconcileForTests(undefined);
+    setLaneActiveContentCheckForTests(undefined);
   });
 
   describe("GET /v1/workspaces/:workspace/storage", () => {
@@ -1550,6 +1552,156 @@ describe("storage vertical (self-serve BYO bucket)", () => {
         env,
       );
       expect(res.status).toBe(404);
+    });
+  });
+
+  describe("POST /v1/workspaces/:workspace/storage/lanes/:laneId/verify-active-content (issue #929)", () => {
+    const okCheck = { id: "active-content-headers", ok: true, required: false };
+    const failedCheck = {
+      id: "active-content-headers",
+      ok: false,
+      required: false,
+      hint: "missing x-content-type-options: nosniff",
+    };
+    const inconclusiveCheck = {
+      id: "active-content-headers",
+      ok: false,
+      required: false,
+      inconclusive: true,
+      hint: "we couldn't fetch the SVG probe from here",
+    };
+
+    function verifyActiveContent(laneId: string, env: Env) {
+      return app.request(
+        `/v1/workspaces/acme/storage/lanes/${laneId}/verify-active-content`,
+        { method: "POST", headers: sessionHeaders },
+        env,
+      );
+    }
+
+    it("stamps storageActiveContentVerifiedAt on the active lane (named by the literal 'active') when the probe passes", async () => {
+      const { env, registry } = makeEnv({ role: "owner", record: BYO_RECORD });
+      let seenLane: { publicBaseUrl?: string } | undefined;
+      setLaneActiveContentCheckForTests(async (_env, lane) => {
+        seenLane = lane;
+        return okCheck;
+      });
+      const res = await verifyActiveContent("active", env);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        check: typeof okCheck;
+        status: { activeContentVerifiedAt?: string };
+      };
+      expect(body.check).toEqual(okCheck);
+      expect(body.status.activeContentVerifiedAt).toBeTruthy();
+      expect(
+        registry.record<{ storageActiveContentVerifiedAt?: string }>("acme")
+          ?.storageActiveContentVerifiedAt,
+      ).toBeTruthy();
+      // The active lane's own fields (publicBaseUrl, in particular) reached
+      // the check — proof `resolveActiveContentLaneTarget` built the right
+      // lane view, not an empty one.
+      expect(seenLane?.publicBaseUrl).toBe(BYO_RECORD.publicBaseUrl);
+    });
+
+    it("also resolves the active lane by its own storageLaneId, not just the literal 'active'", async () => {
+      const record = { ...BYO_RECORD, storageLaneId: "lane_active1" };
+      const { env, registry } = makeEnv({ role: "owner", record });
+      setLaneActiveContentCheckForTests(async () => okCheck);
+      const res = await verifyActiveContent("lane_active1", env);
+      expect(res.status).toBe(200);
+      expect(
+        registry.record<{ storageActiveContentVerifiedAt?: string }>("acme")
+          ?.storageActiveContentVerifiedAt,
+      ).toBeTruthy();
+    });
+
+    it("clears a previously-fresh stamp on the active lane when the probe fails", async () => {
+      const record = { ...BYO_RECORD, storageActiveContentVerifiedAt: "2020-01-01T00:00:00.000Z" };
+      const { env, registry } = makeEnv({ role: "owner", record });
+      setLaneActiveContentCheckForTests(async () => failedCheck);
+      const res = await verifyActiveContent("active", env);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { check: typeof failedCheck };
+      expect(body.check).toEqual(failedCheck);
+      expect(
+        registry.record<{ storageActiveContentVerifiedAt?: string }>("acme")
+          ?.storageActiveContentVerifiedAt,
+      ).toBeUndefined();
+    });
+
+    it("leaves the stamp unchanged, with no KV write, when the probe is inconclusive", async () => {
+      const record = { ...BYO_RECORD, storageActiveContentVerifiedAt: "2020-01-01T00:00:00.000Z" };
+      const { env, registry } = makeEnv({ role: "owner", record });
+      const putsBefore = registry.puts.length;
+      setLaneActiveContentCheckForTests(async () => inconclusiveCheck);
+      const res = await verifyActiveContent("active", env);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { check: typeof inconclusiveCheck };
+      expect(body.check).toEqual(inconclusiveCheck);
+      expect(
+        registry.record<{ storageActiveContentVerifiedAt?: string }>("acme")
+          ?.storageActiveContentVerifiedAt,
+      ).toBe("2020-01-01T00:00:00.000Z");
+      expect(registry.puts.length).toBe(putsBefore);
+    });
+
+    it("stamps a saved (non-active) lane's own activeContentVerifiedAt, not the top-level one", async () => {
+      const lane = await standbyLane();
+      const record = { ...SHARED_RECORD, byoBucketEnabled: true, storageLanes: [lane] };
+      const { env, registry } = makeEnv({ role: "owner", record });
+      setLaneActiveContentCheckForTests(async () => okCheck);
+      const res = await verifyActiveContent("lane_standby1", env);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        status: { lanes: Array<{ laneId: string; activeContentVerifiedAt?: string }> };
+      };
+      expect(body.status.lanes[0]).toMatchObject({
+        laneId: "lane_standby1",
+        activeContentVerifiedAt: expect.any(String),
+      });
+      expect(
+        registry.record<{ storageActiveContentVerifiedAt?: string }>("acme")
+          ?.storageActiveContentVerifiedAt,
+      ).toBeUndefined();
+      const savedLane = registry.record<{
+        storageLanes?: Array<{ activeContentVerifiedAt?: string }>;
+      }>("acme")?.storageLanes?.[0];
+      expect(savedLane?.activeContentVerifiedAt).toBeTruthy();
+    });
+
+    it("422s a shared (hosted) lane instead of running the probe", async () => {
+      const { env } = makeEnv({ role: "owner", record: SHARED_RECORD });
+      const check = vi.fn();
+      setLaneActiveContentCheckForTests(check);
+      const res = await verifyActiveContent("active", env);
+      expect(res.status).toBe(422);
+      const body = (await res.json()) as { check: { ok: boolean } };
+      expect(body.check.ok).toBe(false);
+      expect(check).not.toHaveBeenCalled();
+    });
+
+    it("422s a lane with no publicBaseUrl to verify", async () => {
+      const { publicBaseUrl: _unused, ...noUrlRecord } = BYO_RECORD;
+      const { env } = makeEnv({ role: "owner", record: noUrlRecord });
+      const check = vi.fn();
+      setLaneActiveContentCheckForTests(check);
+      const res = await verifyActiveContent("active", env);
+      expect(res.status).toBe(422);
+      expect(check).not.toHaveBeenCalled();
+    });
+
+    it("404s an unknown laneId", async () => {
+      const { env } = makeEnv({ role: "owner", record: BYO_RECORD });
+      const res = await verifyActiveContent("lane_nonexistent", env);
+      expect(res.status).toBe(404);
+    });
+
+    it("429s when the write rate limit is exceeded", async () => {
+      const { env } = makeEnv({ role: "owner", record: BYO_RECORD, writeLimiterOk: false });
+      setLaneActiveContentCheckForTests(async () => okCheck);
+      const res = await verifyActiveContent("active", env);
+      expect(res.status).toBe(429);
     });
   });
 });
