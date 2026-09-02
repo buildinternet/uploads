@@ -549,6 +549,19 @@ const INERT_SVG = new TextEncoder().encode(
 
 /** A fresh, passing `host-active-content:*` KV record for the default fixture's shared host. */
 const FRESH_HOST_RECORD = { ok: true, verifiedAt: new Date().toISOString() };
+
+/**
+ * Fresh, passing `host-active-content:*` records for *both* hosts the
+ * default fixture's shared object is reachable through (issue #929
+ * final-review item 1): `storage.uploads.sh` (`publicBaseUrl` above) and its
+ * `embed.uploads.sh` twin (`DEFAULT_EMBEDDABLE_HOSTS`, `resolveEmbedBaseUrl`)
+ * — `activeContentAllowed` now requires both to be fresh and `ok`, not just
+ * the stable host.
+ */
+const FRESH_HOST_RECORDS = {
+  "host-active-content:storage.uploads.sh": FRESH_HOST_RECORD,
+  "host-active-content:embed.uploads.sh": FRESH_HOST_RECORD,
+};
 const FLAGS_ON = { getBooleanValue: async () => true };
 
 describe("PUT /v1/:workspace/files SVG/XML active-content gate (issue #929)", () => {
@@ -567,7 +580,7 @@ describe("PUT /v1/:workspace/files SVG/XML active-content gate (issue #929)", ()
       {},
       {
         flags: FLAGS_ON,
-        registryExtra: { "host-active-content:storage.uploads.sh": FRESH_HOST_RECORD },
+        registryExtra: FRESH_HOST_RECORDS,
       },
     );
     const res = await putShot(env, {
@@ -586,7 +599,7 @@ describe("PUT /v1/:workspace/files SVG/XML active-content gate (issue #929)", ()
       {},
       {
         flags: FLAGS_ON,
-        registryExtra: { "host-active-content:storage.uploads.sh": FRESH_HOST_RECORD },
+        registryExtra: FRESH_HOST_RECORDS,
       },
     );
     const res = await putShot(env, {
@@ -762,7 +775,7 @@ describe("POST /v1/:workspace/files/sign content-type policy", () => {
       {},
       {
         flags: FLAGS_ON,
-        registryExtra: { "host-active-content:storage.uploads.sh": FRESH_HOST_RECORD },
+        registryExtra: FRESH_HOST_RECORDS,
       },
     );
     const res = await app.request(

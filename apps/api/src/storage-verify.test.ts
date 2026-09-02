@@ -772,6 +772,18 @@ describe("parseSandboxCsp", () => {
     expect(parseSandboxCsp("sandbox allow-scripts")).toMatchObject({ ok: false });
     expect(parseSandboxCsp("sandbox allow-same-origin allow-forms")).toMatchObject({ ok: false });
   });
+  // Two `Content-Security-Policy` response headers is legal CSP, and
+  // `Headers.get` joins repeated headers with ", " — so a `sandbox`
+  // directive sent on its own header must still parse out from the
+  // comma-joined string, not get swallowed into a neighboring directive.
+  it("parses a sandbox directive out of a comma-joined pair of CSP headers", () => {
+    expect(parseSandboxCsp("default-src 'none', sandbox").ok).toBe(true);
+  });
+  it("still rejects an unsafe sandbox token when the headers were comma-joined", () => {
+    expect(parseSandboxCsp("sandbox allow-scripts, default-src 'none'")).toMatchObject({
+      ok: false,
+    });
+  });
 });
 
 describe("checkActiveContentHeaders", () => {

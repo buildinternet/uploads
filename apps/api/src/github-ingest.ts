@@ -24,7 +24,6 @@
  */
 
 import { AppError, isRetryableType, NotFoundError } from "@uploads/errors";
-import { activeContentAllowed } from "./active-content";
 import { attachmentKeyBasename, extractUserAttachments } from "./github-attachment-extract";
 import { GH_PRIVATE_ROOT, sanitizeKeySegment } from "./github-comment-render";
 import {
@@ -245,12 +244,16 @@ async function fetchAndStore(
   // .allowed`, guards.ts — no shadow table) AND be an image/video family;
   // PDFs and archives pasted into a PR are left on GitHub. Non-sniffable
   // bytes or a type outside the gate is the same permanent
-  // `unsupported_media_type` skip either way. SVG is declared-only (never
-  // sniffed) so `detectContentType` alone never admits one here regardless
-  // of the gate — but the policy still needs the real gate result so its
-  // `allowed` set matches what every other caller would compute for this
-  // workspace (issue #929).
-  const policy = resolveUploadPolicy(ws, { activeContent: await activeContentAllowed(env, ws) });
+  // `unsupported_media_type` skip either way. `activeContent: false` here,
+  // not the real `activeContentAllowed(env, ws)` result (issue #929
+  // final-review): SVG is declared-only, never sniffed, so `detectContentType`
+  // below can't admit one regardless of what the gate says, and XML sniffs
+  // to `kind: "file"`, which the `uploadKind(sniffed) === "file"` check right
+  // below always skips anyway — so the real gate can never change this
+  // function's outcome. Passing `false` skips the per-asset Flagship
+  // evaluation and KV read that a real gate call would otherwise cost on
+  // every ingested asset.
+  const policy = resolveUploadPolicy(ws, { activeContent: false });
   const sniffed = detectContentType(bytes);
   if (!sniffed || !policy.allowed.has(sniffed) || uploadKind(sniffed) === "file") {
     return { kind: "skip", reason: "unsupported_media_type" };

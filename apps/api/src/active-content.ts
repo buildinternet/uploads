@@ -15,9 +15,19 @@
  * inherits the *host's* daily-probed verdict from KV (every workspace on
  * that host shares one Transform Rule), while a BYO workspace carries its
  * own stamp because only its owner controls that host's headers.
+ *
+ * A shared-lane workspace's object is actually reachable through *two*
+ * hosts — the stable `ws.publicBaseUrl` host and, when it's one of the
+ * default embeddable hosts, the `embed.uploads.sh` twin `objectPublicUrls`
+ * (`./storage.ts`) also hands out for it (`resolveEmbedBaseUrl`, same
+ * `@uploads/storage` helper). Gating on the stable host's record alone would
+ * let SVG/XML through on a URL an unverified host still serves un-sandboxed,
+ * so the shared-lane branch below requires a fresh `ok` record for *every*
+ * host that can serve the object.
  */
+import { resolveEmbedBaseUrl } from "@uploads/storage";
 import { isSharedLane } from "./storage";
-import { readHostActiveContent } from "./active-content-hosts";
+import { hostOf, readHostActiveContent } from "./active-content-hosts";
 import type { WorkspaceRecord } from "./workspace";
 
 /** Flagship kill switch, fail-closed like `POSTER_FLAG`. */
@@ -41,21 +51,18 @@ export const HOST_RECORD_MAX_AGE_MS = 48 * 60 * 60 * 1000;
  */
 export const LANE_STAMP_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 
-function hostOf(url: string | undefined): string | null {
-  if (!url) return null;
-  try {
-    return new URL(url).hostname.toLowerCase();
-  } catch {
-    return null;
-  }
-}
-
 /** True when `iso` parses and is within `maxAgeMs` of `now`. Absent/unparseable is never fresh. */
 function fresh(iso: string | undefined, maxAgeMs: number, now: Date): boolean {
   if (!iso) return false;
   const t = Date.parse(iso);
   if (!Number.isFinite(t)) return false;
   return now.getTime() - t <= maxAgeMs;
+}
+
+/** One host's KV record exists, passed, and is within `HOST_RECORD_MAX_AGE_MS` of `now`. */
+async function hostRecordFresh(env: Env, host: string, now: Date): Promise<boolean> {
+  const record = await readHostActiveContent(env, host);
+  return !!record && record.ok && fresh(record.verifiedAt, HOST_RECORD_MAX_AGE_MS, now);
 }
 
 /**
@@ -66,11 +73,14 @@ function fresh(iso: string | undefined, maxAgeMs: number, now: Date): boolean {
  *
  * Shared lane: reads `REGISTRY`'s `host-active-content:<host>` record (see
  * `./active-content-hosts.ts`, written by the daily cron/admin probe) for
- * the hostname of `ws.publicBaseUrl` — allowed when it exists, passed, and
- * is within `HOST_RECORD_MAX_AGE_MS`. BYO lane: allowed when
- * `ws.storageActiveContentVerifiedAt` is within `LANE_STAMP_MAX_AGE_MS`
- * (the unhealthy check above already covers the "lane broke" case, so this
- * branch is freshness only).
+ * the hostname of `ws.publicBaseUrl` — allowed only when that record exists,
+ * passed, and is within `HOST_RECORD_MAX_AGE_MS` *and* the same is true of
+ * the embed twin's host when `resolveEmbedBaseUrl` resolves to a different
+ * one (the object is reachable through both; either serving it un-sandboxed
+ * defeats the gate). BYO lane: allowed when `ws.storageActiveContentVerifiedAt`
+ * is within `LANE_STAMP_MAX_AGE_MS` (the unhealthy check above already
+ * covers the "lane broke" case, so this branch is freshness only; a BYO
+ * lane has no separate embed twin to check).
  */
 export async function activeContentAllowed(
   env: Env,
@@ -93,8 +103,16 @@ export async function activeContentAllowed(
     if (!env.REGISTRY) return false;
     const host = hostOf(ws.publicBaseUrl);
     if (!host) return false;
-    const record = await readHostActiveContent(env, host);
-    return !!record && record.ok && fresh(record.verifiedAt, HOST_RECORD_MAX_AGE_MS, now);
+    if (!(await hostRecordFresh(env, host, now))) return false;
+    // Same derivation `objectPublicUrls` (./storage.ts) uses for the embed
+    // URL it hands every shared-lane caller — when it names a different
+    // host than the stable one just checked, that host must be fresh and
+    // `ok` too, or the object is still reachable un-sandboxed through it.
+    const embedHost = hostOf(resolveEmbedBaseUrl(ws.publicBaseUrl, env.EMBED_PUBLIC_BASE_URL));
+    if (embedHost && embedHost !== host && !(await hostRecordFresh(env, embedHost, now))) {
+      return false;
+    }
+    return true;
   }
   return fresh(ws.storageActiveContentVerifiedAt, LANE_STAMP_MAX_AGE_MS, now);
 }

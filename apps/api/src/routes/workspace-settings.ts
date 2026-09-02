@@ -74,7 +74,12 @@ import {
   attachmentsMarker,
   type AttachmentItem,
 } from "../github-comment-render";
-import { readHostActiveContent } from "../active-content-hosts";
+import { HOST_RECORD_MAX_AGE_MS } from "../active-content";
+import {
+  hostOf,
+  readHostActiveContent,
+  type HostActiveContentRecord,
+} from "../active-content-hosts";
 import { allowWrite } from "../guards";
 import {
   adminWorkspaceOr403,
@@ -438,14 +443,19 @@ export async function storageGetHandler(c: Context<SettingsVars>) {
   return c.json(await withHostedActiveContent(c.env, status));
 }
 
-/** Hostname from a URL string, or `null` for an empty/unparseable one. */
-function hostOf(url: string | undefined): string | null {
-  if (!url) return null;
-  try {
-    return new URL(url).hostname.toLowerCase();
-  } catch {
-    return null;
-  }
+/**
+ * A hosted host's KV record projects as `verifiedAt` only when it's both
+ * `ok` and within `HOST_RECORD_MAX_AGE_MS` — same freshness window
+ * `activeContentAllowed` (`../active-content.ts`) enforces before it actually
+ * lets SVG/XML through. Without this the settings page could show "Verified
+ * <date>" for a host whose stale record no longer gates anything, which
+ * reads as verified when the gate itself has already closed.
+ */
+function freshVerifiedAt(record: HostActiveContentRecord | null, now: Date): string | undefined {
+  if (!record?.ok) return undefined;
+  const t = Date.parse(record.verifiedAt);
+  if (!Number.isFinite(t)) return undefined;
+  return now.getTime() - t <= HOST_RECORD_MAX_AGE_MS ? record.verifiedAt : undefined;
 }
 
 /**
@@ -463,16 +473,17 @@ async function withHostedActiveContent(
   env: Env,
   status: StorageStatusResponse,
 ): Promise<StorageStatusResponse> {
+  const now = new Date();
   if (status.mode === "shared") {
     const host = hostOf(status.publicBaseUrl);
     const record = host ? await readHostActiveContent(env, host) : null;
-    status.activeContentVerifiedAt = record?.ok ? record.verifiedAt : undefined;
+    status.activeContentVerifiedAt = freshVerifiedAt(record, now);
   }
   for (const lane of status.lanes) {
     if (lane.mode !== "shared") continue;
     const host = hostOf(lane.publicBaseUrl);
     const record = host ? await readHostActiveContent(env, host) : null;
-    lane.activeContentVerifiedAt = record?.ok ? record.verifiedAt : undefined;
+    lane.activeContentVerifiedAt = freshVerifiedAt(record, now);
   }
   return status;
 }
@@ -622,7 +633,12 @@ export async function storagePutHandler(c: Context<SettingsVars>) {
   const nowIso = new Date().toISOString();
   // ok when the recommended `active-content-headers` check passed; absent
   // (no publicBaseUrl, or the check failed/never ran) counts as not-verified
-  // — SVG/XML stay off for this lane until a check actually succeeds.
+  // — SVG/XML stay off for this lane until a check actually succeeds. That
+  // includes inconclusive: unlike the dedicated verify route
+  // (`storageVerifyActiveContentHandler`), which leaves a prior stamp
+  // untouched on an inconclusive recheck, a save always makes a fresh
+  // determination from this result — inconclusive-on-save clears the stamp,
+  // fail-closed, by design.
   const activeContentVerifiedAt = activeContentStampFromVerify(result, nowIso);
   const updated = await mutateWorkspaceRecord(
     c.env,
@@ -774,6 +790,10 @@ export async function storageActivateHandler(c: Context<SettingsVars>) {
       return c.json(result, 422);
     }
     verifiedAt = nowIso;
+    // Same fail-closed posture as `storagePutHandler`: this re-verify is a
+    // fresh determination, so inconclusive-on-save clears the stamp rather
+    // than carrying the pre-re-verify value forward, unlike the dedicated
+    // verify route's leave-it-alone handling of an inconclusive recheck.
     activeContentVerifiedAt = activeContentStampFromVerify(result, nowIso);
   }
 
@@ -1008,15 +1028,19 @@ function resolveActiveContentLaneTarget(
  * #929) — runs only the SVG/XML sandboxing-CSP probe against one lane
  * (`laneActiveContentCheck`: upload the inert SVG probe through the lane's
  * own storage client, ask `checkActiveContentHeaders`, delete the probe),
- * then stamps the result:
+ * then stamps the result. This is a rule for *this on-demand route only* —
+ * `storagePutHandler`/`storageActivateHandler` run the same probe as part of
+ * a save and handle inconclusive differently (see the comment at each):
  *
  *  - probe passed → `activeContentVerifiedAt`/`storageActiveContentVerifiedAt` set to now.
  *  - probe failed (not inconclusive) → the stamp is cleared, even if it was
  *    previously fresh — a lane that used to pass and now doesn't must stop
  *    admitting SVG/XML immediately, not wait out `LANE_STAMP_MAX_AGE_MS`.
  *  - probe inconclusive (the fetch itself threw — same "unknown, not
- *    broken" semantics as the public-url check) → the stamp is left exactly
- *    as it was; `mutateWorkspaceRecord` isn't even called.
+ *    broken" semantics as the public-url check) → *this route* leaves the
+ *    stamp exactly as it was; `mutateWorkspaceRecord` isn't even called. An
+ *    on-demand recheck of an already-configured lane shouldn't punish a
+ *    transient network blip by revoking something that was working.
  *
  * `laneId` is either a saved lane's id (`storageLanes[].id`) or the active
  * lane, named either by the literal `active` or by its own id
@@ -1030,6 +1054,11 @@ export async function storageVerifyActiveContentHandler(c: Context<SettingsVars>
   const laneIdParam = c.req.param("laneId") ?? "";
   const record = await loadWorkspaceRecord(c.env, name);
   if (!record) throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
+  if (!byoBucketAllowed(record)) {
+    throw new ForbiddenError("BYO storage is not enabled for this workspace", {
+      code: "byo_bucket_disabled",
+    });
+  }
 
   const target = resolveActiveContentLaneTarget(record, laneIdParam);
   if (!target) {

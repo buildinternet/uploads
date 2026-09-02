@@ -6,6 +6,7 @@
  * (phase 3, invites/members).
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { HOST_RECORD_MAX_AGE_MS } from "../src/active-content";
 import { hostActiveContentKey } from "../src/active-content-hosts";
 import { app } from "../src/index";
 import {
@@ -513,9 +514,10 @@ describe("storage vertical (self-serve BYO bucket)", () => {
         role: "admin",
         record: { ...SHARED_RECORD, publicBaseUrl: "https://storage.uploads.sh" },
       });
+      const verifiedAt = new Date(Date.now() - 1000).toISOString();
       await env.REGISTRY.put(
         hostActiveContentKey("storage.uploads.sh"),
-        JSON.stringify({ ok: true, verifiedAt: "2026-08-20T00:00:00.000Z" }),
+        JSON.stringify({ ok: true, verifiedAt }),
       );
       const res = await app.request(
         "/v1/workspaces/acme/storage",
@@ -525,7 +527,7 @@ describe("storage vertical (self-serve BYO bucket)", () => {
       expect(res.status).toBe(200);
       const body = (await res.json()) as { mode: string; activeContentVerifiedAt?: string };
       expect(body.mode).toBe("shared");
-      expect(body.activeContentVerifiedAt).toBe("2026-08-20T00:00:00.000Z");
+      expect(body.activeContentVerifiedAt).toBe(verifiedAt);
     });
 
     it("omits activeContentVerifiedAt on a shared active lane when the host record has never probed ok", async () => {
@@ -535,7 +537,38 @@ describe("storage vertical (self-serve BYO bucket)", () => {
       });
       await env.REGISTRY.put(
         hostActiveContentKey("storage.uploads.sh"),
-        JSON.stringify({ ok: false, verifiedAt: "2026-08-20T00:00:00.000Z", detail: "no sandbox" }),
+        JSON.stringify({
+          ok: false,
+          verifiedAt: new Date(Date.now() - 1000).toISOString(),
+          detail: "no sandbox",
+        }),
+      );
+      const res = await app.request(
+        "/v1/workspaces/acme/storage",
+        { headers: sessionHeaders },
+        env,
+      );
+      const body = (await res.json()) as { activeContentVerifiedAt?: string };
+      expect(body.activeContentVerifiedAt).toBeUndefined();
+    });
+
+    // Item 6 (issue #929 final-review): the hosted host's record projects
+    // as `verifiedAt` only within `HOST_RECORD_MAX_AGE_MS` — the same
+    // freshness window `activeContentAllowed` (../src/active-content.ts)
+    // enforces before it actually lets SVG/XML through. A stale-but-ok
+    // record must not read as "Verified" on the settings page when the gate
+    // itself has already stopped trusting it.
+    it("omits activeContentVerifiedAt on a shared active lane when the host record is ok but stale (older than HOST_RECORD_MAX_AGE_MS)", async () => {
+      const { env } = makeEnv({
+        role: "admin",
+        record: { ...SHARED_RECORD, publicBaseUrl: "https://storage.uploads.sh" },
+      });
+      await env.REGISTRY.put(
+        hostActiveContentKey("storage.uploads.sh"),
+        JSON.stringify({
+          ok: true,
+          verifiedAt: new Date(Date.now() - (HOST_RECORD_MAX_AGE_MS + 1000)).toISOString(),
+        }),
       );
       const res = await app.request(
         "/v1/workspaces/acme/storage",
@@ -563,9 +596,10 @@ describe("storage vertical (self-serve BYO bucket)", () => {
           ],
         },
       });
+      const verifiedAt = new Date(Date.now() - 1000).toISOString();
       await env.REGISTRY.put(
         hostActiveContentKey("storage.uploads.sh"),
-        JSON.stringify({ ok: true, verifiedAt: "2026-08-21T00:00:00.000Z" }),
+        JSON.stringify({ ok: true, verifiedAt }),
       );
       const res = await app.request(
         "/v1/workspaces/acme/storage",
@@ -578,7 +612,7 @@ describe("storage vertical (self-serve BYO bucket)", () => {
       const lane = body.lanes.find((l) => l.laneId === "lane_sharedfallback");
       expect(lane).toMatchObject({
         mode: "shared",
-        activeContentVerifiedAt: "2026-08-21T00:00:00.000Z",
+        activeContentVerifiedAt: verifiedAt,
       });
     });
   });
@@ -1658,6 +1692,23 @@ describe("storage vertical (self-serve BYO bucket)", () => {
         env,
       );
     }
+
+    // Item 4 (issue #929 final-review): same 403 `byo_bucket_disabled` gate
+    // every sibling storage route enforces (`storageVerifyHandler`,
+    // `storagePutHandler`, ...) — this route was missing it, so a workspace
+    // with BYO storage turned off could still trigger a real probe against
+    // its own lane's credentials.
+    it("403s (byo_bucket_disabled) when the workspace flag is explicitly off", async () => {
+      const { env } = makeEnv({
+        role: "owner",
+        record: { ...BYO_RECORD, byoBucketEnabled: false },
+      });
+      const res = await verifyActiveContent("active", env);
+      expect(res.status).toBe(403);
+      expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+        "byo_bucket_disabled",
+      );
+    });
 
     it("stamps storageActiveContentVerifiedAt on the active lane (named by the literal 'active') when the probe passes", async () => {
       const { env, registry } = makeEnv({ role: "owner", record: BYO_RECORD });

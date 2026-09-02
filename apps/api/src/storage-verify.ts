@@ -495,11 +495,18 @@ export const ACTIVE_CONTENT_PROBE_SVG = new TextEncoder().encode(
  * directive puts the document in an opaque origin with script disabled;
  * `allow-scripts` and `allow-same-origin` each undo the part we rely on.
  * Any other directives are the host owner's business.
+ *
+ * Directives split on `/[;,]/`, not just `;`: two `Content-Security-Policy`
+ * response headers are legal (each adds its own restrictions), and the
+ * fetch API's `Headers.get` joins repeated headers with `", "` — so a
+ * `sandbox` directive sent on its own header, alongside an unrelated
+ * `default-src 'none'`, would otherwise vanish into one comma-joined token
+ * a plain `;`-split never separates back out.
  */
 export function parseSandboxCsp(header: string | null): { ok: boolean; reason?: string } {
   if (!header) return { ok: false, reason: "missing Content-Security-Policy" };
   const sandbox = header
-    .split(";")
+    .split(/[;,]/)
     .map((d) => d.trim().toLowerCase())
     .find((d) => d === "sandbox" || d.startsWith("sandbox "));
   if (!sandbox) return { ok: false, reason: "Content-Security-Policy has no sandbox directive" };

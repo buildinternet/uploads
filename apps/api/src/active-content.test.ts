@@ -116,17 +116,32 @@ describe("activeContentAllowed — cheap local gates", () => {
   });
 });
 
+// `SHARED_WS.publicBaseUrl` is `https://storage.uploads.sh`, one of
+// `DEFAULT_EMBEDDABLE_HOSTS` (packages/storage), so it always has an embed
+// twin: `resolveEmbedBaseUrl` resolves it to the default `embed.uploads.sh`.
+// That means the gate must see a fresh `ok` record for *both* hosts before
+// it opens (issue #929 final-review item 1) — the object is reachable
+// through either URL, so either one serving it un-sandboxed is a bypass.
 describe("activeContentAllowed — shared lane", () => {
-  it("allows when the host's KV record is ok and fresh", async () => {
+  it("allows when both the stable host's and the embed twin's KV records are ok and fresh", async () => {
     const registry = fakeRegistry({
       "host-active-content:storage.uploads.sh": { ok: true, verifiedAt: isoAgo(1000) },
+      "host-active-content:embed.uploads.sh": { ok: true, verifiedAt: isoAgo(1000) },
     });
     expect(await activeContentAllowed(env({ REGISTRY: registry }), SHARED_WS, NOW)).toBe(true);
   });
 
-  it("denies when the host's KV record is stale (older than HOST_RECORD_MAX_AGE_MS)", async () => {
+  it("denies when the stable host is ok but the embed twin has never been probed", async () => {
     const registry = fakeRegistry({
-      "host-active-content:storage.uploads.sh": {
+      "host-active-content:storage.uploads.sh": { ok: true, verifiedAt: isoAgo(1000) },
+    });
+    expect(await activeContentAllowed(env({ REGISTRY: registry }), SHARED_WS, NOW)).toBe(false);
+  });
+
+  it("denies when the embed twin's record is stale even though the stable host's is fresh", async () => {
+    const registry = fakeRegistry({
+      "host-active-content:storage.uploads.sh": { ok: true, verifiedAt: isoAgo(1000) },
+      "host-active-content:embed.uploads.sh": {
         ok: true,
         verifiedAt: isoAgo(HOST_RECORD_MAX_AGE_MS + 1),
       },
@@ -134,9 +149,24 @@ describe("activeContentAllowed — shared lane", () => {
     expect(await activeContentAllowed(env({ REGISTRY: registry }), SHARED_WS, NOW)).toBe(false);
   });
 
-  it("allows exactly at the HOST_RECORD_MAX_AGE_MS boundary", async () => {
+  it("denies when the stable host's KV record is stale (older than HOST_RECORD_MAX_AGE_MS), even with a fresh embed record", async () => {
     const registry = fakeRegistry({
       "host-active-content:storage.uploads.sh": {
+        ok: true,
+        verifiedAt: isoAgo(HOST_RECORD_MAX_AGE_MS + 1),
+      },
+      "host-active-content:embed.uploads.sh": { ok: true, verifiedAt: isoAgo(1000) },
+    });
+    expect(await activeContentAllowed(env({ REGISTRY: registry }), SHARED_WS, NOW)).toBe(false);
+  });
+
+  it("allows exactly at the HOST_RECORD_MAX_AGE_MS boundary on both hosts", async () => {
+    const registry = fakeRegistry({
+      "host-active-content:storage.uploads.sh": {
+        ok: true,
+        verifiedAt: isoAgo(HOST_RECORD_MAX_AGE_MS),
+      },
+      "host-active-content:embed.uploads.sh": {
         ok: true,
         verifiedAt: isoAgo(HOST_RECORD_MAX_AGE_MS),
       },
@@ -150,11 +180,20 @@ describe("activeContentAllowed — shared lane", () => {
     );
   });
 
-  it("denies when the host record exists but failed its probe (ok: false)", async () => {
+  it("denies when the stable host record exists but failed its probe (ok: false), even with a fresh embed record", async () => {
     const registry = fakeRegistry({
       "host-active-content:storage.uploads.sh": { ok: false, verifiedAt: isoAgo(0) },
+      "host-active-content:embed.uploads.sh": { ok: true, verifiedAt: isoAgo(0) },
     });
     expect(await activeContentAllowed(env({ REGISTRY: registry }), SHARED_WS, NOW)).toBe(false);
+  });
+
+  it("allows off a single host record when the workspace's public host has no embed twin", async () => {
+    const registry = fakeRegistry({
+      "host-active-content:cdn.example": { ok: true, verifiedAt: isoAgo(0) },
+    });
+    const ws: WorkspaceRecord = { ...SHARED_WS, publicBaseUrl: "https://cdn.example" };
+    expect(await activeContentAllowed(env({ REGISTRY: registry }), ws, NOW)).toBe(true);
   });
 
   it("denies when the shared workspace has no publicBaseUrl to derive a host from", async () => {

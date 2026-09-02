@@ -29,7 +29,15 @@ export function hostActiveContentKey(host: string): string {
   return `host-active-content:${host}`;
 }
 
-function hostOf(url: string): string | null {
+/**
+ * Hostname from a URL string, lowercased; `null` for an empty/unparseable
+ * one. Exported (issue #929 final-review) as the one copy of this helper —
+ * `./active-content.ts` and `./routes/workspace-settings.ts` each kept their
+ * own before, drifting only in whether `url` was typed optional, never in
+ * behavior.
+ */
+export function hostOf(url: string | undefined | null): string | null {
+  if (!url) return null;
   try {
     return new URL(url).hostname.toLowerCase();
   } catch {
