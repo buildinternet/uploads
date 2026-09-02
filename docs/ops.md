@@ -1027,9 +1027,19 @@ wrangler flagship flags update 8371bfe7-9767-4b4d-b75a-37b94d2724f7 \
   attachment-index-shadow --default on
 ```
 
-**Reading it:** one Workers Logs line per real sync while the flag is on
+**Reading it:** the quickest way is the report script, which prints match
+rate, how many syncs had real attachments, and the most common mismatched
+keys over a window:
+
+```bash
+CLOUDFLARE_API_TOKEN=… node scripts/attachment-index-shadow-report.mjs --hours 24
+```
+
+Under the hood: one Workers Logs line per real sync while the flag is on
 (link adoption's pre-write baseline gather opts out), `component:
-"attachment-index"`, `event: "shadow"`. `match: true` means the index and the
+"attachment-index"`, `event: "shadow"`. The line has no `message` field, so
+the Workers Logs UI shows an empty message and a message-text search finds
+nothing; filter on the parsed `component` field instead. `match: true` means the index and the
 post-detach fan-out agree. `missing` lists keys the fan-out rendered that the
 index lacks: a write path the index misses, or an object that predates #938
 and needs the backfill. `extra` lists index rows the fan-out did not render,
