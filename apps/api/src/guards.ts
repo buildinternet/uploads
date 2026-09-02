@@ -323,10 +323,19 @@ export type UploadRejection = {
 };
 export type UploadInspection = { ok: true; contentType: string } | UploadRejection;
 
+/** Coarse family for 413 payloads and the optimizer/poster branches. */
+export type UploadKind = "image" | "video" | "file";
+
+export function uploadKind(contentType: string): UploadKind {
+  if (VIDEO_TYPES.has(contentType)) return "video";
+  if (contentType.startsWith("image/")) return "image";
+  return "file";
+}
+
 /** The shared 413 rejection for both the pre-buffer and post-buffer size checks. */
 function tooLarge(
   maxBytes: number,
-  extra?: { contentType?: string; kind?: "image" | "video" },
+  extra?: { contentType?: string; kind?: UploadKind },
 ): UploadRejection {
   return {
     ok: false,
@@ -354,26 +363,46 @@ export function checkDeclaredLength(
 }
 
 /**
- * Validate a fully-buffered upload body against the policy: sniffed type
- * against the allowlist, then the type-specific size cap.
+ * Validate a fully-buffered upload body against the policy. Sniffed bytes
+ * decide the stored type whenever they can; `declaredType` (from the request
+ * header or the key's extension — see `resolveDeclaredContentType`) is
+ * consulted only when sniffing finds nothing and the claim is one of the
+ * text types, which have no magic. Then the type-specific size cap.
  */
-export function inspectUpload(bytes: Uint8Array, policy: UploadPolicy): UploadInspection {
+export function inspectUpload(
+  bytes: Uint8Array,
+  policy: UploadPolicy,
+  declaredType?: string,
+): UploadInspection {
   const detected = detectContentType(bytes);
-  if (detected === null || !policy.allowed.has(detected)) {
+  let contentType: string | null = null;
+  if (detected !== null) {
+    if (policy.allowed.has(detected)) contentType = detected;
+  } else if (
+    declaredType !== undefined &&
+    TEXT_CONTENT_TYPES.has(declaredType) &&
+    policy.allowed.has(declaredType) &&
+    looksLikeText(bytes)
+  ) {
+    contentType = declaredType;
+  }
+  if (contentType === null) {
     return {
       ok: false,
       status: 415,
       error: new UnsupportedMediaTypeError("unsupported media type", {
-        details: { allowed: [...policy.allowed] },
+        details: {
+          allowed: [...policy.allowed],
+          ...(declaredType !== undefined ? { declared: declaredType } : {}),
+        },
       }),
     };
   }
-  const maxBytes = maxBytesForContentType(policy, detected);
-  const kind = VIDEO_TYPES.has(detected) ? ("video" as const) : ("image" as const);
+  const maxBytes = maxBytesForContentType(policy, contentType);
   if (bytes.byteLength > maxBytes) {
-    return tooLarge(maxBytes, { contentType: detected, kind });
+    return tooLarge(maxBytes, { contentType, kind: uploadKind(contentType) });
   }
-  return { ok: true, contentType: detected };
+  return { ok: true, contentType };
 }
 
 /**

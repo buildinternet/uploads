@@ -269,4 +269,68 @@ describe("inspectUpload", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.status).toBe(415);
   });
+
+  const text = new TextEncoder().encode("line one\nline two\n");
+
+  it("accepts a declared text type when the body is plausible text", () => {
+    expect(inspectUpload(text, policy, "text/plain")).toEqual({
+      ok: true,
+      contentType: "text/plain",
+    });
+    expect(inspectUpload(new TextEncoder().encode('{"a":1}'), policy, "application/json")).toEqual({
+      ok: true,
+      contentType: "application/json",
+    });
+  });
+
+  it("sniffed bytes win over a declared text type", () => {
+    expect(inspectUpload(PNG, policy, "text/plain")).toEqual({
+      ok: true,
+      contentType: "image/png",
+    });
+  });
+
+  it("rejects declared text with binary bytes, an undeclared body, or a non-text declared type", () => {
+    const binary = new Uint8Array([0x00, 0x01, 0x02, 0x03]);
+    for (const [bytes, declared] of [
+      [binary, "text/plain"],
+      [text, undefined],
+      [text, "application/octet-stream"],
+      [text, "text/html"],
+      [text, "image/svg+xml"],
+      [text, "application/xml"],
+    ] as const) {
+      const result = inspectUpload(bytes, policy, declared);
+      expect(result.ok, `${declared}`).toBe(false);
+      if (!result.ok) expect(result.status).toBe(415);
+    }
+  });
+
+  it("honors a workspace allowlist that excludes text", () => {
+    const imagesOnly = resolveUploadPolicy({ allowedContentTypes: ["image/png"] });
+    const result = inspectUpload(text, imagesOnly, "text/plain");
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.status).toBe(415);
+  });
+
+  it("reports the declared type in the 415 details", () => {
+    const result = inspectUpload(text, policy, "text/html");
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.details).toMatchObject({ declared: "text/html" });
+      expect(result.error.details).toHaveProperty("allowed");
+    }
+  });
+
+  it("caps non-media at maxBytes with kind file, and MOV at maxVideoBytes", () => {
+    const tight = resolveUploadPolicy({ maxUploadBytes: 4, maxVideoUploadBytes: 1000 });
+    const pdf = inspectUpload(PDF, tight);
+    expect(pdf.ok).toBe(false);
+    if (!pdf.ok) {
+      expect(pdf.status).toBe(413);
+      expect(pdf.error.details).toMatchObject({ kind: "file", contentType: "application/pdf" });
+    }
+    const mov = inspectUpload(ftyp("qt  "), tight);
+    expect(mov).toEqual({ ok: true, contentType: "video/quicktime" });
+  });
 });
