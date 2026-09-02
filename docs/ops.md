@@ -1013,25 +1013,38 @@ before phase 3 switches the render to it.
 
 **Flag:** Flagship `attachment-index-shadow`, same app as
 `video-poster-generation`. Off by default; turning it on adds one D1 read per
-comment sync, overlapped with the R2 listing, and never changes what renders.
+comment sync, overlapped with the R2 listing and abandoned after one second,
+and never changes what renders. Create it once (boolean, served off), then
+flip it:
+
+```bash
+wrangler flagship flags create 8371bfe7-9767-4b4d-b75a-37b94d2724f7 \
+  attachment-index-shadow --description "#934 phase 2: log index vs R2 fan-out diff"
+```
 
 ```bash
 wrangler flagship flags update 8371bfe7-9767-4b4d-b75a-37b94d2724f7 \
   attachment-index-shadow --default on
 ```
 
-**Reading it:** one Workers Logs line per sync while the flag is on,
-`component: "attachment-index"`, `event: "shadow"`. `match: true` means the
-index and the post-detach fan-out agree. `missing` lists keys the fan-out
-rendered that the index lacks (a write path the index misses, or an object
-that predates #938 and needs the backfill); `extra` lists index rows the
-fan-out did not render (a stale row: the object was deleted or moved without
-the index hearing). Key lists are capped at five per side; `missingCount` /
-`extraCount` are exact. Private prefix ids are redacted from the keys.
+**Reading it:** one Workers Logs line per real sync while the flag is on
+(link adoption's pre-write baseline gather opts out), `component:
+"attachment-index"`, `event: "shadow"`. `match: true` means the index and the
+post-detach fan-out agree. `missing` lists keys the fan-out rendered that the
+index lacks: a write path the index misses, or an object that predates #938
+and needs the backfill. `extra` lists index rows the fan-out did not render,
+which is one of two very different things: a stale row (the object was
+deleted or moved without the index hearing), or a correct row for a private
+attachment the fan-out cannot find because its prefix has no `file_metadata`
+row and is neither the repo sentinel nor the PR head branch. The second is
+the index out-rendering the fan-out, not a defect; check the key's
+`file_metadata` presence before filing it. Key lists are capped at five per
+side; `missingCount` / `extraCount` are exact. Private prefix ids are
+redacted from the keys.
 
-A `"attachment index: shadow read failed"` error line means the flag was on
-but the D1 read (or the flag evaluation) threw; the sync still completed from
-the fan-out.
+An error line `"attachment index: shadow read failed"` means the D1 read (or
+the flag evaluation) threw; `"attachment index: shadow read timed out"` means
+it exceeded one second. Either way the sync completed from the fan-out.
 
 Fails closed like the other flags: a missing `FLAGS` binding, a disabled
 flag, or a thrown evaluation all mean no shadow.

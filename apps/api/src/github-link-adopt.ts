@@ -258,7 +258,7 @@ export async function adoptLinkedFiles(
   // isn't judged against a prefix count its own copy just inflated. Legacy
   // attachments outside the ledger (manual `attach --pr`, pre-#709 adoptions)
   // still count here; ledgered adoptions feed the guard separately below.
-  const before = await gatherCommentBody(env, ws, workspaceName, target);
+  const before = await gatherCommentBody(env, ws, workspaceName, target, { shadow: false });
 
   for (const key of keys) {
     // A URL that already points at this PR/issue's attachment prefix is the

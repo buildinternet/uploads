@@ -48,13 +48,16 @@ import {
  * @param opts.headBranch The PR's head branch when the caller knows it (the
  *   webhook payload does). Lets a metadata-less private attachment under
  *   that branch's prefix be found; see `listPrefixIdsForTarget`.
+ * @param opts.shadow Set `false` for a gather that is NOT the real sync
+ *   (link adoption's pre-write baseline) so the #934 shadow compare does
+ *   not log a deliberately stale fan-out as an index mismatch.
  */
 export async function gatherCommentBody(
   env: Env,
   ws: WorkspaceRecord,
   workspaceName: string,
   target: GhTarget,
-  opts: { headBranch?: string } = {},
+  opts: { headBranch?: string; shadow?: boolean } = {},
 ): Promise<{ body: string; count: number }> {
   // Resolve repo `.uploads.yml` (if any) against the workspace's own comment
   // defaults (issue #307). Never throws — a fetch/App degradation collapses
@@ -116,7 +119,7 @@ async function gatherAttachments(
   workspaceName: string,
   target: GhTarget,
   options: ResolvedCommentOptions,
-  gatherOpts: { headBranch?: string },
+  gatherOpts: { headBranch?: string; shadow?: boolean },
 ): Promise<AttachmentItem[]> {
   // Per-workspace/repo choice (issues #304, #307): default (auto/true) links
   // the managed comment's attachments to their `/f/` file page (issue #301's
@@ -126,11 +129,6 @@ async function gatherAttachments(
   // issue #365, extended by #307: skip the metadata read entirely when
   // neither meta field would render anything.
   const showMetadata = options.metaPath || options.metaState;
-
-  // #934 phase 2: read the attachment index in the shadow of the fan-out
-  // below (flag-gated, never renders, never throws); compared once the
-  // detach filter has settled what actually renders.
-  const indexShadow = startAttachmentIndexShadow(env, workspaceName, target);
 
   // A private-repo attachment (#631) can land under a randomized prefix, not
   // just the plain `ghKeyPrefix`. Only the prefixes that can hold THIS
@@ -144,6 +142,16 @@ async function gatherAttachments(
     target,
     gatherOpts,
   );
+  // #934 phase 2: read the attachment index in the shadow of the R2 listing
+  // below (flag-gated, never renders, never throws or outlives its
+  // timeout); compared once the detach filter has settled what actually
+  // renders. Started after the prefix lookup so it is never the request's
+  // first D1 query.
+  const indexShadow =
+    gatherOpts.shadow === false
+      ? Promise.resolve(null)
+      : startAttachmentIndexShadow(env, workspaceName, target);
+
   const prefixes = [
     ghKeyPrefix(target),
     ...activePrefixIds.map((id) => ghPrivateKeyPrefix(id, target)),

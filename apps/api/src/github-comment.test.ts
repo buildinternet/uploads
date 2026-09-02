@@ -9,6 +9,7 @@ import { objectPublicUrls, storageConfig } from "./storage";
 import { posterKeyFor } from "./poster";
 import { getOrMintPrefixId } from "./github-private-prefixes";
 import { detachAttachment, recordAttachment } from "./github-attachment-index";
+import { SHADOW_TIMEOUT_MS } from "./github-attachment-shadow";
 import type { WorkspaceRecord } from "./workspace";
 import { FakeR2Bucket } from "../test/fake-r2";
 import { FakeKv } from "../test/fake-kv";
@@ -436,15 +437,62 @@ describe("gatherCommentBody attachment index shadow compare (#934 phase 2)", () 
     expect(line.extra).toHaveLength(5);
   });
 
-  it("does nothing when the flag is off or the FLAGS binding is absent", async () => {
-    const { env, ws, workspaceName } = makeTestEnv();
+  it("renders identically with the binding absent, the flag off, and the flag on", async () => {
+    const { env, ws, workspaceName, bucket } = makeTestEnv();
+    await bucket.put("acme/gh/acme/web/pull/12/hero.png", PNG, {
+      httpMetadata: { contentType: "image/png" },
+    });
+    // An index that disagrees with the fan-out in both directions.
     await recordAttachment(env.DB, indexRow("gh/acme/web/pull/12/ghost.png"));
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    await gatherCommentBody(env, ws, workspaceName, target);
+    const absent = await gatherCommentBody(env, ws, workspaceName, target);
     (env as { FLAGS?: unknown }).FLAGS = FLAG_OFF;
-    await gatherCommentBody(env, ws, workspaceName, target);
+    const off = await gatherCommentBody(env, ws, workspaceName, target);
     expect(shadowLogs(log)).toEqual([]);
+    (env as { FLAGS?: unknown }).FLAGS = FLAG_ON;
+    const on = await gatherCommentBody(env, ws, workspaceName, target);
+    expect(shadowLogs(log)).toHaveLength(1);
+
+    expect(absent.count).toBe(1);
+    expect(off).toEqual(absent);
+    expect(on).toEqual(absent);
+  });
+
+  it("skips the shadow when the caller opts out (adoption's pre-write baseline)", async () => {
+    const { env, ws, workspaceName } = makeTestEnv();
+    (env as { FLAGS?: unknown }).FLAGS = FLAG_ON;
+    await recordAttachment(env.DB, indexRow("gh/acme/web/pull/12/ghost.png"));
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await gatherCommentBody(env, ws, workspaceName, target, { shadow: false });
+    expect(shadowLogs(log)).toEqual([]);
+  });
+
+  it("abandons a slow index read at the timeout and syncs without it", async () => {
+    vi.useFakeTimers();
+    try {
+      const { env, ws, workspaceName, bucket } = makeTestEnv();
+      (env as { FLAGS?: unknown }).FLAGS = FLAG_ON;
+      await bucket.put("acme/gh/acme/web/pull/12/hero.png", PNG, {
+        httpMetadata: { contentType: "image/png" },
+      });
+      const log = vi.spyOn(console, "log").mockImplementation(() => {});
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      const realPrepare = env.DB.prepare.bind(env.DB);
+      vi.spyOn(env.DB, "prepare").mockImplementation((sql: string) => {
+        if (!sql.includes("FROM github_attachments")) return realPrepare(sql);
+        return { bind: () => ({ all: () => new Promise(() => {}) }) } as never;
+      });
+
+      const pending = gatherCommentBody(env, ws, workspaceName, target);
+      await vi.advanceTimersByTimeAsync(SHADOW_TIMEOUT_MS + 1);
+      expect((await pending).count).toBe(1);
+      expect(shadowLogs(log)).toEqual([]);
+      expect(error.mock.calls.some((c) => String(c[0]).includes("timed out"))).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("never fails the sync when the index read or the flag lookup throws", async () => {

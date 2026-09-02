@@ -27,6 +27,14 @@ export const ATTACHMENT_INDEX_SHADOW_FLAG = "attachment-index-shadow";
 
 const MAX_LOGGED_KEYS = 5;
 
+/**
+ * The shadow's only product is a log line, so it must never hold the sync
+ * hostage to a slow D1 (see the D1 stall notes in docs/ops.md). Past this
+ * the read is abandoned (it settles in the background, unobserved) and the
+ * sync proceeds as if the shadow were off.
+ */
+export const SHADOW_TIMEOUT_MS = 1000;
+
 const PRIVATE_ID_RE = /^gh\/private\/[0-9a-f]{32}\//;
 
 function redactKey(key: string): string {
@@ -35,8 +43,10 @@ function redactKey(key: string): string {
 
 /**
  * Starts the index read. Returns the active index keys, or `null` when the
- * shadow is off or failed. Kick this off BEFORE the R2 fan-out so the two
- * overlap; `await` it once the rendered key list is known.
+ * shadow is off, failed, or timed out. Kick this off BEFORE the R2 fan-out
+ * so the two overlap (but after the sync's first real D1 query, so the
+ * shadow never becomes the query that anchors the request's D1 session);
+ * `await` it once the rendered key list is known.
  */
 export async function startAttachmentIndexShadow(
   env: Env,
@@ -44,22 +54,39 @@ export async function startAttachmentIndexShadow(
   target: GhTarget,
 ): Promise<string[] | null> {
   if (!env.FLAGS) return null;
-  try {
-    if (!(await env.FLAGS.getBooleanValue(ATTACHMENT_INDEX_SHADOW_FLAG, false))) return null;
+  const context = {
+    workspace,
+    repo: normalizeRepo(target.repo),
+    kind: target.kind,
+    num: target.num,
+  };
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<null>((resolve) => {
+    timer = setTimeout(() => {
+      console.error(
+        JSON.stringify({ message: "attachment index: shadow read timed out", ...context }),
+      );
+      resolve(null);
+    }, SHADOW_TIMEOUT_MS);
+  });
+  const read = (async () => {
+    if (!(await env.FLAGS!.getBooleanValue(ATTACHMENT_INDEX_SHADOW_FLAG, false))) return null;
     const rows = await listAttachmentsForTarget(dbFor(env), workspace, target.repo, target);
     return rows.map((row) => row.objectKey);
-  } catch (err) {
+  })().catch((err: unknown) => {
     console.error(
       JSON.stringify({
         message: "attachment index: shadow read failed",
-        workspace,
-        repo: normalizeRepo(target.repo),
-        kind: target.kind,
-        num: target.num,
+        ...context,
         error: err instanceof Error ? err.message : String(err),
       }),
     );
     return null;
+  });
+  try {
+    return await Promise.race([read, timeout]);
+  } finally {
+    clearTimeout(timer);
   }
 }
 
