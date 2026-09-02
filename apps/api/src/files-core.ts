@@ -773,6 +773,24 @@ export async function putObject(
         repo: opts?.metadata?.["gh.repo"],
       },
     }),
+    // Attachment index (issue #934): the single choke point covering every
+    // putObject caller — REST PUT, the idempotent PUT and its reconcile,
+    // attach, promote, and rotation. See github-attachment-index.ts's header
+    // doc comment for the trust-boundary rationale. `lane_id` is the active
+    // lane this write went to (`storage(env, ws)` above). Best-effort and
+    // never-throwing like its neighbours here, and the object is durably
+    // stored by the time this block runs — so it rides along with the rest
+    // of the post-write bookkeeping rather than costing its own serial round
+    // trip on every attachment upload.
+    isManagedGithubKey(finalKey)
+      ? recordAttachmentForKeySafe(dbFor(env), {
+          workspace: workspaceName,
+          objectKey: finalKey,
+          source: opts?.attachment?.source ?? "put",
+          laneId: ws.storageLaneId ?? null,
+          repo: opts?.attachment?.repo,
+        })
+      : Promise.resolve(),
   ]);
 
   // Derived metadata from a content-identical earlier upload in this workspace
@@ -812,22 +830,6 @@ export async function putObject(
   // the object is durably stored by now, so a failed index write costs a later
   // inheritance rather than this upload.
   await recordContentHash(dbFor(env), workspaceName, finalKey, contentSha256);
-
-  // Attachment index (issue #934): the single choke point covering every
-  // putObject caller — REST PUT, the idempotent PUT and its reconcile,
-  // attach, promote, and rotation. See github-attachment-index.ts's header
-  // doc comment for the trust-boundary rationale. `lane_id` is the active
-  // lane this write went to (`storage(env, ws)` above). Best-effort and
-  // last, like recordContentHash: the object is durably stored by now.
-  if (isManagedGithubKey(finalKey)) {
-    await recordAttachmentForKeySafe(dbFor(env), {
-      workspace: workspaceName,
-      objectKey: finalKey,
-      source: opts?.attachment?.source ?? "put",
-      laneId: ws.storageLaneId ?? null,
-      repo: opts?.attachment?.repo,
-    });
-  }
 
   // After the metadata replace, never before: replaceFileMetadata is
   // delete-then-insert and would wipe the server-owned video.*/image.* rows.

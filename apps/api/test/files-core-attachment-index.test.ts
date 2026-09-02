@@ -133,6 +133,30 @@ describe("putObject → attachment index", () => {
   });
 });
 
+describe("putObject → attachment index scheduling", () => {
+  it("issues the index write with the other post-write D1 bookkeeping, not serially after it", async () => {
+    const { env, ws } = makePosterEnv();
+    const statements: string[] = [];
+    const db = env.DB as unknown as { prepare: (sql: string) => unknown };
+    const realPrepare = db.prepare.bind(db);
+    db.prepare = (sql: string) => {
+      statements.push(sql.replace(/\s+/g, " ").trim());
+      return realPrepare(sql);
+    };
+
+    await putObject(env, ws, "gh/acme/web/pull/12/hero.png", PNG, WORKSPACE);
+
+    const indexAt = statements.findIndex((sql) => sql.startsWith("INSERT INTO github_attachments"));
+    const hashAt = statements.findIndex((sql) => sql.includes("INSERT INTO file_content_hash"));
+    expect(indexAt).toBeGreaterThanOrEqual(0);
+    expect(hashAt).toBeGreaterThanOrEqual(0);
+    // The index write now rides in putObject's post-write `Promise.all`,
+    // which runs before the metadata/content-hash tail — so it overlaps
+    // those round trips instead of adding its own after them.
+    expect(indexAt).toBeLessThan(hashAt);
+  });
+});
+
 describe("deleteObject → attachment index", () => {
   it("removes the index row alongside the object's metadata", async () => {
     const { env, db, ws } = makePosterEnv();
