@@ -216,3 +216,53 @@ export async function reattachAttachment(
     .bind(now.toISOString(), workspace, objectKey)
     .run();
 }
+
+/**
+ * D1's hard cap on bound parameters per query (100 — not SQLite's ~999);
+ * `test/helpers/sqlite-d1.ts` enforces the same ceiling. Same constant and
+ * same reasoning as file-metadata.ts's `D1_MAX_BOUND_PARAMS`.
+ */
+const D1_MAX_BOUND_PARAMS = 100;
+
+/** Removes an object's index row (e.g. on object delete). */
+export async function deleteAttachment(
+  db: D1Queryable,
+  workspace: string,
+  objectKey: string,
+): Promise<void> {
+  await db
+    .prepare(`DELETE FROM github_attachments WHERE workspace = ? AND object_key = ?`)
+    .bind(workspace, objectKey)
+    .run();
+}
+
+/**
+ * Removes index rows for a set of objects in one pass (the retention
+ * purge's delete batches). Chunked to stay under D1's bound-parameter
+ * limit, exactly like `deleteFileMetadataForKeys`. No-op on an empty list.
+ */
+export async function deleteAttachmentsForKeys(
+  db: D1Queryable,
+  workspace: string,
+  keys: string[],
+): Promise<void> {
+  const chunkSize = Math.max(1, D1_MAX_BOUND_PARAMS - 1); // the workspace bind
+  for (let i = 0; i < keys.length; i += chunkSize) {
+    const chunk = keys.slice(i, i + chunkSize);
+    const placeholders = chunk.map(() => "?").join(", ");
+    await db
+      .prepare(
+        `DELETE FROM github_attachments WHERE workspace = ? AND object_key IN (${placeholders})`,
+      )
+      .bind(workspace, ...chunk)
+      .run();
+  }
+}
+
+/** Removes every index row for a workspace being torn down. */
+export async function deleteAttachmentsForWorkspace(
+  db: D1Queryable,
+  workspace: string,
+): Promise<void> {
+  await db.prepare(`DELETE FROM github_attachments WHERE workspace = ?`).bind(workspace).run();
+}

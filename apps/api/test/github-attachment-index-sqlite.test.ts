@@ -3,6 +3,9 @@
 import { describe, expect, it } from "vitest";
 import {
   attachmentRow,
+  deleteAttachment,
+  deleteAttachmentsForKeys,
+  deleteAttachmentsForWorkspace,
   detachAttachment,
   parseAttachmentKey,
   reattachAttachment,
@@ -179,6 +182,69 @@ describe("detachAttachment / reattachAttachment", () => {
       await detachAttachment(db, "acme", "gh/acme/web/pull/12/nope.png");
       await reattachAttachment(db, "acme", "gh/acme/web/pull/12/nope.png");
       expect(await attachmentRow(db, "acme", "gh/acme/web/pull/12/nope.png")).toBeNull();
+    } finally {
+      sqlite.close();
+    }
+  });
+});
+
+describe("attachment index deletes", () => {
+  it("deleteAttachment removes exactly one row", async () => {
+    const sqlite = new SqliteD1(MIGRATIONS);
+    try {
+      const db = database(sqlite);
+      await recordAttachment(db, row());
+      await recordAttachment(db, row({ objectKey: "gh/acme/web/pull/12/two.png" }));
+      await deleteAttachment(db, "acme", row().objectKey);
+      expect(await attachmentRow(db, "acme", row().objectKey)).toBeNull();
+      expect(await attachmentRow(db, "acme", "gh/acme/web/pull/12/two.png")).not.toBeNull();
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("deleteAttachmentsForKeys chunks past D1's 100-bound-parameter cap", async () => {
+    const sqlite = new SqliteD1(MIGRATIONS);
+    try {
+      const db = database(sqlite);
+      const keys = Array.from({ length: 250 }, (_, i) => `gh/acme/web/pull/12/f${i}.png`);
+      for (const objectKey of keys) await recordAttachment(db, row({ objectKey }));
+      await recordAttachment(db, row({ objectKey: "gh/acme/web/pull/12/keep.png" }));
+
+      await deleteAttachmentsForKeys(db, "acme", keys);
+
+      const remaining = await db
+        .prepare("SELECT COUNT(*) AS count FROM github_attachments")
+        .bind()
+        .first<{ count: number }>();
+      expect(remaining?.count).toBe(1);
+      expect(await attachmentRow(db, "acme", "gh/acme/web/pull/12/keep.png")).not.toBeNull();
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("deleteAttachmentsForKeys is a no-op on an empty list", async () => {
+    const sqlite = new SqliteD1(MIGRATIONS);
+    try {
+      const db = database(sqlite);
+      await recordAttachment(db, row());
+      await deleteAttachmentsForKeys(db, "acme", []);
+      expect(await attachmentRow(db, "acme", row().objectKey)).not.toBeNull();
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("deleteAttachmentsForWorkspace clears one workspace only", async () => {
+    const sqlite = new SqliteD1(MIGRATIONS);
+    try {
+      const db = database(sqlite);
+      await recordAttachment(db, row());
+      await recordAttachment(db, row({ workspace: "other" }));
+      await deleteAttachmentsForWorkspace(db, "acme");
+      expect(await attachmentRow(db, "acme", row().objectKey)).toBeNull();
+      expect(await attachmentRow(db, "other", row().objectKey)).not.toBeNull();
     } finally {
       sqlite.close();
     }
