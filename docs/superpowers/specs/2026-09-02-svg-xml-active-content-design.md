@@ -153,3 +153,5 @@ own CSP); confirm on prod before the copy says so.
 - HTML.
 - Automatic header setup on BYO hosts.
 - Per-workspace custom CSP values (the probe accepts any sandboxing policy).
+
+> **Record note (2026-09-02, post-review):** the shipped implementation probes an SVG and an XML object (both must pass), requires every hosted host to be verified for shared lanes, lets `serverCopy` bypass only freshness reasons, splits CSP directives on `;` only, adds a 60 s per-lane cooldown to the on-demand check, reaps orphaned probe objects daily, caps gated presigns at 900 s, and adds `nosniff` + `sandbox` to download responses. `docs/ops.md` and `/docs/byo-bucket` carry the live behavior.

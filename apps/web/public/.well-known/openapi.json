@@ -979,7 +979,12 @@
           "key": { "type": "string" },
           "contentType": { "type": "string" },
           "maxSize": { "type": "integer", "minimum": 1 },
-          "expiresIn": { "type": "integer", "minimum": 1, "maximum": 86400 },
+          "expiresIn": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 86400,
+            "description": "Seconds until the signed URL expires. Capped at 900 for SVG and XML content types (issue #929)."
+          },
           "replace": { "type": "boolean", "default": false }
         }
       },
