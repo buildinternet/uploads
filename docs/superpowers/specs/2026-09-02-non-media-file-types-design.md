@@ -93,8 +93,7 @@ test keeps its meaning; a new case asserts a PDF is a permanent `unsupported_med
   missing `webm`. The copy in `packages/comment-render/src/index.ts` and the generated
   `packages/uploads/src/comment-render.generated.ts` follow (regenerate, do not hand-edit the
   generated file; check how it is produced first).
-- `optimizeImageForUpload` already passes non-images through as `not_image`. `optimizeImageForUpload`
-  returns early for a known non-image extension before any sharp call, and the EXIF-facts probe is
+- `optimizeImageForUpload` returns early for a known non-image extension before any sharp call, and the EXIF-facts probe is
   gated the same way, so a 20 MB zip never touches sharp. Keys keep their original extension on
   passthrough (verify, do not assume).
 - The managed comment already renders anything that is not an image or a poster-backed video as
@@ -161,5 +160,6 @@ Shipped in a second PR after the API change is live, so the site never claims wh
 - Inline text/JSON viewer on `/f/` (follow-up issue).
 - A separate non-media size cap or plan field.
 - Presign byte verification (#410).
-- `Content-Disposition: attachment` on the storage origin (needs a `files-sdk` option).
+- `Content-Disposition: attachment` on the storage hosts. Reachable as a zone Transform Rule (ops
+  config, not this repo); optional hardening, not required for the accepted set.
 - Ingesting non-media attachments from GitHub.
