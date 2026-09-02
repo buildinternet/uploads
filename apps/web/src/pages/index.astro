@@ -754,8 +754,8 @@ Source (and where to look if something breaks): https://github.com/buildinternet
           <div class="feature">
             <h3>Capture and host</h3>
             <p>
-              <code>uploads screenshot &lt;url&gt;</code> captures and hosts in one step, with both local
-              and remote browser support.
+              <code>uploads screenshot &lt;url&gt;</code> captures and hosts in one step, with local and
+              remote browser support and optional device chrome via <code>--frame</code>.
             </p>
           </div>
           <div class="feature">
@@ -767,11 +767,11 @@ Source (and where to look if something breaks): https://github.com/buildinternet
             </p>
           </div>
           <div class="feature">
-            <h3>Device frames</h3>
+            <h3>Upload over MCP</h3>
             <p>
-              Wrap a raw screenshot in device chrome — phone, browser, or a specific iPhone — with <code
-                >--frame</code
-              >.
+              The hosted MCP server at <code>agents.uploads.sh</code> takes files as bytes or a URL and
+              posts them to the PR, so agents with no shell, no <code>gh</code>, and no filesystem
+              can still attach. GitHub has no public API (yet) for that.
             </p>
           </div>
           <div class="feature">

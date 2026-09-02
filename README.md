@@ -52,7 +52,9 @@ GitHub's own attachments work from a browser and, since GitHub CLI 2.99
 (September 2026), from `gh … --attach`, but only once a pull request or issue
 exists, and the files stay private to GitHub. uploads.sh gives agents a stable
 public URL from the same terminal where they build and test the change, while
-the branch is still in progress.
+the branch is still in progress. The hosted MCP server does the same for agents
+that cannot run a command at all, taking files as bytes or a URL. GitHub has no
+public API (yet) for that.
 
 Keys are hash-free, so re-uploading the same filename overwrites in place and
 the URL never changes — every embed of it updates at once. Workspaces keep

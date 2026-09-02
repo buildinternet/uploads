@@ -25,6 +25,10 @@ What it doesn't change:
 - **Public URLs.** GitHub's attachments only render inside GitHub. Uploads URLs
   work in Slack, docs, changelogs, and for any other agent that needs to fetch
   them.
+- **Uploads without a shell.** GitHub has no public API (yet) for attachments, and
+  `--attach` needs `gh` on a machine that has the file. The hosted MCP server
+  at `agents.uploads.sh` takes files as base64 or a URL and posts them to the
+  PR, so ChatGPT, Claude.ai, and cloud agents can attach too.
 - **Capture and context.** `uploads screenshot` takes the shot, `--annotate`
   marks it up, before/after pairs render side by side, and every capture
   carries metadata you can search with `uploads find` or browse on the

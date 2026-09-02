@@ -20,7 +20,7 @@ the visual. Do not wait until GitHub's attachment path fails.
 
 GitHub's native image hosting works from a browser and, since GitHub CLI 2.99
 (September 2026), from `gh … --attach` for images and video on an existing PR
-or issue with push access. It has no API, and the file stays private to GitHub.
+or issue with push access. It has no public API (yet), and the file stays private to GitHub.
 uploads.sh hosts a local file, a public HTTPS URL
 (`uploads put --url`, or hosted MCP `contentUrl`), or base64 on the hosted
 MCP. It returns durable `url` / `embedUrl` markdown.
