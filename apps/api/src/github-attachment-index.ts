@@ -293,3 +293,100 @@ export async function rekeyAttachment(
     .bind(toKey, newPrefixId, now.toISOString(), workspace, fromKey)
     .run();
 }
+
+/**
+ * Index writes are BEST-EFFORT, exactly like `recordUsageSafe` and
+ * `recordPrActivityFromMetadata`: the object is already durably stored by
+ * the time any of these runs, so a D1 failure must cost a stale index (which
+ * the phase-2 shadow diff and the reconcile job repair) rather than a failed
+ * upload.
+ */
+async function safely(message: string, context: Record<string, unknown>, run: () => Promise<void>) {
+  try {
+    await run();
+  } catch (err) {
+    console.error(
+      JSON.stringify({
+        message,
+        ...context,
+        error: err instanceof Error ? err.message : String(err),
+      }),
+    );
+  }
+}
+
+export async function recordAttachmentSafe(
+  db: D1Queryable,
+  row: Omit<AttachmentIndexRow, "createdAt" | "updatedAt" | "detachedAt">,
+  now = new Date(),
+): Promise<void> {
+  await safely(
+    "attachment index: record failed",
+    { workspace: row.workspace, objectKey: row.objectKey, source: row.source },
+    () => recordAttachment(db, row, now),
+  );
+}
+
+export async function detachAttachmentSafe(
+  db: D1Queryable,
+  workspace: string,
+  objectKey: string,
+  now = new Date(),
+): Promise<void> {
+  await safely("attachment index: detach failed", { workspace, objectKey }, () =>
+    detachAttachment(db, workspace, objectKey, now),
+  );
+}
+
+export async function reattachAttachmentSafe(
+  db: D1Queryable,
+  workspace: string,
+  objectKey: string,
+  now = new Date(),
+): Promise<void> {
+  await safely("attachment index: reattach failed", { workspace, objectKey }, () =>
+    reattachAttachment(db, workspace, objectKey, now),
+  );
+}
+
+export async function deleteAttachmentSafe(
+  db: D1Queryable,
+  workspace: string,
+  objectKey: string,
+): Promise<void> {
+  await safely("attachment index: delete failed", { workspace, objectKey }, () =>
+    deleteAttachment(db, workspace, objectKey),
+  );
+}
+
+export async function deleteAttachmentsForKeysSafe(
+  db: D1Queryable,
+  workspace: string,
+  keys: string[],
+): Promise<void> {
+  await safely("attachment index: batch delete failed", { workspace, keys: keys.length }, () =>
+    deleteAttachmentsForKeys(db, workspace, keys),
+  );
+}
+
+export async function deleteAttachmentsForWorkspaceSafe(
+  db: D1Queryable,
+  workspace: string,
+): Promise<void> {
+  await safely("attachment index: workspace delete failed", { workspace }, () =>
+    deleteAttachmentsForWorkspace(db, workspace),
+  );
+}
+
+export async function rekeyAttachmentSafe(
+  db: D1Queryable,
+  workspace: string,
+  fromKey: string,
+  toKey: string,
+  newPrefixId: string | null,
+  now = new Date(),
+): Promise<void> {
+  await safely("attachment index: rekey failed", { workspace, fromKey, toKey }, () =>
+    rekeyAttachment(db, workspace, fromKey, toKey, newPrefixId, now),
+  );
+}

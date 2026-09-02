@@ -1,16 +1,23 @@
 /// <reference types="node" />
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   attachmentRow,
   deleteAttachment,
+  deleteAttachmentSafe,
   deleteAttachmentsForKeys,
+  deleteAttachmentsForKeysSafe,
   deleteAttachmentsForWorkspace,
+  deleteAttachmentsForWorkspaceSafe,
   detachAttachment,
+  detachAttachmentSafe,
   parseAttachmentKey,
   reattachAttachment,
+  reattachAttachmentSafe,
   recordAttachment,
+  recordAttachmentSafe,
   rekeyAttachment,
+  rekeyAttachmentSafe,
 } from "../src/github-attachment-index";
 import { database, SqliteD1 } from "./helpers/sqlite-d1";
 
@@ -324,6 +331,49 @@ describe("rekeyAttachment", () => {
       expect(await attachmentRow(db, "acme", "gh/acme/web/pull/12/b.png")).toBeNull();
     } finally {
       sqlite.close();
+    }
+  });
+});
+
+describe("attachment index safe writers", () => {
+  const throwingDb = {
+    prepare: () => ({
+      bind: () => ({
+        run: async () => {
+          throw new Error("D1 exploded");
+        },
+        first: async () => {
+          throw new Error("D1 exploded");
+        },
+        all: async () => {
+          throw new Error("D1 exploded");
+        },
+      }),
+    }),
+    batch: async () => [],
+  } as unknown as Parameters<typeof recordAttachment>[0];
+
+  it("swallow D1 failures and log a JSON line", async () => {
+    const errors: string[] = [];
+    const spy = vi.spyOn(console, "error").mockImplementation((msg) => {
+      errors.push(String(msg));
+    });
+    try {
+      await recordAttachmentSafe(throwingDb, row());
+      await detachAttachmentSafe(throwingDb, "acme", row().objectKey);
+      await reattachAttachmentSafe(throwingDb, "acme", row().objectKey);
+      await deleteAttachmentSafe(throwingDb, "acme", row().objectKey);
+      await deleteAttachmentsForKeysSafe(throwingDb, "acme", [row().objectKey]);
+      await deleteAttachmentsForWorkspaceSafe(throwingDb, "acme");
+      await rekeyAttachmentSafe(throwingDb, "acme", "a", "b", null);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(errors).toHaveLength(7);
+    for (const line of errors) {
+      const parsed = JSON.parse(line) as { message: string; error: string };
+      expect(parsed.message).toContain("attachment index");
+      expect(parsed.error).toBe("D1 exploded");
     }
   });
 });
