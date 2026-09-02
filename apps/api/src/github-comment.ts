@@ -16,6 +16,10 @@ import { parseExternalReference } from "./external-references";
 import { createLaneResolver, objectPublicUrls } from "./storage";
 import { posterKeyFor } from "./poster";
 import { listPrefixIdsForTarget } from "./github-private-prefixes";
+import {
+  reportAttachmentIndexShadow,
+  startAttachmentIndexShadow,
+} from "./github-attachment-shadow";
 import type { WorkspaceRecord } from "./workspace";
 import { githubFetch, githubHeaders, installationToken, type GithubAppConfig } from "./github-app";
 import { resolveRepoCommentOptions } from "./repo-comment-config";
@@ -44,13 +48,16 @@ import {
  * @param opts.headBranch The PR's head branch when the caller knows it (the
  *   webhook payload does). Lets a metadata-less private attachment under
  *   that branch's prefix be found; see `listPrefixIdsForTarget`.
+ * @param opts.shadow Set `false` for a gather that is NOT the real sync
+ *   (link adoption's pre-write baseline) so the #934 shadow compare does
+ *   not log a deliberately stale fan-out as an index mismatch.
  */
 export async function gatherCommentBody(
   env: Env,
   ws: WorkspaceRecord,
   workspaceName: string,
   target: GhTarget,
-  opts: { headBranch?: string } = {},
+  opts: { headBranch?: string; shadow?: boolean } = {},
 ): Promise<{ body: string; count: number }> {
   // Resolve repo `.uploads.yml` (if any) against the workspace's own comment
   // defaults (issue #307). Never throws — a fetch/App degradation collapses
@@ -112,7 +119,7 @@ async function gatherAttachments(
   workspaceName: string,
   target: GhTarget,
   options: ResolvedCommentOptions,
-  gatherOpts: { headBranch?: string },
+  gatherOpts: { headBranch?: string; shadow?: boolean },
 ): Promise<AttachmentItem[]> {
   // Per-workspace/repo choice (issues #304, #307): default (auto/true) links
   // the managed comment's attachments to their `/f/` file page (issue #301's
@@ -135,6 +142,16 @@ async function gatherAttachments(
     target,
     gatherOpts,
   );
+  // #934 phase 2: read the attachment index in the shadow of the R2 listing
+  // below (flag-gated, never renders, never throws or outlives its
+  // timeout); compared once the detach filter has settled what actually
+  // renders. Started after the prefix lookup so it is never the request's
+  // first D1 query.
+  const indexShadow =
+    gatherOpts.shadow === false
+      ? Promise.resolve(null)
+      : startAttachmentIndexShadow(env, workspaceName, target);
+
   const prefixes = [
     ghKeyPrefix(target),
     ...activePrefixIds.map((id) => ghPrivateKeyPrefix(id, target)),
@@ -167,21 +184,28 @@ async function gatherAttachments(
   );
   let items: AttachmentItem[] = perPrefixItems.flat();
 
-  if (items.length === 0) return items;
-
   // Detach filter (issue #709) runs unconditionally — D1 rows are
   // tenant-scoped by `workspaceName` (the caller's own slug), not by
   // anything derived from `ws`, same trust boundary as gatherGalleries. The
   // path/state/video.* fetch below is skipped when the repo's meta display
   // settings are both off, but this one always runs since a detached copy
   // must never render regardless.
-  const detachByKey = await getMetadataForKeys(
-    dbFor(env),
+  if (items.length > 0) {
+    const detachByKey = await getMetadataForKeys(
+      dbFor(env),
+      workspaceName,
+      items.map((item) => item.key),
+      { metaKeys: [DETACH_META_KEY] },
+    );
+    items = items.filter((item) => detachByKey.get(item.key)?.[DETACH_META_KEY] !== "true");
+  }
+
+  reportAttachmentIndexShadow(
+    await indexShadow,
     workspaceName,
+    target,
     items.map((item) => item.key),
-    { metaKeys: [DETACH_META_KEY] },
   );
-  items = items.filter((item) => detachByKey.get(item.key)?.[DETACH_META_KEY] !== "true");
 
   if (!showMetadata || items.length === 0) return items;
 

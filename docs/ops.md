@@ -835,7 +835,7 @@ recommend removing.
 | `ANALYTICS_API_TOKEN`                                                          | api       | Same as above — without it the breakdown panel reports `not_configured` even if `ANALYTICS` itself is bound.                                                                                                                                                                                                                                                                                            |
 | `BROWSER`                                                                      | api       | `POST /v1/render` (CLI screenshot capture) answers 503 `renderer_unavailable`. Nothing else is affected.                                                                                                                                                                                                                                                                                                |
 | `MEDIA`                                                                        | api       | Video poster-frame generation is skipped; uploads still succeed, just without a generated poster image.                                                                                                                                                                                                                                                                                                 |
-| `FLAGS`                                                                        | api       | Poster generation's runtime kill switch always evaluates to disabled (fails closed) — same effect as never enabling the feature.                                                                                                                                                                                                                                                                        |
+| `FLAGS`                                                                        | api       | Every Flagship-gated feature evaluates to off (fails closed): poster generation, active-content uploads, and the attachment index shadow — same effect as never enabling them.                                                                                                                                                                                                                          |
 | `GITHUB_WEBHOOK_QUEUE`                                                         | api       | GitHub webhook deliveries process inline (`waitUntil`) instead of through a durable queue — functionally the same, just without queue-level retry/DLQ semantics.                                                                                                                                                                                                                                        |
 | `AUTH`                                                                         | mcp       | Uploader attribution on hosted-MCP uploads degrades to the id-only `gh.uploader-id` tag (no `gh.uploader` login) — the binding backs `uploaderTags()` in `@uploads/api/uploader-identity`, called from `apps/mcp/src/tools.ts`, and every failure path there fails soft. Uploads still succeed. (Listed here because a grep of `apps/mcp/src` alone misses the usage — it lives in the shared package.) |
 | `WRITE_LIMITER`                                                                | api, mcp  | No per-workspace burst limit on uploads/deletes.                                                                                                                                                                                                                                                                                                                                                        |
@@ -1002,6 +1002,52 @@ large run:
 - Use `--limit <n>` to bound how much budget a single run spends.
 - Expect a large backfill to compete with real user uploads for the same
   budget, and to start failing with 429s if it exhausts it partway through.
+
+## Attachment index shadow (issue #934)
+
+The managed comment sync still renders from the R2 fan-out (one `ListObjects`
+per prefix that can hold the target). Phase 1 (#938) writes every attachment
+to the `github_attachments` D1 table; phase 2 reads that table alongside the
+fan-out and logs the difference, so the index's coverage can be measured
+before phase 3 switches the render to it.
+
+**Flag:** Flagship `attachment-index-shadow`, same app as
+`video-poster-generation`. Off by default; turning it on adds one D1 read per
+comment sync, overlapped with the R2 listing and abandoned after one second,
+and never changes what renders. Create it once (boolean, served off), then
+flip it:
+
+```bash
+wrangler flagship flags create 8371bfe7-9767-4b4d-b75a-37b94d2724f7 \
+  attachment-index-shadow --description "#934 phase 2: log index vs R2 fan-out diff"
+```
+
+```bash
+wrangler flagship flags update 8371bfe7-9767-4b4d-b75a-37b94d2724f7 \
+  attachment-index-shadow --default on
+```
+
+**Reading it:** one Workers Logs line per real sync while the flag is on
+(link adoption's pre-write baseline gather opts out), `component:
+"attachment-index"`, `event: "shadow"`. `match: true` means the index and the
+post-detach fan-out agree. `missing` lists keys the fan-out rendered that the
+index lacks: a write path the index misses, or an object that predates #938
+and needs the backfill. `extra` lists index rows the fan-out did not render,
+which is one of two very different things: a stale row (the object was
+deleted or moved without the index hearing), or a correct row for a private
+attachment the fan-out cannot find because its prefix has no `file_metadata`
+row and is neither the repo sentinel nor the PR head branch. The second is
+the index out-rendering the fan-out, not a defect; check the key's
+`file_metadata` presence before filing it. Key lists are capped at five per
+side; `missingCount` / `extraCount` are exact. Private prefix ids are
+redacted from the keys.
+
+An error line `"attachment index: shadow read failed"` means the D1 read (or
+the flag evaluation) threw; `"attachment index: shadow read timed out"` means
+it exceeded one second. Either way the sync completed from the fan-out.
+
+Fails closed like the other flags: a missing `FLAGS` binding, a disabled
+flag, or a thrown evaluation all mean no shadow.
 
 ## Deploys
 

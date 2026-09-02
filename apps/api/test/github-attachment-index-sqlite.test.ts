@@ -11,6 +11,7 @@ import {
   deleteAttachmentsForWorkspaceSafe,
   detachAttachment,
   detachAttachmentSafe,
+  listAttachmentsForTarget,
   parseAttachmentKey,
   reattachAttachment,
   reattachAttachmentSafe,
@@ -545,5 +546,35 @@ describe("recordAttachmentForKeySafe", () => {
     } finally {
       sqlite.close();
     }
+  });
+});
+
+describe("listAttachmentsForTarget", () => {
+  it("returns the active rows for one (workspace, repo, target), sorted by key", async () => {
+    const db = database(new SqliteD1(MIGRATIONS));
+    await recordAttachment(db, row({ objectKey: "gh/acme/web/pull/12/b.png" }));
+    await recordAttachment(db, row({ objectKey: "gh/acme/web/pull/12/a.png" }));
+    // Same workspace, other targets and repos: never returned.
+    await recordAttachment(db, row({ num: 13, objectKey: "gh/acme/web/pull/13/c.png" }));
+    await recordAttachment(db, row({ kind: "issues", objectKey: "gh/acme/web/issues/12/d.png" }));
+    await recordAttachment(db, row({ repo: "acme/api", objectKey: "gh/acme/api/pull/12/e.png" }));
+    // Other workspace, same key shape: never returned.
+    await recordAttachment(db, row({ workspace: "other" }));
+
+    const rows = await listAttachmentsForTarget(db, "acme", "Acme/Web", { kind: "pull", num: 12 });
+    expect(rows.map((r) => r.objectKey)).toEqual([
+      "gh/acme/web/pull/12/a.png",
+      "gh/acme/web/pull/12/b.png",
+    ]);
+  });
+
+  it("omits detached rows", async () => {
+    const db = database(new SqliteD1(MIGRATIONS));
+    await recordAttachment(db, row());
+    await recordAttachment(db, row({ objectKey: "gh/acme/web/pull/12/gone.png" }));
+    await detachAttachment(db, "acme", "gh/acme/web/pull/12/gone.png");
+
+    const rows = await listAttachmentsForTarget(db, "acme", "acme/web", { kind: "pull", num: 12 });
+    expect(rows.map((r) => r.objectKey)).toEqual(["gh/acme/web/pull/12/hero.png"]);
   });
 });
