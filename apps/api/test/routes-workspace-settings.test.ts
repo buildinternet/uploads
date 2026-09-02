@@ -616,7 +616,9 @@ describe("storage vertical (self-serve BYO bucket)", () => {
         activeContentReason?: string;
       };
       expect(body.activeContentVerifiedAt).toBeUndefined();
-      expect(body.activeContentReason).toBe("host_missing");
+      // A record that exists but failed its probe is distinct from no
+      // record at all (`host_missing`) — see `active-content.ts`.
+      expect(body.activeContentReason).toBe("host_not_ok");
     });
 
     // Item 6 (issue #929 final-review): the hosted host's record projects
@@ -1637,7 +1639,7 @@ describe("storage vertical (self-serve BYO bucket)", () => {
         byoBucketEnabled: true,
         storageLanes: [await standbyLane({ activeContentVerifiedAt: "2026-08-15T00:00:00.000Z" })],
       };
-      const { env, registry } = makeEnv({ role: "owner", record });
+      const { env, registry } = makeEnv({ role: "owner", record, activeContentFlag: true });
       setStorageVerifyForTests(async () => okVerifyResult);
       const res = await app.request(
         "/v1/workspaces/acme/storage/activate",
@@ -1660,7 +1662,7 @@ describe("storage vertical (self-serve BYO bucket)", () => {
     it("activate derives a fresh activeContentVerifiedAt from the re-verify result for a stale lane", async () => {
       const staleLane = await standbyLane({ verifiedAt: "2020-01-01T00:00:00.000Z" });
       const record = { ...SHARED_RECORD, byoBucketEnabled: true, storageLanes: [staleLane] };
-      const { env, registry } = makeEnv({ role: "owner", record });
+      const { env, registry } = makeEnv({ role: "owner", record, activeContentFlag: true });
       setStorageVerifyForTests(async () => okVerifyResultWithActiveContent);
       const res = await app.request(
         "/v1/workspaces/acme/storage/activate",
@@ -1834,7 +1836,11 @@ describe("storage vertical (self-serve BYO bucket)", () => {
     });
 
     it("stamps storageActiveContentVerifiedAt on the active lane (named by the literal 'active') when the probe passes", async () => {
-      const { env, registry } = makeEnv({ role: "owner", record: BYO_RECORD });
+      const { env, registry } = makeEnv({
+        role: "owner",
+        record: BYO_RECORD,
+        activeContentFlag: true,
+      });
       let seenLane: { publicBaseUrl?: string } | undefined;
       setLaneActiveContentCheckForTests(async (_env, lane) => {
         seenLane = lane;
@@ -1856,6 +1862,34 @@ describe("storage vertical (self-serve BYO bucket)", () => {
       // the check — proof `resolveActiveContentLaneTarget` built the right
       // lane view, not an empty one.
       expect(seenLane?.publicBaseUrl).toBe(BYO_RECORD.publicBaseUrl);
+    });
+
+    // The response's `status` is the live gate projection (issue #929
+    // review), not an echo of the stamp this route just wrote — a
+    // workspace-level opt-out still closes the gate even though the probe
+    // itself passed and the stamp was written.
+    it("reports opted_out on the status even when the probe passes, for a workspace that opted out", async () => {
+      const { env, registry } = makeEnv({
+        role: "owner",
+        record: { ...BYO_RECORD, activeContentUploads: false },
+        activeContentFlag: true,
+      });
+      setLaneActiveContentCheckForTests(async () => okCheck);
+      const res = await verifyActiveContent("active", env);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        check: typeof okCheck;
+        status: { activeContentVerifiedAt?: string; activeContentReason?: string };
+      };
+      expect(body.check).toEqual(okCheck);
+      expect(body.status.activeContentVerifiedAt).toBeUndefined();
+      expect(body.status.activeContentReason).toBe("opted_out");
+      // The probe still wrote its own stamp — only the live gate's
+      // projection is suppressed by the opt-out, not the underlying write.
+      expect(
+        registry.record<{ storageActiveContentVerifiedAt?: string }>("acme")
+          ?.storageActiveContentVerifiedAt,
+      ).toBeTruthy();
     });
 
     it("also resolves the active lane by its own storageLaneId, not just the literal 'active'", async () => {
@@ -2094,7 +2128,11 @@ describe("/me alias forwards (issue #613 phase 3)", () => {
       byoBucketEnabled: true,
       storageAccessKeyIdLast4: "1234",
     };
-    const { env, registry } = makeEnv({ role: "owner", record: BYO_RECORD });
+    const { env, registry } = makeEnv({
+      role: "owner",
+      record: BYO_RECORD,
+      activeContentFlag: true,
+    });
     setLaneActiveContentCheckForTests(async () => ({
       id: "active-content-headers",
       ok: true,

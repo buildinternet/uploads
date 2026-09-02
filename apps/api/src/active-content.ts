@@ -71,6 +71,7 @@ export type ActiveContentReason =
   | "unhealthy"
   | "host_stale"
   | "host_missing"
+  | "host_not_ok"
   | "lane_stale"
   | "lane_missing";
 
@@ -89,7 +90,8 @@ export interface ActiveContentStatus {
 /** One hosted host's KV record as a status: fresh and `ok` allows; anything else says why not. */
 async function hostStatus(env: Env, host: string, now: Date): Promise<ActiveContentStatus> {
   const record = await readHostActiveContent(env, host);
-  if (!record?.ok) return { allowed: false, reason: "host_missing" };
+  if (!record) return { allowed: false, reason: "host_missing" };
+  if (!record.ok) return { allowed: false, reason: "host_not_ok" };
   if (!fresh(record.verifiedAt, HOST_RECORD_MAX_AGE_MS, now)) {
     return { allowed: false, reason: "host_stale" };
   }

@@ -598,6 +598,11 @@ export async function probeActiveContent(
   try {
     await client.upload(probeKey, ACTIVE_CONTENT_PROBE_SVG, { contentType: "image/svg+xml" });
   } catch {
+    // A throw here doesn't mean nothing landed — some clients throw after
+    // the object is already written (e.g. a timeout on the response).
+    // Attempt the same best-effort cleanup as the happy path so a failed
+    // probe write never leaves an orphaned object behind.
+    await Promise.resolve(client.delete(probeKey)).catch(() => {});
     return {
       id: "active-content-headers",
       ok: false,

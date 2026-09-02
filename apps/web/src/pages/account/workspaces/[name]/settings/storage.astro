@@ -717,6 +717,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         flag_off: "not available yet",
         unhealthy: "this bucket isn't working right now",
         host_missing: "this host hasn't passed the check",
+        host_not_ok: "this host failed its last check",
         host_stale: "this host's last check has expired",
         lane_missing: "not checked yet",
         lane_stale: "the last check has expired",
@@ -781,11 +782,17 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         ]);
         rows.push(["Public base URL", publicBaseUrlRowValue(fields.publicBaseUrl)]);
         rows.push(["Verified", escapeHtml(formatTimestamp(fields.verifiedAt))]);
+        // No point nudging toward the header block and "Check now" button
+        // when the reason SVG/XML are off has nothing to do with this
+        // lane's headers — the workspace opted out, or the feature itself
+        // is off (issue #929 review).
+        const nudge =
+          opts.activeContentReason !== "flag_off" && opts.activeContentReason !== "opted_out";
         rows.push([
           "SVG & XML",
           activeContentRowValue(fields.activeContentVerifiedAt, {
             reason: opts.activeContentReason,
-            nudge: true,
+            nudge,
           }),
         ]);
         if (!isS3 && opts.jurisdiction) rows.push(["Jurisdiction", escapeHtml(opts.jurisdiction)]);

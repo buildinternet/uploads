@@ -126,6 +126,21 @@ describe("checkDeclaredLength", () => {
     expect(checkDeclaredLength(undefined, policy)).toBeNull();
     expect(checkDeclaredLength("not-a-number", policy)).toBeNull();
   });
+
+  it("never tightens the ceiling for a declared type with no row-level cap of its own", () => {
+    // image/png carries no row `maxBytes` (issue #929 review): the ceiling
+    // stays the general max(maxBytes, maxVideoBytes) = 100 MB, not the
+    // tighter 25 MB image cap.
+    const limits = { maxBytes: 25_000_000, maxVideoBytes: 100_000_000 };
+    expect(checkDeclaredLength("60000000", limits, "image/png")).toBeNull();
+  });
+
+  it("tightens the ceiling to the row's own cap for a gated type", () => {
+    const limits = { maxBytes: 25_000_000, maxVideoBytes: 100_000_000 };
+    const result = checkDeclaredLength(String(5 * 1024 * 1024), limits, "image/svg+xml");
+    expect(result?.status).toBe(413);
+    expect(result?.error.details).toMatchObject({ maxBytes: 4 * 1024 * 1024 });
+  });
 });
 
 describe("resolveUploadPolicy", () => {

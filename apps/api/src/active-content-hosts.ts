@@ -7,7 +7,7 @@
  * response headers there itself. What it *can* do is probe: write an inert
  * SVG into the shared bucket, fetch it back through the public host, check
  * the headers, and record the result in KV so every workspace sharing that
- * host inherits the verdict (see `activeContentAllowed` in
+ * host inherits the verdict (see `activeContentStatus` in
  * `./active-content.ts`, which reads what this module writes).
  *
  * Invoked daily from the Worker `scheduled` handler (index.ts) and on demand
@@ -17,7 +17,7 @@ import { DEFAULT_EMBED_PUBLIC_BASE_URL, DEFAULT_EMBEDDABLE_HOSTS, hostOf } from 
 import { SELF_SERVE_PUBLIC_BASE_URL } from "./self-serve-defaults";
 import { probeActiveContent } from "./storage-verify";
 
-/** KV `REGISTRY` record for one hosted host's most recent probe. No TTL — freshness is judged by the reader (`activeContentAllowed`). */
+/** KV `REGISTRY` record for one hosted host's most recent probe. No TTL — freshness is judged by the reader (`activeContentStatus`). */
 export interface HostActiveContentRecord {
   ok: boolean;
   verifiedAt: string;

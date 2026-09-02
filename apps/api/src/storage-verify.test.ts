@@ -4,6 +4,7 @@ import {
   checkActiveContentHeaders,
   defaultStorageClientFactory,
   parseSandboxCsp,
+  probeActiveContent,
   type StorageProbeClient,
   type StorageVerifyCandidate,
   verifyStorageConfig,
@@ -881,5 +882,30 @@ describe("verifyStorageConfig — active-content probe wiring", () => {
     );
     expect(result.checks.find((c) => c.id === "public-url")!.ok).toBe(false);
     expect(result.checks.find((c) => c.id === "active-content-headers")).toBeUndefined();
+  });
+});
+
+describe("probeActiveContent — cleanup on a failed write", () => {
+  it("still attempts to delete the probe key when the upload throws after landing", async () => {
+    const deletedKeys: string[] = [];
+    // Some clients throw after the object is already written (e.g. a
+    // timeout on the response) — record the key as "landed" before
+    // throwing, the same way such a client would.
+    let uploadedKey: string | undefined;
+    const client: Pick<StorageProbeClient, "upload" | "delete"> = {
+      async upload(key: string) {
+        uploadedKey = key;
+        throw new Error("timed out after write");
+      },
+      async delete(key: string) {
+        deletedKeys.push(key);
+      },
+    };
+
+    const check = await probeActiveContent(client, "https://media.example.com", fetch);
+
+    expect(check).toMatchObject({ ok: false, inconclusive: true });
+    expect(uploadedKey).toBeDefined();
+    expect(deletedKeys).toEqual([uploadedKey]);
   });
 });

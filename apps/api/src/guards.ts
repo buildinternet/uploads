@@ -624,12 +624,16 @@ function tooLarge(
  * ceiling before the body is read into isolate memory. `inspectUpload` is
  * the authoritative backstop for type-specific limits.
  *
- * With `declaredType` (the caller knows what the client claims — the PUT
- * route's `resolveDeclaredContentType`), the ceiling is that type's own
- * (`maxBytesForContentType`), so a declared 50 MB SVG is refused before it
- * is buffered rather than after — the gated SVG/XML rows cap at 4 MiB and
- * their plausibility check decodes the whole body. Without it, the larger of
- * the image/video caps, which is the loosest any body could be admitted at.
+ * The ceiling starts at the larger of the workspace's image/video caps — the
+ * loosest any body could be admitted at — and is *tightened*, never raised,
+ * when `declaredType` names a row with its own `maxBytes` (the gated
+ * SVG/XML rows cap at 4 MiB and their `admit` check decodes the whole
+ * body), so a declared 50 MB SVG is refused before it is buffered rather
+ * than after. A declared type with no row-level cap of its own (an ordinary
+ * image/video type) never narrows the ceiling below the workspace's general
+ * limit, even when that type's own per-type max (`maxBytesForContentType`)
+ * would be lower — this check only ever tightens for rows that carry their
+ * own cap.
  */
 export function checkDeclaredLength(
   contentLength: string | undefined,
@@ -637,10 +641,8 @@ export function checkDeclaredLength(
   declaredType?: string,
 ): UploadRejection | null {
   const declared = Number(contentLength);
-  const ceiling =
-    declaredType !== undefined
-      ? maxBytesForContentType(limits, declaredType)
-      : Math.max(limits.maxBytes, limits.maxVideoBytes);
+  const rowMax = declaredType === undefined ? undefined : ROW_BY_TYPE.get(declaredType)?.maxBytes;
+  const ceiling = Math.min(Math.max(limits.maxBytes, limits.maxVideoBytes), rowMax ?? Infinity);
   if (Number.isFinite(declared) && declared > ceiling) return tooLarge(ceiling);
   return null;
 }

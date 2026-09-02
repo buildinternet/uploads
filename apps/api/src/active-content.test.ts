@@ -283,6 +283,16 @@ describe("activeContentStatus — the reason behind the verdict", () => {
       ],
       ["host_missing", env(), SHARED_WS],
       [
+        "host_not_ok",
+        env({
+          REGISTRY: fakeRegistry({
+            ...freshHosts,
+            "host-active-content:storage.uploads.sh": { ok: false, verifiedAt: isoAgo(1000) },
+          }),
+        }),
+        SHARED_WS,
+      ],
+      [
         "host_stale",
         env({
           REGISTRY: fakeRegistry({

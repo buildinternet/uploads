@@ -856,18 +856,21 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
         // SVG/XML acceptance (see `uploadLimits`, guards.ts).
         const limits = uploadLimits(workspace);
         /**
-         * Pre-decode ceiling for one file: the type its filename claims
-         * (the gated SVG/XML rows cap at 4 MiB however high the workspace
-         * ceiling is, issue #929), or — for a name that claims nothing —
-         * the loosest the workspace allows, since video may exceed
-         * `maxBytes`. `putObject`'s `inspectUpload` enforces the
-         * content-specific limit against the decoded bytes either way.
+         * Pre-decode ceiling for one file: the loosest the workspace allows
+         * (since video may exceed `maxBytes`), *tightened* only when the
+         * filename claims a gated type (the SVG/XML rows cap at 4 MiB
+         * however high the workspace ceiling is, issue #929). A name
+         * claiming an ordinary, ungated type never narrows below the
+         * workspace's general ceiling. `putObject`'s `inspectUpload`
+         * enforces the content-specific limit against the decoded bytes
+         * either way.
          */
         const maxBytesFor = (name: string | undefined): number => {
           const claimed = name ? contentTypeFromKey(name) : undefined;
-          return claimed !== undefined
-            ? maxBytesForContentType(limits, claimed)
-            : Math.max(limits.maxBytes, limits.maxVideoBytes);
+          const general = Math.max(limits.maxBytes, limits.maxVideoBytes);
+          return claimed !== undefined && isGatedContentType(claimed)
+            ? Math.min(general, maxBytesForContentType(limits, claimed))
+            : general;
         };
         const alt = optString(args, "alt");
         const width = optPosInt(args, "width");

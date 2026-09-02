@@ -737,7 +737,12 @@ export async function storagePutHandler(c: Context<SettingsVars>) {
 
   console.log(JSON.stringify({ event: "workspace_storage_saved", workspace: name, userId }));
 
-  return c.json({ ...storageStatusResponse(updated, true), verify: result });
+  const status = await withActiveContentStatus(
+    c.env,
+    updated,
+    storageStatusResponse(updated, true),
+  );
+  return c.json({ ...status, verify: result });
 }
 
 /**
@@ -847,7 +852,13 @@ export async function storageActivateHandler(c: Context<SettingsVars>) {
   // legacy attach/detach reconcile calls.
   await reconcileOffPath(c, updated, name, "workspace storage activate");
 
-  return c.json(storageStatusResponse(updated, byoBucketAllowed(updated)));
+  return c.json(
+    await withActiveContentStatus(
+      c.env,
+      updated,
+      storageStatusResponse(updated, byoBucketAllowed(updated)),
+    ),
+  );
 }
 
 /**
@@ -937,7 +948,13 @@ export async function storageDeleteHandler(c: Context<SettingsVars>) {
     console.log(
       JSON.stringify({ event: "workspace_storage_lane_removed", workspace: name, userId, laneId }),
     );
-    return c.json(storageStatusResponse(updated, byoBucketAllowed(updated)));
+    return c.json(
+      await withActiveContentStatus(
+        c.env,
+        updated,
+        storageStatusResponse(updated, byoBucketAllowed(updated)),
+      ),
+    );
   }
 
   const usage = await getWorkspaceUsage(dbFor(c.env), name);
@@ -1005,7 +1022,13 @@ export async function storageDeleteHandler(c: Context<SettingsVars>) {
     await reconcileOffPath(c, updated, name, "workspace storage detach");
   }
 
-  return c.json(storageStatusResponse(updated, byoBucketAllowed(updated)));
+  return c.json(
+    await withActiveContentStatus(
+      c.env,
+      updated,
+      storageStatusResponse(updated, byoBucketAllowed(updated)),
+    ),
+  );
 }
 
 /**
@@ -1140,7 +1163,12 @@ export async function storageVerifyActiveContentHandler(c: Context<SettingsVars>
     }),
   );
 
-  return c.json({ check, status: storageStatusResponse(updated, byoBucketAllowed(updated)) });
+  const status = await withActiveContentStatus(
+    c.env,
+    updated,
+    storageStatusResponse(updated, byoBucketAllowed(updated)),
+  );
+  return c.json({ check, status });
 }
 
 /** `GET /:workspace/summary` — member-gated: membership + usage + public URL, one payload. */

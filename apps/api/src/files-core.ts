@@ -401,8 +401,8 @@ export function publicObjectDateFields(meta: {
  * claim, so a text object under an extension-less key is admitted by
  * `inspectUpload` at the destination the same way it was at the source.
  * Every copy still runs the full `putObject` write path — the size cap,
- * sniffing, and (for a declared type) the row's plausibility/reputation
- * check all still apply. What `serverCopy: true` skips is only the
+ * sniffing, and (for a declared type) the row's `admit` check all still
+ * apply. What `serverCopy: true` skips is only the
  * active-content *lane gate* (issue #929 review): a copy of bytes already
  * stored in this same workspace doesn't change exposure — same active lane,
  * same serving host — so re-running `activeContentAllowed` on it would only
