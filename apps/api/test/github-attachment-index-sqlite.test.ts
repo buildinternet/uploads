@@ -15,13 +15,20 @@ import {
   reattachAttachment,
   reattachAttachmentSafe,
   recordAttachment,
+  recordAttachmentForKeySafe,
   recordAttachmentSafe,
   rekeyAttachment,
   rekeyAttachmentSafe,
 } from "../src/github-attachment-index";
+import { getOrMintPrefixId } from "../src/github-private-prefixes";
 import { database, SqliteD1 } from "./helpers/sqlite-d1";
 
 const MIGRATIONS = ["migrations/20260903120000_github_attachments.sql"];
+
+const MIGRATIONS_WITH_PREFIXES = [
+  "migrations/20260903120000_github_attachments.sql",
+  "migrations/20260811210000_github_private_prefixes.sql",
+];
 
 const row = (over: Partial<Parameters<typeof recordAttachment>[1]> = {}) => ({
   workspace: "acme",
@@ -374,6 +381,98 @@ describe("attachment index safe writers", () => {
       const parsed = JSON.parse(line) as { message: string; error: string };
       expect(parsed.message).toContain("attachment index");
       expect(parsed.error).toBe("D1 exploded");
+    }
+  });
+});
+
+describe("recordAttachmentForKeySafe", () => {
+  it("derives repo/kind/num from a plain key", async () => {
+    const sqlite = new SqliteD1(MIGRATIONS_WITH_PREFIXES);
+    try {
+      const db = database(sqlite);
+      await recordAttachmentForKeySafe(db, {
+        workspace: "acme",
+        objectKey: "gh/Acme/Web/pull/12/hero.png",
+        source: "put",
+        laneId: null,
+      });
+      expect(await attachmentRow(db, "acme", "gh/Acme/Web/pull/12/hero.png")).toMatchObject({
+        repo: "acme/web",
+        kind: "pull",
+        num: 12,
+        prefixId: null,
+        source: "put",
+      });
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("resolves a private key's repo from the prefix id's owning row", async () => {
+    const sqlite = new SqliteD1(MIGRATIONS_WITH_PREFIXES);
+    try {
+      const db = database(sqlite);
+      const id = await getOrMintPrefixId(db, "acme/web", "feat-x");
+      const key = `gh/private/${id}/pull/12/hero.png`;
+      await recordAttachmentForKeySafe(db, {
+        workspace: "acme",
+        objectKey: key,
+        source: "put",
+        laneId: "lane-a",
+      });
+      expect(await attachmentRow(db, "acme", key)).toMatchObject({
+        repo: "acme/web",
+        prefixId: id,
+        laneId: "lane-a",
+      });
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("prefers the caller's server-resolved repo over the key's sanitized spelling", async () => {
+    const sqlite = new SqliteD1(MIGRATIONS_WITH_PREFIXES);
+    try {
+      const db = database(sqlite);
+      await recordAttachmentForKeySafe(db, {
+        workspace: "acme",
+        objectKey: "gh/acme/we-b/pull/12/hero.png",
+        source: "attach",
+        laneId: null,
+        repo: "Acme/we.b",
+      });
+      expect((await attachmentRow(db, "acme", "gh/acme/we-b/pull/12/hero.png"))?.repo).toBe(
+        "acme/we.b",
+      );
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("writes nothing for a non-attachment key or an unresolvable private repo", async () => {
+    const sqlite = new SqliteD1(MIGRATIONS_WITH_PREFIXES);
+    try {
+      const db = database(sqlite);
+      await recordAttachmentForKeySafe(db, {
+        workspace: "acme",
+        objectKey: "f/abc/hero.png",
+        source: "put",
+        laneId: null,
+      });
+      const orphanKey = `gh/private/${"e".repeat(32)}/pull/12/hero.png`;
+      await recordAttachmentForKeySafe(db, {
+        workspace: "acme",
+        objectKey: orphanKey,
+        source: "put",
+        laneId: null,
+      });
+      const count = await db
+        .prepare("SELECT COUNT(*) AS count FROM github_attachments")
+        .bind()
+        .first<{ count: number }>();
+      expect(count?.count).toBe(0);
+    } finally {
+      sqlite.close();
     }
   });
 });

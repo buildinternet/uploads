@@ -17,6 +17,7 @@
  */
 import { GH_PRIVATE_ROOT, parseGhPrivateKey } from "@uploads/comment-render";
 import { type D1Queryable } from "./db-session";
+import { repoForPrefixId } from "./github-private-prefixes";
 
 /** Which server-side path wrote (or last updated) an index row. */
 export type AttachmentSource =
@@ -388,5 +389,65 @@ export async function rekeyAttachmentSafe(
 ): Promise<void> {
   await safely("attachment index: rekey failed", { workspace, fromKey, toKey }, () =>
     rekeyAttachment(db, workspace, fromKey, toKey, newPrefixId, now),
+  );
+}
+
+/**
+ * The one entry point every write path should use: parse the FINAL key,
+ * resolve the repo server-side, upsert. Never throws.
+ *
+ * Repo resolution order, all server-side:
+ *  1. `args.repo` — the caller already resolved the target (attach, promote,
+ *     adopt know it from the request/webhook). Preferred, because a plain
+ *     key's owner/name segments are the SANITIZED spelling, which is lossy.
+ *  2. The plain key's own `gh/<owner>/<name>/…` segments.
+ *  3. For a private key, the `github_private_prefixes` row that minted the
+ *     id (`repoForPrefixId`) — a prefix id belongs to exactly one repo.
+ *
+ * `gh.repo`/`gh.ref` file_metadata is DELIBERATELY not consulted at any
+ * step: it is client-settable, and trusting it would let any files:write
+ * token pin an arbitrary object to someone else's PR comment.
+ *
+ * A key that parses but whose repo cannot be resolved (an orphaned private
+ * prefix id) writes NO row — reconcile repairs it rather than this guessing.
+ */
+export async function recordAttachmentForKeySafe(
+  db: D1Queryable,
+  args: {
+    workspace: string;
+    objectKey: string;
+    source: AttachmentSource;
+    laneId: string | null;
+    /** Server-resolved repo, when the caller already knows it. */
+    repo?: string;
+  },
+  now = new Date(),
+): Promise<void> {
+  const parsed = parseAttachmentKey(args.objectKey);
+  if (!parsed) return;
+  await safely(
+    "attachment index: record-for-key failed",
+    { workspace: args.workspace, objectKey: args.objectKey },
+    async () => {
+      let repo = args.repo ?? parsed.repo;
+      if (!repo && parsed.prefixId) {
+        repo = await repoForPrefixId(db, parsed.prefixId);
+      }
+      if (!repo) return;
+      await recordAttachment(
+        db,
+        {
+          workspace: args.workspace,
+          repo,
+          kind: parsed.kind,
+          num: parsed.num,
+          objectKey: args.objectKey,
+          prefixId: parsed.prefixId,
+          laneId: args.laneId,
+          source: args.source,
+        },
+        now,
+      );
+    },
   );
 }
