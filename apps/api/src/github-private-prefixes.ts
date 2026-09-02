@@ -18,7 +18,7 @@ interface PrefixRow {
   prefix_id: string;
 }
 
-function normalizeRepo(repo: string): string {
+export function normalizeRepo(repo: string): string {
   return repo.toLowerCase();
 }
 
@@ -229,4 +229,29 @@ export async function retirePrefixId(
     )
     .bind(now.toISOString(), normalizeRepo(repo), normalizeBranch(branch), prefixId)
     .run();
+}
+
+interface PrefixRepoRow {
+  repo_full_name: string;
+}
+
+/**
+ * The repo that minted `prefixId`, or null if the id is unknown.
+ *
+ * A private-repo key (`gh/private/<id>/…`) deliberately omits the repo, and
+ * the object's `gh.repo` metadata is CLIENT-SETTABLE — so this row, minted
+ * server-side for exactly one repo, is the only authoritative answer for
+ * "which repo does this private attachment belong to?" (issue #934's
+ * attachment index derives every row's `repo` from here).
+ *
+ * Rotated (tombstoned) ids resolve too: ownership is what matters, not
+ * whether the id is still active.
+ */
+export async function repoForPrefixId(db: D1Queryable, prefixId: string): Promise<string | null> {
+  if (!PRIVATE_PREFIX_ID_RE.test(prefixId)) return null;
+  const row = await db
+    .prepare(`SELECT repo_full_name FROM github_private_prefixes WHERE prefix_id = ? LIMIT 1`)
+    .bind(prefixId)
+    .first<PrefixRepoRow>();
+  return row ? row.repo_full_name : null;
 }

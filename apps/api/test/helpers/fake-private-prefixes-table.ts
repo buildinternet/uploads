@@ -82,6 +82,17 @@ export class PrivatePrefixesTable {
   }
 
   tryFirst<T>(normalizedSql: string, args: unknown[]): T | null | undefined {
+    // repoForPrefixId (#934): which repo minted this id, rotated or not.
+    if (
+      normalizedSql.includes("FROM github_private_prefixes") &&
+      normalizedSql.includes("WHERE prefix_id = ?")
+    ) {
+      const [prefixId] = args as [string];
+      for (const row of this.rows.values()) {
+        if (row.prefix_id === prefixId) return { repo_full_name: row.repo_full_name } as T;
+      }
+      return null as T | null;
+    }
     if (
       normalizedSql.includes("FROM github_private_prefixes") &&
       normalizedSql.includes("branch = ?") &&

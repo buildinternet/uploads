@@ -190,4 +190,66 @@ describe("github ingest end-to-end (webhook → queue → real putObject)", () =
     expect(row?.detachedAt).toBeNull();
     expect(row?.objectKey).toBe(KEY);
   });
+
+  it("ingested assets get NO attachment index row (issue #934)", async () => {
+    // Reuse this file's existing happy-path ingest setup verbatim, through
+    // the call that stores at least one asset.
+    const ev = extractWebhookEvent("issue_comment", issueCommentPayload);
+    expect(ev?.ingest).toEqual({
+      repo: REPO,
+      kind: "pull",
+      num: NUM,
+      source: `comment:${COMMENT_ID}`,
+    });
+
+    const db = new UsageFakeD1();
+    const githubCache = new FakeKv();
+    githubCache.store.set("ghinst:acme/app", { value: "42" });
+    githubCache.store.set("ghtok:42", { value: "ghs_test" });
+
+    const record: WorkspaceRecord = {
+      provider: "r2",
+      bucket: "b",
+      binding: "UPLOADS_DEFAULT",
+      prefix: "acme/",
+      publicBaseUrl: "https://storage.uploads.sh",
+      githubIngestAttachments: true,
+    };
+    const registry = {
+      get: (async (key: string) =>
+        key === `ws:${WS}` ? record : null) as unknown as KVNamespace["get"],
+    };
+
+    const env = {
+      DB: db,
+      GITHUB_CACHE: githubCache,
+      REGISTRY: registry,
+      UPLOADS_DEFAULT: new FakeR2Bucket(),
+      ...GITHUB_APP_CFG_ENV,
+    } as unknown as Env;
+
+    await recordRepoLink(env.DB, REPO, WS, "test");
+
+    const fetchImpl = fakeFetch({
+      "/contents/": () => new Response("nf", { status: 404 }),
+      [`/issues/comments/${COMMENT_ID}`]: () =>
+        new Response(
+          JSON.stringify({ body: issueCommentPayload.comment.body, user: { login: "octocat" } }),
+          { status: 200 },
+        ),
+      [ASSET_ID]: pngRoute(PNG),
+    });
+
+    const message = msg(ev!);
+    await withGlobalFetch(fetchImpl, () => handleGithubWebhookBatch(batch([message]), env));
+
+    expect(message.acked).toBe(true);
+
+    // Ingest keys (`gh/<owner>-<name>/<kind>-<num>/…` and
+    // `gh/private/<id>/ingest/…`) deliberately live outside the comment's
+    // attachment prefix — they are an index only, never rendered — so
+    // parseAttachmentKey returns undefined and putObject writes no row.
+    expect(db.ingestLedger.size).toBeGreaterThan(0);
+    expect(db.attachmentIndex.size).toBe(0);
+  });
 });

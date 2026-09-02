@@ -19,6 +19,7 @@ import { checkRepoAuthorization, postManagedComment } from "./github-comment-ser
 import { GH_PRIVATE_ROOT, type GhTargetKind, parseGhPrivateKey } from "./github-comment-render";
 import { deleteObject, putObject, putOptsFromStoredObject } from "./files-core";
 import { deleteFileMetadata } from "./file-metadata";
+import { rekeyAttachmentSafe } from "./github-attachment-index";
 import {
   getActivePrefixId,
   getOrMintPrefixId,
@@ -347,6 +348,27 @@ export async function rotatePrivatePrefix(
             )
             .bind(newKey, item.key, workspaceName)
             .run();
+
+          // Attachment index (issue #934): the row follows the object onto
+          // the new prefix. Same destination-first-wipe guard as the
+          // file_metadata re-key above — `putObject` just inserted a row at
+          // `newKey`, and a second sourceId in this sweep can produce the
+          // same tail, so the OLD row must be the sole source of truth for
+          // `newKey`. The old key's own row is then removed by the
+          // `deleteObject` below (which calls `deleteAttachmentSafe`).
+          // `lane_id` is passed explicitly (not carried over from the OLD
+          // row) because `putObject` above just re-uploaded the bytes into
+          // whichever lane is CURRENTLY active for this workspace — the
+          // moved row must reflect that, not the lane the object happened
+          // to be written to originally.
+          await rekeyAttachmentSafe(
+            dbFor(env),
+            workspaceName,
+            item.key,
+            newKey,
+            newId,
+            ws.storageLaneId ?? null,
+          );
 
           // `deleteObject` (not a raw `store.delete`): it also releases the
           // old key's usage-ledger bytes/object count (and its poster, if

@@ -7,6 +7,7 @@
  * `routes/github-private-prefix-rotate.test.ts`.
  */
 import { describe, expect, it } from "vitest";
+import { attachmentRow, recordAttachment } from "./github-attachment-index";
 import { getFileMetadata } from "./file-metadata";
 import { putObject } from "./files-core";
 import {
@@ -38,6 +39,7 @@ const MIGRATIONS = [
   "migrations/20260730170533_delete_usage_claims.sql",
   "migrations/20260811120000_github_ingested_assets.sql",
   "migrations/20260811210000_github_private_prefixes.sql",
+  "migrations/20260903120000_github_attachments.sql",
 ];
 
 const WS = "acme";
@@ -500,5 +502,61 @@ describe("rotatePrivatePrefix", () => {
       .bind("item-ws")
       .first<{ object_key: string }>();
     expect(ownItem?.object_key).toBe(newKey);
+  });
+
+  it("issue #934: rotation re-keys the attachment index row onto the new prefix, preserving the old row's identity", async () => {
+    const { env, db, ws } = await seededEnv();
+    const oldId = await getOrMintPrefixId(db, REPO, BRANCH);
+    const pullKey = ghPrivateAttachmentKey(
+      oldId,
+      { repo: REPO, kind: "pull", num: NUM },
+      "hero.png",
+    );
+
+    await putObject(env, ws, pullKey, PNG, WS, {
+      metadata: { "gh.repo": REPO, "gh.kind": "pull", "gh.number": String(NUM) },
+    });
+    // `putObject` above already wrote a `source: "put"` row via its own
+    // best-effort index write — overwrite it here with a distinguishing
+    // `source`/`laneId` so the assertion below can tell "the OLD row
+    // survived the rename" apart from "a fresh row for the new key got
+    // created independently" (which would also happen to have `repo`/`num`
+    // right, since `putObject` resolves those from the `gh.*` metadata).
+    await recordAttachment(db, {
+      workspace: WS,
+      repo: REPO,
+      kind: "pull",
+      num: NUM,
+      objectKey: pullKey,
+      prefixId: oldId,
+      laneId: "lane-a",
+      source: "attach",
+    });
+
+    const result = await withFetch(commentFlowFetch({ bodies: [] }), () =>
+      rotatePrivatePrefix(env, ws, WS, "user-1", REPO, BRANCH),
+    );
+
+    expect(result.rotated).toBe(true);
+    if (!result.rotated) throw new Error("expected rotated: true");
+    const newId = result.prefixId;
+    const newKey = ghPrivateAttachmentKey(
+      newId,
+      { repo: REPO, kind: "pull", num: NUM },
+      "hero.png",
+    );
+
+    expect(await attachmentRow(db, WS, pullKey)).toBeNull();
+    expect(await attachmentRow(db, WS, newKey)).toMatchObject({
+      repo: REPO,
+      prefixId: newId,
+      num: NUM,
+      source: "attach",
+      // Not "lane-a" (the OLD row's lane): rotation re-uploads the bytes
+      // through `putObject` into whichever lane is currently active for
+      // `ws`, and `seededEnv`'s `ws` has no `storageLaneId`, so the moved
+      // row must carry `ws.storageLaneId ?? null`, not the stale lane.
+      laneId: ws.storageLaneId ?? null,
+    });
   });
 });

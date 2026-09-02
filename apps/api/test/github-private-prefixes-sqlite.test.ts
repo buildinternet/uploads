@@ -7,6 +7,7 @@ import {
   getOrMintPrefixId,
   listActivePrefixIds,
   PRIVATE_PREFIX_ID_RE,
+  repoForPrefixId,
   retirePrefixId,
 } from "../src/github-private-prefixes";
 import { SqliteD1, database } from "./helpers/sqlite-d1";
@@ -135,6 +136,40 @@ describe("github private prefixes persistence against SQLite", () => {
       expect(a).toBe(b);
       const ids = await listActivePrefixIds(db, "acme/web");
       expect(ids).toEqual([a]);
+    } finally {
+      sqlite.close();
+    }
+  });
+});
+
+describe("repoForPrefixId", () => {
+  it("returns the lowercased repo that minted the id", async () => {
+    const sqlite = new SqliteD1(MIGRATIONS);
+    try {
+      const db = database(sqlite);
+      const id = await getOrMintPrefixId(db, "Acme/Web", "main");
+      expect(await repoForPrefixId(db, id)).toBe("acme/web");
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("still resolves after the id is retired", async () => {
+    const sqlite = new SqliteD1(MIGRATIONS);
+    try {
+      const db = database(sqlite);
+      const id = await getOrMintPrefixId(db, "acme/web", "main");
+      await retirePrefixId(db, "acme/web", "main", id);
+      expect(await repoForPrefixId(db, id)).toBe("acme/web");
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("returns null for an unknown id", async () => {
+    const sqlite = new SqliteD1(MIGRATIONS);
+    try {
+      expect(await repoForPrefixId(database(sqlite), "f".repeat(32))).toBeNull();
     } finally {
       sqlite.close();
     }

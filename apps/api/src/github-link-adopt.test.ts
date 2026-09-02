@@ -457,3 +457,56 @@ describe("adoptLinkedFilesForWebhook", () => {
     ).resolves.toBeUndefined();
   });
 });
+
+describe("adoptLinkedFiles → attachment index (issue #934)", () => {
+  const target = { repo: REPO, kind: "pull" as const, num: NUM };
+
+  it("records an adopted copy with source 'adopt'", async () => {
+    const seeded = await seededEnv();
+    await seedSource(seeded, "f/shot.png");
+
+    const summary = await adoptLinkedFiles(
+      seeded.env,
+      WS,
+      null,
+      target,
+      "see https://storage.uploads.sh/acme/f/shot.png",
+    );
+
+    const key = summary.adopted[0]!;
+    expect(seeded.db.attachmentIndex.get(`${WS}\0${key}`)).toMatchObject({
+      repo: "acme/web",
+      kind: "pull",
+      num: NUM,
+      source: "adopt",
+      detached_at: null,
+    });
+  });
+
+  it("detaches the row when the link stops being referenced, and re-attaches when it returns", async () => {
+    const seeded = await seededEnv();
+    await seedSource(seeded, "f/shot.png");
+    const first = await adoptLinkedFiles(
+      seeded.env,
+      WS,
+      null,
+      target,
+      "see https://storage.uploads.sh/acme/f/shot.png",
+    );
+    const key = first.adopted[0]!;
+
+    const removed = await adoptLinkedFiles(seeded.env, WS, null, target, "no links now");
+    expect(removed.detached).toEqual([key]);
+    expect(seeded.db.attachmentIndex.get(`${WS}\0${key}`)?.detached_at).not.toBeNull();
+
+    const back = await adoptLinkedFiles(
+      seeded.env,
+      WS,
+      null,
+      target,
+      "back: https://storage.uploads.sh/acme/f/shot.png",
+    );
+    expect(back.reattached).toEqual([key]);
+    expect(seeded.db.attachmentIndex.get(`${WS}\0${key}`)?.detached_at).toBeNull();
+  });
+});

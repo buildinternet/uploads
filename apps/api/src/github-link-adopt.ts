@@ -55,6 +55,11 @@
  * the real `--pr` / promoted attachment, which shares that destination.
  */
 import { attachExistingObject, resolveAttachSourceKey } from "./github-attach";
+import {
+  detachAttachmentSafe,
+  reattachAttachmentSafe,
+  recordAttachmentForKeySafe,
+} from "./github-attachment-index";
 import { commentCacheKey, gatherCommentBody } from "./github-comment";
 import { GH_PRIVATE_ROOT, ghKeyPrefix, type GhTarget } from "./github-comment-render";
 import { postManagedComment } from "./github-comment-service";
@@ -274,6 +279,7 @@ export async function adoptLinkedFiles(
       // Previously detached, now referenced again — un-detach without a
       // re-copy; the object is still in storage untouched.
       await setFileMetadata(db, workspaceName, row.objectKey, { "gh.detached": "false" });
+      await reattachAttachmentSafe(db, workspaceName, row.objectKey);
       await setAdoptLedgerDetached(db, repo, kind, num, key, null);
       if (row.source !== source) await setAdoptLedgerSource(db, repo, kind, num, key, source);
       summary.reattached.push(row.objectKey);
@@ -286,6 +292,16 @@ export async function adoptLinkedFiles(
         target: { repo: target.repo, kind: target.kind, num: target.num },
       });
       await setFileMetadata(db, workspaceName, result.key, { "gh.detached": "false" });
+      // Attachment index (issue #934): attachExistingObject already wrote a
+      // `source: "attach"` row; overwrite it with "adopt" so the write path
+      // is attributable. `target.repo` is the webhook-resolved repo.
+      await recordAttachmentForKeySafe(db, {
+        workspace: workspaceName,
+        objectKey: result.key,
+        source: "adopt",
+        laneId: ws.storageLaneId ?? null,
+        repo: target.repo,
+      });
       await recordAdoptedLink(db, {
         repo,
         kind,
@@ -328,6 +344,7 @@ export async function adoptLinkedFiles(
     if (referenced) {
       if (row.detachedAt !== null) {
         await setFileMetadata(db, workspaceName, row.objectKey, { "gh.detached": "false" });
+        await reattachAttachmentSafe(db, workspaceName, row.objectKey);
         await setAdoptLedgerDetached(db, repo, kind, num, row.sourceKey, null);
         summary.reattached.push(row.objectKey);
       }
@@ -335,6 +352,7 @@ export async function adoptLinkedFiles(
     }
     if (row.detachedAt !== null) continue;
     await setFileMetadata(db, workspaceName, row.objectKey, { "gh.detached": "true" });
+    await detachAttachmentSafe(db, workspaceName, row.objectKey);
     await setAdoptLedgerDetached(db, repo, kind, num, row.sourceKey, new Date().toISOString());
     summary.detached.push(row.objectKey);
   }

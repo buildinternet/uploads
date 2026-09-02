@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { attachmentRow, recordAttachment } from "../src/github-attachment-index";
 import { purgeExpiredObjects } from "../src/retention";
 import type { WorkspaceRecord } from "../src/workspace";
 import { FakeR2Bucket } from "./fake-r2";
@@ -8,6 +9,7 @@ const MIGRATIONS = [
   "migrations/20260713210559_file_metadata.sql",
   "migrations/20260710140000_workspace_usage.sql",
   "migrations/20260822120100_workspace_usage_shared_subset.sql",
+  "migrations/20260903120000_github_attachments.sql",
 ];
 
 // Prefixed shared-bucket record — the common case (see retention-sweep.test.ts).
@@ -98,6 +100,40 @@ describe("purgeExpiredObjects — file_metadata cleanup (plan 007)", () => {
       expect(result).toMatchObject({ deleted: 0, keys: [] });
       expect(await metadataRowCount(db, "acme", "fresh.png")).toBe(1);
       expect(await metadataRowCount(db, "other-ws", "fresh.png")).toBe(1);
+    } finally {
+      sqlite.close();
+    }
+  });
+});
+
+describe("purgeExpiredObjects — attachment index cleanup (issue #934)", () => {
+  it("deletes github_attachments rows for expired attachments it purges", async () => {
+    const sqlite = new SqliteD1(MIGRATIONS);
+    try {
+      const db = database(sqlite);
+      const bucket = new FakeR2Bucket();
+      const oldKey = "gh/acme/web/pull/12/old.png";
+      const freshKey = "gh/acme/web/pull/12/fresh.png";
+      await bucket.put(`acme/${oldKey}`, new Uint8Array([1, 2, 3]));
+      bucket.setUploaded(`acme/${oldKey}`, new Date("2020-01-01T00:00:00Z"));
+      await bucket.put(`acme/${freshKey}`, new Uint8Array([1, 2, 3]));
+      for (const objectKey of [oldKey, freshKey]) {
+        await recordAttachment(db, {
+          workspace: "acme",
+          repo: "acme/web",
+          kind: "pull",
+          num: 12,
+          objectKey,
+          prefixId: null,
+          laneId: null,
+          source: "put",
+        });
+      }
+
+      await purgeExpiredObjects(makeEnv(bucket, sqlite), RECORD, "acme");
+
+      expect(await attachmentRow(db, "acme", oldKey)).toBeNull();
+      expect(await attachmentRow(db, "acme", freshKey)).not.toBeNull();
     } finally {
       sqlite.close();
     }

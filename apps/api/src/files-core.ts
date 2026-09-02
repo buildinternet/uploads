@@ -31,6 +31,7 @@ import {
   inheritableMetaForHash,
   recordContentHash,
 } from "./content-hash";
+import { deleteAttachmentSafe, recordAttachmentForKeySafe } from "./github-attachment-index";
 import { recordPrActivityFromMetadata } from "./github-pr-activity";
 import { noteStorageFailure, noteStorageSuccess } from "./storage-health";
 import {
@@ -792,6 +793,21 @@ export async function putObject(
   // inheritance rather than this upload.
   await recordContentHash(dbFor(env), workspaceName, finalKey, contentSha256);
 
+  // Attachment index (issue #934): the single choke point covering every
+  // putObject caller — REST PUT, the idempotent PUT and its reconcile,
+  // attach, promote, and rotation. See github-attachment-index.ts's header
+  // doc comment for the trust-boundary rationale. `lane_id` is the active
+  // lane this write went to (`storage(env, ws)` above). Best-effort and
+  // last, like recordContentHash: the object is durably stored by now.
+  if (isManagedGithubKey(finalKey)) {
+    await recordAttachmentForKeySafe(dbFor(env), {
+      workspace: workspaceName,
+      objectKey: finalKey,
+      source: "put",
+      laneId: ws.storageLaneId ?? null,
+    });
+  }
+
   // After the metadata replace, never before: replaceFileMetadata is
   // delete-then-insert and would wipe the server-owned video.*/image.* rows.
   await storeImageDimensions(env, workspaceName, finalKey, bytes, inspection.contentType);
@@ -1361,6 +1377,13 @@ export async function deleteObject(
   // rejected lane's delete get to fail the request, so a partial failure
   // never looks like nothing happened.
   if (failures.length > 0) throw failures[0];
+
+  // The attachment index (issue #934) row goes only once every lane's delete
+  // succeeded: a lane that still holds the object must stay indexed, or the
+  // surviving attachment silently drops out of the managed comment.
+  // Best-effort past that point: a stale row costs a broken image until
+  // reconcile, never a failed delete.
+  await deleteAttachmentSafe(dbFor(env), workspaceName, key);
 
   // Derived poster (issue #299), best-effort: a missing one is the norm for
   // every non-video object. Guarded so a transient poster-cleanup failure

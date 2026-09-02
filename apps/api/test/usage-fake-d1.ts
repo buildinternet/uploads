@@ -4,6 +4,7 @@
  */
 
 import { AdoptLedgerTable } from "./helpers/fake-adopt-ledger-table";
+import { AttachmentIndexTable } from "./helpers/fake-attachment-index-table";
 import { BranchRenamesTable } from "./helpers/fake-branch-renames-table";
 import { DeleteUsageClaimsTable } from "./helpers/fake-delete-usage-claims-table";
 import { FileMetadataTable } from "./helpers/fake-file-metadata-table";
@@ -73,6 +74,12 @@ export class UsageFakeD1 {
   get branchRenames() {
     return this.branchRenamesTable.rows;
   }
+  // Backs `github_attachments` — the server-written attachment index that
+  // replaces the comment sync's per-prefix R2 fan-out (issue #934).
+  private attachmentIndexTable = new AttachmentIndexTable();
+  get attachmentIndex() {
+    return this.attachmentIndexTable.rows;
+  }
 
   prepare = (sql: string) => {
     const normalized = sql.replace(/\s+/g, " ").trim();
@@ -96,6 +103,8 @@ export class UsageFakeD1 {
         if (prefixFirstResult !== undefined) return prefixFirstResult;
         const adoptFirstResult = this.adoptLedgerTable.tryFirst(normalized, values);
         if (adoptFirstResult !== undefined) return adoptFirstResult;
+        const attachmentFirstResult = this.attachmentIndexTable.tryFirst(normalized, values);
+        if (attachmentFirstResult !== undefined) return attachmentFirstResult;
         throw new Error(`unsupported first: ${normalized}`);
       },
       all: async <T>() => {
@@ -139,6 +148,8 @@ export class UsageFakeD1 {
         if (renameRunResult) return renameRunResult;
         const claimResult = this.deleteUsageClaimsTable.tryRun(normalized, values);
         if (claimResult) return claimResult;
+        const attachmentRunResult = this.attachmentIndexTable.tryRun(normalized, values);
+        if (attachmentRunResult) return attachmentRunResult;
         if (normalized.startsWith("INSERT OR IGNORE INTO workspace_usage")) {
           // applyUsageDelta: (ws, period, updatedAt) with zeros
           // setUsageTotals: (ws, bytes, objects, period, updatedAt)
