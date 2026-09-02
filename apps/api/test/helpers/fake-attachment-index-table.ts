@@ -11,6 +11,8 @@
  * ("unsupported run: …") rather than silently dropping writes.
  */
 
+import type { FakeRunResult } from "./fake-repo-links-table";
+
 export interface AttachmentIndexDbRow {
   workspace: string;
   repo: string;
@@ -23,12 +25,6 @@ export interface AttachmentIndexDbRow {
   created_at: string;
   updated_at: string;
   detached_at: string | null;
-}
-
-export interface FakeRunResult {
-  success: true;
-  meta: { changes: number };
-  results: [];
 }
 
 function key(workspace: string, objectKey: string): string {

@@ -394,7 +394,9 @@ describe("attachment index safe writers", () => {
         },
       }),
     }),
-    batch: async () => [],
+    batch: async () => {
+      throw new Error("D1 exploded");
+    },
   } as unknown as Parameters<typeof recordAttachment>[0];
 
   it("swallow D1 failures and log a JSON line", async () => {

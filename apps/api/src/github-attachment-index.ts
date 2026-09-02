@@ -17,7 +17,8 @@
  */
 import { GH_PRIVATE_ROOT, parseGhPrivateKey } from "@uploads/comment-render";
 import { type D1Queryable } from "./db-session";
-import { repoForPrefixId } from "./github-private-prefixes";
+import { D1_MAX_BOUND_PARAMS } from "./file-metadata";
+import { normalizeRepo, repoForPrefixId } from "./github-private-prefixes";
 
 /** Which server-side path wrote (or last updated) an index row. */
 export type AttachmentSource = "put" | "attach" | "promote" | "adopt" | "backfill" | "reconcile";
@@ -155,7 +156,7 @@ export async function recordAttachment(
     )
     .bind(
       row.workspace,
-      row.repo.toLowerCase(),
+      normalizeRepo(row.repo),
       row.kind,
       row.num,
       row.objectKey,
@@ -222,13 +223,6 @@ export async function reattachAttachment(
     .run();
 }
 
-/**
- * D1's hard cap on bound parameters per query (100 — not SQLite's ~999);
- * `test/helpers/sqlite-d1.ts` enforces the same ceiling. Same constant and
- * same reasoning as file-metadata.ts's `D1_MAX_BOUND_PARAMS`.
- */
-const D1_MAX_BOUND_PARAMS = 100;
-
 /** Removes an object's index row (e.g. on object delete). */
 export async function deleteAttachment(
   db: D1Queryable,
@@ -279,7 +273,9 @@ export async function deleteAttachmentsForWorkspace(
  * key has already inserted a row there, and a second source id in the same
  * sweep can produce the same tail — either way the OLD row is the sole
  * source of truth for the new key, and a plain UPDATE onto an occupied
- * (workspace, object_key) would throw a UNIQUE constraint violation.
+ * (workspace, object_key) would throw a UNIQUE constraint violation. Both
+ * statements go in one `db.batch`, so the delete-then-update is atomic and
+ * costs a single round trip.
  */
 export async function rekeyAttachment(
   db: D1Queryable,
@@ -290,14 +286,17 @@ export async function rekeyAttachment(
   laneId: string | null,
   now = new Date(),
 ): Promise<void> {
-  await deleteAttachment(db, workspace, toKey);
-  await db
-    .prepare(
-      `UPDATE github_attachments SET object_key = ?, prefix_id = ?, lane_id = ?, updated_at = ?
+  await db.batch([
+    db
+      .prepare(`DELETE FROM github_attachments WHERE workspace = ? AND object_key = ?`)
+      .bind(workspace, toKey),
+    db
+      .prepare(
+        `UPDATE github_attachments SET object_key = ?, prefix_id = ?, lane_id = ?, updated_at = ?
        WHERE workspace = ? AND object_key = ?`,
-    )
-    .bind(toKey, newPrefixId, laneId, now.toISOString(), workspace, fromKey)
-    .run();
+      )
+      .bind(toKey, newPrefixId, laneId, now.toISOString(), workspace, fromKey),
+  ]);
 }
 
 /**
@@ -321,82 +320,53 @@ async function safely(message: string, context: Record<string, unknown>, run: ()
   }
 }
 
-export async function recordAttachmentSafe(
-  db: D1Queryable,
-  row: Omit<AttachmentIndexRow, "createdAt" | "updatedAt" | "detachedAt">,
-  now = new Date(),
-): Promise<void> {
-  await safely(
-    "attachment index: record failed",
-    { workspace: row.workspace, objectKey: row.objectKey, source: row.source },
-    () => recordAttachment(db, row, now),
-  );
+/**
+ * Wraps one of the writers above in `safely`, logging with `message` on
+ * failure. The log's `args` context mirrors what each hand-written wrapper
+ * used to log by name — an array argument (a key list) collapses to its
+ * length rather than dumping every key.
+ */
+function safeWriter<A extends unknown[]>(
+  message: string,
+  fn: (db: D1Queryable, ...args: A) => Promise<void>,
+) {
+  return (db: D1Queryable, ...args: A): Promise<void> =>
+    safely(
+      message,
+      Object.fromEntries(args.map((a, i) => [i, Array.isArray(a) ? `${a.length} keys` : a])),
+      () => fn(db, ...args),
+    );
 }
 
-export async function detachAttachmentSafe(
-  db: D1Queryable,
-  workspace: string,
-  objectKey: string,
-  now = new Date(),
-): Promise<void> {
-  await safely("attachment index: detach failed", { workspace, objectKey }, () =>
-    detachAttachment(db, workspace, objectKey, now),
-  );
-}
+export const recordAttachmentSafe = safeWriter(
+  "attachment index: record failed",
+  (
+    db: D1Queryable,
+    row: Omit<AttachmentIndexRow, "createdAt" | "updatedAt" | "detachedAt">,
+    now?: Date,
+  ) => recordAttachment(db, row, now),
+);
 
-export async function reattachAttachmentSafe(
-  db: D1Queryable,
-  workspace: string,
-  objectKey: string,
-  now = new Date(),
-): Promise<void> {
-  await safely("attachment index: reattach failed", { workspace, objectKey }, () =>
-    reattachAttachment(db, workspace, objectKey, now),
-  );
-}
+export const detachAttachmentSafe = safeWriter("attachment index: detach failed", detachAttachment);
 
-export async function deleteAttachmentSafe(
-  db: D1Queryable,
-  workspace: string,
-  objectKey: string,
-): Promise<void> {
-  await safely("attachment index: delete failed", { workspace, objectKey }, () =>
-    deleteAttachment(db, workspace, objectKey),
-  );
-}
+export const reattachAttachmentSafe = safeWriter(
+  "attachment index: reattach failed",
+  reattachAttachment,
+);
 
-export async function deleteAttachmentsForKeysSafe(
-  db: D1Queryable,
-  workspace: string,
-  keys: string[],
-): Promise<void> {
-  await safely("attachment index: batch delete failed", { workspace, keys: keys.length }, () =>
-    deleteAttachmentsForKeys(db, workspace, keys),
-  );
-}
+export const deleteAttachmentSafe = safeWriter("attachment index: delete failed", deleteAttachment);
 
-export async function deleteAttachmentsForWorkspaceSafe(
-  db: D1Queryable,
-  workspace: string,
-): Promise<void> {
-  await safely("attachment index: workspace delete failed", { workspace }, () =>
-    deleteAttachmentsForWorkspace(db, workspace),
-  );
-}
+export const deleteAttachmentsForKeysSafe = safeWriter(
+  "attachment index: batch delete failed",
+  deleteAttachmentsForKeys,
+);
 
-export async function rekeyAttachmentSafe(
-  db: D1Queryable,
-  workspace: string,
-  fromKey: string,
-  toKey: string,
-  newPrefixId: string | null,
-  laneId: string | null,
-  now = new Date(),
-): Promise<void> {
-  await safely("attachment index: rekey failed", { workspace, fromKey, toKey }, () =>
-    rekeyAttachment(db, workspace, fromKey, toKey, newPrefixId, laneId, now),
-  );
-}
+export const deleteAttachmentsForWorkspaceSafe = safeWriter(
+  "attachment index: workspace delete failed",
+  deleteAttachmentsForWorkspace,
+);
+
+export const rekeyAttachmentSafe = safeWriter("attachment index: rekey failed", rekeyAttachment);
 
 /**
  * The one entry point every write path should use: parse the FINAL key,

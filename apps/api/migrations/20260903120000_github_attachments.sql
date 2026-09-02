@@ -1,10 +1,7 @@
 -- Server-written index of PR/issue attachments (one row per attachment
 -- object), replacing the per-prefix R2 fan-out in gatherAttachments (#934).
--- NEVER written from client-supplied gh.* metadata: every row is derived
--- from the final object key plus the server-resolved target. `gh.*` is
--- client-settable (see file-metadata.ts) — a writer that shortcuts to
--- opts.metadata["gh.ref"] would let any files:write token render an
--- arbitrary object in a public PR comment.
+-- NEVER written from client-supplied gh.* metadata — see the trust-boundary
+-- rationale in apps/api/src/github-attachment-index.ts's header doc comment.
 CREATE TABLE github_attachments (
   workspace   TEXT NOT NULL,
   repo        TEXT NOT NULL,     -- lowercased owner/name

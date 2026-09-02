@@ -1031,7 +1031,7 @@ export async function listFacets(
  * had enough path groups to send 100 keys plus the workspace and meta-key binds.
  * The test fake (test/helpers/sqlite-d1.ts) enforces the same ceiling.
  */
-const D1_MAX_BOUND_PARAMS = 100;
+export const D1_MAX_BOUND_PARAMS = 100;
 
 /**
  * Max object keys bound into one `object_key IN (...)` statement, given how

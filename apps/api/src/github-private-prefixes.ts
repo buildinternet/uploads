@@ -18,7 +18,7 @@ interface PrefixRow {
   prefix_id: string;
 }
 
-function normalizeRepo(repo: string): string {
+export function normalizeRepo(repo: string): string {
   return repo.toLowerCase();
 }
 

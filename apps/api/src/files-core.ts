@@ -742,14 +742,9 @@ export async function putObject(
 
   // Attachment index (issue #934): the single choke point covering every
   // putObject caller — REST PUT, the idempotent PUT and its reconcile,
-  // attach, promote, and rotation. Derived ONLY from the final key plus a
-  // server-resolved repo (the key's own owner/name, or the
-  // github_private_prefixes row that minted the prefix id), NEVER from
-  // `opts.metadata["gh.repo"]`/`gh.ref` — those are client-settable, and
-  // trusting them would let any files:write token render an arbitrary
-  // object in someone else's public PR comment. `lane_id` is the active
-  // lane this write went to (`storage(env, ws)` above), which is the same
-  // value `storageConfigs` labels the active lane with. Best-effort and
+  // attach, promote, and rotation. See github-attachment-index.ts's header
+  // doc comment for the trust-boundary rationale. `lane_id` is the active
+  // lane this write went to (`storage(env, ws)` above). Best-effort and
   // last, like recordContentHash: the object is durably stored by now.
   if (isManagedGithubKey(finalKey)) {
     await recordAttachmentForKeySafe(dbFor(env), {
