@@ -205,7 +205,9 @@ high quality; EXIF stripped) so GitHub embeds stay lean. Original bytes are kept
 when they are already smaller, animated, or not an image. Use --no-optimize to
 upload as-is, or --keep-exif when image metadata matters for the discussion.
 Non-media files (PDF, zip, gzip, logs, JSON, CSV, markdown) upload as-is and
-show up in the managed comment as links. HTML and SVG are rejected.
+show up in the managed comment as links. HTML and SVG are rejected. Uploads are
+public, so scrub secrets and tokens out of logs, JSON, and other text before
+uploading.
 
 Optional --frame wraps the image in a device/browser chrome before optimize
 (default off). See: uploads put --help frames

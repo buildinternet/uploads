@@ -1,7 +1,7 @@
 # CLI guide
 
 The `@buildinternet/uploads` package wraps the API for scripting and GitHub
-image embeds. Examples use the global `uploads` binary; install it with
+file embeds. Examples use the global `uploads` binary; install it with
 `npm install -g @buildinternet/uploads`. Inside this monorepo, `pnpm uploads …`
 builds the package first, so you pick up local source.
 

@@ -206,8 +206,10 @@ records; any future global secrets go through `wrangler secret put` (prod) or
   normalizes dot segments before handlers run.
 - Upload guardrails live in `apps/api/src/guards.ts`: a byte cap (default 25 MiB)
   enforced on `Content-Length` and post-buffer, and a content-type allowlist
-  (images + mp4/webm, no SVG) verified by magic-byte sniffing — the stored
-  content type comes from the bytes, never the client header. Defaults are
+  (images, video incl. MOV, PDF, zip, gzip, and text — no SVG or HTML) verified
+  by magic-byte sniffing, or a declared-type plausibility check for text (no
+  magic bytes) — the stored content type comes from the bytes (or the checked
+  declared type), never the raw client header. Defaults are
   overridable per workspace via `maxUploadBytes` / `allowedContentTypes` on the
   record. Mutating routes carry the `writeRateLimit` middleware, keyed by
   workspace against the `WRITE_LIMITER` Rate Limiting binding (`unsafe.bindings`

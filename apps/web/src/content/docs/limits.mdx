@@ -76,8 +76,10 @@ attachment caps never apply.
 - **Videos:** <PlanValue of="freeMaxVideo" /> on <PlanValue of="freeName" /> vs GitHub's 10&nbsp;MB on
   free GitHub plans, and <PlanValue of="proMaxVideo" /> on <PlanValue of="proName" /> even when the
   repository is on a free GitHub plan.
-- **Formats:** PNG, JPEG, GIF, WebP, AVIF, MP4, and WebM. SVG is not accepted because inline SVG
-  can carry script. Support for more file types (PDFs, logs, JSON, zips) is coming.
+- **Formats:** images (PNG, JPEG, GIF, WebP, AVIF), video (MP4, WebM, MOV), PDF, zip, gzip, and
+  text (plain, markdown, CSV, JSON, logs). SVG and HTML are not accepted — served inline, either
+  can run script; SVG support is planned behind a sandboxing header. Uploads are public: scrub
+  secrets out of logs, JSON, and other text files before uploading.
 
 <div class="note">
   One difference to know: GitHub renders inline video players only for its own uploads. Videos
