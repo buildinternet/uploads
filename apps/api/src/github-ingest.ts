@@ -244,14 +244,12 @@ async function fetchAndStore(
   // .allowed`, guards.ts — no shadow table) AND be an image/video family;
   // PDFs and archives pasted into a PR are left on GitHub. Non-sniffable
   // bytes or a type outside the gate is the same permanent
-  // `unsupported_media_type` skip either way. `activeContent: false` here,
-  // not the real `activeContentAllowed(env, ws)` result (issue #929
-  // final-review): the gated types (SVG, XML) are declared-only and have no
-  // magic bytes, so `detectContentType` below returns null for them and the
-  // `!sniffed` skip fires before the allowlist is ever consulted — the real
-  // gate can never change this function's outcome. Passing `false` skips the per-asset Flagship
-  // evaluation and KV read that a real gate call would otherwise cost on
-  // every ingested asset.
+  // `unsupported_media_type` skip either way. `activeContent: false` (issue
+  // #929): the gated types are declared-only, so `detectContentType` returns
+  // null for them and the `!sniffed` skip fires before the allowlist is ever
+  // consulted — the real gate can't change this outcome, only cost a
+  // Flagship evaluation and a KV read per asset. The ceiling below is
+  // gate-independent regardless — see `uploadLimits` (guards.ts).
   const policy = resolveUploadPolicy(ws, { activeContent: false });
   const sniffed = detectContentType(bytes);
   if (!sniffed || !policy.allowed.has(sniffed) || uploadKind(sniffed) === "file") {

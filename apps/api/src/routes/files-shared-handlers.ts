@@ -21,6 +21,7 @@ import {
   normalizeDeclaredContentType,
   resolveDeclaredContentType,
   resolveUploadPolicy,
+  uploadLimits,
 } from "../guards";
 import { contentSha256Hex, splitUploadMetaHeaders } from "../provenance";
 import { createLaneResolver, objectPublicUrls, resolveObjectLane, storage } from "../storage";
@@ -190,16 +191,18 @@ export async function putFileHandler(c: Context<WorkspaceVars>) {
   }
 
   const ws = c.get("workspace");
-  // `activeContent: false` here is deliberate, not a placeholder: this
-  // policy is only ever consulted below for `maxBytes`/`maxVideoBytes` (the
-  // pre-buffer declared-length ceiling), and those are workspace-level
-  // overrides — a row's own tighter `maxBytes` (the gated SVG/XML rows'
-  // 4 MiB cap, issue #929 review) never feeds into them, so the real gate
-  // result would change nothing this call reads. `putObject`'s own
-  // `resolveUploadPolicy` call (files-core.ts) is what actually gates
-  // SVG/XML acceptance, against the fully-buffered body.
-  const policy = resolveUploadPolicy(ws, { activeContent: false });
-  const declared = checkDeclaredLength(c.req.header("Content-Length"), policy);
+  const finalKey = finalizeUploadKey(key, ws);
+  // Ceilings only, no admission decision — `putObject` is what actually gates
+  // SVG/XML acceptance, against the fully-buffered body (see `uploadLimits`).
+  // Passing the claimed type tightens this to that type's own ceiling, so a
+  // declared 50 MB SVG is refused before the body is buffered at all rather
+  // than after the gated rows' 4 MiB cap (issue #929) sees it.
+  const declaredContentType = resolveDeclaredContentType(c.req.header("Content-Type"), finalKey);
+  const declared = checkDeclaredLength(
+    c.req.header("Content-Length"),
+    uploadLimits(ws),
+    declaredContentType,
+  );
   if (declared) throw declared.error;
 
   const body = await c.req.arrayBuffer();
@@ -249,7 +252,6 @@ export async function putFileHandler(c: Context<WorkspaceVars>) {
   // Hash the body once, up front: it anchors the fingerprint and the reconcile
   // check, and is threaded into putObject so it isn't hashed a second time.
   const contentSha256 = await contentSha256Hex(bytes);
-  const finalKey = finalizeUploadKey(key, ws);
   const idempotentPutOpts = { ...putOpts, contentSha256 };
   let result;
   try {
@@ -263,7 +265,7 @@ export async function putFileHandler(c: Context<WorkspaceVars>) {
         visibility,
         replace: wantReplace,
         metadata,
-        declaredContentType: resolveDeclaredContentType(putOpts.declaredContentType, finalKey),
+        declaredContentType,
       },
       run: () => putObject(c.env, ws, key, bytes, workspaceName, idempotentPutOpts),
       reconcile: () =>

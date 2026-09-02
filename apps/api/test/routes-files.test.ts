@@ -333,6 +333,23 @@ describe("PUT /v1/:workspace/files upload guardrails", () => {
     expect(res.status).toBe(413);
   });
 
+  it("rejects a declared SVG over the gated row's own cap before buffering (issue #929)", async () => {
+    // Well under this workspace's 25 MiB ceiling, so only the declared
+    // type's own 4 MiB cap can reject it — and it must do so from the
+    // Content-Length alone, before the body is read.
+    const { env } = await makeEnv();
+    const res = await putShot(env, {
+      key: "diagrams/a.svg",
+      headers: {
+        "Content-Type": "image/svg+xml",
+        "Content-Length": String(5 * 1024 * 1024),
+      },
+    });
+    expect(res.status).toBe(413);
+    const json = (await res.json()) as { error: { details?: { maxBytes?: number } } };
+    expect(json.error.details?.maxBytes).toBe(4 * 1024 * 1024);
+  });
+
   it("rejects an empty body with 400", async () => {
     const { env } = await makeEnv();
     const res = await putShot(env, { body: new Uint8Array(0) });
@@ -592,6 +609,53 @@ describe("PUT /v1/:workspace/files SVG/XML active-content gate (issue #929)", ()
     const json = (await res.json()) as { contentType: string };
     expect(json.contentType).toBe("image/svg+xml");
     expect(bucket.store.get("default/diagrams/a.svg")?.contentType).toBe("image/svg+xml");
+  });
+
+  it("never evaluates the gate for a put that claims an ungated type", async () => {
+    // The gate costs a Flagship evaluation and a KV read, and can only ever
+    // change whether the (declared-only) SVG/XML rows are admitted — so a
+    // PNG put must not reach `FLAGS` at all. This fake throws rather than
+    // counts: `activeContentAllowed` swallows a thrown evaluation, so a
+    // counter alone couldn't tell "evaluated and failed closed" apart from
+    // "never evaluated".
+    let evaluated = 0;
+    const { env } = await makeEnv(
+      {},
+      {
+        flags: {
+          getBooleanValue: async () => {
+            evaluated += 1;
+            throw new Error("the gate must not be evaluated for a PNG put");
+          },
+        },
+        registryExtra: FRESH_HOST_RECORDS,
+      },
+    );
+    expect((await putShot(env)).status).toBe(201);
+    expect(evaluated).toBe(0);
+  });
+
+  it("evaluates the gate for a put that claims a gated type", async () => {
+    let evaluated = 0;
+    const { env } = await makeEnv(
+      {},
+      {
+        flags: {
+          getBooleanValue: async () => {
+            evaluated += 1;
+            return true;
+          },
+        },
+        registryExtra: FRESH_HOST_RECORDS,
+      },
+    );
+    const res = await putShot(env, {
+      key: "diagrams/a.svg",
+      body: INERT_SVG,
+      headers: { "Content-Type": "image/svg+xml" },
+    });
+    expect(res.status).toBe(201);
+    expect(evaluated).toBe(1);
   });
 
   it("still 415s an SVG carrying <script> even on a fully verified lane", async () => {

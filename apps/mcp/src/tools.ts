@@ -101,7 +101,14 @@ import {
 import { parseExternalReference } from "@uploads/api/external-references";
 import { publicUrl, storage, storageConfig } from "@uploads/api/storage";
 import { deleteObject, listObjects, putObject } from "@uploads/api/files";
-import { allowWrite, resolveUploadPolicy } from "@uploads/api/guards";
+import { activeContentAllowed } from "@uploads/api/active-content";
+import {
+  allowWrite,
+  contentTypeFromKey,
+  isGatedContentType,
+  maxBytesForContentType,
+  uploadLimits,
+} from "@uploads/api/guards";
 import { usageWithLimits } from "@uploads/api/budget";
 import { reconcileWorkspaceUsage } from "@uploads/api/reconcile";
 import { purgeExpiredObjects } from "@uploads/api/retention";
@@ -845,18 +852,23 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
           }
         }
 
-        // `activeContent: false` here is deliberate, not a placeholder: this
-        // policy is only ever consulted below for `maxBytes`/`maxVideoBytes`
-        // (the pre-decode size ceiling), and those are workspace-level
-        // overrides — a row's own tighter `maxBytes` (the gated SVG/XML
-        // rows' 4 MiB cap, issue #929 review) never feeds into them, so the
-        // real gate result would change nothing this call reads. `putObject`'s
-        // own `resolveUploadPolicy` call (files-core.ts) is what actually
-        // gates SVG/XML acceptance.
-        const policy = resolveUploadPolicy(workspace, { activeContent: false });
-        // Pre-decode uses the policy ceiling (video may exceed maxBytes);
-        // putObject's inspectUpload enforces the content-specific limit.
-        const maxBytes = Math.max(policy.maxBytes, policy.maxVideoBytes);
+        // Ceilings only, no admission decision — `putObject` is what gates
+        // SVG/XML acceptance (see `uploadLimits`, guards.ts).
+        const limits = uploadLimits(workspace);
+        /**
+         * Pre-decode ceiling for one file: the type its filename claims
+         * (the gated SVG/XML rows cap at 4 MiB however high the workspace
+         * ceiling is, issue #929), or — for a name that claims nothing —
+         * the loosest the workspace allows, since video may exceed
+         * `maxBytes`. `putObject`'s `inspectUpload` enforces the
+         * content-specific limit against the decoded bytes either way.
+         */
+        const maxBytesFor = (name: string | undefined): number => {
+          const claimed = name ? contentTypeFromKey(name) : undefined;
+          return claimed !== undefined
+            ? maxBytesForContentType(limits, claimed)
+            : Math.max(limits.maxBytes, limits.maxVideoBytes);
+        };
         const alt = optString(args, "alt");
         const width = optPosInt(args, "width");
         // Strict overwrite (issue #174) only on non-gh/ keys.
@@ -865,6 +877,29 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
           metadata !== undefined || replaceArg
             ? { metadata, replace: replaceArg, surface: "mcp" as const }
             : { surface: "mcp" as const };
+
+        // Resolved at most once per tool call and shared by every file in a
+        // batch (same memo shape as `resolveGhPrefixOnce` below): the gate is
+        // a workspace-level answer — a Flagship evaluation plus a KV read —
+        // so a 20-SVG batch shouldn't pay for it 20 times. Never resolved at
+        // all unless some file actually claims a gated type.
+        let activeContentPromise: Promise<boolean> | undefined;
+        function activeContentOnce(): Promise<boolean> {
+          activeContentPromise ??= activeContentAllowed(env, workspace);
+          return activeContentPromise;
+        }
+
+        /**
+         * `putObject` options for one file: the shared bag, plus the
+         * active-content gate result when this file's name claims one of the
+         * gated SVG/XML types (issue #929). Any other name leaves the gate
+         * unresolved — `putObject` wouldn't consult it either.
+         */
+        async function putOptsForFile(name: string) {
+          const claimed = contentTypeFromKey(name);
+          if (claimed === undefined || !isGatedContentType(claimed)) return putOpts;
+          return { ...putOpts, activeContent: await activeContentOnce() };
+        }
 
         // Resolved once per tool call, cached across every file in a batch
         // (issue #631) — `resolveGhKeyContext` itself is fail-open (any
@@ -921,7 +956,7 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
           // Bounded fan-out: 20 parallel Worker fetches would pin isolate RAM.
           const decoded = await mapBounded(items, PUT_CONCURRENCY, async (item, i) => {
             try {
-              return await bytesFromPutSource(item, maxBytes);
+              return await bytesFromPutSource(item, maxBytesFor(item.filename));
             } catch (err) {
               usage(
                 `files[${i}] (${item.filename}): ${err instanceof Error ? err.message : String(err)}`,
@@ -954,7 +989,7 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
                 keys[i]!,
                 decoded[i]!,
                 workspaceName,
-                putOpts,
+                await putOptsForFile(item.filename),
               );
               const markdown =
                 result.url === null
@@ -986,9 +1021,19 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
           return { workspace: workspaceName, uploads, failures, ...extras };
         }
 
-        const bytes = await bytesFromPutSource({ contentBase64, contentUrl }, maxBytes);
+        const bytes = await bytesFromPutSource(
+          { contentBase64, contentUrl },
+          maxBytesFor(filename),
+        );
         const key = await resolveKey(filename!, bytes);
-        const result = await putObject(env, workspace, key, bytes, workspaceName, putOpts);
+        const result = await putObject(
+          env,
+          workspace,
+          key,
+          bytes,
+          workspaceName,
+          await putOptsForFile(filename!),
+        );
         const markdown =
           result.url === null
             ? undefined

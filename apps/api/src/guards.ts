@@ -220,11 +220,20 @@ export function uploadKind(contentType: string): UploadKind {
   return "file";
 }
 
-export interface UploadPolicy {
+/** True when `type` is one of the lane-gated SVG/XML rows (issue #929). */
+export function isGatedContentType(type: string): boolean {
+  return GATED_SET.has(type);
+}
+
+/** The byte ceilings half of an upload policy — see `uploadLimits`. */
+export interface UploadLimits {
   /** Max for images (and as fallback when maxVideoBytes is unset). */
   maxBytes: number;
   /** Max for video/* when set; otherwise maxBytes. */
   maxVideoBytes: number;
+}
+
+export interface UploadPolicy extends UploadLimits {
   allowed: ReadonlySet<string>;
 }
 
@@ -254,18 +263,17 @@ function positiveBytes(value: unknown): number | undefined {
 }
 
 /**
- * Builds the effective upload policy for a workspace. `opts.activeContent`
- * (issue #929) is required — never defaulted — so no caller can forget to
- * pass its `activeContentAllowed(env, ws)` result and silently open (or
- * close) the gated SVG/XML rows. When `false`, the gated types are stripped
- * from the resulting `allowed` set even when the workspace's own
- * `allowedContentTypes` override names one explicitly — an override extends
- * or restricts the ungated allowlist, it can't bypass lane verification.
+ * The workspace's byte ceilings, resolved from its own overrides and its
+ * plan's defaults. Deliberately separate from admission (`resolveUploadPolicy`
+ * below): a limit is plan-and-override arithmetic only, so it is the same
+ * number whether or not the active-content gate (issue #929) is open. That is
+ * why every caller that only needs a ceiling — the PUT route's pre-buffer
+ * `Content-Length` check, the MCP `put` pre-decode ceiling, `github-ingest` —
+ * calls this instead of building a whole policy behind a made-up gate value:
+ * the gated SVG/XML rows change which *types* are admitted, never how many
+ * bytes a workspace may send.
  */
-export function resolveUploadPolicy(
-  record: UploadPolicyOverrides,
-  opts: { activeContent: boolean },
-): UploadPolicy {
+export function uploadLimits(record: UploadPolicyOverrides): UploadLimits {
   // Sanitize before handing off to the shared resolution seam, same pattern
   // as `budget.ts`'s `resolveBudgetLimits`: a zero/negative/non-finite
   // override collapses to "unset" here, *before* `resolveEffectiveLimits`
@@ -279,6 +287,24 @@ export function resolveUploadPolicy(
   // No plan stamped: reproduce the legacy fallback exactly.
   const maxBytes = positiveBytes(resolved.maxUploadBytes) ?? DEFAULT_MAX_UPLOAD_BYTES;
   const maxVideoBytes = positiveBytes(resolved.maxVideoUploadBytes) ?? maxBytes;
+  return { maxBytes, maxVideoBytes };
+}
+
+/**
+ * Builds the effective upload policy for a workspace: `uploadLimits` plus the
+ * admitted type set. `opts.activeContent` (issue #929) is required — never
+ * defaulted — so no caller can forget to pass its `activeContentAllowed(env,
+ * ws)` result and silently open (or close) the gated SVG/XML rows. When
+ * `false`, the gated types are stripped from the resulting `allowed` set even
+ * when the workspace's own `allowedContentTypes` override names one
+ * explicitly — an override extends or restricts the ungated allowlist, it
+ * can't bypass lane verification.
+ */
+export function resolveUploadPolicy(
+  record: UploadPolicyOverrides,
+  opts: { activeContent: boolean },
+): UploadPolicy {
+  const limits = uploadLimits(record);
   const base =
     record.allowedContentTypes && record.allowedContentTypes.length > 0
       ? new Set(record.allowedContentTypes)
@@ -286,17 +312,17 @@ export function resolveUploadPolicy(
   const allowed = opts.activeContent
     ? base
     : new Set([...base].filter((type) => !GATED_SET.has(type)));
-  return { maxBytes, maxVideoBytes, allowed };
+  return { ...limits, allowed };
 }
 
 /**
- * The effective byte ceiling for one content type: the policy's own
+ * The effective byte ceiling for one content type: the workspace's own
  * `maxVideoBytes`/`maxBytes`, tightened by the row's own `maxBytes` when it
  * has one (issue #929 review — the gated SVG/XML rows cap at 4 MiB
  * regardless of how high a workspace's general upload ceiling is set).
  */
-export function maxBytesForContentType(policy: UploadPolicy, contentType: string): number {
-  const base = VIDEO_TYPES.has(contentType) ? policy.maxVideoBytes : policy.maxBytes;
+export function maxBytesForContentType(limits: UploadLimits, contentType: string): number {
+  const base = VIDEO_TYPES.has(contentType) ? limits.maxVideoBytes : limits.maxBytes;
   const rowMax = ROW_BY_TYPE.get(contentType)?.maxBytes;
   return rowMax !== undefined ? Math.min(base, rowMax) : base;
 }
@@ -615,16 +641,27 @@ function tooLarge(
 }
 
 /**
- * Pre-buffer size gate: reject on a declared `Content-Length` over the larger
- * of image/video caps before the body is read into isolate memory.
- * `inspectUpload` is the authoritative backstop for type-specific limits.
+ * Pre-buffer size gate: reject on a declared `Content-Length` over the
+ * ceiling before the body is read into isolate memory. `inspectUpload` is
+ * the authoritative backstop for type-specific limits.
+ *
+ * With `declaredType` (the caller knows what the client claims — the PUT
+ * route's `resolveDeclaredContentType`), the ceiling is that type's own
+ * (`maxBytesForContentType`), so a declared 50 MB SVG is refused before it
+ * is buffered rather than after — the gated SVG/XML rows cap at 4 MiB and
+ * their plausibility check decodes the whole body. Without it, the larger of
+ * the image/video caps, which is the loosest any body could be admitted at.
  */
 export function checkDeclaredLength(
   contentLength: string | undefined,
-  policy: UploadPolicy,
+  limits: UploadLimits,
+  declaredType?: string,
 ): UploadRejection | null {
   const declared = Number(contentLength);
-  const ceiling = Math.max(policy.maxBytes, policy.maxVideoBytes);
+  const ceiling =
+    declaredType !== undefined
+      ? maxBytesForContentType(limits, declaredType)
+      : Math.max(limits.maxBytes, limits.maxVideoBytes);
   if (Number.isFinite(declared) && declared > ceiling) return tooLarge(ceiling);
   return null;
 }

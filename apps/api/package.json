@@ -12,6 +12,7 @@
     "./file-metadata": "./src/file-metadata.ts",
     "./file-search": "./src/file-search.ts",
     "./guards": "./src/guards.ts",
+    "./active-content": "./src/active-content.ts",
     "./budget": "./src/budget.ts",
     "./usage": "./src/usage.ts",
     "./reconcile": "./src/reconcile.ts",

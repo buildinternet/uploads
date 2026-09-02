@@ -37,6 +37,7 @@ import {
   DEFAULT_MAX_UPLOAD_BYTES,
   detectImageDimensions,
   inspectUpload,
+  isGatedContentType,
   resolveDeclaredContentType,
   resolveUploadPolicy,
   uploadKind,
@@ -492,6 +493,15 @@ export async function putObject(
      * applies; this only widens the *allowlist*, never the acceptance rules.
      */
     serverCopy?: boolean;
+    /**
+     * A caller that has already resolved `activeContentAllowed(env, ws)` for
+     * this workspace passes it here rather than making every put re-resolve
+     * it — the MCP `put` tool's multi-file batch does, so one tool call
+     * evaluates the flag (and reads KV) at most once for up to 20 files.
+     * Only consulted when the declared type is a gated one, and never
+     * consulted at all for a `serverCopy`.
+     */
+    activeContent?: boolean;
   },
 ): Promise<{
   key: string;
@@ -524,10 +534,16 @@ export async function putObject(
   if (opts?.metadata) validateMetadataEntries(opts.metadata);
 
   const declared = resolveDeclaredContentType(opts?.declaredContentType, finalKey);
-  // A server-side copy of bytes already stored in this workspace doesn't
-  // re-run the active-content gate — see `opts.serverCopy`'s doc comment.
-  // `||` short-circuits before the `await`, so a copy never touches FLAGS/KV.
-  const activeContent = opts?.serverCopy === true || (await activeContentAllowed(env, ws));
+  // The gate only ever decides whether the gated SVG/XML rows are admitted,
+  // and those are declared-only — so a put that claims anything else can
+  // never be changed by it, and doesn't pay for it: no Flagship evaluation,
+  // no KV read (issue #929). A server-side copy of bytes already stored in
+  // this workspace skips it too (see `opts.serverCopy`), and a caller that
+  // has already resolved the answer passes it in (`opts.activeContent`).
+  const activeContent =
+    declared !== undefined && isGatedContentType(declared)
+      ? opts?.serverCopy === true || (opts?.activeContent ?? (await activeContentAllowed(env, ws)))
+      : false;
   const policy = resolveUploadPolicy(ws, { activeContent });
   const inspection = inspectUpload(bytes, policy, declared);
   if (!inspection.ok) throw inspection.error;

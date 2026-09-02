@@ -1054,6 +1054,52 @@ describe("mcp worker", () => {
     expect(bucket.store.size).toBe(2);
   });
 
+  it("evaluates the active-content gate once for a whole SVG batch (issue #929)", async () => {
+    // The gate is a workspace-level answer costing a Flagship evaluation plus
+    // a KV read — one tool call must resolve it once, not once per file.
+    const { env: base, bucket } = await makeEnv();
+    let evaluated = 0;
+    const registry = base.REGISTRY;
+    const env = {
+      ...base,
+      REGISTRY: {
+        ...registry,
+        get: async (key: string, type?: unknown) =>
+          key === "host-active-content:storage.example.com"
+            ? { ok: true, verifiedAt: new Date().toISOString() }
+            : (registry.get as (k: string, t?: unknown) => Promise<unknown>)(key, type),
+      },
+      FLAGS: {
+        getBooleanValue: async () => {
+          evaluated += 1;
+          return true;
+        },
+      },
+    } as unknown as Env;
+    const svg = btoa('<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"></svg>');
+    const result = await callTool(env, "put", {
+      files: [
+        { filename: "one.svg", contentBase64: svg },
+        { filename: "two.svg", contentBase64: svg },
+        { filename: "three.svg", contentBase64: svg },
+      ],
+      prefix: "diagrams",
+    });
+    expect(result.isError).toBe(false);
+    const body = result.structuredContent as {
+      uploads: Array<{ file: string; contentType: string }>;
+      failures: unknown[];
+    };
+    expect(body.failures).toEqual([]);
+    expect(body.uploads.map((u) => u.contentType)).toEqual([
+      "image/svg+xml",
+      "image/svg+xml",
+      "image/svg+xml",
+    ]);
+    expect(bucket.store.size).toBe(3);
+    expect(evaluated).toBe(1);
+  });
+
   it("multi-file put returns partial failures without aborting the batch", async () => {
     const { env, bucket } = await makeEnv();
     // Unrecognized extension + non-sniffable bytes: no declared type resolves
