@@ -362,6 +362,68 @@ export async function fetchPublicFile(
   }
 }
 
+/** Derive the file-card's `<TYPE>` label: uppercase filename extension, falling back to the content-type subtype. */
+export function fileTypeLabel(filename: string, contentType: string): string {
+  const base = filename.split("/").pop() ?? filename;
+  const dot = base.lastIndexOf(".");
+  const ext = dot > 0 && dot < base.length - 1 ? base.slice(dot + 1) : "";
+  if (ext) return ext.toUpperCase();
+  const subtype = (contentType.split("/").pop() ?? contentType).split(";")[0]?.trim() ?? "";
+  return subtype.toUpperCase();
+}
+
+/** Content types eligible for the inline server-rendered text preview (issue #946). Markdown renders as source, never rendered HTML. */
+export const TEXT_PREVIEW_CONTENT_TYPES: ReadonlySet<string> = new Set([
+  "text/plain",
+  "text/markdown",
+  "text/csv",
+  "application/json",
+]);
+
+/** Cap on the object's reported size for the inline text preview — 256 KiB. */
+export const TEXT_PREVIEW_MAX_BYTES = 256 * 1024;
+
+/** Whether a file qualifies for the inline text preview based on its reported content type and size. */
+export function isTextPreviewable(contentType: string, size: number): boolean {
+  return (
+    TEXT_PREVIEW_CONTENT_TYPES.has(contentType) &&
+    Number.isFinite(size) &&
+    size >= 0 &&
+    size <= TEXT_PREVIEW_MAX_BYTES
+  );
+}
+
+/**
+ * Fetch a text-previewable object's body server-side (storage host, no CORS
+ * concern) and decode it as UTF-8. Returns null on any failure, timeout,
+ * non-2xx response, or a body over `maxBytes` — callers fall back to the
+ * plain file card in that case.
+ */
+export async function fetchTextPreview(
+  url: string,
+  options: { fetch?: typeof globalThis.fetch; timeoutMs?: number; maxBytes?: number } = {},
+): Promise<string | null> {
+  const maxBytes = options.maxBytes ?? TEXT_PREVIEW_MAX_BYTES;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? 5000);
+  try {
+    const response = await (options.fetch ?? globalThis.fetch)(url, {
+      signal: controller.signal,
+      cache: "no-store",
+    });
+    if (!response.ok) return null;
+    const contentLength = response.headers.get("content-length");
+    if (contentLength && Number(contentLength) > maxBytes) return null;
+    const buffer = await response.arrayBuffer();
+    if (buffer.byteLength > maxBytes) return null;
+    return new TextDecoder("utf-8", { fatal: false }).decode(buffer);
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /**
  * Human-readable byte size for metadata / file lists (decimal SI).
  * Matches account/billing meters so a 250 MB free cap never reads as 238 MB.

@@ -3,17 +3,21 @@ import {
   applyPublicFileHeaders,
   authRequiredFileCsp,
   fetchPublicFile,
+  fetchTextPreview,
   fileDownloadUrl,
   fileKind,
   filePath,
+  fileTypeLabel,
   formatBytes,
   formatFileDate,
   isPublicFile,
   isSafeKey,
+  isTextPreviewable,
   PUBLIC_FILE_CSP,
   publicFileCsp,
   sameUtcDay,
   shouldShowModified,
+  TEXT_PREVIEW_MAX_BYTES,
 } from "./public-file";
 
 const file = {
@@ -253,6 +257,87 @@ describe("formatBytes", () => {
     expect(formatBytes(20_000)).toBe("20 KB");
     expect(formatBytes(1_500_000)).toBe("1.5 MB");
     expect(formatBytes(250_000_000)).toBe("250 MB");
+  });
+});
+
+describe("fileTypeLabel", () => {
+  it("uses the uppercase filename extension when present", () => {
+    expect(fileTypeLabel("notes.txt", "text/plain")).toBe("TXT");
+    expect(fileTypeLabel("data.CSV", "text/csv")).toBe("CSV");
+    expect(fileTypeLabel("nested/path/report.json", "application/json")).toBe("JSON");
+  });
+
+  it("falls back to the content-type subtype when there is no extension", () => {
+    expect(fileTypeLabel("README", "text/markdown")).toBe("MARKDOWN");
+    expect(fileTypeLabel("archive", "application/zip")).toBe("ZIP");
+  });
+
+  it("does not treat a leading dot (dotfile) as an extension", () => {
+    expect(fileTypeLabel(".gitignore", "text/plain")).toBe("PLAIN");
+  });
+});
+
+describe("isTextPreviewable", () => {
+  it("accepts the four allowlisted content types under the size cap", () => {
+    expect(isTextPreviewable("text/plain", 100)).toBe(true);
+    expect(isTextPreviewable("text/markdown", TEXT_PREVIEW_MAX_BYTES)).toBe(true);
+    expect(isTextPreviewable("text/csv", 0)).toBe(true);
+    expect(isTextPreviewable("application/json", TEXT_PREVIEW_MAX_BYTES - 1)).toBe(true);
+  });
+
+  it("rejects other content types and oversized files", () => {
+    expect(isTextPreviewable("text/html", 100)).toBe(false);
+    expect(isTextPreviewable("image/svg+xml", 100)).toBe(false);
+    expect(isTextPreviewable("application/xml", 100)).toBe(false);
+    expect(isTextPreviewable("text/plain", TEXT_PREVIEW_MAX_BYTES + 1)).toBe(false);
+  });
+});
+
+describe("fetchTextPreview", () => {
+  it("decodes a small UTF-8 body from a successful response", async () => {
+    const fetcher = vi.fn(async () => new Response("hello world"));
+    const result = await fetchTextPreview("https://storage.uploads.sh/acme/notes.txt", {
+      fetch: fetcher,
+    });
+    expect(result).toBe("hello world");
+  });
+
+  it("returns null on a non-2xx response", async () => {
+    const fetcher = vi.fn(async () => new Response("nope", { status: 500 }));
+    const result = await fetchTextPreview("https://storage.uploads.sh/acme/notes.txt", {
+      fetch: fetcher,
+    });
+    expect(result).toBeNull();
+  });
+
+  it("returns null when content-length exceeds the cap", async () => {
+    const fetcher = vi.fn(
+      async () =>
+        new Response("x", { headers: { "content-length": String(TEXT_PREVIEW_MAX_BYTES + 1) } }),
+    );
+    const result = await fetchTextPreview("https://storage.uploads.sh/acme/notes.txt", {
+      fetch: fetcher,
+    });
+    expect(result).toBeNull();
+  });
+
+  it("returns null when the actual body exceeds maxBytes despite no content-length", async () => {
+    const fetcher = vi.fn(async () => new Response("x".repeat(20)));
+    const result = await fetchTextPreview("https://storage.uploads.sh/acme/notes.txt", {
+      fetch: fetcher,
+      maxBytes: 10,
+    });
+    expect(result).toBeNull();
+  });
+
+  it("returns null when the fetch throws or aborts", async () => {
+    const fetcher = vi.fn(async () => {
+      throw new Error("network down");
+    });
+    const result = await fetchTextPreview("https://storage.uploads.sh/acme/notes.txt", {
+      fetch: fetcher,
+    });
+    expect(result).toBeNull();
   });
 });
 

@@ -16,11 +16,13 @@ import {
   applyPublicFileHeaders,
   publicFileCsp,
   fetchPublicFile,
+  fetchTextPreview,
   fileDownloadUrl,
   fileKind as kind,
   filePath,
   formatBytes,
   formatFileDate,
+  isTextPreviewable,
   shouldShowModified,
   sameUtcDay,
 } from "../../../lib/public-file";
@@ -100,6 +102,13 @@ const embedFormats = file
     })
   : [];
 const downloadUrl = file ? fileDownloadUrl(origin, workspace, key) : null;
+// Inline text preview (issue #946): SSR-fetch the object body from storage
+// (server-to-server, no CORS concern) for small text/markdown/csv/json
+// files; any failure/timeout/oversized body falls back to the file card.
+const textPreview =
+  file && isTextPreviewable(file.contentType, file.size)
+    ? await fetchTextPreview(file.url, { timeoutMs: 5000 })
+    : null;
 const title = file
   ? `${filename} · uploads.sh`
   : result.status === "auth_required"
@@ -556,6 +565,10 @@ const ogImage = file
               posterUrl={file.posterUrl}
               videoDimensions={file.videoDimensions}
               compare={compare}
+              contentType={file.contentType}
+              size={file.size}
+              downloadUrl={downloadUrl}
+              textPreview={textPreview}
             >
               <CopyAsControls formats={embedFormats} downloadUrl={downloadUrl}>
                 <a class="original" href={file.url} rel="noopener noreferrer">

@@ -15,6 +15,7 @@ import ImagePreview from "./ImagePreview.astro";
 import MediaFallback from "./MediaFallback.astro";
 import type { BeforeAfterState } from "../lib/before-after-view";
 import { mediaPreviewFailedBody, MEDIA_PREVIEW_FAILED_TITLE } from "../lib/media-load";
+import { fileTypeLabel, formatBytes } from "../lib/public-file";
 import type { MediaKind } from "../lib/public-gallery";
 
 interface Props {
@@ -33,6 +34,18 @@ interface Props {
   compare?: { src: string; ownState: BeforeAfterState } | null;
   /** id for the rail figcaption, referenced by the video's aria-describedby. */
   railId?: string;
+  /** Object content type, for the file-card TYPE label and text-preview gating; omitted when unknown. */
+  contentType?: string | null;
+  /** Object byte size, for the file-card size label; omitted when unknown. */
+  size?: number | null;
+  /** Forced-download URL for the file card's link; falls back to `url` when omitted. */
+  downloadUrl?: string | null;
+  /**
+   * Pre-fetched, UTF-8-decoded text body for small text/markdown/csv/json
+   * files (issue #946) — SSR-only, fetched by the page from `url` before
+   * render. Null/omitted falls back to the plain file card.
+   */
+  textPreview?: string | null;
 }
 
 const {
@@ -44,7 +57,16 @@ const {
   videoDimensions = null,
   compare = null,
   railId,
+  contentType = null,
+  size = null,
+  downloadUrl = null,
+  textPreview = null,
 } = Astro.props;
+
+const fileHref = downloadUrl ?? url;
+const fileCardBody = `${fileTypeLabel(filename, contentType ?? "")} · ${
+  size != null ? formatBytes(size) : "—"
+}`;
 ---
 
 <figure class="stage" style="margin:0" data-media-stage>
@@ -86,9 +108,28 @@ const {
             />
           </div>
         )}
-        {kind === "file" && url && (
-          <MediaFallback title="Preview unavailable" href={url} filename={filename} />
-        )}
+        {kind === "file" &&
+          url &&
+          (textPreview != null ? (
+            <div class="text-preview-wrap">
+              <pre class="text-preview">{textPreview}</pre>
+              <div class="text-preview-info">
+                <span>{fileCardBody}</span>
+                {fileHref && (
+                  <a href={fileHref} rel="noopener noreferrer">
+                    Download
+                  </a>
+                )}
+              </div>
+            </div>
+          ) : (
+            <MediaFallback
+              title={filename}
+              body={fileCardBody}
+              href={fileHref}
+              filename={filename}
+            />
+          ))}
         {kind === "missing" && (
           <MediaFallback
             title="Removed or expired"
@@ -118,6 +159,40 @@ const {
     display: grid;
     place-items: center;
     overflow: hidden;
+  }
+  /* Inline text preview (issue #946) — server-rendered, no client JS. */
+  .text-preview-wrap {
+    width: 100%;
+    max-width: 100%;
+    align-self: stretch;
+    justify-self: stretch;
+    padding: 16px;
+    box-sizing: border-box;
+  }
+  .text-preview {
+    margin: 0;
+    max-height: 70vh;
+    overflow: auto;
+    white-space: pre;
+    font: var(--text-meta) var(--mono);
+    line-height: 1.5;
+    color: var(--body);
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    padding: 14px 16px;
+  }
+  .text-preview-info {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 10px;
+    color: var(--muted);
+    font: var(--text-micro) var(--sans);
+  }
+  .text-preview-info a {
+    color: var(--fg);
   }
   .media video {
     max-width: 100%;
