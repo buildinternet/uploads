@@ -195,6 +195,15 @@ export interface WorkspaceRecord {
    * workspaces" (Flagship) and "nothing" (removing the MEDIA binding).
    */
   videoPosterEnabled?: boolean;
+  /**
+   * Per-workspace opt-out for SVG/XML "active content" uploads (issue
+   * #929). Default (undefined/true) allows them once the active lane's
+   * host is verified. `false` turns them off for this workspace
+   * regardless of lane verification state — the surgical kill switch
+   * between "every eligible workspace" (Flagship) and "this one workspace"
+   * (precedent: `videoPosterEnabled`).
+   */
+  activeContentUploads?: boolean;
   /** Set by `DELETE /admin/workspaces/:name` (default/soft mode). Present → the workspace is soft-deleted. */
   deletedAt?: string;
   /** `deletedAt` + the grace window (`WORKSPACE_DELETE_GRACE_DAYS`); the retention sweep finalizes at/after this. */
@@ -212,6 +221,23 @@ export interface WorkspaceRecord {
   storageConfiguredAt?: string;
   /** ISO timestamp of the most recent successful storage verification (either at save time or a standalone re-verify). Powers the settings UI's "verified ✓ N days ago" line. */
   storageVerifiedAt?: string;
+  /** ISO timestamp of the active lane's most recent successful `active-content-headers` check (issue #929) — mirrors `StorageLane.activeContentVerifiedAt` for the currently-active lane. Absent means the active lane has never passed the sandboxing-CSP probe. */
+  storageActiveContentVerifiedAt?: string;
+  /**
+   * When each lane's on-demand "Check now" probe last *ran*, keyed by lane id
+   * (the active lane under its `storageLaneId`, or the literal `active`
+   * before it has one). Purely a per-lane cooldown clock for
+   * `storageVerifyActiveContentHandler` (issue #929 adversarial review L-3):
+   * unlike `storageActiveContentVerifiedAt` it records attempts, not
+   * successes, so a failing or inconclusive probe still rate-limits the next
+   * one — the route drives an outbound fetch at an owner-supplied URL, and
+   * that has to cost more than one button press per minute. Deliberately not
+   * a `StorageLane` field: nothing about a lane's identity or verification
+   * state lives here, and threading a rate-limit clock through
+   * `demoteActiveLane`/`promoteLane` would only invite it being mistaken for
+   * one. Pruned to live lane ids on every write.
+   */
+  storageActiveContentCheckedAt?: Record<string, string>;
   /** Better Auth user id that most recently configured this workspace's storage via the self-serve flow. */
   storageConfiguredBy?: string;
   /**
@@ -311,6 +337,14 @@ export interface StorageLane extends StorageLaneFields {
   unhealthyAt?: string;
   /** `StorageHealthCode`, widened to `string` — see `WorkspaceRecord.storageUnhealthyCode`. */
   unhealthyCode?: string;
+  /**
+   * Last successful `active-content-headers` verify check against this
+   * lane's public host (issue #929) — the SVG/XML acceptance gate reads
+   * this (via `WorkspaceRecord.storageActiveContentVerifiedAt` when the
+   * lane is active), not `verifiedAt`, since a lane can verify overall
+   * while its host still fails the sandboxing-CSP probe.
+   */
+  activeContentVerifiedAt?: string;
 }
 
 /** New lane id: "lane_" + 8 lowercase hex chars from crypto.getRandomValues. */

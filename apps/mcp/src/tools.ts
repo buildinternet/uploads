@@ -101,7 +101,14 @@ import {
 import { parseExternalReference } from "@uploads/api/external-references";
 import { publicUrl, storage, storageConfig } from "@uploads/api/storage";
 import { deleteObject, listObjects, putObject } from "@uploads/api/files";
-import { allowWrite, resolveUploadPolicy } from "@uploads/api/guards";
+import { activeContentAllowed } from "@uploads/api/active-content";
+import {
+  allowWrite,
+  contentTypeFromKey,
+  isGatedContentType,
+  maxBytesForContentType,
+  uploadLimits,
+} from "@uploads/api/guards";
 import { usageWithLimits } from "@uploads/api/budget";
 import { reconcileWorkspaceUsage } from "@uploads/api/reconcile";
 import { purgeExpiredObjects } from "@uploads/api/retention";
@@ -599,7 +606,7 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
       annotations: mcpDestroyPublic,
       securitySchemes: mcpOAuthWrite,
       description:
-        "Upload a file (or files) and get a public URL plus GitHub-ready markdown. Prefer the returned `embedUrl` in GitHub markdown. All uploads are public. Pass `pr`+`repo` to attach to a PR (stable key + managed comment). Pass `branch`+`repo` to stage for a PR that does not exist yet. When the bytes are already at a public HTTPS URL, pass `contentUrl` instead of base64 — the server fetches them. Accepts images (PNG, JPEG, GIF, WebP, AVIF), video (MP4, WebM, MOV), PDF, zip, gzip, and text (plain, markdown, CSV, JSON). HTML and SVG are rejected.",
+        "Upload a file (or files) and get a public URL plus GitHub-ready markdown. Prefer the returned `embedUrl` in GitHub markdown. All uploads are public. Pass `pr`+`repo` to attach to a PR (stable key + managed comment). Pass `branch`+`repo` to stage for a PR that does not exist yet. When the bytes are already at a public HTTPS URL, pass `contentUrl` instead of base64 — the server fetches them. Accepts images (PNG, JPEG, GIF, WebP, AVIF), video (MP4, WebM, MOV), PDF, zip, gzip, and text (plain, markdown, CSV, JSON). SVG and XML are accepted only on storage lanes verified to serve them sandboxed (see the workspace's storage settings); HTML is rejected.",
       inputSchema: {
         type: "object",
         properties: {
@@ -845,10 +852,26 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
           }
         }
 
-        const policy = resolveUploadPolicy(workspace);
-        // Pre-decode uses the policy ceiling (video may exceed maxBytes);
-        // putObject's inspectUpload enforces the content-specific limit.
-        const maxBytes = Math.max(policy.maxBytes, policy.maxVideoBytes);
+        // Ceilings only, no admission decision — `putObject` is what gates
+        // SVG/XML acceptance (see `uploadLimits`, guards.ts).
+        const limits = uploadLimits(workspace);
+        /**
+         * Pre-decode ceiling for one file: the loosest the workspace allows
+         * (since video may exceed `maxBytes`), *tightened* only when the
+         * filename claims a gated type (the SVG/XML rows cap at 4 MiB
+         * however high the workspace ceiling is, issue #929). A name
+         * claiming an ordinary, ungated type never narrows below the
+         * workspace's general ceiling. `putObject`'s `inspectUpload`
+         * enforces the content-specific limit against the decoded bytes
+         * either way.
+         */
+        const maxBytesFor = (name: string | undefined): number => {
+          const claimed = name ? contentTypeFromKey(name) : undefined;
+          const general = Math.max(limits.maxBytes, limits.maxVideoBytes);
+          return claimed !== undefined && isGatedContentType(claimed)
+            ? Math.min(general, maxBytesForContentType(limits, claimed))
+            : general;
+        };
         const alt = optString(args, "alt");
         const width = optPosInt(args, "width");
         // Strict overwrite (issue #174) only on non-gh/ keys.
@@ -857,6 +880,29 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
           metadata !== undefined || replaceArg
             ? { metadata, replace: replaceArg, surface: "mcp" as const }
             : { surface: "mcp" as const };
+
+        // Resolved at most once per tool call and shared by every file in a
+        // batch (same memo shape as `resolveGhPrefixOnce` below): the gate is
+        // a workspace-level answer — a Flagship evaluation plus a KV read —
+        // so a 20-SVG batch shouldn't pay for it 20 times. Never resolved at
+        // all unless some file actually claims a gated type.
+        let activeContentPromise: Promise<boolean> | undefined;
+        function activeContentOnce(): Promise<boolean> {
+          activeContentPromise ??= activeContentAllowed(env, workspace);
+          return activeContentPromise;
+        }
+
+        /**
+         * `putObject` options for one file: the shared bag, plus the
+         * active-content gate result when this file's name claims one of the
+         * gated SVG/XML types (issue #929). Any other name leaves the gate
+         * unresolved — `putObject` wouldn't consult it either.
+         */
+        async function putOptsForFile(name: string) {
+          const claimed = contentTypeFromKey(name);
+          if (claimed === undefined || !isGatedContentType(claimed)) return putOpts;
+          return { ...putOpts, activeContent: await activeContentOnce() };
+        }
 
         // Resolved once per tool call, cached across every file in a batch
         // (issue #631) — `resolveGhKeyContext` itself is fail-open (any
@@ -913,7 +959,7 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
           // Bounded fan-out: 20 parallel Worker fetches would pin isolate RAM.
           const decoded = await mapBounded(items, PUT_CONCURRENCY, async (item, i) => {
             try {
-              return await bytesFromPutSource(item, maxBytes);
+              return await bytesFromPutSource(item, maxBytesFor(item.filename));
             } catch (err) {
               usage(
                 `files[${i}] (${item.filename}): ${err instanceof Error ? err.message : String(err)}`,
@@ -946,7 +992,7 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
                 keys[i]!,
                 decoded[i]!,
                 workspaceName,
-                putOpts,
+                await putOptsForFile(item.filename),
               );
               const markdown =
                 result.url === null
@@ -978,9 +1024,19 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
           return { workspace: workspaceName, uploads, failures, ...extras };
         }
 
-        const bytes = await bytesFromPutSource({ contentBase64, contentUrl }, maxBytes);
+        const bytes = await bytesFromPutSource(
+          { contentBase64, contentUrl },
+          maxBytesFor(filename),
+        );
         const key = await resolveKey(filename!, bytes);
-        const result = await putObject(env, workspace, key, bytes, workspaceName, putOpts);
+        const result = await putObject(
+          env,
+          workspace,
+          key,
+          bytes,
+          workspaceName,
+          await putOptsForFile(filename!),
+        );
         const markdown =
           result.url === null
             ? undefined

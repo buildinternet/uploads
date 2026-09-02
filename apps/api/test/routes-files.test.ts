@@ -4,8 +4,10 @@ import { PDF, ZIP } from "./helpers/media-fixtures";
 import { DeleteUsageClaimsTable } from "./helpers/fake-delete-usage-claims-table";
 import { FileMetadataTable } from "./helpers/fake-file-metadata-table";
 import { app } from "../src/index";
+import { presignExpiresIn } from "../src/routes/files-shared-handlers";
 import { getFileMetadata } from "../src/file-metadata";
 import { sha256Hex, type WorkspaceRecord } from "../src/workspace";
+import { HOSTED_ACTIVE_CONTENT_HOSTS } from "../src/active-content-hosts";
 
 const TOKEN = "secret-token";
 
@@ -104,6 +106,20 @@ async function makeEnv(
     rateLimitOk?: boolean;
     scopedToken?: { rawToken: string; scopes: string[]; mintingUserId?: string };
     extraBindings?: Record<string, FakeR2Bucket>;
+    /**
+     * Flagship stand-in for the active-content gate (issue #929). Omitted =
+     * no `FLAGS` binding at all, which `activeContentAllowed` treats as
+     * fail-closed — every existing test keeps its pre-#929 behavior with no
+     * change here.
+     */
+    flags?: { getBooleanValue: (key: string, def: boolean) => Promise<boolean> };
+    /**
+     * Extra `REGISTRY` KV rows beyond the workspace record itself — keyed
+     * exactly as the real binding would be, e.g.
+     * `"host-active-content:storage.uploads.sh"` for a hosted host's
+     * active-content probe record (`./active-content-hosts.ts`).
+     */
+    registryExtra?: Record<string, unknown>;
   } = {},
 ) {
   const record: WorkspaceRecord = {
@@ -129,8 +145,16 @@ async function makeEnv(
         }
       : undefined,
   );
+  const registryExtra = opts.registryExtra ?? {};
   const env = {
-    REGISTRY: { get: async () => record, put: async () => undefined },
+    REGISTRY: {
+      // Every `ws:*` lookup (workspace load) resolves to the fixture record
+      // regardless of workspace name; anything else (e.g. a
+      // `host-active-content:*` probe record) comes from `registryExtra`,
+      // keyed exactly as written.
+      get: async (key: string) => (key.startsWith("ws:") ? record : (registryExtra[key] ?? null)),
+      put: async () => undefined,
+    },
     // No D1 token: force the legacy token path. run/batch no-op for usage
     // metering; file_metadata reads/writes are backed by makeFakeDB's store.
     DB: db,
@@ -147,6 +171,7 @@ async function makeEnv(
           headers: { "content-type": "application/json" },
         }),
     },
+    ...(opts.flags ? { FLAGS: opts.flags } : {}),
   };
   return { env, bucket, db };
 }
@@ -308,6 +333,23 @@ describe("PUT /v1/:workspace/files upload guardrails", () => {
     const { env } = await makeEnv({ maxUploadBytes: 4 });
     const res = await putShot(env, { headers: { "Content-Length": "999999" } });
     expect(res.status).toBe(413);
+  });
+
+  it("rejects a declared SVG over the gated row's own cap before buffering (issue #929)", async () => {
+    // Well under this workspace's 25 MiB ceiling, so only the declared
+    // type's own 4 MiB cap can reject it — and it must do so from the
+    // Content-Length alone, before the body is read.
+    const { env } = await makeEnv();
+    const res = await putShot(env, {
+      key: "diagrams/a.svg",
+      headers: {
+        "Content-Type": "image/svg+xml",
+        "Content-Length": String(5 * 1024 * 1024),
+      },
+    });
+    expect(res.status).toBe(413);
+    const json = (await res.json()) as { error: { details?: { maxBytes?: number } } };
+    expect(json.error.details?.maxBytes).toBe(4 * 1024 * 1024);
   });
 
   it("rejects an empty body with 400", async () => {
@@ -520,6 +562,120 @@ describe("PUT /v1/:workspace/files upload guardrails", () => {
   });
 });
 
+const INERT_SVG = new TextEncoder().encode(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"></svg>',
+);
+
+/** A fresh, passing `host-active-content:*` KV record for the default fixture's shared host. */
+const FRESH_HOST_RECORD = { ok: true, verifiedAt: new Date().toISOString() };
+
+/**
+ * Fresh, passing `host-active-content:*` records for every host the default
+ * fixture's shared object is reachable through (issue #929 adversarial
+ * review H-1): the hosted host set the daily sweep covers — which includes
+ * `store.uploads.sh`, the shared bucket's second custom domain — plus this
+ * workspace's `storage.uploads.sh` and its `embed.uploads.sh` twin.
+ * `activeContentAllowed` requires all of them to be fresh and `ok`.
+ */
+const FRESH_HOST_RECORDS = Object.fromEntries(
+  HOSTED_ACTIVE_CONTENT_HOSTS.map((host) => [`host-active-content:${host}`, FRESH_HOST_RECORD]),
+);
+const FLAGS_ON = { getBooleanValue: async () => true };
+
+describe("PUT /v1/:workspace/files SVG/XML active-content gate (issue #929)", () => {
+  it("415s a declared SVG on a workspace with no active-content verification", async () => {
+    const { env } = await makeEnv();
+    const res = await putShot(env, {
+      key: "diagrams/a.svg",
+      body: INERT_SVG,
+      headers: { "Content-Type": "image/svg+xml" },
+    });
+    expect(res.status).toBe(415);
+  });
+
+  it("201s an inert declared SVG once the flag is on and the shared host's probe record is fresh", async () => {
+    const { env, bucket } = await makeEnv(
+      {},
+      {
+        flags: FLAGS_ON,
+        registryExtra: FRESH_HOST_RECORDS,
+      },
+    );
+    const res = await putShot(env, {
+      key: "diagrams/a.svg",
+      body: INERT_SVG,
+      headers: { "Content-Type": "image/svg+xml" },
+    });
+    expect(res.status).toBe(201);
+    const json = (await res.json()) as { contentType: string };
+    expect(json.contentType).toBe("image/svg+xml");
+    expect(bucket.store.get("default/diagrams/a.svg")?.contentType).toBe("image/svg+xml");
+  });
+
+  it("never evaluates the gate for a put that claims an ungated type", async () => {
+    // The gate costs a Flagship evaluation and a KV read, and can only ever
+    // change whether the (declared-only) SVG/XML rows are admitted — so a
+    // PNG put must not reach `FLAGS` at all. This fake throws rather than
+    // counts: `activeContentAllowed` swallows a thrown evaluation, so a
+    // counter alone couldn't tell "evaluated and failed closed" apart from
+    // "never evaluated".
+    let evaluated = 0;
+    const { env } = await makeEnv(
+      {},
+      {
+        flags: {
+          getBooleanValue: async () => {
+            evaluated += 1;
+            throw new Error("the gate must not be evaluated for a PNG put");
+          },
+        },
+        registryExtra: FRESH_HOST_RECORDS,
+      },
+    );
+    expect((await putShot(env)).status).toBe(201);
+    expect(evaluated).toBe(0);
+  });
+
+  it("evaluates the gate for a put that claims a gated type", async () => {
+    let evaluated = 0;
+    const { env } = await makeEnv(
+      {},
+      {
+        flags: {
+          getBooleanValue: async () => {
+            evaluated += 1;
+            return true;
+          },
+        },
+        registryExtra: FRESH_HOST_RECORDS,
+      },
+    );
+    const res = await putShot(env, {
+      key: "diagrams/a.svg",
+      body: INERT_SVG,
+      headers: { "Content-Type": "image/svg+xml" },
+    });
+    expect(res.status).toBe(201);
+    expect(evaluated).toBe(1);
+  });
+
+  it("still 415s an SVG carrying <script> even on a fully verified lane", async () => {
+    const { env } = await makeEnv(
+      {},
+      {
+        flags: FLAGS_ON,
+        registryExtra: FRESH_HOST_RECORDS,
+      },
+    );
+    const res = await putShot(env, {
+      key: "diagrams/evil.svg",
+      body: new TextEncoder().encode("<svg><script>alert(1)</script></svg>"),
+      headers: { "Content-Type": "image/svg+xml" },
+    });
+    expect(res.status).toBe(415);
+  });
+});
+
 describe("POST /v1/:workspace/files/sign strict-overwrite gate (review follow-up)", () => {
   it("refuses to sign an overwrite of an existing strict key without replace", async () => {
     const { env } = await makeEnv();
@@ -677,6 +833,67 @@ describe("POST /v1/:workspace/files/sign content-type policy", () => {
     expect(json.error.type).toBe("unsupported_media_type");
     // Must not echo provider internals via details.detail (presign_unavailable path).
     expect(json.error.details?.detail).toBeUndefined();
+  });
+
+  it("passes the content-type gate for image/svg+xml once the lane is verified (mirrors the PUT gate, issue #929)", async () => {
+    const { env } = await makeEnv(
+      {},
+      {
+        flags: FLAGS_ON,
+        registryExtra: FRESH_HOST_RECORDS,
+      },
+    );
+    const res = await app.request(
+      "/v1/default/files/sign",
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
+        body: JSON.stringify({
+          key: "diagrams/a.svg",
+          contentType: "image/svg+xml",
+        }),
+      },
+      env,
+    );
+    // Binding-mode (shared) storage has no HTTP credentials to presign
+    // against, so this still can't succeed end to end — but it must now fail
+    // on `presign_unavailable`, not `unsupported_media_type`: proof the
+    // content-type gate itself passed once the lane verified.
+    expect(res.status).toBe(400);
+    const json = (await res.json()) as { error: { code: string } };
+    expect(json.error.code).toBe("presign_unavailable");
+  });
+
+  // A presigned URL is minted against the gate's answer *now* and writes
+  // straight to the bucket later, with nothing on the write path able to
+  // re-check — so a gated type's URL is capped at 15 minutes rather than the
+  // 24 hours everything else gets (issue #929 adversarial review L-5). The
+  // rule is tested directly: reaching a 200 from this route needs signable
+  // HTTP credentials, which the binding-mode fixture above deliberately
+  // doesn't have.
+  describe("gated-type TTL cap (presignExpiresIn)", () => {
+    it("caps a gated type at 900s however long a TTL is asked for", () => {
+      expect(presignExpiresIn(86400, "image/svg+xml")).toBe(900);
+      expect(presignExpiresIn(3600, "application/xml")).toBe(900);
+      expect(presignExpiresIn(901, "text/xml")).toBe(900);
+    });
+
+    it("caps a gated type that asked for nothing (the 3600s default)", () => {
+      expect(presignExpiresIn(undefined, "image/svg+xml")).toBe(900);
+      // Out-of-range values fall back to the default first, then cap.
+      expect(presignExpiresIn(0, "image/svg+xml")).toBe(900);
+      expect(presignExpiresIn(86401, "image/svg+xml")).toBe(900);
+    });
+
+    it("honors a shorter explicit TTL on a gated type", () => {
+      expect(presignExpiresIn(120, "image/svg+xml")).toBe(120);
+    });
+
+    it("leaves an ungated type's full 24-hour ceiling and 1-hour default alone", () => {
+      expect(presignExpiresIn(86400, "image/png")).toBe(86400);
+      expect(presignExpiresIn(undefined, "image/png")).toBe(3600);
+      expect(presignExpiresIn(86401, "image/png")).toBe(3600);
+    });
   });
 
   it("rejects text/html", async () => {

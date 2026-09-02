@@ -5,6 +5,7 @@ import {
   ValidationError,
 } from "@uploads/errors";
 import type { Context, Handler } from "hono";
+import { activeContentAllowed } from "../active-content";
 import {
   badKey,
   finalizeUploadKey,
@@ -16,10 +17,12 @@ import {
 import { getFileMetadata, META_MAX_KEYS, setFileMetadata } from "../file-metadata";
 import {
   checkDeclaredLength,
+  isGatedContentType,
   maxBytesForContentType,
   normalizeDeclaredContentType,
   resolveDeclaredContentType,
   resolveUploadPolicy,
+  uploadLimits,
 } from "../guards";
 import { contentSha256Hex, splitUploadMetaHeaders } from "../provenance";
 import { createLaneResolver, objectPublicUrls, resolveObjectLane, storage } from "../storage";
@@ -31,6 +34,36 @@ import { dbFor, primaryDbFor } from "../db-session";
 
 /** Handler shape shared by the legacy bearer and canonical dual-auth routers. */
 export type SharedFilesHandler = Handler<WorkspaceVars>;
+
+/**
+ * Ceiling on a presigned URL's lifetime when the declared type is a gated
+ * SVG/XML one (issue #929 adversarial review L-5). Long enough for any
+ * realistic direct-to-bucket PUT, short enough that turning the gate off
+ * takes effect in minutes rather than the 24 hours every other type gets.
+ */
+const GATED_PRESIGN_MAX_EXPIRES_IN_S = 900;
+
+/** Default presigned-URL lifetime, and the ceiling an ungated type may ask for. */
+const DEFAULT_PRESIGN_EXPIRES_IN_S = 3600;
+const MAX_PRESIGN_EXPIRES_IN_S = 86_400;
+
+/**
+ * The lifetime a presigned URL actually gets. A request outside
+ * `(0, 86400]` — or none at all — falls back to an hour, exactly as it
+ * always has; a gated SVG/XML type is then capped at
+ * {@link GATED_PRESIGN_MAX_EXPIRES_IN_S}, because that URL writes to the
+ * bucket later with nothing on the write path able to re-ask the gate
+ * (issue #929 adversarial review L-5). Exported for direct testing: the
+ * route around it needs signable HTTP credentials to reach a response body
+ * at all, and this arithmetic is the whole of the rule.
+ */
+export function presignExpiresIn(requested: unknown, contentType: string): number {
+  const asked =
+    typeof requested === "number" && requested > 0 && requested <= MAX_PRESIGN_EXPIRES_IN_S
+      ? Math.floor(requested)
+      : DEFAULT_PRESIGN_EXPIRES_IN_S;
+  return isGatedContentType(contentType) ? Math.min(asked, GATED_PRESIGN_MAX_EXPIRES_IN_S) : asked;
+}
 
 export async function signFileHandler(c: Context<WorkspaceVars>) {
   const body = await c.req
@@ -58,7 +91,7 @@ export async function signFileHandler(c: Context<WorkspaceVars>) {
   const ws = c.get("workspace");
   const key = finalizeUploadKey(rawKey, ws);
 
-  const policy = resolveUploadPolicy(ws);
+  const policy = resolveUploadPolicy(ws, { activeContent: await activeContentAllowed(c.env, ws) });
 
   // Content-type is required on presign: the direct-to-bucket PUT cannot
   // magic-byte sniff, so the allowlist must be enforced at mint time.
@@ -81,10 +114,7 @@ export async function signFileHandler(c: Context<WorkspaceVars>) {
     typeof body.maxSize === "number" && body.maxSize > 0
       ? Math.min(body.maxSize, typeCeiling)
       : typeCeiling;
-  const expiresIn =
-    typeof body.expiresIn === "number" && body.expiresIn > 0 && body.expiresIn <= 86400
-      ? Math.floor(body.expiresIn)
-      : 3600;
+  const expiresIn = presignExpiresIn(body.expiresIn, contentType);
 
   try {
     // Two-lane storage: an existing object may live in a fallback lane
@@ -188,8 +218,19 @@ export async function putFileHandler(c: Context<WorkspaceVars>) {
     });
   }
 
-  const policy = resolveUploadPolicy(c.get("workspace"));
-  const declared = checkDeclaredLength(c.req.header("Content-Length"), policy);
+  const ws = c.get("workspace");
+  const finalKey = finalizeUploadKey(key, ws);
+  // Ceilings only, no admission decision — `putObject` is what actually gates
+  // SVG/XML acceptance, against the fully-buffered body (see `uploadLimits`).
+  // Passing the claimed type tightens this to that type's own ceiling, so a
+  // declared 50 MB SVG is refused before the body is buffered at all rather
+  // than after the gated rows' 4 MiB cap (issue #929) sees it.
+  const declaredContentType = resolveDeclaredContentType(c.req.header("Content-Type"), finalKey);
+  const declared = checkDeclaredLength(
+    c.req.header("Content-Length"),
+    uploadLimits(ws),
+    declaredContentType,
+  );
   if (declared) throw declared.error;
 
   const body = await c.req.arrayBuffer();
@@ -220,7 +261,6 @@ export async function putFileHandler(c: Context<WorkspaceVars>) {
     }
   }
   const bytes = new Uint8Array(body);
-  const ws = c.get("workspace");
   const workspaceName = c.get("workspaceName");
   const putOpts = {
     provenance,
@@ -240,7 +280,6 @@ export async function putFileHandler(c: Context<WorkspaceVars>) {
   // Hash the body once, up front: it anchors the fingerprint and the reconcile
   // check, and is threaded into putObject so it isn't hashed a second time.
   const contentSha256 = await contentSha256Hex(bytes);
-  const finalKey = finalizeUploadKey(key, ws);
   const idempotentPutOpts = { ...putOpts, contentSha256 };
   let result;
   try {
@@ -254,7 +293,7 @@ export async function putFileHandler(c: Context<WorkspaceVars>) {
         visibility,
         replace: wantReplace,
         metadata,
-        declaredContentType: resolveDeclaredContentType(putOpts.declaredContentType, finalKey),
+        declaredContentType,
       },
       run: () => putObject(c.env, ws, key, bytes, workspaceName, idempotentPutOpts),
       reconcile: () =>

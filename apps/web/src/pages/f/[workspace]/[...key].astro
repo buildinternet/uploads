@@ -558,11 +558,9 @@ const ogImage = file
               compare={compare}
             >
               <CopyAsControls formats={embedFormats} downloadUrl={downloadUrl}>
-                {kind(file.contentType) !== "unsupported" && (
-                  <a class="original" href={file.url} rel="noopener noreferrer">
-                    Open original ↗
-                  </a>
-                )}
+                <a class="original" href={file.url} rel="noopener noreferrer">
+                  Open original ↗
+                </a>
               </CopyAsControls>
               {railRows && (
                 <div>

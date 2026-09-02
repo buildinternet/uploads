@@ -13,7 +13,7 @@
  * unauthorized caller's response is indistinguishable from a public repo's,
  * and no row is minted along that path.
  */
-import { ForbiddenError } from "@uploads/errors";
+import { ForbiddenError, UnsupportedMediaTypeError } from "@uploads/errors";
 import { githubAppConfig, installationForRepo, prHeadBranch, repoIsPrivate } from "./github-app";
 import { checkRepoAuthorization, postManagedComment } from "./github-comment-service";
 import { GH_PRIVATE_ROOT, type GhTargetKind, parseGhPrivateKey } from "./github-comment-render";
@@ -139,7 +139,20 @@ export async function resolveGhKeyContextSafe(
 
 export type RotatePrivatePrefixResult =
   | { rotated: false; reason: string }
-  | { rotated: true; prefixId: string; moved: number };
+  | {
+      rotated: true;
+      prefixId: string;
+      moved: number;
+      /**
+       * Old keys this rotation could not re-write at the new prefix because
+       * the destination refused the type (a 415 from `putObject`'s
+       * active-content gate — issue #929 adversarial review M-2). They keep
+       * their old key and stay reachable at the retired prefix; the next
+       * rotation's resumability sweep picks them up again once the gate
+       * reopens. Absent when nothing was skipped.
+       */
+      skipped?: string[];
+    };
 
 /**
  * Rotate the active prefix id for `(repo, branch)` (issue #631, Task 8):
@@ -194,6 +207,12 @@ export type RotatePrivatePrefixResult =
  * now-half-migrated attachments. The failed object's OLD copy is left in
  * place (never reached the delete step), so nothing is lost; the next call
  * picks it up via the resumability sweep above.
+ *
+ * The one exception is a 415 (`UnsupportedMediaTypeError`): rotation is a
+ * *revocation* mechanism — an operator rotating a leaked prefix must not be
+ * wedged by one SVG the active-content gate has since closed on (issue #929
+ * adversarial review M-2). Such an object is recorded in `skipped` and left
+ * where it is; everything else still moves, and the next rotation retries it.
  */
 export async function rotatePrivatePrefix(
   env: Env,
@@ -224,6 +243,7 @@ export async function rotatePrivatePrefix(
 
   const targets = new Map<string, { kind: GhTargetKind; num: number }>();
   let moved = 0;
+  const skipped: string[] = [];
 
   try {
     for (const sourceId of sourceIds) {
@@ -254,10 +274,27 @@ export async function rotatePrivatePrefix(
           // content-identical object) and write inheritable `file_metadata`
           // rows (`repo`, `path`, `url`, …) onto `newKey` before this
           // function's own rename below runs.
-          await putObject(env, ws, newKey, bytes, workspaceName, {
-            ...putOptsFromStoredObject(source),
-            surface: "rotate",
-          });
+          try {
+            await putObject(env, ws, newKey, bytes, workspaceName, {
+              ...putOptsFromStoredObject(source),
+              surface: "rotate",
+            });
+          } catch (err) {
+            // Only a 415 is tolerated here (see the partial-failure note
+            // above); every other error still propagates. Nothing below has
+            // run yet, so the old key keeps its bytes and its D1 rows.
+            if (!(err instanceof UnsupportedMediaTypeError)) throw err;
+            console.error(
+              JSON.stringify({
+                message: "rotate copy refused: unsupported media type",
+                key: item.key,
+                newKey,
+                error: err.message,
+              }),
+            );
+            skipped.push(item.key);
+            continue;
+          }
 
           // Wipe whatever's already at `newKey` before renaming onto it —
           // `putObject`'s inheritance above may have just written donor rows
@@ -350,5 +387,5 @@ export async function rotatePrivatePrefix(
     );
   }
 
-  return { rotated: true, prefixId: newId, moved };
+  return { rotated: true, prefixId: newId, moved, ...(skipped.length ? { skipped } : {}) };
 }

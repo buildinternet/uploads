@@ -53,7 +53,7 @@ export type GalleryFetchResult =
   | { status: "not_found" }
   | { status: "unavailable" };
 
-export type MediaKind = "image" | "video" | "file" | "unsupported" | "missing";
+export type MediaKind = "image" | "video" | "file" | "missing";
 
 /** Gallery variant of `fileKind` (public-file.ts): one shared classifier plus tombstones. */
 export function mediaKind(item: PublicGalleryItem): MediaKind {

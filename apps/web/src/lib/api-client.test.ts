@@ -27,6 +27,7 @@ import {
   searchWorkspaceFiles,
   setFileVisibility,
   updateWorkspaceMemberRole,
+  verifyLaneActiveContent,
   verifyWorkspaceStorage,
   type StorageCandidate,
 } from "./api-client";
@@ -1959,5 +1960,43 @@ describe("deleteWorkspaceStorage", () => {
       kind: "conflict",
       message: "this workspace still has files on its BYO bucket — pass force to detach anyway",
     });
+  });
+});
+
+/**
+ * The on-demand SVG/XML check is cooled down per lane (issue #929
+ * adversarial review L-3). A 429 is not a server problem — it reports as a
+ * `rejected` check, the same branch the 422s take, so the settings panel
+ * renders one explanatory line rather than "couldn't reach the server".
+ */
+describe("verifyLaneActiveContent — per-lane cooldown", () => {
+  it("reports a 429 as a rejected check with a try-again hint", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json(
+          { error: { code: "active_content_check_cooldown", message: "Too many requests." } },
+          { status: 429 },
+        ),
+      ),
+    );
+
+    const result = await verifyLaneActiveContent("http://127.0.0.1:8787", "acme", "active");
+
+    expect(result.kind).toBe("rejected");
+    if (result.kind !== "rejected") throw new Error("expected a rejected result");
+    expect(result.check.ok).toBe(false);
+    expect(result.check.hint).toContain("try again");
+  });
+
+  it("still reports a real server error as unavailable", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("boom", { status: 500 })),
+    );
+
+    await expect(
+      verifyLaneActiveContent("http://127.0.0.1:8787", "acme", "active"),
+    ).resolves.toEqual({ kind: "unavailable", reason: "server" });
   });
 });

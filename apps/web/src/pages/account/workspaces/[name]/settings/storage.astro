@@ -15,6 +15,7 @@
  * sits inline at equal weight.
  */
 import WorkspaceLayout from "../../../../../layouts/WorkspaceLayout.astro";
+import ActiveContentDetails from "../../../../../components/settings/ActiveContentDetails.astro";
 import { isBrowseWorkspace } from "../../../../../lib/workspace-browse-url";
 
 export const prerender = false;
@@ -37,6 +38,12 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       <div id="storage-error" class="ul-callout" data-state="error" role="alert" hidden></div>
 
       <div id="storage-shared">
+        <!-- SVG/XML readiness of the hosted host (issue #929). Ops-owned:
+             a daily cron probes storage.uploads.sh and friends, so there is
+             no "Check now" here — that button lives on BYO lane cards
+             below, which each own their own host. -->
+        <p class="settings-note muted mb-3" id="storage-shared-active-content"></p>
+
         <!-- Empty state: shared `Empty` card shape (kept in sync with
              packages/ui/src/components/ui/empty.tsx, same convention as
              renderEmptyStateHtml in workspace-ui.ts), centered inside the
@@ -130,6 +137,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
             </div>
           </div>
           <dl class="kv" id="storage-saved-details"></dl>
+          <ActiveContentDetails idPrefix="storage-saved" />
           <div
             class="storage-actions flex flex-wrap items-center gap-3 mt-3"
             id="storage-saved-actions"
@@ -231,6 +239,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         </div>
 
         <dl class="kv" id="storage-byo-details"></dl>
+        <ActiveContentDetails idPrefix="storage-byo" />
         <div
           class="storage-confirm max-w-[32rem] mt-3 flex flex-col gap-2.5 rounded-md border border-border px-4 py-3"
           id="storage-byo-confirm"
@@ -459,6 +468,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       getWorkspaceStorageStatus,
       listWorkspaceStorageBuckets,
       putWorkspaceStorage,
+      verifyLaneActiveContent,
       verifyWorkspaceStorage,
       type StorageCandidate,
       type StorageVerifyResult,
@@ -515,6 +525,28 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       const storageSharedEl = requireElement<HTMLElement>("#storage-shared", page);
       const storageByoEl = requireElement<HTMLElement>("#storage-byo", page);
       const storageByoDetails = requireElement<HTMLElement>("#storage-byo-details", page);
+      // SVG/XML readiness (issue #929): the hosted-host row plus each BYO
+      // lane's own "Check now" details block.
+      const storageSharedActiveContent = requireElement<HTMLElement>(
+        "#storage-shared-active-content",
+        page,
+      );
+      const storageByoCheckActiveContentBtn = requireElement<HTMLButtonElement>(
+        "#storage-byo-check-active-content-btn",
+        page,
+      );
+      const storageByoActiveContentStatus = requireElement<HTMLElement>(
+        "#storage-byo-active-content-status",
+        page,
+      );
+      const storageSavedCheckActiveContentBtn = requireElement<HTMLButtonElement>(
+        "#storage-saved-check-active-content-btn",
+        page,
+      );
+      const storageSavedActiveContentStatus = requireElement<HTMLElement>(
+        "#storage-saved-active-content-status",
+        page,
+      );
       const storageConnectBtn = requireElement<HTMLButtonElement>("#storage-connect-btn", page);
       const storageIntro = requireElement<HTMLElement>("#storage-intro", page);
       const storageReplaceBtn = requireElement<HTMLButtonElement>("#storage-replace-btn", page);
@@ -675,11 +707,51 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       }
 
       /**
+       * Plain words for each reason the server can give for SVG/XML being off
+       * (`activeContentReason`, issue #929). Unrecognized values fall through
+       * to the generic "Not verified" line — a reason we can't phrase is
+       * worse than none.
+       */
+      const ACTIVE_CONTENT_REASONS: Record<string, string> = {
+        opted_out: "turned off for this workspace",
+        flag_off: "not available yet",
+        unhealthy: "this bucket isn't working right now",
+        host_missing: "this host hasn't passed the check",
+        host_not_ok: "this host failed its last check",
+        host_stale: "this host's last check has expired",
+        lane_missing: "not checked yet",
+        lane_stale: "the last check has expired",
+      };
+
+      /**
+       * "SVG & XML" row value (issue #929): the timestamp the gate is
+       * trusting, or "Not verified" with whatever the server said closed it
+       * (`reason`) and, on a lane the workspace can actually fix, a nudge
+       * toward the header block and "Check now" button below the row.
+       */
+      function activeContentRowValue(
+        verifiedAt: string | undefined,
+        opts: { reason?: string; nudge?: boolean } = {},
+      ): string {
+        if (verifiedAt) return escapeHtml(`Verified ${formatTimestamp(verifiedAt)}`);
+        const why = opts.reason ? ACTIVE_CONTENT_REASONS[opts.reason] : undefined;
+        const note = [why, opts.nudge ? "set the headers below, then Check now." : undefined]
+          .filter(Boolean)
+          .join(" — ");
+        return (
+          `<span class="ul-badge ul-badge--accent">Not verified</span> ` +
+          (note
+            ? `<span class="storage-signed-only-note block mt-1 text-xs text-muted-foreground">${escapeHtml(note)}</span>`
+            : "")
+        );
+      }
+
+      /**
        * Shared row-list builder for the active-BYO and saved-lane detail
        * panels: same fields, same order (bucket → provider-specific id →
-       * access key → public URL → verified), just a different source object
-       * and an optional trailing jurisdiction row the saved-lane panel never
-       * shows.
+       * access key → public URL → verified → SVG & XML), just a different
+       * source object and an optional trailing jurisdiction row the
+       * saved-lane panel never shows.
        */
       function buildStorageRows(
         fields: Pick<
@@ -692,8 +764,9 @@ if (!workspace) return Astro.redirect("/account/workspaces");
           | "accessKeyIdLast4"
           | "publicBaseUrl"
           | "verifiedAt"
+          | "activeContentVerifiedAt"
         >,
-        jurisdiction?: string,
+        opts: { jurisdiction?: string; activeContentReason?: string } = {},
       ): [string, string][] {
         const isS3 = fields.provider === "s3";
         const rows: [string, string][] = [["Bucket", escapeHtml(fields.bucket ?? "—")]];
@@ -709,7 +782,20 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         ]);
         rows.push(["Public base URL", publicBaseUrlRowValue(fields.publicBaseUrl)]);
         rows.push(["Verified", escapeHtml(formatTimestamp(fields.verifiedAt))]);
-        if (!isS3 && jurisdiction) rows.push(["Jurisdiction", escapeHtml(jurisdiction)]);
+        // No point nudging toward the header block and "Check now" button
+        // when the reason SVG/XML are off has nothing to do with this
+        // lane's headers — the workspace opted out, or the feature itself
+        // is off (issue #929 review).
+        const nudge =
+          opts.activeContentReason !== "flag_off" && opts.activeContentReason !== "opted_out";
+        rows.push([
+          "SVG & XML",
+          activeContentRowValue(fields.activeContentVerifiedAt, {
+            reason: opts.activeContentReason,
+            nudge,
+          }),
+        ]);
+        if (!isS3 && opts.jurisdiction) rows.push(["Jurisdiction", escapeHtml(opts.jurisdiction)]);
         return rows;
       }
 
@@ -720,11 +806,36 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       }
 
       function renderByoDetails(status: WorkspaceStorageStatus): void {
-        renderStorageRows(storageByoDetails, buildStorageRows(status, status.jurisdiction));
+        renderStorageRows(
+          storageByoDetails,
+          buildStorageRows(status, {
+            jurisdiction: status.jurisdiction,
+            activeContentReason: status.activeContentReason,
+          }),
+        );
       }
 
+      // A saved lane isn't the one serving anything, so there is no gate
+      // reason for it — only its own stamp's freshness, which the server
+      // already applied.
       function renderSavedDetails(lane: WorkspaceStorageLane): void {
         renderStorageRows(storageSavedDetails, buildStorageRows(lane));
+      }
+
+      /**
+       * The hosted host's own SVG/XML row (issue #929) — shown once at the
+       * top of `#storage-shared`, above whichever sub-state (empty intro or
+       * saved-lane card) is visible. The fields come from the gate itself
+       * (`storageGetHandler`), so this row always matches what uploads
+       * actually do. No nudge: nobody in a workspace can set headers on a
+       * hosted host, and there is no "Check now" here to point at.
+       */
+      function renderSharedActiveContent(status: WorkspaceStorageStatus): void {
+        storageSharedActiveContent.innerHTML =
+          `<strong class="text-foreground">SVG &amp; XML:</strong> ` +
+          activeContentRowValue(status.activeContentVerifiedAt, {
+            reason: status.activeContentReason,
+          });
       }
 
       /**
@@ -1322,6 +1433,62 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         );
       });
 
+      /**
+       * "Check now" for the SVG/XML sandboxing-CSP probe (issue #929) — same
+       * shape on the active-BYO card and the saved (not-in-use) lane card,
+       * just a different `laneId` and status line. Re-applies the returned
+       * `status` on success (200 or the 422 rejections both carry a real
+       * `check`) so the new "SVG & XML" row updates immediately.
+       */
+      async function checkActiveContent(
+        laneId: string,
+        button: HTMLButtonElement,
+        statusEl: HTMLElement,
+      ): Promise<void> {
+        button.disabled = true;
+        statusEl.textContent = "Checking…";
+        statusEl.removeAttribute("data-state");
+        const result = await verifyLaneActiveContent(apiOrigin, workspaceName, laneId);
+        if (!stillHere()) return;
+        button.disabled = false;
+        if (result.kind === "ok") {
+          // `applyStatus` re-renders the "SVG & XML" row from the fresh
+          // status and clears this very status line (same reset every other
+          // action in this panel applies) — so the confirmation text below
+          // has to be set *after* it, not before.
+          applyStatus(result.status);
+          statusEl.textContent = result.check.ok
+            ? "Verified."
+            : (result.check.hint ?? "Not verified yet.");
+          statusEl.dataset.state = result.check.ok ? "ok" : "error";
+          return;
+        }
+        if (result.kind === "rejected") {
+          statusEl.textContent = result.check.hint ?? "Couldn’t check this lane.";
+          statusEl.dataset.state = "error";
+          return;
+        }
+        statusEl.textContent = "Couldn’t reach the server. Try again.";
+        statusEl.dataset.state = "error";
+      }
+
+      storageByoCheckActiveContentBtn.addEventListener("click", () => {
+        void checkActiveContent(
+          "active",
+          storageByoCheckActiveContentBtn,
+          storageByoActiveContentStatus,
+        );
+      });
+
+      storageSavedCheckActiveContentBtn.addEventListener("click", () => {
+        if (!savedLaneId) return;
+        void checkActiveContent(
+          savedLaneId,
+          storageSavedCheckActiveContentBtn,
+          storageSavedActiveContentStatus,
+        );
+      });
+
       storageDisconnectBtn.addEventListener("click", () => {
         void (async () => {
           if (sharedFallbackLaneId) {
@@ -1404,6 +1571,10 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         closeMenus();
         storageActionStatus.textContent = "";
         storageActionStatus.removeAttribute("data-state");
+        storageByoActiveContentStatus.textContent = "";
+        storageByoActiveContentStatus.removeAttribute("data-state");
+        storageSavedActiveContentStatus.textContent = "";
+        storageSavedActiveContentStatus.removeAttribute("data-state");
         storageSavedConfirm.hidden = true;
         storageByoConfirm.hidden = true;
         renderPreviousLine(status);
@@ -1424,6 +1595,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         } else {
           storageByoEl.hidden = true;
           storageSharedEl.hidden = false;
+          renderSharedActiveContent(status);
           const standby = status.lanes.find((lane) => lane.role === "standby");
           if (standby) {
             savedLaneId = standby.laneId;

@@ -460,4 +460,13 @@ export const me = new Hono<SessionVars>()
   )
   .delete("/workspaces/:name/storage", (c) =>
     forwardToWorkspaceSettings(c, `/${encodeURIComponent(c.req.param("name"))}/storage`),
+  )
+  // SVG/XML active-content lane check (issue #929) — same forward posture as
+  // the five routes above; the web settings page's "Check now" button calls
+  // this alias the same way it calls activate.
+  .post("/workspaces/:name/storage/lanes/:laneId/verify-active-content", (c) =>
+    forwardToWorkspaceSettings(
+      c,
+      `/${encodeURIComponent(c.req.param("name"))}/storage/lanes/${encodeURIComponent(c.req.param("laneId"))}/verify-active-content`,
+    ),
   );

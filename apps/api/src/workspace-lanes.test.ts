@@ -58,7 +58,9 @@ function r2ActiveRecord(extra: Partial<WorkspaceRecord> = {}): WorkspaceRecord {
 describe("promoteLane", () => {
   it("promotes an s3 standby lane: active record gets provider s3 plus endpoint/region/forcePathStyle", () => {
     const next: WorkspaceRecord = { provider: "r2", bucket: "old-shared", binding: "BUCKET" };
-    promoteLane(next, s3StandbyLane() as PromotableLane, "2026-08-30T00:00:00.000Z");
+    promoteLane(next, s3StandbyLane() as PromotableLane, {
+      verifiedAt: "2026-08-30T00:00:00.000Z",
+    });
     expect(next.provider).toBe("s3");
     expect(next.bucket).toBe("acme-s3-bucket-2");
     expect(next.endpoint).toBe("https://s3.eu-west-2.amazonaws.com");
@@ -82,7 +84,7 @@ describe("promoteLane", () => {
       secretAccessKey: "enc:v1:y",
       jurisdiction: "fedramp",
     };
-    promoteLane(next, r2Lane, "2026-08-30T00:00:00.000Z");
+    promoteLane(next, r2Lane, { verifiedAt: "2026-08-30T00:00:00.000Z" });
     expect(next.provider).toBe("r2");
     expect(next.accountId).toBe("b".repeat(32));
     expect(next.jurisdiction).toBe("fedramp");
@@ -127,7 +129,9 @@ describe("promote/demote round trip", () => {
     const s3Lane = s3StandbyLane();
     const demotedR2 = demoteActiveLane(record, "2026-08-30T00:00:00.000Z");
     const afterFirstSwitch: WorkspaceRecord = { ...record, storageLanes: [demotedR2] };
-    promoteLane(afterFirstSwitch, s3Lane as PromotableLane, "2026-08-30T00:01:00.000Z");
+    promoteLane(afterFirstSwitch, s3Lane as PromotableLane, {
+      verifiedAt: "2026-08-30T00:01:00.000Z",
+    });
 
     expect(afterFirstSwitch.provider).toBe("s3");
     expect(afterFirstSwitch.endpoint).toBe(s3Lane.endpoint);
@@ -144,7 +148,9 @@ describe("promote/demote round trip", () => {
       ...afterFirstSwitch,
       storageLanes: [demotedS3],
     };
-    promoteLane(afterSecondSwitch, demotedR2 as PromotableLane, "2026-08-30T00:03:00.000Z");
+    promoteLane(afterSecondSwitch, demotedR2 as PromotableLane, {
+      verifiedAt: "2026-08-30T00:03:00.000Z",
+    });
 
     // Back on r2, with the original r2 fields intact.
     expect(afterSecondSwitch.provider).toBe("r2");
@@ -162,5 +168,49 @@ describe("promote/demote round trip", () => {
     expect(demotedS3.region).toBe(s3Lane.region);
     expect(demotedS3.forcePathStyle).toBe(s3Lane.forcePathStyle);
     expect(demotedS3.accountId).toBeUndefined();
+  });
+});
+
+describe("activeContentVerifiedAt (issue #929)", () => {
+  it("demoteActiveLane carries storageActiveContentVerifiedAt onto the fallback lane's activeContentVerifiedAt", () => {
+    const current = r2ActiveRecord({ storageActiveContentVerifiedAt: "2026-09-01T00:00:00.000Z" });
+    const demoted = demoteActiveLane(current, "2026-09-02T00:00:00.000Z");
+    expect(demoted.activeContentVerifiedAt).toBe("2026-09-01T00:00:00.000Z");
+  });
+
+  it("demoteActiveLane leaves activeContentVerifiedAt absent when the active lane never passed the probe", () => {
+    const current = r2ActiveRecord();
+    const demoted = demoteActiveLane(current, "2026-09-02T00:00:00.000Z");
+    expect(demoted.activeContentVerifiedAt).toBeUndefined();
+  });
+
+  it("promoteLane stamps storageActiveContentVerifiedAt when passed a value", () => {
+    const next: WorkspaceRecord = { provider: "r2", bucket: "old-shared", binding: "BUCKET" };
+    promoteLane(next, s3StandbyLane() as PromotableLane, {
+      verifiedAt: "2026-08-30T00:00:00.000Z",
+      activeContentVerifiedAt: "2026-08-30T00:00:00.000Z",
+    });
+    expect(next.storageActiveContentVerifiedAt).toBe("2026-08-30T00:00:00.000Z");
+  });
+
+  it("promoteLane clears storageActiveContentVerifiedAt when the stamp is omitted, even if the record carried one before", () => {
+    const next: WorkspaceRecord = r2ActiveRecord({
+      storageActiveContentVerifiedAt: "2026-08-01T00:00:00.000Z",
+    });
+    promoteLane(next, s3StandbyLane() as PromotableLane, {
+      verifiedAt: "2026-08-30T00:00:00.000Z",
+    });
+    expect(next.storageActiveContentVerifiedAt).toBeUndefined();
+  });
+
+  it("round-trips the stamp through demote then promote, same as verifiedAt", () => {
+    const record = r2ActiveRecord({ storageActiveContentVerifiedAt: "2026-09-01T00:00:00.000Z" });
+    const demoted = demoteActiveLane(record, "2026-09-02T00:00:00.000Z");
+    const next: WorkspaceRecord = { provider: "r2", bucket: "placeholder" };
+    promoteLane(next, demoted as PromotableLane, {
+      verifiedAt: "2026-09-02T00:01:00.000Z",
+      activeContentVerifiedAt: demoted.activeContentVerifiedAt,
+    });
+    expect(next.storageActiveContentVerifiedAt).toBe("2026-09-01T00:00:00.000Z");
   });
 });

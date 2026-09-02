@@ -57,16 +57,22 @@ export type FileFetchResult =
   | { status: "unavailable" };
 
 /** How a file should be presented in the page's media stage. */
-export type MediaKind = "image" | "video" | "file" | "unsupported";
+export type MediaKind = "image" | "video" | "file";
 
-const imageTypes = new Set(["image/png", "image/jpeg", "image/gif", "image/webp", "image/avif"]);
+const imageTypes = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+  "image/avif",
+  "image/svg+xml",
+]);
 const videoTypes = new Set(["video/mp4", "video/webm", "video/quicktime"]);
 
-/** Classify a content type for rendering; SVG is unsupported per upload policy. */
+/** Classify a content type for rendering. SVG renders through `<img>` like any other image — never inline (#929). */
 export function fileKind(contentType: string): MediaKind {
   if (imageTypes.has(contentType)) return "image";
   if (videoTypes.has(contentType)) return "video";
-  if (contentType === "image/svg+xml") return "unsupported";
   return "file";
 }
 

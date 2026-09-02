@@ -66,6 +66,109 @@ attachments comment prefer `embedUrl` for `<img src>`.
 
 No Worker proxies image bytes — dual host is DNS + zone rules only.
 
+## SVG and XML on the hosted hosts (issue #929)
+
+SVG and XML (`image/svg+xml`, `application/xml`, `text/xml`) are gated
+uploads: a lane only accepts them once its public host is **verified** to
+serve them behind a sandboxing Content-Security-Policy — these are bare R2
+custom domains with no Worker in front, so a malicious SVG's script would
+otherwise run with an origin. See
+`docs/superpowers/specs/2026-09-02-svg-xml-active-content-design.md` for the
+full design; `apps/api/src/active-content.ts` is the gate every write path
+checks, `apps/api/src/active-content-hosts.ts` is the hosted-lane half below.
+
+**Setup (once per hosted host — `storage.uploads.sh`, `store.uploads.sh`,
+`embed.uploads.sh`):**
+
+1. Rules → Transform Rules → Modify Response Header:
+   - When — **validate this expression in the rule editor before relying on
+     it**; the editor's own syntax check catches an unescaped `+` or a plan
+     that can't evaluate it before the rule ever ships:
+     ```
+     (http.host in {"storage.uploads.sh" "store.uploads.sh" "embed.uploads.sh"}) and (any(http.response.headers["content-type"][*] matches "^(image/svg\\+xml|application/xml|text/xml)"))
+     ```
+     The `\+` is written `\\+` here because the Rules language, like most
+     expression languages, needs its own escape character escaped inside a
+     double-quoted string — a lone `\+` is a syntax error in the editor.
+     `matches` (regex) on response headers needs a Cloudflare plan with
+     regex support in Transform Rules; if the zone doesn't have one, use this
+     equivalent expression instead, which needs no regex:
+     ```
+     (http.host in {"storage.uploads.sh" "store.uploads.sh" "embed.uploads.sh"}) and (any(http.response.headers["content-type"][*] eq "image/svg+xml") or any(http.response.headers["content-type"][*] eq "application/xml") or any(http.response.headers["content-type"][*] eq "text/xml"))
+     ```
+   - Set:
+     - `Content-Security-Policy` =
+       `default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox`
+     - `X-Content-Type-Options` = `nosniff`
+
+   Set exactly **one** `Content-Security-Policy` header. Two CSP response
+   headers are legal CSP, but `Headers.get` joins repeated headers with a
+   comma and the probe (`parseSandboxCsp`) splits directives on `;` only — so
+   a policy split across two headers fails the check.
+
+   The rule must cover **XML as well as SVG**. The expression above already
+   lists `application/xml` and `text/xml`; an extension-scoped variant
+   (`ends_with ".svg"`) would pass an SVG-only probe while leaving XML
+   documents free to run script through an `<?xml-stylesheet>` XSLT. The
+   probe writes both an SVG and an XML object and requires both to come back
+   sandboxed, so a rule that misses XML now fails outright.
+
+2. Confirm it worked:
+   ```bash
+   curl -X POST -H "Authorization: Bearer $ADMIN_TOKEN" \
+     https://api.uploads.sh/admin/active-content/probe
+   ```
+   Check the response: all three hosts (`storage.uploads.sh`,
+   `store.uploads.sh`, `embed.uploads.sh`) must read `ok: true`. **Every one of
+   them**, not just the one a given workspace's URLs name — `storage.` and
+   `store.uploads.sh` are two custom domains of the same bucket (same keys,
+   same bytes), so the gate closes for every shared-lane workspace as soon as
+   any hosted host's record is missing, failing, or stale. Then spot-check the
+   headers directly against a real `.svg` and a real `.xml` on each host:
+   ```bash
+   curl -I https://storage.uploads.sh/<workspace-prefix>/<some-key>.svg
+   curl -I https://store.uploads.sh/<workspace-prefix>/<some-key>.svg
+   curl -I https://embed.uploads.sh/<workspace-prefix>/<some-key>.svg
+   curl -I https://storage.uploads.sh/<workspace-prefix>/<some-key>.xml
+   ```
+
+**Daily sweep:** the Worker's `scheduled` handler (`0 6 * * *`, `index.ts`)
+calls `runActiveContentHostSweep` for every hosted host, writing
+`host-active-content:<host>` to `REGISTRY` as `{ ok, verifiedAt, detail? }`.
+Each probe writes an inert SVG _and_ an inert XML object under
+`_internal/uploads-verify/`, fetches both back through the host, and deletes
+them; the record is `ok` only when both pass. `activeContentAllowed`
+(`active-content.ts`) treats a record older than 48h as untrusted — one
+missed cron tick doesn't flip every workspace on that host off, but a
+genuinely broken Transform Rule closes the gate within two days.
+
+The same `scheduled` handler's retention sweep also reaps any
+`_internal/uploads-verify/` object older than 24h from the shared bucket, so
+a probe whose own cleanup failed can't accumulate.
+
+**On-demand probe:** two equivalent routes run the same sweep immediately, so
+a just-applied Transform Rule can be confirmed without waiting for the next
+cron tick — both return the fresh per-host records, each also persisted to
+`REGISTRY`, same as the cron: `POST /admin-ui/active-content/probe` (session,
+global admin — reachable from the `/admin` panel) for a logged-in operator,
+and `POST /admin/active-content/probe` (the `curl` above — `ADMIN_TOKEN` or
+an `operator:write` scoped token) for scripted/CI use.
+
+**Kill switch:** Flagship flag `active-content-uploads`, same app as
+`video-poster-generation` above:
+
+```bash
+wrangler flagship flags update 8371bfe7-9767-4b4d-b75a-37b94d2724f7 \
+  active-content-uploads --default off
+```
+
+Fails closed like the poster flag — a missing binding, a disabled flag, or a
+thrown evaluation are all indistinguishable from "off"
+(`activeContentAllowed`). A BYO lane's own verification is unaffected by
+this Transform Rule: its owner sets the headers on their own host, and its
+`storageActiveContentVerifiedAt` stamp comes from the lane-verify pipeline
+or the settings page's "Check now" button, never this sweep.
+
 ## Cloudflare error pages
 
 Errors Cloudflare produces itself never reach `apps/web`, so the Astro

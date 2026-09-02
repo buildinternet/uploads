@@ -12,11 +12,16 @@ import {
   type ListBucketsResult,
 } from "../r2-list-buckets";
 import {
+  defaultStorageClientFactory,
+  probeActiveContent,
   verifyStorageConfig,
+  type StorageProbeClient,
   type StorageVerifyCandidate,
+  type StorageVerifyCheck,
   type StorageVerifyOptions,
   type StorageVerifyResult,
 } from "../storage-verify";
+import type { ActiveContentReason } from "../active-content";
 import { storageBudgetApplies } from "../budget";
 import { healthFromFields, storageHealth, type StorageHealth } from "../storage-health";
 import { reconcileWorkspaceUsage } from "../reconcile";
@@ -57,6 +62,8 @@ export interface StorageLaneStatus {
   bucket: string;
   publicBaseUrl?: string;
   verifiedAt?: string;
+  /** Last successful `active-content-headers` verify check against this lane's public host (issue #929) — gates SVG/XML acceptance while this lane is active. */
+  activeContentVerifiedAt?: string;
   lastActiveAt?: string;
   accountIdMasked?: string;
   accessKeyIdLast4?: string;
@@ -89,6 +96,17 @@ export interface StorageStatusResponse {
   publicBaseUrl?: string;
   configuredAt?: string;
   verifiedAt?: string;
+  /**
+   * When SVG/XML acceptance is on for the active lane, the timestamp the
+   * gate is trusting (issue #929) — a hosted host's daily-probed record, or
+   * this lane's own `active-content-headers` stamp. Absent whenever
+   * acceptance is off, with `activeContentReason` saying which check said
+   * so. Both are filled in by the GET handler, which alone can ask the gate
+   * (`routes/workspace-settings.ts`); this projection is pure.
+   */
+  activeContentVerifiedAt?: string;
+  /** Why SVG/XML acceptance is off for the active lane, when it is. */
+  activeContentReason?: ActiveContentReason;
   jurisdiction?: string;
   /** s3-only. Service endpoint origin of the active lane. */
   endpoint?: string;
@@ -155,6 +173,7 @@ function laneStatus(lane: StorageLane): StorageLaneStatus {
     bucket: lane.bucket,
     publicBaseUrl: lane.publicBaseUrl,
     verifiedAt: lane.verifiedAt,
+    activeContentVerifiedAt: lane.activeContentVerifiedAt,
     lastActiveAt: lane.lastActiveAt,
     // Never both — an s3 lane carries endpoint/region, never an accountId.
     ...providerFields(isS3, {
@@ -208,6 +227,7 @@ export function storageStatusResponse(
     accessKeyIdLast4: byo ? record.storageAccessKeyIdLast4 : undefined,
     configuredAt: record.storageConfiguredAt,
     verifiedAt: record.storageVerifiedAt,
+    activeContentVerifiedAt: record.storageActiveContentVerifiedAt,
     jurisdiction: byo && !isS3 ? record.jurisdiction : undefined,
     activeLaneId: record.storageLaneId,
     lanes: (record.storageLanes ?? []).map(laneStatus),
@@ -258,6 +278,22 @@ export function storageVerify(
   opts?: StorageVerifyOptions,
 ): Promise<StorageVerifyResult> {
   return runStorageVerify(candidate, opts);
+}
+
+/**
+ * Derives the active-content verification stamp from a verify pipeline
+ * result (issue #929): `nowIso` when the recommended `active-content-headers`
+ * check ran and passed, `undefined` otherwise — an absent check (no
+ * `publicBaseUrl`, or the public-url check itself failed) counts the same as
+ * a failing one. Callers stamp `StorageLane.activeContentVerifiedAt` /
+ * `WorkspaceRecord.storageActiveContentVerifiedAt` with the result.
+ */
+export function activeContentStampFromVerify(
+  result: StorageVerifyResult,
+  nowIso: string,
+): string | undefined {
+  const check = result.checks.find((c) => c.id === "active-content-headers");
+  return check?.ok ? nowIso : undefined;
 }
 
 /** Test-only: swap the verify implementation. Pass `undefined` to restore the real pipeline. */
@@ -392,4 +428,75 @@ export async function verifyLaneForActivate(
   lane: StorageLane,
 ): Promise<StorageVerifyResult> {
   return storageVerify(await laneVerifyCandidate(env, lane));
+}
+
+/**
+ * Runs *only* the active-content probe against `lane` (issue #929,
+ * `POST .../storage/lanes/:laneId/verify-active-content`) — unlike
+ * `verifyLaneForActivate`, this never runs the full shape/auth/round-trip
+ * pipeline: it just opens the lane's (possibly sealed) credentials into a
+ * real client (`laneVerifyCandidate` + `defaultStorageClientFactory` — the
+ * same client-building steps `verifyLaneForActivate` uses, minus the
+ * `verifyStorageConfig` wrapper) and hands it to the shared
+ * `probeActiveContent`, which owns the write/fetch/delete. The caller is
+ * responsible for confirming `lane.publicBaseUrl` is set before calling
+ * this — it is not re-checked here.
+ *
+ * Opening the credentials is wrapped in its own try/catch (review
+ * follow-up, issue #929): bad/rotated credentials or an unresolvable lane
+ * would otherwise escape as an unhandled rejection (a 500 at the route
+ * layer) instead of the same "unknown, not broken" `inconclusive` outcome
+ * the probe itself returns for a failed write or a thrown fetch — the route
+ * leaves the stamp untouched either way.
+ */
+async function defaultLaneActiveContentCheck(
+  env: Env,
+  lane: StorageLane,
+  fetchImpl: typeof fetch,
+): Promise<StorageVerifyCheck> {
+  let candidate: StorageVerifyCandidate;
+  let client: StorageProbeClient;
+  try {
+    candidate = await laneVerifyCandidate(env, lane);
+    client = defaultStorageClientFactory(candidate);
+  } catch {
+    return {
+      id: "active-content-headers",
+      ok: false,
+      required: false,
+      inconclusive: true,
+      hint: "could not open this lane's storage — check the lane's credentials, then check again",
+    };
+  }
+  return probeActiveContent(client, candidate.publicBaseUrl ?? "", fetchImpl);
+}
+
+/**
+ * Indirected through this mutable binding for the same reason as
+ * `storageVerify`/`storageReconcile` above: building a real client resolves
+ * (possibly sealed) credentials and would otherwise hit the network, so
+ * route tests substitute a fake here instead. Restore the default with
+ * `setLaneActiveContentCheckForTests(undefined)` in an `afterEach`/`finally`.
+ */
+let runLaneActiveContentCheck: (
+  env: Env,
+  lane: StorageLane,
+  fetchImpl: typeof fetch,
+) => Promise<StorageVerifyCheck> = defaultLaneActiveContentCheck;
+
+export function laneActiveContentCheck(
+  env: Env,
+  lane: StorageLane,
+  fetchImpl: typeof fetch = fetch,
+): Promise<StorageVerifyCheck> {
+  return runLaneActiveContentCheck(env, lane, fetchImpl);
+}
+
+/** Test-only: swap the lane active-content check implementation. Pass `undefined` to restore the real one. */
+export function setLaneActiveContentCheckForTests(
+  fn:
+    | ((env: Env, lane: StorageLane, fetchImpl: typeof fetch) => Promise<StorageVerifyCheck>)
+    | undefined,
+): void {
+  runLaneActiveContentCheck = fn ?? defaultLaneActiveContentCheck;
 }

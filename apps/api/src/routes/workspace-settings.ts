@@ -59,7 +59,7 @@ import {
   RateLimitedError,
   ValidationError,
 } from "@uploads/errors";
-import { createStorage, type R2Jurisdiction } from "@uploads/storage";
+import { createStorage, hostOf, type R2Jurisdiction } from "@uploads/storage";
 import { dbFor } from "../db-session";
 import { Hono, type Context, type MiddlewareHandler } from "hono";
 import { usageWithLimits } from "../budget";
@@ -74,6 +74,13 @@ import {
   attachmentsMarker,
   type AttachmentItem,
 } from "../github-comment-render";
+import {
+  activeContentStatus,
+  fresh,
+  HOST_RECORD_MAX_AGE_MS,
+  LANE_STAMP_MAX_AGE_MS,
+} from "../active-content";
+import { readHostActiveContent } from "../active-content-hosts";
 import { allowWrite } from "../guards";
 import {
   adminWorkspaceOr403,
@@ -109,13 +116,16 @@ import { mutateWorkspaceRecord } from "../workspace-mutate";
 import { planResponse, planSourceFor } from "../workspace-plan";
 import type { ListBucketsResult } from "../r2-list-buckets";
 import {
+  activeContentStampFromVerify,
   candidateFromBody,
   isByoRecord,
+  laneActiveContentCheck,
   listBuckets,
   storageReconcile,
   storageStatusResponse,
   storageVerify,
   verifyLaneForActivate,
+  type StorageStatusResponse,
 } from "./workspace-storage";
 
 /** `?repo=` shape for the comment preview endpoint: exactly one `/`, no empty segments. */
@@ -430,7 +440,64 @@ export async function storageGetHandler(c: Context<SettingsVars>) {
   const name = c.req.param("workspace") ?? "";
   const record = await loadWorkspaceRecord(c.env, name);
   if (!record) throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
-  return c.json(storageStatusResponse(record, byoBucketAllowed(record)));
+  const status = storageStatusResponse(record, byoBucketAllowed(record));
+  return c.json(await withActiveContentStatus(c.env, record, status));
+}
+
+/**
+ * Replaces the stamps the pure `storageStatusResponse` projection
+ * (`workspace-storage.ts`) can echo with what SVG/XML acceptance actually
+ * turns on right now (issue #929).
+ *
+ * The active lane's row comes straight from `activeContentStatus` — the gate
+ * itself — so the page can never say "Verified" about a lane the gate has
+ * already closed, whatever closed it: the workspace opt-out, the Flagship
+ * flag, an unhealthy lane, a stale hosted-host record, the embed twin's
+ * record, or a BYO stamp past `LANE_STAMP_MAX_AGE_MS`. The raw stamp on the
+ * record is not that answer; the projection has no KV or flag access to find
+ * it out for itself, which is exactly why this lives at the handler.
+ *
+ * The other lanes aren't the gate's subject — none of them is serving
+ * anything — so each is judged on its own evidence: a shared lane by its
+ * host's daily-probed record, a BYO lane by its own stamp's freshness. Host
+ * records are read once per distinct host, in parallel, since several
+ * fallback lanes commonly share one.
+ */
+async function withActiveContentStatus(
+  env: Env,
+  record: WorkspaceRecord,
+  status: StorageStatusResponse,
+): Promise<StorageStatusResponse> {
+  const now = new Date();
+  const gate = await activeContentStatus(env, record, now);
+  status.activeContentVerifiedAt = gate.verifiedAt;
+  status.activeContentReason = gate.reason;
+
+  const hosts = new Set(
+    status.lanes.flatMap((lane) => {
+      if (lane.mode !== "shared") return [];
+      const host = hostOf(lane.publicBaseUrl);
+      return host ? [host] : [];
+    }),
+  );
+  const hostRecords = new Map(
+    await Promise.all(
+      [...hosts].map(async (host) => [host, await readHostActiveContent(env, host)] as const),
+    ),
+  );
+  for (const lane of status.lanes) {
+    if (lane.mode === "shared") {
+      const host = hostOf(lane.publicBaseUrl);
+      const hostRecord = host ? hostRecords.get(host) : null;
+      lane.activeContentVerifiedAt =
+        hostRecord?.ok && fresh(hostRecord.verifiedAt, HOST_RECORD_MAX_AGE_MS, now)
+          ? hostRecord.verifiedAt
+          : undefined;
+    } else if (!fresh(lane.activeContentVerifiedAt, LANE_STAMP_MAX_AGE_MS, now)) {
+      lane.activeContentVerifiedAt = undefined;
+    }
+  }
+  return status;
 }
 
 /**
@@ -576,6 +643,15 @@ export async function storagePutHandler(c: Context<SettingsVars>) {
   }
 
   const nowIso = new Date().toISOString();
+  // ok when the recommended `active-content-headers` check passed; absent
+  // (no publicBaseUrl, or the check failed/never ran) counts as not-verified
+  // — SVG/XML stay off for this lane until a check actually succeeds. That
+  // includes inconclusive: unlike the dedicated verify route
+  // (`storageVerifyActiveContentHandler`), which leaves a prior stamp
+  // untouched on an inconclusive recheck, a save always makes a fresh
+  // determination from this result — inconclusive-on-save clears the stamp,
+  // fail-closed, by design.
+  const activeContentVerifiedAt = activeContentStampFromVerify(result, nowIso);
   const updated = await mutateWorkspaceRecord(
     c.env,
     name,
@@ -619,6 +695,8 @@ export async function storagePutHandler(c: Context<SettingsVars>) {
           next.forcePathStyle = candidate.forcePathStyle;
         }
         next.storageVerifiedAt = nowIso;
+        if (activeContentVerifiedAt) next.storageActiveContentVerifiedAt = activeContentVerifiedAt;
+        else delete next.storageActiveContentVerifiedAt;
         next.storageConfiguredAt = nowIso;
         next.storageConfiguredBy = userId;
         next.storageAccessKeyIdLast4 = accessKeyIdLast4;
@@ -638,6 +716,7 @@ export async function storagePutHandler(c: Context<SettingsVars>) {
         secretAccessKey: sealed.secretAccessKey,
         publicBaseUrl: candidate.publicBaseUrl,
         verifiedAt: nowIso,
+        activeContentVerifiedAt,
         storageConfiguredAt: nowIso,
         storageConfiguredBy: userId,
         storageAccessKeyIdLast4: accessKeyIdLast4,
@@ -658,7 +737,12 @@ export async function storagePutHandler(c: Context<SettingsVars>) {
 
   console.log(JSON.stringify({ event: "workspace_storage_saved", workspace: name, userId }));
 
-  return c.json({ ...storageStatusResponse(updated, true), verify: result });
+  const status = await withActiveContentStatus(
+    c.env,
+    updated,
+    storageStatusResponse(updated, true),
+  );
+  return c.json({ ...status, verify: result });
 }
 
 /**
@@ -710,6 +794,9 @@ export async function storageActivateHandler(c: Context<SettingsVars>) {
 
   const nowIso = new Date().toISOString();
   let verifiedAt = target.verifiedAt;
+  // Carried forward unless a re-verify below runs and settles it fresh —
+  // same "carry, or refresh from the fresh result" posture as `verifiedAt`.
+  let activeContentVerifiedAt = target.activeContentVerifiedAt;
   // A lane carrying a health flag (issue #826) is re-verified however fresh
   // its `verifiedAt` looks: the flag is later evidence than the stamp, and
   // `promoteLane` clears the flag unconditionally — so without this a broken
@@ -720,6 +807,11 @@ export async function storageActivateHandler(c: Context<SettingsVars>) {
       return c.json(result, 422);
     }
     verifiedAt = nowIso;
+    // Same fail-closed posture as `storagePutHandler`: this re-verify is a
+    // fresh determination, so inconclusive-on-save clears the stamp rather
+    // than carrying the pre-re-verify value forward, unlike the dedicated
+    // verify route's leave-it-alone handling of an inconclusive recheck.
+    activeContentVerifiedAt = activeContentStampFromVerify(result, nowIso);
   }
 
   const updated = await mutateWorkspaceRecord(
@@ -738,7 +830,7 @@ export async function storageActivateHandler(c: Context<SettingsVars>) {
         ...current,
         storageLanes: upsertDemotedLane(remaining, demoted),
       };
-      promoteLane(next, freshTarget, verifiedAt);
+      promoteLane(next, freshTarget, { verifiedAt, activeContentVerifiedAt });
       return next;
     },
     { requireServing: true },
@@ -760,7 +852,13 @@ export async function storageActivateHandler(c: Context<SettingsVars>) {
   // legacy attach/detach reconcile calls.
   await reconcileOffPath(c, updated, name, "workspace storage activate");
 
-  return c.json(storageStatusResponse(updated, byoBucketAllowed(updated)));
+  return c.json(
+    await withActiveContentStatus(
+      c.env,
+      updated,
+      storageStatusResponse(updated, byoBucketAllowed(updated)),
+    ),
+  );
 }
 
 /**
@@ -850,7 +948,13 @@ export async function storageDeleteHandler(c: Context<SettingsVars>) {
     console.log(
       JSON.stringify({ event: "workspace_storage_lane_removed", workspace: name, userId, laneId }),
     );
-    return c.json(storageStatusResponse(updated, byoBucketAllowed(updated)));
+    return c.json(
+      await withActiveContentStatus(
+        c.env,
+        updated,
+        storageStatusResponse(updated, byoBucketAllowed(updated)),
+      ),
+    );
   }
 
   const usage = await getWorkspaceUsage(dbFor(c.env), name);
@@ -896,7 +1000,10 @@ export async function storageDeleteHandler(c: Context<SettingsVars>) {
           prefix: shared.prefix,
           publicBaseUrl: shared.publicBaseUrl,
         },
-        undefined,
+        // A restored shared lane carries neither stamp: it was never verified
+        // as a customer lane, and its host's active-content state comes from
+        // the hosted-host records, not a per-workspace stamp.
+        {},
       );
       return next;
     },
@@ -915,7 +1022,221 @@ export async function storageDeleteHandler(c: Context<SettingsVars>) {
     await reconcileOffPath(c, updated, name, "workspace storage detach");
   }
 
-  return c.json(storageStatusResponse(updated, byoBucketAllowed(updated)));
+  return c.json(
+    await withActiveContentStatus(
+      c.env,
+      updated,
+      storageStatusResponse(updated, byoBucketAllowed(updated)),
+    ),
+  );
+}
+
+/**
+ * True when `laneIdParam` names the record's *active* lane — either the
+ * literal `"active"`, or the active lane's own id (`record.storageLaneId`,
+ * absent on a record that predates lanes, in which case only the literal
+ * matches).
+ */
+function isActiveLaneParam(record: WorkspaceRecord, laneIdParam: string): boolean {
+  return (
+    laneIdParam === "active" || (!!record.storageLaneId && laneIdParam === record.storageLaneId)
+  );
+}
+
+/**
+ * Resolves `laneIdParam` to a `StorageLane`-shaped view of the target lane —
+ * the active lane's top-level fields (via `demoteActiveLane`, the same
+ * field mapping `storageDeleteHandler`'s detach path uses to turn the active
+ * fields into a lane shape) when it names the active lane, else a saved
+ * entry in `storageLanes`. `null` when nothing matches.
+ */
+function resolveActiveContentLaneTarget(
+  record: WorkspaceRecord,
+  laneIdParam: string,
+): StorageLane | null {
+  if (isActiveLaneParam(record, laneIdParam)) {
+    return demoteActiveLane(record, new Date().toISOString());
+  }
+  return (record.storageLanes ?? []).find((lane) => lane.id === laneIdParam) ?? null;
+}
+
+/**
+ * Minimum gap between two on-demand active-content checks of the same lane
+ * (issue #929 adversarial review L-3). A "Check now" button that a person
+ * actually presses never comes close; a script driving Worker-origin fetches
+ * at an arbitrary host does.
+ */
+export const ACTIVE_CONTENT_CHECK_COOLDOWN_MS = 60_000;
+
+/**
+ * The `storageActiveContentCheckedAt` key for the lane `laneIdParam` names.
+ * The active lane is keyed by its own id when it has one, so naming it
+ * `active` and naming it by id share a cooldown rather than each getting
+ * their own.
+ */
+function activeContentCooldownKey(record: WorkspaceRecord, laneIdParam: string): string {
+  return isActiveLaneParam(record, laneIdParam) ? (record.storageLaneId ?? "active") : laneIdParam;
+}
+
+/**
+ * The cooldown map with `key` stamped at `nowIso`, pruned to lanes that
+ * still exist (plus `active`) so a deleted lane's entry doesn't linger in the
+ * record forever.
+ */
+function nextActiveContentCheckedAt(
+  record: WorkspaceRecord,
+  key: string,
+  nowIso: string,
+): Record<string, string> {
+  const live = new Set<string>(["active", key]);
+  if (record.storageLaneId) live.add(record.storageLaneId);
+  for (const lane of record.storageLanes ?? []) live.add(lane.id);
+  return Object.fromEntries([
+    ...Object.entries(record.storageActiveContentCheckedAt ?? {}).filter(([k]) => live.has(k)),
+    [key, nowIso],
+  ]);
+}
+
+/**
+ * `POST /:workspace/storage/lanes/:laneId/verify-active-content` (issue
+ * #929) — runs only the SVG/XML sandboxing-CSP probe against one lane
+ * (`laneActiveContentCheck`: upload the inert SVG probe through the lane's
+ * own storage client, ask `checkActiveContentHeaders`, delete the probe),
+ * then stamps the result. This is a rule for *this on-demand route only* —
+ * `storagePutHandler`/`storageActivateHandler` run the same probe as part of
+ * a save and handle inconclusive differently (see the comment at each):
+ *
+ *  - probe passed → `activeContentVerifiedAt`/`storageActiveContentVerifiedAt` set to now.
+ *  - probe failed (not inconclusive) → the stamp is cleared, even if it was
+ *    previously fresh — a lane that used to pass and now doesn't must stop
+ *    admitting SVG/XML immediately, not wait out `LANE_STAMP_MAX_AGE_MS`.
+ *  - probe inconclusive (the fetch itself threw — same "unknown, not
+ *    broken" semantics as the public-url check) → *this route* leaves the
+ *    stamp exactly as it was; `mutateWorkspaceRecord` isn't even called. An
+ *    on-demand recheck of an already-configured lane shouldn't punish a
+ *    transient network blip by revoking something that was working.
+ *
+ * `laneId` is either a saved lane's id (`storageLanes[].id`) or the active
+ * lane, named either by the literal `active` or by its own id
+ * (`record.storageLaneId`). A shared (platform-owned, binding-mode) lane
+ * 422s outright — its state comes from the hosted host's daily-probed KV
+ * record (`./active-content-hosts.ts`), never a per-workspace stamp — and so
+ * does a lane with no `publicBaseUrl` to probe at all.
+ *
+ * Per-lane cooldown (issue #929 adversarial review L-3): every call makes
+ * this Worker fetch a URL the workspace's own admin chose, and the general
+ * write budget (60/60s per workspace) is far too generous for a button. A
+ * second check on the same lane inside {@link ACTIVE_CONTENT_CHECK_COOLDOWN_MS}
+ * is a 429 (`active_content_check_cooldown`) raised *before* any probe — and
+ * before the write limiter, so a rejected recheck doesn't spend the
+ * workspace's write budget either. The clock (`storageActiveContentCheckedAt`)
+ * records attempts, not passes, so a failing or inconclusive probe rate-limits
+ * the next one exactly as a passing one does.
+ */
+export async function storageVerifyActiveContentHandler(c: Context<SettingsVars>) {
+  const name = c.req.param("workspace") ?? "";
+  const laneIdParam = c.req.param("laneId") ?? "";
+  const record = await loadWorkspaceRecord(c.env, name);
+  if (!record) throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
+  if (!byoBucketAllowed(record)) {
+    throw new ForbiddenError("BYO storage is not enabled for this workspace", {
+      code: "byo_bucket_disabled",
+    });
+  }
+
+  const target = resolveActiveContentLaneTarget(record, laneIdParam);
+  if (!target) {
+    throw new NotFoundError("storage lane not found", { code: "storage_lane_not_found" });
+  }
+
+  /** A 422 shaped like the check this route would have returned, so one client branch renders both. */
+  const reject422 = (hint: string) =>
+    c.json({ check: { id: "active-content-headers", ok: false, required: false, hint } }, 422);
+
+  if (isSharedLane(target)) {
+    return reject422(
+      "hosted lanes are verified by the platform, not per workspace — see the hosted host's status instead",
+    );
+  }
+  if (!target.publicBaseUrl) {
+    return reject422("this lane has no public base URL to verify — add one first");
+  }
+
+  const cooldownKey = activeContentCooldownKey(record, laneIdParam);
+  const lastCheckedAt = Date.parse(record.storageActiveContentCheckedAt?.[cooldownKey] ?? "");
+  if (
+    Number.isFinite(lastCheckedAt) &&
+    Date.now() - lastCheckedAt < ACTIVE_CONTENT_CHECK_COOLDOWN_MS
+  ) {
+    throw new RateLimitedError("this lane was checked moments ago — try again shortly", {
+      code: "active_content_check_cooldown",
+      retryAfterSeconds: Math.max(
+        1,
+        Math.ceil((ACTIVE_CONTENT_CHECK_COOLDOWN_MS - (Date.now() - lastCheckedAt)) / 1000),
+      ),
+    });
+  }
+  if (!(await allowWrite(c.env, name))) {
+    throw new RateLimitedError("rate limit exceeded");
+  }
+
+  const check = await laneActiveContentCheck(c.env, target);
+  const nowIso = new Date().toISOString();
+
+  // One write, always — the cooldown clock has to advance even for an
+  // inconclusive probe (an unreachable host is exactly the case that could
+  // otherwise be retried in a tight loop). The verification *stamp* is a
+  // separate question: inconclusive leaves it exactly as it was.
+  const updated = await mutateWorkspaceRecord(
+    c.env,
+    name,
+    (current) => {
+      const next: WorkspaceRecord = {
+        ...current,
+        storageActiveContentCheckedAt: nextActiveContentCheckedAt(current, cooldownKey, nowIso),
+      };
+      if (isActiveLaneParam(current, laneIdParam)) {
+        if (!check.inconclusive) {
+          if (check.ok) next.storageActiveContentVerifiedAt = nowIso;
+          else delete next.storageActiveContentVerifiedAt;
+        }
+        return next;
+      }
+      const freshTarget = (current.storageLanes ?? []).find((lane) => lane.id === laneIdParam);
+      if (!freshTarget) {
+        throw new ConflictError("storage lane no longer exists", {
+          code: "storage_lane_not_found",
+        });
+      }
+      if (check.inconclusive) return next;
+      next.storageLanes = (current.storageLanes ?? []).map((lane) => {
+        if (lane.id !== laneIdParam) return lane;
+        const nextLane: StorageLane = { ...lane };
+        if (check.ok) nextLane.activeContentVerifiedAt = nowIso;
+        else delete nextLane.activeContentVerifiedAt;
+        return nextLane;
+      });
+      return next;
+    },
+    { requireServing: true },
+  );
+
+  console.log(
+    JSON.stringify({
+      event: "workspace_storage_active_content_checked",
+      workspace: name,
+      laneId: laneIdParam,
+      ok: check.ok,
+      inconclusive: check.inconclusive === true,
+    }),
+  );
+
+  const status = await withActiveContentStatus(
+    c.env,
+    updated,
+    storageStatusResponse(updated, byoBucketAllowed(updated)),
+  );
+  return c.json({ check, status });
 }
 
 /** `GET /:workspace/summary` — member-gated: membership + usage + public URL, one payload. */
@@ -1115,4 +1436,9 @@ export const workspaceSettings = new Hono<SettingsVars>()
   .put("/:workspace/storage", sessionAdminGate(), storagePutHandler)
   .post("/:workspace/storage/activate", sessionAdminGate(), storageActivateHandler)
   .delete("/:workspace/storage", sessionAdminGate(), storageDeleteHandler)
+  .post(
+    "/:workspace/storage/lanes/:laneId/verify-active-content",
+    sessionAdminGate(),
+    storageVerifyActiveContentHandler,
+  )
   .onError((err, c) => respondError(c, err));

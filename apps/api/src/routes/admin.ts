@@ -8,6 +8,7 @@ import {
 } from "@uploads/errors";
 import { Hono } from "hono";
 import { adminAuth } from "../admin";
+import { runActiveContentHostSweep } from "../active-content-hosts";
 import {
   DEFAULT_ENROLLMENT_SECONDS,
   DEFAULT_TOKEN_SECONDS,
@@ -492,6 +493,24 @@ export const admin = new Hono<{ Bindings: Env }>()
       const message = err instanceof Error ? err.message : String(err);
       throw new ValidationError(message, { cause: err });
     }
+  })
+
+  /**
+   * On-demand run of the hosted-host SVG/XML sandboxing-CSP probe (issue
+   * #929 final-review) — the same sweep the daily cron runs (`index.ts`'s
+   * `scheduled` handler) and the session-gated `POST /admin-ui/active-content
+   * /probe` route already exposes to a logged-in global admin. This is the
+   * token-authed counterpart: `adminAuth` above gates the whole router, and
+   * (being a POST) requires `operator:write` for a scoped token — same tier
+   * as every other mutating route here — so an operator holding only
+   * `ADMIN_TOKEN` or an `operator:write` token can confirm a just-applied
+   * Transform Rule without a browser session. Returns the fresh per-host
+   * records; each is also persisted to `REGISTRY`, which is what
+   * `activeContentAllowed` (`../active-content.ts`) reads.
+   */
+  .post("/active-content/probe", async (c) => {
+    const records = await runActiveContentHostSweep(c.env);
+    return c.json({ records });
   })
 
   /**

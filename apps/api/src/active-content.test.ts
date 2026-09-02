@@ -1,0 +1,405 @@
+import { describe, expect, it } from "vitest";
+import {
+  ACTIVE_CONTENT_FLAG,
+  HOST_RECORD_MAX_AGE_MS,
+  LANE_STAMP_MAX_AGE_MS,
+  activeContentAllowed,
+  activeContentStatus,
+} from "./active-content";
+import { HOSTED_ACTIVE_CONTENT_HOSTS } from "./active-content-hosts";
+import type { WorkspaceRecord } from "./workspace";
+
+const NOW = new Date("2026-09-02T12:00:00.000Z");
+
+const flagsOn = { getBooleanValue: async () => true };
+const flagsOff = { getBooleanValue: async (_k: string, def: boolean) => def };
+const flagsThrows = {
+  getBooleanValue: async () => {
+    throw new Error("flagship unreachable");
+  },
+};
+
+/** In-memory REGISTRY KV stand-in — `get` over a Map, seeded with host records. */
+function fakeRegistry(records: Record<string, unknown> = {}) {
+  const store = new Map(Object.entries(records));
+  return {
+    get: (async (key: string) => store.get(key) ?? null) as unknown as KVNamespace["get"],
+  };
+}
+
+function env(over: Record<string, unknown> = {}) {
+  return {
+    FLAGS: flagsOn,
+    REGISTRY: fakeRegistry(),
+    ...over,
+  } as unknown as Env;
+}
+
+const SHARED_WS: WorkspaceRecord = {
+  provider: "r2",
+  bucket: "shared",
+  binding: "UPLOADS_DEFAULT",
+  publicBaseUrl: "https://storage.uploads.sh",
+};
+
+const BYO_WS: WorkspaceRecord = {
+  provider: "r2",
+  bucket: "acme-bucket",
+  publicBaseUrl: "https://cdn.acme.example",
+  accountId: "acct",
+  accessKeyId: "enc:v1:x",
+  secretAccessKey: "enc:v1:y",
+};
+
+function isoAgo(ms: number): string {
+  return new Date(NOW.getTime() - ms).toISOString();
+}
+
+/**
+ * A fresh `ok` record for every hosted host the daily sweep covers, plus any
+ * extras. The shared-lane gate requires all of them (issue #929 adversarial
+ * review H-1) — `storage.uploads.sh` and `store.uploads.sh` are two custom
+ * domains of the *same* bucket, so a rule missing from either serves the same
+ * bytes un-sandboxed.
+ */
+function hostRecords(over: Record<string, unknown> = {}, ageMs = 1000) {
+  const records: Record<string, unknown> = {};
+  for (const host of HOSTED_ACTIVE_CONTENT_HOSTS) {
+    records[`host-active-content:${host}`] = { ok: true, verifiedAt: isoAgo(ageMs) };
+  }
+  return { ...records, ...over };
+}
+
+describe("activeContentAllowed — cheap local gates", () => {
+  it("denies when the workspace opted out, before touching FLAGS or REGISTRY", async () => {
+    expect(
+      await activeContentAllowed(
+        env({ FLAGS: undefined, REGISTRY: undefined }),
+        { ...SHARED_WS, activeContentUploads: false },
+        NOW,
+      ),
+    ).toBe(false);
+  });
+
+  it("denies when the FLAGS binding is absent entirely", async () => {
+    expect(await activeContentAllowed(env({ FLAGS: undefined }), SHARED_WS, NOW)).toBe(false);
+  });
+
+  it("fails closed when Flagship evaluation falls back to the default", async () => {
+    expect(await activeContentAllowed(env({ FLAGS: flagsOff }), SHARED_WS, NOW)).toBe(false);
+  });
+
+  it("fails closed when Flagship evaluation throws", async () => {
+    expect(await activeContentAllowed(env({ FLAGS: flagsThrows }), SHARED_WS, NOW)).toBe(false);
+  });
+
+  it("checks the flag with the documented flag key and a false default", async () => {
+    let seen: [string, boolean] | null = null;
+    const capturing = {
+      getBooleanValue: async (key: string, def: boolean) => {
+        seen = [key, def];
+        return true;
+      },
+    };
+    const registry = fakeRegistry(hostRecords({}, 0));
+    await activeContentAllowed(env({ FLAGS: capturing, REGISTRY: registry }), SHARED_WS, NOW);
+    expect(seen).toEqual([ACTIVE_CONTENT_FLAG, false]);
+  });
+
+  it("denies when the active lane is flagged unhealthy, regardless of lane state", async () => {
+    const registry = fakeRegistry(hostRecords({}, 0));
+    expect(
+      await activeContentAllowed(
+        env({ REGISTRY: registry }),
+        { ...SHARED_WS, storageUnhealthyAt: isoAgo(1000) },
+        NOW,
+      ),
+    ).toBe(false);
+    expect(
+      await activeContentAllowed(
+        env(),
+        {
+          ...BYO_WS,
+          storageActiveContentVerifiedAt: isoAgo(0),
+          storageUnhealthyAt: isoAgo(1000),
+        },
+        NOW,
+      ),
+    ).toBe(false);
+  });
+});
+
+// `SHARED_WS.publicBaseUrl` is `https://storage.uploads.sh`, one of
+// `DEFAULT_EMBEDDABLE_HOSTS` (packages/storage) — but the same bytes are
+// also served by `store.uploads.sh` (the same bucket's second custom domain)
+// and by the `embed.uploads.sh` twin `resolveEmbedBaseUrl` derives. Any one
+// of them serving the object un-sandboxed is a bypass, so the gate requires
+// a fresh `ok` record for every hosted host the sweep covers, plus this
+// workspace's own host and its twin (issue #929 adversarial review H-1).
+describe("activeContentAllowed — shared lane", () => {
+  it("allows when every hosted host's KV record is ok and fresh", async () => {
+    const registry = fakeRegistry(hostRecords());
+    expect(await activeContentAllowed(env({ REGISTRY: registry }), SHARED_WS, NOW)).toBe(true);
+  });
+
+  it("denies when the store twin — same bucket, same keys — has never been probed", async () => {
+    const records = hostRecords();
+    delete records["host-active-content:store.uploads.sh"];
+    expect(
+      await activeContentAllowed(env({ REGISTRY: fakeRegistry(records) }), SHARED_WS, NOW),
+    ).toBe(false);
+  });
+
+  it("denies when the store twin's record failed its probe, however fresh the others are", async () => {
+    const registry = fakeRegistry(
+      hostRecords({
+        "host-active-content:store.uploads.sh": { ok: false, verifiedAt: isoAgo(0) },
+      }),
+    );
+    const status = await activeContentStatus(env({ REGISTRY: registry }), SHARED_WS, NOW);
+    expect(status).toEqual({
+      allowed: false,
+      reason: "host_not_ok",
+      host: "store.uploads.sh",
+    });
+  });
+
+  it("denies when the store twin's record is stale, and names it", async () => {
+    const registry = fakeRegistry(
+      hostRecords({
+        "host-active-content:store.uploads.sh": {
+          ok: true,
+          verifiedAt: isoAgo(HOST_RECORD_MAX_AGE_MS + 1),
+        },
+      }),
+    );
+    expect(await activeContentStatus(env({ REGISTRY: registry }), SHARED_WS, NOW)).toEqual({
+      allowed: false,
+      reason: "host_stale",
+      host: "store.uploads.sh",
+    });
+  });
+
+  it("denies when the stable host is ok but the embed twin has never been probed", async () => {
+    const records = hostRecords();
+    delete records["host-active-content:embed.uploads.sh"];
+    expect(
+      await activeContentAllowed(env({ REGISTRY: fakeRegistry(records) }), SHARED_WS, NOW),
+    ).toBe(false);
+  });
+
+  it("denies when the embed twin's record is stale even though the stable host's is fresh", async () => {
+    const registry = fakeRegistry(
+      hostRecords({
+        "host-active-content:embed.uploads.sh": {
+          ok: true,
+          verifiedAt: isoAgo(HOST_RECORD_MAX_AGE_MS + 1),
+        },
+      }),
+    );
+    expect(await activeContentAllowed(env({ REGISTRY: registry }), SHARED_WS, NOW)).toBe(false);
+  });
+
+  it("denies when the stable host's KV record is stale (older than HOST_RECORD_MAX_AGE_MS), even with fresh twins", async () => {
+    const registry = fakeRegistry(
+      hostRecords({
+        "host-active-content:storage.uploads.sh": {
+          ok: true,
+          verifiedAt: isoAgo(HOST_RECORD_MAX_AGE_MS + 1),
+        },
+      }),
+    );
+    expect(await activeContentAllowed(env({ REGISTRY: registry }), SHARED_WS, NOW)).toBe(false);
+  });
+
+  it("allows exactly at the HOST_RECORD_MAX_AGE_MS boundary on every host", async () => {
+    const registry = fakeRegistry(hostRecords({}, HOST_RECORD_MAX_AGE_MS));
+    expect(await activeContentAllowed(env({ REGISTRY: registry }), SHARED_WS, NOW)).toBe(true);
+  });
+
+  it("denies when no host record has ever been written", async () => {
+    expect(await activeContentAllowed(env({ REGISTRY: fakeRegistry() }), SHARED_WS, NOW)).toBe(
+      false,
+    );
+  });
+
+  it("denies when the stable host record exists but failed its probe (ok: false), even with fresh twins", async () => {
+    const registry = fakeRegistry(
+      hostRecords({
+        "host-active-content:storage.uploads.sh": { ok: false, verifiedAt: isoAgo(0) },
+      }),
+    );
+    expect(await activeContentAllowed(env({ REGISTRY: registry }), SHARED_WS, NOW)).toBe(false);
+  });
+
+  it("still requires the hosted host set for an off-list shared host with no embed twin", async () => {
+    const ws: WorkspaceRecord = { ...SHARED_WS, publicBaseUrl: "https://cdn.example" };
+    // Its own host alone is not enough — the platform hosts serve the same
+    // shared bucket whatever URL this workspace happens to be pointed at.
+    expect(
+      await activeContentAllowed(
+        env({
+          REGISTRY: fakeRegistry({
+            "host-active-content:cdn.example": { ok: true, verifiedAt: isoAgo(0) },
+          }),
+        }),
+        ws,
+        NOW,
+      ),
+    ).toBe(false);
+    expect(
+      await activeContentAllowed(
+        env({
+          REGISTRY: fakeRegistry(
+            hostRecords({ "host-active-content:cdn.example": { ok: true, verifiedAt: isoAgo(0) } }),
+          ),
+        }),
+        ws,
+        NOW,
+      ),
+    ).toBe(true);
+  });
+
+  it("denies when the workspace's own off-list host is missing, and names it", async () => {
+    const ws: WorkspaceRecord = { ...SHARED_WS, publicBaseUrl: "https://cdn.example" };
+    expect(
+      await activeContentStatus(env({ REGISTRY: fakeRegistry(hostRecords()) }), ws, NOW),
+    ).toEqual({ allowed: false, reason: "host_missing", host: "cdn.example" });
+  });
+
+  it("denies when the shared workspace has no publicBaseUrl to derive a host from", async () => {
+    const { publicBaseUrl: _unused, ...noUrl } = SHARED_WS;
+    expect(await activeContentAllowed(env(), noUrl, NOW)).toBe(false);
+  });
+
+  it("denies (fails closed) rather than throwing when the REGISTRY binding is absent", async () => {
+    expect(await activeContentAllowed(env({ REGISTRY: undefined }), SHARED_WS, NOW)).toBe(false);
+  });
+});
+
+describe("activeContentAllowed — BYO lane", () => {
+  it("allows when storageActiveContentVerifiedAt is fresh", async () => {
+    expect(
+      await activeContentAllowed(
+        env(),
+        { ...BYO_WS, storageActiveContentVerifiedAt: isoAgo(1000) },
+        NOW,
+      ),
+    ).toBe(true);
+  });
+
+  it("denies when storageActiveContentVerifiedAt is stale (older than LANE_STAMP_MAX_AGE_MS)", async () => {
+    expect(
+      await activeContentAllowed(
+        env(),
+        { ...BYO_WS, storageActiveContentVerifiedAt: isoAgo(LANE_STAMP_MAX_AGE_MS + 1) },
+        NOW,
+      ),
+    ).toBe(false);
+  });
+
+  it("allows exactly at the LANE_STAMP_MAX_AGE_MS boundary", async () => {
+    expect(
+      await activeContentAllowed(
+        env(),
+        { ...BYO_WS, storageActiveContentVerifiedAt: isoAgo(LANE_STAMP_MAX_AGE_MS) },
+        NOW,
+      ),
+    ).toBe(true);
+  });
+
+  it("denies when the lane has never been verified", async () => {
+    expect(await activeContentAllowed(env(), BYO_WS, NOW)).toBe(false);
+  });
+
+  it("never touches REGISTRY for a BYO lane", async () => {
+    const registry = {
+      get: async () => {
+        throw new Error("REGISTRY should not be read for a BYO lane");
+      },
+    } as unknown as KVNamespace;
+    expect(
+      await activeContentAllowed(
+        env({ REGISTRY: registry }),
+        { ...BYO_WS, storageActiveContentVerifiedAt: isoAgo(0) },
+        NOW,
+      ),
+    ).toBe(true);
+  });
+});
+
+/**
+ * The status behind the gate (issue #929 simplify): `activeContentAllowed` is
+ * `.allowed`, and the settings page reads the rest — so every closed gate has
+ * to name the check that closed it, and an open one has to hand over the
+ * timestamp it actually trusted.
+ */
+describe("activeContentStatus — the reason behind the verdict", () => {
+  const freshHosts = hostRecords();
+
+  it("names the check that closed the gate", async () => {
+    const cases: Array<[string, Env, WorkspaceRecord, string?]> = [
+      ["opted_out", env(), { ...SHARED_WS, activeContentUploads: false }],
+      ["flag_off", env({ FLAGS: undefined }), SHARED_WS],
+      ["flag_off", env({ FLAGS: flagsOff }), SHARED_WS],
+      ["flag_off", env({ FLAGS: flagsThrows }), SHARED_WS],
+      [
+        "unhealthy",
+        env({ REGISTRY: fakeRegistry(freshHosts) }),
+        { ...SHARED_WS, storageUnhealthyAt: isoAgo(0) },
+      ],
+      ["host_missing", env(), SHARED_WS, "storage.uploads.sh"],
+      [
+        "host_not_ok",
+        env({
+          REGISTRY: fakeRegistry({
+            ...freshHosts,
+            "host-active-content:storage.uploads.sh": { ok: false, verifiedAt: isoAgo(1000) },
+          }),
+        }),
+        SHARED_WS,
+        "storage.uploads.sh",
+      ],
+      [
+        "host_stale",
+        env({
+          REGISTRY: fakeRegistry({
+            ...freshHosts,
+            "host-active-content:storage.uploads.sh": {
+              ok: true,
+              verifiedAt: isoAgo(HOST_RECORD_MAX_AGE_MS + 1),
+            },
+          }),
+        }),
+        SHARED_WS,
+        "storage.uploads.sh",
+      ],
+      ["lane_missing", env(), BYO_WS],
+      [
+        "lane_stale",
+        env(),
+        { ...BYO_WS, storageActiveContentVerifiedAt: isoAgo(LANE_STAMP_MAX_AGE_MS + 1) },
+      ],
+    ];
+    for (const [reason, e, ws, host] of cases) {
+      expect(await activeContentStatus(e, ws, NOW), reason).toEqual({
+        allowed: false,
+        reason,
+        ...(host ? { host } : {}),
+      });
+    }
+  });
+
+  it("reports the timestamp it trusted — the host record's for a shared lane, the lane's own for BYO", async () => {
+    expect(
+      await activeContentStatus(env({ REGISTRY: fakeRegistry(freshHosts) }), SHARED_WS, NOW),
+    ).toEqual({ allowed: true, verifiedAt: isoAgo(1000) });
+    expect(
+      await activeContentStatus(
+        env(),
+        { ...BYO_WS, storageActiveContentVerifiedAt: isoAgo(5000) },
+        NOW,
+      ),
+    ).toEqual({ allowed: true, verifiedAt: isoAgo(5000) });
+  });
+});

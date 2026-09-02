@@ -1,0 +1,45 @@
+---
+/**
+ * The "Serve SVG and XML" panel on a BYO lane card (issue #929): the two
+ * headers that lane's public host has to send, a "Check now" button that runs
+ * the probe against it, and the status line the probe writes back.
+ *
+ * One template, rendered once per lane card on the storage settings page —
+ * the active-BYO card and the saved-but-not-in-use card show the identical
+ * panel and differ only in which ids their script wires up, so `idPrefix`
+ * ("storage-byo" / "storage-saved") is the whole difference.
+ *
+ * Hosted (shared) lanes get no panel at all: their host is probed by a daily
+ * cron and nobody in a workspace can set headers on it.
+ */
+interface Props {
+  /** Element-id prefix for this lane card — `<prefix>-active-content`, `-btn`, `-status`. */
+  idPrefix: string;
+}
+
+const { idPrefix } = Astro.props;
+---
+
+<details
+  class="storage-active-content max-w-[32rem] rounded-md border border-border px-4 py-2.5 text-[13px] mt-3"
+  id={`${idPrefix}-active-content`}
+>
+  <summary class="cursor-pointer text-foreground font-medium">Serve SVG and XML</summary>
+  <p class="mt-2 mb-1 text-muted-foreground">
+    Set these headers on this bucket's public host, then check:
+  </p>
+  <pre
+    class="storage-active-content__headers rounded-md border border-border bg-muted/40 p-2.5 text-xs overflow-x-auto"><code>Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox
+X-Content-Type-Options: nosniff</code></pre>
+  <div class="storage-actions flex flex-wrap items-center gap-3 mt-2">
+    <button type="button" class="ul-btn" id={`${idPrefix}-check-active-content-btn`}
+      >Check now</button
+    >
+  </div>
+  <p
+    class="muted mt-2 data-[state=error]:text-destructive data-[state=ok]:text-success"
+    id={`${idPrefix}-active-content-status`}
+    role="status"
+  >
+  </p>
+</details>

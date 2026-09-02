@@ -17,6 +17,7 @@
  * same contract as any other overwrite in this API).
  */
 
+import { UnsupportedMediaTypeError } from "@uploads/errors";
 import { getMetadataForKeys, setFileMetadata } from "./file-metadata";
 import { putObject, putOptsFromStoredObject } from "./files-core";
 import { resolveBranchLineageSafe } from "./github-branch-renames";
@@ -410,6 +411,24 @@ export async function promoteBranchAttachments(
         surface: "promote",
       });
     } catch (err) {
+      // A 415 is this one object's problem, not the batch's (issue #929
+      // adversarial review M-2): now that `serverCopy` honors the kill
+      // switch and the workspace opt-out, a staged SVG can become
+      // un-copyable while every other attachment in the same promote is
+      // fine. Skip it by its own name so the caller can see why, and carry
+      // on with the rest.
+      if (err instanceof UnsupportedMediaTypeError) {
+        console.error(
+          JSON.stringify({
+            message: "promote copy refused: unsupported media type",
+            key,
+            destKey,
+            error: err.message,
+          }),
+        );
+        skipped.push({ key, reason: "unsupported_media_type" });
+        continue;
+      }
       // Never leak internal error detail (D1/R2 messages, key policy
       // internals) to API callers — log the detail server-side and report a
       // generic reason.

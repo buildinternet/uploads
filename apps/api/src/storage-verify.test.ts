@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  ACTIVE_CONTENT_PROBE_SVG,
+  checkActiveContentHeaders,
   defaultStorageClientFactory,
+  parseSandboxCsp,
+  probeActiveContent,
   type StorageProbeClient,
   type StorageVerifyCandidate,
   verifyStorageConfig,
@@ -751,5 +755,258 @@ describe("verifyStorageConfig — s3 candidates", () => {
     const roundTrip = result.checks.find((c) => c.id === "round-trip")!;
     expect(roundTrip.ok).toBe(false);
     expect(roundTrip.hint).toMatch(/the R2 API token needs Object Read & Write, not read-only/);
+  });
+});
+
+describe("parseSandboxCsp", () => {
+  it("accepts the recommended policy, extra directives, and bare sandbox", () => {
+    expect(
+      parseSandboxCsp("default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox").ok,
+    ).toBe(true);
+    expect(parseSandboxCsp("sandbox; frame-ancestors 'none'").ok).toBe(true);
+    expect(parseSandboxCsp("sandbox").ok).toBe(true);
+    expect(parseSandboxCsp("SANDBOX allow-forms").ok).toBe(true);
+  });
+  it("rejects a missing header, a policy without sandbox, or a sandbox that re-enables script or origin", () => {
+    expect(parseSandboxCsp(null)).toMatchObject({ ok: false });
+    expect(parseSandboxCsp("default-src 'none'")).toMatchObject({ ok: false });
+    expect(parseSandboxCsp("sandbox allow-scripts")).toMatchObject({ ok: false });
+    expect(parseSandboxCsp("sandbox allow-same-origin allow-forms")).toMatchObject({ ok: false });
+  });
+  // A comma is legal *inside* a directive value, so it can't be a directive
+  // separator (issue #929 adversarial review L-1): splitting on it invented
+  // a `sandbox` directive out of a `report-uri` whose query happened to
+  // contain one.
+  it("does not read a sandbox directive out of a comma inside another directive's value", () => {
+    expect(parseSandboxCsp("report-uri /csp?tags=a,sandbox")).toMatchObject({ ok: false });
+    expect(parseSandboxCsp("frame-ancestors 'self',sandbox")).toMatchObject({ ok: false });
+  });
+  // Two `Content-Security-Policy` response headers is legal CSP, and
+  // `Headers.get` joins repeated headers with ", " — which now fails closed
+  // rather than being parsed apart. The hint says to send exactly one.
+  it("fails closed on a comma-joined pair of CSP headers", () => {
+    expect(parseSandboxCsp("default-src 'none', sandbox")).toMatchObject({ ok: false });
+  });
+  it("still rejects an unsafe sandbox token when the headers were comma-joined", () => {
+    expect(parseSandboxCsp("sandbox allow-scripts, default-src 'none'")).toMatchObject({
+      ok: false,
+    });
+    expect(parseSandboxCsp("sandbox allow-same-origin, default-src 'none'")).toMatchObject({
+      ok: false,
+    });
+  });
+});
+
+describe("checkActiveContentHeaders", () => {
+  const good = () =>
+    new Response(ACTIVE_CONTENT_PROBE_SVG, {
+      status: 200,
+      headers: {
+        "content-type": "image/svg+xml",
+        "content-security-policy": "default-src 'none'; sandbox",
+        "x-content-type-options": "nosniff",
+      },
+    });
+  it("passes when type, csp, and nosniff are all right", async () => {
+    const check = await checkActiveContentHeaders(
+      "https://cdn.example",
+      "_internal/x.svg",
+      async () => good(),
+    );
+    expect(check).toEqual({ id: "active-content-headers", ok: true, required: false });
+  });
+  it("fails on a rewritten content type, a missing csp, or a missing nosniff, naming the header", async () => {
+    const without = (h: string) => async () => {
+      const res = good();
+      const headers = new Headers(res.headers);
+      headers.delete(h);
+      return new Response(ACTIVE_CONTENT_PROBE_SVG, { status: 200, headers });
+    };
+    for (const h of ["content-security-policy", "x-content-type-options"]) {
+      const check = await checkActiveContentHeaders("https://cdn.example", "k.svg", without(h));
+      expect(check.ok).toBe(false);
+      expect(check.hint).toContain(h);
+    }
+    const typed = await checkActiveContentHeaders(
+      "https://cdn.example",
+      "k.svg",
+      async () =>
+        new Response("x", {
+          status: 200,
+          headers: {
+            "content-type": "text/plain",
+            "content-security-policy": "sandbox",
+            "x-content-type-options": "nosniff",
+          },
+        }),
+    );
+    expect(typed.ok).toBe(false);
+  });
+  it("is inconclusive when the fetch throws", async () => {
+    const check = await checkActiveContentHeaders("https://cdn.example", "k.svg", async () => {
+      throw new Error("boom");
+    });
+    expect(check).toMatchObject({ ok: false, inconclusive: true });
+  });
+});
+
+describe("verifyStorageConfig — active-content probe wiring", () => {
+  it("carries an active-content-headers check when the public-url check passes", async () => {
+    const client = new FakeStorageClient();
+    const fetchImpl = vi.fn(async (url: string) => {
+      const key = decodeURIComponent(new URL(url).pathname.slice(1));
+      const data = client.store.get(key);
+      if (!data) return new Response(null, { status: 404 });
+      // Both probe objects — the SVG and the XML (issue #929 M-1) — come
+      // back sandboxed, with the type each was written as.
+      if (key.endsWith(".svg") || key.endsWith(".xml")) {
+        return new Response(data, {
+          status: 200,
+          headers: {
+            "content-type": key.endsWith(".xml") ? "application/xml" : "image/svg+xml",
+            "content-security-policy": "default-src 'none'; sandbox",
+            "x-content-type-options": "nosniff",
+          },
+        });
+      }
+      return new Response(data, { status: 200 });
+    });
+    const result = await run(
+      { ...VALID, publicBaseUrl: "https://media.example.com" },
+      client,
+      fetchImpl as unknown as typeof fetch,
+    );
+    expect(result.checks.find((c) => c.id === "public-url")!.ok).toBe(true);
+    const activeContent = result.checks.find((c) => c.id === "active-content-headers");
+    expect(activeContent).toBeDefined();
+    expect(activeContent!.ok).toBe(true);
+    // Both probe objects are cleaned up alongside the round-trip probe.
+    expect(client.store.size).toBe(0);
+  });
+
+  it("fails the check when the host sandboxes SVG but not XML (issue #929 M-1)", async () => {
+    const client = new FakeStorageClient();
+    const fetchImpl = vi.fn(async (url: string) => {
+      const key = decodeURIComponent(new URL(url).pathname.slice(1));
+      const data = client.store.get(key);
+      if (!data) return new Response(null, { status: 404 });
+      // An extension-scoped rule: `.svg` gets the headers, `.xml` doesn't.
+      if (key.endsWith(".svg")) {
+        return new Response(data, {
+          status: 200,
+          headers: {
+            "content-type": "image/svg+xml",
+            "content-security-policy": "default-src 'none'; sandbox",
+            "x-content-type-options": "nosniff",
+          },
+        });
+      }
+      if (key.endsWith(".xml")) {
+        return new Response(data, { status: 200, headers: { "content-type": "application/xml" } });
+      }
+      return new Response(data, { status: 200 });
+    });
+    const result = await run(
+      { ...VALID, publicBaseUrl: "https://media.example.com" },
+      client,
+      fetchImpl as unknown as typeof fetch,
+    );
+    const activeContent = result.checks.find((c) => c.id === "active-content-headers")!;
+    expect(activeContent.ok).toBe(false);
+    expect(activeContent.hint).toContain("application/xml probe");
+    expect(client.store.size).toBe(0);
+  });
+
+  it("does not run the active-content probe when the public-url check fails", async () => {
+    const client = new FakeStorageClient();
+    const fetchImpl = vi.fn(async () => new Response(null, { status: 404 }));
+    const result = await run(
+      { ...VALID, publicBaseUrl: "https://media.example.com" },
+      client,
+      fetchImpl as unknown as typeof fetch,
+    );
+    expect(result.checks.find((c) => c.id === "public-url")!.ok).toBe(false);
+    expect(result.checks.find((c) => c.id === "active-content-headers")).toBeUndefined();
+  });
+});
+
+describe("probeActiveContent — both probes must pass (issue #929 M-1)", () => {
+  const client: Pick<StorageProbeClient, "upload" | "delete"> = {
+    async upload() {},
+    async delete() {},
+  };
+  const sandboxed = (type: string) =>
+    new Response("<probe/>", {
+      status: 200,
+      headers: {
+        "content-type": type,
+        "content-security-policy": "default-src 'none'; sandbox",
+        "x-content-type-options": "nosniff",
+      },
+    });
+
+  it("is ok when both the SVG and the XML probe come back sandboxed", async () => {
+    const fetchImpl = (async (url: string) =>
+      sandboxed(
+        String(url).endsWith(".xml") ? "application/xml" : "image/svg+xml",
+      )) as unknown as typeof fetch;
+    expect(await probeActiveContent(client, "https://cdn.example", fetchImpl)).toEqual({
+      id: "active-content-headers",
+      ok: true,
+      required: false,
+    });
+  });
+
+  it("is not ok when only the SVG probe is sandboxed, and names the XML one", async () => {
+    const fetchImpl = (async (url: string) =>
+      String(url).endsWith(".xml")
+        ? new Response("<probe/>", { status: 200, headers: { "content-type": "application/xml" } })
+        : sandboxed("image/svg+xml")) as unknown as typeof fetch;
+    const check = await probeActiveContent(client, "https://cdn.example", fetchImpl);
+    expect(check.ok).toBe(false);
+    expect(check.hint).toContain("application/xml probe");
+  });
+
+  it("deletes both probe objects whatever the verdict", async () => {
+    const deleted: string[] = [];
+    const recording: Pick<StorageProbeClient, "upload" | "delete"> = {
+      async upload() {},
+      async delete(key: string) {
+        deleted.push(key);
+      },
+    };
+    const fetchImpl = (async (url: string) =>
+      sandboxed(
+        String(url).endsWith(".xml") ? "application/xml" : "image/svg+xml",
+      )) as unknown as typeof fetch;
+    await probeActiveContent(recording, "https://cdn.example", fetchImpl);
+    expect(deleted).toHaveLength(2);
+    expect(deleted.some((key) => key.endsWith(".svg"))).toBe(true);
+    expect(deleted.some((key) => key.endsWith(".xml"))).toBe(true);
+  });
+});
+
+describe("probeActiveContent — cleanup on a failed write", () => {
+  it("still attempts to delete the probe key when the upload throws after landing", async () => {
+    const deletedKeys: string[] = [];
+    // Some clients throw after the object is already written (e.g. a
+    // timeout on the response) — record the key as "landed" before
+    // throwing, the same way such a client would.
+    let uploadedKey: string | undefined;
+    const client: Pick<StorageProbeClient, "upload" | "delete"> = {
+      async upload(key: string) {
+        uploadedKey = key;
+        throw new Error("timed out after write");
+      },
+      async delete(key: string) {
+        deletedKeys.push(key);
+      },
+    };
+
+    const check = await probeActiveContent(client, "https://media.example.com", fetch);
+
+    expect(check).toMatchObject({ ok: false, inconclusive: true });
+    expect(uploadedKey).toBeDefined();
+    expect(deletedKeys).toEqual([uploadedKey]);
   });
 });

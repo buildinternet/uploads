@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import worker from "../src/index";
 import { getFileMetadata, replaceFileMetadata } from "../src/file-metadata";
 import type { WorkspaceRecord } from "../src/workspace";
@@ -137,6 +137,69 @@ describe("scheduled handler — no staging reaper (#421)", () => {
       expect(
         sqlite.db.prepare("SELECT key_hash FROM idempotency_requests ORDER BY key_hash").all(),
       ).toEqual([{ key_hash: "current" }]);
+    } finally {
+      sqlite.close();
+    }
+  });
+});
+
+/**
+ * Regression guard for #929: the daily hosted-host SVG/XML sandboxing-CSP
+ * sweep (`runActiveContentHostSweep`, apps/api/src/active-content-hosts.ts)
+ * joins the same `scheduled` cron as retention/observability/idempotency/
+ * usage-alert — driven end to end here for the same reason as the block
+ * above (a removed or renamed cron task is caught even if this file never
+ * imports the sweep module by name).
+ */
+describe("scheduled handler — active-content host sweep (#929)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("invokes the daily hosted-host sandboxing-CSP probe and writes host records", async () => {
+    const sqlite = new SqliteD1(MIGRATIONS);
+    try {
+      const bucket = new FakeR2Bucket();
+      const uploadsDefault = new FakeR2Bucket();
+      const registry = fakeRegistry({ [`ws:${WS}`]: RECORD });
+      const env = {
+        REGISTRY: registry,
+        BUCKET: bucket,
+        UPLOADS_DEFAULT: uploadsDefault,
+        DB: database(sqlite),
+      } as unknown as Env;
+
+      // The probe writes an SVG *and* an XML object and requires each to
+      // come back with the type it was written as (issue #929 M-1).
+      const fetchSpy = vi.fn(
+        async (url: string) =>
+          new Response("<probe/>", {
+            status: 200,
+            headers: {
+              "content-type": String(url).endsWith(".xml") ? "application/xml" : "image/svg+xml",
+              "content-security-policy": "default-src 'none'; sandbox",
+              "x-content-type-options": "nosniff",
+            },
+          }),
+      );
+      vi.stubGlobal("fetch", fetchSpy);
+
+      const { ctx, settle } = fakeExecutionContext();
+      await worker.scheduled({} as ScheduledController, env, ctx);
+      await settle();
+
+      expect(fetchSpy).toHaveBeenCalled();
+      expect(registry.store.get("host-active-content:storage.uploads.sh")).toMatchObject({
+        ok: true,
+      });
+      expect(registry.store.get("host-active-content:store.uploads.sh")).toMatchObject({
+        ok: true,
+      });
+      expect(registry.store.get("host-active-content:embed.uploads.sh")).toMatchObject({
+        ok: true,
+      });
+      // The probe object is never left behind in the shared bucket.
+      expect(uploadsDefault.store.size).toBe(0);
     } finally {
       sqlite.close();
     }

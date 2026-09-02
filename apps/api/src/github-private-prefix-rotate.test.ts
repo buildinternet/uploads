@@ -346,6 +346,48 @@ describe("rotatePrivatePrefix", () => {
     expect(seen.bodies).toHaveLength(1);
   });
 
+  // Rotation is a revocation mechanism: an operator rotating a leaked prefix
+  // must never be wedged by one object the active-content gate has since
+  // closed on (issue #929 adversarial review M-2). The refused object keeps
+  // its old key — the next rotation's resumability sweep retries it.
+  it("skips an SVG the active-content gate refuses, moves everything else, and reports it", async () => {
+    const { env, db, bucket, ws } = await seededEnv();
+    const oldId = await getOrMintPrefixId(db, REPO, BRANCH);
+    const pngKey = ghPrivateBranchAttachmentKey(oldId, "shot.png");
+    const svgKey = ghPrivateBranchAttachmentKey(oldId, "diagram.svg");
+    const svg = new TextEncoder().encode(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"></svg>',
+    );
+
+    await putObject(env, ws, pngKey, PNG, WS, {
+      metadata: { "gh.repo": REPO, "gh.kind": "branch" },
+    });
+    // Written straight to the bucket: `seededEnv` binds no FLAGS, so a
+    // direct put of a gated type would 415 here too. This stands in for an
+    // SVG stored while the gate was open.
+    await bucket.put(`${PREFIX}${svgKey}`, svg, {
+      httpMetadata: { contentType: "image/svg+xml" },
+    });
+
+    const result = await withFetch(commentFlowFetch({ bodies: [] }), () =>
+      rotatePrivatePrefix(env, ws, WS, "user-1", REPO, BRANCH),
+    );
+
+    expect(result.rotated).toBe(true);
+    if (!result.rotated) throw new Error("expected rotated: true");
+    expect(result.moved).toBe(1);
+    expect(result.skipped).toEqual([svgKey]);
+
+    // The PNG moved; the refused SVG kept its old key and never landed at
+    // the new prefix.
+    const newPngKey = ghPrivateBranchAttachmentKey(result.prefixId, "shot.png");
+    const newSvgKey = ghPrivateBranchAttachmentKey(result.prefixId, "diagram.svg");
+    expect(bucket.store.has(`${PREFIX}${newPngKey}`)).toBe(true);
+    expect(bucket.store.has(`${PREFIX}${pngKey}`)).toBe(false);
+    expect(bucket.store.has(`${PREFIX}${newSvgKey}`)).toBe(false);
+    expect(bucket.store.has(`${PREFIX}${svgKey}`)).toBe(true);
+  });
+
   it("no active id → { rotated: false, reason: 'no_prefix' }", async () => {
     const { env, ws } = await seededEnv();
     const result = await rotatePrivatePrefix(env, ws, WS, "user-1", REPO, "unminted-branch");

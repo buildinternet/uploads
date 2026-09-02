@@ -89,6 +89,31 @@ clean pass saves. Saving never changes where uploads go — the bucket sits on y
   not.
 </div>
 
+### 5. Optional: serve SVG and XML
+
+By default, SVG and XML uploads 415 on a BYO bucket the same way they do everywhere else — served
+inline with no Worker in front, either format could otherwise run a script with your bucket's origin.
+Set two headers on your bucket's public host to open them up:
+
+```text
+Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox
+X-Content-Type-Options: nosniff
+```
+
+Two things decide whether the check passes:
+
+- **The headers must cover XML, not only SVG.** A rule scoped to the `.svg` extension leaves XML
+  documents free to run script through an `<?xml-stylesheet>` XSLT. Scope yours by content type
+  (`image/svg+xml`, `application/xml`, `text/xml`) or add the extensions.
+- **Send exactly one `Content-Security-Policy` header.** Two are legal CSP, but repeated headers
+  arrive comma-joined and the check can't read them apart, so it fails closed.
+
+Then, on the workspace settings page, open the bucket's **Serve SVG and XML** details and click
+**Check now** — it uploads an inert SVG and an inert XML file, fetches both back through your public
+URL, checks the headers on each, and deletes them. Both have to pass. A passing check is good for 30
+days; after that (or if the check ever fails) SVG and XML go back to 415ing until you check again.
+Checks are limited to one a minute per bucket.
+
 </section>
 
 <section id="s3-compatible">

@@ -89,12 +89,6 @@ const {
         {kind === "file" && url && (
           <MediaFallback title="Preview unavailable" href={url} filename={filename} />
         )}
-        {kind === "unsupported" && (
-          <MediaFallback
-            title="Unsupported media type"
-            body="This file cannot be previewed inline."
-          />
-        )}
         {kind === "missing" && (
           <MediaFallback
             title="Removed or expired"

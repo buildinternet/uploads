@@ -156,8 +156,28 @@ export function publicUrl(config: StorageConfig, key: string): string | null {
  */
 export const DEFAULT_EMBED_PUBLIC_BASE_URL = "https://embed.uploads.sh";
 
-/** Hosts that get an automatic embed twin when no override is set. */
-const DEFAULT_EMBEDDABLE_HOSTS = new Set(["storage.uploads.sh", "store.uploads.sh"]);
+/**
+ * Hosts that get an automatic embed twin when no override is set. Exported
+ * (issue #929) so the API's daily active-content host sweep
+ * (`apps/api/src/active-content-hosts.ts`) derives its hosted-host list from
+ * this instead of duplicating the literal hostnames.
+ */
+export const DEFAULT_EMBEDDABLE_HOSTS = new Set(["storage.uploads.sh", "store.uploads.sh"]);
+
+/**
+ * Hostname of a URL string, lowercased; `null` for an empty, missing, or
+ * unparseable one. The one copy of this two-line helper — the embed
+ * resolution below and the API's active-content host records (issue #929)
+ * both key off exactly this normalization, and each used to carry its own.
+ */
+export function hostOf(url: string | undefined | null): string | null {
+  if (!url) return null;
+  try {
+    return new URL(url).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+}
 
 export type EmbedUrlOptions = {
   /**
@@ -178,13 +198,8 @@ export function resolveEmbedBaseUrl(
     const trimmed = embedBaseUrl.trim();
     return trimmed ? trimmed.replace(/\/$/, "") : null;
   }
-  if (!publicBaseUrl) return null;
-  try {
-    const host = new URL(publicBaseUrl).hostname.toLowerCase();
-    if (DEFAULT_EMBEDDABLE_HOSTS.has(host)) return DEFAULT_EMBED_PUBLIC_BASE_URL;
-  } catch {
-    return null;
-  }
+  const host = hostOf(publicBaseUrl);
+  if (host && DEFAULT_EMBEDDABLE_HOSTS.has(host)) return DEFAULT_EMBED_PUBLIC_BASE_URL;
   return null;
 }
 
@@ -200,13 +215,11 @@ export function embedUrlFromPublic(
 
   let publicBaseUrl = opts.publicBaseUrl ?? null;
   if (!publicBaseUrl) {
-    try {
+    const host = hostOf(publicObjectUrl);
+    if (!host) return null;
+    if (DEFAULT_EMBEDDABLE_HOSTS.has(host)) {
       const u = new URL(publicObjectUrl);
-      if (DEFAULT_EMBEDDABLE_HOSTS.has(u.hostname.toLowerCase())) {
-        publicBaseUrl = `${u.protocol}//${u.host}`;
-      }
-    } catch {
-      return null;
+      publicBaseUrl = `${u.protocol}//${u.host}`;
     }
   }
 
