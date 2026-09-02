@@ -36,6 +36,7 @@ import {
   sanitizeKeyBasename,
 } from "./files-core";
 import { getFileMetadata, setFileMetadata } from "./file-metadata";
+import { recordAttachmentForKeySafe } from "./github-attachment-index";
 import { resolveGhKeyContextSafe } from "./github-private-prefix-service";
 import { storage, storageConfig } from "./storage";
 import { webOrigin } from "./web-url";
@@ -220,6 +221,20 @@ export async function attachExistingObject(
     "gh.number": String(req.target.num),
     "gh.ref": ref,
     "gh.attached-at": nowIso,
+  });
+
+  // Attachment index (issue #934): putObject above already wrote a
+  // `source: "put"` row for destKey; re-record it as an attach with the
+  // repo the CALLER resolved (req.target.repo), which is authoritative and
+  // not lossy the way a plain key's sanitized owner/name segments are.
+  // Never derived from the gh.* metadata stamped just above — that bag is
+  // client-influenced on the source object.
+  await recordAttachmentForKeySafe(dbFor(env), {
+    workspace: workspaceName,
+    objectKey: destKey,
+    source: "attach",
+    laneId: ws.storageLaneId ?? null,
+    repo: req.target.repo,
   });
 
   if (req.move) {
