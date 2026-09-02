@@ -112,6 +112,33 @@ describe("detectImageDimensions", () => {
     expect(detectImageDimensions(new Uint8Array(30), "video/webm")).toBeUndefined();
     expect(detectImageDimensions(new Uint8Array(0), "image/jpeg")).toBeUndefined();
   });
+
+  it("reads SVG dimensions from plain numeric width/height", () => {
+    const svg = new TextEncoder().encode('<svg width="120" height="80"><rect/></svg>');
+    expect(detectImageDimensions(svg, "image/svg+xml")).toEqual({ width: 120, height: 80 });
+  });
+
+  it("reads SVG dimensions from width/height with a px suffix", () => {
+    const svg = new TextEncoder().encode(
+      '<?xml version="1.0"?><svg width="240px" height="160px" xmlns="http://www.w3.org/2000/svg"></svg>',
+    );
+    expect(detectImageDimensions(svg, "image/svg+xml")).toEqual({ width: 240, height: 160 });
+  });
+
+  it("falls back to viewBox when width/height are absent", () => {
+    const svg = new TextEncoder().encode('<svg viewBox="0 0 300 150"></svg>');
+    expect(detectImageDimensions(svg, "image/svg+xml")).toEqual({ width: 300, height: 150 });
+  });
+
+  it("returns undefined for percent (or other non-px) width/height units", () => {
+    const svg = new TextEncoder().encode('<svg width="100%" height="50%"></svg>');
+    expect(detectImageDimensions(svg, "image/svg+xml")).toBeUndefined();
+  });
+
+  it("returns undefined when there is no <svg root tag", () => {
+    const notSvg = new TextEncoder().encode("<xml><foo/></xml>");
+    expect(detectImageDimensions(notSvg, "image/svg+xml")).toBeUndefined();
+  });
 });
 
 describe("checkDeclaredLength", () => {
