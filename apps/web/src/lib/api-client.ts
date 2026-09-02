@@ -2369,6 +2369,14 @@ export type VerifyLaneActiveContentResult =
   | { kind: "rejected"; check: StorageVerifyCheck }
   | { kind: "unavailable"; reason: RequestFailure | "forbidden" | "not_found" | "server" };
 
+/** The 429 cooldown, shaped as the same `check` the 422 rejections carry so the UI keeps one branch. */
+const ACTIVE_CONTENT_COOLDOWN_CHECK: StorageVerifyCheck = {
+  id: "active-content-headers",
+  ok: false,
+  required: false,
+  hint: "this lane was checked moments ago — try again in a minute",
+};
+
 /**
  * POST /v1/workspaces/:name/storage/lanes/:laneId/verify-active-content
  * (issue #929) — runs only the SVG/XML sandboxing-CSP probe against one
@@ -2394,6 +2402,10 @@ export async function verifyLaneActiveContent(
     if (check) return { kind: "rejected", check };
     return { kind: "unavailable", reason: "server" };
   }
+  // 429 — the per-lane cooldown (issue #929 adversarial review L-3). Not a
+  // server problem and not worth a branch of its own: report it the way the
+  // 422 rejections are reported, with a hint that says what to do.
+  if (response.status === 429) return { kind: "rejected", check: ACTIVE_CONTENT_COOLDOWN_CHECK };
   if (response.status === 403) return { kind: "unavailable", reason: "forbidden" };
   if (response.status === 404) return { kind: "unavailable", reason: "not_found" };
   if (!response.ok) return { kind: "unavailable", reason: "server" };

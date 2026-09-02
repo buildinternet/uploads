@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { runRetentionSweep } from "../src/retention-sweep";
+import { PROBE_PREFIX } from "../src/storage-verify";
 import type { PurgedTombstone, WorkspaceRecord } from "../src/workspace";
 import { FakeR2Bucket } from "./fake-r2";
 import { SqliteD1, database } from "./helpers/sqlite-d1";
@@ -80,17 +81,93 @@ function makeEnv(opts: {
   bucket?: FakeR2Bucket;
   db: SqliteD1;
   auth?: { fetch: unknown };
+  uploadsDefault?: FakeR2Bucket;
 }) {
-  const { kvRecords, bucket = new FakeR2Bucket(), db, auth } = opts;
+  const { kvRecords, bucket = new FakeR2Bucket(), db, auth, uploadsDefault } = opts;
   const registry = fakeRegistry(kvRecords);
   const env = {
     REGISTRY: registry,
     BUCKET: bucket,
     DB: database(db),
+    ...(uploadsDefault ? { UPLOADS_DEFAULT: uploadsDefault } : {}),
     ...(auth ? { AUTH: auth } : {}),
   } as unknown as Env;
   return { env, registry, bucket };
 }
+
+/**
+ * Orphaned storage-verify probe objects (issue #929 adversarial review L-4).
+ * Every probe deletes its own object in a `finally`, best-effort — so
+ * anything still under `PROBE_PREFIX` a day later is the residue of a delete
+ * that failed, and the hosted-host sweep writes several probe objects a day.
+ * Nothing else covers this prefix: it belongs to no workspace, and
+ * `verifyStorageConfig`'s not-empty check deliberately filters it out.
+ */
+describe("runRetentionSweep — orphaned probe objects (#929)", () => {
+  const DAY_MS = 24 * 60 * 60 * 1000;
+
+  it("deletes probe objects older than a day and leaves fresh ones and other keys alone", async () => {
+    const sqlite = new SqliteD1(MIGRATIONS);
+    try {
+      const uploadsDefault = new FakeR2Bucket();
+      await uploadsDefault.put(`${PROBE_PREFIX}old.svg`, new Uint8Array([1]));
+      await uploadsDefault.put(`${PROBE_PREFIX}old.xml`, new Uint8Array([1]));
+      await uploadsDefault.put(`${PROBE_PREFIX}fresh.svg`, new Uint8Array([1]));
+      await uploadsDefault.put("acme/keep.png", new Uint8Array([1]));
+      uploadsDefault.setUploaded(`${PROBE_PREFIX}old.svg`, new Date(Date.now() - DAY_MS - 1000));
+      uploadsDefault.setUploaded(`${PROBE_PREFIX}old.xml`, new Date(Date.now() - DAY_MS - 1000));
+
+      const { env } = makeEnv({ kvRecords: {}, db: sqlite, uploadsDefault });
+
+      const result = await runRetentionSweep(env);
+
+      expect(result.probesReaped).toEqual({ deleted: 2 });
+      expect(uploadsDefault.store.has(`${PROBE_PREFIX}old.svg`)).toBe(false);
+      expect(uploadsDefault.store.has(`${PROBE_PREFIX}old.xml`)).toBe(false);
+      expect(uploadsDefault.store.has(`${PROBE_PREFIX}fresh.svg`)).toBe(true);
+      expect(uploadsDefault.store.has("acme/keep.png")).toBe(true);
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("reports zero, and never throws, when no shared bucket is bound", async () => {
+    const sqlite = new SqliteD1(MIGRATIONS);
+    try {
+      const { env } = makeEnv({ kvRecords: {}, db: sqlite });
+      expect((await runRetentionSweep(env)).probesReaped).toEqual({ deleted: 0 });
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("never lets a probe-reap failure abort the retention sweep", async () => {
+    const sqlite = new SqliteD1(MIGRATIONS);
+    try {
+      const uploadsDefault = new FakeR2Bucket();
+      uploadsDefault.list = (async () => {
+        throw new Error("r2 unavailable");
+      }) as unknown as FakeR2Bucket["list"];
+      const record: WorkspaceRecord = { ...RECORD, retentionDays: 30 };
+      const { env } = makeEnv({
+        kvRecords: { "ws:acme": record },
+        db: sqlite,
+        uploadsDefault,
+      });
+
+      const result = await runRetentionSweep(env);
+
+      // The retention pass still ran and reported normally...
+      expect(result.workspacesScanned).toBe(1);
+      expect(result.workspacesWithRetention).toBe(1);
+      // ...and the reap failure is reported, not thrown.
+      expect(result.probesReaped.deleted).toBe(0);
+      expect(result.probesReaped.error).toBeTruthy();
+    } finally {
+      sqlite.close();
+    }
+  });
+});
 
 describe("runRetentionSweep — soft-delete finalization (#247)", () => {
   it("fully tears down a past-purgeAt workspace and writes a purged tombstone", async () => {

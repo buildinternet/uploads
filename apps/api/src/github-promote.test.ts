@@ -366,6 +366,44 @@ describe("promoteBranchAttachments — private prefixes (issue #631)", () => {
     expect(result.promoted).toEqual([destKey("hero.png")]);
   });
 
+  // With `serverCopy` now honoring the kill switch and the workspace
+  // opt-out (issue #929 adversarial review M-2), one staged SVG can become
+  // un-copyable while the rest of the batch is fine. The promote must skip
+  // it by name and carry on, not fail the whole call.
+  it("skips a staged SVG the active-content gate refuses and still promotes the rest", async () => {
+    const seeded = await seededEnv({ isPrivate: false });
+    await seedPlainStaged(seeded, "hero.png");
+    const svg = new TextEncoder().encode(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"></svg>',
+    );
+    await seeded.bucket.put(`${PREFIX}${stagedKey("diagram.svg")}`, svg, {
+      httpMetadata: { contentType: "image/svg+xml" },
+    });
+    await replaceFileMetadata(seeded.env.DB, WS, stagedKey("diagram.svg"), {
+      "gh.repo": REPO,
+      "gh.kind": "branch",
+      "gh.branch": BRANCH,
+      "gh.staged-at": new Date().toISOString(),
+    });
+
+    // `seededEnv` binds no FLAGS, so the gate closes with `flag_off` — a
+    // policy close, which a server copy no longer walks past.
+    const result = await promoteBranchAttachments(seeded.env, seeded.ws, WS, {
+      repo: REPO,
+      num: NUM,
+      branch: BRANCH,
+    });
+
+    expect(result.promoted).toEqual([destKey("hero.png")]);
+    expect(result.skipped).toEqual([
+      { key: stagedKey("diagram.svg"), reason: "unsupported_media_type" },
+    ]);
+    // The refused object never landed at the destination, and its staged
+    // original is untouched.
+    expect(seeded.bucket.store.has(`${PREFIX}${destKey("diagram.svg")}`)).toBe(false);
+    expect(seeded.bucket.store.has(`${PREFIX}${stagedKey("diagram.svg")}`)).toBe(true);
+  });
+
   it("returns empty arrays when nothing is staged under either prefix", async () => {
     const seeded = await seededEnv({ isPrivate: true });
 

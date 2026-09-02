@@ -1064,8 +1064,11 @@ describe("mcp worker", () => {
       ...base,
       REGISTRY: {
         ...registry,
+        // Every hosted host, plus this fixture's own — the shared-lane gate
+        // requires a fresh `ok` record for all of them (issue #929
+        // adversarial review H-1), not just the workspace's public host.
         get: async (key: string, type?: unknown) =>
-          key === "host-active-content:storage.example.com"
+          key.startsWith("host-active-content:")
             ? { ok: true, verifiedAt: new Date().toISOString() }
             : (registry.get as (k: string, t?: unknown) => Promise<unknown>)(key, type),
       },

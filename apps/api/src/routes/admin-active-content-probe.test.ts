@@ -26,11 +26,17 @@ function fakeRegistry(records: Record<string, unknown> = {}) {
   };
 }
 
-const goodHeaders = {
-  "content-type": "image/svg+xml",
-  "content-security-policy": "default-src 'none'; sandbox",
-  "x-content-type-options": "nosniff",
-};
+/** A passing response for either probe object — the probe writes an SVG and an XML one (issue #929 M-1). */
+function okProbeResponse(url: string): Response {
+  return new Response("<probe/>", {
+    status: 200,
+    headers: {
+      "content-type": String(url).endsWith(".xml") ? "application/xml" : "image/svg+xml",
+      "content-security-policy": "default-src 'none'; sandbox",
+      "x-content-type-options": "nosniff",
+    },
+  });
+}
 
 function appWith(registry: ReturnType<typeof fakeRegistry>) {
   const app = new Hono<{ Bindings: Env }>()
@@ -73,9 +79,7 @@ describe("POST /admin/active-content/probe", () => {
   it("runs the hosted-host sweep and returns + persists the fresh per-host records", async () => {
     const registry = fakeRegistry();
     const { app, env } = appWith(registry);
-    const fetchSpy = vi.fn(
-      async () => new Response("<svg/>", { status: 200, headers: goodHeaders }),
-    );
+    const fetchSpy = vi.fn(async (url: string) => okProbeResponse(url));
     vi.stubGlobal("fetch", fetchSpy);
 
     const res = await app.request(probeRequest(ADMIN_TOKEN), {}, env);

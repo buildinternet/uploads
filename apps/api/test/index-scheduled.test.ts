@@ -169,12 +169,14 @@ describe("scheduled handler — active-content host sweep (#929)", () => {
         DB: database(sqlite),
       } as unknown as Env;
 
+      // The probe writes an SVG *and* an XML object and requires each to
+      // come back with the type it was written as (issue #929 M-1).
       const fetchSpy = vi.fn(
-        async () =>
-          new Response("<svg/>", {
+        async (url: string) =>
+          new Response("<probe/>", {
             status: 200,
             headers: {
-              "content-type": "image/svg+xml",
+              "content-type": String(url).endsWith(".xml") ? "application/xml" : "image/svg+xml",
               "content-security-policy": "default-src 'none'; sandbox",
               "x-content-type-options": "nosniff",
             },

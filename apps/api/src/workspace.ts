@@ -223,6 +223,21 @@ export interface WorkspaceRecord {
   storageVerifiedAt?: string;
   /** ISO timestamp of the active lane's most recent successful `active-content-headers` check (issue #929) — mirrors `StorageLane.activeContentVerifiedAt` for the currently-active lane. Absent means the active lane has never passed the sandboxing-CSP probe. */
   storageActiveContentVerifiedAt?: string;
+  /**
+   * When each lane's on-demand "Check now" probe last *ran*, keyed by lane id
+   * (the active lane under its `storageLaneId`, or the literal `active`
+   * before it has one). Purely a per-lane cooldown clock for
+   * `storageVerifyActiveContentHandler` (issue #929 adversarial review L-3):
+   * unlike `storageActiveContentVerifiedAt` it records attempts, not
+   * successes, so a failing or inconclusive probe still rate-limits the next
+   * one — the route drives an outbound fetch at an owner-supplied URL, and
+   * that has to cost more than one button press per minute. Deliberately not
+   * a `StorageLane` field: nothing about a lane's identity or verification
+   * state lives here, and threading a rate-limit clock through
+   * `demoteActiveLane`/`promoteLane` would only invite it being mistaken for
+   * one. Pruned to live lane ids on every write.
+   */
+  storageActiveContentCheckedAt?: Record<string, string>;
   /** Better Auth user id that most recently configured this workspace's storage via the self-serve flow. */
   storageConfiguredBy?: string;
   /**

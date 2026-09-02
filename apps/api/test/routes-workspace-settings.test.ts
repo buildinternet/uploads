@@ -7,7 +7,8 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { HOST_RECORD_MAX_AGE_MS, LANE_STAMP_MAX_AGE_MS } from "../src/active-content";
-import { hostActiveContentKey } from "../src/active-content-hosts";
+import { HOSTED_ACTIVE_CONTENT_HOSTS, hostActiveContentKey } from "../src/active-content-hosts";
+import { ACTIVE_CONTENT_CHECK_COOLDOWN_MS } from "../src/routes/workspace-settings";
 import { app } from "../src/index";
 import {
   setLaneActiveContentCheckForTests,
@@ -535,7 +536,10 @@ describe("storage vertical (self-serve BYO bucket)", () => {
         activeContentFlag: true,
       });
       const verifiedAt = new Date(Date.now() - 1000).toISOString();
-      for (const host of ["storage.uploads.sh", "embed.uploads.sh"]) {
+      // Every hosted host, not just this workspace's URL and its embed twin
+      // — `store.uploads.sh` serves the same bucket (issue #929 adversarial
+      // review H-1).
+      for (const host of HOSTED_ACTIVE_CONTENT_HOSTS) {
         await env.REGISTRY.put(
           hostActiveContentKey(host),
           JSON.stringify({ ok: true, verifiedAt }),
@@ -567,7 +571,10 @@ describe("storage vertical (self-serve BYO bucket)", () => {
         activeContentFlag: false,
       });
       const verifiedAt = new Date(Date.now() - 1000).toISOString();
-      for (const host of ["storage.uploads.sh", "embed.uploads.sh"]) {
+      // Every hosted host, not just this workspace's URL and its embed twin
+      // — `store.uploads.sh` serves the same bucket (issue #929 adversarial
+      // review H-1).
+      for (const host of HOSTED_ACTIVE_CONTENT_HOSTS) {
         await env.REGISTRY.put(
           hostActiveContentKey(host),
           JSON.stringify({ ok: true, verifiedAt }),
@@ -1918,20 +1925,69 @@ describe("storage vertical (self-serve BYO bucket)", () => {
       ).toBeUndefined();
     });
 
-    it("leaves the stamp unchanged, with no KV write, when the probe is inconclusive", async () => {
+    // Inconclusive leaves the *stamp* alone but still advances the cooldown
+    // clock (issue #929 adversarial review L-3) — an unreachable host is
+    // exactly the case that could otherwise be retried in a tight loop — so
+    // there is one KV write, and it doesn't touch the verification stamp.
+    it("leaves the stamp unchanged when the probe is inconclusive, writing only the cooldown clock", async () => {
       const record = { ...BYO_RECORD, storageActiveContentVerifiedAt: "2020-01-01T00:00:00.000Z" };
       const { env, registry } = makeEnv({ role: "owner", record });
-      const putsBefore = registry.puts.length;
       setLaneActiveContentCheckForTests(async () => inconclusiveCheck);
       const res = await verifyActiveContent("active", env);
       expect(res.status).toBe(200);
       const body = (await res.json()) as { check: typeof inconclusiveCheck };
       expect(body.check).toEqual(inconclusiveCheck);
+      const stored = registry.record<{
+        storageActiveContentVerifiedAt?: string;
+        storageActiveContentCheckedAt?: Record<string, string>;
+      }>("acme");
+      expect(stored?.storageActiveContentVerifiedAt).toBe("2020-01-01T00:00:00.000Z");
+      expect(stored?.storageActiveContentCheckedAt?.active).toBeTruthy();
+    });
+
+    it("429s a second check of the same lane inside the cooldown window (issue #929 L-3)", async () => {
+      const { env, registry } = makeEnv({ role: "owner", record: BYO_RECORD });
+      let calls = 0;
+      setLaneActiveContentCheckForTests(async () => {
+        calls += 1;
+        return okCheck;
+      });
+      expect((await verifyActiveContent("active", env)).status).toBe(200);
+      const second = await verifyActiveContent("active", env);
+      expect(second.status).toBe(429);
+      expect(((await second.json()) as { error: { code: string } }).error.code).toBe(
+        "active_content_check_cooldown",
+      );
+      // The probe never ran a second time — the 429 is raised before it.
+      expect(calls).toBe(1);
       expect(
-        registry.record<{ storageActiveContentVerifiedAt?: string }>("acme")
-          ?.storageActiveContentVerifiedAt,
-      ).toBe("2020-01-01T00:00:00.000Z");
-      expect(registry.puts.length).toBe(putsBefore);
+        registry.record<{ storageActiveContentCheckedAt?: Record<string, string> }>("acme")
+          ?.storageActiveContentCheckedAt?.active,
+      ).toBeTruthy();
+    });
+
+    it("lets a check through once the recorded cooldown stamp is older than the window", async () => {
+      const record = {
+        ...BYO_RECORD,
+        storageActiveContentCheckedAt: {
+          active: new Date(Date.now() - ACTIVE_CONTENT_CHECK_COOLDOWN_MS - 1000).toISOString(),
+        },
+      };
+      const { env } = makeEnv({ role: "owner", record });
+      setLaneActiveContentCheckForTests(async () => okCheck);
+      expect((await verifyActiveContent("active", env)).status).toBe(200);
+    });
+
+    it("cools down each lane separately", async () => {
+      const lane = await standbyLane();
+      const record = { ...BYO_RECORD, storageLanes: [lane] };
+      const { env } = makeEnv({ role: "owner", record });
+      setLaneActiveContentCheckForTests(async () => okCheck);
+      expect((await verifyActiveContent("active", env)).status).toBe(200);
+      // A different lane has its own clock, so it is not caught by the
+      // active lane's fresh stamp.
+      expect((await verifyActiveContent(lane.id, env)).status).toBe(200);
+      expect((await verifyActiveContent(lane.id, env)).status).toBe(429);
     });
 
     it("stamps a saved (non-active) lane's own activeContentVerifiedAt, not the top-level one", async () => {

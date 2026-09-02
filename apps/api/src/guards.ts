@@ -450,10 +450,9 @@ export function looksLikeXml(bytes: Uint8Array): boolean {
  * it), or an `<?xml-stylesheet` processing instruction (can point at an XSLT
  * that runs script). This is defense in depth, not the control, and it only
  * ever runs on a *buffered* body a server handler actually reads — the PUT
- * route, the MCP `put` tool, and server-side copies (`putOptsFromStoredObject`
- * bypasses the gate entirely, so this filter never even applies there). A
- * presigned upload writes straight to the bucket over HTTP with no server in
- * the loop, so nothing here ever inspects it — which is exactly why the
+ * route, the MCP `put` tool, and server-side copies. A presigned upload
+ * writes straight to the bucket over HTTP with no server in the loop, so
+ * nothing here ever inspects it — which is exactly why the
  * sandboxing CSP the serving lane is verified to send (`./active-content.ts`)
  * is the actual control, not this filter.
  *

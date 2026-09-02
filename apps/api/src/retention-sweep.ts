@@ -7,6 +7,7 @@
  */
 import { deleteOrg, listOrgs } from "./org-workspaces";
 import { purgeExpiredObjects } from "./retention";
+import { PROBE_PREFIX } from "./storage-verify";
 import { teardownWorkspace } from "./workspace-teardown";
 import { isPurgedTombstone, type PurgedTombstone, type WorkspaceRecord } from "./workspace";
 
@@ -34,6 +35,11 @@ export interface SweepResult {
     deleted: boolean;
     error?: string;
   }>;
+  /** Orphaned storage-verify probe objects reaped from the shared bucket (issue #929 adversarial review L-4). */
+  probesReaped: {
+    deleted: number;
+    error?: string;
+  };
 }
 
 /**
@@ -43,6 +49,65 @@ export interface SweepResult {
  * both the provisioning window and KV propagation.
  */
 const ORPHAN_ORG_MIN_AGE_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * How old a `_internal/uploads-verify/` probe object has to be before this
+ * sweep deletes it. Every probe (`storage-verify.ts` `probeActiveContent`,
+ * the round-trip check) deletes its own object in a `finally`, best-effort —
+ * so anything still here a day later is an orphan from a delete that failed,
+ * not a probe in flight. A day is orders of magnitude past the 5 s fetch
+ * timeout that bounds a live probe.
+ */
+const PROBE_ORPHAN_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+/** Bound on the probe-prefix listing, matching the paging idiom the object sweeps use. */
+const PROBE_LIST_MAX_PAGES = 20;
+
+/**
+ * Deletes orphaned probe objects from the shared default bucket (issue #929
+ * adversarial review L-4). Probe cleanup is best-effort at the probe site,
+ * and the hosted-host sweep now writes several probe objects a day, so a
+ * persistent delete failure would otherwise accumulate forever: nothing else
+ * reaps this prefix (`verifyStorageConfig`'s not-empty check deliberately
+ * filters it out, and it belongs to no workspace, so no retention policy
+ * covers it).
+ *
+ * Never throws: the caller runs this inside the daily retention sweep, and a
+ * probe-reap failure must not take the retention sweep down with it — the
+ * error is reported on the result and logged, same posture as the orphan-org
+ * pass.
+ */
+async function reapOrphanedProbeObjects(env: Env): Promise<SweepResult["probesReaped"]> {
+  // Absent binding: a test env (or a self-host with no shared bucket) has
+  // nothing to reap. Not an error.
+  if (!env.UPLOADS_DEFAULT) return { deleted: 0 };
+  const cutoff = Date.now() - PROBE_ORPHAN_MAX_AGE_MS;
+  let deleted = 0;
+  try {
+    let cursor: string | undefined;
+    for (let page = 0; page < PROBE_LIST_MAX_PAGES; page++) {
+      const listed = await env.UPLOADS_DEFAULT.list({
+        prefix: PROBE_PREFIX,
+        limit: 1000,
+        ...(cursor ? { cursor } : {}),
+      });
+      const stale = listed.objects
+        .filter((object) => object.uploaded.getTime() < cutoff)
+        .map((object) => object.key);
+      if (stale.length > 0) {
+        await env.UPLOADS_DEFAULT.delete(stale);
+        deleted += stale.length;
+      }
+      cursor = listed.truncated ? listed.cursor : undefined;
+      if (!cursor) break;
+    }
+    return { deleted };
+  } catch (err) {
+    const error = err instanceof Error ? err.message : String(err);
+    console.log(JSON.stringify({ message: "probe_orphan_sweep_failed", error }));
+    return { deleted, error };
+  }
+}
 
 export async function runRetentionSweep(env: Env): Promise<SweepResult> {
   let cursor: string | undefined;
@@ -203,6 +268,8 @@ export async function runRetentionSweep(env: Env): Promise<SweepResult> {
     );
   }
 
+  const probesReaped = await reapOrphanedProbeObjects(env);
+
   console.log(
     JSON.stringify({
       message: "retention_sweep",
@@ -211,7 +278,15 @@ export async function runRetentionSweep(env: Env): Promise<SweepResult> {
       purged,
       workspacesFinalized,
       orgsSwept,
+      probesReaped,
     }),
   );
-  return { workspacesScanned, workspacesWithRetention, purged, workspacesFinalized, orgsSwept };
+  return {
+    workspacesScanned,
+    workspacesWithRetention,
+    purged,
+    workspacesFinalized,
+    orgsSwept,
+    probesReaped,
+  };
 }

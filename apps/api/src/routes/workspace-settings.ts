@@ -1061,6 +1061,43 @@ function resolveActiveContentLaneTarget(
 }
 
 /**
+ * Minimum gap between two on-demand active-content checks of the same lane
+ * (issue #929 adversarial review L-3). A "Check now" button that a person
+ * actually presses never comes close; a script driving Worker-origin fetches
+ * at an arbitrary host does.
+ */
+export const ACTIVE_CONTENT_CHECK_COOLDOWN_MS = 60_000;
+
+/**
+ * The `storageActiveContentCheckedAt` key for the lane `laneIdParam` names.
+ * The active lane is keyed by its own id when it has one, so naming it
+ * `active` and naming it by id share a cooldown rather than each getting
+ * their own.
+ */
+function activeContentCooldownKey(record: WorkspaceRecord, laneIdParam: string): string {
+  return isActiveLaneParam(record, laneIdParam) ? (record.storageLaneId ?? "active") : laneIdParam;
+}
+
+/**
+ * The cooldown map with `key` stamped at `nowIso`, pruned to lanes that
+ * still exist (plus `active`) so a deleted lane's entry doesn't linger in the
+ * record forever.
+ */
+function nextActiveContentCheckedAt(
+  record: WorkspaceRecord,
+  key: string,
+  nowIso: string,
+): Record<string, string> {
+  const live = new Set<string>(["active", key]);
+  if (record.storageLaneId) live.add(record.storageLaneId);
+  for (const lane of record.storageLanes ?? []) live.add(lane.id);
+  return Object.fromEntries([
+    ...Object.entries(record.storageActiveContentCheckedAt ?? {}).filter(([k]) => live.has(k)),
+    [key, nowIso],
+  ]);
+}
+
+/**
  * `POST /:workspace/storage/lanes/:laneId/verify-active-content` (issue
  * #929) — runs only the SVG/XML sandboxing-CSP probe against one lane
  * (`laneActiveContentCheck`: upload the inert SVG probe through the lane's
@@ -1085,6 +1122,16 @@ function resolveActiveContentLaneTarget(
  * 422s outright — its state comes from the hosted host's daily-probed KV
  * record (`./active-content-hosts.ts`), never a per-workspace stamp — and so
  * does a lane with no `publicBaseUrl` to probe at all.
+ *
+ * Per-lane cooldown (issue #929 adversarial review L-3): every call makes
+ * this Worker fetch a URL the workspace's own admin chose, and the general
+ * write budget (60/60s per workspace) is far too generous for a button. A
+ * second check on the same lane inside {@link ACTIVE_CONTENT_CHECK_COOLDOWN_MS}
+ * is a 429 (`active_content_check_cooldown`) raised *before* any probe — and
+ * before the write limiter, so a rejected recheck doesn't spend the
+ * workspace's write budget either. The clock (`storageActiveContentCheckedAt`)
+ * records attempts, not passes, so a failing or inconclusive probe rate-limits
+ * the next one exactly as a passing one does.
  */
 export async function storageVerifyActiveContentHandler(c: Context<SettingsVars>) {
   const name = c.req.param("workspace") ?? "";
@@ -1114,6 +1161,21 @@ export async function storageVerifyActiveContentHandler(c: Context<SettingsVars>
   if (!target.publicBaseUrl) {
     return reject422("this lane has no public base URL to verify — add one first");
   }
+
+  const cooldownKey = activeContentCooldownKey(record, laneIdParam);
+  const lastCheckedAt = Date.parse(record.storageActiveContentCheckedAt?.[cooldownKey] ?? "");
+  if (
+    Number.isFinite(lastCheckedAt) &&
+    Date.now() - lastCheckedAt < ACTIVE_CONTENT_CHECK_COOLDOWN_MS
+  ) {
+    throw new RateLimitedError("this lane was checked moments ago — try again shortly", {
+      code: "active_content_check_cooldown",
+      retryAfterSeconds: Math.max(
+        1,
+        Math.ceil((ACTIVE_CONTENT_CHECK_COOLDOWN_MS - (Date.now() - lastCheckedAt)) / 1000),
+      ),
+    });
+  }
   if (!(await allowWrite(c.env, name))) {
     throw new RateLimitedError("rate limit exceeded");
   }
@@ -1121,37 +1183,43 @@ export async function storageVerifyActiveContentHandler(c: Context<SettingsVars>
   const check = await laneActiveContentCheck(c.env, target);
   const nowIso = new Date().toISOString();
 
-  // Inconclusive: leave the stamp exactly as it was — skip the write
-  // entirely rather than round-tripping a no-op mutation through KV.
-  const updated = check.inconclusive
-    ? record
-    : await mutateWorkspaceRecord(
-        c.env,
-        name,
-        (current) => {
-          if (isActiveLaneParam(current, laneIdParam)) {
-            const next: WorkspaceRecord = { ...current };
-            if (check.ok) next.storageActiveContentVerifiedAt = nowIso;
-            else delete next.storageActiveContentVerifiedAt;
-            return next;
-          }
-          const freshTarget = (current.storageLanes ?? []).find((lane) => lane.id === laneIdParam);
-          if (!freshTarget) {
-            throw new ConflictError("storage lane no longer exists", {
-              code: "storage_lane_not_found",
-            });
-          }
-          const storageLanes = (current.storageLanes ?? []).map((lane) => {
-            if (lane.id !== laneIdParam) return lane;
-            const nextLane: StorageLane = { ...lane };
-            if (check.ok) nextLane.activeContentVerifiedAt = nowIso;
-            else delete nextLane.activeContentVerifiedAt;
-            return nextLane;
-          });
-          return { ...current, storageLanes };
-        },
-        { requireServing: true },
-      );
+  // One write, always — the cooldown clock has to advance even for an
+  // inconclusive probe (an unreachable host is exactly the case that could
+  // otherwise be retried in a tight loop). The verification *stamp* is a
+  // separate question: inconclusive leaves it exactly as it was.
+  const updated = await mutateWorkspaceRecord(
+    c.env,
+    name,
+    (current) => {
+      const next: WorkspaceRecord = {
+        ...current,
+        storageActiveContentCheckedAt: nextActiveContentCheckedAt(current, cooldownKey, nowIso),
+      };
+      if (isActiveLaneParam(current, laneIdParam)) {
+        if (!check.inconclusive) {
+          if (check.ok) next.storageActiveContentVerifiedAt = nowIso;
+          else delete next.storageActiveContentVerifiedAt;
+        }
+        return next;
+      }
+      const freshTarget = (current.storageLanes ?? []).find((lane) => lane.id === laneIdParam);
+      if (!freshTarget) {
+        throw new ConflictError("storage lane no longer exists", {
+          code: "storage_lane_not_found",
+        });
+      }
+      if (check.inconclusive) return next;
+      next.storageLanes = (current.storageLanes ?? []).map((lane) => {
+        if (lane.id !== laneIdParam) return lane;
+        const nextLane: StorageLane = { ...lane };
+        if (check.ok) nextLane.activeContentVerifiedAt = nowIso;
+        else delete nextLane.activeContentVerifiedAt;
+        return nextLane;
+      });
+      return next;
+    },
+    { requireServing: true },
+  );
 
   console.log(
     JSON.stringify({

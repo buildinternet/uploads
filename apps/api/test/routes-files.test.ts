@@ -4,8 +4,10 @@ import { PDF, ZIP } from "./helpers/media-fixtures";
 import { DeleteUsageClaimsTable } from "./helpers/fake-delete-usage-claims-table";
 import { FileMetadataTable } from "./helpers/fake-file-metadata-table";
 import { app } from "../src/index";
+import { presignExpiresIn } from "../src/routes/files-shared-handlers";
 import { getFileMetadata } from "../src/file-metadata";
 import { sha256Hex, type WorkspaceRecord } from "../src/workspace";
+import { HOSTED_ACTIVE_CONTENT_HOSTS } from "../src/active-content-hosts";
 
 const TOKEN = "secret-token";
 
@@ -568,17 +570,16 @@ const INERT_SVG = new TextEncoder().encode(
 const FRESH_HOST_RECORD = { ok: true, verifiedAt: new Date().toISOString() };
 
 /**
- * Fresh, passing `host-active-content:*` records for *both* hosts the
- * default fixture's shared object is reachable through (issue #929
- * final-review item 1): `storage.uploads.sh` (`publicBaseUrl` above) and its
- * `embed.uploads.sh` twin (`DEFAULT_EMBEDDABLE_HOSTS`, `resolveEmbedBaseUrl`)
- * — `activeContentAllowed` now requires both to be fresh and `ok`, not just
- * the stable host.
+ * Fresh, passing `host-active-content:*` records for every host the default
+ * fixture's shared object is reachable through (issue #929 adversarial
+ * review H-1): the hosted host set the daily sweep covers — which includes
+ * `store.uploads.sh`, the shared bucket's second custom domain — plus this
+ * workspace's `storage.uploads.sh` and its `embed.uploads.sh` twin.
+ * `activeContentAllowed` requires all of them to be fresh and `ok`.
  */
-const FRESH_HOST_RECORDS = {
-  "host-active-content:storage.uploads.sh": FRESH_HOST_RECORD,
-  "host-active-content:embed.uploads.sh": FRESH_HOST_RECORD,
-};
+const FRESH_HOST_RECORDS = Object.fromEntries(
+  HOSTED_ACTIVE_CONTENT_HOSTS.map((host) => [`host-active-content:${host}`, FRESH_HOST_RECORD]),
+);
 const FLAGS_ON = { getBooleanValue: async () => true };
 
 describe("PUT /v1/:workspace/files SVG/XML active-content gate (issue #929)", () => {
@@ -861,6 +862,38 @@ describe("POST /v1/:workspace/files/sign content-type policy", () => {
     expect(res.status).toBe(400);
     const json = (await res.json()) as { error: { code: string } };
     expect(json.error.code).toBe("presign_unavailable");
+  });
+
+  // A presigned URL is minted against the gate's answer *now* and writes
+  // straight to the bucket later, with nothing on the write path able to
+  // re-check — so a gated type's URL is capped at 15 minutes rather than the
+  // 24 hours everything else gets (issue #929 adversarial review L-5). The
+  // rule is tested directly: reaching a 200 from this route needs signable
+  // HTTP credentials, which the binding-mode fixture above deliberately
+  // doesn't have.
+  describe("gated-type TTL cap (presignExpiresIn)", () => {
+    it("caps a gated type at 900s however long a TTL is asked for", () => {
+      expect(presignExpiresIn(86400, "image/svg+xml")).toBe(900);
+      expect(presignExpiresIn(3600, "application/xml")).toBe(900);
+      expect(presignExpiresIn(901, "text/xml")).toBe(900);
+    });
+
+    it("caps a gated type that asked for nothing (the 3600s default)", () => {
+      expect(presignExpiresIn(undefined, "image/svg+xml")).toBe(900);
+      // Out-of-range values fall back to the default first, then cap.
+      expect(presignExpiresIn(0, "image/svg+xml")).toBe(900);
+      expect(presignExpiresIn(86401, "image/svg+xml")).toBe(900);
+    });
+
+    it("honors a shorter explicit TTL on a gated type", () => {
+      expect(presignExpiresIn(120, "image/svg+xml")).toBe(120);
+    });
+
+    it("leaves an ungated type's full 24-hour ceiling and 1-hour default alone", () => {
+      expect(presignExpiresIn(86400, "image/png")).toBe(86400);
+      expect(presignExpiresIn(undefined, "image/png")).toBe(3600);
+      expect(presignExpiresIn(86401, "image/png")).toBe(3600);
+    });
   });
 
   it("rejects text/html", async () => {

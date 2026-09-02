@@ -100,27 +100,51 @@ checks, `apps/api/src/active-content-hosts.ts` is the hosted-lane half below.
      - `Content-Security-Policy` =
        `default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox`
      - `X-Content-Type-Options` = `nosniff`
+
+   Set exactly **one** `Content-Security-Policy` header. Two CSP response
+   headers are legal CSP, but `Headers.get` joins repeated headers with a
+   comma and the probe (`parseSandboxCsp`) splits directives on `;` only — so
+   a policy split across two headers fails the check.
+
+   The rule must cover **XML as well as SVG**. The expression above already
+   lists `application/xml` and `text/xml`; an extension-scoped variant
+   (`ends_with ".svg"`) would pass an SVG-only probe while leaving XML
+   documents free to run script through an `<?xml-stylesheet>` XSLT. The
+   probe writes both an SVG and an XML object and requires both to come back
+   sandboxed, so a rule that misses XML now fails outright.
+
 2. Confirm it worked:
    ```bash
    curl -X POST -H "Authorization: Bearer $ADMIN_TOKEN" \
      https://api.uploads.sh/admin/active-content/probe
    ```
    Check the response: all three hosts (`storage.uploads.sh`,
-   `store.uploads.sh`, `embed.uploads.sh`) must read `ok: true`. Then spot-check
-   the headers directly against a real `.svg` on each host:
+   `store.uploads.sh`, `embed.uploads.sh`) must read `ok: true`. **Every one of
+   them**, not just the one a given workspace's URLs name — `storage.` and
+   `store.uploads.sh` are two custom domains of the same bucket (same keys,
+   same bytes), so the gate closes for every shared-lane workspace as soon as
+   any hosted host's record is missing, failing, or stale. Then spot-check the
+   headers directly against a real `.svg` and a real `.xml` on each host:
    ```bash
    curl -I https://storage.uploads.sh/<workspace-prefix>/<some-key>.svg
    curl -I https://store.uploads.sh/<workspace-prefix>/<some-key>.svg
    curl -I https://embed.uploads.sh/<workspace-prefix>/<some-key>.svg
+   curl -I https://storage.uploads.sh/<workspace-prefix>/<some-key>.xml
    ```
 
 **Daily sweep:** the Worker's `scheduled` handler (`0 6 * * *`, `index.ts`)
 calls `runActiveContentHostSweep` for every hosted host, writing
 `host-active-content:<host>` to `REGISTRY` as `{ ok, verifiedAt, detail? }`.
-`activeContentAllowed` (`active-content.ts`) treats a record older than 48h
-as untrusted — one missed cron tick doesn't flip every workspace on that
-host off, but a genuinely broken Transform Rule closes the gate within two
-days.
+Each probe writes an inert SVG _and_ an inert XML object under
+`_internal/uploads-verify/`, fetches both back through the host, and deletes
+them; the record is `ok` only when both pass. `activeContentAllowed`
+(`active-content.ts`) treats a record older than 48h as untrusted — one
+missed cron tick doesn't flip every workspace on that host off, but a
+genuinely broken Transform Rule closes the gate within two days.
+
+The same `scheduled` handler's retention sweep also reaps any
+`_internal/uploads-verify/` object older than 24h from the shared bucket, so
+a probe whose own cleanup failed can't accumulate.
 
 **On-demand probe:** two equivalent routes run the same sweep immediately, so
 a just-applied Transform Rule can be confirmed without waiting for the next

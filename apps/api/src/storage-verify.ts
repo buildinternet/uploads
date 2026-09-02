@@ -485,10 +485,29 @@ function checkEmbedCache(cacheControl: string | null): StorageVerifyCheck {
   };
 }
 
-/** A 1×1 inert SVG; what the active-content probe writes and fetches. */
+/** A 1×1 inert SVG; the `image/svg+xml` half of the active-content probe. */
 export const ACTIVE_CONTENT_PROBE_SVG = new TextEncoder().encode(
   '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"><rect width="1" height="1"/></svg>',
 );
+
+/** An inert XML document; the `application/xml` half of the active-content probe. */
+export const ACTIVE_CONTENT_PROBE_XML = new TextEncoder().encode('<?xml version="1.0"?><probe/>');
+
+/**
+ * The two objects {@link probeActiveContent} writes and fetches back (issue
+ * #929 adversarial review M-1). SVG alone was never enough: the gate admits
+ * `image/svg+xml`, `application/xml` and `text/xml` together, but a host's
+ * rule can easily be extension-scoped (`ends_with ".svg"`) or list only the
+ * SVG content type — and an XML document served without the sandbox can run
+ * script through an `<?xml-stylesheet>` XSLT. `text/xml` has no probe of its
+ * own: it has no extension (so no key can claim it by name) and any rule
+ * shaped to catch `application/xml` catches it too, which is why the
+ * documented Transform Rule expression lists all three.
+ */
+const ACTIVE_CONTENT_PROBES: readonly { ext: string; contentType: string; body: Uint8Array }[] = [
+  { ext: "svg", contentType: "image/svg+xml", body: ACTIVE_CONTENT_PROBE_SVG },
+  { ext: "xml", contentType: "application/xml", body: ACTIVE_CONTENT_PROBE_XML },
+];
 
 /**
  * Does a Content-Security-Policy sandbox the document? The `sandbox`
@@ -496,36 +515,52 @@ export const ACTIVE_CONTENT_PROBE_SVG = new TextEncoder().encode(
  * `allow-scripts` and `allow-same-origin` each undo the part we rely on.
  * Any other directives are the host owner's business.
  *
- * Directives split on `/[;,]/`, not just `;`: two `Content-Security-Policy`
- * response headers are legal (each adds its own restrictions), and the
- * fetch API's `Headers.get` joins repeated headers with `", "` — so a
- * `sandbox` directive sent on its own header, alongside an unrelated
- * `default-src 'none'`, would otherwise vanish into one comma-joined token
- * a plain `;`-split never separates back out.
+ * Directives split on `;` only (issue #929 adversarial review L-1). A comma
+ * is a legal character *inside* a directive value — `report-uri
+ * /csp?tags=a,sandbox` is one `report-uri` directive, not a policy that
+ * sandboxes anything — so splitting on it invented a `sandbox` directive out
+ * of an entirely unsandboxed policy. The cost is that two
+ * `Content-Security-Policy` response headers (legal CSP; `Headers.get` joins
+ * them with `", "`) no longer parse apart and therefore fail closed, which
+ * is the right direction to fail and is what {@link ACTIVE_CONTENT_HINT}
+ * tells the host owner: send exactly one header.
+ *
+ * Within the sandbox directive, tokens split on whitespace *and* commas, so
+ * a comma-joined `sandbox allow-scripts, default-src 'none'` still reads
+ * `allow-scripts` as the token it is rather than passing as `allow-scripts,`.
  */
 export function parseSandboxCsp(header: string | null): { ok: boolean; reason?: string } {
   if (!header) return { ok: false, reason: "missing Content-Security-Policy" };
   const sandbox = header
-    .split(/[;,]/)
+    .split(";")
     .map((d) => d.trim().toLowerCase())
     .find((d) => d === "sandbox" || d.startsWith("sandbox "));
   if (!sandbox) return { ok: false, reason: "Content-Security-Policy has no sandbox directive" };
-  const tokens = new Set(sandbox.split(/\s+/).slice(1));
+  const tokens = new Set(sandbox.split(/[\s,]+/).slice(1));
   if (tokens.has("allow-scripts")) return { ok: false, reason: "sandbox allows scripts" };
   if (tokens.has("allow-same-origin")) return { ok: false, reason: "sandbox allows same-origin" };
   return { ok: true };
 }
 
 const ACTIVE_CONTENT_HINT =
-  "serve SVG/XML with `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox` and `X-Content-Type-Options: nosniff` on this host, then check again";
+  "serve SVG *and* XML with `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox` and `X-Content-Type-Options: nosniff` on this host — one Content-Security-Policy header, not two (repeated headers are joined with a comma and can't be read apart) — then check again";
 
-/** Recommended check: the public host serves SVG sandboxed. Never required; gates SVG/XML acceptance per lane. */
+/**
+ * Recommended check: the public host serves one probe object with the
+ * sandboxing CSP, `nosniff`, and the content type it was written with.
+ * `expectedType` is the type this particular probe was uploaded as
+ * (`image/svg+xml` or `application/xml`) — a host that rewrites the type
+ * fails, since the gate's whole premise is that the browser sees the type
+ * the rule was written for. Never required; gates SVG/XML acceptance per lane.
+ */
 export async function checkActiveContentHeaders(
   publicBaseUrl: string,
   probeKey: string,
   fetchImpl: typeof fetch,
+  expectedType = "image/svg+xml",
 ): Promise<StorageVerifyCheck> {
   const id = "active-content-headers";
+  const label = `${expectedType} probe`;
   const url = `${publicBaseUrl.replace(/\/$/, "")}/${probeKey}`;
   try {
     const res = await fetchImpl(url, {
@@ -537,15 +572,15 @@ export async function checkActiveContentHeaders(
         id,
         ok: false,
         required: false,
-        hint: `fetching the SVG probe returned HTTP ${res.status} — ${ACTIVE_CONTENT_HINT}`,
+        hint: `fetching the ${label} returned HTTP ${res.status} — ${ACTIVE_CONTENT_HINT}`,
       };
     const type = (res.headers.get("content-type") ?? "").toLowerCase();
-    if (!type.startsWith("image/svg+xml"))
+    if (!type.startsWith(expectedType))
       return {
         id,
         ok: false,
         required: false,
-        hint: `the host served the SVG probe as ${type || "no content-type"} instead of image/svg+xml — ${ACTIVE_CONTENT_HINT}`,
+        hint: `the host served the ${label} as ${type || "no content-type"} instead of ${expectedType} — ${ACTIVE_CONTENT_HINT}`,
       };
     const csp = parseSandboxCsp(res.headers.get("content-security-policy"));
     if (!csp.ok)
@@ -553,14 +588,14 @@ export async function checkActiveContentHeaders(
         id,
         ok: false,
         required: false,
-        hint: `${csp.reason} (content-security-policy) — ${ACTIVE_CONTENT_HINT}`,
+        hint: `${csp.reason} (content-security-policy) on the ${label} — ${ACTIVE_CONTENT_HINT}`,
       };
     if ((res.headers.get("x-content-type-options") ?? "").toLowerCase() !== "nosniff")
       return {
         id,
         ok: false,
         required: false,
-        hint: `missing x-content-type-options: nosniff — ${ACTIVE_CONTENT_HINT}`,
+        hint: `missing x-content-type-options: nosniff on the ${label} — ${ACTIVE_CONTENT_HINT}`,
       };
     return { id, ok: true, required: false };
   } catch {
@@ -569,20 +604,24 @@ export async function checkActiveContentHeaders(
       ok: false,
       required: false,
       inconclusive: true,
-      hint: "we couldn't fetch the SVG probe from here (Cloudflare-fronted domains are often unreachable as a server-side request); SVG/XML stay off for this lane until a check succeeds",
+      hint: `we couldn't fetch the ${label} from here (Cloudflare-fronted domains are often unreachable as a server-side request); SVG/XML stay off for this lane until a check succeeds`,
     };
   }
 }
 
 /**
- * The whole active-content probe, in one place (issue #929): write an inert
- * SVG under {@link PROBE_PREFIX}, fetch it back through `publicBaseUrl` and
- * check the headers it came with, then delete the object — always, whatever
- * the outcome, and best-effort (a failed cleanup never changes the verdict).
- * Every caller runs exactly this: the save-time pipeline below, the
- * on-demand per-lane route (`routes/workspace-storage.ts`), and the
- * hosted-host sweep (`active-content-hosts.ts`), which adapts its R2 binding
- * to the two client methods this needs.
+ * The whole active-content probe, in one place (issue #929): write the inert
+ * probe objects under {@link PROBE_PREFIX} — one SVG *and* one XML, since
+ * the gate opens all three gated types together and a host can sandbox one
+ * without the other — fetch each back through `publicBaseUrl`, check the
+ * headers each came with, then delete both — always, whatever the outcome,
+ * and best-effort (a failed cleanup never changes the verdict). The single
+ * `active-content-headers` check is `ok` only when *both* pass, and its hint
+ * names the probe that failed. Every caller runs exactly this: the save-time
+ * pipeline below, the on-demand per-lane route
+ * (`routes/workspace-storage.ts`), and the hosted-host sweep
+ * (`active-content-hosts.ts`), which adapts its R2 binding to the two client
+ * methods this needs.
  *
  * A write that throws is `inconclusive`, not a failure — the same "unknown,
  * not broken" verdict `checkActiveContentHeaders` returns for a thrown
@@ -594,27 +633,42 @@ export async function probeActiveContent(
   publicBaseUrl: string,
   fetchImpl: typeof fetch,
 ): Promise<StorageVerifyCheck> {
-  const probeKey = `${PROBE_PREFIX}${crypto.randomUUID()}.svg`;
+  // One uuid, one key per probe type: the fetches are independent, and a
+  // shared stem keeps a stranded pair recognizable as one probe run.
+  const stem = `${PROBE_PREFIX}${crypto.randomUUID()}`;
+  const probes = ACTIVE_CONTENT_PROBES.map((probe) => ({ ...probe, key: `${stem}.${probe.ext}` }));
+  // Every key we attempted to write, cleaned up in `finally` — a throwing
+  // upload doesn't mean nothing landed (some clients throw after the object
+  // is already written, e.g. a timeout on the response), so an attempted key
+  // is a key to delete.
+  const written: string[] = [];
   try {
-    await client.upload(probeKey, ACTIVE_CONTENT_PROBE_SVG, { contentType: "image/svg+xml" });
-  } catch {
-    // A throw here doesn't mean nothing landed — some clients throw after
-    // the object is already written (e.g. a timeout on the response).
-    // Attempt the same best-effort cleanup as the happy path so a failed
-    // probe write never leaves an orphaned object behind.
-    await Promise.resolve(client.delete(probeKey)).catch(() => {});
-    return {
-      id: "active-content-headers",
-      ok: false,
-      required: false,
-      inconclusive: true,
-      hint: "could not write the SVG probe to this bucket — check the storage credentials, then check again",
-    };
-  }
-  try {
-    return await checkActiveContentHeaders(publicBaseUrl, probeKey, fetchImpl);
+    for (const probe of probes) {
+      written.push(probe.key);
+      try {
+        await client.upload(probe.key, probe.body, { contentType: probe.contentType });
+      } catch {
+        return {
+          id: "active-content-headers",
+          ok: false,
+          required: false,
+          inconclusive: true,
+          hint: `could not write the ${probe.contentType} probe to this bucket — check the storage credentials, then check again`,
+        };
+      }
+    }
+    for (const probe of probes) {
+      const check = await checkActiveContentHeaders(
+        publicBaseUrl,
+        probe.key,
+        fetchImpl,
+        probe.contentType,
+      );
+      if (!check.ok) return check;
+    }
+    return { id: "active-content-headers", ok: true, required: false };
   } finally {
-    await Promise.resolve(client.delete(probeKey)).catch(() => {});
+    await Promise.all(written.map((key) => Promise.resolve(client.delete(key)).catch(() => {})));
   }
 }
 

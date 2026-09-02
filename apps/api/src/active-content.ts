@@ -16,18 +16,19 @@
  * that host shares one Transform Rule), while a BYO workspace carries its
  * own stamp because only its owner controls that host's headers.
  *
- * A shared-lane workspace's object is actually reachable through *two*
- * hosts — the stable `ws.publicBaseUrl` host and, when it's one of the
- * default embeddable hosts, the `embed.uploads.sh` twin `objectPublicUrls`
- * (`./storage.ts`) also hands out for it (`resolveEmbedBaseUrl`, same
- * `@uploads/storage` helper). Gating on the stable host's record alone would
- * let SVG/XML through on a URL an unverified host still serves un-sandboxed,
- * so the shared-lane branch below requires a fresh `ok` record for *every*
- * host that can serve the object.
+ * A shared-lane workspace's object is reachable through *several* hosts, not
+ * one: the shared bucket carries more than one custom domain (`storage.` and
+ * `store.uploads.sh` are the same bucket, same keys, same bytes), and
+ * `objectPublicUrls` (`./storage.ts`) also hands out the `embed.uploads.sh`
+ * twin (`resolveEmbedBaseUrl`, same `@uploads/storage` helper). Any one of
+ * them serving the object un-sandboxed defeats the gate, so the shared-lane
+ * branch below requires a fresh `ok` record for *every* hosted host the
+ * daily sweep covers (`HOSTED_ACTIVE_CONTENT_HOSTS`), plus this workspace's
+ * own host and its embed twin — not just the two the workspace's URLs name.
  */
 import { hostOf, resolveEmbedBaseUrl } from "@uploads/storage";
 import { isSharedLane } from "./storage";
-import { readHostActiveContent } from "./active-content-hosts";
+import { HOSTED_ACTIVE_CONTENT_HOSTS, readHostActiveContent } from "./active-content-hosts";
 import type { WorkspaceRecord } from "./workspace";
 
 /** Flagship kill switch, fail-closed like `POSTER_FLAG`. */
@@ -85,6 +86,8 @@ export interface ActiveContentStatus {
   /** Only ever set when the lane check passed — a fresh, passing stamp. */
   verifiedAt?: string;
   reason?: ActiveContentReason;
+  /** For a `host_*` reason, the hosted host whose record closed the gate — the sweep covers several, and "which one" is the first thing an operator asks. */
+  host?: string;
 }
 
 /** One hosted host's KV record as a status: fresh and `ok` allows; anything else says why not. */
@@ -104,13 +107,15 @@ async function hostStatus(env: Env, host: string, now: Date): Promise<ActiveCont
  * struggling BYO lane never gets active-content treated as a new problem to
  * diagnose), then the lane-specific freshness check.
  *
- * Shared lane: reads `REGISTRY`'s `host-active-content:<host>` record (see
+ * Shared lane: reads `REGISTRY`'s `host-active-content:<host>` records (see
  * `./active-content-hosts.ts`, written by the daily cron/admin probe) for
- * the hostname of `ws.publicBaseUrl` — allowed only when that record exists,
- * passed, and is within `HOST_RECORD_MAX_AGE_MS` *and* the same is true of
- * the embed twin's host when `resolveEmbedBaseUrl` resolves to a different
- * one (the object is reachable through both; either serving it un-sandboxed
- * defeats the gate). BYO lane: allowed when `ws.storageActiveContentVerifiedAt`
+ * every host that can serve a shared-bucket object — the sweep's own set
+ * (`HOSTED_ACTIVE_CONTENT_HOSTS`: the shared bucket's custom domains, the
+ * embed twin, the self-serve host), plus this workspace's `publicBaseUrl`
+ * host and the twin `resolveEmbedBaseUrl` derives for it, deduped and read
+ * in parallel. Allowed only when *every* one of those records exists,
+ * passed, and is within `HOST_RECORD_MAX_AGE_MS`; the first that isn't names
+ * itself in `host`. BYO lane: allowed when `ws.storageActiveContentVerifiedAt`
  * is within `LANE_STAMP_MAX_AGE_MS` (the unhealthy check above already
  * covers the "lane broke" case, so this branch is freshness only; a BYO
  * lane has no separate embed twin to check).
@@ -142,23 +147,73 @@ export async function activeContentStatus(
     if (!env.REGISTRY) return { allowed: false, reason: "host_missing" };
     const host = hostOf(ws.publicBaseUrl);
     if (!host) return { allowed: false, reason: "host_missing" };
-    const stable = await hostStatus(env, host, now);
-    if (!stable.allowed) return stable;
-    // Same derivation `objectPublicUrls` (./storage.ts) uses for the embed
-    // URL it hands every shared-lane caller — when it names a different
-    // host than the stable one just checked, that host must be fresh and
-    // `ok` too, or the object is still reachable un-sandboxed through it.
+    // The sweep's own host set first (so a `store.uploads.sh` whose rule was
+    // never applied — or was pulled later — closes the gate for every
+    // workspace on the shared bucket, not just the ones whose URLs name it),
+    // then this workspace's own host, then the embed twin
+    // `objectPublicUrls` (./storage.ts) hands every shared-lane caller.
+    // Deduped: on this deployment most of these collapse to two hosts.
+    const hosts = new Set<string>(HOSTED_ACTIVE_CONTENT_HOSTS);
+    hosts.add(host);
     const embedHost = hostOf(resolveEmbedBaseUrl(ws.publicBaseUrl, env.EMBED_PUBLIC_BASE_URL));
-    if (embedHost && embedHost !== host) {
-      const twin = await hostStatus(env, embedHost, now);
-      if (!twin.allowed) return twin;
-    }
-    return stable;
+    if (embedHost) hosts.add(embedHost);
+    // In parallel — a handful of independent KV reads, and a shared-lane put
+    // waits on all of them.
+    const checked = await Promise.all(
+      [...hosts].map(async (h) => [h, await hostStatus(env, h, now)] as const),
+    );
+    const failed = checked.find(([, status]) => !status.allowed);
+    if (failed) return { ...failed[1], host: failed[0] };
+    // Every host passed; report the workspace's own host's timestamp, the
+    // one a settings page means by "verified".
+    return checked.find(([h]) => h === host)![1];
   }
   if (!ws.storageActiveContentVerifiedAt) return { allowed: false, reason: "lane_missing" };
   return fresh(ws.storageActiveContentVerifiedAt, LANE_STAMP_MAX_AGE_MS, now)
     ? { allowed: true, verifiedAt: ws.storageActiveContentVerifiedAt }
     : { allowed: false, reason: "lane_stale" };
+}
+
+/**
+ * The reasons a *server-side copy* of bytes already stored in this workspace
+ * tolerates (issue #929 adversarial review M-2). All five are freshness
+ * reasons: a host record that has gone stale, failed, or was never written,
+ * or a BYO lane stamp that lapsed. None of them says the object shouldn't
+ * exist — the bytes are already sitting on this same lane, served by this
+ * same host — so refusing the copy would make a stored SVG uncopyable the
+ * moment verification lapsed and would wedge private-prefix rotation
+ * outright, without removing anything from the internet.
+ *
+ * The three that are NOT here are policy, not freshness: `opted_out`,
+ * `flag_off` and `unhealthy` are somebody deciding this workspace (or the
+ * whole platform) should stop taking gated types. A kill switch that new
+ * copies can walk straight past is not a kill switch, so those deny — and
+ * the batch copy paths (`github-promote.ts`,
+ * `github-private-prefix-service.ts`) skip the individual object rather than
+ * failing the whole batch.
+ */
+const COPY_TOLERATED_REASONS: ReadonlySet<ActiveContentReason> = new Set([
+  "host_missing",
+  "host_not_ok",
+  "host_stale",
+  "lane_missing",
+  "lane_stale",
+]);
+
+/**
+ * The gate as a server-side copy sees it: `activeContentStatus`'s verdict,
+ * widened by {@link COPY_TOLERATED_REASONS}. Used only by `putObject`'s
+ * `serverCopy` path.
+ */
+export async function activeContentAllowedForCopy(
+  env: Env,
+  ws: WorkspaceRecord,
+  now = new Date(),
+): Promise<boolean> {
+  const status = await activeContentStatus(env, ws, now);
+  return (
+    status.allowed || (status.reason !== undefined && COPY_TOLERATED_REASONS.has(status.reason))
+  );
 }
 
 /** The gate itself — `activeContentStatus`'s verdict, for the callers that only decide admission. */

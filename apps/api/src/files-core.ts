@@ -7,7 +7,7 @@
  */
 import { ConflictError, NotFoundError, ValidationError } from "@uploads/errors";
 import { createStorage, type Files, type StoredFile } from "@uploads/storage";
-import { activeContentAllowed } from "./active-content";
+import { activeContentAllowed, activeContentAllowedForCopy } from "./active-content";
 import { recordAdoptionSafe, type UploadSurface } from "./adoption";
 import {
   budgetDenialError,
@@ -402,13 +402,15 @@ export function publicObjectDateFields(meta: {
  * `inspectUpload` at the destination the same way it was at the source.
  * Every copy still runs the full `putObject` write path — the size cap,
  * sniffing, and (for a declared type) the row's `admit` check all still
- * apply. What `serverCopy: true` skips is only the
- * active-content *lane gate* (issue #929 review): a copy of bytes already
- * stored in this same workspace doesn't change exposure — same active lane,
- * same serving host — so re-running `activeContentAllowed` on it would only
- * make a stored SVG uncopyable the moment its lane's verification stamp
- * lapses, and would wedge prefix rotation outright. See `putObject`'s
- * `opts.serverCopy`.
+ * apply. What `serverCopy: true` changes is only *which* active-content
+ * verdicts admit a gated type (issue #929 review, tightened by the
+ * adversarial review's M-2): a copy of bytes already stored in this same
+ * workspace doesn't change exposure — same active lane, same serving host —
+ * so a lapsed verification stamp or a stale host record must not make a
+ * stored SVG uncopyable (it would wedge prefix rotation outright). A
+ * *policy* close — the workspace opt-out, the Flagship kill switch, an
+ * unhealthy lane — still refuses the copy. See
+ * `activeContentAllowedForCopy` and `putObject`'s `opts.serverCopy`.
  */
 export function putOptsFromStoredObject(source: Pick<StoredFile, "metadata" | "type">): {
   provenance: Record<string, string> | undefined;
@@ -486,11 +488,15 @@ export async function putObject(
     /**
      * Set by `putOptsFromStoredObject` (issue #929 review): `bytes` are
      * already stored in this same workspace (attach/promote/rotate copying
-     * an existing object to a new key), so the active-content lane gate does
-     * not re-run for this put — the destination is the same active lane as
-     * the source, so a copy changes nothing about exposure. Everything else
-     * `inspectUpload` checks (size, sniffing, plausibility/reputation) still
-     * applies; this only widens the *allowlist*, never the acceptance rules.
+     * an existing object to a new key), so the active-content gate is
+     * evaluated through `activeContentAllowedForCopy` rather than the
+     * ordinary `activeContentAllowed` — the destination is the same active
+     * lane as the source, so a *freshness* close (stale/absent host record,
+     * lapsed BYO stamp) changes nothing about exposure and must not make a
+     * stored SVG uncopyable. A policy close (workspace opt-out, kill switch,
+     * unhealthy lane) still 415s the copy. Everything else `inspectUpload`
+     * checks (size, sniffing, plausibility/reputation) still applies; this
+     * only widens the *allowlist*, never the acceptance rules.
      */
     serverCopy?: boolean;
     /**
@@ -499,7 +505,8 @@ export async function putObject(
      * it — the MCP `put` tool's multi-file batch does, so one tool call
      * evaluates the flag (and reads KV) at most once for up to 20 files.
      * Only consulted when the declared type is a gated one, and never
-     * consulted at all for a `serverCopy`.
+     * consulted at all for a `serverCopy` (which asks the copy-specific
+     * question instead — see `serverCopy` above).
      */
     activeContent?: boolean;
   },
@@ -538,12 +545,17 @@ export async function putObject(
   // and those are declared-only — so a put that claims anything else can
   // never be changed by it, and doesn't pay for it: no Flagship evaluation,
   // no KV read (issue #929). A server-side copy of bytes already stored in
-  // this workspace skips it too (see `opts.serverCopy`), and a caller that
-  // has already resolved the answer passes it in (`opts.activeContent`).
-  const activeContent =
-    declared !== undefined && isGatedContentType(declared)
-      ? opts?.serverCopy === true || (opts?.activeContent ?? (await activeContentAllowed(env, ws)))
-      : false;
+  // this workspace asks the copy-specific question (see `opts.serverCopy`)
+  // — still an evaluation, so the kill switch and the workspace opt-out
+  // reach the copy paths too — and a caller that has already resolved the
+  // ordinary answer passes it in (`opts.activeContent`).
+  let activeContent = false;
+  if (declared !== undefined && isGatedContentType(declared)) {
+    activeContent =
+      opts?.serverCopy === true
+        ? await activeContentAllowedForCopy(env, ws)
+        : (opts?.activeContent ?? (await activeContentAllowed(env, ws)));
+  }
   const policy = resolveUploadPolicy(ws, { activeContent });
   const inspection = inspectUpload(bytes, policy, declared);
   if (!inspection.ok) throw inspection.error;
@@ -960,6 +972,16 @@ export async function downloadResponse(
   );
   if (typeof file.size === "number") headers.set("Content-Length", String(file.size));
   headers.set("Cache-Control", "no-store");
+  // `Content-Disposition: attachment` is what keeps this route from
+  // rendering anything on `api.uploads.sh` — a first-party origin, unlike
+  // the bare storage hosts. These two make that a belt-and-braces claim
+  // rather than the only one (issue #929 adversarial review L-2): `nosniff`
+  // stops a browser re-deciding the type it was handed, and `sandbox` puts
+  // the document in an opaque origin with scripting off should it ever be
+  // rendered anyway. Both are inert for the attachment path every other
+  // content type takes.
+  headers.set("X-Content-Type-Options", "nosniff");
+  headers.set("Content-Security-Policy", "sandbox");
   return new Response(file.stream(), { headers });
 }
 

@@ -655,6 +655,20 @@ describe("GET /public/files/:workspace/:key?download=1", () => {
     expect(bytes).toEqual(PNG);
   });
 
+  // `api.uploads.sh` is a first-party origin, unlike the bare storage hosts,
+  // and this is the one route there that streams object bytes. The
+  // attachment disposition is no longer the only thing standing between a
+  // stored SVG and a rendered document (issue #929 adversarial review L-2).
+  it("sends nosniff and a sandboxing CSP on every download, whatever the type", async () => {
+    const { env } = await makeEnv();
+    await seedShot(env);
+
+    const res = await app.request("/public/files/default/screenshots/shot.png?download=1", {}, env);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("X-Content-Type-Options")).toBe("nosniff");
+    expect(res.headers.get("Content-Security-Policy")).toBe("sandbox");
+  });
+
   it("401s with auth_required for a private object, without streaming bytes", async () => {
     const { env } = await makeEnv();
     await seedShot(env, { "X-Uploads-Visibility": "private" });
