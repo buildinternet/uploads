@@ -42,9 +42,22 @@ export function previewFixtureItems(env: Env): AttachmentItem[] {
     pageUrl: null,
     meta,
   });
+  // Two non-media fixtures (issue #946) so the settings preview also shows
+  // the file table, not just the image grid — plausible preview-base paths,
+  // never a real `/f/` file page (`pageUrl: null`, matching the images above).
+  const file = (filename: string, size: number, contentType: string): AttachmentItem => ({
+    key: `gh/preview/pull/0/${filename}`,
+    url: `${webOrigin(env)}/preview/${filename}`,
+    embedUrl: null,
+    pageUrl: null,
+    size,
+    contentType,
+  });
   return [
     item("dashboard-overview.png", "comment-dashboard", { path: "/dashboard", state: "after" }),
     item("settings-before.png", "comment-settings-before", { path: "/settings", state: "before" }),
     item("settings-after.png", "comment-settings-after", { path: "/settings", state: "after" }),
+    file("report.pdf", 1_240_000, "application/pdf"),
+    file("bundle.zip", 8_400_000, "application/zip"),
   ];
 }

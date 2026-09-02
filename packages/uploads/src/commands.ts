@@ -938,7 +938,7 @@ export async function syncAttachmentsComment(
   );
   const items: AttachmentItem[] = await ghMergedList(prefixes, undefined, async (prefix) =>
     (await client.listAll({ prefix, metadata: true })).map(
-      ({ key, url, embedUrl, pageUrl, metadata }) => {
+      ({ key, url, embedUrl, pageUrl, size, metadata }) => {
         // The list endpoint returns every metadata key; the comment
         // renders only these two. Narrowing here keeps both render paths
         // byte-identical.
@@ -956,6 +956,7 @@ export async function syncAttachmentsComment(
           url,
           embedUrl,
           pageUrl,
+          ...(size != null ? { size } : {}),
           ...(path || state
             ? { meta: { ...(path ? { path } : {}), ...(state ? { state } : {}) } }
             : {}),

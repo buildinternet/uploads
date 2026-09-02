@@ -221,6 +221,10 @@ export interface AttachmentItem {
   videoMeta?: { durationSeconds?: number; width?: number; height?: number };
   /** Server-derived pixel dimensions for an image (never client-settable). */
   imageMeta?: { width?: number; height?: number };
+  /** Object size in bytes, when known — drives the non-media file table's Size column. */
+  size?: number;
+  /** Stored content type, when known — preferred over name-based inference for file classification and the table's Type column. */
+  contentType?: string;
 }
 
 /** A public gallery linked to the PR or issue whose managed comment is syncing. */
@@ -391,6 +395,46 @@ function formatMetaCaption(
       return esc.includes("`") ? escapeMarkdownText(esc) : `\`${esc}\``;
     })
     .join(" · ");
+}
+
+/**
+ * Decimal-SI byte size for the non-media file table's Size column: whole
+ * bytes below 1000, one decimal place at KB/MB/GB and above. `"—"` when the
+ * size is unknown.
+ */
+function formatBytes(bytes: number | undefined): string {
+  if (bytes == null || !Number.isFinite(bytes) || bytes < 0) return "—";
+  if (bytes < 1000) return `${Math.round(bytes)} B`;
+  const units: [number, string][] = [
+    [1e9, "GB"],
+    [1e6, "MB"],
+    [1e3, "KB"],
+  ];
+  for (const [threshold, label] of units) {
+    if (bytes >= threshold) return `${(bytes / threshold).toFixed(1)} ${label}`;
+  }
+  return `${Math.round(bytes)} B`;
+}
+
+/**
+ * Type label for the non-media file table: uppercase filename extension
+ * first, then the content type's subtype, then a bare "FILE" fallback.
+ */
+function fileTypeLabel(name: string, contentType: string | undefined): string {
+  const dot = name.lastIndexOf(".");
+  if (dot !== -1 && dot < name.length - 1) return name.slice(dot + 1).toUpperCase();
+  if (contentType) {
+    const slash = contentType.indexOf("/");
+    if (slash !== -1 && slash < contentType.length - 1) {
+      return contentType.slice(slash + 1).toUpperCase();
+    }
+  }
+  return "FILE";
+}
+
+/** Escape `|` so a filename can't break out of a markdown table cell. */
+function escapeTableCell(s: string): string {
+  return s.replace(/\|/g, "\\|");
 }
 
 /** Resolved pixel width for an image site, or `null` meaning "omit the width
@@ -621,6 +665,10 @@ export function attachmentsCommentBody(
 
   let inlinedImages = 0;
   const overflowImages: AttachmentItem[] = [];
+  // Non-media attachments (PDFs, archives, text/data files) never inline and
+  // never overflow into the <details> link list — they render as one table
+  // after the image/video section instead (issue #946).
+  const fileItems: AttachmentItem[] = [];
   for (let idx = 0; idx < sorted.length; idx++) {
     if (consumedByPair.has(idx)) continue;
     const item = sorted[idx];
@@ -645,8 +693,22 @@ export function attachmentsCommentBody(
     const stable = item.url;
     const src = item.embedUrl ?? item.url;
     const link = item.pageUrl ?? stable; // click-through: file page when known, else raw
-    const isImage = Boolean(src) && inferContentType(name).startsWith("image/");
-    const isPosterVideo = Boolean(item.posterUrl) && inferContentType(name).startsWith("video/");
+    // "application/octet-stream" is the server's generic fallback for an
+    // object stored without an explicit content type — not a real signal —
+    // so it defers to the filename the same as an absent `contentType`.
+    const effectiveType =
+      item.contentType && item.contentType !== "application/octet-stream"
+        ? item.contentType
+        : inferContentType(name);
+    const isImage = Boolean(src) && effectiveType.startsWith("image/");
+    const isPosterVideo = Boolean(item.posterUrl) && effectiveType.startsWith("video/");
+    if (!effectiveType.startsWith("image/") && !effectiveType.startsWith("video/")) {
+      // Neither an image nor a video by content type — a non-media
+      // attachment goes into the file table, never the bullet list or
+      // overflow details.
+      fileItems.push(item);
+      continue;
+    }
     const inlines = isImage || isPosterVideo;
     if (inlines && inlinedImages >= options.maxInlineImages) {
       // Cap hit — defer to the collapsed overflow list below rather than
@@ -736,6 +798,21 @@ export function attachmentsCommentBody(
       const cap = formatMetaCaption(item.meta, options, "markdown");
       lines.push(`- ${name}${cap ? ` · ${cap}` : ""}`);
     }
+  }
+  if (fileItems.length > 0) {
+    lines.push("| File | Type | Size |", "| --- | --- | --- |");
+    for (const item of fileItems) {
+      const name = item.key.slice(item.key.lastIndexOf("/") + 1);
+      const escapedName = escapeTableCell(name);
+      let fileCell = item.url ? `[${escapedName}](${item.url})` : escapedName;
+      if (item.pageUrl) fileCell += ` · [page](${item.pageUrl})`;
+      const cap = formatMetaCaption(item.meta, options, "markdown");
+      if (cap) fileCell += ` · ${cap}`;
+      const typeLabel = fileTypeLabel(name, item.contentType);
+      const sizeLabel = formatBytes(item.size);
+      lines.push(`| ${fileCell} | ${typeLabel} | ${sizeLabel} |`);
+    }
+    lines.push("");
   }
   if (overflowImages.length > 0) {
     const n = overflowImages.length;
