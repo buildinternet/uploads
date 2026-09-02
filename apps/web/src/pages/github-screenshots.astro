@@ -53,19 +53,19 @@ const FAQ = [
   },
   {
     q: "Can agents upload video to GitHub pull requests?",
-    a: "Yes. MP4, WebM, and other files upload as-is and get a stable public URL. GitHub only plays videos it hosts itself, so the comment links the file instead of embedding a player.",
+    a: "Yes. MP4, WebM, and GIFs upload as-is and get a stable public URL. GitHub only plays videos it hosts itself, so the comment links the file instead of embedding a player.",
   },
   {
     q: "How do I set up Claude Code to attach screenshots to its pull requests?",
-    a: "Run `uploads install` once. It installs the agent skills (stage-as-you-go workflow, CLI reference, and annotations) and registers the hosted MCP server with Claude Code. After that, the agent runs `uploads put <file>` on the branch as it works. When the PR opens, staged files land in one attachments comment.",
+    a: "Run uploads install once. It installs the agent skills (stage-as-you-go workflow, CLI reference, and annotations) and registers the hosted MCP server with Claude Code. After that, the agent runs uploads put <file> on the branch as it works. When the PR opens, staged files land in one attachments comment.",
   },
   {
     q: "Can I mark up a screenshot before attaching it?",
-    a: "Yes. `uploads screenshot --annotate` bakes boxes, arrows, labels, freeform strokes, and redactions into a capture (CSS selectors on a live page). `uploads annotate` does the same on an existing image with pixel coordinates. See the Attach & share docs and the annotate-screenshots skill.",
+    a: "Yes. uploads screenshot --annotate bakes boxes, arrows, labels, freeform strokes, and redactions into a capture (CSS selectors on a live page). uploads annotate does the same on an existing image with pixel coordinates. See the Attach & share docs and the annotate-screenshots skill.",
   },
   {
     q: "Are uploaded files private?",
-    a: "No. Files are public to anyone with the URL, even media attached to private repos. Don't upload secrets or sensitive UI — use a solid redaction (`uploads annotate` / `screenshot --annotate`) when a capture shows credentials. Create your own workspace (GitHub-linked) or accept an invite from a workspace admin.",
+    a: "No. Files are public to anyone with the URL, even media attached to private repos. Don't upload secrets or sensitive UI — use a solid redaction (uploads annotate / screenshot --annotate) when a capture shows credentials. Create your own workspace (GitHub-linked) or accept an invite from a workspace admin.",
   },
 ];
 
