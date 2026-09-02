@@ -75,6 +75,23 @@ describe("parseAttachmentKey", () => {
     ).toBeUndefined();
   });
 
+  it("falls through to the plain parse for an owner literally named 'private'", () => {
+    expect(parseAttachmentKey("gh/private/web/pull/12/x.png")).toEqual({
+      kind: "pull",
+      num: 12,
+      prefixId: null,
+      repo: "private/web",
+    });
+    const id = "f".repeat(32);
+    expect(parseAttachmentKey(`gh/private/${id}/pull/12/hero.png`)).toEqual({
+      kind: "pull",
+      num: 12,
+      prefixId: id,
+      repo: null,
+    });
+    expect(parseAttachmentKey(`gh/private/${"g".repeat(32)}/branch/x.png`)).toBeUndefined();
+  });
+
   it("returns undefined for branch-staged, malformed, and non-gh keys", () => {
     expect(parseAttachmentKey("gh/acme/web/branch/feat-x/hero.png")).toBeUndefined();
     expect(parseAttachmentKey(`gh/private/${"c".repeat(32)}/branch/hero.png`)).toBeUndefined();
@@ -82,7 +99,6 @@ describe("parseAttachmentKey", () => {
     expect(parseAttachmentKey("gh/acme/web/pull/12/")).toBeUndefined();
     expect(parseAttachmentKey("gh/acme/web/pull/abc/hero.png")).toBeUndefined();
     expect(parseAttachmentKey("f/abc/hero.png")).toBeUndefined();
-    expect(parseAttachmentKey("gh/private/short/pull/12/hero.png")).toBeUndefined();
   });
 });
 

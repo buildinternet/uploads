@@ -61,8 +61,13 @@ const PLAIN_ATTACHMENT_RE = /^gh\/([^/]+)\/([^/]+)\/(pull|issues)\/([1-9][0-9]*)
 export function parseAttachmentKey(key: string): ParsedAttachmentKey | undefined {
   if (key.startsWith(GH_PRIVATE_ROOT)) {
     const parsed = parseGhPrivateKey(key);
-    if (!parsed) return undefined;
-    return { kind: parsed.kind, num: parsed.num, prefixId: parsed.prefixId, repo: null };
+    if (parsed) {
+      return { kind: parsed.kind, num: parsed.num, prefixId: parsed.prefixId, repo: null };
+    }
+    // Not a real private key (e.g. the 32-hex id slot didn't match) — fall
+    // through to the plain parse, since `private` is a legal GitHub owner
+    // login and `gh/private/web/...` is that owner's plain-key shape, not a
+    // malformed private key.
   }
   const match = PLAIN_ATTACHMENT_RE.exec(key);
   if (!match) return undefined;
