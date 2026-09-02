@@ -109,3 +109,17 @@ describe("deleteObject → attachment index", () => {
     expect(db.attachmentIndex.get(`${WORKSPACE}\0${key}`)).toBeUndefined();
   });
 });
+
+describe("deleteObject → attachment index on a failed lane delete", () => {
+  it("keeps the index row when the storage delete throws, since the object still exists", async () => {
+    const { env, db, ws, bucket } = makePosterEnv();
+    const key = "gh/acme/web/pull/12/hero.png";
+    await putObject(env, ws, key, PNG, WORKSPACE);
+    bucket.delete = async () => {
+      throw new Error("lane delete failed");
+    };
+
+    await expect(deleteObject(env, ws, key, WORKSPACE)).rejects.toThrow("lane delete failed");
+    expect(db.attachmentIndex.get(`${WORKSPACE}\0${key}`)).toBeDefined();
+  });
+});

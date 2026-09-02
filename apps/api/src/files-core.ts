@@ -1291,11 +1291,6 @@ export async function deleteObject(
   const configs = await storageConfigs(env, ws);
   const { hits, failures } = await deleteFromEveryLane(configs, key);
   await deleteFileMetadata(dbFor(env), workspaceName, key);
-  // The attachment index (issue #934) is keyed by (workspace, object_key)
-  // just like file_metadata, so it is cleaned up in exactly the same place.
-  // Best-effort: a stale row costs a broken image in a managed comment
-  // until reconcile, never a failed delete.
-  await deleteAttachmentSafe(dbFor(env), workspaceName, key);
 
   if (hits.length > 0) {
     // Single-winner claim (issue #570): concurrent DELETEs can both observe
@@ -1324,6 +1319,13 @@ export async function deleteObject(
   // rejected lane's delete get to fail the request, so a partial failure
   // never looks like nothing happened.
   if (failures.length > 0) throw failures[0];
+
+  // The attachment index (issue #934) row goes only once every lane's delete
+  // succeeded: a lane that still holds the object must stay indexed, or the
+  // surviving attachment silently drops out of the managed comment.
+  // Best-effort past that point: a stale row costs a broken image until
+  // reconcile, never a failed delete.
+  await deleteAttachmentSafe(dbFor(env), workspaceName, key);
 
   // Derived poster (issue #299), best-effort: a missing one is the norm for
   // every non-video object. Guarded so a transient poster-cleanup failure
