@@ -1,6 +1,7 @@
 import { Files, type StoredFile } from "files-sdk";
 export { createFilesRouter } from "files-sdk/api";
-import { r2, s3FetchAdapter } from "files-sdk/r2";
+import { r2 } from "files-sdk/r2";
+import { s3Fetch } from "files-sdk/s3-fetch";
 
 /** Discriminant for {@link StorageConfig}. Adding a provider = add a case in `createStorage` plus its peer deps. */
 export type StorageProvider = "r2" | "s3";
@@ -117,12 +118,10 @@ export function createStorage(config: StorageConfig): Files {
       if (!config.endpoint || !config.accessKeyId || !config.secretAccessKey) {
         throw new Error("s3 storage config requires endpoint, accessKeyId, and secretAccessKey");
       }
-      const adapter = s3FetchAdapter({
+      const adapter = s3Fetch({
         accessKeyId: config.accessKeyId,
         bucket: config.bucket,
         endpoint: config.endpoint,
-        name: "s3-http-fetch",
-        providerLabel: "S3 error",
         region: config.region,
         secretAccessKey: config.secretAccessKey,
         ...(config.forcePathStyle !== undefined && { forcePathStyle: config.forcePathStyle }),

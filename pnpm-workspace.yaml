@@ -25,8 +25,7 @@ minimumReleaseAgeExclude:
   - "@aws-sdk/s3-request-presigner@3.1080.0"
   - "@aws-sdk/token-providers@3.1080.0"
   - "@cloudflare/workers-types@5.20260706.1"
-  - files-sdk@2.2.4
+  - files-sdk@2.2.4 || 2.3.1
   - hono@4.12.28
 patchedDependencies:
   "@better-auth/oauth-provider": patches/@better-auth__oauth-provider.patch
-  files-sdk: patches/files-sdk.patch

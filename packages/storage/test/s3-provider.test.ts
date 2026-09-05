@@ -11,9 +11,9 @@ const base: S3StorageConfig = {
 };
 
 describe("createStorage s3 provider", () => {
-  it("returns a Files instance whose adapter name is s3-http-fetch", () => {
+  it("returns a Files instance backed by files-sdk's public s3-fetch adapter", () => {
     const files = createStorage(base);
-    expect(files.adapter.name).toBe("s3-http-fetch");
+    expect(files.adapter.name).toBe("s3-fetch");
   });
 
   it("rejects a config missing credentials at runtime (backstop for untyped callers)", () => {
