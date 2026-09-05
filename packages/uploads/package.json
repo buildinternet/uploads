@@ -46,7 +46,7 @@
     "node": ">=22"
   },
   "peerDependencies": {
-    "files-sdk": "^2.2.4"
+    "files-sdk": "^2.3.1"
   },
   "peerDependenciesMeta": {
     "files-sdk": {
@@ -56,7 +56,7 @@
   "devDependencies": {
     "@types/node": "^26.1.0",
     "ai": "^6.0.0",
-    "files-sdk": "^2.2.5",
+    "files-sdk": "^2.3.1",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10"
   },
