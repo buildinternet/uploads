@@ -1,0 +1,37 @@
+<canvas class="light-strands" aria-hidden="true"></canvas>
+
+<style>
+  .light-strands {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: -1;
+    /* Keep the reading column quiet while the strands cross behind it. */
+    mask-image: linear-gradient(
+      to right,
+      #000,
+      rgb(0 0 0 / 25%) calc(50% - 336px),
+      rgb(0 0 0 / 25%) calc(50% + 336px),
+      #000
+    );
+  }
+</style>
+
+<script>
+  import { mountLightStrands } from "../lib/light-strands";
+
+  let cleanup: (() => void) | undefined;
+  function boot() {
+    cleanup?.();
+    const canvas = document.querySelector<HTMLCanvasElement>(".light-strands");
+    cleanup = canvas ? mountLightStrands(canvas) : undefined;
+  }
+  boot();
+  document.addEventListener("astro:page-load", boot);
+  document.addEventListener("astro:before-swap", () => {
+    cleanup?.();
+    cleanup = undefined;
+  });
+</script>

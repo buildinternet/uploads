@@ -5,6 +5,7 @@
 import BaseHead from "../components/BaseHead.astro";
 import Footer from "../components/Footer.astro";
 import GitHubMark from "../components/GitHubMark.astro";
+import LightStrands from "../components/LightStrands.astro";
 import SiteHeader from "../components/SiteHeader.astro";
 import { SAME_ORIGIN_AUTH_BASE } from "../lib/auth-client";
 import { GITHUB_APP_URL } from "../lib/github-app";
@@ -85,6 +86,7 @@ Source (and where to look if something breaks): https://github.com/buildinternet
         box-sizing: border-box;
       }
       body {
+        isolation: isolate;
         margin: 0;
         min-height: 100dvh;
         background: var(--bg);
@@ -611,6 +613,7 @@ Source (and where to look if something breaks): https://github.com/buildinternet
     </style>
   </head>
   <body>
+    <LightStrands />
     <SiteHeader authOrigin={authOrigin} />
     <main>
       <h1>The missing upload command for <span class="nb">coding agents.</span></h1>
