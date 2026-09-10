@@ -1,5 +1,15 @@
 # @buildinternet/uploads
 
+## 0.53.0
+
+### Minor Changes
+
+- f590a79: Add `uploads changelog` to print recent product updates and a link to https://uploads.sh/changelog. Also available as the MCP `changelog` tool.
+
+### Patch Changes
+
+- 5fc4a8c: Bump files-sdk to 2.3.1 and drop the local pnpm patch; the Workers-safe S3 adapter now comes from the public files-sdk/s3-fetch entry.
+
 ## 0.52.1
 
 ### Patch Changes
