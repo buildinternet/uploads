@@ -503,6 +503,7 @@ describe("tools/list", () => {
       "reconcile",
       "purge_expired",
       "comment",
+      "changelog",
       "whoami",
       "doctor",
       "report",
@@ -550,6 +551,12 @@ describe("tools/list", () => {
     ]);
     expect(byName.list._meta.securitySchemes).toEqual([{ type: "oauth2", scopes: ["files:read"] }]);
     expect(byName.whoami._meta.securitySchemes).toEqual([{ type: "noauth" }]);
+    expect(byName.changelog._meta.securitySchemes).toEqual([{ type: "noauth" }]);
+    expect(byName.changelog.annotations).toEqual({
+      readOnlyHint: true,
+      destructiveHint: false,
+      openWorldHint: true,
+    });
   });
 
   it("advertises inputSchema examples on the complex tools", async () => {
@@ -1805,6 +1812,41 @@ describe("config resolution", () => {
       signedIn: true,
       scopes: ["files:read", "files:write"],
     });
+  });
+
+  it("changelog returns recent entries and the website URL", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          url: "https://uploads.sh/changelog",
+          feed: "https://uploads.sh/changelog.xml",
+          entries: [
+            {
+              id: "cli-changelog",
+              kind: "cli",
+              title: "Read the changelog from the CLI",
+              date: "2026-09-10T00:00:00.000Z",
+              url: "https://uploads.sh/changelog#cli-changelog",
+              tags: ["cli"],
+              summary: "uploads changelog prints recent updates.",
+              body: "`uploads changelog` prints recent updates.",
+            },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      )) as typeof fetch;
+    try {
+      const { server } = serverWith();
+      const res = await rpc(server, "tools/call", { name: "changelog", arguments: { limit: 1 } });
+      expect(res.result.isError).toBe(false);
+      expect(res.result.structuredContent).toMatchObject({
+        url: "https://uploads.sh/changelog",
+        entries: [{ id: "cli-changelog", title: "Read the changelog from the CLI" }],
+      });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 
   it("report rejects short messages", async () => {

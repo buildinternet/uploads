@@ -45,7 +45,7 @@ global `uploads` form above.
 
 Commands: `attach`, `put`, `screenshot`, `annotate`, `gallery`, `comment`, `list`, `find`, `meta`, `delete`, `usage`,
 `reconcile`, `purge-expired`, `setup`, `install`, `login`, `whoami` (alias `status`),
-`logout`, `invite`, `admin`, `config`, `telemetry`, `report`, `doctor`, `health`, `mcp`,
+`logout`, `invite`, `admin`, `config`, `telemetry`, `report`, `doctor`, `health`, `changelog`, `mcp`,
 `completion`.
 
 **Help:** bare `uploads` / `uploads help` / `--help` shows essentials; use

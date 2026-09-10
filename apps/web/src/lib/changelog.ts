@@ -22,6 +22,8 @@ export type ChangelogEntry = {
   date: string;
   /** Rendered HTML body. */
   html: string;
+  /** Source markdown, for the JSON twin and CLI. */
+  markdown: string;
   tags: string[];
   image?: ChangelogImage;
 };
@@ -68,6 +70,32 @@ export function renderMarkdown(md: string): string {
   return marked.parse(md, { async: false }) as string;
 }
 
+const CHANGESET_SHA_PREFIX = /^[0-9a-f]{7,40}:\s*/i;
+
+/**
+ * First paragraph of an entry as plain text, for CLI/JSON summaries.
+ * Strips headings, images, and link markup; truncates at a word boundary.
+ */
+export function entrySummary(markdown: string, maxChars = 280): string {
+  const withoutChrome = markdown
+    .replace(/^#{1,6}\s+.*$/gm, "")
+    .replace(/!\[[^\]]*]\([^)]+\)/g, "")
+    .trim();
+  const firstBlock = withoutChrome.split(/\n\s*\n/)[0] ?? "";
+  const text = firstBlock
+    .replace(/^[-*+]\s+/gm, "")
+    .replace(/^\d+\.\s+/gm, "")
+    .replace(/\[([^\]]+)]\([^)]+\)/g, "$1")
+    .replace(/[*_`]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(CHANGESET_SHA_PREFIX, "");
+  if (text.length <= maxChars) return text;
+  const cut = text.slice(0, maxChars - 1);
+  const atSpace = cut.lastIndexOf(" ");
+  return `${atSpace > 40 ? cut.slice(0, atSpace) : cut}…`;
+}
+
 export function mergeEntries(entries: ChangelogEntry[]): ChangelogEntry[] {
   return [...entries].sort((a, b) => {
     const byDate = Date.parse(b.date) - Date.parse(a.date);
@@ -80,10 +108,11 @@ export function mergeEntries(entries: ChangelogEntry[]): ChangelogEntry[] {
 let cached: Promise<ChangelogEntry[]> | null = null;
 
 /**
- * Both /changelog and /changelog.xml call this during the same build; cache
- * the promise so the npm registry fetch (and content-collection load) only
- * happens once per build instead of once per route. A rejected build-time
- * promise still rejects every caller, so failures still fail the build.
+ * /changelog, /changelog.xml, and /changelog.json call this during the same
+ * build; cache the promise so the npm registry fetch (and content-collection
+ * load) only happens once per build instead of once per route. A rejected
+ * build-time promise still rejects every caller, so failures still fail the
+ * build.
  */
 export function loadChangelogEntries(): Promise<ChangelogEntry[]> {
   cached ??= buildChangelogEntries();
@@ -103,6 +132,7 @@ async function buildChangelogEntries(): Promise<ChangelogEntry[]> {
     title: post.data.title,
     date: post.data.date.toISOString(),
     html: renderMarkdown(post.body ?? ""),
+    markdown: post.body ?? "",
     tags: post.data.tags,
     image: post.data.image,
   }));
@@ -116,6 +146,7 @@ async function buildChangelogEntries(): Promise<ChangelogEntry[]> {
       title: `CLI ${section.version}`,
       date: dates[section.version],
       html: renderMarkdown(section.body),
+      markdown: section.body,
       tags: ["cli"],
     }));
 

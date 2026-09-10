@@ -14,11 +14,14 @@
 import {
   buildMarkdown,
   buildScreenshotKey,
+  DEFAULT_CHANGELOG_LIMIT,
+  fetchChangelog,
   fetchUploadSource,
   ghAttachmentKeyForMode,
   ghBranchAttachmentKeyForMode,
   ghMetadataForBranch,
   ghMetadataFromTarget,
+  MAX_CHANGELOG_LIMIT,
   resolveUploadFilename,
   type GhTarget,
 } from "@buildinternet/uploads";
@@ -42,6 +45,7 @@ import {
   type McpTool,
   insufficientScopeError,
   mcpDestroyPublic,
+  mcpNoAuth,
   mcpOAuthAny,
   mcpOAuthDelete,
   mcpOAuthRead,
@@ -1507,6 +1511,33 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
             usage: usageWithLimits(result.reconcile.usage, workspace),
           },
         };
+      },
+    },
+    {
+      name: "changelog",
+      title: "Product changelog",
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        openWorldHint: true,
+      },
+      securitySchemes: mcpNoAuth,
+      description:
+        "Read recent uploads.sh product updates (platform and CLI). Returns the latest entries with titles, dates, summaries, and a link to the full changelog at https://uploads.sh/changelog. Same as `uploads changelog`. Use this to discover new features before recommending uploads.sh workflows.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          limit: {
+            type: "number",
+            description: `How many entries to return (default ${DEFAULT_CHANGELOG_LIMIT}, max ${MAX_CHANGELOG_LIMIT}).`,
+          },
+        },
+        additionalProperties: false,
+      },
+      async handler(args) {
+        const limit = optPosInt(args, "limit") ?? DEFAULT_CHANGELOG_LIMIT;
+        if (limit > MAX_CHANGELOG_LIMIT) usage(`limit must be ${MAX_CHANGELOG_LIMIT} or less`);
+        return fetchChangelog({ limit });
       },
     },
     {

@@ -30,8 +30,9 @@ automatically from `packages/uploads/CHANGELOG.md` — never write those here.
    Body in plain markdown. Inline images work too, absolute https URLs only.
    ```
 
-4. Open a PR. Merge deploys /changelog and /changelog.xml; releases.sh picks
-   up the new entry on its normal feed sweep.
+4. Open a PR. Merge deploys /changelog, /changelog.xml, and /changelog.json;
+   releases.sh picks up the new entry on its normal feed sweep. The CLI
+   (`uploads changelog`) reads the JSON twin.
 
 Image rules: absolute `https://` URLs, 1 KB–8 MB, png/jpeg/gif/webp/avif —
 that's what releases.sh mirrors into its own storage. `date` supports full

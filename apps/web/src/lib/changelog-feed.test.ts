@@ -9,6 +9,7 @@ const entries: ChangelogEntry[] = [
     title: "A home for <your> screenshots",
     date: "2026-08-11T00:00:00.000Z",
     html: '<p>Now with <img src="https://storage.uploads.sh/changelog/x.png" alt="x"></p>',
+    markdown: "Now with ![x](https://storage.uploads.sh/changelog/x.png)",
     tags: ["platform"],
     image: {
       url: "https://storage.uploads.sh/default/screenshots/changelog/lead.webp",
@@ -21,6 +22,7 @@ const entries: ChangelogEntry[] = [
     title: "CLI 0.41.1",
     date: "2026-08-09T18:00:00.000Z",
     html: "<p>Fixes</p>",
+    markdown: "Fixes",
     tags: ["cli"],
   },
 ];

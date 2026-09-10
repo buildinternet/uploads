@@ -251,6 +251,10 @@ export const ROOT_COMMANDS: readonly CatalogCommand[] = [
     essential: true,
   },
   {
+    name: "changelog",
+    summary: "Show recent product updates (and a link to the full changelog)",
+  },
+  {
     name: "login",
     summary: "Sign in via browser (or an enrollment code) and save credentials",
     essential: true,

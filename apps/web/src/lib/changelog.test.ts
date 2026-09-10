@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   type ChangelogEntry,
   cliAnchorId,
+  entrySummary,
   fetchCliReleaseDates,
   mergeEntries,
   parseCliChangelog,
@@ -92,6 +93,7 @@ describe("mergeEntries", () => {
     title: "x",
     date: "2026-08-01T00:00:00.000Z",
     html: "",
+    markdown: "",
     tags: [],
     ...over,
   });
@@ -110,5 +112,34 @@ describe("mergeEntries", () => {
       entry({ id: "post", kind: "platform" }),
     ]);
     expect(sorted.map((e) => e.id)).toEqual(["post", "cli"]);
+  });
+});
+
+describe("entrySummary", () => {
+  it("takes the first paragraph and strips markdown chrome", () => {
+    const md = `## Heading
+
+You can now [point](https://uploads.sh/docs) any workspace at your **own** bucket.
+
+A second paragraph is ignored.`;
+    expect(entrySummary(md)).toBe("You can now point any workspace at your own bucket.");
+  });
+
+  it("strips a changeset SHA prefix from CLI bullets", () => {
+    const md = `### Patch Changes
+
+- 2697e69: Fix \`uploads completion zsh\` producing a script that could not complete anything.
+`;
+    expect(entrySummary(md)).toBe(
+      "Fix uploads completion zsh producing a script that could not complete anything.",
+    );
+  });
+
+  it("truncates at a word boundary", () => {
+    const words = Array.from({ length: 80 }, (_, i) => `word${i}`).join(" ");
+    const summary = entrySummary(words, 40);
+    expect(summary.endsWith("…")).toBe(true);
+    expect(summary.length).toBeLessThanOrEqual(40);
+    expect(summary).not.toContain("word79");
   });
 });

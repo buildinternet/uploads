@@ -46,6 +46,21 @@ export {
 } from "./config.js";
 export { UploadsError, type UploadsErrorCode } from "./errors.js";
 export {
+  CHANGELOG_JSON_URL,
+  CHANGELOG_PAGE_URL,
+  CHANGELOG_XML_URL,
+  DEFAULT_CHANGELOG_LIMIT,
+  MAX_CHANGELOG_LIMIT,
+  fetchChangelog,
+  formatChangelogHuman,
+  parseChangelogAtom,
+  parseChangelogJson,
+  selectChangelogEntries,
+  type ChangelogDocument,
+  type ChangelogJsonEntry,
+  type FetchChangelogOptions,
+} from "./changelog.js";
+export {
   assertFetchableUploadUrl,
   fetchUploadSource,
   filenameFromUploadUrl,

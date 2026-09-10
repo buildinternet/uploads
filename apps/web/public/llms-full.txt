@@ -276,7 +276,7 @@ staged files are promoted into the PR's attachments comment automatically.
 
 - Home: https://uploads.sh/
 - Docs hub: https://uploads.sh/docs
-- Changelog: https://uploads.sh/changelog (Atom feed at https://uploads.sh/changelog.xml)
+- Changelog: https://uploads.sh/changelog (Atom at https://uploads.sh/changelog.xml; JSON at https://uploads.sh/changelog.json; `uploads changelog`)
 - Attach & share: https://uploads.sh/docs/attach-pull-request-images
 - Galleries: https://uploads.sh/docs/galleries
 - GitHub App: https://uploads.sh/docs/github-app
