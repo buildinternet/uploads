@@ -1,6 +1,6 @@
 /**
  * MCP tool set mirroring the CLI commands (put, attach, list, delete,
- * usage, reconcile, purge_expired, comment, whoami, doctor). Config is
+ * usage, reconcile, purge_expired, comment, whoami, doctor, changelog). Config is
  * resolved fresh per tool call so a
  * per-call `workspace` argument behaves like the CLI's --workspace flag, and
  * a missing token surfaces as a tool error rather than a startup failure.
@@ -95,6 +95,7 @@ import {
   validateReportMessage,
 } from "../report.js";
 import { resolveApiUrl } from "../config.js";
+import { DEFAULT_CHANGELOG_LIMIT, MAX_CHANGELOG_LIMIT, fetchChangelog } from "../changelog.js";
 
 function mcpOptimizeOptions(
   args: ToolArgs,
@@ -1763,6 +1764,33 @@ export function createUploadsMcpTools(opts: {
           resync: true,
         });
         return { ...target, ...result };
+      },
+    },
+    {
+      name: "changelog",
+      title: "Product changelog",
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        openWorldHint: true,
+      },
+      securitySchemes: mcpNoAuth,
+      description:
+        "Read recent uploads.sh product updates (platform and CLI). Returns the latest entries with titles, dates, summaries, and a link to the full changelog at https://uploads.sh/changelog. Same as `uploads changelog`. Use this to discover new features before recommending uploads.sh workflows.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          limit: {
+            type: "number",
+            description: `How many entries to return (default ${DEFAULT_CHANGELOG_LIMIT}, max ${MAX_CHANGELOG_LIMIT}).`,
+          },
+        },
+        additionalProperties: false,
+      },
+      async handler(args) {
+        const limit = optPosInt(args, "limit") ?? DEFAULT_CHANGELOG_LIMIT;
+        if (limit > MAX_CHANGELOG_LIMIT) usage(`limit must be ${MAX_CHANGELOG_LIMIT} or less`);
+        return fetchChangelog({ limit });
       },
     },
     {

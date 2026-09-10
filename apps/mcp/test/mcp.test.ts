@@ -686,6 +686,7 @@ describe("mcp worker", () => {
       result: { tools: { name: string }[] };
     };
     expect(body.result.tools.map((tool) => tool.name).sort()).toEqual([
+      "changelog",
       "comment",
       "delete",
       "find_files",

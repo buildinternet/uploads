@@ -97,6 +97,7 @@ command to run by hand, rather than overwriting your build.
 | `install`                  | Skills + remote MCP (Claude/Codex/Grok; skips missing CLIs) + hooks (Grok/Cursor)                                        |
 | `hook`                     | Agent harness handlers (e.g. pre-PR screenshot reminder)                                                                 |
 | `update`                   | Update the CLI, then refresh skills / MCP / hooks                                                                        |
+| `changelog`                | Recent product updates, then a link to https://uploads.sh/changelog                                                      |
 | `login` / `logout`         | Sign in (browser or enrollment code) / clear saved token                                                                 |
 | `whoami` (`status`)        | Show the active workspace and token                                                                                      |
 | `invite`                   | Invite a teammate to a workspace (workspace admin)                                                                       |

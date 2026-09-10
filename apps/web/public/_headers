@@ -108,3 +108,9 @@
   Content-Type: application/atom+xml; charset=utf-8
   Cache-Control: public, max-age=300
   Access-Control-Allow-Origin: *
+
+# JSON twin of /changelog — consumed by `uploads changelog` and the MCP tool.
+/changelog.json
+  Content-Type: application/json; charset=utf-8
+  Cache-Control: public, max-age=300
+  Access-Control-Allow-Origin: *

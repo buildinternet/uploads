@@ -324,6 +324,29 @@ export const whoamiResultSchema: JsonSchema = objectSchema(
   ["ok", "workspace"],
 );
 
+const changelogEntrySchema: JsonSchema = objectSchema(
+  {
+    id: { type: "string" },
+    kind: { type: "string", enum: ["platform", "cli"] },
+    title: { type: "string" },
+    date: { type: "string" },
+    url: { type: "string" },
+    tags: { type: "array", items: { type: "string" } },
+    summary: { type: "string" },
+    body: { type: "string" },
+  },
+  ["id", "kind", "title", "date", "url", "tags", "summary", "body"],
+);
+
+export const changelogResultSchema: JsonSchema = objectSchema(
+  {
+    url: { type: "string" },
+    feed: { type: "string" },
+    entries: { type: "array", items: changelogEntrySchema },
+  },
+  ["url", "entries"],
+);
+
 export const promoteToolResultSchema: JsonSchema = objectSchema({
   // `promotion` is optional (issue #702): a `keys`-only call (no `branch`)
   // never runs the branch sweep, so there's nothing to report under it.
@@ -410,6 +433,7 @@ export const hostedOutputSchemas: Record<string, JsonSchema> = {
   reconcile: reconcileResultSchema,
   purge_expired: purgeExpiredResultSchema,
   whoami: whoamiResultSchema,
+  changelog: changelogResultSchema,
 };
 
 /** Shared-shape stdio tools. Hosted-only tools (`promote`, `repo_link_status`) omitted. */
@@ -444,6 +468,7 @@ export const stdioOutputSchemas: Record<string, JsonSchema> = {
   reconcile: reconcileResultSchema,
   purge_expired: purgeExpiredResultSchema,
   whoami: whoamiResultSchema,
+  changelog: changelogResultSchema,
   report: objectSchema(
     {
       ok: { type: "boolean" },
