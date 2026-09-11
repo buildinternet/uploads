@@ -426,10 +426,21 @@ describe("GET /admin/workspaces/:name", () => {
       purgeAt: null,
       selfServe: false,
       plan: null,
+      paidSince: null,
       hasHttpCredentials: false,
     });
     // Unset key policy reads as the permissive default, not as absent.
     expect(body.keyPolicy).toMatchObject({ autoPrefixBareKeys: true, allowedKeyPrefixes: null });
+  });
+
+  it("exposes paidSince for a paid workspace", async () => {
+    const { app, env } = appWith({
+      kvRecords: { "ws:acme": { ...RECORD, plan: "pro", paidSince: "2026-01-02T03:04:05.000Z" } },
+    });
+    const res = await app.request(getRequest("acme"), {}, env);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { plan: string; paidSince: string | null };
+    expect(body).toMatchObject({ plan: "pro", paidSince: "2026-01-02T03:04:05.000Z" });
   });
 
   it("reports a soft-deleted workspace with its grace window instead of 404ing", async () => {
