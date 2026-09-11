@@ -965,6 +965,7 @@ describe("workspace plan editing", () => {
         maxMembers: null,
       },
       overrides: [],
+      paidSince: null,
       planSource: "none",
       subscription: null,
     });
@@ -987,6 +988,7 @@ describe("workspace plan editing", () => {
         maxMembers: 3,
       },
       overrides: [],
+      paidSince: null,
       planSource: "none",
       subscription: null,
     });
@@ -1053,6 +1055,52 @@ describe("workspace plan editing", () => {
     expect(body.available).toBe(true);
     expect(body.planApplied).toBe(true);
     expect(JSON.parse(store.get("ws:acme") ?? "{}").plan).toBe("pro");
+  });
+
+  it("PATCH stamps paidSince on the first free -> pro transition and returns it", async () => {
+    const { env, store } = planEnv(ADMIN_USER, REC);
+    const res = await app().request(
+      "/admin-ui/workspaces/acme/plan",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ plan: "pro" }),
+      },
+      env,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { paidSince: string | null };
+    expect(typeof body.paidSince).toBe("string");
+    const stored = JSON.parse(store.get("ws:acme") ?? "{}");
+    expect(stored.paidSince).toBe(body.paidSince);
+  });
+
+  it("PATCH never overwrites an existing paidSince", async () => {
+    const { env, store } = planEnv(ADMIN_USER, {
+      ...REC,
+      plan: "pro",
+      paidSince: "2026-01-01T00:00:00.000Z",
+    });
+    await app().request(
+      "/admin-ui/workspaces/acme/plan",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ plan: "free" }),
+      },
+      env,
+    );
+    const res = await app().request(
+      "/admin-ui/workspaces/acme/plan",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ plan: "pro" }),
+      },
+      env,
+    );
+    expect(res.status).toBe(200);
+    expect(JSON.parse(store.get("ws:acme") ?? "{}").paidSince).toBe("2026-01-01T00:00:00.000Z");
   });
 
   it("PATCH rejects an unknown plan id", async () => {

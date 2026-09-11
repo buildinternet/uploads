@@ -99,11 +99,29 @@ export const prerender = false;
         { id: "pro", label: "Pro (unavailable to self-serve)" },
       ];
 
-      const PLAN_SOURCE_LABEL: Record<AdminPlanResponse["planSource"], string> = {
-        stripe: "Stripe-backed",
-        admin: "Admin-set (comped)",
-        none: "None",
+      // Badge copy/class per (plan, planSource) — the at-a-glance signal a
+      // paid workspace should be instantly distinguishable by, versus free
+      // and versus admin-comped (task 1). Free never gets a badge; there's
+      // nothing "upgraded" to call out.
+      const PLAN_BADGE: Record<
+        AdminPlanResponse["planSource"],
+        { label: string; cls: string } | null
+      > = {
+        stripe: { label: "Pro · Stripe", cls: "plan-badge plan-badge--stripe" },
+        admin: { label: "Pro · comped", cls: "plan-badge plan-badge--admin" },
+        none: null,
       };
+
+      /** Months elapsed between an ISO date and now, floored, minimum 0. */
+      function monthsSince(iso: string): number {
+        const then = new Date(iso);
+        if (Number.isNaN(then.getTime())) return 0;
+        const now = new Date();
+        let months =
+          (now.getFullYear() - then.getFullYear()) * 12 + (now.getMonth() - then.getMonth());
+        if (now.getDate() < then.getDate()) months -= 1;
+        return Math.max(0, months);
+      }
 
       function renderPlanSelector(
         host: HTMLElement,
@@ -119,24 +137,37 @@ export const prerender = false;
           ? ""
           : `<p class="muted plan-unapplied">No plan applied (legacy) — limits shown are the enforcement truth (explicit-or-unlimited), not this plan's defaults.</p>`;
 
+        const badge = PLAN_BADGE[data.planSource];
+        const badgeHtml = badge
+          ? `<span class="${badge.cls}">${escapeHtml(badge.label)}</span>`
+          : "";
+
         const sub = data.subscription;
         const stripeLink = sub?.stripeCustomerId
           ? `<a href="https://dashboard.stripe.com/customers/${encodeURIComponent(sub.stripeCustomerId)}" target="_blank" rel="noopener noreferrer">View in Stripe</a>`
           : "";
         const periodEndText = sub ? formatDate(sub.periodEnd) : null;
+        const cancelText =
+          sub?.cancelAtPeriodEnd && periodEndText
+            ? `cancels on ${escapeHtml(periodEndText)}`
+            : null;
         const subscriptionLine = sub
           ? `<p class="muted plan-subscription">
-            Subscription: ${escapeHtml(sub.status)}${sub.cancelAtPeriodEnd ? " (cancels at period end)" : ""}
-            ${periodEndText ? ` · renews/ends ${escapeHtml(periodEndText)}` : ""}
+            Subscription: ${escapeHtml(sub.status)}
+            ${cancelText ? ` · <span class="plan-cancel-notice">${cancelText}</span>` : periodEndText ? ` · renews ${escapeHtml(periodEndText)}` : ""}
             ${stripeLink ? ` · ${stripeLink}` : ""}
           </p>`
           : "";
 
+        const tenureLine = data.paidSince
+          ? `<p class="muted plan-tenure">Customer since ${escapeHtml(formatDate(data.paidSince) ?? data.paidSince)} (${monthsSince(data.paidSince)} mo)</p>`
+          : "";
+
         host.innerHTML = `
-        <h4 class="plan-heading ${ADMIN_DETAIL_HEADING}">Plan</h4>
+        <h4 class="plan-heading ${ADMIN_DETAIL_HEADING}">Plan ${badgeHtml}</h4>
         <p class="muted plan-availability">${data.available ? "Available" : "Not available for self-serve upgrade"}</p>
-        <p class="muted plan-source">Source: ${escapeHtml(PLAN_SOURCE_LABEL[data.planSource])}</p>
         ${subscriptionLine}
+        ${tenureLine}
         ${appliedNote}
         <form class="plan-form flex flex-wrap gap-2 items-center">
           <select class="plan-select ul-select ul-select--sm" style="width:auto" aria-label="Plan">${options}</select>
@@ -270,12 +301,25 @@ export const prerender = false;
           );
         }).join("");
 
-        const usageLine =
-          data.usage && data.limits.maxStorageBytes !== null
-            ? `<p class="limit-usage muted">${formatBytes(data.usage.bytes)} of ${formatBytes(data.limits.maxStorageBytes)} stored · ${data.usage.uploads} uploads this month</p>`
-            : data.usage
-              ? `<p class="limit-usage muted">${formatBytes(data.usage.bytes)} stored · ${data.usage.uploads} uploads this month</p>`
-              : "";
+        // Compact inline percent-full bar (task 3) — omitted entirely for an
+        // unlimited cap (null maxStorageBytes/maxUploadsPerPeriod), since
+        // "percent of nothing" has no meaning. ≥80% warns, ≥100% is over.
+        function storageBar(usedBytes: number, capBytes: number | null): string {
+          if (capBytes === null || capBytes <= 0) return "";
+          const pct = Math.round((usedBytes / capBytes) * 100);
+          const level = pct >= 100 ? "over" : pct >= 80 ? "warning" : "ok";
+          const fill = Math.min(100, pct);
+          return `<span class="limit-storage-bar" data-level="${level}" style="--fill:${fill}%"><span></span></span> <span class="limit-storage-pct">${pct}%</span>`;
+        }
+
+        const usageLine = data.usage
+          ? `<p class="limit-usage muted flex flex-wrap items-center gap-1.5">
+              ${formatBytes(data.usage.bytes)}${data.limits.maxStorageBytes !== null ? ` of ${formatBytes(data.limits.maxStorageBytes)}` : ""} stored
+              ${storageBar(data.usage.bytes, data.limits.maxStorageBytes)}
+              · ${data.usage.uploads}${data.limits.maxUploadsPerPeriod !== null ? ` of ${data.limits.maxUploadsPerPeriod}` : ""} uploads this month
+              ${data.limits.maxUploadsPerPeriod !== null ? storageBar(data.usage.uploads, data.limits.maxUploadsPerPeriod) : ""}
+            </p>`
+          : "";
 
         host.innerHTML = `
         <h4 class="limits-heading ${ADMIN_DETAIL_HEADING}">Limits</h4>

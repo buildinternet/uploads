@@ -49,6 +49,7 @@ describe("planResponse", () => {
         maxMembers: null,
       },
       overrides: [],
+      paidSince: null,
     });
   });
 

@@ -97,5 +97,6 @@ export function planResponse(name: string, record: WorkspaceRecord) {
     planApplied,
     limits,
     overrides,
+    paidSince: record.paidSince ?? null,
   };
 }

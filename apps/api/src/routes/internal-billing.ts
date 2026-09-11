@@ -92,7 +92,17 @@ internalBilling.post("/plan", async (c) => {
     c.env,
     workspace,
     (record) => {
-      if (!record.selfServe) return { ...record, plan };
+      // Stamp `paidSince` the first time this workspace goes free -> paid;
+      // never overwritten on a later transition (see workspace.ts's field
+      // doc for why this is the "customer since" source of truth).
+      const paidSince =
+        record.paidSince ??
+        (getPlan(record.plan).id === "free" && plan !== "free"
+          ? new Date().toISOString()
+          : undefined);
+      const stamped = paidSince ? { paidSince } : {};
+
+      if (!record.selfServe) return { ...record, ...stamped, plan };
 
       // Self-serve hardening (issue #454): pre-backfill self-serve records
       // still carry `selfServeWorkspaceRecord`'s old explicit per-limit
@@ -105,7 +115,7 @@ internalBilling.post("/plan", async (c) => {
       // (e.g. a comped higher limit) never matches the plan default and is
       // preserved untouched, same as today.
       const oldDefaults = getPlan(record.plan).defaultLimits;
-      const next: WorkspaceRecord = { ...record, plan };
+      const next: WorkspaceRecord = { ...record, ...stamped, plan };
       for (const field of LIMIT_FIELDS) {
         const current = record[field as keyof WorkspaceRecord];
         if (typeof current === "number" && current === oldDefaults[field]) {

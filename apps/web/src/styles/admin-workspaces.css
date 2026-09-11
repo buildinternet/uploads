@@ -17,3 +17,66 @@
 .workspace .invite-status[data-state="ready"] {
   color: var(--accent);
 }
+
+/*
+ * Plan badge (task 1, admin plan-upgrade visibility): a paid workspace
+ * should read as upgraded at a glance, distinct from admin-comped. Free
+ * gets no badge (PLAN_BADGE maps "none" to null in index.astro).
+ */
+.workspace .plan-badge {
+  display: inline-block;
+  margin-left: 0.5em;
+  padding: 0.05em 0.55em;
+  border-radius: 999px;
+  font-size: var(--text-micro);
+  font-weight: 600;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+.workspace .plan-badge--stripe {
+  color: var(--green);
+  border: 1px solid color-mix(in srgb, var(--green) 45%, var(--line));
+  background: color-mix(in srgb, var(--green) 12%, transparent);
+}
+.workspace .plan-badge--admin {
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line));
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.workspace .plan-cancel-notice {
+  color: var(--red);
+  font-weight: 600;
+}
+
+/*
+ * Storage percent-full inline bar (task 3, limits card). Plain CSS, no
+ * framework JS — the fill width is set inline per-row from JS as a style
+ * attribute (`--fill`), same astro-inline-script pattern as the rest of
+ * this file.
+ */
+.workspace .limit-storage-bar {
+  position: relative;
+  display: block;
+  width: 100%;
+  max-width: 220px;
+  height: 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--muted) 25%, transparent);
+  overflow: hidden;
+}
+.workspace .limit-storage-bar > span {
+  display: block;
+  height: 100%;
+  width: var(--fill, 0%);
+  border-radius: inherit;
+  background: var(--accent);
+}
+.workspace .limit-storage-bar[data-level="warning"] > span {
+  background: var(--orange, #d97706);
+}
+.workspace .limit-storage-bar[data-level="over"] > span {
+  background: var(--red);
+}
+.workspace .limit-storage-pct {
+  font-variant-numeric: tabular-nums;
+}

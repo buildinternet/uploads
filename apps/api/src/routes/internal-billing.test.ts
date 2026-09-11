@@ -164,6 +164,59 @@ describe("POST /internal/billing/plan", () => {
     });
   });
 
+  it("stamps paidSince on the first free -> pro transition", async () => {
+    const { env, store } = envWith({
+      secret: SECRET,
+      record: { provider: "r2", bucket: "b", prefix: "acme/" },
+    });
+    const res = await post(
+      { workspace: "acme", plan: "pro" },
+      { "x-internal-billing-key": SECRET },
+      env,
+    );
+    expect(res.status).toBe(204);
+    const stored = JSON.parse(store.get("ws:acme")!);
+    expect(typeof stored.paidSince).toBe("string");
+    expect(Number.isNaN(Date.parse(stored.paidSince))).toBe(false);
+  });
+
+  it("never overwrites an existing paidSince on a later transition", async () => {
+    const { env, store } = envWith({
+      secret: SECRET,
+      record: {
+        provider: "r2",
+        bucket: "b",
+        prefix: "acme/",
+        plan: "pro",
+        paidSince: "2026-01-01T00:00:00.000Z",
+      },
+    });
+    // Downgrade then re-upgrade shouldn't touch the original timestamp.
+    await post({ workspace: "acme", plan: "free" }, { "x-internal-billing-key": SECRET }, env);
+    const res = await post(
+      { workspace: "acme", plan: "pro" },
+      { "x-internal-billing-key": SECRET },
+      env,
+    );
+    expect(res.status).toBe(204);
+    const stored = JSON.parse(store.get("ws:acme")!);
+    expect(stored.paidSince).toBe("2026-01-01T00:00:00.000Z");
+  });
+
+  it("does not stamp paidSince when the plan stays free", async () => {
+    const { env, store } = envWith({
+      secret: SECRET,
+      record: { provider: "r2", bucket: "b", prefix: "acme/" },
+    });
+    const res = await post(
+      { workspace: "acme", plan: "free" },
+      { "x-internal-billing-key": SECRET },
+      env,
+    );
+    expect(res.status).toBe(204);
+    expect(JSON.parse(store.get("ws:acme")!).paidSince).toBeUndefined();
+  });
+
   it("issue #454: clears a self-serve record's explicit overrides that exactly equal the OLD (free) plan defaults on upgrade", async () => {
     const { env, store } = envWith({
       secret: SECRET,
