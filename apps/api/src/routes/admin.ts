@@ -558,6 +558,10 @@ export const admin = new Hono<{ Bindings: Env }>()
       prefix: raw.prefix ?? null,
       publicBaseUrl: raw.publicBaseUrl ?? null,
       plan: raw.plan ?? null,
+      // Billing lifecycle, mirrored from the cookie-authed admin panel's plan
+      // view so bearer-token operators (ops scripts, CI) see the same
+      // "customer since" answer.
+      paidSince: raw.paidSince ?? null,
       selfServe: raw.selfServe === true,
       createdAt: raw.createdAt ?? null,
       createdByUserId: raw.createdByUserId ?? null,
