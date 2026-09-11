@@ -126,6 +126,20 @@ export interface WorkspaceRecord {
    */
   plan?: "free" | "pro";
   /**
+   * ISO timestamp of the first time this workspace's `plan` transitioned
+   * from free to paid (admin panel task, issue #445 follow-up). Stamped
+   * once — by the Stripe webhook bridge's plan sync
+   * (`routes/internal-billing.ts`'s `POST /internal/billing/plan`) and by
+   * the admin panel's `PATCH /admin-ui/workspaces/:name/plan` — and never
+   * cleared or overwritten on a later transition (a downgrade-then-upgrade
+   * keeps the original date, which is the honest "customer since" answer).
+   * The auth worker's `subscription` table has no equivalent durable
+   * "first paid" column (`period_start`/`period_end` roll forward on every
+   * renewal, and can reset if a subscription is recreated), so this is the
+   * one added field rather than deriving tenure from AUTH.
+   */
+  paidSince?: string;
+  /**
    * When true/undefined, bare keys (no `/`) become `f/<id>/<name>`. Set false
    * to allow root basenames (not recommended on shared buckets).
    */

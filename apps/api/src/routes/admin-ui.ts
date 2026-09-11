@@ -72,7 +72,7 @@ import {
 import { mutateWorkspaceRecord } from "../workspace-mutate";
 import { LIMIT_FIELDS, validateLimitsPatch } from "../workspace-limits";
 import { planResponse, planSourceFor, validatePlanPatch } from "../workspace-plan";
-import { resolveEffectiveLimits, type WorkspacePlanLimits } from "@uploads/billing";
+import { getPlan, resolveEffectiveLimits, type WorkspacePlanLimits } from "@uploads/billing";
 import { storageStatusResponse } from "./workspace-storage";
 import { dbFor } from "../db-session";
 
@@ -800,9 +800,22 @@ export const adminUi = new Hono<SessionVars>()
       throw new ValidationError("request body must be valid JSON", { code: "invalid_plan" });
     }
     const { plan } = validatePlanPatch(body);
-    const record = await mutateWorkspaceRecord(c.env, name, (current) => ({ ...current, plan }), {
-      requireServing: true,
-    });
+    const record = await mutateWorkspaceRecord(
+      c.env,
+      name,
+      (current) => {
+        // Stamp `paidSince` on the first free -> paid transition (see
+        // workspace.ts's field doc and internal-billing.ts's Stripe-driven
+        // equivalent); never overwritten afterward.
+        const paidSince =
+          current.paidSince ??
+          (getPlan(current.plan).id === "free" && plan !== "free"
+            ? new Date().toISOString()
+            : undefined);
+        return { ...current, ...(paidSince ? { paidSince } : {}), plan };
+      },
+      { requireServing: true },
+    );
     const subscriptionInfo = await adminSubscriptionInfo(c.env, name, record);
     return c.json({ ...planResponse(name, record), ...subscriptionInfo });
   })
