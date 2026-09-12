@@ -143,42 +143,15 @@ const sidebarSeedJson = JSON.stringify(sidebarProps).replace(/</g, "\\u003c");
         requireElement,
         resolveSessionGate,
       } from "../lib/account-shell";
-      import { createElement } from "react";
-      import { hydrateRoot, type Root } from "react-dom/client";
-      import { detectIdentifierPrefix } from "../lib/react-island";
+      import { createIslandMounter } from "../lib/react-island";
       import type { ShellSidebarIslandProps } from "../components/shell/ShellSidebar";
 
-      let sidebarRoot: Root | null = null;
-
-      function teardownSidebar(): void {
-        if (!sidebarRoot) return;
-        try {
-          sidebarRoot.unmount();
-        } catch {
-          // Container may already be gone after a body swap.
-        }
-        sidebarRoot = null;
-      }
-
       // Same manual SSR + hydrateRoot mechanism AccountLayout uses.
-      async function bootSidebar(): Promise<void> {
-        const mount = document.getElementById("shell-sidebar");
-        const seedEl = document.getElementById("shell-sidebar-seed");
-        if (!mount || !seedEl?.textContent) return;
-        let seed: ShellSidebarIslandProps;
-        try {
-          seed = JSON.parse(seedEl.textContent) as ShellSidebarIslandProps;
-        } catch {
-          return;
-        }
-        document.addEventListener("astro:before-swap", teardownSidebar, { once: true });
-        const { ShellSidebar } = await import("../components/shell/ShellSidebar");
-        if (!document.contains(mount)) return;
-        teardownSidebar();
-        sidebarRoot = hydrateRoot(mount, createElement(ShellSidebar, seed), {
-          identifierPrefix: detectIdentifierPrefix(mount.innerHTML),
-        });
-      }
+      const bootSidebar = createIslandMounter<ShellSidebarIslandProps>({
+        mountId: "shell-sidebar",
+        seedId: "shell-sidebar-seed",
+        load: () => import("../components/shell/ShellSidebar").then((m) => m.ShellSidebar),
+      });
 
       onAstroPageLoad(() => {
         if (!document.getElementById("dashboard")) return;
