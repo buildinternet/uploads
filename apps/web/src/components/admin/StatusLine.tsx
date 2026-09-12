@@ -5,6 +5,7 @@
  * announced politely (aria-live) the way the original status nodes were.
  */
 import type { ReactNode } from "react";
+import { ADMIN_DETAIL_HEADING } from "../../lib/admin-ui";
 
 export type StatusState = "error" | "ok";
 
@@ -22,13 +23,9 @@ export function StatusLine({ state, children }: { state: StatusState; children: 
   );
 }
 
-/** Uppercase section heading inside the drawer, matching ADMIN_DETAIL_HEADING. */
+/** Uppercase section heading inside the drawer — the shared admin heading style. */
 export function SectionHeading({ children }: { children: ReactNode }) {
-  return (
-    <h4 className="m-0 mb-2 text-(length:--text-micro) font-semibold tracking-[0.04em] uppercase text-foreground">
-      {children}
-    </h4>
-  );
+  return <h4 className={ADMIN_DETAIL_HEADING}>{children}</h4>;
 }
 
 /** Muted secondary paragraph, matching the page's `.muted` copy. */

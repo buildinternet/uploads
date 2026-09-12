@@ -10,8 +10,9 @@
 import { useEffect, useState } from "react";
 import { Button } from "@uploads/ui/components/ui/button";
 import { formatDate } from "../../lib/subscription-copy";
-import type { AdminApi, AdminStorageResponse } from "../../lib/admin-api";
+import { errMessage, type AdminApi } from "../../lib/admin-api";
 import { Muted, SectionHeading, StatusLine } from "./StatusLine";
+import { useAdminResource } from "./use-admin-resource";
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -23,28 +24,20 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 }
 
 export function StorageEditor({ api, workspace }: { api: AdminApi; workspace: string }) {
-  const [data, setData] = useState<AdminStorageResponse | null>(null);
-  const [loadError, setLoadError] = useState(false);
+  const { data, error, setData } = useAdminResource(
+    () => api.getStorage(workspace),
+    [api, workspace],
+  );
   const [enabled, setEnabled] = useState(false);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<{ state: "error" | "ok"; message: string } | null>(null);
 
+  // Mirror the gate checkbox to the latest loaded/saved value.
   useEffect(() => {
-    let alive = true;
-    api
-      .getStorage(workspace)
-      .then((d) => {
-        if (!alive) return;
-        setData(d);
-        setEnabled(d.byoBucketEnabled);
-      })
-      .catch(() => alive && setLoadError(true));
-    return () => {
-      alive = false;
-    };
-  }, [api, workspace]);
+    if (data) setEnabled(data.byoBucketEnabled);
+  }, [data]);
 
-  if (loadError) return <Muted>Failed to load storage.</Muted>;
+  if (error) return <Muted>Failed to load storage.</Muted>;
   if (!data) return <Muted>Loading storage…</Muted>;
 
   async function save(event: React.FormEvent) {
@@ -52,16 +45,10 @@ export function StorageEditor({ api, workspace }: { api: AdminApi; workspace: st
     setStatus(null);
     setSaving(true);
     try {
-      const updated = await api.saveStorage(workspace, enabled);
-      setData(updated);
-      setEnabled(updated.byoBucketEnabled);
+      setData(await api.saveStorage(workspace, enabled));
       setStatus({ state: "ok", message: "Saved." });
     } catch (err) {
-      setStatus({
-        state: "error",
-        message:
-          err instanceof Error && err.message ? err.message : "Couldn't save storage settings.",
-      });
+      setStatus({ state: "error", message: errMessage(err, "Couldn't save storage settings.") });
     } finally {
       setSaving(false);
     }

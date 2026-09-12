@@ -12,7 +12,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "@uploads/ui/components/ui/button";
-import type { AdminApi, AdminLimitsResponse } from "../../lib/admin-api";
+import { errMessage, type AdminApi, type AdminLimitsResponse } from "../../lib/admin-api";
 import {
   formatBytes,
   LIMIT_FIELDS,
@@ -22,6 +22,7 @@ import {
 } from "../../lib/admin-limits";
 import { INPUT_NUM, SELECT_SM } from "./field-classes";
 import { Muted, SectionHeading, StatusLine } from "./StatusLine";
+import { useAdminResource } from "./use-admin-resource";
 
 interface FieldState {
   value: string;
@@ -73,26 +74,18 @@ function StorageBar({ used, cap }: { used: number; cap: number | null }) {
 }
 
 export function LimitsEditor({ api, workspace }: { api: AdminApi; workspace: string }) {
-  const [data, setData] = useState<AdminLimitsResponse | null>(null);
-  const [loadError, setLoadError] = useState(false);
+  const { data, error, setData } = useAdminResource(
+    () => api.getLimits(workspace),
+    [api, workspace],
+  );
   const [fields, setFields] = useState<Record<LimitKey, FieldState> | null>(null);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<{ state: "error" | "ok"; message: string } | null>(null);
 
+  // Reseed the editable rows whenever the load (or a save) returns fresh data.
   useEffect(() => {
-    let alive = true;
-    api
-      .getLimits(workspace)
-      .then((d) => {
-        if (!alive) return;
-        setData(d);
-        setFields(seedFields(d));
-      })
-      .catch(() => alive && setLoadError(true));
-    return () => {
-      alive = false;
-    };
-  }, [api, workspace]);
+    if (data) setFields(seedFields(data));
+  }, [data]);
 
   // The inherited plan-default value per field (only when plan-applied and not
   // an explicit override), used to skip an untouched default row on save.
@@ -108,7 +101,7 @@ export function LimitsEditor({ api, workspace }: { api: AdminApi; workspace: str
     return out;
   }, [data]);
 
-  if (loadError) return <Muted>Failed to load limits.</Muted>;
+  if (error) return <Muted>Failed to load limits.</Muted>;
   if (!data || !fields) return <Muted>Loading limits…</Muted>;
 
   function update(key: LimitKey, patch: Partial<FieldState>) {
@@ -148,15 +141,11 @@ export function LimitsEditor({ api, workspace }: { api: AdminApi; workspace: str
     }
     setSaving(true);
     try {
-      const updated = await api.saveLimits(workspace, body);
-      setData(updated);
-      setFields(seedFields(updated));
+      // The reseed effect above repopulates the rows from the returned data.
+      setData(await api.saveLimits(workspace, body));
       setStatus({ state: "ok", message: "Saved. Changes apply within ~60s." });
     } catch (err) {
-      setStatus({
-        state: "error",
-        message: err instanceof Error && err.message ? err.message : "Couldn't save limits.",
-      });
+      setStatus({ state: "error", message: errMessage(err, "Couldn't save limits.") });
     } finally {
       setSaving(false);
     }

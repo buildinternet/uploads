@@ -25,6 +25,7 @@ import type {
   OrgInvite,
   OrgMember,
 } from "@uploads/api/admin-ui";
+import { trimOrigin } from "./api-client";
 
 export type {
   AdminGithubLink,
@@ -37,16 +38,18 @@ export type {
   OrgMember,
 };
 
-function trimOrigin(origin: string): string {
-  return origin.replace(/\/$/, "");
-}
-
 /** Pull `{ error: { message } }` out of a non-OK body, falling back to status. */
 async function failure(res: Response, fallback: string): Promise<Error> {
   const payload = (await res.json().catch(() => null)) as {
     error?: { message?: string };
   } | null;
   return new Error(payload?.error?.message || `${fallback}: ${res.status}`);
+}
+
+/** A caught error's message, or `fallback` when it carries none — the editors'
+ *  shared idiom for turning a rejected save into an inline status string. */
+export function errMessage(err: unknown, fallback: string): string {
+  return err instanceof Error && err.message ? err.message : fallback;
 }
 
 /** The `/admin-ui/*` client bound to one resolved api origin. */

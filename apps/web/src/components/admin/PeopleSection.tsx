@@ -10,12 +10,13 @@
  * equivalent of the imperative `loadOnce` reset), which sidesteps the
  * in-flight-reload race the imperative version had to track by hand.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { Button } from "@uploads/ui/components/ui/button";
 import { formatDate } from "../../lib/subscription-copy";
-import type { AdminApi, OpenEnrollment, OrgInvite, OrgMember } from "../../lib/admin-api";
-import { FIELD_LABEL, INPUT_TEXT } from "./field-classes";
+import { errMessage, type AdminApi, type OpenEnrollment } from "../../lib/admin-api";
+import { FIELD_LABEL, INPUT_TEXT, SELECT_SM } from "./field-classes";
 import { Muted, SectionHeading, StatusLine } from "./StatusLine";
+import { useAdminResource } from "./use-admin-resource";
 
 const SCOPES = ["files:read", "files:write"] as const;
 
@@ -28,11 +29,18 @@ export function PeopleSection({
   workspace: string;
   hasOrg: boolean;
 }) {
+  // A successful invite bumps this nonce, which the members section takes as a
+  // load dep and refetches — a plain parent-owned signal, no global events.
+  const [membersReload, setMembersReload] = useState(0);
   return (
     <div className="grid gap-3.5">
-      {hasOrg ? <MembersInvites api={api} workspace={workspace} /> : null}
+      {hasOrg ? <MembersInvites api={api} workspace={workspace} reloadKey={membersReload} /> : null}
       {hasOrg ? (
-        <InviteForm api={api} workspace={workspace} />
+        <InviteForm
+          api={api}
+          workspace={workspace}
+          onInvited={() => setMembersReload((n) => n + 1)}
+        />
       ) : (
         <Muted>No organization provisioned for this workspace yet — run the org backfill.</Muted>
       )}
@@ -41,36 +49,27 @@ export function PeopleSection({
   );
 }
 
-function MembersInvites({ api, workspace }: { api: AdminApi; workspace: string }) {
-  const [members, setMembers] = useState<OrgMember[] | null>(null);
-  const [invites, setInvites] = useState<OrgInvite[]>([]);
-  const [error, setError] = useState(false);
-
-  const load = useCallback(() => {
-    let alive = true;
-    Promise.all([api.getMembers(workspace), api.getInvites(workspace)])
-      .then(([m, i]) => {
-        if (!alive) return;
-        setMembers(m);
-        setInvites(i);
-      })
-      .catch(() => alive && setError(true));
-    return () => {
-      alive = false;
-    };
-  }, [api, workspace]);
-
-  useEffect(() => load(), [load]);
-  // Expose a refetch to the sibling invite form via a window-free custom event.
-  useEffect(() => {
-    const handler = () => load();
-    window.addEventListener(`admin-members-reload:${workspace}`, handler);
-    return () => window.removeEventListener(`admin-members-reload:${workspace}`, handler);
-  }, [load, workspace]);
+function MembersInvites({
+  api,
+  workspace,
+  reloadKey,
+}: {
+  api: AdminApi;
+  workspace: string;
+  reloadKey: number;
+}) {
+  const { data, error } = useAdminResource(
+    () =>
+      Promise.all([api.getMembers(workspace), api.getInvites(workspace)]).then(
+        ([members, invites]) => ({ members, invites }),
+      ),
+    [api, workspace, reloadKey],
+  );
 
   if (error) return <Muted>Failed to load members.</Muted>;
-  if (!members) return <Muted>Loading members…</Muted>;
+  if (!data) return <Muted>Loading members…</Muted>;
 
+  const { members, invites } = data;
   return (
     <div className="grid gap-3.5">
       <div>
@@ -111,7 +110,15 @@ function MembersInvites({ api, workspace }: { api: AdminApi; workspace: string }
   );
 }
 
-function InviteForm({ api, workspace }: { api: AdminApi; workspace: string }) {
+function InviteForm({
+  api,
+  workspace,
+  onInvited,
+}: {
+  api: AdminApi;
+  workspace: string;
+  onInvited: () => void;
+}) {
   const [email, setEmail] = useState("");
   const [role, setRole] = useState("member");
   const [busy, setBusy] = useState(false);
@@ -125,12 +132,9 @@ function InviteForm({ api, workspace }: { api: AdminApi; workspace: string }) {
       await api.createInvite(workspace, { email: email.trim(), role });
       setStatus({ state: "ok", message: `Invited ${email.trim()}.` });
       setEmail("");
-      window.dispatchEvent(new CustomEvent(`admin-members-reload:${workspace}`));
+      onInvited();
     } catch (err) {
-      setStatus({
-        state: "error",
-        message: err instanceof Error && err.message ? err.message : "Couldn't send the invite.",
-      });
+      setStatus({ state: "error", message: errMessage(err, "Couldn't send the invite.") });
     } finally {
       setBusy(false);
     }
@@ -153,7 +157,7 @@ function InviteForm({ api, workspace }: { api: AdminApi; workspace: string }) {
         <label className={FIELD_LABEL}>
           Role
           <select
-            className="ul-select ul-select--sm"
+            className={SELECT_SM}
             style={{ width: "auto" }}
             value={role}
             onChange={(e) => setRole(e.target.value)}
@@ -172,8 +176,11 @@ function InviteForm({ api, workspace }: { api: AdminApi; workspace: string }) {
 }
 
 function InviteLinks({ api, workspace }: { api: AdminApi; workspace: string }) {
-  const [links, setLinks] = useState<OpenEnrollment[] | null>(null);
-  const [loadError, setLoadError] = useState(false);
+  const {
+    data: links,
+    error: loadError,
+    reload,
+  } = useAdminResource<OpenEnrollment[]>(() => api.getInviteLinks(workspace), [api, workspace]);
   const [label, setLabel] = useState("");
   const [scopes, setScopes] = useState<Record<string, boolean>>({
     "files:read": true,
@@ -182,19 +189,6 @@ function InviteLinks({ api, workspace }: { api: AdminApi; workspace: string }) {
   const [generatedUrl, setGeneratedUrl] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<{ state: "error" | "ok"; message: string } | null>(null);
-
-  const load = useCallback(() => {
-    let alive = true;
-    api
-      .getInviteLinks(workspace)
-      .then((l) => alive && setLinks(l))
-      .catch(() => alive && setLoadError(true));
-    return () => {
-      alive = false;
-    };
-  }, [api, workspace]);
-
-  useEffect(() => load(), [load]);
 
   async function generate() {
     const chosen = SCOPES.filter((s) => scopes[s]);
@@ -212,13 +206,9 @@ function InviteLinks({ api, workspace }: { api: AdminApi; workspace: string }) {
       });
       setGeneratedUrl(url);
       setLabel("");
-      load();
+      reload();
     } catch (err) {
-      setStatus({
-        state: "error",
-        message:
-          err instanceof Error && err.message ? err.message : "Couldn't generate an invite link.",
-      });
+      setStatus({ state: "error", message: errMessage(err, "Couldn't generate an invite link.") });
     } finally {
       setBusy(false);
     }
@@ -237,12 +227,9 @@ function InviteLinks({ api, workspace }: { api: AdminApi; workspace: string }) {
   async function revoke(id: string) {
     try {
       await api.revokeInviteLink(workspace, id);
-      load();
+      reload();
     } catch (err) {
-      setStatus({
-        state: "error",
-        message: err instanceof Error && err.message ? err.message : "Couldn't revoke the link.",
-      });
+      setStatus({ state: "error", message: errMessage(err, "Couldn't revoke the link.") });
     }
   }
 

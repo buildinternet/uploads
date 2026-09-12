@@ -13,7 +13,7 @@
    than leaving /admin at the 960px signed-in-shell default so the table has
    room to breathe. Scoped to #dashboard (AdminLayout's app root) so it only
    touches admin pages, never the signed-in-shell default elsewhere. */
-#dashboard .shell {
+#dashboard {
   --width-shell: 1440px;
 }
 

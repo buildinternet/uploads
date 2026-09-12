@@ -605,11 +605,14 @@ export const adminUi = new Hono<SessionVars>()
     } while (cursor);
 
     const summaries = await allOrgSummaries(c.env);
-    // Plan + BYOB come off each workspace record. Read them in parallel — the
-    // admin list is bounded (operator-only surface) and KV gets are cheap and
-    // cached (loadWorkspaceRecord's 60s cacheTtl), so this stays one fan-out,
-    // not an N-round-trip stall. A null record (soft-deleted / purged
-    // tombstone) falls back to free / shared, same as an unknown workspace.
+    // Plan + BYOB come off each workspace record. KV has no multi-get and the
+    // list enumeration returns keys only, so a per-workspace read is
+    // unavoidable; run them as one parallel fan-out rather than serially. This
+    // adds N subrequests (one KV get each) on top of the list pages — fine for
+    // the operator surface's current workspace count, but note it scales with N
+    // and would need chunking or a denormalized summary blob before N could
+    // approach the Workers subrequest ceiling. A null record (soft-deleted /
+    // purged tombstone) falls back to free / shared, same as an unknown workspace.
     const records = await Promise.all(names.map((name) => loadWorkspaceRecord(c.env, name)));
     const workspaces = names.map((name, i) =>
       workspaceSummaryResponse(name, summaries.get(name), records[i]),

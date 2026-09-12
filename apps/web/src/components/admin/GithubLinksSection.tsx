@@ -3,24 +3,15 @@
  * the imperative `renderGithubLinks`. Renders nothing when there are no links
  * (same as before), so the section collapses out of the drawer.
  */
-import { useEffect, useState } from "react";
-import type { AdminApi, AdminGithubLink } from "../../lib/admin-api";
+import type { AdminApi } from "../../lib/admin-api";
 import { Muted, SectionHeading } from "./StatusLine";
+import { useAdminResource } from "./use-admin-resource";
 
 export function GithubLinksSection({ api, workspace }: { api: AdminApi; workspace: string }) {
-  const [links, setLinks] = useState<AdminGithubLink[] | null>(null);
-  const [error, setError] = useState(false);
-
-  useEffect(() => {
-    let alive = true;
-    api
-      .getGithubLinks(workspace)
-      .then((l) => alive && setLinks(l))
-      .catch(() => alive && setError(true));
-    return () => {
-      alive = false;
-    };
-  }, [api, workspace]);
+  const { data: links, error } = useAdminResource(
+    () => api.getGithubLinks(workspace),
+    [api, workspace],
+  );
 
   if (error) return <Muted>Failed to load GitHub links.</Muted>;
   if (!links || links.length === 0) return null;

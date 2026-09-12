@@ -11,9 +11,10 @@ import { useEffect, useState } from "react";
 import { Badge } from "@uploads/ui/components/ui/badge";
 import { Button } from "@uploads/ui/components/ui/button";
 import { formatDate } from "../../lib/subscription-copy";
-import type { AdminApi, AdminPlanResponse } from "../../lib/admin-api";
+import { errMessage, type AdminApi, type AdminPlanResponse } from "../../lib/admin-api";
 import { SELECT_SM } from "./field-classes";
 import { Muted, SectionHeading, StatusLine } from "./StatusLine";
+import { useAdminResource } from "./use-admin-resource";
 
 const PLAN_OPTIONS: { id: "free" | "pro"; label: string }[] = [
   { id: "free", label: "Free" },
@@ -43,28 +44,18 @@ function monthsSince(iso: string): number {
 }
 
 export function PlanEditor({ api, workspace }: { api: AdminApi; workspace: string }) {
-  const [data, setData] = useState<AdminPlanResponse | null>(null);
-  const [loadError, setLoadError] = useState(false);
+  const { data, error, setData } = useAdminResource(() => api.getPlan(workspace), [api, workspace]);
   const [selected, setSelected] = useState<string>("free");
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<{ state: "error" | "ok"; message: string } | null>(null);
 
+  // Sync the plan dropdown to whatever the load (or a save) most recently
+  // returned; the operator's in-progress choice is otherwise left alone.
   useEffect(() => {
-    let alive = true;
-    api
-      .getPlan(workspace)
-      .then((d) => {
-        if (!alive) return;
-        setData(d);
-        setSelected(d.plan);
-      })
-      .catch(() => alive && setLoadError(true));
-    return () => {
-      alive = false;
-    };
-  }, [api, workspace]);
+    if (data) setSelected(data.plan);
+  }, [data]);
 
-  if (loadError) return <Muted>Failed to load plan.</Muted>;
+  if (error) return <Muted>Failed to load plan.</Muted>;
   if (!data) return <Muted>Loading plan…</Muted>;
 
   const badge = PLAN_BADGE[data.planSource];
@@ -76,15 +67,10 @@ export function PlanEditor({ api, workspace }: { api: AdminApi; workspace: strin
     setStatus(null);
     setSaving(true);
     try {
-      const updated = await api.savePlan(workspace, selected);
-      setData(updated);
-      setSelected(updated.plan);
+      setData(await api.savePlan(workspace, selected));
       setStatus({ state: "ok", message: "Saved." });
     } catch (err) {
-      setStatus({
-        state: "error",
-        message: err instanceof Error && err.message ? err.message : "Couldn't save plan.",
-      });
+      setStatus({ state: "error", message: errMessage(err, "Couldn't save plan.") });
     } finally {
       setSaving(false);
     }

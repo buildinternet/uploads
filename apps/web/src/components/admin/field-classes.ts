@@ -8,7 +8,7 @@
  * equivalent worth the base-ui ceremony here, keep these utility strings.
  */
 export const INPUT_NUM =
-  "limit-value bg-background border border-border rounded-sm text-foreground px-1.5 py-1 font-mono text-(length:--text-micro) disabled:opacity-50";
+  "bg-background border border-border rounded-sm text-foreground px-1.5 py-1 font-mono text-(length:--text-micro) disabled:opacity-50";
 
 export const INPUT_TEXT =
   "bg-background border border-border rounded-sm text-foreground normal-case tracking-normal px-[9px] py-[7px] font-sans text-(length:--text-micro)";
