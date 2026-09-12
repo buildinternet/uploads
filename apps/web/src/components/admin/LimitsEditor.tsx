@@ -15,6 +15,7 @@ import { Button } from "@uploads/ui/components/ui/button";
 import { errMessage, type AdminApi, type AdminLimitsResponse } from "../../lib/admin-api";
 import {
   formatBytes,
+  formatUsedBytes,
   LIMIT_FIELDS,
   LIMIT_UNITS,
   multForUnit,
@@ -50,26 +51,40 @@ function seedFields(data: AdminLimitsResponse): Record<LimitKey, FieldState> {
 }
 
 /**
- * Compact inline percent-full bar; renders nothing for an unlimited/zero cap.
- * Self-contained (Tailwind + inline fill) so the drawer needs no page CSS:
- * ≥80% is orange, ≥100% red, else accent — the same thresholds the imperative
- * `.limit-storage-bar` used.
+ * One usage meter: a "used of cap" label with a right-aligned percent on the
+ * same baseline, and a full-width fill bar beneath. Renders label-only (no
+ * bar, no percent) for an unlimited/zero cap. Self-contained (Tailwind +
+ * inline fill) so the drawer needs no page CSS: ≥80% is orange, ≥100% red,
+ * else accent — the same thresholds the imperative `.limit-storage-bar` used.
+ *
+ * Split from the old single-line flex-wrap layout, where the full-width bar
+ * forced the percent onto its own line, floated to the right edge.
  */
-function StorageBar({ used, cap }: { used: number; cap: number | null }) {
-  if (cap === null || cap <= 0) return null;
-  const pct = Math.round((used / cap) * 100);
-  const fill = Math.min(100, pct);
-  const color = pct >= 100 ? "var(--red)" : pct >= 80 ? "var(--orange, #d97706)" : "var(--accent)";
+function UsageMeter({ label, used, cap }: { label: string; used: number; cap: number | null }) {
+  const pct = cap !== null && cap > 0 ? Math.round((used / cap) * 100) : null;
+  const color =
+    pct === null
+      ? ""
+      : pct >= 100
+        ? "var(--red)"
+        : pct >= 80
+          ? "var(--orange, #d97706)"
+          : "var(--accent)";
   return (
-    <>
-      <span className="relative block h-1.5 w-full max-w-[220px] overflow-hidden rounded-full bg-muted/25">
-        <span
-          className="block h-full rounded-full"
-          style={{ width: `${fill}%`, background: color }}
-        />
-      </span>{" "}
-      <span className="tabular-nums">{pct}%</span>
-    </>
+    <div className="grid gap-1">
+      <div className="flex items-baseline justify-between gap-2 text-(length:--text-micro) text-muted-foreground">
+        <span>{label}</span>
+        {pct !== null && <span className="tabular-nums">{pct}%</span>}
+      </div>
+      {pct !== null && (
+        <span className="relative block h-1.5 w-full overflow-hidden rounded-full bg-muted/25">
+          <span
+            className="block h-full rounded-full"
+            style={{ width: `${Math.min(100, pct)}%`, background: color }}
+          />
+        </span>
+      )}
+    </div>
   );
 }
 
@@ -157,21 +172,26 @@ export function LimitsEditor({ api, workspace }: { api: AdminApi; workspace: str
     <div>
       <SectionHeading>Limits</SectionHeading>
       {usage && (
-        <p className="m-0 flex flex-wrap items-center gap-1.5 text-(length:--text-micro) text-muted-foreground">
-          {formatBytes(usage.bytes)}
-          {data.limits.maxStorageBytes !== null
-            ? ` of ${formatBytes(data.limits.maxStorageBytes)}`
-            : ""}{" "}
-          stored
-          <StorageBar used={usage.bytes} cap={data.limits.maxStorageBytes} />· {usage.uploads}
-          {data.limits.maxUploadsPerPeriod !== null
-            ? ` of ${data.limits.maxUploadsPerPeriod}`
-            : ""}{" "}
-          uploads this month
-          {data.limits.maxUploadsPerPeriod !== null && (
-            <StorageBar used={usage.uploads} cap={data.limits.maxUploadsPerPeriod} />
-          )}
-        </p>
+        <div className="mt-1 grid gap-2.5">
+          <UsageMeter
+            label={`${formatUsedBytes(usage.bytes)}${
+              data.limits.maxStorageBytes !== null
+                ? ` of ${formatBytes(data.limits.maxStorageBytes)}`
+                : ""
+            } stored`}
+            used={usage.bytes}
+            cap={data.limits.maxStorageBytes}
+          />
+          <UsageMeter
+            label={`${usage.uploads}${
+              data.limits.maxUploadsPerPeriod !== null
+                ? ` of ${data.limits.maxUploadsPerPeriod}`
+                : ""
+            } uploads this month`}
+            used={usage.uploads}
+            cap={data.limits.maxUploadsPerPeriod}
+          />
+        </div>
       )}
       <form onSubmit={save} className="mt-2 flex flex-col gap-2">
         {LIMIT_FIELDS.map((f) => {

@@ -38,6 +38,20 @@ export function formatBytes(n: number): string {
   return `${value} ${unit}`;
 }
 
+/**
+ * Human display for an arbitrary (usually non-round) byte count, e.g. live
+ * usage: GB once past 1 GB, otherwise MB, rounded to one decimal and with a
+ * trailing ".0" trimmed. `formatBytes` above stays exact for the round plan
+ * caps; this is only for the "X of Y stored" left side, so `8550413` reads as
+ * "8.6 MB", not "8.550413 MB".
+ */
+export function formatUsedBytes(n: number): string {
+  const unit =
+    n >= 1_000_000_000 ? { label: "GB", mult: 1_000_000_000 } : { label: "MB", mult: 1_000_000 };
+  const value = Math.round((n / unit.mult) * 10) / 10;
+  return `${value} ${unit.label}`;
+}
+
 export function multForUnit(unit: string): number {
   return LIMIT_UNITS.find((u) => u.label === unit)?.mult ?? 1_000_000;
 }
