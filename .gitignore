@@ -47,3 +47,6 @@ ds-bundle/
 packages/ui/dist/
 .design-sync/upload-manifest.txt
 .design-sync/batch*.json
+
+# eval run artifacts (full agent transcripts; machine-specific)
+evals/results/

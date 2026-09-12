@@ -1,0 +1,5 @@
+schema_version: "1.1"
+name: thumbnail-link-bug
+tags: [github-screenshots]
+context:
+  scaffold_script: scaffold.sh
