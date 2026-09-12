@@ -112,9 +112,7 @@ const screenshotsSeedJson = JSON.stringify({
 
   <script>
     import { onAstroPageLoad } from "../../../../lib/account-shell";
-    import { createElement } from "react";
-    import { hydrateRoot, type Root } from "react-dom/client";
-    import { detectIdentifierPrefix } from "../../../../lib/react-island";
+    import { createIslandMounter } from "../../../../lib/react-island";
     import type { OverviewState } from "../../../../components/ScreenshotsByPath";
     import type { WorkspaceInfoStatus } from "../../../../lib/workspace-file-row";
 
@@ -126,51 +124,14 @@ const screenshotsSeedJson = JSON.stringify({
       initialInfo?: WorkspaceInfoStatus;
     }
 
-    let screenshotsRoot: Root | null = null;
-
-    function teardown(): void {
-      if (!screenshotsRoot) return;
-      try {
-        screenshotsRoot.unmount();
-      } catch {
-        // Container may already be gone after a body swap.
-      }
-      screenshotsRoot = null;
-    }
-
-    function readSeed(): ScreenshotsSeed | null {
-      const el = document.getElementById("ws-screenshots-seed");
-      if (!el?.textContent) return null;
-      try {
-        return JSON.parse(el.textContent) as ScreenshotsSeed;
-      } catch {
-        return null;
-      }
-    }
-
-    async function boot(): Promise<void> {
-      const mount = document.getElementById("ws-screenshots");
-      const seed = readSeed();
-      if (!mount || !seed) return;
-
-      // Tear down the previous mount before Astro swaps this page's body away
-      // (registered once per boot() call — {once:true} auto-clears itself so
-      // repeated astro:page-load events from ClientRouter never stack listeners).
-      document.addEventListener("astro:before-swap", teardown, { once: true });
-
-      // Lazy, not a static top-level import: keeps a Fast-Refresh/HMR dev
-      // glitch in this component from blocking the rest of the page's
-      // scripts — same reasoning every sibling workspace-tab mount uses.
-      const { ScreenshotsByPath } = await import("../../../../components/ScreenshotsByPath");
-      if (!document.contains(mount)) return;
-      teardown();
-      // `ScreenshotsByPath` already composes `IslandErrorBoundary` internally
-      // (plan 006) — mounting it directly, with no extra wrapper, matches the
-      // SSR'd tree exactly, so `hydrateRoot` reconciles without warnings.
-      screenshotsRoot = hydrateRoot(mount, createElement(ScreenshotsByPath, seed), {
-        identifierPrefix: detectIdentifierPrefix(mount.innerHTML),
-      });
-    }
+    // `ScreenshotsByPath` composes its own IslandErrorBoundary, so mounting it
+    // directly matches the SSR'd tree and hydrateRoot reconciles cleanly.
+    const boot = createIslandMounter<ScreenshotsSeed>({
+      mountId: "ws-screenshots",
+      seedId: "ws-screenshots-seed",
+      load: () =>
+        import("../../../../components/ScreenshotsByPath").then((m) => m.ScreenshotsByPath),
+    });
 
     // astro:page-load fires on the initial load too (same as every sibling
     // tab), so this single registration mounts on first load and on nav —

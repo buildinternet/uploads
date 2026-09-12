@@ -229,47 +229,16 @@ const sidebarSeedJson = JSON.stringify(sidebarProps).replace(/</g, "\\u003c");
     />
     <script>
       import { onAstroPageLoad, requireElement, resolveSessionGate } from "../lib/account-shell";
-      import { createElement } from "react";
-      import { hydrateRoot, type Root } from "react-dom/client";
-      import { detectIdentifierPrefix } from "../lib/react-island";
+      import { createIslandMounter } from "../lib/react-island";
       import type { ShellSidebarIslandProps } from "../components/shell/ShellSidebar";
 
-      let sidebarRoot: Root | null = null;
-
-      function teardownSidebar(): void {
-        if (!sidebarRoot) return;
-        try {
-          sidebarRoot.unmount();
-        } catch {
-          // Container may already be gone after a body swap.
-        }
-        sidebarRoot = null;
-      }
-
-      function readSidebarSeed(): ShellSidebarIslandProps | null {
-        const el = document.getElementById("shell-sidebar-seed");
-        if (!el?.textContent) return null;
-        try {
-          return JSON.parse(el.textContent) as ShellSidebarIslandProps;
-        } catch {
-          return null;
-        }
-      }
-
-      // Same manual SSR + hydrateRoot mechanism the workspace files table uses
+      // Same manual SSR + hydrateRoot mechanism the workspace islands use
       // (`client:*` is banned repo-wide, see astro.config.mjs).
-      async function bootSidebar(): Promise<void> {
-        const mount = document.getElementById("shell-sidebar");
-        const seed = readSidebarSeed();
-        if (!mount || !seed) return;
-        document.addEventListener("astro:before-swap", teardownSidebar, { once: true });
-        const { ShellSidebar } = await import("../components/shell/ShellSidebar");
-        if (!document.contains(mount)) return;
-        teardownSidebar();
-        sidebarRoot = hydrateRoot(mount, createElement(ShellSidebar, seed), {
-          identifierPrefix: detectIdentifierPrefix(mount.innerHTML),
-        });
-      }
+      const bootSidebar = createIslandMounter<ShellSidebarIslandProps>({
+        mountId: "shell-sidebar",
+        seedId: "shell-sidebar-seed",
+        load: () => import("../components/shell/ShellSidebar").then((m) => m.ShellSidebar),
+      });
 
       onAstroPageLoad(() => {
         if (!document.getElementById("app")) return;

@@ -32,50 +32,15 @@ const seedJson = JSON.stringify({ apiOrigin }).replace(/</g, "\\u003c");
 
   <script>
     import { onAstroPageLoad } from "../../lib/account-shell";
-    import { createElement } from "react";
-    import { hydrateRoot, type Root } from "react-dom/client";
-    import { detectIdentifierPrefix } from "../../lib/react-island";
+    import { createIslandMounter } from "../../lib/react-island";
     import type { AdminWorkspacesTableProps } from "../../components/admin/AdminWorkspacesTable";
 
-    let tableRoot: Root | null = null;
-
-    function teardown(): void {
-      if (!tableRoot) return;
-      try {
-        tableRoot.unmount();
-      } catch {
-        // Container may already be gone after a body swap.
-      }
-      tableRoot = null;
-    }
-
-    function readSeed(): AdminWorkspacesTableProps | null {
-      const el = document.getElementById("admin-workspaces-seed");
-      if (!el?.textContent) return null;
-      try {
-        return JSON.parse(el.textContent) as AdminWorkspacesTableProps;
-      } catch {
-        return null;
-      }
-    }
-
-    async function boot(): Promise<void> {
-      const mount = document.getElementById("admin-workspaces-mount");
-      const seed = readSeed();
-      if (!mount || !seed) return;
-
-      document.addEventListener("astro:before-swap", teardown, { once: true });
-
-      // Lazy import (not top-level) mirrors the sibling islands: keeps a dev
-      // Fast-Refresh glitch in this component from blocking the page's other
-      // scripts.
-      const { AdminWorkspacesTable } = await import("../../components/admin/AdminWorkspacesTable");
-      if (!document.contains(mount)) return;
-      teardown();
-      tableRoot = hydrateRoot(mount, createElement(AdminWorkspacesTable, seed), {
-        identifierPrefix: detectIdentifierPrefix(mount.innerHTML),
-      });
-    }
+    const boot = createIslandMounter<AdminWorkspacesTableProps>({
+      mountId: "admin-workspaces-mount",
+      seedId: "admin-workspaces-seed",
+      load: () =>
+        import("../../components/admin/AdminWorkspacesTable").then((m) => m.AdminWorkspacesTable),
+    });
 
     onAstroPageLoad(() => void boot());
   </script>
