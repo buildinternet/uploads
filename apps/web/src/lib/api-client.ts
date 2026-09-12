@@ -28,7 +28,7 @@ import type { CommentSettingsResponse } from "@uploads/api/workspace-settings";
  * origin's own `/v1/...` route, not the proxy. `trimOrigin` only strips a
  * trailing slash either way, so `"/api"` needs no special-casing here.
  */
-function trimOrigin(origin: string): string {
+export function trimOrigin(origin: string): string {
   return origin.replace(/\/$/, "");
 }
 
