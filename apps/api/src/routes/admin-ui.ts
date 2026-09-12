@@ -66,6 +66,7 @@ import { getWorkspaceUsage } from "../usage";
 import {
   byoBucketAllowed,
   isPurgedTombstone,
+  loadWorkspaceRecord,
   loadWorkspaceRecordRaw,
   type WorkspaceRecord,
 } from "../workspace";
@@ -73,7 +74,7 @@ import { mutateWorkspaceRecord } from "../workspace-mutate";
 import { LIMIT_FIELDS, validateLimitsPatch } from "../workspace-limits";
 import { planResponse, planSourceFor, validatePlanPatch } from "../workspace-plan";
 import { getPlan, resolveEffectiveLimits, type WorkspacePlanLimits } from "@uploads/billing";
-import { storageStatusResponse } from "./workspace-storage";
+import { isByoRecord, storageStatusResponse } from "./workspace-storage";
 import { dbFor } from "../db-session";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -200,13 +201,29 @@ async function allOrgSummaries(env: Env): Promise<Map<string, OrgSummary>> {
   return map;
 }
 
-/** One row of the `/admin-ui/workspaces` list: the KV workspace + its org counts. */
-function workspaceSummaryResponse(name: string, summary: OrgSummary | undefined) {
+/**
+ * One row of the `/admin-ui/workspaces` list: the KV workspace + its org
+ * counts, plus the two at-a-glance signals an operator otherwise had to
+ * expand a row to see. Both derive from the workspace record alone (no extra
+ * AUTH round-trip): `plan` is the catalog id (`getPlan` fails open to "free"
+ * for a legacy/unapplied record, never "pro"), and `byob` is the storage
+ * mode's `"byo"` bit — the same `isByoRecord` gate `storageStatusResponse`
+ * uses for `mode`. `plan` deliberately does NOT distinguish Stripe-paid from
+ * admin-comped (that needs the per-workspace subscription lookup the drawer's
+ * plan endpoint does); the list only answers "free vs paid tier".
+ */
+function workspaceSummaryResponse(
+  name: string,
+  summary: OrgSummary | undefined,
+  record: WorkspaceRecord | null,
+) {
   return {
     workspace: name,
     organization: summary?.organization ?? null,
     memberCount: summary?.memberCount ?? 0,
     pendingInviteCount: summary?.pendingInviteCount ?? 0,
+    plan: getPlan(record?.plan).id,
+    byob: record ? isByoRecord(record) : false,
   };
 }
 
@@ -588,7 +605,15 @@ export const adminUi = new Hono<SessionVars>()
     } while (cursor);
 
     const summaries = await allOrgSummaries(c.env);
-    const workspaces = names.map((name) => workspaceSummaryResponse(name, summaries.get(name)));
+    // Plan + BYOB come off each workspace record. Read them in parallel — the
+    // admin list is bounded (operator-only surface) and KV gets are cheap and
+    // cached (loadWorkspaceRecord's 60s cacheTtl), so this stays one fan-out,
+    // not an N-round-trip stall. A null record (soft-deleted / purged
+    // tombstone) falls back to free / shared, same as an unknown workspace.
+    const records = await Promise.all(names.map((name) => loadWorkspaceRecord(c.env, name)));
+    const workspaces = names.map((name, i) =>
+      workspaceSummaryResponse(name, summaries.get(name), records[i]),
+    );
     return c.json({ workspaces });
   })
 

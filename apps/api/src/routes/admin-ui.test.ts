@@ -32,13 +32,23 @@ function stubEnv(
   return { AUTH: auth, REGISTRY: fakeKv([]) } as unknown as Env;
 }
 
-function fakeKv(names: string[]): Pick<KVNamespace, "list"> {
+function fakeKv(
+  names: string[],
+  records: Record<string, Record<string, unknown>> = {},
+): Pick<KVNamespace, "list" | "get"> {
   return {
     list: (async () => ({
       keys: names.map((name) => ({ name: `ws:${name}` })),
       list_complete: true,
       cacheStatus: null,
     })) as unknown as KVNamespace["list"],
+    // The workspaces list now reads each record for its plan + BYOB flags
+    // (loadWorkspaceRecord). Return the seeded record (already parsed, since
+    // callers pass `{ type: "json" }`) or null for an unseeded workspace.
+    get: (async (key: string) => {
+      const name = key.startsWith("ws:") ? key.slice(3) : key;
+      return records[name] ?? null;
+    }) as unknown as KVNamespace["get"],
   };
 }
 
@@ -92,9 +102,43 @@ describe("GET /admin-ui/workspaces", () => {
           organization: { id: "org1", slug: "acme", name: "acme" },
           memberCount: 2,
           pendingInviteCount: 1,
+          plan: "free",
+          byob: false,
         },
       ],
     });
+  });
+
+  it("reports plan + BYOB from each workspace record", async () => {
+    const auth = stubAuth((req) => {
+      const url = new URL(req.url);
+      if (url.pathname === "/api/auth/get-session") {
+        return new Response(JSON.stringify({ session: {}, user: ADMIN_USER }), { status: 200 });
+      }
+      if (url.pathname === "/internal/orgs/summaries") {
+        return Response.json({ organizations: [] });
+      }
+      return new Response(null, { status: 404 });
+    });
+    const env = {
+      AUTH: auth,
+      REGISTRY: fakeKv(["paid", "byo", "plain"], {
+        // Pro tier, still on the shared bucket.
+        paid: { plan: "pro" },
+        // Free tier, but on their own bucket (customer S3 credentials, no
+        // binding) → isByoRecord true.
+        byo: { accountId: "acc", accessKeyId: "ak", secretAccessKey: "sk" },
+      }),
+    } as unknown as Env;
+    const res = await app().request("/admin-ui/workspaces", {}, env);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      workspaces: { workspace: string; plan: string; byob: boolean }[];
+    };
+    const byName = Object.fromEntries(body.workspaces.map((w) => [w.workspace, w]));
+    expect(byName.paid).toMatchObject({ plan: "pro", byob: false });
+    expect(byName.byo).toMatchObject({ plan: "free", byob: true });
+    expect(byName.plain).toMatchObject({ plan: "free", byob: false });
   });
 
   it("leaves org null when a workspace has no matching summary", async () => {
@@ -118,6 +162,8 @@ describe("GET /admin-ui/workspaces", () => {
           organization: null,
           memberCount: 0,
           pendingInviteCount: 0,
+          plan: "free",
+          byob: false,
         },
       ],
     });
