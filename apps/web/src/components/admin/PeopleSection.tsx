@@ -33,7 +33,7 @@ export function PeopleSection({
   // load dep and refetches — a plain parent-owned signal, no global events.
   const [membersReload, setMembersReload] = useState(0);
   return (
-    <div className="grid gap-3.5">
+    <div className="grid gap-4">
       {hasOrg ? <MembersInvites api={api} workspace={workspace} reloadKey={membersReload} /> : null}
       {hasOrg ? (
         <InviteForm
@@ -44,7 +44,12 @@ export function PeopleSection({
       ) : (
         <Muted>No organization provisioned for this workspace yet — run the org backfill.</Muted>
       )}
-      <InviteLinks api={api} workspace={workspace} />
+      {/* Invite links are a separate concern (share-by-link enrollment) from the
+          member invite above — divide them so the two forms don't read as one
+          crowded block. */}
+      <div className="border-t border-border pt-4">
+        <InviteLinks api={api} workspace={workspace} />
+      </div>
     </div>
   );
 }
@@ -142,6 +147,7 @@ function InviteForm({
 
   return (
     <form onSubmit={submit} className="grid gap-2">
+      <SectionHeading>Invite a member</SectionHeading>
       <div className="flex flex-wrap items-end gap-2">
         <label className={FIELD_LABEL}>
           Email
@@ -235,6 +241,7 @@ function InviteLinks({ api, workspace }: { api: AdminApi; workspace: string }) {
 
   return (
     <div className="grid gap-2">
+      <SectionHeading>Invite link</SectionHeading>
       <div className="flex flex-wrap items-end gap-2">
         <label className={FIELD_LABEL}>
           Label (optional)
@@ -284,8 +291,8 @@ function InviteLinks({ api, workspace }: { api: AdminApi; workspace: string }) {
       {loadError ? (
         <Muted>Failed to load invite links.</Muted>
       ) : links && links.length > 0 ? (
-        <div>
-          <SectionHeading>Invite links</SectionHeading>
+        <div className="mt-1">
+          <SectionHeading>Active links</SectionHeading>
           <ul className="grid list-none gap-1.5 p-0">
             {links.map((link) => {
               const expiry = link.expiresAt
