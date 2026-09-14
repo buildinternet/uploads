@@ -1,0 +1,5 @@
+schema_version: "1.1"
+name: sidebar-design-tweaks
+tags: [github-screenshots]
+context:
+  scaffold_script: scaffold.sh
