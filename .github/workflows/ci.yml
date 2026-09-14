@@ -66,6 +66,10 @@ jobs:
       - name: MCP Registry manifest
         run: pnpm server-json:check
 
+      # Claude caches plugins by version. The four manifests must agree.
+      - name: Plugin manifests
+        run: pnpm plugin-version:check
+
   test:
     name: Test
     runs-on: ubuntu-latest
