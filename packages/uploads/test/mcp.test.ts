@@ -503,6 +503,7 @@ describe("tools/list", () => {
       "reconcile",
       "purge_expired",
       "comment",
+      "search_docs",
       "changelog",
       "whoami",
       "doctor",
@@ -553,6 +554,12 @@ describe("tools/list", () => {
     expect(byName.whoami._meta.securitySchemes).toEqual([{ type: "noauth" }]);
     expect(byName.changelog._meta.securitySchemes).toEqual([{ type: "noauth" }]);
     expect(byName.changelog.annotations).toEqual({
+      readOnlyHint: true,
+      destructiveHint: false,
+      openWorldHint: true,
+    });
+    expect(byName.search_docs._meta.securitySchemes).toEqual([{ type: "noauth" }]);
+    expect(byName.search_docs.annotations).toEqual({
       readOnlyHint: true,
       destructiveHint: false,
       openWorldHint: true,
@@ -1812,6 +1819,26 @@ describe("config resolution", () => {
       signedIn: true,
       scopes: ["files:read", "files:write"],
     });
+  });
+
+  it("search_docs lists the catalog without auth", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () => {
+      throw new Error("search_docs should use the injected catalog, not fetch");
+    }) as typeof fetch;
+    try {
+      const { server } = serverWith();
+      const res = await rpc(server, "tools/call", { name: "search_docs", arguments: {} });
+      expect(res.result.isError).toBe(false);
+      expect(res.result.structuredContent).toMatchObject({
+        url: "https://uploads.sh/docs",
+        results: expect.arrayContaining([
+          expect.objectContaining({ page: "attach-pull-request-images" }),
+        ]),
+      });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 
   it("changelog returns recent entries and the website URL", async () => {

@@ -47,6 +47,11 @@ export {
   type ToolArgs,
 } from "./args.js";
 export { ToolBatchError, batchFailureMessage } from "./batch-error.js";
+export {
+  SEARCH_DOCS_DESCRIPTION,
+  SEARCH_DOCS_INPUT_SCHEMA,
+  runSearchDocsTool,
+} from "./docs-tool.js";
 export { mapBounded } from "../async.js";
 export { McpServer, type jsonSchemaValidator };
 export {

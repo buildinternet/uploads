@@ -255,6 +255,11 @@ export const ROOT_COMMANDS: readonly CatalogCommand[] = [
     summary: "Show recent product updates (and a link to the full changelog)",
   },
   {
+    name: "docs",
+    summary: "Search public uploads.sh docs (or fetch one page as markdown)",
+    usage: "docs [query]",
+  },
+  {
     name: "login",
     summary: "Sign in via browser (or an enrollment code) and save credentials",
     essential: true,

@@ -22,6 +22,7 @@ src/pages/                           Astro pages; g/[id].astro is the on-demand 
 src/pages/changelog.astro            /changelog — platform updates + CLI releases, newest first
 src/pages/changelog.xml.ts           Atom twin of /changelog, served at /changelog.xml
 src/pages/changelog.json.ts          JSON twin of /changelog, served at /changelog.json
+src/pages/docs.json.ts               Docs catalog for `uploads docs` / MCP `search_docs`
 src/pages/oembed.ts                  oEmbed 1.0 JSON endpoint for shareable /f and /g pages
 src/lib/                             Public gallery/file fetch + oEmbed resolution
 public/_headers                      Per-path response headers (Link, robots, types)

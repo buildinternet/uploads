@@ -55,6 +55,9 @@ import {
   mcpWritePublic,
   hostedOutputSchemas,
   withOutputSchemas,
+  SEARCH_DOCS_DESCRIPTION,
+  SEARCH_DOCS_INPUT_SCHEMA,
+  runSearchDocsTool,
 } from "@buildinternet/uploads/mcp";
 import { AppError, NotFoundError } from "@uploads/errors";
 import { badKey } from "@uploads/api/files";
@@ -1512,6 +1515,19 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
           },
         };
       },
+    },
+    {
+      name: "search_docs",
+      title: "Search uploads.sh docs",
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        openWorldHint: true,
+      },
+      securitySchemes: mcpNoAuth,
+      description: SEARCH_DOCS_DESCRIPTION,
+      inputSchema: SEARCH_DOCS_INPUT_SCHEMA,
+      handler: runSearchDocsTool,
     },
     {
       name: "changelog",
