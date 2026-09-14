@@ -1641,10 +1641,11 @@ describe("storage vertical (self-serve BYO bucket)", () => {
     });
 
     it("activate carries the target lane's own activeContentVerifiedAt when the fresh-verifiedAt lane skips re-verify", async () => {
+      const stamp = new Date(Date.now() - 1000).toISOString();
       const record = {
         ...SHARED_RECORD,
         byoBucketEnabled: true,
-        storageLanes: [await standbyLane({ activeContentVerifiedAt: "2026-08-15T00:00:00.000Z" })],
+        storageLanes: [await standbyLane({ activeContentVerifiedAt: stamp })],
       };
       const { env, registry } = makeEnv({ role: "owner", record, activeContentFlag: true });
       setStorageVerifyForTests(async () => okVerifyResult);
@@ -1659,11 +1660,11 @@ describe("storage vertical (self-serve BYO bucket)", () => {
       );
       expect(res.status).toBe(200);
       const body = (await res.json()) as { activeContentVerifiedAt?: string };
-      expect(body.activeContentVerifiedAt).toBe("2026-08-15T00:00:00.000Z");
+      expect(body.activeContentVerifiedAt).toBe(stamp);
       expect(
         registry.record<{ storageActiveContentVerifiedAt?: string }>("acme")
           ?.storageActiveContentVerifiedAt,
-      ).toBe("2026-08-15T00:00:00.000Z");
+      ).toBe(stamp);
     });
 
     it("activate derives a fresh activeContentVerifiedAt from the re-verify result for a stale lane", async () => {
