@@ -24,8 +24,7 @@
         "./skills/annotate-screenshots",
         "./skills/uploads-cli"
       ],
-      "mcpServers": "./.mcp.json",
-      "hooks": "./hooks/hooks.json"
+      "mcpServers": "./.mcp.json"
     }
   ]
 }
