@@ -1,0 +1,6 @@
+{
+  "name": "@uploads/plugin",
+  "version": "0.2.1",
+  "private": true,
+  "description": "Version token for the Claude, Codex, and Agent Plugins manifests. Not published to npm."
+}

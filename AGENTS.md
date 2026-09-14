@@ -122,10 +122,11 @@ See [docs/ops.md](docs/ops.md#local-wrangler-gotchas).
 ### Releasing `@buildinternet/uploads` (changesets)
 
 User-visible CLI/client/MCP package changes need a `.changeset/*.md` file
-(`pnpm changeset` or hand-written). Two rules prevent damage: only
-`"@buildinternet/uploads": patch|minor|major` goes in the header (a changeset
-naming a private `@uploads/*` package yields an empty version PR and blocks the
-next publish), and never hand-edit that package's `version`. Full process —
+(`pnpm changeset` or hand-written). Two rules prevent damage: the header may
+name `"@buildinternet/uploads"` and/or `"@uploads/plugin"` (a changeset naming
+any other private `@uploads/*` package yields an empty version PR and blocks
+the next publish), and never hand-edit those packages' `version`. Plugin
+bumps are independent of the CLI and do not publish to npm. Full process —
 trusted publishing, cutting a release, recovery — is in
 [docs/releasing.md](docs/releasing.md).
 

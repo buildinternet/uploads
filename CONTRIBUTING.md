@@ -175,10 +175,12 @@ bundled MCP server — needs a changeset:
 pnpm changeset
 ```
 
-Two rules matter. Only `"@buildinternet/uploads"` belongs in the changeset
-header — a changeset naming a private `@uploads/*` package produces an empty
-version PR that blocks the next npm publish, which `pnpm changeset:lint` rejects
-as a CI gate. And never hand-edit the package `version`.
+Two rules matter. The changeset header may name `"@buildinternet/uploads"`
+and/or `"@uploads/plugin"`. A changeset naming any other private `@uploads/*`
+package produces an empty version PR that blocks the next npm publish, which
+`pnpm changeset:lint` rejects as a CI gate. Never hand-edit those package
+`version` fields. `@uploads/plugin` is the Claude/Codex plugin version; it
+does not publish to npm.
 
 Merging to `main` opens a "version packages" PR; merging that PR publishes to
 npm, then to the MCP Registry as `sh.uploads/mcp`. Do not merge one unless

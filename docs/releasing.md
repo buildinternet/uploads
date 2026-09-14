@@ -28,7 +28,7 @@ requires npm ≥ 11.5.1 and Node ≥ 22.14).
    # or write .changeset/<slug>.md by hand
    ```
 
-   Header lists only the published package:
+   Header names the package that actually changed. Two valid targets:
 
    ```md
    ---
@@ -38,13 +38,22 @@ requires npm ≥ 11.5.1 and Node ≥ 22.14).
    User-facing description.
    ```
 
+   ```md
+   ---
+   "@uploads/plugin": patch
+   ---
+
+   Why existing plugin installs must pick this up.
+   ```
+
 3. Merge the feature PR to `main` (with the `.changeset/*.md` file).
 
-**Never hand-edit** `packages/uploads/package.json` `version` for a release —
-`changeset version` owns it.
+**Never hand-edit** `packages/uploads/package.json` or
+`packages/plugin/package.json` `version` — `changeset version` owns them.
 
-Changesets ignore the private packages (`@uploads/api`, `@uploads/mcp`, …);
-they deploy via Workers Builds.
+Changesets ignore the other private packages (`@uploads/api`, `@uploads/mcp`,
+…). They deploy via Workers Builds. `@uploads/plugin` is the exception: it is
+versioned, not published.
 
 ## Cut a release
 
@@ -104,19 +113,24 @@ identity.
 The Claude/Codex plugin version is **not** the CLI version. Claude caches
 installs under `~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/`.
 A change that must reach existing installs (manifest, hooks, skills) needs a
-bump in all four files, or `/plugin update` keeps the old tree:
+changeset for `@uploads/plugin`:
 
-- `plugin.json`
-- `.claude-plugin/plugin.json`
-- `.claude-plugin/marketplace.json` (`plugins[0].version`)
-- `.codex-plugin/plugin.json`
+```md
+---
+"@uploads/plugin": patch
+---
 
-Do not put that bump on `@buildinternet/uploads`. A plugin-only cache bust
-must not force an npm publish, and the MCP Registry listing already follows
-the CLI version via `server.json`. CI runs `pnpm plugin-version:check` so
-the four numbers cannot drift.
+Why existing installs must pick this up.
+```
 
-After the bump lands on `main`, existing installs need
+`changeset version` bumps `packages/plugin` and copies the number into
+`plugin.json`, `.claude-plugin/plugin.json`,
+`.claude-plugin/marketplace.json`, and `.codex-plugin/plugin.json`. CI runs
+`pnpm plugin-version:check` so those files cannot drift. A plugin-only
+version PR does not publish to npm; the MCP Registry listing still follows
+the CLI version via `server.json`.
+
+After the version PR lands on `main`, existing installs need
 `/plugin marketplace update` then `/plugin update uploads@uploads` (or
 uninstall and install).
 
