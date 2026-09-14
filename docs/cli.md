@@ -98,6 +98,7 @@ command to run by hand, rather than overwriting your build.
 | `hook`                     | Agent harness handlers (e.g. pre-PR screenshot reminder)                                                                 |
 | `update`                   | Update the CLI, then refresh skills / MCP / hooks                                                                        |
 | `changelog`                | Recent product updates, then a link to https://uploads.sh/changelog                                                      |
+| `docs [query]`             | Search public docs (or fetch one page as markdown)                                                                       |
 | `login` / `logout`         | Sign in (browser or enrollment code) / clear saved token                                                                 |
 | `whoami` (`status`)        | Show the active workspace and token                                                                                      |
 | `invite`                   | Invite a teammate to a workspace (workspace admin)                                                                       |

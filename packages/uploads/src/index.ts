@@ -61,6 +61,17 @@ export {
   type FetchChangelogOptions,
 } from "./changelog.js";
 export {
+  DEFAULT_DOCS_LIMIT,
+  DOCS_HUB_URL,
+  DOCS_JSON_URL,
+  MAX_DOCS_LIMIT,
+  formatDocsHuman,
+  searchDocs,
+  type DocsCatalog,
+  type DocsSearchDocument,
+  type SearchDocsOptions,
+} from "./docs.js";
+export {
   assertFetchableUploadUrl,
   fetchUploadSource,
   filenameFromUploadUrl,

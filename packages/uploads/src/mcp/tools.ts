@@ -1,6 +1,7 @@
 /**
  * MCP tool set mirroring the CLI commands (put, attach, list, delete,
- * usage, reconcile, purge_expired, comment, whoami, doctor, changelog). Config is
+ * usage, reconcile, purge_expired, comment, whoami, doctor, changelog,
+ * search_docs). Config is
  * resolved fresh per tool call so a
  * per-call `workspace` argument behaves like the CLI's --workspace flag, and
  * a missing token surfaces as a tool error rather than a startup failure.
@@ -96,6 +97,11 @@ import {
 } from "../report.js";
 import { resolveApiUrl } from "../config.js";
 import { DEFAULT_CHANGELOG_LIMIT, MAX_CHANGELOG_LIMIT, fetchChangelog } from "../changelog.js";
+import {
+  SEARCH_DOCS_DESCRIPTION,
+  SEARCH_DOCS_INPUT_SCHEMA,
+  runSearchDocsTool,
+} from "./docs-tool.js";
 
 function mcpOptimizeOptions(
   args: ToolArgs,
@@ -1765,6 +1771,19 @@ export function createUploadsMcpTools(opts: {
         });
         return { ...target, ...result };
       },
+    },
+    {
+      name: "search_docs",
+      title: "Search uploads.sh docs",
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        openWorldHint: true,
+      },
+      securitySchemes: mcpNoAuth,
+      description: SEARCH_DOCS_DESCRIPTION,
+      inputSchema: SEARCH_DOCS_INPUT_SCHEMA,
+      handler: runSearchDocsTool,
     },
     {
       name: "changelog",

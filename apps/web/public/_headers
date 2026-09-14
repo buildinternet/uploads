@@ -114,3 +114,9 @@
   Content-Type: application/json; charset=utf-8
   Cache-Control: public, max-age=300
   Access-Control-Allow-Origin: *
+
+# Docs catalog — consumed by `uploads docs` and the MCP `search_docs` tool.
+/docs.json
+  Content-Type: application/json; charset=utf-8
+  Cache-Control: public, max-age=300
+  Access-Control-Allow-Origin: *

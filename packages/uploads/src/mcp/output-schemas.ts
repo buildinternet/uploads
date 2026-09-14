@@ -347,6 +347,28 @@ export const changelogResultSchema: JsonSchema = objectSchema(
   ["url", "entries"],
 );
 
+const docsSearchHitSchema: JsonSchema = objectSchema(
+  {
+    title: { type: "string" },
+    url: { type: "string" },
+    page: { type: "string" },
+    snippet: { type: "string" },
+    body: { type: "string" },
+    truncated: { type: "boolean" },
+  },
+  ["title", "url", "page", "snippet"],
+);
+
+export const searchDocsResultSchema: JsonSchema = objectSchema(
+  {
+    url: { type: "string" },
+    query: { type: "string" },
+    results: { type: "array", items: docsSearchHitSchema },
+    total: { type: "number" },
+  },
+  ["url", "results", "total"],
+);
+
 export const promoteToolResultSchema: JsonSchema = objectSchema({
   // `promotion` is optional (issue #702): a `keys`-only call (no `branch`)
   // never runs the branch sweep, so there's nothing to report under it.
@@ -434,6 +456,7 @@ export const hostedOutputSchemas: Record<string, JsonSchema> = {
   purge_expired: purgeExpiredResultSchema,
   whoami: whoamiResultSchema,
   changelog: changelogResultSchema,
+  search_docs: searchDocsResultSchema,
 };
 
 /** Shared-shape stdio tools. Hosted-only tools (`promote`, `repo_link_status`) omitted. */
@@ -469,6 +492,7 @@ export const stdioOutputSchemas: Record<string, JsonSchema> = {
   purge_expired: purgeExpiredResultSchema,
   whoami: whoamiResultSchema,
   changelog: changelogResultSchema,
+  search_docs: searchDocsResultSchema,
   report: objectSchema(
     {
       ok: { type: "boolean" },

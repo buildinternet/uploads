@@ -703,6 +703,7 @@ describe("mcp worker", () => {
       "put",
       "reconcile",
       "repo_link_status",
+      "search_docs",
       "set_metadata",
       "usage",
       "whoami",

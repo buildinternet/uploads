@@ -916,6 +916,10 @@ uploads health                             # API liveness (no auth)
 uploads doctor                             # version + health + auth + workspace + usage
 uploads changelog                          # recent product updates + link to uploads.sh/changelog
 uploads changelog --json
+uploads docs                               # catalog of public docs
+uploads docs "stage before a PR"           # search
+uploads docs attach                        # fetch one page as markdown
+uploads docs --json
 uploads --version
 ```
 
@@ -994,7 +998,8 @@ uploads --api-url http://localhost:8787 doctor
   local filesystem or git checkout to shell out from (send base64 content,
   or `contentUrl` when the file is already at a public HTTPS URL). Identity:
   `whoami` (workspace + scopes; also confirms the server is up). Product
-  updates: `changelog` (same as `uploads changelog`; no auth). Metadata:
+  updates: `changelog` (same as `uploads changelog`; no auth). Public docs:
+  `search_docs` (same as `uploads docs`; no auth). Metadata:
   `get_metadata` / `set_metadata` / `find_files` / `list_metadata_keys` (same
   as `meta get` / `meta set` / `find` / `meta keys`|`meta values`).
   `find_files` accepts optional `name` (filename substring) with or without

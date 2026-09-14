@@ -42,6 +42,7 @@ import { runInstall } from "./commands/install.js";
 import { runHook } from "./commands/hook.js";
 import { runUpdate } from "./commands/update.js";
 import { runChangelog } from "./commands/changelog.js";
+import { runDocs } from "./commands/docs.js";
 import { runCompletion } from "./commands/completion.js";
 import { runLogout, runWhoami } from "./commands/session.js";
 import { runTelemetry } from "./commands/telemetry.js";
@@ -313,6 +314,10 @@ export async function runCli(argv: string[]): Promise<number> {
       case "changelog":
         // Public feed — no token, independent of the API origin.
         code = await runChangelog(cmdArgs, { json }, showHelp);
+        break;
+      case "docs":
+        // Public catalog — no token, independent of the API origin.
+        code = await runDocs(cmdArgs, { json }, showHelp);
         break;
       case "config":
         code = await runConfig(cmdArgs, { json, envFile: parsed.globals.envFile }, showHelp);
