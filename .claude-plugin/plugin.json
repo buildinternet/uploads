@@ -12,6 +12,5 @@
   "icon": "./assets/logo.png",
   "keywords": ["uploads", "screenshots", "github", "file-hosting", "images", "mcp"],
   "skills": "./skills/",
-  "mcpServers": "./.mcp.json",
-  "hooks": "./hooks/hooks.json"
+  "mcpServers": "./.mcp.json"
 }
