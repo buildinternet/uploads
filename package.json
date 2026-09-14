@@ -54,7 +54,7 @@
     "changeset:lint": "node scripts/changeset-lint.mjs",
     "server-json:check": "node scripts/check-server-json.mjs && node scripts/build-mcp-server-card.mjs --check",
     "plugin-version:check": "node scripts/check-plugin-version.mjs",
-    "changeset:version": "changeset version && node scripts/sync-server-json-version.mjs && node scripts/build-mcp-server-card.mjs && pnpm install --lockfile-only",
+    "changeset:version": "changeset version && node scripts/sync-server-json-version.mjs && node scripts/sync-plugin-version.mjs && node scripts/build-mcp-server-card.mjs && pnpm install --lockfile-only",
     "changeset:publish": "changeset publish",
     "prepare": "husky"
   },

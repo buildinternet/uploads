@@ -25,6 +25,6 @@ export default defineConfig({
     // Negation excludes stray files (e.g. `apps/README.md`) that the directory
     // globs would otherwise match — Vitest treats a matched *file* as a project
     // config and errors when it isn't one.
-    projects: ["apps/*", "packages/*", "!**/*.md"],
+    projects: ["apps/*", "packages/*", "!packages/plugin", "!**/*.md"],
   },
 });

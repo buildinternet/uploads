@@ -41,9 +41,8 @@ Grok and Cursor get the same command via `uploads install hooks`.
 /plugin install uploads@uploads
 ```
 
-Plugin version lives in `.claude-plugin/plugin.json` and must match the
-marketplace entry. Claude caches by that number. Bump it when a change has to
-reach existing installs; do not bump the CLI for that. See
+Plugin version is `@uploads/plugin`. Add a changeset for that package when a
+change has to reach existing installs; do not bump the CLI for that. See
 [docs/releasing.md](../../../docs/releasing.md#plugin-version-claude--codex).
 
 ## MCP auth

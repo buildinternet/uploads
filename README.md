@@ -187,13 +187,13 @@ REST routes are in [docs/api.md](docs/api.md).
 
 ## What's in this repo
 
-| Path                              | What                                                                                                                                                            |
-| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `apps/`                           | The deployables: the REST API worker (`api.uploads.sh`), the auth worker, the remote MCP server, and the Astro site at uploads.sh                               |
-| `packages/`                       | Shared code — most notably `@buildinternet/uploads` (the CLI, published to npm) and `@uploads/storage` (the files-sdk adapter factory all storage goes through) |
-| `skills/`                         | The three agent skills that ship to users                                                                                                                       |
-| `hooks/`, `plugins/`, `.mcp.json` | Agent-runtime wiring: the shared pre-PR screenshot hook and the Claude / Codex plugin manifests                                                                 |
-| `server.json`                     | MCP Registry listing (`sh.uploads/mcp`): stdio `uploads mcp` plus the hosted remote                                                                             |
+| Path                              | What                                                                                                                                                                                                                             |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/`                           | The deployables: the REST API worker (`api.uploads.sh`), the auth worker, the remote MCP server, and the Astro site at uploads.sh                                                                                                |
+| `packages/`                       | Shared code — most notably `@buildinternet/uploads` (the CLI, published to npm), `@uploads/storage` (the files-sdk adapter factory all storage goes through), and `@uploads/plugin` (Claude/Codex plugin version, not published) |
+| `skills/`                         | The three agent skills that ship to users                                                                                                                                                                                        |
+| `hooks/`, `plugins/`, `.mcp.json` | Agent-runtime wiring: the shared pre-PR screenshot hook and the Claude / Codex plugin manifests                                                                                                                                  |
+| `server.json`                     | MCP Registry listing (`sh.uploads/mcp`): stdio `uploads mcp` plus the hosted remote                                                                                                                                              |
 
 Each worker and the web app deploy separately. All storage access goes through
 `createStorage()` in `packages/storage` — adding a provider is one new case

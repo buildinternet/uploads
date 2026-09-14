@@ -65,8 +65,9 @@ if (unknown.length > 0) {
     "changeset-lint: changeset(s) name a package that is not in the workspace.\n" +
       '`changeset version` will throw "Found changeset ... which is not in the\n' +
       'workspace" and FAIL the Release job. Note the published CLI is\n' +
-      "`@buildinternet/uploads` — `uploads` is the private root package, which is\n" +
-      "not a valid changeset target. Fix the package name below:\n",
+      "`@buildinternet/uploads` (CLI) or `@uploads/plugin` (Claude/Codex plugin).\n" +
+      "`uploads` is the private root package, which is not a valid changeset\n" +
+      "target. Fix the package name below:\n",
   );
   for (const { file, pkg } of unknown) console.error(`  - .changeset/${file} → ${pkg}`);
   console.error(`\nValid targets: ${[...known].sort().join(", ")}`);

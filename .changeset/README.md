@@ -1,6 +1,7 @@
 # Changesets
 
-Pending version bumps for the published npm package **`@buildinternet/uploads`**.
+Pending version bumps for **`@buildinternet/uploads`** (npm CLI) and
+**`@uploads/plugin`** (Claude / Codex plugin, not published).
 
 ## Adding a changeset
 
@@ -10,7 +11,7 @@ Any PR that changes user-visible CLI, client, or MCP behavior should add a file 
 pnpm changeset
 ```
 
-Or write `.changeset/<slug>.md` by hand:
+Or write `.changeset/<slug>.md` by hand. Two valid headers:
 
 ```md
 ---
@@ -20,9 +21,19 @@ Or write `.changeset/<slug>.md` by hand:
 Short, user-facing description of the change.
 ```
 
+```md
+---
+"@uploads/plugin": patch
+---
+
+Why existing plugin installs must pick this up.
+```
+
 Bump levels: `patch` (fixes), `minor` (additive features), `major` (breaking).
 
-Private workspace packages (`@uploads/api`, `@uploads/mcp`, `@uploads/storage`, `@uploads/web`) are ignored — they deploy via Workers Builds, not npm.
+Every other private workspace package (`@uploads/api`, `@uploads/mcp`, …) is
+ignored — they deploy via Workers Builds, not npm. Do not name them in a
+changeset.
 
 ## Release flow
 
@@ -30,4 +41,5 @@ Private workspace packages (`@uploads/api`, `@uploads/mcp`, `@uploads/storage`, 
 2. The **Release** workflow opens or updates a `chore: version packages` PR (`changeset version` + changelog).
 3. Merge that PR → workflow publishes `@buildinternet/uploads` to npm with OIDC provenance (no `NPM_TOKEN`).
 
-Never hand-edit `packages/uploads/package.json` `version` for a release — let changesets own it.
+Never hand-edit `packages/uploads/package.json` or `packages/plugin/package.json`
+`version` — let changesets own them.
