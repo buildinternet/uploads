@@ -1,5 +1,11 @@
 # @buildinternet/uploads
 
+## 0.54.0
+
+### Minor Changes
+
+- 40322e7: Add `uploads docs` to search public uploads.sh documentation (and fetch one page as markdown). Also available as the MCP `search_docs` tool.
+
 ## 0.53.0
 
 ### Minor Changes
