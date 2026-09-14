@@ -99,6 +99,27 @@ Do not change `server.json` `name` or `packages/uploads` `mcpName` without a
 matching npm publish. The registry treats those strings as the server's
 identity.
 
+## Plugin version (Claude / Codex)
+
+The Claude/Codex plugin version is **not** the CLI version. Claude caches
+installs under `~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/`.
+A change that must reach existing installs (manifest, hooks, skills) needs a
+bump in all four files, or `/plugin update` keeps the old tree:
+
+- `plugin.json`
+- `.claude-plugin/plugin.json`
+- `.claude-plugin/marketplace.json` (`plugins[0].version`)
+- `.codex-plugin/plugin.json`
+
+Do not put that bump on `@buildinternet/uploads`. A plugin-only cache bust
+must not force an npm publish, and the MCP Registry listing already follows
+the CLI version via `server.json`. CI runs `pnpm plugin-version:check` so
+the four numbers cannot drift.
+
+After the bump lands on `main`, existing installs need
+`/plugin marketplace update` then `/plugin update uploads@uploads` (or
+uninstall and install).
+
 ## Manual / recovery
 
 ```bash
