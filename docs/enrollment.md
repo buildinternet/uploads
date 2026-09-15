@@ -43,7 +43,8 @@ The CLI authenticates as the managed official OAuth client `uploads-cli`,
 visible and toggleable by operators in the admin panel at `/admin/oauth`.
 `releases-sh` is the other seeded official client: a public PKCE
 authorization-code app for [releases.sh](https://releases.sh), scoped to
-`files:read`, with user consent required. Both rows carry
+`files:read` and `offline_access` (so refresh tokens can be issued), with
+user consent required. Both rows carry
 `metadata.official`. The server blocks deleting an official client
 (`DELETE` returns 409) until an operator first clears its official flag
 (`PATCH official:false`). That two-step is deliberate. Each seed migration

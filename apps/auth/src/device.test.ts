@@ -368,7 +368,7 @@ describe("seeded Releases oauth client", () => {
     expect(row.tokenEndpointAuthMethod).toBe("none");
     expect(row.grantTypes).toEqual(["authorization_code", "refresh_token"]);
     expect(row.responseTypes).toEqual(["code"]);
-    expect(row.scopes).toEqual(["files:read"]);
+    expect(row.scopes).toEqual(["files:read", "offline_access"]);
     expect(row.metadata).toEqual({ official: true });
     // Third-party: user must consent. The reaper exemption is official, not
     // skip_consent (unlike uploads-cli).
