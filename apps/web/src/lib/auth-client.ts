@@ -17,7 +17,7 @@
  * rides along.
  */
 import { fetchWithTimeout, type RequestFailure } from "./request";
-import type { ConnectedAppGrant } from "@uploads/auth/connected-apps-wire";
+import { normalizeConsentScopes, type ConnectedAppGrant } from "@uploads/auth/connected-apps-wire";
 
 /**
  * Same-origin (#731 phase B): browser auth traffic goes through this
@@ -995,6 +995,10 @@ function isConnectedAppGrant(value: unknown): value is ConnectedAppGrant {
   if (!value || typeof value !== "object") return false;
   const r = value as Record<string, unknown>;
   const stringOrNull = (v: unknown) => typeof v === "string" || v === null;
+  // Scopes may arrive as a JSON-array string (double-encoded consent row)
+  // or space-delimited OAuth text. Normalize in place so a bad payload
+  // cannot drop the whole grant from `/account/connected-apps`.
+  r.scopes = normalizeConsentScopes(r.scopes);
   return (
     typeof r.id === "string" &&
     typeof r.clientId === "string" &&

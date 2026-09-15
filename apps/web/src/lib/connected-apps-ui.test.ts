@@ -111,4 +111,18 @@ describe("loadConnectedAppsPageData", () => {
     const data = await loadConnectedAppsPageData("https://auth.uploads.sh", "cookie=1");
     expect(data).toEqual({ grants: null });
   });
+
+  it("keeps grants whose scopes arrived as a JSON-array string", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({
+          grants: [grant({ scopes: '["files:read","offline_access"]' as unknown as string[] })],
+        }),
+      ),
+    );
+    const data = await loadConnectedAppsPageData("https://auth.uploads.sh", "cookie=1");
+    expect(data.grants).toHaveLength(1);
+    expect(data.grants?.[0]?.scopes).toEqual(["files:read", "offline_access"]);
+  });
 });

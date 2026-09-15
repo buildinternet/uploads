@@ -10,6 +10,7 @@ import {
   linkGitHub,
   listAccounts,
   listAdminUsers,
+  listConnectedApps,
   listSessions,
   openOrganizationBillingPortal,
   revokeSession,
@@ -1002,5 +1003,85 @@ describe("openOrganizationBillingPortal", () => {
         returnUrl: "https://uploads.sh/x",
       }),
     ).resolves.toEqual({ ok: false, message: "no customer" });
+  });
+});
+
+function connectedAppGrant(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    id: "consent-1",
+    clientId: "releases-sh",
+    clientName: "Releases",
+    clientIcon: null,
+    clientUri: null,
+    scopes: ["files:read", "offline_access"],
+    referenceId: "ws:default",
+    activeTokenCount: 1,
+    createdAt: "2026-09-15T19:50:08.000Z",
+    updatedAt: "2026-09-15T19:50:08.000Z",
+    ...overrides,
+  };
+}
+
+describe("listConnectedApps", () => {
+  it("returns grants on success and null on outage", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ grants: [connectedAppGrant()] })),
+    );
+    await expect(listConnectedApps("https://auth.uploads.sh")).resolves.toEqual([
+      connectedAppGrant(),
+    ]);
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 503 })),
+    );
+    await expect(listConnectedApps("https://auth.uploads.sh")).resolves.toBeNull();
+  });
+
+  it("normalizes double-encoded JSON scopes instead of dropping the grant", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({
+          grants: [connectedAppGrant({ scopes: '["files:read","offline_access"]' })],
+        }),
+      ),
+    );
+    await expect(listConnectedApps("https://auth.uploads.sh")).resolves.toEqual([
+      connectedAppGrant({ scopes: ["files:read", "offline_access"] }),
+    ]);
+  });
+
+  it("normalizes space-delimited scope strings instead of dropping the grant", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({
+          grants: [connectedAppGrant({ scopes: "files:read files:write" })],
+        }),
+      ),
+    );
+    await expect(listConnectedApps("https://auth.uploads.sh")).resolves.toEqual([
+      connectedAppGrant({ scopes: ["files:read", "files:write"] }),
+    ]);
+  });
+
+  it("keeps well-formed grants when a neighbour row is otherwise malformed", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({
+          grants: [
+            connectedAppGrant({ scopes: '["files:read"]' }),
+            { id: "nope" },
+            connectedAppGrant({ id: "consent-2", clientId: "cursor" }),
+          ],
+        }),
+      ),
+    );
+    const grants = await listConnectedApps("https://auth.uploads.sh");
+    expect(grants?.map((g) => g.clientId)).toEqual(["releases-sh", "cursor"]);
+    expect(grants?.[0]?.scopes).toEqual(["files:read"]);
   });
 });
