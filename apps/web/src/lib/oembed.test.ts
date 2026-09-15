@@ -16,6 +16,8 @@ import {
 const SITE = "https://uploads.sh";
 const API = "https://api.uploads.sh";
 const GALLERY_ID = "gal_abcdefghijklmnopqrstuv";
+const FEED_ID = "feed_abcdefghijklmnopqrstuv";
+const FEED_ITEM_ID = "a".repeat(32);
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -78,8 +80,32 @@ const publicGallery = {
   references: [],
 };
 
+const publicFeed = {
+  id: FEED_ID,
+  title: "acme/app#12",
+  repo: "acme/app",
+  path: null,
+  number: 12,
+  kind: "pull" as const,
+  createdAt: "2026-09-15T12:00:00.000Z",
+  updatedAt: "2026-09-15T12:00:00.000Z",
+  items: [
+    {
+      id: FEED_ITEM_ID,
+      filename: "after.png",
+      status: "available" as const,
+      url: "https://storage.uploads.sh/acme/after.png",
+      embedUrl: "https://embed.uploads.sh/acme/after.png",
+      contentType: "image/png",
+      size: 20480,
+      path: "/settings",
+      state: "after",
+    },
+  ],
+};
+
 describe("parseShareableUrl", () => {
-  it("parses file, gallery, and gallery-item paths on the request origin", () => {
+  it("parses file, gallery, gallery-item, and feed paths on the request origin", () => {
     expect(parseShareableUrl(`${SITE}/f/acme/screenshots/shot.png`, SITE)).toEqual({
       kind: "file",
       workspace: "acme",
@@ -93,6 +119,15 @@ describe("parseShareableUrl", () => {
       kind: "gallery-item",
       id: GALLERY_ID,
       itemId: "item_cover",
+    });
+    expect(parseShareableUrl(`${SITE}/feed/${FEED_ID}`, SITE)).toEqual({
+      kind: "feed",
+      id: FEED_ID,
+    });
+    expect(parseShareableUrl(`${SITE}/feed/${FEED_ID}/${FEED_ITEM_ID}`, SITE)).toEqual({
+      kind: "feed-item",
+      id: FEED_ID,
+      itemId: FEED_ITEM_ID,
     });
   });
 
@@ -115,6 +150,7 @@ describe("parseShareableUrl", () => {
     expect(parseShareableUrl(`https://evil.example/f/acme/shot.png`, SITE)).toBeNull();
     expect(parseShareableUrl(`${SITE}/docs`, SITE)).toBeNull();
     expect(parseShareableUrl(`${SITE}/g/not-a-gallery-id`, SITE)).toBeNull();
+    expect(parseShareableUrl(`${SITE}/feed/not-a-feed-id`, SITE)).toBeNull();
   });
 });
 
@@ -225,6 +261,31 @@ describe("resolveOEmbed", () => {
       thumbnail_url: publicGallery.items[0]!.url,
       thumbnail_width: DEFAULT_PHOTO_SIZE,
       thumbnail_height: DEFAULT_PHOTO_SIZE,
+    });
+  });
+
+  it("returns photo for a feed item image", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      expect(String(input)).toContain(`/public/feeds/${FEED_ID}`);
+      return jsonResponse(publicFeed);
+    });
+    const page = sharePageUrl(SITE, {
+      kind: "feed-item",
+      id: FEED_ID,
+      itemId: FEED_ITEM_ID,
+    });
+    const result = await resolveOEmbed({
+      url: page,
+      requestOrigin: SITE,
+      apiOrigin: API,
+      fetch: fetchMock as typeof fetch,
+    });
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    expect(result.body).toMatchObject({
+      type: "photo",
+      title: "after.png",
+      url: publicFeed.items[0]!.url,
     });
   });
 

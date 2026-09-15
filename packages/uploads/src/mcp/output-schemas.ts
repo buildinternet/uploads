@@ -441,12 +441,18 @@ const feedItemSchema: JsonSchema = objectSchema({
   status: { type: "string" },
   url: nullableString,
   embedUrl: nullableString,
+  pageUrl: { type: "string" },
   contentType: nullableString,
   size: { type: ["number", "null"] },
   uploaded: nullableString,
   modified: nullableString,
   path: nullableString,
   state: nullableString,
+  posterUrl: { type: "string" },
+  videoDimensions: {
+    type: "object",
+    additionalProperties: true,
+  },
 });
 
 export const feedResultSchema: JsonSchema = objectSchema({

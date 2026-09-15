@@ -1,5 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
-import { applyPublicFeedHeaders, feedPageCopy, fetchPublicFeed, isPublicFeed } from "./public-feed";
+import {
+  applyPublicFeedHeaders,
+  feedItemPath,
+  feedPageCopy,
+  feedPath,
+  fetchPublicFeed,
+  isPublicFeed,
+} from "./public-feed";
 import { PUBLIC_GALLERY_CSP } from "./public-gallery";
 
 const ID = "feed_abcdefghijklmnopqrstuv";
@@ -27,6 +34,13 @@ const feed = {
     },
   ],
 };
+
+describe("feed paths", () => {
+  it("builds list and item paths", () => {
+    expect(feedPath(ID)).toBe(`/feed/${ID}`);
+    expect(feedItemPath(ID, "a".repeat(32))).toBe(`/feed/${ID}/${"a".repeat(32)}`);
+  });
+});
 
 describe("feedPageCopy", () => {
   it("labels a repo feed, a pull request, and an issue", () => {

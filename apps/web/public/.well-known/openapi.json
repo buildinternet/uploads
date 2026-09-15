@@ -1309,6 +1309,7 @@
           "status": { "type": "string", "enum": ["available", "missing", "withheld"] },
           "url": { "type": ["string", "null"], "format": "uri" },
           "embedUrl": { "type": ["string", "null"], "format": "uri" },
+          "pageUrl": { "type": "string", "format": "uri" },
           "contentType": { "type": ["string", "null"] },
           "size": { "type": ["integer", "null"], "minimum": 0 },
           "uploaded": { "type": ["string", "null"], "format": "date-time" },

@@ -697,7 +697,7 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
       annotations: mcpRead,
       securitySchemes: mcpOAuthRead,
       description:
-        "Get a workspace-owned change feed by ID, including its current newest-first screenshots and the canonical public /feed/<id> URL. The feed may be repo-wide or scoped to one pull request / issue (see `number` and `kind` on the result). Anyone with the URL can view the media.",
+        "Get a workspace-owned change feed by ID, including its current newest-first screenshots and the canonical public /feed/<id> URL. Each item includes pageUrl (`/feed/<id>/<item>`) for the pager. The feed may be repo-wide or scoped to one pull request / issue (see `number` and `kind` on the result). Anyone with the URL can view the media.",
       inputSchema: {
         type: "object",
         properties: {

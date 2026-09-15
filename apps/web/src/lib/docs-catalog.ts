@@ -53,6 +53,8 @@ export const DOCS_SEARCH_ALIASES: Record<string, string[]> = {
     "issue feed",
     "scoped feed",
     "smart gallery",
+    "pager",
+    "feed item",
   ],
   "github-app": ["bot", "webhook", "promote", "app", "ingest"],
   "comment-config": ["uploads.yml", "comment", "yaml", "yml", "width"],

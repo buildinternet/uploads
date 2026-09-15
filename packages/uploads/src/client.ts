@@ -302,12 +302,16 @@ export interface FeedItem {
   status: "available" | "missing" | "withheld";
   url: string | null;
   embedUrl: string | null;
+  /** Canonical `/feed/<id>/<item>` page when the API computed one. */
+  pageUrl?: string;
   contentType: string | null;
   size: number | null;
   uploaded: string | null;
   modified: string | null;
   path: string | null;
   state: string | null;
+  posterUrl?: string;
+  videoDimensions?: { width: number; height: number };
 }
 
 export interface Feed {

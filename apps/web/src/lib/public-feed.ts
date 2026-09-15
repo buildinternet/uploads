@@ -68,6 +68,10 @@ export function feedPath(feedId: string): string {
   return `/feed/${encodeURIComponent(feedId)}`;
 }
 
+export function feedItemPath(feedId: string, itemId: string): string {
+  return `${feedPath(feedId)}/${encodeURIComponent(itemId)}`;
+}
+
 export function feedPageCopy(feed: Pick<PublicFeed, "repo" | "number" | "kind">): {
   eyebrow: string;
   scopeLabel: string;

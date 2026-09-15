@@ -1,6 +1,6 @@
 ---
 title: Change feeds
-description: Share a newest-first feed of screenshots for a GitHub repo or one pull request, behind a public link at /feed/<id>.
+description: Share a newest-first feed of screenshots for a GitHub repo or one pull request, behind a public link at /feed/<id>. Each shot has a pager page at /feed/<id>/<item>.
 heading: Change feeds
 tagline: A live, newest-first page of screenshots for one repo — or one pull request.
 navLabel: Change feeds
@@ -9,6 +9,7 @@ navOrder: 3
 toc:
   - { id: what, label: What a feed is }
   - { id: create, label: Create a feed }
+  - { id: pager, label: Page through the set }
   - { id: when, label: Gallery, repo, or PR }
 ---
 
@@ -20,6 +21,7 @@ A feed is a live public page of screenshots already tagged with a GitHub repo. W
 
 - Share the latest shots for a repo behind one `/feed/<id>` URL.
 - Scope that same feed to one pull request or issue.
+- Open one shot at `/feed/<id>/<item>` and page through the set.
 - Filter by page path (the same `path` metadata `uploads find` uses).
 
 It is the same product either way — one extra filter. New tagged screenshots appear automatically. A
@@ -55,6 +57,21 @@ Open an existing feed with `uploads feed show`.
   <code>pr</code> when the feed should stay on one pull request. <code>github</code> alone can
   supply both. <code>feed_get</code> returns the current shots and the public URL.
 </div>
+
+</section>
+
+<section id="pager">
+
+## Page through the set <a class="anchor" href="#pager" aria-label="Link to this section">#</a>
+
+Each shot has its own page at `/feed/<id>/<item>` — previous / next, and a 1 of N count. The feed
+list links into that pager.
+
+Syncing the managed PR comment creates the PR-scoped feed if it does not exist yet (the same
+idempotent create as `uploads feed create --repo … --pr …`). Each image in that comment then links
+to its feed item page. The `<img>` still loads from the embed URL.
+
+Standalone `/f/…` pages stay for one-off shares. Curated galleries are unchanged.
 
 </section>
 

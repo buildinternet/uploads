@@ -201,7 +201,7 @@ export interface AttachmentItem {
   url: string | null;
   /** Prefer for `<img src>` on GitHub (Camo-friendly host). Falls back to `url`. */
   embedUrl?: string | null;
-  /** Canonical `/f/` file-page URL (server-computed). Preferred click-through target; falls back to `url`. */
+  /** Preferred click-through (PR feed item, `/f/` file page, or equivalent). Falls back to `url`. */
   pageUrl?: string | null;
   /**
    * The only canonical metadata the managed comment renders (issue #365).
