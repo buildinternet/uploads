@@ -3,7 +3,7 @@
  *
  * Checks the registry at most once per day, never throws, never blocks longer
  * than a short timeout, and writes only to stderr. Silence with --quiet,
- * UPLOADS_NO_UPDATE=1, or NO_UPDATE_NOTIFIER=1.
+ * `uploads update`, `uploads mcp`, UPLOADS_NO_UPDATE=1, or NO_UPDATE_NOTIFIER=1.
  */
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -23,7 +23,10 @@ export interface UpdateCache {
 
 export interface UpdateCheckOptions {
   quiet?: boolean;
-  /** mcp is always skipped (stdio purity). */
+  /**
+   * `mcp` is always skipped (stdio purity). `update` is skipped so a successful
+   * upgrade does not immediately hint the old in-process version.
+   */
   command?: string;
   currentVersion?: string;
   cachePath?: string;
@@ -104,7 +107,7 @@ export interface UpdateStatus {
 export async function checkForUpdate(opts: UpdateCheckOptions = {}): Promise<UpdateStatus> {
   const current = opts.currentVersion ?? packageVersion();
   try {
-    if (opts.quiet || opts.command === "mcp") {
+    if (opts.quiet || opts.command === "mcp" || opts.command === "update") {
       return { current, updateAvailable: false };
     }
     if (truthyEnv("UPLOADS_NO_UPDATE") || truthyEnv("NO_UPDATE_NOTIFIER")) {

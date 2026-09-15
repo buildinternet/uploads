@@ -479,7 +479,7 @@ export async function runCli(argv: string[]): Promise<number> {
       }
     }
 
-    // Best-effort; skipped for mcp, --quiet/--json, and opt-out env vars.
+    // Best-effort; skipped for mcp, update, --quiet/--json, and opt-out env vars.
     if (code === 0 && !showHelp) {
       await maybeHintUpdate({ quiet: quiet || json, command: parsed.command });
     }

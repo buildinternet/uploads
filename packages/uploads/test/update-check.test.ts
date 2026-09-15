@@ -66,6 +66,19 @@ describe("maybeHintUpdate", () => {
     expect(readUpdateCache(path)?.latest).toBe("0.6.0");
   });
 
+  it("stays silent on `update` even when the in-process binary is behind", async () => {
+    const lines: string[] = [];
+    await maybeHintUpdate({
+      command: "update",
+      currentVersion: "0.54.0",
+      cachePath: cachePath(),
+      ttlMs: 0,
+      fetchImpl: async () => jsonResponse("0.55.0"),
+      write: (t) => lines.push(t),
+    });
+    expect(lines).toEqual([]);
+  });
+
   it("stays silent when already up to date", async () => {
     const lines: string[] = [];
     await maybeHintUpdate({
@@ -97,7 +110,7 @@ describe("maybeHintUpdate", () => {
     expect(lines.join("")).toMatch(/0\.7\.0/);
   });
 
-  it("skips when quiet, mcp, or NO_UPDATE_NOTIFIER is set", async () => {
+  it("skips when quiet, mcp, update, or NO_UPDATE_NOTIFIER is set", async () => {
     const lines: string[] = [];
     const fetchImpl = async () => {
       throw new Error("should not fetch");
@@ -112,6 +125,13 @@ describe("maybeHintUpdate", () => {
     await maybeHintUpdate({
       command: "mcp",
       currentVersion: "0.1.0",
+      ttlMs: 0,
+      fetchImpl,
+      write: (t) => lines.push(t),
+    });
+    await maybeHintUpdate({
+      command: "update",
+      currentVersion: "0.54.0",
       ttlMs: 0,
       fetchImpl,
       write: (t) => lines.push(t),
