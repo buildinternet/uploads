@@ -9,7 +9,8 @@ description: >-
   that doesn't exist yet. Triggers include "attach a screenshot to the PR",
   "add a before/after to the issue", "include a screenshot of …", "share a GIF
   of the flow", "record the bug and put it in the issue", "get me a link I can
-  paste in Slack", "stage screenshots for the PR", "attach this when I open
+  paste in Slack", "share a live feed of this PR's screenshots", "create a
+  change feed", "stage screenshots for the PR", "attach this when I open
   the PR", "save this for the PR", "collect the PR's media", or having just
   captured or changed something visual that a shot would make clearer — even
   mid-task, before a PR exists. Also applies when an agent has no local
@@ -279,13 +280,26 @@ For a durable public link to share anywhere (Slack, docs, a teammate):
 uploads put ./demo.gif --format url
 ```
 
-For a scrollable newest-first feed of a repo's recent screenshots, use
-`uploads feed create --repo owner/repo`. For one pull request, add `--pr 123`
-(or `--github owner/repo#123`). See `uploads-cli`. That is a live query, not
-a curated gallery.
-
 When you do embed, use the returned **markdown** (or `embedUrl`) — the
 no-cache host so overwrites propagate. Don't hand-build storage URLs.
+
+## Change feeds (live page, not a gallery)
+
+A feed is a live newest-first page of screenshots already tagged with a GitHub
+repo — or with one pull request. Same product; `--pr` is one extra filter.
+It is not a curated gallery (those stay `uploads gallery create`).
+
+- **Repo feed** — share “what landed in this repo lately.”
+- **PR feed** — share “everything on this pull request,” for reviewers or Slack.
+
+```bash
+uploads feed create --repo owner/repo
+uploads feed create --repo owner/repo --pr 123
+uploads feed create --github owner/repo#123
+```
+
+MCP: `feed_create` with `repo`, or `repo` + `pr`, or `github` alone. See
+`uploads-cli` for flags. Creating the same scope again returns the existing URL.
 
 **Comment briefly disappeared? Don't panic-repost.** If the App is installed
 and subscribed to the `issue_comment` event, a deleted or edited-out managed

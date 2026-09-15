@@ -616,7 +616,7 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
       annotations: mcpWritePublic,
       securitySchemes: mcpOAuthWrite,
       description:
-        "Create a public newest-first screenshot feed for a GitHub owner/repo, or one pull request / issue. The same scope returns the existing feed. Anyone who knows the URL can view it. This is a live query, not a curated gallery.",
+        "Create a public newest-first screenshot feed (same product as CLI `uploads feed create`). Pass `repo` alone for the whole GitHub repo. Pass `pr` plus `repo` — or `github` as owner/repo#123 / a GitHub PR URL — to scope that same feed to one pull request. `issue` does the same for an issue. Optional `path` filters by page-path metadata. Creating the same scope again returns the existing URL. This is a live query, not a curated gallery. Anyone who knows the URL can view it.",
       inputSchema: {
         type: "object",
         properties: {
@@ -627,17 +627,18 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
           pr: {
             type: "integer",
             minimum: 1,
-            description: "Optional pull request number. Mutually exclusive with issue and github.",
+            description:
+              "Scope the feed to this pull request. Same product as a repo feed — one extra filter. Mutually exclusive with issue and github.",
           },
           issue: {
             type: "integer",
             minimum: 1,
-            description: "Optional issue number. Mutually exclusive with pr and github.",
+            description: "Scope the feed to this issue. Mutually exclusive with pr and github.",
           },
           github: {
             type: "string",
             description:
-              "Optional owner/repo#number or https://github.com/<owner>/<repo>/pull|issues/<number> URL. Mutually exclusive with pr and issue. Supplies repo when repo is omitted.",
+              "Scope via owner/repo#number or a GitHub issue/PR URL. Supplies repo when omitted. Mutually exclusive with pr and issue.",
           },
           path: {
             type: "string",
@@ -696,7 +697,7 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
       annotations: mcpRead,
       securitySchemes: mcpOAuthRead,
       description:
-        "Get a workspace-owned change feed, including its current newest-first screenshots and canonical public URL. Feed media is public to anyone with the URL.",
+        "Get a workspace-owned change feed by ID, including its current newest-first screenshots and the canonical public /feed/<id> URL. The feed may be repo-wide or scoped to one pull request / issue (see `number` and `kind` on the result). Anyone with the URL can view the media.",
       inputSchema: {
         type: "object",
         properties: {

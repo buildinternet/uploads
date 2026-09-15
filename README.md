@@ -181,8 +181,9 @@ That installs three skills: `github-screenshots` (visuals → PRs/issues),
 `uploads-cli` (full CLI reference), and `annotate-screenshots` (callouts and
 redaction on a capture).
 
-Full CLI usage, including annotations, managed comments, and public galleries,
-lives in [docs/cli.md](docs/cli.md).
+Full CLI usage, including annotations, managed comments, public galleries,
+and change feeds (repo-wide or one pull request), lives in
+[docs/cli.md](docs/cli.md).
 REST routes are in [docs/api.md](docs/api.md).
 
 ## What's in this repo

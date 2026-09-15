@@ -1,74 +1,69 @@
 ---
 title: Change feeds
-description: Share a newest-first feed of screenshots for a GitHub repo or pull request behind one public link at /feed/<id>.
+description: Share a newest-first feed of screenshots for a GitHub repo or one pull request, behind a public link at /feed/<id>.
 heading: Change feeds
-tagline: A scrollable feed of recent screenshots for one GitHub repo or pull request, behind one public link.
+tagline: A live, newest-first page of screenshots for one repo — or one pull request.
 navLabel: Change feeds
 navSlug: feeds
 navOrder: 3
 toc:
   - { id: what, label: What a feed is }
-  - { id: workflow, label: CLI workflow }
-  - { id: galleries, label: Feeds vs galleries }
+  - { id: create, label: Create a feed }
+  - { id: when, label: Gallery, repo, or PR }
 ---
 
 <section class="lead" id="what">
 
 ## What a feed is <a class="anchor" href="#what" aria-label="Link to this section">#</a>
 
-A change feed is a public link that shows the latest screenshots tagged with a
-GitHub `owner/repo`, or with one pull request or issue. The page is newest-first
-and updates as new shots land. It does not store a hand-picked list.
+A feed is a live public page of screenshots already tagged with a GitHub repo. With a feed you can:
 
-Anyone who knows the URL can view the feed. GitHub repository visibility does
-not restrict it.
+- Share the latest shots for a repo behind one `/feed/<id>` URL.
+- Scope that same feed to one pull request or issue.
+- Filter by page path (the same `path` metadata `uploads find` uses).
+
+It is the same product either way — one extra filter. New tagged screenshots appear automatically. A
+[gallery](/docs/galleries) is a curated set you add by hand.
+
+Anyone who knows the URL can view the feed. GitHub repository visibility does not restrict it.
 
 </section>
 
-<section id="workflow">
+<section id="create">
 
-## CLI workflow <a class="anchor" href="#workflow" aria-label="Link to this section">#</a>
+## Create a feed <a class="anchor" href="#create" aria-label="Link to this section">#</a>
 
-Create a feed. This prints its public URL. If you omit `--repo`, the CLI uses
-the current git remote:
+Create a repo-wide feed. This prints its public URL. Omit `--repo` and the CLI uses the current git
+remote:
 
 ```bash
-uploads feed create
 uploads feed create --repo owner/repo
 ```
 
-Scope it to one pull request. Attach and put already write `gh.repo` and
-`gh.number`; the feed is that same find, live:
+Creating the same scope again returns the existing URL.
 
-```bash
-uploads feed create --repo owner/repo --pr 123
-```
+<div class="pointer">
+  Want only one pull request? Add <code>--pr</code>, or pass <code>--github</code> with
+  <code>owner/repo#123</code> or a GitHub URL. <code>--issue</code> does the same for an issue.
+  Optional <code>--path</code> keeps the feed to one page path.
+</div>
 
-`--issue` does the same for an issue. `--github owner/repo#123` (or a strict
-GitHub issue/PR URL) is the gallery-style spelling.
+Open an existing feed with `uploads feed show`.
 
-Optional: keep the feed to one page path (the same `path` metadata `uploads
-find` already uses). It can combine with a pull request or issue:
-
-```bash
-uploads feed create --repo owner/repo --path /settings
-```
-
-Creating the same scope again returns the existing URL. Share that link in
-Slack or anywhere else.
-
-The public page lives at `/feed/<id>`.
+<div class="note">
+  From a hosted agent (no local CLI), call MCP <code>feed_create</code> with <code>repo</code>, plus
+  <code>pr</code> when the feed should stay on one pull request. <code>github</code> alone can
+  supply both. <code>feed_get</code> returns the current shots and the public URL.
+</div>
 
 </section>
 
-<section id="galleries">
+<section id="when">
 
-## Feeds vs galleries <a class="anchor" href="#galleries" aria-label="Link to this section">#</a>
+## Gallery, repo, or PR <a class="anchor" href="#when" aria-label="Link to this section">#</a>
 
-A <a href="/docs/galleries">gallery</a> is a curated, ordered set of files you
-add by hand. A feed is a live query over screenshots already tagged with
-`gh.repo` (and optionally `gh.number`). Use a gallery when you want to pick
-and order shots. Use a feed when you want “what landed on this repo” or “what
-landed on this pull request.”
+- **Gallery** — you pick and order the files. See [Galleries](/docs/galleries).
+- **Repo feed** — the latest screenshots across a repo.
+- **PR feed** — the same feed, scoped to one pull request.
 
 </section>

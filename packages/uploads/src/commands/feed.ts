@@ -9,8 +9,10 @@ import type { CreateFeedOptions } from "../client.js";
 const FEED_HELP = `uploads feed <command> [args]
 
 A public newest-first feed of screenshots tagged with a GitHub owner/repo,
-or one pull request / issue. Anyone who knows the URL can view it. Creating
-the same scope again returns the existing feed.
+or one pull request / issue. Same product — pass --pr, --issue, or --github
+to scope it. A gallery is a hand-picked list; a feed is live. Anyone who
+knows the URL can view it. Creating the same scope again returns the
+existing feed.
 
 Commands:
   create [--repo <owner/repo>] [--pr <n> | --issue <n> | --github <ref>] [--path <page-path>]

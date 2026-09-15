@@ -31,6 +31,8 @@ uploads put --url https://cdn.example/shot.png --pr 123
 uploads put --url http://localhost:4321/shot.png
 uploads gallery create --title "Release screenshots"
 uploads put ./after.png --gallery gal_example
+uploads feed create --repo owner/repo
+uploads feed create --repo owner/repo --pr 123
 # custom metadata (queryable): page URL, in-app path, which surface
 uploads put ./shot.png --meta url=https://app.example/settings --meta path=/settings --meta app=web
 uploads meta get screenshots/myapp/42/shot.webp
@@ -192,11 +194,13 @@ When adding several keys, `uploads gallery add` processes them sequentially and 
 individual failures in `--json` output. Gallery item updates use the API's current version to
 avoid overwriting concurrent changes.
 
-## Repo change feeds
+## Change feeds
 
 A feed is a public newest-first page of screenshots already tagged with a GitHub `owner/repo`,
-or with one pull request or issue. It is a live query, not a curated gallery. The API returns
-the canonical public URL.
+or with one pull request or issue. Same product — `--pr` / `--issue` / `--github` is one extra
+filter. It is a live query, not a curated gallery. Use a gallery when you pick the files; use
+a repo feed for the latest shots across a repo; use a PR feed when reviewers should see only
+that pull request. The API returns the canonical public URL.
 
 ```bash
 uploads feed create --repo owner/repo
@@ -206,7 +210,8 @@ uploads feed create --repo owner/repo --path /settings
 ```
 
 Creating the same scope again returns the existing URL. Anyone who knows that URL can
-view the feed.
+view the feed. MCP: `feed_create` (`repo`, plus `pr` / `issue` / `github` / `path`) and
+`feed_get`.
 
 Link a gallery to a GitHub issue or pull request with `gallery link --github`. Run `uploads comment --pr <number>` to refresh that target’s one managed comment with every linked gallery and loose attachment. Coordinates and strict `https://github.com/<owner>/<repo>/issues|pull/<number>` URLs are accepted; `gallery list --github` performs the authenticated reverse lookup. Links never change gallery identity, and GitHub repository visibility does not make the public gallery private.
 
@@ -214,7 +219,7 @@ Config layers (first match wins): CLI flags → env vars → `--env-file` → `~
 
 ## MCP server
 
-`uploads mcp` serves the Model Context Protocol over stdio (newline-delimited JSON-RPC, no extra dependencies). Tools include file operations plus public gallery workflows (`gallery_create`, `gallery_get`, `gallery_add`, `gallery_link`, `gallery_find_by_reference`) and repo change feeds (`feed_create`, `feed_get`). Gallery and feed tools return API-provided canonical URLs and never need GitHub credentials. The remaining stdio tools are `put`, `attach`, `list`, `delete`, `get_metadata`, `set_metadata`, `find_files`, `usage`, `reconcile`, `purge_expired`, `comment`, `whoami`, and `doctor` — with the same config resolution and defaults, plus a per-call `workspace` argument. `put` and `attach` accept a `metadata` param (same `gh.*` auto-injection as the CLI's `attach`); `get_metadata`, `set_metadata`, and `find_files` mirror `uploads meta get` / `meta set` / `find`. Interactive/credential commands (`setup`, `login`, `admin`, `config`) are not exposed. A token isn't required to start the server; auth errors surface per tool call (`whoami` needs no auth).
+`uploads mcp` serves the Model Context Protocol over stdio (newline-delimited JSON-RPC, no extra dependencies). Tools include file operations plus public gallery workflows (`gallery_create`, `gallery_get`, `gallery_add`, `gallery_link`, `gallery_find_by_reference`) and change feeds (`feed_create`, `feed_get` — pass `pr` or `github` to scope a feed to one pull request). Gallery and feed tools return API-provided canonical URLs and never need GitHub credentials. The remaining stdio tools are `put`, `attach`, `list`, `delete`, `get_metadata`, `set_metadata`, `find_files`, `usage`, `reconcile`, `purge_expired`, `comment`, `whoami`, and `doctor` — with the same config resolution and defaults, plus a per-call `workspace` argument. `put` and `attach` accept a `metadata` param (same `gh.*` auto-injection as the CLI's `attach`); `get_metadata`, `set_metadata`, and `find_files` mirror `uploads meta get` / `meta set` / `find`. Interactive/credential commands (`setup`, `login`, `admin`, `config`) are not exposed. A token isn't required to start the server; auth errors surface per tool call (`whoami` needs no auth).
 
 ```json
 { "command": "uploads", "args": ["--env-file", "/path/to/.env", "mcp"] }

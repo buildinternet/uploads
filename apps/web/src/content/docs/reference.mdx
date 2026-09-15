@@ -72,7 +72,8 @@ uploads --help        # everything else
   (signed URLs only), which isn't how uploads.sh workspaces work today.
 - **Share pages support embeds.** Every public file and gallery has a page at `/f/…` or `/g/…` with
   [oEmbed](https://oembed.com/) discovery, so tools that unfurl links can show the media. Resolve one
-  directly via `/oembed`, passing the page URL as its `url` query param.
+  directly via `/oembed`, passing the page URL as its `url` query param. A [change feed](/docs/feeds)
+  is a live page at `/feed/…` — repo-wide or one pull request — not an oEmbed target.
 - **Getting access.** Sign in and create your own workspace with a linked GitHub account, or get
   invited to an existing one. A workspace admin can invite by email from the workspace's People page,
   or generate a join link there — anyone signed in who opens it joins the workspace. Join links can be

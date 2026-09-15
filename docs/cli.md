@@ -369,11 +369,14 @@ doesn't change gallery identity or visibility.
 > GitHub or repository visibility. Removing or deleting a gallery doesn't delete
 > its uploaded media or exempt it from retention.
 
-## Repo change feeds
+## Change feeds
 
 A feed is a public newest-first page of screenshots already tagged with a
-GitHub `owner/repo`, or with one pull request or issue. It is a live query,
-not a curated gallery:
+GitHub `owner/repo`, or with one pull request or issue. Same product —
+`--pr` / `--issue` / `--github` is one extra filter. It is a live query, not
+a curated gallery. Use a gallery when you pick the files; a repo feed for the
+latest shots across a repo; a PR feed when reviewers should see only that
+pull request.
 
 ```bash
 uploads feed create --repo owner/repo
@@ -383,7 +386,8 @@ uploads feed create --repo owner/repo --path /settings
 ```
 
 Creating the same scope again returns the existing URL. Anyone with that
-link can view the feed.
+link can view the feed. MCP: `feed_create` (`repo`, plus `pr` / `issue` /
+`github` / `path`) and `feed_get`.
 
 ## Agent skills and hooks
 
