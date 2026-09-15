@@ -1,5 +1,17 @@
 # @buildinternet/uploads
 
+## 0.55.0
+
+### Minor Changes
+
+- 44b86b6: PR managed-comment image clicks open the change-feed pager (`/c/<id>/<item>`). Feed items now include `pageUrl`.
+- 472787c: Let `uploads feed create` (and MCP `feed_create`) scope a change feed to one pull request or issue with `--pr` / `--issue` / `--github`.
+- fec7133: Add `uploads feed` (and MCP `feed_create` / `feed_get`) to share a public newest-first screenshot feed for a GitHub repo.
+
+### Patch Changes
+
+- 8d6b346: Public change-feed pages now live at `/c/<id>` and `/c/<id>/<item>` (same house rule as `/g/gal_…`). Old `/feed/…` links redirect.
+
 ## 0.54.0
 
 ### Minor Changes
