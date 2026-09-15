@@ -1,5 +1,11 @@
 # @buildinternet/uploads
 
+## 0.55.1
+
+### Patch Changes
+
+- 9f2ec7c: Skip the stale "update available" hint after `uploads update`, and do not re-run `mcp add` (which can open a browser) when `mcp list` already shows the server.
+
 ## 0.55.0
 
 ### Minor Changes
