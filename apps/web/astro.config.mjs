@@ -93,6 +93,8 @@ export default defineConfig({
   // handling that mdx() then picks up for fenced code blocks.
   integrations: [expressiveCode(expressiveCodeOptions), mdx(), react()],
   trailingSlash: "never",
+  // Legacy /feed and /feed/* 301 from pages/feed.astro and pages/feed/[...path].astro.
+  // Config redirects cannot map a rest param onto /c/[id] or /c/[id]/[item].
   redirects: {
     // Renamed for a more recognizable slug; keep the old path working.
     "/docs/attach": "/docs/attach-pull-request-images",

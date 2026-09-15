@@ -302,7 +302,7 @@ export interface FeedItem {
   status: "available" | "missing" | "withheld";
   url: string | null;
   embedUrl: string | null;
-  /** Canonical `/feed/<id>/<item>` page when the API computed one. */
+  /** Canonical `/c/<id>/<item>` page when the API computed one. */
   pageUrl?: string;
   contentType: string | null;
   size: number | null;

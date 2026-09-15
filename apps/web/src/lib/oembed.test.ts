@@ -120,6 +120,15 @@ describe("parseShareableUrl", () => {
       id: GALLERY_ID,
       itemId: "item_cover",
     });
+    expect(parseShareableUrl(`${SITE}/c/${FEED_ID}`, SITE)).toEqual({
+      kind: "feed",
+      id: FEED_ID,
+    });
+    expect(parseShareableUrl(`${SITE}/c/${FEED_ID}/${FEED_ITEM_ID}`, SITE)).toEqual({
+      kind: "feed-item",
+      id: FEED_ID,
+      itemId: FEED_ITEM_ID,
+    });
     expect(parseShareableUrl(`${SITE}/feed/${FEED_ID}`, SITE)).toEqual({
       kind: "feed",
       id: FEED_ID,
@@ -150,6 +159,7 @@ describe("parseShareableUrl", () => {
     expect(parseShareableUrl(`https://evil.example/f/acme/shot.png`, SITE)).toBeNull();
     expect(parseShareableUrl(`${SITE}/docs`, SITE)).toBeNull();
     expect(parseShareableUrl(`${SITE}/g/not-a-gallery-id`, SITE)).toBeNull();
+    expect(parseShareableUrl(`${SITE}/c/not-a-feed-id`, SITE)).toBeNull();
     expect(parseShareableUrl(`${SITE}/feed/not-a-feed-id`, SITE)).toBeNull();
   });
 });

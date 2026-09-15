@@ -1288,7 +1288,11 @@
         "required": ["id", "url", "workspace", "repo", "title", "createdAt", "updatedAt"],
         "properties": {
           "id": { "type": "string", "pattern": "^feed_" },
-          "url": { "type": "string", "format": "uri" },
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "description": "Canonical public page (`/c/<id>`)."
+          },
           "workspace": { "type": "string" },
           "repo": { "type": "string" },
           "path": { "type": ["string", "null"] },

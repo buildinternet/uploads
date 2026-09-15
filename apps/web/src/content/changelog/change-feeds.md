@@ -8,7 +8,7 @@ image:
 ---
 
 You can now share a live feed of screenshots for a GitHub `owner/repo` behind
-one public URL. The page lives at `/feed/<id>`, newest first, and updates as
+one public URL. The page lives at `/c/<id>`, newest first, and updates as
 new shots land. Anyone with the link can view it — the same privacy model as
 galleries.
 

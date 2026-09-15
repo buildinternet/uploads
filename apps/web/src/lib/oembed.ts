@@ -1,5 +1,5 @@
 /**
- * oEmbed 1.0 for public shareable pages (`/f/…`, `/g/…`, `/feed/…`).
+ * oEmbed 1.0 for public shareable pages (`/f/…`, `/g/…`, `/c/…`).
  *
  * Pages advertise discovery via
  *   <link rel="alternate" type="application/json+oembed" href="/oembed?url=…">
@@ -168,13 +168,13 @@ export function parseShareableUrl(rawUrl: string, requestOrigin: string): ShareT
     return { kind: "gallery-item", id, itemId };
   }
 
-  if (parts[0] === "feed" && parts.length === 2) {
+  if ((parts[0] === "c" || parts[0] === "feed") && parts.length === 2) {
     const id = parts[1]!;
     if (!FEED_ID_PATTERN.test(id)) return null;
     return { kind: "feed", id };
   }
 
-  if (parts[0] === "feed" && parts.length === 3) {
+  if ((parts[0] === "c" || parts[0] === "feed") && parts.length === 3) {
     const id = parts[1]!;
     const itemId = parts[2]!;
     if (!FEED_ID_PATTERN.test(id) || !ITEM_ID_PATTERN.test(itemId)) return null;

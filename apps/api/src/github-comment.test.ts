@@ -236,7 +236,7 @@ describe("gatherCommentBody", () => {
       { repo: "acme/web", num: 12, kind: "pull" },
     );
     expect(result.body).not.toContain(`/f/${workspaceName}/`);
-    expect(result.body).not.toContain("/feed/");
+    expect(result.body).not.toContain("/c/");
     // Falls back to the raw storage url.
     expect(result.body).toContain("storage.uploads.sh");
   });
@@ -269,8 +269,8 @@ describe("gatherCommentBody", () => {
     expect(feed).toBeTruthy();
     const idA = await feedItemId(keyA);
     const idB = await feedItemId(keyB);
-    expect(first.body).toContain(`/feed/${feed!.id}/${idA}`);
-    expect(first.body).toContain(`/feed/${feed!.id}/${idB}`);
+    expect(first.body).toContain(`/c/${feed!.id}/${idA}`);
+    expect(first.body).toContain(`/c/${feed!.id}/${idB}`);
     expect(first.body).not.toContain(`/f/${workspaceName}/`);
     expect(first.body).toMatch(/<img[^>]+src="https:\/\/(embed|storage)\.uploads\.sh\//);
 
@@ -282,7 +282,7 @@ describe("gatherCommentBody", () => {
     );
     const reused = await findFeedByScope(env.DB, workspaceName, "acme/web", "", 12);
     expect(reused?.id).toBe(feed!.id);
-    expect(second.body).toContain(`/feed/${feed!.id}/${idA}`);
+    expect(second.body).toContain(`/c/${feed!.id}/${idA}`);
   });
 
   it("keeps /f/ click-through when an attachment is not in the PR feed query", async () => {
@@ -296,7 +296,7 @@ describe("gatherCommentBody", () => {
       kind: "pull",
     });
     expect(result.body).toContain(`/f/${workspaceName}/`);
-    expect(result.body).not.toContain("/feed/");
+    expect(result.body).not.toContain("/c/");
   });
 
   it("renders galleries linked to the PR via an external reference, scoped to the calling workspace", async () => {
