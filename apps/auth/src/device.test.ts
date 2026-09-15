@@ -348,3 +348,37 @@ describe("seeded CLI oauth client (issue #251)", () => {
     expect(row.skipConsent).toBe(true);
   });
 });
+
+describe("seeded Releases oauth client", () => {
+  it("migrations seed an official public PKCE releases-sh client", async () => {
+    const env = dbEnv();
+    const db = drizzle(env.DB, { schema });
+    const [row] = await db
+      .select()
+      .from(schema.oauthClient)
+      .where(eq(schema.oauthClient.clientId, "releases-sh"))
+      .limit(1);
+    expect(row).toBeDefined();
+    expect(row.name).toBe("Releases");
+    expect(row.uri).toBe("https://releases.sh");
+    expect(row.disabled).toBe(false);
+    expect(row.public).toBe(true);
+    expect(row.requirePKCE).toBe(true);
+    expect(row.clientSecret).toBeNull();
+    expect(row.tokenEndpointAuthMethod).toBe("none");
+    expect(row.grantTypes).toEqual(["authorization_code", "refresh_token"]);
+    expect(row.responseTypes).toEqual(["code"]);
+    expect(row.scopes).toEqual(["files:read", "offline_access"]);
+    expect(row.metadata).toEqual({ official: true });
+    // Third-party: user must consent. The reaper exemption is official, not
+    // skip_consent (unlike uploads-cli).
+    expect(row.skipConsent).toBe(false);
+    expect(row.redirectUris).toEqual([
+      "https://releases.sh/integrations/uploads/callback",
+      "https://releases.localhost/integrations/uploads/callback",
+      "http://localhost:3000/integrations/uploads/callback",
+      "http://127.0.0.1:3000/integrations/uploads/callback",
+    ]);
+    expect(row.redirectUris.every((uri) => !uri.includes(":8788"))).toBe(true);
+  });
+});
