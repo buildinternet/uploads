@@ -13,6 +13,7 @@ const MIGRATIONS = [
   "migrations/20260730170533_delete_usage_claims.sql",
   "migrations/20260903120000_github_attachments.sql",
   "migrations/20260915120000_feeds.sql",
+  "migrations/20260915153000_feeds_number.sql",
 ];
 
 // Prefixed shared-bucket record — the common case, and the baseline these

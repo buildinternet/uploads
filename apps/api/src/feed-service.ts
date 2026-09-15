@@ -74,6 +74,8 @@ export interface FeedDto {
   workspace: string;
   repo: string;
   path: string | null;
+  number: number | null;
+  kind: "pull" | "issue" | null;
   title: string;
   createdAt: string;
   updatedAt: string;
@@ -86,6 +88,8 @@ export interface FeedSummaryDto {
   workspace: string;
   repo: string;
   path: string | null;
+  number: number | null;
+  kind: "pull" | "issue" | null;
   title: string;
   createdAt: string;
   updatedAt: string;
@@ -96,6 +100,8 @@ export type PublicFeedDto = {
   title: string;
   repo: string;
   path: string | null;
+  number: number | null;
+  kind: "pull" | "issue" | null;
   createdAt: string;
   updatedAt: string;
   items: PublicFeedItemDto[];
@@ -112,7 +118,9 @@ export function feedSummary(env: Env, record: FeedRecord): FeedSummaryDto {
     workspace: record.workspace,
     repo: record.repo,
     path: record.path || null,
-    title: feedTitle(record.repo, record.path),
+    number: record.number > 0 ? record.number : null,
+    kind: record.kind === "pull" || record.kind === "issue" ? record.kind : null,
+    title: feedTitle(record.repo, record.path, record.number),
     createdAt: record.created_at,
     updatedAt: record.updated_at,
   };
@@ -177,14 +185,15 @@ export function feedItemFilename(objectKey: string): string {
 }
 
 /**
- * Newest-first objects tagged `gh.repo=<repo>`, optionally also `path=<path>`.
- * Drops promoted branch shadows so a promoted shot is not listed twice.
- * Does not require `gh.merged` — merge signal is out of scope for v1.
+ * Newest-first objects tagged `gh.repo=<repo>`, optionally also `gh.number`
+ * and `path`. Drops promoted branch shadows so a promoted shot is not listed
+ * twice. Does not require `gh.merged` — merge signal is out of scope for v1.
+ * Kind is display-only; GitHub numbers are unique per repo.
  */
 export async function findLatestRepoScreenshots(
   db: D1Queryable,
   workspace: string,
-  opts: { repo: string; path?: string; limit?: number },
+  opts: { repo: string; path?: string; number?: number; limit?: number },
 ): Promise<Array<{ key: string; updatedAt: string; metadata: Record<string, string> }>> {
   const limit = Math.max(1, Math.min(opts.limit ?? FEED_ITEM_LIMIT, FEED_ITEM_LIMIT));
   const params: unknown[] = [workspace, opts.repo];
@@ -196,6 +205,14 @@ export async function findLatestRepoScreenshots(
                  WHERE s.workspace = r.workspace AND s.object_key = r.object_key
                    AND s.meta_key = 'gh.status' AND s.meta_value = 'promoted'
                )`;
+  if (opts.number) {
+    sql += ` AND EXISTS (
+               SELECT 1 FROM file_metadata n
+               WHERE n.workspace = r.workspace AND n.object_key = r.object_key
+                 AND n.meta_key = 'gh.number' AND n.meta_value = ?
+             )`;
+    params.push(String(opts.number));
+  }
   if (opts.path) {
     sql += ` AND EXISTS (
                SELECT 1 FROM file_metadata p
@@ -355,6 +372,7 @@ export async function hydrateOwnerFeed(
   const matches = await findLatestRepoScreenshots(dbFor(env), record.workspace, {
     repo: record.repo,
     path: record.path || undefined,
+    number: record.number > 0 ? record.number : undefined,
   });
   const items = await hydrateFeedItems(env, workspace, matches, { audience: "owner" });
   return {
@@ -371,13 +389,17 @@ export async function hydratePublicFeed(
   const matches = await findLatestRepoScreenshots(dbFor(env), record.workspace, {
     repo: record.repo,
     path: record.path || undefined,
+    number: record.number > 0 ? record.number : undefined,
   });
   const items = await hydrateFeedItems(env, workspace, matches, { audience: "public" });
+  const summary = feedSummary(env, record);
   return {
     id: record.id,
-    title: feedTitle(record.repo, record.path),
+    title: summary.title,
     repo: record.repo,
     path: record.path || null,
+    number: summary.number,
+    kind: summary.kind,
     createdAt: record.created_at,
     updatedAt: record.updated_at,
     items: items.map(toPublicItem),

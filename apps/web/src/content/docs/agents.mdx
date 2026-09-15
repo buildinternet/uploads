@@ -93,6 +93,13 @@ takes `contentBase64` or `contentUrl` (a public HTTPS file the worker fetches; t
 from the URL path when you omit it). Hosted `put`/`comment` honor a repo's
 [`.uploads.yml`](/docs/comment-config) the same way the bot does.
 
+<div class="pointer">
+  Hosted and stdio MCP also expose <code>feed_create</code> / <code>feed_get</code>. Pass
+  <code>repo</code> for a repo-wide feed, or <code>repo</code> plus <code>pr</code> (or
+  <code>github</code> alone) to scope it to one pull request —
+  <a href="/docs/feeds">see change feeds <span class="go">→</span></a>.
+</div>
+
 <div class="note">
   Want the guided version? The [agent walkthrough](/github-screenshots) takes a coding agent from
   install to a first staged before/after.

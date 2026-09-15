@@ -22,6 +22,7 @@ import {
   ghMetadataForBranch,
   ghMetadataFromTarget,
   MAX_CHANGELOG_LIMIT,
+  parseGithubIssueRef,
   resolveUploadFilename,
   type GhTarget,
 } from "@buildinternet/uploads";
@@ -615,30 +616,74 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
       annotations: mcpWritePublic,
       securitySchemes: mcpOAuthWrite,
       description:
-        "Create a public newest-first screenshot feed for a GitHub owner/repo. The same repo (and optional path) returns the existing feed. Anyone who knows the URL can view it. This is a live query, not a curated gallery.",
+        "Create a public newest-first screenshot feed (same product as CLI `uploads feed create`). Pass `repo` alone for the whole GitHub repo. Pass `pr` plus `repo` — or `github` as owner/repo#123 / a GitHub PR URL — to scope that same feed to one pull request. `issue` does the same for an issue. Optional `path` filters by page-path metadata. Creating the same scope again returns the existing URL. This is a live query, not a curated gallery. Anyone who knows the URL can view it.",
       inputSchema: {
         type: "object",
         properties: {
           repo: {
             type: "string",
-            description: "GitHub owner/repo, for example acme/app.",
+            description: "GitHub owner/repo, for example acme/app. Required unless github is set.",
+          },
+          pr: {
+            type: "integer",
+            minimum: 1,
+            description:
+              "Scope the feed to this pull request. Same product as a repo feed — one extra filter. Mutually exclusive with issue and github.",
+          },
+          issue: {
+            type: "integer",
+            minimum: 1,
+            description: "Scope the feed to this issue. Mutually exclusive with pr and github.",
+          },
+          github: {
+            type: "string",
+            description:
+              "Scope via owner/repo#number or a GitHub issue/PR URL. Supplies repo when omitted. Mutually exclusive with pr and issue.",
           },
           path: {
             type: "string",
             description: "Optional exact page-path metadata filter, for example /settings.",
           },
         },
-        required: ["repo"],
         additionalProperties: false,
       },
       async handler(args) {
         requireScope("files:write");
         await requireWriteBudget();
+        const github = optString(args, "github");
+        const repoArg = optString(args, "repo");
+        const pr = optPosInt(args, "pr");
+        const issue = optPosInt(args, "issue");
+        if (pr != null && issue != null) usage("pr and issue are mutually exclusive");
+        if (github && (pr != null || issue != null))
+          usage("github cannot be combined with pr or issue");
+        let repo = repoArg;
+        let number: number | undefined;
+        let kind: "pull" | "issue" | undefined;
+        if (github) {
+          const ref = parseGithubIssueRef(github);
+          if (!ref) usage("github must be owner/repo#number or a GitHub issue/PR URL");
+          if (repo && repo.trim().toLowerCase() !== ref.repo) usage("repo does not match github");
+          repo = ref.repo;
+          number = ref.number;
+          kind = ref.kind;
+        } else {
+          if (!repo) usage("repo is required");
+          if (pr != null) {
+            number = pr;
+            kind = "pull";
+          } else if (issue != null) {
+            number = issue;
+            kind = "issue";
+          }
+        }
         const result = unwrapFeedMutation(
           await createFeed(env.DB, {
             workspace: workspaceName,
-            repo: requiredString(args, "repo"),
+            repo,
             path: optString(args, "path"),
+            number,
+            kind,
           }),
         );
         const record = await getFeed(env.DB, workspaceName, result.value.id);
@@ -652,7 +697,7 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
       annotations: mcpRead,
       securitySchemes: mcpOAuthRead,
       description:
-        "Get a workspace-owned change feed, including its current newest-first screenshots and canonical public URL. Feed media is public to anyone with the URL.",
+        "Get a workspace-owned change feed by ID, including its current newest-first screenshots and the canonical public /feed/<id> URL. The feed may be repo-wide or scoped to one pull request / issue (see `number` and `kind` on the result). Anyone with the URL can view the media.",
       inputSchema: {
         type: "object",
         properties: {

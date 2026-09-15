@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { applyPublicFeedHeaders, fetchPublicFeed, isPublicFeed } from "./public-feed";
+import { applyPublicFeedHeaders, feedPageCopy, fetchPublicFeed, isPublicFeed } from "./public-feed";
 import { PUBLIC_GALLERY_CSP } from "./public-gallery";
 
 const ID = "feed_abcdefghijklmnopqrstuv";
@@ -8,6 +8,8 @@ const feed = {
   title: "acme/app · /settings",
   repo: "acme/app",
   path: "/settings",
+  number: null,
+  kind: null,
   createdAt: "2026-09-15T12:00:00.000Z",
   updatedAt: "2026-09-15T12:00:00.000Z",
   items: [
@@ -26,6 +28,26 @@ const feed = {
   ],
 };
 
+describe("feedPageCopy", () => {
+  it("labels a repo feed, a pull request, and an issue", () => {
+    expect(feedPageCopy({ repo: "acme/app", number: null, kind: null })).toEqual({
+      eyebrow: "Repo change feed",
+      scopeLabel: "acme/app",
+      scopeNoun: "repo",
+    });
+    expect(feedPageCopy({ repo: "acme/app", number: 12, kind: "pull" })).toEqual({
+      eyebrow: "Pull request feed",
+      scopeLabel: "acme/app#12",
+      scopeNoun: "pull request",
+    });
+    expect(feedPageCopy({ repo: "acme/app", number: 9, kind: "issue" })).toEqual({
+      eyebrow: "Issue feed",
+      scopeLabel: "acme/app#9",
+      scopeNoun: "issue",
+    });
+  });
+});
+
 describe("public feed headers", () => {
   it("reuses the public gallery noindex posture", () => {
     const headers = new Headers();
@@ -39,6 +61,14 @@ describe("public feed headers", () => {
 describe("public feed API", () => {
   it("accepts the bounded public DTO", () => {
     expect(isPublicFeed(feed)).toBe(true);
+    expect(
+      isPublicFeed({
+        ...feed,
+        title: "acme/app#12",
+        number: 12,
+        kind: "pull",
+      }),
+    ).toBe(true);
   });
 
   it("rejects a gallery id and leaked workspace fields", () => {

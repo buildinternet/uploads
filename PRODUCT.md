@@ -89,7 +89,7 @@ S3-compatible bucket today).
 
 **Web routes in production:** marketing home, `/docs` hub with eight guides,
 `/changelog` (plus Atom feed), `/f/<workspace>/<key>` file share pages, `/g/<id>`
-public galleries, `/account` (profile, developers, workspaces),
+public galleries, `/feed/<id>` change feeds (repo-wide or one pull request), `/account` (profile, developers, workspaces),
 per-workspace files / screenshots / galleries / people / invite / settings /
 storage / billing, `/admin` (users, oauth, email, metrics), and the auth flows
 (login, device, invite, accept-invitation, oauth consent).

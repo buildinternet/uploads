@@ -24,7 +24,7 @@
       "get": {
         "operationId": "getPublicFeed",
         "summary": "Read a public change feed",
-        "description": "Returns the public newest-first screenshot list for a feed. It omits workspace ownership and object keys. Items are resolved at view time from `gh.repo` metadata.",
+        "description": "Returns the public newest-first screenshot list for a feed. It omits workspace ownership and object keys. Items are resolved at view time from `gh.repo` and optional `gh.number` metadata.",
         "security": [],
         "responses": {
           "200": { "description": "The public feed and its current items." },
@@ -751,7 +751,7 @@
         "operationId": "createFeed",
         "security": [{ "bearerAuth": ["files:write"] }],
         "summary": "Create a change feed",
-        "description": "Creates a public newest-first screenshot feed for a GitHub owner/repo. The same repo and optional path returns the existing feed.",
+        "description": "Creates a public newest-first screenshot feed for a GitHub owner/repo, optionally scoped to one pull request or issue. The same scope returns the existing feed.",
         "requestBody": {
           "required": true,
           "content": {
@@ -760,7 +760,7 @@
         },
         "responses": {
           "200": {
-            "description": "The existing feed for this repo and path.",
+            "description": "The existing feed for this scope.",
             "content": {
               "application/json": { "schema": { "$ref": "#/components/schemas/Feed" } }
             }
@@ -1260,6 +1260,26 @@
           "path": {
             "type": ["string", "null"],
             "description": "Optional exact page-path metadata filter."
+          },
+          "number": {
+            "type": ["integer", "null"],
+            "minimum": 1,
+            "description": "Optional pull request or issue number. Filters on gh.number."
+          },
+          "kind": {
+            "type": ["string", "null"],
+            "enum": ["pull", "issue"],
+            "description": "Display-only. Set automatically when you pass pr or issue."
+          },
+          "pr": {
+            "type": ["integer", "null"],
+            "minimum": 1,
+            "description": "Alias for number with kind=pull. Mutually exclusive with number and issue."
+          },
+          "issue": {
+            "type": ["integer", "null"],
+            "minimum": 1,
+            "description": "Alias for number with kind=issue. Mutually exclusive with number and pr."
           }
         }
       },
@@ -1272,6 +1292,8 @@
           "workspace": { "type": "string" },
           "repo": { "type": "string" },
           "path": { "type": ["string", "null"] },
+          "number": { "type": ["integer", "null"], "minimum": 1 },
+          "kind": { "type": ["string", "null"], "enum": ["pull", "issue"] },
           "title": { "type": "string" },
           "createdAt": { "type": "string", "format": "date-time" },
           "updatedAt": { "type": "string", "format": "date-time" }

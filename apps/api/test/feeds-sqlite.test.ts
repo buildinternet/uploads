@@ -18,6 +18,7 @@ import { SqliteD1, database } from "./helpers/sqlite-d1";
 const MIGRATIONS = [
   "migrations/20260713210559_file_metadata.sql",
   "migrations/20260915120000_feeds.sql",
+  "migrations/20260915153000_feeds_number.sql",
 ];
 
 function newSqlite(): SqliteD1 {
@@ -39,6 +40,8 @@ describe("feed persistence against SQLite", () => {
       expect(first.created).toBe(true);
       expect(first.value.repo).toBe("buildinternet/uploads");
       expect(first.value.path).toBe("");
+      expect(first.value.number).toBe(0);
+      expect(first.value.kind).toBe("");
       expect(first.value.id).toMatch(/^feed_[A-Za-z0-9_-]{22}$/);
 
       const again = await createFeed(db, {
@@ -81,6 +84,12 @@ describe("feed persistence against SQLite", () => {
       expect(
         await createFeed(db, { workspace: "alpha", repo: "acme/app", path: "ok\nnope" }),
       ).toMatchObject({ status: "invalid", field: "path" });
+      expect(
+        await createFeed(db, { workspace: "alpha", repo: "acme/app", number: 0 }),
+      ).toMatchObject({ status: "invalid", field: "number" });
+      expect(
+        await createFeed(db, { workspace: "alpha", repo: "acme/app", pr: 1, issue: 2 }),
+      ).toMatchObject({ status: "invalid", field: "number" });
     } finally {
       sqlite.close();
     }
@@ -195,6 +204,61 @@ describe("feed persistence against SQLite", () => {
         path: "/settings",
       });
       expect(settings.map((row) => row.key)).toEqual(["gh/acme/app/pull/1/old.png"]);
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("creates a PR-scoped feed, reuses that number, and filters on gh.number", async () => {
+    const sqlite = newSqlite();
+    try {
+      const db = database(sqlite);
+      await replaceFileMetadata(db, "alpha", "gh/acme/app/pull/1/one.png", {
+        "gh.repo": "acme/app",
+        "gh.number": "1",
+        "gh.kind": "pull",
+      });
+      await replaceFileMetadata(db, "alpha", "gh/acme/app/pull/2/two.png", {
+        "gh.repo": "acme/app",
+        "gh.number": "2",
+        "gh.kind": "pull",
+      });
+
+      const created = await createFeed(db, {
+        workspace: "alpha",
+        repo: "acme/app",
+        pr: 1,
+      });
+      expect(created.status).toBe("ok");
+      if (created.status !== "ok") throw new Error("create failed");
+      expect(created.created).toBe(true);
+      expect(created.value.number).toBe(1);
+      expect(created.value.kind).toBe("pull");
+
+      const again = await createFeed(db, {
+        workspace: "alpha",
+        repo: "acme/app",
+        number: 1,
+      });
+      expect(again.status).toBe("ok");
+      if (again.status !== "ok") throw new Error("reuse failed");
+      expect(again.created).toBe(false);
+      expect(again.value.id).toBe(created.value.id);
+
+      const other = await createFeed(db, { workspace: "alpha", repo: "acme/app", issue: 2 });
+      expect(other.status).toBe("ok");
+      if (other.status !== "ok") throw new Error("other create failed");
+      expect(other.created).toBe(true);
+      expect(other.value.id).not.toBe(created.value.id);
+      expect(other.value.kind).toBe("issue");
+
+      const repoWide = await createFeed(db, { workspace: "alpha", repo: "acme/app" });
+      expect(repoWide.status).toBe("ok");
+      if (repoWide.status !== "ok") throw new Error("repo-wide create failed");
+      expect(repoWide.value.id).not.toBe(created.value.id);
+
+      const prOne = await findLatestRepoScreenshots(db, "alpha", { repo: "acme/app", number: 1 });
+      expect(prOne.map((row) => row.key)).toEqual(["gh/acme/app/pull/1/one.png"]);
     } finally {
       sqlite.close();
     }

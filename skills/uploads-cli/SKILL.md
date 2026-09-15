@@ -4,7 +4,8 @@ description: >-
   Reference for the uploads CLI and its stdio/hosted MCP tools — exact flags,
   keys, and contracts for put and attach, screenshot capture, stable PR/issue
   keys, the managed attachments comment, metadata and search, galleries,
-  config defaults, login/doctor, and output formats. Use when driving the
+  change feeds (repo-wide or one PR/issue), config defaults, login/doctor,
+  and output formats. Use when driving the
   `uploads` CLI or its MCP tools (including the hosted MCP at
   agents.uploads.sh for agents without local filesystem/git access), when you
   need a public URL for a local file ("upload this", "host this image", "give
@@ -44,6 +45,7 @@ Same product, two transports. Skills do not install a binary.
 | Bytes already in context (ChatGPT attachment, base64) | Hosted MCP `put`                                | `files: [{ filename, contentBase64 }]`. Pass `repo` + (`pr` \| `branch`). No git inference.                                                                                                                                                                                                                            |
 | File already at a public HTTPS URL                    | CLI `put --url` or hosted MCP `put`             | CLI: `uploads put --url https://… --pr 123`. Hosted: `{ contentUrl }` (filename optional when the URL path has a leaf). Worker/CLI fetches; no auth headers. Hosted rejects private/internal hosts. CLI (and stdio MCP) also fetch `http://localhost` / `127.0.0.1` / `*.localhost`. LAN and link-local stay rejected. |
 | List, find, metadata, comment, promote                | Either                                          | Hosted: `list`, `find_files`, `get_metadata` / `set_metadata`, `comment`, `promote`. CLI: `uploads list` / `find` / `meta` / `comment` / `attach --promote`.                                                                                                                                                           |
+| Live page of this PR's (or repo's) screenshots        | Either                                          | CLI `uploads feed create` or MCP `feed_create`. Repo-wide: `repo` only. One PR: `repo` + `pr`, or `github` (`owner/repo#123` / a GitHub URL). Same product — not a curated gallery. `feed_get` / `uploads feed show` opens an existing feed.                                                                           |
 | Local path or current-branch attach                   | CLI                                             | Hosted server has no filesystem and no `attach` tool. Use `put` instead.                                                                                                                                                                                                                                               |
 | `localhost` / private-network screenshot              | CLI `uploads screenshot --via local`            | Remote render cannot reach your machine.                                                                                                                                                                                                                                                                               |
 | Selector annotate on a live page                      | CLI `uploads screenshot --annotate --via local` | Remote backend rejects selector-bearing specs.                                                                                                                                                                                                                                                                         |
@@ -717,17 +719,27 @@ safe for agents to inspect. A workspace may have up to 100 active galleries; eac
 
 Optionally link a gallery to a GitHub issue or PR with `uploads gallery link <gallery-id> --github <owner/repo#number>`. The CLI also accepts strict `https://github.com/<owner>/<repo>/issues|pull/<number>` URLs. Use `uploads gallery list --github <coordinate-or-url>` for the authenticated reverse lookup. This is metadata only: it does not make a gallery private or change its opaque identity.
 
-## Repo change feeds
+## Change feeds
 
-A feed is a public newest-first page of screenshots already tagged with `gh.repo`. It is a live query, not a curated gallery. Anyone who knows the URL can view it.
+A feed is a public newest-first page of screenshots already tagged with `gh.repo` (and optionally `gh.number`). It is the same product either way — one extra filter. It is a live query, not a curated gallery. Anyone who knows the URL can view it.
+
+**When to create which:**
+
+- **Gallery** — you pick and order the files (`uploads gallery create`).
+- **Repo feed** — latest screenshots across a repo. Use this for a project-wide share link.
+- **PR (or issue) feed** — the same feed, scoped to one pull request. Use this when reviewers should see only that PR.
 
 ```bash
 uploads feed create --repo owner/repo
+uploads feed create --repo owner/repo --pr 123
+uploads feed create --github owner/repo#123
 uploads feed create --repo owner/repo --path /settings
 uploads feed show feed_example
 ```
 
-Creating the same repo and path again returns the existing URL.
+`--pr` and `--issue` take a number and need `--repo` (or the current git remote). `--github` takes `owner/repo#123` or a GitHub issue/PR URL and can supply the repo itself. `--pr` / `--issue` / `--github` are mutually exclusive. Optional `--path` can combine with any of them.
+
+MCP (stdio and hosted): `feed_create` with `repo`, plus `pr` / `issue` / `github` / `path` matching the flags above. `feed_get` takes `feedId`. Creating the same scope again returns the existing URL.
 
 ## Embedding in a GitHub PR or issue
 
@@ -1011,7 +1023,11 @@ uploads --api-url http://localhost:8787 doctor
   or `contentUrl` when the file is already at a public HTTPS URL). Identity:
   `whoami` (workspace + scopes; also confirms the server is up). Product
   updates: `changelog` (same as `uploads changelog`; no auth). Public docs:
-  `search_docs` (same as `uploads docs`; no auth). Metadata:
+  `search_docs` (same as `uploads docs`; no auth). Change feeds:
+  `feed_create` / `feed_get` (same as `uploads feed create` / `feed show`).
+  Pass `repo` for a repo-wide feed, or `repo` + `pr` (or `github` as
+  `owner/repo#123` / a GitHub URL) to scope that same feed to one pull
+  request; `issue` does the same for an issue. Metadata:
   `get_metadata` / `set_metadata` / `find_files` / `list_metadata_keys` (same
   as `meta get` / `meta set` / `find` / `meta keys`|`meta values`).
   `find_files` accepts optional `name` (filename substring) with or without

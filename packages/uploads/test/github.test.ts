@@ -15,6 +15,7 @@ import {
   ghPrivateKeyPrefix,
   isValidRepo,
   normalizeGithubCoordinate,
+  parseGithubIssueRef,
   parseGhKey,
   parseGhPrivateKey,
   parseRepoFromRemoteUrl,
@@ -31,6 +32,30 @@ describe("isValidRepo", () => {
     expect(isValidRepo("a/b/c")).toBe(false);
     expect(isValidRepo("")).toBe(false);
     expect(isValidRepo("owner/")).toBe(false);
+  });
+});
+
+describe("parseGithubIssueRef", () => {
+  it("parses owner/repo#number without a kind", () => {
+    expect(parseGithubIssueRef("BuildInternet/Uploads#58")).toEqual({
+      repo: "buildinternet/uploads",
+      number: 58,
+    });
+  });
+  it("reads kind from a pull or issues URL", () => {
+    expect(parseGithubIssueRef("https://github.com/BuildInternet/Uploads/pull/58")).toEqual({
+      repo: "buildinternet/uploads",
+      number: 58,
+      kind: "pull",
+    });
+    expect(parseGithubIssueRef("https://github.com/BuildInternet/Uploads/issues/9")).toEqual({
+      repo: "buildinternet/uploads",
+      number: 9,
+      kind: "issue",
+    });
+  });
+  it("rejects a repo with no number", () => {
+    expect(parseGithubIssueRef("owner/repo")).toBeUndefined();
   });
 });
 

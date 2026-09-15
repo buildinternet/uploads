@@ -43,6 +43,13 @@ export interface GithubCoordinate {
   canonicalUrl: string;
 }
 
+/** Parsed `owner/repo#number` or a strict GitHub issue/PR URL. */
+export interface GithubIssueRef {
+  repo: string;
+  number: number;
+  kind?: "pull" | "issue";
+}
+
 const REPO_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 
 export function isValidRepo(repo: string): boolean {
@@ -54,6 +61,51 @@ export function parseRepoFromRemoteUrl(url: string): string | undefined {
   const match = url.trim().match(/[/:]([^/:\s]+\/[^/:\s]+?)(?:\.git)?\/?$/);
   const repo = match?.[1];
   return repo && isValidRepo(repo) ? repo : undefined;
+}
+
+/**
+ * Parse `owner/repo#number` or a strict
+ * `https://github.com/<owner>/<repo>/issues|pull/<number>` URL. Kind is set
+ * only when the URL path names `/pull/` or `/issues/`.
+ */
+export function parseGithubIssueRef(value: string): GithubIssueRef | undefined {
+  const input = value.trim();
+  const coordinate = /^([^/\s#]+)\/([^/\s#]+)#([1-9][0-9]*)$/.exec(input);
+  if (coordinate) return githubIssueRef(coordinate[1], coordinate[2], coordinate[3]);
+  try {
+    const url = new URL(input);
+    if (
+      url.protocol !== "https:" ||
+      url.hostname.toLowerCase() !== "github.com" ||
+      url.port ||
+      url.username ||
+      url.password ||
+      url.search ||
+      url.hash
+    )
+      return undefined;
+    const match = /^\/([^/]+)\/([^/]+)\/(issues|pull)\/([1-9][0-9]*)\/?$/.exec(url.pathname);
+    if (!match) return undefined;
+    return githubIssueRef(match[1], match[2], match[4], match[3] === "issues" ? "issue" : "pull");
+  } catch {
+    return undefined;
+  }
+}
+
+function githubIssueRef(
+  ownerRaw: string,
+  repositoryRaw: string,
+  numberRaw: string,
+  kind?: "pull" | "issue",
+): GithubIssueRef | undefined {
+  const repo = ownerRaw + "/" + repositoryRaw;
+  const number = Number(numberRaw);
+  if (!isValidRepo(repo) || !Number.isSafeInteger(number)) return undefined;
+  return {
+    repo: ownerRaw.toLowerCase() + "/" + repositoryRaw.toLowerCase(),
+    number,
+    ...(kind ? { kind } : {}),
+  };
 }
 
 /** Normalize a GitHub issue or pull-request coordinate for gallery linking. */

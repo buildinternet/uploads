@@ -17,6 +17,7 @@ const MIGRATIONS = [
   "migrations/20260817180000_token_last_used.sql",
   "migrations/20260713210559_file_metadata.sql",
   "migrations/20260915120000_feeds.sql",
+  "migrations/20260915153000_feeds_number.sql",
 ];
 
 beforeAll(() => {
@@ -135,6 +136,8 @@ describe("feed routes", () => {
       url: string;
       repo: string;
       path: string | null;
+      number: number | null;
+      kind: "pull" | "issue" | null;
       title: string;
       workspace: string;
       items: Array<{
@@ -149,6 +152,8 @@ describe("feed routes", () => {
     expect(feed.url).toBe(`https://uploads.test/feed/${feed.id}`);
     expect(feed.repo).toBe("acme/app");
     expect(feed.path).toBeNull();
+    expect(feed.number).toBeNull();
+    expect(feed.kind).toBeNull();
     expect(feed.title).toBe("acme/app");
     expect(feed.workspace).toBe("alpha");
     expect(feed.items.map((item) => item.filename)).toEqual(["new.png", "old.png"]);
@@ -239,5 +244,56 @@ describe("feed routes", () => {
     expect((await request("/v1/workspaces/alpha/feeds/feed_xxxxxxxxxxxxxxxxxxxxxx")).status).toBe(
       404,
     );
+  });
+
+  it("scopes a feed to one pull request and reuses that slot", async () => {
+    await putShot("alpha", "gh/acme/app/pull/1/one.png", {
+      "gh.repo": "acme/app",
+      "gh.number": "1",
+      "gh.kind": "pull",
+    });
+    await putShot("alpha", "gh/acme/app/pull/2/two.png", {
+      "gh.repo": "acme/app",
+      "gh.number": "2",
+      "gh.kind": "pull",
+    });
+
+    const created = await request("/v1/workspaces/alpha/feeds", {
+      method: "POST",
+      body: JSON.stringify({ repo: "acme/app", pr: 1 }),
+    });
+    expect(created.status).toBe(201);
+    const feed = (await created.json()) as {
+      id: string;
+      title: string;
+      number: number | null;
+      kind: string | null;
+      items: Array<{ filename: string }>;
+    };
+    expect(feed.title).toBe("acme/app#1");
+    expect(feed.number).toBe(1);
+    expect(feed.kind).toBe("pull");
+    expect(feed.items.map((item) => item.filename)).toEqual(["one.png"]);
+
+    const reused = await request("/v1/workspaces/alpha/feeds", {
+      method: "POST",
+      body: JSON.stringify({ repo: "acme/app", number: 1 }),
+    });
+    expect(reused.status).toBe(200);
+    expect(((await reused.json()) as { id: string }).id).toBe(feed.id);
+
+    const publicFeed = await app.request(`/public/feeds/${feed.id}`, {}, env);
+    expect(publicFeed.status).toBe(200);
+    const body = (await publicFeed.json()) as {
+      title: string;
+      number: number | null;
+      kind: string | null;
+      workspace?: string;
+      items: Array<{ filename: string; objectKey?: string }>;
+    };
+    expect(body).toMatchObject({ title: "acme/app#1", number: 1, kind: "pull" });
+    expect(body).not.toHaveProperty("workspace");
+    expect(body.items.map((item) => item.filename)).toEqual(["one.png"]);
+    expect(body.items[0]).not.toHaveProperty("objectKey");
   });
 });
