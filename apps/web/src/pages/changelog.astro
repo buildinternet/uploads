@@ -1,7 +1,8 @@
 ---
 // /changelog — merged product stream: hand-written platform updates
 // (src/content/changelog) interleaved with CLI releases from changesets.
-// Prerendered; a small module script hides entries for the kind/tag filter.
+// Prerendered. Filter JS is is:inline — a processed page <script> emits
+// /workspace/apps/web/src/pages/… which the web worker 404s in dev.
 // Machine twins stay full: /changelog.xml (Atom), /changelog.json (CLI / MCP).
 import BaseHead from "../components/BaseHead.astro";
 import Footer from "../components/Footer.astro";
@@ -328,44 +329,59 @@ const formatDate = (iso: string) =>
       <p class="filter-empty" data-filter-empty hidden>No entries match this filter.</p>
     </main>
     <Footer />
-    <script>
-      import { parseChangelogFilter, tokensMatchFilter } from "../lib/changelog-ui";
+    <script is:inline>
+      (function () {
+        var root = document.querySelector("[data-changelog]");
+        if (!root) return;
+        var buttons = Array.prototype.slice.call(root.querySelectorAll("[data-filter]"));
+        var articles = Array.prototype.slice.call(root.querySelectorAll("article.entry"));
+        var empty = root.querySelector("[data-filter-empty]");
+        var allowed = buttons
+          .map(function (button) {
+            return button.getAttribute("data-filter");
+          })
+          .filter(Boolean);
 
-      const root = document.querySelector("[data-changelog]");
-      if (root) {
-        const buttons = [...root.querySelectorAll<HTMLButtonElement>("[data-filter]")];
-        const articles = [...root.querySelectorAll<HTMLElement>("article.entry")];
-        const empty = root.querySelector<HTMLElement>("[data-filter-empty]");
-        const allowed = buttons.flatMap((button) =>
-          button.dataset.filter ? [button.dataset.filter] : [],
-        );
+        function tokensMatch(tokens, filter) {
+          return !filter || filter === "all" || tokens.indexOf(filter) !== -1;
+        }
 
-        const apply = (filter: string) => {
-          let shown = 0;
-          for (const article of articles) {
-            const tokens = (article.dataset.tokens ?? "").split(/\s+/).filter(Boolean);
-            const match = tokensMatchFilter(tokens, filter);
-            article.hidden = !match;
+        function parseFilter(raw) {
+          return raw && allowed.indexOf(raw) !== -1 ? raw : "all";
+        }
+
+        function apply(filter) {
+          var shown = 0;
+          for (var i = 0; i < articles.length; i++) {
+            var tokens = (articles[i].getAttribute("data-tokens") || "")
+              .split(/\s+/)
+              .filter(Boolean);
+            var match = tokensMatch(tokens, filter);
+            articles[i].hidden = !match;
             if (match) shown += 1;
           }
           if (empty) empty.hidden = shown > 0;
-          for (const button of buttons) {
-            button.setAttribute("aria-pressed", String(button.dataset.filter === filter));
+          for (var j = 0; j < buttons.length; j++) {
+            buttons[j].setAttribute(
+              "aria-pressed",
+              String(buttons[j].getAttribute("data-filter") === filter),
+            );
           }
-          const url = new URL(location.href);
+          var url = new URL(location.href);
           if (filter === "all") url.searchParams.delete("filter");
           else url.searchParams.set("filter", filter);
-          history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
-        };
+          history.replaceState(null, "", url.pathname + url.search + url.hash);
+        }
 
-        root.addEventListener("click", (event) => {
-          const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-filter]");
-          if (!button || !root.contains(button) || !button.dataset.filter) return;
-          apply(button.dataset.filter);
+        root.addEventListener("click", function (event) {
+          var button = event.target.closest("[data-filter]");
+          if (!button || !root.contains(button)) return;
+          var filter = button.getAttribute("data-filter");
+          if (filter) apply(filter);
         });
 
-        apply(parseChangelogFilter(new URL(location.href).searchParams.get("filter"), allowed));
-      }
+        apply(parseFilter(new URL(location.href).searchParams.get("filter")));
+      })();
     </script>
   </body>
 </html>

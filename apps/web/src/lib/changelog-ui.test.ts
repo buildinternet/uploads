@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   changelogFilterKeys,
@@ -103,5 +106,17 @@ describe("parseChangelogFilter", () => {
     expect(parseChangelogFilter(null, allowed)).toBe("all");
     expect(parseChangelogFilter(undefined, allowed)).toBe("all");
     expect(parseChangelogFilter("nope", allowed)).toBe("all");
+  });
+});
+
+describe("changelog page script", () => {
+  it("inlines the filter so a processed page module cannot 404", () => {
+    const src = readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), "../pages/changelog.astro"),
+      "utf8",
+    );
+    expect(src).toContain("<script is:inline>");
+    expect(src).toContain("[data-changelog]");
+    expect(src).not.toMatch(/<script>\s*import\s+/);
   });
 });
