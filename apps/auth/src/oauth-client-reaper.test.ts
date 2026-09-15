@@ -154,6 +154,7 @@ describe("sweepOauthClients", () => {
       .where(eq(schema.oauthClient.clientId, "releases-sh"));
     expect(remaining).toHaveLength(1);
     expect(remaining[0]?.skipConsent).toBe(false);
+    expect(remaining[0]?.icon).toBe("https://releases.sh/icon.svg");
     expect(remaining[0]?.metadata).toEqual({ official: true });
   });
 

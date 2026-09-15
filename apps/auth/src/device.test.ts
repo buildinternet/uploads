@@ -360,6 +360,7 @@ describe("seeded Releases oauth client", () => {
       .limit(1);
     expect(row).toBeDefined();
     expect(row.name).toBe("Releases");
+    expect(row.icon).toBe("https://releases.sh/icon.svg");
     expect(row.uri).toBe("https://releases.sh");
     expect(row.disabled).toBe(false);
     expect(row.public).toBe(true);
