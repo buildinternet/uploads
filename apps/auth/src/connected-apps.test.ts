@@ -10,7 +10,7 @@ import { describe, expect, it } from "vitest";
 import type { AuthEnv } from "./auth";
 import { app } from "./index";
 import * as schema from "./schema";
-import { createFakeD1 } from "./test/fake-d1";
+import { createFakeD1, type FakeD1Database } from "./test/fake-d1";
 
 function dbEnv(overrides: Partial<AuthEnv> = {}): AuthEnv {
   return {
@@ -77,18 +77,21 @@ async function seedGrant(
   env: AuthEnv,
   userId: string,
   clientId: string,
-  opts: { referenceId?: string | null; scopes?: string[] } = {},
+  opts: { referenceId?: string | null; scopes?: string[] | string } = {},
 ): Promise<{ consentId: string }> {
   const orm = drizzle(env.DB, { schema });
   const consentId = crypto.randomUUID();
   const referenceId = opts.referenceId ?? null;
   const scopes = opts.scopes ?? ["files:read"];
+  const tokenScopes = Array.isArray(scopes) ? scopes : ["files:read"];
+  // `string` scopes recreate prod's double-encoded / space-delimited
+  // consent rows: Drizzle `mode: "json"` stringifies whatever we pass.
   await orm.insert(schema.oauthConsent).values({
     id: consentId,
     userId,
     clientId,
     referenceId,
-    scopes,
+    scopes: scopes as string[],
     createdAt: new Date(),
     updatedAt: new Date(),
   });
@@ -98,7 +101,7 @@ async function seedGrant(
     clientId,
     userId,
     referenceId,
-    scopes,
+    scopes: tokenScopes,
     createdAt: new Date(),
     expiresAt: new Date(Date.now() + 60 * 60 * 1000),
   });
@@ -108,7 +111,7 @@ async function seedGrant(
     clientId,
     userId,
     referenceId,
-    scopes,
+    scopes: tokenScopes,
     createdAt: new Date(),
     expiresAt: new Date(Date.now() + 60 * 60 * 1000),
   });
@@ -184,6 +187,49 @@ describe("GET /oauth2/connected-apps", () => {
 
     const res = await requestGet(env, sessionToken);
     expect(await res.json()).toEqual({ grants: [] });
+  });
+
+  it("normalizes double-encoded JSON scopes to string[]", async () => {
+    const env = dbEnv();
+    const { userId, sessionToken } = await seedSignedInUser(env);
+    const clientId = await seedClient(env, { clientId: "releases-sh", name: "Releases" });
+    await seedGrant(env, userId, clientId, {
+      referenceId: "ws:default",
+      scopes: JSON.stringify(["files:read", "offline_access"]),
+    });
+
+    const res = await requestGet(env, sessionToken);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { grants: Array<{ clientId: string; scopes: unknown }> };
+    expect(body.grants).toHaveLength(1);
+    expect(body.grants[0]?.clientId).toBe("releases-sh");
+    expect(body.grants[0]?.scopes).toEqual(["files:read", "offline_access"]);
+  });
+
+  it("normalizes space-delimited scope strings to string[]", async () => {
+    const env = dbEnv();
+    const { userId, sessionToken } = await seedSignedInUser(env);
+    const clientId = await seedClient(env);
+    await seedGrant(env, userId, clientId, { scopes: "files:read files:write" });
+
+    const res = await requestGet(env, sessionToken);
+    const body = (await res.json()) as { grants: Array<{ scopes: unknown }> };
+    expect(body.grants).toHaveLength(1);
+    expect(body.grants[0]?.scopes).toEqual(["files:read", "files:write"]);
+  });
+
+  it("emits ISO createdAt when the column is stored as unix seconds", async () => {
+    const env = dbEnv();
+    const { userId, sessionToken } = await seedSignedInUser(env);
+    const clientId = await seedClient(env);
+    const { consentId } = await seedGrant(env, userId, clientId);
+    (env.DB as FakeD1Database).__sqlite
+      .prepare("UPDATE oauth_consent SET created_at = ? WHERE id = ?")
+      .run(1789501808, consentId);
+
+    const res = await requestGet(env, sessionToken);
+    const body = (await res.json()) as { grants: Array<{ createdAt: string | null }> };
+    expect(body.grants[0]?.createdAt).toBe("2026-09-15T19:50:08.000Z");
   });
 });
 
