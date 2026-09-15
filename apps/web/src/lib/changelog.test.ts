@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   type ChangelogEntry,
   cliAnchorId,
+  cliReleaseUrl,
   entrySummary,
   fetchCliReleaseDates,
   mergeEntries,
@@ -43,6 +44,17 @@ describe("parseCliChangelog", () => {
 describe("cliAnchorId", () => {
   it("dasherizes the version", () => {
     expect(cliAnchorId("0.41.1")).toBe("cli-0-41-1");
+  });
+});
+
+describe("cliReleaseUrl", () => {
+  it("uses the uploads-v tag scheme", () => {
+    expect(cliReleaseUrl("0.55.0")).toBe(
+      "https://github.com/buildinternet/uploads/releases/tag/uploads-v0.55.0",
+    );
+    expect(cliReleaseUrl("0.56.0-beta.1")).toBe(
+      "https://github.com/buildinternet/uploads/releases/tag/uploads-v0.56.0-beta.1",
+    );
   });
 });
 
