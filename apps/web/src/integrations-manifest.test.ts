@@ -26,7 +26,7 @@ const FILE_SCOPES = ["files:delete", "files:read", "files:write"] as const;
 const OPENAPI_HTTP_METHODS = ["get", "post", "put", "patch", "delete"] as const;
 
 function expectedFileScope(path: string, method: string): string | null {
-  if (path === "/public/galleries/{galleryId}") return null;
+  if (path === "/public/galleries/{galleryId}" || path === "/public/feeds/{feedId}") return null;
   if (path === "/v1/workspaces/{workspace}/files/{key}" && method === "delete") {
     return "files:delete";
   }
@@ -172,6 +172,11 @@ describe("/openapi.json", () => {
     expect(paths["/v1/workspaces/{workspace}/usage"]).toHaveProperty("get");
     expect(paths["/v1/workspaces/{workspace}/usage/reconcile"]).toHaveProperty("post");
     expect(paths["/public/galleries/{galleryId}"]?.get).toMatchObject({ security: [] });
+    expect(paths["/public/feeds/{feedId}"]?.get).toMatchObject({ security: [] });
+    expect(paths["/v1/workspaces/{workspace}/feeds"]).toMatchObject({
+      get: { operationId: "listFeeds" },
+      post: { operationId: "createFeed" },
+    });
     expect(paths["/v1/workspaces/{workspace}/galleries"]).toMatchObject({
       get: { operationId: "listGalleries" },
       post: { operationId: "createGallery" },

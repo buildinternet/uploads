@@ -689,6 +689,8 @@ describe("mcp worker", () => {
       "changelog",
       "comment",
       "delete",
+      "feed_create",
+      "feed_get",
       "find_files",
       "gallery_add",
       "gallery_create",

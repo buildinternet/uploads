@@ -717,6 +717,18 @@ safe for agents to inspect. A workspace may have up to 100 active galleries; eac
 
 Optionally link a gallery to a GitHub issue or PR with `uploads gallery link <gallery-id> --github <owner/repo#number>`. The CLI also accepts strict `https://github.com/<owner>/<repo>/issues|pull/<number>` URLs. Use `uploads gallery list --github <coordinate-or-url>` for the authenticated reverse lookup. This is metadata only: it does not make a gallery private or change its opaque identity.
 
+## Repo change feeds
+
+A feed is a public newest-first page of screenshots already tagged with `gh.repo`. It is a live query, not a curated gallery. Anyone who knows the URL can view it.
+
+```bash
+uploads feed create --repo owner/repo
+uploads feed create --repo owner/repo --path /settings
+uploads feed show feed_example
+```
+
+Creating the same repo and path again returns the existing URL.
+
 ## Embedding in a GitHub PR or issue
 
 Two ways, depending on whether you want a durable URL, a managed comment, or both.

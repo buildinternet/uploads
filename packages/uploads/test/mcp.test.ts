@@ -489,6 +489,8 @@ describe("tools/list", () => {
       "gallery_add",
       "gallery_link",
       "gallery_find_by_reference",
+      "feed_create",
+      "feed_get",
       "put",
       "screenshot",
       "attach",

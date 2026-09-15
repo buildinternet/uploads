@@ -19,6 +19,8 @@
     "./retention": "./src/retention.ts",
     "./galleries": "./src/galleries.ts",
     "./gallery-service": "./src/gallery-service.ts",
+    "./feeds": "./src/feeds.ts",
+    "./feed-service": "./src/feed-service.ts",
     "./external-references": "./src/external-references.ts",
     "./uploader-identity": "./src/uploader-identity.ts",
     "./github-comment-service": "./src/github-comment-service.ts",

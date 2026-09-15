@@ -8,8 +8,8 @@
  * both docs.
  *
  * Scope: the canonical `/v1/workspaces/:workspace/files...`, `/usage...`,
- * and `/galleries...` verticals (issue #829 §1), plus
- * `/public/galleries/:id`. These are the token-authable "public developer
+ * `/galleries...`, and `/feeds...` verticals (issue #829 §1), plus
+ * `/public/galleries/:id` and `/public/feeds/:id`. These are the token-authable "public developer
  * API" surface documented in `docs/api.md`'s "Canonical routes" table. The
  * canonical `github`/`members`/`storage`/`billing`/`comment-settings`
  * verticals (issue #613 phases 2-3) are mostly session-only account
@@ -53,7 +53,7 @@ function toComparablePath(honoOrOpenApiPath: string): string {
 }
 
 /** Path prefixes under `/v1/workspaces/:workspace/` that are in scope — see the module docblock. */
-const IN_SCOPE_VERTICALS = ["files", "usage", "galleries"];
+const IN_SCOPE_VERTICALS = ["files", "usage", "galleries", "feeds"];
 
 /**
  * Canonical public-API routes registered on the live app, restricted to the
@@ -66,7 +66,7 @@ function canonicalRoutes(): Set<string> {
   const routes = new Set<string>();
   for (const route of app.routes) {
     const path = route.path;
-    const isPublicGallery = path === "/public/galleries/:id";
+    const isPublicGallery = path === "/public/galleries/:id" || path === "/public/feeds/:id";
     const isInScopeWorkspaceRoute = IN_SCOPE_VERTICALS.some(
       (vertical) =>
         path === `/v1/workspaces/:workspace/${vertical}` ||
@@ -98,7 +98,12 @@ const KNOWN_UNDOCUMENTED = new Set<string>();
 function openApiRoutes(): Set<string> {
   const routes = new Set<string>();
   for (const [path, methods] of Object.entries(openapi.paths)) {
-    if (!path.startsWith("/v1/workspaces/") && path !== "/public/galleries/{galleryId}") continue;
+    if (
+      !path.startsWith("/v1/workspaces/") &&
+      path !== "/public/galleries/{galleryId}" &&
+      path !== "/public/feeds/{feedId}"
+    )
+      continue;
     for (const method of Object.keys(methods)) {
       if (!HTTP_METHODS.includes(method)) continue; // skips the sibling "parameters" key
       routes.add(`${method} ${toComparablePath(path)}`);
@@ -136,7 +141,7 @@ describe("docs/api.md vs. registered canonical routes", () => {
     const registered = new Set<string>();
     for (const route of app.routes) {
       const path = route.path;
-      const isPublicGallery = path === "/public/galleries/:id";
+      const isPublicGallery = path === "/public/galleries/:id" || path === "/public/feeds/:id";
       const isInScopeWorkspaceRoute = IN_SCOPE_VERTICALS.some(
         (vertical) =>
           path === `/v1/workspaces/:workspace/${vertical}` ||

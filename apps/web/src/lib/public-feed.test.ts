@@ -1,0 +1,74 @@
+import { describe, expect, it, vi } from "vitest";
+import { applyPublicFeedHeaders, fetchPublicFeed, isPublicFeed } from "./public-feed";
+import { PUBLIC_GALLERY_CSP } from "./public-gallery";
+
+const ID = "feed_abcdefghijklmnopqrstuv";
+const feed = {
+  id: ID,
+  title: "acme/app · /settings",
+  repo: "acme/app",
+  path: "/settings",
+  createdAt: "2026-09-15T12:00:00.000Z",
+  updatedAt: "2026-09-15T12:00:00.000Z",
+  items: [
+    {
+      id: "a".repeat(32),
+      filename: "after.png",
+      status: "available" as const,
+      url: "https://storage.uploads.sh/after.png",
+      embedUrl: "https://embed.uploads.sh/after.png",
+      contentType: "image/png",
+      size: 20480,
+      uploaded: "2026-09-15T12:00:00.000Z",
+      path: "/settings",
+      state: "after",
+    },
+  ],
+};
+
+describe("public feed headers", () => {
+  it("reuses the public gallery noindex posture", () => {
+    const headers = new Headers();
+    applyPublicFeedHeaders(headers);
+    expect(headers.get("Content-Security-Policy")).toBe(PUBLIC_GALLERY_CSP);
+    expect(headers.get("Cache-Control")).toBe("no-store");
+    expect(headers.get("X-Robots-Tag")).toBe("noindex, nofollow, noarchive");
+  });
+});
+
+describe("public feed API", () => {
+  it("accepts the bounded public DTO", () => {
+    expect(isPublicFeed(feed)).toBe(true);
+  });
+
+  it("rejects a gallery id and leaked workspace fields", () => {
+    expect(isPublicFeed({ ...feed, id: "gal_abcdefghijklmnopqrstuv" })).toBe(false);
+    expect(isPublicFeed({ ...feed, title: "spoof\u202etitle" })).toBe(false);
+  });
+
+  it("fetches /public/feeds/:id and maps 404", async () => {
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      expect(String(input)).toBe(`https://api.uploads.sh/public/feeds/${ID}`);
+      return new Response(JSON.stringify(feed), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+    expect(await fetchPublicFeed(ID, { origin: "https://api.uploads.sh", fetch })).toEqual({
+      status: "ok",
+      feed,
+    });
+
+    const missing = vi.fn(async () => new Response("gone", { status: 404 }));
+    expect(await fetchPublicFeed(ID, { origin: "https://api.uploads.sh", fetch: missing })).toEqual(
+      {
+        status: "not_found",
+      },
+    );
+    expect(
+      await fetchPublicFeed("gal_abcdefghijklmnopqrstuv", { origin: "https://api.uploads.sh" }),
+    ).toEqual({
+      status: "not_found",
+    });
+  });
+});

@@ -369,6 +369,19 @@ doesn't change gallery identity or visibility.
 > GitHub or repository visibility. Removing or deleting a gallery doesn't delete
 > its uploaded media or exempt it from retention.
 
+## Repo change feeds
+
+A feed is a public newest-first page of screenshots already tagged with a
+GitHub `owner/repo`. It is a live query, not a curated gallery:
+
+```bash
+uploads feed create --repo owner/repo
+uploads feed create --repo owner/repo --path /settings
+```
+
+Creating the same repo and path again returns the existing URL. Anyone with
+that link can view the feed.
+
 ## Agent skills and hooks
 
 For agent runtimes, install the checked-in skills too (`uploads install` does

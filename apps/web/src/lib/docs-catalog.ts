@@ -44,6 +44,7 @@ export const DOCS_SEARCH_ALIASES: Record<string, string[]> = {
     "share",
   ],
   galleries: ["gallery", "collection"],
+  feeds: ["feed", "change feed", "repo feed", "smart gallery"],
   "github-app": ["bot", "webhook", "promote", "app", "ingest"],
   "comment-config": ["uploads.yml", "comment", "yaml", "yml", "width"],
   agents: ["mcp", "skill", "plugin", "claude", "codex"],

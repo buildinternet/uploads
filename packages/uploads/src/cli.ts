@@ -32,6 +32,7 @@ import {
   runGallery,
   type CliContext,
 } from "./commands.js";
+import { runFeed } from "./commands/feed.js";
 import { runConfig } from "./commands/config.js";
 import { runSetup } from "./commands/setup.js";
 import { runLogin } from "./commands/login.js";
@@ -384,6 +385,7 @@ export async function runCli(argv: string[]): Promise<number> {
       case "staged":
       case "screenshot":
       case "gallery":
+      case "feed":
       case "list":
       case "find":
       case "meta":
@@ -411,6 +413,9 @@ export async function runCli(argv: string[]): Promise<number> {
             break;
           case "gallery":
             code = await runGallery(ctx, cmdArgs, showHelp);
+            break;
+          case "feed":
+            code = await runFeed(ctx, cmdArgs, showHelp);
             break;
           case "comment":
             code = await runComment(ctx, cmdArgs, showHelp);

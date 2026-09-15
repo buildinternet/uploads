@@ -25,6 +25,9 @@ import { runObservabilityRetention } from "./observability-retention";
 import { purgeExpiredIdempotencyRequests } from "./idempotency-core";
 import { galleries } from "./routes/galleries";
 import { publicGalleries } from "./routes/public-galleries";
+import { feeds } from "./routes/feeds";
+import { workspaceFeeds } from "./routes/workspace-feeds";
+import { publicFeeds } from "./routes/public-feeds";
 import { publicFiles } from "./routes/public-files";
 import { publicGithubAvatars } from "./routes/public-github-avatars";
 import { telemetry } from "./routes/telemetry";
@@ -129,6 +132,7 @@ export const app = new Hono<WorkspaceVars>()
   .route("/me", me)
   .route("/auth", auth)
   .route("/public/galleries", publicGalleries)
+  .route("/public/feeds", publicFeeds)
   // Public single-object metadata for the file page (#135). Like public
   // galleries, fetched server-side by apps/web; no CORS (not a browser call).
   .route("/public/files", publicFiles)
@@ -154,6 +158,7 @@ export const app = new Hono<WorkspaceVars>()
   // Same "self-contained sub-router, own auth + error boundary" shape as
   // `workspaceFiles` above.
   .route("/v1/workspaces", workspaceGalleries)
+  .route("/v1/workspaces", workspaceFeeds)
   .route("/v1/workspaces", workspaceUsage)
   // Canonical dual-auth github vertical (issue #613 phase 3):
   // `/v1/workspaces/:workspace/github/*`, collapsing the five sub-routers
@@ -198,6 +203,7 @@ export const app = new Hono<WorkspaceVars>()
   .route("/v1/github/webhook", githubWebhook)
   .use("/v1/:workspace/*", workspaceAuth)
   .route("/v1/:workspace/galleries", galleries)
+  .route("/v1/:workspace/feeds", feeds)
   .route("/v1/:workspace/files", files)
   .route("/v1/:workspace/usage", usage)
   // Bot-owned managed comment (phase 2 PR B). Workspace-authed (unlike the

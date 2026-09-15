@@ -19,6 +19,25 @@
   ],
   "security": [{ "bearerAuth": [] }],
   "paths": {
+    "/public/feeds/{feedId}": {
+      "parameters": [{ "$ref": "#/components/parameters/FeedId" }],
+      "get": {
+        "operationId": "getPublicFeed",
+        "summary": "Read a public change feed",
+        "description": "Returns the public newest-first screenshot list for a feed. It omits workspace ownership and object keys. Items are resolved at view time from `gh.repo` metadata.",
+        "security": [],
+        "responses": {
+          "200": { "description": "The public feed and its current items." },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "503": {
+            "description": "Feed storage is unavailable.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } }
+            }
+          }
+        }
+      }
+    },
     "/public/galleries/{galleryId}": {
       "parameters": [{ "$ref": "#/components/parameters/GalleryId" }],
       "get": {
@@ -726,6 +745,98 @@
         }
       }
     },
+    "/v1/workspaces/{workspace}/feeds": {
+      "parameters": [{ "$ref": "#/components/parameters/Workspace" }],
+      "post": {
+        "operationId": "createFeed",
+        "security": [{ "bearerAuth": ["files:write"] }],
+        "summary": "Create a change feed",
+        "description": "Creates a public newest-first screenshot feed for a GitHub owner/repo. The same repo and optional path returns the existing feed.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/FeedCreate" } }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The existing feed for this repo and path.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Feed" } }
+            }
+          },
+          "201": {
+            "description": "The feed was created.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Feed" } }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Validation" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "409": { "$ref": "#/components/responses/Conflict" },
+          "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      },
+      "get": {
+        "operationId": "listFeeds",
+        "security": [{ "bearerAuth": ["files:read"] }],
+        "summary": "List workspace feeds",
+        "parameters": [
+          { "$ref": "#/components/parameters/GalleryLimit" },
+          { "$ref": "#/components/parameters/Cursor" }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of feed summaries.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/FeedList" } }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
+    "/v1/workspaces/{workspace}/feeds/{feedId}": {
+      "parameters": [
+        { "$ref": "#/components/parameters/Workspace" },
+        { "$ref": "#/components/parameters/FeedId" }
+      ],
+      "get": {
+        "operationId": "getFeed",
+        "security": [{ "bearerAuth": ["files:read"] }],
+        "summary": "Read one owned feed",
+        "responses": {
+          "200": {
+            "description": "The feed and its current newest-first items.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Feed" } }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      },
+      "delete": {
+        "operationId": "deleteFeed",
+        "security": [{ "bearerAuth": ["files:write"] }],
+        "summary": "Soft-delete a feed",
+        "responses": {
+          "200": {
+            "description": "The feed record was deleted. Uploaded objects stay.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/DeleteResult" } }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    },
     "/v1/workspaces/{workspace}/galleries/{galleryId}/external-references/{referenceId}": {
       "parameters": [
         { "$ref": "#/components/parameters/Workspace" },
@@ -784,6 +895,12 @@
         "in": "path",
         "required": true,
         "schema": { "type": "string", "pattern": "^gal_" }
+      },
+      "FeedId": {
+        "name": "feedId",
+        "in": "path",
+        "required": true,
+        "schema": { "type": "string", "pattern": "^feed_" }
       },
       "IdempotencyKey": {
         "name": "Idempotency-Key",
@@ -1135,6 +1252,72 @@
           "nextCursor": { "type": ["string", "null"] }
         }
       },
+      "FeedCreate": {
+        "type": "object",
+        "required": ["repo"],
+        "properties": {
+          "repo": { "type": "string", "description": "GitHub owner/repo." },
+          "path": {
+            "type": ["string", "null"],
+            "description": "Optional exact page-path metadata filter."
+          }
+        }
+      },
+      "FeedSummary": {
+        "type": "object",
+        "required": ["id", "url", "workspace", "repo", "title", "createdAt", "updatedAt"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^feed_" },
+          "url": { "type": "string", "format": "uri" },
+          "workspace": { "type": "string" },
+          "repo": { "type": "string" },
+          "path": { "type": ["string", "null"] },
+          "title": { "type": "string" },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "FeedItem": {
+        "type": "object",
+        "required": ["id", "filename", "status", "url", "embedUrl"],
+        "properties": {
+          "id": { "type": "string" },
+          "objectKey": { "type": "string" },
+          "filename": { "type": "string" },
+          "status": { "type": "string", "enum": ["available", "missing", "withheld"] },
+          "url": { "type": ["string", "null"], "format": "uri" },
+          "embedUrl": { "type": ["string", "null"], "format": "uri" },
+          "contentType": { "type": ["string", "null"] },
+          "size": { "type": ["integer", "null"], "minimum": 0 },
+          "uploaded": { "type": ["string", "null"], "format": "date-time" },
+          "modified": { "type": ["string", "null"], "format": "date-time" },
+          "path": { "type": ["string", "null"] },
+          "state": { "type": ["string", "null"] }
+        }
+      },
+      "Feed": {
+        "allOf": [
+          { "$ref": "#/components/schemas/FeedSummary" },
+          {
+            "type": "object",
+            "required": ["items"],
+            "properties": {
+              "items": { "type": "array", "items": { "$ref": "#/components/schemas/FeedItem" } }
+            }
+          }
+        ]
+      },
+      "FeedList": {
+        "type": "object",
+        "required": ["feeds", "nextCursor"],
+        "properties": {
+          "feeds": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/FeedSummary" }
+          },
+          "nextCursor": { "type": ["string", "null"] }
+        }
+      },
       "GalleryCreate": {
         "type": "object",
         "required": ["title"],
@@ -1210,8 +1393,8 @@
             "authorizationUrl": "https://uploads.sh/api/auth/oauth2/authorize",
             "tokenUrl": "https://auth.uploads.sh/api/auth/oauth2/token",
             "scopes": {
-              "files:read": "List, search, read metadata, usage, and galleries.",
-              "files:write": "Upload, update metadata, galleries, and usage reconcile.",
+              "files:read": "List, search, read metadata, usage, galleries, and feeds.",
+              "files:write": "Upload, update metadata, galleries, feeds, and usage reconcile.",
               "files:delete": "Delete stored objects and purge expired objects."
             }
           }

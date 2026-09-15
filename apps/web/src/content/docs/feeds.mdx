@@ -1,0 +1,63 @@
+---
+title: Change feeds
+description: Share a newest-first feed of screenshots for a GitHub repo behind one public link at /feed/<id>.
+heading: Change feeds
+tagline: A scrollable feed of recent screenshots for one GitHub repo, behind one public link.
+navLabel: Change feeds
+navSlug: feeds
+navOrder: 3
+toc:
+  - { id: what, label: What a feed is }
+  - { id: workflow, label: CLI workflow }
+  - { id: galleries, label: Feeds vs galleries }
+---
+
+<section class="lead" id="what">
+
+## What a feed is <a class="anchor" href="#what" aria-label="Link to this section">#</a>
+
+A change feed is a public link that shows the latest screenshots tagged with a
+GitHub `owner/repo`. The page is newest-first and updates as new shots land. It
+does not store a hand-picked list.
+
+Anyone who knows the URL can view the feed. GitHub repository visibility does
+not restrict it.
+
+</section>
+
+<section id="workflow">
+
+## CLI workflow <a class="anchor" href="#workflow" aria-label="Link to this section">#</a>
+
+Create a feed. This prints its public URL. If you omit `--repo`, the CLI uses
+the current git remote:
+
+```bash
+uploads feed create
+uploads feed create --repo owner/repo
+```
+
+Optional: keep the feed to one page path (the same `path` metadata `uploads
+find` already uses):
+
+```bash
+uploads feed create --repo owner/repo --path /settings
+```
+
+Creating the same repo and path again returns the existing URL. Share that
+link in Slack or anywhere else.
+
+The public page lives at `/feed/<id>`.
+
+</section>
+
+<section id="galleries">
+
+## Feeds vs galleries <a class="anchor" href="#galleries" aria-label="Link to this section">#</a>
+
+A <a href="/docs/galleries">gallery</a> is a curated, ordered set of files you
+add by hand. A feed is a live query over screenshots already tagged with
+`gh.repo`. Use a gallery when you want to pick and order shots. Use a feed
+when you want “what changed in this repo lately.”
+
+</section>

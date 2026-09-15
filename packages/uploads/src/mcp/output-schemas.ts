@@ -434,6 +434,33 @@ export const galleryFindResultSchema: JsonSchema = objectSchema({
   nextCursor: nullableString,
 });
 
+const feedItemSchema: JsonSchema = objectSchema({
+  id: { type: "string" },
+  objectKey: { type: "string" },
+  filename: { type: "string" },
+  status: { type: "string" },
+  url: nullableString,
+  embedUrl: nullableString,
+  contentType: nullableString,
+  size: { type: ["number", "null"] },
+  uploaded: nullableString,
+  modified: nullableString,
+  path: nullableString,
+  state: nullableString,
+});
+
+export const feedResultSchema: JsonSchema = objectSchema({
+  id: { type: "string" },
+  url: { type: "string" },
+  workspace: { type: "string" },
+  repo: { type: "string" },
+  path: nullableString,
+  title: { type: "string" },
+  createdAt: { type: "string" },
+  updatedAt: { type: "string" },
+  items: { type: "array", items: feedItemSchema },
+});
+
 /** Hosted catalog — every tool must have an entry. */
 export const hostedOutputSchemas: Record<string, JsonSchema> = {
   gallery_create: galleryResultSchema,
@@ -441,6 +468,8 @@ export const hostedOutputSchemas: Record<string, JsonSchema> = {
   gallery_add: galleryItemSchema,
   gallery_link: galleryReferenceSchema,
   gallery_find_by_reference: galleryFindResultSchema,
+  feed_create: feedResultSchema,
+  feed_get: feedResultSchema,
   put: putResultSchema,
   list: listResultSchema,
   delete: deleteResultSchema,
@@ -466,6 +495,8 @@ export const stdioOutputSchemas: Record<string, JsonSchema> = {
   gallery_add: galleryItemSchema,
   gallery_link: galleryReferenceSchema,
   gallery_find_by_reference: galleryFindResultSchema,
+  feed_create: feedResultSchema,
+  feed_get: feedResultSchema,
   put: putResultSchema,
   list: listResultSchema,
   delete: deleteResultSchema,
