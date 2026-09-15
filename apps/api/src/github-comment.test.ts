@@ -3,6 +3,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { gatherCommentBody, upsertBotComment } from "./github-comment";
 import { ATTACHMENTS_MARKER, attachmentsMarker, ghPrivateKeyPrefix } from "./github-comment-render";
+import { findFeedByScope } from "./feeds";
+import { feedItemId } from "./feed-service";
 import { addExternalReference, addGalleryItem, createGallery } from "./galleries";
 import { replaceFileMetadata, setServerFileMetadata } from "./file-metadata";
 import { objectPublicUrls, storageConfig } from "./storage";
@@ -20,6 +22,8 @@ const MIGRATION = [
   "migrations/20260713210559_file_metadata.sql",
   "migrations/20260811210000_github_private_prefixes.sql",
   "migrations/20260903120000_github_attachments.sql",
+  "migrations/20260915120000_feeds.sql",
+  "migrations/20260915153000_feeds_number.sql",
 ];
 const PRAGMAS = ["PRAGMA foreign_keys = ON"];
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
@@ -232,8 +236,67 @@ describe("gatherCommentBody", () => {
       { repo: "acme/web", num: 12, kind: "pull" },
     );
     expect(result.body).not.toContain(`/f/${workspaceName}/`);
+    expect(result.body).not.toContain("/feed/");
     // Falls back to the raw storage url.
     expect(result.body).toContain("storage.uploads.sh");
+  });
+
+  it("points tagged PR attachments at the feed item pager and keeps img src on the object URL", async () => {
+    const { env, ws, workspaceName, bucket } = makeTestEnv();
+    const keyA = "gh/acme/web/pull/12/before.png";
+    const keyB = "gh/acme/web/pull/12/after.png";
+    await bucket.put(`acme/${keyA}`, PNG, { httpMetadata: { contentType: "image/png" } });
+    await bucket.put(`acme/${keyB}`, PNG, { httpMetadata: { contentType: "image/png" } });
+    await replaceFileMetadata(env.DB, workspaceName, keyA, {
+      "gh.repo": "acme/web",
+      "gh.number": "12",
+      "gh.kind": "pull",
+    });
+    await replaceFileMetadata(env.DB, workspaceName, keyB, {
+      "gh.repo": "acme/web",
+      "gh.number": "12",
+      "gh.kind": "pull",
+    });
+
+    const target = { repo: "acme/web", num: 12, kind: "pull" as const };
+    const first = await gatherCommentBody(
+      env,
+      { ...ws, name: workspaceName },
+      workspaceName,
+      target,
+    );
+    const feed = await findFeedByScope(env.DB, workspaceName, "acme/web", "", 12);
+    expect(feed).toBeTruthy();
+    const idA = await feedItemId(keyA);
+    const idB = await feedItemId(keyB);
+    expect(first.body).toContain(`/feed/${feed!.id}/${idA}`);
+    expect(first.body).toContain(`/feed/${feed!.id}/${idB}`);
+    expect(first.body).not.toContain(`/f/${workspaceName}/`);
+    expect(first.body).toMatch(/<img[^>]+src="https:\/\/(embed|storage)\.uploads\.sh\//);
+
+    const second = await gatherCommentBody(
+      env,
+      { ...ws, name: workspaceName },
+      workspaceName,
+      target,
+    );
+    const reused = await findFeedByScope(env.DB, workspaceName, "acme/web", "", 12);
+    expect(reused?.id).toBe(feed!.id);
+    expect(second.body).toContain(`/feed/${feed!.id}/${idA}`);
+  });
+
+  it("keeps /f/ click-through when an attachment is not in the PR feed query", async () => {
+    const { env, ws, workspaceName, bucket } = makeTestEnv();
+    await bucket.put("acme/gh/acme/web/pull/12/hero.png", PNG, {
+      httpMetadata: { contentType: "image/png" },
+    });
+    const result = await gatherCommentBody(env, { ...ws, name: workspaceName }, workspaceName, {
+      repo: "acme/web",
+      num: 12,
+      kind: "pull",
+    });
+    expect(result.body).toContain(`/f/${workspaceName}/`);
+    expect(result.body).not.toContain("/feed/");
   });
 
   it("renders galleries linked to the PR via an external reference, scoped to the calling workspace", async () => {
@@ -596,10 +659,10 @@ describe("gatherCommentBody attachment metadata (issue #365)", () => {
       { repo: "acme/web", num: 12, kind: "pull" },
     );
 
-    // Two queries: the private-prefix discovery scan (issue #934) and the
-    // unconditional gh.detached filter (issue #709) — the path/state fetch
-    // itself is still skipped, since neither renders here.
-    expect(metadataQueries).toBe(2);
+    // Three queries: the private-prefix discovery scan (issue #934), the
+    // unconditional gh.detached filter (issue #709), and the PR-feed
+    // membership lookup — the path/state fetch itself is still skipped.
+    expect(metadataQueries).toBe(3);
     expect(result.body).not.toContain("<code>/settings");
   });
 

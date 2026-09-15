@@ -301,6 +301,11 @@ uploads feed create --github owner/repo#123
 MCP: `feed_create` with `repo`, or `repo` + `pr`, or `github` alone. See
 `uploads-cli` for flags. Creating the same scope again returns the existing URL.
 
+Clicking an image in the managed PR comment opens `/feed/<id>/<item>` — previous /
+next through that PR's shots — not the standalone `/f/` file page. The next
+comment sync creates the feed if it does not exist yet. `<img src>` stays on
+the embed URL.
+
 **Comment briefly disappeared? Don't panic-repost.** If the App is installed
 and subscribed to the `issue_comment` event, a deleted or edited-out managed
 comment self-heals automatically on the next webhook delivery — no need to

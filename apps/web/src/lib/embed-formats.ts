@@ -36,7 +36,7 @@ export interface EmbedFormatOption {
 }
 
 export interface EmbedFormatInput {
-  /** On-site canonical page URL (`/f/<workspace>/<key>` or `/g/<id>/<item>`). */
+  /** On-site canonical page URL (`/f/…`, `/g/<id>/<item>`, or `/feed/<id>/<item>`). */
   canonical: string;
   /** Stable public URL — `PublicFile.url` / `PublicGalleryItem.url`. */
   url: string;

@@ -1,5 +1,5 @@
 /**
- * oEmbed 1.0 for public shareable pages (`/f/…`, `/g/…`).
+ * oEmbed 1.0 for public shareable pages (`/f/…`, `/g/…`, `/feed/…`).
  *
  * Pages advertise discovery via
  *   <link rel="alternate" type="application/json+oembed" href="/oembed?url=…">
@@ -9,6 +9,14 @@
  */
 
 import { fetchPublicFile, fileKind, filePath, isSafeKey } from "./public-file";
+import {
+  fetchPublicFeed,
+  feedItemPath,
+  feedPath,
+  mediaKind as feedMediaKind,
+  type PublicFeed,
+  type PublicFeedItem,
+} from "./public-feed";
 import {
   fetchPublicGallery,
   galleryItemPath,
@@ -32,13 +40,16 @@ export const ABSOLUTE_MAX_EDGE = 4096;
 
 const WORKSPACE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const GALLERY_ID_PATTERN = /^gal_[A-Za-z0-9_-]{22}$/;
+const FEED_ID_PATTERN = /^feed_[A-Za-z0-9_-]{22}$/;
 /** Opaque item ids (UUIDs in production; tests use short tokens). */
 const ITEM_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 
 export type ShareTarget =
   | { kind: "file"; workspace: string; key: string }
   | { kind: "gallery"; id: string }
-  | { kind: "gallery-item"; id: string; itemId: string };
+  | { kind: "gallery-item"; id: string; itemId: string }
+  | { kind: "feed"; id: string }
+  | { kind: "feed-item"; id: string; itemId: string };
 
 export type OEmbedType = "photo" | "video" | "link";
 
@@ -157,6 +168,19 @@ export function parseShareableUrl(rawUrl: string, requestOrigin: string): ShareT
     return { kind: "gallery-item", id, itemId };
   }
 
+  if (parts[0] === "feed" && parts.length === 2) {
+    const id = parts[1]!;
+    if (!FEED_ID_PATTERN.test(id)) return null;
+    return { kind: "feed", id };
+  }
+
+  if (parts[0] === "feed" && parts.length === 3) {
+    const id = parts[1]!;
+    const itemId = parts[2]!;
+    if (!FEED_ID_PATTERN.test(id) || !ITEM_ID_PATTERN.test(itemId)) return null;
+    return { kind: "feed-item", id, itemId };
+  }
+
   return null;
 }
 
@@ -239,6 +263,24 @@ function filenameFromKey(key: string): string {
   return slash === -1 ? key : key.slice(slash + 1) || key;
 }
 
+function feedCoverThumbnail(
+  feed: PublicFeed,
+  maxwidth?: number,
+  maxheight?: number,
+): Pick<OEmbedLink, "thumbnail_url" | "thumbnail_width" | "thumbnail_height"> | undefined {
+  const cover: PublicFeedItem | undefined = feed.items.find(
+    (item) => feedMediaKind(item) === "image" && item.url,
+  );
+  if (!cover?.url) return undefined;
+  const { width, height } = fitDimensions(
+    DEFAULT_PHOTO_SIZE,
+    DEFAULT_PHOTO_SIZE,
+    maxwidth,
+    maxheight,
+  );
+  return { thumbnail_url: cover.url, thumbnail_width: width, thumbnail_height: height };
+}
+
 function coverThumbnail(
   gallery: PublicGallery,
   maxwidth?: number,
@@ -291,6 +333,32 @@ async function resolveTarget(target: ShareTarget, options: OEmbedRequest): Promi
         maxwidth,
         maxheight,
       ),
+    };
+  }
+
+  if (target.kind === "feed" || target.kind === "feed-item") {
+    const feedResult = await fetchPublicFeed(target.id, api);
+    if (feedResult.status !== "ok") return fromFetchFailure(feedResult.status);
+    const feed = feedResult.feed;
+    if (target.kind === "feed") {
+      return {
+        status: "ok",
+        body: {
+          ...provider(feed.title),
+          type: "link",
+          ...feedCoverThumbnail(feed, maxwidth, maxheight),
+        },
+      };
+    }
+    const item = feed.items.find((entry) => entry.id === target.itemId);
+    if (!item) return { status: "not_found" };
+    const kind = feedMediaKind(item);
+    if (kind === "missing" || !item.url) {
+      return { status: "ok", body: { ...provider(item.filename), type: "link" } };
+    }
+    return {
+      status: "ok",
+      body: forMedia(kind, item.url, item.filename, maxwidth, maxheight),
     };
   }
 
@@ -400,6 +468,10 @@ export function sharePageUrl(siteOrigin: string, target: ShareTarget): string {
       ? filePath(target.workspace, target.key)
       : target.kind === "gallery"
         ? galleryPath(target.id)
-        : galleryItemPath(target.id, target.itemId);
+        : target.kind === "gallery-item"
+          ? galleryItemPath(target.id, target.itemId)
+          : target.kind === "feed"
+            ? feedPath(target.id)
+            : feedItemPath(target.id, target.itemId);
   return new URL(path, siteOrigin).href;
 }

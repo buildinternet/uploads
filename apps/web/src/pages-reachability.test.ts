@@ -55,6 +55,11 @@ describe.each([
   { path: "/account/profile", title: "Account · uploads.sh" },
   { path: "/account/developers", title: "Developers · uploads.sh" },
   { path: "/f/acme/screenshots/shot.png", title: "shot.png · uploads.sh" },
+  { path: "/feed/feed_abcdefghijklmnopqrstuv", title: "acme/app · uploads.sh" },
+  {
+    path: "/feed/feed_abcdefghijklmnopqrstuv/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    title: "after.png · acme/app · uploads.sh",
+  },
   { path: "/changelog", title: "Changelog" },
 ])("route reachability: $path", ({ path, title }) => {
   it("reaches the page handler (not a static 404) on a browser navigation request", async () => {

@@ -1,0 +1,423 @@
+---
+import BaseHead from "../../../components/BaseHead.astro";
+import Brand from "../../../components/Brand.astro";
+import CopyAsControls from "../../../components/CopyAsControls.astro";
+import Footer from "../../../components/Footer.astro";
+import MediaStage from "../../../components/MediaStage.astro";
+import { buildEmbedFormats, type EmbedFormatOption } from "../../../lib/embed-formats";
+import {
+  formatBytes,
+  formatFileDate,
+  sameUtcDay,
+  shouldShowModified,
+} from "../../../lib/public-file";
+import {
+  applyPublicFeedHeaders,
+  fetchPublicFeed,
+  feedItemPath,
+  feedPageCopy,
+  feedPath,
+  mediaKind as kind,
+  type PublicFeedItem,
+} from "../../../lib/public-feed";
+import { oembedDiscoveryHref } from "../../../lib/oembed";
+import { OG_DEFAULT_IMAGE, OG_SITE_NAME, ogImageFor } from "../../../lib/og";
+import { env } from "cloudflare:workers";
+
+export const prerender = false;
+
+const id = Astro.params.id ?? "";
+const itemId = Astro.params.item ?? "";
+const origin =
+  env.UPLOADS_API_ORIGIN ?? import.meta.env.PUBLIC_UPLOADS_API_ORIGIN ?? "https://api.uploads.sh";
+const result = await fetchPublicFeed(id, { origin });
+
+applyPublicFeedHeaders(Astro.response.headers);
+
+const feed = result.status === "ok" ? result.feed : null;
+const items = feed ? feed.items : [];
+const index = items.findIndex((entry) => entry.id === itemId);
+const item = index === -1 ? null : items[index];
+if (result.status === "unavailable") Astro.response.status = 503;
+else if (!item) Astro.response.status = 404;
+
+const previous = index > 0 ? items[index - 1] : null;
+const next = index >= 0 && index < items.length - 1 ? items[index + 1] : null;
+const listPath = feedPath(id);
+const itemPath = (target: PublicFeedItem) => feedItemPath(id, target.id);
+const page = feed ? feedPageCopy(feed) : null;
+const canonical = new URL(item ? itemPath(item) : listPath, Astro.url.origin).href;
+const title =
+  item && feed ? `${item.filename} · ${feed.title} · uploads.sh` : "Media unavailable · uploads.sh";
+const itemKind = item ? kind(item) : null;
+const embedFormats: EmbedFormatOption[] =
+  item && item.status === "available" && item.url && itemKind
+    ? buildEmbedFormats({
+        canonical,
+        url: item.url,
+        embedUrl: item.embedUrl,
+        filename: item.filename,
+        kind: itemKind as Exclude<typeof itemKind, "missing">,
+      })
+    : [];
+const oembedHref = feed && item ? oembedDiscoveryHref(canonical, Astro.url.origin) : null;
+const uploadedIso = item?.uploaded ?? null;
+const modifiedIso = item?.modified ?? null;
+const showModified = shouldShowModified(uploadedIso, modifiedIso);
+const withTime = Boolean(
+  showModified && uploadedIso && modifiedIso && sameUtcDay(uploadedIso, modifiedIso),
+);
+const uploadedLabel = uploadedIso ? formatFileDate(uploadedIso, { withTime }) : null;
+const modifiedLabel =
+  showModified && modifiedIso ? formatFileDate(modifiedIso, { withTime }) : null;
+const ogImage = item ? ogImageFor(kind(item), item.url, item.posterUrl) : OG_DEFAULT_IMAGE;
+const sizeLabel =
+  item && item.size != null && Number.isSafeInteger(item.size) ? formatBytes(item.size) : null;
+const footnoteParts = [
+  sizeLabel,
+  uploadedLabel ? `Uploaded ${uploadedLabel}` : null,
+  modifiedLabel ? `Modified ${modifiedLabel}` : null,
+  item?.path ? item.path : null,
+  item?.state ? item.state : null,
+].filter((part): part is string => Boolean(part));
+const footnoteLine = footnoteParts.join(" · ");
+
+function thumbSrc(entry: PublicFeedItem): string | null {
+  const media = kind(entry);
+  if (media === "image") return entry.embedUrl ?? entry.url;
+  if (media === "video") return entry.posterUrl ?? null;
+  return null;
+}
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <BaseHead />
+    <meta name="robots" content="noindex, nofollow, noarchive" />
+    <link rel="canonical" href={canonical} />
+    <title>{title}</title>
+    <meta
+      name="description"
+      content={item && page
+        ? `${item.filename} in the ${page.scopeLabel} change feed.`
+        : "A public change feed hosted by uploads.sh."}
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content={item ? item.filename : "Media unavailable"} />
+    <meta
+      property="og:description"
+      content={item && page
+        ? `${item.filename} in the ${page.scopeLabel} change feed.`
+        : "A public change feed hosted by uploads.sh."}
+    />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:site_name" content={OG_SITE_NAME} />
+    <meta property="og:image" content={ogImage} />
+    {
+      oembedHref && item && (
+        <link
+          rel="alternate"
+          type="application/json+oembed"
+          href={oembedHref}
+          title={`${item.filename} oEmbed Profile`}
+        />
+      )
+    }
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100dvh;
+        color: var(--fg);
+        background: var(--bg);
+        font-family: var(--sans);
+        display: flex;
+        flex-direction: column;
+      }
+      .shell {
+        width: min(var(--width-viewer, 1080px), calc(100% - 48px));
+        margin: 0 auto;
+        padding: 36px 0 64px;
+        flex: 1 0 auto;
+        box-sizing: border-box;
+      }
+      nav.top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 32px;
+        font: var(--text-meta) var(--mono);
+        letter-spacing: 0.02em;
+      }
+      .public {
+        color: var(--muted);
+        font-size: var(--text-micro);
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        padding: 6px 11px;
+        background: var(--panel);
+      }
+      button.public {
+        appearance: none;
+        -webkit-appearance: none;
+        cursor: pointer;
+        font-family: inherit;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+      button.public:hover,
+      button.public:focus-visible {
+        border-color: var(--accent);
+        color: var(--accent);
+        outline: none;
+      }
+      .sharelink::before {
+        content: "";
+        width: 11px;
+        height: 11px;
+        flex: none;
+        background: currentColor;
+        -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71'/%3E%3Cpath d='M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71'/%3E%3C/svg%3E")
+          center/contain no-repeat;
+        mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71'/%3E%3Cpath d='M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71'/%3E%3C/svg%3E")
+          center/contain no-repeat;
+      }
+      .crumbs {
+        margin-bottom: 12px;
+        color: var(--muted);
+        font: var(--text-meta) var(--mono);
+        overflow-wrap: anywhere;
+      }
+      .crumbs .count {
+        color: var(--muted);
+      }
+      .filehead {
+        margin: 0 0 16px;
+        min-width: 0;
+      }
+      .filetitle {
+        margin: 0;
+        color: var(--fg);
+        font: 600 var(--text-h3) var(--mono);
+        letter-spacing: -0.01em;
+        overflow-wrap: anywhere;
+      }
+      .footnote {
+        margin: auto 0 0;
+        color: var(--muted);
+        font: var(--text-micro) / 1.5 var(--sans);
+      }
+      .pager {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin: 22px 0 0;
+        font: var(--text-meta) var(--sans);
+      }
+      .pager a,
+      .pager span.disabled {
+        display: inline-block;
+        padding: 10px 16px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-md);
+        background: var(--panel);
+        color: var(--fg);
+        text-decoration: none;
+      }
+      .pager a:hover,
+      .pager a:focus-visible {
+        border-color: var(--accent);
+        color: var(--accent);
+        outline: none;
+      }
+      .pager span.disabled {
+        color: var(--muted);
+      }
+      .strip {
+        display: flex;
+        gap: 8px;
+        margin: 18px 0 0;
+        overflow-x: auto;
+        padding-bottom: 4px;
+      }
+      .strip a {
+        flex: none;
+        width: 72px;
+        height: 48px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-sm, 6px);
+        background: var(--panel);
+        overflow: hidden;
+        text-decoration: none;
+      }
+      .strip a.current {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 1px var(--accent);
+      }
+      .strip img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+      }
+      .strip .placeholder {
+        display: grid;
+        place-items: center;
+        width: 100%;
+        height: 100%;
+        color: var(--muted);
+        font: var(--text-micro) var(--mono);
+      }
+      .error {
+        padding: 70px 24px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        text-align: center;
+        background: var(--panel);
+        color: var(--body);
+      }
+      .error code {
+        color: var(--accent);
+        font-family: var(--mono);
+      }
+      a {
+        color: var(--fg);
+        text-decoration-color: color-mix(in srgb, var(--accent) 55%, transparent);
+        text-underline-offset: 3px;
+      }
+      @media (min-width: 1080px) {
+        .shell {
+          width: min(1200px, calc(100% - 48px));
+        }
+      }
+      @media (max-width: 760px) {
+        .shell {
+          width: min(100% - 32px, 1080px);
+          padding-top: 24px;
+        }
+        .pager a,
+        .pager span.disabled {
+          padding: 8px 12px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <nav class="top">
+        <Brand />
+        {
+          embedFormats.length > 0 ? (
+            <button
+              type="button"
+              class="public sharelink"
+              data-copy={canonical}
+              title="Copy link — anyone with this link can view this page"
+            >
+              Public link
+            </button>
+          ) : (
+            <span class="public">public feed</span>
+          )
+        }
+      </nav>
+      {
+        feed && item ? (
+          <>
+            <div class="crumbs">
+              <a href={listPath}>{feed.title}</a> ·{" "}
+              <span class="count">
+                {index + 1} of {items.length}
+              </span>
+            </div>
+            <header class="filehead">
+              <h1 class="filetitle">{item.filename}</h1>
+            </header>
+            <MediaStage
+              kind={kind(item)}
+              url={item.url}
+              filename={item.filename}
+              alt={item.filename}
+              posterUrl={item.posterUrl}
+              videoDimensions={item.videoDimensions}
+              railId="item-caption"
+              contentType={item.contentType}
+              size={item.size}
+              downloadUrl={item.status === "available" ? item.url : null}
+            >
+              {item.status === "available" && (
+                <CopyAsControls formats={embedFormats} downloadUrl={item.url}>
+                  {item.url && (
+                    <a class="original" href={item.url} rel="noopener noreferrer">
+                      Open original ↗
+                    </a>
+                  )}
+                </CopyAsControls>
+              )}
+              {footnoteLine && <p class="footnote">{footnoteLine}</p>}
+            </MediaStage>
+            <nav class="pager" aria-label="Feed items">
+              {previous ? (
+                <a href={itemPath(previous)} rel="prev">
+                  ← {previous.filename}
+                </a>
+              ) : (
+                <span class="disabled">← Start</span>
+              )}
+              <a href={listPath}>All items</a>
+              {next ? (
+                <a href={itemPath(next)} rel="next">
+                  {next.filename} →
+                </a>
+              ) : (
+                <span class="disabled">End →</span>
+              )}
+            </nav>
+            {items.length > 1 && (
+              <nav class="strip" aria-label="All feed items">
+                {items.map((entry, entryIndex) => {
+                  const src = thumbSrc(entry);
+                  return (
+                    <a
+                      href={itemPath(entry)}
+                      class={entryIndex === index ? "current" : undefined}
+                      aria-current={entryIndex === index ? "page" : undefined}
+                      aria-label={`${entry.filename} (${entryIndex + 1} of ${items.length})`}
+                    >
+                      {src ? (
+                        <img src={src} alt="" />
+                      ) : (
+                        <span class="placeholder">{entryIndex + 1}</span>
+                      )}
+                    </a>
+                  );
+                })}
+              </nav>
+            )}
+          </>
+        ) : (
+          <section class="error">
+            <p>
+              {result.status === "unavailable"
+                ? "The feed service could not be reached. Please try again shortly."
+                : "This item may have been removed, or the link is incorrect."}
+            </p>
+            {result.status !== "unavailable" && (
+              <p>
+                <a href={listPath}>View the feed</a>
+              </p>
+            )}
+          </section>
+        )
+      }
+    </main>
+    <Footer />
+  </body>
+</html>

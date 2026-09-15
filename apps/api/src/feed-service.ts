@@ -42,6 +42,8 @@ export interface FeedItemDto {
   status: "available" | "missing" | "withheld";
   url: string | null;
   embedUrl: string | null;
+  /** Owner-only item page (`/feed/<id>/<item>`). Absent on the public DTO. */
+  pageUrl?: string;
   contentType: string | null;
   size: number | null;
   uploaded: string | null;
@@ -109,6 +111,15 @@ export type PublicFeedDto = {
 
 export function feedUrl(env: Env, id: string): string {
   return webOrigin(env) + "/feed/" + encodeURIComponent(id);
+}
+
+/** Stable public-item id: first 32 hex chars of SHA-256(object key). */
+export async function feedItemId(objectKey: string): Promise<string> {
+  return (await sha256Hex(objectKey)).slice(0, 32);
+}
+
+export function feedItemUrl(env: Env, feedId: string, itemId: string): string {
+  return feedUrl(env, feedId) + "/" + encodeURIComponent(itemId);
 }
 
 export function feedSummary(env: Env, record: FeedRecord): FeedSummaryDto {
@@ -301,7 +312,7 @@ async function hydrateFeedItems(
         code: "feed_object_not_public",
       });
     const dates = meta && !withheld ? publicObjectDateFields(meta) : {};
-    const id = (await sha256Hex(match.key)).slice(0, 32);
+    const id = await feedItemId(match.key);
     return {
       id,
       objectKey: match.key,
@@ -375,6 +386,9 @@ export async function hydrateOwnerFeed(
     number: record.number > 0 ? record.number : undefined,
   });
   const items = await hydrateFeedItems(env, workspace, matches, { audience: "owner" });
+  for (const item of items) {
+    item.pageUrl = feedItemUrl(env, record.id, item.id);
+  }
   return {
     ...feedSummary(env, record),
     items,

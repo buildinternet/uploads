@@ -8,6 +8,8 @@
  */
 
 import { dbFor } from "./db-session";
+import { feedItemId, feedItemUrl, findLatestRepoScreenshots } from "./feed-service";
+import { createFeed } from "./feeds";
 import { listObjects } from "./files-core";
 import { getMetadataForKeys } from "./file-metadata";
 import { findGalleriesByReference, listGalleryItems, type GalleryCursor } from "./galleries";
@@ -122,9 +124,10 @@ async function gatherAttachments(
   gatherOpts: { headBranch?: string; shadow?: boolean },
 ): Promise<AttachmentItem[]> {
   // Per-workspace/repo choice (issues #304, #307): default (auto/true) links
-  // the managed comment's attachments to their `/f/` file page (issue #301's
-  // behavior); `false` links to raw object bytes instead. Attachments only —
-  // does not affect gallery `itemUrl` below, which is a separate feature.
+  // the managed comment's attachments to a share page — the PR/issue feed
+  // item when that object is in the feed, otherwise `/f/`. `false` links to
+  // raw object bytes instead. Attachments only — does not affect gallery
+  // `itemUrl` below, which is a separate feature.
   const linkToFilePage = options.linkToFilePage;
   // issue #365, extended by #307: skip the metadata read entirely when
   // neither meta field would render anything.
@@ -209,6 +212,10 @@ async function gatherAttachments(
     items.map((item) => item.key),
   );
 
+  if (items.length > 0) {
+    await applyPrFeedPageUrls(env, workspaceName, target, items, linkToFilePage);
+  }
+
   if (!showMetadata || items.length === 0) return items;
 
   const metaByKey = await getMetadataForKeys(
@@ -266,6 +273,46 @@ async function gatherAttachments(
     }
   }
   return items;
+}
+
+/**
+ * Ensure the PR/issue change feed exists (idempotent `createFeed`) and point
+ * attachment click-throughs at `/feed/<id>/<item>` when that object is in the
+ * feed. Failures never fail the comment — `/f/` (or raw URL) stays.
+ */
+async function applyPrFeedPageUrls(
+  env: Env,
+  workspaceName: string,
+  target: GhTarget,
+  items: AttachmentItem[],
+  linkToFilePage: boolean,
+): Promise<void> {
+  try {
+    const created = await createFeed(dbFor(env), {
+      workspace: workspaceName,
+      repo: target.repo,
+      ...(target.kind === "pull" ? { pr: target.num } : { issue: target.num }),
+    });
+    if (created.status !== "ok") return;
+    if (!linkToFilePage) return;
+    const feed = created.value;
+    const matches = await findLatestRepoScreenshots(dbFor(env), workspaceName, {
+      repo: feed.repo,
+      number: feed.number > 0 ? feed.number : undefined,
+    });
+    const idByKey = new Map<string, string>();
+    await Promise.all(
+      matches.map(async (match) => {
+        idByKey.set(match.key, await feedItemId(match.key));
+      }),
+    );
+    for (const item of items) {
+      const itemId = idByKey.get(item.key);
+      if (itemId) item.pageUrl = feedItemUrl(env, feed.id, itemId);
+    }
+  } catch {
+    // Comment sync must not fail if feeds are unavailable.
+  }
 }
 
 /**

@@ -210,8 +210,9 @@ uploads feed create --repo owner/repo --path /settings
 ```
 
 Creating the same scope again returns the existing URL. Anyone who knows that URL can
-view the feed. MCP: `feed_create` (`repo`, plus `pr` / `issue` / `github` / `path`) and
-`feed_get`.
+view the feed. Each shot also has `/feed/<id>/<item>` with previous / next. Syncing a
+managed PR comment creates the PR feed if needed and points image clicks at that pager.
+MCP: `feed_create` (`repo`, plus `pr` / `issue` / `github` / `path`) and `feed_get`.
 
 Link a gallery to a GitHub issue or pull request with `gallery link --github`. Run `uploads comment --pr <number>` to refresh that target’s one managed comment with every linked gallery and loose attachment. Coordinates and strict `https://github.com/<owner>/<repo>/issues|pull/<number>` URLs are accepted; `gallery list --github` performs the authenticated reverse lookup. Links never change gallery identity, and GitHub repository visibility does not make the public gallery private.
 

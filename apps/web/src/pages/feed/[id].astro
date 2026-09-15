@@ -7,6 +7,7 @@ import { mediaPreviewFailedBody, MEDIA_PREVIEW_FAILED_TITLE } from "../../lib/me
 import {
   applyPublicFeedHeaders,
   fetchPublicFeed,
+  feedItemPath,
   feedPageCopy,
   feedPath,
   mediaKind as kind,
@@ -263,8 +264,7 @@ function itemDate(item: PublicFeedItem): string | null {
                         {mediaKind === "image" && (
                           <a
                             class="media-link"
-                            href={item.url!}
-                            rel="noopener noreferrer"
+                            href={feedItemPath(feed.id, item.id)}
                             aria-label={`Open ${item.filename}`}
                           >
                             <img
@@ -308,7 +308,9 @@ function itemDate(item: PublicFeedItem): string | null {
                         )}
                       </div>
                       <figcaption>
-                        <div class="filename">{item.filename}</div>
+                        <div class="filename">
+                          <a href={feedItemPath(feed.id, item.id)}>{item.filename}</a>
+                        </div>
                         <div class="item-meta">
                           {item.path && <span>{item.path}</span>}
                           {item.state && <span>{item.state}</span>}

@@ -161,6 +161,7 @@ describe("feed routes", () => {
       objectKey: "gh/acme/app/pull/2/new.png",
       path: "/billing",
       state: "after",
+      pageUrl: `https://uploads.test/feed/${feed.id}/${(await sha256Hex("gh/acme/app/pull/2/new.png")).slice(0, 32)}`,
     });
 
     const reused = await request("/v1/workspaces/alpha/feeds", {
@@ -183,6 +184,7 @@ describe("feed routes", () => {
     expect(body.items.map((item) => item.filename)).toEqual(["new.png", "old.png"]);
     expect(body.items[0]?.url).toContain("new.png");
     expect(body.items[0]).not.toHaveProperty("objectKey");
+    expect(body.items[0]).not.toHaveProperty("pageUrl");
 
     expect((await request(`/v1/workspaces/beta/feeds/${feed.id}`)).status).toBe(404);
     expect(
