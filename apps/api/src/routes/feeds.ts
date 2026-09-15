@@ -27,6 +27,10 @@ export async function createFeedHandler(c: Context<WorkspaceVars>) {
       workspace: c.get("workspaceName"),
       repo: typeof body.repo === "string" ? body.repo : "",
       path: body.path === null || typeof body.path === "string" ? body.path : undefined,
+      number: body.number,
+      kind: body.kind,
+      pr: body.pr,
+      issue: body.issue,
     }),
   );
   const feed = await ownerFeed(c, result.value.id);

@@ -280,8 +280,9 @@ uploads put ./demo.gif --format url
 ```
 
 For a scrollable newest-first feed of a repo's recent screenshots, use
-`uploads feed create --repo owner/repo` (see `uploads-cli`). That is a live
-query, not a curated gallery.
+`uploads feed create --repo owner/repo`. For one pull request, add `--pr 123`
+(or `--github owner/repo#123`). See `uploads-cli`. That is a live query, not
+a curated gallery.
 
 When you do embed, use the returned **markdown** (or `embedUrl`) — the
 no-cache host so overwrites propagate. Don't hand-build storage URLs.

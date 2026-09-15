@@ -372,15 +372,18 @@ doesn't change gallery identity or visibility.
 ## Repo change feeds
 
 A feed is a public newest-first page of screenshots already tagged with a
-GitHub `owner/repo`. It is a live query, not a curated gallery:
+GitHub `owner/repo`, or with one pull request or issue. It is a live query,
+not a curated gallery:
 
 ```bash
 uploads feed create --repo owner/repo
+uploads feed create --repo owner/repo --pr 123
+uploads feed create --github owner/repo#123
 uploads feed create --repo owner/repo --path /settings
 ```
 
-Creating the same repo and path again returns the existing URL. Anyone with
-that link can view the feed.
+Creating the same scope again returns the existing URL. Anyone with that
+link can view the feed.
 
 ## Agent skills and hooks
 

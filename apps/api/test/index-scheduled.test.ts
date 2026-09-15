@@ -21,6 +21,7 @@ const MIGRATIONS = [
   "migrations/20260822120100_workspace_usage_shared_subset.sql",
   "migrations/20260824120000_idempotency_requests.sql",
   "migrations/20260915120000_feeds.sql",
+  "migrations/20260915153000_feeds_number.sql",
 ];
 
 const WS = "acme";

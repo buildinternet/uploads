@@ -135,6 +135,7 @@ export {
   ghBranchKeyPrefix,
   ghMetadataForBranch,
   isValidRepo,
+  parseGithubIssueRef,
   parseRepoFromRemoteUrl,
   // Private-repo randomized-prefix builders (issue #631) — needed by the
   // hosted MCP (apps/mcp), which builds keys in-process rather than via
@@ -149,6 +150,7 @@ export {
   parseGhKey,
   parseGhPrivateKey,
   type AttachmentItem,
+  type GithubIssueRef,
   type GhTarget,
   type GhTargetKind,
   type GhKeyMode,

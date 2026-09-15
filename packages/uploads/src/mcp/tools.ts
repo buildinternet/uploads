@@ -9,6 +9,7 @@
 import type { GlobalFlags } from "../cli-args.js";
 import {
   createUploadsClient,
+  type CreateFeedOptions,
   type PromoteBranchAttachmentsResult,
   type UploadsClient,
 } from "../client.js";
@@ -41,7 +42,7 @@ import {
 } from "../config.js";
 import { resolvePutPrefix } from "../destinations.js";
 import { fetchUploadSource, resolveUploadFilename } from "../fetch-upload-source.js";
-import { ghKeyPrefix, ghPrivateKeyPrefix, type GhTarget } from "../github.js";
+import { ghKeyPrefix, ghPrivateKeyPrefix, parseGithubIssueRef, type GhTarget } from "../github.js";
 import { safeCaptureFacts } from "../capture-facts.js";
 import { deriveRepoSlugFromGit } from "../keys.js";
 import { validateMetaMap } from "../metadata.js";
@@ -187,6 +188,29 @@ function galleryReference(args: ToolArgs): { provider: "github"; coordinate: str
   if (!coordinate) usage("coordinate is required");
   if (provider !== "github") usage("provider must be github");
   return { provider, coordinate };
+}
+
+function feedCreateOptions(args: ToolArgs): CreateFeedOptions {
+  const github = optString(args, "github");
+  const repo = optString(args, "repo");
+  const path = optString(args, "path");
+  const pr = optPosInt(args, "pr");
+  const issue = optPosInt(args, "issue");
+  if (pr != null && issue != null) usage("pr and issue are mutually exclusive");
+  if (github && (pr != null || issue != null)) usage("github cannot be combined with pr or issue");
+  if (github) {
+    const ref = parseGithubIssueRef(github);
+    if (!ref) usage("github must be owner/repo#number or a GitHub issue/PR URL");
+    if (repo && repo.trim().toLowerCase() !== ref.repo) usage("repo does not match github");
+    return { repo: ref.repo, path, number: ref.number, kind: ref.kind };
+  }
+  if (!repo) usage("repo is required");
+  return {
+    repo,
+    path,
+    ...(pr != null ? { number: pr, kind: "pull" as const } : {}),
+    ...(issue != null ? { number: issue, kind: "issue" as const } : {}),
+  };
 }
 
 const workspaceProp = {
@@ -416,13 +440,28 @@ export function createUploadsMcpTools(opts: {
       annotations: mcpWritePublic,
       securitySchemes: mcpOAuthWrite,
       description:
-        "Create a public newest-first screenshot feed for a GitHub owner/repo. The same repo (and optional path) returns the existing feed. Anyone who knows the URL can view it. This is a live query, not a curated gallery.",
+        "Create a public newest-first screenshot feed for a GitHub owner/repo, or one pull request / issue. The same scope returns the existing feed. Anyone who knows the URL can view it. This is a live query, not a curated gallery.",
       inputSchema: {
         type: "object",
         properties: {
           repo: {
             type: "string",
-            description: "GitHub owner/repo, for example acme/app.",
+            description: "GitHub owner/repo, for example acme/app. Required unless github is set.",
+          },
+          pr: {
+            type: "integer",
+            minimum: 1,
+            description: "Optional pull request number. Mutually exclusive with issue and github.",
+          },
+          issue: {
+            type: "integer",
+            minimum: 1,
+            description: "Optional issue number. Mutually exclusive with pr and github.",
+          },
+          github: {
+            type: "string",
+            description:
+              "Optional owner/repo#number or https://github.com/<owner>/<repo>/pull|issues/<number> URL. Mutually exclusive with pr and issue. Supplies repo when repo is omitted.",
           },
           path: {
             type: "string",
@@ -430,14 +469,11 @@ export function createUploadsMcpTools(opts: {
           },
           workspace: workspaceProp,
         },
-        required: ["repo"],
         additionalProperties: false,
       },
       async handler(args) {
-        const repo = optString(args, "repo");
-        if (!repo) usage("repo is required");
         const { client } = await clientFor(args);
-        return client.createFeed({ repo, path: optString(args, "path") });
+        return client.createFeed(feedCreateOptions(args));
       },
     },
     {

@@ -719,15 +719,17 @@ Optionally link a gallery to a GitHub issue or PR with `uploads gallery link <ga
 
 ## Repo change feeds
 
-A feed is a public newest-first page of screenshots already tagged with `gh.repo`. It is a live query, not a curated gallery. Anyone who knows the URL can view it.
+A feed is a public newest-first page of screenshots already tagged with `gh.repo` (and optionally `gh.number`). It is a live query, not a curated gallery. Anyone who knows the URL can view it.
 
 ```bash
 uploads feed create --repo owner/repo
+uploads feed create --repo owner/repo --pr 123
+uploads feed create --github owner/repo#123
 uploads feed create --repo owner/repo --path /settings
 uploads feed show feed_example
 ```
 
-Creating the same repo and path again returns the existing URL.
+Creating the same scope again returns the existing URL.
 
 ## Embedding in a GitHub PR or issue
 

@@ -194,15 +194,18 @@ avoid overwriting concurrent changes.
 
 ## Repo change feeds
 
-A feed is a public newest-first page of screenshots already tagged with a GitHub `owner/repo`.
-It is a live query, not a curated gallery. The API returns the canonical public URL.
+A feed is a public newest-first page of screenshots already tagged with a GitHub `owner/repo`,
+or with one pull request or issue. It is a live query, not a curated gallery. The API returns
+the canonical public URL.
 
 ```bash
 uploads feed create --repo owner/repo
+uploads feed create --repo owner/repo --pr 123
+uploads feed create --github owner/repo#123
 uploads feed create --repo owner/repo --path /settings
 ```
 
-Creating the same repo and path again returns the existing URL. Anyone who knows that URL can
+Creating the same scope again returns the existing URL. Anyone who knows that URL can
 view the feed.
 
 Link a gallery to a GitHub issue or pull request with `gallery link --github`. Run `uploads comment --pr <number>` to refresh that target’s one managed comment with every linked gallery and loose attachment. Coordinates and strict `https://github.com/<owner>/<repo>/issues|pull/<number>` URLs are accepted; `gallery list --github` performs the authenticated reverse lookup. Links never change gallery identity, and GitHub repository visibility does not make the public gallery private.

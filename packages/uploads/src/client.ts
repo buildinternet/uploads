@@ -317,6 +317,8 @@ export interface Feed {
   workspace: string;
   repo: string;
   path: string | null;
+  number: number | null;
+  kind: "pull" | "issue" | null;
   title: string;
   createdAt: string;
   updatedAt: string;
@@ -338,6 +340,10 @@ export interface FeedListResult {
 export interface CreateFeedOptions {
   repo: string;
   path?: string | null;
+  number?: number | null;
+  kind?: "pull" | "issue" | null;
+  pr?: number | null;
+  issue?: number | null;
 }
 
 /**

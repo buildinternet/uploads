@@ -455,6 +455,8 @@ export const feedResultSchema: JsonSchema = objectSchema({
   workspace: { type: "string" },
   repo: { type: "string" },
   path: nullableString,
+  number: { type: ["number", "null"] },
+  kind: nullableString,
   title: { type: "string" },
   createdAt: { type: "string" },
   updatedAt: { type: "string" },

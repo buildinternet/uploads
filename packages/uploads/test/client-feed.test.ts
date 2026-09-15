@@ -7,6 +7,8 @@ const feed = {
   workspace: "test",
   repo: "acme/app",
   path: null,
+  number: null,
+  kind: null,
   title: "acme/app",
   createdAt: "2026-09-15T12:00:00.000Z",
   updatedAt: "2026-09-15T12:00:00.000Z",
@@ -22,6 +24,8 @@ describe("feed client methods", () => {
       if (url.endsWith("/feeds") && init?.method === "POST") {
         expect(JSON.parse(new TextDecoder().decode(init.body as Uint8Array))).toEqual({
           repo: "acme/app",
+          number: 12,
+          kind: "pull",
         });
         return new Response(JSON.stringify(feed), { status: 201 });
       }
@@ -43,7 +47,7 @@ describe("feed client methods", () => {
       token: "up_test_x",
     });
 
-    const created = await client.createFeed({ repo: "acme/app" });
+    const created = await client.createFeed({ repo: "acme/app", number: 12, kind: "pull" });
     expect(created.url).toBe("https://uploads.test/feed/feed_example");
     expect(await client.getFeed(created.id)).toEqual(feed);
     expect((await client.listFeeds({ limit: 10 })).feeds[0]?.url).toBe(feed.url);

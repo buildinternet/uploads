@@ -1,8 +1,8 @@
 ---
 title: Change feeds
-description: Share a newest-first feed of screenshots for a GitHub repo behind one public link at /feed/<id>.
+description: Share a newest-first feed of screenshots for a GitHub repo or pull request behind one public link at /feed/<id>.
 heading: Change feeds
-tagline: A scrollable feed of recent screenshots for one GitHub repo, behind one public link.
+tagline: A scrollable feed of recent screenshots for one GitHub repo or pull request, behind one public link.
 navLabel: Change feeds
 navSlug: feeds
 navOrder: 3
@@ -17,8 +17,8 @@ toc:
 ## What a feed is <a class="anchor" href="#what" aria-label="Link to this section">#</a>
 
 A change feed is a public link that shows the latest screenshots tagged with a
-GitHub `owner/repo`. The page is newest-first and updates as new shots land. It
-does not store a hand-picked list.
+GitHub `owner/repo`, or with one pull request or issue. The page is newest-first
+and updates as new shots land. It does not store a hand-picked list.
 
 Anyone who knows the URL can view the feed. GitHub repository visibility does
 not restrict it.
@@ -37,15 +37,25 @@ uploads feed create
 uploads feed create --repo owner/repo
 ```
 
+Scope it to one pull request. Attach and put already write `gh.repo` and
+`gh.number`; the feed is that same find, live:
+
+```bash
+uploads feed create --repo owner/repo --pr 123
+```
+
+`--issue` does the same for an issue. `--github owner/repo#123` (or a strict
+GitHub issue/PR URL) is the gallery-style spelling.
+
 Optional: keep the feed to one page path (the same `path` metadata `uploads
-find` already uses):
+find` already uses). It can combine with a pull request or issue:
 
 ```bash
 uploads feed create --repo owner/repo --path /settings
 ```
 
-Creating the same repo and path again returns the existing URL. Share that
-link in Slack or anywhere else.
+Creating the same scope again returns the existing URL. Share that link in
+Slack or anywhere else.
 
 The public page lives at `/feed/<id>`.
 
@@ -57,7 +67,8 @@ The public page lives at `/feed/<id>`.
 
 A <a href="/docs/galleries">gallery</a> is a curated, ordered set of files you
 add by hand. A feed is a live query over screenshots already tagged with
-`gh.repo`. Use a gallery when you want to pick and order shots. Use a feed
-when you want “what changed in this repo lately.”
+`gh.repo` (and optionally `gh.number`). Use a gallery when you want to pick
+and order shots. Use a feed when you want “what landed on this repo” or “what
+landed on this pull request.”
 
 </section>

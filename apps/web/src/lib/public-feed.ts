@@ -22,6 +22,8 @@ export interface PublicFeed {
   title: string;
   repo: string;
   path: string | null;
+  number: number | null;
+  kind: "pull" | "issue" | null;
   createdAt: string;
   updatedAt: string;
   items: PublicFeedItem[];
@@ -66,15 +68,40 @@ export function feedPath(feedId: string): string {
   return `/feed/${encodeURIComponent(feedId)}`;
 }
 
+export function feedPageCopy(feed: Pick<PublicFeed, "repo" | "number" | "kind">): {
+  eyebrow: string;
+  scopeLabel: string;
+  scopeNoun: string;
+} {
+  const scoped = feed.number != null;
+  return {
+    scopeLabel: scoped ? `${feed.repo}#${feed.number}` : feed.repo,
+    scopeNoun: feed.kind === "issue" ? "issue" : scoped ? "pull request" : "repo",
+    eyebrow:
+      feed.kind === "issue" ? "Issue feed" : scoped ? "Pull request feed" : "Repo change feed",
+  };
+}
+
 export function isPublicFeed(value: unknown): value is PublicFeed {
   if (typeof value !== "object" || value === null) return false;
   const feed = value as Record<string, unknown>;
   if (
     !text(feed.id, 64) ||
     !FEED_ID_RE.test(feed.id) ||
-    !text(feed.title, 200) ||
+    !text(feed.title, 800) ||
     !text(feed.repo, 200) ||
     !nullableText(feed.path, 512) ||
+    !(
+      feed.number === undefined ||
+      feed.number === null ||
+      (Number.isSafeInteger(feed.number) && (feed.number as number) >= 1)
+    ) ||
+    !(
+      feed.kind === undefined ||
+      feed.kind === null ||
+      feed.kind === "pull" ||
+      feed.kind === "issue"
+    ) ||
     !text(feed.createdAt, 64) ||
     !Number.isFinite(Date.parse(feed.createdAt)) ||
     !text(feed.updatedAt, 64) ||

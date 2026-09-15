@@ -7,6 +7,7 @@ import { mediaPreviewFailedBody, MEDIA_PREVIEW_FAILED_TITLE } from "../../lib/me
 import {
   applyPublicFeedHeaders,
   fetchPublicFeed,
+  feedPageCopy,
   feedPath,
   mediaKind as kind,
   type PublicFeedItem,
@@ -27,6 +28,7 @@ if (result.status === "unavailable") Astro.response.status = 503;
 
 const feed = result.status === "ok" ? result.feed : null;
 const canonical = new URL(feedPath(id), Astro.url.origin).href;
+const page = feed ? feedPageCopy(feed) : null;
 
 function itemDate(item: PublicFeedItem): string | null {
   const raw = item.uploaded ?? item.modified;
@@ -47,7 +49,7 @@ function itemDate(item: PublicFeedItem): string | null {
     <meta
       name="description"
       content={feed
-        ? `Recent screenshots for ${feed.repo}.`
+        ? `Recent screenshots for ${page?.scopeLabel}.`
         : "A public change feed hosted by uploads.sh."}
     />
     <meta property="og:type" content="website" />
@@ -55,7 +57,7 @@ function itemDate(item: PublicFeedItem): string | null {
     <meta
       property="og:description"
       content={feed
-        ? `Recent screenshots for ${feed.repo}.`
+        ? `Recent screenshots for ${page?.scopeLabel}.`
         : "A public change feed hosted by uploads.sh."}
     />
     <meta property="og:url" content={canonical} />
@@ -231,7 +233,7 @@ function itemDate(item: PublicFeedItem): string | null {
         feed ? (
           <>
             <header>
-              <div class="eyebrow">Repo change feed</div>
+              <div class="eyebrow">{page?.eyebrow}</div>
               <h1>{feed.title}</h1>
               <div class="meta">
                 <span>newest first</span>
@@ -242,12 +244,12 @@ function itemDate(item: PublicFeedItem): string | null {
             </header>
             <aside class="notice">
               Anyone with this link can view this feed. It updates as new screenshots are tagged
-              with this repo. Do not share sensitive media.
+              with this {page?.scopeNoun}. Do not share sensitive media.
             </aside>
             {feed.items.length === 0 ? (
               <section class="empty">
                 <code>feed.empty</code>
-                <p>No screenshots are tagged with this repo yet.</p>
+                <p>No screenshots are tagged with this {page?.scopeNoun} yet.</p>
               </section>
             ) : (
               <section class="feed">
