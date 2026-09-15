@@ -43,7 +43,7 @@ Inside this monorepo only, `pnpm uploads …` builds the package first so you pi
 up local source; product docs and PR “how to try it” examples should use the
 global `uploads` form above.
 
-Commands: `attach`, `put`, `screenshot`, `annotate`, `gallery`, `comment`, `list`, `find`, `meta`, `delete`, `usage`,
+Commands: `attach`, `put`, `screenshot`, `annotate`, `gallery`, `feed`, `comment`, `list`, `find`, `meta`, `delete`, `usage`,
 `reconcile`, `purge-expired`, `setup`, `install`, `login`, `whoami` (alias `status`),
 `logout`, `invite`, `admin`, `config`, `telemetry`, `report`, `doctor`, `health`, `changelog`, `docs`, `mcp`,
 `completion`.
@@ -192,13 +192,26 @@ When adding several keys, `uploads gallery add` processes them sequentially and 
 individual failures in `--json` output. Gallery item updates use the API's current version to
 avoid overwriting concurrent changes.
 
+## Repo change feeds
+
+A feed is a public newest-first page of screenshots already tagged with a GitHub `owner/repo`.
+It is a live query, not a curated gallery. The API returns the canonical public URL.
+
+```bash
+uploads feed create --repo owner/repo
+uploads feed create --repo owner/repo --path /settings
+```
+
+Creating the same repo and path again returns the existing URL. Anyone who knows that URL can
+view the feed.
+
 Link a gallery to a GitHub issue or pull request with `gallery link --github`. Run `uploads comment --pr <number>` to refresh that target’s one managed comment with every linked gallery and loose attachment. Coordinates and strict `https://github.com/<owner>/<repo>/issues|pull/<number>` URLs are accepted; `gallery list --github` performs the authenticated reverse lookup. Links never change gallery identity, and GitHub repository visibility does not make the public gallery private.
 
 Config layers (first match wins): CLI flags → env vars → `--env-file` → `~/.config/buildinternet/config`. See `config.example` for keys.
 
 ## MCP server
 
-`uploads mcp` serves the Model Context Protocol over stdio (newline-delimited JSON-RPC, no extra dependencies). Tools include file operations plus public gallery workflows: `gallery_create`, `gallery_get`, `gallery_add`, `gallery_link`, and `gallery_find_by_reference`. Gallery tools return API-provided canonical URLs and never need GitHub credentials. The remaining stdio tools are `put`, `attach`, `list`, `delete`, `get_metadata`, `set_metadata`, `find_files`, `usage`, `reconcile`, `purge_expired`, `comment`, `whoami`, and `doctor` — with the same config resolution and defaults, plus a per-call `workspace` argument. `put` and `attach` accept a `metadata` param (same `gh.*` auto-injection as the CLI's `attach`); `get_metadata`, `set_metadata`, and `find_files` mirror `uploads meta get` / `meta set` / `find`. Interactive/credential commands (`setup`, `login`, `admin`, `config`) are not exposed. A token isn't required to start the server; auth errors surface per tool call (`whoami` needs no auth).
+`uploads mcp` serves the Model Context Protocol over stdio (newline-delimited JSON-RPC, no extra dependencies). Tools include file operations plus public gallery workflows (`gallery_create`, `gallery_get`, `gallery_add`, `gallery_link`, `gallery_find_by_reference`) and repo change feeds (`feed_create`, `feed_get`). Gallery and feed tools return API-provided canonical URLs and never need GitHub credentials. The remaining stdio tools are `put`, `attach`, `list`, `delete`, `get_metadata`, `set_metadata`, `find_files`, `usage`, `reconcile`, `purge_expired`, `comment`, `whoami`, and `doctor` — with the same config resolution and defaults, plus a per-call `workspace` argument. `put` and `attach` accept a `metadata` param (same `gh.*` auto-injection as the CLI's `attach`); `get_metadata`, `set_metadata`, and `find_files` mirror `uploads meta get` / `meta set` / `find`. Interactive/credential commands (`setup`, `login`, `admin`, `config`) are not exposed. A token isn't required to start the server; auth errors surface per tool call (`whoami` needs no auth).
 
 ```json
 { "command": "uploads", "args": ["--env-file", "/path/to/.env", "mcp"] }
@@ -208,7 +221,7 @@ Or with `UPLOADS_TOKEN`/`UPLOADS_WORKSPACE` in the environment or user config. C
 
 The MCP Registry lists this server as `sh.uploads/mcp`.
 
-For HTTP clients there's also a hosted variant at `https://agents.uploads.sh/mcp` — the workspace is inferred from the bearer token, so only the URL and token are needed (`https://agents.uploads.sh/<workspace>/mcp` and the `mcp.uploads.sh` hostname also work). Tools: file operations (including `get_metadata` / `set_metadata` / `find_files`) plus `gallery_create`, `gallery_get`, `gallery_add`, `gallery_link`, and `gallery_find_by_reference`; all use the same bearer-token workspace scopes and gallery URLs come from the API — see `apps/mcp` in the repo. The hosted `put` also accepts a `metadata` param. `uploads install` registers the skills + hosted MCP with whichever of Claude Code, Codex, and Grok are on PATH (a missing CLI is skipped) + Grok/Cursor hooks (short progress; `--verbose` for underlying output). Claude and Codex use their plugins for the same pre-PR screenshot reminder (`uploads hook pre-pr-screenshot`). Its `put` takes no content type: the stored type is sniffed server-side from the bytes and checked against the workspace allowlist, and writes are rate limited per workspace.
+For HTTP clients there's also a hosted variant at `https://agents.uploads.sh/mcp` — the workspace is inferred from the bearer token, so only the URL and token are needed (`https://agents.uploads.sh/<workspace>/mcp` and the `mcp.uploads.sh` hostname also work). Tools: file operations (including `get_metadata` / `set_metadata` / `find_files`) plus `gallery_create`, `gallery_get`, `gallery_add`, `gallery_link`, `gallery_find_by_reference`, `feed_create`, and `feed_get`; all use the same bearer-token workspace scopes and gallery/feed URLs come from the API — see `apps/mcp` in the repo. The hosted `put` also accepts a `metadata` param. `uploads install` registers the skills + hosted MCP with whichever of Claude Code, Codex, and Grok are on PATH (a missing CLI is skipped) + Grok/Cursor hooks (short progress; `--verbose` for underlying output). Claude and Codex use their plugins for the same pre-PR screenshot reminder (`uploads hook pre-pr-screenshot`). Its `put` takes no content type: the stored type is sniffed server-side from the bytes and checked against the workspace allowlist, and writes are rate limited per workspace.
 
 ## Programmatic use
 

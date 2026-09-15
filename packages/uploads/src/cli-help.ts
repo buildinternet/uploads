@@ -212,6 +212,7 @@ ${section(style, "Examples:")}
   ${style.command("uploads attach")} ./artifact.zip --issue 45 --no-comment
   ${style.command("uploads attach")} ./shot.png --meta path=/settings --state after
   ${style.command("uploads gallery")} create --title "Release screenshots"
+  ${style.command("uploads feed")} create --repo owner/repo
   ${style.command("uploads doctor")}
   ${style.command("uploads logout")}
   ${style.command("uploads --version")}

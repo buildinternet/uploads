@@ -120,6 +120,11 @@ Throw `AppError` subclasses from `@uploads/errors` in route code; the API's
 | `GET/POST /v1/workspaces/:workspace/galleries/:id/external-references`          | List or link external coordinates; writes require `files:write`                                                                                                                                                                 |
 | `DELETE /v1/workspaces/:workspace/galleries/:id/external-references/:reference` | Unlink an external coordinate; requires `files:write`                                                                                                                                                                           |
 | `GET /public/galleries/:id`                                                     | Read one public gallery by its opaque ID (no auth)                                                                                                                                                                              |
+| `POST /v1/workspaces/:workspace/feeds`                                          | Create or reuse a public repo change feed (`{ repo, path? }`); requires `files:write`                                                                                                                                           |
+| `GET /v1/workspaces/:workspace/feeds?limit=&cursor=`                            | List feed summaries with opaque cursor pagination; requires `files:read`                                                                                                                                                        |
+| `GET /v1/workspaces/:workspace/feeds/:id`                                       | Read one owned feed and its current newest-first screenshots; requires `files:read`                                                                                                                                             |
+| `DELETE /v1/workspaces/:workspace/feeds/:id`                                    | Soft-delete a feed record; requires `files:write`                                                                                                                                                                               |
+| `GET /public/feeds/:id`                                                         | Read one public change feed by its opaque ID (no auth). Items are resolved at view time                                                                                                                                         |
 
 ## Pagination
 
@@ -154,16 +159,17 @@ described above in every row.
 | `GET …/galleries`                         | `{ galleries, nextCursor }`                                    |
 | `GET …/galleries/by-reference`            | `{ galleries, nextCursor }`                                    |
 | `GET …/galleries/:id/external-references` | `{ references }` (no pagination; the set is small per gallery) |
+| `GET …/feeds`                             | `{ feeds, nextCursor }`                                        |
 
 `nextCursor` on the gallery endpoints predates the `cursor` convention below
 and keeps its name — see "Existing fields keep their names."
 
 ## Compatibility routes
 
-The bearer-only `/v1/:workspace/files`, `/v1/:workspace/usage`, and
-`/v1/:workspace/galleries` route families remain available. They preserve
-existing response shapes for installed clients. New integrations should use
-the canonical `/v1/workspaces/:workspace/…` hierarchy.
+The bearer-only `/v1/:workspace/files`, `/v1/:workspace/usage`,
+`/v1/:workspace/galleries`, and `/v1/:workspace/feeds` route families remain
+available. They preserve existing response shapes for installed clients. New
+integrations should use the canonical `/v1/workspaces/:workspace/…` hierarchy.
 
 The canonical and compatibility routes share mutation handlers where their
 contracts match. Some list envelopes intentionally differ. In particular, the

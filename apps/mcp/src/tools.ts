@@ -105,6 +105,8 @@ import {
   referenceDto,
   unwrapMutation,
 } from "@uploads/api/gallery-service";
+import { createFeed, getFeed } from "@uploads/api/feeds";
+import { hydrateOwnerFeed, unwrapFeedMutation } from "@uploads/api/feed-service";
 import { parseExternalReference } from "@uploads/api/external-references";
 import { publicUrl, storage, storageConfig } from "@uploads/api/storage";
 import { deleteObject, listObjects, putObject } from "@uploads/api/files";
@@ -605,6 +607,65 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
           galleries: page.galleries.map((gallery) => gallerySummary(env, gallery)),
           nextCursor: page.nextCursor ? encodeGalleryCursor(page.nextCursor) : null,
         };
+      },
+    },
+    {
+      name: "feed_create",
+      title: "Create change feed",
+      annotations: mcpWritePublic,
+      securitySchemes: mcpOAuthWrite,
+      description:
+        "Create a public newest-first screenshot feed for a GitHub owner/repo. The same repo (and optional path) returns the existing feed. Anyone who knows the URL can view it. This is a live query, not a curated gallery.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          repo: {
+            type: "string",
+            description: "GitHub owner/repo, for example acme/app.",
+          },
+          path: {
+            type: "string",
+            description: "Optional exact page-path metadata filter, for example /settings.",
+          },
+        },
+        required: ["repo"],
+        additionalProperties: false,
+      },
+      async handler(args) {
+        requireScope("files:write");
+        await requireWriteBudget();
+        const result = unwrapFeedMutation(
+          await createFeed(env.DB, {
+            workspace: workspaceName,
+            repo: requiredString(args, "repo"),
+            path: optString(args, "path"),
+          }),
+        );
+        const record = await getFeed(env.DB, workspaceName, result.value.id);
+        if (!record) throw new Error("feed not found");
+        return hydrateOwnerFeed(env, workspace, record);
+      },
+    },
+    {
+      name: "feed_get",
+      title: "Get change feed",
+      annotations: mcpRead,
+      securitySchemes: mcpOAuthRead,
+      description:
+        "Get a workspace-owned change feed, including its current newest-first screenshots and canonical public URL. Feed media is public to anyone with the URL.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          feedId: { type: "string", description: "Opaque feed ID." },
+        },
+        required: ["feedId"],
+        additionalProperties: false,
+      },
+      async handler(args) {
+        requireScope("files:read");
+        const record = await getFeed(env.DB, workspaceName, requiredString(args, "feedId"));
+        if (!record) throw new Error("feed not found");
+        return hydrateOwnerFeed(env, workspace, record);
       },
     },
     {

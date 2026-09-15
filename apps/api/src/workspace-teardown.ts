@@ -1,6 +1,6 @@
 /**
  * Shared hard-teardown sequence for a workspace: R2 objects, D1 rows (file
- * metadata + galleries + usage), best-effort auth org, then the `ws:<name>` KV
+ * metadata + galleries + feeds + usage), best-effort auth org, then the `ws:<name>` KV
  * record. Used by the admin hard-delete path (`DELETE
  * /admin/workspaces/:name?hard=1`) and by the retention sweep's finalization
  * of an expired soft delete (`apps/api/src/retention-sweep.ts`).
@@ -18,6 +18,7 @@
 import { dbFor } from "./db-session";
 import { deleteFileMetadataForWorkspace } from "./file-metadata";
 import { deleteGalleriesForWorkspace } from "./galleries";
+import { deleteFeedsForWorkspace } from "./feeds";
 import { deleteAttachmentsForWorkspaceSafe } from "./github-attachment-index";
 import { deleteOrg } from "./org-workspaces";
 import { storage } from "./storage";
@@ -101,6 +102,7 @@ export async function teardownWorkspace(
   }
 
   const { galleries } = await deleteGalleriesForWorkspace(dbFor(env), name);
+  await deleteFeedsForWorkspace(dbFor(env), name);
   await deleteFileMetadataForWorkspace(dbFor(env), name);
   // The attachment index is workspace-scoped like file_metadata (issue
   // #934) — a torn-down workspace must not leave rows behind.

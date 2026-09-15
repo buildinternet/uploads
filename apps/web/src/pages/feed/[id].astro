@@ -1,0 +1,352 @@
+---
+import BaseHead from "../../components/BaseHead.astro";
+import Brand from "../../components/Brand.astro";
+import Footer from "../../components/Footer.astro";
+import MediaFallback from "../../components/MediaFallback.astro";
+import { mediaPreviewFailedBody, MEDIA_PREVIEW_FAILED_TITLE } from "../../lib/media-load";
+import {
+  applyPublicFeedHeaders,
+  fetchPublicFeed,
+  feedPath,
+  mediaKind as kind,
+  type PublicFeedItem,
+} from "../../lib/public-feed";
+import { OG_DEFAULT_IMAGE, OG_SITE_NAME } from "../../lib/og";
+import { env } from "cloudflare:workers";
+
+export const prerender = false;
+
+const id = Astro.params.id ?? "";
+const origin =
+  env.UPLOADS_API_ORIGIN ?? import.meta.env.PUBLIC_UPLOADS_API_ORIGIN ?? "https://api.uploads.sh";
+const result = await fetchPublicFeed(id, { origin });
+
+applyPublicFeedHeaders(Astro.response.headers);
+if (result.status === "not_found") Astro.response.status = 404;
+if (result.status === "unavailable") Astro.response.status = 503;
+
+const feed = result.status === "ok" ? result.feed : null;
+const canonical = new URL(feedPath(id), Astro.url.origin).href;
+
+function itemDate(item: PublicFeedItem): string | null {
+  const raw = item.uploaded ?? item.modified;
+  if (!raw) return null;
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+}
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <BaseHead />
+    <meta name="robots" content="noindex, nofollow, noarchive" />
+    <link rel="canonical" href={canonical} />
+    <title>{feed ? `${feed.title} · uploads.sh` : "Feed unavailable · uploads.sh"}</title>
+    <meta
+      name="description"
+      content={feed
+        ? `Recent screenshots for ${feed.repo}.`
+        : "A public change feed hosted by uploads.sh."}
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content={feed?.title ?? "Feed unavailable"} />
+    <meta
+      property="og:description"
+      content={feed
+        ? `Recent screenshots for ${feed.repo}.`
+        : "A public change feed hosted by uploads.sh."}
+    />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:site_name" content={OG_SITE_NAME} />
+    <meta property="og:image" content={OG_DEFAULT_IMAGE} />
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100dvh;
+        color: var(--fg);
+        background: var(--bg);
+        font-family: var(--sans);
+        display: flex;
+        flex-direction: column;
+      }
+      .shell {
+        width: min(720px, calc(100% - 48px));
+        margin: 0 auto;
+        padding: 36px 0 64px;
+        flex: 1 0 auto;
+      }
+      nav {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 40px;
+        font: var(--text-meta) var(--sans);
+        letter-spacing: 0.02em;
+      }
+      .public {
+        color: var(--muted);
+        font-size: var(--text-micro);
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        padding: 6px 11px;
+        background: var(--panel);
+      }
+      header {
+        margin-bottom: 28px;
+      }
+      .eyebrow {
+        color: var(--muted);
+        font: var(--text-micro) var(--sans);
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+      }
+      h1 {
+        margin: 10px 0 12px;
+        font-size: var(--text-h1);
+        font-weight: var(--weight-semibold);
+        line-height: 1.2;
+        letter-spacing: -0.015em;
+        overflow-wrap: anywhere;
+      }
+      .meta {
+        display: flex;
+        gap: 16px;
+        flex-wrap: wrap;
+        margin-top: 18px;
+        color: var(--muted);
+        font: var(--text-micro) var(--sans);
+      }
+      .notice {
+        margin: 22px 2px;
+        color: var(--muted);
+        font: var(--text-meta) / 1.6 var(--sans);
+      }
+      .feed {
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+      }
+      figure {
+        margin: 0;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        overflow: hidden;
+      }
+      .media {
+        min-height: 280px;
+        aspect-ratio: 16 / 10;
+        background: var(--bg);
+        display: grid;
+        place-items: center;
+        overflow: hidden;
+      }
+      img,
+      video {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        display: block;
+      }
+      .media[data-failed="1"] img,
+      .media[data-failed="1"] video,
+      .media[data-failed="1"] .media-link {
+        display: none;
+      }
+      figcaption {
+        padding: 14px 16px 16px;
+        border-top: 1px solid var(--line);
+      }
+      .filename {
+        color: var(--fg);
+        font: var(--weight-semibold) var(--text-meta) / 1 var(--mono);
+        overflow-wrap: anywhere;
+      }
+      .item-meta {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin-top: 8px;
+        color: var(--muted);
+        font: var(--text-micro) var(--sans);
+      }
+      .original {
+        display: inline-block;
+        margin-top: 10px;
+        color: var(--muted);
+        font: var(--text-micro) var(--sans);
+      }
+      .media-link {
+        display: contents;
+      }
+      .original:hover,
+      .original:focus-visible {
+        color: var(--accent);
+        outline: none;
+      }
+      .empty,
+      .error {
+        padding: 70px 24px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        text-align: center;
+        background: var(--panel);
+        color: var(--body);
+      }
+      .empty code,
+      .error code {
+        color: var(--accent);
+        font-family: var(--mono);
+      }
+      a {
+        color: var(--fg);
+        text-decoration-color: color-mix(in srgb, var(--accent) 55%, transparent);
+        text-underline-offset: 3px;
+      }
+      @media (max-width: 760px) {
+        .shell {
+          width: calc(100% - 32px);
+          padding-top: 24px;
+        }
+        nav {
+          margin-bottom: 32px;
+        }
+        .media {
+          min-height: 190px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <nav><Brand /><span class="public">public feed</span></nav>
+      {
+        feed ? (
+          <>
+            <header>
+              <div class="eyebrow">Repo change feed</div>
+              <h1>{feed.title}</h1>
+              <div class="meta">
+                <span>newest first</span>
+                <span>
+                  {feed.items.length} {feed.items.length === 1 ? "shot" : "shots"}
+                </span>
+              </div>
+            </header>
+            <aside class="notice">
+              Anyone with this link can view this feed. It updates as new screenshots are tagged
+              with this repo. Do not share sensitive media.
+            </aside>
+            {feed.items.length === 0 ? (
+              <section class="empty">
+                <code>feed.empty</code>
+                <p>No screenshots are tagged with this repo yet.</p>
+              </section>
+            ) : (
+              <section class="feed">
+                {feed.items.map((item) => {
+                  const mediaKind = kind(item);
+                  const previewable = mediaKind === "image" || mediaKind === "video";
+                  const when = itemDate(item);
+                  return (
+                    <figure>
+                      <div class="media" data-media-load={previewable ? "" : undefined}>
+                        {mediaKind === "image" && (
+                          <a
+                            class="media-link"
+                            href={item.url!}
+                            rel="noopener noreferrer"
+                            aria-label={`Open ${item.filename}`}
+                          >
+                            <img
+                              src={item.url!}
+                              alt={item.filename}
+                              loading="lazy"
+                              decoding="async"
+                            />
+                          </a>
+                        )}
+                        {mediaKind === "video" && (
+                          <video
+                            src={item.url!}
+                            poster={item.posterUrl ?? undefined}
+                            controls
+                            playsinline
+                            preload={item.posterUrl ? "none" : "metadata"}
+                          >
+                            Your browser cannot play this video.
+                          </video>
+                        )}
+                        {previewable && (
+                          <MediaFallback
+                            pending
+                            compact
+                            title={MEDIA_PREVIEW_FAILED_TITLE}
+                            body={mediaPreviewFailedBody(mediaKind === "video" ? "video" : "image")}
+                            href={item.url}
+                          />
+                        )}
+                        {mediaKind === "file" && (
+                          <MediaFallback
+                            compact
+                            title="Preview unavailable"
+                            href={item.url}
+                            filename={item.filename}
+                          />
+                        )}
+                        {mediaKind === "missing" && (
+                          <MediaFallback compact title="Removed or expired" />
+                        )}
+                      </div>
+                      <figcaption>
+                        <div class="filename">{item.filename}</div>
+                        <div class="item-meta">
+                          {item.path && <span>{item.path}</span>}
+                          {item.state && <span>{item.state}</span>}
+                          {when && <span>{when}</span>}
+                        </div>
+                        {item.status === "available" && (
+                          <a class="original" href={item.url!} rel="noopener noreferrer">
+                            Open original
+                          </a>
+                        )}
+                      </figcaption>
+                    </figure>
+                  );
+                })}
+              </section>
+            )}
+          </>
+        ) : (
+          <section class="error">
+            <code>{result.status === "not_found" ? "feed.not_found" : "feed.unavailable"}</code>
+            <h1>
+              {result.status === "not_found" ? "Feed not found" : "Feed temporarily unavailable"}
+            </h1>
+            <p>
+              {result.status === "not_found"
+                ? "Check the link or ask the feed owner for a current URL."
+                : "The feed service could not be reached. Please try again shortly."}
+            </p>
+          </section>
+        )
+      }
+    </main>
+    <Footer />
+    <script>
+      import { bindMediaFallbacks } from "../../lib/media-load";
+      function boot(): void {
+        bindMediaFallbacks(document);
+      }
+      boot();
+      document.addEventListener("astro:page-load", boot);
+    </script>
+  </body>
+</html>

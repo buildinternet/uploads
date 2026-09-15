@@ -294,6 +294,52 @@ export interface FindGalleriesByReferenceOptions {
   cursor?: string;
 }
 
+/** A workspace-owned, query-backed public repo change feed. */
+export interface FeedItem {
+  id: string;
+  objectKey: string;
+  filename: string;
+  status: "available" | "missing" | "withheld";
+  url: string | null;
+  embedUrl: string | null;
+  contentType: string | null;
+  size: number | null;
+  uploaded: string | null;
+  modified: string | null;
+  path: string | null;
+  state: string | null;
+}
+
+export interface Feed {
+  id: string;
+  /** Canonical public URL returned by the API; clients must not construct it. */
+  url: string;
+  workspace: string;
+  repo: string;
+  path: string | null;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  items: FeedItem[];
+}
+
+export type FeedSummary = Omit<Feed, "items">;
+
+export interface FeedListOptions {
+  limit?: number;
+  cursor?: string;
+}
+
+export interface FeedListResult {
+  feeds: FeedSummary[];
+  nextCursor: string | null;
+}
+
+export interface CreateFeedOptions {
+  repo: string;
+  path?: string | null;
+}
+
 /**
  * Reasons the bot did not post. The CLI falls back to the local `gh` path
  * for all of these except `not_authorized` (issue #297 baseline control):
@@ -1005,6 +1051,10 @@ function galleriesBase(config: UploadsClientConfig): string {
   return `${config.apiUrl}/v1/workspaces/${encodeURIComponent(config.workspace)}/galleries`;
 }
 
+function feedsBase(config: UploadsClientConfig): string {
+  return `${config.apiUrl}/v1/workspaces/${encodeURIComponent(config.workspace)}/feeds`;
+}
+
 function mapApiError(
   status: number,
   error: string,
@@ -1493,6 +1543,32 @@ export function createUploadsClient(config: UploadsClientConfig) {
       if (opts.limit != null) params.set("limit", String(opts.limit));
       if (opts.cursor) params.set("cursor", opts.cursor);
       return request<GalleryListResult>("GET", galleriesBase(config) + "/by-reference?" + params);
+    },
+
+    async createFeed(opts: CreateFeedOptions): Promise<Feed> {
+      return request<Feed>("POST", feedsBase(config), {
+        body: new TextEncoder().encode(JSON.stringify(opts)),
+        headers: { "Content-Type": "application/json" },
+      });
+    },
+
+    async getFeed(id: string): Promise<Feed> {
+      return request<Feed>("GET", `${feedsBase(config)}/${encodeURIComponent(id)}`);
+    },
+
+    async listFeeds(opts: FeedListOptions = {}): Promise<FeedListResult> {
+      const params = new URLSearchParams();
+      if (opts.limit != null) params.set("limit", String(opts.limit));
+      if (opts.cursor) params.set("cursor", opts.cursor);
+      const qs = params.toString();
+      return request<FeedListResult>("GET", `${feedsBase(config)}${qs ? `?${qs}` : ""}`);
+    },
+
+    async deleteFeed(id: string): Promise<{ deleted: boolean; id: string }> {
+      return request<{ deleted: boolean; id: string }>(
+        "DELETE",
+        `${feedsBase(config)}/${encodeURIComponent(id)}`,
+      );
     },
 
     /**

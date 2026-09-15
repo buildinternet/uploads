@@ -174,6 +174,12 @@ function galleryId(args: ToolArgs): string {
   return id;
 }
 
+function feedId(args: ToolArgs): string {
+  const id = optString(args, "feedId");
+  if (!id) usage("feedId is required");
+  return id;
+}
+
 function galleryReference(args: ToolArgs): { provider: "github"; coordinate: string } {
   const provider = optString(args, "provider");
   const coordinate = optString(args, "coordinate");
@@ -402,6 +408,57 @@ export function createUploadsMcpTools(opts: {
           limit: optPosInt(args, "limit"),
           cursor: optString(args, "cursor"),
         });
+      },
+    },
+    {
+      name: "feed_create",
+      title: "Create change feed",
+      annotations: mcpWritePublic,
+      securitySchemes: mcpOAuthWrite,
+      description:
+        "Create a public newest-first screenshot feed for a GitHub owner/repo. The same repo (and optional path) returns the existing feed. Anyone who knows the URL can view it. This is a live query, not a curated gallery.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          repo: {
+            type: "string",
+            description: "GitHub owner/repo, for example acme/app.",
+          },
+          path: {
+            type: "string",
+            description: "Optional exact page-path metadata filter, for example /settings.",
+          },
+          workspace: workspaceProp,
+        },
+        required: ["repo"],
+        additionalProperties: false,
+      },
+      async handler(args) {
+        const repo = optString(args, "repo");
+        if (!repo) usage("repo is required");
+        const { client } = await clientFor(args);
+        return client.createFeed({ repo, path: optString(args, "path") });
+      },
+    },
+    {
+      name: "feed_get",
+      title: "Get change feed",
+      annotations: mcpRead,
+      securitySchemes: mcpOAuthRead,
+      description:
+        "Get a workspace-owned change feed, including its current newest-first screenshots and canonical public URL. Feed media is public to anyone with the URL.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          feedId: { type: "string", description: "Opaque feed ID." },
+          workspace: workspaceProp,
+        },
+        required: ["feedId"],
+        additionalProperties: false,
+      },
+      async handler(args) {
+        const { client } = await clientFor(args);
+        return client.getFeed(feedId(args));
       },
     },
     {

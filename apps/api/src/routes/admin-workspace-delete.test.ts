@@ -14,6 +14,7 @@ const MIGRATIONS = [
   "migrations/20260710140000_workspace_usage.sql",
   "migrations/20260822120100_workspace_usage_shared_subset.sql",
   "migrations/20260730170533_delete_usage_claims.sql",
+  "migrations/20260915120000_feeds.sql",
 ];
 
 beforeAll(() => {

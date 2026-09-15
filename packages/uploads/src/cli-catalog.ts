@@ -174,6 +174,16 @@ export const ROOT_COMMANDS: readonly CatalogCommand[] = [
     ],
   },
   {
+    name: "feed",
+    summary: "Create a public newest-first screenshot feed for a GitHub repo",
+    subcommands: [
+      { name: "create", summary: "Create or reuse a repo change feed" },
+      { name: "show", summary: "Show a feed" },
+      { name: "list", summary: "List feeds" },
+      { name: "delete", summary: "Delete a feed record" },
+    ],
+  },
+  {
     name: "comment",
     summary: "Create/update a PR/issue attachments comment (via gh)",
   },
