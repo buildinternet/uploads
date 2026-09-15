@@ -13,8 +13,11 @@
 -- Redirects: https is allowed for any host, including releases.localhost.
 -- http is allowed only for true loopback (localhost / 127.0.0.1). No :8788
 -- callbacks — those are not registered.
+--
+-- Icon: the live releases.sh mark (Connected apps shows clientIcon when it
+-- is an https URL). Do not use /favicon.svg — that path 404s.
 INSERT OR IGNORE INTO oauth_client (
-  id, client_id, client_secret, name, uri, redirect_uris, scopes,
+  id, client_id, client_secret, name, icon, uri, redirect_uris, scopes,
   grant_types, response_types, token_endpoint_auth_method, type,
   public, require_pkce, disabled, skip_consent, user_id, metadata,
   created_at, updated_at
@@ -23,6 +26,7 @@ INSERT OR IGNORE INTO oauth_client (
   'releases-sh',
   NULL,
   'Releases',
+  'https://releases.sh/icon.svg',
   'https://releases.sh',
   '["https://releases.sh/integrations/uploads/callback","https://releases.localhost/integrations/uploads/callback","http://localhost:3000/integrations/uploads/callback","http://127.0.0.1:3000/integrations/uploads/callback"]',
   '["files:read","offline_access"]',
