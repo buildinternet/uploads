@@ -192,17 +192,20 @@ describe("GET /oauth2/connected-apps", () => {
   it("normalizes double-encoded JSON scopes to string[]", async () => {
     const env = dbEnv();
     const { userId, sessionToken } = await seedSignedInUser(env);
-    const clientId = await seedClient(env, { clientId: "releases-sh", name: "Releases" });
-    await seedGrant(env, userId, clientId, {
+    // Migrations already seed official `releases-sh` (prod-shaped client_id).
+    await seedGrant(env, userId, "releases-sh", {
       referenceId: "ws:default",
       scopes: JSON.stringify(["files:read", "offline_access"]),
     });
 
     const res = await requestGet(env, sessionToken);
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { grants: Array<{ clientId: string; scopes: unknown }> };
+    const body = (await res.json()) as {
+      grants: Array<{ clientId: string; clientName: string | null; scopes: unknown }>;
+    };
     expect(body.grants).toHaveLength(1);
     expect(body.grants[0]?.clientId).toBe("releases-sh");
+    expect(body.grants[0]?.clientName).toBe("Releases");
     expect(body.grants[0]?.scopes).toEqual(["files:read", "offline_access"]);
   });
 
