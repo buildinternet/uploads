@@ -386,7 +386,7 @@ uploads feed create --repo owner/repo --path /settings
 ```
 
 Creating the same scope again returns the existing URL. Anyone with that
-link can view the feed. Each shot also has `/feed/<id>/<item>` with previous /
+link can view the feed. Each shot also has `/c/<id>/<item>` with previous /
 next. Syncing a managed PR comment creates the PR feed if needed and points
 image clicks at that pager. MCP: `feed_create` (`repo`, plus `pr` / `issue` /
 `github` / `path`) and `feed_get`.

@@ -55,9 +55,9 @@ describe.each([
   { path: "/account/profile", title: "Account · uploads.sh" },
   { path: "/account/developers", title: "Developers · uploads.sh" },
   { path: "/f/acme/screenshots/shot.png", title: "shot.png · uploads.sh" },
-  { path: "/feed/feed_abcdefghijklmnopqrstuv", title: "acme/app · uploads.sh" },
+  { path: "/c/feed_abcdefghijklmnopqrstuv", title: "acme/app · uploads.sh" },
   {
-    path: "/feed/feed_abcdefghijklmnopqrstuv/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    path: "/c/feed_abcdefghijklmnopqrstuv/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     title: "after.png · acme/app · uploads.sh",
   },
   { path: "/changelog", title: "Changelog" },

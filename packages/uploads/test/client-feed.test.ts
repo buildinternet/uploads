@@ -3,7 +3,7 @@ import { createUploadsClient } from "../src/client.js";
 
 const feed = {
   id: "feed_example",
-  url: "https://uploads.test/feed/feed_example",
+  url: "https://uploads.test/c/feed_example",
   workspace: "test",
   repo: "acme/app",
   path: null,
@@ -48,7 +48,7 @@ describe("feed client methods", () => {
     });
 
     const created = await client.createFeed({ repo: "acme/app", number: 12, kind: "pull" });
-    expect(created.url).toBe("https://uploads.test/feed/feed_example");
+    expect(created.url).toBe("https://uploads.test/c/feed_example");
     expect(await client.getFeed(created.id)).toEqual(feed);
     expect((await client.listFeeds({ limit: 10 })).feeds[0]?.url).toBe(feed.url);
     expect(await client.deleteFeed(created.id)).toEqual({ deleted: true, id: "feed_example" });

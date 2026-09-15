@@ -6,7 +6,7 @@ import { runFeed } from "../src/commands/feed.js";
 
 const feed = {
   id: "feed_example",
-  url: "https://uploads.test/feed/feed_example",
+  url: "https://uploads.test/c/feed_example",
   workspace: "test",
   repo: "acme/app",
   path: null,

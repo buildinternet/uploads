@@ -65,11 +65,18 @@ function optionalIsoDate(value: unknown): boolean {
 }
 
 export function feedPath(feedId: string): string {
-  return `/feed/${encodeURIComponent(feedId)}`;
+  return `/c/${encodeURIComponent(feedId)}`;
 }
 
 export function feedItemPath(feedId: string, itemId: string): string {
   return `${feedPath(feedId)}/${encodeURIComponent(itemId)}`;
+}
+
+/** Map a legacy `/feed` or `/feed/…` pathname to its `/c/…` equivalent. */
+export function legacyFeedRedirectPath(pathname: string): string | null {
+  if (pathname === "/feed" || pathname === "/feed/") return "/c";
+  if (!pathname.startsWith("/feed/")) return null;
+  return `/c/${pathname.slice("/feed/".length)}`;
 }
 
 export function feedPageCopy(feed: Pick<PublicFeed, "repo" | "number" | "kind">): {

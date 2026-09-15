@@ -96,6 +96,10 @@ export default defineConfig({
   redirects: {
     // Renamed for a more recognizable slug; keep the old path working.
     "/docs/attach": "/docs/attach-pull-request-images",
+    // Capability-URL house rule: feeds live at /c/feed_… like galleries at /g/gal_….
+    // Keep /feed and /feed/* working for Slack/GitHub/comment links.
+    "/feed": "/c",
+    "/feed/[...path]": "/c/[...path]",
   },
   build: {
     format: "file",

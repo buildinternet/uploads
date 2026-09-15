@@ -42,7 +42,7 @@ export interface FeedItemDto {
   status: "available" | "missing" | "withheld";
   url: string | null;
   embedUrl: string | null;
-  /** Owner-only item page (`/feed/<id>/<item>`). Absent on the public DTO. */
+  /** Owner-only item page (`/c/<id>/<item>`). Absent on the public DTO. */
   pageUrl?: string;
   contentType: string | null;
   size: number | null;
@@ -110,7 +110,7 @@ export type PublicFeedDto = {
 };
 
 export function feedUrl(env: Env, id: string): string {
-  return webOrigin(env) + "/feed/" + encodeURIComponent(id);
+  return webOrigin(env) + "/c/" + encodeURIComponent(id);
 }
 
 /** Stable public-item id: first 32 hex chars of SHA-256(object key). */

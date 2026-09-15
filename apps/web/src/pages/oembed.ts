@@ -3,7 +3,7 @@
  *
  *   GET /oembed?url=<absolute page url>&format=json&maxwidth=&maxheight=
  *
- * Discovery links on `/f/…`, `/g/…`, and `/feed/…` point here. Only same-origin shareable
+ * Discovery links on `/f/…`, `/g/…`, and `/c/…` point here. Only same-origin shareable
  * page URLs are accepted (no open-proxy). See `src/lib/oembed.ts`.
  */
 import type { APIRoute } from "astro";

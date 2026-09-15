@@ -739,7 +739,7 @@ uploads feed show feed_example
 
 `--pr` and `--issue` take a number and need `--repo` (or the current git remote). `--github` takes `owner/repo#123` or a GitHub issue/PR URL and can supply the repo itself. `--pr` / `--issue` / `--github` are mutually exclusive. Optional `--path` can combine with any of them.
 
-Each shot also has `/feed/<id>/<item>` with previous / next and a 1 of N count. Syncing the managed PR comment creates that PR-scoped feed if needed (same idempotent create as `--pr`) and points each image's click-through at the item page. `<img src>` stays on the embed URL. Standalone `/f/…` pages stay for one-off shares.
+Each shot also has `/c/<id>/<item>` with previous / next and a 1 of N count. Syncing the managed PR comment creates that PR-scoped feed if needed (same idempotent create as `--pr`) and points each image's click-through at the item page. `<img src>` stays on the embed URL. Standalone `/f/…` pages stay for one-off shares.
 
 MCP (stdio and hosted): `feed_create` with `repo`, plus `pr` / `issue` / `github` / `path` matching the flags above. `feed_get` takes `feedId`. Creating the same scope again returns the existing URL.
 

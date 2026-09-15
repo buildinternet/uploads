@@ -277,7 +277,7 @@ async function gatherAttachments(
 
 /**
  * Ensure the PR/issue change feed exists (idempotent `createFeed`) and point
- * attachment click-throughs at `/feed/<id>/<item>` when that object is in the
+ * attachment click-throughs at `/c/<id>/<item>` when that object is in the
  * feed. Failures never fail the comment — `/f/` (or raw URL) stays.
  */
 async function applyPrFeedPageUrls(

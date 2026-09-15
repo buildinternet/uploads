@@ -149,7 +149,7 @@ describe("feed routes", () => {
       }>;
     };
     expect(feed.id).toMatch(/^feed_[A-Za-z0-9_-]{22}$/);
-    expect(feed.url).toBe(`https://uploads.test/feed/${feed.id}`);
+    expect(feed.url).toBe(`https://uploads.test/c/${feed.id}`);
     expect(feed.repo).toBe("acme/app");
     expect(feed.path).toBeNull();
     expect(feed.number).toBeNull();
@@ -161,7 +161,7 @@ describe("feed routes", () => {
       objectKey: "gh/acme/app/pull/2/new.png",
       path: "/billing",
       state: "after",
-      pageUrl: `https://uploads.test/feed/${feed.id}/${(await sha256Hex("gh/acme/app/pull/2/new.png")).slice(0, 32)}`,
+      pageUrl: `https://uploads.test/c/${feed.id}/${(await sha256Hex("gh/acme/app/pull/2/new.png")).slice(0, 32)}`,
     });
 
     const reused = await request("/v1/workspaces/alpha/feeds", {

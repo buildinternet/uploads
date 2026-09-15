@@ -69,19 +69,19 @@ rules there.
 
 ## Agent discovery (easy wins)
 
-| Check             | Location                                                                   |
-| ----------------- | -------------------------------------------------------------------------- |
-| robots.txt        | `/robots.txt`                                                              |
-| sitemap           | `/sitemap.xml` (referenced from robots)                                    |
-| Link headers      | homepage `/` via `_headers`                                                |
-| Integrations      | `/.well-known/integrations.json` (integrations.sh v3 declaration)          |
-| API catalog       | `/.well-known/api-catalog`                                                 |
-| OpenAPI           | `/.well-known/openapi.json` (canonical) and `/openapi.json` (probe)        |
-| MCP server card   | `/.well-known/mcp/server-card.json`                                        |
-| MCP Registry auth | `/.well-known/mcp-registry-auth` (HTTP domain proof for `sh.uploads/*`)    |
-| Agent skills      | `/.well-known/agent-skills/index.json`                                     |
-| Auth for agents   | `/auth.md` (bearer / invite; also documents the hosted-MCP OAuth AS)       |
-| oEmbed            | `/oembed?url=…` for public `/f/…`, `/g/…`, and `/feed/…` pages (JSON only) |
+| Check             | Location                                                                |
+| ----------------- | ----------------------------------------------------------------------- |
+| robots.txt        | `/robots.txt`                                                           |
+| sitemap           | `/sitemap.xml` (referenced from robots)                                 |
+| Link headers      | homepage `/` via `_headers`                                             |
+| Integrations      | `/.well-known/integrations.json` (integrations.sh v3 declaration)       |
+| API catalog       | `/.well-known/api-catalog`                                              |
+| OpenAPI           | `/.well-known/openapi.json` (canonical) and `/openapi.json` (probe)     |
+| MCP server card   | `/.well-known/mcp/server-card.json`                                     |
+| MCP Registry auth | `/.well-known/mcp-registry-auth` (HTTP domain proof for `sh.uploads/*`) |
+| Agent skills      | `/.well-known/agent-skills/index.json`                                  |
+| Auth for agents   | `/auth.md` (bearer / invite; also documents the hosted-MCP OAuth AS)    |
+| oEmbed            | `/oembed?url=…` for public `/f/…`, `/g/…`, and `/c/…` pages (JSON only) |
 
 ### Integration surfaces (`/.well-known/integrations.json`)
 

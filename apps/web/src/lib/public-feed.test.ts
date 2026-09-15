@@ -4,6 +4,7 @@ import {
   feedItemPath,
   feedPageCopy,
   feedPath,
+  legacyFeedRedirectPath,
   fetchPublicFeed,
   isPublicFeed,
 } from "./public-feed";
@@ -37,8 +38,17 @@ const feed = {
 
 describe("feed paths", () => {
   it("builds list and item paths", () => {
-    expect(feedPath(ID)).toBe(`/feed/${ID}`);
-    expect(feedItemPath(ID, "a".repeat(32))).toBe(`/feed/${ID}/${"a".repeat(32)}`);
+    expect(feedPath(ID)).toBe(`/c/${ID}`);
+    expect(feedItemPath(ID, "a".repeat(32))).toBe(`/c/${ID}/${"a".repeat(32)}`);
+  });
+
+  it("rewrites legacy /feed paths to /c", () => {
+    expect(legacyFeedRedirectPath("/feed")).toBe("/c");
+    expect(legacyFeedRedirectPath("/feed/")).toBe("/c");
+    expect(legacyFeedRedirectPath(`/feed/${ID}`)).toBe(`/c/${ID}`);
+    expect(legacyFeedRedirectPath(`/feed/${ID}/item-1`)).toBe(`/c/${ID}/item-1`);
+    expect(legacyFeedRedirectPath("/feedback")).toBeNull();
+    expect(legacyFeedRedirectPath("/c/feed_abc")).toBeNull();
   });
 });
 

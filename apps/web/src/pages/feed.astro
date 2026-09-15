@@ -1,0 +1,14 @@
+---
+/**
+ * Permanent redirect from the legacy `/feed` collection path.
+ * Canonical public feeds live at `/c/feed_…`.
+ */
+import { legacyFeedRedirectPath } from "../lib/public-feed";
+
+export const prerender = false;
+
+const destPath = legacyFeedRedirectPath(Astro.url.pathname) ?? "/c";
+const dest = new URL(destPath, Astro.url);
+dest.search = Astro.url.search;
+return Astro.redirect(dest, 301);
+---
