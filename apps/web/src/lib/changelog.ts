@@ -26,7 +26,16 @@ export type ChangelogEntry = {
   markdown: string;
   tags: string[];
   image?: ChangelogImage;
+  /** CLI semver from CHANGELOG.md. Unset on platform entries. */
+  version?: string;
 };
+
+export const CLI_GITHUB_RELEASE_TAG_PREFIX = "uploads-v";
+
+/** GitHub release for a published CLI version (`uploads-v0.55.0`). */
+export function cliReleaseUrl(version: string): string {
+  return `https://github.com/buildinternet/uploads/releases/tag/${CLI_GITHUB_RELEASE_TAG_PREFIX}${version}`;
+}
 
 const NPM_PACKAGE_URL = "https://registry.npmjs.org/@buildinternet/uploads";
 
@@ -148,6 +157,7 @@ async function buildChangelogEntries(): Promise<ChangelogEntry[]> {
       html: renderMarkdown(section.body),
       markdown: section.body,
       tags: ["cli"],
+      version: section.version,
     }));
 
   return mergeEntries([...platform, ...cli]);

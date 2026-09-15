@@ -1,16 +1,18 @@
 ---
 // /changelog — merged product stream: hand-written platform updates
 // (src/content/changelog) interleaved with CLI releases from changesets.
-// Fully prerendered, zero client JS. Machine twins: /changelog.xml (Atom),
-// /changelog.json (CLI / MCP).
+// Prerendered; a small module script hides entries for the kind/tag filter.
+// Machine twins stay full: /changelog.xml (Atom), /changelog.json (CLI / MCP).
 import BaseHead from "../components/BaseHead.astro";
 import Footer from "../components/Footer.astro";
 import SiteHeader from "../components/SiteHeader.astro";
 import { SAME_ORIGIN_AUTH_BASE } from "../lib/auth-client";
-import { loadChangelogEntries } from "../lib/changelog";
+import { cliReleaseUrl, loadChangelogEntries } from "../lib/changelog";
+import { changelogFilterKeys, entryChips, entryTokens, tagLabel } from "../lib/changelog-ui";
 import { OG_DEFAULT_IMAGE, OG_SITE_NAME } from "../lib/og";
 
 const entries = await loadChangelogEntries();
+const filterKeys = changelogFilterKeys(entries);
 
 const pageTitle = "Changelog";
 const pageDescription =
@@ -90,18 +92,88 @@ const formatDate = (iso: string) =>
         text-decoration: underline;
         text-underline-offset: 3px;
       }
+      .toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px 16px;
+        margin: 0 0 8px;
+      }
+      .filters {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+      .filters button {
+        appearance: none;
+        background: var(--bg);
+        color: var(--muted);
+        border: 1px solid var(--line);
+        border-radius: 99px;
+        padding: 3px 10px;
+        font: var(--text-micro) var(--sans);
+        letter-spacing: 0.04em;
+        cursor: pointer;
+      }
+      .filters button:hover,
+      .filters button:focus-visible {
+        color: var(--fg);
+        outline: none;
+      }
+      .filters button:focus-visible {
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent);
+      }
+      .filters button[aria-pressed="true"] {
+        color: var(--fg);
+        border-color: var(--fg);
+      }
+      .filter-empty {
+        color: var(--muted);
+        font-size: var(--text-ui);
+        margin: 32px 0 0;
+      }
       .entry {
         border-top: 1px solid var(--line);
         padding: 32px 0 8px;
         margin-top: 24px;
       }
+      .entry-meta {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px 10px;
+        margin-bottom: 8px;
+      }
       .entry time {
-        display: block;
         color: var(--muted);
         font: var(--text-micro) var(--mono);
         letter-spacing: 0.02em;
         text-transform: uppercase;
-        margin-bottom: 6px;
+      }
+      .chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        list-style: none;
+        margin: 0;
+        padding: 0;
+      }
+      .chip {
+        display: inline-block;
+        font: var(--text-micro) var(--sans);
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--muted);
+        border: 1px solid var(--line);
+        border-radius: 99px;
+        padding: 1px 8px;
+      }
+      .chip--platform {
+        color: var(--accent);
+      }
+      .chip--cli {
+        color: var(--fg);
       }
       .entry h2 {
         font-size: var(--text-h3);
@@ -114,6 +186,19 @@ const formatDate = (iso: string) =>
         text-decoration: none;
       }
       .entry h2 a:hover {
+        text-decoration: underline;
+        text-underline-offset: 3px;
+      }
+      .gh-hint {
+        display: inline-block;
+        margin-left: 8px;
+        font: var(--text-micro) var(--sans);
+        font-weight: var(--weight-regular);
+        letter-spacing: 0.03em;
+        text-transform: none;
+        color: var(--muted);
+      }
+      .entry h2 a:hover .gh-hint {
         text-decoration: underline;
         text-underline-offset: 3px;
       }
@@ -176,31 +261,111 @@ const formatDate = (iso: string) =>
   </head>
   <body>
     <SiteHeader authOrigin={authOrigin} />
-    <main>
+    <main data-changelog>
       <h1>Changelog</h1>
       <p class="lede">{pageDescription}</p>
-      <a class="feed-link" href="/changelog.xml">Atom feed</a>
+      <div class="toolbar">
+        <nav class="filters" aria-label="Filter changelog">
+          {
+            filterKeys.map((key) => (
+              <button
+                type="button"
+                data-filter={key}
+                aria-pressed={key === "all" ? "true" : "false"}
+              >
+                {tagLabel(key)}
+              </button>
+            ))
+          }
+        </nav>
+        <a class="feed-link" href="/changelog.xml">Atom feed</a>
+      </div>
       {
-        entries.map((entry) => (
-          <article class:list={["entry", { "entry--cli": entry.kind === "cli" }]} id={entry.id}>
-            <time datetime={entry.date}>{formatDate(entry.date)}</time>
-            <h2>
-              <a href={`#${entry.id}`}>{entry.title}</a>
-            </h2>
-            {entry.image && (
-              <img
-                class="lead-image"
-                src={entry.image.url}
-                alt={entry.image.alt}
-                loading="lazy"
-                decoding="async"
-              />
-            )}
-            <div class="body" set:html={entry.html} />
-          </article>
-        ))
+        entries.map((entry) => {
+          const chips = entryChips(entry);
+          const releaseHref =
+            entry.kind === "cli" && entry.version ? cliReleaseUrl(entry.version) : undefined;
+          return (
+            <article
+              class:list={["entry", { "entry--cli": entry.kind === "cli" }]}
+              id={entry.id}
+              data-tokens={entryTokens(entry).join(" ")}
+            >
+              <div class="entry-meta">
+                <time datetime={entry.date}>{formatDate(entry.date)}</time>
+                <ul class="chips">
+                  {chips.map((tag) => (
+                    <li>
+                      <span class:list={["chip", `chip--${tag}`]}>{tagLabel(tag)}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <h2>
+                {releaseHref ? (
+                  <a href={releaseHref} rel="noopener noreferrer">
+                    {entry.title}
+                    <span class="gh-hint">GitHub release</span>
+                  </a>
+                ) : (
+                  <a href={`#${entry.id}`}>{entry.title}</a>
+                )}
+              </h2>
+              {entry.image && (
+                <img
+                  class="lead-image"
+                  src={entry.image.url}
+                  alt={entry.image.alt}
+                  loading="lazy"
+                  decoding="async"
+                />
+              )}
+              <div class="body" set:html={entry.html} />
+            </article>
+          );
+        })
       }
+      <p class="filter-empty" data-filter-empty hidden>No entries match this filter.</p>
     </main>
     <Footer />
+    <script>
+      import { parseChangelogFilter, tokensMatchFilter } from "../lib/changelog-ui";
+
+      const root = document.querySelector("[data-changelog]");
+      if (root) {
+        const buttons = [...root.querySelectorAll<HTMLButtonElement>("[data-filter]")];
+        const articles = [...root.querySelectorAll<HTMLElement>("article.entry")];
+        const empty = root.querySelector<HTMLElement>("[data-filter-empty]");
+        const allowed = buttons.flatMap((button) =>
+          button.dataset.filter ? [button.dataset.filter] : [],
+        );
+
+        const apply = (filter: string) => {
+          let shown = 0;
+          for (const article of articles) {
+            const tokens = (article.dataset.tokens ?? "").split(/\s+/).filter(Boolean);
+            const match = tokensMatchFilter(tokens, filter);
+            article.hidden = !match;
+            if (match) shown += 1;
+          }
+          if (empty) empty.hidden = shown > 0;
+          for (const button of buttons) {
+            button.setAttribute("aria-pressed", String(button.dataset.filter === filter));
+          }
+          const url = new URL(location.href);
+          if (filter === "all") url.searchParams.delete("filter");
+          else url.searchParams.set("filter", filter);
+          history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+        };
+
+        root.addEventListener("click", (event) => {
+          const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-filter]");
+          if (!button || !root.contains(button) || !button.dataset.filter) return;
+          apply(button.dataset.filter);
+        });
+
+        apply(parseChangelogFilter(new URL(location.href).searchParams.get("filter"), allowed));
+      }
+    </script>
   </body>
 </html>
