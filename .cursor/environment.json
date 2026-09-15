@@ -1,0 +1,15 @@
+{
+  "name": "uploads",
+  "user": "ubuntu",
+  "install": "bash .cursor/install.sh",
+  "terminals": [
+    {
+      "name": "api",
+      "command": "bash -lc 'cd apps/api && pnpm exec wrangler dev --local --port 8787'"
+    },
+    {
+      "name": "web",
+      "command": "bash -lc 'pnpm dev:web --host'"
+    }
+  ]
+}
