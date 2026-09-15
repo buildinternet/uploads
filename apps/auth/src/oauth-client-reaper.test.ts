@@ -51,10 +51,10 @@ describe("sweepOauthClients", () => {
     expect(result.reapable).toBe(1);
     expect(result.deleted).toBe(0);
 
-    // Issue #251 seeds a recent, non-stale "uploads-cli" oauth_client row via
-    // migration, so a clean DB has that row plus stale-1.
+    // Migrations seed recent official `uploads-cli` and `releases-sh` rows,
+    // so a clean DB has those plus stale-1.
     const remaining = await drizzle(db, { schema }).select().from(schema.oauthClient);
-    expect(remaining).toHaveLength(2);
+    expect(remaining).toHaveLength(3);
   });
 
   it("deletes stale anonymous unused clients when OAUTH_CLIENT_REAPER_ENABLED=true", async () => {
@@ -66,9 +66,9 @@ describe("sweepOauthClients", () => {
     expect(result.mode).toBe("delete");
     expect(result.deleted).toBe(1);
 
-    // The seeded "uploads-cli" row (issue #251) is recent and survives the sweep.
+    // Seeded official rows (`uploads-cli`, `releases-sh`) survive the sweep.
     const remaining = await drizzle(db, { schema }).select().from(schema.oauthClient);
-    expect(remaining).toHaveLength(1);
+    expect(remaining).toHaveLength(2);
   });
 
   it("never sweeps a recent client, a session-owned client, or a trusted (skip_consent) client", async () => {
@@ -83,9 +83,9 @@ describe("sweepOauthClients", () => {
     expect(result.candidates).toBe(0);
     expect(result.deleted).toBe(0);
 
-    // Plus the seeded "uploads-cli" row (issue #251), which is also recent.
+    // Plus the seeded official rows (`uploads-cli`, `releases-sh`).
     const remaining = await drizzle(db, { schema }).select().from(schema.oauthClient);
-    expect(remaining).toHaveLength(4);
+    expect(remaining).toHaveLength(5);
   });
 
   it("never sweeps a client with a consent row, even if stale and anonymous", async () => {
@@ -131,6 +131,30 @@ describe("sweepOauthClients", () => {
       .from(schema.oauthClient)
       .where(eq(schema.oauthClient.clientId, "uploads-cli"));
     expect(remaining).toHaveLength(1);
+  });
+
+  it("never sweeps a stale seeded releases-sh client (official exemption, not skip_consent)", async () => {
+    // releases-sh is skip_consent=0 (third-party consent). Only
+    // metadata.official keeps a stale unused row out of the reaper.
+    const old = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000);
+    await drizzle(db, { schema })
+      .update(schema.oauthClient)
+      .set({ createdAt: old, updatedAt: old })
+      .where(eq(schema.oauthClient.clientId, "releases-sh"));
+
+    const result = await sweepOauthClients({ ...env, OAUTH_CLIENT_REAPER_ENABLED: "true" });
+
+    expect(result.candidates).toBe(0);
+    expect(result.reapable).toBe(0);
+    expect(result.deleted).toBe(0);
+
+    const remaining = await drizzle(db, { schema })
+      .select()
+      .from(schema.oauthClient)
+      .where(eq(schema.oauthClient.clientId, "releases-sh"));
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0]?.skipConsent).toBe(false);
+    expect(remaining[0]?.metadata).toEqual({ official: true });
   });
 
   it("never sweeps a stale, never-used, official operator-panel client (metadata.official)", async () => {

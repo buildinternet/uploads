@@ -41,13 +41,17 @@ uploads login --workspace acme
 
 The CLI authenticates as the managed official OAuth client `uploads-cli`,
 visible and toggleable by operators in the admin panel at `/admin/oauth`.
-The server blocks deleting an official client (`DELETE` returns 409) until an
-operator first clears its official flag (`PATCH official:false`). That two-step
-is deliberate. The seed migration runs only once (`INSERT OR IGNORE`, journaled
-as applied), so the system does not re-seed a deleted `uploads-cli` client
-automatically. A deletion would break CLI login fleet-wide until someone
-re-inserts the row by hand, so prefer disabling the client over clearing its
-official flag and deleting it.
+`releases-sh` is the other seeded official client: a public PKCE
+authorization-code app for [releases.sh](https://releases.sh), scoped to
+`files:read`, with user consent required. Both rows carry
+`metadata.official`. The server blocks deleting an official client
+(`DELETE` returns 409) until an operator first clears its official flag
+(`PATCH official:false`). That two-step is deliberate. Each seed migration
+runs only once (`INSERT OR IGNORE`, journaled as applied), so the system
+does not re-seed a deleted official client automatically. A deletion of
+`uploads-cli` would break CLI login fleet-wide until someone re-inserts
+the row by hand, so prefer disabling the client over clearing its official
+flag and deleting it.
 
 On success, the CLI saves `UPLOADS_API_URL`, `UPLOADS_WORKSPACE`, and
 `UPLOADS_TOKEN` in the shared buildinternet config and runs `doctor`. It never
@@ -166,7 +170,9 @@ the default onboarding path today. Direct token minting (`/admin/tokens`) is
 reserved for CI and break-glass administration. Rotate legacy routine-agent
 tokens to login-issued tokens gradually, then revoke the old hashes.
 
-Migration `20260719000000_seed_cli_oauth_client.sql` seeds the managed
-`uploads-cli` OAuth client row and must be applied (`pnpm migrate:d1` in
-`apps/auth`) before deploying an auth worker that includes the DB-backed
-`validateClient` — the device flow fails closed without the row.
+The `uploads-cli` seed lives in `20260822120000_auth_tables.sql` (replayed
+from the retired `apps/auth` migration `20260719000000_seed_cli_oauth_client.sql`).
+`20260915200000_seed_releases_sh_oauth_client.sql` seeds `releases-sh`.
+Both apply with the rest of `apps/api/migrations` (`pnpm migrate:d1` /
+`migrate:d1:local`). The device flow fails closed without the `uploads-cli`
+row.

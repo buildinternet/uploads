@@ -120,6 +120,20 @@ describe("POST /internal/oauth-clients", () => {
       redirectUris: ["http://example.com/callback"],
     });
     expect(bad.status).toBe(400);
+
+    // https is allowed for any host, including releases.localhost. http on
+    // that same host is not loopback and must 400.
+    const httpsLocal = await jsonReq("POST", "/internal/oauth-clients", {
+      ...validCreateBody,
+      redirectUris: ["https://releases.localhost/integrations/uploads/callback"],
+    });
+    expect(httpsLocal.status).toBe(201);
+
+    const httpLocal = await jsonReq("POST", "/internal/oauth-clients", {
+      ...validCreateBody,
+      redirectUris: ["http://releases.localhost/integrations/uploads/callback"],
+    });
+    expect(httpLocal.status).toBe(400);
   });
 
   it("400s on a redirect URI containing a fragment (RFC 6749 §3.1.2)", async () => {
@@ -148,9 +162,11 @@ describe("GET /internal/oauth-clients", () => {
     const res = await jsonReq("GET", "/internal/oauth-clients");
     expect(res.status).toBe(200);
     const body = (await res.json()) as { clients: Array<{ clientId: string; name: string }> };
-    // Issue #251 seeds an "uploads-cli" oauth_client row via migration, so a
-    // clean DB has that row plus these two, not just these two.
-    const created = body.clients.filter((c) => c.clientId !== "uploads-cli");
+    // Migrations seed official `uploads-cli` and `releases-sh` rows, so a
+    // clean DB has those plus these two, not just these two.
+    const created = body.clients.filter(
+      (c) => c.clientId !== "uploads-cli" && c.clientId !== "releases-sh",
+    );
     expect(created).toHaveLength(2);
     expect(created[0].clientId).toBe(secondBody.clientId);
     expect(created[1].clientId).toBe(firstBody.clientId);
