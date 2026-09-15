@@ -65,9 +65,9 @@ still refreshes the skills, because those drift on their own. Run
 Re-running `install` (directly or through `update`) is safe. The skills are
 reinstalled each time. MCP registration tries Claude Code, Codex, and Grok;
 a CLI that is not on PATH is skipped and does not fail the rest of the
-install. An MCP server already registered under that name in a given client is
-reported as `already configured` and left untouched, because `claude mcp add`
-(and the Codex/Grok equivalents) never overwrite an existing entry. That also
+install. Before `mcp add`, install checks `mcp list`. A server already
+registered under that name is reported as `already configured` and left
+untouched, so a refresh does not open a browser for OAuth. That also
 means a registration keeps the bearer token it was created with — after
 `uploads login` with a new token, remove and re-add it:
 

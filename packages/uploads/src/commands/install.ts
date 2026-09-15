@@ -6,7 +6,7 @@ import {
   type GlobalFlags,
 } from "../cli-args.js";
 import { resolveConfig } from "../config.js";
-import { execRunner, type CommandRunner } from "../github-gh.js";
+import { execRunner, timedExecRunner, type CommandRunner } from "../github-gh.js";
 import { writeCommandHelp } from "../cli-style.js";
 import {
   HOOK_COMMAND,
@@ -58,7 +58,9 @@ export const MCP_CLIENTS: readonly McpClient[] = [
     // Codex HTTP MCP has no --header; auth is OAuth on first use (same as the
     // plugin's .mcp.json). Passing --bearer-token-env-var UPLOADS_TOKEN would
     // break machines that signed in via `uploads login` (token lives in the
-    // config file, not the environment).
+    // config file, not the environment). A second `mcp add` re-opens Codex's
+    // localhost callback ("Authentication complete. You may close this
+    // window.") — probe `mcp list` first so a refresh does not do that.
     command: (name, url) => ["codex", "mcp", "add", name, "--url", url],
   },
   {
@@ -82,9 +84,10 @@ workspace from the bearer token, so only the token is needed.
 Claude Code and Codex ship the same reminder via their plugins (same command:
 \`${HOOK_INVOCATION}\`) — install those plugins instead of relying on this step.
 
-Safe to re-run. An MCP server already registered under this name is reported
-as \`already configured\` and left as-is — including the token it was created
-with. To point it at a new token: \`<cli> mcp remove <name>\` first
+Safe to re-run. Before \`mcp add\`, install checks \`mcp list\`. A server that is
+already registered is reported as \`already configured\` and left as-is —
+including the token it was created with — so a refresh does not open a browser
+for OAuth. To point it at a new token: \`<cli> mcp remove <name>\` first
 (e.g. \`claude mcp remove uploads\`).
 
 Usage:
@@ -234,6 +237,34 @@ function isAlreadyConfigured(error: string): boolean {
   return /already exists|already (configured|registered|present)|duplicate/i.test(error);
 }
 
+/**
+ * True when `mcp list` output already names this server.
+ * Matches a name token (Claude's `uploads: url` form, tables, JSON) and not
+ * a substring of a host like `agents.uploads.sh`.
+ */
+export function mcpListIncludesName(output: string, name: string): boolean {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const token = new RegExp(`(?:^|[\\s"'\\[{,])${escaped}(?:[:\\s"',\\]}]|$)`, "m");
+  return token.test(output);
+}
+
+/** Best-effort `mcp list` probe. Never opens a browser; times out on the default runner. */
+const MCP_LIST_TIMEOUT_MS = 8_000;
+
+function probeMcpAlreadyConfigured(
+  run: CommandRunner,
+  client: McpClient,
+  name: string,
+): "yes" | "no" | "missing" {
+  const probe = run === execRunner ? timedExecRunner(MCP_LIST_TIMEOUT_MS) : run;
+  try {
+    const output = probe(client.id, ["mcp", "list"]);
+    return mcpListIncludesName(output, name) ? "yes" : "no";
+  } catch (err) {
+    return isEnoent(err) ? "missing" : "no";
+  }
+}
+
 function mcpStepKey(client: McpClient): string {
   return `mcp:${client.id}`;
 }
@@ -265,8 +296,31 @@ function partitionSteps(results: Record<string, StepResult>): {
   return { skills, mcp, other };
 }
 
-/** Run one client's `mcp add`; missing binaries skip, duplicates are already-configured. */
-function runMcpClientStep(run: CommandRunner, command: string[]): StepResult {
+/**
+ * Run one client's `mcp add`. Probe `mcp list` first so a refresh does not
+ * re-run add — Codex (and some other clients) treat a second add as success
+ * and open a localhost OAuth callback even when the server is already there.
+ */
+function runMcpClientStep(
+  run: CommandRunner,
+  client: McpClient,
+  name: string,
+  url: string,
+  bearer: string,
+): StepResult {
+  const command = client.command(name, url, bearer);
+  const listed = probeMcpAlreadyConfigured(run, client, name);
+  if (listed === "yes") {
+    return { command, ok: true, skipped: "already-configured" };
+  }
+  if (listed === "missing") {
+    return {
+      command,
+      ok: true,
+      skipped: "missing-cli",
+      error: `${client.id} not found on PATH`,
+    };
+  }
   try {
     const output = run(command[0], command.slice(1)).trim();
     return { command, ok: true, output: output || undefined };
@@ -501,7 +555,7 @@ export async function runInstall(
       } else if (dryRun) {
         results[key] = { command, ok: true, skipped: "dry-run" };
       } else {
-        results[key] = runMcpClientStep(run, command);
+        results[key] = runMcpClientStep(run, client, name, url, bearer);
       }
     }
   }

@@ -7,6 +7,7 @@ import {
   runInstall,
   DEFAULT_MCP_URL,
   MCP_CLIENTS,
+  mcpListIncludesName,
   missingBinaryHint,
   npmTooOldHint,
   probeSkillTooling,
@@ -39,6 +40,21 @@ function withoutSkillProbe(calls: string[][]): string[][] {
   return calls.filter(
     (c) => !(c[0] === "npx" && c[1] === "--version") && !(c[0] === "npm" && c[1] === "--version"),
   );
+}
+
+function mcpListCall(id: string): string[] {
+  return [id, "mcp", "list"];
+}
+
+/** Interleave a `mcp list` probe before each client's `mcp add`. */
+function withMcpListProbes(addCalls: string[][]): string[][] {
+  const out: string[][] = [];
+  for (const add of addCalls) {
+    const id = add[0];
+    if (id) out.push(mcpListCall(id));
+    out.push(add);
+  }
+  return out;
 }
 
 function captureStreams() {
@@ -128,7 +144,9 @@ describe("uploads install", () => {
         "-a",
         "*",
       ],
-      ...MCP_CLIENTS.map((client) => client.command("uploads", DEFAULT_MCP_URL, "up_acme_secret")),
+      ...withMcpListProbes(
+        MCP_CLIENTS.map((client) => client.command("uploads", DEFAULT_MCP_URL, "up_acme_secret")),
+      ),
     ]);
   });
 
@@ -186,12 +204,14 @@ describe("uploads install", () => {
       runner: run,
     });
     expect(code).toBe(0);
-    expect(calls).toHaveLength(MCP_CLIENTS.length);
-    expect(calls[0]).toContain("https://mcp.uploads.sh/mcp");
-    expect(calls[0]).toContain("up");
-    expect(calls.every((c) => c.includes("https://mcp.uploads.sh/mcp") && c.includes("up"))).toBe(
+    const adds = calls.filter((c) => c[1] === "mcp" && c[2] === "add");
+    expect(adds).toHaveLength(MCP_CLIENTS.length);
+    expect(adds[0]).toContain("https://mcp.uploads.sh/mcp");
+    expect(adds[0]).toContain("up");
+    expect(adds.every((c) => c.includes("https://mcp.uploads.sh/mcp") && c.includes("up"))).toBe(
       true,
     );
+    expect(calls.filter((c) => c[1] === "mcp" && c[2] === "list")).toHaveLength(MCP_CLIENTS.length);
   });
 
   it("install hooks writes manifests when harness dirs exist", async () => {
@@ -297,7 +317,15 @@ describe("uploads install", () => {
     const { out, err } = captureStreams();
     const code = await install(["mcp"], { globals: GLOBALS, runner: run });
     expect(code).toBe(0);
-    expect(calls.map((c) => c[0])).toEqual(MCP_CLIENTS.map((c) => c.id));
+    const add = (id: "codex" | "grok") =>
+      MCP_CLIENTS.find((c) => c.id === id)!.command("uploads", DEFAULT_MCP_URL, "up_acme_secret");
+    expect(calls).toEqual([
+      mcpListCall("claude"),
+      mcpListCall("codex"),
+      add("codex"),
+      mcpListCall("grok"),
+      add("grok"),
+    ]);
     const printed = out.join("");
     expect(printed).toMatch(/mcp:claude: skipped — claude not found on PATH/);
     expect(printed).toMatch(/mcp:codex: ok/);
@@ -478,6 +506,48 @@ describe("uploads install", () => {
     expect(err.join("")).not.toMatch(/claude not found on PATH/);
   });
 
+  it("skips mcp add when mcp list already names the server", async () => {
+    const calls: string[][] = [];
+    const run: CommandRunner = (cmd, args) => {
+      calls.push([cmd, ...args]);
+      if (cmd === "npx" || cmd === "npm") return skillProbeOk(cmd, args) ?? "ok\n";
+      if (args[0] === "mcp" && args[1] === "list") {
+        return "uploads: https://agents.uploads.sh/mcp (HTTP)\n";
+      }
+      if (args[0] === "mcp" && args[1] === "add") {
+        throw new Error(`${cmd} mcp add should not run when already listed`);
+      }
+      return "ok\n";
+    };
+    const { out, err } = captureStreams();
+    const code = await install(["mcp"], { globals: GLOBALS, runner: run });
+    expect(code).toBe(0);
+    expect(calls.every((c) => c[2] !== "add")).toBe(true);
+    expect(calls.filter((c) => c[1] === "mcp" && c[2] === "list")).toHaveLength(MCP_CLIENTS.length);
+    const printed = out.join("");
+    expect(printed).toMatch(/mcp:claude: already configured/);
+    expect(printed).toMatch(/mcp:codex: already configured/);
+    expect(printed).toMatch(/mcp:grok: already configured/);
+    expect(err.join("")).toBe("");
+  });
+
+  it("still runs mcp add when mcp list fails or omits the name", async () => {
+    const calls: string[][] = [];
+    const run: CommandRunner = (cmd, args) => {
+      calls.push([cmd, ...args]);
+      if (cmd === "claude" && args[1] === "list") throw new Error("list unavailable");
+      if (cmd === "codex" && args[1] === "list") return "other-server: https://example.test\n";
+      return "ok\n";
+    };
+    const { out } = captureStreams();
+    expect(await install(["mcp"], { globals: GLOBALS, runner: run })).toBe(0);
+    const adds = calls.filter((c) => c[1] === "mcp" && c[2] === "add");
+    expect(adds.map((c) => c[0])).toEqual(MCP_CLIENTS.map((c) => c.id));
+    expect(out.join("")).toMatch(/mcp:claude: ok/);
+    expect(out.join("")).toMatch(/mcp:codex: ok/);
+    expect(out.join("")).toMatch(/mcp:grok: ok/);
+  });
+
   it("--json marks a missing agent CLI as skipped, not failed", async () => {
     const run: CommandRunner = (cmd, args) => {
       const probe = skillProbeOk(cmd, args);
@@ -494,5 +564,50 @@ describe("uploads install", () => {
     expect(parsed.steps["mcp:claude"].skipped).toBe("missing-cli");
     expect(parsed.steps["mcp:codex"].ok).toBe(true);
     expect(parsed.steps["mcp:codex"].skipped).toBeUndefined();
+  });
+
+  it("--json marks a listed MCP server as already-configured without add", async () => {
+    const calls: string[][] = [];
+    const run: CommandRunner = (cmd, args) => {
+      calls.push([cmd, ...args]);
+      if (args[0] === "mcp" && args[1] === "list") return '[{"name":"uploads"}]';
+      throw new Error("mcp add should not run");
+    };
+    const { out } = captureStreams();
+    const code = await install(["mcp"], { globals: GLOBALS, json: true, runner: run });
+    expect(code).toBe(0);
+    const parsed = JSON.parse(out.join(""));
+    expect(parsed.ok).toBe(true);
+    expect(parsed.steps["mcp:claude"].skipped).toBe("already-configured");
+    expect(parsed.steps["mcp:codex"].skipped).toBe("already-configured");
+    expect(parsed.steps["mcp:grok"].skipped).toBe("already-configured");
+    expect(calls.every((c) => c[2] !== "add")).toBe(true);
+  });
+});
+
+describe("mcpListIncludesName", () => {
+  it("matches Claude, table, and JSON name tokens", () => {
+    expect(mcpListIncludesName("uploads: https://agents.uploads.sh/mcp (HTTP)", "uploads")).toBe(
+      true,
+    );
+    expect(mcpListIncludesName("uploads  enabled  OAuth", "uploads")).toBe(true);
+    expect(
+      mcpListIncludesName('{"name":"uploads","url":"https://agents.uploads.sh/mcp"}', "uploads"),
+    ).toBe(true);
+    expect(
+      mcpListIncludesName("Name: uploads\nURL: https://agents.uploads.sh/mcp", "uploads"),
+    ).toBe(true);
+  });
+
+  it("does not match a host substring or a longer server name", () => {
+    expect(mcpListIncludesName("https://agents.uploads.sh/mcp", "uploads")).toBe(false);
+    expect(mcpListIncludesName("https://uploads.sh/mcp", "uploads")).toBe(false);
+    expect(mcpListIncludesName("uploads-extra: https://example.test", "uploads")).toBe(false);
+    expect(mcpListIncludesName("other: https://example.test", "uploads")).toBe(false);
+  });
+
+  it("honors a custom server name", () => {
+    expect(mcpListIncludesName("up: https://mcp.uploads.sh/mcp", "up")).toBe(true);
+    expect(mcpListIncludesName("uploads: https://mcp.uploads.sh/mcp", "up")).toBe(false);
   });
 });
