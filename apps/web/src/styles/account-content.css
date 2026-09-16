@@ -814,34 +814,43 @@ section.card .ws-note {
 }
 .people-invite-link-form {
   max-width: none;
+  margin-top: 16px;
+  container-type: inline-size;
+  container-name: people-invite-link;
 }
 .people-invite-link-grid {
   display: grid;
-  grid-template-columns: minmax(10rem, 1.6fr) minmax(9.5rem, 12rem) minmax(6.5rem, 8.5rem) auto;
+  /* Default: two columns so a typical account content column (~700–850px)
+     never squeezes Expires over Label / Max uses. */
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 12px 14px;
   align-items: end;
 }
+.people-invite-link-grid > .ul-field,
+.people-invite-link-submit {
+  min-width: 0;
+}
 .people-invite-link-submit {
   display: flex;
-  align-items: stretch;
+  align-items: flex-end;
 }
 .people-invite-link-submit .ul-btn {
   white-space: nowrap;
-  height: 100%;
   min-height: 42px;
 }
-@media (max-width: 720px) {
+/* Wide cards only: one row. Query the form, not the viewport — the
+   account shell's sidebar + rail make viewport breakpoints lie. */
+@container people-invite-link (min-width: 40rem) {
   .people-invite-link-grid {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  }
-  .people-invite-link-submit {
-    grid-column: 1 / -1;
-    justify-self: start;
+    grid-template-columns: minmax(10rem, 1.6fr) minmax(10rem, 12rem) minmax(7.5rem, 9rem) auto;
   }
 }
-@media (max-width: 480px) {
+@container people-invite-link (max-width: 24rem) {
   .people-invite-link-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+  .people-invite-link-submit {
+    justify-self: start;
   }
 }
 /* Issue #869 phase B: outstanding invite-link list — same table chrome
