@@ -807,51 +807,52 @@ section.card .ws-note {
 .settings-section .command {
   margin-top: 8px;
 }
-/* People page — email invite stays a joined one-field bar; invite-link
-   minting is a labeled grid so Expires never overlaps Label / Max uses. */
+/* People page — email invite stays a joined one-field bar. Invite-link
+   minting is a labeled settings form: Label on its own row, Expires +
+   Max uses side by side, Generate on a third row. A fixed 2-column
+   grid (no container-query column count) keeps Expires from sliding
+   over its own select while the card resizes. */
 .people-invite-form {
   max-width: 32rem;
 }
 .people-invite-link-form {
-  max-width: none;
+  max-width: 36rem;
   margin-top: 16px;
-  container-type: inline-size;
-  container-name: people-invite-link;
 }
 .people-invite-link-grid {
   display: grid;
-  /* Default: two columns so a typical account content column (~700–850px)
-     never squeezes Expires over Label / Max uses. */
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 12px 14px;
-  align-items: end;
+  gap: 14px 16px;
+  align-items: start;
 }
-.people-invite-link-grid > .ul-field,
+.people-invite-link-field--label,
 .people-invite-link-submit {
+  grid-column: 1 / -1;
+}
+.people-invite-link-field {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
   min-width: 0;
+}
+.people-invite-link-field .ul-label {
+  display: block;
+  line-height: 1.3;
+}
+.people-invite-link-field .ul-input,
+.people-invite-link-field .ul-select {
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+  width: 100%;
 }
 .people-invite-link-submit {
   display: flex;
-  align-items: flex-end;
+  justify-content: flex-start;
 }
 .people-invite-link-submit .ul-btn {
   white-space: nowrap;
-  min-height: 42px;
-}
-/* Wide cards only: one row. Query the form, not the viewport — the
-   account shell's sidebar + rail make viewport breakpoints lie. */
-@container people-invite-link (min-width: 40rem) {
-  .people-invite-link-grid {
-    grid-template-columns: minmax(10rem, 1.6fr) minmax(10rem, 12rem) minmax(7.5rem, 9rem) auto;
-  }
-}
-@container people-invite-link (max-width: 24rem) {
-  .people-invite-link-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .people-invite-link-submit {
-    justify-self: start;
-  }
 }
 /* Issue #869 phase B: outstanding invite-link list — same table chrome
    as the people list, so the card reads as one surface. */

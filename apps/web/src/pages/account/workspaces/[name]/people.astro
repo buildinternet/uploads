@@ -101,7 +101,7 @@ if (cookie.trim()) {
       </p>
       <form class="ws-form people-invite-link-form" id="ws-invite-link-form">
         <div class="people-invite-link-grid">
-          <div class="ul-field">
+          <div class="ul-field people-invite-link-field people-invite-link-field--label">
             <label for="ws-invite-link-label" class="ul-label">Label</label>
             <input
               id="ws-invite-link-label"
@@ -113,7 +113,7 @@ if (cookie.trim()) {
               placeholder="optional"
             />
           </div>
-          <div class="ul-field">
+          <div class="ul-field people-invite-link-field people-invite-link-field--expires">
             <label for="ws-invite-link-expires" class="ul-label">Expires</label>
             <select id="ws-invite-link-expires" class="ul-select" name="expiresIn">
               <option value="86400">1 day</option>
@@ -122,7 +122,7 @@ if (cookie.trim()) {
               <option value="never">Never</option>
             </select>
           </div>
-          <div class="ul-field">
+          <div class="ul-field people-invite-link-field people-invite-link-field--max-uses">
             <label for="ws-invite-link-max-uses" class="ul-label">Max uses</label>
             <input
               id="ws-invite-link-max-uses"
