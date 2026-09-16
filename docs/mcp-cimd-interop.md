@@ -21,7 +21,7 @@ Source for the pattern: [sunny/docs/mcp-cimd-interop.md](https://github.com/buil
 
 **Rule.** Intersect advertised grants with the grants oauth-provider issues. Ignore extras at ingest. Enforce at the token endpoint (`unsupported_grant_type`) if someone actually requests a grant you do not implement. Do not treat CIMD `grant_types` as a demand that you implement every listed grant.
 
-**What we do.** `rewriteClientMetadataGrantTypes` in `apps/auth/src/cimd-transport.ts` rewrites fetched metadata, and `hooks.before` on `/oauth2/register` rewrites DCR bodies, so `grant_types` is the intersection with `authorization_code`, `refresh_token`, and `client_credentials` before the plugin parses it. Leave the document untouched if `authorization_code` would not remain: ingest still rejects a device-code-only client.
+**What we do.** `rewriteClientMetadataGrantTypes` in `apps/auth/src/cimd-transport.ts` rewrites fetched metadata, and `hooks.before` on `/oauth2/register` rewrites DCR bodies, so `grant_types` is the intersection with `authorization_code`, `refresh_token`, and `client_credentials` before the plugin parses it. Leave the document untouched if `authorization_code` would not remain: ingest still rejects a device-code-only client. Self-registered clients then lose `client_credentials` (see [DCR is public-only](#dcr-is-public-only)).
 
 This worker does implement RFC 8628 for the seeded `uploads-cli` client (`deviceAuthorization()` in `apps/auth/src/auth.ts`). oauth-provider's CIMD/DCR ingest validator does not treat that plugin's grant as supported, so `device_code` stays out of the intersection list. Adding it there would persist it on CIMD rows and still fail ingest.
 
@@ -44,6 +44,14 @@ invalid_scope: The following scopes are invalid: openid, profile, admin
 This product has no OAuth `admin` scope. The Sunny admin-strip does not apply.
 
 **Do not.** Expand CIMD default scopes to whatever a client puts in `scope=`. Do not fail the whole authorize when a usable subset remains. Do not add a new elevated scope to `clientRegistrationAllowedScopes` without deciding it is CIMD-requestable.
+
+## DCR is public-only
+
+Open `/oauth2/register` stays on so MCP Inspector, Claude, and Cursor can self-register. That path must not persist a confidential client or mark one trusted.
+
+**What we do.** `sanitizeDcrRegistrationBody` on `/oauth2/register` (and the CIMD fetch rewrite) forces `token_endpoint_auth_method: "none"`, strips `skip_consent` / `trusted` / inbound `client_secret` / `jwks` / `client_credentials_scopes`, and drops `client_credentials`. An after-register clamp writes the same posture on the `oauth_client` row and removes any secret from the 201 JSON. The MCP scope ceiling does not change: defaults stay `files:read` + `files:write` + `offline_access`, and `files:delete` stays requestable through consent.
+
+First-party seeded clients (`uploads-cli`, `releases-sh`) and admin provisioning are not this path.
 
 ## 3. `invalid_target` / requested resource not configured
 
