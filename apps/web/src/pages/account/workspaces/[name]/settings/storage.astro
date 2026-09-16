@@ -33,17 +33,20 @@ if (!workspace) return Astro.redirect("/account/workspaces");
     </div>
 
     <div class="settings-section" id="storage-section" hidden>
-      <h2>Storage</h2>
+      <div class="storage-heading">
+        <h2>Storage</h2>
+        <!-- SVG/XML readiness of the hosted host (issue #929). Ops-owned:
+             a daily cron probes storage.uploads.sh and friends, so there is
+             no "Check now" here — that button lives on BYO lane cards
+             below, which each own their own host. Quiet icon + tooltip so
+             the timestamp never reads as the Storage subhead. Hidden on
+             BYO: those cards keep the "SVG & XML" kv row. -->
+        <span class="storage-ac" id="storage-shared-active-content" hidden></span>
+      </div>
 
       <div id="storage-error" class="ul-callout" data-state="error" role="alert" hidden></div>
 
       <div id="storage-shared">
-        <!-- SVG/XML readiness of the hosted host (issue #929). Ops-owned:
-             a daily cron probes storage.uploads.sh and friends, so there is
-             no "Check now" here — that button lives on BYO lane cards
-             below, which each own their own host. -->
-        <p class="settings-note muted mb-3" id="storage-shared-active-content"></p>
-
         <!-- Empty state: shared `Empty` card shape (kept in sync with
              packages/ui/src/components/ui/empty.tsx, same convention as
              renderEmptyStateHtml in workspace-ui.ts), centered inside the
@@ -81,10 +84,8 @@ if (!workspace) return Astro.redirect("/account/workspaces");
                 data-slot="empty-description"
                 class="text-sm/relaxed text-muted-foreground [&>a]:underline [&>a]:underline-offset-4 [&>a:hover]:text-primary"
               >
-                Uploads go to hosted storage at <code>storage.uploads.sh</code> — no setup, and links
-                just work. Prefer to own the data? Point this workspace at your own Cloudflare R2 bucket.
-                Nothing moves until you switch, and storage in your own bucket is unmetered — the plan's
-                storage limit doesn't apply to it.
+                Uploads go to <code>storage.uploads.sh</code>. Your own R2 bucket is unmetered —
+                nothing moves until you switch.
               </div>
             </div>
             <div
@@ -481,6 +482,10 @@ if (!workspace) return Astro.redirect("/account/workspaces");
     import { resolveActiveWorkspace } from "../../../../../lib/workspace-browse-url";
     import { renderDetailsHtml } from "../../../../../lib/workspace-rail";
     import { escapeHtml } from "../../../../../lib/workspace-ui";
+    import {
+      hostedActiveContentDetail,
+      renderHostedActiveContentStatusHtml,
+    } from "../../../../../lib/storage-settings-ui";
 
     function formatTimestamp(value: string | undefined): string {
       if (!value) return "—";
@@ -525,8 +530,8 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       const storageSharedEl = requireElement<HTMLElement>("#storage-shared", page);
       const storageByoEl = requireElement<HTMLElement>("#storage-byo", page);
       const storageByoDetails = requireElement<HTMLElement>("#storage-byo-details", page);
-      // SVG/XML readiness (issue #929): the hosted-host row plus each BYO
-      // lane's own "Check now" details block.
+      // SVG/XML readiness (issue #929): the hosted-host heading icon plus
+      // each BYO lane's own "Check now" details block.
       const storageSharedActiveContent = requireElement<HTMLElement>(
         "#storage-shared-active-content",
         page,
@@ -823,19 +828,27 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       }
 
       /**
-       * The hosted host's own SVG/XML row (issue #929) — shown once at the
-       * top of `#storage-shared`, above whichever sub-state (empty intro or
-       * saved-lane card) is visible. The fields come from the gate itself
-       * (`storageGetHandler`), so this row always matches what uploads
-       * actually do. No nudge: nobody in a workspace can set headers on a
-       * hosted host, and there is no "Check now" here to point at.
+       * The hosted host's own SVG/XML status (issue #929) — a quiet icon
+       * beside the Storage heading, not a dated sentence under it. The
+       * fields come from the gate itself (`storageGetHandler`), so the
+       * tooltip always matches what uploads actually do. No nudge: nobody
+       * in a workspace can set headers on a hosted host, and there is no
+       * "Check now" here to point at.
        */
       function renderSharedActiveContent(status: WorkspaceStorageStatus): void {
-        storageSharedActiveContent.innerHTML =
-          `<strong class="text-foreground">SVG &amp; XML:</strong> ` +
-          activeContentRowValue(status.activeContentVerifiedAt, {
-            reason: status.activeContentReason,
-          });
+        const verifiedAt = status.activeContentVerifiedAt;
+        const why = status.activeContentReason
+          ? ACTIVE_CONTENT_REASONS[status.activeContentReason]
+          : undefined;
+        const detail = hostedActiveContentDetail(
+          verifiedAt ? formatTimestamp(verifiedAt) : undefined,
+          why,
+        );
+        storageSharedActiveContent.hidden = false;
+        storageSharedActiveContent.innerHTML = renderHostedActiveContentStatusHtml({
+          ok: Boolean(verifiedAt),
+          detail,
+        });
       }
 
       /**
@@ -1591,6 +1604,8 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         if (status.mode === "byo") {
           storageSharedEl.hidden = true;
           storageByoEl.hidden = false;
+          storageSharedActiveContent.hidden = true;
+          storageSharedActiveContent.innerHTML = "";
           renderByoDetails(status);
         } else {
           storageByoEl.hidden = true;
