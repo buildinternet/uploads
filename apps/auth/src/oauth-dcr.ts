@@ -19,7 +19,12 @@
  * admin / internal provisioning do not go through this path.
  */
 
-/** Privileged / first-party metadata a DCR or CIMD body must never carry. */
+/**
+ * Privileged / first-party metadata a DCR or CIMD body must never carry.
+ * `skip_consent` is also ZodNever on Better Auth 1.7's DCR schema, so a
+ * register body that still has it 400s before this strip runs. Keep the
+ * field here for CIMD ingest and if that validation order ever changes.
+ */
 const STRIP_REGISTRATION_FIELDS = [
   "skip_consent",
   "trusted",

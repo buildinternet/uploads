@@ -252,7 +252,7 @@ describe("dynamic client registration", () => {
   // persist a confidential or skip-consent client. Scope ceiling stays the
   // product default ∪ allowed list (files:read/write + offline_access, and
   // files:delete remains requestable).
-  it("forces public PKCE and strips skip_consent when DCR asks for a secret", async () => {
+  it("forces public PKCE when DCR asks for a confidential client and a secret", async () => {
     const env = dbEnv();
     const res = await app.request(
       "/api/auth/oauth2/register",
@@ -264,7 +264,6 @@ describe("dynamic client registration", () => {
           redirect_uris: ["https://attacker.example.com/cb"],
           token_endpoint_auth_method: "client_secret_basic",
           client_secret: "forged-secret",
-          skip_consent: true,
           trusted: true,
           grant_types: ["authorization_code", "refresh_token", "client_credentials"],
         }),
@@ -299,7 +298,12 @@ describe("dynamic client registration", () => {
     expect(row?.public).toBe(true);
     expect(row?.requirePKCE).toBe(true);
     expect(row?.skipConsent).toBeFalsy();
-    expect(row?.scopes).toEqual(
+    const storedScopes = Array.isArray(row?.scopes)
+      ? row.scopes
+      : typeof row?.scopes === "string"
+        ? (JSON.parse(row.scopes) as string[])
+        : [];
+    expect(storedScopes).toEqual(
       expect.arrayContaining(["files:read", "files:write", "offline_access"]),
     );
     expect(row?.grantTypes ?? []).not.toContain("client_credentials");
@@ -326,12 +330,13 @@ describe("dynamic client registration", () => {
       .select()
       .from(schema.oauthClient)
       .where(eq(schema.oauthClient.name, "probe-trusted"));
-    // Plugin schema rejects skip_consent (ZodNever) or we strip it — either
-    // way no trusted DCR row is stored.
+    // Plugin schema rejects skip_consent (ZodNever) before hooks.before can
+    // strip it. Either way no trusted DCR row is stored.
     if (res.status === 201) {
       expect(rows).toHaveLength(1);
       expect(rows[0]?.skipConsent).toBeFalsy();
     } else {
+      expect(res.status).toBe(400);
       expect(rows).toHaveLength(0);
     }
   });
