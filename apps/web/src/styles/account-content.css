@@ -34,6 +34,74 @@ section.card.settings-page {
 section.card.settings-page h2 {
   margin: 0 0 10px;
 }
+/* Storage heading + hosted SVG/XML status (issue #929). The timestamp
+   lives in a hover/focus tooltip so it never reads as the section subhead. */
+.storage-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 10px;
+}
+section.card.settings-page .storage-heading h2 {
+  margin: 0;
+}
+.storage-ac {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+.storage-ac__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  cursor: help;
+}
+.storage-ac__btn[data-state="ok"] {
+  color: var(--green);
+}
+.storage-ac__btn[data-state="warn"] {
+  color: var(--accent);
+}
+.storage-ac__btn:hover,
+.storage-ac__btn:focus-visible {
+  background: color-mix(in srgb, currentColor 12%, transparent);
+  outline: none;
+}
+.storage-ac__btn svg {
+  width: 16px;
+  height: 16px;
+}
+.storage-ac__tip {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 6px);
+  z-index: 20;
+  width: max-content;
+  max-width: 18rem;
+  padding: 6px 8px;
+  border-radius: 6px;
+  /* Same inverted chip as packages/ui Tooltip — reads as hover chrome,
+     not a second Storage subhead on the matching --panel card. */
+  background: var(--fg);
+  color: var(--bg);
+  font: var(--text-micro) / 1.45 var(--sans);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--line) 80%, transparent);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+.storage-ac:hover .storage-ac__tip,
+.storage-ac:focus-within .storage-ac__tip {
+  opacity: 1;
+  visibility: visible;
+}
 .settings-note {
   margin: 0 0 12px;
   max-width: 36rem;
