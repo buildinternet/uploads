@@ -807,32 +807,59 @@ section.card .ws-note {
 .settings-section .command {
   margin-top: 8px;
 }
-/* Issue #869 phase B: the People page's outstanding invite-link list. */
+/* People page — email invite stays a joined one-field bar; invite-link
+   minting is a labeled grid so Expires never overlaps Label / Max uses. */
+.people-invite-form {
+  max-width: 32rem;
+}
+.people-invite-link-form {
+  max-width: none;
+}
+.people-invite-link-grid {
+  display: grid;
+  grid-template-columns: minmax(10rem, 1.6fr) minmax(9.5rem, 12rem) minmax(6.5rem, 8.5rem) auto;
+  gap: 12px 14px;
+  align-items: end;
+}
+.people-invite-link-submit {
+  display: flex;
+  align-items: stretch;
+}
+.people-invite-link-submit .ul-btn {
+  white-space: nowrap;
+  height: 100%;
+  min-height: 42px;
+}
+@media (max-width: 720px) {
+  .people-invite-link-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .people-invite-link-submit {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
+}
+@media (max-width: 480px) {
+  .people-invite-link-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+/* Issue #869 phase B: outstanding invite-link list — same table chrome
+   as the people list, so the card reads as one surface. */
 .invite-link-list {
-  list-style: none;
-  margin: 12px 0 0;
-  padding: 0;
-  max-width: 28rem;
+  margin: 4px 0 0;
 }
 .invite-link-list:empty {
   display: none;
 }
-.invite-link-row {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 8px 0;
-  border-bottom: 1px solid var(--line);
-  font-size: var(--text-meta);
+.invite-link-list > .muted {
+  margin: 12px 0 0;
 }
-.invite-link-row:last-child {
-  border-bottom: none;
+.invite-link-list .ws-table-wrap {
+  margin-top: 16px;
 }
 .invite-link-row__label {
   color: var(--fg);
-  flex: 1;
-  min-width: 0;
 }
 .invite-link-row__expiry {
   white-space: nowrap;

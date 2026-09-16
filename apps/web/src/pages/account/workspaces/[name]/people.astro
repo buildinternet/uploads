@@ -73,7 +73,7 @@ if (cookie.trim()) {
     <div class="settings-section" id="ws-invite-section" hidden>
       <h2>Invite</h2>
       <p class="settings-note muted">Accept link, then <code>uploads login</code>.</p>
-      <form class="ws-form" id="ws-invite-form">
+      <form class="ws-form people-invite-form" id="ws-invite-form">
         <div class="input-group">
           <label class="input-group__field">
             <span class="sr-only">Email</span>
@@ -99,32 +99,44 @@ if (cookie.trim()) {
       <p class="settings-note muted">
         Anyone with the link can join this workspace — no email required.
       </p>
-      <form class="ws-form" id="ws-invite-link-form">
-        <div class="input-group">
-          <label class="input-group__field">
-            <span class="sr-only">Label (optional)</span>
-            <input type="text" name="label" maxlength="100" placeholder="Label (optional)" />
-          </label>
-          <label class="input-group__field">
-            <span class="sr-only">Expires</span>
-            <select name="expiresIn">
-              <option value="86400">Expires in 1 day</option>
-              <option value="604800" selected>Expires in 7 days</option>
-              <option value="2592000">Expires in 30 days</option>
-              <option value="never">Never expires</option>
-            </select>
-          </label>
-          <label class="input-group__field">
-            <span class="sr-only">Max uses (optional)</span>
+      <form class="ws-form people-invite-link-form" id="ws-invite-link-form">
+        <div class="people-invite-link-grid">
+          <div class="ul-field">
+            <label for="ws-invite-link-label" class="ul-label">Label</label>
             <input
+              id="ws-invite-link-label"
+              class="ul-input"
+              type="text"
+              name="label"
+              maxlength="100"
+              autocomplete="off"
+              placeholder="optional"
+            />
+          </div>
+          <div class="ul-field">
+            <label for="ws-invite-link-expires" class="ul-label">Expires</label>
+            <select id="ws-invite-link-expires" class="ul-select" name="expiresIn">
+              <option value="86400">1 day</option>
+              <option value="604800" selected>7 days</option>
+              <option value="2592000">30 days</option>
+              <option value="never">Never</option>
+            </select>
+          </div>
+          <div class="ul-field">
+            <label for="ws-invite-link-max-uses" class="ul-label">Max uses</label>
+            <input
+              id="ws-invite-link-max-uses"
+              class="ul-input"
               type="number"
               name="maxUses"
               min="1"
               step="1"
-              placeholder="Max uses (optional)"
+              placeholder="Unlimited"
             />
-          </label>
-          <button type="submit" class="input-group__action">Generate link</button>
+          </div>
+          <div class="people-invite-link-submit">
+            <button type="submit" class="ul-btn ul-btn--solid">Generate link</button>
+          </div>
         </div>
       </form>
       <div class="ws-messages">
@@ -136,7 +148,7 @@ if (cookie.trim()) {
           >
         </div>
       </div>
-      <ul class="invite-link-list" id="ws-invite-link-list"></ul>
+      <div class="invite-link-list" id="ws-invite-link-list"></div>
     </div>
   </section>
 
@@ -286,7 +298,7 @@ if (cookie.trim()) {
       function paintInviteLinks(links: WorkspaceInviteLink[]): void {
         inviteLinkList.innerHTML = links.length
           ? renderInviteLinksHtml(links)
-          : '<li class="muted">No outstanding invite links.</li>';
+          : '<p class="muted">No outstanding invite links.</p>';
       }
 
       async function loadInviteLinks(): Promise<void> {
