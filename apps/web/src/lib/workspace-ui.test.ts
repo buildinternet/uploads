@@ -120,7 +120,7 @@ describe("renderInvitesHtml", () => {
 });
 
 describe("renderInviteLinksHtml", () => {
-  it("renders a labeled row with expiry, uses, and revoke", () => {
+  it("renders a labeled table row with expiry, uses, and revoke", () => {
     const html = renderInviteLinksHtml([
       {
         id: "l1",
@@ -130,11 +130,15 @@ describe("renderInviteLinksHtml", () => {
         useCount: 3,
       },
     ]);
+    expect(html).toContain('class="ws-table"');
+    expect(html).toContain('aria-label="Invite links"');
+    expect(html).toContain(">Label</th>");
+    expect(html).toContain(">Expires</th>");
+    expect(html).toContain(">Uses</th>");
     expect(html).toContain('data-link-id="l1"');
     expect(html).toContain("for the design team");
     expect(html).toContain("invite-link-row__revoke");
-    expect(html).toContain("expires");
-    expect(html).toContain("3 joins");
+    expect(html).toMatch(/class="num">3</);
   });
 
   it("falls back to a generic label when none was set", () => {
@@ -163,15 +167,16 @@ describe("renderInviteLinksHtml", () => {
   });
 
   // Issue #876
-  it("shows 'never expires' for a non-expiring link", () => {
+  it("shows 'Never' for a non-expiring link", () => {
     const html = renderInviteLinksHtml([
       { id: "l1", label: "standing", expiresAt: null, maxUses: null, useCount: 1 },
     ]);
-    expect(html).toContain("never expires");
+    expect(html).toContain("Never");
     expect(html).not.toContain("expires never");
+    expect(html).not.toContain("never expires");
   });
 
-  it("shows N/max joins for a capped link", () => {
+  it("shows N/max in the Uses column for a capped link", () => {
     const html = renderInviteLinksHtml([
       {
         id: "l1",
@@ -181,10 +186,10 @@ describe("renderInviteLinksHtml", () => {
         useCount: 3,
       },
     ]);
-    expect(html).toContain("3/10 joins");
+    expect(html).toMatch(/class="num">3\/10</);
   });
 
-  it("singularizes one join", () => {
+  it("shows a bare count in the Uses column for an unlimited link", () => {
     const html = renderInviteLinksHtml([
       {
         id: "l1",
@@ -194,8 +199,8 @@ describe("renderInviteLinksHtml", () => {
         useCount: 1,
       },
     ]);
-    expect(html).toContain("1 join");
-    expect(html).not.toContain("1 joins");
+    expect(html).toMatch(/class="num">1</);
+    expect(html).not.toContain("1 join");
   });
 });
 

@@ -261,15 +261,15 @@ export function renderInvitesHtml(
 
 /**
  * Issue #869 phase B: the People page's outstanding `kind: 'member'`
- * join-link list — a plain `<ul>`, not the people table (these aren't
- * teammates or pending email invites, just live shareable links). Each row
- * shows the label (or a generic fallback), expiry, and use count, plus a
- * revoke button matching the `text-btn` treatment `renderInvitesHtml`'s
- * revoke uses. `[]` → `""` (caller renders its own empty state).
+ * join-link list. Same `.ws-table` chrome as the people list so the card
+ * reads as one surface. Each row shows the label (or a generic fallback),
+ * expiry, and use count, plus a revoke button matching the `text-btn`
+ * treatment `renderInvitesHtml`'s revoke uses. `[]` → `""` (caller
+ * renders its own empty state).
  *
- * Issue #876: `expiresAt` nullable — a standing link shows "never expires".
- * Uses show as "N joins" (unlimited) or "N/max joins" (capped) so a
- * multi-use link is auditable at a glance.
+ * Issue #876: `expiresAt` nullable — a standing link shows "Never".
+ * Uses show as "N" (unlimited) or "N/max" (capped) so a multi-use link
+ * is auditable at a glance.
  */
 export function renderInviteLinksHtml(
   links: {
@@ -280,23 +280,35 @@ export function renderInviteLinksHtml(
     useCount: number;
   }[],
 ): string {
-  return links
+  if (links.length === 0) return "";
+  const rows = links
     .map((link) => {
       const label = link.label ? escapeHtml(link.label) : "Unlabeled link";
       const when = link.expiresAt
         ? new Date(link.expiresAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })
-        : "never expires";
-      const uses =
-        link.maxUses === null
-          ? `${link.useCount} ${link.useCount === 1 ? "join" : "joins"}`
-          : `${link.useCount}/${link.maxUses} joins`;
-      return `<li class="invite-link-row">
-  <span class="invite-link-row__label">${label}</span>
-  <span class="invite-link-row__expiry text-muted-foreground">${link.expiresAt ? `expires ${escapeHtml(when)}` : escapeHtml(when)} · ${escapeHtml(uses)}</span>
-  <button type="button" class="text-btn invite-link-row__revoke" data-link-id="${escapeHtml(link.id)}" data-link-label="${label}">Revoke</button>
-</li>`;
+        : "Never";
+      const uses = link.maxUses === null ? `${link.useCount}` : `${link.useCount}/${link.maxUses}`;
+      return `<tr class="invite-link-row">
+  <td class="invite-link-row__label">${label}</td>
+  <td class="invite-link-row__expiry text-muted-foreground">${escapeHtml(when)}</td>
+  <td class="num">${escapeHtml(uses)}</td>
+  <td class="actions"><button type="button" class="text-btn invite-link-row__revoke" data-link-id="${escapeHtml(link.id)}" data-link-label="${label}">Revoke</button></td>
+</tr>`;
     })
     .join("");
+  return `<div class="ws-table-wrap">
+<table class="ws-table" aria-label="Invite links">
+  <thead>
+    <tr>
+      <th scope="col">Label</th>
+      <th scope="col">Expires</th>
+      <th scope="col" class="num">Uses</th>
+      <th scope="col" class="actions"><span class="sr-only">Actions</span></th>
+    </tr>
+  </thead>
+  <tbody>${rows}</tbody>
+</table>
+</div>`;
 }
 
 export function isWorkspaceAdminRole(role: string): boolean {
