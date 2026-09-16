@@ -41,6 +41,11 @@ import { sendAuthEmail } from "./email";
 import { localDemoEnabled, localDemoPlugin } from "./local-demo";
 import { memberCapDenial } from "./member-cap";
 import { notifyAdminsOfMemberJoin } from "./notify-member-join";
+import {
+  clampDcrRegistrationResult,
+  dcrClientRowPatch,
+  sanitizeDcrRegistrationBody,
+} from "./oauth-dcr";
 import { buildTokenGrantAfterHandler, captureRefreshTokenPriorState } from "./oauth-observability";
 import { createDurableRateLimitStorage, type RateLimitNamespaceLike } from "./rate-limit";
 import * as schema from "./schema";
@@ -286,10 +291,13 @@ async function applyOAuthClientInterop(
 } | void> {
   if (ctx.path === "/oauth2/register") {
     const body = ctx.body as Record<string, unknown> | null;
-    if (!body) return;
+    if (!body || typeof body !== "object" || Array.isArray(body)) return;
     const withGrantTypes = rewriteClientMetadataGrantTypes(body) ?? body;
     const withDefaultType = defaultRegistrationApplicationType(withGrantTypes) ?? withGrantTypes;
-    const next = coerceExplicitWebToNativeForPrivateUseScheme(withDefaultType) ?? withDefaultType;
+    const afterAppType =
+      coerceExplicitWebToNativeForPrivateUseScheme(withDefaultType) ?? withDefaultType;
+    const sanitized = sanitizeDcrRegistrationBody(afterAppType);
+    const next = sanitized ?? afterAppType;
     if (next !== body) return { context: { body: next } };
     return;
   }
@@ -330,8 +338,43 @@ function authBeforeHook(
  * `APIError`) is known, and writes the resulting event(s) to Analytics
  * Engine. See oauth-observability.ts for the full design.
  */
-function oauthObservabilityAfterHook(env: { AUTH_EVENTS?: AnalyticsEngineDataset }) {
-  return createAuthMiddleware(buildTokenGrantAfterHandler(env, isAPIError));
+/**
+ * After a successful `/oauth2/register`, persist the public-PKCE posture on
+ * the new row and rewrite the 201 JSON so it cannot return a `client_secret`
+ * or skip_consent/trusted. Best-effort: a missing client_id or a thrown
+ * update must not fail the registration response (the before-hook + plugin
+ * options are the primary gate). Does not rewrite scopes.
+ */
+async function clampRegisteredDcrClient(
+  db: ReturnType<typeof drizzle<typeof schema>>,
+  returned: unknown,
+): Promise<void> {
+  const clientId = clampDcrRegistrationResult(returned);
+  if (!clientId) return;
+  try {
+    await db
+      .update(schema.oauthClient)
+      .set(dcrClientRowPatch())
+      .where(eq(schema.oauthClient.clientId, clientId));
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(
+      JSON.stringify({ message: "DCR client row clamp failed after register", error: message }),
+    );
+  }
+}
+
+function authAfterHook(
+  env: { AUTH_EVENTS?: AnalyticsEngineDataset },
+  db: ReturnType<typeof drizzle<typeof schema>>,
+) {
+  const tokenAfter = buildTokenGrantAfterHandler(env, isAPIError);
+  return createAuthMiddleware(async (ctx) => {
+    if (ctx.path === "/oauth2/register") {
+      await clampRegisteredDcrClient(db, ctx.context.returned);
+    }
+    await tokenAfter(ctx);
+  });
 }
 
 /**
@@ -740,8 +783,10 @@ function buildAuth(
       // rule as deviceAuthorization's verificationUri above; the /login and
       // /oauth/consent pages are served by apps/web, not this worker.
       // DCR is on and unauthenticated (agent/MCP clients self-register before
-      // any user has logged in); the stale-client reaper (oauth-client-reaper.ts)
-      // sweeps abandoned anonymous registrations from the cron below.
+      // any user has logged in). Self-registered clients are forced public
+      // PKCE (no client_secret, no skip_consent); the stale-client reaper
+      // (oauth-client-reaper.ts) sweeps abandoned anonymous registrations
+      // from the cron below.
       oauthProvider({
         loginPage: `${webOrigin}/login`,
         consentPage: `${webOrigin}/oauth/consent`,
@@ -782,6 +827,11 @@ function buildAuth(
         enforcePerClientResources: false,
         allowDynamicClientRegistration: true,
         allowUnauthenticatedClientRegistration: true,
+        // Public DCR clients always require PKCE; keep the plugin's
+        // confidential-DCR default on too so a regression cannot opt a
+        // DCR row out. hooks.before still forces
+        // token_endpoint_auth_method: "none".
+        clientRegistrationRequirePKCE: true,
         // Refresh tokens rotate on every refresh, and the plugin's default
         // reuse grace is 0 — a second use of a just-rotated token (a network
         // retry whose first attempt landed, or two processes of the same
@@ -965,7 +1015,7 @@ function buildAuth(
     // single middleware here.
     hooks: {
       before: authBeforeHook(db, registeredScopesForClientId),
-      after: oauthObservabilityAfterHook(env),
+      after: authAfterHook(env, db),
     },
     // Fail-closed in production, decoupled from secret resolution (D3/D7):
     // rate limiting is on whenever ENVIRONMENT === "production", regardless

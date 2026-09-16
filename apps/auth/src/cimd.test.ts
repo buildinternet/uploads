@@ -296,6 +296,31 @@ describe("CIMD grant_types interop", () => {
     expect(body.grant_types).not.toContain(DEVICE_CODE);
     expect(body.redirect_uris).toEqual([REDIRECT_URI]);
   });
+
+  it("strips skip_consent, secrets, and client_credentials from fetched metadata", async () => {
+    const advertised = {
+      ...metadataDocument(),
+      token_endpoint_auth_method: "client_secret_basic",
+      skip_consent: true,
+      trusted: true,
+      client_secret: "forged",
+      grant_types: ["authorization_code", "refresh_token", "client_credentials"],
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json(advertised, { headers: { "content-type": "application/json" } }),
+      ),
+    );
+
+    const res = await fetchClientMetadataResource(CLIENT_ID_URL);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.token_endpoint_auth_method).toBe("none");
+    expect(body.grant_types).toEqual(["authorization_code", "refresh_token"]);
+    expect(body).not.toHaveProperty("skip_consent");
+    expect(body).not.toHaveProperty("trusted");
+    expect(body).not.toHaveProperty("client_secret");
+  });
 });
 
 describe("dynamic client registration (SEP-837)", () => {

@@ -34,6 +34,7 @@
  */
 import { validateClientIdUrl } from "@better-auth/cimd";
 import type { ClientMetadataResourceFetch } from "@better-auth/oauth-provider";
+import { sanitizeDcrRegistrationBody } from "./oauth-dcr";
 
 /**
  * Grants this AS's oauth-provider token endpoint actually issues. Matches
@@ -44,7 +45,8 @@ import type { ClientMetadataResourceFetch } from "@better-auth/oauth-provider";
  *
  * `@better-auth/cimd` 1.7 has no option to ignore extras, so the transport
  * intersects fetched metadata (and DCR POST /oauth2/register, via the
- * rewrite helper) with this list before the plugin parses it.
+ * rewrite helper) with this list before the plugin parses it. DCR/CIMD
+ * ingest then drops `client_credentials` in {@link sanitizeDcrRegistrationBody}.
  *
  * `urn:ietf:params:oauth:grant-type:device_code` is intentionally absent.
  * This worker does implement RFC 8628 for the seeded `uploads-cli` client
@@ -249,7 +251,10 @@ async function rewriteFetchedMetadataGrantTypes(res: Response): Promise<Response
     });
   }
 
-  const rewritten = rewriteClientMetadataGrantTypes(parsed as Record<string, unknown>);
+  const metadata = parsed as Record<string, unknown>;
+  const afterGrants = rewriteClientMetadataGrantTypes(metadata) ?? metadata;
+  const sanitized = sanitizeDcrRegistrationBody(afterGrants);
+  const rewritten = sanitized ?? (afterGrants !== metadata ? afterGrants : undefined);
   if (!rewritten) {
     return new Response(text, {
       status: res.status,

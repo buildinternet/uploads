@@ -83,15 +83,21 @@ describe("dynamic client registration", () => {
     expect(res.status).toBe(201);
     const body = (await res.json()) as {
       client_id?: string;
+      client_secret?: string;
       redirect_uris?: string[];
       scope?: string;
+      token_endpoint_auth_method?: string;
     };
     expect(typeof body.client_id).toBe("string");
+    expect(body.client_secret).toBeUndefined();
+    expect(body.token_endpoint_auth_method).toBe("none");
     expect(body.redirect_uris).toEqual(["https://client.example.com/callback"]);
     // Issue #911: without offline_access in the registered scopes the plugin
     // never issues a refresh token, forcing interactive re-auth at access
-    // token expiry.
-    expect(body.scope?.split(" ")).toContain("offline_access");
+    // token expiry. files:read + files:write stay on the DCR default ceiling.
+    expect(body.scope?.split(" ")).toEqual(
+      expect.arrayContaining(["files:read", "files:write", "offline_access"]),
+    );
   });
 
   // Better Auth 1.7 defaults DCR clients without `application_type` to "web",
@@ -239,6 +245,100 @@ describe("dynamic client registration", () => {
     expect(res.status).toBe(201);
     const body = (await res.json()) as { application_type?: string };
     expect(body.application_type).toBe("web");
+  });
+
+  // Better Auth 1.7 still mints a client_secret unless the body is public
+  // (`token_endpoint_auth_method: "none"`). Unauthenticated DCR must not
+  // persist a confidential or skip-consent client. Scope ceiling stays the
+  // product default ∪ allowed list (files:read/write + offline_access, and
+  // files:delete remains requestable).
+  it("forces public PKCE when DCR asks for a confidential client and a secret", async () => {
+    const env = dbEnv();
+    const res = await app.request(
+      "/api/auth/oauth2/register",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          client_name: "probe-alpha",
+          redirect_uris: ["https://attacker.example.com/cb"],
+          token_endpoint_auth_method: "client_secret_basic",
+          client_secret: "forged-secret",
+          trusted: true,
+          grant_types: ["authorization_code", "refresh_token", "client_credentials"],
+        }),
+      },
+      env,
+    );
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as {
+      client_id?: string;
+      client_secret?: string;
+      scope?: string;
+      token_endpoint_auth_method?: string;
+      skip_consent?: boolean;
+      grant_types?: string[];
+    };
+    expect(typeof body.client_id).toBe("string");
+    expect(body.client_secret).toBeUndefined();
+    expect(body.token_endpoint_auth_method).toBe("none");
+    expect(body.skip_consent).toBeUndefined();
+    expect(body.grant_types ?? []).not.toContain("client_credentials");
+    const scopes = body.scope?.split(" ") ?? [];
+    expect(scopes).toEqual(expect.arrayContaining(["files:read", "files:write", "offline_access"]));
+
+    const orm = drizzle(env.DB, { schema });
+    const [row] = await orm
+      .select()
+      .from(schema.oauthClient)
+      .where(eq(schema.oauthClient.clientId, body.client_id!));
+    expect(row).toBeDefined();
+    expect(row?.clientSecret).toBeFalsy();
+    expect(row?.tokenEndpointAuthMethod).toBe("none");
+    expect(row?.public).toBe(true);
+    expect(row?.requirePKCE).toBe(true);
+    expect(row?.skipConsent).toBeFalsy();
+    const storedScopes = Array.isArray(row?.scopes)
+      ? row.scopes
+      : typeof row?.scopes === "string"
+        ? (JSON.parse(row.scopes) as string[])
+        : [];
+    expect(storedScopes).toEqual(
+      expect.arrayContaining(["files:read", "files:write", "offline_access"]),
+    );
+    expect(row?.grantTypes ?? []).not.toContain("client_credentials");
+  });
+
+  it("does not persist skip_consent from a DCR body", async () => {
+    const env = dbEnv();
+    const res = await app.request(
+      "/api/auth/oauth2/register",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          client_name: "probe-trusted",
+          redirect_uris: ["https://attacker.example.com/cb"],
+          token_endpoint_auth_method: "none",
+          skip_consent: true,
+        }),
+      },
+      env,
+    );
+    const orm = drizzle(env.DB, { schema });
+    const rows = await orm
+      .select()
+      .from(schema.oauthClient)
+      .where(eq(schema.oauthClient.name, "probe-trusted"));
+    // Plugin schema rejects skip_consent (ZodNever) before hooks.before can
+    // strip it. Either way no trusted DCR row is stored.
+    if (res.status === 201) {
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.skipConsent).toBeFalsy();
+    } else {
+      expect(res.status).toBe(400);
+      expect(rows).toHaveLength(0);
+    }
   });
 });
 
