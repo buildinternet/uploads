@@ -1,5 +1,6 @@
 import { applyPublicGalleryHeaders } from "./public-gallery";
 import { fileKind, isVideoDimensions, nullableHttpsUrl } from "./public-file";
+import { SSR_USER_AGENT } from "./ssr-fetch";
 
 export interface PublicFeedItem {
   id: string;
@@ -178,7 +179,7 @@ export async function fetchPublicFeed(
     const endpoint = new URL("/public/feeds/" + encodeURIComponent(id), origin);
     const response = await (options.fetch ?? globalThis.fetch)(endpoint, {
       signal: controller.signal,
-      headers: { Accept: "application/json" },
+      headers: { Accept: "application/json", "User-Agent": SSR_USER_AGENT },
       cache: "no-store",
       credentials: "omit",
       referrerPolicy: "no-referrer",
