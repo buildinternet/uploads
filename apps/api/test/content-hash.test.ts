@@ -283,7 +283,7 @@ describe("INHERITABLE_META_KEYS", () => {
   });
 
   it("excludes reserved server keys", () => {
-    for (const key of ["content-sha256", "visibility", "video.poster"]) {
+    for (const key of ["content-sha256", "visibility", "video.poster", "ai.tags"]) {
       expect((INHERITABLE_META_KEYS as readonly string[]).includes(key)).toBe(false);
     }
   });

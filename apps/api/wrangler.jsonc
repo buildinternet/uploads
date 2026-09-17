@@ -44,6 +44,10 @@
     // so a deployed worker without this entry reads `undefined` and the
     // breakdown panel reports `not_configured` no matter how the secret is set.
     "CLOUDFLARE_ACCOUNT_ID": "b082600d280d44fd5da3501bc1bffe2f",
+    // Experimental file classifier: Workers AI calls route through this
+    // AI Gateway. Create once per account (`uploads-classifier`) — see
+    // docs/ops.md. Not a secret.
+    "AI_GATEWAY_ID": "uploads-classifier",
   },
   // BILLING_INTERNAL_KEY (Stripe phase 2, task 3): shared secret gating
   // POST /internal/billing/plan (routes/internal-billing.ts), set via
@@ -124,9 +128,17 @@
     "binding": "MEDIA",
     "remote": true,
   },
+  // Workers AI (experimental file classifier). Requests go through AI
+  // Gateway (`AI_GATEWAY_ID` var, default `uploads-classifier`). An absent
+  // binding is a hard off switch (`classificationAllowed`). Self-hosters
+  // can delete this block; classification simply stays off.
+  "ai": {
+    "binding": "AI",
+  },
   // Flagship feature flags (app "uploads").
   // Carries `video-poster-generation`, the seconds-fast kill
-  // switch for issue #299 poster generation:
+  // switch for issue #299 poster generation, plus
+  // `llm-file-classifier` (experimental, default off):
   //   wrangler flagship flags disable <APP_ID> video-poster-generation
   // Deliberately fails CLOSED — posterGenerationAllowed passes `false` as the
   // evaluation default, so an unreachable Flagship or a missing flag disables
@@ -325,6 +337,7 @@
       "GITHUB_APP_ID": "4346270",
       "GITHUB_APP_HOME_INSTALLATION_ID": "147814297",
       "CLOUDFLARE_ACCOUNT_ID": "b082600d280d44fd5da3501bc1bffe2f",
+      "AI_GATEWAY_ID": "uploads-classifier",
     },
     "kv_namespaces": [
       // Isolated: workspace records are the product's core state.

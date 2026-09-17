@@ -835,7 +835,8 @@ recommend removing.
 | `ANALYTICS_API_TOKEN`                                                          | api       | Same as above — without it the breakdown panel reports `not_configured` even if `ANALYTICS` itself is bound.                                                                                                                                                                                                                                                                                            |
 | `BROWSER`                                                                      | api       | `POST /v1/render` (CLI screenshot capture) answers 503 `renderer_unavailable`. Nothing else is affected.                                                                                                                                                                                                                                                                                                |
 | `MEDIA`                                                                        | api       | Video poster-frame generation is skipped; uploads still succeed, just without a generated poster image.                                                                                                                                                                                                                                                                                                 |
-| `FLAGS`                                                                        | api       | Every Flagship-gated feature evaluates to off (fails closed): poster generation, active-content uploads, and the attachment index shadow — same effect as never enabling them.                                                                                                                                                                                                                          |
+| `FLAGS`                                                                        | api       | Every Flagship-gated feature evaluates to off (fails closed): poster generation, active-content uploads, the attachment index shadow, and the experimental LLM file classifier — same effect as never enabling them.                                                                                                                                                                                    |
+| `AI`                                                                           | api       | Experimental LLM file classifier is skipped; uploads still succeed without `ai.*` metadata.                                                                                                                                                                                                                                                                                                             |
 | `GITHUB_WEBHOOK_QUEUE`                                                         | api       | GitHub webhook deliveries process inline (`waitUntil`) instead of through a durable queue — functionally the same, just without queue-level retry/DLQ semantics.                                                                                                                                                                                                                                        |
 | `AUTH`                                                                         | mcp       | Uploader attribution on hosted-MCP uploads degrades to the id-only `gh.uploader-id` tag (no `gh.uploader` login) — the binding backs `uploaderTags()` in `@uploads/api/uploader-identity`, called from `apps/mcp/src/tools.ts`, and every failure path there fails soft. Uploads still succeed. (Listed here because a grep of `apps/mcp/src` alone misses the usage — it lives in the shared package.) |
 | `WRITE_LIMITER`                                                                | api, mcp  | No per-workspace burst limit on uploads/deletes.                                                                                                                                                                                                                                                                                                                                                        |
@@ -1002,6 +1003,53 @@ large run:
 - Use `--limit <n>` to bound how much budget a single run spends.
 - Expect a large backfill to compete with real user uploads for the same
   budget, and to start failing with 429s if it exhausts it partway through.
+
+## Experimental LLM file classifier
+
+**Experimental.** Off by default. After a successful server-mediated put
+(`putObject` — REST `PUT /v1/:ws/files/:key`, not a presigned `POST /sign`),
+an opted-in workspace can get server-owned `ai.tags`, `ai.summary`,
+`ai.kind`, and `ai.classifier=v1` rows. Agents read them with
+`uploads meta get <key>` or `GET …/files/:key?metadata=1`. Classifier
+errors never fail the upload.
+
+Workers AI calls go through AI Gateway (`env.AI.run(..., { gateway: { id } })`).
+Create the gateway once in the same account as `uploads-api`:
+
+```bash
+# Cloudflare dashboard → AI → AI Gateway → Create, id `uploads-classifier`
+# or the API equivalent. The worker var AI_GATEWAY_ID must match.
+```
+
+### Kill switches (in order of blast radius)
+
+1. **Flagship flag (preferred)** — create once (boolean, served off), then
+   flip:
+
+   ```bash
+   wrangler flagship flags create 8371bfe7-9767-4b4d-b75a-37b94d2724f7 \
+     llm-file-classifier --description "experimental LLM file classifier"
+   wrangler flagship flags update 8371bfe7-9767-4b4d-b75a-37b94d2724f7 \
+     llm-file-classifier --default off
+   ```
+
+   `classificationAllowed` (`apps/api/src/classifier.ts`) fails closed:
+   missing binding, disabled flag, or a thrown evaluation are all off.
+
+2. **Per-workspace opt-in** — `llmClassifierEnabled` must be `true`. Default
+   is off. Operator tooling:
+
+   ```bash
+   pnpm workspace:limits <name> --llm-classifier on
+   pnpm workspace:limits <name> --llm-classifier off
+   ```
+
+3. **Remove the `AI` binding** — drop the `ai` block from
+   `apps/api/wrangler.jsonc` and redeploy. Slower than Flagship, survives a
+   Flagship outage.
+
+The classifier skips images over 512 KiB (filename + type only), never
+sends SVG bytes, and times out at 8s. It does not log raw file bytes.
 
 ## Attachment index shadow (issue #934)
 

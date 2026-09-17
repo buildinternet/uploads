@@ -671,6 +671,17 @@ substring (`--name <term>`, or a bare positional without `=`). When you don't
 know which keys exist, start with `meta keys` / `meta values <key>` (or the MCP
 `list_metadata_keys` tool) — keys are user/agent-defined, not a fixed schema.
 
+**Experimental AI labels (`ai.*`).** Off by default. When an operator enables
+the LLM file classifier (Flagship `llm-file-classifier` + workspace
+`llmClassifierEnabled`), a server-mediated put may later write `ai.tags`
+(comma-separated), `ai.summary`, `ai.kind`
+(`screenshot|photo|diagram|document|code|ui|other`), and `ai.classifier=v1`.
+Read them with `uploads meta get <key>` or MCP `get_metadata`; filter with
+`uploads find ai.kind=screenshot`. Do not set `ai.*` yourself — the prefix is
+server-owned and the API rejects client writes. Labels are not in the put
+response; they land shortly after via `waitUntil`. Presigned uploads are not
+classified. See `docs/ops.md` (Experimental LLM file classifier).
+
 Search results are paged. When more matches remain, `find` prints `truncated:
 true` and the next page's opaque `cursor` on stderr. `--json` carries the same
 `cursor` in the payload. Pass it back with `--cursor` to read the next page.

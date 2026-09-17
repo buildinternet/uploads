@@ -218,6 +218,14 @@ export interface WorkspaceRecord {
    * (precedent: `videoPosterEnabled`).
    */
   activeContentUploads?: boolean;
+  /**
+   * Experimental LLM file classifier (Workers AI via AI Gateway). Fail-closed
+   * opt-in: only `true` schedules classification after a successful put.
+   * Default (undefined/false) keeps every workspace off. Also requires the
+   * Flagship flag `llm-file-classifier` and the `AI` binding. See
+   * `classificationAllowed` in classifier.ts.
+   */
+  llmClassifierEnabled?: boolean;
   /** Set by `DELETE /admin/workspaces/:name` (default/soft mode). Present → the workspace is soft-deleted. */
   deletedAt?: string;
   /** `deletedAt` + the grace window (`WORKSPACE_DELETE_GRACE_DAYS`); the retention sweep finalizes at/after this. */

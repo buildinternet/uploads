@@ -63,6 +63,7 @@ import {
   posterGenerationAllowed,
   posterKeyFor,
 } from "./poster";
+import { scheduleFileClassification, type ClassifierWaitUntil } from "./classifier";
 import {
   contentSha256Hex,
   provenanceForResponse,
@@ -530,6 +531,13 @@ export async function putObject(
      * `recordAttachmentForKeySafe` these callers used to make did.
      */
     attachment?: { source: AttachmentSource; repo?: string };
+    /**
+     * Experimental classifier scheduling. REST handlers pass
+     * `executionCtx.waitUntil` so the model call can finish after the 201.
+     * Absent (MCP/ingest/most tests) means classification is skipped rather
+     * than awaited on the upload path.
+     */
+    waitUntil?: ClassifierWaitUntil;
   },
 ): Promise<{
   key: string;
@@ -842,6 +850,18 @@ export async function putObject(
     inspection.contentType,
     workspaceName,
     storedVisibility,
+  );
+
+  // Experimental: after durable storage + server metadata, never on the
+  // critical path. Fail-open inside classifyAndStore.
+  scheduleFileClassification(
+    env,
+    ws,
+    workspaceName,
+    finalKey,
+    bytes,
+    inspection.contentType,
+    opts?.waitUntil,
   );
 
   const cfg = await storageConfig(env, ws);

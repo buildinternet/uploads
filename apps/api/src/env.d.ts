@@ -65,6 +65,17 @@ interface Env {
   FLAGS?: Flagship;
   POSTER_LIMITER?: RateLimit;
   /**
+   * Workers AI (experimental file classifier). Optional: an absent binding
+   * skips classification. Declared here because apps/mcp type-checks
+   * files-core.ts without an `ai` block in its wrangler.jsonc.
+   */
+  AI?: Ai;
+  /**
+   * AI Gateway id used as `env.AI.run(..., { gateway: { id } })`. Unset
+   * falls back to `uploads-classifier`. Not a secret.
+   */
+  AI_GATEWAY_ID?: string;
+  /**
    * Browser Run (screenshot rendering, `POST /v1/render`). Like `MEDIA`, this
    * has no local Miniflare simulation and self-hosters may skip the block
    * entirely (uploads#754 item 3) — `browserRenderer()` in render.ts treats

@@ -13,6 +13,7 @@
  *     [--max-key-depth 8] \
  *     [--clear-max-storage] [--clear-max-uploads-per-month] [--clear-max-upload-bytes] \
  *     [--clear-retention-days] [--clear-allowed-prefixes] [--clear-max-key-depth] \
+ *     [--llm-classifier on|off] [--clear-llm-classifier] \
  *     [--local]
  *
  * Units: bare number = bytes (or count for uploads). Also accepts KB/MB/GB
@@ -135,6 +136,15 @@ function parseAllowedPrefixes(raw, label) {
   return [...new Set(out)];
 }
 
+/** Parse a boolean flag: on/true/1 or off/false/0. */
+function parseOnOff(raw, label) {
+  if (raw === undefined || raw === null || raw === "") return undefined;
+  const s = String(raw).trim().toLowerCase();
+  if (s === "on" || s === "true" || s === "1") return true;
+  if (s === "off" || s === "false" || s === "0") return false;
+  fail(`invalid ${label}: use on or off`);
+}
+
 function wranglerKv(args) {
   const [op, key, value] = args;
   return wranglerKvKey({
@@ -174,6 +184,7 @@ const before = {
   retentionDays: record.retentionDays,
   allowedKeyPrefixes: record.allowedKeyPrefixes,
   maxKeyDepth: record.maxKeyDepth,
+  llmClassifierEnabled: record.llmClassifierEnabled,
 };
 
 const patch = {};
@@ -215,6 +226,13 @@ if (clears.has("max-key-depth") || opts["max-key-depth"] !== undefined) {
   const v = clears.has("max-key-depth") ? null : parseDepth(opts["max-key-depth"], "max-key-depth");
   patch.maxKeyDepth = v;
 }
+if (clears.has("llm-classifier") || opts["llm-classifier"] !== undefined) {
+  const v = clears.has("llm-classifier")
+    ? null
+    : parseOnOff(opts["llm-classifier"], "llm-classifier");
+  // Off and clear both drop the field (default is off). On writes `true`.
+  patch.llmClassifierEnabled = v === true ? true : null;
+}
 
 const changing = Object.keys(patch).length > 0;
 if (!changing) {
@@ -228,6 +246,7 @@ if (!changing) {
     `  node scripts/set-workspace-limits.mjs ${name} --allowed-prefixes default --max-key-depth 8`,
   );
   console.log(`  node scripts/set-workspace-limits.mjs ${name} --clear-max-storage`);
+  console.log(`  node scripts/set-workspace-limits.mjs ${name} --llm-classifier on`);
   process.exit(0);
 }
 
@@ -257,6 +276,7 @@ const after = {
   retentionDays: record.retentionDays,
   allowedKeyPrefixes: record.allowedKeyPrefixes,
   maxKeyDepth: record.maxKeyDepth,
+  llmClassifierEnabled: record.llmClassifierEnabled,
 };
 
 console.log(`workspace : ${name} (${opts.local ? "local" : "remote"})`);

@@ -66,7 +66,7 @@ pnpm workspace:add <name> [--bucket <bucket>] [--binding X] [--local] \
   [--no-default-limits] [--max-storage …]   # shared/agent limit template by default
 pnpm workspace:limits <name> [--max-storage …] [--max-video-bytes …] \
   [--allowed-prefixes default|f,screenshots,gh] [--max-key-depth 8] \
-  [--clear-max-storage] [--clear-allowed-prefixes] […]
+  [--llm-classifier on|off] [--clear-max-storage] [--clear-allowed-prefixes] […]
 pnpm migrate:d1:local    # apply apps/api/migrations to local D1 (migrate:d1 = remote)
 pnpm uploads put <file> --env-file .env   # monorepo only: builds package first
 pnpm uploads put <file> --pr <num>
