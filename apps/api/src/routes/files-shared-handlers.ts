@@ -262,6 +262,15 @@ export async function putFileHandler(c: Context<WorkspaceVars>) {
   }
   const bytes = new Uint8Array(body);
   const workspaceName = c.get("workspaceName");
+  // Workers have executionCtx; vitest app.request often does not.
+  let waitUntil: ((promise: Promise<unknown>) => void) | undefined;
+  try {
+    waitUntil = (promise) => {
+      c.executionCtx.waitUntil(promise);
+    };
+  } catch {
+    waitUntil = undefined;
+  }
   const putOpts = {
     provenance,
     visibility,
@@ -269,6 +278,7 @@ export async function putFileHandler(c: Context<WorkspaceVars>) {
     replace: wantReplace,
     surface: "api" as const,
     declaredContentType: c.req.header("Content-Type"),
+    waitUntil,
   };
 
   const idempotencyKey = c.req.header("Idempotency-Key");

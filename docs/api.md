@@ -273,6 +273,15 @@ includes server-derived pairs the client never sent, such as `gh.uploader`. A
 plain head returns no `metadata` at all — the queryable tier is a separate
 store, so it takes a separate read (`?metadata=1`).
 
+**Experimental AI labels.** When Flagship `llm-file-classifier` serves on for
+the workspace slug (`org` / `workspace` targeting context),
+a successful server-mediated put may later write server-owned `ai.tags`,
+`ai.summary`, `ai.kind`, and `ai.classifier=v1`. Clients cannot set or delete
+those keys (`ai.*` is reserved, same as `video.*` / `image.*`). The 201
+response does not wait for the model; read `GET …/files/:key?metadata=1` (or
+`uploads meta get <key>`) after the upload. Presigned uploads never get
+labels. See [docs/ops.md](ops.md#experimental-llm-file-classifier).
+
 ### Usage ledger and budgets
 
 `GET /v1/:workspace/usage` returns durable workspace counters (`bytes`,

@@ -310,16 +310,23 @@ describe("server-owned video.* namespace", () => {
   it("recognizes the namespace", () => {
     expect(isServerMetaKey("video.poster")).toBe(true);
     expect(isServerMetaKey("video.duration")).toBe(true);
+    expect(isServerMetaKey("ai.tags")).toBe(true);
+    expect(isServerMetaKey("ai.classifier")).toBe(true);
     expect(isServerMetaKey("videoclip")).toBe(false);
+    expect(isServerMetaKey("air")).toBe(false);
     expect(isServerMetaKey("path")).toBe(false);
   });
 
   it("rejects a client write to the namespace", () => {
     expect(() => validateMetadataEntries({ "video.poster": "1" })).toThrow(/reserved metadata key/);
+    expect(() => validateMetadataEntries({ "ai.tags": "ui" })).toThrow(/reserved metadata key/);
   });
 
   it("allows a server write when opted in", () => {
     expect(() => validateStoredMetadataEntries({ "video.poster": "1" })).not.toThrow();
+    expect(() =>
+      validateStoredMetadataEntries({ "ai.tags": "ui", "ai.classifier": "v1" }),
+    ).not.toThrow();
   });
 
   it("still rejects RESERVED_META_KEYS through the stored-entries variant", () => {

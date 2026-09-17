@@ -218,6 +218,13 @@ export interface WorkspaceRecord {
    * (precedent: `videoPosterEnabled`).
    */
   activeContentUploads?: boolean;
+  /**
+   * Experimental LLM file classifier hard off. Flagship
+   * `llm-file-classifier` is the allowlist (default off, targeting on
+   * `{ org, workspace }`). Only `false` blocks classification here;
+   * `undefined`/`true` do not. See `classificationAllowed` in classifier.ts.
+   */
+  llmClassifierEnabled?: boolean;
   /** Set by `DELETE /admin/workspaces/:name` (default/soft mode). Present → the workspace is soft-deleted. */
   deletedAt?: string;
   /** `deletedAt` + the grace window (`WORKSPACE_DELETE_GRACE_DAYS`); the retention sweep finalizes at/after this. */

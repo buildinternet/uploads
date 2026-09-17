@@ -21,3 +21,8 @@ BILLING_INTERNAL_KEY=
 WORKSPACE_SECRETS_KEY=
 # During rotation only: old key while re-encrypting (then remove).
 # WORKSPACE_SECRETS_KEY_PREVIOUS=
+
+# The experimental LLM file classifier is not secret-gated. AI_GATEWAY_ID
+# lives in wrangler.jsonc vars (default uploads-classifier). Classification
+# stays off until Flagship `llm-file-classifier` serves on for the workspace
+# slug (`org` / `workspace` targeting). See docs/ops.md.

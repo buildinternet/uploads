@@ -128,6 +128,36 @@ Once a PR opens, the comment assembles itself: via the GitHub App webhook, or th
 
 </section>
 
+<section id="experimental-ai-tags">
+
+## Experimental: AI tags on upload <a class="anchor" href="#experimental-ai-tags" aria-label="Link to this section">#</a>
+
+<div class="note">
+  Experimental and <strong>off by default</strong>. An operator allowlists orgs
+  in Flagship <code>llm-file-classifier</code> (targeting <code>org</code> /
+  <code>workspace</code> = the workspace slug). Classifier errors never fail an upload.
+</div>
+
+When the experiment is on, a successful `uploads put` (or REST PUT) may later grow
+server-owned labels the agent can read — they are not in the put response:
+
+```bash
+uploads meta get screenshots/app/settings.png
+# ai.classifier=v1
+# ai.kind=screenshot
+# ai.tags=ui,settings
+# ai.summary=A settings page
+```
+
+```bash
+uploads find ai.kind=screenshot
+```
+
+Do not send `--meta ai.tags=…`. The `ai.*` prefix is server-owned, like `image.width`.
+Presigned uploads and huge images are skipped. MCP tools: `get_metadata` / `find_files`.
+
+</section>
+
 <section id="instructions-file">
 
 ## Put it in your instructions file <a class="anchor" href="#instructions-file" aria-label="Link to this section">#</a>
