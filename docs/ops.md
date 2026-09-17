@@ -1008,10 +1008,16 @@ large run:
 
 **Experimental.** Off by default. After a successful server-mediated put
 (`putObject` — REST `PUT /v1/:ws/files/:key`, not a presigned `POST /sign`),
-a Flagship-allowlisted workspace can get server-owned `ai.tags`, `ai.summary`,
-`ai.kind`, and `ai.classifier=v1` rows. Agents read them with
+a Flagship-allowlisted workspace can get server-owned `ai.tags` (up to five
+kebab-case labels), `ai.summary`, `ai.kind`, `ai.surface`, `ai.screen`, and
+`ai.classifier=v2` rows. Agents read them with
 `uploads meta get <key>` or `GET …/files/:key?metadata=1`. Classifier
 errors never fail the upload.
+
+Closed enums: `ai.kind` is `screenshot|photo|diagram|document|code|ui|other`.
+`ai.surface` is `mobile|desktop|tablet|unknown`. `ai.screen` is
+`login|signup|settings|profile|dashboard|analytics|list|detail|form|search|modal|onboarding|empty|error|checkout|other`.
+An invalid or allowlist-echo value omits that key; tags and summary can still land.
 
 Workers AI calls go through AI Gateway (`env.AI.run(..., { gateway: { id } })`).
 Create the gateway once in the same account as `uploads-api`:

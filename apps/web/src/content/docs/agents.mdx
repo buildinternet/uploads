@@ -143,14 +143,17 @@ server-owned labels the agent can read — they are not in the put response:
 
 ```bash
 uploads meta get screenshots/app/settings.png
-# ai.classifier=v1
+# ai.classifier=v2
 # ai.kind=screenshot
+# ai.surface=desktop
+# ai.screen=settings
 # ai.tags=ui,settings
 # ai.summary=A settings page
 ```
 
 ```bash
 uploads find ai.kind=screenshot
+uploads find ai.screen=login
 ```
 
 Do not send `--meta ai.tags=…`. The `ai.*` prefix is server-owned, like `image.width`.
