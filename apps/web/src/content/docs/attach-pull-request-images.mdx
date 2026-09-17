@@ -63,7 +63,8 @@ uploads put ./after.png
 
 A bare `uploads screenshot` (no `--pr`/`--issue`/`--branch`) stages the same way, carrying its
 derived `path`/`url`/`env`/`viewport` metadata through promotion — so capturing before the PR exists
-no longer loses that context.
+no longer loses that context. `path` and `state` stay the labels you set;
+[experimental AI labels](/docs/agents#experimental-ai-tags) are a separate, server-owned layer.
 
 `attach --branch` is the explicit, multi-file form of the same thing — reach for it to upload several
 files at once with shared flags, or to force staging outside a plain upload:

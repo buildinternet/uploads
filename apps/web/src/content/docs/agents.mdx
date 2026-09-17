@@ -1,11 +1,19 @@
 ---
 title: Set up your agent
-description: Install the uploads agent skill and MCP server so your coding agent can attach screenshots to GitHub on its own.
+description: Install the uploads agent skill and MCP server so your coding agent can attach screenshots to GitHub on its own. Includes experimental AI image labels.
 heading: Set up your agent
 tagline: Teach a coding agent to upload and attach media on its own.
 navLabel: Set up your agent
 navSlug: agents
 navOrder: 6
+toc:
+  - { id: install, label: Install }
+  - { id: plugin, label: Claude Code & Codex plugins }
+  - { id: skill-vs-mcp, label: Skill vs. MCP }
+  - { id: stage-as-you-go, label: Stage as you go }
+  - { id: experimental-ai-tags, label: Experimental AI labels }
+  - { id: instructions-file, label: Instructions file }
+  - { id: pre-pr-reminder, label: Pre-PR reminder }
 ---
 
 <section class="lead" id="install">
@@ -130,34 +138,50 @@ Once a PR opens, the comment assembles itself: via the GitHub App webhook, or th
 
 <section id="experimental-ai-tags">
 
-## Experimental: AI tags on upload <a class="anchor" href="#experimental-ai-tags" aria-label="Link to this section">#</a>
+## Experimental: AI labels <a class="anchor" href="#experimental-ai-tags" aria-label="Link to this section">#</a>
 
 <div class="note">
-  Experimental and <strong>off by default</strong>. An operator allowlists orgs
-  in Flagship <code>llm-file-classifier</code> (targeting <code>org</code> /
-  <code>workspace</code> = the workspace slug). Classifier errors never fail an upload.
+  Experimental and <strong>off by default</strong>. Flagship
+  <code>llm-file-classifier</code> allowlists the workspace slug
+  (<code>org</code> / <code>workspace</code>). Fail-open: a classifier error
+  never fails the upload. Labels land after a REST put — they are not in the
+  put response. Presigned uploads are skipped.
 </div>
 
-When the experiment is on, a successful `uploads put` (or REST PUT) may later grow
-server-owned labels the agent can read — they are not in the put response:
+When the experiment is on, a successful `uploads put` (or REST PUT) may later
+grow server-owned `ai.*` labels. Human `path` and `state` stay primary when you
+set them — Storage and the file page show AI labels under those chips.
+
+| Key             | Values                                                                                                                                                |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ai.kind`       | `screenshot` `photo` `diagram` `document` `code` `ui` `other`                                                                                         |
+| `ai.surface`    | `mobile` `desktop` `tablet` `unknown`                                                                                                                 |
+| `ai.screen`     | `login` `signup` `settings` `profile` `dashboard` `analytics` `list` `detail` `form` `search` `modal` `onboarding` `empty` `error` `checkout` `other` |
+| `ai.tags`       | 3–5 free kebab-case labels                                                                                                                            |
+| `ai.summary`    | one short sentence                                                                                                                                    |
+| `ai.classifier` | `v2` (`v1` files omit surface and screen)                                                                                                             |
+
+Read one file after the upload finishes:
 
 ```bash
 uploads meta get screenshots/app/settings.png
-# ai.classifier=v2
-# ai.kind=screenshot
-# ai.surface=desktop
-# ai.screen=settings
-# ai.tags=ui,settings
-# ai.summary=A settings page
 ```
 
-```bash
-uploads find ai.kind=screenshot
+<div class="pointer">
+  MCP equivalent is <code>get_metadata</code>. Filter later with
+  <code>uploads find</code> or <code>find_files</code>.
+</div>
+
+```ansi
 uploads find ai.screen=login
+uploads find ai.surface=mobile
+uploads find ai.kind=screenshot
 ```
 
-Do not send `--meta ai.tags=…`. The `ai.*` prefix is server-owned, like `image.width`.
-Presigned uploads and huge images are skipped. MCP tools: `get_metadata` / `find_files`.
+<div class="note">
+  Clients cannot set or delete <code>ai.*</code>. The prefix is reserved, like
+  <code>image.width</code>. Do not send <code>--meta ai.tags=…</code>.
+</div>
 
 </section>
 

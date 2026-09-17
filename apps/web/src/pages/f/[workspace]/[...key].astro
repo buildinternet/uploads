@@ -31,6 +31,7 @@ import { OG_DEFAULT_IMAGE, OG_SITE_NAME, ogImageFor } from "../../../lib/og";
 import { env } from "cloudflare:workers";
 import { resolveSignedInOrigins } from "../../../lib/signed-in-page";
 import { workspaceHomePath } from "../../../lib/workspaces-nav";
+import { AI_CHIP_FIELDS, splitFileDetailMeta } from "../../../lib/ai-labels";
 
 export const prerender = false;
 
@@ -84,12 +85,16 @@ const ghAriaLabel = gh
   : "";
 const canonical = new URL(file ? filePath(workspace, key) : Astro.url.pathname, Astro.url.origin)
   .href;
-// Generic metadata list excludes `gh.*` pairs — those render as the byline
-// under the filename via `file.github` instead of duplicating them here.
-const metadataEntries = file?.metadata
-  ? Object.entries(file.metadata)
-      .filter(([metaKey]) => !metaKey.startsWith("gh."))
-      .sort(([a], [b]) => a.localeCompare(b))
+// Generic metadata list excludes `gh.*` (the byline) and `ai.*` (the
+// experimental labels block below). `path` / `state` stay first.
+const detailMeta = splitFileDetailMeta(file?.metadata);
+const metadataEntries = [...detailMeta.primary, ...detailMeta.other];
+const aiLabels = detailMeta.ai;
+const aiChips = aiLabels
+  ? AI_CHIP_FIELDS.flatMap((field) => {
+      const value = aiLabels[field];
+      return value ? [{ field, value }] : [];
+    })
   : [];
 // Empty when there's no file — CopyAsControls hides itself when both are empty.
 const embedFormats = file
@@ -324,6 +329,50 @@ const ogImage = file
         margin: 0;
         color: var(--body);
         overflow-wrap: anywhere;
+      }
+      .ai-labels {
+        display: grid;
+        gap: 8px;
+      }
+      .ai-labels-head {
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
+      }
+      .ai-labels-exp {
+        color: var(--muted);
+        font: var(--text-micro) var(--sans);
+        opacity: 0.7;
+      }
+      .ai-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+      .ai-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        max-width: 100%;
+        padding: 3px 8px;
+        border: 1px solid var(--line);
+        border-radius: 2px;
+        background: var(--panel);
+        color: var(--fg);
+        font: var(--text-micro) var(--mono);
+      }
+      .ai-chip-key {
+        color: var(--muted);
+      }
+      .ai-chip-value {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .ai-summary {
+        margin: 0;
+        color: var(--muted);
+        font: var(--text-micro) / 1.5 var(--sans);
       }
       /* Subordinate to everything above — margin-top:auto sinks it (and ReportAbuse, right
          after it in flow) to the bottom of the rail on tall pages, no-op on short ones. */
@@ -606,13 +655,38 @@ const ogImage = file
                     <span class="rail-rule" aria-hidden="true" />
                   </div>
                   <dl class="meta">
-                    {metadataEntries.map(([metaKey, metaValue]) => (
+                    {metadataEntries.map((entry) => (
                       <>
-                        <dt>{metaKey}</dt>
-                        <dd>{metaValue}</dd>
+                        <dt>{entry.key}</dt>
+                        <dd>{entry.value}</dd>
                       </>
                     ))}
                   </dl>
+                </div>
+              )}
+              {aiLabels && (
+                <div class="ai-labels">
+                  <div class="rail-head">
+                    <span class="rail-label">AI labels</span>
+                    <span class="ai-labels-exp">experimental</span>
+                    <span class="rail-rule" aria-hidden="true" />
+                  </div>
+                  {(aiChips.length > 0 || aiLabels.tags.length > 0) && (
+                    <div class="ai-chips">
+                      {aiChips.map((chip) => (
+                        <span class="ai-chip">
+                          <span class="ai-chip-key">{chip.field}</span>
+                          <span class="ai-chip-value">{chip.value}</span>
+                        </span>
+                      ))}
+                      {aiLabels.tags.map((tag) => (
+                        <span class="ai-chip">
+                          <span class="ai-chip-value">{tag}</span>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {aiLabels.summary && <p class="ai-summary">{aiLabels.summary}</p>}
                 </div>
               )}
               {footnoteLine && <p class="footnote">{footnoteLine}</p>}

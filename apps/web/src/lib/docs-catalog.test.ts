@@ -34,4 +34,11 @@ describe("aliasesFor", () => {
     expect(aliases).toContain("stage");
     expect(aliases).not.toContain("attach-pull-request-images");
   });
+
+  it("indexes experimental AI label search terms on the agents page", () => {
+    const aliases = aliasesFor("agents");
+    expect(aliases).toContain("classifier");
+    expect(aliases).toContain("ai labels");
+    expect(aliases).toContain("ai.screen");
+  });
 });
