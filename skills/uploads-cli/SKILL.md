@@ -671,9 +671,9 @@ substring (`--name <term>`, or a bare positional without `=`). When you don't
 know which keys exist, start with `meta keys` / `meta values <key>` (or the MCP
 `list_metadata_keys` tool) — keys are user/agent-defined, not a fixed schema.
 
-**Experimental AI labels (`ai.*`).** Off by default. When an operator enables
-the LLM file classifier (Flagship `llm-file-classifier` + workspace
-`llmClassifierEnabled`), a server-mediated put may later write `ai.tags`
+**Experimental AI labels (`ai.*`).** Off by default. When Flagship
+`llm-file-classifier` serves on for the workspace slug (`org` / `workspace`
+targeting context), a server-mediated put may later write `ai.tags`
 (comma-separated), `ai.summary`, `ai.kind`
 (`screenshot|photo|diagram|document|code|ui|other`), and `ai.classifier=v1`.
 Read them with `uploads meta get <key>` or MCP `get_metadata`; filter with

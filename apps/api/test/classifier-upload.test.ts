@@ -15,6 +15,7 @@ function makeClassifierEnv(
 ) {
   const { env, db, ws } = makePosterEnv();
   const calls: unknown[] = [];
+  const flagCalls: unknown[] = [];
   const patched = {
     ...env,
     AI: {
@@ -23,10 +24,16 @@ function makeClassifierEnv(
         return run();
       },
     },
+    FLAGS: {
+      getBooleanValue: async (...args: unknown[]) => {
+        flagCalls.push(args);
+        return true;
+      },
+    },
     AI_GATEWAY_ID: "uploads-classifier",
   } as unknown as Env;
-  const workspace: WorkspaceRecord = { ...ws, llmClassifierEnabled: true, ...wsOver };
-  return { env: patched, db, ws: workspace, calls };
+  const workspace: WorkspaceRecord = { ...ws, name: WORKSPACE, ...wsOver };
+  return { env: patched, db, ws: workspace, calls, flagCalls };
 }
 
 describe("classifier on upload", () => {
@@ -46,6 +53,20 @@ describe("classifier on upload", () => {
     expect(calls).toHaveLength(1);
     const [, , options] = calls[0] as [string, unknown, { gateway?: { id?: string } }];
     expect(options.gateway?.id).toBe("uploads-classifier");
+  });
+
+  it("evaluates Flagship with org and workspace context", async () => {
+    const { env, ws, flagCalls } = makeClassifierEnv();
+    const pending: Promise<unknown>[] = [];
+    await putObject(env, ws, "images/pic.png", PNG, WORKSPACE, {
+      waitUntil: (p) => pending.push(p),
+    });
+    await Promise.all(pending);
+    expect(flagCalls).toContainEqual([
+      "llm-file-classifier",
+      false,
+      { org: WORKSPACE, workspace: WORKSPACE },
+    ]);
   });
 
   it("leaves the request's own custom metadata intact", async () => {
@@ -78,7 +99,19 @@ describe("classifier on upload", () => {
     expect(metaByKey.get(result.key)?.["ai.classifier"]).toBeUndefined();
   });
 
-  it("skips when the workspace has not opted in", async () => {
+  it("skips when the workspace hard-off is set", async () => {
+    const { env, ws, calls } = makeClassifierEnv(async () => CLASSIFIED, {
+      llmClassifierEnabled: false,
+    });
+    const pending: Promise<unknown>[] = [];
+    await putObject(env, ws, "images/pic.png", PNG, WORKSPACE, {
+      waitUntil: (p) => pending.push(p),
+    });
+    await Promise.all(pending);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("classifies when llmClassifierEnabled is unset (Flagship is the allowlist)", async () => {
     const { env, ws, calls } = makeClassifierEnv(async () => CLASSIFIED, {
       llmClassifierEnabled: undefined,
     });
@@ -87,7 +120,7 @@ describe("classifier on upload", () => {
       waitUntil: (p) => pending.push(p),
     });
     await Promise.all(pending);
-    expect(calls).toHaveLength(0);
+    expect(calls).toHaveLength(1);
   });
 
   it("skips when waitUntil is omitted (does not block putObject)", async () => {

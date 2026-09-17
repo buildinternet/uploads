@@ -273,8 +273,8 @@ includes server-derived pairs the client never sent, such as `gh.uploader`. A
 plain head returns no `metadata` at all — the queryable tier is a separate
 store, so it takes a separate read (`?metadata=1`).
 
-**Experimental AI labels.** When an operator enables the LLM file classifier
-(Flagship `llm-file-classifier` plus `llmClassifierEnabled` on the workspace),
+**Experimental AI labels.** When Flagship `llm-file-classifier` serves on for
+the workspace slug (`org` / `workspace` targeting context),
 a successful server-mediated put may later write server-owned `ai.tags`,
 `ai.summary`, `ai.kind`, and `ai.classifier=v1`. Clients cannot set or delete
 those keys (`ai.*` is reserved, same as `video.*` / `image.*`). The 201

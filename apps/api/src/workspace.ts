@@ -219,11 +219,10 @@ export interface WorkspaceRecord {
    */
   activeContentUploads?: boolean;
   /**
-   * Experimental LLM file classifier (Workers AI via AI Gateway). Fail-closed
-   * opt-in: only `true` schedules classification after a successful put.
-   * Default (undefined/false) keeps every workspace off. Also requires the
-   * Flagship flag `llm-file-classifier` and the `AI` binding. See
-   * `classificationAllowed` in classifier.ts.
+   * Experimental LLM file classifier hard off. Flagship
+   * `llm-file-classifier` is the allowlist (default off, targeting on
+   * `{ org, workspace }`). Only `false` blocks classification here;
+   * `undefined`/`true` do not. See `classificationAllowed` in classifier.ts.
    */
   llmClassifierEnabled?: boolean;
   /** Set by `DELETE /admin/workspaces/:name` (default/soft mode). Present → the workspace is soft-deleted. */

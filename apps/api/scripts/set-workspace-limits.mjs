@@ -16,6 +16,9 @@
  *     [--llm-classifier on|off] [--clear-llm-classifier] \
  *     [--local]
  *
+ * `--llm-classifier off` writes llmClassifierEnabled=false (hard off).
+ * Flagship targeting is the allowlist; `--llm-classifier on` is not.
+ *
  * Units: bare number = bytes (or count for uploads). Also accepts KB/MB/GB
  * and KiB/MiB/GiB (e.g. 1GB, 25MiB). Use 0 or "unlimited" with a --clear-*
  * flag to remove a cap.
@@ -227,11 +230,15 @@ if (clears.has("max-key-depth") || opts["max-key-depth"] !== undefined) {
   patch.maxKeyDepth = v;
 }
 if (clears.has("llm-classifier") || opts["llm-classifier"] !== undefined) {
-  const v = clears.has("llm-classifier")
-    ? null
-    : parseOnOff(opts["llm-classifier"], "llm-classifier");
-  // Off and clear both drop the field (default is off). On writes `true`.
-  patch.llmClassifierEnabled = v === true ? true : null;
+  if (clears.has("llm-classifier")) {
+    // Drop the field — Flagship targeting decides.
+    patch.llmClassifierEnabled = null;
+  } else {
+    const v = parseOnOff(opts["llm-classifier"], "llm-classifier");
+    // `off` is a workspace hard off. `on` is kept for compatibility and
+    // does not allowlist; Flagship is the control plane.
+    patch.llmClassifierEnabled = v === true ? true : false;
+  }
 }
 
 const changing = Object.keys(patch).length > 0;
@@ -246,7 +253,7 @@ if (!changing) {
     `  node scripts/set-workspace-limits.mjs ${name} --allowed-prefixes default --max-key-depth 8`,
   );
   console.log(`  node scripts/set-workspace-limits.mjs ${name} --clear-max-storage`);
-  console.log(`  node scripts/set-workspace-limits.mjs ${name} --llm-classifier on`);
+  console.log(`  node scripts/set-workspace-limits.mjs ${name} --llm-classifier off`);
   process.exit(0);
 }
 

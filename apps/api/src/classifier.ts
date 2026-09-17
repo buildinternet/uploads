@@ -1,12 +1,14 @@
 /**
  * Experimental LLM file classifier (Workers AI via AI Gateway).
  *
- * After a successful `putObject`, an opted-in workspace can get server-owned
- * `ai.*` labels (`ai.tags`, `ai.summary`, `ai.kind`, `ai.classifier`) so
- * agents can organize uploads later. Off by default: Flagship
- * `llm-file-classifier` fails closed, and the workspace must set
- * `llmClassifierEnabled: true`. Fail-open: classifier errors never fail the
- * upload. Presigned (`POST /sign`) uploads never reach this hook.
+ * After a successful `putObject`, a Flagship-allowlisted workspace can get
+ * server-owned `ai.*` labels (`ai.tags`, `ai.summary`, `ai.kind`,
+ * `ai.classifier`) so agents can organize uploads later. Off by default:
+ * Flagship `llm-file-classifier` fails closed and is the sole allowlist
+ * (targeting context `{ org, workspace }` = the workspace slug).
+ * `llmClassifierEnabled === false` is an optional hard off; `undefined`
+ * does not block. Fail-open: classifier errors never fail the upload.
+ * Presigned (`POST /sign`) uploads never reach this hook.
  */
 
 import { setServerFileMetadata } from "./file-metadata";
@@ -74,18 +76,34 @@ export interface ClassifierModelRequest {
 export type ClassifierRun = (req: ClassifierModelRequest) => Promise<unknown>;
 
 /**
- * Every kill switch, cheapest first. Unlike posters (opt-out), this experiment
- * is opt-in: `llmClassifierEnabled` must be exactly `true`.
+ * Flagship targeting attributes for this experiment. `org` is the workspace
+ * slug today (Better Auth org slug ≈ workspace name) so rules can allowlist
+ * without an AUTH hop on the upload path. Both keys are the same string.
+ */
+export function classifierEvaluationContext(
+  ws: Pick<WorkspaceRecord, "name">,
+  workspaceName: string,
+): { org: string; workspace: string } {
+  const slug = ws.name?.trim() || workspaceName;
+  return { org: slug, workspace: slug };
+}
+
+/**
+ * Every kill switch, cheapest first. Flagship is the sole allowlist
+ * (default off; Demo adds targeting rules). `llmClassifierEnabled === false`
+ * is a workspace-level hard off; `undefined`/`true` do not block.
  */
 export async function classificationAllowed(
   env: Env,
-  ws: Pick<WorkspaceRecord, "llmClassifierEnabled">,
+  ws: Pick<WorkspaceRecord, "llmClassifierEnabled" | "name">,
+  workspaceName: string,
 ): Promise<boolean> {
   if (!env.AI) return false;
-  if (ws.llmClassifierEnabled !== true) return false;
+  if (ws.llmClassifierEnabled === false) return false;
   if (!env.FLAGS) return false;
   try {
-    if (!(await env.FLAGS.getBooleanValue(CLASSIFIER_FLAG, false))) return false;
+    const context = classifierEvaluationContext(ws, workspaceName);
+    if (!(await env.FLAGS.getBooleanValue(CLASSIFIER_FLAG, false, context))) return false;
   } catch {
     return false;
   }
@@ -264,7 +282,7 @@ export async function classifyAndStore(
   deps?: { timeoutMs?: number; run?: ClassifierRun },
 ): Promise<Record<string, string> | undefined> {
   try {
-    if (!(await classificationAllowed(env, ws))) return undefined;
+    if (!(await classificationAllowed(env, ws, workspaceName))) return undefined;
     const run = deps?.run ?? workersAiClassifierRun(env);
     const timeoutMs = deps?.timeoutMs ?? CLASSIFIER_TIMEOUT_MS;
     const request = buildClassifierRequest(key, contentType, bytes);
@@ -303,7 +321,8 @@ export function scheduleFileClassification(
 ): void {
   if (!waitUntil) return;
   // Cheap local gates only — Flagship is async and lives inside classifyAndStore.
-  if (!env.AI || ws.llmClassifierEnabled !== true) return;
+  if (!env.AI) return;
+  if (ws.llmClassifierEnabled === false) return;
   const work = classifyAndStore(env, ws, workspaceName, key, bytes, contentType);
   try {
     waitUntil(work);

@@ -1008,7 +1008,7 @@ large run:
 
 **Experimental.** Off by default. After a successful server-mediated put
 (`putObject` — REST `PUT /v1/:ws/files/:key`, not a presigned `POST /sign`),
-an opted-in workspace can get server-owned `ai.tags`, `ai.summary`,
+a Flagship-allowlisted workspace can get server-owned `ai.tags`, `ai.summary`,
 `ai.kind`, and `ai.classifier=v1` rows. Agents read them with
 `uploads meta get <key>` or `GET …/files/:key?metadata=1`. Classifier
 errors never fail the upload.
@@ -1021,28 +1021,47 @@ Create the gateway once in the same account as `uploads-api`:
 # or the API equivalent. The worker var AI_GATEWAY_ID must match.
 ```
 
+### Allowlist (Flagship is the control plane)
+
+`classificationAllowed` evaluates Flagship with context
+`{ org: <slug>, workspace: <slug> }`. Both attributes are the workspace
+registry slug (Better Auth org slug ≈ workspace name). There is no AUTH hop
+on the upload path.
+
+Keep the flag's default **off**. Allowlist orgs with a targeting rule, for
+example `serve=on; when=org in [acme, demo]` or `when=org equals acme`.
+
+Create the flag once (boolean, served off), then add rules in the Flagship
+UI. Dry-run an evaluation:
+
+```bash
+wrangler flagship flags create 8371bfe7-9767-4b4d-b75a-37b94d2724f7 \
+  llm-file-classifier --description "experimental LLM file classifier"
+wrangler flagship flags update 8371bfe7-9767-4b4d-b75a-37b94d2724f7 \
+  llm-file-classifier --default off
+wrangler flagship flags evaluate 8371bfe7-9767-4b4d-b75a-37b94d2724f7 \
+  llm-file-classifier --context org=acme --context workspace=acme
+```
+
+`classificationAllowed` (`apps/api/src/classifier.ts`) fails closed:
+missing `FLAGS`, a disabled flag, or a thrown evaluation are all off.
+
 ### Kill switches (in order of blast radius)
 
-1. **Flagship flag (preferred)** — create once (boolean, served off), then
-   flip:
+1. **Flagship flag / targeting (preferred)** — turn the experiment off
+   globally, or remove an org from the targeting rule. Instant, no deploy.
+
+2. **Workspace hard off** — `llmClassifierEnabled === false` on the KV
+   record blocks that workspace even when Flagship would serve on.
+   `undefined` does not block. This is break-glass, not the allowlist:
 
    ```bash
-   wrangler flagship flags create 8371bfe7-9767-4b4d-b75a-37b94d2724f7 \
-     llm-file-classifier --description "experimental LLM file classifier"
-   wrangler flagship flags update 8371bfe7-9767-4b4d-b75a-37b94d2724f7 \
-     llm-file-classifier --default off
-   ```
-
-   `classificationAllowed` (`apps/api/src/classifier.ts`) fails closed:
-   missing binding, disabled flag, or a thrown evaluation are all off.
-
-2. **Per-workspace opt-in** — `llmClassifierEnabled` must be `true`. Default
-   is off. Operator tooling:
-
-   ```bash
-   pnpm workspace:limits <name> --llm-classifier on
    pnpm workspace:limits <name> --llm-classifier off
+   pnpm workspace:limits <name> --clear-llm-classifier
    ```
+
+   `--llm-classifier on` is deprecated as an allowlist. It writes `true`,
+   which does not enable classification by itself.
 
 3. **Remove the `AI` binding** — drop the `ai` block from
    `apps/api/wrangler.jsonc` and redeploy. Slower than Flagship, survives a

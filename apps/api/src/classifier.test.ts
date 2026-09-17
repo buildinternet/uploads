@@ -7,6 +7,7 @@ import {
   CLASSIFIER_VISION_MODEL,
   buildClassifierRequest,
   classificationAllowed,
+  classifierEvaluationContext,
   classifierGatewayId,
   extractJsonObject,
   extractModelText,
@@ -27,49 +28,78 @@ function env(over: Record<string, unknown> = {}) {
   } as never as Env;
 }
 
-describe("classificationAllowed", () => {
-  it("allows only when AI, Flagship, and workspace opt-in are all open", async () => {
-    expect(await classificationAllowed(env(), { llmClassifierEnabled: true })).toBe(true);
+describe("classifierEvaluationContext", () => {
+  it("uses WorkspaceRecord.name when set", () => {
+    expect(classifierEvaluationContext({ name: "acme" }, "ignored")).toEqual({
+      org: "acme",
+      workspace: "acme",
+    });
   });
 
-  it("denies when the workspace has not opted in (default)", async () => {
-    expect(await classificationAllowed(env(), {})).toBe(false);
-    expect(await classificationAllowed(env(), { llmClassifierEnabled: false })).toBe(false);
+  it("falls back to the putObject workspace name", () => {
+    expect(classifierEvaluationContext({}, "demo")).toEqual({ org: "demo", workspace: "demo" });
+    expect(classifierEvaluationContext({ name: "  " }, "demo")).toEqual({
+      org: "demo",
+      workspace: "demo",
+    });
+  });
+});
+
+describe("classificationAllowed", () => {
+  it("allows when AI and Flagship are open, without a KV opt-in", async () => {
+    expect(await classificationAllowed(env(), {}, "acme")).toBe(true);
+    expect(await classificationAllowed(env(), { llmClassifierEnabled: true }, "acme")).toBe(true);
+  });
+
+  it("denies when the workspace hard-off is set", async () => {
+    expect(await classificationAllowed(env(), { llmClassifierEnabled: false }, "acme")).toBe(false);
   });
 
   it("denies when the AI binding is absent", async () => {
-    expect(
-      await classificationAllowed(env({ AI: undefined }), { llmClassifierEnabled: true }),
-    ).toBe(false);
+    expect(await classificationAllowed(env({ AI: undefined }), {}, "acme")).toBe(false);
   });
 
   it("fails closed when Flagship is missing, off, or throws", async () => {
-    expect(
-      await classificationAllowed(env({ FLAGS: undefined }), { llmClassifierEnabled: true }),
-    ).toBe(false);
-    expect(
-      await classificationAllowed(env({ FLAGS: flagsOff }), { llmClassifierEnabled: true }),
-    ).toBe(false);
+    expect(await classificationAllowed(env({ FLAGS: undefined }), {}, "acme")).toBe(false);
+    expect(await classificationAllowed(env({ FLAGS: flagsOff }), {}, "acme")).toBe(false);
     const flagsThrows = {
       getBooleanValue: async () => {
         throw new Error("flagship unreachable");
       },
     };
-    expect(
-      await classificationAllowed(env({ FLAGS: flagsThrows }), { llmClassifierEnabled: true }),
-    ).toBe(false);
+    expect(await classificationAllowed(env({ FLAGS: flagsThrows }), {}, "acme")).toBe(false);
   });
 
-  it("asks Flagship for the classifier flag with a closed default", async () => {
-    let seen: { name?: string; def?: boolean } = {};
+  it("evaluates Flagship with a closed default and { org, workspace } context", async () => {
+    let seen: { name?: string; def?: boolean; context?: unknown } = {};
     const flags = {
-      getBooleanValue: async (name: string, def: boolean) => {
-        seen = { name, def };
+      getBooleanValue: async (name: string, def: boolean, context?: unknown) => {
+        seen = { name, def, context };
         return true;
       },
     };
-    await classificationAllowed(env({ FLAGS: flags }), { llmClassifierEnabled: true });
-    expect(seen).toEqual({ name: CLASSIFIER_FLAG, def: false });
+    await classificationAllowed(env({ FLAGS: flags }), { name: "acme" }, "ignored");
+    expect(seen).toEqual({
+      name: CLASSIFIER_FLAG,
+      def: false,
+      context: { org: "acme", workspace: "acme" },
+    });
+    await classificationAllowed(env({ FLAGS: flags }), {}, "demo");
+    expect(seen.context).toEqual({ org: "demo", workspace: "demo" });
+  });
+
+  it("does not evaluate Flagship when the workspace hard-off is set", async () => {
+    let called = false;
+    const flags = {
+      getBooleanValue: async () => {
+        called = true;
+        return true;
+      },
+    };
+    expect(
+      await classificationAllowed(env({ FLAGS: flags }), { llmClassifierEnabled: false }, "acme"),
+    ).toBe(false);
+    expect(called).toBe(false);
   });
 });
 
@@ -193,7 +223,7 @@ describe("scheduleFileClassification", () => {
     const run = vi.fn();
     scheduleFileClassification(
       env({ AI: { run } }),
-      { provider: "r2", bucket: "b", llmClassifierEnabled: true },
+      { provider: "r2", bucket: "b" },
       "acme",
       "f/x.png",
       new Uint8Array([1]),
@@ -206,7 +236,7 @@ describe("scheduleFileClassification", () => {
     expect(() =>
       scheduleFileClassification(
         env(),
-        { provider: "r2", bucket: "b", llmClassifierEnabled: true },
+        { provider: "r2", bucket: "b" },
         "acme",
         "f/x.png",
         new Uint8Array([1]),
@@ -216,5 +246,19 @@ describe("scheduleFileClassification", () => {
         },
       ),
     ).not.toThrow();
+  });
+
+  it("does not schedule when the workspace hard-off is set", () => {
+    const waitUntil = vi.fn();
+    scheduleFileClassification(
+      env(),
+      { provider: "r2", bucket: "b", llmClassifierEnabled: false },
+      "acme",
+      "f/x.png",
+      new Uint8Array([1]),
+      "image/png",
+      waitUntil,
+    );
+    expect(waitUntil).not.toHaveBeenCalled();
   });
 });

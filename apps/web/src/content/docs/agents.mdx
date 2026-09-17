@@ -133,8 +133,9 @@ Once a PR opens, the comment assembles itself: via the GitHub App webhook, or th
 ## Experimental: AI tags on upload <a class="anchor" href="#experimental-ai-tags" aria-label="Link to this section">#</a>
 
 <div class="note">
-  Experimental and <strong>off by default</strong>. An operator must enable Flagship
-  <code>llm-file-classifier</code> and opt the workspace in. Classifier errors never fail an upload.
+  Experimental and <strong>off by default</strong>. An operator allowlists orgs
+  in Flagship <code>llm-file-classifier</code> (targeting <code>org</code> /
+  <code>workspace</code> = the workspace slug). Classifier errors never fail an upload.
 </div>
 
 When the experiment is on, a successful `uploads put` (or REST PUT) may later grow
