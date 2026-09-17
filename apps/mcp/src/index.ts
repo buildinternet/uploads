@@ -34,7 +34,13 @@ import { Hono, type Context, type Next } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { version as uploadsVersion } from "../../../packages/uploads/package.json";
 import { createRemoteTools } from "./tools";
-import { invalidTokenChallenge, isJwtShaped, missingTokenChallenge, verifyOAuthJwt } from "./oauth";
+import {
+  invalidTokenChallenge,
+  isJwtShaped,
+  jwksFetcherFor,
+  missingTokenChallenge,
+  verifyOAuthJwt,
+} from "./oauth";
 import { ROBOTS_TXT } from "./robots";
 
 /**
@@ -103,6 +109,9 @@ async function oauthAuth(
     // re-discovers the current issuer via RFC 9728, and re-authorizes.
     issuer: currentIssuer,
     audience: OAUTH_AUDIENCES,
+    // Fetch the AS JWKS over the AUTH service binding (direct to uploads-auth,
+    // edge-independent) when present; plain fetch in local dev.
+    jwksFetcher: jwksFetcherFor(c.env),
   });
   if (!verified) return invalidTokenChallenge(c.req.url);
 
