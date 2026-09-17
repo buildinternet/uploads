@@ -18,7 +18,7 @@ import { type D1Queryable } from "./db-session";
 
 export interface IngestLedgerRow {
   repo: string; // lowercase owner/name
-  assetId: string; // path after /user-attachments/, e.g. "assets/<uuid>" or "files/123/shot.png"
+  assetId: string; // "assets/<uuid>" | "files/123/shot.png" | "cursor/art-<uuid>"
   workspace: string;
   objectKey: string;
   kind: "pull" | "issues";

@@ -1,10 +1,12 @@
 /**
  * GitHub attachment ingest reconcile core (Task 4, spec
  * docs/superpowers/specs/2026-08-11-github-attachment-ingestion-design.md):
- * mirrors `github.com/user-attachments/...` URLs referenced from a PR/issue
- * body or comment into workspace-owned storage, so they survive independent
- * of GitHub's own attachment lifecycle and carry the same queryable
- * `gh.*` metadata as every other managed GitHub upload.
+ * mirrors `github.com/user-attachments/...` and public Cursor rewrite URLs
+ * (`cursor.com/artifacts/c/art-<uuid>`) referenced from a PR/issue body or
+ * comment into workspace-owned storage, so they survive independent of the
+ * source host and carry the same queryable `gh.*` metadata as every other
+ * managed GitHub upload. Viewer (`/artifacts/v/`) and login-walled agent
+ * pages are skipped with a hint — they are not fetched as media.
  *
  * The ledger (`github-ingest-ledger.ts`) is the idempotency backbone: a
  * `(repo, assetId)` row records that an asset has already been fetched and
@@ -24,8 +26,17 @@
  */
 
 import { AppError, isRetryableType, NotFoundError } from "@uploads/errors";
-import { attachmentKeyBasename, extractUserAttachments } from "./github-attachment-extract";
+import {
+  attachmentKeyBasename,
+  CURSOR_AGENT_PAGE_SKIP_REASON,
+  CURSOR_VIEWER_SKIP_REASON,
+  extractIngestAttachments,
+  extractUnimportableCursorRefs,
+  isCursorAssetId,
+  type ExtractedAttachment,
+} from "./github-attachment-extract";
 import { GH_PRIVATE_ROOT, sanitizeKeySegment } from "./github-comment-render";
+import { isPrivateRenderTarget } from "./private-host";
 import {
   githubAppConfig,
   githubFetch,
@@ -179,7 +190,11 @@ function ingestKeyForMode(
     : ingestKey(ref, assetId, ext);
 }
 
-function ingestMetadata(ref: IngestSourceRef, author: string | null): Record<string, string> {
+function ingestMetadata(
+  ref: IngestSourceRef,
+  author: string | null,
+  extra?: Record<string, string>,
+): Record<string, string> {
   return {
     "gh.repo": ref.repo.toLowerCase(),
     // Stored vocabulary is singular ("issue"/"pull"), matching the CLI
@@ -194,7 +209,99 @@ function ingestMetadata(ref: IngestSourceRef, author: string | null): Record<str
     ...(author ? { "gh.author": author } : {}),
     "gh.detached": "false",
     "gh.source": ref.source,
+    ...extra,
   };
+}
+
+const CURSOR_REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+const CURSOR_MAX_REDIRECTS = 5;
+
+/** Path leaf from a URL, query string discarded — never persist S3 signatures. */
+function filenameLeafFromUrl(url: URL): string | undefined {
+  const last = url.pathname.replace(/\/+$/, "").split("/").pop();
+  if (!last) return undefined;
+  try {
+    return decodeURIComponent(last);
+  } catch {
+    return last;
+  }
+}
+
+function publicHttpsUrl(raw: string, base?: string): URL | null {
+  try {
+    const url = new URL(raw, base);
+    if (url.protocol !== "https:") return null;
+    if (url.username !== "" || url.password !== "") return null;
+    if (isPrivateRenderTarget(url.hostname)) return null;
+    return url;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Object-key basename. GitHub stays `attachmentKeyBasename(assetId)`.
+ * Cursor prefers markdown/HTML alt, then the `/c/` redirect's S3 path leaf,
+ * then `art-<uuid>` plus the sniffed extension the caller appends.
+ */
+function ingestObjectBasename(attachment: ExtractedAttachment, nameHint?: string): string {
+  if (isCursorAssetId(attachment.id) && nameHint?.trim()) {
+    const cleaned = attachmentKeyBasename(nameHint.trim()).replace(/\.[a-z0-9]{1,8}$/i, "");
+    if (cleaned) return cleaned;
+  }
+  return attachmentKeyBasename(attachment.id);
+}
+
+/**
+ * Fetch public Cursor `/artifacts/c/art-*` bytes via the stable cursor.com
+ * URL. Follows the short-lived S3 302 manually so we can take a filename
+ * slug from the path and never persist the signed query string. No GitHub
+ * (or Cursor) credentials are sent.
+ */
+async function fetchCursorArtifact(
+  fetchImpl: typeof fetch,
+  stableUrl: string,
+): Promise<
+  { kind: "ok"; bytes: Uint8Array; nameHint?: string } | { kind: "skip"; reason: string }
+> {
+  let url = publicHttpsUrl(stableUrl);
+  if (!url) return { kind: "skip", reason: "asset_not_found" };
+  let nameHint: string | undefined;
+
+  for (let hop = 0; hop <= CURSOR_MAX_REDIRECTS; hop++) {
+    const res = await githubFetch(fetchImpl, url.href, {
+      redirect: "manual",
+      headers: { accept: "*/*", "user-agent": "uploads.sh" },
+    });
+
+    if (CURSOR_REDIRECT_STATUSES.has(res.status)) {
+      const location = res.headers.get("location");
+      if (!location || hop === CURSOR_MAX_REDIRECTS) {
+        return { kind: "skip", reason: "asset_not_found" };
+      }
+      const next = publicHttpsUrl(location, url.href);
+      if (!next) return { kind: "skip", reason: "asset_not_found" };
+      url = next;
+      const leaf = filenameLeafFromUrl(url);
+      if (leaf && !leaf.toLowerCase().startsWith("art-")) nameHint = leaf;
+      continue;
+    }
+
+    if (res.status === 404 || res.status === 403 || res.status === 410) {
+      return { kind: "skip", reason: "asset_not_found" };
+    }
+    if (!res.ok) {
+      throw new Error(`cursor artifact fetch failed: ${res.status}`);
+    }
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    if (!nameHint) {
+      const leaf = filenameLeafFromUrl(url);
+      if (leaf && !leaf.toLowerCase().startsWith("art-")) nameHint = leaf;
+    }
+    return { kind: "ok", bytes, ...(nameHint ? { nameHint } : {}) };
+  }
+
+  return { kind: "skip", reason: "asset_not_found" };
 }
 
 type FetchAndStoreResult = { kind: "ok"; key: string } | { kind: "skip"; reason: string };
@@ -204,40 +311,55 @@ type FetchAndStoreResult = { kind: "ok"; key: string } | { kind: "skip"; reason:
  * minted one, else self-minting), sniffs/guards them, and puts the object.
  * Guard failures return a `skip` result; a failed token mint or a non-guard
  * fetch/put failure throws (transient — see the module doc-comment).
+ *
+ * Cursor `/artifacts/c/art-*` URLs are fetched without a GitHub token — they
+ * are public capability URLs. The installation token is only required for
+ * `github.com/user-attachments/...`.
  */
 async function fetchAndStore(
   env: Env,
   ws: WorkspaceRecord,
   workspaceName: string,
   ref: IngestSourceRef,
-  attachment: { id: string; url: string },
+  attachment: ExtractedAttachment,
   author: string | null,
   deps: IngestDeps,
 ): Promise<FetchAndStoreResult> {
   const fetchImpl = deps.fetchImpl ?? fetch;
   const putImpl = deps.putImpl ?? putObject;
 
-  let token = deps.token;
-  if (!token) {
-    const cfg = githubAppConfig(env);
-    if (!cfg) return { kind: "skip", reason: "app_not_configured" };
-    const installationId = await installationForRepo(env, cfg, ref.repo, fetchImpl);
-    if (installationId === null) return { kind: "skip", reason: "app_not_installed" };
-    const minted = await installationToken(env, cfg, installationId, fetchImpl);
-    if (!minted) throw new Error("github installation token mint failed");
-    token = minted;
-  }
+  let bytes: Uint8Array;
+  let nameHint = attachment.alt;
+  const cursor = isCursorAssetId(attachment.id);
 
-  const res = await githubFetch(fetchImpl, attachment.url, {
-    headers: { authorization: `Bearer ${token}`, "user-agent": "uploads.sh" },
-  });
-  if (res.status === 404 || res.status === 403 || res.status === 410) {
-    return { kind: "skip", reason: "asset_not_found" };
+  if (cursor) {
+    const fetched = await fetchCursorArtifact(fetchImpl, attachment.url);
+    if (fetched.kind === "skip") return fetched;
+    bytes = fetched.bytes;
+    if (!nameHint) nameHint = fetched.nameHint;
+  } else {
+    let token = deps.token;
+    if (!token) {
+      const cfg = githubAppConfig(env);
+      if (!cfg) return { kind: "skip", reason: "app_not_configured" };
+      const installationId = await installationForRepo(env, cfg, ref.repo, fetchImpl);
+      if (installationId === null) return { kind: "skip", reason: "app_not_installed" };
+      const minted = await installationToken(env, cfg, installationId, fetchImpl);
+      if (!minted) throw new Error("github installation token mint failed");
+      token = minted;
+    }
+
+    const res = await githubFetch(fetchImpl, attachment.url, {
+      headers: { authorization: `Bearer ${token}`, "user-agent": "uploads.sh" },
+    });
+    if (res.status === 404 || res.status === 403 || res.status === 410) {
+      return { kind: "skip", reason: "asset_not_found" };
+    }
+    if (!res.ok) {
+      throw new Error(`github asset fetch failed: ${res.status}`);
+    }
+    bytes = new Uint8Array(await res.arrayBuffer());
   }
-  if (!res.ok) {
-    throw new Error(`github asset fetch failed: ${res.status}`);
-  }
-  const bytes = new Uint8Array(await res.arrayBuffer());
 
   // Media gate: the Screenshots view mirrors images and video only. A type
   // must be in the workspace's own upload allowlist (`resolveUploadPolicy(ws)
@@ -269,10 +391,15 @@ async function fetchAndStore(
   }
 
   const mode: GhKeyMode = deps.mode ?? { mode: "plain" };
-  const key = ingestKeyForMode(mode, ref, attachment.id, extensionForKey(sniffed));
+  const key = ingestKeyForMode(
+    mode,
+    ref,
+    ingestObjectBasename(attachment, nameHint),
+    extensionForKey(sniffed),
+  );
   try {
     await putImpl(env, ws, key, bytes, workspaceName, {
-      metadata: ingestMetadata(ref, author),
+      metadata: ingestMetadata(ref, author, cursor ? { "gh.provider": "cursor" } : undefined),
       replace: true,
       surface: "github",
     });
@@ -326,7 +453,7 @@ export async function reconcileIngestSource(
 ): Promise<IngestSummary> {
   const db = dbFor(env);
   const summary = emptySummary();
-  const found = text === null ? [] : extractUserAttachments(text);
+  const found = text === null ? [] : extractIngestAttachments(text);
   const foundIds = new Set(found.map((a) => a.id));
 
   // Hoisted out of the loop below and fetched in parallel — one row lookup
@@ -393,6 +520,22 @@ export async function reconcileIngestSource(
     await updateFileMetadataValue(db, row.workspace, row.objectKey, "gh.detached", "true");
     await setLedgerDetached(db, ref.repo, row.assetId, new Date().toISOString());
     summary.detached.push(row.objectKey);
+  }
+
+  if (text !== null) {
+    const importedArtIds = new Set(
+      found.filter((a) => isCursorAssetId(a.id)).map((a) => a.id.slice("cursor/".length)),
+    );
+    const hasCursorImport = importedArtIds.size > 0;
+    for (const skipped of extractUnimportableCursorRefs(text)) {
+      if (skipped.kind === "viewer") {
+        if (skipped.artId && importedArtIds.has(skipped.artId)) continue;
+        summary.skipped.push({ url: skipped.url, reason: CURSOR_VIEWER_SKIP_REASON });
+        continue;
+      }
+      if (hasCursorImport) continue;
+      summary.skipped.push({ url: skipped.url, reason: CURSOR_AGENT_PAGE_SKIP_REASON });
+    }
   }
 
   return summary;

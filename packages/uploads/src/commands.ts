@@ -3983,19 +3983,22 @@ export async function runComment(
 
 // --- ingest ---
 
-const INGEST_HELP = `uploads ingest — mirror GitHub-native attachments from a PR/issue into the workspace
+const INGEST_HELP = `uploads ingest — mirror GitHub-native and public Cursor artifacts from a PR/issue into the workspace
 
 Usage:
   uploads ingest --pr <n> [--repo owner/name]
   uploads ingest --issue <n> [--repo owner/name]
 
 Scans the PR/issue description and comments for github.com/user-attachments
-media, mirrors new ones into the workspace (indexed, not added to the managed
-comment), and detaches ones no longer referenced. Works on any repo linked to
-the workspace; the .uploads.yml ingestGithubAttachments knob only gates the
-automatic webhook path. Bot-authored attachments and images under 200px on
-either side are always skipped (the .uploads.yml ingestBotAttachments knob
-re-admits bot media on the webhook path only).
+media and public cursor.com/artifacts/c/art-* rewrite URLs, mirrors new ones
+into the workspace (indexed, not added to the managed comment), and detaches
+ones no longer referenced. Viewer (/artifacts/v/) and login-walled agent-page
+links are skipped — enable Allow posting artifacts to GitHub so the PR gets a
+public /c/ URL. Works on any repo linked to the workspace; the .uploads.yml
+ingestGithubAttachments knob only gates the automatic webhook path.
+Bot-authored attachments and images under 200px on either side are always
+skipped (the .uploads.yml ingestBotAttachments knob re-admits bot media on
+the webhook path only).
 
 Examples:
   uploads ingest --pr 123

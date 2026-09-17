@@ -1774,9 +1774,10 @@ export function createUploadsClient(config: UploadsClientConfig) {
     /**
      * `POST /v1/workspaces/:workspace/github/ingest` (Task 6) — manual/
      * backfill mirror of a PR/issue's `github.com/user-attachments` media
-     * into the workspace. Only ever had the canonical `/v1/workspaces`
-     * route (no old bearer-only alias) — unlike the other `github/*` client
-     * methods above, which moved onto it in issue #613.
+     * and public `cursor.com/artifacts/c/art-*` rewrite URLs into the
+     * workspace. Only ever had the canonical `/v1/workspaces` route (no old
+     * bearer-only alias) — unlike the other `github/*` client methods above,
+     * which moved onto it in issue #613.
      */
     async ingestGithub(input: {
       repo: string;

@@ -202,7 +202,8 @@ export const ROOT_COMMANDS: readonly CatalogCommand[] = [
   {
     name: "ingest",
     usage: "ingest (--pr <n> | --issue <n>)",
-    summary: "Mirror GitHub-native user-attachments media from a PR/issue into the workspace",
+    summary:
+      "Mirror GitHub-native and public Cursor artifact URLs from a PR/issue into the workspace",
   },
   {
     name: "list",

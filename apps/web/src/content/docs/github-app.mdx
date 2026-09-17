@@ -106,6 +106,10 @@ up in search and on the "From GitHub" rail of file pages — and they survive ev
 attachment copy goes away. They never appear in the managed attachments comment; they're an index,
 not a source of truth.
 
+`uploads ingest` also copies public Cursor cloud-agent rewrite URLs (`cursor.com/artifacts/c/art-*`)
+the same way. Viewer pages (`/artifacts/v/`) and login-walled agent artifact links are skipped — turn
+on **Allow posting artifacts to GitHub** in the Cursor dashboard so the PR gets a public `/c/` URL.
+
 Importing is **on by default** for linked repos. Turn it off per workspace on the workspace's
 [comment settings](/account) page, or per repo with `ingestGithubAttachments: false` in
 [`.uploads.yml`](/docs/comment-config).
