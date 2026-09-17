@@ -131,6 +131,30 @@ describe("classifier on upload", () => {
 });
 
 describe("classifyAndStore", () => {
+  it("writes ai.* metadata when the gateway returns an object-shaped response", async () => {
+    const { env, ws } = makeClassifierEnv(async () => ({
+      response: {
+        tags: ["gradient"],
+        summary: "a gradient image",
+        kind: "screenshot|photo|diagram|document|code|ui|other",
+      },
+      tool_calls: [],
+      usage: {},
+    }));
+    const written = await classifyAndStore(env, ws, WORKSPACE, "images/pic.png", PNG, "image/png");
+    expect(written).toEqual({
+      "ai.classifier": "v1",
+      "ai.tags": "gradient",
+      "ai.summary": "a gradient image",
+    });
+    const metaByKey = await getMetadataForKeys(env.DB, WORKSPACE, ["images/pic.png"]);
+    const meta = metaByKey.get("images/pic.png");
+    expect(meta?.["ai.classifier"]).toBe("v1");
+    expect(meta?.["ai.tags"]).toBe("gradient");
+    expect(meta?.["ai.summary"]).toBe("a gradient image");
+    expect(meta?.["ai.kind"]).toBeUndefined();
+  });
+
   it("writes nothing when the model returns unusable text", async () => {
     const { env, ws } = makeClassifierEnv(async () => ({ response: "nope" }));
     const written = await classifyAndStore(env, ws, WORKSPACE, "images/pic.png", PNG, "image/png");
