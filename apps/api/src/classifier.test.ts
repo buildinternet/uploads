@@ -155,7 +155,7 @@ describe("parseClassifierOutput", () => {
   });
 
   it("accepts a fenced JSON block and drops junk tags", () => {
-    const raw = 'Sure.\n```json\n{"tags":["UI","ok!","ui","valid-tag"],"kind":"other"}\n```\n';
+    const raw = 'Sure.\n```json\n{"tags":["UI","!!!","ui","valid-tag"],"kind":"other"}\n```\n';
     expect(parseClassifierOutput(raw)).toEqual({
       "ai.classifier": CLASSIFIER_VERSION,
       "ai.tags": "ui,valid-tag",
