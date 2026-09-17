@@ -283,6 +283,7 @@ staged files are promoted into the PR's attachments comment automatically.
 - GitHub App: https://uploads.sh/docs/github-app
 - Comment config (`.uploads.yml`): https://uploads.sh/docs/comment-config
 - Agents: https://uploads.sh/docs/agents
+- Experimental AI labels: https://uploads.sh/docs/agents#experimental-ai-tags (`ai.kind` / `ai.surface` / `ai.screen` / `ai.tags` / `ai.summary`; `uploads meta get` / `uploads find`; MCP `get_metadata` / `find_files`)
 - Reference: https://uploads.sh/docs/reference
 - Plans & limits: https://uploads.sh/docs/limits
 - Bring your own bucket: https://uploads.sh/docs/byo-bucket
