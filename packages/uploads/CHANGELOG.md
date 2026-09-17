@@ -1,5 +1,11 @@
 # @buildinternet/uploads
 
+## 0.56.0
+
+### Minor Changes
+
+- 9653c40: `uploads ingest` also mirrors public Cursor cloud-agent artifact URLs (`cursor.com/artifacts/c/art-*`) from a PR or issue into the workspace.
+
 ## 0.55.1
 
 ### Patch Changes
