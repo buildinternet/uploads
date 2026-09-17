@@ -174,13 +174,28 @@ describe("parseClassifierOutput", () => {
   it("accepts a raw JSON object", () => {
     expect(
       parseClassifierOutput(
-        '{"tags":["ui","settings-page"],"summary":"A settings form","kind":"screenshot"}',
+        '{"tags":["ui","settings-page"],"summary":"A settings form","kind":"screenshot","surface":"desktop","screen":"settings"}',
       ),
     ).toEqual({
       "ai.classifier": CLASSIFIER_VERSION,
       "ai.tags": "ui,settings-page",
       "ai.summary": "A settings form",
       "ai.kind": "screenshot",
+      "ai.surface": "desktop",
+      "ai.screen": "settings",
+    });
+  });
+
+  it("accepts a string response with v2 fields", () => {
+    const raw =
+      '{"kind":"ui","surface":"mobile","screen":"login","tags":["auth","email-field","dark-mode"],"summary":"Mobile sign-in"}';
+    expect(parseClassifierOutput(raw)).toEqual({
+      "ai.classifier": CLASSIFIER_VERSION,
+      "ai.kind": "ui",
+      "ai.surface": "mobile",
+      "ai.screen": "login",
+      "ai.tags": "auth,email-field,dark-mode",
+      "ai.summary": "Mobile sign-in",
     });
   });
 
@@ -210,6 +225,30 @@ describe("parseClassifierOutput", () => {
     });
   });
 
+  it("drops an allowlist-echo screen and keeps the other fields", () => {
+    expect(
+      parseClassifierOutput(
+        '{"tags":["ui","settings-page"],"summary":"A settings form","kind":"screenshot","surface":"desktop","screen":"login|signup|settings|profile|dashboard|analytics|list|detail|form|search|modal|onboarding|empty|error|checkout|other"}',
+      ),
+    ).toEqual({
+      "ai.classifier": CLASSIFIER_VERSION,
+      "ai.tags": "ui,settings-page",
+      "ai.summary": "A settings form",
+      "ai.kind": "screenshot",
+      "ai.surface": "desktop",
+    });
+  });
+
+  it("keeps the first five valid tags", () => {
+    expect(
+      parseClassifierOutput('{"tags":["one","two","three","four","five","six"],"kind":"other"}'),
+    ).toEqual({
+      "ai.classifier": CLASSIFIER_VERSION,
+      "ai.tags": "one,two,three,four,five",
+      "ai.kind": "other",
+    });
+  });
+
   it("strips non-ASCII from the summary", () => {
     const meta = parseClassifierOutput('{"summary":"Hello café","kind":"other"}');
     expect(meta?.["ai.summary"]).toBe("Hello caf");
@@ -231,6 +270,8 @@ describe("extractJsonObject / extractModelText", () => {
         tags: ["gradient"],
         summary: "a gradient image",
         kind: "screenshot|photo|diagram|document|code|ui|other",
+        surface: "unknown",
+        screen: "other",
       },
       tool_calls: [],
       usage: { prompt_tokens: 1, completion_tokens: 1 },
@@ -241,6 +282,28 @@ describe("extractJsonObject / extractModelText", () => {
       "ai.classifier": CLASSIFIER_VERSION,
       "ai.tags": "gradient",
       "ai.summary": "a gradient image",
+      "ai.surface": "unknown",
+      "ai.screen": "other",
+    });
+  });
+
+  it("parses v2 fields from an object-shaped response", () => {
+    const text = extractModelText({
+      response: {
+        kind: "screenshot",
+        surface: "tablet",
+        screen: "analytics",
+        tags: ["charts", "weekly-report"],
+        summary: "Tablet analytics",
+      },
+    });
+    expect(parseClassifierOutput(text)).toEqual({
+      "ai.classifier": CLASSIFIER_VERSION,
+      "ai.kind": "screenshot",
+      "ai.surface": "tablet",
+      "ai.screen": "analytics",
+      "ai.tags": "charts,weekly-report",
+      "ai.summary": "Tablet analytics",
     });
   });
 

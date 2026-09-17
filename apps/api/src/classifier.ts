@@ -3,7 +3,8 @@
  *
  * After a successful `putObject`, a Flagship-allowlisted workspace can get
  * server-owned `ai.*` labels (`ai.tags`, `ai.summary`, `ai.kind`,
- * `ai.classifier`) so agents can organize uploads later. Off by default:
+ * `ai.surface`, `ai.screen`, `ai.classifier`) so agents can organize uploads
+ * later. Off by default:
  * Flagship `llm-file-classifier` fails closed and is the sole allowlist
  * (targeting context `{ org, workspace }` = the workspace slug).
  * `llmClassifierEnabled === false` is an optional hard off; `undefined`
@@ -20,7 +21,7 @@ import type { WorkspaceRecord } from "./workspace";
 export const CLASSIFIER_FLAG = "llm-file-classifier";
 
 /** Written to `ai.classifier` so agents can tell schema versions apart. */
-export const CLASSIFIER_VERSION = "v1";
+export const CLASSIFIER_VERSION = "v2";
 
 /** Vision-capable Workers AI model for raster images. */
 export const CLASSIFIER_VISION_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
@@ -38,7 +39,14 @@ export const CLASSIFIER_MAX_TEXT_CHARS = 1500;
 export const CLASSIFIER_TIMEOUT_MS = 8_000;
 
 /** Server-owned rows this module writes. */
-export const CLASSIFIER_META_KEYS = ["ai.tags", "ai.summary", "ai.kind", "ai.classifier"] as const;
+export const CLASSIFIER_META_KEYS = [
+  "ai.tags",
+  "ai.summary",
+  "ai.kind",
+  "ai.surface",
+  "ai.screen",
+  "ai.classifier",
+] as const;
 
 const VISION_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp", "image/avif"]);
 
@@ -52,16 +60,38 @@ const KIND_ALLOWLIST = new Set([
   "other",
 ]);
 
+const SURFACE_ALLOWLIST = new Set(["mobile", "desktop", "tablet", "unknown"]);
+
+const SCREEN_ALLOWLIST = new Set([
+  "login",
+  "signup",
+  "settings",
+  "profile",
+  "dashboard",
+  "analytics",
+  "list",
+  "detail",
+  "form",
+  "search",
+  "modal",
+  "onboarding",
+  "empty",
+  "error",
+  "checkout",
+  "other",
+]);
+
 const TAG_RE = /^[a-z][a-z0-9-]{0,31}$/;
-const MAX_TAGS = 8;
+const MAX_TAGS = 5;
 
 export const CLASSIFIER_PROMPT = [
   "Classify this uploaded file for later search and organization.",
-  'Reply with JSON only: {"tags":["kebab-case"],"summary":"one short sentence","kind":"screenshot|photo|diagram|document|code|ui|other"}',
-  "Rules: 3-8 lowercase kebab-case tags; summary max 140 ASCII characters;",
+  'Reply with JSON only: {"kind":"screenshot|photo|diagram|document|code|ui|other","surface":"mobile|desktop|tablet|unknown","screen":"login|signup|settings|profile|dashboard|analytics|list|detail|form|search|modal|onboarding|empty|error|checkout|other","tags":["kebab-case"],"summary":"one short sentence"}',
+  "Rules: 3-5 lowercase kebab-case tags (fewer is fine; do not invent filler);",
+  "summary max 140 ASCII characters;",
   "describe visual or document structure, not secrets.",
   "Do not transcribe emails, tokens, names, passwords, or credentials.",
-  "kind must be one of the listed values.",
+  "kind, surface, and screen must each be exactly one of the listed values.",
 ].join(" ");
 
 export type ClassifierWaitUntil = (promise: Promise<unknown>) => void;
@@ -193,13 +223,17 @@ export function parseClassifierOutput(raw: string): Record<string, string> | nul
 
   const tags = normalizeTags(json.tags);
   const summary = normalizeSummary(json.summary);
-  const kind = normalizeKind(json.kind);
-  if (tags.length === 0 && !summary && !kind) return null;
+  const kind = normalizeClosedEnum(json.kind, KIND_ALLOWLIST);
+  const surface = normalizeClosedEnum(json.surface, SURFACE_ALLOWLIST);
+  const screen = normalizeClosedEnum(json.screen, SCREEN_ALLOWLIST);
+  if (tags.length === 0 && !summary && !kind && !surface && !screen) return null;
 
   const meta: Record<string, string> = { "ai.classifier": CLASSIFIER_VERSION };
   if (tags.length > 0) meta["ai.tags"] = tags.join(",");
   if (summary) meta["ai.summary"] = summary;
   if (kind) meta["ai.kind"] = kind;
+  if (surface) meta["ai.surface"] = surface;
+  if (screen) meta["ai.screen"] = screen;
   return meta;
 }
 
@@ -232,13 +266,13 @@ function normalizeSummary(value: unknown): string | undefined {
   return ascii.length > 200 ? ascii.slice(0, 200) : ascii;
 }
 
-function normalizeKind(value: unknown): string | undefined {
+function normalizeClosedEnum(value: unknown, allowlist: Set<string>): string | undefined {
   if (typeof value !== "string") return undefined;
-  const kind = value.trim().toLowerCase();
+  const normalized = value.trim().toLowerCase();
   // Models sometimes echo the prompt's allowlist (`screenshot|photo|…`).
   // Drop the field rather than guessing or failing the whole parse.
-  if (kind.includes("|") || !KIND_ALLOWLIST.has(kind)) return undefined;
-  return kind;
+  if (normalized.includes("|") || !allowlist.has(normalized)) return undefined;
+  return normalized;
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

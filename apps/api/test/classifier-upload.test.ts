@@ -6,7 +6,8 @@ import { makePosterEnv, PNG, WORKSPACE } from "./poster-fixtures";
 import type { WorkspaceRecord } from "../src/workspace";
 
 const CLASSIFIED = {
-  response: '{"tags":["ui","settings"],"summary":"A settings page","kind":"screenshot"}',
+  response:
+    '{"tags":["ui","settings"],"summary":"A settings page","kind":"screenshot","surface":"desktop","screen":"settings"}',
 };
 
 function makeClassifierEnv(
@@ -46,10 +47,12 @@ describe("classifier on upload", () => {
     await Promise.all(pending);
     const metaByKey = await getMetadataForKeys(env.DB, WORKSPACE, [result.key]);
     const meta = metaByKey.get(result.key);
-    expect(meta?.["ai.classifier"]).toBe("v1");
+    expect(meta?.["ai.classifier"]).toBe("v2");
     expect(meta?.["ai.tags"]).toBe("ui,settings");
     expect(meta?.["ai.summary"]).toBe("A settings page");
     expect(meta?.["ai.kind"]).toBe("screenshot");
+    expect(meta?.["ai.surface"]).toBe("desktop");
+    expect(meta?.["ai.screen"]).toBe("settings");
     expect(calls).toHaveLength(1);
     const [, , options] = calls[0] as [string, unknown, { gateway?: { id?: string } }];
     expect(options.gateway?.id).toBe("uploads-classifier");
@@ -143,13 +146,13 @@ describe("classifyAndStore", () => {
     }));
     const written = await classifyAndStore(env, ws, WORKSPACE, "images/pic.png", PNG, "image/png");
     expect(written).toEqual({
-      "ai.classifier": "v1",
+      "ai.classifier": "v2",
       "ai.tags": "gradient",
       "ai.summary": "a gradient image",
     });
     const metaByKey = await getMetadataForKeys(env.DB, WORKSPACE, ["images/pic.png"]);
     const meta = metaByKey.get("images/pic.png");
-    expect(meta?.["ai.classifier"]).toBe("v1");
+    expect(meta?.["ai.classifier"]).toBe("v2");
     expect(meta?.["ai.tags"]).toBe("gradient");
     expect(meta?.["ai.summary"]).toBe("a gradient image");
     expect(meta?.["ai.kind"]).toBeUndefined();

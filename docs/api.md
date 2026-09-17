@@ -275,8 +275,9 @@ store, so it takes a separate read (`?metadata=1`).
 
 **Experimental AI labels.** When Flagship `llm-file-classifier` serves on for
 the workspace slug (`org` / `workspace` targeting context),
-a successful server-mediated put may later write server-owned `ai.tags`,
-`ai.summary`, `ai.kind`, and `ai.classifier=v1`. Clients cannot set or delete
+a successful server-mediated put may later write server-owned `ai.tags`
+(up to five kebab-case labels), `ai.summary`, `ai.kind`, `ai.surface`,
+`ai.screen`, and `ai.classifier=v2`. Clients cannot set or delete
 those keys (`ai.*` is reserved, same as `video.*` / `image.*`). The 201
 response does not wait for the model; read `GET …/files/:key?metadata=1` (or
 `uploads meta get <key>`) after the upload. Presigned uploads never get
