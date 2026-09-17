@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   breakdownQuery,
+  classifyMediaClass,
   fetchBreakdown,
   fetchSlowOps,
   fetchUploadClassSeries,
@@ -156,19 +157,30 @@ describe("breakdownQuery non-finite days guard", () => {
   });
 });
 
+describe("classifyMediaClass", () => {
+  it("buckets image and video MIME types, everything else as other", () => {
+    expect(classifyMediaClass("image/png")).toBe("image");
+    expect(classifyMediaClass("IMAGE/JPEG")).toBe("image");
+    expect(classifyMediaClass("video/mp4")).toBe("video");
+    expect(classifyMediaClass("application/pdf")).toBe("other");
+    expect(classifyMediaClass("")).toBe("other");
+  });
+});
+
 describe("uploadClassSeriesQuery", () => {
-  it("buckets contentType (blob3) into image/video/other with a CASE", () => {
+  it("selects contentType (blob3) and buckets the day with documented AE date functions", () => {
     const sql = uploadClassSeriesQuery(30);
-    expect(sql).toContain("blob3 LIKE 'image/%'");
-    expect(sql).toContain("blob3 LIKE 'video/%'");
-    expect(sql).toContain("ELSE 'other'");
+    expect(sql).toContain("blob3 AS contentType");
+    expect(sql).toContain(
+      "formatDateTime(toStartOfInterval(timestamp, INTERVAL '1' DAY), '%Y-%m-%d')",
+    );
+    expect(sql).not.toContain("toDate(");
   });
 
-  it("groups by day and class, scaling by _sample_interval", () => {
+  it("groups by day and contentType, scaling by _sample_interval", () => {
     const sql = uploadClassSeriesQuery(30);
-    expect(sql).toContain("toDate(timestamp) AS day");
     expect(sql).toContain("_sample_interval");
-    expect(sql).toContain("GROUP BY day, class");
+    expect(sql).toContain("GROUP BY day, contentType");
   });
 
   it("windows by the requested number of days", () => {
@@ -181,31 +193,45 @@ describe("uploadClassSeriesQuery", () => {
 });
 
 describe("fetchUploadClassSeries", () => {
-  it("aggregates rows per day across classes", async () => {
+  const now = new Date("2026-08-03T12:00:00Z");
+
+  it("aggregates rows per day across classes and fills quiet days", async () => {
     const impl = jsonFetch({
       data: [
-        { day: "2026-08-01", class: "image", events: 10 },
-        { day: "2026-08-01", class: "video", events: 2 },
-        { day: "2026-08-01", class: "other", events: 1 },
-        { day: "2026-08-02", class: "image", events: 5 },
+        { day: "2026-08-01", contentType: "image/png", events: 10 },
+        { day: "2026-08-01", contentType: "video/mp4", events: 2 },
+        { day: "2026-08-01", contentType: "application/pdf", events: 1 },
+        { day: "2026-08-03", contentType: "image/jpeg", events: 5 },
       ],
     });
-    const result = await fetchUploadClassSeries(env(), 30, impl);
+    const result = await fetchUploadClassSeries(env(), 3, impl, now);
     expect(result).toEqual({
       available: true,
       days: [
         { day: "2026-08-01", image: 10, video: 2, other: 1 },
-        { day: "2026-08-02", image: 5, video: 0, other: 0 },
+        { day: "2026-08-02", image: 0, video: 0, other: 0 },
+        { day: "2026-08-03", image: 5, video: 0, other: 0 },
       ],
     });
   });
 
-  it("folds an unrecognized class into other", async () => {
-    const impl = jsonFetch({ data: [{ day: "2026-08-01", class: "weird", events: 3 }] });
-    const result = await fetchUploadClassSeries(env(), 30, impl);
+  it("still accepts a pre-bucketed class field from fixtures", async () => {
+    const impl = jsonFetch({
+      data: [{ day: "2026-08-03", class: "video", events: 4 }],
+    });
+    const result = await fetchUploadClassSeries(env(), 1, impl, now);
     expect(result).toEqual({
       available: true,
-      days: [{ day: "2026-08-01", image: 0, video: 0, other: 3 }],
+      days: [{ day: "2026-08-03", image: 0, video: 4, other: 0 }],
+    });
+  });
+
+  it("folds an unrecognized class into other", async () => {
+    const impl = jsonFetch({ data: [{ day: "2026-08-03", class: "weird", events: 3 }] });
+    const result = await fetchUploadClassSeries(env(), 1, impl, now);
+    expect(result).toEqual({
+      available: true,
+      days: [{ day: "2026-08-03", image: 0, video: 0, other: 3 }],
     });
   });
 

@@ -154,7 +154,10 @@ describe("GET /admin-ui/metrics/overview", () => {
           bytes: number;
           activeWorkspaces30d: number;
         };
-        series: { uploads: unknown[]; users: unknown[] };
+        series: {
+          uploads: { day: string; count: number }[];
+          users: { day: string; count: number }[];
+        };
         features: Record<string, number>;
         workspaces: { workspace: string; uploads: number }[];
         multiIdentityWorkspaces: { workspace: string; users: number }[];
@@ -167,6 +170,9 @@ describe("GET /admin-ui/metrics/overview", () => {
       expect(body.totals.uploads).toBe(2);
       expect(body.totals.bytes).toBe(150);
       expect(body.totals.activeWorkspaces30d).toBe(2);
+      expect(body.series.uploads).toHaveLength(30);
+      expect(body.series.uploads.reduce((sum, point) => sum + point.count, 0)).toBe(2);
+      expect(body.series.users).toHaveLength(30);
       expect(body.features.gallery_created).toBe(1);
       expect(body.workspaces.map((w) => w.workspace).sort()).toEqual(["acme", "beta"]);
       // issue #579: only 'acme' has >=2 distinct minters in the auth_tokens
@@ -184,7 +190,7 @@ describe("GET /admin-ui/metrics/overview", () => {
       const env = { AUTH: stubAuth(ADMIN_USER), DB: db, REGISTRY: kv.binding } as unknown as Env;
       await app().request("/admin-ui/metrics/overview?days=30", {}, env);
       expect(kv.puts).toBe(1);
-      expect(kv.store.has("metrics:overview:v2:30")).toBe(true);
+      expect(kv.store.has("metrics:overview:v3:30")).toBe(true);
       const res = await app().request("/admin-ui/metrics/overview?days=30", {}, env);
       expect(res.status).toBe(200);
       expect(kv.puts).toBe(1);
@@ -237,13 +243,15 @@ describe("GET /admin-ui/metrics/overview", () => {
       expect(res.status).toBe(200);
       const body = (await res.json()) as {
         totals: { users: number; orgs: number; workspaces: number; storedBytes: number };
-        series: { users: unknown[]; orgs: unknown[] };
+        series: { users: { day: string; count: number }[]; orgs: { day: string; count: number }[] };
         workspaces: { workspace: string }[];
       };
       expect(body.totals.users).toBe(0);
       expect(body.totals.orgs).toBe(0);
-      expect(body.series.users).toEqual([]);
-      expect(body.series.orgs).toEqual([]);
+      expect(body.series.users).toHaveLength(30);
+      expect(body.series.users.every((point) => point.count === 0)).toBe(true);
+      expect(body.series.orgs).toHaveLength(30);
+      expect(body.series.orgs.every((point) => point.count === 0)).toBe(true);
       // D1-backed half is unaffected by the auth degradation.
       expect(body.totals.workspaces).toBe(2);
       expect(body.totals.storedBytes).toBe(150);
@@ -265,13 +273,15 @@ describe("GET /admin-ui/metrics/overview", () => {
       expect(res.status).toBe(200);
       const body = (await res.json()) as {
         totals: { users: number; orgs: number; workspaces: number; storedBytes: number };
-        series: { users: unknown[]; orgs: unknown[] };
+        series: { users: { day: string; count: number }[]; orgs: { day: string; count: number }[] };
         workspaces: { workspace: string }[];
       };
       expect(body.totals.users).toBe(0);
       expect(body.totals.orgs).toBe(0);
-      expect(body.series.users).toEqual([]);
-      expect(body.series.orgs).toEqual([]);
+      expect(body.series.users).toHaveLength(30);
+      expect(body.series.users.every((point) => point.count === 0)).toBe(true);
+      expect(body.series.orgs).toHaveLength(30);
+      expect(body.series.orgs.every((point) => point.count === 0)).toBe(true);
       // D1-backed half is unaffected by the auth degradation.
       expect(body.totals.workspaces).toBe(2);
       expect(body.totals.storedBytes).toBe(150);
@@ -295,7 +305,7 @@ describe("GET /admin-ui/metrics/overview", () => {
       expect(res.status).toBe(200);
       const body = (await res.json()) as {
         totals: { users: number; orgs: number; workspaces: number; storedBytes: number };
-        series: { users: unknown[]; orgs: unknown[] };
+        series: { users: { day: string; count: number }[]; orgs: { day: string; count: number }[] };
         workspaces: { workspace: string }[];
       };
       expect(body.totals.users).toBe(0);

@@ -18,6 +18,8 @@
  */
 
 import { BLOB_ORDER } from "./adoption";
+import { fillDaySeries, normalizeUtcDay } from "./day-series";
+import { windowStart } from "./adoption-queries";
 import { SLOW_OP_BLOB_ORDER } from "./slow-op-analytics";
 
 const SQL_ENDPOINT = "https://api.cloudflare.com/client/v4/accounts";
@@ -132,31 +134,42 @@ export type UploadClassSeriesResult =
   | { available: false; reason: string };
 
 /**
+ * Coarse media class for an AE `contentType` blob. Classification lives in
+ * JS so the SQL stays on documented Analytics Engine functions — `toDate`
+ * is not in the AE date-time set, and a CASE/LIKE bucket in SQL was the
+ * production failure mode behind "Media-type breakdown is temporarily
+ * unavailable."
+ */
+export function classifyMediaClass(contentType: string): "image" | "video" | "other" {
+  const value = contentType.trim().toLowerCase();
+  if (value.startsWith("image/")) return "image";
+  if (value.startsWith("video/")) return "video";
+  return "other";
+}
+
+/**
  * Per-day upload counts bucketed by media class (image/video/other), from
- * `uploads_adoption`'s `contentType` blob (see BLOB_COLUMN above). Buckets
- * with SQL CASE rather than grouping on the raw content type, since the
- * panel only cares about the three coarse classes, and scales by
- * `_sample_interval` the same way `breakdownQuery` does.
+ * `uploads_adoption`'s `contentType` blob (see BLOB_COLUMN above). Groups
+ * by calendar day + raw content type, then classifies in JS. Day buckets
+ * use `formatDateTime` + `toStartOfInterval` (the documented AE pair);
+ * `_sample_interval` scales the same way `breakdownQuery` does.
  */
 export function uploadClassSeriesQuery(days: number): string {
   const column = BLOB_COLUMN.contentType;
   const window = Number.isFinite(days) ? Math.max(1, Math.min(90, Math.floor(days))) : 30;
-  return `SELECT toDate(timestamp) AS day,
-                 CASE
-                   WHEN ${column} LIKE 'image/%' THEN 'image'
-                   WHEN ${column} LIKE 'video/%' THEN 'video'
-                   ELSE 'other'
-                 END AS class,
+  return `SELECT formatDateTime(toStartOfInterval(timestamp, INTERVAL '1' DAY), '%Y-%m-%d') AS day,
+                 ${column} AS contentType,
                  SUM(_sample_interval) AS events
           FROM ${DATASET}
           WHERE timestamp > NOW() - INTERVAL '${window}' DAY
-          GROUP BY day, class
+          GROUP BY day, contentType
           ORDER BY day`;
 }
 
 interface UploadClassRow {
-  day: string;
-  class: "image" | "video" | "other" | string;
+  day: unknown;
+  contentType?: unknown;
+  class?: unknown;
   events: number;
 }
 
@@ -164,10 +177,13 @@ export async function fetchUploadClassSeries(
   env: Env,
   days: number,
   fetchImpl: typeof fetch = fetch,
+  now = new Date(),
 ): Promise<UploadClassSeriesResult> {
   const account = (env as { CLOUDFLARE_ACCOUNT_ID?: string }).CLOUDFLARE_ACCOUNT_ID;
   const token = (env as { ANALYTICS_API_TOKEN?: string }).ANALYTICS_API_TOKEN;
   if (!account || !token) return { available: false, reason: "not_configured" };
+
+  const windowDays = Number.isFinite(days) ? Math.max(1, Math.min(90, Math.floor(days))) : 30;
 
   try {
     const res = await fetchImpl(`${SQL_ENDPOINT}/${account}/analytics_engine/sql`, {
@@ -183,17 +199,28 @@ export async function fetchUploadClassSeries(
     const rows = (payload.data as UploadClassRow[] | undefined) ?? [];
     const byDay = new Map<string, UploadClassDayPoint>();
     for (const row of rows) {
-      const point = byDay.get(row.day) ?? { day: row.day, image: 0, video: 0, other: 0 };
-      if (row.class === "image" || row.class === "video" || row.class === "other") {
-        point[row.class] += row.events;
-      } else {
-        point.other += row.events;
-      }
-      byDay.set(row.day, point);
+      const day = normalizeUtcDay(row.day);
+      if (!day) continue;
+      const point = byDay.get(day) ?? { day, image: 0, video: 0, other: 0 };
+      const events = Number(row.events) || 0;
+      // Prefer a pre-bucketed `class` (older query / fixtures) when present,
+      // otherwise classify the raw contentType blob.
+      const rawClass = typeof row.class === "string" ? row.class : "";
+      const mediaClass =
+        rawClass === "image" || rawClass === "video" || rawClass === "other"
+          ? rawClass
+          : classifyMediaClass(typeof row.contentType === "string" ? row.contentType : "");
+      point[mediaClass] += events;
+      byDay.set(day, point);
     }
     return {
       available: true,
-      days: [...byDay.values()].sort((a, b) => a.day.localeCompare(b.day)),
+      days: fillDaySeries(windowStart(windowDays, now), windowDays, [...byDay.values()], (day) => ({
+        day,
+        image: 0,
+        video: 0,
+        other: 0,
+      })),
     };
   } catch {
     return { available: false, reason: "query_failed" };

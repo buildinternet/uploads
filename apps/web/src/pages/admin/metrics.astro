@@ -210,7 +210,7 @@ const slowOpsSkeleton = renderAdminTableSkeletonRowsHtml(
         </h3>
         <div
           id="chart-uploads"
-          class="relative [aspect-ratio:480/200] has-[>p.muted]:flex has-[>p.muted]:items-center has-[>p.muted]:justify-center"
+          class="relative [aspect-ratio:960/400] has-[>p.muted]:flex has-[>p.muted]:items-center has-[>p.muted]:justify-center"
           aria-busy="true"
         >
           <div
@@ -229,7 +229,7 @@ const slowOpsSkeleton = renderAdminTableSkeletonRowsHtml(
         </h3>
         <div
           id="chart-signups"
-          class="relative [aspect-ratio:480/200] has-[>p.muted]:flex has-[>p.muted]:items-center has-[>p.muted]:justify-center"
+          class="relative [aspect-ratio:960/400] has-[>p.muted]:flex has-[>p.muted]:items-center has-[>p.muted]:justify-center"
           aria-busy="true"
         >
           <div
@@ -476,6 +476,18 @@ const slowOpsSkeleton = renderAdminTableSkeletonRowsHtml(
 
   <script>
     import { onAstroPageLoad, onSession, requireElement } from "../../lib/account-shell";
+    import {
+      CHART_VIEW,
+      buildYTicks,
+      chartPlot,
+      fillCountSeries,
+      fillUploadClassSeries,
+      formatAxisNumber,
+      formatChartDay,
+      niceCeil,
+      pickLabelIndices,
+      xLabelAnchor,
+    } from "../../lib/admin-metrics-chart";
     import { ADMIN_TD, ADMIN_TD_NUM, escapeHtml } from "../../lib/admin-ui";
     import { formatBytes } from "../../lib/workspace-ui";
     import type { MetricsOverview } from "@uploads/api/admin-ui";
@@ -523,58 +535,6 @@ const slowOpsSkeleton = renderAdminTableSkeletonRowsHtml(
         return Number.isFinite(parsed) ? formatBytes(parsed) : "0 B";
       };
 
-      // Hoisted out of formatDay: constructing an Intl.DateTimeFormat is
-      // comparatively expensive, and formatDay runs up to ~180 times per
-      // chart render plus once per hover/focus move — one shared formatter
-      // instance is reused instead of building a fresh one every call.
-      const DAY_FORMATTER = new Intl.DateTimeFormat("en-US", {
-        month: "short",
-        day: "numeric",
-        timeZone: "UTC",
-      });
-
-      const formatDay = (day: string): string => {
-        const date = new Date(`${day}T00:00:00Z`);
-        if (Number.isNaN(date.getTime())) return day;
-        return DAY_FORMATTER.format(date);
-      };
-
-      /** Round a positive max up to a "clean" axis ceiling (1/2/5/10 * 10^n). */
-      function niceCeil(value: number): number {
-        if (!Number.isFinite(value) || value <= 0) return 1;
-        const exp = Math.floor(Math.log10(value));
-        const base = 10 ** exp;
-        const frac = value / base;
-        const niceFrac = frac <= 1 ? 1 : frac <= 2 ? 2 : frac <= 5 ? 5 : 10;
-        return niceFrac * base;
-      }
-
-      /**
-       * Y-axis tick values for a [0, niceMax] scale: 0, the midpoint, and
-       * niceMax. The midpoint is dropped when rounding it for display would
-       * collide with either endpoint's rounded label — routine for
-       * niceMax === 1 (niceCeil's floor), where midpoint 0.5 rounds up to
-       * 1 and duplicates the top label. Endpoints are always kept so the
-       * axis still spans the full plotted range.
-       */
-      function buildYTicks(niceMax: number): number[] {
-        const raw = [0, niceMax / 2, niceMax];
-        const rounded = raw.map((t) => Math.round(t));
-        if (rounded[1] === rounded[0] || rounded[1] === rounded[2]) {
-          return [raw[0], raw[2]];
-        }
-        return raw;
-      }
-
-      /** Evenly spaced x-axis label indices, capped so labels never crowd. */
-      function pickLabelIndices(n: number, max = 6): Set<number> {
-        const step = Math.max(1, Math.ceil(n / max));
-        const idx = new Set<number>();
-        for (let i = 0; i < n; i += step) idx.add(i);
-        idx.add(n - 1);
-        return idx;
-      }
-
       /** A rect path rounded only at the top — square at the baseline. */
       function roundedTopRectPath(
         x: number,
@@ -605,10 +565,10 @@ const slowOpsSkeleton = renderAdminTableSkeletonRowsHtml(
       ): void {
         const container = document.getElementById(elementId);
         if (!container) return;
-        // The container's own `aspect-ratio: 480 / 200` (admin-metrics.css)
-        // reserves the same box for the skeleton, the "No data yet." message,
-        // and the chart below — clearing aria-busy here (not per-branch)
-        // keeps that in one place.
+        // The container's own `aspect-ratio: 960 / 400` reserves the same
+        // box for the skeleton, the "No data yet." message, and the chart
+        // below — clearing aria-busy here (not per-branch) keeps that in
+        // one place.
         container.removeAttribute("aria-busy");
         if (!points.length) {
           container.innerHTML = `<p class="muted">No data yet.</p>`;
@@ -618,18 +578,11 @@ const slowOpsSkeleton = renderAdminTableSkeletonRowsHtml(
         const values = points.map((p) => Math.max(0, Number(p.value) || 0));
         const niceMax = niceCeil(Math.max(1, ...values));
 
-        const W = 480;
-        const H = 200;
-        const marginLeft = 36;
-        const marginRight = 8;
-        const marginTop = 10;
-        const marginBottom = 26;
-        const plotW = W - marginLeft - marginRight;
-        const plotH = H - marginTop - marginBottom;
-        const baseline = marginTop + plotH;
+        const { W, H, marginLeft, marginRight, marginTop } = CHART_VIEW;
+        const { plotW, plotH, baseline } = chartPlot();
         const bandWidth = plotW / points.length;
-        const gap = Math.min(6, Math.max(2, bandWidth * 0.25));
-        const barWidth = Math.max(1, Math.min(24, bandWidth - gap));
+        const gap = Math.min(8, Math.max(2, bandWidth * 0.25));
+        const barWidth = Math.max(1, Math.min(28, bandWidth - gap));
         const labelIdx = pickLabelIndices(points.length);
 
         const yTicks = buildYTicks(niceMax);
@@ -639,7 +592,7 @@ const slowOpsSkeleton = renderAdminTableSkeletonRowsHtml(
             const y = baseline - (labelValue / niceMax) * plotH;
             return (
               `<line x1="${marginLeft}" y1="${y}" x2="${W - marginRight}" y2="${y}" class="metrics-gridline" />` +
-              `<text x="${marginLeft - 6}" y="${y}" class="metrics-axis-label" text-anchor="end" dominant-baseline="middle">${escapeHtml(labelValue.toLocaleString())}</text>`
+              `<text x="${marginLeft - 8}" y="${y}" class="metrics-axis-label" text-anchor="end" dominant-baseline="middle">${escapeHtml(formatAxisNumber(labelValue))}</text>`
             );
           })
           .join("");
@@ -651,9 +604,9 @@ const slowOpsSkeleton = renderAdminTableSkeletonRowsHtml(
             const x = marginLeft + i * bandWidth + (bandWidth - barWidth) / 2;
             const y = baseline - barHeight;
             const path = roundedTopRectPath(x, y, barWidth, barHeight, 4);
-            const dayLabel = escapeHtml(formatDay(point.day));
+            const dayLabel = escapeHtml(formatChartDay(point.day));
             const xLabel = labelIdx.has(i)
-              ? `<text x="${x + barWidth / 2}" y="${H - 8}" class="metrics-axis-label" text-anchor="middle">${dayLabel}</text>`
+              ? `<text x="${x + barWidth / 2}" y="${H - 12}" class="metrics-axis-label" text-anchor="${xLabelAnchor(i, points.length)}">${dayLabel}</text>`
               : "";
             return `<g class="metrics-bar" data-index="${i}">
                 ${path ? `<path d="${path}" class="metrics-bar-fill" />` : ""}
@@ -674,9 +627,10 @@ const slowOpsSkeleton = renderAdminTableSkeletonRowsHtml(
           .join("");
 
         // windowDays is the selected time window (overview.window.days from
-        // the API), not points.length — the series only includes days that
-        // have rows, so a sparse window would otherwise undercount (and
-        // mangle the grammar) in the accessible name.
+        // the API). The plotted series is calendar-dense (one bar per day,
+        // including zeros), so points.length matches the window — but the
+        // accessible name still quotes the requested window, not the array
+        // length, in case a stale payload is still sparse.
         const windowLabel = `last ${windowDays} day${windowDays === 1 ? "" : "s"}`;
         const svg = `<svg class="metrics-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${escapeHtml(label)}, ${windowLabel}">
             <line x1="${marginLeft}" y1="${baseline}" x2="${W - marginRight}" y2="${baseline}" class="metrics-axis-line" />
@@ -749,7 +703,7 @@ const slowOpsSkeleton = renderAdminTableSkeletonRowsHtml(
           tooltip.innerHTML = "";
           const dayEl = document.createElement("span");
           dayEl.className = "day";
-          dayEl.textContent = formatDay(point.day);
+          dayEl.textContent = formatChartDay(point.day);
           const valueEl = document.createElement("span");
           valueEl.className = "value";
           valueEl.textContent = value.toLocaleString();
@@ -809,18 +763,18 @@ const slowOpsSkeleton = renderAdminTableSkeletonRowsHtml(
        */
       function drawStackedChart(
         elementId: string,
-        days: { day: string; image: number; video: number; other: number }[],
+        classDays: { day: string; image: number; video: number; other: number }[],
         windowDays: number,
       ): void {
         const container = document.getElementById(elementId);
         if (!container) return;
         container.removeAttribute("aria-busy");
-        if (!days.length) {
+        if (!classDays.length) {
           container.innerHTML = `<p class="muted">No data yet.</p>`;
           return;
         }
 
-        const rows = days.map((d) => ({
+        const rows = classDays.map((d) => ({
           day: d.day,
           image: Math.max(0, Number(d.image) || 0),
           video: Math.max(0, Number(d.video) || 0),
@@ -829,18 +783,11 @@ const slowOpsSkeleton = renderAdminTableSkeletonRowsHtml(
         const totals = rows.map((r) => r.image + r.video + r.other);
         const niceMax = niceCeil(Math.max(1, ...totals));
 
-        const W = 480;
-        const H = 200;
-        const marginLeft = 36;
-        const marginRight = 8;
-        const marginTop = 10;
-        const marginBottom = 26;
-        const plotW = W - marginLeft - marginRight;
-        const plotH = H - marginTop - marginBottom;
-        const baseline = marginTop + plotH;
+        const { W, H, marginLeft, marginRight, marginTop } = CHART_VIEW;
+        const { plotW, plotH, baseline } = chartPlot();
         const bandWidth = plotW / rows.length;
-        const gap = Math.min(6, Math.max(2, bandWidth * 0.25));
-        const barWidth = Math.max(1, Math.min(24, bandWidth - gap));
+        const gap = Math.min(8, Math.max(2, bandWidth * 0.25));
+        const barWidth = Math.max(1, Math.min(28, bandWidth - gap));
         const labelIdx = pickLabelIndices(rows.length);
 
         const yTicks = buildYTicks(niceMax);
@@ -850,7 +797,7 @@ const slowOpsSkeleton = renderAdminTableSkeletonRowsHtml(
             const y = baseline - (labelValue / niceMax) * plotH;
             return (
               `<line x1="${marginLeft}" y1="${y}" x2="${W - marginRight}" y2="${y}" class="metrics-gridline" />` +
-              `<text x="${marginLeft - 6}" y="${y}" class="metrics-axis-label" text-anchor="end" dominant-baseline="middle">${escapeHtml(labelValue.toLocaleString())}</text>`
+              `<text x="${marginLeft - 8}" y="${y}" class="metrics-axis-label" text-anchor="end" dominant-baseline="middle">${escapeHtml(formatAxisNumber(labelValue))}</text>`
             );
           })
           .join("");
@@ -858,9 +805,9 @@ const slowOpsSkeleton = renderAdminTableSkeletonRowsHtml(
         const bars = rows
           .map((row, i) => {
             const x = marginLeft + i * bandWidth + (bandWidth - barWidth) / 2;
-            const dayLabel = escapeHtml(formatDay(row.day));
+            const dayLabel = escapeHtml(formatChartDay(row.day));
             const xLabel = labelIdx.has(i)
-              ? `<text x="${x + barWidth / 2}" y="${H - 8}" class="metrics-axis-label" text-anchor="middle">${dayLabel}</text>`
+              ? `<text x="${x + barWidth / 2}" y="${H - 12}" class="metrics-axis-label" text-anchor="${xLabelAnchor(i, rows.length)}">${dayLabel}</text>`
               : "";
 
             // Segments stack bottom-up in UPLOAD_CLASS_KEYS order; only the
@@ -973,7 +920,7 @@ const slowOpsSkeleton = renderAdminTableSkeletonRowsHtml(
           tooltip.innerHTML = "";
           const dayEl = document.createElement("span");
           dayEl.className = "day";
-          dayEl.textContent = formatDay(row.day);
+          dayEl.textContent = formatChartDay(row.day);
           tooltip.appendChild(dayEl);
           for (const key of UPLOAD_CLASS_KEYS) {
             const line = document.createElement("div");
@@ -1087,7 +1034,11 @@ const slowOpsSkeleton = renderAdminTableSkeletonRowsHtml(
         // uploadClasses is Analytics Engine-sampled while series.uploads is
         // D1-exact — the two totals may differ slightly; the stacked chart
         // is rendered whenever class data is available rather than
-        // reconciled against the D1 series.
+        // reconciled against the D1 series. Both series are re-indexed onto
+        // every calendar day in the window so a stale/sparse payload still
+        // plots quiet days as 0.
+        const since = overview.window.since;
+        const windowDays = overview.window.days;
         if (overview.series.uploadClasses?.available) {
           document
             .getElementById("chart-uploads")
@@ -1095,15 +1046,19 @@ const slowOpsSkeleton = renderAdminTableSkeletonRowsHtml(
             ?.remove();
           drawStackedChart(
             "chart-uploads",
-            overview.series.uploadClasses.days,
-            overview.window.days,
+            fillUploadClassSeries(since, windowDays, overview.series.uploadClasses.days),
+            windowDays,
           );
         } else {
           drawChart(
             "chart-uploads",
-            overview.series.uploads.map((p) => ({ day: p.day, value: p.count })),
+            fillCountSeries(
+              since,
+              windowDays,
+              overview.series.uploads.map((p) => ({ day: p.day, value: p.count })),
+            ),
             "Uploads per day",
-            overview.window.days,
+            windowDays,
           );
           const reason = overview.series.uploadClasses?.reason;
           const container = document.getElementById("chart-uploads");
@@ -1121,9 +1076,13 @@ const slowOpsSkeleton = renderAdminTableSkeletonRowsHtml(
         }
         drawChart(
           "chart-signups",
-          overview.series.users.map((p) => ({ day: p.day, value: p.count })),
+          fillCountSeries(
+            since,
+            windowDays,
+            overview.series.users.map((p) => ({ day: p.day, value: p.count })),
+          ),
           "Signups per day",
-          overview.window.days,
+          windowDays,
         );
       }
 
