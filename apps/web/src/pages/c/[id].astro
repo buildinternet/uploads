@@ -15,13 +15,14 @@ import {
 } from "../../lib/public-feed";
 import { OG_DEFAULT_IMAGE, OG_SITE_NAME } from "../../lib/og";
 import { env } from "cloudflare:workers";
+import { publicApiFetch } from "../../lib/ssr-fetch";
 
 export const prerender = false;
 
 const id = Astro.params.id ?? "";
 const origin =
   env.UPLOADS_API_ORIGIN ?? import.meta.env.PUBLIC_UPLOADS_API_ORIGIN ?? "https://api.uploads.sh";
-const result = await fetchPublicFeed(id, { origin });
+const result = await fetchPublicFeed(id, { origin, fetch: publicApiFetch(env) });
 
 applyPublicFeedHeaders(Astro.response.headers);
 if (result.status === "not_found") Astro.response.status = 404;

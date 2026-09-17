@@ -24,6 +24,7 @@ import {
 import { oembedDiscoveryHref } from "../../../lib/oembed";
 import { OG_DEFAULT_IMAGE, OG_SITE_NAME, ogImageFor } from "../../../lib/og";
 import { env } from "cloudflare:workers";
+import { publicApiFetch } from "../../../lib/ssr-fetch";
 
 export const prerender = false;
 
@@ -31,7 +32,7 @@ const id = Astro.params.id ?? "";
 const itemId = Astro.params.item ?? "";
 const origin =
   env.UPLOADS_API_ORIGIN ?? import.meta.env.PUBLIC_UPLOADS_API_ORIGIN ?? "https://api.uploads.sh";
-const result = await fetchPublicGallery(id, { origin });
+const result = await fetchPublicGallery(id, { origin, fetch: publicApiFetch(env) });
 
 applyPublicGalleryHeaders(Astro.response.headers);
 

@@ -14,6 +14,7 @@ import {
   parsePositiveInt,
   resolveOEmbed,
 } from "../lib/oembed";
+import { publicApiFetch } from "../lib/ssr-fetch";
 
 export const prerender = false;
 
@@ -27,6 +28,7 @@ export const GET: APIRoute = async ({ url }) => {
     url: url.searchParams.get("url") ?? "",
     requestOrigin: url.origin,
     apiOrigin,
+    fetch: publicApiFetch(env),
     maxwidth: parsePositiveInt(url.searchParams.get("maxwidth")),
     maxheight: parsePositiveInt(url.searchParams.get("maxheight")),
     format: url.searchParams.get("format") ?? "json",

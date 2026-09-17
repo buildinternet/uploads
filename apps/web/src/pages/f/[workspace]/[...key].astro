@@ -29,6 +29,7 @@ import {
 import { oembedDiscoveryHref } from "../../../lib/oembed";
 import { OG_DEFAULT_IMAGE, OG_SITE_NAME, ogImageFor } from "../../../lib/og";
 import { env } from "cloudflare:workers";
+import { publicApiFetch } from "../../../lib/ssr-fetch";
 import { resolveSignedInOrigins } from "../../../lib/signed-in-page";
 import { workspaceHomePath } from "../../../lib/workspaces-nav";
 import { AI_CHIP_FIELDS, splitFileDetailMeta } from "../../../lib/ai-labels";
@@ -43,7 +44,7 @@ const key = Astro.params.key ?? "";
 // below (#731 phase D).
 const origin =
   env.UPLOADS_API_ORIGIN ?? import.meta.env.PUBLIC_UPLOADS_API_ORIGIN ?? "https://api.uploads.sh";
-const result = await fetchPublicFile(workspace, key, { origin });
+const result = await fetchPublicFile(workspace, key, { origin, fetch: publicApiFetch(env) });
 
 // Browser-facing: the delete/file-url probe below and ReportAbuse's fetch are
 // credentialed(-ish) calls a real visitor's browser makes, so they go through
