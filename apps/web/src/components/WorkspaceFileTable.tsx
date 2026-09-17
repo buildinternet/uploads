@@ -21,7 +21,15 @@ import { Callout } from "@uploads/ui";
 import "@uploads/ui/styles.css";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@uploads/ui/components/ui/empty";
 import { Kbd } from "@uploads/ui/components/ui/kbd";
-import { Fragment, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import {
+  Fragment,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type MouseEvent as ReactMouseEvent,
+  type ReactNode,
+} from "react";
 import { IslandErrorBoundary } from "./IslandErrorBoundary";
 import type { ConnectedWorkSetter } from "../lib/workspace-rail";
 import { applyGhTitles, connectedWork, exactPrMatch, type GhWorkItem } from "../lib/gh-context";
@@ -84,6 +92,7 @@ import {
 } from "../lib/workspace-search-suggest";
 import { fetchWithTimeout } from "../lib/request";
 import { onSession } from "../lib/account-shell";
+import { FilePreviewDrawer } from "./FilePreviewDrawer";
 
 interface WorkspaceFileTableProps {
   apiOrigin: string;
@@ -423,6 +432,7 @@ function FileOpenTrigger({
   className,
   title,
   children,
+  onPreview,
   ...rest
 }: {
   opener: FileOpener;
@@ -430,16 +440,31 @@ function FileOpenTrigger({
   className: string;
   title?: string;
   children: ReactNode;
+  /** Regular click opens the Storage detail drawer; modified clicks still go to `/f/`. */
+  onPreview?: () => void;
   "aria-label"?: string;
 }) {
   const href = opener.href(file);
   const shared = { className, title, ...rest };
+  const previewClick = (event: ReactMouseEvent<HTMLAnchorElement>) => {
+    if (!onPreview) return;
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    onPreview();
+  };
   return href ? (
-    <a {...shared} {...newTabLinkProps} href={href}>
+    <a {...shared} {...newTabLinkProps} href={href} onClick={previewClick}>
       {children}
     </a>
   ) : (
-    <button {...shared} type="button" onClick={() => opener.activate(file)}>
+    <button
+      {...shared}
+      type="button"
+      onClick={() => {
+        if (onPreview) onPreview();
+        else opener.activate(file);
+      }}
+    >
       {children}
     </button>
   );
@@ -620,6 +645,7 @@ function WorkspaceFileTableInner({
   const [facetValuesTruncated, setFacetValuesTruncated] = useState<Record<string, boolean>>({});
   const [state, setState] = useState<ListingState>(() => initialListing ?? { status: "loading" });
   const [openMenuKey, setOpenMenuKey] = useState<string | null>(null);
+  const [previewFile, setPreviewFile] = useState<FileTableRow | null>(null);
   const [togglingKeys, setTogglingKeys] = useState<ReadonlySet<string>>(new Set());
   const [actionError, setActionError] = useState<string | null>(null);
   const [githubTitles, setGithubTitles] = useState<GithubTitleMap | null>(null);
@@ -868,6 +894,7 @@ function WorkspaceFileTableInner({
     const normalized = normalizeBrowsePath(nextPrefix);
     if (normalized === prefix) return;
     setOpenMenuKey(null);
+    setPreviewFile(null);
     setPrefix(normalized);
     replaceBrowseLocation({ workspace, path: normalized });
   };
@@ -948,6 +975,7 @@ function WorkspaceFileTableInner({
             : prev,
         );
         setOpenMenuKey(null);
+        setPreviewFile((prev) => (prev?.key === file.key ? null : prev));
       } else {
         setActionError(`Couldn't delete "${leafName(file.key)}". Try again shortly.`);
       }
@@ -1527,6 +1555,7 @@ function WorkspaceFileTableInner({
                   opener={opener}
                   file={file}
                   className="wft-name wft-name--btn w-full cursor-pointer border-0 bg-none p-0 text-left font-inherit text-inherit no-underline"
+                  onPreview={() => setPreviewFile(file)}
                 >
                   {thumb.kind !== "none" && <FileThumb thumb={thumb} />}
                   <span className="wft-filename overflow-hidden text-ellipsis whitespace-nowrap">
@@ -1592,7 +1621,8 @@ function WorkspaceFileTableInner({
                   opener={opener}
                   file={file}
                   className="wft-card__media block aspect-[16/10] w-full cursor-pointer overflow-hidden border-0 border-b border-line bg-bg p-0 text-inherit no-underline focus-visible:shadow-[inset_0_0_0_1px_var(--accent)] focus-visible:outline-none"
-                  aria-label={`Open ${name}`}
+                  aria-label={`Preview ${name}`}
+                  onPreview={() => setPreviewFile(file)}
                 >
                   {thumb.kind === "image" ? (
                     <span
@@ -1622,6 +1652,7 @@ function WorkspaceFileTableInner({
                       file={file}
                       className="wft-card__name min-w-0 flex-1 cursor-pointer overflow-hidden text-ellipsis whitespace-nowrap border-0 bg-none p-0 text-left font-[var(--mono)] text-[length:var(--text-meta)] text-fg no-underline hover:text-accent focus-visible:text-accent focus-visible:outline-none"
                       title={name}
+                      onPreview={() => setPreviewFile(file)}
                     >
                       {name}
                     </FileOpenTrigger>
@@ -1676,6 +1707,8 @@ function WorkspaceFileTableInner({
           Load more
         </button>
       )}
+
+      <FilePreviewDrawer file={previewFile} opener={opener} onClose={() => setPreviewFile(null)} />
     </div>
   );
 }
