@@ -43,11 +43,11 @@ beforeAll(() => {
  * OAuth JWT test fixtures (issue #224): one RS256 key pair for the whole
  * suite, its public half served as the fake AS JWKS. `resetOAuthJwksCacheForTests`
  * runs between tests so the module-level 5-min cache in src/oauth.ts never
- * leaks a stale (or wrong-suite) key set across tests, and `fetch` is stubbed
- * per-test to return it instead of hitting the network — the test seam the
- * design calls for is `jwksFetcher`, but nothing in src/index.ts threads one
- * through, so stubbing global fetch (the thing src/oauth.ts's default
- * fetcher calls) exercises the real code path end-to-end.
+ * leaks a stale (or wrong-suite) key set across tests. src/index.ts now threads
+ * `jwksFetcher: jwksFetcherFor(env)`, which routes JWKS retrieval over the AUTH
+ * service binding (#998 follow-up), so the fake `env.AUTH` serves the key set at
+ * `/api/auth/jwks` (see `authStub`); the global `fetch` stub still serves the
+ * same JWKS for any path that falls back to the HTTP fetcher (no AUTH binding).
  */
 let oauthKeyPair: CryptoKeyPair;
 let oauthJwks: { keys: JWK[] };
@@ -96,6 +96,27 @@ function stubFetchRoutes(routes: Record<string, Response | (() => Response)>): v
       throw new Error(`unexpected fetch in test: ${url}`);
     }),
   );
+}
+
+/**
+ * A fake `AUTH` service-binding `fetch` (issue #998 follow-up): src/oauth.ts's
+ * `jwksFetcherFor` routes OAuth-token JWKS retrieval over the AUTH binding when
+ * present, so the stub must serve the suite's JWKS at `/api/auth/jwks`. Every
+ * other path (the uploader-attribution `/internal/...` lookup) delegates to
+ * `rest`.
+ */
+function authStub(rest: () => Promise<Response>): { fetch: typeof fetch } {
+  return {
+    fetch: (async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (new URL(url).pathname === "/api/auth/jwks") {
+        return new Response(JSON.stringify(oauthJwks), {
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return rest();
+    }) as typeof fetch,
+  };
 }
 
 async function signOAuthToken(
@@ -339,12 +360,12 @@ async function makeEnv(
     // linked GitHub account — mirrors apps/api/test/routes-files.test.ts's
     // makeEnv. Individual tests override `env.AUTH`/`env.GITHUB_CACHE`.
     GITHUB_CACHE: { get: async () => null, put: async () => undefined },
-    AUTH: {
-      fetch: async () =>
+    AUTH: authStub(
+      async () =>
         new Response(JSON.stringify({ githubAccountId: null }), {
           headers: { "content-type": "application/json" },
         }),
-    },
+    ),
     ...(options.openaiAppsChallenge === undefined
       ? {}
       : { OPENAI_APPS_CHALLENGE: options.openaiAppsChallenge }),
@@ -2206,12 +2227,12 @@ describe("OAuth JWT bearer (issue #224)", () => {
  */
 describe("uploader attribution (issue #345)", () => {
   function withGithubAccount(env: Env, accountId: string) {
-    (env as unknown as { AUTH: { fetch: () => Promise<Response> } }).AUTH = {
-      fetch: async () =>
+    (env as unknown as { AUTH: { fetch: typeof fetch } }).AUTH = authStub(
+      async () =>
         new Response(JSON.stringify({ githubAccountId: accountId }), {
           headers: { "content-type": "application/json" },
         }),
-    };
+    );
   }
 
   /** Stubs the GitHub `GET /user/:id` call uploaderTags() makes on a cache miss. */

@@ -1,11 +1,11 @@
 /**
  * Resource-server verification of OAuth 2.1 access tokens minted by the
- * uploads-auth authorization server (issue #224). The MCP worker has no
- * service binding to apps/auth — it verifies JWTs locally with `jose`
- * against the AS's public JWKS, fetched over plain `fetch` and cached
- * in-isolate for a few minutes (mirrors sunny/apps/api/src/oauth-resource.ts,
- * adapted from a service-binding fetch to a real HTTP fetch since there's no
- * binding here).
+ * uploads-auth authorization server (issue #224). Verifies JWTs locally with
+ * `jose` against the AS's public JWKS, cached in-isolate for a few minutes.
+ * The JWKS document is fetched over the `AUTH` service binding when present
+ * (production/preview — a direct call to uploads-auth, edge-independent and
+ * skipping the web `/api/auth` proxy; see {@link jwksFetcherFor}) and over
+ * plain `fetch` as a local-dev fallback.
  *
  * Token shape (see docs/superpowers/specs/2026-07-17-oauth-authorization-server-design.md):
  * issuer `${AUTH_ORIGIN}/api/auth`, `workspace` (primary slug, or null for a
@@ -38,13 +38,44 @@ export function resetOAuthJwksCacheForTests(): void {
 /** Fetches a JWKS document from a URL. Overridable in tests to avoid network. */
 export type JwksFetcher = (jwksUrl: string) => Promise<JSONWebKeySet>;
 
-const defaultJwksFetcher: JwksFetcher = async (jwksUrl) => {
-  const res = await fetch(jwksUrl);
+/** Validate + parse a JWKS response, shared by the HTTP and binding fetchers. */
+async function readJwks(res: Response): Promise<JSONWebKeySet> {
   if (!res.ok) throw new Error(`jwks fetch failed: ${res.status}`);
   const body = (await res.json()) as JSONWebKeySet;
   if (!body || !Array.isArray(body.keys)) throw new Error("malformed jwks document");
   return body;
-};
+}
+
+const defaultJwksFetcher: JwksFetcher = async (jwksUrl) => readJwks(await fetch(jwksUrl));
+
+/** Direct binding origin for uploads-auth; the service binding ignores the host and routes by path (matches apps/api's `AUTH_INTERNAL_ORIGIN`). */
+const AUTH_INTERNAL_ORIGIN = "https://auth.internal";
+
+/** Narrow shape {@link jwksFetcherFor} needs — the optional `AUTH` service binding. */
+export interface JwksFetchEnv {
+  AUTH?: Fetcher;
+}
+
+/**
+ * The JWKS fetcher to verify OAuth tokens with: prefer the `AUTH` service
+ * binding (production/preview) so the fetch is a direct worker-to-worker call
+ * to uploads-auth — it never leaves the account, so token verification is
+ * immune to public-edge WAF/bot rules and edge incidents, and it skips the
+ * web `/api/auth` proxy hop (the default issuer origin is `uploads.sh`). Falls
+ * back to plain `fetch` against the public JWKS URL when the binding is absent
+ * (local dev / `wrangler dev` without the sibling worker). Mirrors the
+ * binding-else-HTTP pattern in apps/web's api-proxy.ts and #999.
+ */
+export function jwksFetcherFor(env: JwksFetchEnv): JwksFetcher {
+  const auth = env.AUTH;
+  if (!auth) return defaultJwksFetcher;
+  return async (jwksUrl) => {
+    // Keep the path (`/api/auth/jwks`), swap the host for the internal alias so
+    // the binding routes straight to the auth worker rather than the web proxy.
+    const target = new URL(new URL(jwksUrl).pathname, AUTH_INTERNAL_ORIGIN).href;
+    return readJwks(await auth.fetch(target));
+  };
+}
 
 async function loadJwks(jwksUrl: string, fetcher: JwksFetcher): Promise<JSONWebKeySet | null> {
   const now = Date.now();
