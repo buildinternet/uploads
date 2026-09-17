@@ -198,6 +198,18 @@ describe("parseClassifierOutput", () => {
     expect(parseClassifierOutput('{"tags":["!!!"],"kind":"nope"}')).toBeNull();
   });
 
+  it("drops an allowlist-echo kind and keeps tags and summary", () => {
+    expect(
+      parseClassifierOutput(
+        '{"tags":["gradient"],"summary":"a gradient image","kind":"screenshot|photo|diagram|document|code|ui|other"}',
+      ),
+    ).toEqual({
+      "ai.classifier": CLASSIFIER_VERSION,
+      "ai.tags": "gradient",
+      "ai.summary": "a gradient image",
+    });
+  });
+
   it("strips non-ASCII from the summary", () => {
     const meta = parseClassifierOutput('{"summary":"Hello café","kind":"other"}');
     expect(meta?.["ai.summary"]).toBe("Hello caf");
@@ -208,8 +220,36 @@ describe("extractJsonObject / extractModelText", () => {
   it("reads common Workers AI shapes", () => {
     expect(extractModelText({ response: "hi" })).toBe("hi");
     expect(extractModelText({ description: "cap" })).toBe("cap");
+    expect(extractModelText({ result: "out" })).toBe("out");
     expect(extractModelText("plain")).toBe("plain");
     expect(extractModelText(null)).toBe("");
+  });
+
+  it("stringifies an object-shaped response (AI Gateway / Workers AI)", () => {
+    const payload = {
+      response: {
+        tags: ["gradient"],
+        summary: "a gradient image",
+        kind: "screenshot|photo|diagram|document|code|ui|other",
+      },
+      tool_calls: [],
+      usage: { prompt_tokens: 1, completion_tokens: 1 },
+    };
+    const text = extractModelText(payload);
+    expect(text).toContain('"tags"');
+    expect(parseClassifierOutput(text)).toEqual({
+      "ai.classifier": CLASSIFIER_VERSION,
+      "ai.tags": "gradient",
+      "ai.summary": "a gradient image",
+    });
+  });
+
+  it("reads OpenAI-ish choices[0].message.content", () => {
+    expect(
+      extractModelText({
+        choices: [{ message: { content: '{"tags":["ui"],"kind":"screenshot"}' } }],
+      }),
+    ).toBe('{"tags":["ui"],"kind":"screenshot"}');
   });
 
   it("returns null for arrays and invalid JSON", () => {

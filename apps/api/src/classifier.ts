@@ -235,16 +235,44 @@ function normalizeSummary(value: unknown): string | undefined {
 function normalizeKind(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   const kind = value.trim().toLowerCase();
-  return KIND_ALLOWLIST.has(kind) ? kind : undefined;
+  // Models sometimes echo the prompt's allowlist (`screenshot|photo|…`).
+  // Drop the field rather than guessing or failing the whole parse.
+  if (kind.includes("|") || !KIND_ALLOWLIST.has(kind)) return undefined;
+  return kind;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+/** String fields, or a plain object that is already the classifier JSON. */
+function fieldAsText(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (!isPlainObject(value)) return "";
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return "";
+  }
 }
 
 export function extractModelText(result: unknown): string {
   if (typeof result === "string") return result;
-  if (!result || typeof result !== "object") return "";
-  const rec = result as Record<string, unknown>;
-  if (typeof rec.response === "string") return rec.response;
-  if (typeof rec.description === "string") return rec.description;
-  if (typeof rec.result === "string") return rec.result;
+  if (!isPlainObject(result)) return "";
+
+  const fromKnown =
+    fieldAsText(result.response) || fieldAsText(result.description) || fieldAsText(result.result);
+  if (fromKnown) return fromKnown;
+
+  const first = Array.isArray(result.choices) ? result.choices[0] : undefined;
+  if (isPlainObject(first)) {
+    if (isPlainObject(first.message)) {
+      const content = fieldAsText(first.message.content);
+      if (content) return content;
+    }
+    if (typeof first.text === "string") return first.text;
+  }
+
   return "";
 }
 
