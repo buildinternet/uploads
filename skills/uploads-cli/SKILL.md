@@ -897,10 +897,13 @@ title updates, self-healing) seems to be silently doing nothing.
 
 Images someone drops straight into a PR/issue via `github.com/user-attachments/…`
 only exist behind GitHub's own authenticated hosting — they're never public
-URLs. `uploads ingest --pr <n>` (or `--issue <n>`) scans the description and
-comments for that media, mirrors any new ones into the workspace (indexed,
-not added to the managed comment), and detaches ones no longer referenced —
-a reattached one un-detaches without a re-fetch:
+URLs. The same command also copies public Cursor cloud-agent rewrite URLs
+(`cursor.com/artifacts/c/art-*`). Viewer (`/artifacts/v/`) and login-walled
+agent-page links are skipped; enable **Allow posting artifacts to GitHub** so
+the PR gets a public `/c/` URL. `uploads ingest --pr <n>` (or `--issue <n>`)
+scans the description and comments for that media, mirrors any new ones into
+the workspace (indexed, not added to the managed comment), and detaches ones
+no longer referenced — a reattached one un-detaches without a re-fetch:
 
 ```bash
 uploads ingest --pr 123

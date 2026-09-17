@@ -10,7 +10,11 @@
  */
 import { InsufficientStorageError, RateLimitedError } from "@uploads/errors";
 import { describe, expect, it, vi } from "vitest";
-import { attachmentKeyBasename } from "./github-attachment-extract";
+import {
+  attachmentKeyBasename,
+  CURSOR_AGENT_PAGE_SKIP_REASON,
+  CURSOR_VIEWER_SKIP_REASON,
+} from "./github-attachment-extract";
 import { ghPrivateKeyPrefix } from "./github-comment-render";
 import {
   ingestForWebhook,
@@ -1265,5 +1269,186 @@ describe("private-repo ingest keys (issue #631)", () => {
     expect(calls).toHaveLength(1);
     expect(calls[0]!.key).toBe(KEY); // the plain (non-private) ingest key.
     expect(summary.ingested).toEqual([KEY]);
+  });
+});
+
+const CURSOR_ART = "art-aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+const CURSOR_ASSET_ID = `cursor/${CURSOR_ART}`;
+const CURSOR_URL = `https://cursor.com/artifacts/c/${CURSOR_ART}`;
+const CURSOR_VIEWER = `https://cursor.com/artifacts/v/${CURSOR_ART}`;
+const CURSOR_AGENT =
+  "https://cursor.com/agents/bc-11111111-2222-4333-8444-555555555555/artifacts?path=/opt/cursor/artifacts/shot.webp";
+
+function headerRecord(init: RequestInit | undefined): Record<string, string> {
+  const raw = init?.headers;
+  if (!raw) return {};
+  if (raw instanceof Headers) return Object.fromEntries(raw.entries());
+  if (Array.isArray(raw)) return Object.fromEntries(raw);
+  return { ...(raw as Record<string, string>) };
+}
+
+function hasAuthorization(init: RequestInit | undefined): boolean {
+  return Object.keys(headerRecord(init)).some((k) => k.toLowerCase() === "authorization");
+}
+
+describe("cursor artifact ingest", () => {
+  it("mirrors a public /artifacts/c/art-* url without a GitHub bearer token", async () => {
+    const { env } = baseEnv();
+    const ref: IngestSourceRef = { repo: REPO, kind: "pull", num: 7, source: "body" };
+    const authed: string[] = [];
+    const fetchImpl = (async (url: string, init: RequestInit = {}) => {
+      if (hasAuthorization(init)) authed.push(String(url));
+      return fakeFetch({ [CURSOR_ART]: pngRoute(PNG) })(url, init);
+    }) as unknown as typeof fetch;
+    const { putImpl, calls } = spyPut();
+
+    const summary = await reconcileIngestSource(env, ws, WS, ref, `see ${CURSOR_URL}`, "octocat", {
+      fetchImpl,
+      putImpl,
+    });
+
+    const key = `gh/acme-app/pull-7/${attachmentKeyBasename(CURSOR_ASSET_ID)}.png`;
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.key).toBe(key);
+    expect(calls[0]!.opts?.metadata).toEqual({
+      "gh.repo": "acme/app",
+      "gh.kind": "pull",
+      "gh.number": "7",
+      "gh.origin": "github",
+      "gh.author": "octocat",
+      "gh.detached": "false",
+      "gh.source": "body",
+      "gh.provider": "cursor",
+    });
+    expect(JSON.stringify(calls[0]!.opts?.metadata)).not.toContain("X-Amz-");
+    expect(authed).toEqual([]);
+    expect(summary).toEqual({ ingested: [key], reattached: [], detached: [], skipped: [] });
+    const row = await ledgerRow(env.DB, REPO, CURSOR_ASSET_ID);
+    expect(row?.objectKey).toBe(key);
+    expect(row?.detachedAt).toBeNull();
+  });
+
+  it("names the object from markdown alt text ahead of the S3 slug", async () => {
+    const { env } = baseEnv();
+    const ref: IngestSourceRef = { repo: REPO, kind: "pull", num: 7, source: "body" };
+    const s3 =
+      "https://cloud-agent-artifacts.s3.us-east-1.amazonaws.com/artifacts/bc-test/opt/cursor/artifacts/people-invite-links-before.png?X-Amz-Signature=SECRET";
+    const fetchImpl = fakeFetch({
+      [CURSOR_ART]: () => new Response(null, { status: 302, headers: { location: s3 } }),
+      "people-invite-links-before.png": pngRoute(PNG),
+    });
+    const { putImpl, calls } = spyPut();
+
+    await reconcileIngestSource(env, ws, WS, ref, `![Before: invite links](${CURSOR_URL})`, null, {
+      fetchImpl,
+      putImpl,
+    });
+
+    expect(calls[0]!.key).toBe("gh/acme-app/pull-7/before-invite-links.png");
+    expect(JSON.stringify(calls[0]!.opts)).not.toContain("SECRET");
+    expect(JSON.stringify(calls[0]!.opts)).not.toContain("X-Amz-Signature");
+  });
+
+  it("falls back to the /c/ redirect path leaf when there is no alt text", async () => {
+    const { env } = baseEnv();
+    const ref: IngestSourceRef = { repo: REPO, kind: "pull", num: 7, source: "body" };
+    const s3 =
+      "https://cloud-agent-artifacts.s3.us-east-1.amazonaws.com/artifacts/bc-test/opt/cursor/artifacts/screenshot_api_reference.webp?X-Amz-Signature=SECRET";
+    const fetchImpl = fakeFetch({
+      [CURSOR_ART]: () => new Response(null, { status: 302, headers: { location: s3 } }),
+      "screenshot_api_reference.webp": pngRoute(PNG),
+    });
+    const { putImpl, calls } = spyPut();
+
+    await reconcileIngestSource(env, ws, WS, ref, `see ${CURSOR_URL}`, null, {
+      fetchImpl,
+      putImpl,
+    });
+
+    expect(calls[0]!.key).toBe("gh/acme-app/pull-7/screenshot_api_reference.png");
+    expect(JSON.stringify(calls[0]!.opts)).not.toContain("SECRET");
+  });
+
+  it("already-ledgered cursor asset: no re-fetch, no put", async () => {
+    const { env } = baseEnv();
+    const ref: IngestSourceRef = { repo: REPO, kind: "pull", num: 7, source: "body" };
+    const key = `gh/acme-app/pull-7/${attachmentKeyBasename(CURSOR_ASSET_ID)}.png`;
+    await recordIngestedAsset(env.DB, {
+      repo: REPO,
+      assetId: CURSOR_ASSET_ID,
+      workspace: WS,
+      objectKey: key,
+      kind: "pull",
+      num: 7,
+      source: "body",
+      createdAt: new Date().toISOString(),
+    });
+    const fetchImpl = vi.fn(fakeFetch({ [CURSOR_ART]: pngRoute(PNG) }));
+    const { putImpl, calls } = spyPut();
+
+    const summary = await reconcileIngestSource(env, ws, WS, ref, `see ${CURSOR_URL}`, "octocat", {
+      fetchImpl,
+      putImpl,
+    });
+
+    expect(calls).toHaveLength(0);
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(summary).toEqual({ ingested: [], reattached: [], detached: [], skipped: [] });
+  });
+
+  it("removed cursor url detaches; viewer-only and agent-page-only refs skip with a hint", async () => {
+    const { env } = baseEnv();
+    const ref: IngestSourceRef = { repo: REPO, kind: "pull", num: 7, source: "body" };
+    const key = `gh/acme-app/pull-7/${attachmentKeyBasename(CURSOR_ASSET_ID)}.png`;
+    await recordIngestedAsset(env.DB, {
+      repo: REPO,
+      assetId: CURSOR_ASSET_ID,
+      workspace: WS,
+      objectKey: key,
+      kind: "pull",
+      num: 7,
+      source: "body",
+      createdAt: new Date().toISOString(),
+    });
+    await replaceFileMetadata(env.DB, WS, key, { "gh.detached": "false" });
+    const { putImpl, calls } = spyPut();
+
+    const detached = await reconcileIngestSource(env, ws, WS, ref, "no attachment here", null, {});
+    expect(detached).toEqual({ ingested: [], reattached: [], detached: [key], skipped: [] });
+
+    const viewerOnly = await reconcileIngestSource(env, ws, WS, ref, `see ${CURSOR_VIEWER}`, null, {
+      putImpl,
+    });
+    expect(calls).toHaveLength(0);
+    expect(viewerOnly.skipped).toEqual([{ url: CURSOR_VIEWER, reason: CURSOR_VIEWER_SKIP_REASON }]);
+    expect(viewerOnly.ingested).toEqual([]);
+
+    const agentOnly = await reconcileIngestSource(env, ws, WS, ref, `see ${CURSOR_AGENT}`, null, {
+      putImpl,
+    });
+    expect(agentOnly.skipped).toEqual([
+      { url: CURSOR_AGENT, reason: CURSOR_AGENT_PAGE_SKIP_REASON },
+    ]);
+  });
+
+  it("does not skip a viewer url when the matching /c/ rewrite is also present", async () => {
+    const { env } = baseEnv();
+    const ref: IngestSourceRef = { repo: REPO, kind: "pull", num: 7, source: "body" };
+    const fetchImpl = fakeFetch({ [CURSOR_ART]: pngRoute(PNG) });
+    const { putImpl, calls } = spyPut();
+
+    const summary = await reconcileIngestSource(
+      env,
+      ws,
+      WS,
+      ref,
+      `![shot](${CURSOR_URL}) also ${CURSOR_VIEWER}`,
+      null,
+      { fetchImpl, putImpl },
+    );
+
+    expect(calls).toHaveLength(1);
+    expect(summary.skipped).toEqual([]);
+    expect(summary.ingested).toHaveLength(1);
   });
 });

@@ -88,7 +88,7 @@ command to run by hand, rather than overwriting your build.
 | `screenshot <url\|html>`   | Capture a page (or local HTML) and host it in one step                                                                   |
 | `annotate <image>`         | Bake boxes, arrows, labels, strokes, and redactions onto an image                                                        |
 | `comment`                  | Create/update a PR/issue attachments comment (via `gh`)                                                                  |
-| `ingest`                   | Mirror `github.com/user-attachments` media from a PR/issue into the workspace                                            |
+| `ingest`                   | Mirror `github.com/user-attachments` and public Cursor `/artifacts/c/art-*` URLs from a PR/issue into the workspace      |
 | `list` / `find k=v`        | List objects, optionally filtered by queryable metadata                                                                  |
 | `meta get` / `meta set`    | Read or merge-set an object's queryable metadata                                                                         |
 | `gallery …`                | Create and organize public media galleries                                                                               |
@@ -228,9 +228,13 @@ exists` without writing.
 **Mirroring GitHub-native attachments** (`uploads ingest`) handles the other
 direction: images someone dropped straight into a PR/issue via
 `github.com/user-attachments/…`, which only exist behind GitHub's own
-authenticated hosting. `uploads ingest --pr <n>` (or `--issue <n>`) scans the
-description and comments, mirrors any new ones into the workspace (indexed,
-not added to the managed comment), and detaches ones no longer referenced:
+authenticated hosting, and public Cursor cloud-agent rewrite URLs
+(`cursor.com/artifacts/c/art-*`). `uploads ingest --pr <n>` (or `--issue <n>`)
+scans the description and comments, mirrors any new ones into the workspace
+(indexed, not added to the managed comment), and detaches ones no longer
+referenced. Viewer (`/artifacts/v/`) and login-walled agent-page links are
+skipped — enable **Allow posting artifacts to GitHub** so the PR gets a public
+`/c/` URL.
 
 ```bash
 uploads ingest --pr 123

@@ -65,7 +65,8 @@ Use uploads.sh when any of these are true instead:
 Do not mix the two on one PR: pick one so the comment history stays readable.
 Media attached with `gh` is still indexed: the GitHub App imports attachments
 from PR and issue text into the workspace. To pull an existing
-`user-attachments` image out to a public URL by hand, use `uploads ingest`.
+`user-attachments` image — or a public Cursor `cursor.com/artifacts/c/art-*`
+rewrite URL — out to a public URL by hand, use `uploads ingest`.
 
 ## Which surface
 
