@@ -1,5 +1,6 @@
 import { CF_RUM_CONNECT_SRC, CF_RUM_SCRIPT_SRC, STYLE_SRC_SELF_AND_INLINE } from "./csp";
 import { fileKind, isVideoDimensions, nullableHttpsUrl } from "./public-file";
+import { SSR_USER_AGENT } from "./ssr-fetch";
 
 export interface PublicGalleryItem {
   id: string;
@@ -239,7 +240,7 @@ export async function fetchPublicGallery(
     const endpoint = new URL("/public/galleries/" + encodeURIComponent(id), origin);
     const response = await (options.fetch ?? globalThis.fetch)(endpoint, {
       signal: controller.signal,
-      headers: { Accept: "application/json" },
+      headers: { Accept: "application/json", "User-Agent": SSR_USER_AGENT },
       cache: "no-store",
       credentials: "omit",
       referrerPolicy: "no-referrer",

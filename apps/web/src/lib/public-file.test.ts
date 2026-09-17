@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { SSR_USER_AGENT } from "./ssr-fetch";
 import {
   applyPublicFileHeaders,
   authRequiredFileCsp,
@@ -302,6 +303,15 @@ describe("fetchTextPreview", () => {
     expect(result).toBe("hello world");
   });
 
+  it("sends an identifying User-Agent so the storage zone's empty-UA WAF rule lets the SSR call through", async () => {
+    const fetcher = vi.fn(
+      async (_url: RequestInfo | URL, _init?: RequestInit) => new Response("hello world"),
+    );
+    await fetchTextPreview("https://storage.uploads.sh/acme/notes.txt", { fetch: fetcher });
+    const headers = new Headers((fetcher.mock.calls[0][1] as RequestInit).headers);
+    expect(headers.get("User-Agent")).toBe(SSR_USER_AGENT);
+  });
+
   it("returns null on a non-2xx response", async () => {
     const fetcher = vi.fn(async () => new Response("nope", { status: 500 }));
     const result = await fetchTextPreview("https://storage.uploads.sh/acme/notes.txt", {
@@ -352,6 +362,18 @@ describe("fetchPublicFile", () => {
     expect(String(fetcher.mock.calls[0][0])).toBe(
       "https://api.uploads.sh/public/files/acme/screenshots/shot.png",
     );
+  });
+
+  it("sends an identifying User-Agent so the API zone's empty-UA WAF rule lets the SSR call through", async () => {
+    const fetcher = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+      Response.json(file),
+    );
+    await fetchPublicFile("acme", "screenshots/shot.png", {
+      origin: "https://api.uploads.sh",
+      fetch: fetcher,
+    });
+    const headers = new Headers((fetcher.mock.calls[0][1] as RequestInit).headers);
+    expect(headers.get("User-Agent")).toBe(SSR_USER_AGENT);
   });
 
   it("short-circuits bad workspace/key without a network call", async () => {

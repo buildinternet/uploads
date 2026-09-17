@@ -1,5 +1,6 @@
 import { CF_RUM_SCRIPT_SRC, STYLE_SRC_SELF_AND_INLINE } from "./csp";
 import { connectSrc } from "./signed-in-page";
+import { SSR_USER_AGENT } from "./ssr-fetch";
 
 // Client model for the standalone public file page (issue #135). Fetched
 // server-side from the API's `GET /public/files/:workspace/:key` — apps/web has
@@ -328,7 +329,7 @@ export async function fetchPublicFile(
     );
     const response = await (options.fetch ?? globalThis.fetch)(endpoint, {
       signal: controller.signal,
-      headers: { Accept: "application/json" },
+      headers: { Accept: "application/json", "User-Agent": SSR_USER_AGENT },
       cache: "no-store",
       credentials: "omit",
       referrerPolicy: "no-referrer",
@@ -409,6 +410,7 @@ export async function fetchTextPreview(
   try {
     const response = await (options.fetch ?? globalThis.fetch)(url, {
       signal: controller.signal,
+      headers: { "User-Agent": SSR_USER_AGENT },
       cache: "no-store",
     });
     if (!response.ok) return null;
