@@ -12,6 +12,7 @@
   display: block;
   inline-size: 100%;
   block-size: auto;
+  overflow: visible;
 }
 
 .metrics-chart .metrics-axis-line,
@@ -23,7 +24,10 @@
 
 .metrics-chart .metrics-axis-label {
   fill: var(--muted);
-  font: var(--text-micro) var(--mono);
+  /* User units inside the 960×400 viewBox. `--text-micro` (12px) in a
+     480-wide viewBox scaled with the chart and clipped "1,000" / dates. */
+  font-family: var(--mono);
+  font-size: 11px;
 }
 
 .metrics-chart .metrics-bar-fill {

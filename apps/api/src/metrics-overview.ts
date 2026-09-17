@@ -11,6 +11,7 @@
 
 import { fetchUploadClassSeries, type UploadClassSeriesResult } from "./analytics-engine";
 import { dbFor } from "./db-session";
+import { fillDaySeries } from "./day-series";
 import {
   activeWorkspacesSince,
   featureTotals,
@@ -86,7 +87,7 @@ const EMPTY_AUTH: AuthMetrics = {
 };
 
 export function overviewCacheKey(days: number): string {
-  return `metrics:overview:v2:${days}`;
+  return `metrics:overview:v3:${days}`;
 }
 
 /**
@@ -152,8 +153,29 @@ export async function buildOverview(
     authMetrics(env, since),
     multiIdentityWorkspaces(dbFor(env)),
     workspacesWithGithubApp(dbFor(env)),
-    fetchUploadClassSeries(env, days),
+    fetchUploadClassSeries(env, days, fetch, now),
   ]);
+
+  // Sparse SQL rows → one point per calendar day so the charts' bar
+  // spacing matches the selected window (quiet days plot as 0).
+  const uploadsFilled = fillDaySeries(since, days, uploads, (day) => ({
+    day,
+    count: 0,
+    bytes: 0,
+  }));
+  const usersFilled = fillDaySeries(since, days, auth.users, (day) => ({ day, count: 0 }));
+  const orgsFilled = fillDaySeries(since, days, auth.orgs, (day) => ({ day, count: 0 }));
+  const uploadClassesFilled: UploadClassSeriesResult = uploadClasses.available
+    ? {
+        available: true,
+        days: fillDaySeries(since, days, uploadClasses.days, (day) => ({
+          day,
+          image: 0,
+          video: 0,
+          other: 0,
+        })),
+      }
+    : uploadClasses;
 
   return {
     window: { days, since },
@@ -164,11 +186,16 @@ export async function buildOverview(
       storedBytes: storage.storedBytes,
       activeWorkspaces7d: active30.filter((w) => w.lastActive >= since7).length,
       activeWorkspaces30d: active30.length,
-      uploads: uploads.reduce((sum, point) => sum + point.count, 0),
-      bytes: uploads.reduce((sum, point) => sum + point.bytes, 0),
+      uploads: uploadsFilled.reduce((sum, point) => sum + point.count, 0),
+      bytes: uploadsFilled.reduce((sum, point) => sum + point.bytes, 0),
       workspacesWithGithubApp: githubApp.size,
     },
-    series: { uploads, users: auth.users, orgs: auth.orgs, uploadClasses },
+    series: {
+      uploads: uploadsFilled,
+      users: usersFilled,
+      orgs: orgsFilled,
+      uploadClasses: uploadClassesFilled,
+    },
     features,
     workspaces: table,
     multiIdentityWorkspaces: multiIdentity,
