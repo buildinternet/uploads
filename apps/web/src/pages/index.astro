@@ -13,14 +13,14 @@ import { OG_DEFAULT_IMAGE, OG_SITE_NAME } from "../lib/og";
 
 const pageTitle = "uploads.sh — the missing upload command for coding agents";
 const pageDescription =
-  "Agents take screenshots long before a pull request exists, and GitHub's own attachments only work inside GitHub. Uploads hosts each file at a stable public URL the moment it's captured. When the pull request opens, all screenshots appear in one tidy comment that updates automatically on each revision.";
+  "Agents produce screenshots, recordings, test reports, and logs long before a pull request exists, and GitHub's own attachments only work inside GitHub. Uploads hosts each file at a stable public URL the moment it's captured. When the pull request opens, every artifact appears in one tidy comment that updates automatically on each revision.";
 
 const authOrigin = SAME_ORIGIN_AUTH_BASE;
 
 // The agent setup prompt: copied via button, never rendered in full on the page.
 const agentPrompt = `Help me set up the uploads CLI (uploads.sh) and attach my first screenshot to a GitHub pull request.
 
-uploads.sh is the missing upload command for coding agents: one CLI that hosts screenshots and screen recordings at stable URLs and keeps them in a single managed attachments comment on the PR or issue. It's open source, and free to start in the cloud.
+uploads.sh is the missing upload command for coding agents: one CLI that hosts screenshots, screen recordings, and other artifacts (test reports, logs, JSON, PDFs, zips) at stable URLs and keeps them in a single managed attachments comment on the PR or issue. It's open source, and free to start in the cloud.
 
 Setup:
 1. Install the CLI: npm install -g @buildinternet/uploads
@@ -619,10 +619,10 @@ Source (and where to look if something breaks): https://github.com/buildinternet
       <h1>The missing upload command for <span class="nb">coding agents.</span></h1>
       <p class="byline">Now Claude Code and Codex can add artifacts to pull requests</p>
       <p class="lede">
-        Agents take screenshots long before a pull request exists, and GitHub's own attachments only
-        work inside GitHub. Uploads hosts each file at a stable public URL the moment it's captured.
-        When the pull request opens, all screenshots appear in one tidy comment that updates
-        automatically on each revision.
+        Agents produce screenshots, recordings, test reports, and logs long before a pull request
+        exists, and GitHub's own attachments only work inside GitHub. Uploads hosts each file at a
+        stable public URL the moment it's captured. When the pull request opens, every artifact
+        appears in one tidy comment that updates automatically on each revision.
       </p>
 
       <div class="cmdrow hero-install">
@@ -787,8 +787,8 @@ Source (and where to look if something breaks): https://github.com/buildinternet
           <div class="feature">
             <h3>More file types</h3>
             <p>
-              PDFs, logs, JSON, and zips alongside images and video, so test reports and build
-              output get the same stable URLs.
+              PDFs, logs, JSON, CSV, Markdown, and zips alongside images and video, so test reports
+              and build output get the same stable URLs and list in the same PR comment.
             </p>
           </div>
           <div class="feature">

@@ -6,7 +6,8 @@
 
 **The missing upload command for coding agents.**
 
-Capture screenshots as you work. When the pull request opens, uploads.sh puts
+Capture screenshots, recordings, and other artifacts as you work: test
+reports, logs, JSON, PDFs, zips. When the pull request opens, uploads.sh puts
 them in one tidy comment that updates automatically on each revision. Hosted
 uploads.sh is free to start. Connect your own bucket — Cloudflare R2 or any
 S3-compatible provider — so storage in that bucket is unmetered, or self-host
@@ -41,16 +42,19 @@ the open-source service.
 
 ---
 
-## Screenshots ready when the pull request opens
+## Artifacts ready when the pull request opens
 
-**uploads** hosts screenshots and other files at stable URLs that coding agents
-can use in pull requests and issues. On a branch, `uploads put` stages each file
-as soon as it is ready. When the pull request opens, uploads.sh promotes the
-staged files into one managed comment.
+**uploads** hosts the artifacts coding agents produce at stable public URLs
+they can use in pull requests and issues: screenshots and screen recordings,
+but also test reports, logs, JSON, CSV, Markdown, PDFs, and zip archives
+(the full list is under [Plans & limits](https://uploads.sh/docs/limits)). On
+a branch, `uploads put` stages each file as soon as it is ready. When the pull
+request opens, uploads.sh promotes the staged files into one managed comment.
 
 GitHub's own attachments work from a browser and, since GitHub CLI 2.99
 (September 2026), from `gh … --attach`, but only once a pull request or issue
-exists, and the files stay private to GitHub. uploads.sh gives agents a stable
+exists, and the files stay behind GitHub's own hosting, where they cannot be
+embedded or fetched anywhere else. uploads.sh gives agents a stable
 public URL from the same terminal where they build and test the change, while
 the branch is still in progress. The hosted MCP server does the same for agents
 that cannot run a command at all, taking files as bytes or a URL. GitHub has no
@@ -68,8 +72,9 @@ Astro web app, and the `@buildinternet/uploads` CLI (published to npm from
 ## What it looks like
 
 One comment per PR, rewritten in place on every sync. Files tagged
-`--state before` and `--state after` pair into a side-by-side table; anything
-else lands below it.
+`--state before` and `--state after` pair into a side-by-side table; other
+images and video land below it, and non-media files (reports, logs, archives)
+list in a file table with their type and size.
 
 <div align="center">
   <a href="https://github.com/buildinternet/uploads/pull/436#issuecomment-5052307515"><img src="docs/assets/readme-comment.png" alt="The managed attachments comment on a pull request, with a before/after pair rendered side by side under Before and After headings" width="760"></a>
