@@ -1,6 +1,6 @@
 # @buildinternet/uploads
 
-CLI and client for **uploads.sh** — upload files, get public URLs, and produce GitHub-ready markdown.
+CLI and client for **uploads.sh** — upload screenshots, recordings, and other artifacts (reports, logs, JSON, PDFs, zips), get stable public URLs, and produce GitHub-ready markdown.
 
 ## CLI
 
