@@ -10,7 +10,7 @@
 const DISPLAY_KEYS = ["ai.kind", "ai.surface", "ai.screen", "ai.tags", "ai.summary"] as const;
 
 export interface AiLabels {
-  /** Schema marker (`v1` / `v2`); omitted when the file only has display keys. */
+  /** Schema marker (`v1` / `v2` / `v3`); omitted when the file only has display keys. */
   classifier?: string;
   kind?: string;
   surface?: string;
