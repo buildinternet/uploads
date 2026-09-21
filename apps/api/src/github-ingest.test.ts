@@ -1451,4 +1451,78 @@ describe("cursor artifact ingest", () => {
     expect(summary.skipped).toEqual([]);
     expect(summary.ingested).toHaveLength(1);
   });
+
+  it("skips a bot-authored cursor url and a tiny cursor image", async () => {
+    const { env } = baseEnv();
+    const ref: IngestSourceRef = { repo: REPO, kind: "pull", num: 7, source: "body" };
+    const tinyGif = gifOf(128, 128);
+    const fetchImpl = fakeFetch({
+      [CURSOR_ART]: () =>
+        new Response(tinyGif, { status: 200, headers: { "content-type": "image/gif" } }),
+    });
+    const { putImpl, calls } = spyPut();
+
+    const bot = await reconcileIngestSource(
+      env,
+      ws,
+      WS,
+      ref,
+      `footer ${CURSOR_URL}`,
+      "cursor[bot]",
+      {
+        fetchImpl,
+        putImpl,
+      },
+    );
+    expect(calls).toHaveLength(0);
+    expect(bot.skipped).toEqual([{ url: CURSOR_URL, reason: "bot_author" }]);
+    expect(await ledgerRow(env.DB, REPO, CURSOR_ASSET_ID)).toBeNull();
+
+    const tiny = await reconcileIngestSource(env, ws, WS, ref, `footer ${CURSOR_URL}`, "octocat", {
+      fetchImpl,
+      putImpl,
+    });
+    expect(calls).toHaveLength(0);
+    expect(tiny.skipped).toEqual([{ url: CURSOR_URL, reason: "too_small" }]);
+    expect(await ledgerRow(env.DB, REPO, CURSOR_ASSET_ID)).toBeNull();
+  });
+
+  it("ingestForWebhook mirrors an art-*-only body, stays idempotent, then detaches", async () => {
+    const { env: base } = baseEnv();
+    const env = withRegistry(base, { provider: "r2", bucket: "b" } as WorkspaceRecord);
+    await recordRepoLink(env.DB, REPO, WS, "test");
+    let body = `see ${CURSOR_URL}`;
+    const impl = fakeFetch({
+      "/contents/": () => new Response("nf", { status: 404 }),
+      "/repos/acme/app/issues/7": () =>
+        new Response(JSON.stringify({ body, user: { login: "octocat" } }), { status: 200 }),
+      [CURSOR_ART]: pngRoute(PNG),
+    });
+    const { putImpl, calls } = spyPut();
+    const ref: IngestSourceRef = { repo: REPO, kind: "pull", num: 7, source: "body" };
+    const key = `gh/acme-app/pull-7/${attachmentKeyBasename(CURSOR_ASSET_ID)}.png`;
+
+    await withGlobalFetch(impl, () => ingestForWebhook(env, ref, { fetchImpl: impl, putImpl }));
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.key).toBe(key);
+    expect(calls[0]!.opts?.metadata).toMatchObject({
+      "gh.origin": "github",
+      "gh.provider": "cursor",
+      "gh.detached": "false",
+      "gh.source": "body",
+    });
+    expect((await ledgerRow(env.DB, REPO, CURSOR_ASSET_ID))?.detachedAt).toBeNull();
+
+    await withGlobalFetch(impl, () => ingestForWebhook(env, ref, { fetchImpl: impl, putImpl }));
+    expect(calls).toHaveLength(1);
+    expect((await ledgerRow(env.DB, REPO, CURSOR_ASSET_ID))?.objectKey).toBe(key);
+
+    // putImpl is a spy, so seed the metadata row a real put would have written.
+    await replaceFileMetadata(env.DB, WS, key, { "gh.detached": "false" });
+    body = "the screenshot was removed";
+    await withGlobalFetch(impl, () => ingestForWebhook(env, ref, { fetchImpl: impl, putImpl }));
+    expect(calls).toHaveLength(1);
+    expect((await ledgerRow(env.DB, REPO, CURSOR_ASSET_ID))?.detachedAt).not.toBeNull();
+    expect((await getFileMetadata(env.DB, WS, key))["gh.detached"]).toBe("true");
+  });
 });

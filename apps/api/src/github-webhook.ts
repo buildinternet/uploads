@@ -53,7 +53,7 @@
  * degraded rather than dropping deliveries.
  */
 
-import { hasUserAttachmentUrl } from "./github-attachment-extract";
+import { hasIngestableAttachmentUrl } from "./github-attachment-extract";
 import { cacheRepoPrivacy, githubAppConfig, installationForRepo } from "./github-app";
 import { commentCacheKey, gatherCommentBody, upsertBotComment } from "./github-comment";
 import { ATTACHMENTS_MARKER } from "./github-comment-render";
@@ -438,15 +438,21 @@ export function extractWebhookEvent(eventType: string, payload: unknown): Webhoo
     if (typeof fullName === "string" && typeof item?.number === "number") {
       ev.keys.push(`ghref:${fullName.toLowerCase()}#${item.number}`);
 
-      // Ingest gating (spec 2026-08-11): opened → substring-gated on the
-      // body; edited → gated only on the presence of a body *change* (covers
-      // both add and remove — removal leaves no url in the new body, but the
-      // consumer re-fetches and reconciles against the empty case too).
-      // Casing intentionally NOT lowercased here, matching `promote` — the
-      // ledger normalizes internally.
+      // Ingest gating (spec 2026-08-11, Cursor art-* in #1004): opened →
+      // substring-gated on GitHub user-attachments or public
+      // cursor.com/artifacts/c/art-* URLs. Viewer and agent-page links do
+      // not wake ingest. edited → gated only on the presence of a body
+      // *change* (covers both add and remove — removal leaves no url in
+      // the new body, but the consumer re-fetches and reconciles against
+      // the empty case too). Casing intentionally NOT lowercased here,
+      // matching `promote` — the ledger normalizes internally.
       const action = p.action;
       const kind: GhTarget["kind"] = eventType === "pull_request" ? "pull" : "issues";
-      if (action === "opened" && typeof item.body === "string" && hasUserAttachmentUrl(item.body)) {
+      if (
+        action === "opened" &&
+        typeof item.body === "string" &&
+        hasIngestableAttachmentUrl(item.body)
+      ) {
         ev.ingest = { repo: fullName, kind, num: item.number, source: "body" };
       } else if (action === "edited") {
         const changes = p.changes as { body?: unknown } | undefined;
@@ -516,18 +522,20 @@ export function extractWebhookEvent(eventType: string, payload: unknown): Webhoo
       ev.reconcile = { repo, num, kind: ip.issue?.pull_request ? "pull" : "issues" };
     }
 
-    // Ingest gating (spec 2026-08-11): created/deleted are substring-gated
-    // (a deleted comment's payload carries its pre-deletion body — the
-    // consumer's GET then 404s, detaching everything under that source).
-    // edited always fires unless the sender is a Bot (our own comment write
-    // or another bot's churn) — a removal is invisible in the new body, so
-    // the only reliable signal is "something changed".
+    // Ingest gating (spec 2026-08-11, Cursor art-* in #1004): created/deleted
+    // are substring-gated on user-attachments or public
+    // cursor.com/artifacts/c/art-* URLs (a deleted comment's payload carries
+    // its pre-deletion body — the consumer's GET then 404s, detaching
+    // everything under that source). Viewer and agent-page links do not
+    // wake ingest. edited always fires unless the sender is a Bot (our own
+    // comment write or another bot's churn) — a removal is invisible in the
+    // new body, so the only reliable signal is "something changed".
     const commentId = ip.comment?.id;
     if (typeof repo === "string" && typeof num === "number" && typeof commentId === "number") {
       const kind: GhTarget["kind"] = ip.issue?.pull_request ? "pull" : "issues";
       const source = `comment:${commentId}`;
       const body = ip.comment?.body;
-      const hasUrl = typeof body === "string" && hasUserAttachmentUrl(body);
+      const hasUrl = typeof body === "string" && hasIngestableAttachmentUrl(body);
       const gated =
         (ip.action === "created" && hasUrl) ||
         (ip.action === "edited" && ip.sender?.type !== "Bot") ||

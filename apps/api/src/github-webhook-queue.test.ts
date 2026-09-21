@@ -212,6 +212,80 @@ describe("extractWebhookEvent", () => {
     expect(deletedPlainText?.ingest).toBeUndefined();
   });
 
+  const CURSOR_ART = "https://cursor.com/artifacts/c/art-aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+  const CURSOR_VIEWER = "https://cursor.com/artifacts/v/art-aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+  const CURSOR_AGENT =
+    "https://cursor.com/agents/bc-11111111-2222-4333-8444-555555555555/artifacts?path=/opt/cursor/artifacts/shot.webp";
+
+  it("pull_request opened with only a cursor art-* url sets ingest", () => {
+    const ev = extractWebhookEvent("pull_request", {
+      action: "opened",
+      repository: { full_name: "acme/app" },
+      pull_request: { number: 7, body: `see ${CURSOR_ART}` },
+    });
+    expect(ev?.ingest).toEqual({ repo: "acme/app", kind: "pull", num: 7, source: "body" });
+  });
+
+  it("issues opened with only a cursor art-* url sets ingest", () => {
+    const ev = extractWebhookEvent("issues", {
+      action: "opened",
+      repository: { full_name: "acme/app" },
+      issue: { number: 3, body: `see ${CURSOR_ART}` },
+    });
+    expect(ev?.ingest).toEqual({ repo: "acme/app", kind: "issues", num: 3, source: "body" });
+  });
+
+  it("opened bodies that only mention a viewer or agent-page url set no ingest", () => {
+    for (const body of [CURSOR_VIEWER, CURSOR_AGENT, `see ${CURSOR_VIEWER} and ${CURSOR_AGENT}`]) {
+      const ev = extractWebhookEvent("pull_request", {
+        action: "opened",
+        repository: { full_name: "acme/app" },
+        pull_request: { number: 7, body },
+      });
+      expect(ev?.ingest).toBeUndefined();
+    }
+  });
+
+  it("issue_comment created or deleted with only a cursor art-* url sets ingest", () => {
+    const created = extractWebhookEvent("issue_comment", {
+      action: "created",
+      repository: { full_name: "acme/app" },
+      issue: { number: 7, pull_request: {} },
+      comment: { id: 44, body: CURSOR_ART, user: { login: "octocat", type: "User" } },
+    });
+    expect(created?.ingest).toEqual({
+      repo: "acme/app",
+      kind: "pull",
+      num: 7,
+      source: "comment:44",
+    });
+
+    const deleted = extractWebhookEvent("issue_comment", {
+      action: "deleted",
+      repository: { full_name: "acme/app" },
+      issue: { number: 7 },
+      comment: { id: 44, body: `was ${CURSOR_ART}`, user: { login: "octocat", type: "User" } },
+    });
+    expect(deleted?.ingest).toEqual({
+      repo: "acme/app",
+      kind: "issues",
+      num: 7,
+      source: "comment:44",
+    });
+  });
+
+  it("issue_comment created with only a viewer or agent-page url sets no ingest", () => {
+    for (const body of [CURSOR_VIEWER, CURSOR_AGENT]) {
+      const ev = extractWebhookEvent("issue_comment", {
+        action: "created",
+        repository: { full_name: "acme/app" },
+        issue: { number: 7, pull_request: {} },
+        comment: { id: 44, body, user: { login: "octocat", type: "User" } },
+      });
+      expect(ev?.ingest).toBeUndefined();
+    }
+  });
+
   const UPLOADS_URL = "https://storage.uploads.sh/acme/f/shot.png";
 
   it("pull_request opened with a link sets adopt", () => {

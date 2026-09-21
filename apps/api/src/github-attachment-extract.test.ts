@@ -6,6 +6,7 @@ import {
   extractUnimportableCursorRefs,
   extractUserAttachments,
   hasCursorContentUrl,
+  hasIngestableAttachmentUrl,
   hasUserAttachmentUrl,
 } from "./github-attachment-extract";
 
@@ -131,5 +132,16 @@ describe("hasCursorContentUrl", () => {
     expect(hasCursorContentUrl(`x ${CURSOR_C} y`)).toBe(true);
     expect(hasCursorContentUrl(CURSOR_V)).toBe(false);
     expect(hasCursorContentUrl(CURSOR_AGENT)).toBe(false);
+  });
+});
+
+describe("hasIngestableAttachmentUrl", () => {
+  it("wakes on user-attachments and public /c/art-* urls, not viewer or agent pages", () => {
+    const gh = "https://github.com/user-attachments/assets/0a1b2c3d-1111-2222-3333-444455556666";
+    expect(hasIngestableAttachmentUrl(`x ${CURSOR_C} y`)).toBe(true);
+    expect(hasIngestableAttachmentUrl(gh)).toBe(true);
+    expect(hasIngestableAttachmentUrl(CURSOR_V)).toBe(false);
+    expect(hasIngestableAttachmentUrl(CURSOR_AGENT)).toBe(false);
+    expect(hasIngestableAttachmentUrl("no attachments here")).toBe(false);
   });
 });

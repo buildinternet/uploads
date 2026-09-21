@@ -241,10 +241,12 @@ uploads ingest --pr 123
 uploads ingest --issue 45 --repo myorg/myapp
 ```
 
-This is the manual/backfill entry point. The `.uploads.yml` `ingestGithubAttachments`
-knob gates the automatic webhook path only (on by default) — it has no effect on
-running `ingest` directly. Both paths skip attachments authored by `[bot]`
-accounts and images under 200px on either side; `ingestBotAttachments: true`
+This is the manual/backfill entry point. The GitHub App webhook runs the same
+import automatically when a linked repo's body or comment is created or edited,
+including a body that only contains public `/c/art-*` URLs. The `.uploads.yml`
+`ingestGithubAttachments` knob gates that webhook path only (on by default) — it
+has no effect on running `ingest` directly. Both paths skip attachments authored
+by `[bot]` accounts and images under 200px on either side; `ingestBotAttachments: true`
 re-admits bot media on the webhook path.
 
 ## Annotating screenshots
