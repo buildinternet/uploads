@@ -220,7 +220,7 @@ export const publicFiles = new Hono<WorkspaceVars>().get("/:workspace/:key{.+}",
     }
   }
 
-  const { posterUrl, videoDimensions } = videoPresentation(env, cfg, key, metadata);
+  const { posterUrl, videoDimensions } = videoPresentation(env, cfg, key, metadata, ownContentType);
 
   // Live title (KV-cached App ladder) wins over stamped gh.title. Failures and
   // budget timeouts never 500 — keep the stamp or omit title entirely.

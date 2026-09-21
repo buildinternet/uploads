@@ -9,10 +9,10 @@ export const OG_SITE_NAME = "uploads.sh";
 export const OG_DEFAULT_IMAGE = "https://uploads.sh/og/home.png";
 
 /**
- * OG image for a media page: images embed themselves, videos embed their
- * derived poster frame when one exists (posterUrl is only ever set for
- * videos), everything else falls back to the brand card. Shared by the /f/
- * file page and the gallery item page so the rule can't drift.
+ * OG image for a media page: images embed themselves. Videos and PDFs embed
+ * their derived poster frame when one exists. Everything else falls back to
+ * the brand card. Shared by the /f/ file page and the gallery item page so
+ * the rule can't drift.
  */
 export function ogImageFor(
   kind: string,

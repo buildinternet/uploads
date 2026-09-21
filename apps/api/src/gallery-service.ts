@@ -6,8 +6,7 @@ import {
 } from "@uploads/errors";
 import { publicObjectDateFields } from "./files-core";
 import { getMetadataForKeys } from "./file-metadata";
-import { VIDEO_TYPES } from "./guards";
-import { videoPresentation, type VideoDimensions } from "./poster";
+import { isDerivedPosterContentType, videoPresentation, type VideoDimensions } from "./poster";
 import {
   type GalleryCursor,
   type GalleryItemRecord,
@@ -327,22 +326,28 @@ export async function hydrateGalleryItems(
     },
   );
 
-  // Poster + real dimensions for videos (issue #299): the `video.*` sentinel
-  // rows live in D1 (server-owned, stamped at poster generation), so the
-  // object heads above can't tell us. One batched D1 read for all video items;
-  // failures degrade to bare <video> elements rather than failing the gallery.
-  const videoKeys = hydrated
-    .filter((item) => item.url !== null && VIDEO_TYPES.has(item.contentType ?? ""))
+  // Poster + real dimensions (issue #299 videos, #1009 PDF first page): the
+  // sentinel rows live in D1, so the object heads above can't tell us. One
+  // batched D1 read; failures degrade to a bare player or file card.
+  const posterKeys = hydrated
+    .filter((item) => item.url !== null && isDerivedPosterContentType(item.contentType ?? ""))
     .map((item) => item.objectKey);
-  if (videoKeys.length > 0 && workspace.name) {
+  if (posterKeys.length > 0 && workspace.name) {
     try {
-      const metadataByKey = await getMetadataForKeys(dbFor(env), workspace.name, videoKeys, {
-        metaKeys: ["video.poster", "video.width", "video.height"],
+      const metadataByKey = await getMetadataForKeys(dbFor(env), workspace.name, posterKeys, {
+        metaKeys: [
+          "video.poster",
+          "video.width",
+          "video.height",
+          "pdf.poster",
+          "pdf.width",
+          "pdf.height",
+        ],
       });
       for (const item of hydrated) {
         const metadata = metadataByKey.get(item.objectKey);
         // Same lane the primary object resolved from above — posters are
-        // written alongside their video at upload time, so they live in the
+        // written alongside the source at upload time, so they live in the
         // same lane by construction.
         const itemConfig = laneConfigByKey.get(item.objectKey);
         if (!metadata || !itemConfig) continue;
@@ -351,12 +356,13 @@ export async function hydrateGalleryItems(
           itemConfig,
           item.objectKey,
           metadata,
+          item.contentType ?? undefined,
         );
         if (posterUrl) item.posterUrl = posterUrl;
         if (videoDimensions) item.videoDimensions = videoDimensions;
       }
     } catch {
-      // D1 blip — render the videos without posters.
+      // D1 blip — render without posters.
     }
   }
   return hydrated;

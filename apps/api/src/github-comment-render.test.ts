@@ -174,6 +174,59 @@ describe("attachmentsCommentBody (api copy)", () => {
     );
   });
 
+  it("inlines a PDF first-page poster and keeps a PDF without one in the file table", () => {
+    const body = attachmentsCommentBody([
+      {
+        key: "gh/acme/web/pull/12/notes.pdf",
+        url: "https://storage.uploads.sh/acme/notes.pdf",
+        embedUrl: null,
+        pageUrl: "https://uploads.sh/f/acme/notes.pdf",
+        contentType: "application/pdf",
+        size: 1200,
+      },
+      {
+        key: "gh/acme/web/pull/12/report.pdf",
+        url: "https://storage.uploads.sh/acme/report.pdf",
+        embedUrl: null,
+        pageUrl: "https://uploads.sh/f/acme/report.pdf",
+        contentType: "application/pdf",
+        size: 4096,
+        posterUrl: "https://embed.uploads.sh/_internal/posters/report.pdf.jpg",
+        pdfMeta: { pageCount: 3, width: 640, height: 829 },
+      },
+    ]);
+    expect(body).toContain("https://embed.uploads.sh/_internal/posters/report.pdf.jpg");
+    expect(body).toContain("Open PDF · 3 pages");
+    expect(body).toContain("| [notes.pdf]");
+    expect(body).not.toContain("| [report.pdf]");
+  });
+
+  it("counts a PDF poster against the inline image cap", () => {
+    const image = {
+      key: "gh/acme/web/pull/12/a-shot.png",
+      url: "https://storage.uploads.sh/acme/shot.png",
+      embedUrl: "https://embed.uploads.sh/acme/shot.png",
+      contentType: "image/png",
+    };
+    const pdf = {
+      key: "gh/acme/web/pull/12/report.pdf",
+      url: "https://storage.uploads.sh/acme/report.pdf",
+      contentType: "application/pdf",
+      posterUrl: "https://embed.uploads.sh/_internal/posters/report.pdf.jpg",
+      pdfMeta: { pageCount: 1, width: 640, height: 829 },
+    };
+    const body = attachmentsCommentBody([image, pdf], [], undefined, {
+      imageWidth: "auto",
+      maxInlineImages: 1,
+      metaPath: false,
+      metaState: false,
+      note: null,
+    });
+    expect(body).toContain("<img");
+    expect(body).toContain("<details>");
+    expect(body).not.toContain("Open PDF");
+  });
+
   it("captions overflow rows and escapes markdown metacharacters", () => {
     // 18 images exceeds MAX_INLINE_ATTACHMENT_IMAGES (16), so the last two
     // collapse into the <details> list — those rows must caption too.

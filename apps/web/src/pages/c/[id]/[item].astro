@@ -86,7 +86,7 @@ const footnoteLine = footnoteParts.join(" · ");
 function thumbSrc(entry: PublicFeedItem): string | null {
   const media = kind(entry);
   if (media === "image") return entry.embedUrl ?? entry.url;
-  if (media === "video") return entry.posterUrl ?? null;
+  if (media === "video" || entry.contentType === "application/pdf") return entry.posterUrl ?? null;
   return null;
 }
 ---

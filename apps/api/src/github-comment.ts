@@ -31,6 +31,7 @@ import {
   attachmentsMarker,
   ghKeyPrefix,
   ghPrivateKeyPrefix,
+  inferContentType,
   ATTACHMENTS_MARKER,
   type AttachmentItem,
   type CommentRenderOptions,
@@ -100,6 +101,10 @@ const COMMENT_META_KEYS = [
   "video.duration",
   "video.width",
   "video.height",
+  "pdf.poster",
+  "pdf.pages",
+  "pdf.width",
+  "pdf.height",
   "image.width",
   "image.height",
 ];
@@ -238,17 +243,28 @@ async function gatherAttachments(
     if (path || state) {
       item.meta = { ...(path ? { path } : {}), ...(state ? { state } : {}) };
     }
-    // `video.poster` is a presence flag only. The URL is always recomputed
-    // from the object key (never trusted from a stored row), and only
-    // rendered when the poster actually resolves to a lane — a
-    // client-settable metadata row can never conjure a URL for bytes that
-    // don't exist.
-    if (meta["video.poster"] === "1") {
-      const posterLane = await resolver.resolve(posterKeyFor(item.key));
-      const posterUrls = posterLane
-        ? objectPublicUrls(env, posterLane.config, posterKeyFor(item.key))
-        : { url: null, embedUrl: null };
-      item.posterUrl = posterUrls.embedUrl ?? posterUrls.url;
+    // Presence flags only. The URL is always recomputed from the object key
+    // (never trusted from a stored row), and only rendered when the poster
+    // actually resolves to a lane — a client-settable metadata row can never
+    // conjure a URL for bytes that don't exist. The content type picks the
+    // flag, so a stale video.poster row on a PDF does not inline.
+    const name = item.key.slice(item.key.lastIndexOf("/") + 1);
+    const effectiveType =
+      item.contentType && item.contentType !== "application/octet-stream"
+        ? item.contentType
+        : inferContentType(name);
+    if (effectiveType === "application/pdf" && meta["pdf.poster"] === "1") {
+      item.posterUrl = await resolvePosterUrl(env, resolver, item.key);
+      const pages = Number(meta["pdf.pages"]);
+      const width = Number(meta["pdf.width"]);
+      const height = Number(meta["pdf.height"]);
+      item.pdfMeta = {
+        ...(Number.isInteger(pages) && pages > 0 ? { pageCount: pages } : {}),
+        ...(Number.isFinite(width) && width > 0 ? { width } : {}),
+        ...(Number.isFinite(height) && height > 0 ? { height } : {}),
+      };
+    } else if (effectiveType.startsWith("video/") && meta["video.poster"] === "1") {
+      item.posterUrl = await resolvePosterUrl(env, resolver, item.key);
       const duration = Number(meta["video.duration"]);
       const width = Number(meta["video.width"]);
       const height = Number(meta["video.height"]);
@@ -273,6 +289,18 @@ async function gatherAttachments(
     }
   }
   return items;
+}
+
+async function resolvePosterUrl(
+  env: Env,
+  resolver: ReturnType<typeof createLaneResolver>,
+  key: string,
+): Promise<string | null> {
+  const posterKey = posterKeyFor(key);
+  const posterLane = await resolver.resolve(posterKey);
+  if (!posterLane) return null;
+  const posterUrls = objectPublicUrls(env, posterLane.config, posterKey);
+  return posterUrls.embedUrl ?? posterUrls.url;
 }
 
 /**

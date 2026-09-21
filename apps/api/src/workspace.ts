@@ -210,6 +210,12 @@ export interface WorkspaceRecord {
    */
   videoPosterEnabled?: boolean;
   /**
+   * Per-workspace opt-out for PDF first-page previews (issue #1009). Default
+   * (undefined/true) generates when the Flagship flag is on. `false` is the
+   * surgical kill switch for one workspace (precedent: `videoPosterEnabled`).
+   */
+  pdfPosterEnabled?: boolean;
+  /**
    * Per-workspace opt-out for SVG/XML "active content" uploads (issue
    * #929). Default (undefined/true) allows them once the active lane's
    * host is verified. `false` turns them off for this workspace

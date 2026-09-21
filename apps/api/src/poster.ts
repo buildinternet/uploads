@@ -61,23 +61,34 @@ export function parseVideoDimensions(
   return { width, height };
 }
 
+/** Video types plus PDF. Gallery and feed hydration fetch poster metadata for these. */
+export function isDerivedPosterContentType(contentType: string): boolean {
+  return VIDEO_TYPES.has(contentType) || contentType === "application/pdf";
+}
+
 /**
- * Derived poster URL + real dimensions for a video object, from its D1
- * `video.*` rows. `video.poster` is a presence flag only — the URL is always
- * recomputed from the current storage config, never stored. Single home for
- * that contract (public files route + gallery hydration).
+ * Derived poster URL + real video dimensions, from D1 `video.*` / `pdf.*`
+ * rows. The flag is presence only — the URL is always recomputed from the
+ * current storage config. A PDF reads `pdf.poster` and never publishes
+ * `video.poster` or video dimensions. Every other type, including an omitted
+ * content type, keeps the video-poster contract.
  */
 export function videoPresentation(
   env: Env,
   cfg: StorageConfig,
   key: string,
   metadata: Record<string, string>,
+  contentType?: string,
 ): { posterUrl?: string; videoDimensions?: VideoDimensions } {
-  const posterUrl =
-    metadata["video.poster"] === "1"
-      ? (objectPublicUrls(env, cfg, posterKeyFor(key)).url ?? undefined)
-      : undefined;
-  return { posterUrl, videoDimensions: parseVideoDimensions(metadata) };
+  const pdf = contentType === "application/pdf";
+  const flagged = pdf ? metadata["pdf.poster"] === "1" : metadata["video.poster"] === "1";
+  const posterUrl = flagged
+    ? (objectPublicUrls(env, cfg, posterKeyFor(key)).url ?? undefined)
+    : undefined;
+  return {
+    posterUrl,
+    videoDimensions: pdf ? undefined : parseVideoDimensions(metadata),
+  };
 }
 
 /** `m:ss` under an hour, `h:mm:ss` at or above one. */
