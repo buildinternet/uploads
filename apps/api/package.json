@@ -57,7 +57,8 @@
     "aws4fetch": "^1.0.20",
     "hono": "^4.13.3",
     "jpeg-js": "^0.4.4",
-    "mediabunny": "^1.50.9"
+    "mediabunny": "^1.50.9",
+    "pngjs": "^7.0.0"
   },
   "devDependencies": {
     "@types/node": "^26.1.0",
