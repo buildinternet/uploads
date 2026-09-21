@@ -64,9 +64,9 @@ Use uploads.sh when any of these are true instead:
 
 Do not mix the two on one PR: pick one so the comment history stays readable.
 Media attached with `gh` is still indexed: the GitHub App imports attachments
-from PR and issue text into the workspace. To pull an existing
-`user-attachments` image — or a public Cursor `cursor.com/artifacts/c/art-*`
-rewrite URL — out to a public URL by hand, use `uploads ingest`.
+from PR and issue text into the workspace. The same webhook imports public
+Cursor `cursor.com/artifacts/c/art-*` rewrite URLs from that text. To mirror
+an existing `user-attachments` image or `art-*` URL by hand, use `uploads ingest`.
 
 ## Which surface
 

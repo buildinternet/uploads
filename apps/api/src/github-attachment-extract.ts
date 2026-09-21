@@ -113,6 +113,14 @@ export function hasCursorContentUrl(text: string): boolean {
   return text.includes("cursor.com/artifacts/c/art-");
 }
 
+/**
+ * Cheap wake gate for webhook ingest. Public Cursor `/artifacts/c/art-*`
+ * rewrite URLs count; viewer (`/artifacts/v/`) and agent-page links do not.
+ */
+export function hasIngestableAttachmentUrl(text: string): boolean {
+  return hasUserAttachmentUrl(text) || hasCursorContentUrl(text);
+}
+
 export function isCursorAssetId(id: string): boolean {
   return id.startsWith("cursor/");
 }

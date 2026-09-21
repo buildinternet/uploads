@@ -912,9 +912,11 @@ uploads ingest --issue 45 --repo owner/name --json
 
 Requires the repo be linked to the workspace (`uploads github link`) and the
 GitHub App installed — otherwise it fails with a clear error rather than
-guessing. This is the manual/backfill entry point; the `.uploads.yml`
-`ingestGithubAttachments` knob only gates the automatic webhook path and has
-no effect on running `ingest` directly.
+guessing. This is the manual/backfill entry point. The App webhook runs the
+same import on its own when a linked repo's body or comment is created or
+edited, including a body that only contains public `cursor.com/artifacts/c/art-*`
+URLs. The `.uploads.yml` `ingestGithubAttachments` knob only gates that
+webhook path and has no effect on running `ingest` directly.
 
 ### Embedding best practices
 

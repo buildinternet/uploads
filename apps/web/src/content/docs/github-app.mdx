@@ -43,7 +43,7 @@ loop hands-off. Five things change:
 - **Screenshots staged before the PR exists get promoted automatically.** See
   [Staging before a PR exists](#staging).
 - **Images dropped directly on GitHub get mirrored in.** Attachments people drag into PR and issue
-  text are imported into the workspace so they survive GitHub's own attachment lifecycle. See
+  text, and public Cursor `art-*` rewrite URLs, are imported into the workspace. See
   [Imported attachments](#ingest).
 
 Everything in these docs still works without it — see [Without the App](#without-it).
@@ -101,14 +101,16 @@ just not attached automatically).
 ## Imported attachments <a class="anchor" href="#ingest" aria-label="Link to this section">#</a>
 
 When someone drags an image or video into a PR or issue on GitHub itself, or attaches one with
-`gh --attach`, the App imports it into the workspace automatically. Imported files carry the same `gh.*` metadata as CLI uploads, so they show
-up in search and on the "From GitHub" rail of file pages — and they survive even if GitHub's own
-attachment copy goes away. They never appear in the managed attachments comment; they're an index,
-not a source of truth.
+`gh --attach`, the App imports it into the workspace automatically. The same webhook imports public
+Cursor cloud-agent rewrite URLs (`cursor.com/artifacts/c/art-*`) from a linked PR or issue body or
+comment. It does this on create and on edit. Imported files carry the same `gh.*` metadata as CLI
+uploads, so they show up in search and on the "From GitHub" rail of file pages. They survive even
+if the original host's copy goes away. They never appear in the managed attachments comment; they're
+an index, not a source of truth.
 
-`uploads ingest` also copies public Cursor cloud-agent rewrite URLs (`cursor.com/artifacts/c/art-*`)
-the same way. Viewer pages (`/artifacts/v/`) and login-walled agent artifact links are skipped — turn
+Viewer pages (`/artifacts/v/`) and login-walled agent artifact links are skipped — turn
 on **Allow posting artifacts to GitHub** in the Cursor dashboard so the PR gets a public `/c/` URL.
+`uploads ingest` runs the same import on demand when you want a backfill.
 
 Importing is **on by default** for linked repos. Turn it off per workspace on the workspace's
 [comment settings](/account) page, or per repo with `ingestGithubAttachments: false` in
