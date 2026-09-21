@@ -56,13 +56,13 @@ export function drawPlayButton(data: Uint8Array, width: number, height: number):
   const x1 = Math.min(width, Math.ceil(cx + radius + shadowPad + 1));
   const y1 = Math.min(height, Math.ceil(cy + radius + shadowPad + 1));
 
-  // Right-pointing triangle, shifted slightly east so it looks centered in
-  // the circle (the empty space behind the base is heavier than the tip).
-  const triH = radius * 1.05;
-  const triW = radius * 0.92;
-  const shift = radius * 0.12;
-  const left = cx - triW * 0.32 + shift;
-  const right = cx + triW * 0.68 + shift;
+  // Right-pointing triangle, bbox-centered on the disc, then nudged a
+  // hair east so the tip does not make the glyph look left-heavy.
+  const triH = radius * 1.02;
+  const triW = radius * 0.88;
+  const opticalX = radius * 0.06;
+  const left = cx - triW / 2 + opticalX;
+  const right = cx + triW / 2 + opticalX;
   const top = cy - triH / 2;
   const bot = cy + triH / 2;
   // CCW: tip → base-bottom → base-top.

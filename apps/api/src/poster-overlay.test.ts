@@ -37,11 +37,32 @@ describe("overlayPlayButton", () => {
     expect(cb).toBeGreaterThan(200);
 
     // Just right of center → triangle, darker than the disc.
-    const [tr, tg, tb] = px(img.data, 320, Math.round(cx + radius * 0.2), cy);
+    const [tr, tg, tb] = px(img.data, 320, Math.round(cx + radius * 0.15), cy);
     expect(tr).toBeLessThan(cr);
     expect(tg).toBeLessThan(cg);
     expect(tb).toBeLessThan(cb);
     expect(tr).toBeLessThan(90);
+
+    // Along the midline, the dark run inside the white disc (the triangle)
+    // is bbox-centered on the circle plus a small east nudge.
+    const luma = (x: number) => {
+      const [r, g, b] = px(img.data, 320, x, cy);
+      return (r + g + b) / 3;
+    };
+    const inner = Math.round(radius * 0.8);
+    let x0: number | null = null;
+    let x1: number | null = null;
+    for (let x = cx - inner; x <= cx + inner; x++) {
+      if (luma(x) < 90) {
+        if (x0 === null) x0 = x;
+        x1 = x;
+      }
+    }
+    expect(x0).not.toBeNull();
+    expect(x1).not.toBeNull();
+    const mid = (x0! + x1!) / 2;
+    expect(mid).toBeGreaterThan(cx - 2);
+    expect(mid).toBeLessThan(cx + radius * 0.12);
 
     // Corner stays the original dark frame (lossy JPEG, not exact).
     const [fr, fg, fb] = px(img.data, 320, 2, 2);
