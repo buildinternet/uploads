@@ -912,7 +912,7 @@ GitHub Camo still reads the still as a video. Overlay failure keeps the bare
 frame. It does **not** run on
 `POST /sign` uploads — those hand the client a presigned URL straight to R2,
 bypassing the worker (and therefore `generateAndStorePoster`) entirely. Any
-video uploaded that way needs a backfill pass (below) once generation is on.
+video uploaded that way needs a backfill pass (below).
 
 ### Kill switches (in order of blast radius)
 
@@ -925,8 +925,9 @@ video uploaded that way needs a backfill pass (below) once generation is on.
    ```
 
    Checked by `posterGenerationAllowed` (`apps/api/src/poster.ts`) on every
-   write. Currently **off** in production — this feature has not shipped to
-   users yet.
+   write. **On** in production. The evaluation fallback in code is still
+   `false`, so an unreachable Flagship disables generation rather than
+   leaving it running.
 
 2. **Remove the `MEDIA` binding** — `generateAndStorePoster` needs
    `env.MEDIA` (Cloudflare Media Transformations) to extract a frame. Drop
