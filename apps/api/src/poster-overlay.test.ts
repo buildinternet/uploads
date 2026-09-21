@@ -30,26 +30,25 @@ describe("overlayPlayButton", () => {
     const cy = 90;
     const radius = (Math.min(320, 180) * PLAY_BUTTON_DIAMETER_RATIO) / 2;
 
-    // Left of center, on the disc but outside the triangle → near-white.
-    const [cr, cg, cb] = px(img.data, 320, Math.round(cx - radius * 0.55), cy);
+    // Lucide circle-play: base at cx-0.2R, tip at cx+0.4R. Left of the
+    // base is disc fill; a point inside the triangle is dark.
+    const [cr, cg, cb] = px(img.data, 320, Math.round(cx - radius * 0.45), cy);
     expect(cr).toBeGreaterThan(200);
     expect(cg).toBeGreaterThan(200);
     expect(cb).toBeGreaterThan(200);
 
-    // Just right of center → triangle, darker than the disc.
     const [tr, tg, tb] = px(img.data, 320, Math.round(cx + radius * 0.15), cy);
     expect(tr).toBeLessThan(cr);
     expect(tg).toBeLessThan(cg);
     expect(tb).toBeLessThan(cb);
     expect(tr).toBeLessThan(90);
 
-    // Along the midline, the dark run inside the white disc (the triangle)
-    // is bbox-centered on the circle plus a small east nudge.
+    // Lucide bbox center is (10+16)/2 = 13 in a 24 viewBox → cx + 0.1R.
     const luma = (x: number) => {
       const [r, g, b] = px(img.data, 320, x, cy);
       return (r + g + b) / 3;
     };
-    const inner = Math.round(radius * 0.8);
+    const inner = Math.round(radius * 0.85);
     let x0: number | null = null;
     let x1: number | null = null;
     for (let x = cx - inner; x <= cx + inner; x++) {
@@ -61,8 +60,8 @@ describe("overlayPlayButton", () => {
     expect(x0).not.toBeNull();
     expect(x1).not.toBeNull();
     const mid = (x0! + x1!) / 2;
-    expect(mid).toBeGreaterThan(cx - 2);
-    expect(mid).toBeLessThan(cx + radius * 0.12);
+    const expected = cx + radius * 0.1;
+    expect(Math.abs(mid - expected)).toBeLessThan(3);
 
     // Corner stays the original dark frame (lossy JPEG, not exact).
     const [fr, fg, fb] = px(img.data, 320, 2, 2);

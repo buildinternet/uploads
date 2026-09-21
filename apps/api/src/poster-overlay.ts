@@ -45,6 +45,23 @@ export function overlayPlayButton(jpeg: Uint8Array): Uint8Array {
   return new Uint8Array(out.data);
 }
 
+/**
+ * Lucide `circle-play` (ISC), viewBox 0 0 24 24:
+ *   <circle cx="12" cy="12" r="10" />
+ *   <polygon points="10 8 16 12 10 16" />
+ * Same triangle as MDI `play-circle` (`M10,16.5V7.5L16,12`) to the
+ * nearest integer. We map that viewBox onto our disc — no homemade
+ * optical nudge.
+ */
+const LUCIDE_VB_CX = 12;
+const LUCIDE_VB_CY = 12;
+const LUCIDE_VB_R = 10;
+const LUCIDE_PLAY: readonly [number, number][] = [
+  [16, 12],
+  [10, 16],
+  [10, 8],
+];
+
 /** Paint the glyph into an RGBA buffer (source-over; alpha stays 255). */
 export function drawPlayButton(data: Uint8Array, width: number, height: number): void {
   const cx = width / 2;
@@ -56,22 +73,15 @@ export function drawPlayButton(data: Uint8Array, width: number, height: number):
   const x1 = Math.min(width, Math.ceil(cx + radius + shadowPad + 1));
   const y1 = Math.min(height, Math.ceil(cy + radius + shadowPad + 1));
 
-  // Right-pointing triangle, bbox-centered on the disc, then nudged a
-  // hair east so the tip does not make the glyph look left-heavy.
-  const triH = radius * 1.02;
-  const triW = radius * 0.88;
-  const opticalX = radius * 0.06;
-  const left = cx - triW / 2 + opticalX;
-  const right = cx + triW / 2 + opticalX;
-  const top = cy - triH / 2;
-  const bot = cy + triH / 2;
-  // CCW: tip → base-bottom → base-top.
-  const v0x = right;
-  const v0y = cy;
-  const v1x = left;
-  const v1y = bot;
-  const v2x = left;
-  const v2y = top;
+  const s = radius / LUCIDE_VB_R;
+  const mapX = (x: number) => cx + (x - LUCIDE_VB_CX) * s;
+  const mapY = (y: number) => cy + (y - LUCIDE_VB_CY) * s;
+  const v0x = mapX(LUCIDE_PLAY[0][0]);
+  const v0y = mapY(LUCIDE_PLAY[0][1]);
+  const v1x = mapX(LUCIDE_PLAY[1][0]);
+  const v1y = mapY(LUCIDE_PLAY[1][1]);
+  const v2x = mapX(LUCIDE_PLAY[2][0]);
+  const v2y = mapY(LUCIDE_PLAY[2][1]);
 
   for (let y = y0; y < y1; y++) {
     for (let x = x0; x < x1; x++) {
