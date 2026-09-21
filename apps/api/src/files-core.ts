@@ -348,7 +348,9 @@ async function generateAndStorePdfPreview(
       "pdf preview timed out",
     );
     if (!made) {
-      await deleteStaleDerivedPoster(env, ws, workspaceName, key, posterKey);
+      // Inaccessible or skipped. Drop a previous still so the comment cannot
+      // keep a JPEG for bytes we did not preview.
+      await discardPdfPreview(env, ws, workspaceName, key, posterKey);
       return;
     }
     await storeDerivedPoster(
@@ -362,7 +364,25 @@ async function generateAndStorePdfPreview(
       visibility,
     );
   } catch (err) {
+    // The PDF object is already stored. A throw here must not fail the put,
+    // and must not leave a JPEG that the comment would treat as page 1.
     console.error({ event: "pdf_preview_failed", workspace: workspaceName, key, err });
+    await discardPdfPreview(env, ws, workspaceName, key, posterKey);
+  }
+}
+
+/** Best-effort. A cleanup failure is logged and swallowed. */
+async function discardPdfPreview(
+  env: Env,
+  ws: WorkspaceRecord,
+  workspaceName: string,
+  key: string,
+  posterKey: string,
+): Promise<void> {
+  try {
+    await deleteStaleDerivedPoster(env, ws, workspaceName, key, posterKey);
+  } catch (err) {
+    console.error({ event: "pdf_preview_cleanup_failed", workspace: workspaceName, key, err });
   }
 }
 

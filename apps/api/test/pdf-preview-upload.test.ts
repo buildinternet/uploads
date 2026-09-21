@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { getMetadataForKeys } from "../src/file-metadata";
 import { putObject } from "../src/files-core";
-import { installPdfPreviewRenderer } from "../src/pdf-preview";
+import { installPdfPreviewRenderer, renderPdfPreview } from "../src/pdf-preview";
+import { registerPdfPreviewRenderer } from "../src/pdf-preview-hook";
 import { posterKeyFor } from "../src/poster";
 import { objectVisibility } from "../src/visibility";
 import { PDF } from "./helpers/media-fixtures";
-import { pdfWithText } from "./pdf-fixture";
+import { PASSWORD_PROTECTED_PDF, pdfWithText } from "./pdf-fixture";
 import { makePosterEnv, PNG, WORKSPACE } from "./poster-fixtures";
 
 installPdfPreviewRenderer();
@@ -88,6 +89,38 @@ describe("PDF preview on upload", () => {
     expect(bucket.store.has(`default/${posterKey}`)).toBe(false);
     const meta = (await getMetadataForKeys(env.DB, WORKSPACE, [put1.key])).get(put1.key);
     expect(meta?.["pdf.poster"]).toBeUndefined();
+  });
+
+  it("stores a password-protected PDF and skips the preview", async () => {
+    const { env, bucket, ws } = makePosterEnv();
+    const result = await putObject(
+      env,
+      ws,
+      "gh/acme/web/pull/12/secret.pdf",
+      PASSWORD_PROTECTED_PDF,
+      WORKSPACE,
+    );
+    expect(result.contentType).toBe("application/pdf");
+    expect(result.key).toBe("gh/acme/web/pull/12/secret.pdf");
+    expect(bucket.store.has(`default/${posterKeyFor(result.key)}`)).toBe(false);
+    const meta = (await getMetadataForKeys(env.DB, WORKSPACE, [result.key])).get(result.key);
+    expect(meta?.["pdf.poster"]).toBeUndefined();
+  });
+
+  it("still stores the PDF when the renderer throws", async () => {
+    const { env, bucket, ws } = makePosterEnv();
+    registerPdfPreviewRenderer(async () => {
+      throw new Error("pdfium exploded");
+    });
+    try {
+      const result = await putObject(env, ws, "docs/boom.pdf", pdfWithText("Boom"), WORKSPACE);
+      expect(result.contentType).toBe("application/pdf");
+      expect(bucket.store.has(`default/${posterKeyFor(result.key)}`)).toBe(false);
+      const meta = (await getMetadataForKeys(env.DB, WORKSPACE, [result.key])).get(result.key);
+      expect(meta?.["pdf.poster"]).toBeUndefined();
+    } finally {
+      registerPdfPreviewRenderer(renderPdfPreview);
+    }
   });
 
   it("drops a stale preview when a replacement PDF cannot be rasterized", async () => {

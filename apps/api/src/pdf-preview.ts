@@ -79,13 +79,22 @@ function resetEngine(engine: PdfEngine | undefined): void {
 }
 
 /**
- * Rasterize page 1, or return null. Malformed, encrypted, and over-budget
- * documents are null — the comment then keeps the filename row.
+ * Rasterize page 1, or return null. Password-protected, malformed, empty,
+ * and over-budget documents are null. The caller stores the PDF either way.
  */
 export async function renderPdfPreview(bytes: Uint8Array): Promise<PdfPreviewResult | null> {
-  if (bytes.byteLength > PDF_PREVIEW_MAX_INPUT_BYTES) return null;
-  if (bytes.byteLength < 5 || !isPdfHeader(bytes)) return null;
+  if (bytes.byteLength > PDF_PREVIEW_MAX_INPUT_BYTES) return skipPreview("too_large");
+  if (bytes.byteLength < 5 || !isPdfHeader(bytes)) return skipPreview("not_pdf");
   return exclusive(() => renderExclusive(bytes));
+}
+
+function skipPreview(reason: string, err?: unknown): null {
+  console.info({
+    event: "pdf_preview_skipped",
+    reason,
+    ...(err instanceof Error ? { error: err.message } : {}),
+  });
+  return null;
 }
 
 async function renderExclusive(bytes: Uint8Array): Promise<PdfPreviewResult | null> {
@@ -95,7 +104,8 @@ async function renderExclusive(bytes: Uint8Array): Promise<PdfPreviewResult | nu
     const doc = await engine.open(bytes);
     try {
       const pageCount = doc.pageCount;
-      if (pageCount < 1 || pageCount > PDF_PREVIEW_MAX_PAGES) return null;
+      if (pageCount < 1) return skipPreview("no_pages");
+      if (pageCount > PDF_PREVIEW_MAX_PAGES) return skipPreview("too_many_pages");
       const page = doc.page(1);
       if (
         page.width <= 0 ||
@@ -103,14 +113,14 @@ async function renderExclusive(bytes: Uint8Array): Promise<PdfPreviewResult | nu
         page.width > PDF_PREVIEW_MAX_PAGE_POINTS ||
         page.height > PDF_PREVIEW_MAX_PAGE_POINTS
       ) {
-        return null;
+        return skipPreview("page_box");
       }
       const rendered = page.render({
         width: PDF_PREVIEW_WIDTH,
         background: "white",
         forms: true,
       });
-      if (rendered.width < 1 || rendered.height < 1) return null;
+      if (rendered.width < 1 || rendered.height < 1) return skipPreview("empty_raster");
       // Copy out of the WASM heap before the document is destroyed.
       const rgba = overlayPdfBadge(rendered.rgba, rendered.width, rendered.height);
       const jpeg = encode(
@@ -128,8 +138,11 @@ async function renderExclusive(bytes: Uint8Array): Promise<PdfPreviewResult | nu
       doc.destroy();
     }
   } catch (err) {
+    // Password, format, security, and budget errors are properties of this
+    // file. Anything else may have left the WASM heap unusable.
     if (!(err instanceof PdfError)) resetEngine(engine);
-    return null;
+    const reason = err instanceof PdfError ? err.code : "renderer_error";
+    return skipPreview(reason, err);
   }
 }
 

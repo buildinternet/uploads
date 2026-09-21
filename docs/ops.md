@@ -1020,13 +1020,15 @@ The raster runs inside the API worker. The engine is PDFium, via the
 `clawpdf` package (WASM, no native canvas). Media Transformations cannot
 open PDFs. Browser Run is not used.
 
-The worker skips a file when any of these hold:
+The PDF object is stored either way. The worker skips the preview when any of these hold:
 
 - larger than 20 MiB
-- not a `%PDF-` header, or PDFium cannot open it (malformed, encrypted)
+- not a `%PDF-` header, or PDFium cannot open it (malformed, truncated, password-protected, unsupported security, empty page tree)
 - more than 2000 pages
 - page 1 is larger than 100 inches on a side
 - the 640px-wide raster would exceed 1.2 million pixels
+
+A skipped or failed preview leaves no JPEG under `_internal/posters/` and no `pdf.poster` row. The put response is unchanged.
 
 Only page 1 is rendered. The compiled WASM is 5,218,943 bytes raw and
 2,438,693 bytes gzip (about 5.0 MiB / 2.3 MiB). A dry-run of the API worker

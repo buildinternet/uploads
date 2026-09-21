@@ -14,6 +14,7 @@ import { detachAttachment, recordAttachment } from "./github-attachment-index";
 import { SHADOW_TIMEOUT_MS } from "./github-attachment-shadow";
 import type { WorkspaceRecord } from "./workspace";
 import { FakeR2Bucket } from "../test/fake-r2";
+import { PASSWORD_PROTECTED_PDF } from "../test/pdf-fixture";
 import { FakeKv } from "../test/fake-kv";
 import { SqliteD1, database } from "../test/helpers/sqlite-d1";
 
@@ -891,6 +892,24 @@ describe("gatherCommentBody poster hydration (issue #299)", () => {
     });
     expect(result.body).not.toContain("_internal/posters");
     expect(result.body).toContain("report.pdf");
+  });
+
+  it("keeps a password-protected PDF in the file table with no poster url", async () => {
+    const { env, ws, workspaceName, bucket } = makeTestEnv();
+    const key = "gh/acme/web/pull/12/secret.pdf";
+    await bucket.put(`acme/${key}`, PASSWORD_PROTECTED_PDF, {
+      httpMetadata: { contentType: "application/pdf" },
+    });
+
+    const result = await gatherCommentBody(env, ws, workspaceName, {
+      repo: "acme/web",
+      num: 12,
+      kind: "pull",
+    });
+    expect(result.body).toContain("secret.pdf");
+    expect(result.body).not.toContain("_internal/posters");
+    expect(result.body).not.toContain("Open PDF");
+    expect(result.body).toContain("| PDF |");
   });
 });
 

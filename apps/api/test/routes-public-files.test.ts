@@ -5,6 +5,7 @@ import { FileMetadataTable } from "./helpers/fake-file-metadata-table";
 import { app } from "../src/index";
 import { setFileMetadata, setServerFileMetadata } from "../src/file-metadata";
 import { sha256Hex, type WorkspaceRecord } from "../src/workspace";
+import { PASSWORD_PROTECTED_PDF } from "./pdf-fixture";
 
 // The public file page (issue #135) is served over HTTP from this endpoint:
 // apps/web has no storage bindings, so it fetches metadata + a resolved URL
@@ -628,6 +629,76 @@ describe("GET /public/files/:workspace/:key", () => {
     };
     expect(json.posterUrl).toBeDefined();
     expect(json.videoDimensions).toBeUndefined();
+  });
+
+  it("exposes a PDF poster from pdf.poster and ignores a stale video.poster row", async () => {
+    const { env } = await makeEnv({}, { db: makeFakeDB() });
+    const key = "docs/report.pdf";
+    const put = await app.request(
+      `/v1/default/files/${key}`,
+      {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${TOKEN}`,
+          "Content-Type": "application/pdf",
+          "X-Uploads-Replace": "1",
+        },
+        body: PASSWORD_PROTECTED_PDF,
+      },
+      env,
+    );
+    expect(put.status).toBe(201);
+
+    await setServerFileMetadata(env.DB as unknown as D1Database, "default", key, {
+      "video.poster": "1",
+      "video.width": "640",
+      "video.height": "480",
+    });
+    const stale = await app.request(`/public/files/default/${key}`, {}, env);
+    const staleJson = (await stale.json()) as { posterUrl?: string; videoDimensions?: unknown };
+    expect(staleJson.posterUrl).toBeUndefined();
+    expect(staleJson.videoDimensions).toBeUndefined();
+
+    await setServerFileMetadata(env.DB as unknown as D1Database, "default", key, {
+      "pdf.poster": "1",
+      "pdf.pages": "4",
+      "pdf.width": "640",
+      "pdf.height": "829",
+    });
+    const ready = await app.request(`/public/files/default/${key}`, {}, env);
+    const readyJson = (await ready.json()) as { posterUrl?: string; videoDimensions?: unknown };
+    expect(readyJson.posterUrl).toBe(
+      "https://storage.uploads.sh/default/_internal/posters/docs/report.pdf.jpg",
+    );
+    expect(readyJson.videoDimensions).toBeUndefined();
+  });
+
+  it("stores a password-protected PDF when preview generation is on and omits posterUrl", async () => {
+    const { env } = await makeEnv({}, { db: makeFakeDB() });
+    Object.assign(env, {
+      FLAGS: { getBooleanValue: async () => true },
+      POSTER_LIMITER: { limit: async () => ({ success: true }) },
+    });
+    const key = "docs/secret.pdf";
+    const put = await app.request(
+      `/v1/default/files/${key}`,
+      {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${TOKEN}`,
+          "Content-Type": "application/pdf",
+        },
+        body: PASSWORD_PROTECTED_PDF,
+      },
+      env,
+    );
+    expect(put.status).toBe(201);
+
+    const res = await app.request(`/public/files/default/${key}`, {}, env);
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { contentType?: string; posterUrl?: string };
+    expect(json.contentType).toBe("application/pdf");
+    expect(json.posterUrl).toBeUndefined();
   });
 });
 

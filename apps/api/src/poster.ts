@@ -61,12 +61,6 @@ export function parseVideoDimensions(
   return { width, height };
 }
 
-/**
- * Derived poster URL + real dimensions for a video object, from its D1
- * `video.*` rows. `video.poster` is a presence flag only — the URL is always
- * recomputed from the current storage config, never stored. Single home for
- * that contract (public files route + gallery hydration).
- */
 /** Video types plus PDF. Gallery and feed hydration fetch poster metadata for these. */
 export function isDerivedPosterContentType(contentType: string): boolean {
   return VIDEO_TYPES.has(contentType) || contentType === "application/pdf";
@@ -75,9 +69,9 @@ export function isDerivedPosterContentType(contentType: string): boolean {
 /**
  * Derived poster URL + real video dimensions, from D1 `video.*` / `pdf.*`
  * rows. The flag is presence only — the URL is always recomputed from the
- * current storage config. `contentType` selects which flag counts, so a
- * stale `video.poster` row on a PDF (or the reverse) cannot publish the
- * other format's still.
+ * current storage config. A PDF reads `pdf.poster` and never publishes
+ * `video.poster` or video dimensions. Every other type, including an omitted
+ * content type, keeps the video-poster contract.
  */
 export function videoPresentation(
   env: Env,
@@ -88,13 +82,9 @@ export function videoPresentation(
 ): { posterUrl?: string; videoDimensions?: VideoDimensions } {
   const pdf = contentType === "application/pdf";
   const flagged = pdf ? metadata["pdf.poster"] === "1" : metadata["video.poster"] === "1";
-  // Omitted content type keeps the pre-#1009 video-only contract.
-  const posterUrl =
-    !pdf && contentType != null && !contentType.startsWith("video/")
-      ? undefined
-      : flagged
-        ? (objectPublicUrls(env, cfg, posterKeyFor(key)).url ?? undefined)
-        : undefined;
+  const posterUrl = flagged
+    ? (objectPublicUrls(env, cfg, posterKeyFor(key)).url ?? undefined)
+    : undefined;
   return {
     posterUrl,
     videoDimensions: pdf ? undefined : parseVideoDimensions(metadata),

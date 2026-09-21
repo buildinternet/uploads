@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { pdfWithText } from "../test/pdf-fixture";
+import { PASSWORD_PROTECTED_PDF, pdfWithNoPages, pdfWithText } from "../test/pdf-fixture";
 import {
   PDF_PREVIEW_MAX_INPUT_BYTES,
   PDF_PREVIEW_MAX_PAGE_POINTS,
@@ -31,6 +31,14 @@ describe("renderPdfPreview", () => {
     const bytes = new Uint8Array(PDF_PREVIEW_MAX_INPUT_BYTES + 1);
     bytes.set([0x25, 0x50, 0x44, 0x46, 0x2d], 0);
     expect(await renderPdfPreview(bytes)).toBeNull();
+  });
+
+  it("returns null for a password-protected PDF", async () => {
+    expect(await renderPdfPreview(PASSWORD_PROTECTED_PDF)).toBeNull();
+  });
+
+  it("returns null when the page tree is empty", async () => {
+    expect(await renderPdfPreview(pdfWithNoPages())).toBeNull();
   });
 
   it("returns null when the page box is larger than the point cap", async () => {
