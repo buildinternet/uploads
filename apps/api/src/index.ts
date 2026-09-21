@@ -36,6 +36,7 @@ import { abuse } from "./routes/abuse";
 import { render } from "./routes/render";
 import { githubWebhook } from "./routes/github-webhook";
 import { handleGithubWebhookBatch } from "./github-webhook-queue";
+import { installPdfPreviewRenderer } from "./pdf-preview";
 import { githubComment } from "./routes/github-comment";
 import { githubPrivatePrefix } from "./routes/github-private-prefix";
 import { githubPromote } from "./routes/github-promote";
@@ -45,6 +46,8 @@ import { githubActivity } from "./routes/github-activity";
 import { internalBilling } from "./routes/internal-billing";
 import { protectedResourceMetadata, requestOrigin } from "./well-known";
 import { ROBOTS_TXT } from "./robots";
+
+installPdfPreviewRenderer();
 
 /** Loopback origins are trusted only outside production — mirrors
  *  apps/auth/src/trusted-origins.ts. */

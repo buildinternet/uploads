@@ -138,14 +138,12 @@
     "binding": "AI",
   },
   // Flagship feature flags (app "uploads").
-  // Carries `video-poster-generation`, the seconds-fast kill
-  // switch for issue #299 poster generation, plus
-  // `llm-file-classifier` (experimental, default off):
+  // Carries `video-poster-generation` (issue #299, on in production),
+  // `pdf-poster-generation` (issue #1009, off until enabled), and
+  // `llm-file-classifier` (experimental, default off). Poster flags fail closed:
   //   wrangler flagship flags disable <APP_ID> video-poster-generation
-  // Deliberately fails CLOSED — posterGenerationAllowed passes `false` as the
-  // evaluation default, so an unreachable Flagship or a missing flag disables
-  // generation rather than leaving it running. Self-hosters without Flagship
-  // can delete this block; posters simply stay off.
+  //   wrangler flagship flags update <APP_ID> pdf-poster-generation --default off
+  // Self-hosters without Flagship can delete this block; posters stay off.
   "flagship": [
     {
       "binding": "FLAGS",

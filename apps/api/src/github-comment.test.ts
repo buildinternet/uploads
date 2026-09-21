@@ -848,6 +848,50 @@ describe("gatherCommentBody poster hydration (issue #299)", () => {
     });
     expect(result.body).toContain(`https://storage.customer.example.com/${posterKeyFor(key)}`);
   });
+
+  it("inlines a PDF first-page poster from pdf.poster, with the page count", async () => {
+    const { env, ws, workspaceName, bucket } = makeTestEnv();
+    const key = "gh/acme/web/pull/12/report.pdf";
+    await bucket.put(`acme/${key}`, PNG, { httpMetadata: { contentType: "application/pdf" } });
+    await bucket.put(`acme/${posterKeyFor(key)}`, PNG, {
+      httpMetadata: { contentType: "image/jpeg" },
+    });
+    await setServerFileMetadata(env.DB, workspaceName, key, {
+      "pdf.poster": "1",
+      "pdf.pages": "3",
+    });
+
+    const result = await gatherCommentBody(env, ws, workspaceName, {
+      repo: "acme/web",
+      num: 12,
+      kind: "pull",
+    });
+
+    const cfg = await storageConfig(env, ws);
+    const expectedUrls = objectPublicUrls(env, cfg, posterKeyFor(key));
+    const expectedPosterUrl = expectedUrls.embedUrl ?? expectedUrls.url;
+    expect(expectedPosterUrl).toBeTruthy();
+    expect(result.body).toContain(expectedPosterUrl as string);
+    expect(result.body).toContain("Open PDF · 3 pages");
+  });
+
+  it("does not inline a stale video.poster row on a PDF", async () => {
+    const { env, ws, workspaceName, bucket } = makeTestEnv();
+    const key = "gh/acme/web/pull/12/report.pdf";
+    await bucket.put(`acme/${key}`, PNG, { httpMetadata: { contentType: "application/pdf" } });
+    await bucket.put(`acme/${posterKeyFor(key)}`, PNG, {
+      httpMetadata: { contentType: "image/jpeg" },
+    });
+    await setServerFileMetadata(env.DB, workspaceName, key, { "video.poster": "1" });
+
+    const result = await gatherCommentBody(env, ws, workspaceName, {
+      repo: "acme/web",
+      num: 12,
+      kind: "pull",
+    });
+    expect(result.body).not.toContain("_internal/posters");
+    expect(result.body).toContain("report.pdf");
+  });
 });
 
 describe("upsertBotComment", () => {

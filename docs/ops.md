@@ -1008,6 +1008,57 @@ large run:
 - Expect a large backfill to compete with real user uploads for the same
   budget, and to start failing with 429s if it exhausts it partway through.
 
+## PDF first-page previews (issue #1009)
+
+A PDF write can store a JPEG of page 1 at `_internal/posters/<key>.jpg`, the
+same derived key a video poster uses. The source object gets D1 metadata
+`pdf.poster=1`, plus `pdf.pages`, `pdf.width`, and `pdf.height`. The managed
+comment, `/f/`, and Open Graph use that JPEG. A small "PDF" badge is baked
+into the corner so the still does not look like a screenshot.
+
+The raster runs inside the API worker. The engine is PDFium, via the
+`clawpdf` package (WASM, no native canvas). Media Transformations cannot
+open PDFs. Browser Run is not used.
+
+The worker skips a file when any of these hold:
+
+- larger than 20 MiB
+- not a `%PDF-` header, or PDFium cannot open it (malformed, encrypted)
+- more than 2000 pages
+- page 1 is larger than 100 inches on a side
+- the 640px-wide raster would exceed 1.2 million pixels
+
+Only page 1 is rendered. The compiled WASM is 5,218,943 bytes raw and
+2,438,693 bytes gzip (about 5.0 MiB / 2.3 MiB). A dry-run of the API worker
+with that module uploaded 8,557 KiB, 3,070 KiB gzip, under the 10 MiB gzip
+script limit. The WASM is linked into the API worker only. The MCP worker
+imports the registration hook and does not link PDFium, so a PDF put through
+MCP does not generate a preview.
+
+Replacing a PDF with a non-PDF clears the preview when video poster
+generation is allowed. That flag is on in production. A workspace that turns
+video posters off and leaves PDF previews on can keep a stale JPEG after
+that replacement.
+
+### Kill switches
+
+1. **Flagship flag (preferred).** `pdf-poster-generation` fails closed. The
+   code default is off, so a missing flag does not generate previews.
+
+   ```bash
+   wrangler flagship flags update 8371bfe7-9767-4b4d-b75a-37b94d2724f7 \
+     pdf-poster-generation --default off
+   ```
+
+2. **Workspace opt-out.** Set `pdfPosterEnabled: false` on the workspace
+   record. That wins before the rate limiter.
+
+3. **`POSTER_LIMITER`.** PDF previews share the video poster limiter. A
+   missing binding fails closed.
+
+There is no backfill script. A re-PUT of the PDF bytes generates a preview
+while the flag is on, the same way the video backfill re-PUTs.
+
 ## Experimental LLM file classifier
 
 **Experimental.** Off by default. After a successful server-mediated put

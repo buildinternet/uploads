@@ -34,12 +34,14 @@ const RESERVED_META_KEYS = new Set<string>([...PROVENANCE_SERVER_KEYS, "visibili
  * PR comment, so a user-settable row would be a spoofable input to public
  * output. `image.*` (issue #365 follow-up) carries the server-detected pixel
  * dimensions the managed comment sizes embeds with — same spoofable-input
- * rationale. `ai.*` (experimental file classifier) is the same class of
- * server-derived fact: agents read `ai.tags` / `ai.summary` / `ai.kind` /
+ * rationale. `pdf.*` (issue #1009) is the same class for a first-page
+ * preview: `pdf.poster` decides whether a thumbnail `<img>` renders in a
+ * public PR comment. `ai.*` (experimental file classifier) is the same class
+ * of server-derived fact: agents read `ai.tags` / `ai.summary` / `ai.kind` /
  * `ai.surface` / `ai.screen` but must not spoof them. Reserved as *prefixes*
  * rather than exact keys so future derived facts can't collide.
  */
-export const SERVER_META_PREFIXES = ["video.", "image.", "ai."] as const;
+export const SERVER_META_PREFIXES = ["video.", "image.", "pdf.", "ai."] as const;
 
 export function isServerMetaKey(key: string): boolean {
   return SERVER_META_PREFIXES.some((prefix) => key.startsWith(prefix));

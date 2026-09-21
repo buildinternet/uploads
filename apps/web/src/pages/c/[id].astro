@@ -257,7 +257,9 @@ function itemDate(item: PublicFeedItem): string | null {
               <section class="feed">
                 {feed.items.map((item) => {
                   const mediaKind = kind(item);
-                  const previewable = mediaKind === "image" || mediaKind === "video";
+                  const pdfPoster = mediaKind === "file" && item.posterUrl ? item.posterUrl : null;
+                  const previewable =
+                    mediaKind === "image" || mediaKind === "video" || pdfPoster !== null;
                   const when = itemDate(item);
                   return (
                     <figure>
@@ -296,7 +298,21 @@ function itemDate(item: PublicFeedItem): string | null {
                             href={item.url}
                           />
                         )}
-                        {mediaKind === "file" && (
+                        {pdfPoster && (
+                          <a
+                            class="media-link"
+                            href={feedItemPath(feed.id, item.id)}
+                            aria-label={`Open ${item.filename}`}
+                          >
+                            <img
+                              src={pdfPoster}
+                              alt={`First page of ${item.filename}`}
+                              loading="lazy"
+                              decoding="async"
+                            />
+                          </a>
+                        )}
+                        {mediaKind === "file" && !pdfPoster && (
                           <MediaFallback
                             compact
                             title="Preview unavailable"

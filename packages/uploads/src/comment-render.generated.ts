@@ -212,13 +212,16 @@ export interface AttachmentItem {
    */
   meta?: { path?: string; state?: string };
   /**
-   * Poster frame for a video (issue #299), server-computed like `embedUrl` —
-   * never taken from client-settable metadata. Absent means "no poster", and
-   * the renderer falls back to the bullet link.
+   * Poster frame for a video (issue #299) or a PDF first page (issue #1009).
+   * Server-computed like `embedUrl` — never taken from client-settable
+   * metadata. Absent means "no poster": a video falls back to a bullet link,
+   * a PDF stays in the file table.
    */
   posterUrl?: string | null;
   /** Derived video facts used for the caption and display width. */
   videoMeta?: { durationSeconds?: number; width?: number; height?: number };
+  /** Derived PDF facts used for the caption and display width. */
+  pdfMeta?: { pageCount?: number; width?: number; height?: number };
   /** Server-derived pixel dimensions for an image (never client-settable). */
   imageMeta?: { width?: number; height?: number };
   /** Object size in bytes, when known — drives the non-media file table's Size column. */
@@ -592,10 +595,34 @@ function countInlinableMedia(sorted: AttachmentItem[], maxInlineImages: number):
     const name = item.key.slice(item.key.lastIndexOf("/") + 1);
     const src = item.embedUrl ?? item.url;
     const isImage = Boolean(src) && inferContentType(name).startsWith("image/");
-    const isPoster = Boolean(item.posterUrl) && inferContentType(name).startsWith("video/");
-    if (isImage || isPoster) count++;
+    if (isImage || inlinePosterKind(item)) count++;
   }
   return count;
+}
+
+/** Video still or PDF first page. Both count against the inline-image budget. */
+function inlinePosterKind(item: AttachmentItem): "video" | "pdf" | null {
+  if (!item.posterUrl) return null;
+  const type = effectiveAttachmentType(item);
+  if (type.startsWith("video/")) return "video";
+  if (type === "application/pdf") return "pdf";
+  return null;
+}
+
+function effectiveAttachmentType(item: AttachmentItem): string {
+  const name = item.key.slice(item.key.lastIndexOf("/") + 1);
+  if (item.contentType && item.contentType !== "application/octet-stream") return item.contentType;
+  return inferContentType(name);
+}
+
+function pdfPosterCaption(item: AttachmentItem, options: CommentRenderOptions): string {
+  const pages = item.pdfMeta?.pageCount;
+  const parts = ["Open PDF"];
+  if (pages === 1) parts.push("1 page");
+  else if (pages != null && Number.isInteger(pages) && pages > 1) parts.push(`${pages} pages`);
+  const metaCap = formatMetaCaption(item.meta, options, "html");
+  if (metaCap) parts.push(metaCap);
+  return parts.join(" · ");
 }
 
 /**
@@ -693,30 +720,28 @@ export function attachmentsCommentBody(
     const stable = item.url;
     const src = item.embedUrl ?? item.url;
     const link = item.pageUrl ?? stable; // click-through: file page when known, else raw
-    // "application/octet-stream" is the server's generic fallback for an
-    // object stored without an explicit content type — not a real signal —
-    // so it defers to the filename the same as an absent `contentType`.
-    const effectiveType =
-      item.contentType && item.contentType !== "application/octet-stream"
-        ? item.contentType
-        : inferContentType(name);
+    const effectiveType = effectiveAttachmentType(item);
     const isImage = Boolean(src) && effectiveType.startsWith("image/");
-    const isPosterVideo = Boolean(item.posterUrl) && effectiveType.startsWith("video/");
-    if (!effectiveType.startsWith("image/") && !effectiveType.startsWith("video/")) {
-      // Neither an image nor a video by content type — a non-media
-      // attachment goes into the file table, never the bullet list or
-      // overflow details.
+    const poster = inlinePosterKind(item);
+    if (
+      !effectiveType.startsWith("image/") &&
+      !effectiveType.startsWith("video/") &&
+      poster !== "pdf"
+    ) {
+      // Neither an image nor a video, and not a PDF with a first-page still —
+      // a non-media attachment goes into the file table, never the bullet list
+      // or overflow details.
       fileItems.push(item);
       continue;
     }
-    const inlines = isImage || isPosterVideo;
+    const inlines = isImage || poster !== null;
     if (inlines && inlinedImages >= options.maxInlineImages) {
       // Cap hit — defer to the collapsed overflow list below rather than
       // embedding every remaining image inline.
       overflowImages.push(item);
       continue;
     }
-    if (isPosterVideo) {
+    if (poster === "video") {
       inlinedImages++;
       const autoPx = naturalMediaWidth(item.videoMeta, name, density);
       const w = resolvedWidth(autoPx, options);
@@ -733,6 +758,17 @@ export function attachmentsCommentBody(
       const metaCap = formatMetaCaption(item.meta, options, "html");
       if (metaCap) parts.push(metaCap);
       lines.push(parts.join(" · "), "");
+    } else if (poster === "pdf") {
+      inlinedImages++;
+      const autoPx = naturalMediaWidth(item.pdfMeta, name, density);
+      const w = resolvedWidth(autoPx, options);
+      const href = escapeHtmlAttr(link ?? (item.posterUrl as string));
+      lines.push(
+        `<a href="${href}">${imgTag(w, escapeHtmlAttr(name), escapeHtmlAttr(item.posterUrl as string))}</a>`,
+      );
+      // The JPEG carries a document badge. The caption says it is a PDF,
+      // with the page count when the server measured one.
+      lines.push(pdfPosterCaption(item, options), "");
     } else if (isImage) {
       // Small-asset flow layout: consecutive captionless small images (icons)
       // join onto one line so GitHub flows them horizontally at natural size

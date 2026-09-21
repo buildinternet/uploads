@@ -26,7 +26,7 @@ interface Props {
   filename: string;
   /** Image alt text; falls back to the filename. */
   alt?: string;
-  /** Derived poster frame URL for videos (issue #299), when one exists. */
+  /** Derived poster frame for a video (issue #299) or a PDF first page (issue #1009). */
   posterUrl?: string | null;
   /** Real video dimensions — reserves the aspect ratio before playback. */
   videoDimensions?: { width: number; height: number } | null;
@@ -67,6 +67,8 @@ const fileHref = downloadUrl ?? url;
 const fileCardBody = `${fileTypeLabel(filename, contentType ?? "")} · ${
   size != null ? formatBytes(size) : "—"
 }`;
+const pdfPosterUrl =
+  kind === "file" && contentType === "application/pdf" && posterUrl ? posterUrl : null;
 ---
 
 <figure class="stage" style="margin:0" data-media-stage>
@@ -110,7 +112,21 @@ const fileCardBody = `${fileTypeLabel(filename, contentType ?? "")} · ${
         )}
         {kind === "file" &&
           url &&
-          (textPreview != null ? (
+          (pdfPosterUrl ? (
+            <div class="pdf-preview">
+              <a href={fileHref} rel="noopener noreferrer">
+                <img src={pdfPosterUrl} alt={`First page of ${filename}`} />
+              </a>
+              <div class="text-preview-info">
+                <span>{fileCardBody}</span>
+                {fileHref && (
+                  <a href={fileHref} rel="noopener noreferrer">
+                    Download
+                  </a>
+                )}
+              </div>
+            </div>
+          ) : textPreview != null ? (
             <div class="text-preview-wrap">
               <pre class="text-preview">{textPreview}</pre>
               <div class="text-preview-info">
@@ -194,6 +210,23 @@ const fileCardBody = `${fileTypeLabel(filename, contentType ?? "")} · ${
   }
   .text-preview-info a {
     color: var(--fg);
+  }
+  .pdf-preview {
+    width: 100%;
+    max-width: 100%;
+    align-self: stretch;
+    justify-self: stretch;
+    padding: 16px;
+    box-sizing: border-box;
+  }
+  .pdf-preview img {
+    display: block;
+    width: 100%;
+    max-height: 70vh;
+    object-fit: contain;
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
   }
   .media video {
     max-width: 100%;

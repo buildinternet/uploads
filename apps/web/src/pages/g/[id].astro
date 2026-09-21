@@ -280,7 +280,9 @@ const oembedHref = gallery ? oembedDiscoveryHref(canonical, Astro.url.origin) : 
               <section class="grid">
                 {gallery.items.map((item) => {
                   const mediaKind = kind(item);
-                  const previewable = mediaKind === "image" || mediaKind === "video";
+                  const pdfPoster = mediaKind === "file" && item.posterUrl ? item.posterUrl : null;
+                  const previewable =
+                    mediaKind === "image" || mediaKind === "video" || pdfPoster !== null;
                   return (
                     <figure>
                       <div class="media" data-media-load={previewable ? "" : undefined}>
@@ -319,7 +321,21 @@ const oembedHref = gallery ? oembedDiscoveryHref(canonical, Astro.url.origin) : 
                             href={item.url}
                           />
                         )}
-                        {mediaKind === "file" && (
+                        {pdfPoster && (
+                          <a
+                            class="media-link"
+                            href={itemPage(item)}
+                            aria-label={`View ${item.filename}`}
+                          >
+                            <img
+                              src={pdfPoster}
+                              alt={`First page of ${item.filename}`}
+                              loading="lazy"
+                              decoding="async"
+                            />
+                          </a>
+                        )}
+                        {mediaKind === "file" && !pdfPoster && (
                           <MediaFallback
                             compact
                             title="Preview unavailable"

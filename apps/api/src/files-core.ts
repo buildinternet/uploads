@@ -56,6 +56,8 @@ import {
   LANE_DONE,
   mergeBounded,
 } from "./lane-list";
+import { pdfPreviewAllowed } from "./pdf-preview-gate";
+import { getPdfPreviewRenderer } from "./pdf-preview-hook";
 import {
   makePoster,
   mediabunnyProbe,
@@ -205,12 +207,25 @@ async function existingSize(store: Files, key: string): Promise<number | null> {
   return head?.size ?? null;
 }
 
-/** Reserved keys `makePoster` may write, cleared together when it fails. */
-const POSTER_META_KEYS = ["video.poster", "video.duration", "video.width", "video.height"];
+/**
+ * Reserved keys a derived poster may write, cleared together when generation
+ * fails or the new bytes are a different kind of object. `pdf.*` is the
+ * first-page preview (issue #1009); `video.*` is the frame extract.
+ */
+const DERIVED_POSTER_META_KEYS = [
+  "video.poster",
+  "video.duration",
+  "video.width",
+  "video.height",
+  "pdf.poster",
+  "pdf.pages",
+  "pdf.width",
+  "pdf.height",
+];
 
 /** Server-owned pixel-dimension rows for an image, written at upload time so
  * the managed comment can size embeds without re-fetching bytes (issue #365
- * follow-up). Cleared together, mirroring `POSTER_META_KEYS`. */
+ * follow-up). Cleared together, mirroring `DERIVED_POSTER_META_KEYS`. */
 const IMAGE_META_KEYS = ["image.width", "image.height"];
 
 /**
@@ -254,11 +269,13 @@ async function storeImageDimensions(
  * turns a rejection into the ordinary no-poster path.
  */
 const POSTER_GENERATION_TIMEOUT_MS = 30_000;
+/** PDFium render is in-isolate. Bound the upload wait; a sync raster past this still runs. */
+const PDF_PREVIEW_TIMEOUT_MS = 10_000;
 
 /**
- * Best-effort poster generation (issue #299). Never throws: the object is
- * already durably stored by the time this runs, and no poster simply means the
- * managed comment renders a bullet link, exactly as it did before this feature.
+ * Best-effort poster generation (issue #299, PDF page 1 in #1009). Never
+ * throws: the object is already durably stored by the time this runs, and no
+ * poster simply means the managed comment keeps its previous fallback.
  */
 export async function generateAndStorePoster(
   env: Env,
@@ -269,86 +286,162 @@ export async function generateAndStorePoster(
   workspaceName: string,
   visibility?: Visibility,
 ): Promise<void> {
+  if (contentType === "application/pdf") {
+    await generateAndStorePdfPreview(env, ws, key, bytes, workspaceName, visibility);
+    return;
+  }
   const posterKey = posterKeyFor(key);
   try {
     if (!(await posterGenerationAllowed(env, ws, workspaceName))) return;
     // posterGenerationAllowed already confirmed env.MEDIA is present; env.MEDIA
     // is typed optional so apps/mcp's Env (no media binding) also type-checks.
     if (!env.MEDIA) return;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const made = await Promise.race([
+    const made = await raceWithTimeout(
       makePoster(
         { bytes, contentType },
         { extractor: mediaFrameExtractor(env.MEDIA), probe: mediabunnyProbe() },
       ),
-      new Promise<never>((_, reject) => {
-        timer = setTimeout(
-          () => reject(new Error("poster generation timed out")),
-          POSTER_GENERATION_TIMEOUT_MS,
-        );
-      }),
-    ]).finally(() => {
-      // Never keep the worker alive on the timer once either side settles.
-      if (timer !== undefined) clearTimeout(timer);
-    });
-
-    const store = await storage(env, ws);
+      POSTER_GENERATION_TIMEOUT_MS,
+      "poster generation timed out",
+    );
     if (!made) {
-      // A replacement that can't be postered must not keep the old frame.
-      const stale = await existingSize(store, posterKey);
-      if (stale !== null) {
-        await store.delete(posterKey);
-        await deleteServerFileMetadataKeys(dbFor(env), workspaceName, key, POSTER_META_KEYS);
-        // Single-winner claim (issue #570) — same gate as deleteObject.
-        if (await claimDeleteUsageSafe(dbFor(env), workspaceName, posterKey)) {
-          await recordUsageSafe(
-            dbFor(env),
-            workspaceName,
-            {
-              bytes: -stale,
-              objects: -1,
-              uploads: 0,
-            },
-            undefined,
-            { sharedLane: isSharedLane(ws) },
-          );
-        }
-      }
+      await deleteStaleDerivedPoster(env, ws, workspaceName, key, posterKey);
       return;
     }
-
-    const previous = await existingSize(store, posterKey);
-    await store.upload(posterKey, made.jpeg, {
-      contentType: "image/jpeg",
-      cacheControl: UPLOAD_CACHE_CONTROL,
-      // Mirrors putObject's own VISIBILITY_META_KEY convention: only written
-      // when private, so a private source video never leaves behind a
-      // publicly-fetchable poster at its deterministic _internal/ path.
-      ...(visibility === "private" ? { metadata: { [VISIBILITY_META_KEY]: "private" } } : {}),
-    });
-    // A re-created poster must be able to debit the ledger on a later delete.
-    await clearDeleteUsageClaimSafe(dbFor(env), workspaceName, posterKey);
-    // Counted because reconcileWorkspaceUsage walks every object under the
-    // prefix and would otherwise disagree with the ledger permanently.
-    await recordUsageSafe(
-      dbFor(env),
+    await storeDerivedPoster(
+      env,
+      ws,
       workspaceName,
-      {
-        bytes: made.jpeg.byteLength - (previous ?? 0),
-        objects: previous === null ? 1 : 0,
-        uploads: 0,
-      },
-      undefined,
-      { sharedLane: isSharedLane(ws) },
+      key,
+      posterKey,
+      made.jpeg,
+      made.meta,
+      visibility,
     );
-    // Full replace, not upsert: a regeneration whose probe/extraction found
-    // fewer fields than the prior poster (e.g. no dims this time) must not
-    // leave stale video.width/height/duration rows behind.
-    await deleteServerFileMetadataKeys(dbFor(env), workspaceName, key, POSTER_META_KEYS);
-    await setServerFileMetadata(dbFor(env), workspaceName, key, made.meta);
   } catch (err) {
     console.error({ event: "poster_generation_failed", workspace: workspaceName, key, err });
   }
+}
+
+/**
+ * Best-effort first-page JPEG for a PDF (issue #1009). Same derived key and
+ * ledger rules as a video poster. A missing renderer (the MCP worker) or a
+ * closed flag leaves the object untouched.
+ */
+async function generateAndStorePdfPreview(
+  env: Env,
+  ws: WorkspaceRecord,
+  key: string,
+  bytes: Uint8Array,
+  workspaceName: string,
+  visibility?: Visibility,
+): Promise<void> {
+  const posterKey = posterKeyFor(key);
+  try {
+    const renderer = getPdfPreviewRenderer();
+    // Before the limiter, so a worker that did not link PDFium spends nothing.
+    if (!renderer) return;
+    if (!(await pdfPreviewAllowed(env, ws, workspaceName))) return;
+    const made = await raceWithTimeout(
+      renderer(bytes),
+      PDF_PREVIEW_TIMEOUT_MS,
+      "pdf preview timed out",
+    );
+    if (!made) {
+      await deleteStaleDerivedPoster(env, ws, workspaceName, key, posterKey);
+      return;
+    }
+    await storeDerivedPoster(
+      env,
+      ws,
+      workspaceName,
+      key,
+      posterKey,
+      made.jpeg,
+      made.meta,
+      visibility,
+    );
+  } catch (err) {
+    console.error({ event: "pdf_preview_failed", workspace: workspaceName, key, err });
+  }
+}
+
+function raceWithTimeout<T>(work: Promise<T>, ms: number, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([
+    work,
+    new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(message)), ms);
+    }),
+  ]).finally(() => {
+    if (timer !== undefined) clearTimeout(timer);
+  });
+}
+
+/** A replacement that can't be previewed must not keep the previous still. */
+async function deleteStaleDerivedPoster(
+  env: Env,
+  ws: WorkspaceRecord,
+  workspaceName: string,
+  key: string,
+  posterKey: string,
+): Promise<void> {
+  const store = await storage(env, ws);
+  const stale = await existingSize(store, posterKey);
+  if (stale === null) return;
+  await store.delete(posterKey);
+  await deleteServerFileMetadataKeys(dbFor(env), workspaceName, key, DERIVED_POSTER_META_KEYS);
+  // Single-winner claim (issue #570) — same gate as deleteObject.
+  if (await claimDeleteUsageSafe(dbFor(env), workspaceName, posterKey)) {
+    await recordUsageSafe(
+      dbFor(env),
+      workspaceName,
+      { bytes: -stale, objects: -1, uploads: 0 },
+      undefined,
+      { sharedLane: isSharedLane(ws) },
+    );
+  }
+}
+
+async function storeDerivedPoster(
+  env: Env,
+  ws: WorkspaceRecord,
+  workspaceName: string,
+  key: string,
+  posterKey: string,
+  jpeg: Uint8Array,
+  meta: Record<string, string>,
+  visibility?: Visibility,
+): Promise<void> {
+  const store = await storage(env, ws);
+  const previous = await existingSize(store, posterKey);
+  await store.upload(posterKey, jpeg, {
+    contentType: "image/jpeg",
+    cacheControl: UPLOAD_CACHE_CONTROL,
+    // Mirrors putObject's own VISIBILITY_META_KEY convention: only written
+    // when private, so a private source never leaves a public still at the
+    // deterministic _internal/ path.
+    ...(visibility === "private" ? { metadata: { [VISIBILITY_META_KEY]: "private" } } : {}),
+  });
+  // A re-created poster must be able to debit the ledger on a later delete.
+  await clearDeleteUsageClaimSafe(dbFor(env), workspaceName, posterKey);
+  // Counted because reconcileWorkspaceUsage walks every object under the
+  // prefix and would otherwise disagree with the ledger permanently.
+  await recordUsageSafe(
+    dbFor(env),
+    workspaceName,
+    {
+      bytes: jpeg.byteLength - (previous ?? 0),
+      objects: previous === null ? 1 : 0,
+      uploads: 0,
+    },
+    undefined,
+    { sharedLane: isSharedLane(ws) },
+  );
+  // Full replace, not upsert: a regeneration that found fewer fields must not
+  // leave stale video.* or pdf.* rows behind.
+  await deleteServerFileMetadataKeys(dbFor(env), workspaceName, key, DERIVED_POSTER_META_KEYS);
+  await setServerFileMetadata(dbFor(env), workspaceName, key, meta);
 }
 
 /**

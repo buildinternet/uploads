@@ -309,6 +309,8 @@ describe("getFileMetadata", () => {
 describe("server-owned video.* namespace", () => {
   it("recognizes the namespace", () => {
     expect(isServerMetaKey("video.poster")).toBe(true);
+    expect(isServerMetaKey("pdf.poster")).toBe(true);
+    expect(isServerMetaKey("pdf.pages")).toBe(true);
     expect(isServerMetaKey("video.duration")).toBe(true);
     expect(isServerMetaKey("ai.tags")).toBe(true);
     expect(isServerMetaKey("ai.classifier")).toBe(true);
@@ -319,6 +321,7 @@ describe("server-owned video.* namespace", () => {
 
   it("rejects a client write to the namespace", () => {
     expect(() => validateMetadataEntries({ "video.poster": "1" })).toThrow(/reserved metadata key/);
+    expect(() => validateMetadataEntries({ "pdf.poster": "1" })).toThrow(/reserved metadata key/);
     expect(() => validateMetadataEntries({ "ai.tags": "ui" })).toThrow(/reserved metadata key/);
   });
 

@@ -19,8 +19,7 @@ import {
   type FeedMutationResult,
   type FeedRecord,
 } from "./feeds";
-import { VIDEO_TYPES } from "./guards";
-import { videoPresentation, type VideoDimensions } from "./poster";
+import { isDerivedPosterContentType, videoPresentation, type VideoDimensions } from "./poster";
 import { createLaneResolver, objectPublicUrls, type LaneResolver } from "./storage";
 import type { StorageConfig } from "@uploads/storage";
 import { objectVisibility } from "./visibility";
@@ -329,13 +328,20 @@ async function hydrateFeedItems(
     };
   });
 
-  const videoKeys = hydrated
-    .filter((item) => item.url !== null && VIDEO_TYPES.has(item.contentType ?? ""))
+  const posterKeys = hydrated
+    .filter((item) => item.url !== null && isDerivedPosterContentType(item.contentType ?? ""))
     .map((item) => item.objectKey);
-  if (videoKeys.length > 0 && workspace.name) {
+  if (posterKeys.length > 0 && workspace.name) {
     try {
-      const metadataByKey = await getMetadataForKeys(dbFor(env), workspace.name, videoKeys, {
-        metaKeys: ["video.poster", "video.width", "video.height"],
+      const metadataByKey = await getMetadataForKeys(dbFor(env), workspace.name, posterKeys, {
+        metaKeys: [
+          "video.poster",
+          "video.width",
+          "video.height",
+          "pdf.poster",
+          "pdf.width",
+          "pdf.height",
+        ],
       });
       for (const item of hydrated) {
         const metadata = metadataByKey.get(item.objectKey);
@@ -346,6 +352,7 @@ async function hydrateFeedItems(
           itemConfig,
           item.objectKey,
           metadata,
+          item.contentType ?? undefined,
         );
         if (posterUrl) item.posterUrl = posterUrl;
         if (videoDimensions) item.videoDimensions = videoDimensions;
