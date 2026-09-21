@@ -125,9 +125,9 @@ these normal.
 - **Release management.** From per-PR evidence to per-release narrative:
   assembling the captures from a stream of merged PRs into the raw material
   for release notes, changelogs, and launch visuals.
-- **Richer evidence.** Video with poster frames is built and gated; recordings
-  of interactions, visual diffs, and rendered artifacts (PDFs, diagrams) follow
-  the same staging loop.
+- **Richer evidence.** Video posters (still frame plus a play-button overlay)
+  ship on write. Recordings of interactions, visual diffs, and rendered
+  artifacts (PDFs, diagrams) follow the same staging loop.
 - **Deeper review integration.** Before/after pairing is the start. Evidence
   grouped by commit, linked to the lines it illustrates, queryable across a
   repo's history ("show me every screenshot of the checkout page").

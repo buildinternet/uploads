@@ -353,8 +353,10 @@ handful of milestones reads better than a dumped folder.
   | <img width="380" src="…/before.png"> | <img width="380" src="…/after.png"> |
   ```
 
-- **Motion:** GitHub markdown won't autoplay MP4 URLs — prefer a GIF, or a
-  still image that links to the video URL.
+- **Motion:** GitHub plays only native `user-attachments` videos inline.
+  `uploads put clip.mp4 --pr N` puts a poster (still plus play button) in
+  the managed comment. For a PR body, use a GIF, or a still that links to
+  the video.
 - Write bodies to a file and use `gh pr edit --body-file` / `gh issue comment
 --body-file` rather than inline HEREDOCs.
 

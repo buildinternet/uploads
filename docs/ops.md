@@ -906,10 +906,13 @@ wrangler r2 object get "uploads-default/_internal/uploads-cli-reports/${REPORT_I
 Write-time poster generation (`generateAndStorePoster`,
 `apps/api/src/files-core.ts`) runs on every `PUT /v1/:ws/files/:key` and
 stores a `.jpg` frame at `_internal/posters/<key>.jpg`, flagging the source
-object with D1 metadata `video.poster=1`. It does **not** run on
+object with D1 metadata `video.poster=1`. The JPEG has a play-circle overlay baked in so GitHub Camo still reads the
+still as a video. The glyph is a raster of Heroicons 24 solid `play-circle`
+(MIT) — circle and triangle as one SVG (`apps/api/src/poster-play-button.svg`),
+composited by `overlayPlayButton`. Overlay failure keeps the bare frame. It does **not** run on
 `POST /sign` uploads — those hand the client a presigned URL straight to R2,
 bypassing the worker (and therefore `generateAndStorePoster`) entirely. Any
-video uploaded that way needs a backfill pass (below) once generation is on.
+video uploaded that way needs a backfill pass (below).
 
 ### Kill switches (in order of blast radius)
 
@@ -922,8 +925,9 @@ video uploaded that way needs a backfill pass (below) once generation is on.
    ```
 
    Checked by `posterGenerationAllowed` (`apps/api/src/poster.ts`) on every
-   write. Currently **off** in production — this feature has not shipped to
-   users yet.
+   write. **On** in production. The evaluation fallback in code is still
+   `false`, so an unreachable Flagship disables generation rather than
+   leaving it running.
 
 2. **Remove the `MEDIA` binding** — `generateAndStorePoster` needs
    `env.MEDIA` (Cloudflare Media Transformations) to extract a frame. Drop
