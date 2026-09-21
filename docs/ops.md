@@ -1100,6 +1100,24 @@ missing `FLAGS`, a disabled flag, or a thrown evaluation are all off.
 The classifier skips vision on images over 512 KiB, never sends SVG bytes,
 and times out at 8s across both stages. It does not log raw file bytes.
 
+### Gateway guardrails
+
+`typesafe/jev` is a third-party catalog model. It runs only through an AI
+Gateway and bills against the account's prepaid AI Gateway credits (Unified
+Billing). The `uploads-classifier` gateway is configured with:
+
+- **Authenticated gateway** on. Direct calls to the gateway URL need a
+  Cloudflare API token; the worker uses the `AI` binding instead.
+- **Rate limit** 100 requests per minute, fixed window. A raster image costs
+  two requests (describe + decide); everything else costs one. Requests over
+  the limit fail open: the upload succeeds without `ai.*` rows.
+- **Spend limit** $10 per day, sliding window.
+- **Require provider credentials** must stay off. It blocks the Unified
+  Billing fallback and would reject every Jev call with a 400.
+
+Check the credit balance under AI Gateway → Credits Available. An empty
+balance also fails open.
+
 ## Attachment index shadow (issue #934)
 
 The managed comment sync still renders from the R2 fan-out (one `ListObjects`
