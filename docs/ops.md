@@ -1010,14 +1010,38 @@ large run:
 (`putObject` — REST `PUT /v1/:ws/files/:key`, not a presigned `POST /sign`),
 a Flagship-allowlisted workspace can get server-owned `ai.tags` (up to five
 kebab-case labels), `ai.summary`, `ai.kind`, `ai.surface`, `ai.screen`, and
-`ai.classifier=v2` rows. Agents read them with
+`ai.classifier=v3` rows. Agents read them with
 `uploads meta get <key>` or `GET …/files/:key?metadata=1`. Classifier
 errors never fail the upload.
+
+### Two stages
+
+1. **describe** — `@cf/meta/llama-3.2-11b-vision-instruct` looks at a raster
+   image under the 512 KiB cap and returns a short description, tags, and a
+   summary. Every other file skips this stage, so a PDF, a zip, an SVG, an
+   oversized image, or a text file gets no `ai.tags` and no `ai.summary`.
+2. **decide** — `typesafe/jev` picks `kind`, `surface`, and `screen` from the
+   closed enums. It sees a text-only state: the filename, the content type,
+   the byte size, the pixel dimensions and aspect ratio, a text excerpt for
+   text files, and stage 1's description when there is one. This stage always
+   runs.
+
+Stage 1 is advisory. When it fails, stage 2 still decides the enums from the
+file facts. When stage 2 fails, the classifier writes nothing.
+
+Jev reports a calibrated confidence per answer. An answer under **0.5**
+(`CLASSIFIER_MIN_CONFIDENCE`) omits its key, so a low-confidence `screen`
+drops while a confident `kind` still lands. The worker logs
+`classifier_decided` with the confidences and no file content.
 
 Closed enums: `ai.kind` is `screenshot|photo|diagram|document|code|ui|other`.
 `ai.surface` is `mobile|desktop|tablet|unknown`. `ai.screen` is
 `login|signup|settings|profile|dashboard|analytics|list|detail|form|search|modal|onboarding|empty|error|checkout|other`.
-An invalid or allowlist-echo value omits that key; tags and summary can still land.
+A value outside the enum omits that key.
+
+Cost: the vision call dominates. Jev bills input tokens only
+($0.042 per million) and its output is free, so the state stays small on
+purpose — no image bytes, and a 1500-character excerpt cap.
 
 Workers AI calls go through AI Gateway (`env.AI.run(..., { gateway: { id } })`).
 Create the gateway once in the same account as `uploads-api`:
@@ -1073,8 +1097,8 @@ missing `FLAGS`, a disabled flag, or a thrown evaluation are all off.
    `apps/api/wrangler.jsonc` and redeploy. Slower than Flagship, survives a
    Flagship outage.
 
-The classifier skips images over 512 KiB (filename + type only), never
-sends SVG bytes, and times out at 8s. It does not log raw file bytes.
+The classifier skips vision on images over 512 KiB, never sends SVG bytes,
+and times out at 8s across both stages. It does not log raw file bytes.
 
 ## Attachment index shadow (issue #934)
 

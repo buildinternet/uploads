@@ -1,8 +1,8 @@
 /**
  * Read-only view of experimental `ai.*` classifier metadata.
  *
- * The API writes these after a Flagship-gated put (`ai.classifier` is `v1`
- * or `v2`). Clients cannot set them. Used by the Storage file-detail drawer
+ * The API writes these after a Flagship-gated put (`ai.classifier` is `v1`,
+ * `v2`, or `v3`). Clients cannot set them. Used by the Storage file-detail drawer
  * and the public `/f/` share-page rail — never by galleries, feeds, or
  * PR comments.
  */
