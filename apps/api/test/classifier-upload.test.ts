@@ -5,13 +5,34 @@ import { classifyAndStore } from "../src/classifier";
 import { makePosterEnv, PNG, WORKSPACE } from "./poster-fixtures";
 import type { WorkspaceRecord } from "../src/workspace";
 
-const CLASSIFIED = {
+/** Stage 1's reply: free text only — the enums come from stage 2. */
+const DESCRIBED = {
   response:
-    '{"tags":["ui","settings"],"summary":"A settings page","kind":"screenshot","surface":"desktop","screen":"settings"}',
+    '{"description":"A settings page.","tags":["ui","settings"],"summary":"A settings page"}',
 };
 
+function jevAnswer(choice: string, confidence = 0.9) {
+  return { type: "choice", choice, confidence, probabilities: { [choice]: confidence } };
+}
+
+/** Stage 2's reply: confident answers for all three closed enums. */
+const DECIDED = {
+  model: "jev-1.13.0",
+  answers: {
+    kind: jevAnswer("screenshot"),
+    surface: jevAnswer("desktop"),
+    screen: jevAnswer("settings"),
+  },
+  usage: {},
+};
+
+/** The default fake answers per stage, keyed off the model name. */
+function defaultRun(model: string): unknown {
+  return model === "typesafe/jev" ? DECIDED : DESCRIBED;
+}
+
 function makeClassifierEnv(
-  run: () => Promise<unknown> = async () => CLASSIFIED,
+  run: (model: string) => Promise<unknown> | unknown = async (model) => defaultRun(model),
   wsOver: Partial<WorkspaceRecord> = {},
 ) {
   const { env, db, ws } = makePosterEnv();
@@ -22,7 +43,7 @@ function makeClassifierEnv(
     AI: {
       run: async (...args: unknown[]) => {
         calls.push(args);
-        return run();
+        return run(args[0] as string);
       },
     },
     FLAGS: {
@@ -47,15 +68,23 @@ describe("classifier on upload", () => {
     await Promise.all(pending);
     const metaByKey = await getMetadataForKeys(env.DB, WORKSPACE, [result.key]);
     const meta = metaByKey.get(result.key);
-    expect(meta?.["ai.classifier"]).toBe("v2");
+    expect(meta?.["ai.classifier"]).toBe("v3");
     expect(meta?.["ai.tags"]).toBe("ui,settings");
     expect(meta?.["ai.summary"]).toBe("A settings page");
     expect(meta?.["ai.kind"]).toBe("screenshot");
     expect(meta?.["ai.surface"]).toBe("desktop");
     expect(meta?.["ai.screen"]).toBe("settings");
-    expect(calls).toHaveLength(1);
-    const [, , options] = calls[0] as [string, unknown, { gateway?: { id?: string } }];
-    expect(options.gateway?.id).toBe("uploads-classifier");
+    // Two stages: describe, then decide.
+    expect(calls).toHaveLength(2);
+    const models = calls.map((c) => (c as [string])[0]);
+    expect(models).toEqual(["@cf/meta/llama-3.2-11b-vision-instruct", "typesafe/jev"]);
+    for (const call of calls) {
+      const [, , options] = call as [string, unknown, { gateway?: { id?: string } }];
+      expect(options.gateway?.id).toBe("uploads-classifier");
+    }
+    const [, decideInput] = calls[1] as [string, { state?: Record<string, unknown> }];
+    expect(decideInput.state?.filename).toBe("pic.png");
+    expect(decideInput.state?.description).toBe("A settings page.");
   });
 
   it("evaluates Flagship with org and workspace context", async () => {
@@ -88,7 +117,7 @@ describe("classifier on upload", () => {
   });
 
   it("does not fail the upload when the model throws", async () => {
-    const { env, ws } = makeClassifierEnv(async () => {
+    const { env, ws } = makeClassifierEnv(() => {
       throw new Error("gateway down");
     });
     const pending: Promise<unknown>[] = [];
@@ -103,7 +132,7 @@ describe("classifier on upload", () => {
   });
 
   it("skips when the workspace hard-off is set", async () => {
-    const { env, ws, calls } = makeClassifierEnv(async () => CLASSIFIED, {
+    const { env, ws, calls } = makeClassifierEnv(async (model) => defaultRun(model), {
       llmClassifierEnabled: false,
     });
     const pending: Promise<unknown>[] = [];
@@ -115,7 +144,7 @@ describe("classifier on upload", () => {
   });
 
   it("classifies when llmClassifierEnabled is unset (Flagship is the allowlist)", async () => {
-    const { env, ws, calls } = makeClassifierEnv(async () => CLASSIFIED, {
+    const { env, ws, calls } = makeClassifierEnv(async (model) => defaultRun(model), {
       llmClassifierEnabled: undefined,
     });
     const pending: Promise<unknown>[] = [];
@@ -123,7 +152,7 @@ describe("classifier on upload", () => {
       waitUntil: (p) => pending.push(p),
     });
     await Promise.all(pending);
-    expect(calls).toHaveLength(1);
+    expect(calls).toHaveLength(2);
   });
 
   it("skips when waitUntil is omitted (does not block putObject)", async () => {
@@ -134,32 +163,48 @@ describe("classifier on upload", () => {
 });
 
 describe("classifyAndStore", () => {
-  it("writes ai.* metadata when the gateway returns an object-shaped response", async () => {
-    const { env, ws } = makeClassifierEnv(async () => ({
-      response: {
-        tags: ["gradient"],
-        summary: "a gradient image",
-        kind: "screenshot|photo|diagram|document|code|ui|other",
-      },
-      tool_calls: [],
-      usage: {},
-    }));
+  it("writes the enums from stage 2 even when stage 1 fails", async () => {
+    const { env, ws } = makeClassifierEnv((model) => {
+      if (model === "typesafe/jev") return DECIDED;
+      throw new Error("vision down");
+    });
     const written = await classifyAndStore(env, ws, WORKSPACE, "images/pic.png", PNG, "image/png");
     expect(written).toEqual({
-      "ai.classifier": "v2",
-      "ai.tags": "gradient",
-      "ai.summary": "a gradient image",
+      "ai.classifier": "v3",
+      "ai.kind": "screenshot",
+      "ai.surface": "desktop",
+      "ai.screen": "settings",
     });
     const metaByKey = await getMetadataForKeys(env.DB, WORKSPACE, ["images/pic.png"]);
-    const meta = metaByKey.get("images/pic.png");
-    expect(meta?.["ai.classifier"]).toBe("v2");
-    expect(meta?.["ai.tags"]).toBe("gradient");
-    expect(meta?.["ai.summary"]).toBe("a gradient image");
-    expect(meta?.["ai.kind"]).toBeUndefined();
+    expect(metaByKey.get("images/pic.png")?.["ai.tags"]).toBeUndefined();
   });
 
-  it("writes nothing when the model returns unusable text", async () => {
-    const { env, ws } = makeClassifierEnv(async () => ({ response: "nope" }));
+  it("drops an enum whose confidence is under the threshold", async () => {
+    const { env, ws } = makeClassifierEnv((model) =>
+      model === "typesafe/jev"
+        ? { answers: { kind: jevAnswer("photo", 0.95), screen: jevAnswer("checkout", 0.2) } }
+        : DESCRIBED,
+    );
+    const written = await classifyAndStore(env, ws, WORKSPACE, "images/pic.png", PNG, "image/png");
+    expect(written?.["ai.kind"]).toBe("photo");
+    expect(written?.["ai.screen"]).toBeUndefined();
+  });
+
+  it("sends no vision call for a text file and writes no tags or summary", async () => {
+    const { env, ws, calls } = makeClassifierEnv((model) =>
+      model === "typesafe/jev" ? DECIDED : DESCRIBED,
+    );
+    const bytes = new TextEncoder().encode("hello world\n");
+    const written = await classifyAndStore(env, ws, WORKSPACE, "notes.txt", bytes, "text/plain");
+    expect(calls).toHaveLength(1);
+    expect((calls[0] as [string])[0]).toBe("typesafe/jev");
+    expect(written?.["ai.tags"]).toBeUndefined();
+    expect(written?.["ai.summary"]).toBeUndefined();
+    expect(written?.["ai.kind"]).toBe("screenshot");
+  });
+
+  it("writes nothing when the decision model returns unusable output", async () => {
+    const { env, ws } = makeClassifierEnv(() => ({ response: "nope" }));
     const written = await classifyAndStore(env, ws, WORKSPACE, "images/pic.png", PNG, "image/png");
     expect(written).toBeUndefined();
     const metaByKey = await getMetadataForKeys(env.DB, WORKSPACE, ["images/pic.png"]);

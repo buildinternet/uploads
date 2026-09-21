@@ -128,10 +128,12 @@
     "binding": "MEDIA",
     "remote": true,
   },
-  // Workers AI (experimental file classifier). Requests go through AI
-  // Gateway (`AI_GATEWAY_ID` var, default `uploads-classifier`). An absent
-  // binding is a hard off switch (`classificationAllowed`). Self-hosters
-  // can delete this block; classification simply stays off.
+  // Workers AI (experimental file classifier). Two models run per upload:
+  // `@cf/meta/llama-3.2-11b-vision-instruct` describes a raster image, and
+  // `typesafe/jev` picks the closed enums. Requests go through AI Gateway
+  // (`AI_GATEWAY_ID` var, default `uploads-classifier`). An absent binding
+  // is a hard off switch (`classificationAllowed`). Self-hosters can delete
+  // this block; classification simply stays off.
   "ai": {
     "binding": "AI",
   },
