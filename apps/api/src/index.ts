@@ -179,11 +179,12 @@ export const app = new Hono<WorkspaceVars>()
   // parallel-registered, to avoid a same-path double-registration/shadowing
   // hazard with the pre-existing governance-token route.
   .route("/v1/workspaces", workspaceMembers)
-  // Canonical comment-settings, storage, and billing/summary verticals
-  // (issue #613 phase 3): `/v1/workspaces/:workspace/comment-settings`,
-  // `/storage`, `/storage/verify`, `/summary`, `/billing` — session-only,
-  // two privilege tiers (member for summary/billing, admin/owner for
-  // comment-settings/storage). A bearer 403s `billing_requires_session` or
+  // Canonical comment-settings, poster-settings, storage, and billing/summary
+  // verticals (issue #613 phase 3): `/v1/workspaces/:workspace/comment-settings`,
+  // `/poster-settings`, `/storage`, `/storage/verify`, `/summary`, `/billing`
+  // — session-only, two privilege tiers (member for summary/billing,
+  // admin/owner for comment-settings/poster-settings/storage). A bearer 403s
+  // `billing_requires_session` or
   // `settings_requires_session` depending on the tier; see
   // `routes/workspace-settings.ts`'s docblock. No new bearer capability
   // minted for any route here, same posture as `workspaceMembers` above.

@@ -343,6 +343,194 @@ describe("GET/PATCH /v1/workspaces/:workspace/comment-settings", () => {
   });
 });
 
+describe("GET/PATCH /v1/workspaces/:workspace/poster-settings", () => {
+  it("GET treats absent poster flags as on", async () => {
+    const { env } = makeEnv({ role: "admin" });
+    const res = await app.request(
+      "/v1/workspaces/acme/poster-settings",
+      { headers: sessionHeaders },
+      env,
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ pdfPosterEnabled: true, videoPosterEnabled: true });
+  });
+
+  it("GET returns an explicit false and an explicit true", async () => {
+    const { env } = makeEnv({
+      role: "owner",
+      record: { ...SHARED_RECORD, pdfPosterEnabled: false, videoPosterEnabled: true },
+    });
+    const res = await app.request(
+      "/v1/workspaces/acme/poster-settings",
+      { headers: sessionHeaders },
+      env,
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ pdfPosterEnabled: false, videoPosterEnabled: true });
+  });
+
+  it("GET 403s a non-admin member session", async () => {
+    const { env } = makeEnv({ sessionUser: MEMBER, role: "member" });
+    const res = await app.request(
+      "/v1/workspaces/acme/poster-settings",
+      { headers: sessionHeaders },
+      env,
+    );
+    expect(res.status).toBe(403);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+      "workspace_admin_required",
+    );
+  });
+
+  it("GET 404s a non-member session", async () => {
+    const { env } = makeEnv({ noMembership: true });
+    const res = await app.request(
+      "/v1/workspaces/acme/poster-settings",
+      { headers: sessionHeaders },
+      env,
+    );
+    expect(res.status).toBe(404);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+      "workspace_not_found",
+    );
+  });
+
+  it("GET 403s a bearer token with a coded error", async () => {
+    const { env } = makeEnv();
+    const res = await app.request(
+      "/v1/workspaces/acme/poster-settings",
+      { headers: bearerHeaders },
+      env,
+    );
+    expect(res.status).toBe(403);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+      "settings_requires_session",
+    );
+  });
+
+  it("PATCH persists false and leaves the other flag untouched", async () => {
+    const { env, registry } = makeEnv({
+      role: "owner",
+      record: { ...SHARED_RECORD, videoPosterEnabled: true },
+    });
+    const res = await app.request(
+      "/v1/workspaces/acme/poster-settings",
+      {
+        method: "PATCH",
+        headers: { ...sessionHeaders, "content-type": "application/json" },
+        body: JSON.stringify({ pdfPosterEnabled: false }),
+      },
+      env,
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ pdfPosterEnabled: false, videoPosterEnabled: true });
+    const saved = registry.record<{ pdfPosterEnabled?: boolean; videoPosterEnabled?: boolean }>(
+      "acme",
+    );
+    expect(saved?.pdfPosterEnabled).toBe(false);
+    expect(saved?.videoPosterEnabled).toBe(true);
+  });
+
+  it("PATCH persists an explicit true for an admin session", async () => {
+    const { env, registry } = makeEnv({
+      role: "admin",
+      record: { ...SHARED_RECORD, pdfPosterEnabled: false, videoPosterEnabled: false },
+    });
+    const res = await app.request(
+      "/v1/workspaces/acme/poster-settings",
+      {
+        method: "PATCH",
+        headers: { ...sessionHeaders, "content-type": "application/json" },
+        body: JSON.stringify({ pdfPosterEnabled: true, videoPosterEnabled: true }),
+      },
+      env,
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ pdfPosterEnabled: true, videoPosterEnabled: true });
+    const saved = registry.record<{ pdfPosterEnabled?: boolean; videoPosterEnabled?: boolean }>(
+      "acme",
+    );
+    expect(saved?.pdfPosterEnabled).toBe(true);
+    expect(saved?.videoPosterEnabled).toBe(true);
+  });
+
+  it("PATCH 403s a non-admin member and does not write", async () => {
+    const { env, registry } = makeEnv({ sessionUser: MEMBER, role: "member" });
+    const res = await app.request(
+      "/v1/workspaces/acme/poster-settings",
+      {
+        method: "PATCH",
+        headers: { ...sessionHeaders, "content-type": "application/json" },
+        body: JSON.stringify({ pdfPosterEnabled: false }),
+      },
+      env,
+    );
+    expect(res.status).toBe(403);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+      "workspace_admin_required",
+    );
+    expect(
+      registry.record<{ pdfPosterEnabled?: boolean }>("acme")?.pdfPosterEnabled,
+    ).toBeUndefined();
+  });
+
+  it("PATCH 403s a bearer token and does not write", async () => {
+    const { env, registry } = makeEnv();
+    const res = await app.request(
+      "/v1/workspaces/acme/poster-settings",
+      {
+        method: "PATCH",
+        headers: { ...bearerHeaders, "content-type": "application/json" },
+        body: JSON.stringify({ videoPosterEnabled: false }),
+      },
+      env,
+    );
+    expect(res.status).toBe(403);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+      "settings_requires_session",
+    );
+    expect(
+      registry.record<{ videoPosterEnabled?: boolean }>("acme")?.videoPosterEnabled,
+    ).toBeUndefined();
+  });
+
+  it("PATCH rejects a non-boolean and does not write", async () => {
+    const { env, registry } = makeEnv({ role: "admin" });
+    const res = await app.request(
+      "/v1/workspaces/acme/poster-settings",
+      {
+        method: "PATCH",
+        headers: { ...sessionHeaders, "content-type": "application/json" },
+        body: JSON.stringify({ pdfPosterEnabled: "no" }),
+      },
+      env,
+    );
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe("invalid_settings");
+    expect(
+      registry.record<{ pdfPosterEnabled?: boolean }>("acme")?.pdfPosterEnabled,
+    ).toBeUndefined();
+  });
+
+  it("PATCH ignores unknown keys", async () => {
+    const { env, registry } = makeEnv({ role: "admin" });
+    const res = await app.request(
+      "/v1/workspaces/acme/poster-settings",
+      {
+        method: "PATCH",
+        headers: { ...sessionHeaders, "content-type": "application/json" },
+        body: JSON.stringify({ videoPosterEnabled: false, plan: "pro" }),
+      },
+      env,
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ pdfPosterEnabled: true, videoPosterEnabled: false });
+    const saved = registry.record<{ plan?: string; videoPosterEnabled?: boolean }>("acme");
+    expect(saved?.videoPosterEnabled).toBe(false);
+    expect(saved?.plan).toBeUndefined();
+  });
+});
+
 describe("storage vertical (self-serve BYO bucket)", () => {
   const BYO_RECORD = {
     provider: "r2",
