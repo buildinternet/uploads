@@ -30,7 +30,7 @@ export function overlayPlayButton(jpeg: Uint8Array): Uint8Array {
     maxMemoryUsageInMB: 32,
   });
   if (Math.min(img.width, img.height) >= MIN_EDGE_PX) {
-    const sprite = PNG.sync.read(Buffer.from(playButtonPng()));
+    const sprite = PNG.sync.read(toNodeBuffer(playButtonPng()));
     const size = Math.round(Math.min(img.width, img.height) * PLAY_BUTTON_DIAMETER_RATIO);
     compositeCentered(img.data, img.width, img.height, sprite, size);
   }
@@ -109,4 +109,16 @@ function px(sprite: PngSprite, x: number, y: number): [number, number, number, n
 
 function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t;
+}
+
+/**
+ * pngjs's sync parser calls `readUInt32BE` on the input. `Buffer` exists at
+ * runtime (nodejs_compat on api and mcp) but is not in MCP's type program,
+ * so we go through `globalThis` instead of the `Buffer` identifier.
+ */
+function toNodeBuffer(bytes: Uint8Array): Uint8Array {
+  const Buf = (globalThis as unknown as { Buffer?: { from: (d: Uint8Array) => Uint8Array } })
+    .Buffer;
+  if (!Buf) throw new Error("Buffer is required to decode the play-button PNG");
+  return Buf.from(bytes);
 }

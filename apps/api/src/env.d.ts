@@ -129,3 +129,18 @@ interface Env {
    */
   DATA_READ_TIMEOUT_MS?: string;
 }
+
+/**
+ * pngjs ships no types. Declared here (not only next to the importer) because
+ * apps/mcp type-checks `poster-overlay.ts` through `@uploads/api/files` and
+ * already includes this file. Input is typed as Uint8Array so MCP (no
+ * Node `Buffer` global) still type-checks; the overlay wraps through
+ * `globalThis.Buffer` at runtime for pngjs's `readUInt32BE`.
+ */
+declare module "pngjs" {
+  export class PNG {
+    static sync: {
+      read(data: Uint8Array): { width: number; height: number; data: Uint8Array };
+    };
+  }
+}
