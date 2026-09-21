@@ -724,8 +724,8 @@ export function attachmentsCommentBody(
       lines.push(
         `<a href="${href}">${imgTag(w, escapeHtmlAttr(name), escapeHtmlAttr(item.posterUrl as string))}</a>`,
       );
-      // GitHub strips <video>, so a still frame needs an explicit affordance
-      // or it reads as a screenshot.
+      // GitHub strips <video>. The poster JPEG already carries a baked-in
+      // play button (Camo-visible); this caption still carries duration.
       const parts = ["▶ Play video"];
       if (item.videoMeta?.durationSeconds != null) {
         parts.push(formatDuration(item.videoMeta.durationSeconds));

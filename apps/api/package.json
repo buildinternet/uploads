@@ -56,13 +56,14 @@
     "@uploads/storage": "workspace:^",
     "aws4fetch": "^1.0.20",
     "hono": "^4.13.3",
+    "jpeg-js": "^0.4.4",
     "mediabunny": "^1.50.9"
   },
   "devDependencies": {
     "@types/node": "^26.1.0",
+    "@uploads/auth": "workspace:^",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10",
-    "wrangler": "^4.125.0",
-    "@uploads/auth": "workspace:^"
+    "wrangler": "^4.125.0"
   }
 }

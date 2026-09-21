@@ -1,8 +1,21 @@
+import { decode, encode } from "jpeg-js";
 import { describe, expect, it } from "vitest";
 import { makePoster, POSTER_MAX_DURATION_SECONDS, POSTER_MAX_INPUT_BYTES } from "./poster";
 import type { FrameExtractor, VideoProbe } from "./poster";
+import { PLAY_BUTTON_DIAMETER_RATIO } from "./poster-overlay";
 
 const JPEG = new Uint8Array([0xff, 0xd8, 0xff]);
+
+function solidJpeg(width: number, height: number, r: number, g: number, b: number): Uint8Array {
+  const data = new Uint8Array(width * height * 4);
+  for (let i = 0; i < data.length; i += 4) {
+    data[i] = r;
+    data[i + 1] = g;
+    data[i + 2] = b;
+    data[i + 3] = 255;
+  }
+  return new Uint8Array(encode({ data, width, height }, 95).data);
+}
 
 function deps(over: Partial<{ extractor: FrameExtractor; probe: VideoProbe }> = {}) {
   const times: string[] = [];
@@ -105,5 +118,32 @@ describe("makePoster", () => {
     const { deps: d } = deps();
     const out = await makePoster({ bytes, contentType: "video/webm" }, d);
     expect(out!.jpeg).toEqual(JPEG);
+  });
+
+  it("keeps the extracted frame when the overlay cannot decode it", async () => {
+    // JPEG is a 3-byte stub — overlayPlayButton throws, makePoster fail-opens.
+    const { deps: d } = deps();
+    const out = await makePoster({ bytes, contentType: "video/mp4" }, d);
+    expect(out!.jpeg).toEqual(JPEG);
+  });
+
+  it("bakes a play button onto a real jpeg frame", async () => {
+    const frame = solidJpeg(320, 180, 16, 18, 22);
+    const extractor: FrameExtractor = {
+      async frame() {
+        return frame;
+      },
+    };
+    const { deps: d } = deps({ extractor });
+    const out = await makePoster({ bytes, contentType: "video/mp4" }, d);
+    expect(out).not.toBeNull();
+    expect(out!.jpeg).not.toEqual(frame);
+
+    const img = decode(out!.jpeg, { useTArray: true, formatAsRGBA: true });
+    const radius = (Math.min(320, 180) * PLAY_BUTTON_DIAMETER_RATIO) / 2;
+    const i = (90 * 320 + Math.round(160 - radius * 0.55)) * 4;
+    expect(img.data[i]).toBeGreaterThan(200);
+    expect(img.data[i + 1]).toBeGreaterThan(200);
+    expect(img.data[i + 2]).toBeGreaterThan(200);
   });
 });

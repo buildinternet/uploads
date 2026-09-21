@@ -22,6 +22,7 @@ import {
 } from "./github-comment-render";
 import type { StorageConfig } from "@uploads/storage";
 import { allowPoster, VIDEO_TYPES } from "./guards";
+import { overlayPlayButton } from "./poster-overlay";
 import { objectPublicUrls } from "./storage";
 
 /** Server-owned namespace for derived artifacts — never listed to users. */
@@ -252,6 +253,15 @@ export async function makePoster(
     }
   }
   if (!jpeg) return null;
+
+  // GitHub Camo will not play an external MP4, so the still needs a play
+  // glyph baked in or it reads as a screenshot. Overlay failure keeps the
+  // bare frame — a still without a button still beats a bullet link.
+  try {
+    jpeg = overlayPlayButton(jpeg);
+  } catch {
+    // leave `jpeg` as the extracted frame
+  }
 
   const meta: Record<string, string> = { "video.poster": "1" };
   if (probed?.durationSeconds != null) {
