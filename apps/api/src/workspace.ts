@@ -207,12 +207,14 @@ export interface WorkspaceRecord {
    * Per-workspace opt-out for video poster generation (issue #299). Default
    * (undefined/true) generates. The surgical kill switch between "all
    * workspaces" (Flagship) and "nothing" (removing the MEDIA binding).
+   * Workspace owners set this from Settings → Previews.
    */
   videoPosterEnabled?: boolean;
   /**
    * Per-workspace opt-out for PDF first-page previews (issue #1009). Default
    * (undefined/true) generates when the Flagship flag is on. `false` is the
    * surgical kill switch for one workspace (precedent: `videoPosterEnabled`).
+   * Workspace owners set this from Settings → Previews.
    */
   pdfPosterEnabled?: boolean;
   /**

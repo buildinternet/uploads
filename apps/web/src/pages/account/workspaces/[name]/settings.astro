@@ -1,12 +1,13 @@
 ---
 /**
  * Workspace settings — GitHub comment defaults (Task 7, issue #307) plus a
- * live preview of the managed comment. Storage / BYO-bucket and the
+ * live preview of the managed comment, and the poster opt-out switches
+ * (PDF first-page previews and video posters). Storage / BYO-bucket and the
  * workspace details summary live on the sibling `settings/storage.astro`
- * page now — see that file's doc comment. The comment-settings block still
- * starts `hidden` and reveals on session (same progressive-reveal
- * convention as the account pages generally): admin-gated data has nothing
- * to show until the session/role check lands anyway.
+ * page now — see that file's doc comment. Both blocks start `hidden` and
+ * reveal on session (same progressive-reveal convention as the account
+ * pages generally): admin-gated data has nothing to show until the
+ * session/role check lands anyway.
  *
  * The preview lives in `WorkspaceLayout`'s `preview` rail slot (paired with
  * `wideRail`) rather than in the content column — issue #365's redesign
@@ -302,6 +303,78 @@ const tip = {
         </div>
       </form>
     </div>
+
+    <div class="settings-section" id="poster-section" hidden>
+      <h2>Previews</h2>
+      <p class="settings-note muted">
+        These switches save either way, and they take effect when poster generation is on for the
+        platform.
+      </p>
+      <div id="poster-error" class="ul-callout" data-state="error" role="alert" hidden></div>
+      <div class="ws-form max-w-none mt-2">
+        <div
+          class="cs-row grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-7 gap-y-2 border-b border-border py-5 max-[680px]:grid-cols-[minmax(0,1fr)]"
+        >
+          <div class="cs-row__info min-w-0">
+            <span class="cs-row__label font-semibold text-[13px] text-foreground"
+              >PDF first-page previews</span
+            >
+            <p
+              class="cs-row__desc mt-1 text-[13px] leading-[1.55] text-muted-foreground max-w-[44ch] [text-wrap:pretty] max-[680px]:max-w-none"
+            >
+              A preview of the first page, shown in comments and on the file page.
+            </p>
+          </div>
+          <div class="cs-row__control flex items-center gap-2.5">
+            <button
+              type="button"
+              class="group relative inline-flex h-[18.4px] w-[32px] shrink-0 items-center rounded-full border border-transparent bg-input outline-none transition-all focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 aria-checked:bg-primary"
+              role="switch"
+              data-slot="switch"
+              id="poster-pdf"
+              aria-checked="false"
+              aria-label="PDF first-page previews"
+            >
+              <span
+                class="pointer-events-none block size-4 translate-x-0 rounded-full bg-background ring-0 transition-transform group-aria-checked:translate-x-[calc(100%-2px)]"
+                data-slot="switch-thumb"
+                aria-hidden="true"></span>
+            </button>
+          </div>
+        </div>
+        <div
+          class="cs-row grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-7 gap-y-2 border-b-0 py-5 max-[680px]:grid-cols-[minmax(0,1fr)]"
+        >
+          <div class="cs-row__info min-w-0">
+            <span class="cs-row__label font-semibold text-[13px] text-foreground"
+              >Video posters</span
+            >
+            <p
+              class="cs-row__desc mt-1 text-[13px] leading-[1.55] text-muted-foreground max-w-[44ch] [text-wrap:pretty] max-[680px]:max-w-none"
+            >
+              A still frame from the video, shown in comments and on the file page.
+            </p>
+          </div>
+          <div class="cs-row__control flex items-center gap-2.5">
+            <button
+              type="button"
+              class="group relative inline-flex h-[18.4px] w-[32px] shrink-0 items-center rounded-full border border-transparent bg-input outline-none transition-all focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 aria-checked:bg-primary"
+              role="switch"
+              data-slot="switch"
+              id="poster-video"
+              aria-checked="false"
+              aria-label="Video posters"
+            >
+              <span
+                class="pointer-events-none block size-4 translate-x-0 rounded-full bg-background ring-0 transition-transform group-aria-checked:translate-x-[calc(100%-2px)]"
+                data-slot="switch-thumb"
+                aria-hidden="true"></span>
+            </button>
+          </div>
+        </div>
+      </div>
+      <p id="poster-status" class="muted settings-note" role="status" aria-live="polite"></p>
+    </div>
   </section>
 
   <Fragment slot="preview">
@@ -454,12 +527,15 @@ const tip = {
       getGithubInstalled,
       getWorkspaceCommentPreview,
       getWorkspaceCommentSettings,
+      getWorkspacePosterSettings,
       getWorkspaceRepoLinks,
       patchWorkspaceCommentSettings,
+      patchWorkspacePosterSettings,
       type CommentOptionSource,
       type CommentPreview,
       type CommentPreviewResult,
       type CommentSettings,
+      type PosterSettings,
     } from "../../../../lib/api-client";
     import { renderCommentPreviewHtml } from "../../../../lib/comment-preview-sanitize";
     import { resolveActiveWorkspace } from "../../../../lib/workspace-browse-url";
@@ -897,6 +973,94 @@ const tip = {
 
       onSession(() => {
         void loadCommentSettings();
+      });
+    });
+
+    onAstroPageLoad(() => {
+      const sectionEl = document.getElementById("poster-section");
+      if (!sectionEl) return;
+      const section = sectionEl;
+
+      const page = "workspace poster settings";
+      const visit = getPageVisit();
+      const stillHere = (): boolean => isCurrentPageVisit(visit);
+      const w = window as unknown as {
+        __UPLOADS_API_ORIGIN__: string;
+        __UPLOADS_ACTIVE_WORKSPACE__: string;
+      };
+      const apiOrigin = w.__UPLOADS_API_ORIGIN__;
+      const workspaceName = resolveActiveWorkspace(
+        window.location.pathname,
+        w.__UPLOADS_ACTIVE_WORKSPACE__ || "",
+      );
+
+      const pdfToggle = requireElement<HTMLButtonElement>("#poster-pdf", page);
+      const videoToggle = requireElement<HTMLButtonElement>("#poster-video", page);
+      const statusEl = requireElement<HTMLElement>("#poster-status", page);
+      const errorEl = requireElement<HTMLElement>("#poster-error", page);
+
+      function toggleOn(btn: HTMLButtonElement): boolean {
+        return btn.getAttribute("aria-checked") === "true";
+      }
+      function paintToggle(btn: HTMLButtonElement, on: boolean): void {
+        btn.setAttribute("aria-checked", on ? "true" : "false");
+      }
+      function showError(message: string | null): void {
+        if (!message) {
+          errorEl.hidden = true;
+          errorEl.textContent = "";
+          return;
+        }
+        errorEl.hidden = false;
+        errorEl.textContent = message;
+      }
+      function paint(settings: PosterSettings): void {
+        paintToggle(pdfToggle, settings.pdfPosterEnabled);
+        paintToggle(videoToggle, settings.videoPosterEnabled);
+      }
+
+      function setBusy(busy: boolean): void {
+        pdfToggle.disabled = busy;
+        videoToggle.disabled = busy;
+      }
+      function wire(btn: HTMLButtonElement, key: "pdfPosterEnabled" | "videoPosterEnabled"): void {
+        btn.addEventListener("click", () => {
+          const desired = !toggleOn(btn);
+          paintToggle(btn, desired);
+          setBusy(true);
+          showError(null);
+          statusEl.textContent = "Saving…";
+          void (async () => {
+            const result = await patchWorkspacePosterSettings(apiOrigin, workspaceName, {
+              [key]: desired,
+            });
+            if (!stillHere()) return;
+            setBusy(false);
+            if (result.kind === "ok") {
+              paint(result.settings);
+              statusEl.textContent = "Saved.";
+              return;
+            }
+            paintToggle(btn, !desired);
+            statusEl.textContent = "";
+            showError(result.kind === "invalid" ? result.message : "Couldn’t save. Try again.");
+          })();
+        });
+      }
+
+      wire(pdfToggle, "pdfPosterEnabled");
+      wire(videoToggle, "videoPosterEnabled");
+
+      async function loadPosterSettings(): Promise<void> {
+        const result = await getWorkspacePosterSettings(apiOrigin, workspaceName);
+        if (!stillHere()) return;
+        if (result.kind !== "ok") return;
+        paint(result.settings);
+        section.hidden = false;
+      }
+
+      onSession(() => {
+        void loadPosterSettings();
       });
     });
   </script>

@@ -15,7 +15,10 @@ import { buildSearchQuery, type MetaFilter } from "./workspace-search-url";
 import type { WorkspaceCreateQuota } from "@uploads/billing";
 import type { OpenEnrollment, OrgInvite, WorkspaceMemberRow } from "@uploads/api/workspace-members";
 import type { WorkspaceUsageResponse } from "@uploads/api/workspace-usage";
-import type { CommentSettingsResponse } from "@uploads/api/workspace-settings";
+import type {
+  CommentSettingsResponse,
+  PosterSettingsResponse,
+} from "@uploads/api/workspace-settings";
 
 /**
  * `apiOrigin` is either an absolute origin (`https://api.uploads.sh`, or a
@@ -1794,6 +1797,84 @@ export async function patchWorkspaceCommentSettings(
   if (response.status === 404) return { kind: "unavailable", reason: "not_found" };
   if (!response.ok) return { kind: "unavailable", reason: "server" };
   const settings = toCommentSettings(await response.json().catch(() => null));
+  if (!settings) return { kind: "unavailable", reason: "server" };
+  return { kind: "ok", settings };
+}
+
+/**
+ * Per-workspace poster switches. The server already folds an absent record
+ * field to `true`, so both keys are booleans here — never null.
+ */
+export type PosterSettings = PosterSettingsResponse;
+
+export type PosterSettingsResult =
+  | { kind: "ok"; settings: PosterSettings }
+  | { kind: "unavailable"; reason: RequestFailure | "forbidden" | "not_found" | "server" };
+
+function toPosterSettings(body: unknown): PosterSettings | null {
+  if (!body || typeof body !== "object") return null;
+  const b = body as Record<string, unknown>;
+  if (typeof b.pdfPosterEnabled !== "boolean" || typeof b.videoPosterEnabled !== "boolean") {
+    return null;
+  }
+  return { pdfPosterEnabled: b.pdfPosterEnabled, videoPosterEnabled: b.videoPosterEnabled };
+}
+
+/** GET /v1/workspaces/:name/poster-settings — admin/owner only. */
+export async function getWorkspacePosterSettings(
+  apiOrigin: string,
+  name: string,
+): Promise<PosterSettingsResult> {
+  const result = await fetchWithTimeout(
+    `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(name)}/poster-settings`,
+    { credentials: "include", cache: "no-store" },
+  );
+  if (result.kind === "unavailable") return result;
+  const { response } = result;
+  if (response.status === 403) return { kind: "unavailable", reason: "forbidden" };
+  if (response.status === 404) return { kind: "unavailable", reason: "not_found" };
+  if (!response.ok) return { kind: "unavailable", reason: "server" };
+  const settings = toPosterSettings(await response.json().catch(() => null));
+  if (!settings) return { kind: "unavailable", reason: "server" };
+  return { kind: "ok", settings };
+}
+
+export type PosterSettingsPatchResult =
+  | { kind: "ok"; settings: PosterSettings }
+  | { kind: "invalid"; message: string }
+  | { kind: "unavailable"; reason: RequestFailure | "forbidden" | "not_found" | "server" };
+
+/**
+ * PATCH /v1/workspaces/:name/poster-settings. `patch` is partial — an omitted
+ * key leaves that field unchanged. `true` and `false` both persist.
+ */
+export async function patchWorkspacePosterSettings(
+  apiOrigin: string,
+  name: string,
+  patch: Partial<PosterSettings>,
+): Promise<PosterSettingsPatchResult> {
+  const result = await fetchWithTimeout(
+    `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(name)}/poster-settings`,
+    {
+      method: "PATCH",
+      credentials: "include",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    },
+  );
+  if (result.kind === "unavailable") return result;
+  const { response } = result;
+  if (response.status === 400) {
+    const body = (await response.json().catch(() => null)) as {
+      error?: { message?: string };
+    } | null;
+    return { kind: "invalid", message: body?.error?.message ?? "That change isn’t allowed." };
+  }
+  if (response.status === 403) return { kind: "unavailable", reason: "forbidden" };
+  if (response.status === 404) return { kind: "unavailable", reason: "not_found" };
+  if (!response.ok) return { kind: "unavailable", reason: "server" };
+  const settings = toPosterSettings(await response.json().catch(() => null));
   if (!settings) return { kind: "unavailable", reason: "server" };
   return { kind: "ok", settings };
 }

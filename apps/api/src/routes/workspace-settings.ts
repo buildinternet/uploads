@@ -1,9 +1,10 @@
 /**
  * Canonical comment-settings, storage, billing/summary, and comment-preview
  * verticals (issue #613 phase 3, comment-preview added final phase):
- * `/:workspace/comment-settings`, `/:workspace/comment-preview`,
- * `/:workspace/storage`, `/:workspace/storage/verify`, `/:workspace/summary`,
- * `/:workspace/billing`, mounted at `/v1/workspaces` in `index.ts` so its
+ * `/:workspace/comment-settings`, `/:workspace/poster-settings`,
+ * `/:workspace/comment-preview`, `/:workspace/storage`,
+ * `/:workspace/storage/verify`, `/:workspace/summary`, `/:workspace/billing`,
+ * mounted at `/v1/workspaces` in `index.ts` so its
  * public paths are `/v1/workspaces/:workspace/...`. Same self-contained-
  * router shape as `workspace-members.ts`/`workspace-github.ts`: own auth,
  * own `.onError()`, `.fetch()`-able directly by an alias with no
@@ -13,9 +14,10 @@
  * "storage", "billing/summary"; comment-preview follows the comment-settings
  * tier exactly):
  *
- *  - `GET/PATCH /comment-settings`, `GET /comment-preview`,
- *    `GET/POST-verify/PUT/DELETE /storage` — **session-only, admin/owner
- *    tier**. A bearer `Authorization` header 403s `settings_requires_session`
+ *  - `GET/PATCH /comment-settings`, `GET/PATCH /poster-settings`,
+ *    `GET /comment-preview`, `GET/POST-verify/PUT/DELETE /storage` —
+ *    **session-only, admin/owner tier**. A bearer `Authorization` header
+ *    403s `settings_requires_session`
  *    on every route in this tier — none of these verticals has a bearer
  *    analog today (comment-settings/comment-preview: no
  *    `/v1/:workspace/github/comment-settings` exists; storage is
@@ -426,6 +428,100 @@ export async function commentSettingsPatchHandler(c: Context<SettingsVars>) {
     { requireServing: true },
   );
   return c.json(commentSettingsResponse(record));
+}
+
+/** The two poster opt-outs a workspace admin can flip. Absent on the record means on. */
+const POSTER_SETTINGS_KEYS = ["pdfPosterEnabled", "videoPosterEnabled"] as const;
+type PosterSettingsKey = (typeof POSTER_SETTINGS_KEYS)[number];
+type PosterSettingsPatch = Partial<Record<PosterSettingsKey, boolean>>;
+
+/**
+ * Wire type for `GET`/`PATCH /:workspace/poster-settings`. Inferred from the
+ * serializer so apps/web imports the shape (`@uploads/api/workspace-settings`)
+ * instead of re-declaring it. Type-only — never imported at runtime across
+ * workers.
+ */
+export type PosterSettingsResponse = ReturnType<typeof posterSettingsResponse>;
+
+/**
+ * Display values for the settings switches. `undefined` and `true` both read
+ * as on; only an explicit `false` is off. Matches the generation gates, which
+ * treat anything other than `false` as allowed (Flagship still has to be on).
+ */
+function posterSettingsResponse(record: WorkspaceRecord) {
+  return {
+    pdfPosterEnabled: record.pdfPosterEnabled !== false,
+    videoPosterEnabled: record.videoPosterEnabled !== false,
+  };
+}
+
+/**
+ * Partial PATCH for the poster switches. An omitted key leaves that field
+ * unchanged. A present key must be a boolean and is stored as given — `true`
+ * and `false` both persist, so a later read does not depend on field absence.
+ * Unknown keys are ignored, same as comment-settings.
+ */
+function validatePosterSettingsPatch(body: unknown): PosterSettingsPatch {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    throw new ValidationError("request body must be a JSON object", { code: "invalid_settings" });
+  }
+  const record = body as Record<string, unknown>;
+  const patch: PosterSettingsPatch = {};
+  for (const key of POSTER_SETTINGS_KEYS) {
+    if (!(key in record)) continue;
+    const value = record[key];
+    if (typeof value !== "boolean") {
+      throw new ValidationError(`${key} must be a boolean`, {
+        code: "invalid_settings",
+        details: { field: key },
+      });
+    }
+    patch[key] = value;
+  }
+  return patch;
+}
+
+/** `GET /:workspace/poster-settings` — admin/owner only. */
+export async function posterSettingsGetHandler(c: Context<SettingsVars>) {
+  const name = c.req.param("workspace") ?? "";
+  const record = await loadWorkspaceRecord(c.env, name);
+  if (!record) throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
+  return c.json(posterSettingsResponse(record));
+}
+
+/**
+ * `PATCH /:workspace/poster-settings` — admin/owner only. Validated in full
+ * before any write. Does not consult Flagship: the switches save while the
+ * platform flag is off, and the generation gates keep ignoring them until
+ * that flag is on.
+ */
+export async function posterSettingsPatchHandler(c: Context<SettingsVars>) {
+  const name = c.req.param("workspace") ?? "";
+  if (!(await allowWrite(c.env, name))) {
+    throw new RateLimitedError("rate limit exceeded");
+  }
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    throw new ValidationError("request body must be valid JSON", { code: "invalid_settings" });
+  }
+  const patch = validatePosterSettingsPatch(body);
+  const record = await mutateWorkspaceRecord(
+    c.env,
+    name,
+    (current) => {
+      const next = { ...current };
+      for (const key of POSTER_SETTINGS_KEYS) {
+        const value = patch[key];
+        if (value === undefined) continue;
+        next[key] = value;
+      }
+      return next;
+    },
+    { requireServing: true },
+  );
+  return c.json(posterSettingsResponse(record));
 }
 
 /**
@@ -1431,6 +1527,8 @@ export const workspaceSettings = new Hono<SettingsVars>()
   .get("/:workspace/billing", sessionMemberGate(), billingHandler)
   .get("/:workspace/comment-settings", sessionAdminGate(), commentSettingsGetHandler)
   .patch("/:workspace/comment-settings", sessionAdminGate(), commentSettingsPatchHandler)
+  .get("/:workspace/poster-settings", sessionAdminGate(), posterSettingsGetHandler)
+  .patch("/:workspace/poster-settings", sessionAdminGate(), posterSettingsPatchHandler)
   .get("/:workspace/comment-preview", sessionAdminGate(), commentPreviewHandler)
   .get("/:workspace/storage", sessionAdminGate(), storageGetHandler)
   .post("/:workspace/storage/verify", sessionAdminGate(), storageVerifyHandler)

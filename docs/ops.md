@@ -935,7 +935,12 @@ video uploaded that way needs a backfill pass (below).
    regardless of the flag. Slower (needs a deploy) but survives a Flagship
    outage.
 
-3. **`POSTER_LIMITER` denial (fails closed, no action needed)** — poster
+3. **Workspace opt-out.** A workspace owner or admin turns video posters off
+   under Settings → Previews (`videoPosterEnabled: false`). That wins before
+   the rate limiter. Default (unset) generates when the Flagship flag is on.
+   The same page has the PDF-preview switch.
+
+4. **`POSTER_LIMITER` denial (fails closed, no action needed)** — poster
    generation is gated behind its own rate limiter,
    `posterRateLimitGuard` / `POSTER_LIMITER` (`apps/api/src/guards.ts`). If
    that binding is ever absent from the environment, generation fails closed
@@ -945,7 +950,7 @@ video uploaded that way needs a backfill pass (below).
    misconfigured or missing `POSTER_LIMITER` binding is safe, not silently
    permissive.
 
-Any of the three means: existing posters keep serving from
+Any of these means: existing posters keep serving from
 `_internal/posters/`, new writes just stop generating new ones — no data
 loss, no user-visible error (the managed comment/file page renderer falls
 back to its pre-#299 bullet link).
@@ -1052,8 +1057,10 @@ that replacement.
      pdf-poster-generation --default off
    ```
 
-2. **Workspace opt-out.** Set `pdfPosterEnabled: false` on the workspace
-   record. That wins before the rate limiter.
+2. **Workspace opt-out.** A workspace owner or admin turns PDF previews off
+   under Settings → Previews. That writes `pdfPosterEnabled: false` on the
+   record, and that value wins before the rate limiter. The same page has
+   the video-poster switch. Both switches save while the platform flag is off.
 
 3. **`POSTER_LIMITER`.** PDF previews share the video poster limiter. A
    missing binding fails closed.

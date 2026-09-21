@@ -16,11 +16,13 @@ import {
   getWorkspaceInvites,
   getWorkspaceMembers,
   getWorkspacePeople,
+  getWorkspacePosterSettings,
   getWorkspaceStorageStatus,
   getWorkspaceSummary,
   inviteToWorkspace,
   listWorkspaceFolder,
   listWorkspaceStorageBuckets,
+  patchWorkspacePosterSettings,
   putWorkspaceStorage,
   removeWorkspaceMember,
   revokeWorkspaceInvite,
@@ -1292,6 +1294,66 @@ describe("getGithubInstalled", () => {
       vi.stubGlobal("fetch", stub);
       await expect(getGithubInstalled("https://api.test", "acme")).resolves.toBe(false);
     }
+  });
+});
+
+describe("workspace poster settings", () => {
+  it("reads both switches and posts a partial patch", async () => {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === "PATCH") {
+        expect(url).toBe("https://api.test/v1/workspaces/acme/poster-settings");
+        expect(init.body).toBe(JSON.stringify({ pdfPosterEnabled: false }));
+        return Response.json({ pdfPosterEnabled: false, videoPosterEnabled: true });
+      }
+      return Response.json({ pdfPosterEnabled: true, videoPosterEnabled: false });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getWorkspacePosterSettings("https://api.test", "acme")).resolves.toEqual({
+      kind: "ok",
+      settings: { pdfPosterEnabled: true, videoPosterEnabled: false },
+    });
+    await expect(
+      patchWorkspacePosterSettings("https://api.test", "acme", { pdfPosterEnabled: false }),
+    ).resolves.toEqual({
+      kind: "ok",
+      settings: { pdfPosterEnabled: false, videoPosterEnabled: true },
+    });
+  });
+
+  it("maps 403 to forbidden and a non-boolean body to server", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("nope", { status: 403 })),
+    );
+    await expect(getWorkspacePosterSettings("https://api.test", "acme")).resolves.toEqual({
+      kind: "unavailable",
+      reason: "forbidden",
+    });
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ pdfPosterEnabled: "yes", videoPosterEnabled: true })),
+    );
+    await expect(getWorkspacePosterSettings("https://api.test", "acme")).resolves.toEqual({
+      kind: "unavailable",
+      reason: "server",
+    });
+  });
+
+  it("surfaces a 400 message from the patch", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json(
+          { error: { message: "pdfPosterEnabled must be a boolean" } },
+          { status: 400 },
+        ),
+      ),
+    );
+    await expect(
+      patchWorkspacePosterSettings("https://api.test", "acme", { pdfPosterEnabled: false }),
+    ).resolves.toEqual({ kind: "invalid", message: "pdfPosterEnabled must be a boolean" });
   });
 });
 
