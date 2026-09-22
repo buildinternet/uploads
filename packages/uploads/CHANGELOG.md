@@ -1,5 +1,11 @@
 # @buildinternet/uploads
 
+## 0.56.2
+
+### Patch Changes
+
+- 2765e81: `uploads feed create owner/repo` uses that repository. A bare repo argument was ignored, so every create in one checkout reused the current git repo's feed.
+
 ## 0.56.1
 
 ### Patch Changes
