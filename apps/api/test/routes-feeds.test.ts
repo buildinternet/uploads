@@ -298,4 +298,32 @@ describe("feed routes", () => {
     expect(body.items.map((item) => item.filename)).toEqual(["one.png"]);
     expect(body.items[0]).not.toHaveProperty("objectKey");
   });
+
+  it("creates a distinct feed URL per repo in one workspace and reuses the same repo", async () => {
+    const first = await request("/v1/workspaces/alpha/feeds", {
+      method: "POST",
+      body: JSON.stringify({ repo: "buildinternet/uploads" }),
+    });
+    const second = await request("/v1/workspaces/alpha/feeds", {
+      method: "POST",
+      body: JSON.stringify({ repo: "buildinternet/releases" }),
+    });
+    expect(first.status).toBe(201);
+    expect(second.status).toBe(201);
+    const uploads = (await first.json()) as { id: string; url: string; repo: string };
+    const releases = (await second.json()) as { id: string; url: string; repo: string };
+    expect(uploads.repo).toBe("buildinternet/uploads");
+    expect(releases.repo).toBe("buildinternet/releases");
+    expect(uploads.id).not.toBe(releases.id);
+    expect(uploads.url).not.toBe(releases.url);
+    expect(uploads.url).toBe(`https://uploads.test/c/${uploads.id}`);
+    expect(releases.url).toBe(`https://uploads.test/c/${releases.id}`);
+
+    const again = await request("/v1/workspaces/alpha/feeds", {
+      method: "POST",
+      body: JSON.stringify({ repo: "buildinternet/uploads" }),
+    });
+    expect(again.status).toBe(200);
+    expect(((await again.json()) as { id: string; url: string }).url).toBe(uploads.url);
+  });
 });

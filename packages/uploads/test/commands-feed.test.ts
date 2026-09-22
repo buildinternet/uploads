@@ -63,6 +63,81 @@ describe("runFeed", () => {
     expect(JSON.parse(stdout.mock.calls.map(([text]) => String(text)).join(""))).toEqual(feed);
   });
 
+  it("creates a distinct feed for each positional repo", async () => {
+    const created: Array<{ repo: string; path?: string | null }> = [];
+    const client = {
+      createFeed: async (opts: { repo: string; path?: string | null }) => {
+        created.push(opts);
+        const slug = opts.repo.replaceAll("/", "_");
+        return {
+          ...feed,
+          id: `feed_${slug}`,
+          repo: opts.repo,
+          title: opts.repo,
+          url: `https://uploads.test/c/${slug}`,
+        };
+      },
+    } as unknown as UploadsClient;
+    const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+    const textCtx = { ...ctxWith(client), json: false, quiet: false };
+    const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+
+    expect(await runFeed(textCtx, ["create", "buildinternet/uploads"])).toBe(0);
+    expect(await runFeed(textCtx, ["create", "BuildInternet/Releases"])).toBe(0);
+
+    expect(created).toEqual([
+      { repo: "buildinternet/uploads", path: undefined },
+      { repo: "buildinternet/releases", path: undefined },
+    ]);
+    expect(stdout.mock.calls.map(([text]) => String(text))).toEqual([
+      "https://uploads.test/c/buildinternet_uploads\n",
+      "https://uploads.test/c/buildinternet_releases\n",
+    ]);
+    expect(stderr.mock.calls.map(([text]) => String(text)).join("")).toContain(
+      "warning: feeds are public",
+    );
+  });
+
+  it("treats a matching positional and --repo as one repository", async () => {
+    const created: Array<{ repo: string; number?: number; kind?: "pull" | "issue" }> = [];
+    const client = {
+      createFeed: async (opts: { repo: string; number?: number; kind?: "pull" | "issue" }) => {
+        created.push(opts);
+        return { ...feed, repo: opts.repo, number: opts.number ?? null, kind: opts.kind ?? null };
+      },
+    } as unknown as UploadsClient;
+    vi.spyOn(process.stdout, "write").mockReturnValue(true);
+    expect(
+      await runFeed(ctxWith(client), ["create", "Acme/App", "--repo", "acme/app", "--pr", "4"]),
+    ).toBe(0);
+    expect(created).toEqual([{ repo: "acme/app", path: undefined, number: 4, kind: "pull" }]);
+  });
+
+  it("rejects a positional repo that disagrees with --repo or --github", async () => {
+    const client = {
+      createFeed: async () => {
+        throw new Error("createFeed should not run");
+      },
+    } as unknown as UploadsClient;
+    await expect(
+      runFeed(ctxWith(client), [
+        "create",
+        "buildinternet/releases",
+        "--repo",
+        "buildinternet/uploads",
+      ]),
+    ).rejects.toThrow(/does not match --repo/);
+    await expect(
+      runFeed(ctxWith(client), ["create", "buildinternet/releases", "--github", "acme/app#8"]),
+    ).rejects.toThrow(/does not match --github/);
+    await expect(runFeed(ctxWith(client), ["create", "not-a-repo"])).rejects.toThrow(
+      /repository must be owner\/name/,
+    );
+    await expect(runFeed(ctxWith(client), ["create", "acme/app", "extra"])).rejects.toBeInstanceOf(
+      UsageError,
+    );
+  });
+
   it("passes an optional path filter through", async () => {
     const client = {
       createFeed: async (opts: { repo: string; path?: string | null }) => ({

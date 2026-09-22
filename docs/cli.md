@@ -385,13 +385,15 @@ latest shots across a repo; a PR feed when reviewers should see only that
 pull request.
 
 ```bash
+uploads feed create owner/repo
 uploads feed create --repo owner/repo
 uploads feed create --repo owner/repo --pr 123
 uploads feed create --github owner/repo#123
 uploads feed create --repo owner/repo --path /settings
 ```
 
-Creating the same scope again returns the existing URL. Anyone with that
+A positional `owner/repo` is the same as `--repo`. Different repos get different
+feeds. Creating the same scope again returns the existing URL. Anyone with that
 link can view the feed. Each shot also has `/c/<id>/<item>` with previous /
 next. Syncing a managed PR comment creates the PR feed if needed and points
 image clicks at that pager. MCP: `feed_create` (`repo`, plus `pr` / `issue` /

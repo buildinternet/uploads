@@ -35,10 +35,11 @@ Anyone who knows the URL can view the feed. GitHub repository visibility does no
 
 ## Create a feed <a class="anchor" href="#create" aria-label="Link to this section">#</a>
 
-Create a repo-wide feed. This prints its public URL. Omit `--repo` and the CLI uses the current git
-remote:
+Create a repo-wide feed. This prints its public URL. Pass `owner/repo` or `--repo`. Omit both and
+the CLI uses the current git remote. Two different repos get two feeds:
 
 ```bash
+uploads feed create owner/repo
 uploads feed create --repo owner/repo
 ```
 
