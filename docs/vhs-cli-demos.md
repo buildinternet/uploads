@@ -235,8 +235,13 @@ Publish the preview still at `f/docs/vhs-cli/<name>-preview.png`.
 ## Hosted demos
 
 These four recordings are on the `default` workspace, under `f/docs/vhs-cli/`.
-Replace one with the `uploads put` command above. Use the same key. The README
-embeds the feed-create and changelog gifs.
+Replace one with the `uploads put` command above. Use the same key.
+
+The README embeds feed-create only. That clip is one command and one URL.
+changelog, feed-create-pr, and docs-feeds stay in this table as hosted
+examples. They are not README embeds. Dense multi-line CLI output wraps and
+scrolls, so a mid-GIF frame can show a truncated fragment. Re-record that
+kind of command with care before it goes in the README or in a social post.
 
 | Name           | Command                                                      | GIF                                                                | MP4                                                                | Preview                                                                    |
 | -------------- | ------------------------------------------------------------ | ------------------------------------------------------------------ | ------------------------------------------------------------------ | -------------------------------------------------------------------------- |

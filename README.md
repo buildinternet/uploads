@@ -198,15 +198,7 @@ and change feeds (repo-wide or one pull request), lives in
 
 <sub>`uploads feed create --repo buildinternet/uploads`.</sub>
 
-`uploads changelog` prints recent product updates:
-
-<div align="center">
-  <img src="https://embed.uploads.sh/default/f/docs/vhs-cli/changelog.gif" alt="Terminal recording of uploads changelog --limit 5, which prints recent product updates" width="760">
-</div>
-
-<sub>`uploads changelog --limit 5`.</sub>
-
-These recordings follow the house style in
+This recording follows the house style in
 [docs/vhs-cli-demos.md](docs/vhs-cli-demos.md).
 
 REST routes are in [docs/api.md](docs/api.md).
