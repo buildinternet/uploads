@@ -198,9 +198,6 @@ and change feeds (repo-wide or one pull request), lives in
 
 <sub>`uploads feed create --repo buildinternet/uploads`.</sub>
 
-This recording follows the house style in
-[docs/vhs-cli-demos.md](docs/vhs-cli-demos.md).
-
 REST routes are in [docs/api.md](docs/api.md).
 
 ## What's in this repo
