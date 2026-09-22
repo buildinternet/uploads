@@ -294,6 +294,7 @@ It is not a curated gallery (those stay `uploads gallery create`).
 - **PR feed** — share “everything on this pull request,” for reviewers or Slack.
 
 ```bash
+uploads feed create owner/repo
 uploads feed create --repo owner/repo
 uploads feed create --repo owner/repo --pr 123
 uploads feed create --github owner/repo#123

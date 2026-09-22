@@ -31,7 +31,7 @@ uploads put --url https://cdn.example/shot.png --pr 123
 uploads put --url http://localhost:4321/shot.png
 uploads gallery create --title "Release screenshots"
 uploads put ./after.png --gallery gal_example
-uploads feed create --repo owner/repo
+uploads feed create owner/repo
 uploads feed create --repo owner/repo --pr 123
 # custom metadata (queryable): page URL, in-app path, which surface
 uploads put ./shot.png --meta url=https://app.example/settings --meta path=/settings --meta app=web
@@ -203,12 +203,14 @@ a repo feed for the latest shots across a repo; use a PR feed when reviewers sho
 that pull request. The API returns the canonical public URL.
 
 ```bash
+uploads feed create owner/repo
 uploads feed create --repo owner/repo
 uploads feed create --repo owner/repo --pr 123
 uploads feed create --github owner/repo#123
 uploads feed create --repo owner/repo --path /settings
 ```
 
+A positional `owner/repo` is the same as `--repo`. Different repos get different feeds.
 Creating the same scope again returns the existing URL. Anyone who knows that URL can
 view the feed. Each shot also has `/c/<id>/<item>` with previous / next. Syncing a
 managed PR comment creates the PR feed if needed and points image clicks at that pager.

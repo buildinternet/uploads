@@ -745,6 +745,7 @@ A feed is a public newest-first page of screenshots already tagged with `gh.repo
 - **PR (or issue) feed** — the same feed, scoped to one pull request. Use this when reviewers should see only that PR.
 
 ```bash
+uploads feed create owner/repo
 uploads feed create --repo owner/repo
 uploads feed create --repo owner/repo --pr 123
 uploads feed create --github owner/repo#123
@@ -752,7 +753,7 @@ uploads feed create --repo owner/repo --path /settings
 uploads feed show feed_example
 ```
 
-`--pr` and `--issue` take a number and need `--repo` (or the current git remote). `--github` takes `owner/repo#123` or a GitHub issue/PR URL and can supply the repo itself. `--pr` / `--issue` / `--github` are mutually exclusive. Optional `--path` can combine with any of them.
+A positional `owner/repo` is the same as `--repo`. Different repos get different feeds. `--pr` and `--issue` take a number and need that repo (or the current git remote). `--github` takes `owner/repo#123` or a GitHub issue/PR URL and can supply the repo itself. `--pr` / `--issue` / `--github` are mutually exclusive. Optional `--path` can combine with any of them.
 
 Each shot also has `/c/<id>/<item>` with previous / next and a 1 of N count. Syncing the managed PR comment creates that PR-scoped feed if needed (same idempotent create as `--pr`) and points each image's click-through at the item page. `<img src>` stays on the embed URL. Standalone `/f/…` pages stay for one-off shares.
 
