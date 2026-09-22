@@ -43,6 +43,11 @@ managed comment (via the GitHub App webhook, or the next `uploads attach` /
 `uploads attach --promote` without it). See `skills/github-screenshots` for
 the full workflow.
 
+**CLI demos for the README and docs** use Charm VHS. Host the gif and embed
+the `embed.uploads.sh` URL. Do not commit the binary. The runbook is
+[docs/vhs-cli-demos.md](docs/vhs-cli-demos.md). Social scratch stays in
+`.context/`.
+
 Keep API and web separate deployables. All storage access goes through
 `createStorage()` in `packages/storage` — never import files-sdk adapters or
 touch the R2 binding directly from route code. Adding a provider = a new case

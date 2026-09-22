@@ -21,12 +21,13 @@ This folder is the repo companion: CLI and API reference, then contributor and o
 
 ## Contributors
 
-| Doc                                   | Contents                    |
-| ------------------------------------- | --------------------------- |
-| [CONTRIBUTING.md](../CONTRIBUTING.md) | Setup, checks, and PR shape |
-| [AGENTS.md](../AGENTS.md)             | Agent working conventions   |
-| [local-dev](local-dev.md)             | Bootstrap and the dev stack |
-| [roadmap](roadmap.md)                 | Planned work                |
+| Doc                                   | Contents                                  |
+| ------------------------------------- | ----------------------------------------- |
+| [CONTRIBUTING.md](../CONTRIBUTING.md) | Setup, checks, and PR shape               |
+| [AGENTS.md](../AGENTS.md)             | Agent working conventions                 |
+| [local-dev](local-dev.md)             | Bootstrap and the dev stack               |
+| [vhs-cli-demos](vhs-cli-demos.md)     | Record README and docs CLI clips with VHS |
+| [roadmap](roadmap.md)                 | Planned work                              |
 
 ## Operators and self-hosting
 
