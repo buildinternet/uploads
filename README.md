@@ -189,6 +189,15 @@ redaction on a capture).
 Full CLI usage, including annotations, managed comments, public galleries,
 and change feeds (repo-wide or one pull request), lives in
 [docs/cli.md](docs/cli.md).
+
+`uploads feed create` prints a live page of the screenshots on a repo:
+
+<div align="center">
+  <img src="https://embed.uploads.sh/default/f/docs/vhs-cli/feed-create.gif" alt="Terminal recording of uploads feed create --repo buildinternet/uploads, which prints a feed URL" width="760">
+</div>
+
+<sub>`uploads feed create --repo buildinternet/uploads`.</sub>
+
 REST routes are in [docs/api.md](docs/api.md).
 
 ## What's in this repo
