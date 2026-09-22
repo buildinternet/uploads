@@ -206,6 +206,9 @@ and change feeds (repo-wide or one pull request), lives in
 
 <sub>`uploads changelog --limit 5`.</sub>
 
+These recordings follow the house style in
+[docs/vhs-cli-demos.md](docs/vhs-cli-demos.md).
+
 REST routes are in [docs/api.md](docs/api.md).
 
 ## What's in this repo
