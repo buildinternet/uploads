@@ -1,5 +1,11 @@
 # @buildinternet/uploads
 
+## 0.56.3
+
+### Patch Changes
+
+- 558a7d6: `uploads docs` offline fallback catalog: screenshot and annotate docs moved to their own page, `/docs/capture`.
+
 ## 0.56.2
 
 ### Patch Changes
