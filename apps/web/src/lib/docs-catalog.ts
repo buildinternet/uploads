@@ -34,8 +34,6 @@ export const DOCS_SEARCH_ALIASES: Record<string, string[]> = {
     "attach",
     "stage",
     "staging",
-    "screenshot",
-    "annotate",
     "pr",
     "issue",
     "before",
@@ -43,6 +41,7 @@ export const DOCS_SEARCH_ALIASES: Record<string, string[]> = {
     "put",
     "share",
   ],
+  capture: ["screenshot", "capture", "annotate", "redact", "callout"],
   galleries: ["gallery", "collection"],
   feeds: [
     "feed",

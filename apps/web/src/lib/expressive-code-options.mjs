@@ -21,15 +21,16 @@ export const expressiveCodeOptions = {
   useDarkModeMediaQuery: false,
   defaultProps: {
     frame: "none",
-    // Fenced blocks in the docs are short; wrapping beats a hidden scroll
-    // region for prose-width commands with long flags.
+    // Commands and config stay on one line each, so a wrapped flag never
+    // reads as a new line of input; keep them short enough to fit the measure.
     wrap: false,
     // One-line commands stay bare panels, but terminal output gets the full
     // terminal chrome so example output reads as a distinct artifact, not a
-    // flat text box. Config/file examples opt into an editor frame per-fence
-    // with `title="…" frame="code"`.
+    // flat text box. Output wraps: real output carries long storage URLs, and
+    // a hidden scroll region hides the part worth reading. Config/file
+    // examples opt into an editor frame per-fence with `title="…" frame="code"`.
     overridesByLang: {
-      ansi: { frame: "terminal" },
+      ansi: { frame: "terminal", wrap: true },
     },
   },
   styleOverrides: {

@@ -94,20 +94,16 @@ export const FALLBACK_DOCS_CATALOG: DocsCatalog = {
       title: "Attach & share",
       url: "https://uploads.sh/docs/attach-pull-request-images",
       summary:
-        "Attach screenshots and video to GitHub PRs and issues, get a public URL for any accepted file, capture a screenshot, and bake callouts or redactions onto it with the uploads CLI.",
-      aliases: [
-        "attach",
-        "stage",
-        "staging",
-        "screenshot",
-        "annotate",
-        "pr",
-        "issue",
-        "before",
-        "after",
-        "put",
-        "share",
-      ],
+        "Attach screenshots and video to GitHub PRs and issues, stage them before a PR exists, pair a before and after, and get a public URL for any accepted file with the uploads CLI.",
+      aliases: ["attach", "stage", "staging", "pr", "issue", "before", "after", "put", "share"],
+    },
+    {
+      page: "capture",
+      title: "Capture & annotate",
+      url: "https://uploads.sh/docs/capture",
+      summary:
+        "Capture a screenshot of a URL or local HTML file and host it in one step, then bake boxes, labels, and redactions onto it with the uploads CLI.",
+      aliases: ["screenshot", "capture", "annotate", "redact", "callout"],
     },
     {
       page: "galleries",

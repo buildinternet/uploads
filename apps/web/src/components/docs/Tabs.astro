@@ -74,6 +74,12 @@ const panels = rendered.replace(
     margin-bottom: -1px;
     padding: 6px 12px;
     font: var(--text-meta) var(--mono);
+    /* Labels are CLI flags; Geist Mono's calt joins " --" into one dash. Must
+       follow the `font:` shorthand, which resets feature settings. */
+    font-variant-ligatures: none;
+    font-feature-settings:
+      "calt" 0,
+      "liga" 0;
     color: var(--muted);
     cursor: pointer;
   }

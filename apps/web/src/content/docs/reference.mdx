@@ -5,7 +5,7 @@ heading: Reference
 tagline: Manage what you've uploaded, and what's worth knowing before you rely on it.
 navLabel: Reference
 navSlug: reference
-navOrder: 7
+navOrder: 8
 ---
 
 import RefFigure from "../../components/docs/RefFigure.astro";
@@ -64,7 +64,7 @@ uploads --help        # everything else
 
 - **Hosted files are public.** Anyone with the URL can view them, even media attached to private
   repositories. Don't upload secrets or sensitive UI — if a capture shows credentials, solid-redact
-  them first with [`uploads annotate`](/docs/attach-pull-request-images#annotate) or
+  them first with [`uploads annotate`](/docs/capture#annotate) or
   `screenshot --annotate` (blurred text can be recoverable).
 - **The visibility toggle unlists — it doesn't lock down bytes.** Marking a file "private" hides it
   from your workspace's public file listing and gates the `/f/…` page behind sign-in. The raw file
@@ -72,6 +72,11 @@ uploads --help        # everything else
   caches can keep serving recently-public bytes for a short window after the toggle. Treat it as
   "unlisted," not "private." True byte-level privacy would require a workspace with no public domain
   (signed URLs only), which isn't how uploads.sh workspaces work today.
+- **Some image metadata is public.** `uploads` re-encodes images to WebP and strips their EXIF. Before
+  it strips, it saves `viewport`, `device`, `software`, and `captured` as searchable metadata and
+  shows them on the file's public page. It never keeps GPS coordinates, serial numbers, or personal
+  names. Pass `--no-auto` to save none of it, `--keep-exif` to keep the EXIF, or `--no-optimize` to
+  skip processing entirely.
 - **Share pages support embeds.** Every public file, gallery, and [change feed](/docs/feeds) has a
   page at `/f/…`, `/g/…`, or `/c/…` with [oEmbed](https://oembed.com/) discovery, so tools that
   unfurl links can show the media. Resolve one directly via `/oembed`, passing the page URL as its
