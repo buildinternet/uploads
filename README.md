@@ -186,6 +186,9 @@ That installs three skills: `github-screenshots` (visuals → PRs/issues),
 `uploads-cli` (full CLI reference), and `annotate-screenshots` (callouts and
 redaction on a capture).
 
+On Claude Code or Codex, the [plugin](https://uploads.sh/docs/agents#plugin)
+bundles the skills, the MCP server, and a pre-PR screenshot reminder.
+
 Full CLI usage, including annotations, managed comments, public galleries,
 and change feeds (repo-wide or one pull request), lives in
 [docs/cli.md](docs/cli.md).
