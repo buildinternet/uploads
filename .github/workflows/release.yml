@@ -152,16 +152,19 @@ jobs:
           ./mcp-publisher validate
 
           # npm metadata can lag the publish; the registry reads mcpName from registry.npmjs.org.
+          # Observed lag between changesets' "New tag" and npm listing the version is
+          # ~2.5 min, so poll for up to 6 min. --prefer-online skips npm's local
+          # packument cache so each attempt sees a fresh response.
           # Skip the wait on a registry-only retry: the version is already on npm.
           version="$(node -p "require('./packages/uploads/package.json').version")"
           name=""
-          for attempt in 1 2 3 4 5 6 7 8 9 10; do
-            name="$(npm view "@buildinternet/uploads@${version}" mcpName 2>/dev/null || true)"
+          for attempt in $(seq 1 36); do
+            name="$(npm view --prefer-online "@buildinternet/uploads@${version}" mcpName 2>/dev/null || true)"
             if [ "$name" = "sh.uploads/mcp" ]; then
               break
             fi
-            echo "npm mcpName not visible yet (attempt ${attempt}); waiting"
-            sleep 6
+            echo "npm mcpName not visible yet (attempt ${attempt}/36); waiting"
+            sleep 10
           done
           if [ "$name" != "sh.uploads/mcp" ]; then
             echo "npm has not published mcpName for @buildinternet/uploads@${version} yet"
