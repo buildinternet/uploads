@@ -1,6 +1,6 @@
 ---
 title: Set up your agent
-description: Install the uploads agent skill and MCP server so your coding agent can attach screenshots to GitHub on its own. Includes experimental AI image labels.
+description: Install the uploads agent skills and MCP server so your coding agent can attach screenshots to GitHub on its own. Includes experimental AI image labels.
 heading: Set up your agent
 tagline: Teach a coding agent to upload and attach media on its own.
 navLabel: Set up your agent
@@ -9,48 +9,62 @@ navOrder: 7
 toc:
   - { id: install, label: Install }
   - { id: plugin, label: Claude Code & Codex plugins }
-  - { id: skill-vs-mcp, label: Skill vs. MCP }
-  - { id: stage-as-you-go, label: Stage as you go }
-  - { id: experimental-ai-tags, label: Experimental AI labels }
   - { id: instructions-file, label: Instructions file }
   - { id: pre-pr-reminder, label: Pre-PR reminder }
+  - { id: skill-vs-mcp, label: Skill vs. MCP }
+  - { id: experimental-ai-tags, label: Experimental AI labels }
 ---
+
+import TabItem from "../../components/docs/TabItem.astro";
+import Tabs from "../../components/docs/Tabs.astro";
 
 <section class="lead" id="install">
 
 ## Install <a class="anchor" href="#install" aria-label="Link to this section">#</a>
 
-One command detects your agent runtime and installs everything it needs: the agent skills (attach
-workflow, CLI reference, and screenshot annotations) plus the hosted MCP server.
+`uploads install` finds your agent runtime and adds the agent skills and the hosted MCP server:
 
 ```bash
 uploads install
 ```
 
 <div class="pointer">
-  Using Claude Code or Codex? Install everything as one plugin instead, with the pre-PR hook and a
-  slash command included — [see Claude Code & Codex plugins <span class="go">→</span>](#plugin).
+  Using Claude Code or Codex? [Install the plugin](#plugin) instead.
 </div>
 
 ### Or set up by hand
 
-Add the skills with `npx skills`, then register the MCP server with your runtime's own MCP
-registration. These examples cover Claude Code, Codex, and OpenCode:
+Add the skills:
 
 ```bash
 npx skills add buildinternet/uploads
 ```
 
+Then register the MCP server with your runtime:
+
+<Tabs syncKey="agent-runtime">
+  <TabItem label="Claude Code">
+
 ```bash
-# Claude Code
 claude mcp add --transport http uploads https://agents.uploads.sh/mcp
+```
 
-# Codex
+  </TabItem>
+  <TabItem label="Codex">
+
+```bash
 codex mcp add uploads --url https://agents.uploads.sh/mcp
+```
 
-# OpenCode
+  </TabItem>
+  <TabItem label="OpenCode">
+
+```bash
 opencode mcp add uploads --url https://agents.uploads.sh/mcp
 ```
+
+  </TabItem>
+</Tabs>
 
 </section>
 
@@ -58,8 +72,8 @@ opencode mcp add uploads --url https://agents.uploads.sh/mcp
 
 ## Claude Code & Codex plugins <a class="anchor" href="#plugin" aria-label="Link to this section">#</a>
 
-Install the agent skills, the MCP server, and a pre-PR screenshot
-reminder hook as one plugin, from the uploads marketplace. Add the marketplace, then install:
+The plugin bundles the skills, the MCP server, and the [pre-PR reminder](#pre-pr-reminder). In
+Claude Code, add the marketplace, then install:
 
 ```text
 /plugin marketplace add buildinternet/uploads
@@ -69,44 +83,33 @@ reminder hook as one plugin, from the uploads marketplace. Add the marketplace, 
 /plugin install uploads@uploads
 ```
 
-Codex uses the same repo as a plugin (`.codex-plugin/plugin.json`) — the same skills, MCP server, and
-hook. After enabling it, open `/hooks` once and trust the hook if Codex asks. Both plugins run
-`uploads hook pre-pr-screenshot`, so keep the `uploads` CLI on your `PATH` and run `uploads login`
-once.
+Codex loads the same repo as a plugin. After you enable it, open `/hooks` once and trust the hook
+if Codex asks.
+
+The reminder hook calls the `uploads` CLI, so install it and run `uploads login` once.
 
 </section>
 
-<section id="skill-vs-mcp">
+<section id="instructions-file">
 
-## Skill vs. MCP <a class="anchor" href="#skill-vs-mcp" aria-label="Link to this section">#</a>
+## Tell the agent to capture as it works <a class="anchor" href="#instructions-file" aria-label="Link to this section">#</a>
 
-The skill teaches the agent when and how to use the CLI — for example staging a before/after with
-`uploads put`, or baking callouts onto a capture with `uploads screenshot --annotate`.
+Add a block like this to your project's instructions file: `AGENTS.md`, `CLAUDE.md`,
+`.cursor/rules`, or whatever your runtime reads.
 
-The local stdio MCP (`uploads mcp`) exposes the same tools as the CLI, including `attach` and `put`
-with `contentUrl`. Register it with either client:
+```md title="AGENTS.md" frame="code"
+## Screenshots
+When a change is visible (UI, layout, styling), capture it as you go.
+Don't wait for the PR. After each meaningful visual change:
 
-```bash
-# Claude Code
-claude mcp add uploads -- uploads mcp
+  uploads put ./shot.png --meta path=/route --state after
 
-# Codex
-codex mcp add uploads -- uploads mcp
+On a branch, that stages the file for the PR. After opening the PR, run
+`uploads attach --promote` to post everything staged. It's safe to run
+even if the GitHub App already posted them.
 ```
 
-The hosted MCP at `https://agents.uploads.sh/mcp` is for agents with no local checkout. It has
-`put`, `list`, `delete`, and more, but not `attach`, and no git defaults — pass `repo` and `branch`
-to `put` to stage, then `repo`, `pr`, and `branch` to `promote` once a PR exists. Hosted `put`
-takes `contentBase64` or `contentUrl` (a public HTTPS file the worker fetches; the filename comes
-from the URL path when you omit it). Hosted `put`/`comment` honor a repo's
-[`.uploads.yml`](/docs/comment-config) the same way the bot does.
-
-<div class="pointer">
-  Hosted and stdio MCP also expose <code>feed_create</code> / <code>feed_get</code>. Pass
-  <code>repo</code> for a repo-wide feed, or <code>repo</code> plus <code>pr</code> (or
-  <code>github</code> alone) to scope it to one pull request —
-  <a href="/docs/feeds">see change feeds <span class="go">→</span></a>.
-</div>
+For how staging works, see [Stage before a PR exists](/docs/attach-pull-request-images#staging).
 
 <div class="note">
   Want the guided version? The [agent walkthrough](/github-screenshots) takes a coding agent from
@@ -115,24 +118,50 @@ from the URL path when you omit it). Hosted `put`/`comment` honor a repo's
 
 </section>
 
-<section id="stage-as-you-go">
+<section id="pre-pr-reminder">
 
-## Stage screenshots as the agent works <a class="anchor" href="#stage-as-you-go" aria-label="Link to this section">#</a>
+## Pre-PR screenshot reminder <a class="anchor" href="#pre-pr-reminder" aria-label="Link to this section">#</a>
 
-Any agent that can run a shell command can capture at each visual milestone and stage it — no PR
-required yet, and no `--branch` flag needed on a branch:
+Before `gh pr create`, the reminder hook nudges the agent if the branch touches UI files and
+nothing is staged. It never blocks the PR. Turn it off with `UPLOADS_HOOK_DISABLE=1`.
+
+- **Claude Code and Codex:** included in the [plugin](#plugin).
+- **Grok and Cursor:** `uploads install` adds it when those tools are installed.
+
+</section>
+
+<section id="skill-vs-mcp">
+
+## Skill vs. MCP <a class="anchor" href="#skill-vs-mcp" aria-label="Link to this section">#</a>
+
+The **skills** teach the agent when to capture and which `uploads` command to run. They need the
+CLI.
+
+The **MCP server** gives the agent upload tools directly. There are two:
+
+| Server                                  | Use it when                     | Differences                                                                                                  |
+| --------------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Local, `uploads mcp`                    | The agent runs on your machine  | Same tools as the CLI, including `attach`.                                                                   |
+| Hosted, `https://agents.uploads.sh/mcp` | The agent has no local checkout | No `attach` and no git defaults. Pass `repo` and `branch` to `put`, then call `promote` once the PR exists. |
+
+To use the local server instead of the hosted one:
+
+<Tabs syncKey="agent-runtime">
+  <TabItem label="Claude Code">
 
 ```bash
-uploads put ./shot.png --state before   # or --state after
+claude mcp add uploads -- uploads mcp
 ```
 
-A bare `uploads screenshot` stages the same way, carrying its derived `path`, `url`, `env`, and
-`viewport` metadata through promotion. Keep using `--state` — it's the one thing no tool can infer
-from the image.
+  </TabItem>
+  <TabItem label="Codex">
 
-Once a PR opens, the comment assembles itself: via the GitHub App webhook, or the next
-`uploads attach` (or `uploads attach --promote`) without the App. See the
-[stage-as-you-go walkthrough](/github-screenshots) for the full loop.
+```bash
+codex mcp add uploads -- uploads mcp
+```
+
+  </TabItem>
+</Tabs>
 
 </section>
 
@@ -141,88 +170,30 @@ Once a PR opens, the comment assembles itself: via the GitHub App webhook, or th
 ## Experimental: AI labels <a class="anchor" href="#experimental-ai-tags" aria-label="Link to this section">#</a>
 
 <div class="note">
-  Experimental and <strong>off by default</strong>. Flagship
-  <code>llm-file-classifier</code> allowlists the workspace slug
-  (<code>org</code> / <code>workspace</code>). Fail-open: a classifier error
-  never fails the upload. Labels land after a REST put — they are not in the
-  put response. Presigned uploads are skipped.
+  Experimental and **off by default**. The uploads.sh team turns it on per workspace. To try it,
+  open an issue on [the GitHub repo](https://github.com/buildinternet/uploads).
 </div>
 
-When the experiment is on, a successful `uploads put` (or REST PUT) may later
-grow server-owned `ai.*` labels. Human `path` and `state` stay primary when you
-set them — Storage and the file page show AI labels under those chips.
+When it's on, uploads.sh labels each file shortly after it's uploaded. The labels never replace a
+`path` or `state` you set, and a labeling error never fails the upload. A label it isn't confident
+about is left off.
 
 | Key             | Values                                                                                                                                                |
 | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ai.kind`       | `screenshot` `photo` `diagram` `document` `code` `ui` `other`                                                                                         |
 | `ai.surface`    | `mobile` `desktop` `tablet` `unknown`                                                                                                                 |
 | `ai.screen`     | `login` `signup` `settings` `profile` `dashboard` `analytics` `list` `detail` `form` `search` `modal` `onboarding` `empty` `error` `checkout` `other` |
-| `ai.tags`       | 3–5 free kebab-case labels                                                                                                                            |
-| `ai.summary`    | one short sentence                                                                                                                                    |
-| `ai.classifier` | `v2` (`v1` files omit surface and screen)                                                                                                             |
+| `ai.tags`       | Up to five kebab-case labels (raster images under 512 KiB)                                                                                            |
+| `ai.summary`    | One short sentence (raster images under 512 KiB)                                                                                                      |
+| `ai.classifier` | The labeler version, currently `v3`                                                                                                                   |
 
-Read one file after the upload finishes:
-
-```bash
-uploads meta get screenshots/app/settings.png
-```
-
-<div class="pointer">
-  MCP equivalent is <code>get_metadata</code>. Filter later with
-  <code>uploads find</code> or <code>find_files</code>.
-</div>
+Labels aren't in the upload's response. Read them afterward, or search by them:
 
 ```ansi
-uploads find ai.screen=login
-uploads find ai.surface=mobile
-uploads find ai.kind=screenshot
+uploads meta get <key>          # one file's labels
+uploads find ai.screen=login    # files with a label
 ```
 
-<div class="note">
-  Clients cannot set or delete <code>ai.*</code>. The prefix is reserved, like
-  <code>image.width</code>. Do not send <code>--meta ai.tags=…</code>.
-</div>
-
-</section>
-
-<section id="instructions-file">
-
-## Put it in your instructions file <a class="anchor" href="#instructions-file" aria-label="Link to this section">#</a>
-
-Add a block like this to your project's instructions file — `AGENTS.md`, `CLAUDE.md`,
-`.cursor/rules`, wherever your runtime reads project instructions:
-
-```md title="AGENTS.md" frame="code"
-## Screenshots
-When a change is visually observable (UI, layout, styling), capture it as you
-go — don't wait until the PR is open. After each meaningful visual change:
-
-  uploads put ./shot.png --state before   # or --state after
-
-On a branch, that stages automatically — no --branch flag needed. Stage
-before/after pairs where it makes sense. No need to open the PR first —
-staged files are promoted into the PR's attachments comment automatically.
-```
-
-Requires the `uploads` CLI on `PATH` and `uploads login` already run once — see [Install](#install)
-above.
-
-</section>
-
-<section id="pre-pr-reminder">
-
-## Pre-PR screenshot reminder <a class="anchor" href="#pre-pr-reminder" aria-label="Link to this section">#</a>
-
-Before `gh pr create`, agents can get a non-blocking nudge when the branch touches UI files and
-nothing is staged on uploads.sh. The handler is `uploads hook pre-pr-screenshot` — fail-open, never
-blocks the PR. Disable with `UPLOADS_HOOK_DISABLE=1`.
-
-- **Claude Code** and **Codex** — bundled in the [plugin](#plugin) (Codex: trust once via `/hooks`).
-- **Grok** and **Cursor** — `uploads install hooks` writes a user-global manifest when those tools
-  are present (included in plain `uploads install`).
-
-No reminder is required — `uploads attach --promote` (no file arguments) right after opening a PR
-picks up everything staged against the branch and posts or refreshes the attachments comment; it
-exits `0` even if nothing was staged.
+From an MCP client, use `get_metadata` and `find_files`. Clients can't set or delete `ai.*` keys.
 
 </section>

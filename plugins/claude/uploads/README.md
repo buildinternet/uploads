@@ -10,9 +10,9 @@ a generic [Agent Plugins](https://agent-plugins.org) manifest
 ([`plugin.json`](../../../plugin.json) + [`mcp.json`](../../../mcp.json)) that
 Cursor and other spec-compliant clients load directly. Per-client adapters
 (`.claude-plugin/`, `.codex-plugin/`) are enumerated in the root manifest's
-`extensions` block. Open-spec clients auto-discover every `skills/` child
-(including the maintainer-oriented docs-page-style skill — the spec has no
-allowlist); the Claude marketplace entry lists the three public skills.
+`extensions` block. Open-spec clients auto-discover every `skills/` child, so
+`skills/` holds only the three public skills. Maintainer-only skills live in
+`.claude/skills/`.
 
 ## What it bundles
 

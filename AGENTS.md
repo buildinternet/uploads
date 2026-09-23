@@ -250,6 +250,10 @@ integration, tests, and user-facing decisions.
 
 ## Writing docs
 
+For the uploads.sh docs pages (`apps/web/src/content/docs/`), follow the
+`docs-page-style` skill in `.claude/skills/`. It lives there, not in `skills/`,
+so installers and plugins don't ship it to users.
+
 House style for `docs/`, `README.md`, and web copy. It borrows the grammar
 rules of ASD-STE100 Simplified Technical English — not the controlled
 dictionary — to keep prose clear and free of AI-slop tics:
