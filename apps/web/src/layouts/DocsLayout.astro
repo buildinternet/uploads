@@ -345,17 +345,35 @@ const fullTitle = `${title} · uploads.sh`;
         margin: 22px 0 6px;
         color: var(--fg);
       }
+      /* `--measure` is in `ch`, which each element resolves against its OWN
+         font: on Expressive Code's 12px wrapper it came out ~180px narrower
+         than the paragraphs, clipping commands. A registered <length> computes
+         where it's declared, so resolve it once at the prose font on .doc and
+         let every block inherit the same absolute width. Browsers without
+         @property fall back to the old per-element `ch`. */
+      @property --doc-measure {
+        syntax: "<length>";
+        inherits: true;
+        initial-value: 0px;
+      }
+      .doc {
+        --doc-measure: var(--measure);
+      }
       .doc p,
       .doc li {
         color: var(--body);
-        max-width: var(--measure);
+        max-width: var(--doc-measure);
       }
-      /* Match fenced / command / output blocks to the prose measure so code
-         does not sit wider than the body text beside it. */
+      /* Code, asides, and tabs share the prose measure so nothing sits wider
+         or narrower than the body text beside it. */
       .doc .cmd,
       .doc .block,
-      .doc .expressive-code {
-        max-width: var(--measure);
+      .doc .expressive-code,
+      .doc .note,
+      .doc .pointer,
+      .doc .callout,
+      .doc .docs-tabs {
+        max-width: var(--doc-measure);
       }
       .doc strong {
         color: var(--fg);
@@ -756,13 +774,17 @@ const fullTitle = `${title} · uploads.sh`;
       .doc .pointer > :last-child {
         margin-bottom: 0;
       }
+      /* Neutral aside: a faint tint (not --panel, which inline code already uses)
+         so it reads as a box set off from the prose, at UI size rather than fine print. */
       .doc .note {
-        margin: 20px 0 0;
-        color: var(--muted);
-        font-size: var(--text-meta);
-      }
-      .doc .note a {
-        color: var(--muted);
+        margin: 24px 0;
+        padding: 12px 16px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-md);
+        background: color-mix(in srgb, var(--fg) 3%, transparent);
+        color: var(--body);
+        font-size: var(--text-ui);
+        line-height: 1.6;
       }
       /* Demoted secondary-command pointer sitting under a golden-path command:
          reads as a quieter alternate path, while its verb (code) and link stay legible. */

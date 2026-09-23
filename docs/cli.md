@@ -273,7 +273,7 @@ public.
 Full format, worked examples, and redaction guidance:
 [`skills/annotate-screenshots/SKILL.md`](../skills/annotate-screenshots/SKILL.md).
 Public walkthrough:
-[uploads.sh/docs/attach-pull-request-images#annotate](https://uploads.sh/docs/attach-pull-request-images#annotate).
+[uploads.sh/docs/capture#annotate](https://uploads.sh/docs/capture#annotate).
 
 ## Custom metadata
 

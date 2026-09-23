@@ -279,6 +279,7 @@ staged files are promoted into the PR's attachments comment automatically.
 - Changelog: https://uploads.sh/changelog (Atom at https://uploads.sh/changelog.xml; JSON at https://uploads.sh/changelog.json; `uploads changelog`)
 - Docs catalog: https://uploads.sh/docs.json (`uploads docs [query]` or MCP `search_docs`; `uploads docs attach` fetches one page as markdown)
 - Attach & share: https://uploads.sh/docs/attach-pull-request-images
+- Capture & annotate: https://uploads.sh/docs/capture
 - Galleries: https://uploads.sh/docs/galleries
 - GitHub App: https://uploads.sh/docs/github-app
 - Comment config (`.uploads.yml`): https://uploads.sh/docs/comment-config

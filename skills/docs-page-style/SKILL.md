@@ -185,6 +185,11 @@ Frames add hierarchy where a bare panel would read flat:
   nothing dirty gets copied) and title the frame with the command name:
   ` ```ansi title="uploads staged" `.
 
+Code blocks share the prose measure. Commands and config never wrap (a wrapped
+flag reads as a new line of input), so keep an example command short enough to
+fit, about 80 characters: shorten the example URL or path rather than let it
+scroll. `ansi` output does wrap, because real output carries long storage URLs.
+
 The `$ ` prompt is CSS, not source text, so the copy button still yields a clean
 command. Never write the `$` yourself. Comments (`# …`) inside a `bash` block are
 stripped from the copied text automatically.
@@ -284,7 +289,7 @@ automatically; you don't wire them up per page.
 | ` ```text ` fence                                          | A copyable non-shell line — a slash command typed into an agent, an instructions-file snippet.                                                                                                    |
 | `<Tabs>` / `<TabItem label="…">`                           | Two or more genuinely equivalent commands. `syncKey` links groups across the page. Not for sequences of steps.                                                                                    |
 | `<div class="cards">` + `<a class="card">`                 | The "explore" grid of links to subject pages. Each card: `<h3>Title <span class="go">→</span></h3>` + one-sentence `<p>`. Trim to the highest-intent destinations rather than listing everything. |
-| `<div class="note">`                                       | A muted aside — the place for asides, "more:" link lists, and edge cases pulled out of the main flow.                                                                                             |
+| `<div class="note">`                                       | A boxed neutral aside — the place for asides, "more:" link lists, and edge cases pulled out of the main flow. Use at most one or two per page; a note per section reads as fine print everywhere. |
 | `<div class="pointer">`                                    | A demoted secondary-command line under the golden path (styled quieter than body text). Name only the verb inline; link to where it's covered in full.                                            |
 | `<div class="callout">`                                    | An accent-tinted contextual banner near the top of a page (e.g. "landed here from a bot comment?"). Use sparingly, for orientation the reader needs before the content.                           |
 | `<GithubAppInstalledBanner />`                             | The green post-install success banner, revealed by a `?setup_action=…` query param (GitHub App page only). Don't add new ones without the matching reveal logic.                                  |
@@ -299,9 +304,10 @@ from code) belongs in a small `.astro` component under
 `apps/web/src/components/docs/`, imported by the MDX — not inlined as a slab of
 HTML in the prose.
 
-The canonical example of all of this working together is
-`apps/web/src/content/docs/attach-pull-request-images.mdx` (fenced-block
-conventions, tabs, an imported wireframe component) alongside
+The canonical examples of all of this working together are
+`apps/web/src/content/docs/attach-pull-request-images.mdx` (one golden path per
+section, fenced-block conventions, an imported wireframe component) and
+`apps/web/src/content/docs/capture.mdx` (tabs for equivalent entry points), alongside
 `apps/web/src/pages/docs.astro` (the hub page: intro + capability list,
 install-first ordering, the golden-path-plus-pointer pattern, and a trimmed card
 grid). Read one of them before reworking a subject page.
