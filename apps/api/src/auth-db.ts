@@ -1,4 +1,4 @@
-import { sha256Hex } from "./workspace";
+import { PERSONAL_TOKEN_PREFIX, SERVICE_TOKEN_PREFIX, sha256Hex } from "./workspace";
 import { type D1Queryable } from "./db-session";
 
 export const FILE_SCOPES = ["files:read", "files:write", "files:delete"] as const;
@@ -264,7 +264,8 @@ export async function buildTokenRecord(
     // which is exactly what #1026 exists to avoid.
     throw new Error("workspace-owned tokens must not carry a minting user");
   }
-  const token = randomSecret(`up_${input.workspace}_`);
+  const prefix = owner === "workspace" ? SERVICE_TOKEN_PREFIX : PERSONAL_TOKEN_PREFIX;
+  const token = randomSecret(`${prefix}${input.workspace}_`);
   const now = input.now ?? new Date();
   const record: AuthTokenRecord = {
     id: id(),
@@ -636,7 +637,7 @@ export async function exchangeEnrollment(
 
   const scopes = parseScopes(enrollment.scopes);
   if (scopes.length === 0) return null;
-  const token = randomSecret(`up_${enrollment.workspace}_`);
+  const token = randomSecret(`${PERSONAL_TOKEN_PREFIX}${enrollment.workspace}_`);
   const tokenId = id();
   const tokenHash = await sha256Hex(token);
   // D1 batch statements execute as one transaction. The INSERT reads directly

@@ -80,7 +80,7 @@ import {
   type OrgMember,
 } from "../org-workspaces";
 import type { SessionVars } from "../session-auth";
-import { isPurgedTombstone, loadWorkspaceRecordRaw } from "../workspace";
+import { isWorkspaceTokenShaped, isPurgedTombstone, loadWorkspaceRecordRaw } from "../workspace";
 
 /** Context vars a `sessionMemberGate`/`sessionAdminGate`-guarded route can rely on. */
 export type MembersVars = {
@@ -156,7 +156,7 @@ function sessionMemberGate(): MiddlewareHandler<MembersVars> {
   return async (c, next) => {
     const authorization = c.req.header("Authorization");
     const rawToken = authorization?.startsWith("Bearer ") ? authorization.slice(7) : undefined;
-    if (!hasPreresolvedSession(c.req.raw) && rawToken?.startsWith("up_")) {
+    if (!hasPreresolvedSession(c.req.raw) && isWorkspaceTokenShaped(rawToken)) {
       throw new ForbiddenError("requires a session", { code: "members_requires_session" });
     }
     const userId = await resolveSessionUserId(c as unknown as Context<SessionVars>);

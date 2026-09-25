@@ -52,9 +52,10 @@ export function authUrlFromApi(apiUrl: string): string {
 export const DEFAULT_API_URL = "https://api.uploads.sh";
 export const DEFAULT_WORKSPACE = "default";
 
-const TOKEN_WORKSPACE_RE = /^up_([a-z0-9][a-z0-9-]{1,62})_/;
+// `up_` personal tokens and `ups_` workspace service tokens both carry the workspace.
+const TOKEN_WORKSPACE_RE = /^ups?_([a-z0-9][a-z0-9-]{1,62})_/;
 
-/** Workspace encoded in minted tokens: `up_<workspace>_…` */
+/** Workspace encoded in minted tokens: `up_<workspace>_…` or `ups_<workspace>_…` */
 export function workspaceFromToken(token: string): string | undefined {
   return TOKEN_WORKSPACE_RE.exec(token)?.[1];
 }

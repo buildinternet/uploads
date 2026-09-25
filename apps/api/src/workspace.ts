@@ -506,9 +506,26 @@ function bearerToken(header: string | undefined): string {
   return header?.startsWith("Bearer ") ? header.slice(7) : "";
 }
 
-/** Workspace name encoded in a bearer token (`up_<name>_…`), if well-formed. */
+/**
+ * Workspace-token prefixes: `up_` for personal tokens, `ups_` for
+ * workspace-owned service tokens (issue #1026), so a leaked or logged token
+ * says which kind it is. Auth looks tokens up by hash, never by prefix; the
+ * prefix only carries the workspace name and the credential kind.
+ */
+export const PERSONAL_TOKEN_PREFIX = "up_";
+export const SERVICE_TOKEN_PREFIX = "ups_";
+
+/** True for a bearer shaped like a workspace token (`up_…` or `ups_…`). */
+export function isWorkspaceTokenShaped(token: string | undefined): boolean {
+  return (
+    token !== undefined &&
+    (token.startsWith(PERSONAL_TOKEN_PREFIX) || token.startsWith(SERVICE_TOKEN_PREFIX))
+  );
+}
+
+/** Workspace name encoded in a bearer token (`up_<name>_…` or `ups_<name>_…`), if well-formed. */
 export function workspaceNameFromToken(token: string): string | undefined {
-  const match = /^up_([a-z0-9][a-z0-9-]{1,62})_./.exec(token);
+  const match = /^ups?_([a-z0-9][a-z0-9-]{1,62})_./.exec(token);
   return match?.[1];
 }
 
@@ -703,7 +720,7 @@ export function uploaderIdentityOf(
 /** Resolves `:workspace` from the path (the REST API's routes). */
 export const workspaceAuth = workspaceAuthWith((c) => c.req.param("workspace"));
 
-/** Resolves the workspace from the bearer token itself (`up_<name>_…`). */
+/** Resolves the workspace from the bearer token itself (`up_<name>_…` / `ups_<name>_…`). */
 export const tokenWorkspaceAuth = workspaceAuthWith((_c, token) => workspaceNameFromToken(token));
 
 /** Stamped-field result of `stampSoftDelete`/`stampRestore` — the caller writes it back to KV. */

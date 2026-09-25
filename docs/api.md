@@ -17,9 +17,10 @@ Unknown workspaces and bad tokens are indistinguishable (both 401).
 ## Service tokens
 
 A service token is a workspace token that belongs to the workspace, not to a
-member (issue #1026). Use one for CI jobs and bots. It has the same
-`up_<workspace>_…` shape and file scopes as a personal token, with three
-differences:
+member (issue #1026). Use one for CI jobs and bots. It starts with
+`ups_<workspace>_…` instead of `up_`, so it is easy to tell apart from a
+personal token. The CLI reads the workspace from either form. It has the same
+file scopes as a personal token, with three differences:
 
 - Uploads tagged with `gh.*` metadata are attributed to the token's label:
   `gh.uploader` is the label and `gh.uploader-kind` is `service`. There is no

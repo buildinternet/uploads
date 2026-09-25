@@ -9,7 +9,13 @@ import { createToken, MAX_ACTIVE_SERVICE_TOKENS } from "../src/auth-db";
 import { respondError } from "../src/error-response";
 import { app } from "../src/index";
 import { mintingUserIdOf, type UploaderIdentity, withUploaderTags } from "../src/uploader-identity";
-import { uploaderIdentityOf, workspaceAuth, type WorkspaceVars } from "../src/workspace";
+import {
+  isWorkspaceTokenShaped,
+  uploaderIdentityOf,
+  workspaceAuth,
+  workspaceNameFromToken,
+  type WorkspaceVars,
+} from "../src/workspace";
 import { SqliteD1, database } from "./helpers/sqlite-d1";
 
 const MIGRATIONS = [
@@ -85,7 +91,7 @@ describe("POST /v1/workspaces/:workspace/service-tokens", () => {
     const res = await mint(env, { label: "CI", scopes: ["files:read", "files:write"] });
     expect(res.status).toBe(201);
     const body = (await res.json()) as Record<string, unknown>;
-    expect(body.token).toMatch(/^up_acme_/);
+    expect(body.token).toMatch(/^ups_acme_/);
     expect(body.label).toBe("CI");
     expect(body.createdByUserId).toBe(ADMIN.id);
     expect(body.expiresAt).toEqual(expect.any(String));
@@ -163,6 +169,37 @@ describe("POST /v1/workspaces/:workspace/service-tokens", () => {
     );
     expect(res.status).toBe(403);
     expect(((await res.json()) as ErrorBody).error.code).toBe("members_requires_session");
+  });
+
+  it("403s a ups_ service-token bearer the same way", async () => {
+    const { env } = makeEnv();
+    const minted = (await (await mint(env, { label: "CI" })).json()) as { token: string };
+    const res = await app.request(
+      "/v1/workspaces/acme/service-tokens",
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${minted.token}`, "content-type": "application/json" },
+        body: JSON.stringify({ label: "CI 2" }),
+      },
+      env,
+    );
+    expect(res.status).toBe(403);
+    expect(((await res.json()) as ErrorBody).error.code).toBe("members_requires_session");
+  });
+});
+
+describe("token prefixes", () => {
+  it("parses the workspace from personal and service tokens", () => {
+    expect(workspaceNameFromToken("up_acme_secret")).toBe("acme");
+    expect(workspaceNameFromToken("ups_acme_secret")).toBe("acme");
+    expect(workspaceNameFromToken("upx_acme_secret")).toBeUndefined();
+  });
+
+  it("recognizes both prefixes as workspace-token shaped", () => {
+    expect(isWorkspaceTokenShaped("up_acme_x")).toBe(true);
+    expect(isWorkspaceTokenShaped("ups_acme_x")).toBe(true);
+    expect(isWorkspaceTokenShaped("better-auth-session")).toBe(false);
+    expect(isWorkspaceTokenShaped(undefined)).toBe(false);
   });
 });
 
