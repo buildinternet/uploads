@@ -7,6 +7,7 @@
  */
 import { NOTE_MAX_CHARS } from "@uploads/comment-config";
 import { runActiveContentHostSweep } from "../active-content-hosts";
+import { adminTokenRows } from "../admin-token-list";
 import {
   ForbiddenError,
   NotFoundError,
@@ -547,6 +548,7 @@ export type AdminPlanResponse = ReturnType<typeof planResponse> &
   Awaited<ReturnType<typeof adminSubscriptionInfo>>;
 export type AdminStorageResponse = ReturnType<typeof adminStorageResponse>;
 export type AdminGithubLink = ReturnType<typeof repoLinkResponse>;
+export type { AdminTokenRow } from "../admin-token-list";
 export type { MetricsOverview } from "../metrics-overview";
 export type { OrgInvite, OrgMember } from "../org-workspaces";
 export type { OpenEnrollment } from "../auth-db";
@@ -935,6 +937,16 @@ export const adminUi = new Hono<SessionVars>()
       { requireServing: true },
     );
     return c.json(githubCommentSettingsResponse(name, record));
+  })
+
+  // Every API token on the workspace (legacy KV + D1, revoked included) with
+  // its owner: personal `member` tokens vs workspace service tokens (issue
+  // #1026). Same rows as the bearer `GET /admin/tokens`; secrets never leave
+  // the server, only an 8-char hash prefix.
+  .get("/workspaces/:name/tokens", async (c) => {
+    const name = c.req.param("name");
+    const record = await loadEditableWorkspace(c.env, name);
+    return c.json({ workspace: name, tokens: await adminTokenRows(dbFor(c.env), name, record) });
   })
 
   // Admin visibility (issue #318): the repos this workspace has claimed in

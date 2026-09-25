@@ -172,3 +172,44 @@ describe("adminAuth accepts D1-backed scoped operator tokens", () => {
     expect(res.status).toBe(401);
   });
 });
+
+describe("GET /admin/tokens ownership (issue #1026)", () => {
+  it("reports owner and the minting/creating user for each token", async () => {
+    const db = new SqliteD1(MIGRATIONS);
+    await createToken(db as unknown as D1Database, {
+      workspace: "acme",
+      label: "alice-laptop",
+      scopes: ["files:read"],
+      mintedByUserId: "u-alice",
+    });
+    await createToken(db as unknown as D1Database, {
+      workspace: "acme",
+      label: "release-bot",
+      scopes: ["files:read", "files:write"],
+      owner: "workspace",
+      createdByUserId: "u-admin",
+    });
+    const { app, env } = appWith({ db });
+    const res = await app.request(getTokens(ADMIN_TOKEN), {}, env);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      tokens: {
+        label: string | null;
+        owner: string;
+        mintingUserId: string | null;
+        createdByUserId: string | null;
+      }[];
+    };
+    const byLabel = new Map(body.tokens.map((t) => [t.label, t]));
+    expect(byLabel.get("alice-laptop")).toMatchObject({
+      owner: "member",
+      mintingUserId: "u-alice",
+      createdByUserId: null,
+    });
+    expect(byLabel.get("release-bot")).toMatchObject({
+      owner: "workspace",
+      mintingUserId: null,
+      createdByUserId: "u-admin",
+    });
+  });
+});

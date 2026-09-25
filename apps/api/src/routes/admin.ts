@@ -8,6 +8,7 @@ import {
 } from "@uploads/errors";
 import { Hono } from "hono";
 import { adminAuth } from "../admin";
+import { adminTokenRows, HASH_PREFIX_LEN, legacyTokens } from "../admin-token-list";
 import { runActiveContentHostSweep } from "../active-content-hosts";
 import {
   DEFAULT_ENROLLMENT_SECONDS,
@@ -17,7 +18,6 @@ import {
   createEnrollment,
   createToken,
   listTokens,
-  parseScopes,
   revokeToken,
   validateScopes,
 } from "../auth-db";
@@ -39,7 +39,6 @@ import { dbFor } from "../db-session";
 import { createMemberlessOrg, membersForOrg } from "../org-workspaces";
 
 const WS_NAME_RE = /^[a-z0-9][a-z0-9-]{1,62}$/;
-const HASH_PREFIX_LEN = 8;
 const SECONDS_PER_DAY = 24 * 60 * 60;
 // Ceiling for --expires-in. 24h caps how long a single-use invite secret can
 // live; the floor stays 60s at the validation site below.
@@ -56,20 +55,6 @@ function inviteEmail(to: string, workspaceName: string, link: string, expiresAt:
     from: INVITE_FROM,
     ...renderEnrollmentInvitationEmail({ workspaceName, link, expiresAt }),
   };
-}
-
-interface LegacyToken {
-  hash: string;
-  label?: string;
-  createdAt: string;
-}
-
-/** Token list for a record, migrating a legacy `tokenHash`-only record into the list shape. */
-function legacyTokens(record: WorkspaceRecord): LegacyToken[] {
-  return (
-    record.tokens ??
-    (record.tokenHash ? [{ hash: record.tokenHash, createdAt: new Date(0).toISOString() }] : [])
-  );
 }
 
 async function workspace(c: { env: Env }, name: string): Promise<WorkspaceRecord | null> {
@@ -381,25 +366,8 @@ export const admin = new Hono<{ Bindings: Env }>()
       throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
     }
 
-    const d1 = (await listTokens(dbFor(c.env), name, { includeRevoked: true })).map((token) => ({
-      label: token.label,
-      createdAt: token.created_at,
-      hashPrefix: token.token_hash.slice(0, HASH_PREFIX_LEN),
-      scopes: parseScopes(token.scopes),
-      expiresAt: token.expires_at,
-      revokedAt: token.revoked_at,
-      source: "d1" as const,
-    }));
-    const legacy = legacyTokens(record).map((token) => ({
-      label: token.label ?? null,
-      createdAt: token.createdAt,
-      hashPrefix: token.hash.slice(0, HASH_PREFIX_LEN),
-      scopes: [...FILE_SCOPES],
-      expiresAt: null,
-      revokedAt: null,
-      source: "legacy" as const,
-    }));
-    return c.json({ workspace: name, tokens: [...legacy, ...d1] });
+    const tokens = await adminTokenRows(dbFor(c.env), name, record);
+    return c.json({ workspace: name, tokens });
   })
 
   // Revoke an active D1 or legacy KV token by hash prefix or label.
