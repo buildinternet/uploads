@@ -36,7 +36,7 @@ import {
   type WorkspaceRecord,
 } from "../workspace";
 import { dbFor } from "../db-session";
-import { membersForOrg } from "../org-workspaces";
+import { createMemberlessOrg, membersForOrg } from "../org-workspaces";
 
 const WS_NAME_RE = /^[a-z0-9][a-z0-9-]{1,62}$/;
 const HASH_PREFIX_LEN = 8;
@@ -164,21 +164,8 @@ export const admin = new Hono<{ Bindings: Env }>()
         const name = entry.name.startsWith("ws:") ? entry.name.slice(3) : entry.name;
         if (!name) continue;
 
-        const response = await c.env.AUTH.fetch("https://auth.internal/internal/orgs", {
-          method: "POST",
-          headers: { "content-type": "application/json", "x-uploads-internal": "1" },
-          body: JSON.stringify({ slug: name, name }),
-        });
-        if (!response.ok) {
-          throw new ValidationError(`failed to create org for workspace "${name}"`, {
-            details: await response.json().catch(() => null),
-          });
-        }
-        if (response.status === 201) {
-          created.push(name);
-        } else {
-          existing.push(name);
-        }
+        const result = await createMemberlessOrg(c.env, name);
+        (result.created ? created : existing).push(name);
       }
       cursor = page.list_complete ? undefined : page.cursor;
     } while (cursor);
@@ -197,29 +184,15 @@ export const admin = new Hono<{ Bindings: Env }>()
     if (!WS_NAME_RE.test(name)) {
       throw new ValidationError("invalid workspace name", { code: "invalid_workspace_name" });
     }
-    const response = await c.env.AUTH.fetch("https://auth.internal/internal/orgs", {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-uploads-internal": "1" },
-      body: JSON.stringify({ slug: name, name }),
-    });
-    const payload = (await response.json().catch(() => null)) as {
-      organization?: { id: string; slug: string; name: string };
-    } | null;
-    if (!response.ok || !payload?.organization) {
-      throw new ValidationError(`failed to create org for workspace "${name}"`, {
-        details: payload,
-      });
-    }
-    if (response.status === 201) {
-      return c.json({ organization: payload.organization, created: true }, 201);
-    }
+    const { organization, created } = await createMemberlessOrg(c.env, name);
+    if (created) return c.json({ organization, created }, 201);
     const members = await membersForOrg(c.env, name);
     if (members.length > 0) {
       throw new ConflictError(`an organization named "${name}" already has members`, {
         code: "org_has_members",
       });
     }
-    return c.json({ organization: payload.organization, created: false }, 200);
+    return c.json({ organization, created }, 200);
   })
 
   // Mint a scoped bearer token for an existing workspace. `workspace` is
