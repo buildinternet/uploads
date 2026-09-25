@@ -36,6 +36,7 @@ import {
   type WorkspaceRecord,
 } from "../workspace";
 import { dbFor } from "../db-session";
+import { createMemberlessOrg, membersForOrg } from "../org-workspaces";
 
 const WS_NAME_RE = /^[a-z0-9][a-z0-9-]{1,62}$/;
 const HASH_PREFIX_LEN = 8;
@@ -163,26 +164,35 @@ export const admin = new Hono<{ Bindings: Env }>()
         const name = entry.name.startsWith("ws:") ? entry.name.slice(3) : entry.name;
         if (!name) continue;
 
-        const response = await c.env.AUTH.fetch("https://auth.internal/internal/orgs", {
-          method: "POST",
-          headers: { "content-type": "application/json", "x-uploads-internal": "1" },
-          body: JSON.stringify({ slug: name, name }),
-        });
-        if (!response.ok) {
-          throw new ValidationError(`failed to create org for workspace "${name}"`, {
-            details: await response.json().catch(() => null),
-          });
-        }
-        if (response.status === 201) {
-          created.push(name);
-        } else {
-          existing.push(name);
-        }
+        const result = await createMemberlessOrg(c.env, name);
+        (result.created ? created : existing).push(name);
       }
       cursor = page.list_complete ? undefined : page.cursor;
     } while (cursor);
 
     return c.json({ created, existing });
+  })
+
+  // Create the memberless org for ONE workspace name — what
+  // `scripts/add-workspace.mjs` calls before writing the `ws:` KV record, so
+  // operator-added workspaces never exist without their org. Same /internal/orgs
+  // call as the backfill above. An existing org is fine only while it has no
+  // members: a populated org under this name would hand the new workspace to
+  // whoever is already in it, so that 409s for an operator to look at.
+  .post("/orgs/:name", async (c) => {
+    const name = c.req.param("name");
+    if (!WS_NAME_RE.test(name)) {
+      throw new ValidationError("invalid workspace name", { code: "invalid_workspace_name" });
+    }
+    const { organization, created } = await createMemberlessOrg(c.env, name);
+    if (created) return c.json({ organization, created }, 201);
+    const members = await membersForOrg(c.env, name);
+    if (members.length > 0) {
+      throw new ConflictError(`an organization named "${name}" already has members`, {
+        code: "org_has_members",
+      });
+    }
+    return c.json({ organization, created }, 200);
   })
 
   // Mint a scoped bearer token for an existing workspace. `workspace` is

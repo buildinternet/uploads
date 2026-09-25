@@ -418,6 +418,29 @@ export async function workspacesForOrg(env: Env, orgIdOrSlug: string): Promise<s
   return org ? [org.slug] : [];
 }
 
+/**
+ * A memberless org for a workspace name via `/internal/orgs` — the ops
+ * backfill and `POST /admin/orgs/:name` (operator `workspace:add`).
+ * Idempotent: `created` is false when an org with this slug already existed.
+ */
+export async function createMemberlessOrg(
+  env: Env,
+  slug: string,
+): Promise<{ organization: OrgSummary; created: boolean }> {
+  const headers = internalHeaders();
+  headers.set("content-type", "application/json");
+  const response = await env.AUTH.fetch(`${INTERNAL_ORIGIN}/internal/orgs`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ slug, name: slug }),
+  });
+  const body = (await response.json().catch(() => null)) as { organization?: OrgSummary } | null;
+  if (!response.ok || !body?.organization) {
+    throw new ValidationError(`failed to create org for workspace "${slug}"`, { details: body });
+  }
+  return { organization: body.organization, created: response.status === 201 };
+}
+
 /** Self-serve org provisioning (spec 2026-07-14): org + owner member in one call. */
 export async function provisionOrg(
   env: Env,
