@@ -20,6 +20,7 @@ import type {
   AdminLimitsResponse,
   AdminPlanResponse,
   AdminStorageResponse,
+  AdminTokenRow,
   AdminWorkspaceSummary,
   OpenEnrollment,
   OrgInvite,
@@ -32,6 +33,7 @@ export type {
   AdminLimitsResponse,
   AdminPlanResponse,
   AdminStorageResponse,
+  AdminTokenRow,
   AdminWorkspaceSummary,
   OpenEnrollment,
   OrgInvite,
@@ -65,6 +67,7 @@ export interface AdminApi {
   getStorage(workspace: string): Promise<AdminStorageResponse>;
   saveStorage(workspace: string, byoBucketEnabled: boolean): Promise<AdminStorageResponse>;
   getGithubLinks(workspace: string): Promise<AdminGithubLink[]>;
+  getTokens(workspace: string): Promise<AdminTokenRow[]>;
   getInviteLinks(workspace: string): Promise<OpenEnrollment[]>;
   createInviteLink(workspace: string, body: { label?: string; scopes: string[] }): Promise<string>;
   revokeInviteLink(workspace: string, id: string): Promise<void>;
@@ -159,6 +162,13 @@ export function makeAdminApi(apiOrigin: string): AdminApi {
         "load github links failed",
       );
       return links;
+    },
+    async getTokens(workspace) {
+      const { tokens } = await get<{ tokens: AdminTokenRow[] }>(
+        `${ws(workspace)}/tokens`,
+        "load tokens failed",
+      );
+      return tokens;
     },
     async getInviteLinks(workspace) {
       const { links } = await get<{ links: OpenEnrollment[] }>(

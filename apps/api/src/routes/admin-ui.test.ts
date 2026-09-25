@@ -1,7 +1,9 @@
 import { Hono } from "hono";
 import { describe, expect, it } from "vitest";
 import { fakeRegistry } from "../../test/fake-kv";
+import { SqliteD1, database } from "../../test/helpers/sqlite-d1";
 import { UsageFakeD1 } from "../../test/usage-fake-d1";
+import { createToken } from "../auth-db";
 import { respondError } from "../error-response";
 import { adminUi } from "./admin-ui";
 
@@ -2168,5 +2170,78 @@ describe("github repo link admin routes (issue #318)", () => {
       );
       expect(res.status).toBe(403);
     });
+  });
+});
+
+describe("GET /admin-ui/workspaces/:name/tokens (issue #1026)", () => {
+  const MIGRATIONS = [
+    "migrations/20260710120000_auth.sql",
+    "migrations/20260712230000_token_minting_user.sql",
+    "migrations/20260817180000_token_last_used.sql",
+    "migrations/20260925120000_workspace_service_tokens.sql",
+  ];
+
+  function tokensEnv(user: typeof ADMIN_USER | null, record: Record<string, unknown> | null) {
+    const db = new SqliteD1(MIGRATIONS);
+    const base = stubEnv(user, () => new Response(null, { status: 404 }));
+    const env = {
+      ...base,
+      REGISTRY: fakeRegistry(record ? { acme: record } : {}),
+      DB: database(db),
+    } as unknown as Env;
+    return { env, db };
+  }
+
+  const RECORD = {
+    provider: "r2",
+    bucket: "uploads-default",
+    prefix: "acme/",
+    tokens: [{ hash: "abcdef0123456789", label: "old-ci", createdAt: "2026-01-01T00:00:00.000Z" }],
+  };
+
+  it("lists legacy and D1 tokens with owner and user ids", async () => {
+    const { env, db } = tokensEnv(ADMIN_USER, RECORD);
+    await createToken(db as unknown as D1Database, {
+      workspace: "acme",
+      label: "alice-laptop",
+      scopes: ["files:read"],
+      mintedByUserId: "u-alice",
+    });
+    await createToken(db as unknown as D1Database, {
+      workspace: "acme",
+      label: "release-bot",
+      scopes: ["files:write"],
+      owner: "workspace",
+      createdByUserId: "u-admin",
+    });
+    const res = await app().request("/admin-ui/workspaces/acme/tokens", {}, env);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      workspace: string;
+      tokens: Record<string, unknown>[];
+    };
+    expect(body.workspace).toBe("acme");
+    expect(body.tokens.map((t) => [t.label, t.source, t.owner])).toEqual([
+      ["old-ci", "legacy", "member"],
+      ["alice-laptop", "d1", "member"],
+      ["release-bot", "d1", "workspace"],
+    ]);
+    expect(body.tokens[1]).toMatchObject({ mintingUserId: "u-alice", createdByUserId: null });
+    expect(body.tokens[2]).toMatchObject({ mintingUserId: null, createdByUserId: "u-admin" });
+    // Only a hash prefix leaves the server.
+    expect(body.tokens[0].hashPrefix).toBe("abcdef01");
+    expect(JSON.stringify(body)).not.toContain("abcdef0123456789");
+  });
+
+  it("404s for an unknown workspace", async () => {
+    const { env } = tokensEnv(ADMIN_USER, null);
+    const res = await app().request("/admin-ui/workspaces/acme/tokens", {}, env);
+    expect(res.status).toBe(404);
+  });
+
+  it("403s for a non-admin session", async () => {
+    const { env } = tokensEnv(NON_ADMIN_USER, RECORD);
+    const res = await app().request("/admin-ui/workspaces/acme/tokens", {}, env);
+    expect(res.status).toBe(403);
   });
 });
