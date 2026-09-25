@@ -1,0 +1,263 @@
+---
+/**
+ * Workspace settings — service tokens sub-page (issue #1026).
+ *
+ * A service token belongs to the workspace, not to a member: uploads made
+ * with it carry its label as the uploader, and no member leaving revokes it.
+ * Personal tokens stay on /account/developers; this page is the workspace
+ * admin's view of the shared credentials CI jobs and bots use.
+ *
+ * The mint form and list mirror the personal-token card on
+ * /account/developers (same row markup via `developers-ui.ts`). Admin-gated
+ * like the sibling settings pages: the API 403s plain members, so the form
+ * stays hidden and a short note says who can manage these instead.
+ */
+import WorkspaceLayout from "../../../../../layouts/WorkspaceLayout.astro";
+import { isBrowseWorkspace } from "../../../../../lib/workspace-browse-url";
+import { renderDetailListPlaceholderHtml } from "../../../../../lib/workspace-ui";
+
+export const prerender = false;
+
+const nameParam = Astro.params.name ?? "";
+const workspace = isBrowseWorkspace(nameParam) ? nameParam : "";
+if (!workspace) return Astro.redirect("/account/workspaces");
+
+const tip = {
+  body: "Save the token as a repository secret named <code>UPLOADS_TOKEN</code>. The CLI reads the workspace from the token.",
+  href: "/guides/attach-screenshots-github-actions",
+  linkLabel: "GitHub Actions guide →",
+};
+---
+
+<WorkspaceLayout workspace={workspace} tip={tip}>
+  <section class="card settings-page" id="service-tokens">
+    <div class="settings-section">
+      <h2>Service tokens</h2>
+      <p class="settings-note muted">
+        A service token belongs to the workspace, not to a member. Uploads made with it show its
+        label as the uploader, and it keeps working when members leave. Create one for each CI
+        pipeline or bot. For your own scripts, use a personal token on{" "}
+        <a href="/account/developers">Developers</a>.
+      </p>
+
+      <div id="svc-forbidden" class="ul-callout" data-state="muted" role="status" hidden>
+        Only workspace admins and owners can manage service tokens.
+      </div>
+
+      <form class="ws-form token-mint-form" id="svc-form" hidden>
+        <div class="token-mint-grid">
+          <div class="ul-field token-mint-field token-mint-field--full">
+            <label for="svc-label" class="ul-label">Label</label>
+            <input
+              id="svc-label"
+              class="ul-input"
+              type="text"
+              name="label"
+              required
+              maxlength="64"
+              minlength="1"
+              placeholder="CI, docs bot…"
+              autocomplete="off"
+              spellcheck="false"
+            />
+          </div>
+          <div class="ul-field token-mint-field">
+            <label for="svc-access" class="ul-label">Access</label>
+            <select name="access" class="ul-select" id="svc-access">
+              <option value="readwrite">Read &amp; write</option>
+              <option value="readonly">Read only</option>
+            </select>
+          </div>
+          <div class="ul-field token-mint-field">
+            <label for="svc-ttl" class="ul-label">Expires</label>
+            <select name="ttl" class="ul-select" id="svc-ttl">
+              <option value="90d">90 days</option>
+              <option value="1y">1 year</option>
+              <option value="never">No expiry</option>
+            </select>
+          </div>
+          <div class="token-mint-submit">
+            <button type="submit" class="ul-btn" id="svc-create">Create token</button>
+          </div>
+        </div>
+      </form>
+
+      <div class="ul-callout" id="svc-created" role="status" hidden>
+        <p><strong>Copy this token now.</strong> It will not be shown again.</p>
+        <div class="command">
+          <code id="svc-secret"></code>
+          <button type="button" id="svc-secret-copy" data-copy="" aria-live="polite">copy</button>
+        </div>
+      </div>
+      <p class="muted cli-note" id="svc-error" role="alert" hidden></p>
+
+      <div id="svc-status" class="muted detail-status" hidden></div>
+      <ul
+        class="detail-list"
+        id="svc-list"
+        aria-busy="true"
+        set:html={renderDetailListPlaceholderHtml()}
+      />
+    </div>
+  </section>
+
+  <style>
+    #svc-forbidden {
+      margin: 12px 0 0;
+    }
+    #svc-created {
+      margin: 12px 0 0;
+    }
+    #svc-created .command {
+      margin: 8px 0 0;
+    }
+  </style>
+
+  <script>
+    import {
+      getPageVisit,
+      isCurrentPageVisit,
+      onAstroPageLoad,
+      onSession,
+      requireElement,
+    } from "../../../../../lib/account-shell";
+    import {
+      WORKSPACE_TOKEN_TTL_1_YEAR,
+      WORKSPACE_TOKEN_TTL_90_DAYS,
+      listWorkspaceServiceTokens,
+      mintWorkspaceServiceToken,
+      revokeWorkspaceServiceToken,
+    } from "../../../../../lib/api-client";
+    import { renderServiceTokenListHtml } from "../../../../../lib/developers-ui";
+    import { resolveActiveWorkspace } from "../../../../../lib/workspace-browse-url";
+    import { bindCopyButtons } from "../../../../../lib/workspace-ui";
+
+    const TTL_SECONDS: Record<string, number | null> = {
+      "90d": WORKSPACE_TOKEN_TTL_90_DAYS,
+      "1y": WORKSPACE_TOKEN_TTL_1_YEAR,
+      never: null,
+    };
+
+    onAstroPageLoad(() => {
+      const card = document.getElementById("service-tokens");
+      if (!card) return;
+
+      const page = "workspace service tokens";
+      const visit = getPageVisit();
+      const stillHere = (): boolean => isCurrentPageVisit(visit);
+      const w = window as unknown as {
+        __UPLOADS_API_ORIGIN__: string;
+        __UPLOADS_ACTIVE_WORKSPACE__: string;
+      };
+      const apiOrigin = w.__UPLOADS_API_ORIGIN__;
+      // Prefer the URL over the layout global (ClientRouter sibling-nav safety).
+      const workspaceName = resolveActiveWorkspace(
+        window.location.pathname,
+        w.__UPLOADS_ACTIVE_WORKSPACE__ || "",
+      );
+
+      const form = requireElement<HTMLFormElement>("#svc-form", page);
+      const forbidden = requireElement<HTMLElement>("#svc-forbidden", page);
+      const list = requireElement<HTMLUListElement>("#svc-list", page);
+      const status = requireElement<HTMLElement>("#svc-status", page);
+      const error = requireElement<HTMLElement>("#svc-error", page);
+      const created = requireElement<HTMLElement>("#svc-created", page);
+      const createButton = requireElement<HTMLButtonElement>("#svc-create", page);
+
+      function showError(message: string): void {
+        error.hidden = false;
+        error.textContent = message;
+      }
+
+      async function refreshTokens(): Promise<void> {
+        const result = await listWorkspaceServiceTokens(apiOrigin, workspaceName);
+        if (!stillHere()) return;
+        list.setAttribute("aria-busy", "false");
+        if (result.kind === "ok") {
+          form.hidden = false;
+          forbidden.hidden = true;
+          status.hidden = true;
+          list.hidden = false;
+          list.innerHTML = renderServiceTokenListHtml(result.tokens);
+          return;
+        }
+        list.replaceChildren();
+        if (result.reason === "forbidden") {
+          // Plain members: nothing to list or mint. Say who can, once.
+          form.hidden = true;
+          list.hidden = true;
+          forbidden.hidden = false;
+          return;
+        }
+        status.hidden = false;
+        status.textContent = "Couldn’t load service tokens.";
+      }
+
+      form.addEventListener("submit", (event) => {
+        event.preventDefault();
+        const labelInput = form.elements.namedItem("label");
+        const accessInput = form.elements.namedItem("access");
+        const ttlInput = form.elements.namedItem("ttl");
+        const label = labelInput instanceof HTMLInputElement ? labelInput.value.trim() : "";
+        if (!label) return;
+        const access = accessInput instanceof HTMLSelectElement ? accessInput.value : "readwrite";
+        const ttlKey = ttlInput instanceof HTMLSelectElement ? ttlInput.value : "90d";
+        const ttlSeconds = ttlKey in TTL_SECONDS ? TTL_SECONDS[ttlKey] : undefined;
+        const scopes = access === "readonly" ? ["files:read"] : undefined;
+
+        createButton.disabled = true;
+        error.hidden = true;
+        void mintWorkspaceServiceToken(apiOrigin, workspaceName, {
+          label,
+          scopes,
+          ttlSeconds,
+        }).then((result) => {
+          if (!stillHere()) return;
+          createButton.disabled = false;
+          if (!result.ok) {
+            showError(result.message);
+            return;
+          }
+          if (labelInput instanceof HTMLInputElement) labelInput.value = "";
+          requireElement<HTMLElement>("#svc-secret", page).textContent = result.token.token;
+          requireElement<HTMLButtonElement>("#svc-secret-copy", page).dataset.copy =
+            result.token.token;
+          created.hidden = false;
+          void refreshTokens();
+        });
+      });
+
+      bindCopyButtons(card);
+      card.addEventListener("click", (event) => {
+        void (async () => {
+          const revoke = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-revoke]");
+          if (!revoke) return;
+          const id = revoke.dataset.revoke;
+          if (!id) return;
+          const label = revoke.dataset.revokeLabel || "this token";
+          if (
+            !confirm(
+              `Revoke “${label}” on ${workspaceName}? Anything using it will stop working immediately.`,
+            )
+          ) {
+            return;
+          }
+          revoke.disabled = true;
+          const ok = await revokeWorkspaceServiceToken(apiOrigin, workspaceName, id);
+          if (!stillHere()) return;
+          if (!ok) {
+            showError("Could not revoke that token.");
+            revoke.disabled = false;
+            return;
+          }
+          created.hidden = true;
+          await refreshTokens();
+        })();
+      });
+
+      onSession(() => {
+        void refreshTokens();
+      });
+    });
+  </script>
+</WorkspaceLayout>

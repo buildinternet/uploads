@@ -17,6 +17,7 @@
  * same contract as any other overwrite in this API).
  */
 
+import { UPLOADER_KEYS } from "./uploader-identity";
 import { UnsupportedMediaTypeError } from "@uploads/errors";
 import { getMetadataForKeys, setFileMetadata } from "./file-metadata";
 import { putObject, putOptsFromStoredObject } from "./files-core";
@@ -397,10 +398,9 @@ export async function promoteBranchAttachments(
           // Uploader attribution (issue #340) survives promotion: the copy is
           // written by the server, so the staged original's tags are the only
           // source of "who staged this".
-          ...(stagedMeta?.["gh.uploader"] ? { "gh.uploader": stagedMeta["gh.uploader"] } : {}),
-          ...(stagedMeta?.["gh.uploader-id"]
-            ? { "gh.uploader-id": stagedMeta["gh.uploader-id"] }
-            : {}),
+          ...Object.fromEntries(
+            UPLOADER_KEYS.flatMap((key) => (stagedMeta?.[key] ? [[key, stagedMeta[key]]] : [])),
+          ),
           "gh.repo": `${owner}/${name}`.toLowerCase(),
           "gh.kind": "pull",
           "gh.number": String(target.num),

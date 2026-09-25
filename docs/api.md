@@ -14,6 +14,36 @@ application. API integrations should use a workspace token.
 
 Unknown workspaces and bad tokens are indistinguishable (both 401).
 
+## Service tokens
+
+A service token is a workspace token that belongs to the workspace, not to a
+member (issue #1026). Use one for CI jobs and bots. It has the same
+`up_<workspace>_…` shape and file scopes as a personal token, with three
+differences:
+
+- Uploads tagged with `gh.*` metadata are attributed to the token's label:
+  `gh.uploader` is the label and `gh.uploader-kind` is `service`. There is no
+  `gh.uploader-id`.
+- Removing, demoting, or deleting a member never revokes it. Only a workspace
+  admin revoking it, or its expiry, ends it. The API records which admin
+  minted it, for audit only.
+- It has no GitHub identity, so it cannot claim a repo that is not yet linked
+  to the workspace. Link the repo once with a personal token
+  (`uploads github link`), then the service token can post to it.
+
+Workspace admins and owners manage service tokens with a signed-in session.
+Bearer tokens get `403 members_requires_session`:
+
+| Method   | Path                                           | Notes                                                                                                                                                                                                                                         |
+| -------- | ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET`    | `/v1/workspaces/:workspace/service-tokens`     | Active tokens, newest first. Never returns token values.                                                                                                                                                                                      |
+| `POST`   | `/v1/workspaces/:workspace/service-tokens`     | Body `{ label, scopes?, ttlSeconds? }`. `label` is 1–64 characters and unique among active service tokens. `scopes` defaults to `files:read` + `files:write`. `ttlSeconds` defaults to 90 days; `null` never expires. Returns the token once. |
+| `DELETE` | `/v1/workspaces/:workspace/service-tokens/:id` | Revokes one service token. It cannot revoke a personal token.                                                                                                                                                                                 |
+
+A workspace can have 25 active service tokens. Minting past that, or reusing
+an active label, returns `409` (`service_token_limit_reached`,
+`service_token_label_taken`).
+
 ## Idempotency
 
 `POST /v1/workspaces/:workspace/galleries` accepts an optional

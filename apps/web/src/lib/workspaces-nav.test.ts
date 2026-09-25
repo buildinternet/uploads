@@ -13,6 +13,7 @@ import {
   workspaceHomePath,
   workspaceOpenTab,
   workspacePath,
+  workspaceSettingsSubpageFromPathname,
   workspaceTabFromPathname,
   writeCachedActiveWorkspace,
   readCachedQuota,
@@ -110,6 +111,23 @@ describe("workspaceTabFromPathname", () => {
     expect(workspaceTabFromPathname("/account/workspaces/buildinternet/invite")).toBe("people");
     expect(workspaceTabFromPathname("/account/workspaces/buildinternet/billing")).toBe("billing");
     expect(workspaceTabFromPathname("/account/workspaces/buildinternet/settings")).toBe("settings");
+    expect(workspaceTabFromPathname("/account/workspaces/buildinternet/settings/tokens")).toBe(
+      "settings",
+    );
+  });
+
+  it("maps settings routes to their sub-page", () => {
+    expect(workspaceSettingsSubpageFromPathname("/account/workspaces/acme/settings")).toBe(
+      "comment",
+    );
+    expect(workspaceSettingsSubpageFromPathname("/account/workspaces/acme/settings/storage")).toBe(
+      "storage",
+    );
+    expect(workspaceSettingsSubpageFromPathname("/account/workspaces/acme/settings/tokens")).toBe(
+      "tokens",
+    );
+    expect(workspaceSettingsSubpageFromPathname("/account/workspaces/acme/settings/nope")).toBe("");
+    expect(workspaceSettingsSubpageFromPathname("/account/workspaces/acme/people")).toBe("");
   });
 
   it("maps /screenshots to the screenshots tab", () => {

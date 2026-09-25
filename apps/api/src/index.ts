@@ -16,6 +16,7 @@ import { workspaceGalleries } from "./routes/workspace-galleries";
 import { workspaceUsage } from "./routes/workspace-usage";
 import { workspaceGithub } from "./routes/workspace-github";
 import { workspaceMembers } from "./routes/workspace-members";
+import { workspaceServiceTokens } from "./routes/workspace-service-tokens";
 import { workspaceSettings } from "./routes/workspace-settings";
 import { me } from "./routes/me";
 import { runRetentionSweep } from "./retention-sweep";
@@ -179,6 +180,10 @@ export const app = new Hono<WorkspaceVars>()
   // parallel-registered, to avoid a same-path double-registration/shadowing
   // hazard with the pre-existing governance-token route.
   .route("/v1/workspaces", workspaceMembers)
+  // `/v1/workspaces/:workspace/service-tokens*` (issue #1026) — workspace-
+  // owned tokens for CI and bots. Session-only, admin/owner-gated, same
+  // posture as `workspaceMembers`.
+  .route("/v1/workspaces", workspaceServiceTokens)
   // Canonical comment-settings, poster-settings, storage, and billing/summary
   // verticals (issue #613 phase 3): `/v1/workspaces/:workspace/comment-settings`,
   // `/poster-settings`, `/storage`, `/storage/verify`, `/summary`, `/billing`

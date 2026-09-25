@@ -13,6 +13,7 @@ const MIGRATIONS = [
   "migrations/20260822120100_workspace_usage_shared_subset.sql",
   "migrations/20260712230000_token_minting_user.sql",
   "migrations/20260817180000_token_last_used.sql",
+  "migrations/20260925120000_workspace_service_tokens.sql",
   "migrations/20260728120000_daily_metrics.sql",
   "migrations/20260720120000_github_repo_links.sql",
 ];

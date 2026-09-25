@@ -19,6 +19,10 @@ import type {
   CommentSettingsResponse,
   PosterSettingsResponse,
 } from "@uploads/api/workspace-settings";
+import type {
+  ServiceTokenMintResponse,
+  ServiceTokenRow,
+} from "@uploads/api/workspace-service-tokens";
 
 /**
  * `apiOrigin` is either an absolute origin (`https://api.uploads.sh`, or a
@@ -1585,6 +1589,129 @@ export async function revokeIssuedWorkspaceToken(
 ): Promise<boolean> {
   const result = await fetchWithTimeout(
     `${trimOrigin(apiOrigin)}/v1/tokens/${encodeURIComponent(tokenId)}`,
+    { method: "DELETE", credentials: "include", cache: "no-store" },
+  );
+  return result.kind !== "unavailable" && result.response.ok;
+}
+
+/**
+ * One workspace service token (issue #1026) — the producer's projection
+ * (`serviceTokenRow` in apps/api's `workspace-service-tokens` route),
+ * imported not re-declared. Never carries the token value or its hash.
+ */
+export type WorkspaceServiceToken = ServiceTokenRow;
+
+export type WorkspaceServiceTokensResult =
+  | { kind: "ok"; tokens: WorkspaceServiceToken[] }
+  | { kind: "unavailable"; reason: RequestFailure | "forbidden" | "not_found" | "server" };
+
+export type MintWorkspaceServiceTokenResult =
+  | { ok: true; token: ServiceTokenMintResponse }
+  | { ok: false; message: string };
+
+function asWorkspaceServiceToken(value: unknown): WorkspaceServiceToken | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as Record<string, unknown>;
+  if (typeof row.id !== "string" || typeof row.createdAt !== "string") return null;
+  if (row.expiresAt !== null && typeof row.expiresAt !== "string") return null;
+  if (!Array.isArray(row.scopes)) return null;
+  return {
+    id: row.id,
+    label: typeof row.label === "string" ? row.label : "",
+    scopes: row.scopes.filter(
+      (s): s is WorkspaceServiceToken["scopes"][number] =>
+        s === "files:read" || s === "files:write" || s === "files:delete",
+    ),
+    createdAt: row.createdAt,
+    expiresAt: row.expiresAt ?? null,
+    lastUsedAt: typeof row.lastUsedAt === "string" ? row.lastUsedAt : null,
+    createdByUserId: typeof row.createdByUserId === "string" ? row.createdByUserId : null,
+  };
+}
+
+/** Parse GET /v1/workspaces/:name/service-tokens. Null on any malformed row. */
+export function parseWorkspaceServiceTokens(body: unknown): WorkspaceServiceToken[] | null {
+  if (!body || typeof body !== "object") return null;
+  const rows = (body as { tokens?: unknown }).tokens;
+  if (!Array.isArray(rows)) return null;
+  const out: WorkspaceServiceToken[] = [];
+  for (const row of rows) {
+    const parsed = asWorkspaceServiceToken(row);
+    if (!parsed) return null;
+    out.push(parsed);
+  }
+  return out;
+}
+
+/**
+ * GET /v1/workspaces/:name/service-tokens — admin/owner only. A 403 comes
+ * back as `forbidden` so the settings page can show the admin-only note
+ * instead of an empty list.
+ */
+export async function listWorkspaceServiceTokens(
+  apiOrigin: string,
+  name: string,
+  opts?: { cookie?: string; fetchImpl?: typeof fetch },
+): Promise<WorkspaceServiceTokensResult> {
+  const result = await fetchWithTimeout(
+    `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(name)}/service-tokens`,
+    sessionFetchInit(opts?.cookie),
+    { fetchImpl: opts?.fetchImpl },
+  );
+  if (result.kind === "unavailable") return result;
+  const { response } = result;
+  if (response.status === 403) return { kind: "unavailable", reason: "forbidden" };
+  if (response.status === 404) return { kind: "unavailable", reason: "not_found" };
+  if (!response.ok) return { kind: "unavailable", reason: "server" };
+  const tokens = parseWorkspaceServiceTokens(await response.json().catch(() => null));
+  if (!tokens) return { kind: "unavailable", reason: "server" };
+  return { kind: "ok", tokens };
+}
+
+/** POST /v1/workspaces/:name/service-tokens — mint one. The secret is returned once. */
+export async function mintWorkspaceServiceToken(
+  apiOrigin: string,
+  name: string,
+  input: { label: string; ttlSeconds?: number | null; scopes?: string[] },
+): Promise<MintWorkspaceServiceTokenResult> {
+  const result = await fetchWithTimeout(
+    `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(name)}/service-tokens`,
+    {
+      method: "POST",
+      credentials: "include",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        label: input.label,
+        ...(input.scopes ? { scopes: input.scopes } : {}),
+        ...(input.ttlSeconds !== undefined ? { ttlSeconds: input.ttlSeconds } : {}),
+      }),
+    },
+  );
+  if (result.kind === "unavailable") {
+    return { ok: false, message: "The API is unreachable right now — try again shortly." };
+  }
+  const body = (await result.response.json().catch(() => null)) as
+    | (Record<string, unknown> & { error?: { message?: string } })
+    | null;
+  if (!result.response.ok) {
+    return { ok: false, message: body?.error?.message ?? "Could not create a service token." };
+  }
+  const row = asWorkspaceServiceToken(body);
+  if (!row || typeof body?.token !== "string") {
+    return { ok: false, message: "API returned a malformed service token." };
+  }
+  return { ok: true, token: { ...row, token: body.token } };
+}
+
+/** DELETE /v1/workspaces/:name/service-tokens/:id — revoke one service token. */
+export async function revokeWorkspaceServiceToken(
+  apiOrigin: string,
+  name: string,
+  tokenId: string,
+): Promise<boolean> {
+  const result = await fetchWithTimeout(
+    `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(name)}/service-tokens/${encodeURIComponent(tokenId)}`,
     { method: "DELETE", credentials: "include", cache: "no-store" },
   );
   return result.kind !== "unavailable" && result.response.ok;

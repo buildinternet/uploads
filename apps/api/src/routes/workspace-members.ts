@@ -177,7 +177,7 @@ function sessionMemberGate(): MiddlewareHandler<MembersVars> {
 }
 
 /** `sessionMemberGate` plus an admin/owner role requirement — 403 for a member who isn't. */
-function sessionAdminGate(): MiddlewareHandler<MembersVars> {
+export function sessionAdminGate(): MiddlewareHandler<MembersVars> {
   const memberGate = sessionMemberGate();
   return async (c, next) => {
     await memberGate(c, async () => {
@@ -279,7 +279,7 @@ export async function memberRoleUpdateHandler(c: Context<MembersVars>) {
  * useful (and `sessionAdminGate` already means the caller was a member of a
  * workspace that still exists in the membership lookup at some point).
  */
-async function requireLiveWorkspace(env: Env, name: string): Promise<void> {
+export async function requireLiveWorkspace(env: Env, name: string): Promise<void> {
   const record = await loadWorkspaceRecordRaw(env, name);
   if (!record || isPurgedTombstone(record) || record.deletedAt) {
     throw new NotFoundError("workspace not found", { code: "workspace_not_found" });

@@ -160,6 +160,7 @@ export function dualWorkspaceAuth(): MiddlewareHandler<DualAuthVars> {
     // `isEntitledToClaimRepo` treats a null minting user as "not entitled"
     // by construction (CodeRabbit PR #617 review finding 3).
     c.set("mintingUserId", userId);
+    c.set("serviceToken", null);
     c.set("sessionUserId", userId);
     await next();
   };

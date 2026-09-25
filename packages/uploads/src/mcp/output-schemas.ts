@@ -318,6 +318,7 @@ export const whoamiResultSchema: JsonSchema = objectSchema(
     workspace: { type: "string" },
     scopes: { type: "array", items: { type: "string" } },
     userId: nullableString,
+    serviceToken: objectSchema({ label: { type: "string" } }, ["label"]),
     signedIn: { type: "boolean" },
     apiUrl: { type: "string" },
   },

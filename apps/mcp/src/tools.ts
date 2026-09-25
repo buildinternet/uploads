@@ -84,7 +84,7 @@ import {
   normalizeSearchName,
   searchFilesByNameAndMeta,
 } from "@uploads/api/file-search";
-import { hasGithubTags, uploaderTags } from "@uploads/api/uploader-identity";
+import { withUploaderTags } from "@uploads/api/uploader-identity";
 import {
   deriveRepoBinding,
   findRepoLink,
@@ -143,6 +143,8 @@ export interface RemoteToolContext {
    * attribution parity with the REST path (#340/#344, #345).
    */
   mintingUserId: string | null;
+  /** Workspace-owned service token behind an `up_` bearer (issue #1026), else null. */
+  serviceToken: { id: string; label: string } | null;
 }
 
 function decodeBase64(value: string, maxBytes: number): Uint8Array {
@@ -957,12 +959,14 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
         }
         // Uploader attribution (#345): server tags after caller pairs so they
         // can't be spoofed; drop if they'd exceed the key cap.
-        if (metadata && hasGithubTags(metadata)) {
-          const uploader = await uploaderTags(env, ctx.mintingUserId, metadata["gh.repo"]);
-          if (uploader) {
-            const merged = { ...metadata, ...uploader };
-            if (Object.keys(merged).length <= META_MAX_KEYS) metadata = merged;
-          }
+        // Service tokens (#1026) attribute to their label.
+        if (metadata) {
+          metadata = await withUploaderTags(
+            env,
+            metadata,
+            { mintingUserId: ctx.mintingUserId, serviceToken: ctx.serviceToken },
+            META_MAX_KEYS,
+          );
         }
 
         // Ceilings only, no admission decision — `putObject` is what gates
@@ -1682,6 +1686,7 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
           workspace: workspaceName,
           scopes: [...ctx.authScopes],
           userId: ctx.mintingUserId,
+          ...(ctx.serviceToken ? { serviceToken: { label: ctx.serviceToken.label } } : {}),
         };
       },
     },

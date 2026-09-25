@@ -22,6 +22,7 @@ import {
   isOperatorScope,
   isWorkspaceScope,
   listTokens,
+  parseScopeList,
   revokeToken,
 } from "../auth-db";
 import { recordAdoptionSafe } from "../adoption";
@@ -113,15 +114,10 @@ function workspaceManageAuth(): MiddlewareHandler<ManageAuthVars> {
 
 /** Redacted scope list for display — never surfaces unrecognized/garbage entries. */
 function parseAnyScopes(value: string): string[] {
-  try {
-    const parsed: unknown = JSON.parse(value);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter(
-      (v): v is string => isFileScope(v) || isOperatorScope(v) || isWorkspaceScope(v),
-    );
-  } catch {
-    return [];
-  }
+  return parseScopeList(
+    value,
+    (v): v is string => isFileScope(v) || isOperatorScope(v) || isWorkspaceScope(v),
+  );
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -492,6 +488,8 @@ workspaces.get("/:name/tokens", workspaceManageAuth(), async (c) => {
       hashPrefix: token.token_hash.slice(0, HASH_PREFIX_LEN),
       scopes: parseAnyScopes(token.scopes),
       expiresAt: token.expires_at,
+      // Issue #1026: 'workspace' marks a service token (no member owner).
+      owner: token.owner,
     }));
 
   return c.json({ workspace: name, tokens });

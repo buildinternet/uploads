@@ -28,6 +28,7 @@ import {
   isFileScope,
   isOperatorScope,
   isWorkspaceScope,
+  parseScopeList,
   findTokenForMintingUser,
   listTokensForMintingUser,
   revokeTokenForMintingUser,
@@ -52,15 +53,32 @@ import { dbFor, primaryDbFor } from "../db-session";
 
 /** Redacted scope list for the issued-token surface — never garbage entries. */
 function parseIssuedScopes(value: string): string[] {
-  try {
-    const parsed: unknown = JSON.parse(value);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter(
-      (v): v is string => isFileScope(v) || isOperatorScope(v) || isWorkspaceScope(v),
+  return parseScopeList(
+    value,
+    (v): v is string => isFileScope(v) || isOperatorScope(v) || isWorkspaceScope(v),
+  );
+}
+
+/**
+ * Validate a mint request's `ttlSeconds`: omitted → the 90-day default,
+ * `null` → never expires, else an integer in `[1, MAX_TOKEN_SECONDS]`.
+ * Shared by personal and service-token mints.
+ */
+export function parseTtlSeconds(value: unknown): number | null {
+  if (value === undefined) return DEFAULT_TOKEN_SECONDS;
+  if (value === null) return null;
+  if (
+    typeof value !== "number" ||
+    !Number.isInteger(value) ||
+    value < 1 ||
+    value > MAX_TOKEN_SECONDS
+  ) {
+    throw new ValidationError(
+      `ttlSeconds must be null or an integer between 1 and ${MAX_TOKEN_SECONDS}`,
+      { code: "invalid_ttl" },
     );
-  } catch {
-    return [];
   }
+  return value;
 }
 
 const MAX_BODY_BYTES = 4096;
@@ -133,26 +151,7 @@ function parseMintRequest(parsed: unknown): {
     label = trimmed || undefined;
   }
 
-  let ttlSeconds: number | null = DEFAULT_TOKEN_SECONDS;
-  if (body.ttlSeconds !== undefined) {
-    if (body.ttlSeconds === null) {
-      ttlSeconds = null;
-    } else if (
-      typeof body.ttlSeconds !== "number" ||
-      !Number.isInteger(body.ttlSeconds) ||
-      body.ttlSeconds < 1 ||
-      body.ttlSeconds > MAX_TOKEN_SECONDS
-    ) {
-      throw new ValidationError(
-        `ttlSeconds must be null or an integer between 1 and ${MAX_TOKEN_SECONDS}`,
-        {
-          code: "invalid_ttl",
-        },
-      );
-    } else {
-      ttlSeconds = body.ttlSeconds;
-    }
-  }
+  const ttlSeconds = parseTtlSeconds(body.ttlSeconds);
 
   return { grant: { workspace, rawScopes: grantObj.scopes }, label, ttlSeconds };
 }

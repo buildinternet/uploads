@@ -36,19 +36,30 @@ A CI job can:
 
 ## Set up the token <a class="anchor" href="#setup" aria-label="Link to this section">#</a>
 
-Create a token for the workflow in [your account settings](/account/developers#workspace-tokens),
-under **API Tokens**:
+Create a service token for the workflow. A service token belongs to the workspace, not to a
+member, so it keeps working when people join or leave. A workspace admin creates it in the
+workspace settings, under **Settings → Service tokens**:
 
-1. Pick the workspace, and give the token a label such as `ci`.
+1. Give the token a label such as `CI`. Files the workflow uploads are attributed to this label.
 2. Set access to **Read & write**, and choose an expiry.
 3. Copy the token. It starts with `up_<workspace>_`.
 
 Save it as a repository secret named `UPLOADS_TOKEN`. The CLI reads the token and its workspace from
 that variable.
 
+A service token can post to repos that are already linked to the workspace, but it cannot link a new
+repo. If this is the first time the workspace posts to the repo, link it once from your own machine
+with a personal login:
+
+```bash
+uploads github link --repo <owner>/<repo>
+```
+
 <div class="note">
-  The token belongs to the member who creates it, and files it uploads are attributed to them.
-  Revoke it on the same settings page.
+  Any workspace admin can revoke a service token on the same settings page. A personal token from
+  [your account settings](/account/developers#workspace-tokens) also works, but it belongs to the
+  member who creates it: files are attributed to them, and the token stops working if they leave
+  the workspace.
 </div>
 
 </section>

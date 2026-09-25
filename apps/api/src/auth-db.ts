@@ -50,7 +50,21 @@ export const MAX_MEMBER_LINK_SECONDS = 90 * 24 * 60 * 60;
 export const LAST_USED_TOUCH_SECONDS = 60 * 60;
 
 const TOKEN_COLUMNS = `id, workspace, token_hash, label, scopes, created_at, expires_at, revoked_at,
-              minting_user_id, last_used_at`;
+              minting_user_id, last_used_at, owner, created_by_user_id`;
+
+/**
+ * Who a token belongs to (issue #1026). `'member'` is every personal token:
+ * session mints, enrollment-code exchanges and pre-tracking rows.
+ * `'workspace'` is a service token a workspace admin minted for CI or a bot.
+ * It has no `minting_user_id`, so no member's removal, demotion or deletion
+ * revokes it, and its label is the uploader attribution.
+ */
+export type TokenOwner = "member" | "workspace";
+
+/** Cap on active service tokens per workspace; a CI fleet needs a handful. */
+export const MAX_ACTIVE_SERVICE_TOKENS = 25;
+/** Service-token labels double as the uploader name, so keep them short. */
+export const MAX_SERVICE_TOKEN_LABEL_LEN = 64;
 
 export interface AuthTokenRecord {
   id: string;
@@ -65,6 +79,10 @@ export interface AuthTokenRecord {
   // enrollment-code tokens and rows created before the Phase 4 migration.
   minting_user_id: string | null;
   last_used_at: string | null;
+  owner: TokenOwner;
+  // Issue #1026: the admin who minted a `'workspace'` service token. Audit
+  // only — ownership is `owner`, and member revocations never read this.
+  created_by_user_id: string | null;
 }
 
 /**
@@ -123,6 +141,22 @@ export function parseScopes(value: string): FileScope[] {
     const parsed: unknown = JSON.parse(value);
     if (!Array.isArray(parsed) || parsed.length === 0 || !parsed.every(isFileScope)) return [];
     return [...new Set(parsed)];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Display-side read of an `auth_tokens.scopes` column: the entries that pass
+ * `isValid`, or `[]` for unparseable JSON. Never surfaces garbage entries.
+ */
+export function parseScopeList<T extends string>(
+  value: string,
+  isValid: (v: unknown) => v is T,
+): T[] {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.filter(isValid) : [];
   } catch {
     return [];
   }
@@ -208,6 +242,10 @@ export interface CreateTokenInput {
   scopes: (FileScope | OperatorScope | WorkspaceScope)[];
   expiresAt?: Date;
   mintedByUserId?: string | null;
+  /** Defaults to `'member'`. `'workspace'` requires `mintedByUserId` to be null. */
+  owner?: TokenOwner;
+  /** Audit: the admin who minted a service token (issue #1026). */
+  createdByUserId?: string | null;
   now?: Date;
 }
 
@@ -220,6 +258,12 @@ export interface CreateTokenInput {
 export async function buildTokenRecord(
   input: CreateTokenInput,
 ): Promise<{ token: string; record: AuthTokenRecord }> {
+  const owner = input.owner ?? "member";
+  if (owner === "workspace" && input.mintedByUserId) {
+    // A service token tied to a member would be revoked with that member,
+    // which is exactly what #1026 exists to avoid.
+    throw new Error("workspace-owned tokens must not carry a minting user");
+  }
   const token = randomSecret(`up_${input.workspace}_`);
   const now = input.now ?? new Date();
   const record: AuthTokenRecord = {
@@ -233,6 +277,8 @@ export async function buildTokenRecord(
     revoked_at: null,
     minting_user_id: input.mintedByUserId ?? null,
     last_used_at: null,
+    owner,
+    created_by_user_id: input.createdByUserId ?? null,
   };
   return { token, record };
 }
@@ -252,8 +298,8 @@ export function prepareTokenInsert(
     .prepare(
       `INSERT INTO auth_tokens
        (id, workspace, token_hash, label, scopes, created_at, expires_at, revoked_at,
-        minting_user_id)
-       SELECT ?, ?, ?, ?, ?, ?, ?, NULL, ?
+        minting_user_id, owner, created_by_user_id)
+       SELECT ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?
        ${condition ? `WHERE (${condition.sql})` : ""}`,
     )
     .bind(
@@ -265,6 +311,8 @@ export function prepareTokenInsert(
       record.created_at,
       record.expires_at,
       record.minting_user_id,
+      record.owner,
+      record.created_by_user_id,
       ...(condition?.values ?? []),
     );
 }
@@ -756,6 +804,53 @@ export async function revokeTokenForMintingUser(
     .bind(now.toISOString(), match.id, userId)
     .run();
   return match;
+}
+
+/**
+ * Active, unexpired service tokens (`owner = 'workspace'`) for one workspace,
+ * newest first — backs the workspace settings list (issue #1026).
+ */
+export async function listServiceTokens(
+  db: D1Queryable,
+  workspace: string,
+  now = new Date(),
+): Promise<AuthTokenRecord[]> {
+  const result = await db
+    .prepare(
+      `SELECT ${TOKEN_COLUMNS}
+       FROM auth_tokens
+       WHERE workspace = ? AND owner = 'workspace' AND revoked_at IS NULL
+         AND (expires_at IS NULL OR expires_at > ?)
+       ORDER BY created_at DESC`,
+    )
+    .bind(workspace, now.toISOString())
+    .all<AuthTokenRecord>();
+  return result.results;
+}
+
+/**
+ * Soft-revoke one service token, scoped by workspace, id and owner so this
+ * path can never revoke a member's personal token. Returns the revoked row,
+ * or null for an unknown / already-revoked / expired / foreign id (callers
+ * collapse all of these to one 404).
+ */
+export async function revokeServiceToken(
+  db: D1Queryable,
+  workspace: string,
+  tokenId: string,
+  now = new Date(),
+): Promise<AuthTokenRecord | null> {
+  if (!tokenId) return null;
+  const iso = now.toISOString();
+  return db
+    .prepare(
+      `UPDATE auth_tokens SET revoked_at = ?
+       WHERE id = ? AND workspace = ? AND owner = 'workspace' AND revoked_at IS NULL
+         AND (expires_at IS NULL OR expires_at > ?)
+       RETURNING ${TOKEN_COLUMNS}`,
+    )
+    .bind(iso, tokenId, workspace, iso)
+    .first<AuthTokenRecord>();
 }
 
 /**

@@ -22,6 +22,14 @@ const workspaceNames = initial.workspaces?.map((row) => row.workspace) ?? [];
 const hasWorkspaces = workspaceNames.length > 0;
 const knownEmpty = initial.workspaces !== null && !hasWorkspaces;
 const tokensReady = initial.tokens !== null;
+// Service tokens (issue #1026) are admin-only, so point at a workspace this
+// user administers. No such workspace → the sentence stays but loses the link.
+const adminWorkspace = initial.workspaces?.find(
+  (row) => row.role === "owner" || row.role === "admin",
+)?.workspace;
+const serviceTokensHref = adminWorkspace
+  ? `/account/workspaces/${encodeURIComponent(adminWorkspace)}/settings/tokens`
+  : null;
 ---
 
 <AccountLayout section="developers">
@@ -80,8 +88,13 @@ const tokensReady = initial.tokens !== null;
     <div class="settings-section">
       <h2>API Tokens</h2>
       <p class="settings-note muted">
-        For curl, CI, and scripts. Tokens start with <code>up_&lt;workspace&gt;_</code> and last 90 days,
-        1 year, or until you revoke them. The CLI reads the workspace from the token.
+        For curl and scripts. Tokens start with <code>up_&lt;workspace&gt;_</code> and last 90 days, 1
+        year, or until you revoke them. The CLI reads the workspace from the token.
+      </p>
+      <p class="settings-note muted">
+        For CI and bots, use a workspace{" "}
+        {serviceTokensHref ? <a href={serviceTokensHref}>service token</a> : "service token"}{" "}
+        instead. It belongs to the workspace, so it keeps working when you leave.
       </p>
 
       <div
@@ -96,25 +109,28 @@ const tokensReady = initial.tokens !== null;
         })}
       />
 
-      <form class="ws-form" id="token-form" hidden={knownEmpty ? true : undefined}>
-        <label
-          class="token-field"
-          id="token-workspace-field"
-          hidden={hasWorkspaces && workspaceNames.length === 1 ? true : undefined}
-        >
-          <span class="sr-only">Workspace</span>
-          <select
-            name="workspace"
-            class="ul-select"
-            id="token-workspace"
-            required
-            set:html={renderWorkspaceOptionsHtml(workspaceNames)}
-          />
-        </label>
-        <div class="input-group">
-          <label class="input-group__field">
-            <span class="sr-only">Label</span>
+      <form class="ws-form token-mint-form" id="token-form" hidden={knownEmpty ? true : undefined}>
+        <div class="token-mint-grid">
+          <div
+            class="ul-field token-mint-field token-mint-field--full"
+            id="token-workspace-field"
+            hidden={hasWorkspaces && workspaceNames.length === 1 ? true : undefined}
+          >
+            <label for="token-workspace" class="ul-label">Workspace</label>
+            <select
+              name="workspace"
+              class="ul-select"
+              id="token-workspace"
+              required
+              set:html={renderWorkspaceOptionsHtml(workspaceNames)}
+            />
+          </div>
+          <div class="ul-field token-mint-field token-mint-field--full">
+            <label for="token-label" class="ul-label">Label</label>
             <input
+              id="token-label"
+              class="ul-input"
+              type="text"
               name="label"
               required
               maxlength="32"
@@ -123,23 +139,25 @@ const tokensReady = initial.tokens !== null;
               autocomplete="off"
               spellcheck="false"
             />
-          </label>
-          <label class="token-access">
-            <span class="sr-only">Access</span>
+          </div>
+          <div class="ul-field token-mint-field">
+            <label for="token-access" class="ul-label">Access</label>
             <select name="access" class="ul-select" id="token-access">
               <option value="readwrite">Read &amp; write</option>
               <option value="readonly">Read only</option>
             </select>
-          </label>
-          <label class="token-ttl">
-            <span class="sr-only">Expires</span>
+          </div>
+          <div class="ul-field token-mint-field">
+            <label for="token-ttl" class="ul-label">Expires</label>
             <select name="ttl" class="ul-select" id="token-ttl">
               <option value="7776000">90 days</option>
               <option value="31536000">1 year</option>
               <option value="never">No expiry</option>
             </select>
-          </label>
-          <button type="submit" class="input-group__action" id="token-create">Create</button>
+          </div>
+          <div class="token-mint-submit">
+            <button type="submit" class="ul-btn" id="token-create">Create token</button>
+          </div>
         </div>
       </form>
 
@@ -196,19 +214,6 @@ const tokensReady = initial.tokens !== null;
     }
     #token-exports {
       white-space: pre-wrap;
-    }
-    .token-field {
-      display: block;
-      margin: 0 0 10px;
-    }
-    .token-ttl,
-    .token-access {
-      display: flex;
-      align-items: stretch;
-    }
-    .token-ttl .ul-select,
-    .token-access .ul-select {
-      width: auto;
     }
   </style>
 
