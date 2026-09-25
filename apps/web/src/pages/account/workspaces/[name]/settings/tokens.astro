@@ -44,11 +44,14 @@ const tip = {
         Only workspace admins and owners can manage service tokens.
       </div>
 
-      <form class="ws-form" id="svc-form" hidden>
-        <div class="input-group">
-          <label class="input-group__field">
-            <span class="sr-only">Label</span>
+      <form class="ws-form token-mint-form" id="svc-form" hidden>
+        <div class="token-mint-grid">
+          <div class="ul-field token-mint-field token-mint-field--full">
+            <label for="svc-label" class="ul-label">Label</label>
             <input
+              id="svc-label"
+              class="ul-input"
+              type="text"
               name="label"
               required
               maxlength="64"
@@ -57,23 +60,25 @@ const tip = {
               autocomplete="off"
               spellcheck="false"
             />
-          </label>
-          <label class="svc-select">
-            <span class="sr-only">Access</span>
-            <select name="access" class="ul-select">
+          </div>
+          <div class="ul-field token-mint-field">
+            <label for="svc-access" class="ul-label">Access</label>
+            <select name="access" class="ul-select" id="svc-access">
               <option value="readwrite">Read &amp; write</option>
               <option value="readonly">Read only</option>
             </select>
-          </label>
-          <label class="svc-select">
-            <span class="sr-only">Expires</span>
+          </div>
+          <div class="ul-field token-mint-field">
+            <label for="svc-ttl" class="ul-label">Expires</label>
             <select name="ttl" class="ul-select" id="svc-ttl">
               <option value="90d">90 days</option>
               <option value="1y">1 year</option>
               <option value="never">No expiry</option>
             </select>
-          </label>
-          <button type="submit" class="input-group__action" id="svc-create">Create</button>
+          </div>
+          <div class="token-mint-submit">
+            <button type="submit" class="ul-btn" id="svc-create">Create token</button>
+          </div>
         </div>
       </form>
 
@@ -105,13 +110,6 @@ const tip = {
     }
     #svc-created .command {
       margin: 8px 0 0;
-    }
-    .svc-select {
-      display: flex;
-      align-items: stretch;
-    }
-    .svc-select .ul-select {
-      width: auto;
     }
   </style>
 

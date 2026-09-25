@@ -922,6 +922,53 @@ section.card .ws-note {
 .people-invite-link-submit .ul-btn {
   white-space: nowrap;
 }
+/* Token mint forms (/account/developers, workspace Settings → Service
+   tokens): same labeled-grid shape as the invite-link form above. A joined
+   input-group can't hold a text field plus two selects without squeezing
+   the label and stacking borders, so each control gets its own box. */
+.token-mint-form,
+.settings-section .token-mint-form {
+  max-width: 36rem;
+  margin: 16px 0 20px;
+}
+.token-mint-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 14px 16px;
+  align-items: start;
+}
+.token-mint-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.token-mint-field--full,
+.token-mint-submit {
+  grid-column: 1 / -1;
+}
+.token-mint-field[hidden] {
+  display: none;
+}
+.token-mint-field .ul-label {
+  display: block;
+  line-height: 1.3;
+}
+.token-mint-field .ul-input,
+.token-mint-field .ul-select {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+}
+.token-mint-submit {
+  display: flex;
+  justify-content: flex-start;
+}
+@media (max-width: 480px) {
+  .token-mint-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
 /* Issue #869 phase B: outstanding invite-link list — same table chrome
    as the people list, so the card reads as one surface. */
 .invite-link-list {

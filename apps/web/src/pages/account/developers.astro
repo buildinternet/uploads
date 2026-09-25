@@ -109,25 +109,28 @@ const serviceTokensHref = adminWorkspace
         })}
       />
 
-      <form class="ws-form" id="token-form" hidden={knownEmpty ? true : undefined}>
-        <label
-          class="token-field"
-          id="token-workspace-field"
-          hidden={hasWorkspaces && workspaceNames.length === 1 ? true : undefined}
-        >
-          <span class="sr-only">Workspace</span>
-          <select
-            name="workspace"
-            class="ul-select"
-            id="token-workspace"
-            required
-            set:html={renderWorkspaceOptionsHtml(workspaceNames)}
-          />
-        </label>
-        <div class="input-group">
-          <label class="input-group__field">
-            <span class="sr-only">Label</span>
+      <form class="ws-form token-mint-form" id="token-form" hidden={knownEmpty ? true : undefined}>
+        <div class="token-mint-grid">
+          <div
+            class="ul-field token-mint-field token-mint-field--full"
+            id="token-workspace-field"
+            hidden={hasWorkspaces && workspaceNames.length === 1 ? true : undefined}
+          >
+            <label for="token-workspace" class="ul-label">Workspace</label>
+            <select
+              name="workspace"
+              class="ul-select"
+              id="token-workspace"
+              required
+              set:html={renderWorkspaceOptionsHtml(workspaceNames)}
+            />
+          </div>
+          <div class="ul-field token-mint-field token-mint-field--full">
+            <label for="token-label" class="ul-label">Label</label>
             <input
+              id="token-label"
+              class="ul-input"
+              type="text"
               name="label"
               required
               maxlength="32"
@@ -136,23 +139,25 @@ const serviceTokensHref = adminWorkspace
               autocomplete="off"
               spellcheck="false"
             />
-          </label>
-          <label class="token-access">
-            <span class="sr-only">Access</span>
+          </div>
+          <div class="ul-field token-mint-field">
+            <label for="token-access" class="ul-label">Access</label>
             <select name="access" class="ul-select" id="token-access">
               <option value="readwrite">Read &amp; write</option>
               <option value="readonly">Read only</option>
             </select>
-          </label>
-          <label class="token-ttl">
-            <span class="sr-only">Expires</span>
+          </div>
+          <div class="ul-field token-mint-field">
+            <label for="token-ttl" class="ul-label">Expires</label>
             <select name="ttl" class="ul-select" id="token-ttl">
               <option value="7776000">90 days</option>
               <option value="31536000">1 year</option>
               <option value="never">No expiry</option>
             </select>
-          </label>
-          <button type="submit" class="input-group__action" id="token-create">Create</button>
+          </div>
+          <div class="token-mint-submit">
+            <button type="submit" class="ul-btn" id="token-create">Create token</button>
+          </div>
         </div>
       </form>
 
@@ -209,19 +214,6 @@ const serviceTokensHref = adminWorkspace
     }
     #token-exports {
       white-space: pre-wrap;
-    }
-    .token-field {
-      display: block;
-      margin: 0 0 10px;
-    }
-    .token-ttl,
-    .token-access {
-      display: flex;
-      align-items: stretch;
-    }
-    .token-ttl .ul-select,
-    .token-access .ul-select {
-      width: auto;
     }
   </style>
 
