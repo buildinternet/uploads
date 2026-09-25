@@ -47,7 +47,7 @@ function run(args) {
     return JSON.parse(stdout);
   } catch (error) {
     const out = [error.stdout, error.stderr].filter(Boolean).join("\n").trim();
-    throw new Error(`uploads ${args[0]} failed: ${out || error.message}`);
+    throw new Error(`uploads ${args[0]} failed: ${out || error.message}`, { cause: error });
   }
 }
 
