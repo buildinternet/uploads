@@ -45,8 +45,10 @@ Add this server URL to your agent's MCP settings:
 https://agents.uploads.sh/mcp
 ```
 
-The agent signs in with OAuth the first time it connects. You can also send a workspace token as
-`Authorization: Bearer up_…` from [your account settings](/account/developers#workspace-tokens).
+The agent signs in with OAuth the first time it connects. To use a token instead, send it as
+`Authorization: Bearer up_…`. For an agent the whole team shares, use a service token from the
+workspace's **Settings → Service tokens**: it belongs to the workspace, and uploads show its label.
+A personal token from [your account settings](/account/developers#workspace-tokens) also works.
 
 </section>
 
