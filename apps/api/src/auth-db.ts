@@ -61,8 +61,6 @@ const TOKEN_COLUMNS = `id, workspace, token_hash, label, scopes, created_at, exp
  */
 export type TokenOwner = "member" | "workspace";
 
-/** Service tokens carry file scopes only — never operator or workspace governance. */
-export const SERVICE_TOKEN_SCOPES: readonly FileScope[] = FILE_SCOPES;
 /** Cap on active service tokens per workspace; a CI fleet needs a handful. */
 export const MAX_ACTIVE_SERVICE_TOKENS = 25;
 /** Service-token labels double as the uploader name, so keep them short. */
@@ -143,6 +141,22 @@ export function parseScopes(value: string): FileScope[] {
     const parsed: unknown = JSON.parse(value);
     if (!Array.isArray(parsed) || parsed.length === 0 || !parsed.every(isFileScope)) return [];
     return [...new Set(parsed)];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Display-side read of an `auth_tokens.scopes` column: the entries that pass
+ * `isValid`, or `[]` for unparseable JSON. Never surfaces garbage entries.
+ */
+export function parseScopeList<T extends string>(
+  value: string,
+  isValid: (v: unknown) => v is T,
+): T[] {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.filter(isValid) : [];
   } catch {
     return [];
   }
@@ -828,25 +842,15 @@ export async function revokeServiceToken(
 ): Promise<AuthTokenRecord | null> {
   if (!tokenId) return null;
   const iso = now.toISOString();
-  const match = await db
-    .prepare(
-      `SELECT ${TOKEN_COLUMNS}
-       FROM auth_tokens
-       WHERE id = ? AND workspace = ? AND owner = 'workspace' AND revoked_at IS NULL
-         AND (expires_at IS NULL OR expires_at > ?)
-       LIMIT 1`,
-    )
-    .bind(tokenId, workspace, iso)
-    .first<AuthTokenRecord>();
-  if (!match) return null;
-  const result = await db
+  return db
     .prepare(
       `UPDATE auth_tokens SET revoked_at = ?
-       WHERE id = ? AND workspace = ? AND owner = 'workspace' AND revoked_at IS NULL`,
+       WHERE id = ? AND workspace = ? AND owner = 'workspace' AND revoked_at IS NULL
+         AND (expires_at IS NULL OR expires_at > ?)
+       RETURNING ${TOKEN_COLUMNS}`,
     )
-    .bind(iso, match.id, workspace)
-    .run();
-  return (result.meta?.changes ?? 0) > 0 ? match : null;
+    .bind(iso, tokenId, workspace, iso)
+    .first<AuthTokenRecord>();
 }
 
 /**

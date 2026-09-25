@@ -31,12 +31,11 @@ import { ConflictError, NotFoundError, RateLimitedError, ValidationError } from 
 import { Hono, type Context } from "hono";
 import {
   buildTokenRecord,
-  DEFAULT_TOKEN_SECONDS,
   isFileScope,
   listServiceTokens,
   MAX_ACTIVE_SERVICE_TOKENS,
   MAX_SERVICE_TOKEN_LABEL_LEN,
-  MAX_TOKEN_SECONDS,
+  parseScopeList,
   prepareTokenInsert,
   revokeServiceToken,
   validateScopes,
@@ -48,6 +47,7 @@ import { resolveSessionUserId } from "../dual-workspace-auth";
 import { respondError } from "../error-response";
 import { allowWrite } from "../guards";
 import type { SessionVars } from "../session-auth";
+import { parseTtlSeconds } from "./tokens";
 import { requireLiveWorkspace, sessionAdminGate, type MembersVars } from "./workspace-members";
 
 const MAX_BODY_BYTES = 1024;
@@ -59,17 +59,10 @@ export type ServiceTokenMintResponse = ServiceTokenRow & { token: string };
 
 /** The listed shape — never the token value or its hash. */
 function serviceTokenRow(token: AuthTokenRecord) {
-  let scopes: FileScope[] = [];
-  try {
-    const parsed: unknown = JSON.parse(token.scopes);
-    if (Array.isArray(parsed)) scopes = parsed.filter(isFileScope);
-  } catch {
-    // Unparseable scopes list as none; the row can still be revoked.
-  }
   return {
     id: token.id,
     label: token.label ?? "",
-    scopes,
+    scopes: parseScopeList(token.scopes, isFileScope),
     createdAt: token.created_at,
     expiresAt: token.expires_at,
     lastUsedAt: token.last_used_at,
@@ -103,24 +96,7 @@ function parseMintBody(parsed: unknown): {
     });
   }
 
-  let ttlSeconds: number | null = DEFAULT_TOKEN_SECONDS;
-  if (body.ttlSeconds === null) {
-    ttlSeconds = null;
-  } else if (body.ttlSeconds !== undefined) {
-    if (
-      typeof body.ttlSeconds !== "number" ||
-      !Number.isInteger(body.ttlSeconds) ||
-      body.ttlSeconds < 1 ||
-      body.ttlSeconds > MAX_TOKEN_SECONDS
-    ) {
-      throw new ValidationError(
-        `ttlSeconds must be null or an integer between 1 and ${MAX_TOKEN_SECONDS}`,
-        { code: "invalid_ttl" },
-      );
-    }
-    ttlSeconds = body.ttlSeconds;
-  }
-  return { label, scopes, ttlSeconds };
+  return { label, scopes, ttlSeconds: parseTtlSeconds(body.ttlSeconds) };
 }
 
 /**
@@ -143,8 +119,11 @@ export async function serviceTokenMintHandler(c: Context<MembersVars>) {
   }
   const { label, scopes, ttlSeconds } = parseMintBody(parsed);
 
-  await requireLiveWorkspace(c.env, workspace);
-  if (!(await allowWrite(c.env, workspace))) {
+  const [, permitted] = await Promise.all([
+    requireLiveWorkspace(c.env, workspace),
+    allowWrite(c.env, workspace),
+  ]);
+  if (!permitted) {
     throw new RateLimitedError("token minting rate limit exceeded");
   }
 
@@ -172,8 +151,11 @@ export async function serviceTokenMintHandler(c: Context<MembersVars>) {
   }).run();
 
   if ((result.meta?.changes ?? 0) === 0) {
-    const active = await listServiceTokens(db, workspace, now);
-    if (active.some((t) => t.label === label)) {
+    const labelTaken = await db
+      .prepare(`SELECT 1 FROM auth_tokens WHERE ${ACTIVE} AND label = ? LIMIT 1`)
+      .bind(workspace, nowIso, label)
+      .first();
+    if (labelTaken) {
       throw new ConflictError("a service token with this label already exists", {
         code: "service_token_label_taken",
       });
