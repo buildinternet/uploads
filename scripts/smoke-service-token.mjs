@@ -97,7 +97,7 @@ const repo = process.env.GITHUB_REPOSITORY ?? "buildinternet/uploads";
 const failures = [];
 let uploaded = false;
 try {
-  const put = run(["put", file, "--key", key, "--meta", `gh.repo=${repo}`, "--no-comment"]);
+  const put = run(["put", file, "--key", key, "--meta", `gh.repo=${repo}`]);
   uploaded = true;
   console.log(`uploaded ${put.key ?? key} to workspace ${put.workspace ?? "?"}`);
 
