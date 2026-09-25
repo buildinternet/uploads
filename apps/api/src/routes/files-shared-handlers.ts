@@ -255,7 +255,7 @@ export async function putFileHandler(c: Context<WorkspaceVars>) {
     metadata = await withUploaderTags(
       c.env,
       metadata,
-      { mintingUserId: c.get("mintingUserId"), serviceToken: c.get("serviceToken") ?? null },
+      c.get("uploaderIdentity") ?? { kind: "none" },
       META_MAX_KEYS,
     );
   }

@@ -29,6 +29,7 @@ import {
   workspaceAuth,
   type WorkspaceVars,
 } from "@uploads/api/workspace";
+import { userUploaderIdentity } from "@uploads/api/uploader-identity";
 import { protectedResourceMetadata, requestOrigin } from "@uploads/api/well-known";
 import { Hono, type Context, type Next } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
@@ -142,8 +143,10 @@ async function oauthAuth(
   // config on this AS), the same id `uploaderTags()` resolves against the
   // internal `/users/:id/github-account` route. `tokenWorkspaceAuth`/
   // `workspaceAuth` set the same var from `up_` tokens' `minting_user_id`.
-  c.set("mintingUserId", typeof verified.raw.sub === "string" ? verified.raw.sub : null);
-  c.set("serviceToken", null);
+  c.set(
+    "uploaderIdentity",
+    userUploaderIdentity(typeof verified.raw.sub === "string" ? verified.raw.sub : null),
+  );
   return null;
 }
 
@@ -183,8 +186,7 @@ function buildServer(c: Context<WorkspaceVars>): McpServer {
       workspace: c.get("workspace"),
       workspaceName: c.get("workspaceName"),
       authScopes: c.get("authScopes"),
-      mintingUserId: c.get("mintingUserId") ?? null,
-      serviceToken: c.get("serviceToken") ?? null,
+      uploaderIdentity: c.get("uploaderIdentity") ?? { kind: "none" },
       resourceMetadataUrl: `${requestOrigin(c.req.url)}/.well-known/oauth-protected-resource`,
     }),
     validator,

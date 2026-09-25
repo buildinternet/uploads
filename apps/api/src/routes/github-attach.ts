@@ -18,6 +18,7 @@ import type { Context } from "hono";
 import { postAttachExisting } from "../github-attach-service";
 import type { WorkspaceVars } from "../workspace";
 import { jsonBody } from "./json-body";
+import { mintingUserIdOf } from "../uploader-identity";
 
 // Same repo grammar + dot-only-segment guard as github-promote.ts/github-comment.ts.
 const REPO_RE = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
@@ -76,7 +77,7 @@ export async function githubAttachHandler(c: Context<WorkspaceVars>) {
     c.env,
     c.get("workspace"),
     c.get("workspaceName"),
-    c.get("mintingUserId"),
+    mintingUserIdOf(c.get("uploaderIdentity")),
     {
       source: parsed.source,
       target: { repo: parsed.repo, kind: parsed.kind, num: parsed.num },

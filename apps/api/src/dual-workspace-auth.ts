@@ -17,6 +17,7 @@ import {
   type SessionUser,
   type SessionVars,
 } from "./session-auth";
+import { userUploaderIdentity } from "./uploader-identity";
 import {
   loadWorkspaceRecord,
   workspaceAuth,
@@ -151,16 +152,15 @@ export function dualWorkspaceAuth(): MiddlewareHandler<DualAuthVars> {
     c.set("authScopes", [...FILE_SCOPES]);
     c.set("authSource", "session");
     c.set("authPrincipal", `session-user:${userId}`);
-    // A bearer token's `mintingUserId` names the Better Auth user whose
+    // A bearer token's uploader identity names the Better Auth user whose
     // linked GitHub identity `isEntitledToClaimRepo` checks (see
     // `github-claim-authz.ts`) — for a session caller, that's simply the
-    // authenticated session user, not `null`. Leaving this `null` on the
+    // authenticated session user, not `none`. Leaving it empty on the
     // session path silently forced every session-admin repo claim through
     // `github/link` to fail with `not_authorized`, since
     // `isEntitledToClaimRepo` treats a null minting user as "not entitled"
     // by construction (CodeRabbit PR #617 review finding 3).
-    c.set("mintingUserId", userId);
-    c.set("serviceToken", null);
+    c.set("uploaderIdentity", userUploaderIdentity(userId));
     c.set("sessionUserId", userId);
     await next();
   };

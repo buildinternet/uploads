@@ -52,7 +52,7 @@ async function seededEnv(
 
   if (opts.mintingUserId) {
     // Layer a D1-backed token carrying a minting user id (issue #297's
-    // claim-authorization gate reads it via `c.get("mintingUserId")`) — same
+    // claim-authorization gate reads it via `c.get("uploaderIdentity")`) — same
     // shape `workspaceAuth` reads via `findActiveToken` (workspace.ts).
     withMintingUserToken(db, {
       workspace,

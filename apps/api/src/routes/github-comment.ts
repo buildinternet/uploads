@@ -17,6 +17,7 @@ import { writeRateLimit } from "../guards";
 import { requireScope, type WorkspaceVars } from "../workspace";
 import { validateRepo } from "./github-target-validation";
 import { jsonBody } from "./json-body";
+import { mintingUserIdOf } from "../uploader-identity";
 
 function parseTarget(body: Record<string, unknown>): {
   repo: string;
@@ -57,7 +58,7 @@ export async function githubCommentHandler(c: Context<WorkspaceVars>) {
     c.env,
     c.get("workspace"),
     c.get("workspaceName"),
-    c.get("mintingUserId"),
+    mintingUserIdOf(c.get("uploaderIdentity")),
     target,
     { resync },
   );

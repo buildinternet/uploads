@@ -8,8 +8,8 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { createToken, MAX_ACTIVE_SERVICE_TOKENS } from "../src/auth-db";
 import { respondError } from "../src/error-response";
 import { app } from "../src/index";
-import { withUploaderTags } from "../src/uploader-identity";
-import { workspaceAuth, type WorkspaceVars } from "../src/workspace";
+import { mintingUserIdOf, type UploaderIdentity, withUploaderTags } from "../src/uploader-identity";
+import { uploaderIdentityOf, workspaceAuth, type WorkspaceVars } from "../src/workspace";
 import { SqliteD1, database } from "./helpers/sqlite-d1";
 
 const MIGRATIONS = [
@@ -191,18 +191,13 @@ describe("GET / DELETE /v1/workspaces/:workspace/service-tokens", () => {
       token: string;
     };
     const probe = new Hono<WorkspaceVars>()
-      .get("/v1/:workspace/probe", workspaceAuth, (c) =>
-        c.json({ serviceToken: c.get("serviceToken"), mintingUserId: c.get("mintingUserId") }),
-      )
+      .get("/v1/:workspace/probe", workspaceAuth, (c) => c.json(c.get("uploaderIdentity")))
       .onError((err, c) => respondError(c, err));
     const bearer = { Authorization: `Bearer ${minted.token}` };
 
     const before = await probe.request("/v1/acme/probe", { headers: bearer }, env);
     expect(before.status).toBe(200);
-    expect(await before.json()).toEqual({
-      serviceToken: { id: minted.id, label: "CI" },
-      mintingUserId: null,
-    });
+    expect(await before.json()).toEqual({ kind: "service", tokenId: minted.id, label: "CI" });
 
     const res = await app.request(
       `/v1/workspaces/acme/service-tokens/${minted.id}`,
@@ -234,12 +229,13 @@ describe("GET / DELETE /v1/workspaces/:workspace/service-tokens", () => {
 
 describe("withUploaderTags for service tokens", () => {
   const env = {} as Env;
+  const SERVICE: UploaderIdentity = { kind: "service", tokenId: "tok-1", label: "CI" };
 
   it("attributes a gh.* upload to the label and drops client uploader keys", async () => {
     const tagged = await withUploaderTags(
       env,
       { "gh.repo": "acme/app", "gh.uploader": "someone", "gh.uploader-id": "u-spoof" },
-      { mintingUserId: null, serviceToken: { label: "CI" } },
+      SERVICE,
       24,
     );
     expect(tagged).toEqual({
@@ -251,15 +247,39 @@ describe("withUploaderTags for service tokens", () => {
 
   it("leaves non-gh metadata untouched", async () => {
     const meta = { path: "/settings" };
-    expect(
-      await withUploaderTags(env, meta, { mintingUserId: null, serviceToken: { label: "CI" } }, 24),
-    ).toBe(meta);
+    expect(await withUploaderTags(env, meta, SERVICE, 24)).toBe(meta);
   });
 
   it("keeps the client's pairs when the tags would exceed the key cap", async () => {
     const meta = { "gh.repo": "acme/app", a: "1" };
-    expect(
-      await withUploaderTags(env, meta, { mintingUserId: null, serviceToken: { label: "CI" } }, 2),
-    ).toBe(meta);
+    expect(await withUploaderTags(env, meta, SERVICE, 2)).toBe(meta);
+  });
+});
+
+describe("uploaderIdentityOf", () => {
+  const row = { id: "tok-1", label: "CI", owner: "member" as const, minting_user_id: null };
+
+  it("maps each token shape to one identity", () => {
+    expect(uploaderIdentityOf(null)).toEqual({ kind: "none" });
+    expect(uploaderIdentityOf(row)).toEqual({ kind: "none" });
+    expect(uploaderIdentityOf({ ...row, minting_user_id: "u-1" })).toEqual({
+      kind: "user",
+      userId: "u-1",
+    });
+    expect(uploaderIdentityOf({ ...row, owner: "workspace" })).toEqual({
+      kind: "service",
+      tokenId: "tok-1",
+      label: "CI",
+    });
+    expect(uploaderIdentityOf({ ...row, owner: "workspace", label: "  " })).toMatchObject({
+      label: "service token",
+    });
+  });
+
+  it("exposes a user id only for user identities", () => {
+    expect(mintingUserIdOf({ kind: "user", userId: "u-1" })).toBe("u-1");
+    expect(mintingUserIdOf({ kind: "service", tokenId: "tok-1", label: "CI" })).toBeNull();
+    expect(mintingUserIdOf({ kind: "none" })).toBeNull();
+    expect(mintingUserIdOf(undefined)).toBeNull();
   });
 });

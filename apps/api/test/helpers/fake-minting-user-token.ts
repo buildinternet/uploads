@@ -1,6 +1,6 @@
 /**
  * Shared `auth_tokens` D1 stub for tests exercising issue #297's
- * claim-authorization gate, which reads `c.get("mintingUserId")` off the D1
+ * claim-authorization gate, which reads `c.get("uploaderIdentity")` off the D1
  * token row (`findActiveToken`/`d1Token.minting_user_id`, workspace.ts and
  * auth-db.ts). Mirrors the real column shape (`AuthTokenRecord`) closely
  * enough for a `first()` stand-in — used by `github-comment-route.test.ts`,
