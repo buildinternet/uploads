@@ -17,7 +17,7 @@ faq:
   - q: Can Codex attach screenshots to a pull request?
     a: Yes. uploads install adds the agent skills and the MCP server to Codex. Codex can also load the uploads plugin, which adds a reminder before it opens a PR.
   - q: Does this work with Grok, Cursor, and OpenCode?
-    a: Yes. uploads install sets up Grok and adds the pre-PR reminder for Grok and Cursor. OpenCode uses the skills plus its own mcp add command.
+    a: Yes. uploads install sets up Grok and adds the pre-PR reminder for Grok and Cursor. Cursor and OpenCode connect to the hosted MCP server in their own MCP settings.
   - q: What if the agent runs in the cloud with no local shell?
     a: Use the hosted MCP server instead of the CLI. See the guide for cloud agents.
 ---
@@ -29,7 +29,7 @@ import Tabs from "../../components/docs/Tabs.astro";
   DRAFT. Before publishing:
   - Walk through the install tab for each agent in a clean setup, including
     the reminder firing before the agent opens a PR.
-  - Cursor tab: confirm the MCP config shape and that the reminder hook fires.
+  - Cursor tab: confirm the reminder hook fires.
   - Add a screenshot of a real attachments comment from an agent-opened PR
     (upload with the uploads CLI; never commit images).
   - Add to public/sitemap.xml and public/llms.txt when `draft` is removed.
@@ -93,7 +93,20 @@ Nothing else. `uploads install` added the MCP server and the reminder.
   </TabItem>
   <TabItem label="Cursor">
 
-`uploads install` added the reminder. The skills use the CLI, so Cursor needs no MCP server.
+`uploads install` added the reminder. Add the MCP server in Cursor's MCP settings, or in
+`.cursor/mcp.json`:
+
+```json title=".cursor/mcp.json" frame="code"
+{
+  "mcpServers": {
+    "uploads": { "url": "https://agents.uploads.sh/mcp" }
+  }
+}
+```
+
+Cursor cloud agents can also post their own screenshots to the PR. With the
+[GitHub App](/docs/github-app#ingest) installed, uploads imports those into your workspace
+automatically.
 
   </TabItem>
   <TabItem label="OpenCode">

@@ -11,11 +11,14 @@ toc:
   - { id: connect, label: Connect the MCP server }
   - { id: app, label: Install the GitHub App }
   - { id: upload, label: Upload from the agent }
+  - { id: cursor, label: Cursor cloud agents }
 faq:
   - q: Can a cloud coding agent attach screenshots to a GitHub pull request?
     a: Yes. Connect the uploads hosted MCP server and install the uploads GitHub App on the repository. The agent calls the put tool with the PR number, and the file is posted to the PR's attachments comment.
   - q: How does the agent send a file with no filesystem access?
     a: The put tool takes the file as base64 content, or a public HTTPS URL that the server fetches.
+  - q: Does uploads work with Cursor cloud agents?
+    a: Yes. Connect the hosted MCP server as above. Screenshots a Cursor cloud agent posts to the PR on its own are also imported into your workspace by the uploads GitHub App.
   - q: Why install the GitHub App?
     a: Without a local shell there is no gh fallback, so the GitHub App posts the attachments comment. Without it, the agent can still paste the returned Markdown into the PR itself.
 ---
@@ -87,5 +90,16 @@ Pass `contentUrl` instead of `contentBase64` when the file is already at a publi
   Full tool list and parameters: <a href="/docs/agents#skill-vs-mcp">Skill vs. MCP
   <span class="go">→</span></a>
 </div>
+
+</section>
+
+<section id="cursor">
+
+## Cursor cloud agents <a class="anchor" href="#cursor" aria-label="Link to this section">#</a>
+
+Cursor cloud agents can post screenshots to the pull request themselves. With the GitHub App
+installed, uploads imports those into your workspace, so they're searchable and don't depend on
+Cursor's copy. Turn on **Allow posting artifacts to GitHub** in the Cursor dashboard so the PR gets
+public artifact links. See [Imported attachments](/docs/github-app#ingest).
 
 </section>
