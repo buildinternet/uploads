@@ -36,10 +36,19 @@ if (!token.startsWith("ups_")) {
 }
 
 const cli = join(import.meta.dirname, "..", "packages", "uploads", "bin", "uploads.js");
-const run = (args) =>
-  JSON.parse(
-    execFileSync(process.execPath, [cli, ...args, "--json", "--quiet"], { encoding: "utf8" }),
-  );
+/** Run a CLI command with --json; on failure, throw with its own output so CI shows why. */
+function run(args) {
+  try {
+    const stdout = execFileSync(process.execPath, [cli, ...args, "--json"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    return JSON.parse(stdout);
+  } catch (error) {
+    const out = [error.stdout, error.stderr].filter(Boolean).join("\n").trim();
+    throw new Error(`uploads ${args[0]} failed: ${out || error.message}`);
+  }
+}
 
 /** A valid 8×8 PNG, generated so the upload passes magic-byte sniffing. */
 function png() {
