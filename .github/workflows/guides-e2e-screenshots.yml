@@ -11,7 +11,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: mkdir -p shots && convert -size 800x400 xc:'#1f2937' -fill white -pointsize 36 -gravity center -annotate 0 'CI screenshot (guide e2e)' shots/ci-e2e.png
+      - name: Write a test screenshot
+        run: |
+          mkdir -p shots
+          python3 -c "
+          import zlib, struct
+          w, h = 800, 400
+          raw = b''.join(b'\x00' + bytes([31, 41, 55]) * w for _ in range(h))
+          def chunk(t, d): return struct.pack('>I', len(d)) + t + d + struct.pack('>I', zlib.crc32(t + d))
+          png = b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 2, 0, 0, 0)) + chunk(b'IDAT', zlib.compress(raw)) + chunk(b'IEND', b'')
+          open('shots/ci-e2e.png', 'wb').write(png)
+          "
       - run: npm install -g @buildinternet/uploads
       - run: uploads put ./shots/*.png --pr ${{ github.event.pull_request.number }}
         env:
