@@ -13,6 +13,17 @@
  *     [--allowed-prefixes default|f,screenshots,gh] [--max-key-depth 8] \
  *     [--no-default-limits] # skip shared/agent template (start unlimited)
  *     [--local]             # write to wrangler dev's local KV instead of prod
+ *     [--api-url <url>]     # API that creates the org (default https://api.uploads.sh;
+ *                           # with --local the org step runs only when this is given)
+ *
+ * Every workspace needs its Better Auth organization (slug = workspace name):
+ * membership in that org is what grants session access, and a KV record
+ * without one is an orphan nobody can be invited to. So the org is created
+ * first, through POST /admin/orgs/:name (needs ADMIN_TOKEN), and the KV
+ * record is written only after that succeeds. Same order as self-serve
+ * registration. If an org with this name already has members, the API 409s
+ * and nothing is written. --local skips the org step unless --api-url points
+ * at a local API, so the usual local setup doesn't need one running.
  *
  * By default, new workspaces get the shared/agent limit template (see
  * workspace-limit-defaults.mjs / docs/ops.md). Explicit --max-* flags override
@@ -230,6 +241,43 @@ const appliedLimits = {
   allowedKeyPrefixes: record.allowedKeyPrefixes,
   maxKeyDepth: record.maxKeyDepth,
 };
+
+// The KV write targets prod unless --local, so the org default follows that
+// and ignores UPLOADS_API_URL (which may point at a dev stack).
+const apiUrl = (opts["api-url"] ?? (opts.local ? "" : "https://api.uploads.sh")).replace(/\/$/, "");
+
+if (apiUrl) {
+  const adminToken = process.env.ADMIN_TOKEN ?? process.env.UPLOADS_ADMIN_TOKEN ?? "";
+  if (!adminToken) {
+    fail("ADMIN_TOKEN (or UPLOADS_ADMIN_TOKEN) is required to create the workspace's org");
+  }
+  let res;
+  try {
+    res = await fetch(`${apiUrl}/admin/orgs/${encodeURIComponent(name)}`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${adminToken}` },
+      signal: AbortSignal.timeout(30_000),
+    });
+  } catch (err) {
+    fail(
+      `could not reach ${apiUrl} to create the org — workspace NOT saved ` +
+        `(${err instanceof Error ? err.message : String(err)})`,
+    );
+  }
+  const body = await res.json().catch(() => null);
+  if (!res.ok) {
+    const code = body?.error?.code;
+    fail(
+      code === "org_has_members"
+        ? `an organization named "${name}" already has members — workspace NOT saved; ` +
+            `check who owns it before reusing this name`
+        : `org creation failed (HTTP ${res.status}${code ? `, ${code}` : ""}) — workspace NOT saved`,
+    );
+  }
+  console.log(`org       : ${name} (${body?.created ? "created" : "already existed, no members"})`);
+} else {
+  console.log("org       : skipped (--local without --api-url)");
+}
 
 // Bound wall-clock: local miniflare can hang/orphan multi-GB after agent timeouts.
 try {

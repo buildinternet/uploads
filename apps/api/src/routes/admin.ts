@@ -36,6 +36,7 @@ import {
   type WorkspaceRecord,
 } from "../workspace";
 import { dbFor } from "../db-session";
+import { membersForOrg } from "../org-workspaces";
 
 const WS_NAME_RE = /^[a-z0-9][a-z0-9-]{1,62}$/;
 const HASH_PREFIX_LEN = 8;
@@ -183,6 +184,42 @@ export const admin = new Hono<{ Bindings: Env }>()
     } while (cursor);
 
     return c.json({ created, existing });
+  })
+
+  // Create the memberless org for ONE workspace name — what
+  // `scripts/add-workspace.mjs` calls before writing the `ws:` KV record, so
+  // operator-added workspaces never exist without their org. Same /internal/orgs
+  // call as the backfill above. An existing org is fine only while it has no
+  // members: a populated org under this name would hand the new workspace to
+  // whoever is already in it, so that 409s for an operator to look at.
+  .post("/orgs/:name", async (c) => {
+    const name = c.req.param("name");
+    if (!WS_NAME_RE.test(name)) {
+      throw new ValidationError("invalid workspace name", { code: "invalid_workspace_name" });
+    }
+    const response = await c.env.AUTH.fetch("https://auth.internal/internal/orgs", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-uploads-internal": "1" },
+      body: JSON.stringify({ slug: name, name }),
+    });
+    const payload = (await response.json().catch(() => null)) as {
+      organization?: { id: string; slug: string; name: string };
+    } | null;
+    if (!response.ok || !payload?.organization) {
+      throw new ValidationError(`failed to create org for workspace "${name}"`, {
+        details: payload,
+      });
+    }
+    if (response.status === 201) {
+      return c.json({ organization: payload.organization, created: true }, 201);
+    }
+    const members = await membersForOrg(c.env, name);
+    if (members.length > 0) {
+      throw new ConflictError(`an organization named "${name}" already has members`, {
+        code: "org_has_members",
+      });
+    }
+    return c.json({ organization: payload.organization, created: false }, 200);
   })
 
   // Mint a scoped bearer token for an existing workspace. `workspace` is

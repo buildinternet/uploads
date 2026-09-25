@@ -84,6 +84,12 @@ pnpm workspace:add my-ws --retention-days 90         # opt-in expiry
 pnpm workspace:add my-ws --no-default-limits         # start unlimited
 ```
 
+`workspace:add` creates the workspace's organization before it writes the
+KV record, through `POST /admin/orgs/:name`, so it needs `ADMIN_TOKEN`. If an
+organization with that name already has members, the script stops and writes
+nothing. With `--local`, the organization step runs only when you pass
+`--api-url` for a local API.
+
 Change later without re-minting tokens:
 
 ```bash
