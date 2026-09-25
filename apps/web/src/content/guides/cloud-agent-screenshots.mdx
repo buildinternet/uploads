@@ -1,0 +1,91 @@
+---
+title: Attach screenshots from a cloud coding agent with no local shell
+description: Let a coding agent that runs in a hosted sandbox upload screenshots and files to GitHub pull requests through the uploads hosted MCP server.
+heading: Attach screenshots from a cloud coding agent
+tagline: For agents that run in a hosted sandbox without the uploads CLI.
+navLabel: Cloud agents
+navOrder: 6
+draft: true
+toc:
+  - { id: how, label: How it works }
+  - { id: connect, label: Connect the MCP server }
+  - { id: app, label: Install the GitHub App }
+  - { id: upload, label: Upload from the agent }
+faq:
+  - q: Can a cloud coding agent attach screenshots to a GitHub pull request?
+    a: Yes. Connect the uploads hosted MCP server and install the uploads GitHub App on the repository. The agent calls the put tool with the PR number, and the file is posted to the PR's attachments comment.
+  - q: How does the agent send a file with no filesystem access?
+    a: The put tool takes the file as base64 content, or a public HTTPS URL that the server fetches.
+  - q: Why install the GitHub App?
+    a: Without a local shell there is no gh fallback, so the GitHub App posts the attachments comment. Without it, the agent can still paste the returned Markdown into the PR itself.
+---
+
+{/*
+  DRAFT. Before publishing:
+  - Run the flow from at least one hosted agent end to end: connect, sign
+    in, upload to a PR, and see the comment post.
+  - Add to public/sitemap.xml and public/llms.txt when `draft` is removed.
+*/}
+
+<section class="lead" id="how">
+
+## How it works <a class="anchor" href="#how" aria-label="Link to this section">#</a>
+
+Agents that run in a hosted sandbox often can't install the uploads CLI. The hosted MCP server gives
+them the same uploads over a URL. With it, a cloud agent can:
+
+- Upload screenshots, recordings, and files to a pull request.
+- Stage files on a branch before the PR exists.
+- Get back a public URL and Markdown for anything it uploads.
+
+</section>
+
+<section id="connect">
+
+## Connect the MCP server <a class="anchor" href="#connect" aria-label="Link to this section">#</a>
+
+Add this server URL to your agent's MCP settings:
+
+```text
+https://agents.uploads.sh/mcp
+```
+
+The agent signs in with OAuth the first time it connects. You can also send a workspace token as
+`Authorization: Bearer up_…` from [your account settings](/account/developers#workspace-tokens).
+
+</section>
+
+<section id="app">
+
+## Install the GitHub App <a class="anchor" href="#app" aria-label="Link to this section">#</a>
+
+Install the [uploads GitHub App](/docs/github-app) on the repository. It posts the attachments
+comment for uploads made through the hosted server.
+
+</section>
+
+<section id="upload">
+
+## Upload from the agent <a class="anchor" href="#upload" aria-label="Link to this section">#</a>
+
+The agent calls the `put` tool with the file and the pull request:
+
+```json title="put" frame="code"
+{
+  "filename": "settings-after.png",
+  "contentBase64": "iVBORw0KGgo…",
+  "repo": "acme/web",
+  "pr": 12,
+  "state": "after"
+}
+```
+
+Pass `contentUrl` instead of `contentBase64` when the file is already at a public HTTPS URL. Pass
+`branch` instead of `pr` to stage it before the PR opens.
+
+<div class="pointer">
+  Full tool list and parameters: <a href="/docs/agents#skill-vs-mcp">Skill vs. MCP
+  <span class="go">→</span></a>
+</div>
+
+</section>

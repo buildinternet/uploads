@@ -1,0 +1,157 @@
+---
+title: Get your coding agent to attach screenshots to its pull requests
+description: Set up Claude Code, Codex, Grok, Cursor, or OpenCode to capture screenshots of UI changes and attach them to the pull requests it opens, with the uploads CLI, agent skills, and a pre-PR reminder.
+heading: Get your coding agent to attach screenshots to its PRs
+tagline: Claude Code, Codex, Grok, Cursor, or OpenCode. Same workflow, one setup step apart.
+navLabel: Coding agents
+navOrder: 3
+draft: true
+toc:
+  - { id: how, label: How it works }
+  - { id: install, label: Install }
+  - { id: instructions, label: Tell the agent when to capture }
+  - { id: capture, label: Capture a page }
+faq:
+  - q: Can Claude Code attach screenshots to a GitHub pull request?
+    a: Yes. Install the uploads plugin or run uploads install, and sign in once. Claude Code stages screenshots with uploads put as it works, and they're posted to the pull request's attachments comment when it opens.
+  - q: Can Codex attach screenshots to a pull request?
+    a: Yes. uploads install adds the agent skills and the MCP server to Codex. Codex can also load the uploads plugin, which adds a reminder before it opens a PR.
+  - q: Does this work with Grok, Cursor, and OpenCode?
+    a: Yes. uploads install sets up Grok and adds the pre-PR reminder for Grok and Cursor. OpenCode uses the skills plus its own mcp add command.
+  - q: What if the agent runs in the cloud with no local shell?
+    a: Use the hosted MCP server instead of the CLI. See the guide for cloud agents.
+---
+
+import TabItem from "../../components/docs/TabItem.astro";
+import Tabs from "../../components/docs/Tabs.astro";
+
+{/*
+  DRAFT. Before publishing:
+  - Walk through the install tab for each agent in a clean setup, including
+    the reminder firing before the agent opens a PR.
+  - Cursor tab: confirm the MCP config shape and that the reminder hook fires.
+  - Add a screenshot of a real attachments comment from an agent-opened PR
+    (upload with the uploads CLI; never commit images).
+  - Add to public/sitemap.xml and public/llms.txt when `draft` is removed.
+*/}
+
+<section class="lead" id="how">
+
+## How it works <a class="anchor" href="#how" aria-label="Link to this section">#</a>
+
+A coding agent can open a pull request, but it can't drag a screenshot into GitHub. With the uploads
+CLI and its agent skills, the agent:
+
+- Captures or saves a screenshot after each visual change.
+- Stages it on the branch before the PR exists.
+- Posts everything to one attachments comment when the PR opens.
+
+The workflow is the same for every agent. Only the install step differs.
+
+</section>
+
+<section id="install">
+
+## Install <a class="anchor" href="#install" aria-label="Link to this section">#</a>
+
+Install the CLI, sign in once, and add the skills and MCP server to every agent on your machine:
+
+```bash
+npm install -g @buildinternet/uploads && uploads login
+```
+
+```bash
+uploads install
+```
+
+Then finish setup for your agent:
+
+<Tabs syncKey="agent-runtime">
+  <TabItem label="Claude Code">
+
+Install the plugin to add the reminder that runs before the agent opens a PR:
+
+```text
+/plugin marketplace add buildinternet/uploads
+```
+
+```text
+/plugin install uploads@uploads
+```
+
+  </TabItem>
+  <TabItem label="Codex">
+
+Enable the uploads plugin for the reminder, then open `/hooks` once and trust the hook if Codex
+asks.
+
+  </TabItem>
+  <TabItem label="Grok">
+
+Nothing else. `uploads install` added the MCP server and the reminder.
+
+  </TabItem>
+  <TabItem label="Cursor">
+
+`uploads install` added the reminder. The skills use the CLI, so Cursor needs no MCP server.
+
+  </TabItem>
+  <TabItem label="OpenCode">
+
+Register the MCP server:
+
+```bash
+opencode mcp add uploads --url https://agents.uploads.sh/mcp
+```
+
+  </TabItem>
+</Tabs>
+
+<div class="pointer">
+  More detail on skills, the MCP server, and the reminder:
+  <a href="/docs/agents">Set up your agent <span class="go">→</span></a>
+</div>
+
+</section>
+
+<section id="instructions">
+
+## Tell the agent when to capture <a class="anchor" href="#instructions" aria-label="Link to this section">#</a>
+
+Add this to your project's instructions file: `AGENTS.md`, `CLAUDE.md`, `.cursor/rules`, or whatever
+your agent reads.
+
+```md title="AGENTS.md" frame="code"
+## Screenshots
+When a change is visible (UI, layout, styling), capture it as you go.
+Don't wait for the PR. After each meaningful visual change:
+
+  uploads put ./shot.png --meta path=/route --state after
+
+On a branch, that stages the file for the PR. After opening the PR, run
+`uploads attach --promote` to post everything staged. It's safe to run
+even if the GitHub App already posted them.
+```
+
+With the [GitHub App](/docs/github-app) installed, staged files are posted when the PR opens, with
+no extra command.
+
+</section>
+
+<section id="capture">
+
+## Capture a page <a class="anchor" href="#capture" aria-label="Link to this section">#</a>
+
+When the agent can reach the page, `uploads screenshot` renders it and hosts the image in one step,
+so there's no file to hand off:
+
+```bash
+uploads screenshot http://localhost:3000 --pr 123
+```
+
+<div class="pointer">
+  Need boxes, labels, or redactions on the capture? Use <code>--annotate</code> —
+  <a href="/docs/capture#annotate">see Capture & annotate <span class="go">→</span></a>.
+</div>
+
+</section>

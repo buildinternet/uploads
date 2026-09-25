@@ -1,0 +1,78 @@
+---
+title: Add a screenshot to an issue in someone else's repo from the command line
+description: Report a bug with a screenshot, recording, or log on a GitHub repo you don't maintain, from a terminal or a coding agent. Host the file with the uploads CLI and paste one Markdown line.
+heading: Add a screenshot to an issue in someone else's repo
+tagline: For bug reports and contributions from outside the project.
+navLabel: Issues in other repos
+navOrder: 4
+draft: true
+toc:
+  - { id: how, label: How it works }
+  - { id: host, label: Host the file }
+  - { id: post, label: Post it to the issue }
+faq:
+  - q: Can I add a screenshot to a GitHub issue if I can't push to the repo?
+    a: Yes. Host the file with uploads put, then paste the Markdown it prints into your issue or comment. Anyone who can comment on the issue can do this.
+  - q: Do the maintainers need to use uploads?
+    a: No. The screenshot is a normal Markdown image. GitHub shows it like any other image in the issue.
+  - q: Can a coding agent file the bug report for me?
+    a: Yes. The agent runs uploads put for the screenshot, then includes the printed Markdown in the issue body it writes.
+---
+
+{/*
+  DRAFT. Before publishing:
+  - File a test issue with a hosted screenshot on a public repo you own,
+    posted from an account without write access, and confirm it renders.
+  - Add to public/sitemap.xml and public/llms.txt when `draft` is removed.
+*/}
+
+<section class="lead" id="how">
+
+## How it works <a class="anchor" href="#how" aria-label="Link to this section">#</a>
+
+When you report a bug on a project you don't maintain, the web editor is the usual way to add a
+screenshot. From a terminal or a coding agent, host the file first and paste a link. With the
+uploads CLI you can:
+
+- Host a screenshot, recording, or log at a stable public URL.
+- Get a Markdown line you can paste into any issue or comment.
+- Replace the file later and keep the same URL.
+
+</section>
+
+<section id="host">
+
+## Host the file <a class="anchor" href="#host" aria-label="Link to this section">#</a>
+
+```bash
+uploads put ./bug.png --destination screenshots
+```
+
+That uploads the file and prints its URL and a Markdown line. `--destination screenshots` keeps the
+file out of your own repo's pull requests when you run it inside a git checkout.
+
+<div class="note">
+  Uploaded files are public to anyone with the URL. Crop or redact tokens, emails, and personal
+  data first.
+</div>
+
+</section>
+
+<section id="post">
+
+## Post it to the issue <a class="anchor" href="#post" aria-label="Link to this section">#</a>
+
+Paste the Markdown line into your issue or comment on GitHub. From the terminal, use `gh`:
+
+```bash
+gh issue comment 42 --repo owner/repo --body-file comment.md
+```
+
+where `comment.md` holds your text and the Markdown line.
+
+<div class="pointer">
+  Need to mark up the screenshot first? Use <code>uploads annotate</code> —
+  <a href="/docs/capture#annotate">see Capture & annotate <span class="go">→</span></a>.
+</div>
+
+</section>
