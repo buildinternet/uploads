@@ -693,6 +693,17 @@ function buildAuth(
       // do NOT add a `organizationCreation`/session hook here (see D4).
       organization({
         membershipLimit: 100,
+        // An org IS a workspace's access list: apps/api grants session access
+        // to workspace `X` via membership in the org whose slug is `X`
+        // (org-workspaces.ts). Orgs are created only by /internal/orgs and
+        // /internal/orgs/provision, after apps/api's own name, ownership, and
+        // cap checks, and deleted only through workspace teardown. The
+        // plugin's public create/delete endpoints would skip all of that, and
+        // an org created, re-slugged, or deleted behind apps/api's back can
+        // land on (or strand) a workspace name. Nothing in apps/web or the
+        // CLI calls them. Slug changes are blocked in beforeUpdateOrganization.
+        allowUserToCreateOrganization: false,
+        disableOrganizationDeletion: true,
         sendInvitationEmail: async ({ id, email, organization: org, inviter }) => {
           const url = `${webOrigin}/accept-invitation/${id}`;
           await sendAuthEmail(env, {
@@ -706,6 +717,21 @@ function buildAuth(
           });
         },
         organizationHooks: {
+          // The slug is the workspace name (see above); display-name edits
+          // are fine, re-pointing the org at another workspace name is not.
+          beforeUpdateOrganization: async ({ organization: data, member }) => {
+            if (typeof data.slug !== "string") return;
+            const [current] = await db
+              .select({ slug: schema.organization.slug })
+              .from(schema.organization)
+              .where(eq(schema.organization.id, member.organizationId))
+              .limit(1);
+            if (current && data.slug === current.slug) return;
+            throw new APIError("BAD_REQUEST", {
+              code: "ORGANIZATION_SLUG_IMMUTABLE",
+              message: "an organization's slug is its workspace name and cannot be changed",
+            });
+          },
           // Member cap (issue #450). This endpoint —
           // POST /api/auth/organization/invite-member — is publicly reachable
           // with a session cookie, so enforcing only on apps/api's invite
