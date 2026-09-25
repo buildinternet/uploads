@@ -35,6 +35,7 @@ function fakeClient(
     filename: string;
     prefix?: string;
     dryRun?: boolean;
+    replace?: boolean;
     body: Uint8Array;
     metadata?: Record<string, string>;
   }[] = [];
@@ -52,6 +53,7 @@ function fakeClient(
         key?: string;
         prefix?: string;
         dryRun?: boolean;
+        replace?: boolean;
         metadata?: Record<string, string>;
       },
     ) => {
@@ -60,6 +62,7 @@ function fakeClient(
         filename: putOpts.filename,
         prefix: putOpts.prefix,
         dryRun: putOpts.dryRun,
+        replace: putOpts.replace,
         body,
         metadata: putOpts.metadata,
       });
@@ -1795,5 +1798,54 @@ describe("runScreenshot --annotate", () => {
     );
     expect(code).toBe(0);
     expect(readFileSync(out)).toEqual(Buffer.from(rendered));
+  });
+});
+
+describe("runScreenshot --replace / UPLOADS_OVERWRITE (issue #1029)", () => {
+  const run = (args: string[]) => {
+    const { client, puts } = fakeClient();
+    return runScreenshot(ctxWith(client), args, false, noRun, fakeCapture("remote")).then(
+      (code) => ({ code, puts }),
+    );
+  };
+
+  it("does not pass replace to the client by default", async () => {
+    const { code, puts } = await run([
+      "https://example.com",
+      "--key",
+      "screenshots/x.png",
+      "--no-git",
+    ]);
+    expect(code).toBe(0);
+    expect(puts[0]?.replace).toBeFalsy();
+  });
+
+  it("--replace passes replace: true with an explicit --key", async () => {
+    const { code, puts } = await run([
+      "https://example.com",
+      "--key",
+      "screenshots/x.png",
+      "--replace",
+      "--no-git",
+    ]);
+    expect(code).toBe(0);
+    expect(puts[0]?.key).toBe("screenshots/x.png");
+    expect(puts[0]?.replace).toBe(true);
+  });
+
+  it("UPLOADS_OVERWRITE=1 defaults replace to true without --replace", async () => {
+    vi.stubEnv("UPLOADS_OVERWRITE", "1");
+    try {
+      const { code, puts } = await run([
+        "https://example.com",
+        "--key",
+        "screenshots/x.png",
+        "--no-git",
+      ]);
+      expect(code).toBe(0);
+      expect(puts[0]?.replace).toBe(true);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });

@@ -666,7 +666,7 @@ export function createUploadsMcpTools(opts: {
         // put (explicit key or the default path) refuses an existing object
         // unless this is true or UPLOADS_OVERWRITE=1 is set for this process.
         // No effect on pr/issue keys — the server always overwrites those.
-        const replaceArg = optBool(args, "replace") ?? process.env.UPLOADS_OVERWRITE === "1";
+        const replaceArg = optBool(args, "replace") || process.env.UPLOADS_OVERWRITE === "1";
         if (wantComment && !target) usage("comment requires pr or issue");
         if (dryRun && wantComment) usage("dryRun cannot be combined with comment");
         if (target) {
@@ -1076,6 +1076,11 @@ export function createUploadsMcpTools(opts: {
             description:
               "Capture + resolve key/URL without uploading. Not with comment or galleryId.",
           },
+          replace: {
+            type: "boolean",
+            description:
+              "Overwrite an existing object on a non-`gh/` key (e.g. an explicit `key`). Default false (or true if UPLOADS_OVERWRITE=1). No effect on `pr`/`issue`/branch keys, which always overwrite.",
+          },
           metadata: metadataProp,
           state: stateProp,
           app: appProp,
@@ -1108,6 +1113,7 @@ export function createUploadsMcpTools(opts: {
         const target = ghTargetFromArgs(args, run);
         const wantComment = optBool(args, "comment");
         const dryRun = optBool(args, "dryRun");
+        const replaceArg = optBool(args, "replace") || process.env.UPLOADS_OVERWRITE === "1";
         const keyArg = optString(args, "key");
         const destArg = optString(args, "destination");
         const prefixArg = optString(args, "prefix");
@@ -1307,6 +1313,7 @@ export function createUploadsMcpTools(opts: {
             ref: refArg ?? defaults.ref,
             deriveRepoFromGit: !noGit,
             dryRun,
+            replace: replaceArg,
             metadata: metadataWithCaptureFacts,
             deriveImageFacts: true,
             provenanceClient: "uploads-mcp-screenshot",

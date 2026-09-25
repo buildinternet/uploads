@@ -652,6 +652,32 @@ describe("gallery tool workflow", () => {
 });
 
 describe("tools/call put", () => {
+  it("defaults replace from UPLOADS_OVERWRITE=1 (issue #1029)", async () => {
+    vi.stubEnv("UPLOADS_OVERWRITE", "1");
+    const replaces: Array<boolean | undefined> = [];
+    const { server } = serverWith({
+      factory: () =>
+        ({
+          put: async (_body: Uint8Array, opts: { key: string; replace?: boolean }) => {
+            replaces.push(opts.replace);
+            return { workspace: "w", key: opts.key, url: `https://x.test/${opts.key}` };
+          },
+        }) as unknown as UploadsClient,
+    });
+    const res = await rpc(server, "tools/call", {
+      name: "put",
+      arguments: {
+        contentBase64: PNG_B64,
+        filename: "shot.png",
+        key: "screenshots/x/shot.png",
+        contentType: "image/png",
+        noGit: true,
+      },
+    });
+    expect(res.result.isError).toBe(false);
+    expect(replaces).toEqual([true]);
+  });
+
   it("uploads contentBase64 with an explicit key and returns url + markdown", async () => {
     const { server, puts } = serverWith();
     const res = await rpc(server, "tools/call", {

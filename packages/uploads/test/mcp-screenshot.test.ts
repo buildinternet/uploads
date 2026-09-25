@@ -25,13 +25,20 @@ vi.mock("../src/screenshot.js", async (importOriginal) => {
   };
 });
 
-function fakeClient(puts: { key?: string; metadata?: Record<string, string> }[]): UploadsClient {
+type PutRecord = { key?: string; replace?: boolean; metadata?: Record<string, string> };
+
+function fakeClient(puts: PutRecord[]): UploadsClient {
   return {
     put: async (
       body: Uint8Array,
-      opts: { filename: string; key?: string; metadata?: Record<string, string> },
+      opts: {
+        filename: string;
+        key?: string;
+        replace?: boolean;
+        metadata?: Record<string, string>;
+      },
     ) => {
-      puts.push({ key: opts.key, metadata: opts.metadata });
+      puts.push({ key: opts.key, replace: opts.replace, metadata: opts.metadata });
       return {
         workspace: "test",
         key: opts.key ?? "screenshots/misc/generated.png",
@@ -48,7 +55,7 @@ function fakeClient(puts: { key?: string; metadata?: Record<string, string> }[])
 }
 
 function serverWith(overrides?: { runner?: CommandRunner }) {
-  const puts: { key?: string; metadata?: Record<string, string> }[] = [];
+  const puts: PutRecord[] = [];
   const client = fakeClient(puts);
   const server = createMcpServer({
     serverInfo: { name: "uploads", version: "0.0.0-test" },
@@ -172,6 +179,31 @@ describe("mcp screenshot tool --state folded into the derived name (issue #618)"
     });
     expect(res.result.isError).toBe(false);
     expect(puts[0]?.key).toBe("screenshots/explicit.png");
+  });
+
+  it("forwards replace to the client for an explicit key (issue #1029)", async () => {
+    const { server, puts } = serverWith();
+    const res = await rpc(server, "tools/call", {
+      name: "screenshot",
+      arguments: { target: "https://example.com", key: "screenshots/x.png", replace: true },
+    });
+    expect(res.result.isError).toBe(false);
+    expect(puts[0]?.replace).toBe(true);
+  });
+
+  it("defaults replace from UPLOADS_OVERWRITE=1 (issue #1029)", async () => {
+    vi.stubEnv("UPLOADS_OVERWRITE", "1");
+    try {
+      const { server, puts } = serverWith();
+      const res = await rpc(server, "tools/call", {
+        name: "screenshot",
+        arguments: { target: "https://example.com", key: "screenshots/x.png" },
+      });
+      expect(res.result.isError).toBe(false);
+      expect(puts[0]?.replace).toBe(true);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });
 
