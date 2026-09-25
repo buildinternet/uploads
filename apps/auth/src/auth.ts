@@ -40,6 +40,12 @@ import {
 import { sendAuthEmail } from "./email";
 import { localDemoEnabled, localDemoPlugin } from "./local-demo";
 import { memberCapDenial } from "./member-cap";
+import {
+  isWorkspaceManagerRole,
+  revokeAllTokensForMintingUser,
+  revokeMemberWorkspaceGovernanceTokens,
+  revokeMemberWorkspaceTokens,
+} from "./member-tokens";
 import { notifyAdminsOfMemberJoin } from "./notify-member-join";
 import {
   clampDcrRegistrationResult,
@@ -365,7 +371,7 @@ async function clampRegisteredDcrClient(
 }
 
 function authAfterHook(
-  env: { AUTH_EVENTS?: AnalyticsEngineDataset },
+  env: { AUTH_EVENTS?: AnalyticsEngineDataset; DB: D1Database },
   db: ReturnType<typeof drizzle<typeof schema>>,
 ) {
   const tokenAfter = buildTokenGrantAfterHandler(env, isAPIError);
@@ -373,8 +379,78 @@ function authAfterHook(
     if (ctx.path === "/oauth2/register") {
       await clampRegisteredDcrClient(db, ctx.context.returned);
     }
+    if (ctx.path === "/organization/leave") {
+      await revokeTokensAfterLeave(env.DB, db, ctx.context.returned);
+    }
+    if (ctx.path === "/admin/remove-user") {
+      await revokeTokensAfterUserRemoval(env.DB, ctx.body, ctx.context.returned);
+    }
     await tokenAfter(ctx);
   });
+}
+
+/**
+ * `/organization/leave` deletes the caller's member row without firing any
+ * `organizationHooks` (better-auth 1.7.1 `crud-members.mjs`), so its token
+ * revocation hangs off the after hook instead. Unlike the remove paths this
+ * runs after the delete; a revoke failure is logged rather than rethrown,
+ * since the membership is already gone and an error response would only
+ * invite a retry that 400s on the missing member.
+ */
+/**
+ * `/admin/remove-user` deletes the user, and the `member.user_id` cascade
+ * drops every membership without firing `organizationHooks`. Runs after the
+ * handler so the plugin's admin check has passed; a `before` revoke would
+ * let any caller cut off someone else's tokens with a request that then
+ * 403s. Same log-don't-rethrow reasoning as the leave path below.
+ */
+async function revokeTokensAfterUserRemoval(
+  d1: D1Database,
+  body: unknown,
+  returned: unknown,
+): Promise<void> {
+  if (isAPIError(returned) || !returned || typeof returned !== "object") return;
+  if ((returned as { success?: unknown }).success !== true) return;
+  const userId = (body as { userId?: unknown } | undefined)?.userId;
+  if (typeof userId !== "string" || !userId) return;
+  try {
+    await revokeAllTokensForMintingUser(d1, userId);
+  } catch (err) {
+    console.error(
+      JSON.stringify({
+        message: "user_removal_token_revoke_failed",
+        userId,
+        error: err instanceof Error ? err.message : String(err),
+      }),
+    );
+  }
+}
+
+async function revokeTokensAfterLeave(
+  d1: D1Database,
+  db: ReturnType<typeof drizzle<typeof schema>>,
+  returned: unknown,
+): Promise<void> {
+  if (isAPIError(returned) || !returned || typeof returned !== "object") return;
+  const { organizationId, userId } = returned as { organizationId?: unknown; userId?: unknown };
+  if (typeof organizationId !== "string" || typeof userId !== "string") return;
+  try {
+    const [org] = await db
+      .select({ slug: schema.organization.slug })
+      .from(schema.organization)
+      .where(eq(schema.organization.id, organizationId))
+      .limit(1);
+    if (org) await revokeMemberWorkspaceTokens(d1, org.slug, userId);
+  } catch (err) {
+    console.error(
+      JSON.stringify({
+        message: "member_leave_token_revoke_failed",
+        organizationId,
+        userId,
+        error: err instanceof Error ? err.message : String(err),
+      }),
+    );
+  }
 }
 
 /**
@@ -706,6 +782,19 @@ function buildAuth(
           });
         },
         organizationHooks: {
+          // Token revocation (member-tokens.ts). POST /organization/remove-member
+          // and /organization/update-member-role are publicly reachable with a
+          // session, so the internal routes' revocation alone would leave
+          // them as a bypass. `before*` runs after the plugin's own authz
+          // checks and immediately before the write, so a failure aborts the
+          // change instead of leaving live tokens behind.
+          beforeRemoveMember: async ({ member, organization: org }) => {
+            await revokeMemberWorkspaceTokens(env.DB, org.slug, member.userId);
+          },
+          beforeUpdateMemberRole: async ({ member, newRole, organization: org }) => {
+            if (isWorkspaceManagerRole(newRole)) return;
+            await revokeMemberWorkspaceGovernanceTokens(env.DB, org.slug, member.userId);
+          },
           // Member cap (issue #450). This endpoint —
           // POST /api/auth/organization/invite-member — is publicly reachable
           // with a session cookie, so enforcing only on apps/api's invite
