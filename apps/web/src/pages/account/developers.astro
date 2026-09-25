@@ -22,6 +22,14 @@ const workspaceNames = initial.workspaces?.map((row) => row.workspace) ?? [];
 const hasWorkspaces = workspaceNames.length > 0;
 const knownEmpty = initial.workspaces !== null && !hasWorkspaces;
 const tokensReady = initial.tokens !== null;
+// Service tokens (issue #1026) are admin-only, so point at a workspace this
+// user administers. No such workspace → the sentence stays but loses the link.
+const adminWorkspace = initial.workspaces?.find(
+  (row) => row.role === "owner" || row.role === "admin",
+)?.workspace;
+const serviceTokensHref = adminWorkspace
+  ? `/account/workspaces/${encodeURIComponent(adminWorkspace)}/settings/tokens`
+  : null;
 ---
 
 <AccountLayout section="developers">
@@ -80,8 +88,13 @@ const tokensReady = initial.tokens !== null;
     <div class="settings-section">
       <h2>API Tokens</h2>
       <p class="settings-note muted">
-        For curl, CI, and scripts. Tokens start with <code>up_&lt;workspace&gt;_</code> and last 90 days,
-        1 year, or until you revoke them. The CLI reads the workspace from the token.
+        For curl and scripts. Tokens start with <code>up_&lt;workspace&gt;_</code> and last 90 days, 1
+        year, or until you revoke them. The CLI reads the workspace from the token.
+      </p>
+      <p class="settings-note muted">
+        For CI and bots, use a workspace{" "}
+        {serviceTokensHref ? <a href={serviceTokensHref}>service token</a> : "service token"}{" "}
+        instead. It belongs to the workspace, so it keeps working when you leave.
       </p>
 
       <div

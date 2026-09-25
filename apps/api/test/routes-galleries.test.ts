@@ -148,6 +148,14 @@ beforeEach(async () => {
       "utf8",
     ),
   );
+  db.exec(
+    readFileSync(
+      fileURLToPath(
+        new NodeURL("../migrations/20260925120000_workspace_service_tokens.sql", import.meta.url),
+      ),
+      "utf8",
+    ),
+  );
   // Task 2: putObject/deleteObject (exercised via fileRequest below) now
   // read/write `file_metadata` on every put/delete.
   db.exec(

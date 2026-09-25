@@ -32,6 +32,7 @@
     "./admin-ui": "./src/routes/admin-ui.ts",
     "./workspace-usage": "./src/routes/workspace-usage.ts",
     "./workspace-members": "./src/routes/workspace-members.ts",
+    "./workspace-service-tokens": "./src/routes/workspace-service-tokens.ts",
     "./workspace-settings": "./src/routes/workspace-settings.ts"
   },
   "scripts": {

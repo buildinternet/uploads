@@ -253,9 +253,10 @@ export function resolveSidebarWorkspace(pathname: string, bootGlobal = ""): stri
 /**
  * Active workspace tab from `/account/workspaces/:name[/*]`.
  * Empty on the index, create page, or unrelated routes. `settings` is the one
- * tab that spans two routes (`/settings` and `/settings/storage`), so a third
- * segment is accepted only there — every other tab stays a strict single
- * segment rather than silently matching paths that don't exist.
+ * tab that spans several routes (`/settings`, `/settings/storage`,
+ * `/settings/tokens`), so a third segment is accepted only there — every
+ * other tab stays a strict single segment rather than silently matching
+ * paths that don't exist.
  */
 export function workspaceTabFromPathname(pathname: string): WorkspaceNavTab | "" {
   const match =
@@ -275,7 +276,7 @@ export function workspaceTabFromPathname(pathname: string): WorkspaceNavTab | ""
   return "";
 }
 
-export type WorkspaceSettingsSubpage = "comment" | "storage";
+export type WorkspaceSettingsSubpage = "comment" | "storage" | "tokens";
 
 /**
  * Which settings sub-page is active, for the sidebar's nested sub-nav
@@ -290,6 +291,7 @@ export function workspaceSettingsSubpageFromPathname(
   const sub = match[1] ?? "";
   if (!sub) return "comment";
   if (sub === "storage") return "storage";
+  if (sub === "tokens") return "tokens";
   return "";
 }
 

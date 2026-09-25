@@ -16,6 +16,7 @@ const MIGRATIONS = [
   "migrations/20260710120000_auth.sql",
   "migrations/20260712230000_token_minting_user.sql",
   "migrations/20260817180000_token_last_used.sql",
+  "migrations/20260925120000_workspace_service_tokens.sql",
 ];
 
 const USER = { id: "u1", email: "z@x.com", name: "Zach" };

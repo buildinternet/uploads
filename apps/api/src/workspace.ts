@@ -14,6 +14,7 @@ import {
   isWorkspaceScope,
   parseScopes,
   touchTokenLastUsed,
+  type AuthTokenRecord,
   type FileScope,
   type WorkspaceScope,
 } from "./auth-db";
@@ -446,6 +447,12 @@ export type WorkspaceVars = {
     authPrincipal: string;
     /** Better Auth user behind the bearer token (issue #340), or null. */
     mintingUserId: string | null;
+    /**
+     * Set when the bearer is a workspace-owned service token (issue #1026):
+     * uploads are attributed to its label instead of a member. Null for
+     * personal, legacy, enrollment, OAuth and session credentials.
+     */
+    serviceToken: { id: string; label: string } | null;
   };
   Bindings: Env;
 };
@@ -660,6 +667,7 @@ function workspaceAuthWith(
     c.set("authPrincipal", d1Token ? `d1-token:${d1Token.id}` : `legacy-token:${providedHash}`);
     // Uploader attribution (issue #340) — null for legacy/enrollment tokens.
     c.set("mintingUserId", d1Token?.minting_user_id ?? null);
+    c.set("serviceToken", serviceTokenOf(d1Token));
     if (d1Token) {
       const touchTiming = new ServerTiming();
       try {
@@ -677,6 +685,15 @@ function workspaceAuthWith(
     }
     await next();
   };
+}
+
+/** Attribution identity for a workspace-owned service token (issue #1026), else null. */
+export function serviceTokenOf(
+  token: Pick<AuthTokenRecord, "id" | "label" | "owner"> | null,
+): { id: string; label: string } | null {
+  if (!token || token.owner !== "workspace") return null;
+  // Labels are required at mint; the fallback only covers a hand-edited row.
+  return { id: token.id, label: token.label?.trim() || "service token" };
 }
 
 /** Resolves `:workspace` from the path (the REST API's routes). */

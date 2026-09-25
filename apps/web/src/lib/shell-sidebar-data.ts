@@ -161,6 +161,13 @@ export function accountNavSections(options: {
         icon: "dot",
         nested: true,
       });
+      items.push({
+        label: "Service tokens",
+        href: `${base}/tokens`,
+        current: subpage === "tokens",
+        icon: "dot",
+        nested: true,
+      });
     }
     sections.push({ label: "Workspace", items });
   }

@@ -26,7 +26,7 @@ import {
 } from "../guards";
 import { contentSha256Hex, splitUploadMetaHeaders } from "../provenance";
 import { createLaneResolver, objectPublicUrls, resolveObjectLane, storage } from "../storage";
-import { hasGithubTags, uploaderTags } from "../uploader-identity";
+import { withUploaderTags } from "../uploader-identity";
 import { putObjectIdempotently } from "../upload-idempotency";
 import { sanitizeVisibility } from "../visibility";
 import type { WorkspaceVars } from "../workspace";
@@ -249,16 +249,15 @@ export async function putFileHandler(c: Context<WorkspaceVars>) {
   // those keys can't impersonate someone else. Attribution only (a shared
   // token attributes to its minter); non-gh uploads and legacy tokens are
   // untouched.
+  // A workspace service token (issue #1026) attributes to its label instead.
   let metadata = hasCustomMeta ? custom : undefined;
-  if (metadata && hasGithubTags(metadata)) {
-    const uploader = await uploaderTags(c.env, c.get("mintingUserId"), metadata["gh.repo"]);
-    if (uploader) {
-      // Attribution must never break an upload that was valid without it:
-      // if the merged set would blow the per-object key cap (validated
-      // inside putObject), keep the client's pairs and drop the server tags.
-      const merged = { ...metadata, ...uploader };
-      if (Object.keys(merged).length <= META_MAX_KEYS) metadata = merged;
-    }
+  if (metadata) {
+    metadata = await withUploaderTags(
+      c.env,
+      metadata,
+      { mintingUserId: c.get("mintingUserId"), serviceToken: c.get("serviceToken") ?? null },
+      META_MAX_KEYS,
+    );
   }
   const bytes = new Uint8Array(body);
   const workspaceName = c.get("workspaceName");

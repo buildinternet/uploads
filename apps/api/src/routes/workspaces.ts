@@ -492,6 +492,8 @@ workspaces.get("/:name/tokens", workspaceManageAuth(), async (c) => {
       hashPrefix: token.token_hash.slice(0, HASH_PREFIX_LEN),
       scopes: parseAnyScopes(token.scopes),
       expiresAt: token.expires_at,
+      // Issue #1026: 'workspace' marks a service token (no member owner).
+      owner: token.owner,
     }));
 
   return c.json({ workspace: name, tokens });

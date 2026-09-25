@@ -15,6 +15,7 @@ const MIGRATIONS = [
   "migrations/20260822120100_workspace_usage_shared_subset.sql",
   "migrations/20260712230000_token_minting_user.sql",
   "migrations/20260817180000_token_last_used.sql",
+  "migrations/20260925120000_workspace_service_tokens.sql",
   "migrations/20260713210559_file_metadata.sql",
   "migrations/20260915120000_feeds.sql",
   "migrations/20260915153000_feeds_number.sql",

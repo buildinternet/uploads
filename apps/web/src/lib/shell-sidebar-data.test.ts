@@ -116,9 +116,22 @@ describe("accountNavSections", () => {
       section: "workspaces",
     });
     const nested = settings[0]!.items.filter((i) => i.nested);
-    expect(nested.map((i) => i.label)).toEqual(["GitHub comment", "Storage"]);
-    expect(nested.map((i) => i.current)).toEqual([false, true]);
+    expect(nested.map((i) => i.label)).toEqual(["GitHub comment", "Storage", "Service tokens"]);
+    expect(nested.map((i) => i.current)).toEqual([false, true, false]);
     expect(nested[1]!.href).toBe("/account/workspaces/acme/settings/storage");
+    expect(nested[2]!.href).toBe("/account/workspaces/acme/settings/tokens");
+  });
+
+  it("marks the service tokens sub-page current on its route", () => {
+    const sections = accountNavSections({
+      pathname: "/account/workspaces/acme/settings/tokens",
+      workspace: "acme",
+      section: "workspaces",
+    });
+    const settingsRow = sections[0]!.items.find((i) => i.label === "Settings");
+    expect(settingsRow?.current).toBe(true);
+    const nested = sections[0]!.items.filter((i) => i.nested);
+    expect(nested.map((i) => i.current)).toEqual([false, false, true]);
   });
 
   it("marks the comment sub-page current on the settings root", () => {
@@ -128,7 +141,7 @@ describe("accountNavSections", () => {
       section: "workspaces",
     });
     const nested = sections[0]!.items.filter((i) => i.nested);
-    expect(nested.map((i) => i.current)).toEqual([true, false]);
+    expect(nested.map((i) => i.current)).toEqual([true, false, false]);
   });
 
   it("encodes the workspace slug in hrefs", () => {

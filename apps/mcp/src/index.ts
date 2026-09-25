@@ -143,6 +143,7 @@ async function oauthAuth(
   // internal `/users/:id/github-account` route. `tokenWorkspaceAuth`/
   // `workspaceAuth` set the same var from `up_` tokens' `minting_user_id`.
   c.set("mintingUserId", typeof verified.raw.sub === "string" ? verified.raw.sub : null);
+  c.set("serviceToken", null);
   return null;
 }
 
@@ -183,6 +184,7 @@ function buildServer(c: Context<WorkspaceVars>): McpServer {
       workspaceName: c.get("workspaceName"),
       authScopes: c.get("authScopes"),
       mintingUserId: c.get("mintingUserId") ?? null,
+      serviceToken: c.get("serviceToken") ?? null,
       resourceMetadataUrl: `${requestOrigin(c.req.url)}/.well-known/oauth-protected-resource`,
     }),
     validator,

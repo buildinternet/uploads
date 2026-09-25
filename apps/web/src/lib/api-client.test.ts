@@ -21,6 +21,9 @@ import {
   getWorkspaceSummary,
   inviteToWorkspace,
   listWorkspaceFolder,
+  listWorkspaceServiceTokens,
+  mintWorkspaceServiceToken,
+  revokeWorkspaceServiceToken,
   listWorkspaceStorageBuckets,
   patchWorkspacePosterSettings,
   putWorkspaceStorage,
@@ -1436,6 +1439,98 @@ describe("parseIssuedWorkspaceTokens", () => {
   it("returns null for a malformed payload", () => {
     expect(parseIssuedWorkspaceTokens({ tokens: [{ workspace: "acme" }] })).toBeNull();
     expect(parseIssuedWorkspaceTokens(null)).toBeNull();
+  });
+});
+
+describe("workspace service tokens", () => {
+  const row = {
+    id: "svc-1",
+    label: "CI",
+    scopes: ["files:read", "files:write"],
+    createdAt: "2026-09-01T00:00:00.000Z",
+    expiresAt: null,
+    lastUsedAt: null,
+    createdByUserId: "user-1",
+  };
+
+  it("lists the workspace's tokens", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe("https://api.test/v1/workspaces/acme/service-tokens");
+      expect(init?.credentials).toBe("include");
+      return Response.json({ workspace: "acme", tokens: [row] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(listWorkspaceServiceTokens("https://api.test", "acme")).resolves.toEqual({
+      kind: "ok",
+      tokens: [row],
+    });
+  });
+
+  it("maps a 403 to forbidden and a malformed row to server", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 403 })),
+    );
+    await expect(listWorkspaceServiceTokens("https://api.test", "acme")).resolves.toEqual({
+      kind: "unavailable",
+      reason: "forbidden",
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ tokens: [{ label: "CI" }] })),
+    );
+    await expect(listWorkspaceServiceTokens("https://api.test", "acme")).resolves.toEqual({
+      kind: "unavailable",
+      reason: "server",
+    });
+  });
+
+  it("mints with label, scopes and ttl, and returns the one-time secret", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe("https://api.test/v1/workspaces/acme/service-tokens");
+      expect(init?.method).toBe("POST");
+      expect(JSON.parse(String(init?.body))).toEqual({
+        label: "CI",
+        scopes: ["files:read"],
+        ttlSeconds: null,
+      });
+      return Response.json({ ...row, token: "up_acme_secret" }, { status: 201 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(
+      mintWorkspaceServiceToken("https://api.test", "acme", {
+        label: "CI",
+        scopes: ["files:read"],
+        ttlSeconds: null,
+      }),
+    ).resolves.toEqual({ ok: true, token: { ...row, token: "up_acme_secret" } });
+  });
+
+  it("surfaces the server's message when minting fails", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json(
+          { error: { message: "a service token with this label already exists" } },
+          { status: 409 },
+        ),
+      ),
+    );
+    await expect(
+      mintWorkspaceServiceToken("https://api.test", "acme", { label: "CI" }),
+    ).resolves.toEqual({ ok: false, message: "a service token with this label already exists" });
+  });
+
+  it("revokes by id", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe("https://api.test/v1/workspaces/acme/service-tokens/svc-1");
+      expect(init?.method).toBe("DELETE");
+      return Response.json({ id: "svc-1", workspace: "acme", revoked: true });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(revokeWorkspaceServiceToken("https://api.test", "acme", "svc-1")).resolves.toBe(
+      true,
+    );
   });
 });
 

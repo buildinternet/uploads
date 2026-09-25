@@ -401,6 +401,9 @@ export async function promoteBranchAttachments(
           ...(stagedMeta?.["gh.uploader-id"]
             ? { "gh.uploader-id": stagedMeta["gh.uploader-id"] }
             : {}),
+          ...(stagedMeta?.["gh.uploader-kind"]
+            ? { "gh.uploader-kind": stagedMeta["gh.uploader-kind"] }
+            : {}),
           "gh.repo": `${owner}/${name}`.toLowerCase(),
           "gh.kind": "pull",
           "gh.number": String(target.num),

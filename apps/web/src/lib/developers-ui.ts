@@ -7,6 +7,7 @@ import {
   listMintableWorkspaces,
   type IssuedWorkspaceToken,
   type MintableWorkspace,
+  type WorkspaceServiceToken,
 } from "./api-client";
 import { escapeHtml, renderEmptyStateHtml } from "./workspace-ui";
 
@@ -63,6 +64,39 @@ export function renderIssuedTokenListHtml(tokens: IssuedWorkspaceToken[]): strin
         .filter(Boolean)
         .join(" · ");
       return `<li data-token-id="${escapeHtml(token.id)}"><div class="detail-main"><div class="detail-title">${title}</div><div class="detail-meta">${meta}</div></div><button type="button" class="text-btn" data-revoke="${escapeHtml(token.id)}" data-revoke-label="${title}" data-revoke-workspace="${workspace}">Revoke</button></li>`;
+    })
+    .join("");
+}
+
+/**
+ * Rows for the workspace service-token list (settings/tokens, issue #1026).
+ * Same row shape as `renderIssuedTokenListHtml`, minus the workspace (the page
+ * is already scoped to one) and with the access level always spelled out.
+ */
+export function renderServiceTokenListHtml(tokens: WorkspaceServiceToken[]): string {
+  if (tokens.length === 0) {
+    return `<li>${renderEmptyStateHtml({
+      title: "No service tokens yet",
+      description: "Create one above for each CI pipeline or bot.",
+      variant: "inline",
+    })}</li>`;
+  }
+  return tokens
+    .map((token) => {
+      const title = escapeHtml(token.label || "Untitled");
+      const created = formatTokenWhen(token.createdAt);
+      const expires = formatTokenWhen(token.expiresAt);
+      const used = formatTokenWhen(token.lastUsedAt);
+      const meta = [
+        tokenAccessLabel(token.scopes) || "read & write",
+        created ? `created ${created}` : "",
+        expires ? `expires ${expires}` : "no expiry",
+        used ? `last used ${used}` : "never used",
+      ]
+        .filter(Boolean)
+        .map(escapeHtml)
+        .join(" · ");
+      return `<li data-token-id="${escapeHtml(token.id)}"><div class="detail-main"><div class="detail-title">${title}</div><div class="detail-meta">${meta}</div></div><button type="button" class="text-btn" data-revoke="${escapeHtml(token.id)}" data-revoke-label="${title}">Revoke</button></li>`;
     })
     .join("");
 }

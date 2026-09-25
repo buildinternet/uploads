@@ -331,6 +331,61 @@ describe("user deletion revokes every token the user minted", () => {
   });
 });
 
+describe("workspace-owned service tokens survive their minting admin (#1026)", () => {
+  async function seedServiceToken() {
+    await db
+      .prepare(
+        `INSERT INTO auth_tokens
+           (id, workspace, token_hash, label, scopes, created_at, expires_at, revoked_at,
+            minting_user_id, owner, created_by_user_id)
+         VALUES ('t_service_acme', 'acme', 'hash-t_service_acme', 'CI', ?, ?, NULL, NULL,
+                 NULL, 'workspace', 'u_admin')`,
+      )
+      .bind(JSON.stringify(FILE_SCOPES), "2026-09-01T00:00:00.000Z")
+      .run();
+  }
+
+  it("removing the admin who minted it leaves it active", async () => {
+    await seedWorld();
+    await seedServiceToken();
+    const res = await internalApp.request(
+      `/internal/orgs/acme/members/m_admin?actorUserId=u_owner`,
+      { method: "DELETE" },
+      dbEnv(),
+    );
+    expect(res.status).toBe(200);
+    expect(await revokedAt("t_admin_acme")).not.toBeNull();
+    expect(await revokedAt("t_service_acme")).toBeNull();
+  });
+
+  it("demoting the admin who minted it leaves it active", async () => {
+    await seedWorld();
+    await seedServiceToken();
+    const res = await internalApp.request(
+      `/internal/orgs/acme/members/m_admin`,
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ actorUserId: "u_owner", role: "member" }),
+      },
+      dbEnv(),
+    );
+    expect(res.status).toBe(200);
+    expect(await revokedAt("t_service_acme")).toBeNull();
+  });
+
+  it("deleting the admin's account leaves it active", async () => {
+    await seedWorld();
+    await seedServiceToken();
+    await seedUser("u_operator", "admin");
+    const session = await seedSession("u_operator");
+    const res = await authPost("/admin/remove-user", session, { userId: "u_admin" });
+    expect(res.status).toBe(200);
+    expect(await revokedAt("t_admin_acme")).not.toBeNull();
+    expect(await revokedAt("t_service_acme")).toBeNull();
+  });
+});
+
 describe("isWorkspaceManagerRole", () => {
   it("accepts admin/owner alone, comma-joined, or as an array", () => {
     expect(isWorkspaceManagerRole("admin")).toBe(true);
