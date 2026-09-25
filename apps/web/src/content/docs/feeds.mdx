@@ -11,7 +11,7 @@ toc:
   - { id: what, label: What a feed is }
   - { id: create, label: Create a feed }
   - { id: pager, label: Page through the set }
-  - { id: when, label: Gallery, repo, or PR }
+  - { id: when, label: Feed or gallery }
 ---
 
 <section class="lead" id="what">
@@ -25,8 +25,8 @@ A feed is a live public page of screenshots already tagged with a GitHub repo. W
 - Open one shot at `/c/<id>/<item>` and page through the set.
 - Filter by page path (the same `path` metadata `uploads find` uses).
 
-It is the same product either way — one extra filter. New tagged screenshots appear automatically. A
-[gallery](/docs/galleries) is a curated set you add by hand.
+A feed runs on autopilot: new tagged screenshots appear without anyone adding them. To hand-pick
+and order a set instead, use a [gallery](/docs/galleries). See [Feed or gallery](#when).
 
 Anyone who knows the URL can view the feed. GitHub repository visibility does not restrict it.
 
@@ -79,10 +79,18 @@ Standalone `/f/…` pages stay for one-off shares. Curated galleries are unchang
 
 <section id="when">
 
-## Gallery, repo, or PR <a class="anchor" href="#when" aria-label="Link to this section">#</a>
+## Feed or gallery <a class="anchor" href="#when" aria-label="Link to this section">#</a>
 
-- **Gallery** — you pick and order the files. See [Galleries](/docs/galleries).
-- **Repo feed** — the latest screenshots across a repo.
-- **PR feed** — the same feed, scoped to one pull request.
+Use a feed when you want to follow what changes. Use a [gallery](/docs/galleries) when you want to
+choose what people see.
+
+| | Change feed | Gallery |
+| --- | --- | --- |
+| **What's in it** | Every screenshot tagged with the repo, or one PR or issue | Only the files you add |
+| **Order** | Newest first | The order you choose |
+| **Upkeep** | None. New shots appear on their own. | Add each file with `--gallery` |
+| **Use it for** | Following a repo or PR as it changes | A release, demo, or review set |
+
+A repo feed and a PR feed are the same feed with one extra filter.
 
 </section>

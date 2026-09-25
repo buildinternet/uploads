@@ -11,6 +11,7 @@ toc:
   - { id: what, label: What a gallery is }
   - { id: workflow, label: CLI workflow }
   - { id: linking, label: Link to a PR or issue }
+  - { id: when, label: Gallery or feed }
 ---
 
 <section class="lead" id="what">
@@ -20,10 +21,11 @@ toc:
 A gallery is an ordered set of media behind one public link, so you can share a whole batch of shots
 as they're captured instead of one URL per file. Each gallery has a public page at `/g/<id>`.
 
+A gallery is curated: it holds only the files you add, in the order you choose.
+
 <div class="pointer">
-  Want a live newest-first view instead of a hand-picked list? Use a
-  <a href="/docs/feeds">change feed</a> — repo-wide or scoped to one pull request
-  <span class="go">→</span>.
+  Want screenshots to collect on their own instead? Use a <a href="/docs/feeds">change feed</a> —
+  <a href="#when">compare the two <span class="go">→</span></a>.
 </div>
 
 </section>
@@ -57,5 +59,21 @@ Optional — this is metadata only, the gallery stays public at the same `/g/<id
 ```bash
 uploads gallery link <id> --github owner/repo#123
 ```
+
+</section>
+
+<section id="when">
+
+## Gallery or feed <a class="anchor" href="#when" aria-label="Link to this section">#</a>
+
+Use a gallery when you want to choose what people see. Use a [change feed](/docs/feeds) when you
+want to follow what changes.
+
+| | Gallery | Change feed |
+| --- | --- | --- |
+| **What's in it** | Only the files you add | Every screenshot tagged with the repo, or one PR or issue |
+| **Order** | The order you choose | Newest first |
+| **Upkeep** | Add each file with `--gallery` | None. New shots appear on their own. |
+| **Use it for** | A release, demo, or review set | Following a repo or PR as it changes |
 
 </section>
