@@ -24,16 +24,33 @@ export interface DocsPageLink {
 
 export const DOCS_HUB: DocsNavItem = { slug: "overview", href: "/docs", label: "Overview" };
 
-// Guides live outside the collection (the agent walkthrough is its own page,
-// not a docs subject page), so this group stays hand-written.
-const GUIDES_SECTION: DocsNavSection = {
-  title: "Guides",
-  items: [{ slug: "walkthrough", href: "/github-screenshots", label: "Agent walkthrough" }],
+// The agent walkthrough is its own .astro page, not a collection entry, so it
+// stays hand-written at the top of the Guides group; `guides` collection
+// entries follow it.
+const WALKTHROUGH: DocsNavItem = {
+  slug: "walkthrough",
+  href: "/github-screenshots",
+  label: "Agent walkthrough",
 };
 
 /** Collection entries in `navOrder` order — the canonical docs sequence. */
 export async function getOrderedDocs() {
   const entries = await getCollection("docs");
+  return entries.sort((a, b) => a.data.navOrder - b.data.navOrder);
+}
+
+/** Nav-slug for a guide, prefixed so it can't collide with a docs `navSlug`. */
+export const guideNavSlug = (id: string) => `guide-${id}`;
+
+/**
+ * Guides in `navOrder` order. Drafts are dropped from production builds and
+ * kept in dev, so a stub can be previewed before it ships.
+ */
+export async function getPublishedGuides() {
+  const entries = await getCollection(
+    "guides",
+    (entry) => !import.meta.env.PROD || !entry.data.draft,
+  );
   return entries.sort((a, b) => a.data.navOrder - b.data.navOrder);
 }
 
@@ -52,7 +69,17 @@ export async function getDocsNav(): Promise<DocsNavSection[]> {
         })),
       ],
     },
-    GUIDES_SECTION,
+    {
+      title: "Guides",
+      items: [
+        WALKTHROUGH,
+        ...(await getPublishedGuides()).map((entry) => ({
+          slug: guideNavSlug(entry.id),
+          href: `/guides/${entry.id}`,
+          label: entry.data.navLabel,
+        })),
+      ],
+    },
   ];
 }
 

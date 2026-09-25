@@ -5,12 +5,13 @@
  */
 import type { APIRoute } from "astro";
 import { aliasesFor, renderDocsCatalog } from "../lib/docs-catalog";
-import { DOCS_HUB, getOrderedDocs } from "../lib/docs-nav";
+import { DOCS_HUB, getOrderedDocs, getPublishedGuides } from "../lib/docs-nav";
 
 export const prerender = true;
 
 export const GET: APIRoute = async () => {
   const entries = await getOrderedDocs();
+  const guides = await getPublishedGuides();
   const pages = [
     {
       page: "docs",
@@ -35,6 +36,13 @@ export const GET: APIRoute = async () => {
         "One command for Claude Code, CI jobs, and scripts that captures, hosts, and posts screenshots and video to PRs and issues, before or after the PR exists.",
       aliases: aliasesFor("github-screenshots", ["walkthrough"]),
     },
+    ...guides.map((entry) => ({
+      page: entry.id,
+      path: `/guides/${entry.id}`,
+      title: entry.data.heading,
+      summary: entry.data.description,
+      aliases: aliasesFor(entry.id),
+    })),
     {
       page: "changelog",
       path: "/changelog",

@@ -1,0 +1,132 @@
+---
+title: Get Claude Code to attach screenshots to its pull requests
+description: Set up Claude Code to capture screenshots of UI changes and attach them to the pull requests it opens, with the uploads plugin, a CLAUDE.md snippet, and a pre-PR reminder.
+heading: Get Claude Code to attach screenshots to its PRs
+tagline: Screenshots on every UI change, without drag-and-drop.
+navLabel: Claude Code
+navOrder: 4
+verified: 2026-09-25
+draft: true
+toc:
+  - { id: why, label: Why it doesn't happen by default }
+  - { id: install, label: Install the plugin }
+  - { id: instructions, label: Tell Claude Code when to capture }
+  - { id: capture, label: Capture without a file path }
+  - { id: no-shell, label: Claude Code on the web }
+faq:
+  - q: Can Claude Code attach screenshots to a GitHub pull request?
+    a: Yes. With the uploads plugin installed and the CLI signed in, Claude Code stages screenshots with uploads put as it works, and they're posted to the pull request's attachments comment when it opens.
+  - q: Why can't Claude Code use gh --attach with its browser screenshots?
+    a: gh --attach needs a file on disk, and screenshots from the in-app browser pane come back without a file path (anthropics/claude-code#94503). uploads screenshot renders the page itself and hosts the image, so no local file is needed.
+  - q: Does this work without the uploads CLI?
+    a: Partly. The hosted MCP server lets Claude Code upload without a local shell. The pre-PR reminder hook needs the CLI.
+---
+
+{/*
+  STUB. Before publishing:
+  - Walk through this page in a clean Claude Code install and confirm each
+    step, including the reminder firing before `gh pr create`.
+  - Add a before/after screenshot of a real Claude Code PR comment (upload
+    via the uploads CLI; never commit images).
+  - Confirm the Claude Code on the web section: which transport and auth
+    flow it uses today.
+  - Re-check anthropics/claude-code#94503 and update `verified`.
+  - Add to public/sitemap.xml and public/llms.txt when `draft` is removed.
+*/}
+
+<section class="lead" id="why">
+
+## Why it doesn't happen by default <a class="anchor" href="#why" aria-label="Link to this section">#</a>
+
+Claude Code can open a pull request, but it has no drag-and-drop. `gh --attach` needs a file on
+disk, and screenshots from the in-app browser pane come back without a file path
+([anthropics/claude-code#94503](https://github.com/anthropics/claude-code/issues/94503)). The
+uploads plugin gives Claude Code:
+
+- A skill that tells it when to capture and which command to run.
+- An `uploads screenshot` command that renders a page and hosts the image in one step.
+- A reminder before `gh pr create` when a branch touches UI files and nothing is staged.
+
+</section>
+
+<section id="install">
+
+## Install the plugin <a class="anchor" href="#install" aria-label="Link to this section">#</a>
+
+Install the CLI and sign in once:
+
+```bash
+npm install -g @buildinternet/uploads && uploads login
+```
+
+Then add the marketplace in Claude Code and install the plugin:
+
+```text
+/plugin marketplace add buildinternet/uploads
+```
+
+```text
+/plugin install uploads@uploads
+```
+
+<div class="pointer">
+  Prefer the skills and MCP server without the plugin? Use <code>uploads install</code> —
+  <a href="/docs/agents#install">see Set up your agent <span class="go">→</span></a>.
+</div>
+
+</section>
+
+<section id="instructions">
+
+## Tell Claude Code when to capture <a class="anchor" href="#instructions" aria-label="Link to this section">#</a>
+
+Add this to your project's `CLAUDE.md`:
+
+```md title="CLAUDE.md" frame="code"
+## Screenshots
+When a change is visible (UI, layout, styling), capture it as you go.
+Don't wait for the PR. After each meaningful visual change:
+
+  uploads put ./shot.png --meta path=/route --state after
+
+On a branch, that stages the file for the PR. After opening the PR, run
+`uploads attach --promote` to post everything staged. It's safe to run
+even if the GitHub App already posted them.
+```
+
+Staged files are posted to one attachments comment when the PR opens. With the
+[GitHub App](/docs/github-app) installed, that happens without another command.
+
+</section>
+
+<section id="capture">
+
+## Capture without a file path <a class="anchor" href="#capture" aria-label="Link to this section">#</a>
+
+When Claude Code can reach the page, `uploads screenshot` renders it and hosts the image, so there's
+no file to hand off:
+
+```bash
+uploads screenshot http://localhost:3000 --pr 123
+```
+
+<div class="pointer">
+  Need boxes, labels, or redactions on the capture? Use <code>--annotate</code> —
+  <a href="/docs/capture#annotate">see Capture & annotate <span class="go">→</span></a>.
+</div>
+
+</section>
+
+<section id="no-shell">
+
+## Claude Code on the web <a class="anchor" href="#no-shell" aria-label="Link to this section">#</a>
+
+{/* TODO: verify this section in a Claude Code on the web session before publishing. */}
+
+Without a local shell, Claude Code can upload through the hosted MCP server:
+
+```bash
+claude mcp add --transport http uploads https://agents.uploads.sh/mcp
+```
+
+</section>

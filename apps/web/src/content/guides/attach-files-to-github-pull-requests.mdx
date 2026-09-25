@@ -1,0 +1,97 @@
+---
+title: Attach PDFs, logs, and other files to a GitHub PR from the CLI
+description: gh --attach only takes images and video. Attach a PDF, log, zip, CSV, JSON, or Markdown file to a pull request or issue from the command line or a coding agent with the uploads CLI.
+heading: Attach PDFs, logs, and other files to a PR
+tagline: From the command line or an agent, without drag-and-drop.
+navLabel: PDFs, logs & other files
+navOrder: 2
+verified: 2026-09-25
+draft: true
+toc:
+  - { id: why, label: What gh can attach }
+  - { id: attach, label: Attach a file }
+  - { id: types, label: Accepted file types }
+  - { id: no-shell, label: Agents without a shell }
+faq:
+  - q: Can gh --attach upload a PDF or a log file?
+    a: No. gh --attach takes images and video. Markdown attachments are requested in cli/cli#14407, and general file attachments for issues in cli/cli#14194.
+  - q: How do I attach a test report to a pull request from CI or an agent?
+    a: Run uploads put with the file and --pr and the PR number. The file gets a stable URL, and a link to it appears in the PR's attachments comment.
+  - q: Are uploaded files private?
+    a: No. Uploaded files are public to anyone with the URL, including files attached to private repositories. Remove secrets and personal data from logs, JSON, and reports before you upload them.
+---
+
+{/*
+  STUB. Before publishing:
+  - Confirm the list of types GitHub's web editor accepts by drag-and-drop
+    against GitHub's "Attaching files" docs, and link it.
+  - Add a screenshot of the attachments comment's file table (upload via
+    the uploads CLI; never commit images).
+  - Re-check cli/cli#14407 and #14194 and update `verified`.
+  - Add to public/sitemap.xml and public/llms.txt when `draft` is removed.
+*/}
+
+<section class="lead" id="why">
+
+## What `gh --attach` takes <a class="anchor" href="#why" aria-label="Link to this section">#</a>
+
+`gh pr comment --attach` and `gh issue comment --attach` upload images and video only. Markdown
+files are requested in [cli/cli#14407](https://github.com/cli/cli/issues/14407), and general file
+attachments in [cli/cli#14194](https://github.com/cli/cli/issues/14194). GitHub's web editor takes
+more file types, but only by drag-and-drop, which a script or an agent can't do.
+
+The uploads CLI hosts any [accepted file](#types) at a stable URL and links it from the pull
+request. With it you can:
+
+- Attach a test report, a coverage summary, or a build log to a PR.
+- Attach files before the PR exists, and have them posted when it opens.
+- Replace a file on a later run and keep the same URL.
+
+</section>
+
+<section id="attach">
+
+## Attach a file <a class="anchor" href="#attach" aria-label="Link to this section">#</a>
+
+Pass the file and the pull request number:
+
+```bash
+uploads put ./report.pdf --pr 123
+```
+
+That uploads the file and adds a link to it in the PR's attachments comment. Images and video
+show inline. Other files appear as a list of links. Use `--issue` to attach to an issue instead.
+
+<div class="pointer">
+  No PR yet? Run <code>uploads put</code> on the branch without <code>--pr</code> —
+  <a href="/docs/attach-pull-request-images#staging">see Stage before a PR exists <span class="go">→</span></a>.
+</div>
+
+</section>
+
+<section id="types">
+
+## Accepted file types <a class="anchor" href="#types" aria-label="Link to this section">#</a>
+
+- **Documents:** PDF.
+- **Archives:** zip and gzip.
+- **Text:** plain text, Markdown, CSV, JSON, and logs.
+- **Media:** images (PNG, JPEG, GIF, WebP, AVIF) and video (MP4, WebM, MOV).
+
+HTML is not accepted. Size limits depend on your plan. See [Plans & limits](/docs/limits).
+
+<div class="note">
+  Uploaded files are public to anyone with the URL. Remove secrets, tokens, and personal data from
+  logs, JSON, and reports before you upload them.
+</div>
+
+</section>
+
+<section id="no-shell">
+
+## Agents without a shell <a class="anchor" href="#no-shell" aria-label="Link to this section">#</a>
+
+An agent with no local shell, such as a cloud agent, can upload through the hosted MCP server at
+`https://agents.uploads.sh/mcp`. See [Set up your agent](/docs/agents).
+
+</section>
