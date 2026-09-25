@@ -24,6 +24,7 @@ import {
   workspaceGovernanceAuth,
   type GovernanceVars,
   type WorkspaceVars,
+  isWorkspaceTokenShaped,
 } from "./workspace";
 
 /** Combined context vars for routes reachable by either auth path. */
@@ -276,7 +277,7 @@ export function dualGovernanceAuth(
   return async (c, next) => {
     const authorization = c.req.header("Authorization");
     const rawToken = authorization?.startsWith("Bearer ") ? authorization.slice(7) : undefined;
-    if (!hasPreresolvedSession(c.req.raw) && rawToken?.startsWith("up_")) {
+    if (!hasPreresolvedSession(c.req.raw) && isWorkspaceTokenShaped(rawToken)) {
       return workspaceGovernanceAuth(requiredScope)(
         c as unknown as Parameters<ReturnType<typeof workspaceGovernanceAuth>>[0],
         next,

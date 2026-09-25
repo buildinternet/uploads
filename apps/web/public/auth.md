@@ -58,9 +58,12 @@ Authorization: Bearer up_<workspace>_…
 | `files:write`  | yes              | upload, reconcile                      |
 | `files:delete` | yes              | delete / purge. Narrow with `--scopes` |
 
+Workspace service tokens, which workspace admins mint for CI and bots, use
+`ups_<workspace>_…` instead. They are sent the same way.
+
 Tokens default to a 90-day lifetime. Hosted MCP at
 `https://agents.uploads.sh/mcp` uses the same bearer scheme (workspace is
-inferred from the `up_<workspace>_…` token form).
+inferred from the `up_<workspace>_…` or `ups_<workspace>_…` token form).
 
 ## Discovery documents
 

@@ -51,6 +51,7 @@ import {
   stampSoftDelete,
   workspaceGovernanceAuth,
   type GovernanceVars,
+  isWorkspaceTokenShaped,
 } from "../workspace";
 import { mutateWorkspaceRecord } from "../workspace-mutate";
 import { dbFor } from "../db-session";
@@ -85,7 +86,7 @@ function workspaceManageAuth(): MiddlewareHandler<ManageAuthVars> {
   return async (c, next) => {
     const authHeader = c.req.header("Authorization");
     const rawToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : undefined;
-    if (rawToken?.startsWith("up_")) {
+    if (isWorkspaceTokenShaped(rawToken)) {
       // Any `up_`-shaped bearer is authoritative, whether or not it parses —
       // a malformed token (e.g. no workspace segment) must 401, never fall
       // back to a session cookie that may also be on the request. See the

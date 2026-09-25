@@ -293,7 +293,7 @@ uploads doctor                                 # version + health + auth + works
 uploads doctor --json
 ```
 
-Workspace tokens encode their workspace (`up_<workspace>_…`), so the CLI infers
+Workspace tokens encode their workspace (`up_<workspace>_…`, or `ups_<workspace>_…` for a workspace service token), so the CLI infers
 `--workspace` when you don't set it. `/account/developers` mints the same
 token shape and can skip expiry (revoke is then the only off switch). Legacy
 administrator-minted tokens remain valid.
