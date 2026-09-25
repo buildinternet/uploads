@@ -78,12 +78,6 @@ const guides = defineCollection({
     navLabel: z.string().min(1),
     /** Order within the Guides nav group. Lower comes first. */
     navOrder: z.number().int().positive(),
-    /**
-     * Date the guide's claims about GitHub and `gh` were last checked. The
-     * gaps these guides cover are open upstream issues that can close at any
-     * time, so the page shows this date.
-     */
-    verified: z.coerce.date(),
     draft: z.boolean().default(false),
     /** Rendered as an on-page FAQ and as FAQPage JSON-LD. */
     faq: z.array(z.object({ q: z.string().min(1), a: z.string().min(1) })).default([]),

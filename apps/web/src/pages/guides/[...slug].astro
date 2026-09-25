@@ -2,8 +2,7 @@
 // Every /guides use-case page. One prerendered route over the `guides` content
 // collection, rendered in the shared DocsLayout so guides sit in the docs nav
 // under "Guides". The frontmatter `faq` renders as an on-page FAQ and as
-// FAQPage JSON-LD; `verified` is shown so readers know when the claims about
-// GitHub and `gh` were last checked. Drafts never reach production builds.
+// FAQPage JSON-LD. Drafts never reach production builds.
 import { render } from "astro:content";
 import DocsLayout from "../../layouts/DocsLayout.astro";
 import { getPublishedGuides, guideNavSlug } from "../../lib/docs-nav";
@@ -15,14 +14,7 @@ export async function getStaticPaths() {
 
 const { entry } = Astro.props;
 const { Content } = await render(entry);
-const { faq, verified, draft } = entry.data;
-
-const verifiedLabel = verified.toLocaleDateString("en-US", {
-  year: "numeric",
-  month: "long",
-  day: "numeric",
-  timeZone: "UTC",
-});
+const { faq, draft } = entry.data;
 
 const toc =
   entry.data.toc && faq.length ? [...entry.data.toc, { id: "faq", label: "FAQ" }] : entry.data.toc;
@@ -87,10 +79,4 @@ const faqJsonLd = faq.length
     )
   }
 
-  <div class="note">
-    <p>
-      Checked against GitHub and the <code>gh</code> CLI on {verifiedLabel}. Every command and flag
-      is in the <a href="/docs">docs</a>.
-    </p>
-  </div>
 </DocsLayout>

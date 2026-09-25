@@ -1,20 +1,19 @@
 ---
 title: Attach PDFs, logs, and other files to a GitHub PR from the CLI
-description: gh --attach only takes images and video. Attach a PDF, log, zip, CSV, JSON, or Markdown file to a pull request or issue from the command line or a coding agent with the uploads CLI.
+description: Attach a PDF, log, zip, CSV, JSON, or Markdown file to a GitHub pull request or issue from the command line or a coding agent, without drag-and-drop.
 heading: Attach PDFs, logs, and other files to a PR
 tagline: From the command line or an agent, without drag-and-drop.
 navLabel: PDFs, logs & other files
 navOrder: 2
-verified: 2026-09-25
 draft: true
 toc:
-  - { id: why, label: What gh can attach }
+  - { id: why, label: Why not drag-and-drop }
   - { id: attach, label: Attach a file }
   - { id: types, label: Accepted file types }
   - { id: no-shell, label: Agents without a shell }
 faq:
-  - q: Can gh --attach upload a PDF or a log file?
-    a: No. gh --attach takes images and video. Markdown attachments are requested in cli/cli#14407, and general file attachments for issues in cli/cli#14194.
+  - q: Can I attach a PDF or a log file to a GitHub PR without the web editor?
+    a: Yes. Run uploads put with the file and --pr and the PR number. It works from a terminal, a CI job, or a coding agent.
   - q: How do I attach a test report to a pull request from CI or an agent?
     a: Run uploads put with the file and --pr and the PR number. The file gets a stable URL, and a link to it appears in the PR's attachments comment.
   - q: Are uploaded files private?
@@ -23,20 +22,16 @@ faq:
 
 {/*
   STUB. Before publishing:
-  - Re-check cli/cli#14407 and #14194 and update `verified`.
   - Add to public/sitemap.xml and public/llms.txt when `draft` is removed.
 */}
 
 <section class="lead" id="why">
 
-## What `gh --attach` takes <a class="anchor" href="#why" aria-label="Link to this section">#</a>
+## Why not drag-and-drop <a class="anchor" href="#why" aria-label="Link to this section">#</a>
 
-`gh`'s `--attach` flag uploads images and video only. Markdown
-files are requested in [cli/cli#14407](https://github.com/cli/cli/issues/14407), and general file
-attachments in [cli/cli#14194](https://github.com/cli/cli/issues/14194). GitHub's web editor takes
-[more file types](https://docs.github.com/en/get-started/writing-on-github/working-with-advanced-formatting/attaching-files),
-including PDFs, logs, and zips, but only by drag-and-drop or a file picker. A script or an agent
-can't use either.
+GitHub's web editor takes
+[many file types](https://docs.github.com/en/get-started/writing-on-github/working-with-advanced-formatting/attaching-files),
+but only by drag-and-drop or a file picker. A script, a CI job, or a coding agent can't use either.
 
 The uploads CLI hosts any [accepted file](#types) at a stable URL and links it from the pull
 request. With it you can:

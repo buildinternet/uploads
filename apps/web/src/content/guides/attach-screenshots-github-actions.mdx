@@ -1,22 +1,20 @@
 ---
 title: Attach screenshots to a PR from GitHub Actions
-description: gh --attach rejects the Actions GITHUB_TOKEN and GitHub App installation tokens. Post screenshots and test artifacts to a pull request from a workflow with the uploads CLI instead.
+description: Post screenshots, test reports, and logs from a GitHub Actions workflow to the pull request, in one comment that updates on every run.
 heading: Attach screenshots to a PR from GitHub Actions
-tagline: For CI jobs and bots that hold an Actions or GitHub App token.
+tagline: One comment per PR, updated on every run.
 navLabel: From GitHub Actions
 navOrder: 1
-verified: 2026-09-25
 draft: true
 toc:
-  - { id: why, label: Why gh fails in CI }
+  - { id: why, label: What you get }
   - { id: setup, label: Set up the token }
   - { id: workflow, label: Add the workflow step }
-  - { id: other-options, label: Other options }
 faq:
-  - q: Why does gh pr comment --attach return 404 in GitHub Actions?
-    a: GitHub's attachment upload endpoint rejects the Actions GITHUB_TOKEN and GitHub App installation tokens, even when the token has write access to the repository. This is tracked in cli/cli#14309. Commenting still works with those tokens; only the file upload fails.
-  - q: Can a GitHub App or bot attach images to a pull request?
-    a: Not through gh --attach as of September 2026. Host the image somewhere the bot can write to and put a Markdown image link in the comment. The uploads CLI does both in one command and authenticates with its own token.
+  - q: How do I post screenshots from GitHub Actions to a pull request?
+    a: Upload them with uploads put and the PR number in a workflow step. The files get stable URLs, and one attachments comment on the PR lists them. Later runs update that comment instead of adding new ones.
+  - q: Can I attach test reports and logs, not only images?
+    a: Yes. PDFs, logs, CSV, JSON, Markdown, and zip files are listed in the same comment, with their type and size.
   - q: Does this work for pull requests from forks?
     a: Only if the workflow can read the UPLOADS_TOKEN secret. GitHub does not pass repository secrets to workflows triggered by pull requests from forks.
 ---
@@ -30,21 +28,16 @@ faq:
   - Tokens from /account/developers belong to the member who mints them
     (attribution, revocation). If workspace-owned service tokens ship, switch
     this page to recommend one.
-  - Re-check cli/cli#14309 is still open and update `verified`.
   - Add to public/sitemap.xml and public/llms.txt when `draft` is removed.
 */}
 
 <section class="lead" id="why">
 
-## Why `gh --attach` fails in CI <a class="anchor" href="#why" aria-label="Link to this section">#</a>
+## What you get <a class="anchor" href="#why" aria-label="Link to this section">#</a>
 
-`gh pr comment --attach` uploads through GitHub's attachment endpoint. That endpoint rejects the
-Actions `GITHUB_TOKEN` and GitHub App installation tokens with a 404, even when the token can write
-to the repository ([cli/cli#14309](https://github.com/cli/cli/issues/14309)). A workflow can still
-comment. It can't upload.
-
-The uploads CLI hosts the file with its own token and puts the image link in the comment, so the
-workflow never calls GitHub's upload endpoint. With it, a CI job can:
+Add one step to a workflow, and every run posts its screenshots and artifacts to the pull request.
+The CLI authenticates with its own token, so it doesn't depend on which GitHub token the job holds.
+A CI job can:
 
 - Post screenshots from a Playwright or Cypress run to the pull request.
 - Attach non-image artifacts, like a test report or a log, to the same comment.
@@ -101,8 +94,7 @@ jobs:
 
 The files get stable URLs keyed to the pull request. The attachments comment posts as
 `uploads-sh[bot]` when the [GitHub App](/docs/github-app) is installed. Without the App, the CLI
-posts the comment with `gh`, which uses `GH_TOKEN`. Commenting with the Actions token works. Only
-the upload is blocked.
+posts the comment with `gh`, which uses `GH_TOKEN`.
 
 <div class="pointer">
   Want a screenshot of a URL without a test runner? Use <code>uploads screenshot</code> —
@@ -111,13 +103,3 @@ the upload is blocked.
 
 </section>
 
-<section id="other-options">
-
-## Other options <a class="anchor" href="#other-options" aria-label="Link to this section">#</a>
-
-Without uploads, the usual workaround is to commit images to an assets branch and link to them. It
-works with the Actions token, but the images stay in your git history.
-
-For a side-by-side, see [ways to attach images from the command line](/guides/attach-images-from-the-command-line).
-
-</section>

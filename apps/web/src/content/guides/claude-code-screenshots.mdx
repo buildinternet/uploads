@@ -5,7 +5,6 @@ heading: Get Claude Code to attach screenshots to its PRs
 tagline: Screenshots on every UI change, without drag-and-drop.
 navLabel: Claude Code
 navOrder: 4
-verified: 2026-09-25
 draft: true
 toc:
   - { id: why, label: Why it doesn't happen by default }
@@ -16,8 +15,8 @@ toc:
 faq:
   - q: Can Claude Code attach screenshots to a GitHub pull request?
     a: Yes. With the uploads plugin installed and the CLI signed in, Claude Code stages screenshots with uploads put as it works, and they're posted to the pull request's attachments comment when it opens.
-  - q: Why can't Claude Code use gh --attach with its browser screenshots?
-    a: gh --attach needs a file on disk, and screenshots from the in-app browser pane come back without a file path (anthropics/claude-code#94503). uploads screenshot renders the page itself and hosts the image, so no local file is needed.
+  - q: Does Claude Code need a screenshot file on disk?
+    a: No. uploads screenshot renders the page and hosts the image in one step, so there is no file to hand off.
   - q: Does this work without the uploads CLI?
     a: Partly. The hosted MCP server lets Claude Code upload without a local shell. The pre-PR reminder hook needs the CLI.
 ---
@@ -30,7 +29,6 @@ faq:
     via the uploads CLI; never commit images).
   - Confirm the Claude Code on the web section: which transport and auth
     flow it uses today.
-  - Re-check anthropics/claude-code#94503 and update `verified`.
   - Add to public/sitemap.xml and public/llms.txt when `draft` is removed.
 */}
 
@@ -38,10 +36,8 @@ faq:
 
 ## Why it doesn't happen by default <a class="anchor" href="#why" aria-label="Link to this section">#</a>
 
-Claude Code can open a pull request, but it has no drag-and-drop. `gh --attach` needs a file on
-disk, and screenshots from the in-app browser pane come back without a file path
-([anthropics/claude-code#94503](https://github.com/anthropics/claude-code/issues/94503)). The
-uploads plugin gives Claude Code:
+Claude Code can open a pull request, but it can't drag a screenshot into GitHub. The uploads plugin
+gives Claude Code:
 
 - A skill that tells it when to capture and which command to run.
 - An `uploads screenshot` command that renders a page and hosts the image in one step.
