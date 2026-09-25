@@ -12,7 +12,7 @@
  *   use `list` / `find_files` + `repo_link_status` (issue #405).
  */
 import {
-  buildMarkdown,
+  buildAttachmentMarkdown,
   buildScreenshotKey,
   DEFAULT_CHANGELOG_LIMIT,
   fetchChangelog,
@@ -1110,9 +1110,10 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
               const markdown =
                 result.url === null
                   ? undefined
-                  : buildMarkdown(result.url, {
+                  : buildAttachmentMarkdown(item.filename, result.url, {
                       alt: item.alt ?? alt ?? item.filename,
                       width,
+                      contentType: result.contentType,
                     });
               return {
                 ok: true,
@@ -1153,9 +1154,10 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
         const markdown =
           result.url === null
             ? undefined
-            : buildMarkdown(result.url, {
+            : buildAttachmentMarkdown(filename!, result.url, {
                 alt: alt ?? filename!,
                 width,
+                contentType: result.contentType,
               });
         const extras = await afterUploadExtras(true);
         return { workspace: workspaceName, ...result, markdown, ...extras };

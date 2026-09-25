@@ -744,6 +744,8 @@ export async function uploadPreparedImage(
     alt: opts.alt(prepared),
     width: opts.width,
     key: result.key,
+    filename: prepared.filename,
+    contentType: result.contentType,
   });
   return { result, prepared, markdown, sentMetadata: metadata };
 }
@@ -1368,6 +1370,8 @@ async function uploadAttachmentBatch(
             markdown: buildUploadMarkdown(urlForGithubEmbed(result.url, result.embedUrl), {
               alt: sourceName,
               key: result.key,
+              filename: prepared.filename,
+              contentType: result.contentType,
             }),
             optimize: {
               optimized: prepared.optimized,

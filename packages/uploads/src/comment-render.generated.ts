@@ -144,6 +144,56 @@ export function fileKindFromName(filename: string): "image" | "video" | "file" |
   return "file";
 }
 
+export interface AttachmentMarkdownOptions {
+  /** Alt text for an image, or the poster caption for a PDF/video. */
+  alt: string;
+  /** Only applies to the image case — see `buildAttachmentMarkdown`. */
+  width?: number;
+  /**
+   * Poster frame for a video or PDF first page, when already known — see
+   * `AttachmentItem.posterUrl`. Absent (or the field omitted) means "no
+   * poster", the same convention the managed comment uses.
+   */
+  posterUrl?: string | null;
+  /** Stored/known content type, preferred over `filename`-based inference — mirrors `effectiveAttachmentType`. */
+  contentType?: string;
+}
+
+/**
+ * Print-ready GitHub markdown for one uploaded file (issue #1030), degrading
+ * by type the same way the managed comment does (`inlinePosterKind`), so a
+ * CLI/MCP `put` result and the managed comment never disagree:
+ *
+ * - image → `![alt](fileUrl)`, or an `<img width>` tag when `width` is set
+ * - PDF or video with a poster known at call time → `[![alt](posterUrl)](fileUrl)`
+ * - everything else, including a poster-less PDF/video → `[filename](fileUrl)`
+ */
+export function buildAttachmentMarkdown(
+  filename: string,
+  fileUrl: string,
+  opts: AttachmentMarkdownOptions,
+): string {
+  const type =
+    opts.contentType && opts.contentType !== "application/octet-stream"
+      ? opts.contentType
+      : inferContentType(filename);
+
+  if (type.startsWith("image/")) {
+    if (opts.width) {
+      const alt = opts.alt.replace(/"/g, "&quot;");
+      return `<img width="${opts.width}" alt="${alt}" src="${fileUrl}">`;
+    }
+    return `![${opts.alt}](${fileUrl})`;
+  }
+
+  const posterable = type.startsWith("video/") || type === "application/pdf";
+  if (posterable && opts.posterUrl) {
+    return `[![${opts.alt}](${opts.posterUrl})](${fileUrl})`;
+  }
+
+  return `[${filename}](${fileUrl})`;
+}
+
 /** Hidden marker identifying the one comment this CLI manages. Never change it — existing comments are found by exact match. */
 export const ATTACHMENTS_MARKER = "<!-- uploads.sh:attachments -->";
 
