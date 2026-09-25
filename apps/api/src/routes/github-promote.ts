@@ -14,6 +14,7 @@ import { writeRateLimit } from "../guards";
 import { requireScope, type WorkspaceVars } from "../workspace";
 import { validateBranch, validateRepo } from "./github-target-validation";
 import { jsonBody } from "./json-body";
+import { mintingUserIdOf } from "../uploader-identity";
 
 interface PromoteBody {
   repo: string;
@@ -45,7 +46,7 @@ export async function githubPromoteHandler(c: Context<WorkspaceVars>) {
     c.env,
     c.get("workspace"),
     workspaceName,
-    c.get("mintingUserId"),
+    mintingUserIdOf(c.get("uploaderIdentity")),
     target,
   );
   return c.json(result);

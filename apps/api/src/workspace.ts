@@ -20,6 +20,7 @@ import {
 } from "./auth-db";
 import { dbFor } from "./db-session";
 import { writeSlowOpPoint } from "./slow-op-analytics";
+import { type UploaderIdentity, userUploaderIdentity } from "./uploader-identity";
 
 export type { FileScope } from "./auth-db";
 
@@ -445,14 +446,12 @@ export type WorkspaceVars = {
     authSource: "d1" | "legacy" | "session";
     /** Stable opaque credential identity used to isolate idempotency keys. */
     authPrincipal: string;
-    /** Better Auth user behind the bearer token (issue #340), or null. */
-    mintingUserId: string | null;
     /**
-     * Set when the bearer is a workspace-owned service token (issue #1026):
-     * uploads are attributed to its label instead of a member. Null for
-     * personal, legacy, enrollment, OAuth and session credentials.
+     * Who this credential uploads as (issues #340, #1026): a Better Auth
+     * user, a workspace-owned service token, or neither. Use
+     * `mintingUserIdOf` when only the user id matters.
      */
-    serviceToken: { id: string; label: string } | null;
+    uploaderIdentity: UploaderIdentity;
   };
   Bindings: Env;
 };
@@ -665,9 +664,8 @@ function workspaceAuthWith(
     c.set("authScopes", d1Token ? parseScopes(d1Token.scopes) : [...FILE_SCOPES]);
     c.set("authSource", d1Token ? "d1" : "legacy");
     c.set("authPrincipal", d1Token ? `d1-token:${d1Token.id}` : `legacy-token:${providedHash}`);
-    // Uploader attribution (issue #340) — null for legacy/enrollment tokens.
-    c.set("mintingUserId", d1Token?.minting_user_id ?? null);
-    c.set("serviceToken", serviceTokenOf(d1Token));
+    // Uploader attribution (issues #340, #1026) — `none` for legacy/enrollment tokens.
+    c.set("uploaderIdentity", uploaderIdentityOf(d1Token));
     if (d1Token) {
       const touchTiming = new ServerTiming();
       try {
@@ -687,13 +685,19 @@ function workspaceAuthWith(
   };
 }
 
-/** Attribution identity for a workspace-owned service token (issue #1026), else null. */
-export function serviceTokenOf(
-  token: Pick<AuthTokenRecord, "id" | "label" | "owner"> | null,
-): { id: string; label: string } | null {
-  if (!token || token.owner !== "workspace") return null;
-  // Labels are required at mint; the fallback only covers a hand-edited row.
-  return { id: token.id, label: token.label?.trim() || "service token" };
+/**
+ * Uploader identity for a D1 token row: its label for a workspace-owned
+ * service token (issue #1026), else its minting user (issue #340), else
+ * `none` (legacy or enrollment credentials).
+ */
+export function uploaderIdentityOf(
+  token: Pick<AuthTokenRecord, "id" | "label" | "owner" | "minting_user_id"> | null,
+): UploaderIdentity {
+  if (token?.owner === "workspace") {
+    // Labels are required at mint; the fallback only covers a hand-edited row.
+    return { kind: "service", tokenId: token.id, label: token.label?.trim() || "service token" };
+  }
+  return userUploaderIdentity(token?.minting_user_id);
 }
 
 /** Resolves `:workspace` from the path (the REST API's routes). */

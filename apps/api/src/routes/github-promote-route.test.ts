@@ -45,7 +45,7 @@ async function seededEnv(
     scopedToken?: { rawToken: string; scopes: string[] };
     /**
      * Wires the calling token to a Better Auth minting user id (issue #297's
-     * claim-authorization gate reads this via `c.get("mintingUserId")`), plus
+     * claim-authorization gate reads this via `c.get("uploaderIdentity")`), plus
      * GitHub App config/cache so `isEntitledToClaimRepo` can resolve an
      * installation. Callers still need to preseed `ghlogin:<mintingUserId>`
      * in the returned GITHUB_CACHE (or mock the AUTH-lookup fetch) and mock

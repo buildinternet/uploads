@@ -84,7 +84,11 @@ import {
   normalizeSearchName,
   searchFilesByNameAndMeta,
 } from "@uploads/api/file-search";
-import { withUploaderTags } from "@uploads/api/uploader-identity";
+import {
+  mintingUserIdOf,
+  type UploaderIdentity,
+  withUploaderTags,
+} from "@uploads/api/uploader-identity";
 import {
   deriveRepoBinding,
   findRepoLink,
@@ -136,15 +140,14 @@ export interface RemoteToolContext {
    */
   resourceMetadataUrl: string;
   /**
-   * Better Auth user id behind the presented credential (OAuth JWT's `sub`,
-   * or an `up_` token's `minting_user_id`) — same id the REST API's
-   * `mintingUserId` context var carries. `null` for legacy/enrollment tokens
-   * or JWTs with no `sub`. Threaded into `uploaderTags()` for uploader
-   * attribution parity with the REST path (#340/#344, #345).
+   * Who the presented credential uploads as — the same value the REST API's
+   * `uploaderIdentity` context var carries: the Better Auth user (OAuth JWT's
+   * `sub`, or an `up_` token's `minting_user_id`), a workspace-owned service
+   * token (issue #1026), or `none` for legacy/enrollment tokens and JWTs with
+   * no `sub`. Drives uploader attribution parity with the REST path
+   * (#340/#344, #345) and the user id the GitHub gates check.
    */
-  mintingUserId: string | null;
-  /** Workspace-owned service token behind an `up_` bearer (issue #1026), else null. */
-  serviceToken: { id: string; label: string } | null;
+  uploaderIdentity: UploaderIdentity;
 }
 
 function decodeBase64(value: string, maxBytes: number): Uint8Array {
@@ -312,6 +315,7 @@ function errorDetail(err: unknown): {
 
 export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
   const { env, workspace, workspaceName } = ctx;
+  const mintingUserId = mintingUserIdOf(ctx.uploaderIdentity);
 
   function requireScope(scope: FileScope): void {
     // Authorization failure, not a usage error — no (USAGE) suffix in the tool result.
@@ -343,7 +347,7 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
         env,
         workspace,
         workspaceName,
-        ctx.mintingUserId,
+        mintingUserId,
         target,
       );
       return { comment };
@@ -367,7 +371,7 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
         env,
         workspace,
         workspaceName,
-        ctx.mintingUserId,
+        mintingUserId,
         { repo, num, branch },
       );
       return { promotion };
@@ -961,12 +965,7 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
         // can't be spoofed; drop if they'd exceed the key cap.
         // Service tokens (#1026) attribute to their label.
         if (metadata) {
-          metadata = await withUploaderTags(
-            env,
-            metadata,
-            { mintingUserId: ctx.mintingUserId, serviceToken: ctx.serviceToken },
-            META_MAX_KEYS,
-          );
+          metadata = await withUploaderTags(env, metadata, ctx.uploaderIdentity, META_MAX_KEYS);
         }
 
         // Ceilings only, no admission decision — `putObject` is what gates
@@ -1031,7 +1030,7 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
           branch?: string;
           target?: { kind: "pull" | "issues"; num: number };
         }): Promise<GhKeyMode> {
-          ghPrefixPromise ??= resolveGhKeyContext(env, workspaceName, ctx.mintingUserId, req);
+          ghPrefixPromise ??= resolveGhKeyContext(env, workspaceName, mintingUserId, req);
           return ghPrefixPromise;
         }
 
@@ -1256,7 +1255,7 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
         // Explicit resync (issue #480): hunt for the marker instead of
         // trusting the cached comment id, so a duplicate gets collapsed here
         // rather than waiting on a cache miss.
-        return postManagedComment(env, workspace, workspaceName, ctx.mintingUserId, target, {
+        return postManagedComment(env, workspace, workspaceName, mintingUserId, target, {
           resync: true,
         });
       },
@@ -1334,7 +1333,7 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
         // Primary job — failures throw (isError), unlike put's best-effort promote.
         const promotion =
           branch !== undefined
-            ? await postPromoteBranchAttachments(env, workspace, workspaceName, ctx.mintingUserId, {
+            ? await postPromoteBranchAttachments(env, workspace, workspaceName, mintingUserId, {
                 repo,
                 num: pr,
                 branch,
@@ -1355,7 +1354,7 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
           for (const source of keys) {
             try {
               attached.push(
-                await postAttachExisting(env, workspace, workspaceName, ctx.mintingUserId, {
+                await postAttachExisting(env, workspace, workspaceName, mintingUserId, {
                   source,
                   target: { repo, kind: "pull", num: pr },
                   move,
@@ -1685,8 +1684,10 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
           ok: true,
           workspace: workspaceName,
           scopes: [...ctx.authScopes],
-          userId: ctx.mintingUserId,
-          ...(ctx.serviceToken ? { serviceToken: { label: ctx.serviceToken.label } } : {}),
+          userId: mintingUserId,
+          ...(ctx.uploaderIdentity.kind === "service"
+            ? { serviceToken: { label: ctx.uploaderIdentity.label } }
+            : {}),
         };
       },
     },

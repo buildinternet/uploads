@@ -23,6 +23,7 @@ import { writeRateLimit } from "../guards";
 import { requireScope, type WorkspaceVars } from "../workspace";
 import { jsonBody } from "./json-body";
 import { dbFor } from "../db-session";
+import { mintingUserIdOf } from "../uploader-identity";
 
 // Same owner/name grammar + dot-only-segment guard as routes/github-comment.ts's
 // parseTarget (this repo string is looked up/stored, not interpolated into an
@@ -105,7 +106,11 @@ export async function githubLinkPostHandler(c: Context<WorkspaceVars>) {
   // to have push/maintain/admin access to it. Soft-decline, not an error —
   // `uploads github link` reports this the same way it reports "someone
   // else owns it".
-  const entitled = await isEntitledToClaimRepo(c.env, repo, c.get("mintingUserId"));
+  const entitled = await isEntitledToClaimRepo(
+    c.env,
+    repo,
+    mintingUserIdOf(c.get("uploaderIdentity")),
+  );
   if (!entitled) {
     return c.json({
       claimed: false,

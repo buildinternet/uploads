@@ -25,6 +25,7 @@ import { writeRateLimit } from "../guards";
 import { requireScope, type WorkspaceVars } from "../workspace";
 import { jsonBody } from "./json-body";
 import { dbFor } from "../db-session";
+import { mintingUserIdOf } from "../uploader-identity";
 
 // Same grammar as routes/github-comment.ts's REPO_RE/DOTS_ONLY_RE.
 const REPO_RE = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
@@ -74,7 +75,7 @@ export async function githubPrivatePrefixHandler(c: Context<WorkspaceVars>) {
   const result = await resolveGhKeyContext(
     c.env,
     c.get("workspaceName"),
-    c.get("mintingUserId"),
+    mintingUserIdOf(c.get("uploaderIdentity")),
     req,
   );
   if (result.mode === "plain") return c.json({ mode: "plain" as const });
@@ -155,7 +156,7 @@ export async function githubPrivatePrefixRotateHandler(c: Context<WorkspaceVars>
     c.env,
     c.get("workspace"),
     c.get("workspaceName"),
-    c.get("mintingUserId"),
+    mintingUserIdOf(c.get("uploaderIdentity")),
     req.repo,
     req.branch,
   );
