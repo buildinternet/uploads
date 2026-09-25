@@ -1,0 +1,89 @@
+---
+title: A pull request template with a screenshots section your agent can fill
+description: Add a screenshots section to your GitHub pull request template, and tell your coding agent how to fill it with before and after captures.
+heading: A PR template with a screenshots section
+tagline: Ask for before and after on every UI change, from people and agents.
+navLabel: PR template
+navOrder: 5
+draft: true
+toc:
+  - { id: why, label: Why a template }
+  - { id: template, label: Add the template }
+  - { id: agent, label: Tell your agent }
+faq:
+  - q: How do I add a screenshots section to a GitHub pull request template?
+    a: Add a Screenshots heading to .github/pull_request_template.md. GitHub pre-fills pull requests opened on the web with that file.
+  - q: Will a coding agent fill in the template?
+    a: Not reliably on its own. Tell it to in your instructions file, such as AGENTS.md or CLAUDE.md, and say how to capture the screenshots.
+  - q: Where do the before and after screenshots appear?
+    a: With uploads, captures tagged before and after are paired in the pull request's attachments comment. The template can point reviewers there.
+---
+
+{/*
+  DRAFT. Before publishing:
+  - Open a test PR from the template with an agent and confirm it follows
+    the instructions-file line.
+  - Add a screenshot of a paired before/after in an attachments comment
+    (upload with the uploads CLI; never commit images).
+  - Add to public/sitemap.xml and public/llms.txt when `draft` is removed.
+*/}
+
+<section class="lead" id="why">
+
+## Why a template <a class="anchor" href="#why" aria-label="Link to this section">#</a>
+
+A pull request template reminds every author, human or agent, to show what a UI change looks like.
+With a screenshots section and one line in your agent's instructions, you get:
+
+- A before and after on every visual change.
+- Screenshots staged while the work happens, not reconstructed at review time.
+- One place reviewers know to look.
+
+</section>
+
+<section id="template">
+
+## Add the template <a class="anchor" href="#template" aria-label="Link to this section">#</a>
+
+```md title=".github/pull_request_template.md" frame="code"
+## What changed
+
+## Screenshots
+<!-- UI changes: show a before and an after.
+     Captures tagged --state before / --state after are paired
+     in the attachments comment below. -->
+
+## How to test
+```
+
+GitHub pre-fills pull requests opened on the web with this file. Tools that create PRs from the
+command line may skip it, which is why the next step matters.
+
+</section>
+
+<section id="agent">
+
+## Tell your agent <a class="anchor" href="#agent" aria-label="Link to this section">#</a>
+
+Agents don't always read the template, so add this to `AGENTS.md`, `CLAUDE.md`, or whatever your
+agent reads:
+
+```md title="AGENTS.md" frame="code"
+## Pull requests
+Fill in .github/pull_request_template.md when you open a PR.
+For UI changes, capture before you edit and again after:
+
+  uploads put ./before.png --meta path=/route --state before
+  uploads put ./after.png --meta path=/route --state after
+
+After opening the PR, run `uploads attach --promote`.
+```
+
+The two captures appear side by side in the pull request's attachments comment.
+
+<div class="pointer">
+  Setting up the agent for the first time? <a href="/guides/coding-agent-screenshots">See the
+  coding agent guide <span class="go">→</span></a>
+</div>
+
+</section>

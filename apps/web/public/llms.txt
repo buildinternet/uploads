@@ -40,6 +40,9 @@ How to call it:
 - [Agent guide](https://uploads.sh/github-screenshots): how to get coding agents to upload screenshots & video to GitHub PRs and issues
 - [Guide: from GitHub Actions](https://uploads.sh/guides/attach-screenshots-github-actions): post screenshots, test reports, and logs from a workflow to the PR, in one comment that updates each run
 - [Guide: PDFs, logs & other files](https://uploads.sh/guides/attach-files-to-github-pull-requests): attach PDF, log, zip, CSV, JSON, or Markdown files to a PR or issue from the CLI or an agent
+- [Guide: coding agents](https://uploads.sh/guides/coding-agent-screenshots): set up Claude Code, Codex, Grok, Cursor, or OpenCode to capture screenshots and attach them to the PRs it opens
+- [Guide: issues in other repos](https://uploads.sh/guides/screenshots-in-issues-you-dont-own): add a screenshot or log to an issue on a repo you can't push to, from a terminal or an agent
+- [Guide: cloud agents](https://uploads.sh/guides/cloud-agent-screenshots): upload screenshots and files to PRs from a hosted agent with no local shell, via the hosted MCP server
 - [Auth for agents](https://uploads.sh/auth.md): self-serve and invitation enrollment, bearer tokens, and the hosted-MCP OAuth authorization server
 - [Source & docs](https://github.com/buildinternet/uploads): repository, roadmap, and operator docs
 - [Repo agent entrypoint](https://github.com/buildinternet/uploads/blob/main/llms.txt): monorepo vs product audiences

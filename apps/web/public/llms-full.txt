@@ -291,6 +291,9 @@ staged files are promoted into the PR's attachments comment automatically.
 - Agent walkthrough: https://uploads.sh/github-screenshots
 - Guide, from GitHub Actions: https://uploads.sh/guides/attach-screenshots-github-actions
 - Guide, PDFs, logs & other files: https://uploads.sh/guides/attach-files-to-github-pull-requests
+- Guide, coding agents: https://uploads.sh/guides/coding-agent-screenshots
+- Guide, issues in other repos: https://uploads.sh/guides/screenshots-in-issues-you-dont-own
+- Guide, cloud agents: https://uploads.sh/guides/cloud-agent-screenshots
 - Source: https://github.com/buildinternet/uploads
 
 ## Legal

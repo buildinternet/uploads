@@ -76,6 +76,21 @@
     <priority>0.7</priority>
   </url>
   <url>
+    <loc>https://uploads.sh/guides/coding-agent-screenshots</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://uploads.sh/guides/screenshots-in-issues-you-dont-own</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://uploads.sh/guides/cloud-agent-screenshots</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
     <loc>https://uploads.sh/terms</loc>
     <changefreq>yearly</changefreq>
     <priority>0.2</priority>
