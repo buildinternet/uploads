@@ -1,0 +1,92 @@
+---
+title: Attach screenshots to a PR from GitHub Actions
+description: Post screenshots, test reports, and logs from a GitHub Actions workflow to the pull request, in one comment that updates on every run.
+heading: Attach screenshots to a PR from GitHub Actions
+tagline: One comment per PR, updated on every run.
+navLabel: From GitHub Actions
+navOrder: 1
+toc:
+  - { id: why, label: What you get }
+  - { id: setup, label: Set up the token }
+  - { id: workflow, label: Add the workflow step }
+faq:
+  - q: How do I post screenshots from GitHub Actions to a pull request?
+    a: Upload them with uploads put and the PR number in a workflow step. The files get stable URLs, and one attachments comment on the PR lists them. Later runs update that comment instead of adding new ones.
+  - q: Can I attach test reports and logs, not only images?
+    a: Yes. PDFs, logs, CSV, JSON, Markdown, and zip files are listed in the same comment, with their type and size.
+  - q: Does this work for pull requests from forks?
+    a: Only if the workflow can read the UPLOADS_TOKEN secret. GitHub does not pass repository secrets to workflows triggered by pull requests from forks.
+---
+
+<section class="lead" id="why">
+
+## What you get <a class="anchor" href="#why" aria-label="Link to this section">#</a>
+
+Add one step to a workflow, and every run posts its screenshots and artifacts to the pull request.
+The CLI authenticates with its own token, so it doesn't depend on which GitHub token the job holds.
+A CI job can:
+
+- Post screenshots from a Playwright or Cypress run to the pull request.
+- Attach non-image artifacts, like a test report or a log, to the same comment.
+- Update one comment on each run instead of adding a new one.
+
+</section>
+
+<section id="setup">
+
+## Set up the token <a class="anchor" href="#setup" aria-label="Link to this section">#</a>
+
+Create a token for the workflow in [your account settings](/account/developers#workspace-tokens),
+under **API Tokens**:
+
+1. Pick the workspace, and give the token a label such as `ci`.
+2. Set access to **Read & write**, and choose an expiry.
+3. Copy the token. It starts with `up_<workspace>_`.
+
+Save it as a repository secret named `UPLOADS_TOKEN`. The CLI reads the token and its workspace from
+that variable.
+
+<div class="note">
+  The token belongs to the member who creates it, and files it uploads are attributed to them.
+  Revoke it on the same settings page.
+</div>
+
+</section>
+
+<section id="workflow">
+
+## Add the workflow step <a class="anchor" href="#workflow" aria-label="Link to this section">#</a>
+
+Add a step after the job that writes your screenshots:
+
+```yaml title=".github/workflows/screenshots.yml" frame="code"
+on: pull_request
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  screenshots:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # …build the app and write screenshots to ./shots
+      - run: npm install -g @buildinternet/uploads
+      - run: uploads put ./shots/*.png --pr ${{ github.event.pull_request.number }}
+        env:
+          UPLOADS_TOKEN: ${{ secrets.UPLOADS_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+```
+
+The files get stable URLs keyed to the pull request. The attachments comment posts as
+`uploads-sh[bot]` when the [GitHub App](/docs/github-app) is installed. Without the App, the CLI
+posts the comment with `gh`, which uses `GH_TOKEN`.
+
+<div class="pointer">
+  Want a screenshot of a URL without a test runner? Use <code>uploads screenshot</code> —
+  <a href="/docs/capture">see Capture & annotate <span class="go">→</span></a>.
+</div>
+
+</section>
+

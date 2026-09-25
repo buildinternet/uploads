@@ -1,0 +1,94 @@
+---
+title: Attach PDFs, logs, and other files to a GitHub PR from the CLI
+description: Attach a PDF, log, zip, CSV, JSON, or Markdown file to a GitHub pull request or issue from the command line or a coding agent, without drag-and-drop.
+heading: Attach PDFs, logs, and other files to a PR
+tagline: From the command line or an agent, without drag-and-drop.
+navLabel: PDFs, logs & other files
+navOrder: 2
+toc:
+  - { id: why, label: Why not drag-and-drop }
+  - { id: attach, label: Attach a file }
+  - { id: types, label: Accepted file types }
+  - { id: no-shell, label: Agents without a shell }
+faq:
+  - q: Can I attach a PDF or a log file to a GitHub PR without the web editor?
+    a: Yes. Run uploads put with the file and --pr and the PR number. It works from a terminal, a CI job, or a coding agent.
+  - q: How do I attach a test report to a pull request from CI or an agent?
+    a: Run uploads put with the file and --pr and the PR number. The file gets a stable URL, and a link to it appears in the PR's attachments comment.
+  - q: Are uploaded files private?
+    a: No. Uploaded files are public to anyone with the URL, including files attached to private repositories. Remove secrets and personal data from logs, JSON, and reports before you upload them.
+---
+
+<section class="lead" id="why">
+
+## Why not drag-and-drop <a class="anchor" href="#why" aria-label="Link to this section">#</a>
+
+GitHub's web editor takes
+[many file types](https://docs.github.com/en/get-started/writing-on-github/working-with-advanced-formatting/attaching-files),
+but only by drag-and-drop or a file picker. A script, a CI job, or a coding agent can't use either.
+
+The uploads CLI hosts any [accepted file](#types) at a stable URL and links it from the pull
+request. With it you can:
+
+- Attach a test report, a coverage summary, or a build log to a PR.
+- Attach files before the PR exists, and have them posted when it opens.
+- Replace a file on a later run and keep the same URL.
+
+</section>
+
+<section id="attach">
+
+## Attach a file <a class="anchor" href="#attach" aria-label="Link to this section">#</a>
+
+Pass the file and the pull request number:
+
+```bash
+uploads put ./report.pdf --pr 123
+```
+
+That uploads the file and adds it to the PR's attachments comment. Images and video show inline.
+Other files are listed in a table with their type and size:
+
+<img
+  src="https://storage.uploads.sh/default/screenshots/guides/attachments-file-table.webp"
+  alt="The attachments comment's file table, listing a log file and a PDF with their type and size"
+  width="347"
+  height="104"
+  loading="lazy"
+/>
+
+Use `--issue` to attach to an issue instead.
+
+<div class="pointer">
+  No PR yet? Run <code>uploads put</code> on the branch without <code>--pr</code> —
+  <a href="/docs/attach-pull-request-images#staging">see Stage before a PR exists <span class="go">→</span></a>.
+</div>
+
+</section>
+
+<section id="types">
+
+## Accepted file types <a class="anchor" href="#types" aria-label="Link to this section">#</a>
+
+- **Documents:** PDF.
+- **Archives:** zip and gzip.
+- **Text:** plain text, Markdown, CSV, JSON, and logs.
+- **Media:** images (PNG, JPEG, GIF, WebP, AVIF) and video (MP4, WebM, MOV).
+
+HTML is not accepted. Size limits depend on your plan. See [Plans & limits](/docs/limits).
+
+<div class="note">
+  Uploaded files are public to anyone with the URL. Remove secrets, tokens, and personal data from
+  logs, JSON, and reports before you upload them.
+</div>
+
+</section>
+
+<section id="no-shell">
+
+## Agents without a shell <a class="anchor" href="#no-shell" aria-label="Link to this section">#</a>
+
+An agent with no local shell, such as a cloud agent, can upload through the hosted MCP server at
+`https://agents.uploads.sh/mcp`. See [Set up your agent](/docs/agents).
+
+</section>

@@ -24,11 +24,12 @@ export interface DocsPageLink {
 
 export const DOCS_HUB: DocsNavItem = { slug: "overview", href: "/docs", label: "Overview" };
 
-// Guides live outside the collection (the agent walkthrough is its own page,
-// not a docs subject page), so this group stays hand-written.
-const GUIDES_SECTION: DocsNavSection = {
-  title: "Guides",
-  items: [{ slug: "walkthrough", href: "/github-screenshots", label: "Agent walkthrough" }],
+// The agent walkthrough is its own .astro page, not a collection entry, so it
+// is hand-written into the "Get started" section.
+const WALKTHROUGH: DocsNavItem = {
+  slug: "walkthrough",
+  href: "/github-screenshots",
+  label: "Agent walkthrough",
 };
 
 /** Collection entries in `navOrder` order — the canonical docs sequence. */
@@ -37,23 +38,59 @@ export async function getOrderedDocs() {
   return entries.sort((a, b) => a.data.navOrder - b.data.navOrder);
 }
 
-/** Left-nav sections: the hub plus every collection entry, then Guides. */
+/** Nav-slug for a guide, prefixed so it can't collide with a docs `navSlug`. */
+export const guideNavSlug = (id: string) => `guide-${id}`;
+
+/**
+ * Guides in `navOrder` order. Drafts are dropped from production builds and
+ * kept in dev, so a stub can be previewed before it ships.
+ */
+export async function getPublishedGuides() {
+  const entries = await getCollection(
+    "guides",
+    (entry) => !import.meta.env.PROD || !entry.data.draft,
+  );
+  return entries.sort((a, b) => a.data.navOrder - b.data.navOrder);
+}
+
+/** Sidebar section titles, in display order. Keys match the docs `navGroup` field. */
+const DOCS_GROUPS = [
+  { key: "start", title: "Get started" },
+  { key: "media", title: "Share media" },
+  { key: "github", title: "GitHub" },
+  { key: "workspace", title: "Workspace" },
+] as const;
+
+/**
+ * Left-nav sections: docs entries grouped by `navGroup` (the hub and the
+ * agent walkthrough open "Get started"), then the use-case guides.
+ */
 export async function getDocsNav(): Promise<DocsNavSection[]> {
   const entries = await getOrderedDocs();
-  return [
-    {
-      title: "Docs",
-      items: [
-        DOCS_HUB,
-        ...entries.map((entry) => ({
-          slug: entry.data.navSlug,
-          href: `/docs/${entry.id}`,
-          label: entry.data.navLabel,
-        })),
-      ],
-    },
-    GUIDES_SECTION,
-  ];
+  const sections: DocsNavSection[] = DOCS_GROUPS.map(({ key, title }) => ({
+    title,
+    items: entries
+      .filter((entry) => entry.data.navGroup === key)
+      .map((entry) => ({
+        slug: entry.data.navSlug,
+        href: `/docs/${entry.id}`,
+        label: entry.data.navLabel,
+      })),
+  }));
+  sections[0].items.unshift(DOCS_HUB);
+  sections[0].items.push(WALKTHROUGH);
+  const guides = await getPublishedGuides();
+  if (guides.length > 0) {
+    sections.push({
+      title: "Guides",
+      items: guides.map((entry) => ({
+        slug: guideNavSlug(entry.id),
+        href: `/guides/${entry.id}`,
+        label: entry.data.navLabel,
+      })),
+    });
+  }
+  return sections.filter((section) => section.items.length > 0);
 }
 
 /**

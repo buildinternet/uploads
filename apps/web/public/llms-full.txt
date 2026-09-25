@@ -278,7 +278,7 @@ staged files are promoted into the PR's attachments comment automatically.
 - Docs hub: https://uploads.sh/docs
 - Changelog: https://uploads.sh/changelog (Atom at https://uploads.sh/changelog.xml; JSON at https://uploads.sh/changelog.json; `uploads changelog`)
 - Docs catalog: https://uploads.sh/docs.json (`uploads docs [query]` or MCP `search_docs`; `uploads docs attach` fetches one page as markdown)
-- Attach & share: https://uploads.sh/docs/attach-pull-request-images
+- Attach artifacts to pull requests: https://uploads.sh/docs/attach-pull-request-images
 - Capture & annotate: https://uploads.sh/docs/capture
 - Galleries: https://uploads.sh/docs/galleries
 - GitHub App: https://uploads.sh/docs/github-app
@@ -289,6 +289,8 @@ staged files are promoted into the PR's attachments comment automatically.
 - Plans & limits: https://uploads.sh/docs/limits
 - Bring your own bucket: https://uploads.sh/docs/byo-bucket
 - Agent walkthrough: https://uploads.sh/github-screenshots
+- Guide, from GitHub Actions: https://uploads.sh/guides/attach-screenshots-github-actions
+- Guide, PDFs, logs & other files: https://uploads.sh/guides/attach-files-to-github-pull-requests
 - Source: https://github.com/buildinternet/uploads
 
 ## Legal
