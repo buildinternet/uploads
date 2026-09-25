@@ -103,9 +103,11 @@ you — e.g. https://app.example/settings becomes app.example-settings.png.
 --state folds into that derived name (a -before/-after/... suffix), so
 capturing the same URL with --state before then --state after produces two
 distinct objects instead of the second silently overwriting the first.
-Re-capturing the same URL + --state replaces that object in place — the
-intended idempotency for repeat captures. --key bypasses all of this and
-sets the whole object key verbatim (no folding).
+Re-capturing the same URL + --state on a PR or branch-staged (gh/) key
+replaces that object in place — the intended idempotency for repeat
+captures. --key bypasses all of this and sets the whole object key verbatim
+(no folding). A --key or dated screenshots/ key that already exists is
+refused unless you pass --replace (or set UPLOADS_OVERWRITE=1), same as put.
 
 After capture, screenshots share the put upload pipeline: optional --frame,
 optimize-by-default, --pr/--issue attachment + --comment, --gallery, --meta.
@@ -202,6 +204,9 @@ Options:
   --state <s>               before|after|empty|error|loading — the UI state shown
   --app <name>              Surface shown: web, ios, android, cli
   --workspace, -w <name>    Override workspace
+  --replace                 Allow overwriting an existing object on a strict (--key/default) key
+                            (or UPLOADS_OVERWRITE=1). No effect on --pr/--issue/--branch keys,
+                            which always overwrite.
   --dry-run                 Capture + resolve key/URL without uploading
   --format human|url|markdown|json
 
@@ -389,6 +394,10 @@ export async function runScreenshot(
   const wantComment = parsed.flags.has("--comment");
   const galleryId = flagString(parsed.flags, "--gallery");
   const dryRun = flagBool(parsed.flags, "--dry-run");
+  // Strict-overwrite escape hatch (issue #174), same as put: only matters on
+  // non-gh/ keys (--key or the dated default) — managed gh/ paths always
+  // hot-swap server-side regardless (issue #1029).
+  const replaceFlag = flagBool(parsed.flags, "--replace") || process.env.UPLOADS_OVERWRITE === "1";
 
   if (branchArg !== undefined && ghTarget) {
     throw new UsageError("--branch cannot be combined with --pr/--issue");
@@ -671,6 +680,7 @@ export async function runScreenshot(
       ref,
       deriveRepoFromGit: !noGit,
       dryRun,
+      replace: replaceFlag,
       metadata,
       provenanceClient: "uploads-cli-screenshot",
       alt: () => alt,
