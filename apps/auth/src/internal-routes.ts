@@ -10,6 +10,11 @@ import { Hono } from "hono";
 import { OAUTH_SCOPES, type AuthEnv } from "./auth";
 import { sendAuthEmail } from "./email";
 import { memberCapDenial, resolveMemberCapStrict } from "./member-cap";
+import {
+  isWorkspaceManagerRole,
+  revokeMemberWorkspaceGovernanceTokens,
+  revokeMemberWorkspaceTokens,
+} from "./member-tokens";
 import { notifyAdminsOfMemberJoin } from "./notify-member-join";
 import { notifyAdminsOfUsageAlert } from "./notify-usage-alert";
 import * as schema from "./schema";
@@ -640,6 +645,9 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
     }
     const denied = memberManageDenied(role, target, requestActorUserId);
     if (denied) return c.json(denied.body, denied.status);
+    // Revoke before deleting so a failure leaves the member in place with no
+    // tokens, never removed with live ones (member-tokens.ts).
+    await revokeMemberWorkspaceTokens(c.env.DB, org.slug, target.userId);
     await db.delete(schema.member).where(eq(schema.member.id, target.id));
     return c.json({ ok: true });
   })
@@ -674,6 +682,11 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
     const denied = memberManageDenied(role, target, requestActorUserId);
     if (denied) return c.json(denied.body, denied.status);
     if (target.role !== nextRole) {
+      // Demotion takes back `workspace:*` tokens minted as admin; revoke
+      // first for the same fail-closed ordering as removal above.
+      if (!isWorkspaceManagerRole(nextRole)) {
+        await revokeMemberWorkspaceGovernanceTokens(c.env.DB, org.slug, target.userId);
+      }
       await db.update(schema.member).set({ role: nextRole }).where(eq(schema.member.id, target.id));
     }
     return c.json({ member: { id: target.id, userId: target.userId, role: nextRole } });
