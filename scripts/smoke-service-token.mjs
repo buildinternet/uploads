@@ -9,10 +9,11 @@
  *   1. The CLI reads the workspace from the token (no UPLOADS_WORKSPACE).
  *   2. A `gh.*`-tagged upload is attributed to the token's label
  *      (`gh.uploader-kind: service`, no `gh.uploader-id`).
- *   3. The token can read and delete what it uploaded.
+ *   3. The token can read back what it uploaded.
  *
- * The uploaded file is deleted at the end, pass or fail. The token value is
- * never printed.
+ * Service tokens minted from the UI carry read & write scopes, not delete, so
+ * the smoke overwrites one fixed key (`--replace`) instead of cleaning up:
+ * exactly one smoke file ever exists. The token value is never printed.
  */
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
@@ -90,16 +91,22 @@ function png() {
 
 const file = join(mkdtempSync(join(tmpdir(), "service-token-smoke-")), "smoke.png");
 writeFileSync(file, png());
-const runId = process.env.GITHUB_RUN_ID ?? String(Date.now());
-const key = `screenshots/smoke/service-token-${runId}.png`;
 const repo = process.env.GITHUB_REPOSITORY ?? "buildinternet/uploads";
 
 const failures = [];
-let uploaded = false;
 try {
-  const put = run(["put", file, "--key", key, "--meta", `gh.repo=${repo}`]);
-  uploaded = true;
-  console.log(`uploaded ${put.key ?? key} to workspace ${put.workspace ?? "?"}`);
+  // The server may transcode (PNG → WebP), so read back the key it returns.
+  const put = run([
+    "put",
+    file,
+    "--key",
+    "screenshots/smoke/service-token.png",
+    "--replace",
+    "--meta",
+    `gh.repo=${repo}`,
+  ]);
+  const key = put.key;
+  console.log(`uploaded ${key} to workspace ${put.workspace ?? "?"}`);
 
   const { metadata = {} } = run(["meta", "get", key]);
   if (metadata["gh.uploader-kind"] !== "service") {
@@ -115,15 +122,6 @@ try {
   );
 } catch (error) {
   failures.push(error instanceof Error ? error.message : String(error));
-} finally {
-  if (uploaded) {
-    try {
-      run(["delete", key]);
-      console.log(`deleted ${key}`);
-    } catch (error) {
-      failures.push(`cleanup failed: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
 }
 
 if (failures.length > 0) {

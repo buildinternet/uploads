@@ -21,7 +21,7 @@ permissions:
 
 jobs:
   smoke:
-    name: Upload, attribution, delete
+    name: Upload and attribution
     # Fork PRs get no secrets; skip rather than fail.
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
