@@ -24,10 +24,8 @@ faq:
 
 {/*
   STUB. Before publishing:
-  - Confirm which gh release first ships cli/cli#14516 (ghu_ tokens) and
-    update the gh --attach section.
-  - Verify the uploads GHES claim: hosting and pasting a link works; confirm
-    whether the managed comment posts on a GHES host before saying more.
+  - When a gh release ships cli/cli#14516 (ghu_ tokens), name it in the
+    `gh --attach` section. Not in v2.101.0 as of 2026-09-25.
   - Re-check every linked cli/cli issue and update `verified`.
   - Add to public/sitemap.xml and public/llms.txt when `draft` is removed.
 */}
@@ -36,13 +34,13 @@ faq:
 
 ## Short answer <a class="anchor" href="#short-answer" aria-label="Link to this section">#</a>
 
-If you have write access, a personal token, and one image or video for a PR that already exists,
-use `gh pr comment --attach`. It's built into gh 2.99 and later. Reach for something else when:
+If you have write access, a personal token, and images or video on disk, use `gh`'s `--attach`
+flag. It's built into gh 2.99 and later. Reach for something else when:
 
 - The token is an Actions `GITHUB_TOKEN` or a GitHub App token.
 - The file isn't an image or video.
 - You don't have write access to the repository.
-- The pull request doesn't exist yet.
+- You capture as you work and want the files posted when the PR opens.
 - The repository is on GitHub Enterprise Server.
 
 </section>
@@ -51,13 +49,11 @@ use `gh pr comment --attach`. It's built into gh 2.99 and later. Reach for somet
 
 ## Compared <a class="anchor" href="#compared" aria-label="Link to this section">#</a>
 
-| | Auth | File types | Actions / App tokens | No write access | Before the PR exists |
+| | Auth | File types | Actions / App tokens | No write access | Staged before the PR opens |
 | --- | --- | --- | --- | --- | --- |
 | gh CLI | gh token | Images, video | No | No | No |
 | Assets branch | Any token with push | Any | Yes | No | Yes |
 | uploads CLI | uploads token | [Images, video, PDF, text, archives](/guides/attach-files-to-github-pull-requests#types) | Yes | Yes | Yes |
-
-{/* TODO: verify every cell against the current gh release before publishing. */}
 
 </section>
 
@@ -65,8 +61,8 @@ use `gh pr comment --attach`. It's built into gh 2.99 and later. Reach for somet
 
 ## `gh --attach` <a class="anchor" href="#gh-attach" aria-label="Link to this section">#</a>
 
-`gh pr comment`, `gh issue comment`, and related commands take `--attach` for images and video, up
-to 50 files per command. Known gaps:
+`gh pr create`, `gh pr edit`, `gh issue create`, `gh issue edit`, and the comment commands take
+`--attach` for images and video, up to 50 files per command. Known gaps:
 
 - Actions and GitHub App installation tokens get a 404 from the upload endpoint
   ([cli/cli#14309](https://github.com/cli/cli/issues/14309)).
@@ -75,8 +71,9 @@ to 50 files per command. Known gaps:
 - No Markdown or other file types ([cli/cli#14407](https://github.com/cli/cli/issues/14407)).
 - No GitHub Enterprise Server support ([cli/cli#14335](https://github.com/cli/cli/issues/14335)).
 
-Copilot `ghu_` user tokens were refused by gh until
-[cli/cli#14516](https://github.com/cli/cli/pull/14516), merged September 25, 2026.
+gh also refused Copilot `ghu_` user tokens. The fix,
+[cli/cli#14516](https://github.com/cli/cli/pull/14516), merged on September 25, 2026 and is not in a
+release yet.
 
 </section>
 
@@ -102,6 +99,9 @@ uploads put ./after.png --pr 123
 ```
 
 The tradeoff: files live outside GitHub and are public to anyone with the URL.
+
+The `uploads-sh` bot posts on github.com only. On GitHub Enterprise Server, paste the Markdown that
+`uploads put` prints into your comment.
 
 <div class="pointer">
   Setting it up for an agent? <a href="/docs/agents">See Set up your agent <span class="go">→</span></a>
