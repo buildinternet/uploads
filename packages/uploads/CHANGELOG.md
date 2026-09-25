@@ -1,5 +1,14 @@
 # @buildinternet/uploads
 
+## 0.56.4
+
+### Patch Changes
+
+- 3e5bc7a: `put`/`attach` (CLI and MCP) print a plain link for a PDF, log, zip, or other non-image file instead of broken `![alt](url)` image syntax. A PDF or video with a poster already available links a poster thumbnail; images are unchanged.
+- 80e7670: `uploads screenshot --replace` and `UPLOADS_OVERWRITE=1` now overwrite an existing object at `--key`, matching `put`. The local MCP `screenshot` tool gains a `replace` argument, and the MCP `put` and `screenshot` tools now honor `UPLOADS_OVERWRITE=1`.
+- 8864edf: The CLI reads the workspace from workspace service tokens, which now start with `ups_<workspace>_` instead of `up_`.
+- c995499: The MCP `whoami` result can include `serviceToken.label` when the credential is a workspace service token.
+
 ## 0.56.3
 
 ### Patch Changes
