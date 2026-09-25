@@ -1,0 +1,19 @@
+# TEMPORARY: end-to-end check for the draft /guides Actions guide (PR #1024).
+# Mirrors the guide's workflow. Delete this branch after the run.
+on: pull_request
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  screenshots:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: mkdir -p shots && convert -size 800x400 xc:'#1f2937' -fill white -pointsize 36 -gravity center -annotate 0 'CI screenshot (guide e2e)' shots/ci-e2e.png
+      - run: npm install -g @buildinternet/uploads
+      - run: uploads put ./shots/*.png --pr ${{ github.event.pull_request.number }}
+        env:
+          UPLOADS_TOKEN: ${{ secrets.UPLOADS_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
