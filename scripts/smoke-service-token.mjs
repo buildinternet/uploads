@@ -39,7 +39,7 @@ const cli = join(import.meta.dirname, "..", "packages", "uploads", "bin", "uploa
 /** Run a CLI command with --json; on failure, throw with its own output so CI shows why. */
 function run(args) {
   try {
-    const stdout = execFileSync(process.execPath, [cli, ...args, "--json"], {
+    const stdout = execFileSync(process.execPath, [cli, "--json", ...args], {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
     });
