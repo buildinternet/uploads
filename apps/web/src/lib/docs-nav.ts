@@ -25,8 +25,7 @@ export interface DocsPageLink {
 export const DOCS_HUB: DocsNavItem = { slug: "overview", href: "/docs", label: "Overview" };
 
 // The agent walkthrough is its own .astro page, not a collection entry, so it
-// stays hand-written at the top of the Guides group; `guides` collection
-// entries follow it.
+// is hand-written into the "Get started" section.
 const WALKTHROUGH: DocsNavItem = {
   slug: "walkthrough",
   href: "/github-screenshots",
@@ -54,33 +53,44 @@ export async function getPublishedGuides() {
   return entries.sort((a, b) => a.data.navOrder - b.data.navOrder);
 }
 
-/** Left-nav sections: the hub plus every collection entry, then Guides. */
+/** Sidebar section titles, in display order. Keys match the docs `navGroup` field. */
+const DOCS_GROUPS = [
+  { key: "start", title: "Get started" },
+  { key: "media", title: "Share media" },
+  { key: "github", title: "GitHub" },
+  { key: "workspace", title: "Workspace" },
+] as const;
+
+/**
+ * Left-nav sections: docs entries grouped by `navGroup` (the hub and the
+ * agent walkthrough open "Get started"), then the use-case guides.
+ */
 export async function getDocsNav(): Promise<DocsNavSection[]> {
   const entries = await getOrderedDocs();
-  return [
-    {
-      title: "Docs",
-      items: [
-        DOCS_HUB,
-        ...entries.map((entry) => ({
-          slug: entry.data.navSlug,
-          href: `/docs/${entry.id}`,
-          label: entry.data.navLabel,
-        })),
-      ],
-    },
-    {
+  const sections: DocsNavSection[] = DOCS_GROUPS.map(({ key, title }) => ({
+    title,
+    items: entries
+      .filter((entry) => entry.data.navGroup === key)
+      .map((entry) => ({
+        slug: entry.data.navSlug,
+        href: `/docs/${entry.id}`,
+        label: entry.data.navLabel,
+      })),
+  }));
+  sections[0].items.unshift(DOCS_HUB);
+  sections[0].items.push(WALKTHROUGH);
+  const guides = await getPublishedGuides();
+  if (guides.length > 0) {
+    sections.push({
       title: "Guides",
-      items: [
-        WALKTHROUGH,
-        ...(await getPublishedGuides()).map((entry) => ({
-          slug: guideNavSlug(entry.id),
-          href: `/guides/${entry.id}`,
-          label: entry.data.navLabel,
-        })),
-      ],
-    },
-  ];
+      items: guides.map((entry) => ({
+        slug: guideNavSlug(entry.id),
+        href: `/guides/${entry.id}`,
+        label: entry.data.navLabel,
+      })),
+    });
+  }
+  return sections.filter((section) => section.items.length > 0);
 }
 
 /**

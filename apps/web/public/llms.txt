@@ -38,6 +38,8 @@ How to call it:
 - [Docs: plans & limits](https://uploads.sh/docs/limits): storage/file-size/member caps per plan, behavior at each cap, and the GitHub attachment-cap comparison
 - [Docs: bring your own bucket](https://uploads.sh/docs/byo-bucket): point a workspace at your own Cloudflare R2 bucket instead of the shared one — setup steps, the serving matrix, what's degraded, disconnecting (in preview)
 - [Agent guide](https://uploads.sh/github-screenshots): how to get coding agents to upload screenshots & video to GitHub PRs and issues
+- [Guide: from GitHub Actions](https://uploads.sh/guides/attach-screenshots-github-actions): post screenshots, test reports, and logs from a workflow to the PR, in one comment that updates each run
+- [Guide: PDFs, logs & other files](https://uploads.sh/guides/attach-files-to-github-pull-requests): attach PDF, log, zip, CSV, JSON, or Markdown files to a PR or issue from the CLI or an agent
 - [Auth for agents](https://uploads.sh/auth.md): self-serve and invitation enrollment, bearer tokens, and the hosted-MCP OAuth authorization server
 - [Source & docs](https://github.com/buildinternet/uploads): repository, roadmap, and operator docs
 - [Repo agent entrypoint](https://github.com/buildinternet/uploads/blob/main/llms.txt): monorepo vs product audiences

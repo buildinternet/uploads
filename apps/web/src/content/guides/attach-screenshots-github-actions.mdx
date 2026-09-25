@@ -5,7 +5,6 @@ heading: Attach screenshots to a PR from GitHub Actions
 tagline: One comment per PR, updated on every run.
 navLabel: From GitHub Actions
 navOrder: 1
-draft: true
 toc:
   - { id: why, label: What you get }
   - { id: setup, label: Set up the token }
@@ -18,18 +17,6 @@ faq:
   - q: Does this work for pull requests from forks?
     a: Only if the workflow can read the UPLOADS_TOKEN secret. GitHub does not pass repository secrets to workflows triggered by pull requests from forks.
 ---
-
-{/*
-  STUB. Before publishing:
-  - The workflow below ran end to end on 2026-09-25 with the GitHub App
-    installed (buildinternet/uploads#1028): the comment posted as
-    uploads-sh[bot]. Still untested: a repo without the App, where the CLI
-    falls back to gh on GH_TOKEN.
-  - Tokens from /account/developers belong to the member who mints them
-    (attribution, revocation). If workspace-owned service tokens ship, switch
-    this page to recommend one.
-  - Add to public/sitemap.xml and public/llms.txt when `draft` is removed.
-*/}
 
 <section class="lead" id="why">
 

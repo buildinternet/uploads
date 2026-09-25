@@ -49,6 +49,11 @@ const docs = defineCollection({
     navSlug: z.string().min(1),
     /** Sidebar order and the prev/next chain. Lower comes first. */
     navOrder: z.number().int().positive(),
+    /**
+     * Sidebar section. Keep `navOrder` grouped to match, so prev/next walks
+     * one section before the next. Section order lives in lib/docs-nav.ts.
+     */
+    navGroup: z.enum(["start", "media", "github", "workspace"]),
     /** Optional "on this page" rail. Omit it and the rail is not rendered. */
     toc: z.array(z.object({ id: z.string().min(1), label: z.string().min(1) })).optional(),
   }),
