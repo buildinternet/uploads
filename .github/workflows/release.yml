@@ -148,7 +148,6 @@ jobs:
             exit 1
           fi
 
-          ./mcp-publisher login http --domain uploads.sh --private-key "${PRIVATE_KEY}"
           ./mcp-publisher validate
 
           # npm metadata can lag the publish; the registry reads mcpName from registry.npmjs.org.
@@ -170,6 +169,10 @@ jobs:
             echo "npm has not published mcpName for @buildinternet/uploads@${version} yet"
             exit 1
           fi
+
+          # Log in only after the npm wait: the Registry JWT is short-lived
+          # (~5 min), so logging in before a long poll can expire it mid-step.
+          ./mcp-publisher login http --domain uploads.sh --private-key "${PRIVATE_KEY}"
 
           # Registry rejects re-publishing an existing version; treat that as a
           # no-op so workflow_dispatch retries and a double-run don't fail Release.
