@@ -8,7 +8,12 @@
  * bearer-token middleware; the protocol core is the CLI package's
  * `createMcpServer`, shared verbatim.
  */
-import { createMcpServer, MCP_SERVER_ICONS, type McpServer } from "@buildinternet/uploads/mcp";
+import {
+  createMcpServer,
+  MCP_SERVER_DISPLAY,
+  MCP_SERVER_ICONS,
+  type McpServer,
+} from "@buildinternet/uploads/mcp";
 import {
   createMcpHandler,
   isLegacyRequest,
@@ -180,7 +185,7 @@ function buildServer(c: Context<WorkspaceVars>): McpServer {
   return createMcpServer({
     // Advertise the published CLI version (the MCP Registry listing), not
     // this worker's private package.json, which is inert.
-    serverInfo: { name: "uploads-mcp", version: uploadsVersion, icons: MCP_SERVER_ICONS },
+    serverInfo: { name: "uploads-mcp", version: uploadsVersion, ...MCP_SERVER_DISPLAY },
     tools: createRemoteTools({
       env: c.env,
       workspace: c.get("workspace"),
@@ -277,6 +282,7 @@ function mcpServerCard() {
     supportedVersions: ["2026-07-28", "2025-06-18"],
     serverInfo: {
       name: "uploads-mcp",
+      title: MCP_SERVER_DISPLAY.title,
       version: uploadsVersion,
       description:
         "Host files on uploads.sh from an agent — put (including branch staging and PR attach), promote, list, delete, usage, galleries, whoami, and GitHub attachment comments.",

@@ -580,6 +580,7 @@ describe("mcp worker", () => {
       serverInfo: {
         name: string;
         version: string;
+        title?: string;
         description?: string;
         icons?: { src: string; mimeType?: string; sizes?: string[] }[];
       };
@@ -596,6 +597,7 @@ describe("mcp worker", () => {
       },
     ]);
     expect(body.serverInfo.description).toBe(webServerCard.serverInfo.description);
+    expect(body.serverInfo.title).toBe(webServerCard.serverInfo.title);
     expect(body.transport.type).toBe("streamable-http");
     expect(body.transport.endpoint).toBe("https://agents.uploads.sh/mcp");
     expect(body.authentication.required).toBe(true);
@@ -688,11 +690,18 @@ describe("mcp worker", () => {
     const body = (await response.json()) as {
       result: {
         protocolVersion: string;
-        serverInfo: { name: string; icons?: { src: string }[] };
+        serverInfo: {
+          name: string;
+          title?: string;
+          websiteUrl?: string;
+          icons?: { src: string }[];
+        };
       };
     };
     expect(body.result.protocolVersion).toBe("2025-06-18");
     expect(body.result.serverInfo.name).toBe("uploads-mcp");
+    expect(body.result.serverInfo.title).toBe("uploads.sh");
+    expect(body.result.serverInfo.websiteUrl).toBe("https://uploads.sh");
     expect(body.result.serverInfo.icons?.[0]?.src).toBe("https://uploads.sh/apple-touch-icon.png");
   });
 
