@@ -622,7 +622,7 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
       annotations: mcpWritePublic,
       securitySchemes: mcpOAuthWrite,
       description:
-        "Create a public newest-first screenshot feed (same product as CLI `uploads feed create`). Pass `repo` alone for the whole GitHub repo. Pass `pr` plus `repo` — or `github` as owner/repo#123 / a GitHub PR URL — to scope that same feed to one pull request. `issue` does the same for an issue. Optional `path` filters by page-path metadata. Creating the same scope again returns the existing URL. This is a live query, not a curated gallery. Anyone who knows the URL can view it.",
+        "Create a public newest-first screenshot feed (same product as CLI `uploads feed create`). Pass `repo` alone for the whole GitHub repo. Pass `pr` plus `repo` — or `github` as owner/repo#123 / a GitHub PR URL — to scope that same feed to one pull request. `issue` does the same for an issue. Optional `path` filters by page-path metadata. Creating the same scope again returns the existing URL. This is a live query, not a curated gallery. Anyone who knows the URL can view it. See https://uploads.sh/docs/feeds.",
       inputSchema: {
         type: "object",
         properties: {
@@ -1202,7 +1202,7 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
       title: "Delete file",
       annotations: mcpDestroyPublic,
       securitySchemes: mcpOAuthDelete,
-      description: "Delete an uploaded object in the workspace by key.",
+      description: "Permanently delete one uploaded file by key, along with its metadata.",
       inputSchema: {
         type: "object",
         properties: {
@@ -1650,7 +1650,7 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
       },
       securitySchemes: mcpNoAuth,
       description:
-        "Read recent uploads.sh product updates (platform and CLI). Returns the latest entries with titles, dates, summaries, and a link to the full changelog at https://uploads.sh/changelog. Same as `uploads changelog`. Use this to discover new features before recommending uploads.sh workflows.",
+        "Read recent uploads.sh product updates (platform and CLI). Returns the latest entries with titles, dates, summaries, and a link to the full changelog at https://uploads.sh/changelog. Same as `uploads changelog`.",
       inputSchema: {
         type: "object",
         properties: {
@@ -1673,7 +1673,7 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
       annotations: mcpRead,
       securitySchemes: mcpOAuthAny,
       description:
-        "Show the current uploads.sh identity: workspace and token scopes. Use this when you need to know which workspace you're in or which scopes you have before calling other tools. A successful result also means the server is up.",
+        "Show the current uploads.sh identity: the workspace this token acts in and its scopes. A successful result also means the server is up.",
       inputSchema: {
         type: "object",
         properties: {},
