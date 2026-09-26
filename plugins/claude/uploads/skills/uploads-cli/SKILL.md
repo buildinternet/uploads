@@ -1,0 +1,1160 @@
+---
+name: uploads-cli
+description: >-
+  Reference for the uploads CLI and its stdio/hosted MCP tools — exact flags,
+  keys, and contracts for put and attach, screenshot capture, stable PR/issue
+  keys, the managed attachments comment, metadata and search, galleries,
+  change feeds (repo-wide or one PR/issue), config defaults, login/doctor,
+  and output formats. Use when driving the
+  `uploads` CLI or its MCP tools (including the hosted MCP at
+  agents.uploads.sh for agents without local filesystem/git access), when you
+  need a public URL for a local file ("upload this", "host this image", "give
+  me a public URL for this file"), when the CLI itself prints a hint or nudge
+  you need to act on (a `hint` field in `--format json`, or the stderr note
+  suggesting `--pr`/`attach --branch`), or when you need exact flags, key
+  layouts, or setup and auth details. For the when-and-how of getting a
+  screenshot or recording into a GitHub PR or issue, start with the
+  github-screenshots skill — it defers here for CLI detail.
+---
+
+# Uploading files to uploads.sh and embedding in GitHub
+
+## What this does and why
+
+GitHub's native image hosting (`github.com/user-attachments/…`) is reachable from
+a **browser session** and, since GitHub CLI 2.99 (September 2026), from
+`gh … --attach` on an existing PR or issue with push access. There is still no public
+REST endpoint, and the hosted file is private to GitHub. Any other image URL you
+put in a PR/issue body written with `gh … --body-file` must already point at
+something publicly hosted. The github-screenshots skill says when `gh --attach`
+alone is enough.
+
+This skill covers both transports: the **`uploads` CLI** (local files, git,
+localhost) and the hosted MCP at `https://agents.uploads.sh/mcp` (bytes you
+already have, or a public HTTPS URL to fetch, no checkout). Both PUT to the
+uploads.sh API and return a stable public URL plus ready-to-paste markdown.
+For PRs and issues the managed attachments comment is available on both.
+The CLI can fall back to local `gh`. Hosted MCP is bot-only.
+
+### MCP vs CLI
+
+Same product, two transports. Skills do not install a binary.
+
+| Need                                                  | Use                                             | Why                                                                                                                                                                                                                                                                                                                    |
+| ----------------------------------------------------- | ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Bytes already in context (ChatGPT attachment, base64) | Hosted MCP `put`                                | `files: [{ filename, contentBase64 }]`. Pass `repo` + (`pr` \| `branch`). No git inference.                                                                                                                                                                                                                            |
+| File already at a public HTTPS URL                    | CLI `put --url` or hosted MCP `put`             | CLI: `uploads put --url https://… --pr 123`. Hosted: `{ contentUrl }` (filename optional when the URL path has a leaf). Worker/CLI fetches; no auth headers. Hosted rejects private/internal hosts. CLI (and stdio MCP) also fetch `http://localhost` / `127.0.0.1` / `*.localhost`. LAN and link-local stay rejected. |
+| List, find, metadata, comment, promote                | Either                                          | Hosted: `list`, `find_files`, `get_metadata` / `set_metadata`, `comment`, `promote`. CLI: `uploads list` / `find` / `meta` / `comment` / `attach --promote`.                                                                                                                                                           |
+| Live page of this PR's (or repo's) screenshots        | Either                                          | CLI `uploads feed create` or MCP `feed_create`. Repo-wide: `repo` only. One PR: `repo` + `pr`, or `github` (`owner/repo#123` / a GitHub URL). Same product — not a curated gallery. `feed_get` / `uploads feed show` opens an existing feed.                                                                           |
+| Local path or current-branch attach                   | CLI                                             | Hosted server has no filesystem and no `attach` tool. Use `put` instead.                                                                                                                                                                                                                                               |
+| `localhost` / private-network screenshot              | CLI `uploads screenshot --via local`            | Remote render cannot reach your machine.                                                                                                                                                                                                                                                                               |
+| Selector annotate on a live page                      | CLI `uploads screenshot --annotate --via local` | Remote backend rejects selector-bearing specs.                                                                                                                                                                                                                                                                         |
+| Neither transport                                     | Stop                                            | Do not treat `npm install -g` as the ChatGPT path. OAuth on `https://agents.uploads.sh/mcp` is the published remote path.                                                                                                                                                                                              |
+
+CLI examples in the rest of this skill assume a checkout and the `uploads`
+binary. Hosted tool contracts live under **Notes and cautions** (the MCP
+bullet) below.
+
+For the common case, use `uploads attach <file...>`. It infers the current branch's
+PR, uploads every file under stable attachment keys (in parallel), and maintains
+the comment by default. One bad file does not block the rest — JSON includes
+`uploads` and `failures` (exit `1` when any failed):
+
+```bash
+uploads attach ./before.png ./after.png
+uploads attach ./shot.png --issue 45 --repo buildinternet/uploads
+```
+
+Pass `--no-comment` when only stable URLs are wanted. Use `put` for lower-level
+naming and output control.
+
+**Attach an already-uploaded object (issue #702).** An `attach` argument that
+doesn't exist on disk but resolves as a workspace object key (e.g.
+`f/AbC123/shot.webp`) or an uploads.sh URL (storage host, embed host, or
+`/f/` page) attaches via a server-side copy instead of erroring
+`file not found` — no re-download/re-upload round trip. The source's own
+derived metadata (`path`/`url`/`viewport`/`state`/…) rides along; `gh.repo`/
+`gh.kind`/`gh.number`/`gh.ref` are stamped fresh. Copy by default; `--move`
+deletes the source after a successful copy. A path that exists on disk always
+wins as a local file, even if it would also parse as a key.
+
+```bash
+uploads attach f/AbC123/shot.webp --pr 123
+uploads attach https://storage.uploads.sh/<workspace>/f/AbC123/shot.webp --pr 123 --move
+```
+
+**Stage as you go, before a PR exists.** `uploads attach ./shot.png --branch
+[name]` stages files under `gh/<owner>/<repo>/branch/<branch>/<filename>`
+instead of a PR/issue number — same upload path, no target flags, no comment
+(there's nothing to comment on yet). With no value, `--branch` resolves the
+current git branch; `/` in the name sanitizes to `-`. Attach this way at every
+visual milestone during the work, not just once at the end. Staged files carry
+`gh.status=staged` until promotion flips them to `promoted`, so
+`uploads find gh.status=staged` (add `gh.branch=<name>` to narrow) lists what's
+still in flight. The server also stamps `gh.uploader`/`gh.uploader-id` (from
+the token's minting user) on gh.\*-tagged uploads, so
+`uploads find gh.status=staged gh.uploader=<login>` narrows to one
+contributor's in-flight files.
+
+**Check what's staged: `uploads staged`.** A dedicated read-only view —
+"what's staged for this branch, and will it auto-attach?" — instead of
+hand-building the `find`/`list` query above:
+
+```bash
+uploads staged                                  # current branch, repo from gh/git remote
+uploads staged --branch feature/thing --repo owner/name
+uploads staged --format json
+```
+
+Same branch/repo resolution as `attach --branch` (current git branch by
+default, worktree-safe). Human mode prints one compact line per staged file
+(filename, size, `gh.staged-at`, public URL), then a `binding:` line and
+`once the PR exists: uploads attach --promote` (the promote line is omitted
+for `binding: other` — promoting from a non-owning workspace would be
+rejected by the cross-tenant gate). Nothing staged prints a
+single zero-state line. `--format json` (or global `--json`) always emits a
+valid document — `{ repo, branch, files, binding }` — even with zero files;
+`files` is `[]`, never empty stdout.
+
+`binding` folds in the same repo↔workspace check the stage-time warning uses
+(see "Repo binding" below), so you don't have to separately reason about it:
+
+| `binding.state` | `binding.autoAttach` | Meaning                                                                                                      |
+| --------------- | -------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `self`          | `true`               | Repo is bound to this workspace — staged files auto-attach on PR open.                                       |
+| `none`          | `false`              | Repo isn't linked yet — link it (`uploads github link`) or nothing auto-attaches.                            |
+| `other`         | `false`              | Repo is linked to a **different** workspace — these files won't auto-attach from here.                       |
+| `unknown`       | `false`              | Binding check failed (offline, or an older server without the route) — advisory only, never blocks the view. |
+
+The `none`/`other` wording is the exact same advisory text as the
+`attach --branch` stage-time warning (issue #398) — one source of truth, so
+the two surfaces never drift.
+
+Local stdio MCP mirrors this as the `staged` tool (`branch`/`repo` args,
+same `{ repo, branch, files, binding }` shape). The hosted MCP has no
+dedicated `staged` tool (no git defaults) — list/find_files recipes and
+hosted `put`/`promote` with explicit `repo`/`branch` are under **Notes and
+cautions** (the MCP bullet) below.
+
+Getting those files into the PR's attachments comment needs no extra step
+once a PR exists for that branch:
+
+- **GitHub App installed** on the repo: a webhook auto-promotes staged files
+  into the PR's attachment prefix and creates/updates the managed comment the
+  moment the PR opens, reopens, or gets a new commit.
+- **No GitHub App**: the next `uploads attach` targeting that PR
+  **auto-promotes** those staged files into the PR's attachment prefix before
+  the comment refresh. If that first attach has nothing new to upload, run
+  `uploads attach --promote` (zero file arguments) to promote and refresh the
+  comment on its own; it exits `0` even when nothing was staged. Skip
+  auto-promotion on a given call with `--no-promote`.
+
+Promotion only applies to PRs, never issues, and both paths degrade silently
+(no error) if the workspace's server doesn't support promotion yet.
+
+**Branch renamed before the PR existed?** Staged keys embed the branch name at
+stage time, so promotion under the new head ref would otherwise find nothing.
+This is followed automatically: any `uploads` staging or promote command run
+on the renamed branch (`attach --branch`, `put`, `attach --pr`, `attach
+--promote`) reads the rename from the branch's git reflog, registers it with
+the server, and promotion sweeps the old name too. That needs one more
+`uploads` run on the branch before the PR opens. If the branch was renamed or
+deleted and the PR opened without one, the files sit staged (URLs still work)
+but never attach — recover with
+`uploads attach --pr <n> --from-branch <old-branch-name>` (zero file arguments
+is fine): it promotes that stale branch prefix into the PR and refreshes the
+comment. Works for both plain and private-repo staging.
+
+**Promotion needs the repo already bound to the workspace.** Both the webhook
+and the CLI-triggered path above rely on the same repo↔workspace binding used
+by the managed comment (see "Repo binding" below) — any earlier successful
+`attach`/`comment`/promote call against that repo binds it implicitly, or
+`uploads github link` claims it explicitly. A repo that has **never** been
+bound and is only ever staged with `--branch` sees no error and no comment —
+promotion is a silent no-op at PR-open time. If you can't confirm the repo is
+already bound, don't promise auto-attach; the zero-setup fallback that works
+regardless of binding history is running `uploads attach --promote` (or any
+targeted `uploads attach`) once the PR exists.
+
+**Comment missing?** First, give it a moment — if the App is installed and
+subscribed to `issue_comment`, a deleted or mangled bot comment self-heals on
+the next webhook delivery; don't panic-repost. If it's still missing, check
+the repo↔workspace binding — `uploads github link --status` (read-only, shows
+the binding without claiming it). See "Repo binding" below.
+
+The killer feature for GitHub: `--pr`/`--issue` produce **hash-free, stable keys**
+(`gh/<owner>/<repo>/pull/<num>/<name>`), so re-uploading the same filename overwrites
+in place and the URL never changes. There is **no confirmation prompt** — hot-swap is
+intentional for agents and re-runs. Human mode prints
+`>> replaced existing object (same URL)` after overwrite; JSON has
+`"replaced": true|false`. Use `--dry-run` to preview: it prints
+`>> would replace existing object (same URL)` when the key already exists,
+without writing.
+
+**Every other key is strict** (issue #174): an explicit `--key`, or the
+default `put` path with no `--pr`/`--issue`, refuses to overwrite an existing
+object — the CLI error names the existing object's URL and tells you to add
+`--replace` (MCP: `replace: true`). Set `UPLOADS_OVERWRITE=1` to restore
+always-overwrite for those paths. `--dry-run` previews the refusal too:
+`>> would refuse: key already exists`. This never applies to `--pr`/`--issue`
+keys, which always hot-swap regardless.
+
+Responses include **two** public URLs when the
+shared dual-host setup applies:
+
+| Field      | Host (default)       | Use for                                              |
+| ---------- | -------------------- | ---------------------------------------------------- |
+| `url`      | `storage.uploads.sh` | Durable link, click-through, non-GitHub embeds       |
+| `embedUrl` | `embed.uploads.sh`   | **GitHub PR/issue markdown** (`<img src>` / `![]()`) |
+
+`embedUrl` is the same object with badge-style no-cache headers so GitHub Camo
+revalidates after an overwrite. CLI/MCP `markdown` and the managed attachments
+comment already prefer `embedUrl`. Override with `UPLOADS_EMBED_PUBLIC_BASE_URL`
+(empty disables; self-host set your no-cache CDN base).
+
+## Prerequisites
+
+- **No shell / ChatGPT?** Skip this section. Use the hosted MCP
+  (`https://agents.uploads.sh/mcp`) and the table above. Do not install the CLI.
+- **Node.js ≥ 22.**
+- **The CLI.** Install globally for repeated agent use, or run it once with `npx`:
+  ```bash
+  npm install --global @buildinternet/uploads
+  npx @buildinternet/uploads --help
+  uploads --version
+  ```
+  Every example in this skill uses the **global** `uploads …` binary (as after
+  install). Inside the uploads monorepo only, `pnpm uploads …` builds from
+  local source first — do not write product/PR examples that way.
+  Prefer `--json` or `--quiet` for scripted steps (keeps stderr clean and skips
+  optional update-available hints).
+- **A configured token** (one-time — see below). Check with `uploads doctor`.
+- **`gh` CLI, authenticated** — only for the `--comment` / `comment` features that
+  write to a PR/issue. Plain uploads don't need it.
+
+## One-time setup
+
+Config lives in a user-owned file so it survives skill reinstalls:
+
+```
+~/.config/buildinternet/config        # or $XDG_CONFIG_HOME/buildinternet/config
+```
+
+Resolution is **per key, first match wins**: CLI flags (`--api-url`, `--token`,
+`--workspace`) → `UPLOADS_*` environment vars → `--env-file <path>` →
+`$BUILDINTERNET_CONFIG` → the shared config file. For a one-off against a different
+API or workspace, just export the var or pass `--env-file`.
+
+The fastest path is `uploads login`. Have a workspace admin invite your
+email to a workspace first, then run it once, interactively, to sign in:
+
+```bash
+uploads login          # opens a browser to approve sign-in, saves config, runs doctor
+uploads login --workspace acme   # only needed if your account can access more than one
+```
+
+If the account has no workspace yet, `login` prompts for a name and offers one
+derived from your GitHub login as a bracketed default — press Enter to take it,
+or type your own. Nothing is prefilled when no valid, unclaimed name can be
+derived. `--workspace <name> --create` skips the prompt entirely, which is the
+form to use in scripts.
+
+That's a one-time, human-in-the-loop step (device sign-in needs a browser); once the
+config file is written, every later `uploads` invocation — including from a
+non-interactive agent — just reads the saved token. Routine agents never need
+`ADMIN_TOKEN`.
+
+**Inviting a teammate** (workspace admin/owner only): open the people tab under
+`/account/workspaces/<name>/people` in the browser (invite, revoke pending
+invites, promote members to admin), or:
+
+```bash
+uploads invite create --email teammate@example.com --workspace acme
+```
+
+Device login as you (not `ADMIN_TOKEN` / not a workspace token). The CLI prints an
+accept URL to share if email isn’t configured. Invitee accepts, then `uploads login`.
+Workspace admins can promote existing members to admin on that people tab; only the
+workspace owner can demote or remove other admins.
+
+For headless machines with no browser at all, an operator can mint a token directly
+(`/admin/tokens`, `ADMIN_TOKEN`-gated — see `docs/admin-tokens.md`) and hand it to the
+agent as `UPLOADS_TOKEN`, or an enrollment code (`upe_…`, an alternative invite-link/code path — useful
+when you don't have the recipient's email) can be exchanged with `uploads login --code`.
+Neither is the normal path for new setups.
+
+The resulting token defaults to 90 days and `files:read` plus `files:write`; it cannot
+delete files unless an administrator explicitly grants `files:delete`. Verify or inspect
+setup at any time:
+
+```bash
+uploads setup                                  # shows effective configuration
+uploads doctor                                 # version + health + auth + workspace
+uploads doctor --json
+```
+
+Workspace tokens encode their workspace (`up_<workspace>_…`, or `ups_<workspace>_…` for a workspace service token), so the CLI infers
+`--workspace` when you don't set it. `/account/developers` mints the same
+token shape and can skip expiry (revoke is then the only off switch). Legacy
+administrator-minted tokens remain valid.
+See "Config commands" for setting put defaults (default repo, prefix, image
+width) once instead of per-command.
+
+## Core workflow: `uploads put`
+
+Upload one or more files and get back URL(s) plus ready-to-paste markdown.
+Multiple paths upload in parallel; multi-file JSON is `{ uploads, failures }`
+(exit `1` when any failed). Single-file JSON stays a flat object.
+
+```bash
+uploads put ./shot.png --repo myorg/myapp --ref 1722 --alt "New live feed cards" --width 700
+uploads put ./before.png ./after.png
+uploads put --url https://cdn.example/shot.png --pr 123 --name hero.png
+```
+
+Human output goes to stderr; the URL and markdown to stdout, so you can pipe or
+capture them. Use `-` as the file to read from stdin.
+
+Key options (`uploads put --help` for all):
+
+| Flag                                  | Purpose                                                                                                                                                                                                                                                                      |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--alt <text>`                        | Alt text for the markdown (default: filename). Always write meaningful alt text.                                                                                                                                                                                             |
+| `--width <px>`                        | Emit sized `<img width=…>` HTML instead of `![]()` (markdown can't size images).                                                                                                                                                                                             |
+| `--repo <owner/repo>`                 | Repo segment of the auto key (default: git remote, or `UPLOADS_DEFAULT_REPO`).                                                                                                                                                                                               |
+| `--ref <id>`                          | PR/issue/branch/date segment (default: today, or `UPLOADS_DEFAULT_REF`).                                                                                                                                                                                                     |
+| `--destination <id>`                  | Typed root: `screenshots` \| `gh` \| `f` (sets key prefix).                                                                                                                                                                                                                  |
+| `--prefix <path>`                     | Key prefix (default: `screenshots`, or `UPLOADS_DEFAULT_PREFIX`).                                                                                                                                                                                                            |
+| `--key <key>`                         | Set the object key explicitly; skips the auto-naming below.                                                                                                                                                                                                                  |
+| `--name <leaf>`                       | Clean filename for the key's leaf + default alt (no `/`); keeps the `--pr`/default path. Not with `--key`.                                                                                                                                                                   |
+| `--url <url>`                         | Fetch this URL and upload its body (repeatable). Not with file arguments. Public HTTPS, or `http://localhost` / `127.0.0.1` / `*.localhost` on this machine. Filename comes from the URL path, or `--name`. Other private/internal hosts are rejected; no auth is forwarded. |
+| `--replace`                           | Allow overwriting an existing object on a strict key (`--key`/default path). No effect on `--pr`/`--issue` (or `UPLOADS_OVERWRITE=1`).                                                                                                                                       |
+| `--dry-run`                           | Resolve + print the key and final public URL without uploading; reports if the key would replace (or, on a strict key, be refused). Not with `--gallery`; skips the managed comment sync even with `--pr`/`--issue`.                                                         |
+| `--content-type <mime>`               | Override the content type (else inferred from extension; ignored when optimize rewrites the body).                                                                                                                                                                           |
+| `--frame <id>`                        | Opt-in chrome before optimize: `phone`, `browser`, `iphone-16-pro`.                                                                                                                                                                                                          |
+| `--frame-url <url>`                   | Address bar text for `--frame browser`.                                                                                                                                                                                                                                      |
+| `--frame-fit cover\|contain`          | How the shot fills the screen (default: `cover`).                                                                                                                                                                                                                            |
+| `--no-optimize`                       | Skip client-side image optimization (default: still images → WebP). Or `UPLOADS_NO_OPTIMIZE=1`.                                                                                                                                                                              |
+| `--optimize-max-edge <px>`            | Max long edge when optimizing (default: 2400).                                                                                                                                                                                                                               |
+| `--optimize-quality <1-100>`          | WebP quality when optimizing (default: 85).                                                                                                                                                                                                                                  |
+| `--keep-exif`                         | Keep EXIF/XMP/ICC when optimizing (default: **strip** for privacy). Or `UPLOADS_KEEP_EXIF=1`.                                                                                                                                                                                |
+| `--no-git`                            | Don't derive `--repo` from the git remote (or `UPLOADS_NO_GIT=1`).                                                                                                                                                                                                           |
+| `--format human\|url\|markdown\|json` | Control stdout. `--json` (global) forces json.                                                                                                                                                                                                                               |
+| `-w, --workspace <name>`              | Override workspace (wins over env and token inference).                                                                                                                                                                                                                      |
+
+**Image optimization (default on):** PNG/JPEG and similar still images are re-encoded to
+WebP (long edge capped at 2400px, quality 85) before upload so PR/issue embeds stay
+lean. The object key/filename extension follows the output (e.g. `shot.png` →
+`…/shot.webp`). **EXIF/XMP is stripped by default** (public URLs + privacy); pass
+`--keep-exif` when the discussion needs the embedded image metadata. Animated GIF,
+SVG, video, and non-images are left alone; if the optimized payload is not smaller,
+the original is uploaded. Use `--no-optimize` when you need lossless originals.
+
+**Frames (opt-in):** `--frame phone` (generic bezel), `--frame browser`, or
+`--frame iphone-16-pro` (community device art, cached under
+`~/.cache/uploads/frames`). Default is **no frame**.
+
+**How keys work** — three paths, no extra naming modes:
+
+| Intent                                | Command                                                        |
+| ------------------------------------- | -------------------------------------------------------------- |
+| Just upload it, give me a URL         | `uploads put ./file.png`                                       |
+| Already hosted at a public HTTPS URL  | `uploads put --url https://cdn.example/file.png`               |
+| Explicit typed destination            | `uploads put ./file.png --destination screenshots`             |
+| Stable GitHub embed I might re-upload | `uploads put ./file.png --pr <num>`                            |
+| Stable `--pr` path but a clean leaf   | `uploads put ./capture-2026-…Z.png --pr <num> --name hero.png` |
+| I know exactly where it goes          | `uploads put ./file.png --key screenshots/…/x.png`             |
+
+Timestamped captures break stable `--pr` keys — pass `--name hero.webp` to keep a
+clean leaf. Use `--dry-run` to preview the exact public URL before uploading.
+
+Default `put` is the fast path; you don't need `--key`, `--prefix`, or `--repo`.
+**Inside a git repo, on a non-default branch, a bare `put` now stages
+automatically** — same key/metadata as `attach --branch`
+(`gh/<owner>/<repo>/branch/<branch>/<filename>`), so it auto-attaches to that
+branch's PR when one opens. This fires whenever none of
+`--pr`/`--issue`/`--key`/`--ref`/`--prefix`/`--destination` is set and
+`--no-git` isn't passed; any of those flags (or the default branch, detached
+HEAD, not being in a git repo, or `--no-git`) falls back to the classic
+**dated** layout:
+`<prefix>/<repo-name>/<ref-or-date>/<basename>-<shorthash>.<ext>` — the short
+hash prevents collisions without random names or a separate "preserve name"
+flag. Prefer `--destination screenshots` (or `gh` with `--pr`/`--issue`) over
+inventing roots — workspaces may allowlist only those destinations. Override
+with `--key` only when you have a reason, and keep the key under an allowed
+root. Pass `--ref`/`--prefix`/`--destination` explicitly for a plain dated
+upload on a branch (the opt-out).
+
+**Output formats** — pick what you'll consume:
+
+```bash
+uploads put ./shot.png --format url        # just the URL, for scripting
+uploads put ./shot.png --format markdown   # just the ![]()/<img> snippet
+uploads put ./shot.png --json              # {workspace,key,url,size,markdown}
+```
+
+**The bare-put staging note.** Since a bare `put` on a
+non-default branch now stages by default (see above), it prints a one-line
+note confirming that instead of nudging you to do it yourself — human mode
+writes it to stderr, `--format json` adds it as an additive optional `hint`
+field on the same response:
+
+```text
+note: staged for branch fix-header — auto-comments to pull request when opened
+(or run: uploads attach --promote once it exists). Use --ref/--prefix for a
+plain dated upload.
+```
+
+If the same call also trips the stage-time binding warning (issue #398/#400
+— the repo isn't bound to this workspace), that warning takes the `hint`
+slot instead (it's the more actionable of the two); both still print on
+stderr in human mode. Suppress the note (not the staging itself) with
+`--quiet`, `UPLOADS_NO_NUDGE=1` (env), or `UPLOADS_NO_NUDGE=1` in the config
+file (`uploads config set UPLOADS_NO_NUDGE 1`).
+
+**The old "rerun with --pr" nudge (issue #393)** still fires, unchanged, for
+the narrower case a bare put still lands on the dated layout with a
+detectable PR — in practice, an explicit `--ref`/`--prefix` opting out of
+staging while a PR is open for that branch:
+
+```text
+note: on branch fix-header (PR #142 open) — rerun with --pr 142 for a stable
+key plus a managed comment that collects this PR's media, or stage pre-PR
+files with: uploads attach <file> --branch
+```
+
+It's best-effort (a quick `gh pr view` lookup, bounded to 3s) — no open PR
+just widens the wording to a generic `--pr <num>`. Same suppression as above.
+
+## Capturing a screenshot: `uploads screenshot`
+
+Capture a URL or a local `.html` file and host it — no separate screenshot
+tool needed, and no browser install required for the default path:
+
+```bash
+uploads screenshot https://uploads.sh --pr 128
+uploads screenshot ./card.html --out ./card.png
+uploads screenshot ./card.html --no-upload --out ./card.png
+```
+
+After capture, a screenshot shares the exact `put` upload pipeline described
+above: optional `--frame`, optimize-by-default, `--pr`/`--issue` attachment +
+`--comment`, `--gallery`, `--meta`, and the same output formats. It also
+ships as an MCP tool (`screenshot`) alongside the CLI command.
+
+**Two capture backends**, selected with `--via`:
+
+| Backend  | What it is                                                        | Needs                                                               |
+| -------- | ----------------------------------------------------------------- | ------------------------------------------------------------------- |
+| `local`  | Drives an already-installed Chrome/Chromium via `playwright-core` | A discoverable browser on disk, or `--cdp`                          |
+| `remote` | Renders server-side via the uploads.sh render endpoint            | Nothing local; counts against the workspace's monthly upload budget |
+
+`--via auto` (the default) prefers local when a usable browser is found,
+else falls back to remote. Set a persistent default with
+`UPLOADS_SCREENSHOT_VIA=auto|local|remote` (env, `--env-file`, or the user
+config file — see "Config commands"); the `--via` flag always wins.
+
+**localhost/private-network targets are local-only.** With `--via remote`
+(or `auto` falling back to remote) these fail fast with a clear error instead
+of sending a request that could never work. Local `.html` files work on both
+backends — the remote backend receives the file's contents inline (≤ 2 MiB),
+so anything the page references via `file://` or relative paths only resolves
+with `--via local`. A numeric
+`--wait <ms>` (fixed settle delay after load) is also local-only; use
+`--wait load|domcontentloaded|networkidle` for a backend-agnostic wait.
+
+Use `--cdp <endpoint>` to attach to a Chrome that's already running
+(`http://host:port` or `ws://…`) instead of launching a new one — handy when
+an agent already has a Playwright MCP or `agent-browser` session open.
+`--browser <path>` (or `UPLOADS_CHROME_PATH` / `CHROME_PATH`) points at an
+explicit executable.
+
+Key options (`uploads screenshot --help` for all):
+
+| Flag                                                 | Purpose                                                                                                                                                                                                                                                                                                                                                                  |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `--via auto\|local\|remote`                          | Capture backend (default: `auto`, or `UPLOADS_SCREENSHOT_VIA`).                                                                                                                                                                                                                                                                                                          |
+| `--browser <path>`                                   | Explicit local browser executable (or `UPLOADS_CHROME_PATH` / `CHROME_PATH`).                                                                                                                                                                                                                                                                                            |
+| `--cdp <endpoint>`                                   | Attach to a running Chrome via CDP instead of launching one (local backend only).                                                                                                                                                                                                                                                                                        |
+| `--viewport <WxH[@Sx]>`                              | Size + device scale factor (default: `1280x800@2`).                                                                                                                                                                                                                                                                                                                      |
+| `--selector <css>`                                   | Capture one element instead of the viewport.                                                                                                                                                                                                                                                                                                                             |
+| `--full-page`                                        | Capture the full scrollable page.                                                                                                                                                                                                                                                                                                                                        |
+| `--max-height <px>`                                  | Cap on `--full-page` capture height in CSS px (default: `5000`; `0` = uncapped). A page over the cap is clipped, with a note to stderr and a `--format json` `hint`. Requires `--full-page`; applies on both `--via local` and `--via remote`.                                                                                                                           |
+| `--dark` / `--light`                                 | Emulate `prefers-color-scheme` (full media-query emulation on `--via local` only — `--via remote` only sets the CSS `color-scheme` property, so a page's own `prefers-color-scheme` queries won't flip).                                                                                                                                                                 |
+| `--wait <load\|domcontentloaded\|networkidle\|ms>`   | Settle strategy (default: `load`); a millisecond count is local-only.                                                                                                                                                                                                                                                                                                    |
+| `--wait-for <js>`                                    | Poll this JS expression in the page until truthy before `--eval` and capture (local backend only). Bridges framework hydration — `load`/`networkidle` settle before React/Next attach handlers, so a synthetic click in `--eval` hits the inert SSR DOM. Express the app's own signal, e.g. `--wait-for 'window.__hydrated===true'`. Times out with the capture timeout. |
+| `--eval <js>` / `--init-script <file>`               | Run setup JS after settle / inject a script before navigation (local backend only). Synthetic events (`el.click()`) won't reach framework handlers until the app hydrates — pair `--eval` with `--wait-for` on React/Next apps.                                                                                                                                          |
+| `--out <file>`                                       | Also write the PNG to a local file, plus a sidecar manifest (`<file>.uploads.json`) with this capture's derived metadata (`path`/`url`/`env`/`viewport`, plus `--state` if given) and a content hash. A later `put`/`attach` of that exact file picks the metadata back up automatically — explicit `--meta`/`--state` still win. See `--no-sidecar`.                    |
+| `--no-sidecar`                                       | Don't write the `<file>.uploads.json` sidecar alongside `--out`.                                                                                                                                                                                                                                                                                                         |
+| `--no-upload`                                        | Skip hosting; requires `--out` (local file only).                                                                                                                                                                                                                                                                                                                        |
+| `--key` / `--pr` / `--issue` / `--comment`           | Same destination and attachment options as `put` (see above); `--pr`/`--issue` also give a stable, hash-free key.                                                                                                                                                                                                                                                        |
+| `--branch [name]`                                    | Stage against a branch, pre-PR — same key as `attach --branch` (see below); this is also what a bare `screenshot` on a non-default branch does automatically.                                                                                                                                                                                                            |
+| `--frame` / `--no-optimize` / `--gallery` / `--meta` | Same as `put` — reused from the shared upload pipeline.                                                                                                                                                                                                                                                                                                                  |
+
+**Inside a git repo, on a non-default branch, a bare `screenshot` now stages
+automatically too** — same
+key/metadata as `--branch`/`attach --branch`
+(`gh/<owner>/<repo>/branch/<branch>/<filename>`), carrying every derived fact
+(`path`/`url`/`env`/`viewport`, plus `--state`) through to the PR once it
+opens. This is what closes the gap a coding agent hits capturing before the PR
+exists: capture early with a plain `uploads screenshot <url> --out shot.png`,
+and the metadata rides along instead of being re-stated (or lost) at
+`attach --pr <num>` time. Fires whenever none of
+`--pr`/`--issue`/`--branch`/`--key`/`--ref`/`--prefix`/`--destination` is set
+and `--no-git` isn't passed; the same set of flags (or the default branch,
+detached HEAD, not being in a git repo, or `--no-git`) falls back to the
+classic dated `screenshots/<repo>/<date>/...` layout. Prints the same
+staging note as bare `put` (see above) — same stderr wording, same JSON
+`hint` field, same `--quiet`/`UPLOADS_NO_NUDGE` suppression.
+
+**Errors and hints:** a local capture with no usable browser fails with
+`BROWSER_NOT_FOUND` (exit `2`) — hint: try `--via remote`, or install a
+browser (`npx playwright install chromium`). A remote render that the server
+can't complete returns `RENDER_FAILED`. A burst rate limit on the render
+endpoint returns `RATE_LIMITED` (exit `4`) — hint: wait ~60s and retry. A
+remote render over the workspace's monthly upload budget surfaces the usual
+`UPLOAD_BUDGET` code and hint (`uploads usage`, then delete objects or raise
+limits) — renders and puts share one monthly counter.
+
+`uploads doctor` reports which local browser (if any) was detected and which
+backend `--via auto` would currently pick.
+
+**Key derivation and `--state`.** Whenever the object's filename is
+auto-derived from the captured URL (host + path) — the default dated
+layout, or the `--pr`/`--issue` leaf name — passing `--state` folds it into
+that derived filename stem —
+`localhost-docs-mcp.webp` becomes `localhost-docs-mcp-before.webp` /
+`localhost-docs-mcp-after.webp` — so capturing the same URL twice with
+`--state before` then `--state after` produces two distinct objects instead
+of the second silently overwriting the first. Re-capturing the same URL with
+the _same_ state still replaces the existing object in place (idempotent
+re-capture). An explicit `--key` is unaffected by `--state` folding. On
+overwrite, human mode prints `>> replaced existing object (same URL)` to
+stderr (same wording as `put`'s hot-swap note, above) and `--format json`
+adds `"replaced": true`, plus a `hint` field when a `--state` capture
+replaced an existing object.
+
+### Baking in callouts: `--annotate`
+
+`--annotate <file|->` bakes hand-drawn boxes, arrows, labels, freeform
+strokes, and redactions onto the capture before it's uploaded (JSON spec, a
+file path or `-` for stdin). Selectors resolve against the live page — the
+local backend only in v1, so a selector-bearing spec on `--via remote` is
+rejected up front:
+
+```bash
+uploads screenshot http://localhost:3000 --via local --annotate ./callouts.json
+```
+
+For the spec format and an existing-image equivalent (`uploads annotate
+<image> --spec <file|->`, pixel-only, no selectors), see the
+**annotate-screenshots** skill.
+
+## Custom metadata & search
+
+Every object can carry queryable key-value metadata (distinct from optimize/frame
+provenance) — tag uploads at put time, then find them later.
+
+### The canonical vocabulary
+
+Metadata is only useful if it is spelled the same way every time. These ten keys
+are the agreed vocabulary; **most are derived for you**, so the main job is not
+to fight them by inventing a different spelling.
+
+| Key        | Source                     | Example                        |
+| ---------- | -------------------------- | ------------------------------ |
+| `url`      | auto — screenshot target   | `https://app.example/settings` |
+| `path`     | auto — pathname            | `/settings`                    |
+| `env`      | auto — **`local` only**    | `local`                        |
+| `theme`    | auto — only when forced    | `dark`                         |
+| `viewport` | auto — capture opts / EXIF | `1280x800@2x`                  |
+| `device`   | auto — image EXIF          | `Apple iPhone 16 Pro`          |
+| `software` | auto — image EXIF          | `Figma`                        |
+| `captured` | auto — image EXIF          | `2026-07-20T20:35:39`          |
+| `state`    | **you** — `--state`        | `before` \| `after`            |
+| `app`      | **you** — `--app`          | `web` \| `ios`                 |
+
+**`path` and `state` are the two highest-value keys — pass both, every time,
+as a habit.** `path` is the key most worth getting right (the one agents most
+often misspell as `route`, `page`, or `screen` — a near-miss warns on stderr
+and suggests the canonical spelling, but is never rewritten for you, so fix it
+at the source) and `state` captures the before/after pattern that dominates
+PR screenshots — nothing can infer either one from the image alone. `state` is
+a closed set: `before`, `after`, `empty`, `error`, `loading` (a near-miss like
+`--state post` fails fast and suggests `after`).
+
+`uploads screenshot` derives `path` automatically from the captured URL, so
+you only need to add `--state`. `uploads put`/`uploads attach` of an
+already-existing file have nothing to derive `path` from, so pass it
+explicitly with `--meta path=/route` — and `attach`/`put --pr`/`put --issue`
+print a `tip: add --meta path=/route so this shot is findable by page` on
+stderr (plus a JSON `hint` field) when an image lands with no `path` meta, as
+a reminder (respects `--quiet`).
+
+```bash
+uploads screenshot https://app.example/settings --state before
+# → stamps url, path=/settings, viewport, state=before
+
+uploads put ./after.png --pr 123 --meta path=/settings --state after --app web
+uploads find path=/settings state=after        # what it was all for
+```
+
+### What is derived, and when
+
+- **`uploads screenshot`** knows its own target, so it stamps `url`, `path`
+  (query stripped), `viewport`, `env=local` for a local target, and `theme`
+  when `--dark`/`--light` forced one.
+- **`uploads put`/`attach`** read the image's own EXIF _before_ the optimizer
+  strips it, promoting an allowlist: `viewport` (from pixel dimensions and DPI),
+  `device`, `software`, `captured`.
+- **`uploads put`/`attach` also read a sidecar manifest** left by a prior
+  `screenshot --out` of that exact file (`<file>.uploads.json`, content-hash
+  guarded — a regenerated/edited file silently loses it) and merge in its
+  derived metadata. This closes the capture-then-attach gap where a shot is
+  taken before a PR exists: `uploads screenshot ... --out shot.png --state after`
+  now, `uploads attach shot.png --pr 123` later, still gets `path`/`url`/`env`/
+  `viewport`/`state` on the PR-keyed object. Disable writing it with
+  `--no-sidecar`.
+
+`env` is only ever `local`. It is never set to `prod` — inferring that from "not
+localhost" would mislabel every staging and preview URL, and wrong metadata is
+worse than none.
+
+**Never promoted from EXIF, regardless of `--keep-exif`:** all GPS tags, body and
+lens serial numbers, `Artist`/`Copyright`/`OwnerName`, and free-form user
+comments. Note the flip side: `device` and `software` were previously discarded
+and now become queryable metadata that renders on the public `/f/` page.
+
+**Precedence:** explicit `--meta`/`--state`/`--app` > screenshot capture facts >
+sidecar manifest > EXIF > unset. Derived keys are also dropped first if the
+24-key cap is reached — your own keys are never dropped, and a full key
+budget never fails an upload.
+
+Turn the whole derived tier off with `--no-auto` or `UPLOADS_NO_AUTO_META=1`.
+
+### Rules and reserved keys
+
+Validated client-side, fail-fast, before uploading: key
+`^[a-z][a-z0-9._-]{0,63}$` (lowercase, dot-namespacing allowed, e.g. `gh.repo`);
+value 1–512 printable ASCII characters; `--meta k=v` may repeat up to 24 times per
+request; a value may itself contain `=` (only the first `=` splits key from value).
+`content-sha256` and `visibility` are reserved (server-computed / the real R2
+visibility gate, respectively). `uploads attach` writes its own `gh.*`
+reserved-by-convention keys automatically — see below.
+
+`meta set` on a `gh/…`-keyed object also refreshes the managed PR/issue comment
+whenever the write touches a rendered key (`path`/`state`) — best-effort, after
+the metadata write already lands. On success it prints
+`refreshed the managed comment on <repo>#<num>` to stderr; if the bot endpoint
+is unavailable it prints `tip: run \`uploads comment --pr <num>\` to refresh
+the PR comment` instead, and either way the metadata write itself never fails.
+
+```bash
+uploads meta get screenshots/myapp/42/settings.webp
+uploads meta set screenshots/myapp/42/settings.webp path=/onboarding --delete url
+uploads meta set screenshots/myapp/42/settings.webp --meta path=/onboarding  # same thing
+uploads list --meta app=web --meta path=/settings   # ANDed, repeatable
+uploads find app=web path=/settings                 # same filter, positional pairs
+uploads find --meta app=web                         # --meta works here too
+uploads find hero                                   # bare name = filename substring
+uploads find --name hero --meta app=web             # name + meta, either order
+uploads find app=web --all                          # follow the cursor (max 20 pages)
+uploads find app=web --cursor "$CURSOR"             # resume one page by hand
+uploads meta keys                                   # which meta keys exist here
+uploads meta values app                             # values (with counts) for one key
+```
+
+`meta set` and `find` accept pairs in either spelling: positional `k=v`, or the
+repeatable `--meta k=v` that `put`, `attach`, `screenshot`, and `list` use. Both
+forms can appear in one call. `find` also takes a case-insensitive filename
+substring (`--name <term>`, or a bare positional without `=`). When you don't
+know which keys exist, start with `meta keys` / `meta values <key>` (or the MCP
+`list_metadata_keys` tool) — keys are user/agent-defined, not a fixed schema.
+
+**Experimental AI labels (`ai.*`).** Off by default. When Flagship
+`llm-file-classifier` serves on for the workspace slug (`org` / `workspace`
+targeting context), a server-mediated put may later write `ai.tags`
+(up to five kebab-case labels), `ai.summary`, `ai.kind`
+(`screenshot|photo|diagram|document|code|ui|other`), `ai.surface`
+(`mobile|desktop|tablet|unknown`), `ai.screen`
+(`login|signup|settings|profile|dashboard|analytics|list|detail|form|search|modal|onboarding|empty|error|checkout|other`),
+and `ai.classifier=v2`.
+Read them with `uploads meta get <key>` or MCP `get_metadata`; filter with
+`uploads find ai.kind=screenshot` or `uploads find ai.screen=login`. Do not
+set `ai.*` yourself — the prefix is server-owned and the API rejects client
+writes. Labels are not in the put response; they land shortly after via
+`waitUntil`. Presigned uploads are not classified. See `docs/ops.md`
+(Experimental LLM file classifier).
+
+Search results are paged. When more matches remain, `find` prints `truncated:
+true` and the next page's opaque `cursor` on stderr. `--json` carries the same
+`cursor` in the payload. Pass it back with `--cursor` to read the next page.
+`--all` follows the cursor for you, for up to 20 pages. Treat the cursor as
+opaque, and send it only with the query that produced it.
+
+On the default `screenshots/…` path, `put` also auto-derives GitHub context and
+stamps `gh.repo`/`gh.kind`/`gh.number`/`gh.ref` from the current branch's PR (or
+a numeric `--ref`), so the file's `/f/` page shows an "Attached to" link. This is
+on by default and best-effort; disable it with `--no-auto`, `--no-git`, or `UPLOADS_NO_AUTO_META=1`.
+On this auto path an explicit `--meta gh.*` overrides the auto-derived value — the
+opposite of the `--pr`/`--issue` precedence below, where the target's own `gh.*` always wins.
+Both paths also stamp `gh.title` with the resolved PR/issue title when local `gh`
+can resolve one — best-effort, never blocks the upload if it can't.
+
+**Re-upload semantics:** re-uploading to an existing key **with** metadata replaces
+that file's entire metadata set (delete-then-set, not a merge); re-uploading with
+**no** metadata at all preserves the existing metadata untouched. Derived keys
+count as metadata here, so a re-upload that derives anything replaces the set —
+pass `--no-auto` when re-uploading a key whose metadata you curated with
+`uploads meta set`.
+
+Non-`gh.*` metadata values supplied via `--meta` (CLI) or `metadata` (MCP) render
+on the object's public `/f/<key>` file page. Treat them like the URL itself:
+don't put internal notes, secrets, tokens, IDs, or private paths in them.
+
+## Public media galleries
+
+Use galleries when several existing public uploads should be shared as one ordered collection.
+A gallery has an opaque, API-returned public URL; do not derive one in scripts. **Anyone who
+knows the URL can view the gallery and its media**. GitHub repository visibility does not make
+it private, and a gallery does not pin objects against retention.
+
+```bash
+uploads gallery create --title "Settings redesign"
+uploads gallery add gal_example screenshots/app/settings-before.webp screenshots/app/settings-after.webp
+uploads put ./after.png --gallery gal_example --alt "Updated settings page"
+uploads gallery show gal_example
+uploads gallery link gal_example --github buildinternet/uploads#58
+uploads gallery list --github https://github.com/buildinternet/uploads/pull/58
+```
+
+`gallery add` processes keys sequentially so it obtains a current optimistic version before
+each mutation. With `--json`, its stable `added` and `failures` arrays make partial failures
+safe for agents to inspect. A workspace may have up to 100 active galleries; each gallery permits up to 100 items and 20 linked external references. Deleting a gallery removes only its gallery record—not the objects.
+
+Optionally link a gallery to a GitHub issue or PR with `uploads gallery link <gallery-id> --github <owner/repo#number>`. The CLI also accepts strict `https://github.com/<owner>/<repo>/issues|pull/<number>` URLs. Use `uploads gallery list --github <coordinate-or-url>` for the authenticated reverse lookup. This is metadata only: it does not make a gallery private or change its opaque identity.
+
+## Change feeds
+
+A feed is a public newest-first page of screenshots already tagged with `gh.repo` (and optionally `gh.number`). It is the same product either way — one extra filter. It is a live query, not a curated gallery. Anyone who knows the URL can view it.
+
+**When to create which:**
+
+- **Gallery** — you pick and order the files (`uploads gallery create`).
+- **Repo feed** — latest screenshots across a repo. Use this for a project-wide share link.
+- **PR (or issue) feed** — the same feed, scoped to one pull request. Use this when reviewers should see only that PR.
+
+```bash
+uploads feed create owner/repo
+uploads feed create --repo owner/repo
+uploads feed create --repo owner/repo --pr 123
+uploads feed create --github owner/repo#123
+uploads feed create --repo owner/repo --path /settings
+uploads feed show feed_example
+```
+
+A positional `owner/repo` is the same as `--repo`. Different repos get different feeds. `--pr` and `--issue` take a number and need that repo (or the current git remote). `--github` takes `owner/repo#123` or a GitHub issue/PR URL and can supply the repo itself. `--pr` / `--issue` / `--github` are mutually exclusive. Optional `--path` can combine with any of them.
+
+Each shot also has `/c/<id>/<item>` with previous / next and a 1 of N count. Syncing the managed PR comment creates that PR-scoped feed if needed (same idempotent create as `--pr`) and points each image's click-through at the item page. `<img src>` stays on the embed URL. Standalone `/f/…` pages stay for one-off shares.
+
+MCP (stdio and hosted): `feed_create` with `repo`, plus `pr` / `issue` / `github` / `path` matching the flags above. `feed_get` takes `feedId`. Creating the same scope again returns the existing URL.
+
+## Embedding in a GitHub PR or issue
+
+Two ways, depending on whether you want a durable URL, a managed comment, or both.
+
+### Option A — stable attachment URL (`--pr` / `--issue`)
+
+Gives the file a **hash-free, stable key** so re-uploads overwrite in place and the
+URL is safe to hard-code in a PR body you'll edit later:
+
+```bash
+uploads put ./after.png --pr 123 --alt "Dashboard after"
+# key: gh/<owner>/<repo>/pull/123/after.webp  → stable public URL (PNG optimized to WebP)
+```
+
+`--issue <num>` does the same under `.../issues/<num>/`. The `<owner>/<repo>` comes
+from `--repo` or the git remote. `--pr`/`--issue` can't be combined with `--key`,
+`--ref`, or `--prefix` (the key layout is fixed), and are mutually exclusive.
+
+These keys are deliberately predictable: they include the owner, repository, PR or
+issue number, and filename. uploads.sh does not check GitHub visibility, so a private
+or internal repository does **not** make the uploaded file private. Before using this
+mode, confirm the media is safe for a public, guessable URL; otherwise redact it or do
+not upload it.
+
+If the uploads GitHub App can see that the target repo is private, this key layout
+changes automatically: the key becomes `gh/private/<id>/...`, where `<id>` is a random
+id minted per branch (or per repo, for issues), instead of the derivable
+`gh/<owner>/<repo>/...`. No flag needed — public repos, and repos the App can't see,
+keep the derivable layout. The URL is still unauthenticated and durable, not
+access-controlled — anyone who obtains it can read it until you rotate the id with
+`uploads github rotate-prefix --branch <branch>` (or `--repo-level` for issues/ingested
+assets). See `docs/private-attachments.md` for the full threat model.
+
+Then reference the **embed** URL in the PR/issue markdown you write with `gh`
+(CLI `--format markdown` / MCP `markdown` already do this). The description
+is optional — a visual that belongs in the write-up goes here; everything
+else is already in the managed comment:
+
+```markdown
+<img width="700" alt="Dashboard after" src="https://embed.uploads.sh/default/gh/myorg/myapp/pull/123/after.webp">
+```
+
+Keep `url` (storage host) when you need a durable share link outside GitHub.
+
+`put --pr`/`--issue` (and `uploads attach`, below) writes `gh.repo`/`gh.kind`/
+`gh.number`/`gh.ref` as queryable metadata automatically, so `uploads find
+gh.ref=myorg/myapp#123` or `uploads list --meta gh.repo=myorg/myapp` finds
+everything attached to that PR/issue without needing the `gh/...` prefix. Add
+`--meta k=v` extras for your own pairs on top — a `--meta gh.*` override loses
+to the target's own `gh.*` values. It also stamps `gh.title` with the real
+PR/issue title when resolvable via local `gh` (best-effort; omitted rather
+than failing the upload if `gh` can't resolve one).
+
+### Option B — managed attachments comment (default with `--pr`/`--issue`, or `comment`)
+
+`put --pr`/`--issue` (like `attach`) uploads **and** creates/updates a single marker-owned comment on the PR/issue by default — no separate flag needed. It keeps loose `gh/...` attachments and every public gallery linked to that PR/issue in clearly separate sections, with up to three available gallery images inline. Staged files you never paste into the description still show up here. It finds its own prior comment via a hidden HTML comment at the top (`<!-- uploads.sh:attachments ws=<workspace> -->`) and edits it in place — it never touches the description or other comments. Bot posts are from `uploads-sh[bot]`. The local-`gh` fallback uses the same marker and adds a footer asking to install the App:
+
+```bash
+uploads put ./after.png --pr 123
+```
+
+Pass `--no-comment` to skip the sync (upload only), matching `attach --no-comment`. `--comment` is still accepted on `put` as a no-op — it's redundant now that the sync is the default, kept only for scripts written before this changed (#537).
+
+The upload is authoritative; the comment is best-effort — if `gh` is missing or
+unauthenticated, the upload still succeeds and you get a warning. To (re)sync the
+comment without uploading anything (e.g. after several `--pr` uploads or gallery links), use the standalone command:
+
+```bash
+uploads comment --pr 123
+uploads comment --issue 45 --repo buildinternet/uploads
+```
+
+Removed the wrong screenshots? `delete` the object(s) and re-run `comment` to
+re-sync. When the **last** attachment and gallery are gone, the managed comment
+is rewritten in place to a neutral empty state (`No attachments are currently
+associated with this pull request.`) — it is never deleted (a later upload
+repopulates it) and never created just to say it's empty:
+
+```bash
+uploads delete gh/owner/name/pull/123/after.png   # remove the asset
+uploads comment --pr 123                           # comment now shows the empty state
+```
+
+Past 16 inline images, the comment collapses the rest into a `<details>` link
+list so a heavily-screenshotted PR stays readable. Each workspace gets its own
+managed comment on a shared repo (namespaced under the hood) instead of
+clobbering another workspace's — use `uploads github link` (below) to see or
+set which workspace a repo is bound to.
+
+### Repo binding (`uploads github link` / `unlink` / `doctor`)
+
+The managed comment and webhook auto-promotion use a first-claim-wins binding
+between a repo and a workspace, normally created implicitly by your first
+`comment`/`put --comment`/promote call. Inspect, claim, or release it:
+
+```bash
+uploads github link                       # claim the current repo for this workspace
+uploads github link --repo owner/name     # claim a specific repo
+uploads github link --status              # read-only: show the current binding, don't claim
+uploads github unlink --repo owner/name   # release a binding this workspace owns
+uploads github doctor                     # check the App itself (config + webhook events)
+```
+
+Claiming an already-bound repo never steals it — the command reports the
+existing owner instead. `unlink` only releases a binding this workspace owns;
+it 403s if another workspace owns it (an operator can reassign or remove it
+from the admin panel instead). On an older/self-hosted server without these
+routes they fail with a clear "server does not support repo bindings/GitHub
+App health check yet" message.
+
+Claiming an _unbound_ repo is authorized, not just first-come (issue #297):
+the server only lets a workspace make that first claim when its linked
+GitHub account has push (or higher) access to the repo, checked live against
+GitHub via the App's installation token. A token with no linked GitHub
+identity — a legacy/enrollment/shared token, including `default`'s — can
+never claim a new repo, though it keeps working normally on any repo already
+bound to it. Claiming reports `claimed: false, reason: "not_authorized"` when
+this check fails; link a GitHub account with push access to the repo, or ask
+an operator to bind it explicitly from the admin panel.
+
+**`not_authorized` on `comment`/`attach --comment`** means either the repo is
+bound to a different workspace, or it's unbound and this workspace couldn't
+be verified as entitled to claim it (see above). Either way it's a hard
+decline, not a degrade — the CLI does **not** fall back to posting via local
+`gh` in this case, unlike other bot-post failures. Run `uploads github link
+--status` to see the current binding (if any), switch to a workspace with a
+linked GitHub account that has access, or ask an operator to bind the repo
+explicitly.
+
+`uploads github doctor` checks the App's own configuration and webhook event
+subscriptions (needs `issues` + `pull_request`; `issue_comment` is
+recommended so a deleted/mangled bot comment self-heals instead of waiting
+for the next PR push) — useful when webhook-driven behavior (auto-promotion,
+title updates, self-healing) seems to be silently doing nothing.
+
+### Mirroring GitHub-native attachments (`uploads ingest`)
+
+Images someone drops straight into a PR/issue via `github.com/user-attachments/…`
+only exist behind GitHub's own authenticated hosting — they're never public
+URLs. The same command also copies public Cursor cloud-agent rewrite URLs
+(`cursor.com/artifacts/c/art-*`). Viewer (`/artifacts/v/`) and login-walled
+agent-page links are skipped; enable **Allow posting artifacts to GitHub** so
+the PR gets a public `/c/` URL. `uploads ingest --pr <n>` (or `--issue <n>`)
+scans the description and comments for that media, mirrors any new ones into
+the workspace (indexed, not added to the managed comment), and detaches ones
+no longer referenced — a reattached one un-detaches without a re-fetch:
+
+```bash
+uploads ingest --pr 123
+uploads ingest --issue 45 --repo owner/name --json
+```
+
+Requires the repo be linked to the workspace (`uploads github link`) and the
+GitHub App installed — otherwise it fails with a clear error rather than
+guessing. This is the manual/backfill entry point. The App webhook runs the
+same import on its own when a linked repo's body or comment is created or
+edited, including a body that only contains public `cursor.com/artifacts/c/art-*`
+URLs. The `.uploads.yml` `ingestGithubAttachments` knob only gates that
+webhook path and has no effect on running `ingest` directly.
+
+### Embedding best practices
+
+- **Meaningful alt text**, always — it's what readers with images off and search see.
+- **Constrain width** on large shots with `--width` so they don't dominate the page.
+- **Before/after reads best side by side** in a table:
+  ```markdown
+  | Before                               | After                               |
+  | ------------------------------------ | ----------------------------------- |
+  | <img width="380" src="…/before.png"> | <img width="380" src="…/after.png"> |
+  ```
+- Prefer writing the body to a file and using `gh pr edit --body-file` / `gh issue
+comment --body-file` over inline HEREDOCs.
+- The host is agnostic — the same URLs work in issues, PR comments, discussions, and
+  plain markdown docs.
+- **Prefer short, compressed clips (or an animated capture) over large raw
+  video files** when attaching to PRs. Per-file and workspace storage caps
+  apply underneath, and a multi-minute uncompressed recording is a poor PR
+  embed regardless — trim to the relevant seconds and compress before
+  uploading.
+
+## Managing uploads
+
+```bash
+uploads list --prefix screenshots/        # list objects (key + url)
+uploads list --pr 123                      # everything attached to a PR
+uploads list --meta app=myapp              # filter by metadata (repeatable, ANDed)
+uploads list --name hero --meta app=web    # filename substring (+ optional meta)
+uploads find app=myapp path=/settings      # same filter, human-friendly positional pairs
+uploads find hero                          # filename substring alone
+uploads list --all --json                  # paginate fully, machine-readable
+uploads meta get <key>                     # show an object's metadata
+uploads meta set <key> k=v [k=v…] [--delete k]…   # merge-set / delete metadata pairs
+uploads meta set <key> --meta k=v                  # same, in put/list's flag spelling
+uploads meta keys                          # discover workspace metadata keys
+uploads meta values <meta-key>             # distinct values for one key
+uploads delete <key>                       # remove an object
+uploads delete <key> --dry-run             # show what would be deleted
+uploads usage                              # storage / monthly upload counters (+ limits)
+uploads reconcile                          # rebuild ledger from storage
+uploads purge-expired                      # delete past retentionDays (if set)
+uploads health                             # API liveness (no auth)
+uploads doctor                             # version + health + auth + workspace + usage
+uploads changelog                          # recent product updates + link to uploads.sh/changelog
+uploads changelog --json
+uploads docs                               # catalog of public docs
+uploads docs "stage before a PR"           # search
+uploads docs attach                        # fetch one page as markdown
+uploads docs --json
+uploads --version
+```
+
+`doctor` is the first thing to run when something's off — it reports the installed
+CLI version, distinguishes a down API / bad token / workspace mismatch /
+local-vs-prod URL, and prints targeted hints.
+
+**Destructive preview:** `delete` supports `--dry-run`. `purge-expired` does not
+yet ([#78](https://github.com/buildinternet/uploads/issues/78)); preview via
+`list` / `usage` and retention settings.
+
+## Config commands
+
+Set shared defaults once instead of passing flags every time:
+
+```bash
+uploads config show                              # effective settings (token redacted)
+uploads config path                              # resolved config file path
+uploads config set UPLOADS_DEFAULT_REPO myorg/myapp
+uploads config set UPLOADS_DEFAULT_WIDTH 700
+uploads config init --api-url http://localhost:8787 --workspace acme --token up_acme_…
+```
+
+`init` writes only the keys you pass. With no flags it seeds `UPLOADS_API_URL`
+alone and deliberately sets no workspace: a `UPLOADS_WORKSPACE` in the config
+file outranks the workspace encoded in your token, so seeding one would pin
+every later `uploads login` to it. Pass `--workspace` when you want it fixed.
+
+Recognized keys: `UPLOADS_API_URL`, `UPLOADS_WORKSPACE`, `UPLOADS_TOKEN`,
+`UPLOADS_DEFAULT_PREFIX`, `UPLOADS_DEFAULT_REPO`, `UPLOADS_DEFAULT_REF`,
+`UPLOADS_DEFAULT_WIDTH`, `UPLOADS_NO_GIT`, `UPLOADS_NO_OPTIMIZE`, `UPLOADS_KEEP_EXIF`,
+`UPLOADS_NO_AUTO_META`, `UPLOADS_SCREENSHOT_VIA`, `UPLOADS_NO_NUDGE`.
+Also read (env only, not config-file keys): `UPLOADS_EMBED_PUBLIC_BASE_URL`,
+`UPLOADS_OVERWRITE`.
+
+## Local development
+
+Point at a locally running API (`pnpm dev` serves it on `:8787`). Tokens minted with
+`workspace:add --local` only work against localhost; prod tokens need
+`UPLOADS_API_URL=https://api.uploads.sh`. `doctor` flags this mismatch for you.
+
+```bash
+uploads --api-url http://localhost:8787 doctor
+```
+
+## Notes and cautions
+
+- **Uploads are public and effectively permanent** until deleted. GitHub repository
+  visibility is not an access control: private/internal PR and issue attachments remain
+  public, and `gh/<owner>/<repo>/pull|issues/<num>/<filename>` keys are predictable.
+  Never upload secrets, tokens, internal dashboards with sensitive data, or customer
+  PII visible in a shot — crop/redact first.
+- **Edge cache / dual host:** stable `url` responses carry `Cache-Control: max-age=60`.
+  For GitHub, use `embedUrl` (no-cache host) so overwrites propagate through Camo.
+  Prefer CLI/MCP `markdown` rather than hand-building storage URLs into PR bodies.
+  See repo `docs/ops.md` (dual public hosts).
+- **Exit codes:** `2` usage/token/file, `3` auth/policy, `4` network, `1` other.
+  `--json` emits `{error,code,status}` — branch on `code`. Scripted formats
+  (`json|url|markdown`) also print failures on stdout. Usage errors:
+  `hint: uploads <cmd> --help`.
+- **Errors stay short (stderr), so trimming output never hides them.** A missing
+  argument prints one `error:` line, a runnable example (`uploads put
+./shot.png --pr 123`), and that hint — not the command's help. In `--json`
+  the example rides along as `example`. A
+  mistyped command prints the error, a `did you mean: uploads <cmd>` line, and
+  the help pointers; with `--json` it returns `{error,code:"USAGE",didYouMean}`
+  on stdout. Read the first line; run `uploads <cmd> --help` for the full help.
+- **Update hints (stderr):** successful human runs may note a newer npm release
+  (daily). Silence with `--quiet` / `--json` / `UPLOADS_NO_UPDATE=1`.
+- **Telemetry:** anonymous command-name pings (no paths/tokens). Opt out with
+  `UPLOADS_TELEMETRY_DISABLED=1`, `DO_NOT_TRACK=1`, or `uploads telemetry disable`.
+- **Reports:** only when the user asks — `uploads report "what broke"` or
+  `--file ./trace.log`. Never auto-send logs. MCP tool: `report`.
+- **MCP:** `uploads mcp` (stdio) mirrors CLI tools; hosted MCP at
+  `https://agents.uploads.sh/mcp` — the one to reach for when an agent has no
+  local filesystem or git checkout to shell out from (send base64 content,
+  or `contentUrl` when the file is already at a public HTTPS URL). Identity:
+  `whoami` (workspace + scopes; also confirms the server is up). Product
+  updates: `changelog` (same as `uploads changelog`; no auth). Public docs:
+  `search_docs` (same as `uploads docs`; no auth). Change feeds:
+  `feed_create` / `feed_get` (same as `uploads feed create` / `feed show`).
+  Pass `repo` for a repo-wide feed, or `repo` + `pr` (or `github` as
+  `owner/repo#123` / a GitHub URL) to scope that same feed to one pull
+  request; `issue` does the same for an issue. Metadata:
+  `get_metadata` / `set_metadata` / `find_files` / `list_metadata_keys` (same
+  as `meta get` / `meta set` / `find` / `meta keys`|`meta values`).
+  `find_files` accepts optional `name` (filename substring) with or without
+  `filters`. Both support multi-file `put` in one call. Stdio takes `files`
+  as paths. Hosted takes
+  `files: [{ filename?, contentBase64 | contentUrl, alt? }]` (max 20/call).
+  Filename is required with `contentBase64`, and optional with `contentUrl`
+  when the URL path has a leaf. Per-item `alt` overrides the top-level one.
+  The result is `{ uploads, failures }` with per-item results. Hosted
+  `contentUrl` is HTTPS-only, does not forward auth, and rejects
+  private/internal hosts. GitHub `user-attachments` URLs are not public and
+  will fail the fetch. `uploads install` sets up this skill + hosted MCP
+  (Claude Code, Codex, and Grok; each missing CLI is skipped) +
+  Grok/Cursor hooks (short progress; `--verbose` / `--dry-run` available).
+  Claude and Codex ship the same pre-PR reminder via their plugins
+  (`uploads hook pre-pr-screenshot`). The hook is a silent no-op when the
+  CLI is not on `PATH`.
+
+  **Hosted MCP `put` comment parity.** The hosted `put` tool
+  accepts `pr`/`issue` (mutually exclusive, mirroring the CLI's `--pr`/
+  `--issue`) plus a required `repo` (`owner/name` — the hosted server has no
+  git context to infer it from) to get the same stable `gh/…` key the CLI
+  produces. With `pr`/`issue` the managed `uploads-sh[bot]` attachments
+  comment is posted/updated by default, same as CLI `put --pr` (#537) — pass
+  `comment: false` to skip it. Bot-only on this server, no local-`gh`
+  fallback; the default sync needs the `files:read` scope and is silently
+  skipped on a write-only token (explicit `comment: true` errors instead).
+  Prefer `pr`/`issue` over just
+  returning a raw `url`/`embedUrl` whenever the caller is going to paste the
+  result into a PR/issue: it gets the stable overwrite-in-place key and
+  lands straight in the collected attachments comment instead of
+  a one-off link the caller has to hand-embed. A comment failure never fails
+  the upload — it's returned honestly in the result's `comment` field as one
+  of `not_installed` (App not installed on the repo), `not_authorized` (repo
+  bound to a different workspace, or unbound and this workspace isn't
+  entitled to claim it), or `forbidden` (App installed but Issues/PR write
+  access not yet approved — includes a `fixUrl` to the org's permission-review
+  page), never as a thrown tool error; an unexpected error surfaces
+  separately as `commentError`.
+
+  **Hosted MCP standalone `comment` tool.** The hosted server also has a
+  `comment` tool (`{ repo, pr | issue }`, `repo` required for the same
+  no-git-context reason) that refreshes the managed comment **without
+  re-uploading** — the hosted equivalent of CLI `uploads comment`. Use it to
+  re-sync after deleting an asset: `delete` the `gh/…` key, then call `comment`.
+  When the last attachment and gallery are gone the comment is rewritten in
+  place to a neutral empty state (never deleted, never created empty). It is
+  bot-only with the same honest declines as `put`'s comment field. Both this
+  tool and `put` with `pr`/`issue` honor the target repo's `.uploads.yml`
+  (same as the bot path — no separate MCP config; see
+  https://uploads.sh/docs/comment-config).
+
+  **Stdio MCP `attach` promote parity.** The stdio `attach` tool mirrors CLI
+  `uploads attach`: with `pr` it best-effort promotes the current branch's
+  staged files, same as `attach --pr` (result under `promotion` /
+  `promoteError`, the same shape as `put`'s hosted comment fields).
+  `fromBranch` overrides the source branch, mirroring `--from-branch`.
+  `noPromote` opts out, mirroring `--no-promote`.
+
+  **Hosted MCP: branch staging + promote.** There is no `attach` tool
+  on the hosted server (no filesystem paths) — use `put` instead:
+
+  ```text
+  # Stage pre-PR (CLI attach --branch parity). repo + branch required.
+  put  { contentBase64, filename, repo: "owner/name", branch: "feature/x", state: "after" }
+  put  { contentUrl: "https://cdn.example/after.png", repo: "owner/name", branch: "feature/x", state: "after" }
+  # → key gh/owner/name/branch/feature-x/<filename>, gh.status=staged
+
+  # Promote staged files into a PR once it exists (CLI attach --promote).
+  promote  { repo: "owner/name", pr: 123, branch: "feature/x" }
+  # optional comment: false to skip the managed comment refresh (default on)
+
+  # Or attach a new file to the PR and promote that branch in one call:
+  put  { contentBase64, filename, repo: "owner/name", pr: 123, branch: "feature/x" }
+  ```
+
+  **Hosted MCP: checking what's staged.** There's no dedicated
+  `staged` tool on the hosted server — it has no local git context to default
+  `branch` from, so it always needs the caller's own `repo`/`branch`. Answer
+  "what's staged?" with the existing tools instead:
+
+  ```text
+  list  { prefix: "gh/<owner>/<repo>/branch/<branch>/" }
+  # or
+  find_files  { filters: { "gh.branch": "<branch>" } }
+  ```
+
+  `find_files` returns each match's metadata inline, so `gh.staged-at` gives
+  recency without a second call; add `"gh.repo": "<owner>/<repo>"` to the
+  filters when branch names aren't unique across repos you're working in. For
+  the binding question ("will these auto-attach?"), use the hosted `repo_link_status`
+  tool (issue #422):
+
+  ```text
+  repo_link_status  { repo: "<owner>/<repo>" }
+  ```
+
+  It returns `{ binding: "self" | "other" | "none" }`: `"self"` means this
+  repo is bound to this workspace and staged files will auto-attach,
+  `"other"` means it's bound to a different workspace and they won't —
+  deliberately without ever naming that workspace — and `"none"` means the
+  repo is unbound.
+
+- **Agents on the Worker side:** the package also exports
+  `createUploadsWorkerFileTools()` from `@buildinternet/uploads/agent` for exposing
+  upload/list/delete as AI-SDK tools inside a Worker — only relevant if you're
+  building agent tooling that runs on the server, not for everyday PR embeds.

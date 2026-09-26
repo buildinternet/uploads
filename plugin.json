@@ -13,10 +13,10 @@
   "keywords": ["uploads", "screenshots", "github", "file-hosting", "images", "mcp"],
   "extensions": {
     "com.anthropic.claude-code": {
-      "pluginManifest": ".claude-plugin/plugin.json",
+      "pluginManifest": "plugins/claude/uploads/.claude-plugin/plugin.json",
       "marketplace": ".claude-plugin/marketplace.json",
-      "mcp": ".mcp.json",
-      "hooks": "hooks/hooks.json"
+      "mcp": "plugins/claude/uploads/.mcp.json",
+      "hooks": "plugins/claude/uploads/hooks/hooks.json"
     },
     "com.openai.codex": {
       "pluginManifest": ".codex-plugin/plugin.json"

@@ -22,6 +22,17 @@ successor to the external `github-screenshots` skill's bundled R2 scripts),
 the full CLI reference the others defer to. Keep all three in sync when the
 CLI's commands or flags change.
 
+The Claude plugin is self-contained in `plugins/claude/uploads/` so the Claude
+plugin directory validates only that folder, not the whole monorepo.
+`.claude-plugin/marketplace.json` points `source` at it. Its `skills/` is a
+generated copy of the root `skills/`, because a plugin can't reference files
+outside its folder and the directory rejects symlinks. Edit the root
+`skills/`, then run `pnpm plugin-skills:sync`; CI runs
+`pnpm plugin-skills:check`. The root `skills/` stays canonical because the
+Agent Plugins spec, Codex, `npx skills add`, and the web worker read it there.
+Don't move `.claude-plugin/plugin.json` back to the repo root: that makes the
+whole repo the plugin again.
+
 **Screenshots: stage as you go.** If your change is visually observable (web
 UI, email templates, rendered output), capture and stage screenshots at each
 milestone while you work — don't wait for a PR to exist. A bare `uploads put`

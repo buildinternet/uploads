@@ -124,7 +124,7 @@ Why existing installs must pick this up.
 ```
 
 `changeset version` bumps `packages/plugin` and copies the number into
-`plugin.json`, `.claude-plugin/plugin.json`,
+`plugin.json`, `plugins/claude/uploads/.claude-plugin/plugin.json`,
 `.claude-plugin/marketplace.json`, and `.codex-plugin/plugin.json`. CI runs
 `pnpm plugin-version:check` so those files cannot drift. A plugin-only
 version PR does not publish to npm; the MCP Registry listing still follows

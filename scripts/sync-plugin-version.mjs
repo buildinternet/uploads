@@ -22,7 +22,11 @@ if (typeof version !== "string" || version.length === 0) {
   throw new Error("packages/plugin/package.json is missing version");
 }
 
-const files = ["plugin.json", ".claude-plugin/plugin.json", ".codex-plugin/plugin.json"];
+const files = [
+  "plugin.json",
+  "plugins/claude/uploads/.claude-plugin/plugin.json",
+  ".codex-plugin/plugin.json",
+];
 let changed = 0;
 for (const rel of files) {
   const json = readJson(rel);

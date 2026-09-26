@@ -1,5 +1,6 @@
 {
   "name": "uploads",
+  "displayName": "uploads.sh",
   "version": "0.2.2",
   "description": "Host screenshots, GIFs, recordings, and files on uploads.sh and embed them in GitHub PRs and issues.",
   "author": {
@@ -7,10 +8,11 @@
     "url": "https://buildinternet.com"
   },
   "homepage": "https://uploads.sh",
+  "documentationUrl": "https://uploads.sh/docs",
+  "supportUrl": "https://github.com/buildinternet/uploads/issues",
+  "privacyPolicyUrl": "https://uploads.sh/privacy",
+  "termsOfServiceUrl": "https://uploads.sh/terms",
   "repository": "https://github.com/buildinternet/uploads",
   "license": "Apache-2.0",
-  "icon": "./assets/logo.png",
-  "keywords": ["uploads", "screenshots", "github", "file-hosting", "images", "mcp"],
-  "skills": "./skills/",
-  "mcpServers": "./.mcp.json"
+  "keywords": ["uploads", "screenshots", "github", "file-hosting", "images", "mcp"]
 }
