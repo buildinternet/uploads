@@ -250,6 +250,19 @@ export const MCP_SERVER_ICONS: NonNullable<Implementation["icons"]> = [
   },
 ];
 
+/**
+ * Display fields shared by the hosted and stdio `serverInfo`. Clients that
+ * list a server (the Claude connector directory among them) show `title`;
+ * without it they fall back to the hostname or the machine `name`.
+ */
+export const MCP_SERVER_DISPLAY = {
+  title: "uploads.sh",
+  description:
+    "Host screenshots, recordings, and files on uploads.sh and embed them in GitHub PRs and issues.",
+  websiteUrl: "https://uploads.sh",
+  icons: MCP_SERVER_ICONS,
+} satisfies Partial<Implementation>;
+
 export function createMcpServer(opts: {
   serverInfo: Implementation;
   tools: McpTool[];
