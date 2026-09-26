@@ -1,5 +1,12 @@
 # @buildinternet/uploads
 
+## 0.56.5
+
+### Patch Changes
+
+- 9eb4203: `uploads mcp` tools now send their title in `annotations.title` as well as `title`, and the `delete` and `changelog` tool descriptions are more precise.
+- b079f65: `uploads mcp` now reports a title, description, and website in its server info, so MCP clients show "uploads.sh" instead of the bare server name.
+
 ## 0.56.4
 
 ### Patch Changes

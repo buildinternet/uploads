@@ -1,7 +1,7 @@
 {
   "name": "uploads",
   "displayName": "uploads.sh",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Host screenshots, GIFs, recordings, and files on uploads.sh and embed them in GitHub PRs and issues.",
   "author": {
     "name": "Build Internet",
