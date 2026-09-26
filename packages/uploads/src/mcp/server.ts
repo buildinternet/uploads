@@ -152,8 +152,11 @@ export function insufficientScopeError(resourceMetadataUrl: string, scope: strin
 export interface McpTool {
   name: string;
   description: string;
-  /** Short label for tools/list. Falls back to `name` when omitted. */
-  title?: string;
+  /**
+   * Human-readable label. Sent as both the tool's `title` and
+   * `annotations.title`: the Claude connector directory reads the annotation.
+   */
+  title: string;
   annotations: McpToolAnnotations;
   securitySchemes: McpSecurityScheme[];
   /** Hand-written JSON Schema for the tool's arguments. */
@@ -266,13 +269,13 @@ export function createMcpServer(opts: {
     server.registerTool(
       tool.name,
       {
-        ...(tool.title ? { title: tool.title } : {}),
+        title: tool.title,
         description: tool.description,
         inputSchema: fromJsonSchema<Record<string, unknown>>(tool.inputSchema, validator),
         ...(tool.outputSchema
           ? { outputSchema: fromJsonSchema<Record<string, unknown>>(tool.outputSchema, validator) }
           : {}),
-        annotations: tool.annotations,
+        annotations: { title: tool.title, ...tool.annotations },
         _meta: { securitySchemes: tool.securitySchemes },
       },
       wrapHandler(tool, apiUrl),

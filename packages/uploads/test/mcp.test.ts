@@ -516,7 +516,9 @@ describe("tools/list", () => {
       expect(tool.inputSchema.type).toBe("object");
       expect(tool.inputSchema.additionalProperties).toBe(false);
       expect(typeof tool.inputSchema.properties).toBe("object");
+      expect(tool.title, `${tool.name} title`).toEqual(expect.any(String));
       expect(tool.annotations).toEqual({
+        title: tool.title,
         readOnlyHint: expect.any(Boolean),
         destructiveHint: expect.any(Boolean),
         openWorldHint: expect.any(Boolean),
@@ -530,21 +532,25 @@ describe("tools/list", () => {
     }
     const byName = Object.fromEntries(tools.map((t) => [t.name, t]));
     expect(byName.list.annotations).toEqual({
+      title: byName.list.title,
       readOnlyHint: true,
       destructiveHint: false,
       openWorldHint: false,
     });
     expect(byName.delete.annotations).toEqual({
+      title: byName.delete.title,
       readOnlyHint: false,
       destructiveHint: true,
       openWorldHint: true,
     });
     expect(byName.put.annotations).toEqual({
+      title: byName.put.title,
       readOnlyHint: false,
       destructiveHint: true,
       openWorldHint: true,
     });
     expect(byName.reconcile.annotations).toEqual({
+      title: byName.reconcile.title,
       readOnlyHint: false,
       destructiveHint: false,
       openWorldHint: false,
@@ -556,12 +562,14 @@ describe("tools/list", () => {
     expect(byName.whoami._meta.securitySchemes).toEqual([{ type: "noauth" }]);
     expect(byName.changelog._meta.securitySchemes).toEqual([{ type: "noauth" }]);
     expect(byName.changelog.annotations).toEqual({
+      title: byName.changelog.title,
       readOnlyHint: true,
       destructiveHint: false,
       openWorldHint: true,
     });
     expect(byName.search_docs._meta.securitySchemes).toEqual([{ type: "noauth" }]);
     expect(byName.search_docs.annotations).toEqual({
+      title: byName.search_docs.title,
       readOnlyHint: true,
       destructiveHint: false,
       openWorldHint: true,

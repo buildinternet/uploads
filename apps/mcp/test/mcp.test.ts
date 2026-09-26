@@ -1764,6 +1764,7 @@ describe("modern-era (2026-07-28) requests", () => {
         tools: {
           name: string;
           annotations?: {
+            title?: string;
             readOnlyHint?: boolean;
             destructiveHint?: boolean;
             openWorldHint?: boolean;
@@ -1777,7 +1778,9 @@ describe("modern-era (2026-07-28) requests", () => {
     expect(body.result.tools.map((tool) => tool.name)).toContain("put");
     const listed = body.result.tools as Array<{
       name: string;
+      title?: string;
       annotations?: {
+        title?: string;
         readOnlyHint?: boolean;
         destructiveHint?: boolean;
         openWorldHint?: boolean;
@@ -1785,7 +1788,9 @@ describe("modern-era (2026-07-28) requests", () => {
       outputSchema?: { type?: string };
     }>;
     for (const tool of listed) {
+      expect(tool.title, `${tool.name} title`).toEqual(expect.any(String));
       expect(tool.annotations).toEqual({
+        title: tool.title,
         readOnlyHint: expect.any(Boolean),
         destructiveHint: expect.any(Boolean),
         openWorldHint: expect.any(Boolean),
@@ -1793,11 +1798,13 @@ describe("modern-era (2026-07-28) requests", () => {
       expect(tool.outputSchema?.type, `${tool.name} outputSchema`).toBe("object");
     }
     expect(listed.find((tool) => tool.name === "delete")?.annotations).toEqual({
+      title: "Delete file",
       readOnlyHint: false,
       destructiveHint: true,
       openWorldHint: true,
     });
     expect(listed.find((tool) => tool.name === "set_metadata")?.annotations).toEqual({
+      title: "Set metadata",
       readOnlyHint: false,
       destructiveHint: true,
       openWorldHint: true,
