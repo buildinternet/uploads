@@ -70,6 +70,10 @@ jobs:
       - name: Plugin manifests
         run: pnpm plugin-version:check
 
+      # The Claude plugin folder carries a generated copy of skills/.
+      - name: Plugin skills
+        run: pnpm plugin-skills:check
+
   test:
     name: Test
     runs-on: ubuntu-latest

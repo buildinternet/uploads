@@ -8,23 +8,9 @@
   "plugins": [
     {
       "name": "uploads",
-      "source": "./",
+      "source": "./plugins/claude/uploads",
       "description": "Get screenshots, GIFs, recordings, and files into GitHub PRs and issues via uploads.sh. Bundles the github-screenshots, annotate-screenshots, and uploads-cli skills, and the hosted MCP server.",
-      "version": "0.2.2",
-      "author": {
-        "name": "Build Internet"
-      },
-      "homepage": "https://uploads.sh",
-      "repository": "https://github.com/buildinternet/uploads",
-      "license": "Apache-2.0",
-      "icon": "./assets/logo.png",
-      "keywords": ["uploads", "screenshots", "github", "file-hosting", "images", "mcp"],
-      "skills": [
-        "./skills/github-screenshots",
-        "./skills/annotate-screenshots",
-        "./skills/uploads-cli"
-      ],
-      "mcpServers": "./.mcp.json"
+      "version": "0.2.2"
     }
   ]
 }

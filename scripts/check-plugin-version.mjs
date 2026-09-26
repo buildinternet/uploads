@@ -24,7 +24,11 @@ assert.equal(pkg.name, "@uploads/plugin");
 assert.equal(typeof version, "string");
 assert.match(version, /^\d+\.\d+\.\d+$/, "@uploads/plugin version must be semver");
 
-for (const rel of ["plugin.json", ".claude-plugin/plugin.json", ".codex-plugin/plugin.json"]) {
+for (const rel of [
+  "plugin.json",
+  "plugins/claude/uploads/.claude-plugin/plugin.json",
+  ".codex-plugin/plugin.json",
+]) {
   assert.equal(readJson(rel).version, version, `${rel} version`);
 }
 
