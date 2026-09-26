@@ -25,6 +25,7 @@ function buildCard(server) {
     supportedVersions: ["2026-07-28", "2025-06-18"],
     serverInfo: {
       name: "uploads-mcp",
+      title: server.title,
       version: server.version,
       description:
         "Host files on uploads.sh from an agent — put (including branch staging and PR attach), promote, list, delete, usage, galleries, whoami, and GitHub attachment comments.",
