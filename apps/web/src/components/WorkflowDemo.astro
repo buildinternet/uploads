@@ -1,0 +1,561 @@
+---
+const shots = [
+  { state: "Before", file: "before", caption: "A simple album list" },
+  { state: "After", file: "after", caption: "Album artwork, filters, and a now-playing view" },
+];
+const steps = ["Capture the change", "Upload while working", "Ready for review"];
+---
+
+<workflow-demo>
+  <div class="controls" hidden>
+    <div class="steps" aria-label="Explore the upload workflow">
+      {
+        steps.map((step, index) => (
+          <button type="button" id={`workflow-tab-${index}`}>
+            <>
+              <span class="number" aria-hidden="true">
+                0{index + 1}
+              </span>
+              <span>{step}</span>
+            </>
+          </button>
+        ))
+      }
+    </div>
+    <button class="playback" type="button" aria-label="Pause automatic workflow playback"
+      >Pause</button
+    >
+  </div>
+  <div class="panels">
+    <section class="panel capture" id="workflow-panel-0" aria-labelledby="capture-heading">
+      <h3 id="capture-heading">Show what changed. Before and after.</h3>
+      <div class="shots">
+        {
+          shots.map((shot) => (
+            <figure>
+              <>
+                <img
+                  src={`/preview/workflow-${shot.file}.jpg`}
+                  width="960"
+                  height="600"
+                  loading="lazy"
+                  alt={`${shot.state}: ${shot.caption}`}
+                />
+                <figcaption>
+                  <>
+                    <strong>{shot.state}</strong>
+                    <span>{shot.caption}</span>
+                  </>
+                </figcaption>
+              </>
+            </figure>
+          ))
+        }
+      </div>
+    </section>
+    <section class="panel upload" id="workflow-panel-1" aria-labelledby="upload-heading">
+      <h3 id="upload-heading">Upload each milestone. Keep building.</h3>
+      <div class="upload-layout">
+        <div class="terminal">
+          <div class="terminal-heading">
+            feat/listening-room
+          </div><pre><code><span class="prompt">$ </span>uploads put ./listening-before.png <span class="flag">--meta</span> path=/library <span class="flag">--state</span> before
+
+<span class="prompt">$ </span>uploads put ./listening-after.png <span class="flag">--meta</span> path=/library <span class="flag">--state</span> after</code></pre>
+        </div>
+        <div class="staged">
+          <p class="staged-label">2 screenshots staged</p>{
+            shots.map((shot) => (
+              <div class="staged-file">
+                <>
+                  <img
+                    src={`/preview/workflow-${shot.file}.jpg`}
+                    width="960"
+                    height="600"
+                    loading="lazy"
+                    alt=""
+                  />
+                  <span>listening-{shot.file}.png</span>
+                  <span class="check" aria-label="Staged">
+                    ✓
+                  </span>
+                </>
+              </div>
+            ))
+          }<p class="staging-note">Ready for a pull request. Stable URLs ready now.</p>
+        </div>
+      </div>
+    </section>
+    <section class="panel review" id="workflow-panel-2" aria-labelledby="review-heading">
+      <h3 id="review-heading">Open the pull request. Your screenshots are there.</h3>
+      <div class="github-comment" aria-label="Example GitHub bot comment">
+        <div class="comment-heading">
+          <img
+            class="avatar"
+            src="/brand/github-bot.png"
+            width="32"
+            height="32"
+            loading="lazy"
+            alt="uploads-sh bot avatar"
+          /><strong>uploads-sh</strong><span class="bot">bot</span>
+        </div>
+        <div class="shots">
+          {
+            shots.map((shot) => (
+              <figure>
+                <>
+                  <img
+                    src={`/preview/workflow-${shot.file}.jpg`}
+                    width="960"
+                    height="600"
+                    loading="lazy"
+                    alt={`${shot.state}: ${shot.caption}`}
+                  />
+                  <figcaption>
+                    <>
+                      <strong>{shot.state}</strong>
+                      <span>{shot.caption}</span>
+                    </>
+                  </figcaption>
+                </>
+              </figure>
+            ))
+          }
+        </div>
+      </div>
+    </section>
+  </div>
+  <p class="prerequisite">
+    Automatic posting requires the <a href="/docs/github-app">GitHub App</a> and a linked repository.
+    Or run <code>uploads attach --promote</code>.
+  </p>
+</workflow-demo>
+
+<script>
+  class WorkflowDemo extends HTMLElement {
+    private dispose?: () => void;
+    connectedCallback() {
+      this.dispose?.();
+      const controller = new AbortController();
+      const { signal } = controller;
+      const controls = this.querySelector<HTMLElement>(".controls")!;
+      const list = this.querySelector<HTMLElement>(".steps")!;
+      const tabs = Array.from(list.querySelectorAll<HTMLButtonElement>("button"));
+      const panels = Array.from(this.querySelectorAll<HTMLElement>(".panel"));
+      const playback = this.querySelector<HTMLButtonElement>(".playback")!;
+      const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
+      let selected = 2;
+      let paused = motion.matches;
+      let inView = false;
+      let hovered = this.matches(":hover");
+      let focused = this.contains(document.activeElement);
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const clear = () => {
+        if (timer !== undefined) clearTimeout(timer);
+        timer = undefined;
+      };
+      const schedule = () => {
+        clear();
+        playback.textContent = paused ? "Play" : "Pause";
+        playback.setAttribute(
+          "aria-label",
+          `${paused ? "Start" : "Pause"} automatic workflow playback`,
+        );
+        if (!paused && inView && !document.hidden && !hovered && !focused)
+          timer = setTimeout(() => select((selected + 1) % panels.length), 8000);
+      };
+      const select = (index: number) => {
+        selected = index;
+        tabs.forEach((tab, i) => {
+          tab.setAttribute("aria-selected", String(i === index));
+          tab.tabIndex = i === index ? 0 : -1;
+          panels[i].hidden = i !== index;
+          panels[i].inert = i !== index;
+        });
+        schedule();
+      };
+      list.setAttribute("role", "tablist");
+      tabs.forEach((tab, index) => {
+        tab.setAttribute("role", "tab");
+        tab.setAttribute("aria-controls", panels[index].id);
+        panels[index].setAttribute("role", "tabpanel");
+        panels[index].setAttribute("aria-labelledby", tab.id);
+        panels[index].tabIndex = 0;
+        tab.addEventListener(
+          "click",
+          () => {
+            paused = true;
+            select(index);
+          },
+          { signal },
+        );
+        tab.addEventListener(
+          "keydown",
+          (event) => {
+            let next = index;
+            if (event.key === "ArrowRight") next = (index + 1) % tabs.length;
+            else if (event.key === "ArrowLeft") next = (index - 1 + tabs.length) % tabs.length;
+            else if (event.key === "Home") next = 0;
+            else if (event.key === "End") next = tabs.length - 1;
+            else return;
+            event.preventDefault();
+            paused = true;
+            select(next);
+            tabs[next].focus();
+          },
+          { signal },
+        );
+      });
+      playback.addEventListener(
+        "click",
+        () => {
+          paused = !paused;
+          schedule();
+        },
+        { signal },
+      );
+      this.addEventListener(
+        "mouseenter",
+        () => {
+          hovered = true;
+          schedule();
+        },
+        { signal },
+      );
+      this.addEventListener(
+        "mouseleave",
+        () => {
+          hovered = false;
+          schedule();
+        },
+        { signal },
+      );
+      this.addEventListener(
+        "focusin",
+        () => {
+          focused = true;
+          schedule();
+        },
+        { signal },
+      );
+      this.addEventListener(
+        "focusout",
+        (event) => {
+          focused = event.relatedTarget instanceof Node && this.contains(event.relatedTarget);
+          schedule();
+        },
+        { signal },
+      );
+      document.addEventListener("visibilitychange", schedule, { signal });
+      motion.addEventListener(
+        "change",
+        () => {
+          if (motion.matches) paused = true;
+          schedule();
+        },
+        { signal },
+      );
+      const observer = new IntersectionObserver(
+        ([entry]) => {
+          inView = entry.isIntersecting;
+          schedule();
+        },
+        { threshold: 0.25 },
+      );
+      observer.observe(this);
+      this.dataset.enhanced = "true";
+      controls.hidden = false;
+      select(selected);
+      this.dispose = () => {
+        clear();
+        observer.disconnect();
+        controller.abort();
+      };
+    }
+    disconnectedCallback() {
+      this.dispose?.();
+      this.dispose = undefined;
+    }
+  }
+  if (!customElements.get("workflow-demo")) customElements.define("workflow-demo", WorkflowDemo);
+</script>
+
+<style>
+  workflow-demo {
+    display: block;
+    margin-top: 34px;
+  }
+  * {
+    box-sizing: border-box;
+  }
+  p,
+  h3,
+  figure {
+    margin: 0;
+  }
+  .controls {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    margin-bottom: 32px;
+  }
+  .controls[hidden] {
+    display: none;
+  }
+  .steps {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    flex: 1;
+    gap: 24px;
+  }
+  button {
+    cursor: pointer;
+    font-family: var(--sans);
+  }
+  .steps button {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 0;
+    border: 0;
+    border-bottom: 2px solid var(--line);
+    background: transparent;
+    color: var(--body);
+    font-size: 14px;
+    font-weight: 500;
+    text-align: left;
+  }
+  .steps button[aria-selected="true"] {
+    color: var(--fg);
+    border-color: var(--accent);
+  }
+  .steps button:hover {
+    color: var(--fg);
+  }
+  .number {
+    font: 14px var(--pixel);
+    color: var(--accent);
+  }
+  .playback {
+    color: var(--body);
+    background: transparent;
+    border: 1px solid var(--line);
+    padding: 7px 12px;
+    border-radius: 4px;
+    font-size: 12px;
+    min-width: 62px;
+  }
+  :is(button, a, section):focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 5px;
+  }
+  .panel {
+    margin-bottom: 36px;
+    min-width: 0;
+  }
+  h3 {
+    color: var(--fg);
+    font: 600 22px/1.4 var(--sans);
+    letter-spacing: -0.025em;
+    margin-bottom: 22px;
+  }
+  [data-enhanced] .panels {
+    display: grid;
+  }
+  [data-enhanced] .panel {
+    grid-area: 1 / 1;
+    margin-bottom: 0;
+  }
+  [data-enhanced] .panel[hidden] {
+    display: block;
+    visibility: hidden;
+    pointer-events: none;
+  }
+  .shots {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+  }
+  figure {
+    min-width: 0;
+  }
+  .shots img {
+    display: block;
+    width: 100%;
+    height: auto;
+    border: 1px solid #45404c;
+    border-radius: 5px;
+  }
+  figcaption {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    margin-top: 12px;
+    font: 13px/1.5 var(--sans);
+    color: var(--body);
+  }
+  figcaption strong {
+    color: var(--fg);
+    font-weight: 600;
+  }
+  .prerequisite {
+    color: var(--muted);
+    font: 12px/1.7 var(--sans);
+    margin-top: 24px;
+  }
+  .prerequisite a {
+    color: var(--accent);
+    text-underline-offset: 3px;
+  }
+  code {
+    font-family: var(--mono);
+    font-variant-ligatures: none;
+  }
+  p code {
+    color: #d2b5ef;
+    white-space: nowrap;
+    font-size: 11px;
+  }
+  .github-comment {
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    overflow: hidden;
+    background: #0d1117;
+  }
+  .comment-heading {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 14px 20px;
+    background: #161b22;
+    border-bottom: 1px solid #30363d;
+    color: #f0f6fc;
+    font: 13px/1.5 var(--sans);
+  }
+  .avatar {
+    border-radius: 50%;
+  }
+  .bot {
+    border: 1px solid #454c56;
+    border-radius: 20px;
+    padding: 0 6px;
+    font-size: 11px;
+    color: #9198a1;
+  }
+  .github-comment .shots {
+    padding: 20px;
+  }
+  .upload-layout {
+    display: grid;
+    grid-template-columns: 1.35fr 1fr;
+    gap: 32px;
+    align-items: start;
+  }
+  .terminal {
+    min-width: 0;
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    background: #19151f;
+  }
+  .terminal-heading {
+    border-bottom: 1px solid var(--line);
+    padding: 14px 20px;
+    color: var(--muted);
+    font: 12px/1.5 var(--mono);
+  }
+  .flag {
+    white-space: nowrap;
+  }
+  pre {
+    margin: 0;
+    padding: 26px 20px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font: 13px/1.9 var(--mono);
+    color: var(--fg);
+  }
+  .prompt {
+    color: var(--accent);
+  }
+  .staged-label {
+    color: var(--fg);
+    font: 500 15px/1.5 var(--sans);
+    margin: 8px 0 12px;
+  }
+  .staged-file {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 0;
+    border-bottom: 1px solid var(--line);
+    font: 12px/1.5 var(--mono);
+  }
+  .staged-file img {
+    width: 80px;
+    height: 50px;
+    border-radius: 3px;
+  }
+  .check {
+    color: #a8d7ae;
+    margin-left: auto;
+  }
+  .staging-note {
+    margin-top: 18px;
+    color: var(--body);
+    font: 13px/1.6 var(--sans);
+  }
+  @media (max-width: 800px) {
+    .upload-layout {
+      grid-template-columns: 1fr;
+      gap: 20px;
+    }
+    .controls {
+      gap: 12px;
+    }
+    .steps {
+      gap: 12px;
+    }
+  }
+  @media (max-width: 580px) {
+    .controls {
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 24px;
+    }
+    .steps {
+      flex-basis: 100%;
+      gap: 12px;
+    }
+    .steps button {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 7px;
+      font-size: 12px;
+    }
+    .playback {
+      margin-left: auto;
+    }
+    h3 {
+      font-size: 20px;
+    }
+    .shots {
+      grid-template-columns: 1fr;
+      gap: 22px;
+    }
+    [data-enhanced] .panels {
+      display: block;
+    }
+    [data-enhanced] .panel[hidden] {
+      display: none;
+    }
+    .github-comment .shots {
+      padding: 14px;
+    }
+    .comment-heading {
+      padding: 12px 14px;
+    }
+    pre {
+      font-size: 12px;
+    }
+  }
+</style>

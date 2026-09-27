@@ -6,6 +6,7 @@ import BaseHead from "../components/BaseHead.astro";
 import Footer from "../components/Footer.astro";
 import GitHubMark from "../components/GitHubMark.astro";
 import SiteHeader from "../components/SiteHeader.astro";
+import WorkflowDemo from "../components/WorkflowDemo.astro";
 import { SAME_ORIGIN_AUTH_BASE } from "../lib/auth-client";
 import { GITHUB_APP_URL } from "../lib/github-app";
 import { OG_DEFAULT_IMAGE, OG_SITE_NAME } from "../lib/og";
@@ -252,45 +253,11 @@ Source (and where to look if something breaks): https://github.com/buildinternet
         max-width: 640px;
         margin-bottom: 28px;
       }
-      .workflow-grid {
-        display: grid;
-        grid-template-columns: 0.85fr 1.15fr;
-        gap: 24px;
-        align-items: start;
-        margin-top: 34px;
-      }
-      .step-label {
-        color: var(--muted);
-        font: 12px var(--mono);
-        margin: 0 0 14px;
-      }
-      .step-label span {
-        color: var(--accent);
-        margin-right: 8px;
-      }
-      .terminal,
       .example-screen {
         background: #19151f;
         border: 1px solid var(--line);
         border-radius: 7px;
         overflow: hidden;
-      }
-      .terminal-bar {
-        color: var(--muted);
-        font: 11px var(--mono);
-        padding: 12px 18px;
-        border-bottom: 1px solid var(--line);
-        display: flex;
-        align-items: center;
-        gap: 12px;
-      }
-      .terminal-lights {
-        color: #786487;
-        letter-spacing: 5px;
-      }
-      .screen {
-        padding: 25px 20px 30px;
-        font: 12px / 1.85 var(--mono);
       }
       .line {
         white-space: pre-wrap;
@@ -315,84 +282,6 @@ Source (and where to look if something breaks): https://github.com/buildinternet
       }
       .gap {
         height: 1.25em;
-      }
-      .ghc-note,
-      .flow-note {
-        color: var(--muted);
-        font-size: 12px;
-        margin-top: 15px;
-        line-height: 1.65;
-      }
-      .ghc {
-        font: 12px / 1.5 var(--sans);
-      }
-      .ghc .avatar {
-        display: none;
-      }
-      .ghc .bubble {
-        background: #161b22;
-        border: 1px solid #30363d;
-        border-radius: 7px;
-        overflow: hidden;
-      }
-      .ghc .head {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        flex-wrap: wrap;
-        background: #1c2129;
-        border-bottom: 1px solid #30363d;
-        padding: 12px 16px;
-        color: #8b949e;
-      }
-      .ghc .head .user {
-        color: #e6edf3;
-        font-weight: 600;
-      }
-      .bot-chip {
-        border: 1px solid #454c56;
-        border-radius: 20px;
-        padding: 0 6px;
-        font-size: 10px;
-      }
-      .ghc .body {
-        padding: 16px;
-      }
-      .ghc .imgs {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 12px;
-        margin-bottom: 16px;
-      }
-      .ghc figure {
-        margin: 0;
-        min-width: 0;
-      }
-      .ghc .shot {
-        display: block;
-        width: 100%;
-        height: auto;
-        aspect-ratio: 16/10;
-        object-fit: cover;
-        border: 1px solid #444c56;
-        border-radius: 4px;
-      }
-      .ghc figcaption {
-        font: 11px var(--mono);
-        color: #9da7b3;
-        margin-top: 8px;
-      }
-      .skel {
-        height: 6px;
-        background: #2d333b;
-        margin: 9px 0;
-        border-radius: 2px;
-      }
-      .skel.w70 {
-        width: 70%;
-      }
-      .skel.w45 {
-        width: 45%;
       }
       .features {
         padding: 52px 0 60px;
@@ -547,7 +436,6 @@ Source (and where to look if something breaks): https://github.com/buildinternet
         .hero-art {
           margin-right: -15px;
         }
-        .workflow-grid,
         .find-block,
         .install-layout {
           gap: 28px;
@@ -589,7 +477,6 @@ Source (and where to look if something breaks): https://github.com/buildinternet
         .workflow {
           padding: 46px 0;
         }
-        .workflow-grid,
         .find-block,
         .install-layout {
           grid-template-columns: 1fr;
@@ -684,107 +571,10 @@ Source (and where to look if something breaks): https://github.com/buildinternet
           Your agent does the work. Uploads brings the proof.
         </h2>
         <p class="sect-lede">
-          Capture as you build. Every file gets a stable URL, and with the GitHub App installed,
-          staged uploads appear when your PR opens.
+          Capture as you build. Upload each milestone. Give your reviewer the before and after,
+          right where the review happens.
         </p>
-        <div class="workflow-grid">
-          <div>
-            <p class="step-label"><span>01</span> Upload while you work</p>
-            <section class="terminal" aria-label="uploads.sh terminal">
-              <div class="terminal-bar">
-                <span class="terminal-lights" aria-hidden="true">▪▪▪</span> ~/your-project
-              </div>
-              <div class="screen">
-                <p class="line out"># capture as you work — no PR yet</p>
-                <p class="line">
-                  <span class="prompt">$</span>
-                  <span class="cmd">uploads put ./after.png</span>
-                </p>
-                <p class="line out">
-                  <span class="ok">✓</span> Uploaded and staged for feat/nav
-                </p>
-                <div class="gap"></div>
-                <p class="line out"># a stable URL, ready to share</p>
-                <p class="line">https://…/after.png</p>
-                <div class="gap"></div>
-                <p class="line out"># open your PR when you’re ready</p>
-                <p class="line">
-                  <span class="prompt">$</span><span class="cmd">gh pr create</span>
-                </p>
-              </div>
-            </section>
-
-            <p class="flow-note">No pull request yet? Uploads stages files on your branch.</p>
-          </div>
-          <div>
-            <p class="step-label"><span>02</span> Ready for review on GitHub</p>
-            <section
-              class="ghc"
-              aria-label="Mock of the managed GitHub attachments comment, posted by the uploads.sh bot, with a before/after screenshot pair inline"
-            >
-              <div class="avatar">
-                <svg viewBox="0 0 32 32" shape-rendering="crispEdges" aria-hidden="true">
-                  <path d="M4 0H28V4H32V28H28V32H4V28H0V4H4Z" fill="#0d1117"></path>
-                  <g fill="#c27eff">
-                    <path d="M14 4h4v4h-4z M10 6h4v4h-4z M18 6h4v4h-4z M6 8h4v4h-4z M22 8h4v4h-4z"
-                    ></path>
-                    <path
-                      opacity=".55"
-                      d="M14 12h4v4h-4z M10 14h4v4h-4z M18 14h4v4h-4z M6 16h4v4h-4z M22 16h4v4h-4z"
-                    ></path>
-                    <path
-                      opacity=".28"
-                      d="M14 20h4v4h-4z M10 22h4v4h-4z M18 22h4v4h-4z M6 24h4v4h-4z M22 24h4v4h-4z"
-                    ></path>
-                  </g>
-                </svg>
-              </div>
-              <div class="bubble">
-                <div class="head">
-                  {
-                    /* Name only — the `bot` chip beside it is what GitHub renders, so
-                spelling it "uploads-sh[bot]" here would double-label. */
-                  }
-                  <span class="user">uploads-sh</span>
-                  <span class="bot-chip">bot</span>
-                  <span>commented just now</span>
-                </div>
-                <div class="body">
-                  <div class="imgs">
-                    <figure>
-                      <img
-                        class="shot"
-                        src="/preview/hero-before.webp"
-                        width="640"
-                        height="400"
-                        loading="lazy"
-                        alt="App header with a Follow button overlapping the page title — the before shot"
-                      />
-                      <figcaption><span>before.webp</span></figcaption>
-                    </figure>
-                    <figure>
-                      <img
-                        class="shot"
-                        src="/preview/hero-after.webp"
-                        width="640"
-                        height="400"
-                        loading="lazy"
-                        alt="The same header with the overlap fixed and the layout clean — the after shot"
-                      />
-                      <figcaption><span>after.webp</span></figcaption>
-                    </figure>
-                  </div>
-                  <div class="skel w70"></div>
-                  <div class="skel w45"></div>
-                </div>
-              </div>
-            </section>
-            <p class="ghc-note">
-              The bot adds new files automatically, and replaces outdated versions with the latest
-              revision (with <a href="/docs/github-app">GitHub App</a> installed).
-            </p>
-          </div>
-        </div>
+        <WorkflowDemo />
       </section>
       <section class="features" aria-label="Features">
         <div class="find-block">
@@ -819,7 +609,7 @@ Source (and where to look if something breaks): https://github.com/buildinternet
             </p>
           </div>
         </div>
-        <h2 class="sect-head later">A small tool. A complete artifact workflow.</h2>
+        <h2 class="sect-head later">More than screenshots.</h2>
         <div class="grid">
           <div class="feature">
             <h3>Capture and host</h3>
