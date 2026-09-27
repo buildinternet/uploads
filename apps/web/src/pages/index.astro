@@ -431,6 +431,11 @@ Source (and where to look if something breaks): https://github.com/buildinternet
       .sect-lede code {
         font: 0.85em var(--mono);
         color: #d2b5ef;
+        white-space: nowrap;
+        font-variant-ligatures: none;
+        font-feature-settings:
+          "calt" 0,
+          "liga" 0;
       }
       .install {
         border-top: 1px solid var(--line);
@@ -787,7 +792,7 @@ Source (and where to look if something breaks): https://github.com/buildinternet
             <p class="eyebrow">Useful beyond the upload</p>
             <h2 class="sect-head">“Which page was that?”</h2>
             <p class="sect-lede">
-              Attach a path (or anything else) with&#32;
+              Attach a path (or anything else) with{" "}
               <code>--meta</code>, then <code>uploads find</code> brings it back.
             </p>
           </div>
@@ -826,7 +831,7 @@ Source (and where to look if something breaks): https://github.com/buildinternet
           <div class="feature">
             <h3>Point at the change</h3>
             <p>
-              Bake hand-drawn boxes, arrows, labels, and solid redactions into a capture with&#32;
+              Bake hand-drawn boxes, arrows, labels, and solid redactions into a capture with{" "}
               <code>screenshot --annotate</code> or <code>uploads annotate</code> — so reviewers see what
               changed without hunting.
             </p>
@@ -911,7 +916,9 @@ Source (and where to look if something breaks): https://github.com/buildinternet
               <button type="button" data-copy={agentPrompt} aria-live="polite">copy prompt</button>
             </div>
             <p class="prompt-note">
-              <span class="arrow">▸</span> paste the prompt into your coding agent — or read the&#32;
+              <span class="arrow">▸</span> paste the prompt into your coding agent — or read the{
+                " "
+              }
               <a href="/github-screenshots">full guide</a>.
             </p>
           </div>
