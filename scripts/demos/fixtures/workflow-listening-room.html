@@ -1,0 +1,379 @@
+<!doctype html>
+<html lang="en">
+  <meta charset="utf-8" /><title>Side A — listening room demo</title
+  ><style>
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      margin: 0;
+      width: 960px;
+      height: 600px;
+      overflow: hidden;
+      background: #f1eee5;
+      color: #262d28;
+      font-family: Arial, sans-serif;
+    }
+    header {
+      height: 72px;
+      border-bottom: 1px solid #cbcbbf;
+      display: flex;
+      align-items: center;
+      gap: 42px;
+      padding: 0 32px;
+    }
+    header b {
+      font:
+        italic 800 32px Georgia,
+        serif;
+      letter-spacing: -2px;
+    }
+    header span {
+      font-size: 12px;
+    }
+    header .end {
+      margin-left: auto;
+    }
+    .dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #ed653d;
+      margin-right: 5px;
+    }
+    main {
+      padding: 28px 32px;
+    }
+    h1 {
+      font:
+        normal 42px Georgia,
+        serif;
+      letter-spacing: -1.7px;
+      margin: 4px 0 8px;
+    }
+    .intro {
+      color: #6f766d;
+      font-size: 13px;
+      margin: 0 0 24px;
+    }
+    .top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .count {
+      font: 12px monospace;
+      color: #777d70;
+    }
+    button {
+      border: 0;
+      border-radius: 20px;
+      background: #263c30;
+      color: #faf9f0;
+      padding: 10px 18px;
+      font: 12px Arial;
+    }
+    .filters {
+      display: flex;
+      gap: 22px;
+      font-size: 12px;
+      padding: 4px 0 17px;
+      align-items: center;
+    }
+    .filters b {
+      border-bottom: 2px solid #263c30;
+      padding: 7px 0;
+    }
+    .filters span {
+      color: #7c8179;
+    }
+    .layout {
+      display: grid;
+      grid-template-columns: 1fr 226px;
+      gap: 28px;
+    }
+    .albums {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 18px;
+    }
+    .cover {
+      height: 174px;
+      position: relative;
+      overflow: hidden;
+      padding: 16px;
+      color: #fff;
+      background: #e26842;
+    }
+    .cover strong {
+      position: relative;
+      z-index: 2;
+      font: 700 26px/1 Georgia;
+      letter-spacing: -1px;
+    }
+    .cover small {
+      position: absolute;
+      bottom: 14px;
+      left: 15px;
+      z-index: 2;
+      font-size: 8px;
+      letter-spacing: 2px;
+    }
+    .one {
+      background: #ec683d;
+    }
+    .one:after {
+      content: "";
+      position: absolute;
+      width: 125px;
+      height: 125px;
+      border: 22px solid #ffd88b;
+      border-radius: 50%;
+      bottom: -50px;
+      right: -14px;
+      box-shadow: 0 0 0 16px #263e30;
+    }
+    .two {
+      background: #2e484b;
+    }
+    .two:after {
+      content: "";
+      position: absolute;
+      width: 65px;
+      height: 240px;
+      background: #b2cacc;
+      transform: rotate(35deg);
+      top: -40px;
+      left: 60px;
+      box-shadow:
+        35px 0 #ddc892,
+        -35px 0 #668b85;
+    }
+    .three {
+      background: #ddd58d;
+      color: #343f33;
+    }
+    .three:after {
+      content: "";
+      position: absolute;
+      width: 160px;
+      height: 160px;
+      border-radius: 50%;
+      background: repeating-radial-gradient(circle, #e98454 0 8px, #533b4b 9px 17px);
+      top: 85px;
+      left: 20px;
+    }
+    .album h3 {
+      font-size: 13px;
+      margin: 12px 0 5px;
+    }
+    .album p {
+      font-size: 11px;
+      color: #7c8179;
+      margin: 0;
+    }
+    .badge {
+      font-size: 9px;
+      color: #6f796e;
+      margin-top: 13px;
+      padding-top: 11px;
+      border-top: 1px solid #d3d4c7;
+    }
+    .player {
+      background: #263c30;
+      color: #edeedb;
+      padding: 20px;
+    }
+    .player .label {
+      font: 10px monospace;
+      letter-spacing: 1px;
+      color: #b7c3a8;
+    }
+    .vinyl {
+      margin: 22px auto;
+      width: 142px;
+      height: 142px;
+      background: repeating-radial-gradient(circle, #1c241f 0 2px, #303b32 3px 4px);
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      box-shadow: 0 8px 18px #0003;
+    }
+    .vinyl:after {
+      content: "A";
+      font: italic 22px Georgia;
+      color: #24392a;
+      display: grid;
+      place-items: center;
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      background: #f18a5a;
+      border: 2px solid #d9754b;
+    }
+    .player h2 {
+      font: 22px Georgia;
+      margin: 0 0 5px;
+    }
+    .player p {
+      font-size: 11px;
+      color: #bcc7b1;
+      margin: 0;
+    }
+    .track {
+      height: 3px;
+      background: #5c6e57;
+      margin: 22px 0 7px;
+    }
+    .track:before {
+      content: "";
+      display: block;
+      height: 3px;
+      width: 40%;
+      background: #e4b87b;
+    }
+    .time {
+      display: flex;
+      justify-content: space-between;
+      font: 9px monospace;
+      color: #aebba3;
+    }
+    .controls {
+      text-align: center;
+      font-size: 17px;
+      letter-spacing: 12px;
+      margin-top: 15px;
+    }
+    .bottom {
+      border-top: 1px solid #cbcbbf;
+      margin-top: 25px;
+      padding-top: 14px;
+      font-size: 11px;
+      display: flex;
+      justify-content: space-between;
+      color: #75806f;
+    }
+    .before .after-content {
+      display: none;
+    }
+    .after .before-content {
+      display: none;
+    }
+    .list {
+      margin-top: 30px;
+      border-top: 1px solid #cbcbbf;
+    }
+    .list-row {
+      display: grid;
+      grid-template-columns: 42px 1.6fr 1fr 80px;
+      padding: 23px 10px;
+      border-bottom: 1px solid #d7d7ca;
+      align-items: center;
+      font-size: 14px;
+    }
+    .list-row em {
+      font: 13px Georgia;
+      color: #939987;
+    }
+    .list-row span {
+      font-size: 12px;
+      color: #808879;
+    }
+    .list-row b {
+      font-weight: 500;
+    }
+    .list-head {
+      font: 10px monospace;
+      color: #8a9182;
+      padding: 12px 10px;
+    }
+    .before h1 {
+      font-family: Arial;
+      font-size: 30px;
+      letter-spacing: -1px;
+    }
+    .before .intro {
+      margin-top: 12px;
+    }
+  </style>
+  <body>
+    <header>
+      <b>Side A</b><span>Your collection</span><span>Discover</span
+      ><span class="end"><i class="dot"></i> A little time for a whole record.</span>
+    </header>
+    <main>
+      <div class="top">
+        <div>
+          <h1 class="before-content">Your collection</h1>
+          <h1 class="after-content">Find your afternoon sound.</h1>
+          <p class="intro">Good records. No shuffle. Just press play.</p>
+        </div>
+        <button>＋ Add a record</button>
+      </div>
+      <div class="before-content list">
+        <div class="list-head">YOUR RECORDS · 3 ALBUMS</div>
+        <div class="list-row">
+          <em>01</em><b>Golden Hour</b><span>The Sunday Service</span><span>2024</span>
+        </div>
+        <div class="list-row">
+          <em>02</em><b>Quiet Geometry</b><span>Low Season</span><span>2023</span>
+        </div>
+        <div class="list-row">
+          <em>03</em><b>Soft Focus</b><span>Juniper Trio</span><span>2025</span>
+        </div>
+      </div>
+      <div class="after-content">
+        <div class="filters">
+          <b>All records</b><span>Jazz & soul</span><span>Ambient</span><span>Recently added</span>
+        </div>
+        <div class="layout">
+          <div>
+            <div class="albums">
+              <article class="album">
+                <div class="cover one">
+                  <strong>Golden<br />Hour</strong><small>THE SUNDAY SERVICE</small>
+                </div>
+                <h3>Golden Hour</h3>
+                <p>The Sunday Service</p>
+                <div class="badge">SOUL / 2024</div>
+              </article>
+              <article class="album">
+                <div class="cover two">
+                  <strong>Quiet<br />Geometry</strong><small>LOW SEASON</small>
+                </div>
+                <h3>Quiet Geometry</h3>
+                <p>Low Season</p>
+                <div class="badge">AMBIENT / 2023</div>
+              </article>
+              <article class="album">
+                <div class="cover three">
+                  <strong>Soft<br />Focus</strong><small>JUNIPER TRIO</small>
+                </div>
+                <h3>Soft Focus</h3>
+                <p>Juniper Trio</p>
+                <div class="badge">JAZZ / 2025</div>
+              </article>
+            </div>
+            <div class="bottom">
+              <span>3 records, endless afternoons.</span><span>Sorted by recently added ↓</span>
+            </div>
+          </div>
+          <aside class="player">
+            <div class="label">ON THE TURNTABLE</div>
+            <div class="vinyl"></div>
+            <h2>Golden Hour</h2>
+            <p>01 — Windows Open</p>
+            <div class="track"></div>
+            <div class="time"><span>1:42</span><span>4:18</span></div>
+            <div class="controls">‹ Ⅱ ›</div>
+          </aside>
+        </div>
+      </div>
+    </main>
+    <script>
+      document.body.className =
+        new URLSearchParams(location.search).get("state") === "before" ? "before" : "after";
+    </script>
+  </body>
+</html>
