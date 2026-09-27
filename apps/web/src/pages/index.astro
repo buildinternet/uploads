@@ -5,13 +5,12 @@
 import BaseHead from "../components/BaseHead.astro";
 import Footer from "../components/Footer.astro";
 import GitHubMark from "../components/GitHubMark.astro";
-import LightStrands from "../components/LightStrands.astro";
 import SiteHeader from "../components/SiteHeader.astro";
 import { SAME_ORIGIN_AUTH_BASE } from "../lib/auth-client";
 import { GITHUB_APP_URL } from "../lib/github-app";
 import { OG_DEFAULT_IMAGE, OG_SITE_NAME } from "../lib/og";
 
-const pageTitle = "uploads.sh — the missing upload command for coding agents";
+const pageTitle = "uploads.sh — the upload tool for coding agents";
 const pageDescription =
   "Agents produce screenshots, recordings, test reports, and logs long before a pull request exists, and GitHub's own attachments only work inside GitHub. Uploads hosts each file at a stable public URL the moment it's captured. When the pull request opens, every artifact appears in one tidy comment that updates automatically on each revision.";
 
@@ -86,81 +85,216 @@ Source (and where to look if something breaks): https://github.com/buildinternet
         box-sizing: border-box;
       }
       body {
-        isolation: isolate;
+        --bg: #121017;
+        --fg: #f3eee7;
+        --body: #b7b2bd;
+        --muted: #9a92a6;
+        --panel: #1b1722;
+        --line: #342c40;
+        --accent: #c6a1f5;
         margin: 0;
         min-height: 100dvh;
         background: var(--bg);
         color: var(--fg);
-        font: var(--text-body) / var(--leading-body) var(--sans);
-        letter-spacing: var(--tracking-body);
+        font: 16px / 1.65 var(--sans);
         display: flex;
         flex-direction: column;
-        padding: 0;
       }
-      /* SiteHeader is full-bleed; main keeps the reading column. */
       main {
-        width: min(var(--width-content, 720px), 100%);
+        width: min(1200px, 100%);
+        padding: 0 40px 96px;
         margin: 0 auto;
-        padding: 32px 24px 64px;
-        display: grid;
-        gap: 18px;
-        box-sizing: border-box;
         flex: 1;
       }
-      .hidden {
-        visibility: hidden;
-      }
-      @media (prefers-reduced-motion: reduce) {
-        .hidden {
-          visibility: visible;
-        }
-      }
-
-      /* ---------- headline ---------- */
-      h1 {
-        font: var(--weight-semibold) var(--text-h1) / var(--leading-heading) var(--sans);
-        letter-spacing: var(--tracking-heading);
-        margin: 6px 0 0;
-        text-wrap: balance;
-      }
-      h1 .nb {
-        white-space: nowrap;
-      }
-      .byline {
-        font: 500 var(--text-body)/1.4 var(--sans);
+      main a {
         color: var(--fg);
+        text-decoration-color: #79638f;
+        text-underline-offset: 4px;
+      }
+      main a:hover {
+        color: var(--accent);
+      }
+      main :is(a, button):focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 5px;
+      }
+      h1,
+      h2,
+      h3,
+      p {
         margin: 0;
       }
+      h1 {
+        font: 600 clamp(48px, 5.5vw, 72px) / 1.04 var(--sans);
+        letter-spacing: -0.055em;
+        text-wrap: balance;
+        max-width: 630px;
+      }
+      .eyebrow {
+        font: 14px / 1.4 var(--pixel);
+        color: var(--accent);
+        letter-spacing: 0.045em;
+      }
+      .hero {
+        display: grid;
+        grid-template-columns: 1.1fr 0.9fr;
+        align-items: center;
+        gap: 24px;
+        padding: 88px 0 60px;
+      }
+      .hero .eyebrow {
+        margin-bottom: 24px;
+      }
       .lede {
-        font: var(--text-body)/1.65 var(--sans);
+        max-width: 490px;
+        font-size: 18px;
         color: var(--body);
-        margin: 0 0 8px;
+        margin-top: 26px;
+        line-height: 1.65;
       }
-      .lede code {
-        font: var(--mono-optical) var(--mono);
-        background: var(--panel);
-        border: 1px solid var(--line);
-        border-radius: 5px;
-        padding: 1px 5px;
+      .hero-art {
+        margin: 0 -20px 0 0;
       }
-
-      /* ---------- terminal ---------- */
-      .terminal {
-        background: var(--panel);
+      .hero-art img {
+        width: 100%;
+        height: auto;
+        display: block;
+      }
+      .hero-actions {
+        display: flex;
+        gap: 14px;
+        flex-wrap: wrap;
+        margin: 30px 0 21px;
+      }
+      main .cta-solid,
+      main .cta-secondary {
+        display: inline-flex;
+        justify-content: center;
+        align-items: center;
+        gap: 10px;
+        font: 600 14px / 1.4 var(--sans);
+        text-decoration: none;
+        border-radius: 3px;
+        padding: 13px 21px;
+        border: 1px solid #e1c8ff;
+        background: #bd98eb;
+        color: #23182f;
+        box-shadow:
+          inset 0 2px 0 #dfc5ff,
+          0 3px 0 #765492;
+        transition:
+          transform 0.12s,
+          box-shadow 0.12s;
+      }
+      main .cta-solid:hover {
+        background: #cdaaf5;
+        color: #23182f;
+      }
+      main .cta-secondary {
+        background: #241d2d;
+        color: var(--fg);
+        border-color: #5b486e;
+        box-shadow:
+          inset 0 2px 0 #3b2f48,
+          0 3px 0 #0b090f;
+      }
+      main .cta-secondary:hover {
+        background: #30263b;
+        color: var(--fg);
+      }
+      main :is(.cta-solid, .cta-secondary):active {
+        transform: translateY(2px);
+        box-shadow: none;
+      }
+      .hero-note {
+        color: var(--muted);
+        font: 12px / 1.5 var(--mono);
+      }
+      .hero-install {
+        margin-top: 23px;
+        max-width: 510px;
+      }
+      .agent-byline {
+        margin-top: 14px;
+        font-size: 13px;
+        color: var(--muted);
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        flex-wrap: wrap;
+      }
+      .compatibility {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 18px 32px;
+        padding: 22px 0;
+        border-block: 1px solid var(--line);
+        color: #c6bfce;
+        font-size: 14px;
+      }
+      .compatibility .label {
+        color: var(--muted);
+        font: 12px var(--mono);
+        margin-right: auto;
+      }
+      .workflow {
+        padding: 76px 0 64px;
+      }
+      .sect-head {
+        font: 600 34px / 1.18 var(--sans);
+        letter-spacing: -0.035em;
+        text-wrap: balance;
+        margin: 12px 0 15px;
+      }
+      .sect-lede {
+        color: var(--body);
+        max-width: 640px;
+        margin-bottom: 28px;
+      }
+      .workflow-grid {
+        display: grid;
+        grid-template-columns: 0.85fr 1.15fr;
+        gap: 24px;
+        align-items: start;
+        margin-top: 34px;
+      }
+      .step-label {
+        color: var(--muted);
+        font: 12px var(--mono);
+        margin: 0 0 14px;
+      }
+      .step-label span {
+        color: var(--accent);
+        margin-right: 8px;
+      }
+      .terminal,
+      .example-screen {
+        background: #19151f;
         border: 1px solid var(--line);
-        border-radius: var(--radius-lg);
+        border-radius: 7px;
         overflow: hidden;
       }
+      .terminal-bar {
+        color: var(--muted);
+        font: 11px var(--mono);
+        padding: 12px 18px;
+        border-bottom: 1px solid var(--line);
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .terminal-lights {
+        color: #786487;
+        letter-spacing: 5px;
+      }
       .screen {
-        padding: 20px 20px 24px;
-        font-family: var(--mono);
-        font-variant-ligatures: none;
-        font-size: var(--text-meta);
+        padding: 25px 20px 30px;
+        font: 12px / 1.85 var(--mono);
       }
       .line {
         white-space: pre-wrap;
-        word-break: break-word;
-        margin: 0;
+        overflow-wrap: anywhere;
       }
       .prompt {
         color: var(--accent);
@@ -177,68 +311,29 @@ Source (and where to look if something breaks): https://github.com/buildinternet
         color: var(--body);
       }
       .ok {
-        color: var(--green);
+        color: #a8d7ae;
       }
       .gap {
-        height: 0.9em;
+        height: 1.25em;
       }
-
-      /* ---------- connector ---------- */
+      .ghc-note,
       .flow-note {
-        font-size: var(--text-micro);
         color: var(--muted);
-        padding-left: 20px;
-        margin: -6px 0;
+        font-size: 12px;
+        margin-top: 15px;
+        line-height: 1.65;
       }
-      .flow-note .arrow {
-        color: var(--accent);
-      }
-      /* Sits under the comment wireframe, indented to the bubble column. */
-      .ghc-note {
-        font-size: var(--text-micro);
-        color: var(--muted);
-        margin: -6px 0 0;
-        padding-left: 52px; /* avatar 40 + gap 12 */
-      }
-
-      /* ---------- wireframe github comment ---------- */
       .ghc {
-        display: grid;
-        grid-template-columns: 40px 1fr;
-        gap: 12px;
-        font: var(--text-meta)/1.5 var(--sans);
+        font: 12px / 1.5 var(--sans);
       }
       .ghc .avatar {
-        width: 40px;
-        height: 40px;
-        border-radius: 6px;
-        background: #21262e;
-        border: 1px solid #30363d;
-        display: grid;
-        place-items: center;
-      }
-      .ghc .avatar svg {
-        width: 32px;
-        height: 32px;
+        display: none;
       }
       .ghc .bubble {
         background: #161b22;
         border: 1px solid #30363d;
-        border-radius: var(--radius-md);
+        border-radius: 7px;
         overflow: hidden;
-        position: relative;
-      }
-      .ghc .bubble::before {
-        content: "";
-        position: absolute;
-        left: -6px;
-        top: 14px;
-        width: 10px;
-        height: 10px;
-        background: #1c2129;
-        border-left: 1px solid #30363d;
-        border-bottom: 1px solid #30363d;
-        transform: rotate(45deg);
       }
       .ghc .head {
         display: flex;
@@ -247,62 +342,51 @@ Source (and where to look if something breaks): https://github.com/buildinternet
         flex-wrap: wrap;
         background: #1c2129;
         border-bottom: 1px solid #30363d;
-        padding: 8px 14px;
+        padding: 12px 16px;
         color: #8b949e;
       }
       .ghc .head .user {
         color: #e6edf3;
-        font-weight: var(--weight-semibold);
+        font-weight: 600;
       }
-      .ghc .head .bot-chip {
-        font: var(--text-micro) var(--sans);
-        letter-spacing: 0.02em;
-        color: #8b949e;
-        border: 1px solid #30363d;
-        border-radius: 999px;
+      .bot-chip {
+        border: 1px solid #454c56;
+        border-radius: 20px;
         padding: 0 6px;
-        background: transparent;
+        font-size: 10px;
       }
       .ghc .body {
-        padding: 14px;
-      }
-      .ghc .md-title {
-        color: #e6edf3;
-        font-weight: var(--weight-semibold);
-        margin: 0 0 10px;
+        padding: 16px;
       }
       .ghc .imgs {
         display: grid;
         grid-template-columns: 1fr 1fr;
-        gap: 10px;
-        margin-bottom: 12px;
+        gap: 12px;
+        margin-bottom: 16px;
       }
       .ghc figure {
         margin: 0;
+        min-width: 0;
       }
       .ghc .shot {
         display: block;
         width: 100%;
         height: auto;
-        aspect-ratio: 16 / 10;
+        aspect-ratio: 16/10;
         object-fit: cover;
         border: 1px solid #444c56;
-        border-radius: 6px;
-        background: #1c2128;
+        border-radius: 4px;
       }
       .ghc figcaption {
-        font: var(--text-micro) var(--sans);
-        color: #8b949e;
-        margin-top: 6px;
-        display: flex;
-        justify-content: space-between;
-        gap: 8px;
+        font: 11px var(--mono);
+        color: #9da7b3;
+        margin-top: 8px;
       }
       .skel {
-        height: 8px;
-        border-radius: 4px;
+        height: 6px;
         background: #2d333b;
-        margin: 8px 0;
+        margin: 9px 0;
+        border-radius: 2px;
       }
       .skel.w70 {
         width: 70%;
@@ -310,449 +394,432 @@ Source (and where to look if something breaks): https://github.com/buildinternet
       .skel.w45 {
         width: 45%;
       }
-      @media (max-width: 560px) {
-        .ghc .imgs {
-          grid-template-columns: 1fr;
-        }
-      }
-
-      /* ---------- section headers ---------- */
-      /* These are real <h2>s. Set as 12px uppercase muted they were the
-         faintest, smallest text inside their own section — below the lede they
-         introduced. They now read at heading rank; the shell-comment `#` stays
-         and carries the terminal voice, tinted rather than shouted. */
-      .sect-head {
-        color: var(--fg);
-        font: var(--weight-semibold) var(--text-h2) / var(--leading-heading) var(--sans);
-        letter-spacing: var(--tracking-heading);
-        text-wrap: balance;
-        margin: 0 0 10px 2px;
-      }
-      .sect-lede {
-        font: var(--text-body) / var(--leading-body) var(--sans);
-        color: var(--body);
-        max-width: var(--measure);
-        margin: 0 0 12px 2px;
-      }
-      .sect-lede code,
-      .feature code {
-        font: var(--text-micro) var(--mono);
-        color: var(--fg);
-        background: var(--panel);
-        border: 1px solid var(--line);
-        border-radius: 4px;
-        padding: 0 4px;
-      }
-
-      /* ---------- features (spec-sheet list, not cards) ---------- */
       .features {
-        margin-top: 14px;
+        padding: 52px 0 60px;
+        border-top: 1px solid var(--line);
       }
-      .features .later {
-        margin: 32px 0 10px;
+      .find-block {
+        display: grid;
+        grid-template-columns: 0.8fr 1.2fr;
+        gap: 60px;
+        align-items: center;
+        margin-bottom: 65px;
+      }
+      .example-screen {
+        padding: 22px;
+        font: 12px / 1.8 var(--mono);
       }
       .features .grid {
         display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 22px 32px;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 34px;
+        margin-top: 30px;
       }
       .feature {
         border-top: 1px solid var(--line);
-        padding-top: 12px;
+        padding-top: 18px;
       }
       .feature h3 {
-        font: var(--weight-semibold) var(--text-h4) / var(--leading-tight) var(--sans);
-        color: var(--fg);
-        margin: 0 0 4px;
-      }
-      .feature h3 .soon {
-        display: inline-block;
-        vertical-align: middle;
-        margin-left: 6px;
-        padding: 1px 6px;
-        border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
-        border-radius: 999px;
-        color: var(--accent);
-        font: var(--weight-medium) var(--text-micro) / 1.4 var(--sans);
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
+        font: 600 17px / 1.3 var(--sans);
+        margin-bottom: 10px;
       }
       .feature p {
-        font: var(--text-meta)/1.6 var(--sans);
+        font-size: 14px;
         color: var(--body);
-        margin: 0;
       }
-      @media (max-width: 560px) {
-        .features .grid {
-          grid-template-columns: 1fr;
-          gap: 18px;
-        }
-      }
-
-      /* Slim, titlebar-less take on the hero terminal for worked examples. */
-      .example-screen {
-        background: var(--panel);
-        border: 1px solid var(--line);
-        border-radius: var(--radius-md);
-        padding: 12px 14px;
-        font-family: var(--mono);
-        font-size: var(--text-meta);
-      }
-
-      /* ---------- install panel ---------- */
-      .install {
-        font-size: var(--text-meta);
-        margin-top: 14px;
-      }
-      .install .rows {
-        display: grid;
-        gap: 10px;
-      }
-      /* Padded for mono: the command sets in Geist Mono, which runs optically
-         larger than the sans around it, so the row needs a little more air than
-         a sans row of the same size would. The label column is sized to the
-         longest label (PROMPT) rather than left at a round number. */
-      .cmdrow {
-        display: grid;
-        grid-template-columns: 62px 1fr auto;
-        align-items: center;
-        gap: 14px;
-        background: var(--panel);
-        border: 1px solid var(--line);
-        border-radius: var(--radius-md);
-        padding: 13px 14px;
-      }
-      /* Snippet pattern: whole row is the hit target; the real <button>
-         keeps keyboard + screen-reader affordance. */
-      .cmdrow:has(button[data-copy]) {
-        cursor: pointer;
-      }
-      .cmdrow:has(button[data-copy]):hover {
-        border-color: var(--accent);
-      }
-      .cmdrow .tag {
-        color: var(--muted);
-        font-size: var(--text-micro);
-        letter-spacing: 0.1em;
-        text-transform: uppercase;
-      }
-      /* A command you copy and run: mono, explicitly. These used to inherit it
-         from the page body and lost it when the body became sans. */
-      .cmdrow .cmdtext {
-        color: var(--fg);
-        font-family: var(--mono);
-        font-variant-ligatures: none;
-        overflow-x: auto;
+      .feature code,
+      .sect-lede code {
+        font: 0.85em var(--mono);
+        color: #d2b5ef;
         white-space: nowrap;
-        scrollbar-width: none;
-      }
-      .cmdrow .cmdtext .comment {
-        color: var(--muted);
-        user-select: none;
-      }
-      .cmdrow .agent-desc {
-        color: var(--body);
-        font: var(--text-meta)/1.65 var(--sans);
-      }
-      .cmdrow .agent-desc strong {
-        color: var(--fg);
-        font-weight: var(--weight-semibold);
-      }
-      .agent-byline {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 10px;
-        font: var(--text-meta)/1.5 var(--sans);
-        color: var(--muted);
-        margin: -6px 0 0;
-      }
-      .cmdrow button,
-      .agent-byline button {
-        font: var(--text-micro) var(--sans);
-        letter-spacing: 0.06em;
-        color: var(--accent);
-        background: none;
-        border: 1px solid var(--line);
-        border-radius: 6px;
-        padding: 5px 10px;
-        cursor: pointer;
-      }
-      .cmdrow button:hover,
-      .cmdrow button:focus-visible,
-      .agent-byline button:hover,
-      .agent-byline button:focus-visible {
-        border-color: var(--accent);
-        outline: none;
-      }
-      .cmdrow button.done,
-      .agent-byline button.done {
-        color: var(--green);
-        border-color: var(--green);
-      }
-      .prompt-note {
-        font: var(--text-micro)/1.5 var(--sans);
-        color: var(--muted);
-        margin: -2px 0 0 2px;
-      }
-      .prompt-note .arrow {
-        color: var(--accent);
-      }
-
-      /* The one loudest action on the page: the install row. Accent-washed
-         panel, solid accent copy button. */
-      .hero-install {
-        font-size: var(--text-ui);
-        margin-bottom: 2px;
-        border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
-        background: color-mix(in srgb, var(--accent) 7%, var(--panel));
-      }
-      .hero-install .cmdtext {
-        font-weight: var(--weight-medium);
-      }
-      .hero-install button {
-        color: var(--bg);
-        background: var(--accent);
-        border-color: var(--accent);
-        font-weight: var(--weight-semibold);
-      }
-      .hero-install:hover {
-        border-color: color-mix(in srgb, var(--accent) 70%, var(--line));
-        background: color-mix(in srgb, var(--accent) 12%, var(--panel));
-      }
-      .hero-install button:hover,
-      .hero-install button:focus-visible {
-        background: color-mix(in srgb, var(--accent) 88%, #fff);
-        border-color: color-mix(in srgb, var(--accent) 88%, #fff);
-      }
-      .hero-install button.done {
-        color: var(--bg);
-        background: var(--green);
-        border-color: var(--green);
-      }
-      .hero-install:has(button.done) {
-        border-color: color-mix(in srgb, var(--green) 55%, var(--line));
-      }
-
-      /* ---------- closing CTA ---------- */
-      .cta-row {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 12px;
-        margin: 44px 0 10px;
-        text-align: center;
-      }
-      .cta-solid {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        font: var(--weight-medium) var(--text-ui) / 1 var(--sans);
-        letter-spacing: 0.02em;
-        color: var(--bg);
-        background: var(--accent);
-        border: 1px solid var(--accent);
-        border-radius: var(--radius-md);
-        padding: 10px 16px;
-        text-decoration: none;
-      }
-      .cta-note {
-        color: var(--muted);
-        font-size: var(--text-meta);
-      }
-      /* Scope to main so header auth menu hover/active paint is not overridden
-         (global `a` styles were bleeding into the avatar dropdown). */
-      main a {
-        color: var(--fg);
-        text-decoration: underline;
-        text-decoration-color: color-mix(in srgb, var(--accent) 55%, transparent);
-        text-underline-offset: 3px;
-      }
-      main a:hover,
-      main a:focus-visible {
-        color: var(--accent);
-        outline: none;
-      }
-      /* Beat `main a:hover` so the solid CTA keeps dark text on a lighter fill
-         (otherwise accent-on-accent is nearly unreadable). */
-      main a.cta-solid {
-        color: var(--bg);
-        text-decoration: none;
-      }
-      main a.cta-solid:hover,
-      main a.cta-solid:focus-visible {
-        color: var(--bg);
-        background: color-mix(in srgb, var(--accent) 82%, #fff);
-        border-color: color-mix(in srgb, var(--accent) 82%, #fff);
-        outline: none;
-      }
-      @media (max-width: 560px) {
-        .cmdrow {
-          grid-template-columns: 1fr auto;
-        }
-        .cmdrow .tag {
-          grid-column: 1 / -1;
-        }
-      }
-      /* Geist Mono merges " --" into a joined dash via calt - keep CLI flags literal.
-         Declared last: the font shorthand in earlier rules resets feature settings. */
-      code,
-      pre,
-      .cmd,
-      .screen,
-      .example-screen,
-      .cmdtext,
-      .cmdrow,
-      .terminal,
-      .feature h3 {
         font-variant-ligatures: none;
         font-feature-settings:
           "calt" 0,
           "liga" 0;
       }
+      .install {
+        border-top: 1px solid var(--line);
+        padding: 56px 0 0;
+        scroll-margin-top: 28px;
+      }
+      .install-layout {
+        display: grid;
+        grid-template-columns: 0.8fr 1.2fr;
+        gap: 60px;
+      }
+      .rows {
+        display: grid;
+        gap: 12px;
+        min-width: 0;
+      }
+      .cmdrow {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        align-items: center;
+        gap: 10px;
+        background: #1b1722;
+        border: 1px solid var(--line);
+        padding: 12px 14px;
+        border-radius: 4px;
+        min-width: 0;
+      }
+      .cmdrow:has(button[data-copy]) {
+        cursor: pointer;
+      }
+      .cmdrow:has(button[data-copy]):hover {
+        border-color: #76558d;
+      }
+      .cmdrow .tag {
+        color: var(--muted);
+        font: 10px var(--mono);
+        text-transform: uppercase;
+        letter-spacing: 0.09em;
+        grid-column: 1/-1;
+      }
+      .cmdtext {
+        font: 12px / 1.5 var(--mono);
+        min-width: 0;
+        overflow-x: auto;
+        white-space: nowrap;
+      }
+      .comment {
+        color: var(--muted);
+      }
+      .agent-desc {
+        font-size: 13px;
+      }
+      .cmdrow button,
+      .agent-byline button {
+        color: var(--accent);
+        background: transparent;
+        border: 1px solid #534160;
+        border-radius: 3px;
+        padding: 6px 9px;
+        font: 11px / 1.4 var(--mono);
+        cursor: pointer;
+      }
+      .cmdrow button:hover,
+      .agent-byline button:hover {
+        background: #30243d;
+      }
+      .cmdrow button.done,
+      .agent-byline button.done {
+        color: #a8d7ae;
+        border-color: #a8d7ae;
+      }
+      .prompt-note {
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .cta-row {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 17px;
+        margin-top: 27px;
+      }
+      .cta-note {
+        font-size: 12px;
+        color: var(--muted);
+      }
+      code,
+      .cmd,
+      .screen,
+      .example-screen,
+      .cmdtext {
+        font-variant-ligatures: none;
+        font-feature-settings:
+          "calt" 0,
+          "liga" 0;
+      }
+      @media (max-width: 900px) {
+        main {
+          padding-inline: 28px;
+        }
+        .hero {
+          padding-top: 60px;
+          grid-template-columns: 1.2fr 0.8fr;
+          gap: 0;
+        }
+        h1 {
+          font-size: 54px;
+        }
+        .hero-art {
+          margin-right: -15px;
+        }
+        .workflow-grid,
+        .find-block,
+        .install-layout {
+          gap: 28px;
+        }
+        .features .grid {
+          grid-template-columns: repeat(2, 1fr);
+        }
+      }
+      @media (max-width: 680px) {
+        main {
+          padding: 0 22px 60px;
+        }
+        .hero {
+          grid-template-columns: 1fr;
+          padding: 46px 0 30px;
+        }
+        h1 {
+          font-size: clamp(44px, 10.7vw, 64px);
+          max-width: 510px;
+        }
+        .hero .eyebrow {
+          margin-bottom: 19px;
+        }
+        .lede {
+          font-size: 16px;
+          margin-top: 22px;
+        }
+        .hero-art {
+          width: min(350px, 90%);
+          margin: 20px auto -5px;
+        }
+        .compatibility {
+          gap: 12px 22px;
+          font-size: 12px;
+        }
+        .compatibility .label {
+          flex-basis: 100%;
+        }
+        .workflow {
+          padding: 46px 0;
+        }
+        .workflow-grid,
+        .find-block,
+        .install-layout {
+          grid-template-columns: 1fr;
+          gap: 28px;
+        }
+        .sect-head {
+          font-size: 29px;
+        }
+        .features {
+          padding: 35px 0 42px;
+        }
+        .find-block {
+          margin-bottom: 40px;
+        }
+        .features .grid {
+          gap: 26px 20px;
+        }
+        .feature p {
+          font-size: 13px;
+        }
+        .install {
+          padding-top: 35px;
+        }
+        .install-layout .cta-row {
+          margin-bottom: 8px;
+        }
+      }
+      @media (max-width: 400px) {
+        .features .grid {
+          grid-template-columns: 1fr;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        main :is(.cta-solid, .cta-secondary) {
+          transition: none;
+        }
+      }
     </style>
   </head>
   <body>
-    <LightStrands />
     <SiteHeader authOrigin={authOrigin} />
     <main>
-      <h1>The missing upload command for <span class="nb">coding agents.</span></h1>
-      <p class="byline">Now Claude Code and Codex can add artifacts to pull requests</p>
-      <p class="lede">
-        Agents produce screenshots, recordings, test reports, and logs long before a pull request
-        exists, and GitHub's own attachments only work inside GitHub. Uploads hosts each file at a
-        stable public URL the moment it's captured. When the pull request opens, every artifact
-        appears in one tidy comment that updates automatically on each revision.
-      </p>
-
-      <div class="cmdrow hero-install">
-        <span class="tag">install</span>
-        <span class="cmdtext">npm install -g @buildinternet/uploads</span>
-        <button type="button" data-copy="npm install -g @buildinternet/uploads" aria-live="polite"
-          >copy</button
-        >
-      </div>
-      <p class="agent-byline">
-        Or have your agent set it up
-        <button type="button" data-copy={agentPrompt} aria-live="polite">copy prompt</button>
-      </p>
-
-      <section class="terminal" aria-label="uploads.sh terminal">
-        <div class="screen">
-          <p class="line out"># capture as you work — no PR yet</p>
-          <p class="line">
-            <span class="prompt">$</span>
-            <span class="cmd">uploads put ./after.png</span>
+      <section class="hero" aria-labelledby="hero-heading">
+        <div class="hero-copy">
+          <p class="eyebrow">CLI + MCP</p>
+          <h1 id="hero-heading">The upload tool for <span>coding agents.</span></h1>
+          <p class="lede">
+            Give Claude Code, Codex, and other coding agents a place to upload screenshots,
+            recordings, and reports.
           </p>
-          <p class="line out hidden">
-            Uploaded for branch feat/nav - auto-comments to pull request when opened
-          </p>
-        </div>
-      </section>
-
-      <p class="flow-note">
-        <span class="arrow">└─▶</span> your PR opens with screenshots already attached:
-      </p>
-
-      <section
-        class="ghc"
-        aria-label="Mock of the managed GitHub attachments comment, posted by the uploads.sh bot, with a before/after screenshot pair inline"
-      >
-        <div class="avatar">
-          <svg viewBox="0 0 32 32" shape-rendering="crispEdges" aria-hidden="true">
-            <path d="M4 0H28V4H32V28H28V32H4V28H0V4H4Z" fill="#0d1117"></path>
-            <g fill="#c27eff">
-              <path d="M14 4h4v4h-4z M10 6h4v4h-4z M18 6h4v4h-4z M6 8h4v4h-4z M22 8h4v4h-4z"></path>
-              <path
-                opacity=".55"
-                d="M14 12h4v4h-4z M10 14h4v4h-4z M18 14h4v4h-4z M6 16h4v4h-4z M22 16h4v4h-4z"
-              ></path>
-              <path
-                opacity=".28"
-                d="M14 20h4v4h-4z M10 22h4v4h-4z M18 22h4v4h-4z M6 24h4v4h-4z M22 24h4v4h-4z"
-              ></path>
-            </g>
-          </svg>
-        </div>
-        <div class="bubble">
-          <div class="head">
-            {
-              /* Name only — the `bot` chip beside it is what GitHub renders, so
-                spelling it "uploads-sh[bot]" here would double-label. */
-            }
-            <span class="user">uploads-sh</span>
-            <span class="bot-chip">bot</span>
-            <span>commented just now</span>
+          <div class="hero-actions">
+            <a class="cta-solid" href="#get-started"
+              >Get started <span aria-hidden="true">↗</span></a
+            >
+            <a class="cta-secondary" href="/docs">Read the docs</a>
           </div>
-          <div class="body">
-            <div class="imgs">
-              <figure>
-                <img
-                  class="shot"
-                  src="/preview/hero-before.webp"
-                  width="640"
-                  height="400"
-                  loading="lazy"
-                  alt="App header with a Follow button overlapping the page title — the before shot"
-                />
-                <figcaption><span>before.webp</span></figcaption>
-              </figure>
-              <figure>
-                <img
-                  class="shot"
-                  src="/preview/hero-after.webp"
-                  width="640"
-                  height="400"
-                  loading="lazy"
-                  alt="The same header with the overlap fixed and the layout clean — the after shot"
-                />
-                <figcaption><span>after.webp</span></figcaption>
-              </figure>
-            </div>
-            <div class="skel w70"></div>
-            <div class="skel w45"></div>
+          <p class="hero-note">Stable URLs. GitHub attachments. One command.</p>
+          <div class="cmdrow hero-install">
+            <span class="cmdtext">npm install -g @buildinternet/uploads</span>
+            <button
+              type="button"
+              data-copy="npm install -g @buildinternet/uploads"
+              aria-live="polite">copy</button
+            >
           </div>
-        </div>
-      </section>
-      <p class="ghc-note">
-        The bot adds new files automatically, and replaces outdated versions with the latest
-        revision (with <a href="/docs/github-app">GitHub App</a> installed).
-      </p>
-
-      <section class="features" aria-label="Features">
-        <h2 class="sect-head">“Which page was that?”</h2>
-        <p class="sect-lede">
-          Attach a path (or anything else) with&#32;
-          <code>--meta</code>, then <code>uploads find</code> brings it back.
-        </p>
-        <div class="example-screen">
-          <p class="line out"># tag it on the way up (source URL, app, etc)</p>
-          <p class="line">
-            <span class="prompt">$</span>
-            <span class="cmd">uploads put ./settings.png --meta path=/account/settings</span>
-          </p>
-          <p class="line out">
-            MARKDOWN: <span class="v"
-              >![settings.webp](https://storage.uploads.sh/gh/you/app/pull/123/settings.webp)</span
+          <p class="agent-byline">
+            Let your agent take it from here <button
+              type="button"
+              data-copy={agentPrompt}
+              aria-live="polite">copy setup prompt</button
             >
           </p>
-          <div class="gap"></div>
-          <p class="line out">
-            # find it again later ("Do we have any recent screenshots of settings?")
-          </p>
-          <p class="line">
-            <span class="prompt">$</span>
-            <span class="cmd">uploads find path=/settings</span>
-          </p>
-          <p class="line out">
-            <span class="v">gh/you/app/pull/123/settings.webp</span>&#32;&#32;path=/account/settings
-          </p>
-          <p class="line out">
-            <span class="v">gh/you/app/pull/456/redesign.webp</span>&#32;&#32;path=/settings
-          </p>
         </div>
+        <figure class="hero-art">
+          <img
+            src="/brand/upload-dock.png"
+            width="1440"
+            height="1088"
+            fetchpriority="high"
+            alt="A purple pixel-art upload dock holding screenshots, recordings, and files"
+          />
+        </figure>
+      </section>
+      <div class="compatibility" aria-label="Agent interfaces">
+        <span class="label">Fits your workflow</span><span>Claude Code</span><span>Codex</span><span
+          >Cursor</span
+        ><span>CLI + MCP</span>
+      </div>
+      <section class="workflow" aria-labelledby="workflow-heading">
+        <p class="eyebrow">From local file to pull request</p>
+        <h2 class="sect-head" id="workflow-heading">
+          Your agent does the work. Uploads brings the proof.
+        </h2>
+        <p class="sect-lede">
+          Capture as you build. Every file gets a stable URL, and with the GitHub App installed,
+          staged uploads appear when your PR opens.
+        </p>
+        <div class="workflow-grid">
+          <div>
+            <p class="step-label"><span>01</span> Upload while you work</p>
+            <section class="terminal" aria-label="uploads.sh terminal">
+              <div class="terminal-bar">
+                <span class="terminal-lights" aria-hidden="true">▪▪▪</span> ~/your-project
+              </div>
+              <div class="screen">
+                <p class="line out"># capture as you work — no PR yet</p>
+                <p class="line">
+                  <span class="prompt">$</span>
+                  <span class="cmd">uploads put ./after.png</span>
+                </p>
+                <p class="line out">
+                  <span class="ok">✓</span> Uploaded and staged for feat/nav
+                </p>
+                <div class="gap"></div>
+                <p class="line out"># a stable URL, ready to share</p>
+                <p class="line">https://…/after.png</p>
+                <div class="gap"></div>
+                <p class="line out"># open your PR when you’re ready</p>
+                <p class="line">
+                  <span class="prompt">$</span><span class="cmd">gh pr create</span>
+                </p>
+              </div>
+            </section>
 
-        <h2 class="sect-head later">More than file-hosting</h2>
+            <p class="flow-note">No pull request yet? Uploads stages files on your branch.</p>
+          </div>
+          <div>
+            <p class="step-label"><span>02</span> Ready for review on GitHub</p>
+            <section
+              class="ghc"
+              aria-label="Mock of the managed GitHub attachments comment, posted by the uploads.sh bot, with a before/after screenshot pair inline"
+            >
+              <div class="avatar">
+                <svg viewBox="0 0 32 32" shape-rendering="crispEdges" aria-hidden="true">
+                  <path d="M4 0H28V4H32V28H28V32H4V28H0V4H4Z" fill="#0d1117"></path>
+                  <g fill="#c27eff">
+                    <path d="M14 4h4v4h-4z M10 6h4v4h-4z M18 6h4v4h-4z M6 8h4v4h-4z M22 8h4v4h-4z"
+                    ></path>
+                    <path
+                      opacity=".55"
+                      d="M14 12h4v4h-4z M10 14h4v4h-4z M18 14h4v4h-4z M6 16h4v4h-4z M22 16h4v4h-4z"
+                    ></path>
+                    <path
+                      opacity=".28"
+                      d="M14 20h4v4h-4z M10 22h4v4h-4z M18 22h4v4h-4z M6 24h4v4h-4z M22 24h4v4h-4z"
+                    ></path>
+                  </g>
+                </svg>
+              </div>
+              <div class="bubble">
+                <div class="head">
+                  {
+                    /* Name only — the `bot` chip beside it is what GitHub renders, so
+                spelling it "uploads-sh[bot]" here would double-label. */
+                  }
+                  <span class="user">uploads-sh</span>
+                  <span class="bot-chip">bot</span>
+                  <span>commented just now</span>
+                </div>
+                <div class="body">
+                  <div class="imgs">
+                    <figure>
+                      <img
+                        class="shot"
+                        src="/preview/hero-before.webp"
+                        width="640"
+                        height="400"
+                        loading="lazy"
+                        alt="App header with a Follow button overlapping the page title — the before shot"
+                      />
+                      <figcaption><span>before.webp</span></figcaption>
+                    </figure>
+                    <figure>
+                      <img
+                        class="shot"
+                        src="/preview/hero-after.webp"
+                        width="640"
+                        height="400"
+                        loading="lazy"
+                        alt="The same header with the overlap fixed and the layout clean — the after shot"
+                      />
+                      <figcaption><span>after.webp</span></figcaption>
+                    </figure>
+                  </div>
+                  <div class="skel w70"></div>
+                  <div class="skel w45"></div>
+                </div>
+              </div>
+            </section>
+            <p class="ghc-note">
+              The bot adds new files automatically, and replaces outdated versions with the latest
+              revision (with <a href="/docs/github-app">GitHub App</a> installed).
+            </p>
+          </div>
+        </div>
+      </section>
+      <section class="features" aria-label="Features">
+        <div class="find-block">
+          <div>
+            <p class="eyebrow">Useful beyond the upload</p>
+            <h2 class="sect-head">“Which page was that?”</h2>
+            <p class="sect-lede">
+              Attach a path (or anything else) with{" "}
+              <code>--meta</code>, then <code>uploads find</code> brings it back.
+            </p>
+          </div>
+          <div class="example-screen">
+            <p class="line out"># tag it on the way up (source URL, app, etc)</p>
+            <p class="line">
+              <span class="prompt">$</span>
+              <span class="cmd">uploads put ./settings.png --meta path=/account/settings</span>
+            </p>
+            <div class="gap"></div>
+            <p class="line out">
+              # find it again later ("Do we have any recent screenshots of settings?")
+            </p>
+            <p class="line">
+              <span class="prompt">$</span>
+              <span class="cmd">uploads find path=/settings</span>
+            </p>
+            <p class="line out">
+              <span class="v">gh/you/app/pull/123/settings.webp</span
+              >&#32;&#32;path=/account/settings
+            </p>
+            <p class="line out">
+              <span class="v">gh/you/app/pull/456/redesign.webp</span>&#32;&#32;path=/settings
+            </p>
+          </div>
+        </div>
+        <h2 class="sect-head later">A small tool. A complete artifact workflow.</h2>
         <div class="grid">
           <div class="feature">
             <h3>Capture and host</h3>
@@ -764,7 +831,7 @@ Source (and where to look if something breaks): https://github.com/buildinternet
           <div class="feature">
             <h3>Point at the change</h3>
             <p>
-              Bake hand-drawn boxes, arrows, labels, and solid redactions into a capture with&#32;
+              Bake hand-drawn boxes, arrows, labels, and solid redactions into a capture with{" "}
               <code>screenshot --annotate</code> or <code>uploads annotate</code> — so reviewers see what
               changed without hunting.
             </p>
@@ -801,47 +868,60 @@ Source (and where to look if something breaks): https://github.com/buildinternet
         </div>
       </section>
 
-      <section class="install" aria-label="Install commands">
-        <h2 class="sect-head">Get set up</h2>
-        <div class="rows">
-          <div class="cmdrow">
-            <span class="tag">cli</span>
-            <span class="cmdtext"
-              >npm install -g @buildinternet/uploads &amp;&amp; uploads login</span
-            >
-            <button
-              type="button"
-              data-copy="npm install -g @buildinternet/uploads && uploads login"
-              aria-live="polite">copy</button
-            >
+      <section class="install" id="get-started" aria-label="Install commands">
+        <div class="install-layout">
+          <div>
+            <p class="eyebrow">Ready when you are</p>
+            <h2 class="sect-head">Give your agent an upload tool.</h2>
+            <p class="sect-lede">
+              Install the CLI, sign in, and add the skills and MCP server. Or copy the setup prompt
+              and let your agent help.
+            </p>
+            <div class="cta-row">
+              <a class="cta-solid" href="/login" data-home-cta>
+                <span data-home-cta-icon aria-hidden="true">
+                  <GitHubMark size={15} />
+                </span>
+                <span data-home-cta-label>Sign in with GitHub</span>
+              </a>
+              <span class="cta-note" data-home-cta-note
+                >free to start in the cloud · open source to self-host</span
+              >
+            </div>
           </div>
-          <div class="cmdrow">
-            <span class="tag">agents</span>
-            <span class="cmdtext">uploads install <span class="comment"># skills + mcp</span></span>
-            <button type="button" data-copy="uploads install" aria-live="polite">copy</button>
+          <div class="rows">
+            <div class="cmdrow">
+              <span class="tag">cli</span>
+              <span class="cmdtext"
+                >npm install -g @buildinternet/uploads &amp;&amp; uploads login</span
+              >
+              <button
+                type="button"
+                data-copy="npm install -g @buildinternet/uploads && uploads login"
+                aria-live="polite">copy</button
+              >
+            </div>
+            <div class="cmdrow">
+              <span class="tag">agents</span>
+              <span class="cmdtext"
+                >uploads install <span class="comment"># skills + mcp</span></span
+              >
+              <button type="button" data-copy="uploads install" aria-live="polite">copy</button>
+            </div>
+            <div class="cmdrow">
+              <span class="tag">prompt</span>
+              <span class="agent-desc">
+                <strong>Set up with your agent</strong>
+              </span>
+              <button type="button" data-copy={agentPrompt} aria-live="polite">copy prompt</button>
+            </div>
+            <p class="prompt-note">
+              <span class="arrow">▸</span> paste the prompt into your coding agent — or read the{
+                " "
+              }
+              <a href="/github-screenshots">full guide</a>.
+            </p>
           </div>
-          <div class="cmdrow">
-            <span class="tag">prompt</span>
-            <span class="agent-desc">
-              <strong>Set up with your agent</strong>
-            </span>
-            <button type="button" data-copy={agentPrompt} aria-live="polite">copy prompt</button>
-          </div>
-          <p class="prompt-note">
-            <span class="arrow">▸</span> paste the prompt into your coding agent — or read the&#32;
-            <a href="/github-screenshots">full guide</a>.
-          </p>
-        </div>
-        <div class="cta-row">
-          <a class="cta-solid" href="/login" data-home-cta>
-            <span data-home-cta-icon aria-hidden="true">
-              <GitHubMark size={15} />
-            </span>
-            <span data-home-cta-label>Sign in with GitHub</span>
-          </a>
-          <span class="cta-note" data-home-cta-note
-            >free to start in the cloud · open source to self-host</span
-          >
         </div>
       </section>
     </main>
@@ -924,63 +1004,62 @@ Source (and where to look if something breaks): https://github.com/buildinternet
     </script>
 
     <script>
-      // Replay the terminal session; content below the fold-line is static.
-      const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      const hidden = document.querySelectorAll(".screen .hidden");
-      if (!reduced) {
-        let t = 350;
-        for (const el of hidden) {
-          const isCmd = el.matches(".line") && el.querySelector(".cmd") !== null;
-          setTimeout(() => el.classList.remove("hidden"), t);
-          t += isCmd ? 620 : 170;
-        }
-      } else {
-        hidden.forEach((el) => el.classList.remove("hidden"));
-      }
+      import { onAstroPageLoad } from "../lib/account-shell";
 
-      for (const btn of document.querySelectorAll("button[data-copy]")) {
-        btn.addEventListener("click", async () => {
-          const text = btn.getAttribute("data-copy") ?? "";
-          const label = btn.textContent ?? "copy";
-          let ok = false;
-          try {
-            await navigator.clipboard.writeText(text);
-            ok = true;
-          } catch {
-            const ta = document.createElement("textarea");
-            ta.value = text;
-            ta.style.position = "fixed";
-            ta.style.opacity = "0";
-            document.body.appendChild(ta);
-            ta.select();
+      function bootCopyControls(): void {
+        for (const btn of document.querySelectorAll<HTMLButtonElement>("button[data-copy]")) {
+          if (btn.dataset.copyBooted === "1") continue;
+          btn.dataset.copyBooted = "1";
+          btn.addEventListener("click", async () => {
+            if (btn.disabled) return;
+            btn.disabled = true;
+            const text = btn.getAttribute("data-copy") ?? "";
+            const label = btn.textContent ?? "copy";
+            let ok = false;
             try {
-              ok = document.execCommand("copy");
+              await navigator.clipboard.writeText(text);
+              ok = true;
             } catch {
-              ok = false;
+              const ta = document.createElement("textarea");
+              ta.value = text;
+              ta.style.position = "fixed";
+              ta.style.opacity = "0";
+              document.body.appendChild(ta);
+              ta.select();
+              try {
+                ok = document.execCommand("copy");
+              } catch {
+                ok = false;
+              }
+              ta.remove();
             }
-            ta.remove();
-          }
-          btn.textContent = ok ? "copied ✓" : "copy failed";
-          btn.classList.toggle("done", ok);
-          setTimeout(() => {
-            btn.textContent = label;
-            btn.classList.remove("done");
-          }, 1500);
-        });
-      }
+            btn.textContent = ok ? "copied ✓" : "copy failed";
+            btn.classList.toggle("done", ok);
+            setTimeout(() => {
+              btn.textContent = label;
+              btn.classList.remove("done");
+              btn.disabled = false;
+            }, 1500);
+          });
+        }
 
-      // Clicking anywhere on a cmdrow copies — same as CopyAsControls snippet:
-      // forward to the real button so feedback/keyboard stay in one place.
-      for (const row of document.querySelectorAll(".cmdrow")) {
-        const copyBtn = row.querySelector("button[data-copy]");
-        if (!(copyBtn instanceof HTMLButtonElement)) continue;
-        row.addEventListener("click", (event) => {
-          const target = event.target;
-          if (!(target instanceof Node)) return;
-          if (target === copyBtn || copyBtn.contains(target)) return;
-          copyBtn.click();
-        });
+        // Clicking anywhere on a cmdrow copies — same as CopyAsControls snippet:
+        // forward to the real button so feedback/keyboard stay in one place.
+        for (const row of document.querySelectorAll<HTMLElement>(".cmdrow")) {
+          if (row.dataset.copyBooted === "1") continue;
+          row.dataset.copyBooted = "1";
+          const copyBtn = row.querySelector("button[data-copy]");
+          if (!(copyBtn instanceof HTMLButtonElement)) continue;
+          row.addEventListener("click", (event) => {
+            const target = event.target;
+            if (!(target instanceof Node)) return;
+            if (target === copyBtn || copyBtn.contains(target)) return;
+            copyBtn.click();
+          });
+        }
       }
+      bootCopyControls();
+      onAstroPageLoad(bootCopyControls);
     </script>
   </body>
 </html>

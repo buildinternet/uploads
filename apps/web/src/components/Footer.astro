@@ -15,6 +15,8 @@
  *
  * `compact` keeps the original one-liner for the centered auth/error cards.
  */
+import Brand from "./Brand.astro";
+
 interface Props {
   compact?: boolean;
 }
@@ -44,6 +46,14 @@ const COLUMNS: FooterColumn[] = [
       { label: "Agent guide", href: "/github-screenshots" },
       { label: "GitHub App", href: "/docs/github-app" },
       { label: "Changelog", href: "/changelog" },
+    ],
+  },
+  {
+    title: "Guides",
+    links: [
+      { label: "Coding agent screenshots", href: "/guides/coding-agent-screenshots" },
+      { label: "Files in pull requests", href: "/guides/attach-files-to-github-pull-requests" },
+      { label: "GitHub Actions", href: "/guides/attach-screenshots-github-actions" },
     ],
   },
   {
@@ -77,10 +87,8 @@ const COLUMNS: FooterColumn[] = [
       <div class="site-footer__inner">
         <div class="cols">
           <div class="brand">
-            <a class="wordmark" href="/">
-              uploads.sh
-            </a>
-            <p>Screenshot and file host for coding agents.</p>
+            <Brand />
+            <p>The upload tool for coding agents.</p>
           </div>
           {COLUMNS.map((column) => (
             <nav aria-label={column.title}>
@@ -101,9 +109,9 @@ const COLUMNS: FooterColumn[] = [
             <a href="https://buildinternet.com">Build Internet</a>.
           </p>
           <p>
-            Release notes registry for agents —{" "}
+            Product changelogs registry for agents —{" "}
             <a href={RELEASES_URL} rel="noopener">
-              releases.sh →
+              Release Notes Index →
             </a>
           </p>
         </div>
@@ -157,19 +165,8 @@ const COLUMNS: FooterColumn[] = [
   /* Brand blurb + one track per link column. */
   .cols {
     display: grid;
-    grid-template-columns: 1.4fr repeat(3, 1fr);
+    grid-template-columns: 1.4fr repeat(4, 1fr);
     gap: 24px 32px;
-  }
-  .wordmark {
-    font-weight: var(--weight-semibold);
-    color: var(--fg, #e8e8e3);
-  }
-  .site-footer a.wordmark {
-    color: var(--fg, #e8e8e3);
-  }
-  .site-footer a.wordmark:hover,
-  .site-footer a.wordmark:focus-visible {
-    color: var(--accent, #c27eff);
   }
   .brand p {
     margin: 8px 0 0;
@@ -201,11 +198,10 @@ const COLUMNS: FooterColumn[] = [
   .family p {
     margin: 0;
   }
-  /* Four tracks get tight before the stack breakpoint: drop the brand onto its
-     own row first and let the three link columns keep full width. */
+  /* Give the brand its own row when all five columns no longer fit. */
   @media (max-width: 900px) {
     .cols {
-      grid-template-columns: repeat(3, 1fr);
+      grid-template-columns: repeat(4, 1fr);
     }
     .brand {
       grid-column: 1 / -1;
