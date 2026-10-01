@@ -5,7 +5,6 @@ import type { Attached, Binding, Staged, StagedFile } from "../types";
 
 const staged = atom({ plugin: "uploads", key: "staged" } as const, null);
 const attached = atom({ plugin: "uploads", key: "attached" } as const, null);
-const hiddenBranch = atom({ plugin: "uploads", key: "hiddenBranch" } as const, null);
 const isExpanded = atom({ plugin: "uploads", key: "isExpanded" } as const, false);
 
 // Bash commands that can change what is staged for the branch, or which branch it is.
@@ -74,6 +73,53 @@ const parsePrUrl = (text: string | undefined): { repo: string; pr: number } | nu
   const [, repo, pr] = matches.at(-1) ?? [];
   return repo && pr ? { repo, pr: Number(pr) } : null;
 };
+
+// The uploads.sh brand purple, from the favicon.
+const BRAND = "#c27eff";
+
+const BASE64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+const toBase64 = (bytes: Uint8Array): string => {
+  let out = "";
+  for (let i = 0; i < bytes.length; i += 3) {
+    const n = ((bytes[i] ?? 0) << 16) | ((bytes[i + 1] ?? 0) << 8) | (bytes[i + 2] ?? 0);
+    out += BASE64[(n >> 18) & 63]! + BASE64[(n >> 12) & 63]!;
+    out += i + 1 < bytes.length ? BASE64[(n >> 6) & 63]! : "=";
+    out += i + 2 < bytes.length ? BASE64[n & 63]! : "=";
+  }
+  return out;
+};
+
+// The favicon's mark: three stacked pixel chevrons fading downward, drawn as
+// 16×16 RGBA from favicon.svg's 32-unit grid (one pixel per two units).
+const MARK = (() => {
+  const size = 16;
+  const pixels = new Uint8Array(size * size * 4);
+  const blocks = [
+    [7, 2],
+    [5, 3],
+    [9, 3],
+    [3, 4],
+    [11, 4],
+  ] as const;
+  const rows = [
+    [0, 255],
+    [4, 140],
+    [8, 71],
+  ] as const;
+  for (const [dy, alpha] of rows) {
+    for (const [x, y] of blocks) {
+      for (const [i, j] of [
+        [0, 0],
+        [1, 0],
+        [0, 1],
+        [1, 1],
+      ] as const) {
+        pixels.set([0xc2, 0x7e, 0xff, alpha], ((y + dy + j) * size + x + i) * 4);
+      }
+    }
+  }
+  return { rgba: toBase64(pixels), width: size, height: size };
+})();
 
 const plural = (n: number) => (n === 1 ? "1 staged file" : `${n} staged files`);
 
@@ -275,7 +321,7 @@ export const register: Register = (on, options) => {
 
   on("ui.render", { component: "AbovePrompt" }, async ($, e, next) => {
     const view = await read($, staged);
-    if (e.props.hasSurvey || view === null || (await read($, hiddenBranch)) === view.branch) {
+    if (e.props.hasSurvey || view === null) {
       return next(e);
     }
     const line = bandLine(view, await read($, attached));
@@ -283,30 +329,36 @@ export const register: Register = (on, options) => {
       return next(e);
     }
 
-    const { Box, Button, Link, Text } = $.ui.resolve(e);
-    const canExpand = view.files.length > 0;
+    const { Box, Button, Image, Link, Text } = $.ui.resolve(e);
+    // State saved by an older version of this module has no `files`.
+    const files = Array.isArray(view.files) ? view.files : [];
+    const canExpand = files.length > 0;
     const expanded = canExpand && (await read($, isExpanded));
     // The header row takes one line, and a "+N more" row may take another.
-    const shown = expanded ? view.files.slice(0, Math.max(1, e.props.maxRows - 2)) : [];
+    const shown = expanded ? files.slice(0, Math.max(1, e.props.maxRows - 2)) : [];
     const more = view.count - shown.length;
 
+    // The engine's own `[-]` at the row's end collapses the band, so it needs no hide control.
     return (
       <Box flexDirection="column">
         <Box>
-          <Text dimColor>uploads · {line} </Text>
+          {e.surface === "terminal" ? (
+            <Image key="mark" source={MARK} columns={2} rows={1} alt="⇡" />
+          ) : (
+            <Text color={BRAND}>⇡</Text>
+          )}
+          <Text color={BRAND} bold>
+            {" uploads "}
+          </Text>
           {canExpand && (
             <Button
               key="files"
-              label={expanded ? "Hide files" : "Files"}
+              plain
+              label={expanded ? "▾" : "▸"}
               onPress={() => update($, isExpanded, (open) => !open)}
             />
           )}
-          <Text> </Text>
-          <Button
-            key="hide"
-            label="Hide"
-            onPress={() => update($, hiddenBranch, () => view.branch)}
-          />
+          <Text dimColor> {line}</Text>
         </Box>
         {shown.map((file) => (
           <Box key={file.name}>

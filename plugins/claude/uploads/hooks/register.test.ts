@@ -198,17 +198,24 @@ describe("band", () => {
     });
   }
 
-  test("hides for the branch it was hidden on, and returns on a new branch", async ($, on) => {
+  test("follows the session to a new branch", async ($, on) => {
     const world = setup(on, { counts: { "feat/x": 1, "feat/y": 2 }, binding: ["self", true] }, "");
     await runBash($, world, STAGE);
-
-    const ui = await mountBand($);
-    await ui.press({ key: "hide" });
-    expect(await ui.findAll({ text: /uploads ·/ })).toEqual([]);
+    expect(await (await mountBand($)).find({ text: /1 staged file on feat\/x/ })).toBeTruthy();
 
     world.cli.sessionBranch = "feat/y";
     await runBash($, world, "git switch feat/y");
     expect(await (await mountBand($)).find({ text: /2 staged files on feat\/y/ })).toBeTruthy();
+  });
+
+  test("leads with the brand mark: pixels on the terminal, a glyph on desktop", async ($, on) => {
+    const world = setup(on, { binding: ["self", true] }, "");
+    await runBash($, world, STAGE);
+
+    expect(await (await mountBand($, "terminal")).find({ type: "Image" })).toBeTruthy();
+    const desktop = await mountBand($, "desktop");
+    expect(await desktop.find({ type: "Image" })).toBeUndefined();
+    expect(await desktop.find({ type: "Text", text: "⇡" })).toBeTruthy();
   });
 
   for (const surface of ["terminal", "desktop"] as const) {
@@ -240,6 +247,6 @@ describe("band", () => {
     await $.tool.call({ tool: "Bash", command: STAGE, tool_use_id: "missing" } as never);
 
     const ui = await mountBand($);
-    expect(await ui.findAll({ text: /uploads ·/ })).toEqual([]);
+    expect(await ui.findAll({ text: /uploads|staged/ })).toEqual([]);
   });
 });

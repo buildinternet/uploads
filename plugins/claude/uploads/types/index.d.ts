@@ -33,8 +33,6 @@ declare module "claude-code" {
     uploads: {
       staged: Staged | null;
       attached: Attached | null;
-      /** The branch the band was hidden on; a new branch shows it again. */
-      hiddenBranch: string | null;
       /** Whether the band lists the staged files under its header. */
       isExpanded: boolean;
     };
