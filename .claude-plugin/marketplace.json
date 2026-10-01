@@ -11,6 +11,12 @@
       "source": "./plugins/claude/uploads",
       "description": "Get screenshots, GIFs, recordings, and files into GitHub PRs and issues via uploads.sh. Bundles the github-screenshots, annotate-screenshots, and uploads-cli skills, and the hosted MCP server.",
       "version": "0.2.3"
+    },
+    {
+      "name": "uploads-pr-media",
+      "source": "./plugins/claude/uploads-pr-media",
+      "description": "Claude Code mod: shows branch-staged screenshots above the prompt and attaches them to the PR when gh pr create runs. Needs the uploads CLI and a Claude Code build with mods.",
+      "version": "0.1.0"
     }
   ]
 }
