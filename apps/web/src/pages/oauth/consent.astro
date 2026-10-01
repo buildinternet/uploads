@@ -125,6 +125,14 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
       h1.title {
         text-align: center;
       }
+      .client-verified {
+        margin: -2px 0 16px;
+        text-align: center;
+      }
+      .client-verified svg {
+        width: 11px;
+        height: 11px;
+      }
       .client-host {
         color: var(--muted);
         font-size: var(--text-meta);
@@ -355,6 +363,19 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
         <h1 class="title">
           <strong id="client-name"></strong> wants to access your uploads.sh account
         </h1>
+        <div class="client-verified" id="client-verified" hidden>
+          <span class="ul-badge ul-badge--ok">
+            <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path
+                d="M3 8.5l3 3 7-7"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"></path>
+            </svg>
+            Verified by uploads.sh
+          </span>
+        </div>
         <div class="client-host" id="client-host" hidden></div>
         <div class="workspace-picker" id="workspace-picker" hidden>
           <label for="workspace-select">Workspace</label>
@@ -423,6 +444,7 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
       const appInitial = requireElement<HTMLElement>("#app-initial");
       const clientName = requireElement<HTMLElement>("#client-name");
       const clientHost = requireElement<HTMLElement>("#client-host");
+      const clientVerified = requireElement<HTMLElement>("#client-verified");
       const workspacePicker = requireElement<HTMLElement>("#workspace-picker");
       // Not requireElement<HTMLSelectElement>: worker-configuration.d.ts's
       // HTMLRewriter ambient `Element` redeclares `remove()` too (same drift as
@@ -663,6 +685,8 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
         const displayName = client?.client_name || clientId;
         clientName.textContent = displayName;
         renderAppTile(displayName, client?.logo_uri);
+        // Strict `=== true`: only the auth worker's operator-set flag counts.
+        clientVerified.hidden = client?.official !== true;
         renderRedirectDestination();
         renderScopes();
         confirmBox.hidden = false;

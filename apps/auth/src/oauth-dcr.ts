@@ -33,6 +33,12 @@ const STRIP_REGISTRATION_FIELDS = [
   "client_secret",
   "jwks",
   "jwks_uri",
+  // The operator-only `official` flag lives in the row's metadata JSON and
+  // drives the consent page's Verified badge. Better Auth 1.7 does not copy
+  // register-body extras into metadata, but strip both spellings anyway so a
+  // plugin change cannot let a self-registered client mark itself official.
+  "official",
+  "metadata",
 ] as const;
 
 /** Grants an open-DCR / CIMD client may advertise. No `client_credentials` (M2M). */

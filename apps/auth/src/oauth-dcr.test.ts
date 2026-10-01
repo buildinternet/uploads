@@ -35,7 +35,7 @@ describe("sanitizeDcrRegistrationBody", () => {
     });
   });
 
-  it("strips skip_consent, trusted, secrets, and private_key_jwt material", () => {
+  it("strips skip_consent, trusted, official, secrets, and private_key_jwt material", () => {
     const out = sanitizeDcrRegistrationBody({
       client_name: "Evil",
       token_endpoint_auth_method: "private_key_jwt",
@@ -45,6 +45,8 @@ describe("sanitizeDcrRegistrationBody", () => {
       jwks: { keys: [] },
       jwks_uri: "https://attacker.example.com/jwks",
       client_credentials_scopes: ["files:write"],
+      official: true,
+      metadata: { official: true },
     });
     expect(out).toEqual({
       client_name: "Evil",
@@ -56,6 +58,8 @@ describe("sanitizeDcrRegistrationBody", () => {
     expect(out).not.toHaveProperty("jwks");
     expect(out).not.toHaveProperty("jwks_uri");
     expect(out).not.toHaveProperty("client_credentials_scopes");
+    expect(out).not.toHaveProperty("official");
+    expect(out).not.toHaveProperty("metadata");
   });
 
   it("drops client_credentials from advertised grant_types", () => {

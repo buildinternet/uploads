@@ -1066,12 +1066,15 @@ export async function revokeConnectedApp(origin: string, id: string): Promise<bo
  * page reads off `@better-auth/oauth-provider`'s public-client response.
  * `client_uri`/`logo_uri` are attacker-controlled (any registered DCR
  * client) — callers must scheme-check before rendering them as links/images.
+ * `official` is added by the auth worker from the operator-set flag; it is
+ * the only field here a client cannot choose for itself.
  */
 export interface OAuthPublicClient {
   client_id: string;
   client_name?: string;
   client_uri?: string;
   logo_uri?: string;
+  official?: boolean;
 }
 
 /**
