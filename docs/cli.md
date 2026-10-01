@@ -422,10 +422,15 @@ covers callouts and redaction (`uploads annotate` /
 fail-open (silent when unconfigured or on any error). Two mutually exclusive
 advisories:
 
-- staged-but-unattached files already exist for the branch (`gh.status=staged`)
-  → a promote suggestion (issue #700): `uploads attach --promote --pr <num>`
-  once the PR this command is about to open exists (or a bare
-  `uploads attach --promote`, which infers the PR from the branch).
+- staged-but-unattached files already exist for the branch (`gh.status=staged`;
+  files already promoted to a PR are ignored) → a binding-aware message
+  (issue #700). When the repo is linked to this workspace, it says the files
+  attach automatically when the PR opens. When the link is missing or unknown,
+  it keeps the promote suggestion: `uploads attach --promote --pr <num>` once
+  the PR this command is about to open exists (or a bare
+  `uploads attach --promote`, which infers the PR from the branch). When the
+  repo is linked to another workspace, it says the files won't attach from
+  here.
 - nothing is staged, but the branch touches UI files (`.astro`/`.tsx`/`.jsx`/
   `.vue`/`.svelte`/`.html`/`.css`/`.scss`/`.less`, or an `/email/` path) →
   the original (issue #379) suggestion to stage screenshots first.

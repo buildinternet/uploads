@@ -65,7 +65,7 @@ Local stdio MCP (full tool parity with the CLI, needs local filesystem):
 claude mcp add uploads -- uploads mcp
 ```
 
-Claude Code plugin (skills + hosted MCP + `/uploads:attach` + pre-PR hook):
+Claude Code plugin (skills + hosted MCP + `/uploads:attach` + pre-PR hook + staged media band, Claude Code 2.1.287+):
 
 ```text
 /plugin marketplace add buildinternet/uploads
@@ -116,7 +116,7 @@ https://github.com/buildinternet/uploads
 ```bash
 uploads put ./before.png --meta path=/settings --state before
 uploads put ./after.png --meta path=/settings --state after
-uploads staged                    # what's queued + will it auto-attach?
+uploads staged                    # what's queued (not yet in a PR) + will it auto-attach?
 ```
 
 Bare `put` / bare `screenshot` on a non-default branch stage automatically.
