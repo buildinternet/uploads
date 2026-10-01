@@ -1,11 +1,12 @@
 import { atom, read, update } from "claude-code";
 import type { EngineInterface, Register } from "claude-code";
 
-import type { Attached, Binding, Staged } from "../types";
+import type { Attached, Binding, Staged, StagedFile } from "../types";
 
 const staged = atom({ plugin: "uploads", key: "staged" } as const, null);
 const attached = atom({ plugin: "uploads", key: "attached" } as const, null);
 const hiddenBranch = atom({ plugin: "uploads", key: "hiddenBranch" } as const, null);
+const isExpanded = atom({ plugin: "uploads", key: "isExpanded" } as const, false);
 
 // Bash commands that can change what is staged for the branch, or which branch it is.
 const REFRESH_AFTER =
@@ -23,6 +24,18 @@ const BAND_SUFFIX: Record<Binding, string> = {
   other: "repo linked to another workspace, won't attach",
 };
 
+// The expanded band lists at most this many files.
+const MAX_FILES = 8;
+
+/** The uploads.sh file page (preview and details) for a storage URL; else the URL itself. */
+const filePage = (url: string): string => {
+  const match = /^https:\/\/storage\.uploads\.sh\/(.+)$/.exec(url);
+  return match ? `https://uploads.sh/f/${match[1]}` : url;
+};
+
+const formatSize = (bytes: number | null): string =>
+  bytes === null ? "" : bytes < 1024 ? `${bytes} B` : `${Math.round(bytes / 1024)} KB`;
+
 const parseStaged = (stdout: string): Staged | null => {
   try {
     const doc = JSON.parse(stdout);
@@ -34,10 +47,19 @@ const parseStaged = (stdout: string): Staged | null => {
       return null;
     }
     const state = doc.binding?.state;
+    const files: StagedFile[] = doc.files
+      .filter((f: { filename?: unknown; url?: unknown }) => typeof f?.filename === "string")
+      .slice(0, MAX_FILES)
+      .map((f: { filename: string; url?: unknown; size?: unknown }) => ({
+        name: f.filename,
+        url: typeof f.url === "string" ? filePage(f.url) : null,
+        size: typeof f.size === "number" ? f.size : null,
+      }));
     return {
       repo: doc.repo,
       branch: doc.branch,
       count: doc.files.length,
+      files,
       binding: state in BAND_SUFFIX ? state : "unknown",
       autoAttach: doc.binding?.autoAttach === true,
     };
@@ -232,7 +254,7 @@ export const register: Register = (on, options) => {
       };
       // Nothing is left staged for the head; the scheduled refresh confirms it.
       await update($, staged, (s) =>
-        s?.repo === target.repo && s.branch === head ? { ...s, count: 0 } : s,
+        s?.repo === target.repo && s.branch === head ? { ...s, count: 0, files: [] } : s,
       );
     }
     if (outcome === null) {
@@ -261,15 +283,39 @@ export const register: Register = (on, options) => {
       return next(e);
     }
 
-    const { Box, Button, Text } = $.ui.resolve(e);
+    const { Box, Button, Link, Text } = $.ui.resolve(e);
+    const canExpand = view.files.length > 0;
+    const expanded = canExpand && (await read($, isExpanded));
+    // The header row takes one line, and a "+N more" row may take another.
+    const shown = expanded ? view.files.slice(0, Math.max(1, e.props.maxRows - 2)) : [];
+    const more = view.count - shown.length;
+
     return (
-      <Box>
-        <Text dimColor>uploads · {line} </Text>
-        <Button
-          key="hide"
-          label="Hide"
-          onPress={() => update($, hiddenBranch, () => view.branch)}
-        />
+      <Box flexDirection="column">
+        <Box>
+          <Text dimColor>uploads · {line} </Text>
+          {canExpand && (
+            <Button
+              key="files"
+              label={expanded ? "Hide files" : "Files"}
+              onPress={() => update($, isExpanded, (open) => !open)}
+            />
+          )}
+          <Text> </Text>
+          <Button
+            key="hide"
+            label="Hide"
+            onPress={() => update($, hiddenBranch, () => view.branch)}
+          />
+        </Box>
+        {shown.map((file) => (
+          <Box key={file.name}>
+            <Text dimColor>{"  · "}</Text>
+            {file.url ? <Link href={file.url} label={file.name} /> : <Text>{file.name}</Text>}
+            <Text dimColor> {formatSize(file.size)}</Text>
+          </Box>
+        ))}
+        {expanded && more > 0 && <Text dimColor>{`  + ${more} more (uploads staged)`}</Text>}
       </Box>
     );
   });

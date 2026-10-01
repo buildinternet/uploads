@@ -72,7 +72,10 @@ const setup = (on: On, over: Partial<Cli> = {}, text = PR_OUTPUT): World => {
     const i = argv.indexOf("--branch");
     const branch = i === -1 ? cli.sessionBranch : (argv[i + 1] ?? "");
     const files = Array.from({ length: cli.counts[branch] ?? 0 }, (_, n) => ({
-      key: `gh/x/${n}.png`,
+      key: `gh/x/shot-${n}.png`,
+      filename: `shot-${n}.png`,
+      size: 94_000,
+      url: `https://storage.uploads.sh/default/gh/x/shot-${n}.png`,
     }));
     const [state, autoAttach] = cli.binding;
     return ok(JSON.stringify({ repo: REPO, branch, files, binding: { state, autoAttach } }));
@@ -207,6 +210,27 @@ describe("band", () => {
     await runBash($, world, "git switch feat/y");
     expect(await (await mountBand($)).find({ text: /2 staged files on feat\/y/ })).toBeTruthy();
   });
+
+  for (const surface of ["terminal", "desktop"] as const) {
+    test(`lists staged files with links to their pages on ${surface}`, async ($, on) => {
+      const world = setup(on, { counts: { "feat/x": 2 }, binding: ["self", true] }, "");
+      await runBash($, world, STAGE);
+
+      const ui = await mountBand($, surface);
+      expect(await ui.findAll({ type: "Link" })).toEqual([]);
+
+      await ui.press({ key: "files" });
+      const links = await ui.findAll({ type: "Link" });
+      expect(links.map((link) => link.text)).toEqual(["shot-0.png", "shot-1.png"]);
+      expect(JSON.stringify(await ui.drawn())).toContain(
+        "https://uploads.sh/f/default/gh/x/shot-0.png",
+      );
+      expect(await ui.find({ text: /92 KB/ })).toBeTruthy();
+
+      await ui.press({ key: "files" });
+      expect(await ui.findAll({ type: "Link" })).toEqual([]);
+    });
+  }
 
   test("stays empty when the CLI is missing", async ($, on) => {
     mock.clock(on, { now: 1_000_000 });
