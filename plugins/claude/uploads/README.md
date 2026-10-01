@@ -29,6 +29,10 @@ or `claude -p`, it still attaches files and tells Claude, but shows nothing.
 /plugin install uploads@uploads
 ```
 
+uploads is also listed in the
+[Claude directory](https://claude.ai/directory/uploads), where you can add it
+on claude.ai and in Cowork.
+
 ## Sign in
 
 On first use, the MCP server opens the uploads.sh sign-in and consent screen
