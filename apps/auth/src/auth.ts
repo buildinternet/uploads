@@ -52,6 +52,7 @@ import {
   dcrClientRowPatch,
   sanitizeDcrRegistrationBody,
 } from "./oauth-dcr";
+import { annotatePublicClientOfficial, PUBLIC_CLIENT_PATHS } from "./oauth-public-client";
 import { buildTokenGrantAfterHandler, captureRefreshTokenPriorState } from "./oauth-observability";
 import { createDurableRateLimitStorage, type RateLimitNamespaceLike } from "./rate-limit";
 import * as schema from "./schema";
@@ -378,6 +379,9 @@ function authAfterHook(
   return createAuthMiddleware(async (ctx) => {
     if (ctx.path === "/oauth2/register") {
       await clampRegisteredDcrClient(db, ctx.context.returned);
+    }
+    if (PUBLIC_CLIENT_PATHS.has(ctx.path)) {
+      await annotatePublicClientOfficial(db, ctx.context.returned);
     }
     if (ctx.path === "/organization/leave") {
       await revokeTokensAfterLeave(env.DB, db, ctx.context.returned);

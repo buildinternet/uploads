@@ -38,3 +38,24 @@ export function describeRedirectDestination(
 export function redirectDestinationFromQuery(search: string): RedirectDestination | null {
   return describeRedirectDestination(new URLSearchParams(search).get("redirect_uri"));
 }
+
+/**
+ * How much the consent page vouches for a client:
+ *  - `verified`: an operator marked it official (the auth worker's flag).
+ *  - `unverified-local`: self-registered, but the code goes to a loopback
+ *    or private-use-scheme redirect on the user's own machine — how agent
+ *    and MCP clients connect, and not reachable by a remote phisher. A muted
+ *    note only, so the common case doesn't train people to click past alarms.
+ *  - `unverified-web`: self-registered and the code goes to a remote host
+ *    (or the destination is unknown). The phishing case: warn and name it.
+ */
+export type ConsentTrust = "verified" | "unverified-local" | "unverified-web";
+
+export function consentTrust(
+  official: boolean | undefined,
+  destination: RedirectDestination | null,
+): ConsentTrust {
+  if (official === true) return "verified";
+  if (destination && destination.kind !== "web") return "unverified-local";
+  return "unverified-web";
+}

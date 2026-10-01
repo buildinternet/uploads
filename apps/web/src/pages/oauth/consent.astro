@@ -125,6 +125,14 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
       h1.title {
         text-align: center;
       }
+      .client-verified {
+        margin: -2px 0 16px;
+        text-align: center;
+      }
+      .client-verified svg {
+        width: 11px;
+        height: 11px;
+      }
       .client-host {
         color: var(--muted);
         font-size: var(--text-meta);
@@ -134,6 +142,19 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
       }
       .client-host :global(strong) {
         color: var(--fg);
+      }
+      .client-host :global(.client-unverified) {
+        margin-top: 4px;
+        font-size: var(--text-micro);
+      }
+      .client-warning {
+        --callout-tone: var(--amber, #d99a2b);
+        margin: 4px 0 20px;
+        font-size: var(--text-meta);
+      }
+      .client-warning :global(strong) {
+        color: var(--amber, #d99a2b);
+        word-break: break-all;
       }
       .workspace-picker {
         margin: 0 0 20px;
@@ -355,7 +376,21 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
         <h1 class="title">
           <strong id="client-name"></strong> wants to access your uploads.sh account
         </h1>
+        <div class="client-verified" id="client-verified" hidden>
+          <span class="ul-badge ul-badge--ok">
+            <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path
+                d="M3 8.5l3 3 7-7"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"></path>
+            </svg>
+            Verified by uploads.sh
+          </span>
+        </div>
         <div class="client-host" id="client-host" hidden></div>
+        <div class="ul-callout client-warning" id="client-warning" role="note" hidden></div>
         <div class="workspace-picker" id="workspace-picker" hidden>
           <label for="workspace-select">Workspace</label>
           <select id="workspace-select" class="ul-select"></select>
@@ -396,7 +431,11 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
         submitOAuthConsent,
         type OrganizationSummary,
       } from "../../lib/auth-client";
-      import { redirectDestinationFromQuery } from "../../lib/oauth-redirect-destination";
+      import {
+        consentTrust,
+        redirectDestinationFromQuery,
+        type RedirectDestination,
+      } from "../../lib/oauth-redirect-destination";
       import { orderOrgsOldestFirst } from "../../lib/workspace-ui";
 
       const authOrigin = (window as unknown as { __UPLOADS_AUTH_ORIGIN__: string })
@@ -423,6 +462,8 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
       const appInitial = requireElement<HTMLElement>("#app-initial");
       const clientName = requireElement<HTMLElement>("#client-name");
       const clientHost = requireElement<HTMLElement>("#client-host");
+      const clientVerified = requireElement<HTMLElement>("#client-verified");
+      const clientWarning = requireElement<HTMLElement>("#client-warning");
       const workspacePicker = requireElement<HTMLElement>("#workspace-picker");
       // Not requireElement<HTMLSelectElement>: worker-configuration.d.ts's
       // HTMLRewriter ambient `Element` redeclares `remove()` too (same drift as
@@ -579,23 +620,51 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
       // claim another app's name and homepage, but redirect_uri is the value
       // the code is actually sent to, and the AS signs it into this query.
       // Plain text, not a link — nothing here should invite a click.
-      function renderRedirectDestination() {
+      //
+      // Trust tiers (see consentTrust): official clients get the Verified
+      // badge; unverified clients redirecting to this device get a muted
+      // note; unverified clients redirecting to a website get an amber
+      // warning that names the host in place of the plain destination line.
+      function destinationLabel(destination: RedirectDestination): string {
+        if (destination.kind === "web") return destination.host;
+        if (destination.kind === "local") return "an app on this device";
+        return `the ${destination.scheme}:// app`;
+      }
+
+      function renderTrust(official: boolean | undefined) {
         const destination = redirectDestinationFromQuery(location.search);
+        const trust = consentTrust(official, destination);
+        clientVerified.hidden = trust !== "verified";
         clientHost.replaceChildren();
-        if (!destination) {
-          clientHost.hidden = true;
+        clientWarning.replaceChildren();
+        clientHost.hidden = true;
+        clientWarning.hidden = true;
+
+        if (trust === "unverified-web") {
+          const target = document.createElement("strong");
+          target.textContent = destination ? destinationLabel(destination) : "this app";
+          clientWarning.appendChild(
+            document.createTextNode(
+              "uploads.sh hasn't verified this app. Only allow access if you trust ",
+            ),
+          );
+          clientWarning.appendChild(target);
+          clientWarning.appendChild(document.createTextNode("."));
+          clientWarning.hidden = false;
           return;
         }
+
+        if (!destination) return;
         const target = document.createElement("strong");
-        if (destination.kind === "web") {
-          target.textContent = destination.host;
-        } else if (destination.kind === "local") {
-          target.textContent = "an app on this device";
-        } else {
-          target.textContent = `the ${destination.scheme}:// app`;
-        }
+        target.textContent = destinationLabel(destination);
         clientHost.appendChild(document.createTextNode("Allowing sends access to "));
         clientHost.appendChild(target);
+        if (trust === "unverified-local") {
+          const note = document.createElement("div");
+          note.className = "client-unverified";
+          note.textContent = "Unverified · name and logo are provided by the app";
+          clientHost.appendChild(note);
+        }
         clientHost.hidden = false;
       }
 
@@ -663,7 +732,7 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
         const displayName = client?.client_name || clientId;
         clientName.textContent = displayName;
         renderAppTile(displayName, client?.logo_uri);
-        renderRedirectDestination();
+        renderTrust(client?.official);
         renderScopes();
         confirmBox.hidden = false;
       }

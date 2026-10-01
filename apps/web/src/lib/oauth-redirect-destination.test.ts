@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  consentTrust,
   describeRedirectDestination,
   redirectDestinationFromQuery,
 } from "./oauth-redirect-destination";
@@ -52,5 +53,26 @@ describe("redirectDestinationFromQuery", () => {
 
   it("returns null when the query has no redirect_uri", () => {
     expect(redirectDestinationFromQuery("?client_id=abc")).toBeNull();
+  });
+});
+
+describe("consentTrust", () => {
+  it("is verified only for an explicit official: true", () => {
+    expect(consentTrust(true, { kind: "web", host: "releases.sh" })).toBe("verified");
+    expect(consentTrust(true, null)).toBe("verified");
+    expect(consentTrust(false, { kind: "local" })).not.toBe("verified");
+    expect(consentTrust(undefined, { kind: "local" })).not.toBe("verified");
+  });
+
+  it("treats loopback and private-scheme redirects as unverified-local", () => {
+    expect(consentTrust(false, { kind: "local" })).toBe("unverified-local");
+    expect(consentTrust(undefined, { kind: "app", scheme: "cursor" })).toBe("unverified-local");
+  });
+
+  it("warns for a remote web redirect or an unknown destination", () => {
+    expect(consentTrust(false, { kind: "web", host: "attacker.example.com" })).toBe(
+      "unverified-web",
+    );
+    expect(consentTrust(undefined, null)).toBe("unverified-web");
   });
 });
