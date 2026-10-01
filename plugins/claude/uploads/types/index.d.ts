@@ -1,24 +1,29 @@
 export type Binding = "self" | "none" | "other" | "unknown";
 
-/** One staged file as the expanded band lists it. */
-export type StagedFile = {
+/** One staged file as the expanded band links it. */
+export type FileRef = {
   name: string;
   /** The uploads.sh file page, or null when the CLI gave no URL. */
   url: string | null;
   size: number | null;
-  /** Its before/after role, from `state` metadata or the filename; null for neither. */
-  role: "before" | "after" | null;
-  /** Whether its other half is staged too, by the attachments comment's pairing rule. */
-  isPaired: boolean;
 };
+
+/**
+ * One row of the expanded band: a before/after pair under its shared name
+ * (by the attachments comment's pairing rule; either half may be missing),
+ * or a file that is neither.
+ */
+export type BandRow =
+  | { kind: "pair"; label: string; before: FileRef | null; after: FileRef | null }
+  | { kind: "file"; file: FileRef };
 
 /** What `uploads staged --format json` reported for one branch. */
 export type Staged = {
   repo: string;
   branch: string;
   count: number;
-  /** The first few staged files; `count` is the full total. */
-  files: StagedFile[];
+  /** The first few rows; `count` is the full number of files. */
+  rows: BandRow[];
   binding: Binding;
   autoAttach: boolean;
 };

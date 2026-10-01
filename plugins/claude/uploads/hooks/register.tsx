@@ -1,7 +1,7 @@
 import { atom, read, update } from "claude-code";
 import type { EngineInterface, Register } from "claude-code";
 
-import type { Attached, Binding, Staged, StagedFile } from "../types";
+import type { Attached, BandRow, Binding, FileRef, Staged } from "../types";
 
 const staged = atom({ plugin: "uploads", key: "staged" } as const, null);
 const attached = atom({ plugin: "uploads", key: "attached" } as const, null);
@@ -27,80 +27,107 @@ const BAND_SUFFIX: Record<Binding, string> = {
 // Before/after pairing, mirroring the attachments comment (comment-render's
 // pairAttachments): images only; same `path` metadata with one `state=before`
 // and one `state=after`, else filename stems that differ only by the token.
+// The band shows each pair as one row, so a missing half shows as a gap.
 const IMAGE_EXT = /\.(png|jpe?g|gif|webp|avif)$/i;
 const STEM_TOKEN = /(^|[-_.])(before|after)($|[-_.])/i;
 
-type RawFile = { filename: string; state?: unknown; path?: unknown };
-
-const pairing = (files: readonly RawFile[]): Pick<StagedFile, "role" | "isPaired">[] => {
-  const out = files.map(
-    (): Pick<StagedFile, "role" | "isPaired"> => ({ role: null, isPaired: false }),
-  );
-  const groups = new Map<string, { before: number[]; after: number[] }>();
-  files.forEach((file, i) => {
-    if (!IMAGE_EXT.test(file.filename)) {
-      return;
-    }
-    const meta = typeof file.state === "string" ? file.state.trim().toLowerCase() : "";
-    const path = typeof file.path === "string" ? file.path.trim() : "";
-    const dot = file.filename.lastIndexOf(".");
-    const stem = file.filename.slice(0, dot);
-    const token = STEM_TOKEN.exec(stem);
-    const role =
-      meta === "before" || meta === "after"
-        ? meta
-        : token
-          ? (token[2]!.toLowerCase() as "before" | "after")
-          : null;
-    out[i]!.role = role;
-    if (role === null) {
-      return;
-    }
-    let key: string | null = null;
-    if (path && path !== "/") {
-      key = meta === role ? `path:${path}` : null;
-    } else if (token) {
-      const start = token.index + token[1]!.length;
-      const end = start + token[2]!.length;
-      const base =
-        token[1]!.length > 0
-          ? stem.slice(0, token.index) + stem.slice(end)
-          : stem.slice(end + token[3]!.length);
-      key = `stem:${base.toLowerCase()}${file.filename.slice(dot).toLowerCase()}`;
-    }
-    if (key !== null) {
-      const group = groups.get(key) ?? { before: [], after: [] };
-      group[role].push(i);
-      groups.set(key, group);
-    }
-  });
-  for (const { before, after } of groups.values()) {
-    if (before.length === 1 && after.length === 1) {
-      out[before[0]!]!.isPaired = true;
-      out[after[0]!]!.isPaired = true;
-    }
-  }
-  return out;
-};
-
-/** The dim tag after a file's size: its before/after role, and whether its partner is staged. */
-const roleTag = (file: StagedFile): string | null => {
-  // State saved by an older version of this module has no `role`.
-  if (!file.role) {
-    return null;
-  }
-  const other = file.role === "after" ? "before" : "after";
-  return file.isPaired ? `${file.role} · paired` : `${file.role} · no ${other}`;
-};
-
-// The expanded band lists at most this many files.
-const MAX_FILES = 8;
+type RawFile = { filename: string; state?: unknown; path?: unknown; url?: unknown; size?: unknown };
+type Role = "before" | "after";
 
 /** The uploads.sh file page (preview and details) for a storage URL; else the URL itself. */
 const filePage = (url: string): string => {
   const match = /^https:\/\/storage\.uploads\.sh\/(.+)$/.exec(url);
   return match ? `https://uploads.sh/f/${match[1]}` : url;
 };
+
+const fileRef = (file: RawFile): FileRef => ({
+  name: file.filename,
+  url: typeof file.url === "string" ? filePage(file.url) : null,
+  size: typeof file.size === "number" ? file.size : null,
+});
+
+/** A file's before/after role and the key its other half shares, or null for neither. */
+const roleOf = (file: RawFile): { role: Role; key: string; label: string } | null => {
+  if (!IMAGE_EXT.test(file.filename)) {
+    return null;
+  }
+  const dot = file.filename.lastIndexOf(".");
+  const stem = file.filename.slice(0, dot);
+  const meta = typeof file.state === "string" ? file.state.trim().toLowerCase() : "";
+  const path = typeof file.path === "string" ? file.path.trim() : "";
+  const token = STEM_TOKEN.exec(stem);
+  const role: Role | null =
+    meta === "before" || meta === "after" ? meta : token ? (token[2]!.toLowerCase() as Role) : null;
+  if (role === null) {
+    return null;
+  }
+  // Only a file with nothing to pair on stands alone under its own name.
+  const solo = { role, key: `solo:${file.filename}`, label: stem };
+  if (path && path !== "/") {
+    return meta === role ? { role, key: `path:${path}`, label: path } : solo;
+  }
+  if (!token) {
+    return solo;
+  }
+  const end = token.index + token[1]!.length + token[2]!.length;
+  const base =
+    token[1]!.length > 0
+      ? stem.slice(0, token.index) + stem.slice(end)
+      : stem.slice(end + token[3]!.length);
+  return {
+    role,
+    key: `stem:${base.toLowerCase()}${file.filename.slice(dot).toLowerCase()}`,
+    label: base,
+  };
+};
+
+/** The band's rows in staged order: a pair (either half may be missing), or a plain file. */
+const toRows = (files: readonly RawFile[]): BandRow[] => {
+  const order: (string | RawFile)[] = [];
+  const groups = new Map<string, { label: string; before: RawFile[]; after: RawFile[] }>();
+  for (const file of files) {
+    const found = roleOf(file);
+    if (found === null) {
+      order.push(file);
+      continue;
+    }
+    let group = groups.get(found.key);
+    if (!group) {
+      group = { label: found.label, before: [], after: [] };
+      groups.set(found.key, group);
+      order.push(found.key);
+    }
+    group[found.role].push(file);
+  }
+  return order.flatMap((entry): BandRow[] => {
+    if (typeof entry !== "string") {
+      return [{ kind: "file", file: fileRef(entry) }];
+    }
+    const { label, before, after } = groups.get(entry)!;
+    // More than one of a side is ambiguous, as in the comment: no pairing, one row each.
+    if (before.length > 1 || after.length > 1) {
+      return [
+        ...before.map((f): BandRow => ({ kind: "pair", label, before: fileRef(f), after: null })),
+        ...after.map((f): BandRow => ({ kind: "pair", label, before: null, after: fileRef(f) })),
+      ];
+    }
+    return [
+      {
+        kind: "pair",
+        label,
+        before: before[0] ? fileRef(before[0]) : null,
+        after: after[0] ? fileRef(after[0]) : null,
+      },
+    ];
+  });
+};
+
+/** How many staged files a row stands for. */
+const filesIn = (row: BandRow): number =>
+  row.kind === "file" ? 1 : (row.before ? 1 : 0) + (row.after ? 1 : 0);
+
+// The expanded band lists at most this many rows.
+const MAX_ROWS = 8;
 
 const formatSize = (bytes: number | null): string =>
   bytes === null ? "" : bytes < 1024 ? `${bytes} B` : `${Math.round(bytes / 1024)} KB`;
@@ -116,22 +143,14 @@ const parseStaged = (stdout: string): Staged | null => {
       return null;
     }
     const state = doc.binding?.state;
-    const raw: (RawFile & { url?: unknown; size?: unknown })[] = doc.files.filter(
+    const files: RawFile[] = doc.files.filter(
       (f: { filename?: unknown }) => typeof f?.filename === "string",
     );
-    // Pair across every staged file, then keep the first few to list.
-    const roles = pairing(raw);
-    const files: StagedFile[] = raw.slice(0, MAX_FILES).map((f, i) => ({
-      name: f.filename,
-      url: typeof f.url === "string" ? filePage(f.url) : null,
-      size: typeof f.size === "number" ? f.size : null,
-      ...roles[i]!,
-    }));
     return {
       repo: doc.repo,
       branch: doc.branch,
       count: doc.files.length,
-      files,
+      rows: toRows(files).slice(0, MAX_ROWS),
       binding: state in BAND_SUFFIX ? state : "unknown",
       autoAttach: doc.binding?.autoAttach === true,
     };
@@ -377,7 +396,7 @@ export const register: Register = (on, options) => {
       };
       // Nothing is left staged for the head; the scheduled refresh confirms it.
       await update($, staged, (s) =>
-        s?.repo === target.repo && s.branch === head ? { ...s, count: 0, files: [] } : s,
+        s?.repo === target.repo && s.branch === head ? { ...s, count: 0, rows: [] } : s,
       );
     }
     if (outcome === null) {
@@ -407,13 +426,20 @@ export const register: Register = (on, options) => {
     }
 
     const { Box, Button, Image, Link, Text } = $.ui.resolve(e);
-    // State saved by an older version of this module has no `files`.
-    const files = Array.isArray(view.files) ? view.files : [];
-    const canExpand = files.length > 0;
+    // State saved by an older version of this module has no `rows`.
+    const rows = Array.isArray(view.rows) ? view.rows : [];
+    const canExpand = rows.length > 0;
     const expanded = canExpand && (await read($, isExpanded));
     // The header row takes one line, and a "+N more" row may take another.
-    const shown = expanded ? files.slice(0, Math.max(1, e.props.maxRows - 2)) : [];
-    const more = view.count - shown.length;
+    const shown = expanded ? rows.slice(0, Math.max(1, e.props.maxRows - 2)) : [];
+    const more = view.count - shown.reduce((sum, row) => sum + filesIn(row), 0);
+
+    // A file as a link named by `label`, or plain text when the CLI gave no URL.
+    const fileLink = (file: FileRef, label: string) =>
+      file.url ? <Link href={file.url} label={label} /> : <Text>{label}</Text>;
+    // One side of a pair: a link to that file, or an amber dash where it's missing.
+    const half = (file: FileRef | null, role: "before" | "after") =>
+      file ? fileLink(file, role) : <Text color={WARN}>—</Text>;
 
     // The engine's own `[-]` at the row's end collapses the band, so it needs no hide control.
     return (
@@ -437,19 +463,27 @@ export const register: Register = (on, options) => {
           )}
           <Text dimColor> {line}</Text>
         </Box>
-        {shown.map((file) => (
-          <Box key={file.name}>
-            <Text dimColor>{"  · "}</Text>
-            {file.url ? <Link href={file.url} label={file.name} /> : <Text>{file.name}</Text>}
-            <Text dimColor> {formatSize(file.size)}</Text>
-            {roleTag(file) !== null &&
-              (file.isPaired ? (
-                <Text dimColor> · {roleTag(file)}</Text>
-              ) : (
-                <Text color={WARN}> · {roleTag(file)}</Text>
-              ))}
-          </Box>
-        ))}
+        {shown.map((row, i) =>
+          row.kind === "file" ? (
+            <Box key={`file-${i}`}>
+              <Text dimColor>{"  · "}</Text>
+              {fileLink(row.file, row.file.name)}
+              <Text dimColor> {formatSize(row.file.size)}</Text>
+            </Box>
+          ) : (
+            <Box key={`pair-${i}`}>
+              <Text dimColor>{"  · "}</Text>
+              <Text>{row.label} </Text>
+              {half(row.before, "before")}
+              <Text dimColor>{" → "}</Text>
+              {half(row.after, "after")}
+              {/* A lone half's size; a full pair needs none. */}
+              {(row.before === null) !== (row.after === null) && (
+                <Text dimColor> {formatSize((row.before ?? row.after)!.size)}</Text>
+              )}
+            </Box>
+          ),
+        )}
         {expanded && more > 0 && <Text dimColor>{`  + ${more} more (uploads staged)`}</Text>}
       </Box>
     );

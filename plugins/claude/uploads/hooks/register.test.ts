@@ -251,7 +251,7 @@ describe("band", () => {
     });
   }
 
-  test("marks each before/after as paired or missing its other half", async ($, on) => {
+  test("shows each before/after pair as one row, with a dash for a missing half", async ($, on) => {
     const world = setup(
       on,
       {
@@ -271,15 +271,16 @@ describe("band", () => {
     const ui = await mountBand($);
     await ui.press({ key: "files" });
 
-    const tags = (await ui.findAll({ type: "Text", text: /· (before|after) · / })).map((t) =>
-      t.text.trim(),
-    );
-    expect(tags).toEqual([
-      "· before · paired",
-      "· after · paired",
-      "· after · no before",
-      "· before · no after",
-    ]);
+    // Rows in staged order: home (both halves), uploads.sh (no before),
+    // /settings (no after, paired by path metadata), notes.txt (neither).
+    const labels = (
+      await ui.findAll({ type: "Text", text: /^(home|uploads\.sh|\/settings) $/ })
+    ).map((t) => t.text.trim());
+    expect(labels).toEqual(["home", "uploads.sh", "/settings"]);
+    const links = (await ui.findAll({ type: "Link" })).map((link) => link.text);
+    expect(links).toEqual(["before", "after", "after", "before", "notes.txt"]);
+    expect(await ui.findAll({ type: "Text", text: "—" })).toHaveLength(2);
+    expect(await ui.findAll({ text: /paired|no before|no after/ })).toEqual([]);
   });
 
   test("stays empty when the CLI is missing", async ($, on) => {
