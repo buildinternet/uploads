@@ -134,6 +134,69 @@ After the version PR lands on `main`, existing installs need
 `/plugin marketplace update` then `/plugin update uploads@uploads` (or
 uninstall and install).
 
+## Claude directory
+
+uploads has two listings in the Claude directory. Each updates in its own
+way. Both are managed at [claude.ai/directory/manage](https://claude.ai/directory/manage)
+under **Submissions**.
+
+| Listing                                                                  | What it lists                      | How it updates                                                        |
+| :----------------------------------------------------------------------- | :--------------------------------- | :-------------------------------------------------------------------- |
+| Plugin `uploads.sh`                                                      | `plugins/claude/uploads` on `main` | From the repo: each new commit to that folder is a new version        |
+| Connector `Uploads` ([public page](https://claude.ai/directory/uploads)) | `https://agents.uploads.sh/mcp`    | Only in the portal: edit the listing, then submit the edit for review |
+
+### Plugin versions
+
+The directory follows `main` and reads only `plugins/claude/uploads`. It
+picks up a new commit to that folder on a schedule, or at once when you
+select **Check for new commits** on the plugin's page. It then validates the
+folder and runs a security scan. A version that passes waits for **Publish**,
+and a reviewer then publishes it. The plugin's **Versions** tab shows each
+scanned commit and its result.
+
+Rules that follow from this:
+
+- **A merge is not a release.** The listing serves the last published version
+  until a newer one is published. A version that fails the scan, or is held
+  for a reviewer, leaves the live version in place. After a failed scan,
+  later versions also wait for a reviewer.
+- **Raise the version for every release.** Use the `@uploads/plugin` changeset
+  described in [Plugin version](#plugin-version-claude--codex).
+- **Listing text comes from the plugin.** The display name and short
+  description follow `plugin.json` in the live version. The long description
+  is `plugins/claude/uploads/README.md`. The portal's **Listing** tab is
+  read-only.
+- **Describe what the plugin runs.** The security scan compares behavior with
+  the README. A new hook or mod that runs a command or calls a service needs a
+  line in the plugin README's data and network access section.
+- **Expect a reviewer hold for code.** The plugin is a subfolder of the
+  repository, so a hook or mod that runs a non-shell file (such as
+  `hooks/register.tsx`) is held as **Scripts the validator couldn't follow**.
+  A hold delays publishing; it is not a rejection.
+
+Before a change to the plugin folder lands, check it:
+
+```bash
+claude plugin validate --strict plugins/claude/uploads
+claude plugin test plugins/claude/uploads    # the mod's tests
+```
+
+The portal runs more checks than the CLI. To run them on a branch before it
+merges, start **Submit new** → **Plugin bundle**, enter
+`buildinternet/uploads@<branch>` with plugin path `plugins/claude/uploads`,
+select **Validate**, read the report, and leave without submitting.
+
+### Users during a lag
+
+Each channel updates on its own. For a short time they can disagree:
+
+- **GitHub marketplace:** new installs get `main` at once. Existing installs
+  update when the plugin version changes.
+- **npm CLI:** CLI changes reach users when the version PR publishes.
+- **Claude directory:** users keep the last published version until the next
+  one is published. Docs that describe a new plugin feature are ahead of
+  directory users until then.
+
 ## Manual / recovery
 
 ```bash
