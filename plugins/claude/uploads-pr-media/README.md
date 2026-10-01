@@ -6,13 +6,15 @@ loop. It runs the local `uploads` CLI and needs no extra sign-in.
 - **Band above the prompt.** Shows what is staged for the current branch, for
   example `uploads · 3 staged files on feat/x · attaches when the PR opens`.
   The band hides itself when nothing is staged. Press **Hide** to dismiss it
-  for the session.
+  for the current branch. It returns when you switch branches.
 - **Attach on `gh pr create`.** After `gh pr create` opens a PR, the mod
-  checks the branch's staged files:
+  looks up the PR's head branch with `gh pr view` and checks that branch's
+  staged files. It does not use the session's branch, because the command may
+  have run after a `cd` or in a subagent's worktree.
   - Repo linked to this workspace: the GitHub App attaches them. The mod only
     reports it.
   - Repo not linked, or the link check failed: the mod runs
-    `uploads attach --promote --pr <n> --repo <owner/name>`.
+    `uploads attach --promote --pr <n> --repo <owner/name> --from-branch <head>`.
   - Repo linked to another workspace: the mod warns and does nothing.
 
   The mod also tells the model what happened, so it does not upload the files
