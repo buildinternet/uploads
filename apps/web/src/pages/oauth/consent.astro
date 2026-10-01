@@ -132,8 +132,8 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
         text-align: center;
         word-break: break-all;
       }
-      .client-host :global(a) {
-        color: inherit;
+      .client-host :global(strong) {
+        color: var(--fg);
       }
       .workspace-picker {
         margin: 0 0 20px;
@@ -396,6 +396,7 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
         submitOAuthConsent,
         type OrganizationSummary,
       } from "../../lib/auth-client";
+      import { redirectDestinationFromQuery } from "../../lib/oauth-redirect-destination";
       import { orderOrgsOldestFirst } from "../../lib/workspace-ui";
 
       const authOrigin = (window as unknown as { __UPLOADS_AUTH_ORIGIN__: string })
@@ -543,9 +544,8 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
         workspacePicker.hidden = orderedOrgs.length <= 1;
       }
 
-      // A registered client (DCR) fully controls client_uri/logo_uri — only
-      // render it as a link (or an <img src>) if it's actually http(s), never
-      // javascript:/data:/etc.
+      // A registered client (DCR) fully controls logo_uri — only use it as an
+      // <img src> if it's actually http(s), never javascript:/data:/etc.
       function safeHttpUrl(value: string | undefined): URL | null {
         if (!value) return null;
         try {
@@ -572,6 +572,31 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
           appLogo.hidden = true;
         };
         appLogo.src = logo.href;
+      }
+
+      // Shows where the authorization code goes on Allow. Deliberately NOT the
+      // client's self-reported client_uri: any self-registered client can
+      // claim another app's name and homepage, but redirect_uri is the value
+      // the code is actually sent to, and the AS signs it into this query.
+      // Plain text, not a link — nothing here should invite a click.
+      function renderRedirectDestination() {
+        const destination = redirectDestinationFromQuery(location.search);
+        clientHost.replaceChildren();
+        if (!destination) {
+          clientHost.hidden = true;
+          return;
+        }
+        const target = document.createElement("strong");
+        if (destination.kind === "web") {
+          target.textContent = destination.host;
+        } else if (destination.kind === "local") {
+          target.textContent = "an app on this device";
+        } else {
+          target.textContent = `the ${destination.scheme}:// app`;
+        }
+        clientHost.appendChild(document.createTextNode("Allowing sends access to "));
+        clientHost.appendChild(target);
+        clientHost.hidden = false;
       }
 
       async function proceed() {
@@ -638,19 +663,7 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
         const displayName = client?.client_name || clientId;
         clientName.textContent = displayName;
         renderAppTile(displayName, client?.logo_uri);
-        const host = safeHttpUrl(client?.client_uri);
-        if (host) {
-          clientHost.replaceChildren();
-          const a = document.createElement("a");
-          a.href = host.href;
-          a.target = "_blank";
-          a.rel = "noreferrer";
-          a.textContent = host.host;
-          clientHost.appendChild(a);
-          clientHost.hidden = false;
-        } else {
-          clientHost.hidden = true;
-        }
+        renderRedirectDestination();
         renderScopes();
         confirmBox.hidden = false;
       }
