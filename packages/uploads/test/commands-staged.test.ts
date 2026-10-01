@@ -223,6 +223,54 @@ describe("runStaged: empty staging", () => {
   });
 });
 
+describe("runStaged: promoted files", () => {
+  it("omits files already promoted to a PR; keeps staged and status-less files", async () => {
+    const base = "gh/o/r/branch/feature-thing/";
+    const { client } = fakeClient({
+      items: [
+        { key: `${base}a.png`, url: null, metadata: { "gh.status": "promoted" } },
+        { key: `${base}b.png`, url: null, metadata: { "gh.status": "staged" } },
+        { key: `${base}c.png`, url: null, metadata: {} },
+      ] as unknown as ListItem[],
+      repoLinkStatus: { binding: "self" },
+    });
+    const { stdout } = await withCapturedOutput(async () => {
+      await runStaged(
+        ctxWith(client, { json: true }),
+        ["--branch", "feature/thing", "--repo", "o/r"],
+        false,
+        noRun,
+      );
+    });
+    expect(JSON.parse(stdout).files.map((f: { filename: string }) => f.filename)).toEqual([
+      "b.png",
+      "c.png",
+    ]);
+  });
+
+  it("reports nothing staged when every file was promoted", async () => {
+    const { client } = fakeClient({
+      items: [
+        {
+          key: "gh/o/r/branch/feature-thing/a.png",
+          url: null,
+          metadata: { "gh.status": "promoted" },
+        },
+      ] as unknown as ListItem[],
+      repoLinkStatus: { binding: "self" },
+    });
+    const { stdout } = await withCapturedOutput(async () => {
+      await runStaged(
+        ctxWith(client),
+        ["--branch", "feature/thing", "--repo", "o/r"],
+        false,
+        noRun,
+      );
+    });
+    expect(stdout).toBe("nothing staged for feature/thing in o/r\n");
+  });
+});
+
 describe("runStaged: file listing", () => {
   it("maps list items to key/filename/size/stagedAt/url, stripping the staging prefix", async () => {
     const { client } = fakeClient({
@@ -254,6 +302,32 @@ describe("runStaged: file listing", () => {
         url: "https://x.test/gh/o/r/branch/feature-thing/shot.png",
       },
     ]);
+  });
+
+  it("carries state and path metadata so callers can pair befores with afters", async () => {
+    const { client } = fakeClient({
+      items: [
+        {
+          key: "gh/o/r/branch/feature-thing/home-after.png",
+          url: null,
+          metadata: { state: "after", path: "/settings" },
+        },
+        { key: "gh/o/r/branch/feature-thing/plain.png", url: null, metadata: {} },
+      ],
+      repoLinkStatus: { binding: "self" },
+    });
+    const { stdout } = await withCapturedOutput(async () => {
+      await runStaged(
+        ctxWith(client, { json: true }),
+        ["--branch", "feature/thing", "--repo", "o/r"],
+        false,
+        noRun,
+      );
+    });
+    const [paired, plain] = JSON.parse(stdout).files;
+    expect(paired).toMatchObject({ state: "after", path: "/settings" });
+    expect(plain).not.toHaveProperty("state");
+    expect(plain).not.toHaveProperty("path");
   });
 
   it("human mode prints one compact line per file plus binding + promote affordance", async () => {

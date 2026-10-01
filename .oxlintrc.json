@@ -112,6 +112,8 @@
     "apps/web/scripts/**",
     ".superpowers/**",
     ".worktrees/**",
-    ".design-sync/**"
+    ".design-sync/**",
+    "plugins/claude/uploads/hooks/*.ts",
+    "plugins/claude/uploads/hooks/*.tsx"
   ]
 }

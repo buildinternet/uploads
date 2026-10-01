@@ -9,7 +9,7 @@
     {
       "name": "uploads",
       "source": "./plugins/claude/uploads",
-      "description": "Get screenshots, GIFs, recordings, and files into GitHub PRs and issues via uploads.sh. Bundles the github-screenshots, annotate-screenshots, and uploads-cli skills, and the hosted MCP server.",
+      "description": "Get screenshots, GIFs, recordings, and files into GitHub PRs and issues via uploads.sh. Bundles the github-screenshots, annotate-screenshots, and uploads-cli skills, the hosted MCP server, and a mod that shows staged screenshots above the prompt and attaches them when gh pr create runs.",
       "version": "0.2.3"
     }
   ]

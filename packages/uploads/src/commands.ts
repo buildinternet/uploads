@@ -2502,6 +2502,10 @@ export interface StagedFile {
   /** `gh.staged-at` metadata (ISO 8601 UTC), when present. */
   stagedAt?: string;
   url: string | null;
+  /** `state` metadata (`before`/`after`), when present: what before/after pairing reads. */
+  state?: string;
+  /** `path` metadata (the captured page path), when present: pairs a before with its after. */
+  path?: string;
 }
 
 /** Tri-state binding, folded into a ready-to-render advisory (issue #405/#398). */
@@ -2528,7 +2532,10 @@ export interface StagedResult {
  * route) degrades to `"unknown"` rather than throwing — this is a read-only
  * view and a binding check failing must never make it fail outright.
  */
-async function resolveStagedBinding(client: UploadsClient, repo: string): Promise<StagedBinding> {
+export async function resolveStagedBinding(
+  client: UploadsClient,
+  repo: string,
+): Promise<StagedBinding> {
   try {
     const { binding } = await client.githubRepoLinkStatus(repo);
     switch (binding) {
@@ -2560,7 +2567,7 @@ async function resolveStagedBinding(client: UploadsClient, repo: string): Promis
 
 /**
  * Shared core for `uploads staged` (CLI) and the `staged` MCP tool (issue
- * #405): one `list` call against the branch staging prefix
+ * #405): lists files still staged (not yet promoted) via one `list` call against the branch staging prefix
  * (`ghBranchKeyPrefix` — never hand-built) plus the #398 binding check. Never
  * throws on the binding check (see `resolveStagedBinding`); a failed `list`
  * call still propagates, same as every other read command.
@@ -2583,13 +2590,20 @@ export async function resolveStaged(opts: {
   const [files, binding] = await Promise.all([
     ghMergedList(prefixes, undefined, async (prefix) => {
       const list = await client.list({ prefix, metadata: true });
-      return list.items.map((item) => ({
-        key: item.key,
-        filename: item.key.slice(prefix.length),
-        size: item.size,
-        stagedAt: item.metadata?.["gh.staged-at"],
-        url: item.url,
-      }));
+      // Promotion copies files into the PR prefix but leaves the branch copy
+      // behind marked `gh.status=promoted`; those are no longer "staged".
+      // A missing status (older files) still counts as staged.
+      return list.items
+        .filter((item) => item.metadata?.["gh.status"] !== "promoted")
+        .map((item) => ({
+          key: item.key,
+          filename: item.key.slice(prefix.length),
+          size: item.size,
+          stagedAt: item.metadata?.["gh.staged-at"],
+          url: item.url,
+          ...(item.metadata?.state ? { state: item.metadata.state } : {}),
+          ...(item.metadata?.path ? { path: item.metadata.path } : {}),
+        }));
     }),
     resolveStagedBinding(client, repo),
   ]);

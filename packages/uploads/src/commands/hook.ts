@@ -14,6 +14,8 @@ import { execFileSync } from "node:child_process";
 import { createUploadsClient } from "../client.js";
 import { resolveConfig } from "../config.js";
 import { writeCommandHelp } from "../cli-style.js";
+import { resolveRepo } from "../github-gh.js";
+import { resolveStagedBinding, type StagedBinding } from "../commands.js";
 
 const HOOK_CMD = "pre-pr-screenshot";
 const VISUAL_EXT = /\.(astro|tsx|jsx|vue|svelte|html|css|scss|less)$/i;
@@ -45,6 +47,8 @@ export type HookDeps = {
   cwd?: string;
   countStaged?: (branch: string) => Promise<number | null>;
   isFork?: () => boolean | null;
+  /** Repo binding for the cwd's repo; null/throw → unknown (keeps the promote advice). */
+  binding?: () => Promise<StagedBinding | null>;
   git?: {
     isRepo: () => boolean;
     branch: () => string | null;
@@ -136,12 +140,29 @@ async function defaultCountStaged(branch: string): Promise<number | null> {
     if (!config.token) return null;
     const client = createUploadsClient(config);
     const result = await Promise.race([
-      client.findFiles({ "gh.branch": branch.toLowerCase() }, { limit: 1 }),
+      // Only still-staged files: promoted ones keep gh.branch but flip status.
+      client.findFiles({ "gh.branch": branch.toLowerCase(), "gh.status": "staged" }, { limit: 1 }),
       new Promise<never>((_, reject) => {
         setTimeout(() => reject(new Error("find timeout")), FIND_TIMEOUT_MS);
       }),
     ]);
     return Array.isArray(result.items) ? result.items.length : 0;
+  } catch {
+    return null;
+  }
+}
+
+async function defaultBinding(): Promise<StagedBinding | null> {
+  try {
+    const config = resolveConfig({ requireToken: false });
+    if (!config.token) return null;
+    const client = createUploadsClient(config);
+    return await Promise.race([
+      resolveStagedBinding(client, resolveRepo(undefined)),
+      new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error("binding timeout")), FIND_TIMEOUT_MS);
+      }),
+    ]);
   } catch {
     return null;
   }
@@ -198,11 +219,18 @@ export async function runPrePrScreenshot(deps: HookDeps): Promise<string | null>
       fork === true
         ? " Note: this looks like a fork branch, so staged screenshots won't auto-promote into the PR comment yet (see issue #317) — attach them manually if you use uploads."
         : "";
+    const noun = `${staged} file${staged === 1 ? "" : "s"} staged for branch '${branch}' on uploads.sh`;
+    const binding = await (deps.binding ?? defaultBinding)().catch(() => null);
+    // Reuse the `uploads staged` binding wording. With a self binding the
+    // GitHub App promotes automatically, so the manual promote advice is wrong.
     const message =
-      `${staged} file${staged === 1 ? "" : "s"} staged for branch '${branch}' on uploads.sh ` +
-      `${staged === 1 ? "isn't" : "aren't"} attached to a pull request yet. Once this PR opens, run ` +
-      "`uploads attach --promote --pr <num>` (or a bare `uploads attach --promote`, which infers " +
-      `the PR from the branch) to collect ${staged === 1 ? "it" : "them"} into the managed attachments comment.${forkNote}`;
+      binding?.state === "self"
+        ? `${noun}: ${binding.message}.`
+        : binding?.state === "other"
+          ? `Branch '${branch}': ${binding.message}`
+          : `${noun} ${staged === 1 ? "isn't" : "aren't"} attached to a pull request yet. Once this PR opens, run ` +
+            "`uploads attach --promote --pr <num>` (or a bare `uploads attach --promote`, which infers " +
+            `the PR from the branch) to collect ${staged === 1 ? "it" : "them"} into the managed attachments comment.${forkNote}`;
     return formatAdvisory(message, isCursorHookInput(raw));
   }
 

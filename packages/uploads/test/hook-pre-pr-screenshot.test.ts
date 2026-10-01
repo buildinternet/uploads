@@ -97,6 +97,7 @@ describe("runPrePrScreenshot", () => {
       stdin: JSON.stringify({ tool_input: { command: "gh pr create" } }),
       git,
       countStaged: async () => 2,
+      binding: async () => null,
       isFork: () => false,
     });
     expect(out).toBeTruthy();
@@ -113,6 +114,7 @@ describe("runPrePrScreenshot", () => {
       stdin: JSON.stringify({ tool_input: { command: "gh pr create" } }),
       git,
       countStaged: async () => 1,
+      binding: async () => null,
       isFork: () => false,
     });
     const parsed = JSON.parse(out!);
@@ -125,6 +127,7 @@ describe("runPrePrScreenshot", () => {
       stdin: JSON.stringify({ tool_input: { command: "gh pr create" } }),
       git,
       countStaged: async () => 2,
+      binding: async () => null,
       isFork: () => true,
     });
     expect(out).toMatch(/fork branch/);
@@ -136,10 +139,60 @@ describe("runPrePrScreenshot", () => {
       stdin: JSON.stringify({ tool_input: { command: "gh pr create" } }),
       git: { ...git, changedFiles: () => ["packages/api/src/index.ts"] },
       countStaged: async () => 1,
+      binding: async () => null,
       isFork: () => false,
     });
     expect(out).toBeTruthy();
     expect(out).toMatch(/uploads attach --promote/);
+  });
+
+  it("says files attach automatically when the repo binding is self", async () => {
+    const out = await runPrePrScreenshot({
+      stdin: JSON.stringify({ tool_input: { command: "gh pr create" } }),
+      git,
+      countStaged: async () => 1,
+      isFork: () => false,
+      binding: async () => ({
+        state: "self",
+        autoAttach: true,
+        message: "these auto-attach when this branch's PR opens",
+      }),
+    });
+    const msg = JSON.parse(out!).hookSpecificOutput.additionalContext;
+    expect(msg).toMatch(/1 file staged for branch 'feat\/ui'/);
+    expect(msg).toMatch(/auto-attach when this branch's PR opens/);
+    expect(msg).not.toMatch(/attach --promote/);
+  });
+
+  it("says files won't attach from here when the repo binding is other", async () => {
+    const out = await runPrePrScreenshot({
+      stdin: JSON.stringify({ tool_input: { command: "gh pr create" } }),
+      git,
+      countStaged: async () => 2,
+      isFork: () => false,
+      binding: async () => ({
+        state: "other",
+        autoAttach: false,
+        message:
+          "staged, but o/r is linked to a different workspace — these files won't auto-attach from here.",
+      }),
+    });
+    const msg = JSON.parse(out!).hookSpecificOutput.additionalContext;
+    expect(msg).toMatch(/won't auto-attach from here/);
+    expect(msg).not.toMatch(/attach --promote/);
+  });
+
+  it("keeps the promote advice when the binding is none or unknown", async () => {
+    for (const state of ["none", "unknown"] as const) {
+      const out = await runPrePrScreenshot({
+        stdin: JSON.stringify({ tool_input: { command: "gh pr create" } }),
+        git,
+        countStaged: async () => 1,
+        isFork: () => false,
+        binding: async () => ({ state, autoAttach: false, message: "x" }),
+      });
+      expect(out).toMatch(/uploads attach --promote --pr <num>/);
+    }
   });
 
   it("is silent when find fails open", async () => {

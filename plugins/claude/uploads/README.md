@@ -15,6 +15,12 @@ describing it in prose.
 | uploads-cli skill           | `/uploads:uploads-cli`          | Full reference for the optional `uploads` CLI                           |
 | uploads MCP server          | (tools)                         | Hosted server at `https://agents.uploads.sh/mcp`                        |
 | PR screenshot reminder hook | (automatic)                     | Advisory nudge before `gh pr create` on a UI branch with no screenshots |
+| Staged media mod            | (automatic)                     | Shows staged screenshots above the prompt; attaches them on PR open     |
+
+The staged media mod needs Claude Code 2.1.287 or later. Older versions load
+the rest of the plugin and skip the mod. It draws in the terminal and the
+Desktop app's Code tab. Elsewhere, such as the VS Code extension's chat panel
+or `claude -p`, it still attaches files and tells Claude, but shows nothing.
 
 ## Install
 
@@ -51,6 +57,20 @@ the branch name and changed files from local git, asks the uploads.sh API
 whether any files are staged for that branch (using the CLI's own sign-in),
 and prints a reminder. If the CLI is not installed or not signed in, the hook
 does nothing. Set `UPLOADS_HOOK_DISABLE=1` to turn it off.
+
+The staged media mod also runs the local `uploads` CLI, plus `gh pr view`,
+with their own sign-ins. It reads what is staged for the current branch (with
+`uploads staged`) when a session starts and after shell commands that run
+`uploads`, switch branches, or open a PR. After `gh pr create` opens a PR, it
+looks up the PR's head branch:
+
+- If the repository is linked to your workspace, the GitHub App attaches the
+  staged files, and the mod only reports it.
+- Otherwise, the mod runs `uploads attach --promote` for that PR. Turn off the
+  **Attach staged files on gh pr create** option in `/plugin` to have it only
+  report what is waiting.
+
+If the CLI is not installed or not signed in, the mod does nothing.
 
 See the [privacy policy](https://uploads.sh/privacy) and
 [terms](https://uploads.sh/terms).
