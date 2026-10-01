@@ -107,7 +107,8 @@ uploads staged --format json
 ```
 
 Same branch/repo resolution as `attach --branch` (current git branch by
-default, worktree-safe). Human mode prints one compact line per staged file
+default, worktree-safe). Files already promoted to a PR (`gh.status=promoted`)
+are not listed. Human mode prints one compact line per staged file
 (filename, size, `gh.staged-at`, public URL), then a `binding:` line and
 `once the PR exists: uploads attach --promote` (the promote line is omitted
 for `binding: other` — promoting from a non-owning workspace would be

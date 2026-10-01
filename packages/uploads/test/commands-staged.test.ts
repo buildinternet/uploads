@@ -223,6 +223,54 @@ describe("runStaged: empty staging", () => {
   });
 });
 
+describe("runStaged: promoted files", () => {
+  it("omits files already promoted to a PR; keeps staged and status-less files", async () => {
+    const base = "gh/o/r/branch/feature-thing/";
+    const { client } = fakeClient({
+      items: [
+        { key: `${base}a.png`, url: null, metadata: { "gh.status": "promoted" } },
+        { key: `${base}b.png`, url: null, metadata: { "gh.status": "staged" } },
+        { key: `${base}c.png`, url: null, metadata: {} },
+      ] as unknown as ListItem[],
+      repoLinkStatus: { binding: "self" },
+    });
+    const { stdout } = await withCapturedOutput(async () => {
+      await runStaged(
+        ctxWith(client, { json: true }),
+        ["--branch", "feature/thing", "--repo", "o/r"],
+        false,
+        noRun,
+      );
+    });
+    expect(JSON.parse(stdout).files.map((f: { filename: string }) => f.filename)).toEqual([
+      "b.png",
+      "c.png",
+    ]);
+  });
+
+  it("reports nothing staged when every file was promoted", async () => {
+    const { client } = fakeClient({
+      items: [
+        {
+          key: "gh/o/r/branch/feature-thing/a.png",
+          url: null,
+          metadata: { "gh.status": "promoted" },
+        },
+      ] as unknown as ListItem[],
+      repoLinkStatus: { binding: "self" },
+    });
+    const { stdout } = await withCapturedOutput(async () => {
+      await runStaged(
+        ctxWith(client),
+        ["--branch", "feature/thing", "--repo", "o/r"],
+        false,
+        noRun,
+      );
+    });
+    expect(stdout).toBe("nothing staged for feature/thing in o/r\n");
+  });
+});
+
 describe("runStaged: file listing", () => {
   it("maps list items to key/filename/size/stagedAt/url, stripping the staging prefix", async () => {
     const { client } = fakeClient({
