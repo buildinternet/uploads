@@ -147,8 +147,9 @@ const parsePrUrl = (text: string | undefined): { repo: string; pr: number } | nu
   return repo && pr ? { repo, pr: Number(pr) } : null;
 };
 
-// The uploads.sh brand purple, from the favicon.
-const BRAND = "#c27eff";
+// The uploads.sh accent (#c27eff) mixed half and half with the site's muted
+// text (#b3b3ad): a faded purple that marks the row without shouting.
+const BRAND = "#bb98d6";
 // An unpaired before or after: a missing half the reader should notice.
 const WARN = "#e5b567";
 
@@ -189,7 +190,7 @@ const MARK = (() => {
         [0, 1],
         [1, 1],
       ] as const) {
-        pixels.set([0xc2, 0x7e, 0xff, alpha], ((y + dy + j) * size + x + i) * 4);
+        pixels.set([0xbb, 0x98, 0xd6, alpha], ((y + dy + j) * size + x + i) * 4);
       }
     }
   }
