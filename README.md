@@ -187,7 +187,9 @@ That installs three skills: `github-screenshots` (visuals → PRs/issues),
 redaction on a capture).
 
 On Claude Code or Codex, the [plugin](https://uploads.sh/docs/agents#plugin)
-bundles the skills, the MCP server, and a pre-PR screenshot reminder.
+bundles the skills, the MCP server, and a pre-PR screenshot reminder. In
+Claude Code it also shows staged screenshots above the prompt and attaches
+them when the PR opens.
 
 Full CLI usage, including annotations, managed comments, public galleries,
 and change feeds (repo-wide or one pull request), lives in

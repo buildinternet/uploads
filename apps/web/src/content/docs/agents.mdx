@@ -86,7 +86,8 @@ opencode mcp add uploads --url https://agents.uploads.sh/mcp
 
 ## Claude Code & Codex plugins <a class="anchor" href="#plugin" aria-label="Link to this section">#</a>
 
-The plugin bundles the skills, the MCP server, and the [pre-PR reminder](#pre-pr-reminder). In
+The plugin bundles the skills, the MCP server, the [pre-PR reminder](#pre-pr-reminder), and, in
+Claude Code, the [staged media band](#staged-band). In
 Claude Code, add the marketplace, then install:
 
 ```text
@@ -137,10 +138,43 @@ For how staging works, see [Stage before a PR exists](/docs/attach-pull-request-
 ## Pre-PR screenshot reminder <a class="anchor" href="#pre-pr-reminder" aria-label="Link to this section">#</a>
 
 Before `gh pr create`, the reminder hook nudges the agent if the branch touches UI files and
-nothing is staged. It never blocks the PR. Turn it off with `UPLOADS_HOOK_DISABLE=1`.
+nothing is staged. It ignores files already promoted to a PR and never blocks the PR. Turn it off
+with `UPLOADS_HOOK_DISABLE=1`.
+
+When files are staged, the reminder checks whether the repo is linked to your workspace. If it is,
+the reminder says the files attach automatically when the PR opens. If the link is missing or
+unknown, it suggests `uploads attach --promote`. If the repo is linked to another workspace, it says
+the files won't attach from here.
 
 - **Claude Code and Codex:** included in the [plugin](#plugin).
 - **Grok and Cursor:** `uploads install` adds it when those tools are installed.
+
+</section>
+
+<section id="staged-band">
+
+## Staged media band <a class="anchor" href="#staged-band" aria-label="Link to this section">#</a>
+
+In Claude Code 2.1.287 and later, the plugin adds a band above the prompt that shows what is staged
+for the current branch. It draws in the terminal and in the Desktop app's Code tab. Older versions
+load the rest of the plugin and skip the band.
+
+- **Collapsed:** a line like "N uploads waiting for a PR on `<branch>` · attaches when it opens".
+- **Expanded:** press ▸ for one row per staged file. A before/after pair shares one row. Each half
+  links to its uploads.sh file page, and a dash marks a missing half. Claude Code's own `[-]`
+  collapses the band.
+
+After `gh pr create` opens a PR, the plugin attaches the staged files for you. If the repo is linked
+to your workspace, the GitHub App attaches them and the band reports it. Otherwise the plugin runs
+`uploads attach --promote` for that PR's branch.
+
+To turn the automatic attach off, clear **Attach staged files on gh pr create** in `/plugin`. The
+band then only reports what is waiting.
+
+<div class="note">
+  The band runs the local `uploads` CLI and `gh pr view`, each with its own sign-in. Without the CLI
+  it does nothing. Hosted MCP, Codex, and Cursor setups don't get the band.
+</div>
 
 </section>
 
