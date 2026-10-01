@@ -304,6 +304,32 @@ describe("runStaged: file listing", () => {
     ]);
   });
 
+  it("carries state and path metadata so callers can pair befores with afters", async () => {
+    const { client } = fakeClient({
+      items: [
+        {
+          key: "gh/o/r/branch/feature-thing/home-after.png",
+          url: null,
+          metadata: { state: "after", path: "/settings" },
+        },
+        { key: "gh/o/r/branch/feature-thing/plain.png", url: null, metadata: {} },
+      ],
+      repoLinkStatus: { binding: "self" },
+    });
+    const { stdout } = await withCapturedOutput(async () => {
+      await runStaged(
+        ctxWith(client, { json: true }),
+        ["--branch", "feature/thing", "--repo", "o/r"],
+        false,
+        noRun,
+      );
+    });
+    const [paired, plain] = JSON.parse(stdout).files;
+    expect(paired).toMatchObject({ state: "after", path: "/settings" });
+    expect(plain).not.toHaveProperty("state");
+    expect(plain).not.toHaveProperty("path");
+  });
+
   it("human mode prints one compact line per file plus binding + promote affordance", async () => {
     const { client } = fakeClient({
       items: [

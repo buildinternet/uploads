@@ -6,6 +6,10 @@ export type StagedFile = {
   /** The uploads.sh file page, or null when the CLI gave no URL. */
   url: string | null;
   size: number | null;
+  /** Its before/after role, from `state` metadata or the filename; null for neither. */
+  role: "before" | "after" | null;
+  /** Whether its other half is staged too, by the attachments comment's pairing rule. */
+  isPaired: boolean;
 };
 
 /** What `uploads staged --format json` reported for one branch. */

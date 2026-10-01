@@ -19,6 +19,8 @@ type Cli = {
   /** Staged files per branch; `attach --promote` empties the promoted one. */
   counts: Record<string, number>;
   binding: [state: string, autoAttach: boolean];
+  /** Overrides for the nth staged file's JSON (filename, state, path). */
+  files?: { filename: string; state?: string; path?: string }[];
 };
 
 type World = {
@@ -71,12 +73,16 @@ const setup = (on: On, over: Partial<Cli> = {}, text = PR_OUTPUT): World => {
     }
     const i = argv.indexOf("--branch");
     const branch = i === -1 ? cli.sessionBranch : (argv[i + 1] ?? "");
-    const files = Array.from({ length: cli.counts[branch] ?? 0 }, (_, n) => ({
-      key: `gh/x/shot-${n}.png`,
-      filename: `shot-${n}.png`,
-      size: 94_000,
-      url: `https://storage.uploads.sh/default/gh/x/shot-${n}.png`,
-    }));
+    const files = Array.from({ length: cli.counts[branch] ?? 0 }, (_, n) => {
+      const name = cli.files?.[n]?.filename ?? `shot-${n}.png`;
+      return {
+        key: `gh/x/${name}`,
+        filename: name,
+        size: 94_000,
+        url: `https://storage.uploads.sh/default/gh/x/${name}`,
+        ...cli.files?.[n],
+      };
+    });
     const [state, autoAttach] = cli.binding;
     return ok(JSON.stringify({ repo: REPO, branch, files, binding: { state, autoAttach } }));
   });
@@ -194,18 +200,24 @@ describe("band", () => {
       await runBash($, world, STAGE);
 
       const ui = await mountBand($, surface);
-      expect(await ui.find({ type: "Text", text: /3 staged files on feat\/x/ })).toBeTruthy();
+      expect(
+        await ui.find({ type: "Text", text: /3 uploads waiting for a PR on feat\/x/ }),
+      ).toBeTruthy();
     });
   }
 
   test("follows the session to a new branch", async ($, on) => {
     const world = setup(on, { counts: { "feat/x": 1, "feat/y": 2 }, binding: ["self", true] }, "");
     await runBash($, world, STAGE);
-    expect(await (await mountBand($)).find({ text: /1 staged file on feat\/x/ })).toBeTruthy();
+    expect(
+      await (await mountBand($)).find({ text: /1 upload waiting for a PR on feat\/x/ }),
+    ).toBeTruthy();
 
     world.cli.sessionBranch = "feat/y";
     await runBash($, world, "git switch feat/y");
-    expect(await (await mountBand($)).find({ text: /2 staged files on feat\/y/ })).toBeTruthy();
+    expect(
+      await (await mountBand($)).find({ text: /2 uploads waiting for a PR on feat\/y/ }),
+    ).toBeTruthy();
   });
 
   test("leads with the brand mark: pixels on the terminal, a glyph on desktop", async ($, on) => {
@@ -238,6 +250,37 @@ describe("band", () => {
       expect(await ui.findAll({ type: "Link" })).toEqual([]);
     });
   }
+
+  test("marks each before/after as paired or missing its other half", async ($, on) => {
+    const world = setup(
+      on,
+      {
+        counts: { "feat/x": 5 },
+        binding: ["self", true],
+        files: [
+          { filename: "home-before.png" },
+          { filename: "home-after.png" },
+          { filename: "uploads.sh-after.webp" },
+          { filename: "a.png", state: "before", path: "/settings" },
+          { filename: "notes.txt" },
+        ],
+      },
+      "",
+    );
+    await runBash($, world, STAGE);
+    const ui = await mountBand($);
+    await ui.press({ key: "files" });
+
+    const tags = (await ui.findAll({ type: "Text", text: /· (before|after) · / })).map((t) =>
+      t.text.trim(),
+    );
+    expect(tags).toEqual([
+      "· before · paired",
+      "· after · paired",
+      "· after · no before",
+      "· before · no after",
+    ]);
+  });
 
   test("stays empty when the CLI is missing", async ($, on) => {
     mock.clock(on, { now: 1_000_000 });

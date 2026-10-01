@@ -16,11 +16,81 @@ const IDLE_REFRESH_MS = 2 * 60 * 1000;
 // Long enough for the GitHub App's webhook to promote the files after a PR opens.
 const AFTER_PR_REFRESH_MS = 15_000;
 
+// What happens to the uploads once the branch's PR exists, by repo link.
 const BAND_SUFFIX: Record<Binding, string> = {
-  self: "attaches when the PR opens",
+  self: "attaches when it opens",
   none: "attaches when gh pr create runs here (or: uploads github link)",
-  unknown: "link check failed; attaches when gh pr create runs here",
-  other: "repo linked to another workspace, won't attach",
+  unknown: "couldn't check the repo link; attaches when gh pr create runs here",
+  other: "won't attach: this repo is linked to another workspace",
+};
+
+// Before/after pairing, mirroring the attachments comment (comment-render's
+// pairAttachments): images only; same `path` metadata with one `state=before`
+// and one `state=after`, else filename stems that differ only by the token.
+const IMAGE_EXT = /\.(png|jpe?g|gif|webp|avif)$/i;
+const STEM_TOKEN = /(^|[-_.])(before|after)($|[-_.])/i;
+
+type RawFile = { filename: string; state?: unknown; path?: unknown };
+
+const pairing = (files: readonly RawFile[]): Pick<StagedFile, "role" | "isPaired">[] => {
+  const out = files.map(
+    (): Pick<StagedFile, "role" | "isPaired"> => ({ role: null, isPaired: false }),
+  );
+  const groups = new Map<string, { before: number[]; after: number[] }>();
+  files.forEach((file, i) => {
+    if (!IMAGE_EXT.test(file.filename)) {
+      return;
+    }
+    const meta = typeof file.state === "string" ? file.state.trim().toLowerCase() : "";
+    const path = typeof file.path === "string" ? file.path.trim() : "";
+    const dot = file.filename.lastIndexOf(".");
+    const stem = file.filename.slice(0, dot);
+    const token = STEM_TOKEN.exec(stem);
+    const role =
+      meta === "before" || meta === "after"
+        ? meta
+        : token
+          ? (token[2]!.toLowerCase() as "before" | "after")
+          : null;
+    out[i]!.role = role;
+    if (role === null) {
+      return;
+    }
+    let key: string | null = null;
+    if (path && path !== "/") {
+      key = meta === role ? `path:${path}` : null;
+    } else if (token) {
+      const start = token.index + token[1]!.length;
+      const end = start + token[2]!.length;
+      const base =
+        token[1]!.length > 0
+          ? stem.slice(0, token.index) + stem.slice(end)
+          : stem.slice(end + token[3]!.length);
+      key = `stem:${base.toLowerCase()}${file.filename.slice(dot).toLowerCase()}`;
+    }
+    if (key !== null) {
+      const group = groups.get(key) ?? { before: [], after: [] };
+      group[role].push(i);
+      groups.set(key, group);
+    }
+  });
+  for (const { before, after } of groups.values()) {
+    if (before.length === 1 && after.length === 1) {
+      out[before[0]!]!.isPaired = true;
+      out[after[0]!]!.isPaired = true;
+    }
+  }
+  return out;
+};
+
+/** The dim tag after a file's size: its before/after role, and whether its partner is staged. */
+const roleTag = (file: StagedFile): string | null => {
+  // State saved by an older version of this module has no `role`.
+  if (!file.role) {
+    return null;
+  }
+  const other = file.role === "after" ? "before" : "after";
+  return file.isPaired ? `${file.role} · paired` : `${file.role} · no ${other}`;
 };
 
 // The expanded band lists at most this many files.
@@ -46,14 +116,17 @@ const parseStaged = (stdout: string): Staged | null => {
       return null;
     }
     const state = doc.binding?.state;
-    const files: StagedFile[] = doc.files
-      .filter((f: { filename?: unknown; url?: unknown }) => typeof f?.filename === "string")
-      .slice(0, MAX_FILES)
-      .map((f: { filename: string; url?: unknown; size?: unknown }) => ({
-        name: f.filename,
-        url: typeof f.url === "string" ? filePage(f.url) : null,
-        size: typeof f.size === "number" ? f.size : null,
-      }));
+    const raw: (RawFile & { url?: unknown; size?: unknown })[] = doc.files.filter(
+      (f: { filename?: unknown }) => typeof f?.filename === "string",
+    );
+    // Pair across every staged file, then keep the first few to list.
+    const roles = pairing(raw);
+    const files: StagedFile[] = raw.slice(0, MAX_FILES).map((f, i) => ({
+      name: f.filename,
+      url: typeof f.url === "string" ? filePage(f.url) : null,
+      size: typeof f.size === "number" ? f.size : null,
+      ...roles[i]!,
+    }));
     return {
       repo: doc.repo,
       branch: doc.branch,
@@ -76,6 +149,8 @@ const parsePrUrl = (text: string | undefined): { repo: string; pr: number } | nu
 
 // The uploads.sh brand purple, from the favicon.
 const BRAND = "#c27eff";
+// An unpaired before or after: a missing half the reader should notice.
+const WARN = "#e5b567";
 
 const BASE64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 const toBase64 = (bytes: Uint8Array): string => {
@@ -126,7 +201,8 @@ const plural = (n: number) => (n === 1 ? "1 staged file" : `${n} staged files`);
 /** The band's one line for the session branch, or null to show nothing. */
 const bandLine = (view: Staged, done: Attached | null): string | null => {
   if (view.count > 0) {
-    return `${plural(view.count)} on ${view.branch} · ${BAND_SUFFIX[view.binding]}`;
+    const uploads = view.count === 1 ? "1 upload" : `${view.count} uploads`;
+    return `${uploads} waiting for a PR on ${view.branch} · ${BAND_SUFFIX[view.binding]}`;
   }
   if (done?.branch !== view.branch || done.repo !== view.repo) {
     return null;
@@ -365,6 +441,12 @@ export const register: Register = (on, options) => {
             <Text dimColor>{"  · "}</Text>
             {file.url ? <Link href={file.url} label={file.name} /> : <Text>{file.name}</Text>}
             <Text dimColor> {formatSize(file.size)}</Text>
+            {roleTag(file) !== null &&
+              (file.isPaired ? (
+                <Text dimColor> · {roleTag(file)}</Text>
+              ) : (
+                <Text color={WARN}> · {roleTag(file)}</Text>
+              ))}
           </Box>
         ))}
         {expanded && more > 0 && <Text dimColor>{`  + ${more} more (uploads staged)`}</Text>}

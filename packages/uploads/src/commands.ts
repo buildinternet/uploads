@@ -2502,6 +2502,10 @@ export interface StagedFile {
   /** `gh.staged-at` metadata (ISO 8601 UTC), when present. */
   stagedAt?: string;
   url: string | null;
+  /** `state` metadata (`before`/`after`), when present: what before/after pairing reads. */
+  state?: string;
+  /** `path` metadata (the captured page path), when present: pairs a before with its after. */
+  path?: string;
 }
 
 /** Tri-state binding, folded into a ready-to-render advisory (issue #405/#398). */
@@ -2597,6 +2601,8 @@ export async function resolveStaged(opts: {
           size: item.size,
           stagedAt: item.metadata?.["gh.staged-at"],
           url: item.url,
+          ...(item.metadata?.state ? { state: item.metadata.state } : {}),
+          ...(item.metadata?.path ? { path: item.metadata.path } : {}),
         }));
     }),
     resolveStagedBinding(client, repo),
