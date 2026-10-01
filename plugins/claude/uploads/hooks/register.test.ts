@@ -21,6 +21,8 @@ type Cli = {
   binding: [state: string, autoAttach: boolean];
   /** Overrides for the nth staged file's JSON (filename, state, path). */
   files?: { filename: string; state?: string; path?: string }[];
+  /** How `attach --promote` ends: everything moved (default), one skipped, or a server error. */
+  promote?: "ok" | "partial" | "error";
 };
 
 type World = {
@@ -68,8 +70,22 @@ const setup = (on: On, over: Partial<Cli> = {}, text = PR_OUTPUT): World => {
       return ok(`${cli.head}\n`);
     }
     if (argv[1] === "attach") {
-      cli.counts[argv[argv.indexOf("--from-branch") + 1] ?? cli.sessionBranch] = 0;
-      return ok("{}");
+      const from = argv[argv.indexOf("--from-branch") + 1] ?? cli.sessionBranch;
+      const staged = cli.counts[from] ?? 0;
+      const skipped = cli.promote === "partial" ? 1 : 0;
+      cli.counts[from] = skipped;
+      // The CLI exits 0 even when the server call failed; then `promotion` is null.
+      const promotion =
+        cli.promote === "error"
+          ? null
+          : {
+              promoted: Array.from({ length: staged - skipped }, (_, n) => `gh/x/${n}`),
+              skipped: Array.from({ length: skipped }, () => ({
+                key: "gh/x/s",
+                reason: "too big",
+              })),
+            };
+      return ok(JSON.stringify({ target: {}, uploads: [], failures: [], promotion }));
     }
     const i = argv.indexOf("--branch");
     const branch = i === -1 ? cli.sessionBranch : (argv[i + 1] ?? "");
@@ -127,9 +143,32 @@ describe("gh pr create", () => {
       REPO,
       "--from-branch",
       "feat/x",
+      "--json",
     ]);
     expect(world.toasts).toContainEqual("uploads: attached 2 staged files to PR #1051");
     expect(ran.context?.join("\n")).toContain("PR #1051");
+  });
+
+  test("reports a failure when the promote exits 0 but promoted nothing", async ($, on) => {
+    const world = setup(on, { counts: { "feat/x": 2 }, promote: "error" });
+
+    const ran = await runBash($, world, "gh pr create --fill");
+
+    expect(world.toasts).toContainEqual(
+      "uploads: couldn't attach 2 staged files to PR #1051; run uploads attach --promote",
+    );
+    expect(ran.context?.join("\n")).toContain("did not attach");
+    // Nothing is recorded as attached, so the band keeps showing the files.
+    expect(await (await mountBand($)).find({ text: /attached to PR/ })).toBeUndefined();
+  });
+
+  test("counts only what moved when the promote skips a file", async ($, on) => {
+    const world = setup(on, { counts: { "feat/x": 3 }, promote: "partial" });
+
+    const ran = await runBash($, world, "gh pr create --fill");
+
+    expect(world.toasts).toContainEqual("uploads: attached 2 staged files to PR #1051; 1 skipped");
+    expect(ran.context?.join("\n")).toContain("1 was skipped");
   });
 
   test(

@@ -159,6 +159,22 @@ const parseStaged = (stdout: string): Staged | null => {
   }
 };
 
+/**
+ * What `uploads attach --promote --json` promoted and skipped, or null when it
+ * printed nothing usable (the server call failed, or the output isn't JSON).
+ */
+const parsePromotion = (stdout: string | null): { promoted: number; skipped: number } | null => {
+  try {
+    const promotion = JSON.parse(stdout ?? "")?.promotion;
+    if (!Array.isArray(promotion?.promoted) || !Array.isArray(promotion?.skipped)) {
+      return null;
+    }
+    return { promoted: promotion.promoted.length, skipped: promotion.skipped.length };
+  } catch {
+    return null;
+  }
+};
+
 /** The last PR URL in `gh pr create` output, which prints it on success. */
 const parsePrUrl = (text: string | undefined): { repo: string; pr: number } | null => {
   const matches = [...(text ?? "").matchAll(PR_URL)];
@@ -383,21 +399,33 @@ export const register: Register = (on, options) => {
         toast: `uploads: ${files} waiting for ${pr}; run ${command}`,
         context: `uploads: ${files} for ${head} are staged but not attached to ${pr}. To attach them, run \`${command}\`.`,
       };
-    } else if ((await run($, promoteArgv, 60_000)) === null) {
-      outcome = {
-        toast: `uploads: couldn't attach ${files} to ${pr}; run uploads attach --promote`,
-        context: `uploads: ${files} for ${head} did not attach to ${pr}. Run \`${command}\`.`,
-      };
     } else {
-      outcome = {
-        toast: `uploads: attached ${files} to ${pr}`,
-        context: `uploads: attached ${files} for ${head} to ${pr}'s attachments comment. Don't re-upload them.`,
-        record: { count: view.count, via: "cli" },
-      };
-      // Nothing is left staged for the head; the scheduled refresh confirms it.
-      await update($, staged, (s) =>
-        s?.repo === target.repo && s.branch === head ? { ...s, count: 0, rows: [] } : s,
-      );
+      // The command exits 0 even when the server call failed, so trust only
+      // the `promotion` it reports: what moved, and what it skipped.
+      const result = parsePromotion(await run($, [...promoteArgv, "--json"], 60_000));
+      if (result === null || result.promoted === 0) {
+        outcome = {
+          toast: `uploads: couldn't attach ${files} to ${pr}; run uploads attach --promote`,
+          context: `uploads: ${files} for ${head} did not attach to ${pr}. Run \`${command}\`.`,
+        };
+      } else if (result.skipped > 0) {
+        const moved = plural(result.promoted);
+        outcome = {
+          toast: `uploads: attached ${moved} to ${pr}; ${result.skipped} skipped`,
+          context: `uploads: attached ${moved} for ${head} to ${pr}; ${result.skipped} ${result.skipped === 1 ? "was" : "were"} skipped. Run \`${command}\` to retry them.`,
+          record: { count: result.promoted, via: "cli" },
+        };
+      } else {
+        outcome = {
+          toast: `uploads: attached ${plural(result.promoted)} to ${pr}`,
+          context: `uploads: attached ${plural(result.promoted)} for ${head} to ${pr}'s attachments comment. Don't re-upload them.`,
+          record: { count: result.promoted, via: "cli" },
+        };
+        // Nothing is left staged for the head; the scheduled refresh confirms it.
+        await update($, staged, (s) =>
+          s?.repo === target.repo && s.branch === head ? { ...s, count: 0, rows: [] } : s,
+        );
+      }
     }
     if (outcome === null) {
       return ran;
