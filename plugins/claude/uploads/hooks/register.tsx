@@ -3,9 +3,9 @@ import type { EngineInterface, Register } from "claude-code";
 
 import type { Attached, Binding, Staged } from "../types";
 
-const staged = atom({ plugin: "uploads-pr-media", key: "staged" } as const, null);
-const attached = atom({ plugin: "uploads-pr-media", key: "attached" } as const, null);
-const hiddenBranch = atom({ plugin: "uploads-pr-media", key: "hiddenBranch" } as const, null);
+const staged = atom({ plugin: "uploads", key: "staged" } as const, null);
+const attached = atom({ plugin: "uploads", key: "attached" } as const, null);
+const hiddenBranch = atom({ plugin: "uploads", key: "hiddenBranch" } as const, null);
 
 // Bash commands that can change what is staged for the branch, or which branch it is.
 const REFRESH_AFTER =
@@ -120,7 +120,9 @@ async function promote(
   }
 }
 
-export const register: Register = (on) => {
+export const register: Register = (on, options) => {
+  const autoPromote = options.autoPromote !== false;
+
   on("session.start", ($, e, next) => {
     $.clock.after(0, () => void refreshBand($).catch(() => undefined));
     return next(e);
@@ -194,12 +196,20 @@ export const register: Register = (on) => {
       );
     }
 
+    const command = `uploads attach --promote --pr ${target.pr} --repo ${target.repo} --from-branch ${head}`;
+    if (!autoPromote) {
+      $.ui.toast(`uploads: ${plural(view.count)} waiting for PR #${target.pr}; run ${command}`);
+      return withContext(
+        `uploads: ${plural(view.count)} for ${head} are staged but not attached to PR #${target.pr}. To attach them, run \`${command}\`.`,
+      );
+    }
+
     if (!(await promote($, target.repo, target.pr, head))) {
       $.ui.toast(
         `uploads: couldn't attach ${plural(view.count)} to PR #${target.pr}; run uploads attach --promote`,
       );
       return withContext(
-        `uploads: ${plural(view.count)} for ${head} did not attach to PR #${target.pr}. Run \`uploads attach --promote --pr ${target.pr} --repo ${target.repo} --from-branch ${head}\`.`,
+        `uploads: ${plural(view.count)} for ${head} did not attach to PR #${target.pr}. Run \`${command}\`.`,
       );
     }
 

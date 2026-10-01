@@ -20,7 +20,7 @@ export type Attached = {
 
 declare module "claude-code" {
   interface PluginState {
-    "uploads-pr-media": {
+    "uploads": {
       staged: Staged | null;
       attached: Attached | null;
       /** The branch the band was hidden on; a new branch shows it again. */

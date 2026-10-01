@@ -1,5 +1,6 @@
 {
-  "description": "Advisory reminder to stage screenshots on uploads.sh before opening a PR that touches UI files.",
+  "description": "Advisory reminder to stage screenshots on uploads.sh before opening a PR that touches UI files, and a mod that shows staged screenshots above the prompt and attaches them when gh pr create opens the PR.",
+  "modules": ["./register.tsx"],
   "hooks": {
     "PreToolUse": [
       {

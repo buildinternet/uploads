@@ -14,5 +14,15 @@
   "termsOfServiceUrl": "https://uploads.sh/terms",
   "repository": "https://github.com/buildinternet/uploads",
   "license": "Apache-2.0",
-  "keywords": ["uploads", "screenshots", "github", "file-hosting", "images", "mcp"]
+  "keywords": ["uploads", "screenshots", "github", "file-hosting", "images", "mcp"],
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "autoPromote": {
+      "type": "boolean",
+      "title": "Attach staged files on gh pr create",
+      "description": "When the repo isn't linked to your workspace, run `uploads attach --promote` after `gh pr create` opens a PR. Off: the mod only tells you and Claude what is waiting.",
+      "required": false,
+      "default": true
+    }
+  }
 }

@@ -1,7 +1,7 @@
 import type { On } from "claude-code";
 import { describe, expect, mock, test } from "claude-code/testing";
 
-const PLUGIN = "uploads-pr-media";
+const PLUGIN = "uploads";
 const REPO = "buildinternet/uploads";
 const PR_OUTPUT = `Creating pull request\nhttps://github.com/${REPO}/pull/1051\n`;
 
@@ -104,6 +104,32 @@ describe("gh pr create", () => {
     expect(cli.toasts).toContainEqual("uploads: attached 2 staged files to PR #1051");
     expect((ran as { context?: string[] }).context?.join("\n")).toContain("PR #1051");
   });
+
+  test(
+    "only reports staged files when autoPromote is off",
+    { options: { autoPromote: false } },
+    async ($, on) => {
+      world(on);
+      const cli = fakeCli(on, {
+        sessionBranch: "feat/x",
+        head: "feat/x",
+        counts: { "feat/x": 2 },
+        binding: ["none", false],
+      });
+      bash(on, PR_OUTPUT);
+
+      const ran = await $.tool.call({
+        tool: "Bash",
+        command: "gh pr create --fill",
+        tool_use_id: "t1b",
+      } as never);
+
+      expect(cli.argvs.some((argv) => argv[1] === "attach")).toBe(false);
+      expect((ran as { context?: string[] }).context?.join("\n")).toContain(
+        "uploads attach --promote --pr 1051",
+      );
+    },
+  );
 
   test("leaves promotion to the GitHub App when the repo is bound here", async ($, on) => {
     world(on);

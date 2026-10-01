@@ -113,6 +113,7 @@
     ".superpowers/**",
     ".worktrees/**",
     ".design-sync/**",
-    "plugins/claude/uploads-pr-media/**"
+    "plugins/claude/uploads/hooks/*.ts",
+    "plugins/claude/uploads/hooks/*.tsx"
   ]
 }
