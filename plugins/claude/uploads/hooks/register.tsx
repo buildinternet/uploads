@@ -6,6 +6,19 @@ import type { Attached, BandRow, Binding, FileRef, Staged } from "../types";
 const staged = atom({ plugin: "uploads", key: "staged" } as const, null);
 const attached = atom({ plugin: "uploads", key: "attached" } as const, null);
 const isExpanded = atom({ plugin: "uploads", key: "isExpanded" } as const, false);
+// Desktop: JPEG data URIs of the staged images (storage URL -> URI; "" = failed).
+const thumbs = atom({ plugin: "uploads", key: "thumbs" } as const, {});
+const large = atom({ plugin: "uploads", key: "large" } as const, {});
+// The row the pane's detail view shows; null shows the grid.
+const preview = atom({ plugin: "uploads", key: "preview" } as const, null);
+// The open PR for the session branch, for the pane's feed link.
+const openPr = atom({ plugin: "uploads", key: "openPr" } as const, null);
+const feedUrl = atom({ plugin: "uploads", key: "feedUrl" } as const, null);
+// The staged set the desktop band is hidden for; a change shows it again.
+const dismissed = atom({ plugin: "uploads", key: "dismissed" } as const, null);
+
+const PANE = "uploads-staged";
+const PANE_TITLE = "Staged attachments";
 
 // Bash commands that can change what is staged for the branch, or which branch it is.
 const REFRESH_AFTER =
@@ -16,13 +29,7 @@ const IDLE_REFRESH_MS = 2 * 60 * 1000;
 // Long enough for the GitHub App's webhook to promote the files after a PR opens.
 const AFTER_PR_REFRESH_MS = 15_000;
 
-// What happens to the uploads once the branch's PR exists, by repo link.
-const BAND_SUFFIX: Record<Binding, string> = {
-  self: "attaches when it opens",
-  none: "attaches when gh pr create runs here (or: uploads github link)",
-  unknown: "couldn't check the repo link; attaches when gh pr create runs here",
-  other: "won't attach: this repo is linked to another workspace",
-};
+const BINDINGS: readonly Binding[] = ["self", "none", "other", "unknown"];
 
 // Before/after pairing, mirroring the attachments comment (comment-render's
 // pairAttachments): images only; same `path` metadata with one `state=before`
@@ -31,7 +38,15 @@ const BAND_SUFFIX: Record<Binding, string> = {
 const IMAGE_EXT = /\.(png|jpe?g|gif|webp|avif)$/i;
 const STEM_TOKEN = /(^|[-_.])(before|after)($|[-_.])/i;
 
-type RawFile = { filename: string; state?: unknown; path?: unknown; url?: unknown; size?: unknown };
+type RawFile = {
+  key?: unknown;
+  filename: string;
+  state?: unknown;
+  path?: unknown;
+  url?: unknown;
+  size?: unknown;
+  stagedAt?: unknown;
+};
 type Role = "before" | "after";
 
 /** The uploads.sh file page (preview and details) for a storage URL; else the URL itself. */
@@ -41,9 +56,12 @@ const filePage = (url: string): string => {
 };
 
 const fileRef = (file: RawFile): FileRef => ({
+  key: typeof file.key === "string" ? file.key : file.filename,
   name: file.filename,
   url: typeof file.url === "string" ? filePage(file.url) : null,
+  src: typeof file.url === "string" ? file.url : null,
   size: typeof file.size === "number" ? file.size : null,
+  stagedAt: typeof file.stagedAt === "string" ? file.stagedAt : null,
 });
 
 /** A file's before/after role and the key its other half shares, or null for neither. */
@@ -126,7 +144,7 @@ const toRows = (files: readonly RawFile[]): BandRow[] => {
 const filesIn = (row: BandRow): number =>
   row.kind === "file" ? 1 : (row.before ? 1 : 0) + (row.after ? 1 : 0);
 
-// The expanded band lists at most this many rows.
+// The terminal's expanded band lists at most this many rows.
 const MAX_ROWS = 8;
 
 const formatSize = (bytes: number | null): string =>
@@ -150,8 +168,8 @@ const parseStaged = (stdout: string): Staged | null => {
       repo: doc.repo,
       branch: doc.branch,
       count: doc.files.length,
-      rows: toRows(files).slice(0, MAX_ROWS),
-      binding: state in BAND_SUFFIX ? state : "unknown",
+      rows: toRows(files),
+      binding: BINDINGS.includes(state) ? state : "unknown",
       autoAttach: doc.binding?.autoAttach === true,
     };
   } catch {
@@ -232,21 +250,316 @@ const MARK = (() => {
   return { rgba: toBase64(pixels), width: size, height: size };
 })();
 
-const plural = (n: number) => (n === 1 ? "1 staged file" : `${n} staged files`);
+const attachments = (n: number) => (n === 1 ? "1 attachment" : `${n} attachments`);
+
+type Line = { text: string; warn: boolean };
+
+/** What the staged attachments are waiting for, by the repo's link to a workspace. */
+const headline = (view: Staged): Line => {
+  const n = attachments(view.count);
+  if (view.binding === "other") {
+    return { text: `${n} won't attach: repo linked to another workspace`, warn: true };
+  }
+  if (view.binding === "none") {
+    return { text: `${n} waiting for a PR · link the repo to auto-attach`, warn: false };
+  }
+  return { text: `${n} waiting for a PR`, warn: false };
+};
 
 /** The band's one line for the session branch, or null to show nothing. */
-const bandLine = (view: Staged, done: Attached | null): string | null => {
+const bandLine = (view: Staged, done: Attached | null): Line | null => {
   if (view.count > 0) {
-    const uploads = view.count === 1 ? "1 upload" : `${view.count} uploads`;
-    return `${uploads} waiting for a PR on ${view.branch} · ${BAND_SUFFIX[view.binding]}`;
+    return headline(view);
   }
   if (done?.branch !== view.branch || done.repo !== view.repo) {
     return null;
   }
-  return done.via === "app"
-    ? `${plural(done.count)} sent to PR #${done.pr} via the uploads-sh bot`
-    : `${plural(done.count)} attached to PR #${done.pr}`;
+  const n = attachments(done.count);
+  return {
+    text:
+      done.via === "app"
+        ? `${n} sent to PR #${done.pr} via the uploads-sh bot`
+        : `${n} added to PR #${done.pr}`,
+    warn: false,
+  };
 };
+
+// ---- desktop thumbnails and the pane ------------------------------------------
+
+const STORAGE = "https://storage.uploads.sh/";
+
+/** The files in a row, before first. */
+const filesOf = (row: BandRow): FileRef[] =>
+  row.kind === "file" ? [row.file] : [row.before, row.after].filter((f): f is FileRef => !!f);
+
+/** Identifies a staged set: the desktop band hides for it and returns when it changes. */
+const setKey = (view: Staged): string =>
+  `${view.repo}#${view.branch}#${(Array.isArray(view.rows) ? view.rows : [])
+    .flatMap((row) => filesOf(row).map((f) => f.key))
+    .join(",")}`;
+
+// A resized JPEG of a storage image, through Cloudflare's image transform.
+const transformed = (src: string, width: number, quality: number): string =>
+  src.startsWith(STORAGE) && !src.toLowerCase().endsWith(".svg")
+    ? `${STORAGE}cdn-cgi/image/width=${width},fit=scale-down,format=jpeg,quality=${quality}/${src.slice(STORAGE.length)}`
+    : src;
+
+const embedUrl = (src: string): string =>
+  src.startsWith(STORAGE) ? `https://embed.uploads.sh/${src.slice(STORAGE.length)}` : src;
+
+// A JPEG of `src` as a data URI: the desktop draws Svg as an isolated image, so
+// it can't load a remote URL. Null when the fetch fails or the result is too big.
+async function fetchUri(
+  $: EngineInterface,
+  src: string,
+  width: number,
+  quality: number,
+): Promise<string | null> {
+  const b64 = await run(
+    $,
+    ["sh", "-c", 'curl -sfL --max-time 15 "$1" | base64', "sh", transformed(src, width, quality)],
+    20_000,
+  );
+  const body = b64?.replace(/\s+/g, "") ?? "";
+  return body && body.length <= 120_000 ? `data:image/jpeg;base64,${body}` : null;
+}
+
+const imageFiles = (rows: readonly BandRow[]): FileRef[] =>
+  rows.flatMap(filesOf).filter((f) => !!f.src && IMAGE_EXT.test(f.name));
+
+// Fetches thumbnails not yet cached; a failure is remembered as "" (drawn as a file card).
+async function loadThumbs($: EngineInterface, rows: readonly BandRow[]): Promise<void> {
+  for (const file of imageFiles(rows)) {
+    if (file.src! in (await read($, thumbs))) {
+      continue;
+    }
+    const uri = await fetchUri($, file.src!, 360, 70);
+    await update($, thumbs, (t) => ({ ...t, [file.src!]: uri ?? "" }));
+  }
+}
+
+async function loadLarge($: EngineInterface, row: BandRow): Promise<void> {
+  for (const file of imageFiles([row])) {
+    if (file.src! in (await read($, large))) {
+      continue;
+    }
+    const uri = (await fetchUri($, file.src!, 1100, 72)) ?? (await fetchUri($, file.src!, 760, 60));
+    if (uri) {
+      await update($, large, (t) => ({ ...t, [file.src!]: uri }));
+    }
+  }
+}
+
+const esc = (s: string): string =>
+  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+// The mark as vector art, for the desktop band: the same chevrons as MARK.
+const MARK_SVG = (() => {
+  const blocks = [
+    [7, 2],
+    [5, 3],
+    [9, 3],
+    [3, 4],
+    [11, 4],
+  ] as const;
+  const rows = [
+    [0, 1],
+    [4, 0.55],
+    [8, 0.28],
+  ] as const;
+  const rects = rows
+    .flatMap(([dy, a]) =>
+      blocks.map(
+        ([x, y]) =>
+          `<rect x="${x}" y="${y + dy}" width="2" height="2" fill="${BRAND}" fill-opacity="${a}"/>`,
+      ),
+    )
+    .join("");
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16">${rects}</svg>`;
+})();
+
+// `uri`: a data URI to draw; null while loading; "" when there is no inline
+// preview (not an image, or the thumbnail failed), drawn as a file card.
+type Slot = { uri: string | null; chip: string | null; ext: string };
+
+const extOf = (name: string): string => {
+  const dot = name.lastIndexOf(".");
+  return dot > 0
+    ? name
+        .slice(dot + 1)
+        .toUpperCase()
+        .slice(0, 5)
+    : "FILE";
+};
+
+// A file card: a page glyph with a folded corner and the extension under it.
+const fileCard = (x: number, w: number, h: number, ext: string, path: string): string => {
+  const g = Math.min(h * 0.34, w * 0.3);
+  const gx = x + w / 2 - g * 0.4;
+  const gy = h / 2 - g * 0.75;
+  const f = g * 0.28;
+  const small = h < 40;
+  const glyph = small
+    ? ""
+    : `<path d="M${gx},${gy} h${g * 0.8 - f} l${f},${f} v${g - f} h${-g * 0.8} Z M${gx + g * 0.8 - f},${gy} v${f} h${f}" fill="none" stroke="#8889" stroke-width="1.5" stroke-linejoin="round"/>`;
+  const label = `<text x="${x + w / 2}" y="${small ? h / 2 + 3.5 : gy + g + 18}" text-anchor="middle" font-size="${small ? 9 : 12}" font-weight="600" letter-spacing="0.5" font-family="system-ui,-apple-system,sans-serif" fill="#888">${esc(ext)}</text>`;
+  return `<path d="${path}" fill="#8881"/>${glyph}${label}`;
+};
+
+// Images side by side with a hairline gap, each clipped to a rounded frame, so a
+// pair reads as one card. A chip names each half when `chips` is set.
+const tileSvg = (slots: readonly Slot[], w: number, h: number, chips: boolean): string => {
+  const gap = 2;
+  const total = slots.length * w + (slots.length - 1) * gap;
+  const r = h > 40 ? 6 : 3;
+  const body = slots
+    .map((s, i) => {
+      const x = i * (w + gap);
+      const left = i === 0;
+      const right = i === slots.length - 1;
+      // Outer corners rounded, inner edges square.
+      const path =
+        `M${x + (left ? r : 0)},0 H${x + w - (right ? r : 0)} ` +
+        (right
+          ? `A${r},${r} 0 0 1 ${x + w},${r} V${h - r} A${r},${r} 0 0 1 ${x + w - r},${h} `
+          : `V${h} `) +
+        `H${x + (left ? r : 0)} ` +
+        (left ? `A${r},${r} 0 0 1 ${x},${h - r} V${r} A${r},${r} 0 0 1 ${x + r},0 Z` : `V0 Z`);
+      const img =
+        s.uri === ""
+          ? fileCard(x, w, h, s.ext, path)
+          : s.uri
+            ? `<image href="${esc(s.uri)}" x="${x}" y="0" width="${w}" height="${h}" preserveAspectRatio="xMidYMin slice" clip-path="url(#k${i})"/>`
+            : `<path d="${path}" fill="#8882"/>`;
+      const chip =
+        chips && s.chip
+          ? `<rect x="${x + 6}" y="${h - 22}" width="${s.chip.length * 6.4 + 12}" height="16" rx="8" fill="#000b"/>` +
+            `<text x="${x + 12}" y="${h - 10.5}" font-size="10" font-family="system-ui,-apple-system,sans-serif" font-weight="600" fill="#fff">${s.chip}</text>`
+          : "";
+      return `<clipPath id="k${i}"><path d="${path}"/></clipPath>${img}<path d="${path}" fill="none" stroke="#8884"/>${chip}`;
+    })
+    .join("");
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${total} ${h}" width="${total}" height="${h}">${body}</svg>`;
+};
+
+const roleName = (row: BandRow, file: FileRef): "Before" | "After" | null =>
+  row.kind === "pair" ? (file === row.before ? "Before" : "After") : null;
+
+const slotsOf = (row: BandRow, t: Record<string, string>): Slot[] =>
+  filesOf(row).map((f) => ({
+    uri: !f.src || !IMAGE_EXT.test(f.name) ? "" : (t[f.src] ?? null),
+    chip: roleName(row, f),
+    ext: extOf(f.name),
+  }));
+
+const labelOf = (row: BandRow): string => (row.kind === "file" ? row.file.name : row.label);
+
+// Shortens the middle of a name to `max` characters, keeping the extension end.
+const fit = (name: string, max: number): string => {
+  if (name.length <= max) {
+    return name;
+  }
+  const tail = Math.min(8, Math.floor((max - 1) / 2));
+  return `${name.slice(0, max - 1 - tail)}…${name.slice(name.length - tail)}`;
+};
+// Characters that fit beside the staged time under a tile of this many images.
+const captionRoom = (row: BandRow): number => (filesOf(row).length > 1 ? 40 : 17);
+
+// When the row's newest file was staged, as "5m ago".
+const agoOf = (row: BandRow, now: number): string => {
+  const times = filesOf(row)
+    .map((f) => (f.stagedAt ? Date.parse(f.stagedAt) : NaN))
+    .filter((n) => !Number.isNaN(n));
+  if (times.length === 0) {
+    return "";
+  }
+  const s = Math.max(0, Math.round((now - Math.max(...times)) / 1000));
+  if (s < 60) {
+    return "just now";
+  }
+  if (s < 3600) {
+    return `${Math.floor(s / 60)}m ago`;
+  }
+  return s < 86400 ? `${Math.floor(s / 3600)}h ago` : `${Math.floor(s / 86400)}d ago`;
+};
+
+const markdownOf = (rows: readonly BandRow[]): string =>
+  rows
+    .flatMap((row) =>
+      filesOf(row).map((f) => {
+        const role = roleName(row, f);
+        const alt = role ? `${labelOf(row)} (${role.toLowerCase()})` : labelOf(row);
+        return f.src ? `![${alt}](${embedUrl(f.src)})` : "";
+      }),
+    )
+    .filter(Boolean)
+    .join("\n");
+
+const BAND_TILES = 4;
+const TILE_W = 168;
+const TILE_H = 105;
+
+async function openPane($: EngineInterface, title = PANE_TITLE): Promise<void> {
+  await $.ui.open({ id: PANE, title });
+}
+
+// Shows the pane's grid, fetching the thumbnails it will draw.
+async function showGrid($: EngineInterface): Promise<void> {
+  await update($, preview, () => null);
+  await openPane($);
+  const view = await read($, staged);
+  if (view && Array.isArray(view.rows)) {
+    void loadThumbs($, view.rows).catch(() => undefined);
+  }
+}
+
+// The pane swaps its grid for one row, large; "All attachments" returns to the grid.
+async function showRow($: EngineInterface, row: BandRow): Promise<void> {
+  await update($, preview, () => row);
+  await openPane($, labelOf(row));
+  void loadLarge($, row).catch(() => undefined);
+}
+
+async function removeRow($: EngineInterface, row: BandRow): Promise<void> {
+  for (const file of filesOf(row)) {
+    await run($, ["uploads", "delete", file.key], 30_000);
+  }
+  await refreshBand($);
+}
+
+async function copyText(
+  $: EngineInterface,
+  surface: Parameters<EngineInterface["ui"]["copy"]>[0]["surface"],
+  text: string,
+  what: string,
+): Promise<void> {
+  await $.ui.copy({ text, surface });
+  $.ui.toast(`Copied ${what}`);
+}
+
+// The PR's live feed link: created on first use through the CLI, then kept.
+async function copyFeedLink(
+  $: EngineInterface,
+  surface: Parameters<EngineInterface["ui"]["copy"]>[0]["surface"],
+  view: Staged,
+  pr: { number: number },
+): Promise<void> {
+  let url = await read($, feedUrl);
+  if (!url) {
+    const out = await run(
+      $,
+      ["uploads", "feed", "create", "--repo", view.repo, "--pr", String(pr.number)],
+      30_000,
+    );
+    url = out?.trim().split("\n")[0] || null;
+    if (!url) {
+      $.ui.toast("Couldn't get the PR feed link");
+      return;
+    }
+    await update($, feedUrl, () => url);
+  }
+  await copyText($, surface, url, "the PR feed link");
+}
 
 let lastRefresh = 0;
 
@@ -279,10 +592,31 @@ async function fetchStaged(
   return stdout === null ? null : parseStaged(stdout);
 }
 
+// The open PR for the session directory's branch, for the pane's feed link.
+async function fetchOpenPr($: EngineInterface): Promise<{ number: number; url: string } | null> {
+  const stdout = await run($, ["gh", "pr", "view", "--json", "number,url,state"], 15_000);
+  try {
+    const doc = JSON.parse(stdout ?? "");
+    return typeof doc?.number === "number" && doc.state === "OPEN"
+      ? { number: doc.number, url: String(doc.url) }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 // Refreshes what the band shows: the session directory's branch.
 async function refreshBand($: EngineInterface): Promise<void> {
   const view = await fetchStaged($, null);
   await update($, staged, () => view);
+  const pr = view && view.count > 0 ? await fetchOpenPr($) : null;
+  if ((await read($, openPr))?.number !== pr?.number) {
+    await update($, feedUrl, () => null);
+  }
+  await update($, openPr, () => pr);
+  if (view) {
+    await loadThumbs($, view.rows.slice(0, BAND_TILES));
+  }
 }
 
 // Schedules a band refresh outside the current dispatch, so no tool result waits on it.
@@ -320,8 +654,18 @@ export const register: Register = (on, options) => {
   const autoPromote = options.autoPromote !== false;
 
   on("session.start", async ($, e, next) => {
+    await $.command.register({
+      name: "uploads-staged",
+      description: "Show the attachments staged on uploads.sh for this branch",
+    });
     await kick($);
     return next(e);
+  });
+
+  on("command.run", { command: "uploads-staged" }, async ($) => {
+    await refreshBand($);
+    await showGrid($);
+    return { text: "Opened the staged attachments pane." };
   });
 
   on("turn.complete", async ($, e, next) => {
@@ -372,15 +716,15 @@ export const register: Register = (on, options) => {
       head,
     ];
     const command = promoteArgv.join(" ");
-    const files = plural(view.count);
+    const files = attachments(view.count);
 
     let outcome: Outcome | null = null;
     if (view.count === 0) {
       // The App's webhook already promoted them between the PR opening and this read.
       if (prior > 0 && view.autoAttach) {
         outcome = {
-          toast: `uploads: ${plural(prior)} attached to ${pr} by the uploads-sh bot`,
-          context: `uploads: the GitHub App attached the ${plural(prior)} for ${head} to ${pr}. Don't re-upload them.`,
+          toast: `uploads: ${attachments(prior)} added to ${pr} by the uploads-sh bot`,
+          context: `uploads: the GitHub App added the ${attachments(prior)} for ${head} to ${pr}. Don't re-upload them.`,
           record: { count: prior, via: "app" },
         };
       }
@@ -405,20 +749,20 @@ export const register: Register = (on, options) => {
       const result = parsePromotion(await run($, [...promoteArgv, "--json"], 60_000));
       if (result === null || result.promoted === 0) {
         outcome = {
-          toast: `uploads: couldn't attach ${files} to ${pr}; run uploads attach --promote`,
+          toast: `uploads: couldn't add ${files} to ${pr}; run uploads attach --promote`,
           context: `uploads: ${files} for ${head} did not attach to ${pr}. Run \`${command}\`.`,
         };
       } else if (result.skipped > 0) {
-        const moved = plural(result.promoted);
+        const moved = attachments(result.promoted);
         outcome = {
-          toast: `uploads: attached ${moved} to ${pr}; ${result.skipped} skipped`,
-          context: `uploads: attached ${moved} for ${head} to ${pr}; ${result.skipped} ${result.skipped === 1 ? "was" : "were"} skipped. Run \`${command}\` to retry them.`,
+          toast: `uploads: added ${moved} to ${pr}; ${result.skipped} skipped`,
+          context: `uploads: added ${moved} for ${head} to ${pr}; ${result.skipped} ${result.skipped === 1 ? "was" : "were"} skipped. Run \`${command}\` to retry them.`,
           record: { count: result.promoted, via: "cli" },
         };
       } else {
         outcome = {
-          toast: `uploads: attached ${plural(result.promoted)} to ${pr}`,
-          context: `uploads: attached ${plural(result.promoted)} for ${head} to ${pr}'s attachments comment. Don't re-upload them.`,
+          toast: `uploads: added ${attachments(result.promoted)} to ${pr}`,
+          context: `uploads: added ${attachments(result.promoted)} for ${head} to ${pr}'s attachments comment. Don't re-upload them.`,
           record: { count: result.promoted, via: "cli" },
         };
         // Nothing is left staged for the head; the scheduled refresh confirms it.
@@ -452,14 +796,60 @@ export const register: Register = (on, options) => {
     if (line === null) {
       return next(e);
     }
-
-    const { Box, Button, Image, Link, Text } = $.ui.resolve(e);
     // State saved by an older version of this module has no `rows`.
     const rows = Array.isArray(view.rows) ? view.rows : [];
+
+    if (e.surface === "desktop") {
+      const { Box, Button, Svg, Text } = $.ui.resolve(e);
+      // Hidden until the staged set changes.
+      if (view.count > 0 && (await read($, dismissed)) === setKey(view)) {
+        return next(e);
+      }
+      const t = await read($, thumbs);
+      return (
+        <Box flexDirection="row" alignItems="center" justifyContent="space-between" gap={1}>
+          <Box flexDirection="row" alignItems="center" gap={1}>
+            <Svg source={MARK_SVG} alt="uploads" width={14} height={14} />
+            <Text color={BRAND} bold>
+              uploads
+            </Text>
+            <Text color={line.warn ? WARN : undefined} dimColor={!line.warn}>
+              {line.text}
+            </Text>
+          </Box>
+          {view.count > 0 && (
+            <Box flexDirection="row" alignItems="center" gap={1}>
+              {rows.slice(0, BAND_TILES).map((row, i) => (
+                <Svg
+                  key={`tile-${i}`}
+                  source={tileSvg(slotsOf(row, t), 40, 25, false)}
+                  alt={labelOf(row)}
+                  height={25}
+                />
+              ))}
+              {rows.length > BAND_TILES && <Text dimColor>+{rows.length - BAND_TILES}</Text>}
+              <Button key="view" label="View" plain dimColor onPress={() => void showGrid($)} />
+              <Button
+                key="hide"
+                label="Hide"
+                role="dismiss"
+                onPress={() => void update($, dismissed, () => setKey(view))}
+              />
+            </Box>
+          )}
+        </Box>
+      );
+    }
+
+    const els = $.ui.resolve(e);
+    const { Box, Button, Link, Text } = els;
+    const Image = "Image" in els ? els.Image : null;
     const canExpand = rows.length > 0;
     const expanded = canExpand && (await read($, isExpanded));
     // The header row takes one line, and a "+N more" row may take another.
-    const shown = expanded ? rows.slice(0, Math.max(1, e.props.maxRows - 2)) : [];
+    const shown = expanded
+      ? rows.slice(0, Math.min(MAX_ROWS, Math.max(1, e.props.maxRows - 2)))
+      : [];
     const more = view.count - shown.reduce((sum, row) => sum + filesIn(row), 0);
 
     // A file as a link named by `label`, or plain text when the CLI gave no URL.
@@ -473,7 +863,7 @@ export const register: Register = (on, options) => {
     return (
       <Box flexDirection="column">
         <Box>
-          {e.surface === "terminal" ? (
+          {Image ? (
             <Image key="mark" source={MARK} columns={2} rows={1} alt="⇡" />
           ) : (
             <Text color={BRAND}>⇡</Text>
@@ -489,7 +879,10 @@ export const register: Register = (on, options) => {
               onPress={() => update($, isExpanded, (open) => !open)}
             />
           )}
-          <Text dimColor> {line}</Text>
+          <Text color={line.warn ? WARN : undefined} dimColor={!line.warn}>
+            {" "}
+            {line.text}
+          </Text>
         </Box>
         {shown.map((row, i) =>
           row.kind === "file" ? (
@@ -513,6 +906,157 @@ export const register: Register = (on, options) => {
           ),
         )}
         {expanded && more > 0 && <Text dimColor>{`  + ${more} more (uploads staged)`}</Text>}
+      </Box>
+    );
+  });
+
+  on("ui.render", { component: "Pane", requestId: PANE }, async ($, e) => {
+    const els = $.ui.resolve(e);
+    const { Box, Button, Link, Text } = els;
+    const Svg = "Svg" in els ? els.Svg : null;
+    const desktop = e.surface === "desktop" && Svg !== null;
+    const chosen = await read($, preview);
+
+    // One row, large, in the same pane as the grid.
+    if (chosen) {
+      const big = await read($, large);
+      const small = await read($, thumbs);
+      return (
+        <Box flexDirection="column" gap={1}>
+          <Box flexDirection="row" alignItems="center" justifyContent="space-between" gap={1}>
+            <Button
+              key="back"
+              label="← All attachments"
+              plain
+              dimColor
+              onPress={() => void showGrid($)}
+            />
+            <Box flexDirection="row" alignItems="center" gap={1}>
+              <Button
+                key="copy-row"
+                label="Copy markdown"
+                onPress={(p) => void copyText($, p.surface, markdownOf([chosen]), "markdown")}
+              />
+              <Button
+                key="remove"
+                label="Remove"
+                onPress={async () => {
+                  await removeRow($, chosen);
+                  await showGrid($);
+                }}
+              />
+            </Box>
+          </Box>
+          <Text bold>{labelOf(chosen)}</Text>
+          {filesOf(chosen).map((f) => {
+            const link = f.url ? <Link href={f.url} label="Open on uploads.sh" /> : null;
+            const previewable = !!f.src && IMAGE_EXT.test(f.name) && small[f.src] !== "";
+            if (!previewable) {
+              return (
+                <Box key={f.key} flexDirection="column" gap={1}>
+                  {desktop && (
+                    <Svg
+                      source={tileSvg(
+                        [{ uri: "", chip: null, ext: extOf(f.name) }],
+                        480,
+                        200,
+                        false,
+                      )}
+                      alt={f.name}
+                    />
+                  )}
+                  <Box flexDirection="row" alignItems="center" gap={1}>
+                    <Text dimColor>{f.name} can't be previewed here.</Text>
+                    {link}
+                  </Box>
+                </Box>
+              );
+            }
+            const uri = big[f.src!] ?? small[f.src!] ?? null;
+            const role = roleName(chosen, f);
+            return (
+              <Box key={f.key} flexDirection="column">
+                <Box flexDirection="row" alignItems="center" gap={1}>
+                  {role ? <Text bold>{role}</Text> : null}
+                  {link}
+                </Box>
+                {desktop && (
+                  <Svg
+                    source={tileSvg([{ uri, chip: null, ext: extOf(f.name) }], 1000, 625, false)}
+                    alt={f.name}
+                  />
+                )}
+              </Box>
+            );
+          })}
+        </Box>
+      );
+    }
+
+    const view = await read($, staged);
+    const rows = view && Array.isArray(view.rows) ? view.rows : [];
+    if (!view || view.count === 0) {
+      return <Text dimColor>Nothing staged for this branch.</Text>;
+    }
+    const t = await read($, thumbs);
+    const pr = await read($, openPr);
+    const feed = await read($, feedUrl);
+    const line = headline(view);
+    const now = await $.clock.now();
+
+    return (
+      <Box flexDirection="column" gap={1}>
+        {/* Header: where these go, and the links worth sharing. */}
+        <Box flexDirection="row" alignItems="center" gap={1}>
+          <Box flexDirection="column" flexGrow={1}>
+            <Text bold color={line.warn ? WARN : undefined}>
+              {line.text}
+            </Text>
+            <Text dimColor>
+              {view.repo} · {view.branch}
+            </Text>
+          </Box>
+          {pr ? (
+            <Button
+              key="feed"
+              label={feed ? "Copy feed link" : "Copy PR feed link"}
+              variant="primary"
+              onPress={(p) => void copyFeedLink($, p.surface, view, pr)}
+            />
+          ) : null}
+          <Button
+            key="copy-all"
+            label="Copy markdown"
+            onPress={(p) =>
+              void copyText($, p.surface, markdownOf(rows), "markdown for all attachments")
+            }
+          />
+        </Box>
+        {pr && feed ? <Link href={feed} label={feed} /> : null}
+
+        {/* Tiles: a pair is one card, before and after side by side. */}
+        <Box flexDirection="row" flexWrap="wrap" gap={2}>
+          {rows.map((row, i) => (
+            <Box key={`tile-${i}`} flexDirection="column" gap={0}>
+              {desktop && (
+                <Svg source={tileSvg(slotsOf(row, t), TILE_W, TILE_H, true)} alt={labelOf(row)} />
+              )}
+              <Box flexDirection="row" alignItems="center" gap={1}>
+                <Button
+                  key={`name-${i}`}
+                  label={fit(labelOf(row), captionRoom(row))}
+                  plain
+                  onPress={() => void showRow($, row)}
+                />
+                <Text dimColor>{agoOf(row, now)}</Text>
+              </Box>
+            </Box>
+          ))}
+        </Box>
+        <Box flexDirection="column" marginTop={2} gap={0}>
+          <Text dimColor>Hosted on uploads.sh, not committed to the repo.</Text>
+          <Text dimColor>They will appear in a comment on the pull request once opened.</Text>
+        </Box>
       </Box>
     );
   });

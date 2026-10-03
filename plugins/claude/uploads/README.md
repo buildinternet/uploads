@@ -15,12 +15,17 @@ describing it in prose.
 | uploads-cli skill           | `/uploads:uploads-cli`          | Full reference for the optional `uploads` CLI                           |
 | uploads MCP server          | (tools)                         | Hosted server at `https://agents.uploads.sh/mcp`                        |
 | PR screenshot reminder hook | (automatic)                     | Advisory nudge before `gh pr create` on a UI branch with no screenshots |
-| Staged media mod            | (automatic)                     | Shows staged screenshots above the prompt; attaches them on PR open     |
+| Staged media mod            | `/uploads-staged`               | Shows staged attachments above the prompt; attaches them on PR open     |
 
 The staged media mod needs Claude Code 2.1.287 or later. Older versions load
 the rest of the plugin and skip the mod. It draws in the terminal and the
 Desktop app's Code tab. Elsewhere, such as the VS Code extension's chat panel
 or `claude -p`, it still attaches files and tells Claude, but shows nothing.
+
+On the Desktop app, the band shows thumbnails of the staged attachments. **View**
+or `/uploads-staged` opens a pane where you can see each one, copy its
+markdown, remove it, or copy the PR's feed link. **Hide** hides the band until
+the staged set changes.
 
 ## Install
 
@@ -73,6 +78,12 @@ looks up the PR's head branch:
 - Otherwise, the mod runs `uploads attach --promote` for that PR. Turn off the
   **Attach staged files on gh pr create** option in `/plugin` to have it only
   report what is waiting.
+
+On the Desktop app, the pane also runs `uploads delete` when you remove an
+attachment, `uploads feed create` when you copy the feed link, and `gh pr view`
+to find the branch's open PR. Thumbnails are fetched with `curl` from
+`storage.uploads.sh`, resized by Cloudflare's image transform, and kept in the
+session's memory only.
 
 If the CLI is not installed or not signed in, the mod does nothing.
 
