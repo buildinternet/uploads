@@ -84,6 +84,22 @@ attachment, `uploads feed create` when you copy the feed link, and `gh pr view`
 to find the branch's open PR. Thumbnails are fetched with `curl` from
 `storage.uploads.sh`, resized by Cloudflare's image transform, and kept in the mod's session state.
 
+Every program the mod starts goes through one helper. The full list:
+
+| Program                                                                 | When                                                  | What it sends, and where                                                     |
+| :---------------------------------------------------------------------- | :---------------------------------------------------- | :--------------------------------------------------------------------------- |
+| `uploads staged --format json`                                          | Session start, after matching shell commands, at idle | Branch and repo name to the uploads.sh API                                   |
+| `uploads attach --promote --pr <n> --repo <r> --from-branch <b> --json` | After `gh pr create`, when the repo is not linked     | PR number, repo and branch to the uploads.sh API, which posts the PR comment |
+| `uploads feed create --repo <r> --pr <n>`                               | You press **Copy link** in the pane                   | Repo and PR number to the uploads.sh API                                     |
+| `uploads delete <key>`                                                  | You press **Remove** in the pane                      | The file's key to the uploads.sh API                                         |
+| `gh pr view` (current branch, and `<n> --repo <r>` after a PR opens)    | With the staged read, and after `gh pr create`        | Branch or PR number to the GitHub API                                        |
+| `sh -c 'curl -sfL --max-time 15 "$1" \| base64'`                        | Drawing thumbnails on the Desktop app                 | A request for a resized image to `storage.uploads.sh`; nothing else          |
+
+What the mod reads from the conversation: the text of shell commands Claude
+runs (to spot the ones above that change what is staged) and the output of
+`gh pr create` (to find the new PR's URL). It sends none of that text
+anywhere; only the values in the table leave the machine.
+
 If the CLI is not installed or not signed in, the mod does nothing.
 
 See the [privacy policy](https://uploads.sh/privacy) and

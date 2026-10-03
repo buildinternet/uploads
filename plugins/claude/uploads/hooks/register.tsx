@@ -404,25 +404,25 @@ const extOf = (name: string): string => {
 };
 
 // A file card: a page glyph with a folded corner and the extension under it.
-const fileCard = (x: number, w: number, h: number, ext: string, path: string): string => {
-  const g = Math.min(h * 0.34, w * 0.3);
+const fileCard = (x: number, w: number, height: number, ext: string, path: string): string => {
+  const g = Math.min(height * 0.34, w * 0.3);
   const gx = x + w / 2 - g * 0.4;
-  const gy = h / 2 - g * 0.75;
+  const gy = height / 2 - g * 0.75;
   const f = g * 0.28;
-  const small = h < 40;
+  const small = height < 40;
   const glyph = small
     ? ""
     : `<path d="M${gx},${gy} h${g * 0.8 - f} l${f},${f} v${g - f} h${-g * 0.8} Z M${gx + g * 0.8 - f},${gy} v${f} h${f}" fill="none" stroke="#8889" stroke-width="1.5" stroke-linejoin="round"/>`;
-  const label = `<text x="${x + w / 2}" y="${small ? h / 2 + 3.5 : gy + g + 18}" text-anchor="middle" font-size="${small ? 9 : 12}" font-weight="600" letter-spacing="0.5" font-family="system-ui,-apple-system,sans-serif" fill="#888">${esc(ext)}</text>`;
+  const label = `<text x="${x + w / 2}" y="${small ? height / 2 + 3.5 : gy + g + 18}" text-anchor="middle" font-size="${small ? 9 : 12}" font-weight="600" letter-spacing="0.5" font-family="system-ui,-apple-system,sans-serif" fill="#888">${esc(ext)}</text>`;
   return `<path d="${path}" fill="#8881"/>${glyph}${label}`;
 };
 
 // Images side by side with a hairline gap, each clipped to a rounded frame, so a
 // pair reads as one card. A chip names each half when `chips` is set.
-const tileSvg = (slots: readonly Slot[], w: number, h: number, chips: boolean): string => {
+const tileSvg = (slots: readonly Slot[], w: number, height: number, chips: boolean): string => {
   const gap = 2;
   const total = slots.length * w + (slots.length - 1) * gap;
-  const r = h > 40 ? 6 : 3;
+  const r = height > 40 ? 6 : 3;
   const body = slots
     .map((s, i) => {
       const x = i * (w + gap);
@@ -432,25 +432,25 @@ const tileSvg = (slots: readonly Slot[], w: number, h: number, chips: boolean): 
       const path =
         `M${x + (left ? r : 0)},0 H${x + w - (right ? r : 0)} ` +
         (right
-          ? `A${r},${r} 0 0 1 ${x + w},${r} V${h - r} A${r},${r} 0 0 1 ${x + w - r},${h} `
-          : `V${h} `) +
+          ? `A${r},${r} 0 0 1 ${x + w},${r} V${height - r} A${r},${r} 0 0 1 ${x + w - r},${height} `
+          : `V${height} `) +
         `H${x + (left ? r : 0)} ` +
-        (left ? `A${r},${r} 0 0 1 ${x},${h - r} V${r} A${r},${r} 0 0 1 ${x + r},0 Z` : `V0 Z`);
+        (left ? `A${r},${r} 0 0 1 ${x},${height - r} V${r} A${r},${r} 0 0 1 ${x + r},0 Z` : `V0 Z`);
       const img =
         s.uri === ""
-          ? fileCard(x, w, h, s.ext, path)
+          ? fileCard(x, w, height, s.ext, path)
           : s.uri
-            ? `<image href="${esc(s.uri)}" x="${x}" y="0" width="${w}" height="${h}" preserveAspectRatio="xMidYMin slice" clip-path="url(#k${i})"/>`
+            ? `<image href="${esc(s.uri)}" x="${x}" y="0" width="${w}" height="${height}" preserveAspectRatio="xMidYMin slice" clip-path="url(#k${i})"/>`
             : `<path d="${path}" fill="#8882"/>`;
       const chip =
         chips && s.chip
-          ? `<rect x="${x + 6}" y="${h - 22}" width="${s.chip.length * 6.4 + 12}" height="16" rx="8" fill="#000b"/>` +
-            `<text x="${x + 12}" y="${h - 10.5}" font-size="10" font-family="system-ui,-apple-system,sans-serif" font-weight="600" fill="#fff">${s.chip}</text>`
+          ? `<rect x="${x + 6}" y="${height - 22}" width="${s.chip.length * 6.4 + 12}" height="16" rx="8" fill="#000b"/>` +
+            `<text x="${x + 12}" y="${height - 10.5}" font-size="10" font-family="system-ui,-apple-system,sans-serif" font-weight="600" fill="#fff">${s.chip}</text>`
           : "";
       return `<clipPath id="k${i}"><path d="${path}"/></clipPath>${img}<path d="${path}" fill="none" stroke="#8884"/>${chip}`;
     })
     .join("");
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${total} ${h}" width="${total}" height="${h}">${body}</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${total} ${height}" width="${total}" height="${height}">${body}</svg>`;
 };
 
 const roleName = (row: BandRow, file: FileRef): "Before" | "After" | null =>
