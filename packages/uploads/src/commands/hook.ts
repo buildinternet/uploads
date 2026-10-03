@@ -11,6 +11,8 @@
  */
 
 import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import { createUploadsClient } from "../client.js";
 import { resolveConfig } from "../config.js";
 import { writeCommandHelp } from "../cli-style.js";
@@ -72,8 +74,40 @@ export function isCursorHookInput(raw: unknown): boolean {
   return "conversation_id" in o || "workspace_roots" in o || "cursor_version" in o;
 }
 
+/**
+ * Working directory the harness says the command runs in. Claude/Codex/Grok
+ * send a top-level `cwd`; Cursor sends `workspace_roots`. The hook process's
+ * own cwd can be a different checkout (Claude desktop worktree sessions run
+ * hooks from the main checkout), so this wins over `process.cwd()`.
+ */
+export function cwdFromHookInput(raw: unknown): string | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  if (typeof o.cwd === "string" && o.cwd) return o.cwd;
+  const roots = o.workspace_roots;
+  if (Array.isArray(roots) && typeof roots[0] === "string" && roots[0]) return roots[0];
+  return null;
+}
+
+/** Directory of a leading `cd <dir> &&` (or `;`) in the command, resolved against `base`. */
+export function leadingCdDir(command: string, base: string): string | null {
+  const m = command.match(/^\s*cd\s+("[^"]+"|'[^']+'|[^\s;&|]+)\s*(?:&&|;)/);
+  if (!m) return null;
+  const dir = resolve(base, m[1].replace(/^["']|["']$/g, ""));
+  return existsSync(dir) ? dir : null;
+}
+
+/**
+ * True when the command actually invokes `gh pr create`: at the start of the
+ * command or after a shell separator (`;` `&&` `||` `|` `(` newline), allowing
+ * leading `VAR=value` assignments and extra whitespace. Pragmatic, not a shell
+ * parser: quoted substrings are blanked first, so `grep "gh pr create" f` and
+ * `echo 'gh pr create'` don't match, and a program argument such as
+ * `rg gh pr create` doesn't either because the match must sit in command position.
+ */
 export function looksLikeGhPrCreate(command: string): boolean {
-  return command.includes("gh pr create");
+  const unquoted = command.replace(/"(?:\\.|[^"\\])*"|'[^']*'/g, '""');
+  return /(?:^|[;&|(\n])\s*(?:\w+=\S*\s+)*gh\s+pr\s+create(?![\w-])/.test(unquoted);
 }
 
 export function isVisualPath(filePath: string): boolean {
@@ -198,7 +232,8 @@ export async function runPrePrScreenshot(deps: HookDeps): Promise<string | null>
   const command = shellCommandFromHookInput(raw);
   if (!command || !looksLikeGhPrCreate(command)) return null;
 
-  const cwd = deps.cwd ?? process.cwd();
+  const baseCwd = cwdFromHookInput(raw) ?? deps.cwd ?? process.cwd();
+  const cwd = leadingCdDir(command, baseCwd) ?? baseCwd;
   const git = deps.git ?? defaultGit(cwd);
   if (!git.isRepo()) return null;
 

@@ -1,12 +1,40 @@
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, realpathSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   anyVisual,
+  cwdFromHookInput,
+  leadingCdDir,
   formatAdvisory,
   isCursorHookInput,
   looksLikeGhPrCreate,
   runPrePrScreenshot,
   shellCommandFromHookInput,
 } from "../src/commands/hook.js";
+
+function repoOnBranch(branch: string): string {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "uploads-hook-")));
+  execFileSync("git", ["init", "-q"], { cwd: dir, stdio: "ignore" });
+  execFileSync("git", ["checkout", "-q", "-b", branch], { cwd: dir, stdio: "ignore" });
+  execFileSync(
+    "git",
+    [
+      "-c",
+      "user.name=t",
+      "-c",
+      "user.email=t@example.com",
+      "commit",
+      "-q",
+      "--allow-empty",
+      "-m",
+      "init",
+    ],
+    { cwd: dir, stdio: "ignore" },
+  );
+  return dir;
+}
 
 describe("shellCommandFromHookInput", () => {
   it("reads Claude/Codex tool_input.command", () => {
@@ -62,6 +90,50 @@ describe("helpers", () => {
   it("detects gh pr create loosely", () => {
     expect(looksLikeGhPrCreate("cd foo && gh pr create --fill")).toBe(true);
     expect(looksLikeGhPrCreate("gh pr list")).toBe(false);
+  });
+
+  it("matches real invocations", () => {
+    for (const c of [
+      "gh pr create --fill",
+      "cd foo && gh pr create",
+      "FOO=1 gh pr create",
+      "FOO=1 BAR=x gh pr create --title 'a b'",
+      "gh  pr   create",
+      "git push; gh pr create",
+      "a || gh pr create",
+      "echo hi | gh pr create",
+      "(gh pr create)",
+      "git push\ngh pr create --fill",
+      'gh pr create --title "x" --body "y"',
+    ]) {
+      expect(looksLikeGhPrCreate(c), c).toBe(true);
+    }
+  });
+
+  it("ignores mentions inside quotes or as arguments", () => {
+    for (const c of [
+      'grep -n "gh pr create" file',
+      "echo 'gh pr create'",
+      "rg -n gh\\ pr\\ create",
+      "rg gh pr create src",
+      "git commit -m 'run gh pr create next'",
+      "gh pr create-ish",
+    ]) {
+      expect(looksLikeGhPrCreate(c), c).toBe(false);
+    }
+  });
+
+  it("reads cwd from hook payloads", () => {
+    expect(cwdFromHookInput({ cwd: "/w/tree" })).toBe("/w/tree");
+    expect(cwdFromHookInput({ workspace_roots: ["/cursor/root"] })).toBe("/cursor/root");
+    expect(cwdFromHookInput({ tool_input: {} })).toBeNull();
+    expect(cwdFromHookInput(null)).toBeNull();
+  });
+
+  it("honors a leading cd", () => {
+    expect(leadingCdDir("cd /tmp && gh pr create", "/")).toBe("/tmp");
+    expect(leadingCdDir("cd /definitely/missing && gh pr create", "/")).toBeNull();
+    expect(leadingCdDir("gh pr create", "/")).toBeNull();
   });
 
   it("classifies visual paths", () => {
@@ -257,5 +329,47 @@ describe("runPrePrScreenshot", () => {
       if (prev === undefined) delete process.env.UPLOADS_HOOK_DISABLE;
       else process.env.UPLOADS_HOOK_DISABLE = prev;
     }
+  });
+
+  describe("working directory", () => {
+    it("uses the payload cwd for the branch lookup", async () => {
+      const dir = repoOnBranch("worktree-branch");
+      let seen: string | null = null;
+      const out = await runPrePrScreenshot({
+        stdin: JSON.stringify({ cwd: dir, tool_input: { command: "gh pr create --fill" } }),
+        testFiles: "a.tsx",
+        countStaged: async (b) => {
+          seen = b;
+          return 0;
+        },
+        isFork: () => false,
+      });
+      expect(seen).toBe("worktree-branch");
+      expect(out).toMatch(/worktree-branch/);
+    });
+
+    it("prefers payload cwd over deps.cwd, and a leading cd over both", async () => {
+      const payloadDir = repoOnBranch("payload-branch");
+      const depsDir = repoOnBranch("deps-branch");
+      const cdDir = repoOnBranch("cd-branch");
+      mkdirSync(join(cdDir, "sub"));
+      const seen: string[] = [];
+      const run = (stdin: object, cwd?: string) =>
+        runPrePrScreenshot({
+          stdin: JSON.stringify(stdin),
+          cwd,
+          testFiles: "a.tsx",
+          countStaged: async (b) => {
+            seen.push(b);
+            return 0;
+          },
+          isFork: () => false,
+        });
+      await run({ cwd: payloadDir, tool_input: { command: "gh pr create" } }, depsDir);
+      await run({ tool_input: { command: "gh pr create" } }, depsDir);
+      await run({ cwd: payloadDir, tool_input: { command: `cd ${cdDir} && gh pr create` } });
+      await run({ cwd: cdDir, tool_input: { command: "cd sub && gh pr create" } });
+      expect(seen).toEqual(["payload-branch", "deps-branch", "cd-branch", "cd-branch"]);
+    });
   });
 });
