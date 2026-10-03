@@ -1019,7 +1019,7 @@ export const register: Register = (on, options) => {
           {pr ? (
             <Button
               key="feed"
-              label={feed ? "Copy feed link" : "Copy PR feed link"}
+              label="Copy link"
               variant="primary"
               onPress={(p) => void copyFeedLink($, p.surface, view, pr)}
             />

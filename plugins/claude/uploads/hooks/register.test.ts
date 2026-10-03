@@ -499,7 +499,7 @@ describe("staged pane", () => {
       await ui.find({ text: "Hosted on uploads.sh, not committed to the repo." }),
     ).toBeTruthy();
     // No open PR: no feed button.
-    expect(await ui.find({ type: "Button", text: /feed link/ })).toBeUndefined();
+    expect(await ui.find({ type: "Button", text: "Copy link" })).toBeUndefined();
     // The pair tile carries a chip for each half; the txt tile is a file card.
     const drawn = JSON.stringify(await ui.drawn());
     expect(drawn).toContain("Before");
