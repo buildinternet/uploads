@@ -288,6 +288,17 @@ const bandLine = (view: Staged, done: Attached | null): Line | null => {
 
 const STORAGE = "https://storage.uploads.sh/";
 
+/** The workspace page for the staged files, read off their storage URLs; null off uploads.sh storage. */
+const workspacePage = (rows: readonly BandRow[]): string | null => {
+  for (const row of rows) {
+    for (const f of filesOf(row)) {
+      const ws = f.src?.startsWith(STORAGE) ? f.src.slice(STORAGE.length).split("/")[0] : "";
+      if (ws) return `https://uploads.sh/account/workspaces/${encodeURIComponent(ws)}`;
+    }
+  }
+  return null;
+};
+
 /** The files in a row, before first. */
 const filesOf = (row: BandRow): FileRef[] =>
   row.kind === "file" ? [row.file] : [row.before, row.after].filter((f): f is FileRef => !!f);
@@ -1054,7 +1065,14 @@ export const register: Register = (on, options) => {
           ))}
         </Box>
         <Box flexDirection="column" marginTop={2} gap={0}>
-          <Text dimColor>Hosted on uploads.sh, not committed to the repo.</Text>
+          <Box flexDirection="row">
+            {workspacePage(rows) ? (
+              <Link href={workspacePage(rows)!} label="Hosted on uploads.sh" />
+            ) : (
+              <Text dimColor>Hosted on uploads.sh</Text>
+            )}
+            <Text dimColor>, not committed to the repo.</Text>
+          </Box>
           <Text dimColor>They will appear in a comment on the pull request once opened.</Text>
         </Box>
       </Box>

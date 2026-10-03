@@ -495,9 +495,9 @@ describe("staged pane", () => {
     expect(await ui.find({ text: /buildinternet\/uploads · feat\/x/ })).toBeTruthy();
     expect(await ui.find({ type: "Button", text: "Copy markdown" })).toBeTruthy();
     expect(await ui.find({ text: "5m ago" })).toBeTruthy();
-    expect(
-      await ui.find({ text: "Hosted on uploads.sh, not committed to the repo." }),
-    ).toBeTruthy();
+    const hosted = await ui.find({ type: "Link", text: "Hosted on uploads.sh" });
+    expect(hosted?.props.href).toBe("https://uploads.sh/account/workspaces/default");
+    expect(await ui.find({ text: ", not committed to the repo." })).toBeTruthy();
     // No open PR: no feed button.
     expect(await ui.find({ type: "Button", text: "Copy link" })).toBeUndefined();
     // The pair tile carries a chip for each half; the txt tile is a file card.

@@ -24,7 +24,7 @@ or `claude -p`, it still attaches files and tells Claude, but shows nothing.
 
 On the Desktop app, the band shows thumbnails of the staged attachments. **View**
 or `/uploads-staged` opens a pane where you can see each one, copy its
-markdown, remove it, or copy the PR's feed link. **Hide** hides the band until
+markdown, remove it, or copy the PR's feed link; the footnote links to your workspace on uploads.sh. **Hide** hides the band until
 the staged set changes.
 
 ## Install
