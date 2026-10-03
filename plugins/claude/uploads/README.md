@@ -82,8 +82,7 @@ looks up the PR's head branch:
 On the Desktop app, the pane also runs `uploads delete` when you remove an
 attachment, `uploads feed create` when you copy the feed link, and `gh pr view`
 to find the branch's open PR. Thumbnails are fetched with `curl` from
-`storage.uploads.sh`, resized by Cloudflare's image transform, and kept in the
-session's memory only.
+`storage.uploads.sh`, resized by Cloudflare's image transform, and kept in the mod's session state.
 
 If the CLI is not installed or not signed in, the mod does nothing.
 
