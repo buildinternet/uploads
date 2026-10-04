@@ -6,7 +6,12 @@
  * renderers say the same thing. Styles: styles/pr-label.css. Import that
  * stylesheet wherever this markup can appear.
  */
-import { isSafePrHref, prLabelParts, type PrLabelInput } from "@uploads/ui/lib/pr-label";
+import {
+  isSafePrHref,
+  prLabelParts,
+  prLabelSrText,
+  type PrLabelInput,
+} from "@uploads/ui/lib/pr-label";
 import { escapeHtml } from "./workspace-ui";
 
 export type PrLabelSize = "sm" | "md" | "lg";
@@ -44,11 +49,7 @@ export function prLabelHtml(props: PrLabelHtmlProps): string {
     const rel = props.target === "_blank" ? ' target="_blank" rel="noopener noreferrer"' : "";
     return `<a ${attrs} href="${escapeHtml(props.href)}"${rel} aria-label="${escapeHtml(parts.ariaLabel)}">${DOT}${body}</a>`;
   }
-  // A plain span has no accessible name of its own, so spell out what the dot
-  // and visible text leave out: PR vs issue, the state, and (compact) the title.
-  const kindWord = props.kind === "issue" ? "issue" : "pull request";
-  const sr = props.compact
-    ? ` (${parts.ariaLabel})`
-    : ` (${kindWord}${parts.state ? `, ${parts.state}` : ""})`;
-  return `<span ${attrs}>${DOT}${body}<span class="pr-label__sr">${escapeHtml(sr)}</span></span>`;
+  // A plain span has no accessible name of its own; prLabelSrText spells out
+  // what the dot and visible text leave out.
+  return `<span ${attrs}>${DOT}${body}<span class="pr-label__sr">${escapeHtml(prLabelSrText(props, props.compact))}</span></span>`;
 }

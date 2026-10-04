@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { asPrState, isSafePrHref, prLabelParts } from "../src/lib/pr-label";
+import { asPrState, isSafePrHref, prLabelParts, prLabelSrText } from "../src/lib/pr-label";
 
 describe("prLabelParts", () => {
   it("renders number and title when the title is known", () => {
@@ -87,5 +87,24 @@ describe("isSafePrHref", () => {
     expect(isSafePrHref("javascript:alert(1)")).toBe(false);
     expect(isSafePrHref("JavaScript:alert(1)")).toBe(false);
     expect(isSafePrHref("")).toBe(false);
+  });
+});
+
+describe("prLabelSrText", () => {
+  it("names the kind and state", () => {
+    expect(prLabelSrText({ ghRef: "a/b#1", state: "open" })).toBe(" (pull request, open)");
+    expect(prLabelSrText({ ghRef: "a/b#1", kind: "issue", state: "closed" })).toBe(
+      " (issue, closed)",
+    );
+  });
+
+  it("omits the state when unknown", () => {
+    expect(prLabelSrText({ ghRef: "a/b#1" })).toBe(" (pull request)");
+  });
+
+  it("gives the full label when compact", () => {
+    expect(prLabelSrText({ ghRef: "a/b#1", title: "Fix", state: "open" }, true)).toBe(
+      " (Pull request #1 in a/b: Fix (open))",
+    );
   });
 });

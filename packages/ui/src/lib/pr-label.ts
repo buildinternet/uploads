@@ -72,3 +72,17 @@ export function prLabelParts(input: PrLabelInput): PrLabelParts {
 
   return { number, repo, title, text, fallback: title === null, state, ariaLabel };
 }
+
+/**
+ * Screen-reader text for a label rendered as a plain span (no anchor, so no
+ * `aria-label`): the dot and visible text leave out PR vs issue, the state,
+ * and (compact) the title. Full label when compact, otherwise
+ * " (pull request, open)", " (issue, closed)", or " (pull request)" when the
+ * state is unknown. Shared by the React and HTML renderers.
+ */
+export function prLabelSrText(input: PrLabelInput, compact = false): string {
+  const parts = prLabelParts(input);
+  if (compact) return ` (${parts.ariaLabel})`;
+  const kindWord = input.kind === "issue" ? "issue" : "pull request";
+  return ` (${kindWord}${parts.state ? `, ${parts.state}` : ""})`;
+}
