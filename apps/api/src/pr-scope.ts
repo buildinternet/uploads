@@ -182,7 +182,11 @@ export async function scopeKeysAt(
   return (results ?? []).map((row) => row.object_key);
 }
 
-/** Distinct `gh.repo` values with their newest upload time, newest first. */
+/**
+ * Distinct `gh.repo` values with their newest upload time, newest first.
+ * Drops `gh.status=promoted` shadows the same way `scopeFrom` does, so a repo
+ * holding only shadows does not list and a shadow never sets `lastUpdatedAt`.
+ */
 export async function listWorkspaceRepos(
   db: D1Queryable,
   workspace: string,
@@ -192,12 +196,17 @@ export async function listWorkspaceRepos(
   nextCursor: ScopeCursor | null;
 }> {
   const params: unknown[] = [workspace];
-  let sql = `SELECT meta_value AS repo, MAX(updated_at) AS last_updated_at
-             FROM file_metadata
-             WHERE workspace = ? AND meta_key = 'gh.repo'
-             GROUP BY meta_value`;
+  let sql = `SELECT r.meta_value AS repo, MAX(r.updated_at) AS last_updated_at
+             FROM file_metadata r
+             WHERE r.workspace = ? AND r.meta_key = 'gh.repo'
+               AND NOT EXISTS (
+                 SELECT 1 FROM file_metadata s
+                 WHERE s.workspace = r.workspace AND s.object_key = r.object_key
+                   AND s.meta_key = 'gh.status' AND s.meta_value = 'promoted'
+               )
+             GROUP BY r.meta_value`;
   if (opts.cursor) {
-    sql += ` HAVING MAX(updated_at) < ? OR (MAX(updated_at) = ? AND meta_value > ?)`;
+    sql += ` HAVING MAX(r.updated_at) < ? OR (MAX(r.updated_at) = ? AND r.meta_value > ?)`;
     params.push(opts.cursor.updatedAt, opts.cursor.updatedAt, opts.cursor.key);
   }
   sql += ` ORDER BY last_updated_at DESC, repo ASC LIMIT ?`;

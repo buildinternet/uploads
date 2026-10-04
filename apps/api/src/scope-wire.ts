@@ -135,7 +135,12 @@ export interface ScopeFilesResponse {
   number: number | null;
   items: FeedItemDto[];
   nextCursor: string | null;
-  /** Withheld-on-public items across the whole scope (cap 2,000), ignoring `type`. First page only; `null` on cursor pages. */
+  /**
+   * Private items across the whole scope, ignoring `type`: the items a live
+   * link for this scope renders as `withheld`. First page only. `null` on
+   * cursor pages, and `null` when counting would need more than 300 storage
+   * probes beyond the page (unknown: skip the share confirm).
+   */
   privateCount: number | null;
   /** The existing live feed for exactly this scope, if any. */
   liveLink: LiveLinkRef | null;

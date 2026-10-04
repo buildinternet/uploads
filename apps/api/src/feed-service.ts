@@ -311,20 +311,41 @@ export async function hydrateFeedItems(
 }
 
 /**
- * How many of `keys` are private (what a live link renders as `withheld`).
+ * Most keys `countPrivateScopeItems` will probe beyond the ones the page
+ * already HEADed. Each probe costs at least 2 R2 operations, so 300 probes
+ * stay inside the Workers ceiling of 1,000 subrequests per request
+ * (github-promote.ts) next to the page's own hydration.
+ */
+export const PRIVATE_COUNT_PROBE_CAP = 300;
+
+/**
+ * How many of `keys` are private: objects whose R2 custom metadata says
+ * `visibility: private`. A live link renders the same objects as `withheld`.
  * Visibility lives only in R2 custom metadata (`visibility.ts`; D1 rejects
- * the key), so each key the page did not already HEAD (`seen.checked`) costs
- * one lane lookup + HEAD. Keys already HEADed count from `seen.privateKeys`.
+ * the key), so the count needs storage reads:
+ *
+ * - Keys the page already HEADed (`seen.checked`) are free. They count from
+ *   `seen.privateKeys`.
+ * - Every other key costs one `exists` per lane tried (active lane first,
+ *   then each fallback lane until a hit), then one HEAD on the lane that has
+ *   it. That is 2 R2 operations for a key in the active lane, and more for a
+ *   key in a fallback lane.
+ *
+ * When more than `PRIVATE_COUNT_PROBE_CAP` keys need a probe, this returns
+ * `null` without probing any of them: the count is unknown, and the share
+ * confirm is skipped. `keys` is itself capped at `SCOPE_SCAN_CAP` by the
+ * caller's scan.
  */
 export async function countPrivateScopeItems(
   env: Env,
   workspace: WorkspaceRecord,
   keys: string[],
   seen: { checked: Set<string>; privateKeys: Set<string> },
-): Promise<number> {
+): Promise<number | null> {
   const known = keys.filter((key) => seen.privateKeys.has(key)).length;
   const unchecked = keys.filter((key) => !seen.checked.has(key));
   if (unchecked.length === 0) return known;
+  if (unchecked.length > PRIVATE_COUNT_PROBE_CAP) return null;
   const resolver = createLaneResolver(env, workspace);
   let flags: boolean[];
   try {

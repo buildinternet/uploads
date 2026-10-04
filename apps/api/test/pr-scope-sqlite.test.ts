@@ -220,7 +220,7 @@ describe("prScopeQuery", () => {
       expect(plan).not.toContain("TEMP B-TREE FOR ORDER BY");
 
       await listWorkspaceRepos(db, "alpha", { limit: 20 });
-      const repos = seen.find((entry) => entry.sql.includes("GROUP BY meta_value"));
+      const repos = seen.find((entry) => entry.sql.includes("GROUP BY r.meta_value"));
       expect(queryPlan(sqlite, repos!)).toContain(
         "COVERING INDEX file_metadata_gh_repo_recent_idx",
       );
@@ -285,6 +285,30 @@ describe("listWorkspaceRepos", () => {
         { repo: "acme/site", lastUpdatedAt: "2026-10-01T03:00:00.000Z" },
       ]);
       expect(second.nextCursor).toBeNull();
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("skips promoted shadows, so they neither list a repo nor set lastUpdatedAt", async () => {
+    const sqlite = new SqliteD1(MIGRATIONS);
+    try {
+      const shadow = { "gh.status": "promoted" };
+      await seed(sqlite, "a/1.png", { "gh.repo": "acme/app" }, "2026-10-01T01:00:00.000Z");
+      await seed(
+        sqlite,
+        "a/shadow.png",
+        { "gh.repo": "acme/app", ...shadow },
+        "2026-10-01T08:00:00.000Z",
+      );
+      await seed(
+        sqlite,
+        "o/shadow.png",
+        { "gh.repo": "acme/only-shadows", ...shadow },
+        "2026-10-01T09:00:00.000Z",
+      );
+      const page = await listWorkspaceRepos(database(sqlite), "alpha", { limit: 20 });
+      expect(page.repos).toEqual([{ repo: "acme/app", lastUpdatedAt: "2026-10-01T01:00:00.000Z" }]);
     } finally {
       sqlite.close();
     }

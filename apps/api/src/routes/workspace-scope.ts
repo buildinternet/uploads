@@ -226,9 +226,10 @@ export async function reposHandler(c: Context<DualAuthVars>) {
 /**
  * One scope's files (a PR when `number` is set, else the whole repo), newest
  * first, hydrated like a live link for the owner audience. Owner and repo
- * are lowercased before matching. `privateCount` runs on the first page only
- * and reuses the page's HEADs; `liveLink` is the existing feed for exactly
- * this scope; `pull` is this workspace's rollup row for the PR.
+ * are lowercased before matching. `privateCount` runs on the first page only,
+ * reuses the page's HEADs, and is null when the rest of the scope needs more
+ * than `PRIVATE_COUNT_PROBE_CAP` storage probes; `liveLink` is the existing
+ * feed for exactly this scope; `pull` is this workspace's rollup row for the PR.
  */
 export async function scopeFilesHandler(c: Context<DualAuthVars>) {
   const workspace = c.get("workspaceName");

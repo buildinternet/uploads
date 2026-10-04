@@ -357,7 +357,8 @@ lowercase spelling exactly, so older mixed-case rows stay hidden until this runs
 It is not a migration (migrations auto-apply on merge and never rewrite data).
 
 ```bash
-# dry run: prints { affected, remaining } and writes nothing
+# dry run: prints { dryRun: true, affected, updated: 0, batches: 0, remaining }
+# ("remaining" equals "affected") and writes nothing
 curl -XPOST -H "Authorization: Bearer $ADMIN_TOKEN" \
   'https://api.uploads.sh/admin/file-metadata/backfill-gh-repo-case?dryRun=1'
 # live: repeat until "remaining" is 0

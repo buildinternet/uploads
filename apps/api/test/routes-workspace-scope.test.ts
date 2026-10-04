@@ -497,6 +497,40 @@ describe("GET /v1/workspaces/:ws/scope/:owner/:repo/files", () => {
     expect(all.privateCount).toBe(2);
   });
 
+  it("counts exactly up to 300 extra probes, and returns null past the cap without probing", async () => {
+    const meta = prMeta("acme/app", 7);
+    // 301 objects: a 1-item page leaves exactly 300 keys to probe.
+    for (let index = 0; index < 301; index++) {
+      await seedObject(`gh/acme/app/pull/7/${String(index).padStart(3, "0")}.png`, meta, {
+        private: index === 10 || index === 200,
+      });
+    }
+    const headed: string[] = [];
+    const head = bucket.head.bind(bucket);
+    bucket.head = async (key: string) => {
+      headed.push(key);
+      return head(key);
+    };
+
+    const atCap = await getJson<ScopeFilesResponse>(
+      "/v1/workspaces/alpha/scope/acme/app/files?number=7&limit=1",
+    );
+    expect(atCap.items).toHaveLength(1);
+    expect(atCap.privateCount).toBe(2);
+
+    // One more object: 301 keys past the page, so the count is unknown.
+    await seedObject("gh/acme/app/pull/7/301.png", meta);
+    headed.length = 0;
+    const pastCap = await getJson<ScopeFilesResponse>(
+      "/v1/workspaces/alpha/scope/acme/app/files?number=7&limit=1",
+    );
+    expect(pastCap.items).toHaveLength(1);
+    expect(pastCap.privateCount).toBeNull();
+    // Only the page's own item reached storage.
+    const pageKey = `alpha/${pastCap.items[0]?.objectKey}`;
+    expect(new Set(headed)).toEqual(new Set([pageKey]));
+  });
+
   it("lowercases an owner/repo with dots, dashes, underscores, and capitals (index review focus 2)", async () => {
     await seedObject("gh/foo.bar/my-repo_x/pull/2/shot.png", prMeta("foo.bar/my-repo_x", 2));
     const created = await request("/v1/workspaces/alpha/feeds", {
