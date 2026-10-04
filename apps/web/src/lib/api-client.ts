@@ -23,6 +23,22 @@ import type {
   ServiceTokenMintResponse,
   ServiceTokenRow,
 } from "@uploads/api/workspace-service-tokens";
+import type { FileTypeClass } from "@uploads/comment-render/scope";
+import type {
+  FeedListResponse,
+  FeedSummaryDto,
+  PullsResponse,
+  ReposResponse,
+  ScopeFilesResponse,
+} from "@uploads/api/scope-wire";
+import {
+  isRecord,
+  parseFeedListPage,
+  parseOwnerFeed,
+  parsePullsResponse,
+  parseReposResponse,
+  parseScopeFilesResponse,
+} from "./scope-parsers";
 
 /**
  * `apiOrigin` is either an absolute origin (`https://api.uploads.sh`, or a
@@ -2671,4 +2687,213 @@ export async function deleteWorkspaceStorage(
   const status = toWorkspaceStorageStatus(await response.json().catch(() => null));
   if (!status) return { kind: "unavailable", reason: "server" };
   return { kind: "ok", status };
+}
+
+// ── Scope views and live links (Files / Links slices) ─────────────────────
+//
+// Wire types are slice 1's `@uploads/api/scope-wire` (Env-free); ./scope-parsers
+// checks the JSON. Every call returns ApiResult<T> (or CreateFeedResult) and
+// takes a trailing `opts` for the SSR cookie/transport, the same pair
+// listWorkspaceServiceTokens uses.
+
+export type {
+  FeedItemDto,
+  FeedListResponse as FeedListPage,
+  FeedSource,
+  FeedSummaryDto as OwnerFeedDto,
+  LiveLinkRef,
+  PullRow,
+  PullsResponse,
+  RepoRow,
+  ReposResponse,
+  ScopeFilesResponse,
+  ScopePull,
+  ThumbItem,
+} from "@uploads/api/scope-wire";
+
+export type ApiFailureReason =
+  | RequestFailure
+  | "forbidden"
+  | "not_found"
+  | "invalid"
+  | "server"
+  | "malformed";
+
+export type ApiResult<T> =
+  | { kind: "ok"; data: T }
+  | { kind: "unavailable"; reason: ApiFailureReason };
+
+/** The repo live link cap was hit: 50 live repo-scoped links per workspace, whoever created them, checked on API creates. PR and issue links are uncapped. */
+export type CreateFeedResult = ApiResult<FeedSummaryDto> | { kind: "limit"; limit: number };
+
+/** SSR seeding: the request's session cookie and the server-side transport. */
+export type SessionOpts = { cookie?: string; fetchImpl?: typeof fetch };
+
+/** Fallback when a 409 `feed_limit_reached` body omits `details.limit`. Mirrors apps/api feeds.ts. */
+const FEED_LIMIT_FALLBACK = 50;
+
+function failureForStatus(status: number): ApiFailureReason {
+  if (status === 400) return "invalid";
+  if (status === 403) return "forbidden";
+  if (status === 404) return "not_found";
+  return "server";
+}
+
+function workspacePath(ws: string): string {
+  return `/v1/workspaces/${encodeURIComponent(ws)}`;
+}
+
+function withQuery(path: string, params: Record<string, string | number | undefined>): string {
+  const qs = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== "") qs.set(key, String(value));
+  }
+  const query = qs.toString();
+  return query ? `${path}?${query}` : path;
+}
+
+async function getParsed<T>(
+  apiOrigin: string,
+  path: string,
+  parse: (body: unknown) => T | null,
+  opts?: SessionOpts,
+): Promise<ApiResult<T>> {
+  const result = await fetchWithTimeout(
+    `${trimOrigin(apiOrigin)}${path}`,
+    sessionFetchInit(opts?.cookie),
+    { fetchImpl: opts?.fetchImpl },
+  );
+  if (result.kind === "unavailable") return result;
+  const { response } = result;
+  if (!response.ok) return { kind: "unavailable", reason: failureForStatus(response.status) };
+  const data = parse(await response.json().catch(() => null));
+  return data === null ? { kind: "unavailable", reason: "malformed" } : { kind: "ok", data };
+}
+
+/**
+ * GET /v1/workspaces/:ws/pulls: PR rollup rows, newest media first. `type`
+ * narrows each row's thumbnails only; it never drops a row.
+ */
+export function fetchPulls(
+  apiOrigin: string,
+  ws: string,
+  q: { repo?: string; state?: string; type?: FileTypeClass; cursor?: string } = {},
+  opts?: SessionOpts,
+): Promise<ApiResult<PullsResponse>> {
+  const path = withQuery(`${workspacePath(ws)}/pulls`, {
+    repo: q.repo,
+    state: q.state,
+    type: q.type,
+    cursor: q.cursor,
+  });
+  return getParsed(apiOrigin, path, parsePullsResponse, opts);
+}
+
+/** GET /v1/workspaces/:ws/repos: repos with recent media. `type` narrows thumbnails only. */
+export function fetchRepos(
+  apiOrigin: string,
+  ws: string,
+  q: { type?: FileTypeClass; cursor?: string } = {},
+  opts?: SessionOpts,
+): Promise<ApiResult<ReposResponse>> {
+  const path = withQuery(`${workspacePath(ws)}/repos`, { type: q.type, cursor: q.cursor });
+  return getParsed(apiOrigin, path, parseReposResponse, opts);
+}
+
+/**
+ * GET /v1/workspaces/:ws/scope/:owner/:repo/files: a repo or PR scope (the
+ * same objects its live link shows), plus `privateCount` (first page only)
+ * for the share confirm and `pull` for the PR page header. `repo` is
+ * lowercased; a value that is not `owner/name` is refused before any request.
+ */
+export async function fetchScopeFiles(
+  apiOrigin: string,
+  ws: string,
+  q: { repo: string; number?: number; type?: FileTypeClass; cursor?: string },
+  opts?: SessionOpts,
+): Promise<ApiResult<ScopeFilesResponse>> {
+  const [owner, name, ...rest] = q.repo.trim().toLowerCase().split("/");
+  if (!owner || !name || rest.length > 0) return { kind: "unavailable", reason: "invalid" };
+  const path = withQuery(
+    `${workspacePath(ws)}/scope/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/files`,
+    { number: q.number, type: q.type, cursor: q.cursor },
+  );
+  return getParsed(apiOrigin, path, parseScopeFilesResponse, opts);
+}
+
+/** GET /v1/workspaces/:ws/feeds — live links (feeds), newest first. */
+export function listWorkspaceFeeds(
+  apiOrigin: string,
+  ws: string,
+  cursor?: string,
+  opts?: SessionOpts,
+): Promise<ApiResult<FeedListResponse>> {
+  const path = withQuery(`${workspacePath(ws)}/feeds`, { cursor });
+  return getParsed(apiOrigin, path, parseFeedListPage, opts);
+}
+
+/**
+ * POST /v1/workspaces/:ws/feeds — create or reuse the live link for a repo
+ * or PR scope. Creation is idempotent per scope on the API, so a link that
+ * comment sync already made comes back as-is (200). A new repo-scoped link
+ * at the workspace's 50-link cap returns `{ kind: "limit" }`; PR links are
+ * uncapped. The API ignores any `source` in the body.
+ */
+export async function createWorkspaceFeed(
+  apiOrigin: string,
+  ws: string,
+  scope: { repo: string; pr?: number },
+  opts?: SessionOpts,
+): Promise<CreateFeedResult> {
+  const result = await fetchWithTimeout(
+    `${trimOrigin(apiOrigin)}${workspacePath(ws)}/feeds`,
+    {
+      method: "POST",
+      credentials: "include",
+      cache: "no-store",
+      headers: {
+        "Content-Type": "application/json",
+        ...(opts?.cookie ? { cookie: opts.cookie } : {}),
+      },
+      body: JSON.stringify(
+        scope.pr === undefined ? { repo: scope.repo } : { repo: scope.repo, pr: scope.pr },
+      ),
+    },
+    { fetchImpl: opts?.fetchImpl },
+  );
+  if (result.kind === "unavailable") return result;
+  const { response } = result;
+  const body: unknown = await response.json().catch(() => null);
+  if (response.status === 409 && isRecord(body) && isRecord(body.error)) {
+    const error = body.error;
+    if (error.code === "feed_limit_reached") {
+      const limit =
+        isRecord(error.details) && typeof error.details.limit === "number"
+          ? error.details.limit
+          : FEED_LIMIT_FALLBACK;
+      return { kind: "limit", limit };
+    }
+  }
+  if (!response.ok) return { kind: "unavailable", reason: failureForStatus(response.status) };
+  const feed = parseOwnerFeed(body);
+  return feed ? { kind: "ok", data: feed } : { kind: "unavailable", reason: "malformed" };
+}
+
+/** DELETE /v1/workspaces/:ws/feeds/:id — revoke a live link (soft delete). */
+export async function deleteWorkspaceFeed(
+  apiOrigin: string,
+  ws: string,
+  id: string,
+  opts?: SessionOpts,
+): Promise<ApiResult<void>> {
+  const result = await fetchWithTimeout(
+    `${trimOrigin(apiOrigin)}${workspacePath(ws)}/feeds/${encodeURIComponent(id)}`,
+    { ...sessionFetchInit(opts?.cookie), method: "DELETE" },
+    { fetchImpl: opts?.fetchImpl },
+  );
+  if (result.kind === "unavailable") return result;
+  if (!result.response.ok) {
+    return { kind: "unavailable", reason: failureForStatus(result.response.status) };
+  }
+  return { kind: "ok", data: undefined };
 }
