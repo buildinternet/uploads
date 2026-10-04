@@ -20,9 +20,15 @@ import { publicApiFetch } from "../../lib/ssr-fetch";
 export const prerender = false;
 
 const id = Astro.params.id ?? "";
+// An empty `?cursor=` means no cursor, not a cursor the API never issued.
+const cursor = Astro.url.searchParams.get("cursor") || undefined;
 const origin =
   env.UPLOADS_API_ORIGIN ?? import.meta.env.PUBLIC_UPLOADS_API_ORIGIN ?? "https://api.uploads.sh";
-const result = await fetchPublicFeed(id, { origin, fetch: publicApiFetch(env) });
+const result = await fetchPublicFeed(id, { origin, fetch: publicApiFetch(env), cursor });
+
+// A stale or tampered cursor lands on the newest page, not an error page. If
+// the live link itself is gone, the newest page then shows the real 404.
+if (cursor && result.status === "not_found") return Astro.redirect(feedPath(id), 302);
 
 applyPublicFeedHeaders(Astro.response.headers);
 if (result.status === "not_found") Astro.response.status = 404;
@@ -31,6 +37,9 @@ if (result.status === "unavailable") Astro.response.status = 503;
 const feed = result.status === "ok" ? result.feed : null;
 const canonical = new URL(feedPath(id), Astro.url.origin).href;
 const page = feed ? feedPageCopy(feed) : null;
+const olderHref = feed?.nextCursor
+  ? `${feedPath(feed.id)}?cursor=${encodeURIComponent(feed.nextCursor)}`
+  : null;
 
 function itemDate(item: PublicFeedItem): string | null {
   const raw = item.uploaded ?? item.modified;
@@ -47,20 +56,20 @@ function itemDate(item: PublicFeedItem): string | null {
     <BaseHead />
     <meta name="robots" content="noindex, nofollow, noarchive" />
     <link rel="canonical" href={canonical} />
-    <title>{feed ? `${feed.title} · uploads.sh` : "Feed unavailable · uploads.sh"}</title>
+    <title>{feed ? `${feed.title} · uploads.sh` : "Live link unavailable · uploads.sh"}</title>
     <meta
       name="description"
       content={feed
-        ? `Recent screenshots for ${page?.scopeLabel}.`
-        : "A public change feed hosted by uploads.sh."}
+        ? `Files for ${page?.scopeLabel}, newest first.`
+        : "A public live link hosted by uploads.sh."}
     />
     <meta property="og:type" content="website" />
-    <meta property="og:title" content={feed?.title ?? "Feed unavailable"} />
+    <meta property="og:title" content={feed?.title ?? "Live link unavailable"} />
     <meta
       property="og:description"
       content={feed
-        ? `Recent screenshots for ${page?.scopeLabel}.`
-        : "A public change feed hosted by uploads.sh."}
+        ? `Files for ${page?.scopeLabel}, newest first.`
+        : "A public live link hosted by uploads.sh."}
     />
     <meta property="og:url" content={canonical} />
     <meta property="og:site_name" content={OG_SITE_NAME} />
@@ -136,6 +145,13 @@ function itemDate(item: PublicFeedItem): string | null {
         display: flex;
         flex-direction: column;
         gap: 20px;
+      }
+      .more {
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        margin-top: 28px;
+        font: var(--text-meta) var(--sans);
       }
       figure {
         margin: 0;
@@ -230,7 +246,7 @@ function itemDate(item: PublicFeedItem): string | null {
   </head>
   <body>
     <main class="shell">
-      <nav><Brand /><span class="public">public feed</span></nav>
+      <nav><Brand /><span class="public">live link</span></nav>
       {
         feed ? (
           <>
@@ -239,19 +255,17 @@ function itemDate(item: PublicFeedItem): string | null {
               <h1>{feed.title}</h1>
               <div class="meta">
                 <span>newest first</span>
-                <span>
-                  {feed.items.length} {feed.items.length === 1 ? "shot" : "shots"}
-                </span>
+                {cursor && <span>older files</span>}
               </div>
             </header>
             <aside class="notice">
-              Anyone with this link can view this feed. It updates as new screenshots are tagged
-              with this {page?.scopeNoun}. Do not share sensitive media.
+              Anyone with this link can view these files. New files tagged with this{" "}
+              {page?.scopeNoun} appear here on their own. Do not share sensitive media.
             </aside>
             {feed.items.length === 0 ? (
               <section class="empty">
                 <code>feed.empty</code>
-                <p>No screenshots are tagged with this {page?.scopeNoun} yet.</p>
+                <p>No files are tagged with this {page?.scopeNoun} yet.</p>
               </section>
             ) : (
               <section class="feed">
@@ -347,17 +361,29 @@ function itemDate(item: PublicFeedItem): string | null {
                 })}
               </section>
             )}
+            {(cursor || olderHref) && (
+              <nav class="more" aria-label="More files">
+                {cursor ? <a href={feedPath(feed.id)}>← Newest</a> : <span />}
+                {olderHref && (
+                  <a href={olderHref} rel="next">
+                    Older files →
+                  </a>
+                )}
+              </nav>
+            )}
           </>
         ) : (
           <section class="error">
             <code>{result.status === "not_found" ? "feed.not_found" : "feed.unavailable"}</code>
             <h1>
-              {result.status === "not_found" ? "Feed not found" : "Feed temporarily unavailable"}
+              {result.status === "not_found"
+                ? "Live link not found"
+                : "Live link temporarily unavailable"}
             </h1>
             <p>
               {result.status === "not_found"
-                ? "Check the link or ask the feed owner for a current URL."
-                : "The feed service could not be reached. Please try again shortly."}
+                ? "Check the link or ask its owner for a current URL."
+                : "The service could not be reached. Please try again shortly."}
             </p>
           </section>
         )
