@@ -2,6 +2,7 @@ import { createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { extractWebhookEvent, handleWebhook, verifySignature } from "./github-webhook";
 import { githubAppConfig, repoIsPrivate } from "./github-app";
+import { resolveTitles } from "./github-titles";
 import { FakeKv } from "../test/fake-kv";
 import { GITHUB_APP_CFG_ENV } from "../test/github-app-env";
 
@@ -222,5 +223,114 @@ describe("handleWebhook — repository.private write-through (issue #631)", () =
       "utf8",
     );
     expect(src).toMatch(/await cacheRepoPrivacy\(/);
+  });
+});
+
+function envFor(kv: FakeKv): Env {
+  return { GITHUB_CACHE: kv, ...GITHUB_APP_CFG_ENV } as unknown as Env;
+}
+
+describe("handleWebhook — repository privatized/publicized (issue #1066)", () => {
+  const CACHED_TITLE = JSON.stringify({
+    v: { title: "Was public", state: "merged", kind: "pull" },
+  });
+
+  const noFetch = (async () => {
+    throw new Error("must not reach GitHub");
+  }) as typeof fetch;
+
+  it("a privatized delivery stops the public audience serving the repo's cached titles", async () => {
+    const kv = new FakeKv();
+    kv.store.set("ghtok:777", { value: "ghs_home" });
+    kv.store.set("ghref:pub:acme/web#3", { value: CACHED_TITLE });
+    kv.store.set("ghref:pub:acme/web#4", { value: CACHED_TITLE });
+    const env = envFor(kv);
+
+    // Sanity: the public ladder serves the cached title before the delivery.
+    const before = await resolveTitles(env, ["acme/web#3"], { audience: "public" }, noFetch);
+    expect(before["acme/web#3"]?.title).toBe("Was public");
+
+    await handleWebhook(env, "repository", {
+      action: "privatized",
+      repository: { full_name: "Acme/Web", private: true },
+    });
+
+    const after = await resolveTitles(
+      env,
+      ["acme/web#3", "acme/web#4"],
+      { audience: "public" },
+      noFetch,
+    );
+    expect(after).toEqual({ "acme/web#3": null, "acme/web#4": null });
+  });
+
+  it("a privatized delivery marks the repo private in the visibility cache", async () => {
+    const kv = new FakeKv();
+    const env = envFor(kv);
+    await handleWebhook(env, "repository", {
+      action: "privatized",
+      repository: { full_name: "Acme/Web", private: true },
+    });
+    expect(await repoIsPrivate(env, githubAppConfig(env)!, 1, "acme/web", noFetch)).toBe(true);
+  });
+
+  it("leaves other repos' public titles alone", async () => {
+    const kv = new FakeKv();
+    kv.store.set("ghref:pub:acme/other#1", { value: CACHED_TITLE });
+    const env = envFor(kv);
+    await handleWebhook(env, "repository", {
+      action: "privatized",
+      repository: { full_name: "acme/web", private: true },
+    });
+    const out = await resolveTitles(env, ["acme/other#1"], { audience: "public" }, noFetch);
+    expect(out["acme/other#1"]?.title).toBe("Was public");
+  });
+
+  it("a publicized delivery only refreshes the visibility cache", async () => {
+    const kv = new FakeKv();
+    kv.store.set("ghpriv:acme/web", { value: "1" });
+    kv.store.set("ghref:pub:acme/web#3", { value: CACHED_TITLE });
+    const env = envFor(kv);
+    const ev = extractWebhookEvent("repository", {
+      action: "publicized",
+      repository: { full_name: "Acme/Web", private: false },
+    });
+    expect(ev).toEqual({ keys: [], privacy: { repo: "acme/web", isPrivate: false } });
+    await handleWebhook(env, "repository", {
+      action: "publicized",
+      repository: { full_name: "Acme/Web", private: false },
+    });
+    expect(await repoIsPrivate(env, githubAppConfig(env)!, 1, "acme/web", noFetch)).toBe(false);
+    const out = await resolveTitles(env, ["acme/web#3"], { audience: "public" }, noFetch);
+    expect(out["acme/web#3"]?.title).toBe("Was public");
+  });
+
+  it("ignores other repository actions and malformed payloads", () => {
+    expect(
+      extractWebhookEvent("repository", {
+        action: "edited",
+        repository: { full_name: "acme/web", private: false },
+      }),
+    ).toBeNull();
+    expect(extractWebhookEvent("repository", { action: "privatized" })).toBeNull();
+    expect(extractWebhookEvent("repository", null)).toBeNull();
+  });
+
+  it("per-ref invalidation still clears both title namespaces after a privatized delivery", async () => {
+    const kv = new FakeKv();
+    const env = envFor(kv);
+    await handleWebhook(env, "repository", {
+      action: "privatized",
+      repository: { full_name: "acme/web", private: true },
+    });
+    kv.store.set("ghref:acme/web#3", { value: CACHED_TITLE });
+    kv.store.set("ghref:pub:acme/web#3", { value: CACHED_TITLE });
+    await handleWebhook(env, "pull_request", {
+      action: "edited",
+      repository: { full_name: "acme/web" },
+      pull_request: { number: 3 },
+    });
+    expect(kv.store.has("ghref:acme/web#3")).toBe(false);
+    expect(kv.store.has("ghref:pub:acme/web#3")).toBe(false);
   });
 });

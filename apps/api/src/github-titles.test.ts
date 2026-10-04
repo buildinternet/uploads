@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveTitles, type TitleAudience } from "./github-titles";
+import { bumpPublicTitleEpoch, resolveTitles, type TitleAudience } from "./github-titles";
 import { FakeKv } from "../test/fake-kv";
 import { GITHUB_APP_CFG_ENV as CFG_ENV } from "../test/github-app-env";
 
@@ -225,5 +225,98 @@ describe("resolveTitles (public audience)", () => {
     expect(seen).not.toContain("Bearer ghs_inst");
     expect(kv.store.has("ghref:pub:x/priv#1")).toBe(true);
     expect(kv.store.has("ghref:x/priv#1")).toBe(false);
+  });
+});
+
+describe("resolveTitles (public epoch, issue #1066)", () => {
+  const CACHED = { title: "Cached", state: "closed", kind: "pull" } as const;
+  const noFetch = (async () => {
+    throw new Error("must not fetch");
+  }) as typeof fetch;
+
+  it("serves an unstamped entry while the repo has no epoch (entries from before the epoch existed)", async () => {
+    const kv = new FakeKv();
+    kv.store.set("ghref:pub:o/r#9", { value: JSON.stringify({ v: CACHED }) });
+    const out = await resolveTitles(envWith(kv), ["o/r#9"], PUBLIC, noFetch);
+    expect(out["o/r#9"]).toEqual(CACHED);
+  });
+
+  it("treats unstamped and older-epoch entries as misses once the epoch is bumped", async () => {
+    const kv = new FakeKv();
+    seedHomeToken(kv);
+    kv.store.set("ghpriv:o/r", { value: "1" });
+    kv.store.set("ghref:pub:o/r#1", { value: JSON.stringify({ v: CACHED }) });
+    kv.store.set("ghref:pub:o/r#2", { value: JSON.stringify({ v: CACHED, e: "1" }) });
+    await bumpPublicTitleEpoch(envWith(kv), "o/r");
+    const out = await resolveTitles(envWith(kv), ["o/r#1", "o/r#2"], PUBLIC, noFetch);
+    expect(out).toEqual({ "o/r#1": null, "o/r#2": null });
+  });
+
+  it("stamps new entries with the current epoch so they are served on the next read", async () => {
+    const kv = new FakeKv();
+    seedHomeToken(kv);
+    kv.store.set("ghpubgen:o/r", { value: "42" });
+    let calls = 0;
+    const fetchImpl = (async (input: RequestInfo | URL) => {
+      calls++;
+      return String(input).includes("/issues/")
+        ? new Response(issueJson(), { status: 200 })
+        : Response.json({ private: false });
+    }) as typeof fetch;
+    await resolveTitles(envWith(kv), ["o/r#9"], PUBLIC, fetchImpl);
+    expect(JSON.parse(kv.store.get("ghref:pub:o/r#9")!.value)).toMatchObject({ e: "42" });
+    const callsAfterFirst = calls;
+    const again = await resolveTitles(envWith(kv), ["o/r#9"], PUBLIC, fetchImpl);
+    expect(again["o/r#9"]?.title).toBe("Fix the thing");
+    expect(calls).toBe(callsAfterFirst);
+  });
+
+  it("keeps the stored shape unchanged when the repo has no epoch", async () => {
+    const kv = new FakeKv();
+    seedHomeToken(kv);
+    kv.store.set("ghpriv:o/r", { value: "1" });
+    await resolveTitles(envWith(kv), ["o/r#9"], PUBLIC, noFetch);
+    expect(kv.store.get("ghref:pub:o/r#9")?.value).toBe(JSON.stringify({ v: null }));
+  });
+
+  it("gives the epoch a TTL that outlives every entry written before the bump", async () => {
+    const kv = new FakeKv();
+    await bumpPublicTitleEpoch(envWith(kv), "o/r");
+    expect(kv.store.get("ghpubgen:o/r")?.expirationTtl).toBeGreaterThan(86400);
+  });
+
+  it("reads the epoch once per repo per batch", async () => {
+    const kv = new FakeKv();
+    for (const n of [1, 2, 3]) {
+      kv.store.set(`ghref:pub:o/r#${n}`, { value: JSON.stringify({ v: CACHED }) });
+    }
+    const reads: string[] = [];
+    const get = kv.get.bind(kv);
+    kv.get = async (key: string, type?: Parameters<FakeKv["get"]>[1]) => {
+      reads.push(key);
+      return get(key, type);
+    };
+    await resolveTitles(envWith(kv), ["o/r#1", "o/r#2", "o/r#3"], PUBLIC, noFetch);
+    expect(reads.filter((k) => k === "ghpubgen:o/r")).toHaveLength(1);
+  });
+
+  it("fails closed when the epoch cannot be read", async () => {
+    const kv = new FakeKv();
+    kv.store.set("ghref:pub:o/r#9", { value: JSON.stringify({ v: CACHED }) });
+    const get = kv.get.bind(kv);
+    kv.get = async (key: string, type?: Parameters<FakeKv["get"]>[1]) => {
+      if (key.startsWith("ghpubgen:")) throw new Error("kv down");
+      return get(key, type);
+    };
+    const out = await resolveTitles(envWith(kv), ["o/r#9"], PUBLIC, noFetch);
+    expect(out["o/r#9"]).toBeNull();
+  });
+
+  it("does not affect the member ladder", async () => {
+    const kv = new FakeKv();
+    kv.store.set("ghref:o/r#9", { value: JSON.stringify({ v: CACHED }) });
+    await bumpPublicTitleEpoch(envWith(kv), "o/r");
+    const out = await resolveTitles(envWith(kv), ["o/r#9"], MEMBER, noFetch);
+    expect(out["o/r#9"]).toEqual(CACHED);
   });
 });

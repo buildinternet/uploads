@@ -144,8 +144,11 @@ _Subscribe to events_):
   updates and staged-file auto-promotion silently do nothing.
 - **Recommended — `issue_comment`.** Enables [self-healing comments](#self-healing); the App works
   fully without it.
+- **Recommended — `repository`.** When a repo is made private, its PR and issue titles stop showing
+  on public pages right away. Without it, those cached titles expire on their own within 24 hours.
 
-`uploads github doctor` checks the subscriptions directly and reports anything missing.
+`uploads github doctor` checks the `issues`, `pull_request`, and `issue_comment` subscriptions
+directly and reports anything missing.
 
 Branch-rename following for staged uploads (see
 [Attach artifacts to pull requests](/docs/attach-pull-request-images)) is done client-side by the CLI on purpose, so
