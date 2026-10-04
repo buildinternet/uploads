@@ -1,3 +1,4 @@
+import { FEED_ITEM_ID_RE } from "@uploads/comment-render/scope";
 import { applyPublicGalleryHeaders } from "./public-gallery";
 import { fileKind, isVideoDimensions, nullableHttpsUrl } from "./public-file";
 import { SSR_USER_AGENT } from "./ssr-fetch";
@@ -28,12 +29,46 @@ export interface PublicFeed {
   createdAt: string;
   updatedAt: string;
   items: PublicFeedItem[];
+  nextCursor?: string | null;
 }
 
 export type FeedFetchResult =
   | { status: "ok"; feed: PublicFeed }
   | { status: "not_found" }
   | { status: "unavailable" };
+
+export interface PublicFeedItemPage {
+  feed: {
+    id: string;
+    title: string;
+    repo: string;
+    number: number | null;
+    kind: "pull" | "issue" | null;
+  };
+  item: PublicFeedItem;
+  /** Neighbour item ids in newest-first order: `prev` is newer, `next` older. */
+  prev: string | null;
+  next: string | null;
+  index: number;
+  total: number;
+}
+
+export type FeedItemFetchResult =
+  | { status: "ok"; page: PublicFeedItemPage }
+  | { status: "not_found" }
+  | { status: "unavailable" };
+
+/** The API's pager scan cap (`scanScopeKeys`): `total` stops counting here. */
+export const PUBLIC_FEED_SCAN_CAP = 2000;
+
+/** Opaque API cursor: bounded, URL-safe-ish; anything else was never issued. */
+const FEED_CURSOR_RE = /^[A-Za-z0-9._~+/=-]{1,512}$/;
+
+interface PublicFetchOptions {
+  origin: string;
+  fetch?: typeof globalThis.fetch;
+  timeoutMs?: number;
+}
 
 export { applyPublicGalleryHeaders as applyPublicFeedHeaders };
 
@@ -90,7 +125,11 @@ export function feedPageCopy(feed: Pick<PublicFeed, "repo" | "number" | "kind">)
     scopeLabel: scoped ? `${feed.repo}#${feed.number}` : feed.repo,
     scopeNoun: feed.kind === "issue" ? "issue" : scoped ? "pull request" : "repo",
     eyebrow:
-      feed.kind === "issue" ? "Issue feed" : scoped ? "Pull request feed" : "Repo change feed",
+      feed.kind === "issue"
+        ? "Live link · issue"
+        : scoped
+          ? "Live link · pull request"
+          : "Live link · repo",
   };
 }
 
@@ -119,47 +158,79 @@ export function isPublicFeed(value: unknown): value is PublicFeed {
     !text(feed.updatedAt, 64) ||
     !Number.isFinite(Date.parse(feed.updatedAt)) ||
     !Array.isArray(feed.items) ||
-    feed.items.length > 100
+    feed.items.length > 100 ||
+    !(
+      feed.nextCursor === undefined ||
+      feed.nextCursor === null ||
+      (typeof feed.nextCursor === "string" && FEED_CURSOR_RE.test(feed.nextCursor))
+    )
   )
     return false;
 
-  return feed.items.every((entry) => {
-    if (typeof entry !== "object" || entry === null) return false;
-    const item = entry as Record<string, unknown>;
-    const sizeOk =
-      item.size === undefined ||
-      item.size === null ||
-      (Number.isSafeInteger(item.size) && (item.size as number) >= 0);
-    const posterUrlOk = item.posterUrl === undefined || nullableHttpsUrl(item.posterUrl);
-    const videoDimensionsOk =
-      item.videoDimensions === undefined || isVideoDimensions(item.videoDimensions);
-    return (
-      posterUrlOk &&
-      videoDimensionsOk &&
-      text(item.id, 64) &&
-      text(item.filename, 1024) &&
-      (item.status === "available" || item.status === "missing" || item.status === "withheld") &&
-      nullableHttpsUrl(item.url) &&
-      nullableHttpsUrl(item.embedUrl) &&
-      nullableText(item.contentType, 128) &&
-      nullableText(item.path, 512) &&
-      nullableText(item.state, 64) &&
-      sizeOk &&
-      optionalIsoDate(item.uploaded) &&
-      optionalIsoDate(item.modified) &&
-      (item.status === "missing" || item.status === "withheld"
-        ? item.url === null
-        : item.url !== null)
-    );
-  });
+  return feed.items.every(isPublicFeedItem);
 }
 
-export async function fetchPublicFeed(
-  id: string,
-  options: { origin: string; fetch?: typeof globalThis.fetch; timeoutMs?: number },
-): Promise<FeedFetchResult> {
-  if (!FEED_ID_RE.test(id)) return { status: "not_found" };
+export function isPublicFeedItem(entry: unknown): entry is PublicFeedItem {
+  if (typeof entry !== "object" || entry === null) return false;
+  const item = entry as Record<string, unknown>;
+  const sizeOk =
+    item.size === undefined ||
+    item.size === null ||
+    (Number.isSafeInteger(item.size) && (item.size as number) >= 0);
+  const posterUrlOk = item.posterUrl === undefined || nullableHttpsUrl(item.posterUrl);
+  const videoDimensionsOk =
+    item.videoDimensions === undefined || isVideoDimensions(item.videoDimensions);
+  return (
+    posterUrlOk &&
+    videoDimensionsOk &&
+    text(item.id, 64) &&
+    text(item.filename, 1024) &&
+    (item.status === "available" || item.status === "missing" || item.status === "withheld") &&
+    nullableHttpsUrl(item.url) &&
+    nullableHttpsUrl(item.embedUrl) &&
+    nullableText(item.contentType, 128) &&
+    nullableText(item.path, 512) &&
+    nullableText(item.state, 64) &&
+    sizeOk &&
+    optionalIsoDate(item.uploaded) &&
+    optionalIsoDate(item.modified) &&
+    (item.status === "missing" || item.status === "withheld"
+      ? item.url === null
+      : item.url !== null)
+  );
+}
 
+export function isPublicFeedItemPage(value: unknown): value is PublicFeedItemPage {
+  if (typeof value !== "object" || value === null) return false;
+  const page = value as Record<string, unknown>;
+  if (typeof page.feed !== "object" || page.feed === null) return false;
+  const feed = page.feed as Record<string, unknown>;
+  const neighbour = (id: unknown) =>
+    id === null || (typeof id === "string" && FEED_ITEM_ID_RE.test(id));
+  return (
+    text(feed.id, 64) &&
+    FEED_ID_RE.test(feed.id) &&
+    text(feed.title, 800) &&
+    text(feed.repo, 200) &&
+    (feed.number === null || (Number.isSafeInteger(feed.number) && (feed.number as number) >= 1)) &&
+    (feed.kind === null || feed.kind === "pull" || feed.kind === "issue") &&
+    isPublicFeedItem(page.item) &&
+    neighbour(page.prev) &&
+    neighbour(page.next) &&
+    Number.isSafeInteger(page.index) &&
+    Number.isSafeInteger(page.total) &&
+    (page.index as number) >= 0 &&
+    (page.index as number) < (page.total as number)
+  );
+}
+
+type PublicJson =
+  | { status: "ok"; value: unknown }
+  | { status: "not_found" }
+  | { status: "bad_request" }
+  | { status: "unavailable" };
+
+async function fetchPublicJson(path: string, options: PublicFetchOptions): Promise<PublicJson> {
   let origin: URL;
   try {
     origin = new URL(options.origin);
@@ -176,8 +247,7 @@ export async function fetchPublicFeed(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? 4000);
   try {
-    const endpoint = new URL("/public/feeds/" + encodeURIComponent(id), origin);
-    const response = await (options.fetch ?? globalThis.fetch)(endpoint, {
+    const response = await (options.fetch ?? globalThis.fetch)(new URL(path, origin), {
       signal: controller.signal,
       headers: { Accept: "application/json", "User-Agent": SSR_USER_AGENT },
       cache: "no-store",
@@ -185,12 +255,46 @@ export async function fetchPublicFeed(
       referrerPolicy: "no-referrer",
     });
     if (response.status === 404) return { status: "not_found" };
+    if (response.status === 400) return { status: "bad_request" };
     if (!response.ok) return { status: "unavailable" };
-    const value: unknown = await response.json();
-    return isPublicFeed(value) ? { status: "ok", feed: value } : { status: "unavailable" };
+    return { status: "ok", value: (await response.json()) as unknown };
   } catch {
     return { status: "unavailable" };
   } finally {
     clearTimeout(timer);
   }
+}
+
+export async function fetchPublicFeed(
+  id: string,
+  options: PublicFetchOptions & { cursor?: string },
+): Promise<FeedFetchResult> {
+  if (!FEED_ID_RE.test(id)) return { status: "not_found" };
+  // A cursor the API never issued reads as a missing page; /c/ then falls
+  // back to the newest page instead of an error.
+  if (options.cursor !== undefined && !FEED_CURSOR_RE.test(options.cursor))
+    return { status: "not_found" };
+  const query = options.cursor ? `?cursor=${encodeURIComponent(options.cursor)}` : "";
+  const res = await fetchPublicJson(`/public/feeds/${encodeURIComponent(id)}${query}`, options);
+  if (res.status === "bad_request")
+    return options.cursor ? { status: "not_found" } : { status: "unavailable" };
+  if (res.status !== "ok") return res;
+  return isPublicFeed(res.value) ? { status: "ok", feed: res.value } : { status: "unavailable" };
+}
+
+export async function fetchPublicFeedItem(
+  id: string,
+  itemId: string,
+  options: PublicFetchOptions,
+): Promise<FeedItemFetchResult> {
+  if (!FEED_ID_RE.test(id) || !FEED_ITEM_ID_RE.test(itemId)) return { status: "not_found" };
+  const res = await fetchPublicJson(
+    `/public/feeds/${encodeURIComponent(id)}/items/${encodeURIComponent(itemId)}`,
+    options,
+  );
+  if (res.status === "bad_request") return { status: "not_found" };
+  if (res.status !== "ok") return res;
+  return isPublicFeedItemPage(res.value)
+    ? { status: "ok", page: res.value }
+    : { status: "unavailable" };
 }

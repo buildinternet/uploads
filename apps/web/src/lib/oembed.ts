@@ -11,6 +11,7 @@
 import { fetchPublicFile, fileKind, filePath, isSafeKey } from "./public-file";
 import {
   fetchPublicFeed,
+  fetchPublicFeedItem,
   feedItemPath,
   feedPath,
   mediaKind as feedMediaKind,
@@ -336,22 +337,26 @@ async function resolveTarget(target: ShareTarget, options: OEmbedRequest): Promi
     };
   }
 
-  if (target.kind === "feed" || target.kind === "feed-item") {
+  if (target.kind === "feed") {
     const feedResult = await fetchPublicFeed(target.id, api);
     if (feedResult.status !== "ok") return fromFetchFailure(feedResult.status);
     const feed = feedResult.feed;
-    if (target.kind === "feed") {
-      return {
-        status: "ok",
-        body: {
-          ...provider(feed.title),
-          type: "link",
-          ...feedCoverThumbnail(feed, maxwidth, maxheight),
-        },
-      };
-    }
-    const item = feed.items.find((entry) => entry.id === target.itemId);
-    if (!item) return { status: "not_found" };
+    return {
+      status: "ok",
+      body: {
+        ...provider(feed.title),
+        type: "link",
+        ...feedCoverThumbnail(feed, maxwidth, maxheight),
+      },
+    };
+  }
+
+  if (target.kind === "feed-item") {
+    // The item endpoint scans the whole scope, so an item older than the
+    // newest 50 still unfurls.
+    const itemResult = await fetchPublicFeedItem(target.id, target.itemId, api);
+    if (itemResult.status !== "ok") return fromFetchFailure(itemResult.status);
+    const item = itemResult.page.item;
     const kind = feedMediaKind(item);
     if (kind === "missing" || !item.url) {
       return { status: "ok", body: { ...provider(item.filename), type: "link" } };
