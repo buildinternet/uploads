@@ -31,6 +31,7 @@ import {
 } from "./config.js";
 import { buildUploadMarkdown, fileKindFromName } from "./embed.js";
 import { readLocalRepoCommentConfig, resolveCommentOptions } from "./comment-config.js";
+import { applyLocalFeedLinks } from "./comment-live-link.js";
 import { urlForGithubEmbed } from "./public-urls.js";
 import { UploadsError } from "./errors.js";
 import { fetchUploadSource, resolveUploadFilename } from "./fetch-upload-source.js";
@@ -922,9 +923,10 @@ export async function syncAttachmentsComment(
   // Note (issues #304, #365): this CLI process has no server-side
   // WorkspaceRecord in scope, so it cannot honor a workspace's
   // githubCommentLinkToFilePage=false or githubCommentShowMetadata=false — it
-  // always links to the file page and always shows metadata here, matching the
-  // defaults. This only diverges from the bot-posted comment for a workspace
-  // that both sets one of those flags false and falls through to this path.
+  // resolves only the committed .uploads.yml against defaults. Item links use
+  // the listing's /f/ page, upgraded to the live link item page for in-scope
+  // items below (parity with the bot's applyPrFeedPageUrls), or the raw URL
+  // when .uploads.yml sets linkToFilePage: false (the bot's rule).
   //
   // Also list every active private prefix for this repo (issue #631): a
   // private repo's attachments can live under a randomized prefix instead of
@@ -938,9 +940,13 @@ export async function syncAttachmentsComment(
   const prefixes = ghListPrefixes(ghKeyPrefix(target), ghPrefix, (id) =>
     ghPrivateKeyPrefix(id, target),
   );
+  const metadataByKey = new Map<string, Record<string, string>>();
   const items: AttachmentItem[] = await ghMergedList(prefixes, undefined, async (prefix) =>
     (await client.listAll({ prefix, metadata: true })).map(
       ({ key, url, embedUrl, pageUrl, size, metadata }) => {
+        // Full metadata feeds the live link scope check; the rendered item
+        // carries only the narrowed fields below.
+        if (metadata) metadataByKey.set(key, metadata);
         // The list endpoint returns every metadata key; the comment
         // renders only these two. Narrowing here keeps both render paths
         // byte-identical.
@@ -1022,6 +1028,7 @@ export async function syncAttachmentsComment(
   // resolveRepoCommentOptions, which also layers the workspace's own
   // githubComment* fields).
   let renderOptions: CommentRenderOptions = AUTO_RENDER_OPTIONS;
+  let linkToFilePage = true;
   try {
     const root = run("git", ["rev-parse", "--show-toplevel"]).trim();
     const { config } = readLocalRepoCommentConfig(root);
@@ -1033,12 +1040,21 @@ export async function syncAttachmentsComment(
       metaState: options.metaState,
       note: options.note,
     };
+    linkToFilePage = options.linkToFilePage;
   } catch {
     // Not a git repo, or the config file couldn't be read — fall back to auto.
   }
+  // linkToFilePage: false links raw object URLs, as the bot does.
+  if (!linkToFilePage) for (const item of items) item.pageUrl = null;
+  // Live link (spec "PR comment links to the live link"): same idempotent
+  // create, same scope predicate, same header line as the bot. Null on any
+  // failure, which renders today's comment.
+  const liveLinkUrl = linkToFilePage
+    ? await applyLocalFeedLinks(client, target, items, metadataByKey)
+    : null;
   // Append only on the local-gh path: bot posts already carry the uploads-sh
   // bot identity, so this note would be wrong there.
-  const body = `${attachmentsCommentBody(items, previewGalleries, marker, renderOptions, target)}\n${GH_FALLBACK_AUTHOR_NOTE}`;
+  const body = `${attachmentsCommentBody(items, previewGalleries, marker, renderOptions, target, { liveLinkUrl })}\n${GH_FALLBACK_AUTHOR_NOTE}`;
   const count = items.length + previewGalleries.length;
   // Noise guard (issue #708, mirrors the bot's `shouldSyncAfterAdopt`): a
   // lone adopted link with nothing else already attached is already fully

@@ -10,6 +10,7 @@ import {
   syncAttachmentsComment,
   type CliContext,
 } from "../src/commands.js";
+import { feedItemIdFor } from "../src/comment-render-scope.generated.js";
 import { ATTACHMENTS_MARKER, attachmentsMarker, GH_FALLBACK_AUTHOR_NOTE } from "../src/github.js";
 import type { CommandRunner } from "../src/github-gh.js";
 
@@ -719,5 +720,107 @@ describe("syncAttachmentsComment", () => {
       expect(posted.match(/<img/g)?.length).toBe(1);
       expect(posted).toContain("<details>");
     });
+  });
+});
+
+describe("syncAttachmentsComment gh fallback live link", () => {
+  const target = { repo: "o/r", kind: "pull" as const, num: 5 };
+  const key = "gh/o/r/pull/5/after.png";
+  const movedKey = "gh/o/r/pull/5/moved.png";
+  const feed = {
+    id: "feed_abcdefghijklmnopqrstuv",
+    url: "https://x.test/c/feed_abcdefghijklmnopqrstuv",
+    workspace: "test",
+    repo: "o/r",
+    path: null,
+    number: 5,
+    kind: "pull",
+    title: "o/r#5",
+    createdAt: "2026-10-04T12:00:00.000Z",
+    updatedAt: "2026-10-04T12:00:00.000Z",
+    items: [],
+  };
+
+  function taggedClient(createFeed: unknown): UploadsClient {
+    return fakeClient({
+      listAll: (async () => [
+        {
+          key,
+          url: `https://x.test/${key}`,
+          embedUrl: null,
+          pageUrl: `https://x.test/f/test/${key}`,
+          metadata: { "gh.repo": "o/r", "gh.number": "5" },
+        },
+        {
+          key: movedKey,
+          url: `https://x.test/${movedKey}`,
+          embedUrl: null,
+          pageUrl: `https://x.test/f/test/${movedKey}`,
+          metadata: { "gh.repo": "o/r", "gh.number": "6" },
+        },
+      ]) as unknown as UploadsClient["listAll"],
+      createFeed: createFeed as UploadsClient["createFeed"],
+    });
+  }
+
+  function created(calls: { args: string[]; input?: string }[]): string {
+    const create = calls.find((c) => c.args.includes("repos/o/r/issues/5/comments"));
+    expect(create).toBeDefined();
+    return create!.input ?? "";
+  }
+
+  it("adds the live link line and links in-scope items to their live link page", async () => {
+    const { run, calls } = ghRunner();
+    const createFeed = vi.fn(async () => feed);
+    const result = await syncAttachmentsComment(taggedClient(createFeed), target, run, "test");
+    expect(result.via).toBe("gh");
+    const body = created(calls);
+    expect(body).toContain(`\n2 files · <a href="${feed.url}">View all on uploads.sh →</a>\n`);
+    expect(body).toContain(`${feed.url}/${await feedItemIdFor(key)}`);
+    expect(body).toContain(`https://x.test/f/test/${movedKey}`);
+    expect(createFeed).toHaveBeenCalledWith({ repo: "o/r", pr: 5 });
+  });
+
+  it("renders today's comment when the live link cannot be created", async () => {
+    const { run, calls } = ghRunner();
+    const createFeed = vi.fn(async () => {
+      throw new Error("Feed create failed.");
+    });
+    await syncAttachmentsComment(taggedClient(createFeed), target, run, "test");
+    const body = created(calls);
+    expect(body).not.toContain("View all on uploads.sh");
+    expect(body).toContain(`https://x.test/f/test/${key}`);
+  });
+
+  it("skips the live link for a client without createFeed", async () => {
+    const { run, calls } = ghRunner();
+    const client = listClient([{ key, url: `https://x.test/${key}` }]);
+    await syncAttachmentsComment(client, target, run, "test");
+    expect(created(calls)).not.toContain("View all on uploads.sh");
+  });
+
+  it("honors linkToFilePage: false from .uploads.yml like the bot (raw links, no line, no create)", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "uploads-commands-comment-live-"));
+    try {
+      fs.writeFileSync(path.join(root, ".uploads.yml"), "comment:\n  linkToFilePage: false\n");
+      let posted = "";
+      const run: CommandRunner = (cmd, args, input) => {
+        if (cmd === "git" && args[0] === "rev-parse" && args.includes("--show-toplevel")) {
+          return `${root}\n`;
+        }
+        if (cmd !== "gh") throw new Error(`unexpected command: ${cmd}`);
+        if (args[1]?.includes("per_page=100")) return "[]";
+        if (input) posted = input;
+        return JSON.stringify({ id: 9 });
+      };
+      const createFeed = vi.fn(async () => feed);
+      await syncAttachmentsComment(taggedClient(createFeed), target, run, "test");
+      expect(createFeed).not.toHaveBeenCalled();
+      expect(posted).not.toContain("View all on uploads.sh");
+      expect(posted).not.toContain("/f/test/");
+      expect(posted).toContain(`https://x.test/${key}`);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 });

@@ -351,6 +351,15 @@ describe("feed routes", () => {
     expect(await publicFeed.json()).not.toHaveProperty("source");
   });
 
+  it("ignores a client-sent source: bearer-created feeds are user feeds", async () => {
+    const res = await request("/v1/workspaces/alpha/feeds", {
+      method: "POST",
+      body: JSON.stringify({ repo: "acme/app", pr: 3, source: "comment" }),
+    });
+    expect(res.status).toBe(201);
+    expect(((await res.json()) as { source: string | null }).source).toBe("user");
+  });
+
   it("creates 60 PR-scoped feeds over the API and caps only repo-scoped feeds at 50", async () => {
     for (let n = 1; n <= 60; n++) {
       const created = await request("/v1/workspaces/alpha/feeds", {
