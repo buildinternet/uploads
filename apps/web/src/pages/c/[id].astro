@@ -3,6 +3,7 @@ import BaseHead from "../../components/BaseHead.astro";
 import Brand from "../../components/Brand.astro";
 import Footer from "../../components/Footer.astro";
 import MediaFallback from "../../components/MediaFallback.astro";
+import PrLabel from "../../components/PrLabel.astro";
 import { mediaPreviewFailedBody, MEDIA_PREVIEW_FAILED_TITLE } from "../../lib/media-load";
 import { mediaTileView } from "../../lib/media-tile";
 import {
@@ -252,7 +253,19 @@ function itemDate(item: PublicFeedItem): string | null {
           <>
             <header>
               <div class="eyebrow">{page?.eyebrow}</div>
-              <h1>{feed.title}</h1>
+              <h1>
+                {feed.number != null ? (
+                  <PrLabel
+                    ghRef={`${feed.repo}#${feed.number}`}
+                    title={feed.github?.title ?? null}
+                    state={feed.github?.state ?? null}
+                    kind={feed.kind === "issue" ? "issue" : "pull"}
+                    size="lg"
+                  />
+                ) : (
+                  feed.title
+                )}
+              </h1>
               <div class="meta">
                 <span>newest first</span>
                 {cursor && <span>older files</span>}

@@ -4,6 +4,9 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { app } from "../src/index";
 import { sha256Hex, type WorkspaceRecord } from "../src/workspace";
 import { FakeR2Bucket } from "./fake-r2";
+import { FakeKv } from "./fake-kv";
+import { GITHUB_APP_CFG_ENV } from "./github-app-env";
+import { withGlobalFetch } from "./helpers/github-fetch-fakes";
 import { SqliteD1, database } from "./helpers/sqlite-d1";
 import { replaceFileMetadata } from "../src/file-metadata";
 import type { PublicFeedItemPage } from "../src/scope-wire";
@@ -299,8 +302,67 @@ describe("feed routes", () => {
     };
     expect(body).toMatchObject({ title: "acme/app#1", number: 1, kind: "pull" });
     expect(body).not.toHaveProperty("workspace");
+    // No GitHub App configured in this env: the field is present, values null.
+    expect((body as unknown as { github: unknown }).github).toEqual({ title: null, state: null });
     expect(body.items.map((item) => item.filename)).toEqual(["one.png"]);
     expect(body.items[0]).not.toHaveProperty("objectKey");
+  });
+
+  describe("public PR label", () => {
+    async function prFeedWithApp(repo: string, fetchImpl: typeof fetch) {
+      const kv = new FakeKv();
+      kv.store.set("ghtok:777", { value: "ghs_home" });
+      // A member-audience entry the public page must never read.
+      kv.store.set(`ghref:${repo}#1`, {
+        value: JSON.stringify({ v: { title: "Member-only title", state: "open", kind: "pull" } }),
+      });
+      Object.assign(env as object, { GITHUB_CACHE: kv, ...GITHUB_APP_CFG_ENV });
+      await putShot("alpha", `gh/${repo}/pull/1/one.png`, {
+        "gh.repo": repo,
+        "gh.number": "1",
+        "gh.kind": "pull",
+        "gh.title": "Stamped title",
+      });
+      const created = await request("/v1/workspaces/alpha/feeds", {
+        method: "POST",
+        body: JSON.stringify({ repo, pr: 1 }),
+      });
+      const { id } = (await created.json()) as { id: string };
+      const res = await withGlobalFetch(fetchImpl, async () =>
+        app.request(`/public/feeds/${id}`, {}, env),
+      );
+      expect(res.status).toBe(200);
+      return res.text();
+    }
+
+    it("never returns a private repo's title, member-cached title, or stamped title", async () => {
+      const text = await prFeedWithApp("acme/secret", (async (input: RequestInfo | URL) =>
+        String(input).includes("/issues/")
+          ? Response.json({ title: "Secret roadmap", state: "open" })
+          : Response.json({ private: true })) as typeof fetch);
+      expect((JSON.parse(text) as { github: unknown }).github).toEqual({
+        title: null,
+        state: null,
+      });
+      expect(text).not.toContain("Secret roadmap");
+      expect(text).not.toContain("Member-only title");
+      expect(text).not.toContain("Stamped title");
+    });
+
+    it("returns the live title and state for a verified-public repo", async () => {
+      const text = await prFeedWithApp("acme/open", (async (input: RequestInfo | URL) =>
+        String(input).includes("/issues/")
+          ? Response.json({
+              title: "Fix nav",
+              state: "closed",
+              pull_request: { merged_at: "2026-10-01T00:00:00Z" },
+            })
+          : Response.json({ private: false })) as typeof fetch);
+      expect((JSON.parse(text) as { github: unknown }).github).toEqual({
+        title: "Fix nav",
+        state: "merged",
+      });
+    });
   });
 
   it("creates a distinct feed URL per repo in one workspace and reuses the same repo", async () => {
@@ -329,6 +391,9 @@ describe("feed routes", () => {
     });
     expect(again.status).toBe(200);
     expect(((await again.json()) as { id: string; url: string }).url).toBe(uploads.url);
+
+    const repoPublic = await app.request(`/public/feeds/${uploads.id}`, {}, env);
+    expect(((await repoPublic.json()) as { github: unknown }).github).toBeNull();
   });
 
   it("reports who created each feed on the owner DTOs and ignores a client-sent source", async () => {

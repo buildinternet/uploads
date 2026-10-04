@@ -30,6 +30,8 @@ export interface PublicFeed {
   updatedAt: string;
   items: PublicFeedItem[];
   nextCursor?: string | null;
+  /** Public-audience PR/issue label; null for a repo-wide live link. */
+  github?: { title: string | null; state: "open" | "closed" | "merged" | null } | null;
 }
 
 export type FeedFetchResult =
@@ -159,6 +161,15 @@ export function isPublicFeed(value: unknown): value is PublicFeed {
     !Number.isFinite(Date.parse(feed.updatedAt)) ||
     !Array.isArray(feed.items) ||
     feed.items.length > 100 ||
+    !(
+      feed.github === undefined ||
+      feed.github === null ||
+      (typeof feed.github === "object" &&
+        nullableText((feed.github as Record<string, unknown>).title, 800) &&
+        [null, "open", "closed", "merged"].includes(
+          (feed.github as Record<string, unknown>).state as string | null,
+        ))
+    ) ||
     !(
       feed.nextCursor === undefined ||
       feed.nextCursor === null ||

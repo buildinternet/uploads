@@ -85,6 +85,14 @@ describe("public feed headers", () => {
 });
 
 describe("public feed API", () => {
+  it("accepts a bounded github label and rejects a spoofed one", () => {
+    expect(isPublicFeed({ ...feed, github: null })).toBe(true);
+    expect(isPublicFeed({ ...feed, github: { title: "Fix nav", state: "open" } })).toBe(true);
+    expect(isPublicFeed({ ...feed, github: { title: null, state: null } })).toBe(true);
+    expect(isPublicFeed({ ...feed, github: { title: "x\u202ey", state: "open" } })).toBe(false);
+    expect(isPublicFeed({ ...feed, github: { title: "ok", state: "draft" } })).toBe(false);
+  });
+
   it("accepts the bounded public DTO", () => {
     expect(isPublicFeed(feed)).toBe(true);
     expect(
