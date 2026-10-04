@@ -23,7 +23,9 @@ describe("renderConnectedWorkHtml", () => {
   it("renders a pull-request row with the label link and a kind icon (no subtitle)", () => {
     const html = renderConnectedWorkHtml([ghItem()]);
     expect(html).toContain('href="https://github.com/buildinternet/uploads/pull/1789"');
-    expect(html).toContain(">buildinternet/uploads#1789<");
+    expect(html).toContain('<span class="pr-label__text">buildinternet/uploads #1789</span>');
+    expect(html).toContain('class="pr-label pr-label--md"');
+    expect(html).toContain('target="_blank" rel="noopener noreferrer"');
     expect(html).toContain("ws-rail__connected-item");
     // The octicon carries the kind (title/aria-label); no repeated word subtitle.
     expect(html).not.toContain("ws-rail__connected-sub");
@@ -64,6 +66,12 @@ describe("renderConnectedWorkHtml", () => {
     expect(pullIconPath).not.toBe(issueIconPath);
   });
 
+  it("renders the resolved title and a state dot", () => {
+    const html = renderConnectedWorkHtml([ghItem({ title: "Fix nav", state: "merged" })]);
+    expect(html).toContain('data-state="merged"');
+    expect(html).toContain('<span class="pr-label__text">#1789 Fix nav</span>');
+  });
+
   it("renders one row per item, in order", () => {
     const html = renderConnectedWorkHtml([
       ghItem(),
@@ -83,7 +91,7 @@ describe("renderConnectedWorkHtml", () => {
   it("escapes interpolated label/url/kindLabel", () => {
     const html = renderConnectedWorkHtml([
       ghItem({
-        label: '<script>alert("x")</script>',
+        title: '<script>alert("x")</script>',
         url: 'https://github.com/x/y"><script>alert(1)</script>',
         kindLabel: "pull request",
       }),
@@ -148,6 +156,14 @@ describe("renderDetailsHtml", () => {
 });
 
 describe("planTitleRepaint", () => {
+  it("repaints when only the live state changes", () => {
+    const items = [ghItem({ title: "Same", label: "Same", state: "open" })];
+    const out = planTitleRepaint(items, {
+      "buildinternet/uploads#1789": { title: "Same", state: "merged", kind: "pull" },
+    });
+    expect(out?.[0].state).toBe("merged");
+  });
+
   it("returns relabeled items when any fetched title changes a label", () => {
     const items = [ghItem()];
     const out = planTitleRepaint(items, {
@@ -157,7 +173,7 @@ describe("planTitleRepaint", () => {
   });
 
   it("returns null when nothing changed or the fetch failed", () => {
-    const items = [ghItem()];
+    const items = [ghItem({ state: "open" })];
     expect(planTitleRepaint(items, null)).toBeNull();
     expect(planTitleRepaint(items, {})).toBeNull();
     expect(
