@@ -11,6 +11,7 @@ import {
 } from "@uploads/errors";
 import { publicObjectDateFields } from "./files-core";
 import { getMetadataForKeys } from "./file-metadata";
+import { prScopeQuery, type ScopeItem } from "./pr-scope";
 import {
   FEED_ID_RE,
   FEED_ITEM_LIMIT,
@@ -196,57 +197,24 @@ export function feedItemFilename(objectKey: string): string {
 }
 
 /**
- * Newest-first objects tagged `gh.repo=<repo>`, optionally also `gh.number`
- * and `path`. Drops promoted branch shadows so a promoted shot is not listed
- * twice. Does not require `gh.merged` — merge signal is out of scope for v1.
- * Kind is display-only; GitHub numbers are unique per repo.
+ * The newest (at most `FEED_ITEM_LIMIT`) items in a feed's scope. Thin
+ * wrapper over the shared scope query (`pr-scope.ts`), kept for the comment
+ * sync and owner-feed call sites.
  */
 export async function findLatestRepoScreenshots(
   db: D1Queryable,
   workspace: string,
   opts: { repo: string; path?: string; number?: number; limit?: number },
-): Promise<Array<{ key: string; updatedAt: string; metadata: Record<string, string> }>> {
+): Promise<ScopeItem[]> {
   const limit = Math.max(1, Math.min(opts.limit ?? FEED_ITEM_LIMIT, FEED_ITEM_LIMIT));
-  const params: unknown[] = [workspace, opts.repo];
-  let sql = `SELECT r.object_key AS object_key, r.updated_at AS updated_at
-             FROM file_metadata r
-             WHERE r.workspace = ? AND r.meta_key = 'gh.repo' AND r.meta_value = ?
-               AND NOT EXISTS (
-                 SELECT 1 FROM file_metadata s
-                 WHERE s.workspace = r.workspace AND s.object_key = r.object_key
-                   AND s.meta_key = 'gh.status' AND s.meta_value = 'promoted'
-               )`;
-  if (opts.number) {
-    sql += ` AND EXISTS (
-               SELECT 1 FROM file_metadata n
-               WHERE n.workspace = r.workspace AND n.object_key = r.object_key
-                 AND n.meta_key = 'gh.number' AND n.meta_value = ?
-             )`;
-    params.push(String(opts.number));
-  }
-  if (opts.path) {
-    sql += ` AND EXISTS (
-               SELECT 1 FROM file_metadata p
-               WHERE p.workspace = r.workspace AND p.object_key = r.object_key
-                 AND p.meta_key = 'path' AND p.meta_value = ?
-             )`;
-    params.push(opts.path);
-  }
-  sql += ` ORDER BY r.updated_at DESC, r.object_key ASC LIMIT ?`;
-  params.push(limit);
-
-  const matched = await db
-    .prepare(sql)
-    .bind(...params)
-    .all<{ object_key: string; updated_at: string }>();
-  const keys = matched.results.map((row) => row.object_key);
-  if (keys.length === 0) return [];
-  const byKey = await getMetadataForKeys(db, workspace, keys);
-  return matched.results.map((row) => ({
-    key: row.object_key,
-    updatedAt: row.updated_at,
-    metadata: byKey.get(row.object_key) ?? {},
-  }));
+  const page = await prScopeQuery(db, {
+    workspace,
+    repo: opts.repo,
+    ...(opts.number ? { number: opts.number } : {}),
+    ...(opts.path ? { path: opts.path } : {}),
+    limit,
+  });
+  return page.items;
 }
 
 async function mapBounded<T, R>(
