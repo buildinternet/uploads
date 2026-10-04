@@ -82,6 +82,8 @@ import {
   shotKindFromKey,
   shotPreviewCaption,
   shotPrLabelInput,
+  previewPrDisplay,
+  ghKindFallbackLabel,
   shotPreviewPosition,
   writeScreenshotsLocation,
   type ScreenshotsFeed,
@@ -1115,10 +1117,7 @@ function ScreenshotsByPathInner({
       onMerged={setMerged}
     />
   ) : null;
-  const previewLabel =
-    preview?.pr && preview.ref
-      ? shotPrLabelInput({ ghRef: preview.ref, ghKind: preview.kind }, titles)
-      : null;
+  const previewPr = preview ? previewPrDisplay(preview, titles) : null;
   const previewLayer = preview ? (
     <div
       className="wsp-preview"
@@ -1131,9 +1130,10 @@ function ScreenshotsByPathInner({
       <img src={preview.src} alt="" onLoad={positionPreview} />
       <div className="wsp-preview__meta">
         <div className="wsp-preview__name">{preview.name}</div>
-        {previewLabel && (
+        {previewPr && (
           <div className="wsp-preview__pr">
-            <GhKindIcon kind={preview.kind} /> <PrLabel size="sm" {...previewLabel} />
+            <GhKindIcon kind={preview.kind} />{" "}
+            {"label" in previewPr ? <PrLabel size="sm" {...previewPr.label} /> : previewPr.text}
           </div>
         )}
         {preview.uploadedAt && (
@@ -1562,7 +1562,11 @@ function GitHubSection({
               contextLabel={
                 <>
                   <GhKindIcon kind={item.metadata["gh.kind"]} />{" "}
-                  {prLabel ? <PrLabel size="sm" compact {...prLabel} /> : "GitHub"}
+                  {prLabel ? (
+                    <PrLabel size="sm" compact {...prLabel} />
+                  ) : (
+                    ghKindFallbackLabel(item.metadata["gh.kind"])
+                  )}
                   {author ? ` · ${author}` : ""}
                 </>
               }

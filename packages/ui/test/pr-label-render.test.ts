@@ -53,6 +53,8 @@ describe("PrLabel", () => {
     expect(html).toContain('target="_blank"');
     expect(html).toContain('rel="noopener noreferrer"');
     expect(html).toContain('aria-label="Pull request #12 in acme/web: Fix (open)"');
+    // Important modifier: beats the app's unlayered global `a` underline.
+    expect(html).toContain("no-underline!");
     expect(html).not.toContain("sr-only");
   });
 
