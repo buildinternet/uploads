@@ -4,7 +4,9 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { app } from "../src/index";
 import { sha256Hex, type WorkspaceRecord } from "../src/workspace";
 import { FakeR2Bucket } from "./fake-r2";
-import { SqliteD1 } from "./helpers/sqlite-d1";
+import { SqliteD1, database } from "./helpers/sqlite-d1";
+import { replaceFileMetadata } from "../src/file-metadata";
+import type { PublicFeedItemPage } from "../src/scope-wire";
 
 const TOKEN = "feed-token";
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
@@ -378,5 +380,150 @@ describe("feed routes", () => {
       body: JSON.stringify({ repo: "acme/web", pr: 61 }),
     });
     expect(next.status).toBe(201);
+  });
+});
+
+/** Seed one object straight into R2 + D1, pinned to `updatedAt`. */
+async function seedFeedObject(
+  key: string,
+  meta: Record<string, string>,
+  updatedAt: string,
+  opts: { private?: boolean } = {},
+) {
+  await bucket.put(`alpha/${key}`, PNG, {
+    httpMetadata: { contentType: "image/png" },
+    ...(opts.private ? { customMetadata: { visibility: "private" } } : {}),
+  });
+  await replaceFileMetadata(database(sqlite), "alpha", key, meta);
+  sqlite.db
+    .prepare(`UPDATE file_metadata SET updated_at = ? WHERE workspace = ? AND object_key = ?`)
+    .run(updatedAt, "alpha", key);
+}
+
+const shotKey = (i: number) => `gh/acme/app/pull/7/shot-${String(i).padStart(2, "0")}.png`;
+const minutesBefore = (i: number) => new Date(Date.UTC(2026, 9, 1) - i * 60_000).toISOString();
+const itemIdFor = async (key: string) => (await sha256Hex(key)).slice(0, 32);
+
+/** `count` PR #7 shots; index 0 is newest. */
+async function seedPr7(count: number, privateIndex?: number) {
+  for (let i = 0; i < count; i++) {
+    await seedFeedObject(
+      shotKey(i),
+      { "gh.repo": "acme/app", "gh.number": "7", "gh.kind": "pull" },
+      minutesBefore(i),
+      { private: i === privateIndex },
+    );
+  }
+}
+
+async function createPr7Feed(): Promise<string> {
+  const created = await request("/v1/workspaces/alpha/feeds", {
+    method: "POST",
+    body: JSON.stringify({ repo: "acme/app", pr: 7 }),
+  });
+  expect(created.status).toBe(201);
+  return ((await created.json()) as { id: string }).id;
+}
+
+describe("public feed pagination and pager", () => {
+  it("pages a public feed past 50 items with nextCursor", async () => {
+    await seedPr7(55);
+    const id = await createPr7Feed();
+
+    const first = await app.request(`/public/feeds/${id}`, {}, env);
+    expect(first.status).toBe(200);
+    const page = (await first.json()) as {
+      items: Array<{ filename: string }>;
+      nextCursor: string | null;
+    };
+    expect(page.items).toHaveLength(50);
+    expect(page.items[0]?.filename).toBe("shot-00.png");
+    expect(page.nextCursor).toEqual(expect.any(String));
+
+    const second = (await (
+      await app.request(`/public/feeds/${id}?cursor=${page.nextCursor}`, {}, env)
+    ).json()) as typeof page;
+    expect(second.items.map((item) => item.filename)).toEqual([
+      "shot-50.png",
+      "shot-51.png",
+      "shot-52.png",
+      "shot-53.png",
+      "shot-54.png",
+    ]);
+    expect(second.nextCursor).toBeNull();
+
+    const bad = await app.request(`/public/feeds/${id}?cursor=not-a-cursor`, {}, env);
+    expect(bad.status).toBe(400);
+    expect(await bad.json()).toMatchObject({ error: { code: "invalid_cursor" } });
+  });
+
+  it("resolves a pager item older than the newest 50 with its neighbours", async () => {
+    await seedPr7(55);
+    const id = await createPr7Feed();
+
+    const res = await app.request(
+      `/public/feeds/${id}/items/${await itemIdFor(shotKey(52))}`,
+      {},
+      env,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as PublicFeedItemPage;
+    expect(body).toMatchObject({
+      feed: { id, title: "acme/app#7", repo: "acme/app", number: 7, kind: "pull" },
+      item: { id: await itemIdFor(shotKey(52)), filename: "shot-52.png", status: "available" },
+      prev: await itemIdFor(shotKey(51)),
+      next: await itemIdFor(shotKey(53)),
+      index: 52,
+      total: 55,
+    });
+    expect(body.item).not.toHaveProperty("objectKey");
+    expect(body.feed).not.toHaveProperty("source");
+
+    const newest = (await (
+      await app.request(`/public/feeds/${id}/items/${await itemIdFor(shotKey(0))}`, {}, env)
+    ).json()) as PublicFeedItemPage;
+    expect(newest).toMatchObject({ index: 0, prev: null, next: await itemIdFor(shotKey(1)) });
+    const oldest = (await (
+      await app.request(`/public/feeds/${id}/items/${await itemIdFor(shotKey(54))}`, {}, env)
+    ).json()) as PublicFeedItemPage;
+    expect(oldest).toMatchObject({ index: 54, next: null });
+  });
+
+  it("reports a repo-scope pager item's feed kind as null, like the public feed", async () => {
+    await seedPr7(2);
+    const created = await request("/v1/workspaces/alpha/feeds", {
+      method: "POST",
+      body: JSON.stringify({ repo: "acme/app" }),
+    });
+    const id = ((await created.json()) as { id: string }).id;
+    const body = (await (
+      await app.request(`/public/feeds/${id}/items/${await itemIdFor(shotKey(0))}`, {}, env)
+    ).json()) as PublicFeedItemPage;
+    expect(body.feed).toMatchObject({ id, number: null, kind: null });
+  });
+
+  it("withholds a private pager item and 404s unknown, malformed, and revoked ids", async () => {
+    await seedPr7(3, 1);
+    const id = await createPr7Feed();
+
+    const hidden = (await (
+      await app.request(`/public/feeds/${id}/items/${await itemIdFor(shotKey(1))}`, {}, env)
+    ).json()) as PublicFeedItemPage;
+    expect(hidden.item).toMatchObject({ status: "withheld", url: null, embedUrl: null });
+
+    const unknown = await app.request(`/public/feeds/${id}/items/${"0".repeat(32)}`, {}, env);
+    expect(unknown.status).toBe(404);
+    expect(await unknown.json()).toMatchObject({ error: { code: "feed_item_not_found" } });
+    expect((await app.request(`/public/feeds/${id}/items/not-hex`, {}, env)).status).toBe(404);
+
+    expect((await request(`/v1/workspaces/alpha/feeds/${id}`, { method: "DELETE" })).status).toBe(
+      200,
+    );
+    const revoked = await app.request(
+      `/public/feeds/${id}/items/${await itemIdFor(shotKey(0))}`,
+      {},
+      env,
+    );
+    expect(revoked.status).toBe(404);
   });
 });

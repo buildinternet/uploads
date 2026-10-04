@@ -24,8 +24,9 @@
       "get": {
         "operationId": "getPublicFeed",
         "summary": "Read a public change feed",
-        "description": "Returns the public newest-first screenshot list for a feed. It omits workspace ownership and object keys. Items are resolved at view time from `gh.repo` and optional `gh.number` metadata.",
+        "description": "Returns one page (up to 50) of the public newest-first item list for a feed, plus `nextCursor` for the next page. It omits workspace ownership and object keys. Items are resolved at view time from `gh.repo` and optional `gh.number` metadata.",
         "security": [],
+        "parameters": [{ "$ref": "#/components/parameters/Cursor" }],
         "responses": {
           "200": { "description": "The public feed and its current items." },
           "404": { "$ref": "#/components/responses/NotFound" },

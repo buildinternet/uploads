@@ -11,7 +11,13 @@ import {
 } from "@uploads/errors";
 import { publicObjectDateFields } from "./files-core";
 import { getMetadataForKeys } from "./file-metadata";
-import { prScopeQuery, type ScopeItem } from "./pr-scope";
+import {
+  encodeScopeCursor,
+  prScopeQuery,
+  scanScopeKeys,
+  type ScopeCursor,
+  type ScopeItem,
+} from "./pr-scope";
 import {
   FEED_ID_RE,
   FEED_ITEM_LIMIT,
@@ -22,7 +28,12 @@ import {
   type FeedSource,
 } from "./feeds";
 import { isDerivedPosterContentType, videoPresentation } from "./poster";
-import type { FeedItemDto, FeedSummaryDto, PublicFeedItemDto } from "./scope-wire";
+import type {
+  FeedItemDto,
+  FeedSummaryDto,
+  PublicFeedItemDto,
+  PublicFeedItemPage,
+} from "./scope-wire";
 import { createLaneResolver, objectPublicUrls, type LaneResolver } from "./storage";
 import type { StorageConfig } from "@uploads/storage";
 import { objectVisibility } from "./visibility";
@@ -65,6 +76,8 @@ export type PublicFeedDto = {
   createdAt: string;
   updatedAt: string;
   items: PublicFeedItemDto[];
+  /** Opaque cursor for the next 50 items, or null on the last page. */
+  nextCursor: string | null;
 };
 
 export function feedUrl(env: Env, id: string): string {
@@ -372,13 +385,17 @@ export async function hydratePublicFeed(
   env: Env,
   workspace: WorkspaceRecord,
   record: FeedRecord,
+  opts: { cursor?: ScopeCursor | null } = {},
 ): Promise<PublicFeedDto> {
-  const matches = await findLatestRepoScreenshots(dbFor(env), record.workspace, {
+  const page = await prScopeQuery(dbFor(env), {
+    workspace: record.workspace,
     repo: record.repo,
-    path: record.path || undefined,
-    number: record.number > 0 ? record.number : undefined,
+    ...(record.path ? { path: record.path } : {}),
+    ...(record.number > 0 ? { number: record.number } : {}),
+    cursor: opts.cursor ?? null,
+    limit: FEED_ITEM_LIMIT,
   });
-  const items = await hydrateFeedItems(env, workspace, matches, { audience: "public" });
+  const items = await hydrateFeedItems(env, workspace, page.items, { audience: "public" });
   const summary = feedSummary(env, record);
   return {
     id: record.id,
@@ -390,5 +407,64 @@ export async function hydratePublicFeed(
     createdAt: record.created_at,
     updatedAt: record.updated_at,
     items: items.map(toPublicItem),
+    nextCursor: page.nextCursor ? encodeScopeCursor(page.nextCursor) : null,
+  };
+}
+
+const FEED_ITEM_ID_RE = /^[0-9a-f]{32}$/;
+
+/**
+ * One public item plus its neighbours, for the `/c/<id>/<item>` pager. Scans
+ * the scope's keys (cap 2,000) and hashes them until one matches: item ids
+ * are `sha256(key)`, so there is no id-to-key table to keep in step with
+ * every upload. Null when the id is malformed or not in scope.
+ */
+export async function publicFeedItemPage(
+  env: Env,
+  workspace: WorkspaceRecord,
+  record: FeedRecord,
+  itemId: string,
+): Promise<PublicFeedItemPage | null> {
+  if (!FEED_ITEM_ID_RE.test(itemId)) return null;
+  const db = dbFor(env);
+  const scope: ScopeItem[] = await scanScopeKeys(db, {
+    workspace: record.workspace,
+    repo: record.repo,
+    ...(record.path ? { path: record.path } : {}),
+    ...(record.number > 0 ? { number: record.number } : {}),
+  });
+  const ids: string[] = [];
+  let index = -1;
+  for (const entry of scope) {
+    const id = await feedItemId(entry.key);
+    ids.push(id);
+    if (id === itemId) {
+      index = ids.length - 1;
+      break;
+    }
+  }
+  if (index < 0) return null;
+
+  const match = scope[index];
+  const metadata =
+    (await getMetadataForKeys(db, record.workspace, [match.key])).get(match.key) ?? {};
+  const [item] = await hydrateFeedItems(env, workspace, [{ key: match.key, metadata }], {
+    audience: "public",
+  });
+  const summary = feedSummary(env, record);
+  return {
+    feed: {
+      id: record.id,
+      title: summary.title,
+      repo: record.repo,
+      number: summary.number,
+      // The summary's kind (null for a repo scope), same as GET /public/feeds/:id.
+      kind: summary.kind,
+    },
+    item: toPublicItem(item),
+    prev: index > 0 ? ids[index - 1] : null,
+    next: index + 1 < scope.length ? await feedItemId(scope[index + 1].key) : null,
+    index,
+    total: scope.length,
   };
 }
