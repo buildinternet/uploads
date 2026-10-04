@@ -39,7 +39,7 @@ export interface PrLabelParts {
 }
 
 const REF_RE = /^(?:([^\s#/]+\/[^\s#/]+))?#(\d+)$/;
-const SAFE_HREF_RE = /^(?:https?:\/\/|\/(?!\/))/i;
+const SAFE_HREF_RE = /^(?:https?:\/\/|\/(?![/\\]))/i;
 
 /** Narrow an untyped state (e.g. `GithubTitleInfo.state`) to a PrState. */
 export function asPrState(value: unknown): PrState | null {
