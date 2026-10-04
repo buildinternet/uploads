@@ -471,3 +471,78 @@ describe("handleGithubWebhookBatch", () => {
     expect(m.acked).toBe(false);
   });
 });
+
+describe("extractWebhookEvent — PR rollup title/state", () => {
+  const repository = { full_name: "Acme/Web" };
+  const pull = (extra: Record<string, unknown> = {}) => ({
+    number: 7,
+    title: "Add dark mode",
+    head: { ref: "feat", repo: { full_name: "acme/web" } },
+    ...extra,
+  });
+
+  it("opened and reopened write state open", () => {
+    for (const action of ["opened", "reopened"]) {
+      const ev = extractWebhookEvent("pull_request", { action, repository, pull_request: pull() });
+      expect(ev?.prActivity).toEqual({
+        repo: "Acme/Web",
+        number: 7,
+        title: "Add dark mode",
+        state: "open",
+      });
+    }
+  });
+
+  it("closed writes merged or closed from the payload", () => {
+    const merged = extractWebhookEvent("pull_request", {
+      action: "closed",
+      repository,
+      pull_request: pull({ merged: true, state: "closed" }),
+    });
+    expect(merged?.prActivity?.state).toBe("merged");
+    const closed = extractWebhookEvent("pull_request", {
+      action: "closed",
+      repository,
+      pull_request: pull({ merged: false, state: "closed" }),
+    });
+    expect(closed?.prActivity?.state).toBe("closed");
+  });
+
+  it("edited trusts the payload's own state and title", () => {
+    const ev = extractWebhookEvent("pull_request", {
+      action: "edited",
+      repository,
+      pull_request: pull({ title: "Renamed", state: "closed", merged_at: "2026-10-01T00:00:00Z" }),
+    });
+    expect(ev?.prActivity).toEqual({
+      repo: "Acme/Web",
+      number: 7,
+      title: "Renamed",
+      state: "merged",
+    });
+  });
+
+  it("ignores synchronize, a missing title, and issues events", () => {
+    expect(
+      extractWebhookEvent("pull_request", {
+        action: "synchronize",
+        repository,
+        pull_request: pull(),
+      })?.prActivity,
+    ).toBeUndefined();
+    expect(
+      extractWebhookEvent("pull_request", {
+        action: "opened",
+        repository,
+        pull_request: pull({ title: undefined }),
+      })?.prActivity,
+    ).toBeUndefined();
+    expect(
+      extractWebhookEvent("issues", {
+        action: "opened",
+        repository,
+        issue: { number: 7, title: "Issue" },
+      })?.prActivity,
+    ).toBeUndefined();
+  });
+});

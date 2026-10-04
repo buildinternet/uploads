@@ -65,6 +65,7 @@ import { hasIngestableAttachmentUrl } from "./github-attachment-extract";
 import { cacheRepoPrivacy, githubAppConfig, installationForRepo } from "./github-app";
 import { commentCacheKey, gatherCommentBody, upsertBotComment } from "./github-comment";
 import { bumpPublicTitleEpoch, titleCacheKeys } from "./github-titles";
+import { applyPrActivityWebhook } from "./github-pr-activity";
 import { ATTACHMENTS_MARKER } from "./github-comment-render";
 import { findObjectsByMetadata, setFileMetadata } from "./file-metadata";
 import type { GhTarget } from "./github-comment-render";
@@ -140,6 +141,24 @@ function repoFullNames(value: unknown): string[] {
 /** `pull_request` actions that trigger auto-promotion (a fresh/updated head to promote from). */
 const PROMOTE_ACTIONS = new Set(["opened", "reopened", "synchronize"]);
 
+/** `pull_request` actions whose payload title/state goes onto the PR rollup row. */
+const PR_ACTIVITY_ACTIONS = new Set(["opened", "edited", "closed", "reopened"]);
+
+/** Rollup state from a `pull_request` delivery, or null when the action is not one we record. */
+function pullRequestState(
+  action: unknown,
+  pr: PullRequestPayload["pull_request"],
+): "open" | "closed" | "merged" | null {
+  if (typeof action !== "string" || !PR_ACTIVITY_ACTIONS.has(action) || !pr) return null;
+  const merged =
+    pr.merged === true || (typeof pr.merged_at === "string" && pr.merged_at.length > 0);
+  if (action === "closed") return merged ? "merged" : "closed";
+  if (action === "opened" || action === "reopened") return "open";
+  if (pr.state === "closed") return merged ? "merged" : "closed";
+  if (pr.state === "open") return "open";
+  return null;
+}
+
 /**
  * Privacy write-through (issue #631): `{ repo, isPrivate }` when `repo`
  * carries a boolean `private` field, else `undefined`. Takes the typed
@@ -161,6 +180,9 @@ interface PullRequestPayload {
   repository?: { full_name?: unknown; private?: unknown };
   pull_request?: {
     number?: unknown;
+    title?: unknown;
+    state?: unknown;
+    merged_at?: unknown;
     /** Only meaningful on `action: "closed"` — true iff the PR was merged
      * (vs. closed without merging). */
     merged?: unknown;
@@ -424,6 +446,10 @@ export interface WebhookEvent {
    * public-title epoch to bump, so its cached `ghref:pub:` titles stop
    * being served. */
   privatized?: string;
+  /** `pull_request` opened/edited/closed/reopened → title + state onto the
+   * PR's rollup row (`applyPrActivityWebhook`: UPDATE only, linked repos
+   * only). GitHub caps titles at 256 chars, so this stays queue-compact. */
+  prActivity?: { repo: string; number: number; title: string; state: "open" | "closed" | "merged" };
 }
 
 /**
@@ -495,6 +521,15 @@ export function extractWebhookEvent(eventType: string, payload: unknown): Webhoo
     const action = pp.action;
     const repo = pp.repository?.full_name;
     const pr = pp.pull_request;
+    const prState = pullRequestState(action, pr);
+    if (
+      prState &&
+      typeof repo === "string" &&
+      typeof pr?.number === "number" &&
+      typeof pr.title === "string"
+    ) {
+      ev.prActivity = { repo, number: pr.number, title: pr.title, state: prState };
+    }
     if (
       typeof action === "string" &&
       PROMOTE_ACTIONS.has(action) &&
@@ -590,7 +625,8 @@ export function extractWebhookEvent(eventType: string, payload: unknown): Webhoo
     ev.adopt ||
     ev.merge ||
     ev.privacy ||
-    ev.privatized
+    ev.privatized ||
+    ev.prActivity
     ? ev
     : null;
 }
@@ -628,6 +664,12 @@ export async function processWebhookEvent(env: Env, ev: WebhookEvent): Promise<v
   }
 
   await Promise.allSettled(ev.keys.map((key) => env.GITHUB_CACHE.delete(key)));
+
+  // Before promote/reconcile: those throw for queue retry, and a retry must
+  // not be the only way the rollup row learns its title/state. Never throws.
+  if (ev.prActivity) {
+    await applyPrActivityWebhook(dbFor(env), ev.prActivity);
+  }
 
   if (ev.promote) {
     await autoPromoteAndComment(env, ev.promote.repo, ev.promote.num, ev.promote.branch);
