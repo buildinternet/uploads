@@ -464,3 +464,29 @@ export function focusIsKeyboardDriven(el: { matches(selector: string): boolean }
     return false;
   }
 }
+
+/**
+ * What the hover card shows on its PR line: a PrLabel when the caption has a
+ * resolvable ref, else the plain "PR #7" / "Issue #3" caption text (a shot
+ * with gh.number + gh.kind but no gh.ref or gh.repo), else nothing.
+ */
+export function previewPrDisplay(
+  caption: { pr?: string; ref?: string; kind?: string },
+  titles: GithubTitleMap,
+): { label: PrLabelInput } | { text: string } | null {
+  if (!caption.pr) return null;
+  if (!caption.ref) return { text: caption.pr };
+  const label = shotPrLabelInput({ ghRef: caption.ref, ghKind: caption.kind }, titles);
+  return label ? { label } : { text: caption.pr };
+}
+
+/**
+ * Text for a GitHub-strip tile whose shot has no number or ref to build a
+ * PrLabel from: "PR" / "Issue" from `gh.kind` (stored vocabulary is singular;
+ * "issues" tolerated), the raw kind otherwise, "GitHub" with none.
+ */
+export function ghKindFallbackLabel(kind: string | undefined): string {
+  if (kind === "pull") return "PR";
+  if (kind === "issue" || kind === "issues") return "Issue";
+  return kind || "GitHub";
+}

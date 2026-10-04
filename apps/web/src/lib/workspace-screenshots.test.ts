@@ -23,6 +23,8 @@ import {
   shotKindFromKey,
   shotPreviewCaption,
   shotPreviewPosition,
+  previewPrDisplay,
+  ghKindFallbackLabel,
   shotPrLabelInput,
 } from "./workspace-screenshots";
 
@@ -514,5 +516,35 @@ describe("shotPrLabelInput", () => {
         { "acme/web#7": { title: "", state: "draft", kind: "pull" } },
       ),
     ).toMatchObject({ title: null, state: null });
+  });
+});
+
+describe("previewPrDisplay", () => {
+  const titles = { "acme/web#7": { title: "Fix nav", state: "open", kind: "pull" as const } };
+
+  it("returns a label when the caption has a ref", () => {
+    expect(previewPrDisplay({ pr: "PR #7", ref: "acme/web#7", kind: "pull" }, titles)).toEqual({
+      label: { ghRef: "acme/web#7", kind: "pull", title: "Fix nav", state: "open" },
+    });
+  });
+
+  it("keeps the plain caption text when there is a number but no ref", () => {
+    const caption = shotPreviewCaption({ key: "x/a.png", ghKind: "issue", ghNumber: "3" });
+    expect(caption.ref).toBeUndefined();
+    expect(previewPrDisplay({ ...caption, kind: "issue" }, titles)).toEqual({ text: "Issue #3" });
+  });
+
+  it("is null without a PR caption", () => {
+    expect(previewPrDisplay({}, titles)).toBeNull();
+  });
+});
+
+describe("ghKindFallbackLabel", () => {
+  it("restores the kind-only wording", () => {
+    expect(ghKindFallbackLabel("pull")).toBe("PR");
+    expect(ghKindFallbackLabel("issue")).toBe("Issue");
+    expect(ghKindFallbackLabel("issues")).toBe("Issue");
+    expect(ghKindFallbackLabel("discussion")).toBe("discussion");
+    expect(ghKindFallbackLabel(undefined)).toBe("GitHub");
   });
 });

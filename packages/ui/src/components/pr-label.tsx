@@ -48,8 +48,10 @@ const DOT_STATE_CLASS: Record<PrState | "unknown", string> = {
   unknown: "bg-muted-foreground/60",
 };
 
+// `no-underline!` (important): the app's unlayered global `a` underline rule
+// beats a layered utility otherwise.
 const LINK_CLASS =
-  "text-fg no-underline hover:text-primary focus-visible:text-primary focus-visible:outline-none";
+  "text-fg no-underline! hover:text-primary focus-visible:text-primary focus-visible:outline-none";
 
 function PrLabel({
   ghRef,
