@@ -56,6 +56,7 @@
 import { hasIngestableAttachmentUrl } from "./github-attachment-extract";
 import { cacheRepoPrivacy, githubAppConfig, installationForRepo } from "./github-app";
 import { commentCacheKey, gatherCommentBody, upsertBotComment } from "./github-comment";
+import { titleCacheKeys } from "./github-titles";
 import { ATTACHMENTS_MARKER } from "./github-comment-render";
 import { findObjectsByMetadata, setFileMetadata } from "./file-metadata";
 import type { GhTarget } from "./github-comment-render";
@@ -436,7 +437,7 @@ export function extractWebhookEvent(eventType: string, payload: unknown): Webhoo
       | { number?: unknown; body?: unknown }
       | undefined;
     if (typeof fullName === "string" && typeof item?.number === "number") {
-      ev.keys.push(`ghref:${fullName.toLowerCase()}#${item.number}`);
+      ev.keys.push(...titleCacheKeys(`${fullName.toLowerCase()}#${item.number}`));
 
       // Ingest gating (spec 2026-08-11, Cursor art-* in #1004): opened →
       // substring-gated on GitHub user-attachments or public

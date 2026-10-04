@@ -940,6 +940,94 @@ describe("GET /v1/workspaces/:workspace/github/titles (session-only, member-gate
   });
 });
 
+/** Home token 404s on another tenant's private repo; only that repo's own installation can read it. */
+function privateRepoFetch(seen: string[]): typeof fetch {
+  return (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const auth = ((init?.headers ?? {}) as Record<string, string>).authorization;
+    seen.push(`${auth} ${String(input)}`);
+    if (auth === "Bearer ghs_victim" && String(input).includes("/issues/")) {
+      return Response.json({ title: "Secret roadmap", state: "open" });
+    }
+    if (auth === "Bearer ghs_victim") return Response.json({ private: true });
+    return new Response("", { status: 404 });
+  }) as typeof fetch;
+}
+
+function seedVictimInstall(githubCache: FakeKv): void {
+  githubCache.store.set("ghtok:777", { value: "ghs_home" });
+  githubCache.store.set("ghinst:victim/priv", { value: "4242" });
+  githubCache.store.set("ghtok:4242", { value: "ghs_victim" });
+}
+
+describe("GET /v1/workspaces/:workspace/github/titles — cross-tenant scoping", () => {
+  it("never mints another tenant's installation token for a repo the workspace hasn't linked", async () => {
+    const { env, githubCache } = await makeEnv();
+    seedVictimInstall(githubCache);
+    const seen: string[] = [];
+    const res = await withGlobalFetch(privateRepoFetch(seen), async () =>
+      app.request(
+        "/v1/workspaces/acme/github/titles?refs=victim/priv%231",
+        { headers: sessionCookie },
+        env,
+      ),
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ refs: { "victim/priv#1": null } });
+    expect(seen.some((line) => line.startsWith("Bearer ghs_victim"))).toBe(false);
+  });
+
+  it("does not serve another tenant's member-cached private title", async () => {
+    const { env, githubCache } = await makeEnv();
+    seedVictimInstall(githubCache);
+    githubCache.store.set("ghref:victim/priv#1", {
+      value: JSON.stringify({ v: { title: "Secret roadmap", state: "open", kind: "pull" } }),
+    });
+    const res = await withGlobalFetch(privateRepoFetch([]), async () =>
+      app.request(
+        "/v1/workspaces/acme/github/titles?refs=victim/priv%231",
+        { headers: sessionCookie },
+        env,
+      ),
+    );
+    expect(await res.json()).toEqual({ refs: { "victim/priv#1": null } });
+  });
+
+  it("resolves a private title through the repo's installation when the repo is linked to this workspace", async () => {
+    const { env, db, githubCache } = await makeEnv();
+    seedVictimInstall(githubCache);
+    await recordRepoLink(db as unknown as D1Database, "victim/priv", WS, "cli");
+    const res = await withGlobalFetch(privateRepoFetch([]), async () =>
+      app.request(
+        "/v1/workspaces/acme/github/titles?refs=victim/priv%231",
+        { headers: sessionCookie },
+        env,
+      ),
+    );
+    expect(await res.json()).toEqual({
+      refs: { "victim/priv#1": { title: "Secret roadmap", state: "open", kind: "issue" } },
+    });
+  });
+
+  it("still resolves public-repo titles for unlinked repos via the home installation", async () => {
+    const { env, githubCache } = await makeEnv();
+    githubCache.store.set("ghtok:777", { value: "ghs_home" });
+    const fetchImpl = (async (input: RequestInfo | URL) =>
+      String(input).includes("/issues/")
+        ? Response.json({ title: "Public fix", state: "open" })
+        : Response.json({ private: false })) as typeof fetch;
+    const res = await withGlobalFetch(fetchImpl, async () =>
+      app.request(
+        "/v1/workspaces/acme/github/titles?refs=oss/lib%239",
+        { headers: sessionCookie },
+        env,
+      ),
+    );
+    expect(await res.json()).toEqual({
+      refs: { "oss/lib#9": { title: "Public fix", state: "open", kind: "issue" } },
+    });
+  });
+});
+
 describe("GET /v1/workspaces/:workspace/github/status (session-only, member-gated, issue #613 final phase)", () => {
   it("member session 200s with no bound repos", async () => {
     const { env } = await makeEnv();

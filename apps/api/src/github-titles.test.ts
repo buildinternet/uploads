@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveTitles } from "./github-titles";
+import { resolveTitles, type TitleAudience } from "./github-titles";
 import { FakeKv } from "../test/fake-kv";
 import { GITHUB_APP_CFG_ENV as CFG_ENV } from "../test/github-app-env";
 
@@ -12,10 +12,14 @@ function seedHomeToken(kv: FakeKv): void {
   kv.store.set("ghtok:777", { value: "ghs_home" });
 }
 
+/** Member audience with the test repos linked, so the full ladder is exercised. */
+const MEMBER: TitleAudience = { audience: "member", linkedRepos: new Set(["o/r", "o/priv"]) };
+const PUBLIC: TitleAudience = { audience: "public" };
+
 const issueJson = (over: Record<string, unknown> = {}) =>
   JSON.stringify({ title: "Fix the thing", state: "open", ...over });
 
-describe("resolveTitles", () => {
+describe("resolveTitles (member audience, linked repo)", () => {
   it("resolves an open issue via the home token and caches it for 1h", async () => {
     const kv = new FakeKv();
     seedHomeToken(kv);
@@ -26,7 +30,7 @@ describe("resolveTitles", () => {
       );
       return new Response(issueJson(), { status: 200 });
     }) as typeof fetch;
-    const out = await resolveTitles(envWith(kv), ["o/r#9"], fetchImpl);
+    const out = await resolveTitles(envWith(kv), ["o/r#9"], MEMBER, fetchImpl);
     expect(out["o/r#9"]).toEqual({ title: "Fix the thing", state: "open", kind: "issue" });
     expect(kv.store.get("ghref:o/r#9")?.expirationTtl).toBe(3600);
   });
@@ -39,7 +43,7 @@ describe("resolveTitles", () => {
         issueJson({ state: "closed", pull_request: { merged_at: "2026-07-01T00:00:00Z" } }),
         { status: 200 },
       )) as typeof fetch;
-    const out = await resolveTitles(envWith(kv), ["o/r#9"], fetchImpl);
+    const out = await resolveTitles(envWith(kv), ["o/r#9"], MEMBER, fetchImpl);
     expect(out["o/r#9"]).toEqual({ title: "Fix the thing", state: "merged", kind: "pull" });
     expect(kv.store.get("ghref:o/r#9")?.expirationTtl).toBe(86400);
   });
@@ -52,7 +56,7 @@ describe("resolveTitles", () => {
     const fetchImpl = (async () => {
       throw new Error("must not fetch");
     }) as typeof fetch;
-    const out = await resolveTitles(envWith(kv), ["o/r#9"], fetchImpl);
+    const out = await resolveTitles(envWith(kv), ["o/r#9"], MEMBER, fetchImpl);
     expect(out["o/r#9"]).toEqual({ title: "Cached", state: "open", kind: "issue" });
   });
 
@@ -68,7 +72,7 @@ describe("resolveTitles", () => {
       );
       return new Response(issueJson(), { status: 200 });
     }) as typeof fetch;
-    const out = await resolveTitles(envWith(kv), ["o/r#9"], fetchImpl);
+    const out = await resolveTitles(envWith(kv), ["o/r#9"], MEMBER, fetchImpl);
     expect(out["o/r#9"]).toEqual({ title: "Fix the thing", state: "open", kind: "issue" });
   });
 
@@ -82,7 +86,7 @@ describe("resolveTitles", () => {
       seen.push(((init?.headers ?? {}) as Record<string, string>).authorization);
       return new Response("", { status: 404 });
     }) as typeof fetch;
-    const out = await resolveTitles(envWith(kv), ["o/priv#1"], fetchImpl);
+    const out = await resolveTitles(envWith(kv), ["o/priv#1"], MEMBER, fetchImpl);
     expect(out["o/priv#1"]).toBeNull();
     expect(seen).toEqual(["Bearer ghs_home", "Bearer ghs_inst"]);
     expect(kv.store.get("ghref:o/priv#1")).toEqual({
@@ -100,7 +104,7 @@ describe("resolveTitles", () => {
       calls++;
       return new Response("", { status: 404 });
     }) as typeof fetch;
-    const out = await resolveTitles(envWith(kv), ["o/priv#1"], fetchImpl);
+    const out = await resolveTitles(envWith(kv), ["o/priv#1"], MEMBER, fetchImpl);
     expect(out["o/priv#1"]).toBeNull();
     expect(calls).toBe(1);
     expect(kv.store.get("ghref:o/priv#1")?.expirationTtl).toBe(3600);
@@ -116,7 +120,7 @@ describe("resolveTitles", () => {
         status: 403,
         headers: { "x-ratelimit-remaining": "0", "x-ratelimit-reset": reset },
       })) as typeof fetch;
-    const out = await resolveTitles(envWith(kv), ["o/r#9"], fetchImpl);
+    const out = await resolveTitles(envWith(kv), ["o/r#9"], MEMBER, fetchImpl);
     expect(out["o/r#9"]).toBeNull();
     const ttl = kv.store.get("ghref:o/r#9")?.expirationTtl ?? 0;
     expect(ttl).toBeGreaterThan(3600);
@@ -128,8 +132,98 @@ describe("resolveTitles", () => {
     const fetchImpl = (async () => {
       throw new Error("must not fetch");
     }) as typeof fetch;
-    const out = await resolveTitles({ GITHUB_CACHE: kv } as unknown as Env, ["o/r#9"], fetchImpl);
+    const out = await resolveTitles(
+      { GITHUB_CACHE: kv } as unknown as Env,
+      ["o/r#9"],
+      MEMBER,
+      fetchImpl,
+    );
     expect(out["o/r#9"]).toBeNull();
     expect(kv.store.size).toBe(0);
+  });
+});
+
+describe("resolveTitles (public audience)", () => {
+  /** Home token answers the issue fetch and the `/repos/:repo` visibility probe. */
+  function homeFetch(isPrivate: boolean, seen: string[] = []): typeof fetch {
+    return (async (input: RequestInfo | URL, init?: RequestInit) => {
+      seen.push(
+        `${((init?.headers ?? {}) as Record<string, string>).authorization} ${String(input)}`,
+      );
+      return String(input).includes("/issues/")
+        ? new Response(issueJson(), { status: 200 })
+        : Response.json({ private: isPrivate });
+    }) as typeof fetch;
+  }
+
+  it("resolves a verified-public repo via the home token into the ghref:pub: namespace", async () => {
+    const kv = new FakeKv();
+    seedHomeToken(kv);
+    const out = await resolveTitles(envWith(kv), ["o/r#9"], PUBLIC, homeFetch(false));
+    expect(out["o/r#9"]).toEqual({ title: "Fix the thing", state: "open", kind: "issue" });
+    expect(kv.store.get("ghref:pub:o/r#9")?.expirationTtl).toBe(3600);
+    expect(kv.store.has("ghref:o/r#9")).toBe(false);
+  });
+
+  it("negative-caches a private repo the home installation can read, without fetching the issue", async () => {
+    const kv = new FakeKv();
+    seedHomeToken(kv);
+    const seen: string[] = [];
+    const out = await resolveTitles(envWith(kv), ["o/r#9"], PUBLIC, homeFetch(true, seen));
+    expect(out["o/r#9"]).toBeNull();
+    expect(seen.some((line) => line.includes("/issues/"))).toBe(false);
+    expect(kv.store.get("ghref:pub:o/r#9")).toEqual({
+      value: JSON.stringify({ v: null }),
+      expirationTtl: 3600,
+    });
+  });
+
+  it("never walks to the repo's own installation", async () => {
+    const kv = new FakeKv();
+    seedHomeToken(kv);
+    kv.store.set("ghinst:o/priv", { value: "4242" });
+    kv.store.set("ghtok:4242", { value: "ghs_inst" });
+    const seen: string[] = [];
+    const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      seen.push(((init?.headers ?? {}) as Record<string, string>).authorization);
+      return new Response("", { status: 404 });
+    }) as typeof fetch;
+    const out = await resolveTitles(envWith(kv), ["o/priv#1"], PUBLIC, fetchImpl);
+    expect(out["o/priv#1"]).toBeNull();
+    expect(seen).not.toContain("Bearer ghs_inst");
+  });
+
+  it("ignores member-namespace cache entries", async () => {
+    const kv = new FakeKv();
+    kv.store.set("ghref:o/priv#1", {
+      value: JSON.stringify({ v: { title: "Secret", state: "open", kind: "pull" } }),
+    });
+    const out = await resolveTitles({ GITHUB_CACHE: kv } as unknown as Env, ["o/priv#1"], PUBLIC);
+    expect(out["o/priv#1"]).toBeNull();
+  });
+
+  it("shares one visibility probe across refs in the same repo", async () => {
+    const kv = new FakeKv();
+    seedHomeToken(kv);
+    const seen: string[] = [];
+    await resolveTitles(envWith(kv), ["o/r#1", "o/r#2", "o/r#3"], PUBLIC, homeFetch(false, seen));
+    expect(seen.filter((line) => line.endsWith("/repos/o/r"))).toHaveLength(1);
+  });
+
+  it("member audience uses the public ladder for repos not linked to the workspace", async () => {
+    const kv = new FakeKv();
+    seedHomeToken(kv);
+    kv.store.set("ghinst:x/priv", { value: "4242" });
+    kv.store.set("ghtok:4242", { value: "ghs_inst" });
+    const seen: string[] = [];
+    const fetchImpl = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      seen.push(((init?.headers ?? {}) as Record<string, string>).authorization);
+      return new Response("", { status: 404 });
+    }) as typeof fetch;
+    const out = await resolveTitles(envWith(kv), ["x/priv#1"], MEMBER, fetchImpl);
+    expect(out["x/priv#1"]).toBeNull();
+    expect(seen).not.toContain("Bearer ghs_inst");
+    expect(kv.store.has("ghref:pub:x/priv#1")).toBe(true);
+    expect(kv.store.has("ghref:x/priv#1")).toBe(false);
   });
 });

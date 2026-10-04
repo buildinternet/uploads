@@ -1,6 +1,8 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { FakeR2Bucket } from "./fake-r2";
 import { FakeKv } from "./fake-kv";
+import { GITHUB_APP_CFG_ENV } from "./github-app-env";
+import { withGlobalFetch } from "./helpers/github-fetch-fakes";
 import { FileMetadataTable } from "./helpers/fake-file-metadata-table";
 import { app } from "../src/index";
 import { setFileMetadata, setServerFileMetadata } from "../src/file-metadata";
@@ -502,7 +504,8 @@ describe("GET /public/files/:workspace/:key", () => {
   it("prefers live-resolved title over stamped gh.title", async () => {
     const kv = new FakeKv();
     // Cache hit short-circuits before App config is required (no network).
-    kv.store.set("ghref:buildinternet/uploads#142", {
+    // Public pages read only the verified-public namespace (`ghref:pub:`).
+    kv.store.set("ghref:pub:buildinternet/uploads#142", {
       value: JSON.stringify({
         v: { title: "Live title from cache", state: "open", kind: "pull" },
       }),
@@ -521,6 +524,77 @@ describe("GET /public/files/:workspace/:key", () => {
     expect(res.status).toBe(200);
     const json = (await res.json()) as { github?: { title?: string } };
     expect(json.github?.title).toBe("Live title from cache");
+  });
+
+  it("never serves a private repo's member-cached live title on the public page", async () => {
+    const kv = new FakeKv();
+    kv.store.set("ghref:victim/priv#5", {
+      value: JSON.stringify({ v: { title: "Secret roadmap", state: "open", kind: "pull" } }),
+    });
+    const { env } = await makeEnv({}, { db: makeFakeDB() });
+    Object.assign(env, { GITHUB_CACHE: kv, ...GITHUB_APP_CFG_ENV });
+    await seedShot(env, {
+      "X-Uploads-Meta-gh.repo": "victim/priv",
+      "X-Uploads-Meta-gh.kind": "pull",
+      "X-Uploads-Meta-gh.number": "5",
+      "X-Uploads-Meta-gh.title": "Stamped title",
+    });
+    const res = await withGlobalFetch(
+      (async () => new Response("", { status: 404 })) as typeof fetch,
+      async () => app.request("/public/files/default/screenshots/shot.png", {}, env),
+    );
+    const json = (await res.json()) as { github?: { title?: string } };
+    expect(json.github?.title).toBe("Stamped title");
+  });
+
+  it("never mints the repo's own installation token to resolve a public page title", async () => {
+    const kv = new FakeKv();
+    kv.store.set("ghtok:777", { value: "ghs_home" });
+    kv.store.set("ghinst:victim/priv", { value: "4242" });
+    kv.store.set("ghtok:4242", { value: "ghs_victim" });
+    const { env } = await makeEnv({}, { db: makeFakeDB() });
+    Object.assign(env, { GITHUB_CACHE: kv, ...GITHUB_APP_CFG_ENV });
+    await seedShot(env, {
+      "X-Uploads-Meta-gh.repo": "victim/priv",
+      "X-Uploads-Meta-gh.kind": "pull",
+      "X-Uploads-Meta-gh.number": "5",
+    });
+    const seen: string[] = [];
+    const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const auth = ((init?.headers ?? {}) as Record<string, string>).authorization;
+      seen.push(String(auth));
+      if (auth === "Bearer ghs_victim")
+        return Response.json({ title: "Secret roadmap", state: "open" });
+      return new Response("", { status: 404 });
+    }) as typeof fetch;
+    const res = await withGlobalFetch(fetchImpl, async () =>
+      app.request("/public/files/default/screenshots/shot.png", {}, env),
+    );
+    const json = (await res.json()) as { github?: { title?: string } };
+    expect(json.github).toBeDefined();
+    expect(json.github).not.toHaveProperty("title");
+    expect(seen).not.toContain("Bearer ghs_victim");
+  });
+
+  it("does not show a live title for a private repo the home installation can read", async () => {
+    const kv = new FakeKv();
+    kv.store.set("ghtok:777", { value: "ghs_home" });
+    const { env } = await makeEnv({}, { db: makeFakeDB() });
+    Object.assign(env, { GITHUB_CACHE: kv, ...GITHUB_APP_CFG_ENV });
+    await seedShot(env, {
+      "X-Uploads-Meta-gh.repo": "home/internal",
+      "X-Uploads-Meta-gh.kind": "pull",
+      "X-Uploads-Meta-gh.number": "5",
+    });
+    const fetchImpl = (async (input: RequestInfo | URL) =>
+      String(input).includes("/issues/")
+        ? Response.json({ title: "Internal plan", state: "open" })
+        : Response.json({ private: true })) as typeof fetch;
+    const res = await withGlobalFetch(fetchImpl, async () =>
+      app.request("/public/files/default/screenshots/shot.png", {}, env),
+    );
+    const json = (await res.json()) as { github?: { title?: string } };
+    expect(json.github).not.toHaveProperty("title");
   });
 
   it("omits github.title when neither stamp nor live resolve provides one", async () => {

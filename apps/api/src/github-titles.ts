@@ -1,9 +1,25 @@
 /**
  * ref → PR/issue title resolution with a KV cache (spec
- * .context/267-github-app-titles-design.md). Ladder per ref: ghref cache →
- * home-installation token (public repos, one 5k/hr bucket) → the repo's own
- * installation token (private repos) → negative cache. Refs arrive already
- * normalized (`owner/repo#number`, lowercased) by the caller.
+ * .context/267-github-app-titles-design.md). Refs arrive already normalized
+ * (`owner/repo#number`, lowercased) by the caller.
+ *
+ * Two ladders, chosen per ref by the caller's audience:
+ *
+ * - **public** (anyone, including anonymous `/f/` viewers): `ghref:pub:`
+ *   cache → home-installation token, served only when the repo is verified
+ *   public (`repoIsPrivate === false`) → negative cache. Never mints another
+ *   installation's token, so a private repo's title is never resolved here.
+ * - **member** (a workspace member, only for repos linked to that
+ *   workspace): `ghref:` cache → home-installation token → the repo's own
+ *   installation token (private repos) → negative cache.
+ *
+ * The App is installed across customer orgs, so `installationForRepo` can
+ * read any installed repo regardless of who is asking. The member ladder is
+ * therefore gated on `github_repo_links` (one workspace per repo, first
+ * claim gated by GitHub write permission — github-claim-authz.ts). That
+ * also makes the `ghref:` cache safe to share: only the linked workspace's
+ * members ever read it. Refs for unlinked repos fall back to the public
+ * ladder.
  */
 import {
   githubAppConfig,
@@ -11,8 +27,30 @@ import {
   githubHeaders,
   installationForRepo,
   installationToken,
+  repoIsPrivate,
   type GithubAppConfig,
 } from "./github-app";
+
+/** Member-ladder cache (repo-linked workspace only). */
+export const MEMBER_TITLE_PREFIX = "ghref:";
+/** Public-ladder cache: entries resolved via the home installation for verified-public repos. */
+export const PUBLIC_TITLE_PREFIX = "ghref:pub:";
+
+/** Every cache key a ref's title can live under — webhook invalidation clears all of them. */
+export function titleCacheKeys(ref: string): string[] {
+  return [`${MEMBER_TITLE_PREFIX}${ref}`, `${PUBLIC_TITLE_PREFIX}${ref}`];
+}
+
+/**
+ * Who the resolved titles are for. `public` never leaves the home
+ * installation and only serves verified-public repos; `member` additionally
+ * walks the repo's own installation, but only for `linkedRepos` (lowercased
+ * `owner/name` bound to the caller's workspace) — other refs get the public
+ * ladder.
+ */
+export type TitleAudience =
+  | { audience: "public" }
+  | { audience: "member"; linkedRepos: ReadonlySet<string> };
 
 export interface TitleInfo {
   title: string;
@@ -69,25 +107,76 @@ async function fetchIssue(
   return { kind: "error" };
 }
 
-async function resolveOne(
+function splitRef(ref: string): { repo: string; num: string } {
+  const hash = ref.lastIndexOf("#");
+  return { repo: ref.slice(0, hash), num: ref.slice(hash + 1) };
+}
+
+async function readCache(env: Env, key: string): Promise<{ v: TitleInfo | null } | null> {
+  return (await env.GITHUB_CACHE.get(key, "json")) as { v: TitleInfo | null } | null;
+}
+
+async function cacheOutcome(
   env: Env,
-  cfg: GithubAppConfig | null,
-  ref: string,
-  getHomeToken: () => Promise<string | null>,
-  fetchImpl: typeof fetch,
+  key: string,
+  outcome: FetchOutcome,
 ): Promise<TitleInfo | null> {
-  const cacheKey = `ghref:${ref}`;
-  const cached = (await env.GITHUB_CACHE.get(cacheKey, "json")) as { v: TitleInfo | null } | null;
+  if (outcome.kind === "ok") {
+    const ttl = outcome.info.state === "open" ? OPEN_TTL : SETTLED_TTL;
+    await env.GITHUB_CACHE.put(key, JSON.stringify({ v: outcome.info }), { expirationTtl: ttl });
+    return outcome.info;
+  }
+  // "no-access" (404/private without install) and rate limits both
+  // negative-cache so uninstalled repos don't hammer the API; transient
+  // errors share the base 1h TTL — acceptable staleness for a display cache.
+  const negativeTtl =
+    outcome.kind === "error" && outcome.negativeTtl ? outcome.negativeTtl : NEGATIVE_TTL;
+  await env.GITHUB_CACHE.put(key, JSON.stringify({ v: null }), { expirationTtl: negativeTtl });
+  return null;
+}
+
+interface BatchContext {
+  env: Env;
+  cfg: GithubAppConfig | null;
+  getHomeToken: () => Promise<string | null>;
+  isPublicRepo: (repo: string) => Promise<boolean>;
+  fetchImpl: typeof fetch;
+}
+
+/**
+ * Public ladder: home installation only, and only for repos verified public.
+ * A private repo the home installation happens to read (e.g. the home org's
+ * own) is negative-cached here exactly like one it can't read.
+ */
+async function resolvePublic(ctx: BatchContext, ref: string): Promise<TitleInfo | null> {
+  const { env, cfg } = ctx;
+  const cacheKey = `${PUBLIC_TITLE_PREFIX}${ref}`;
+  const cached = await readCache(env, cacheKey);
   if (cached) return cached.v;
   if (!cfg) return null; // App not configured — degrade without caching.
 
-  const hash = ref.lastIndexOf("#");
-  const repo = ref.slice(0, hash);
-  const num = ref.slice(hash + 1);
+  // Home mint failure is transient and says nothing about the ref — don't
+  // negative-cache it.
+  const homeToken = await ctx.getHomeToken();
+  if (!homeToken) return null;
 
-  let negativeTtl = NEGATIVE_TTL;
+  const { repo, num } = splitRef(ref);
+  if (!(await ctx.isPublicRepo(repo))) return cacheOutcome(env, cacheKey, { kind: "no-access" });
+  return cacheOutcome(env, cacheKey, await fetchIssue(repo, num, homeToken, ctx.fetchImpl));
+}
+
+/** Member ladder: home installation, then the repo's own installation. Caller gates on repo links. */
+async function resolveMember(ctx: BatchContext, ref: string): Promise<TitleInfo | null> {
+  const { env, cfg, fetchImpl } = ctx;
+  const cacheKey = `${MEMBER_TITLE_PREFIX}${ref}`;
+  const cached = await readCache(env, cacheKey);
+  if (cached) return cached.v;
+  if (!cfg) return null; // App not configured — degrade without caching.
+
+  const { repo, num } = splitRef(ref);
+
   let outcome: FetchOutcome = { kind: "error" };
-  const homeToken = await getHomeToken();
+  const homeToken = await ctx.getHomeToken();
   if (homeToken) outcome = await fetchIssue(repo, num, homeToken, fetchImpl);
 
   // Retry via the repo's own installation on no-access, and also when the
@@ -102,21 +191,7 @@ async function resolveOne(
     }
   }
 
-  if (outcome.kind === "ok") {
-    const ttl = outcome.info.state === "open" ? OPEN_TTL : SETTLED_TTL;
-    await env.GITHUB_CACHE.put(cacheKey, JSON.stringify({ v: outcome.info }), {
-      expirationTtl: ttl,
-    });
-    return outcome.info;
-  }
-  if (outcome.kind === "error" && outcome.negativeTtl) negativeTtl = outcome.negativeTtl;
-  // "no-access" (404/private without install) and rate limits both
-  // negative-cache so uninstalled repos don't hammer the API; transient
-  // errors share the base 1h TTL — acceptable staleness for a display cache.
-  await env.GITHUB_CACHE.put(cacheKey, JSON.stringify({ v: null }), {
-    expirationTtl: negativeTtl,
-  });
-  return null;
+  return cacheOutcome(env, cacheKey, outcome);
 }
 
 /**
@@ -144,10 +219,15 @@ export async function withPublicTitleBudget<T>(
   }
 }
 
-/** Batch resolve; misses fetch concurrently; a per-ref failure is that ref's `null`. */
+/**
+ * Batch resolve; misses fetch concurrently; a per-ref failure is that ref's
+ * `null`. `audience` is required so every caller states who will see the
+ * result — see `TitleAudience`.
+ */
 export async function resolveTitles(
   env: Env,
   refs: string[],
+  audience: TitleAudience,
   fetchImpl: typeof fetch = fetch,
 ): Promise<Record<string, TitleInfo | null>> {
   const cfg = githubAppConfig(env);
@@ -160,10 +240,30 @@ export async function resolveTitles(
     (homeTokenPromise ??= cfg
       ? installationToken(env, cfg, Number(cfg.homeInstallationId), fetchImpl)
       : Promise.resolve(null));
+  // Same sharing for repo visibility: several refs in one repo cost one
+  // lookup. Only an explicit `false` counts as public — unknown fails closed.
+  const privacy = new Map<string, Promise<boolean>>();
+  const isPublicRepo = (repo: string): Promise<boolean> => {
+    let pending = privacy.get(repo);
+    if (!pending) {
+      pending = cfg
+        ? repoIsPrivate(env, cfg, Number(cfg.homeInstallationId), repo, fetchImpl).then(
+            (isPrivate) => isPrivate === false,
+            () => false,
+          )
+        : Promise.resolve(false);
+      privacy.set(repo, pending);
+    }
+    return pending;
+  };
+  const ctx: BatchContext = { env, cfg, getHomeToken, isPublicRepo, fetchImpl };
   const out: Record<string, TitleInfo | null> = {};
   await Promise.all(
     refs.map(async (ref) => {
-      out[ref] = await resolveOne(env, cfg, ref, getHomeToken, fetchImpl).catch(() => null);
+      const member = audience.audience === "member" && audience.linkedRepos.has(splitRef(ref).repo);
+      out[ref] = await (member ? resolveMember(ctx, ref) : resolvePublic(ctx, ref)).catch(
+        () => null,
+      );
     }),
   );
   return out;

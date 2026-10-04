@@ -222,14 +222,19 @@ export const publicFiles = new Hono<WorkspaceVars>().get("/:workspace/:key{.+}",
 
   const { posterUrl, videoDimensions } = videoPresentation(env, cfg, key, metadata, ownContentType);
 
-  // Live title (KV-cached App ladder) wins over stamped gh.title. Failures and
-  // budget timeouts never 500 — keep the stamp or omit title entirely.
+  // Live title (KV-cached App ladder) wins over stamped gh.title. Public
+  // audience: verified-public repos via the home installation only, so a
+  // private repo's live title never reaches this unauthenticated page (the
+  // uploader's own stamp still shows). Failures and budget timeouts never
+  // 500 — keep the stamp or omit title entirely.
   // avatarUrl is pure derivation from gh.repo — no extra network here.
   if (github) {
     const ref = githubRefKey(metadata, github);
     let title = github.title;
     try {
-      const titles = await withPublicTitleBudget(resolveTitles(c.env, [ref]));
+      const titles = await withPublicTitleBudget(
+        resolveTitles(c.env, [ref], { audience: "public" }),
+      );
       const live = titles ? displayTitle(titles[ref]?.title) : undefined;
       if (live) title = live;
     } catch {
