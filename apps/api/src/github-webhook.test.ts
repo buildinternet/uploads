@@ -78,7 +78,9 @@ describe("handleWebhook", () => {
   it("issues and pull_request drop the ref cache on any action", async () => {
     const kv = new FakeKv();
     kv.store.set("ghref:owner/repo#7", { value: "{}" });
+    kv.store.set("ghref:pub:owner/repo#7", { value: "{}" });
     kv.store.set("ghref:o/r#3", { value: "{}" });
+    kv.store.set("ghref:pub:o/r#3", { value: "{}" });
     await handleWebhook(envWith(kv), "issues", {
       action: "closed",
       repository: { full_name: "Owner/Repo" },
@@ -90,7 +92,9 @@ describe("handleWebhook", () => {
       pull_request: { number: 3 },
     });
     expect(kv.store.has("ghref:owner/repo#7")).toBe(false);
+    expect(kv.store.has("ghref:pub:owner/repo#7")).toBe(false);
     expect(kv.store.has("ghref:o/r#3")).toBe(false);
+    expect(kv.store.has("ghref:pub:o/r#3")).toBe(false);
   });
 
   it("ignores unknown events and never throws on malformed payloads", async () => {

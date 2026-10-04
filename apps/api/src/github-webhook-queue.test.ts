@@ -88,7 +88,7 @@ describe("extractWebhookEvent", () => {
       pull_request: { number: 7, head: { ref: "feat", repo: { full_name: "acme/web" } } },
     });
     expect(ev).toEqual({
-      keys: ["ghref:acme/web#7"],
+      keys: ["ghref:acme/web#7", "ghref:pub:acme/web#7"],
       promote: { repo: "Acme/Web", num: 7, branch: "feat" },
     });
   });
@@ -99,7 +99,7 @@ describe("extractWebhookEvent", () => {
       repository: { full_name: "acme/web" },
       pull_request: { number: 7, head: { ref: "feat", repo: { full_name: "fork/web" } } },
     });
-    expect(ev).toEqual({ keys: ["ghref:acme/web#7"] });
+    expect(ev).toEqual({ keys: ["ghref:acme/web#7", "ghref:pub:acme/web#7"] });
   });
 
   const URL = "https://github.com/user-attachments/assets/0a1b2c3d-1111-2222-3333-444455556666";
@@ -360,7 +360,7 @@ describe("handleWebhook producer path", () => {
     kv.store.set("ghref:o/r#1", { value: "{}" });
     const queue = new FakeQueue();
     await handleWebhook(envWith(kv, queue), "issues", issuesPayload);
-    expect(queue.sent).toEqual([{ keys: ["ghref:o/r#1"] }]);
+    expect(queue.sent).toEqual([{ keys: ["ghref:o/r#1", "ghref:pub:o/r#1"] }]);
     // Not deleted inline — the consumer owns the delete now.
     expect(kv.store.has("ghref:o/r#1")).toBe(true);
   });

@@ -214,11 +214,16 @@ function sessionAdminGate(): MiddlewareHandler<DualAuthVars> {
 
 /**
  * `GET /:workspace/github/titles` — batch PR/issue titles for the
- * connected-work rail (issue #267), moved verbatim from `routes/me.ts`
- * (issue #613 final phase). Member-gated: title text for private repos is
- * sensitive, and membership scoping keeps this from becoming a public title
- * oracle for whatever repos the App can read. Per-ref failures are nulls —
- * the endpoint never fails the batch wholesale.
+ * connected-work rail (issue #267), moved from `routes/me.ts` (issue #613
+ * final phase). Member-gated, but membership alone is not the scope: any
+ * signed-in user can be a member of *some* workspace, and the App can read
+ * every repo it is installed on. So only refs in repos linked to THIS
+ * workspace (`github_repo_links`) get the private-capable member ladder;
+ * every other ref resolves with the public audience (verified-public repos
+ * only). Refs are arbitrary caller input — `gh.*` metadata is
+ * client-writable — so "referenced by this workspace's files" is not a
+ * scope. Per-ref failures are nulls — the endpoint never fails the batch
+ * wholesale.
  */
 const githubTitlesHandler: Handler<DualAuthVars> = async (c) => {
   const raw = (c.req.query("refs") ?? "").split(",").filter((s) => s.length > 0);
@@ -240,7 +245,18 @@ const githubTitlesHandler: Handler<DualAuthVars> = async (c) => {
     return `${owner}/${repository}#${number}`;
   });
 
-  const titles = await resolveTitles(c.env, [...new Set(normalized)]);
+  const name = c.req.param("workspace") ?? "";
+  // Fail closed: a D1 blip degrades every ref to the public audience.
+  const linkedRepos = new Set(
+    await listRepoLinksForWorkspace(dbFor(c.env), name).then(
+      (links) => links.map((link) => link.repo.toLowerCase()),
+      () => [],
+    ),
+  );
+  const titles = await resolveTitles(c.env, [...new Set(normalized)], {
+    audience: "member",
+    linkedRepos,
+  });
   return c.json({ refs: titles });
 };
 
