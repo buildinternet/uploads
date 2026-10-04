@@ -96,6 +96,29 @@ async function completeGithubCallback(env: AuthEnv, state: string, cookie: strin
   );
 }
 
+describe("OAuth error URL", () => {
+  let db: FakeD1Database;
+
+  beforeEach(() => {
+    db = createFakeD1();
+  });
+
+  it("redirects Better Auth's /error page to the web app", async () => {
+    const res = await app.request("/api/auth/error?error=access_denied", {}, dbEnv(db));
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe("https://uploads.sh/auth/error?error=access_denied");
+  });
+
+  it("sends a GitHub callback with no state to the web app error page", async () => {
+    const res = await app.request("/api/auth/callback/github?error=access_denied", {}, dbEnv(db));
+    expect(res.status).toBe(302);
+    const location = res.headers.get("location") ?? "";
+    expect(location.startsWith("https://uploads.sh/auth/error?")).toBe(true);
+    expect(location).toContain("error=state_not_found");
+    expect(location).not.toContain("/api/auth/error");
+  });
+});
+
 describe("account linking (issue #233)", () => {
   let db: FakeD1Database;
   let orm: ReturnType<typeof drizzle<typeof schema>>;
@@ -167,7 +190,9 @@ describe("account linking (issue #233)", () => {
     // silently minting a second user for the same email.
     expect(res.status).toBe(302);
     const location = res.headers.get("location");
-    expect(location).toContain("/api/auth/error");
+    // onAPIError.errorURL sends failures to the web app, not Better Auth's
+    // default /api/auth/error page.
+    expect(location).toContain("https://uploads.sh/auth/error");
     expect(location).toContain("error=");
 
     const users = await orm.select().from(schema.user).where(eq(schema.user.email, email));

@@ -682,6 +682,16 @@ function buildAuth(
     baseURL: betterAuthUrl,
     basePath: "/api/auth",
     secret: signingSecret,
+    // OAuth callback failures (and GET /api/auth/error) redirect here instead
+    // of Better Auth's default error page. That page is the development HTML
+    // screen when ENVIRONMENT isn't production, and a bare `/?error=` hop on
+    // the auth base URL when it is. Absolute, on the web origin — same rule
+    // as loginPage / consentPage below. A per-request errorCallbackURL (the
+    // profile "Connect GitHub" flow sends people back to /account/profile)
+    // still wins over this fallback.
+    onAPIError: {
+      errorURL: `${webOrigin}/auth/error`,
+    },
     // `schema` (the whole module) is passed through as before — the adapter
     // discovers tables by matching each export's camelCase name to the
     // plugin's model name, so adding `jwks`/`oauthClient`/`oauthAccessToken`/
@@ -1094,6 +1104,11 @@ function buildAuth(
       // of session revocation (sign-out elsewhere, ban) taking up to 15 min
       // to propagate to cached readers — acceptable for this product's
       // threat model; high-sensitivity actions re-verify server-side.
+      // strategy stays the default "compact" (signed, not encrypted). JWE would
+      // hide the cached user record, but this cookie is already httpOnly and
+      // the session token is the credential. Switching strategy invalidates
+      // every cache at once and sends signed-in reads back to D1 — the stall
+      // this 15 min window exists to avoid.
       cookieCache: { enabled: true, maxAge: 15 * 60 },
       // CLI package version — set/refreshed via POST /update-session (not core
       // userAgent, which Better Auth freezes after create). See account Sessions.

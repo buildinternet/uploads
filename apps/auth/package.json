@@ -16,13 +16,13 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@better-auth/cimd": "^1.7.1",
-    "@better-auth/infra": "^0.4.1",
-    "@better-auth/oauth-provider": "^1.7.1",
-    "@better-auth/stripe": "^1.7.1",
+    "@better-auth/cimd": "^1.7.7",
+    "@better-auth/infra": "^0.4.14",
+    "@better-auth/oauth-provider": "^1.7.7",
+    "@better-auth/stripe": "^1.7.7",
     "@uploads/billing": "workspace:^",
     "@uploads/email": "workspace:^",
-    "better-auth": "^1.7.1",
+    "better-auth": "^1.7.7",
     "drizzle-orm": "^0.45.2",
     "hono": "^4.13.3",
     "stripe": "^22.3.2"

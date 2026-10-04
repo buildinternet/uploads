@@ -1,0 +1,110 @@
+---
+/**
+ * OAuth failure page. Better Auth redirects here (`onAPIError.errorURL`)
+ * instead of its default /api/auth/error screen. Copy is mapped from the
+ * `error` code only — see oauth-error-page.ts.
+ */
+import { applyAuthSecurityHeaders, authPageCsp } from "../../lib/signed-in-page";
+import { SAME_ORIGIN_AUTH_BASE } from "../../lib/auth-client";
+import { oauthErrorCopy } from "../../lib/oauth-error-page";
+import BaseHead from "../../components/BaseHead.astro";
+import Brand from "../../components/Brand.astro";
+import Footer from "../../components/Footer.astro";
+
+export const prerender = false;
+
+const copy = oauthErrorCopy(Astro.url.searchParams.get("error"));
+applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(SAME_ORIGIN_AUTH_BASE));
+---
+
+<html lang="en">
+  <head>
+    <BaseHead />
+    <meta name="robots" content="noindex, nofollow, noarchive" />
+    <title>{copy.title} · uploads.sh</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100dvh;
+        display: grid;
+        place-items: center;
+        padding: 28px;
+        background: var(--bg);
+        color: var(--fg);
+        font: var(--text-body) / var(--leading-body) var(--sans);
+        letter-spacing: var(--tracking-body);
+      }
+      main {
+        width: min(var(--width-card, 480px), 100%);
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        padding: clamp(24px, 6vw, 40px);
+      }
+      .brandbar {
+        display: flex;
+        justify-content: center;
+        margin-bottom: 24px;
+      }
+      h1 {
+        margin: 0 0 16px;
+        font-size: var(--text-h2);
+        font-weight: var(--weight-semibold);
+        letter-spacing: -0.015em;
+        line-height: 1.25;
+      }
+      .ul-callout {
+        margin: 0 0 16px;
+      }
+      .ref {
+        margin: 0 0 20px;
+        color: var(--muted);
+        font-size: var(--text-micro);
+        letter-spacing: 0.04em;
+      }
+      .ref code {
+        font-family: var(--mono);
+        color: var(--body);
+      }
+      a.back {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 44px;
+        font: var(--weight-medium) var(--text-ui) / 1 var(--sans);
+        letter-spacing: var(--tracking-ui);
+        color: var(--bg);
+        background: var(--accent);
+        border: 1px solid var(--accent);
+        border-radius: var(--radius-md);
+        padding: 12px 16px;
+        text-decoration: none;
+      }
+      a.back:hover,
+      a.back:focus-visible {
+        background: color-mix(in srgb, var(--accent) 88%, #fff);
+        border-color: color-mix(in srgb, var(--accent) 88%, #fff);
+        outline: none;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="brandbar"><Brand /></div>
+      <h1>{copy.title}</h1>
+      <div class="ul-callout" data-state="error" role="alert">{copy.message}</div>
+      {
+        copy.reference ? (
+          <p class="ref">
+            Reference <code>{copy.reference}</code>
+          </p>
+        ) : null
+      }
+      <a class="back" href="/login">Back to sign in</a>
+      <Footer compact />
+    </main>
+  </body>
+</html>
