@@ -105,14 +105,15 @@ export const session = sqliteTable(
  * `password` stays unused (email/password is explicitly out of scope, see D3)
  * but is part of Better Auth's canonical account shape.
  *
- * Better Auth 1.7 scopes account identity by `(issuer, accountId)` — every row
- * carries a synthetic `issuer` (`local:oauth:github` for our GitHub accounts,
- * per `createOAuthAccountIssuer`). Nullable at the DB level (added + backfilled
- * by migration 20260821120000; SQLite can't add a NOT NULL column to a
- * populated table), but Better Auth always populates it on insert.
+ * Better Auth 1.7.0–1.7.2 keyed accounts by `(issuer, accountId)` and wrote a
+ * synthetic issuer. 1.7.3 restored the 1.6 key `(providerId, accountId)`, so
+ * the `issuer` column and `idx_account_issuer_account_id` are no longer part
+ * of this table. The live column is dropped by a separate migration that
+ * lands after this worker is deployed: the previous worker's Drizzle table
+ * still selects `issuer`, so dropping it first would break account reads.
  *
- * Paired migrations: `migrations/20260712200000_better_auth_core.sql`,
- * `migrations/20260821120000_better_auth_1_7.sql` (`issuer` + lookup index).
+ * Paired migrations: `apps/api/migrations/20260822120000_auth_tables.sql`
+ * (squashed `issuer` + lookup index from the retired auth chain).
  */
 export const account = sqliteTable(
   "account",
@@ -123,8 +124,6 @@ export const account = sqliteTable(
       .references(() => user.id, { onDelete: "cascade" }),
     accountId: text("account_id").notNull(),
     providerId: text("provider_id").notNull(),
-    /** Better Auth 1.7 account-identity issuer (see table doc). */
-    issuer: text("issuer"),
     accessToken: text("access_token"),
     refreshToken: text("refresh_token"),
     accessTokenExpiresAt: integer("access_token_expires_at", { mode: "timestamp" }),
@@ -135,13 +134,7 @@ export const account = sqliteTable(
     createdAt: timestampCol("created_at"),
     updatedAt: timestampCol("updated_at"),
   },
-  (t) => [
-    index("idx_account_user_id").on(t.userId),
-    // findAccountByKey({ issuer, accountId }) — Better Auth 1.7 keys account
-    // identity on this pair. Unique: a prod audit confirmed zero collisions
-    // (migration 20260821120000).
-    uniqueIndex("idx_account_issuer_account_id").on(t.issuer, t.accountId),
-  ],
+  (t) => [index("idx_account_user_id").on(t.userId)],
 );
 
 /**
