@@ -4,13 +4,13 @@ import Brand from "../../components/Brand.astro";
 import Footer from "../../components/Footer.astro";
 import MediaFallback from "../../components/MediaFallback.astro";
 import { mediaPreviewFailedBody, MEDIA_PREVIEW_FAILED_TITLE } from "../../lib/media-load";
+import { mediaTileView } from "../../lib/media-tile";
 import {
   applyPublicFeedHeaders,
   fetchPublicFeed,
   feedItemPath,
   feedPageCopy,
   feedPath,
-  mediaKind as kind,
   type PublicFeedItem,
 } from "../../lib/public-feed";
 import { OG_DEFAULT_IMAGE, OG_SITE_NAME } from "../../lib/og";
@@ -256,35 +256,38 @@ function itemDate(item: PublicFeedItem): string | null {
             ) : (
               <section class="feed">
                 {feed.items.map((item) => {
-                  const mediaKind = kind(item);
-                  const pdfPoster = mediaKind === "file" && item.posterUrl ? item.posterUrl : null;
+                  const view = mediaTileView({
+                    key: item.filename,
+                    status: item.status,
+                    url: item.url,
+                    embedUrl: item.embedUrl,
+                    // "" (not null) keeps today's rule: an available item with no
+                    // content type is a plain file, never reclassified by extension.
+                    contentType: item.contentType ?? "",
+                    posterUrl: item.posterUrl ?? null,
+                  });
                   const previewable =
-                    mediaKind === "image" || mediaKind === "video" || pdfPoster !== null;
+                    view.mode === "image" || view.mode === "video" || view.mode === "poster";
                   const when = itemDate(item);
                   return (
                     <figure>
                       <div class="media" data-media-load={previewable ? "" : undefined}>
-                        {mediaKind === "image" && (
+                        {view.mode === "image" && (
                           <a
                             class="media-link"
                             href={feedItemPath(feed.id, item.id)}
                             aria-label={`Open ${item.filename}`}
                           >
-                            <img
-                              src={item.url!}
-                              alt={item.filename}
-                              loading="lazy"
-                              decoding="async"
-                            />
+                            <img src={view.src} alt={view.alt} loading="lazy" decoding="async" />
                           </a>
                         )}
-                        {mediaKind === "video" && (
+                        {view.mode === "video" && (
                           <video
-                            src={item.url!}
-                            poster={item.posterUrl ?? undefined}
+                            src={view.src}
+                            poster={view.poster ?? undefined}
                             controls
                             playsinline
-                            preload={item.posterUrl ? "none" : "metadata"}
+                            preload={view.poster ? "none" : "metadata"}
                           >
                             Your browser cannot play this video.
                           </video>
@@ -294,25 +297,25 @@ function itemDate(item: PublicFeedItem): string | null {
                             pending
                             compact
                             title={MEDIA_PREVIEW_FAILED_TITLE}
-                            body={mediaPreviewFailedBody(mediaKind === "video" ? "video" : "image")}
+                            body={mediaPreviewFailedBody(view.mode === "video" ? "video" : "image")}
                             href={item.url}
                           />
                         )}
-                        {pdfPoster && (
+                        {view.mode === "poster" && (
                           <a
                             class="media-link"
                             href={feedItemPath(feed.id, item.id)}
                             aria-label={`Open ${item.filename}`}
                           >
                             <img
-                              src={pdfPoster}
+                              src={view.src}
                               alt={`First page of ${item.filename}`}
                               loading="lazy"
                               decoding="async"
                             />
                           </a>
                         )}
-                        {mediaKind === "file" && !pdfPoster && (
+                        {view.mode === "ext" && (
                           <MediaFallback
                             compact
                             title="Preview unavailable"
@@ -320,7 +323,7 @@ function itemDate(item: PublicFeedItem): string | null {
                             filename={item.filename}
                           />
                         )}
-                        {mediaKind === "missing" && (
+                        {(view.mode === "missing" || view.mode === "locked") && (
                           <MediaFallback compact title="Removed or expired" />
                         )}
                       </div>
