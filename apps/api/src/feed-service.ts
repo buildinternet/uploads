@@ -24,7 +24,8 @@ import { createLaneResolver, objectPublicUrls, type LaneResolver } from "./stora
 import type { StorageConfig } from "@uploads/storage";
 import { objectVisibility } from "./visibility";
 import { webOrigin } from "./web-url";
-import { sha256Hex, type WorkspaceRecord } from "./workspace";
+import { feedItemIdFor } from "@uploads/comment-render/scope";
+import { type WorkspaceRecord } from "./workspace";
 import { dbFor, type D1Queryable } from "./db-session";
 
 type FeedObjectHead = {
@@ -112,9 +113,9 @@ export function feedUrl(env: Env, id: string): string {
   return webOrigin(env) + "/c/" + encodeURIComponent(id);
 }
 
-/** Stable public-item id: first 32 hex chars of SHA-256(object key). */
-export async function feedItemId(objectKey: string): Promise<string> {
-  return (await sha256Hex(objectKey)).slice(0, 32);
+/** Stable public-item id: first 32 hex chars of SHA-256(object key). One implementation, shared with the web and CLI. */
+export function feedItemId(objectKey: string): Promise<string> {
+  return feedItemIdFor(objectKey);
 }
 
 export function feedItemUrl(env: Env, feedId: string, itemId: string): string {
