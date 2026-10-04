@@ -41,6 +41,14 @@
  * D1 outage resolving the binding still throws so the queue consumer
  * retries.
  *
+ * Repository visibility (`repository` `privatized`/`publicized`, issue
+ * #1066): both write the new visibility through to the `ghpriv:` cache.
+ * `privatized` also bumps the repo's public-title epoch
+ * (github-titles.ts), which makes every cached `ghref:pub:` title for that
+ * repo unreachable at once instead of waiting out its TTL. GitHub sends
+ * this event only when the App is subscribed to `repository`; without it,
+ * public titles fall back to expiring on their TTL.
+ *
  * Queue ingestion (issue #287): payload parsing is split into a pure
  * `extractWebhookEvent` (delivery → compact `WebhookEvent` or null) and an
  * effectful `processWebhookEvent` (KV deletes + promote/reconcile). When the
@@ -56,7 +64,7 @@
 import { hasIngestableAttachmentUrl } from "./github-attachment-extract";
 import { cacheRepoPrivacy, githubAppConfig, installationForRepo } from "./github-app";
 import { commentCacheKey, gatherCommentBody, upsertBotComment } from "./github-comment";
-import { titleCacheKeys } from "./github-titles";
+import { bumpPublicTitleEpoch, titleCacheKeys } from "./github-titles";
 import { ATTACHMENTS_MARKER } from "./github-comment-render";
 import { findObjectsByMetadata, setFileMetadata } from "./file-metadata";
 import type { GhTarget } from "./github-comment-render";
@@ -412,6 +420,10 @@ export interface WebhookEvent {
    * webhook primes the private-prefix decision flow without an extra GitHub
    * API round trip. */
   privacy?: { repo: string; isPrivate: boolean };
+  /** `repository` `privatized` (issue #1066): lowercased `owner/name` whose
+   * public-title epoch to bump, so its cached `ghref:pub:` titles stop
+   * being served. */
+  privatized?: string;
 }
 
 /**
@@ -511,6 +523,17 @@ export function extractWebhookEvent(eventType: string, payload: unknown): Webhoo
     ) {
       ev.merge = { repo, num: pr.number };
     }
+  } else if (eventType === "repository") {
+    // Visibility changes (issue #1066). Keyed by the lowercased name because
+    // that is what the title ladders read (`ghpriv:`/`ghpubgen:` for refs
+    // normalized to lowercase). The action is authoritative here, so it is
+    // used rather than `repository.private`.
+    const fullName = (p.repository as { full_name?: unknown } | undefined)?.full_name;
+    if (typeof fullName === "string" && (p.action === "privatized" || p.action === "publicized")) {
+      const repo = fullName.toLowerCase();
+      ev.privacy = { repo, isPrivate: p.action === "privatized" };
+      if (p.action === "privatized") ev.privatized = repo;
+    }
   } else if (eventType === "issue_comment") {
     // isReconcilableCommentEvent's cheap payload-only check runs here, before
     // any I/O or enqueue, so the common case (an ordinary human comment on
@@ -566,7 +589,8 @@ export function extractWebhookEvent(eventType: string, payload: unknown): Webhoo
     ev.ingest ||
     ev.adopt ||
     ev.merge ||
-    ev.privacy
+    ev.privacy ||
+    ev.privatized
     ? ev
     : null;
 }
@@ -595,6 +619,12 @@ export async function processWebhookEvent(env: Env, ev: WebhookEvent): Promise<v
         }),
       );
     }
+  }
+
+  if (ev.privatized) {
+    // Unlike the best-effort privacy priming above, this write is the whole
+    // point of the event: let a failure throw so the queue consumer retries.
+    await bumpPublicTitleEpoch(env, ev.privatized);
   }
 
   await Promise.allSettled(ev.keys.map((key) => env.GITHUB_CACHE.delete(key)));
@@ -630,6 +660,7 @@ async function processInline(env: Env, ev: WebhookEvent): Promise<void> {
         ingest: ev.ingest ?? null,
         adopt: ev.adopt ?? null,
         merge: ev.merge ?? null,
+        privatized: ev.privatized ?? null,
         error: err instanceof Error ? err.message : String(err),
       }),
     );

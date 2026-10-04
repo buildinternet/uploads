@@ -13,6 +13,10 @@
  *   workspace): `ghref:` cache → home-installation token → the repo's own
  *   installation token (private repos) → negative cache.
  *
+ * Public entries carry the repo's public-title epoch (`ghpubgen:<repo>`) at
+ * write time. A `repository` `privatized` webhook bumps the epoch, so every
+ * `ghref:pub:` entry for that repo stops matching at once (issue #1066).
+ *
  * The App is installed across customer orgs, so `installationForRepo` can
  * read any installed repo regardless of who is asking. The member ladder is
  * therefore gated on `github_repo_links` (one workspace per repo, first
@@ -35,6 +39,14 @@ import {
 export const MEMBER_TITLE_PREFIX = "ghref:";
 /** Public-ladder cache: entries resolved via the home installation for verified-public repos. */
 export const PUBLIC_TITLE_PREFIX = "ghref:pub:";
+
+/**
+ * Per-repo epoch for the public cache (`ghpubgen:<owner/repo>`). A public
+ * entry is served only when the epoch stamped on it matches the current one,
+ * so bumping this makes every older `ghref:pub:` entry for the repo
+ * unreachable without listing or deleting them.
+ */
+export const PUBLIC_TITLE_EPOCH_PREFIX = "ghpubgen:";
 
 /** Every cache key a ref's title can live under — webhook invalidation clears all of them. */
 export function titleCacheKeys(ref: string): string[] {
@@ -61,6 +73,13 @@ export interface TitleInfo {
 const OPEN_TTL = 3600;
 const SETTLED_TTL = 86400;
 const NEGATIVE_TTL = 3600;
+/**
+ * Outlives every entry stamped before a bump: positive entries live at most
+ * SETTLED_TTL and negative ones about NEGATIVE_TTL, both counted from a write
+ * that came before the bump. An expired epoch reads as "none", which no
+ * post-bump entry carries, so expiry only causes misses, never stale hits.
+ */
+const PUBLIC_EPOCH_TTL = SETTLED_TTL + NEGATIVE_TTL;
 /** Slack added past the rate-limit reset so the retry lands after it. */
 const RESET_SLACK = 60;
 
@@ -112,18 +131,42 @@ function splitRef(ref: string): { repo: string; num: string } {
   return { repo: ref.slice(0, hash), num: ref.slice(hash + 1) };
 }
 
-async function readCache(env: Env, key: string): Promise<{ v: TitleInfo | null } | null> {
-  return (await env.GITHUB_CACHE.get(key, "json")) as { v: TitleInfo | null } | null;
+/** Cached title entry. `e` is the public epoch at write time; absent when there was none. */
+interface CacheEntry {
+  v: TitleInfo | null;
+  e?: string;
+}
+
+async function readCache(env: Env, key: string): Promise<CacheEntry | null> {
+  return (await env.GITHUB_CACHE.get(key, "json")) as CacheEntry | null;
+}
+
+/**
+ * Make every cached public title for `repo` (lowercased `owner/name`)
+ * unreachable. The epoch is a timestamp rather than a counter, so concurrent
+ * bumps need no read-modify-write: any new value differs from what existing
+ * entries carry.
+ */
+export async function bumpPublicTitleEpoch(env: Env, repo: string): Promise<void> {
+  await env.GITHUB_CACHE.put(`${PUBLIC_TITLE_EPOCH_PREFIX}${repo}`, String(Date.now()), {
+    expirationTtl: PUBLIC_EPOCH_TTL,
+  });
 }
 
 async function cacheOutcome(
   env: Env,
   key: string,
   outcome: FetchOutcome,
+  epoch: string | null = null,
 ): Promise<TitleInfo | null> {
+  // Only public entries pass an epoch; omitting `e` otherwise keeps the
+  // stored shape unchanged for member entries and for repos never bumped.
+  const stamp = epoch === null ? {} : { e: epoch };
   if (outcome.kind === "ok") {
     const ttl = outcome.info.state === "open" ? OPEN_TTL : SETTLED_TTL;
-    await env.GITHUB_CACHE.put(key, JSON.stringify({ v: outcome.info }), { expirationTtl: ttl });
+    await env.GITHUB_CACHE.put(key, JSON.stringify({ v: outcome.info, ...stamp }), {
+      expirationTtl: ttl,
+    });
     return outcome.info;
   }
   // "no-access" (404/private without install) and rate limits both
@@ -131,7 +174,9 @@ async function cacheOutcome(
   // errors share the base 1h TTL — acceptable staleness for a display cache.
   const negativeTtl =
     outcome.kind === "error" && outcome.negativeTtl ? outcome.negativeTtl : NEGATIVE_TTL;
-  await env.GITHUB_CACHE.put(key, JSON.stringify({ v: null }), { expirationTtl: negativeTtl });
+  await env.GITHUB_CACHE.put(key, JSON.stringify({ v: null, ...stamp }), {
+    expirationTtl: negativeTtl,
+  });
   return null;
 }
 
@@ -140,6 +185,7 @@ interface BatchContext {
   cfg: GithubAppConfig | null;
   getHomeToken: () => Promise<string | null>;
   isPublicRepo: (repo: string) => Promise<boolean>;
+  publicEpoch: (repo: string) => Promise<string | null>;
   fetchImpl: typeof fetch;
 }
 
@@ -151,8 +197,13 @@ interface BatchContext {
 async function resolvePublic(ctx: BatchContext, ref: string): Promise<TitleInfo | null> {
   const { env, cfg } = ctx;
   const cacheKey = `${PUBLIC_TITLE_PREFIX}${ref}`;
-  const cached = await readCache(env, cacheKey);
-  if (cached) return cached.v;
+  const { repo, num } = splitRef(ref);
+  // Read the entry and the repo's epoch in parallel so the epoch check adds
+  // no serial KV round trip; the epoch read is shared per repo per batch.
+  const [cached, epoch] = await Promise.all([readCache(env, cacheKey), ctx.publicEpoch(repo)]);
+  // An entry stamped under an older epoch (or none, once the repo has one)
+  // predates a `privatized` delivery: treat it as a miss.
+  if (cached && (cached.e ?? null) === epoch) return cached.v;
   if (!cfg) return null; // App not configured — degrade without caching.
 
   // Home mint failure is transient and says nothing about the ref — don't
@@ -160,9 +211,12 @@ async function resolvePublic(ctx: BatchContext, ref: string): Promise<TitleInfo 
   const homeToken = await ctx.getHomeToken();
   if (!homeToken) return null;
 
-  const { repo, num } = splitRef(ref);
-  if (!(await ctx.isPublicRepo(repo))) return cacheOutcome(env, cacheKey, { kind: "no-access" });
-  return cacheOutcome(env, cacheKey, await fetchIssue(repo, num, homeToken, ctx.fetchImpl));
+  // Stamp with the epoch read before the visibility check: a bump that lands
+  // mid-resolve leaves this entry on the old epoch, so it is never served.
+  if (!(await ctx.isPublicRepo(repo))) {
+    return cacheOutcome(env, cacheKey, { kind: "no-access" }, epoch);
+  }
+  return cacheOutcome(env, cacheKey, await fetchIssue(repo, num, homeToken, ctx.fetchImpl), epoch);
 }
 
 /** Member ladder: home installation, then the repo's own installation. Caller gates on repo links. */
@@ -256,7 +310,21 @@ export async function resolveTitles(
     }
     return pending;
   };
-  const ctx: BatchContext = { env, cfg, getHomeToken, isPublicRepo, fetchImpl };
+  // Public-cache epoch per repo, shared the same way. A read failure rejects,
+  // so that ref resolves to null (fail closed) rather than trusting an entry
+  // whose epoch could not be checked.
+  const epochs = new Map<string, Promise<string | null>>();
+  const publicEpoch = (repo: string): Promise<string | null> => {
+    let pending = epochs.get(repo);
+    if (!pending) {
+      // Async wrapper so a synchronous throw (e.g. no KV binding) becomes a
+      // rejection next to the entry read, never an orphaned one.
+      pending = (async () => env.GITHUB_CACHE.get(`${PUBLIC_TITLE_EPOCH_PREFIX}${repo}`))();
+      epochs.set(repo, pending);
+    }
+    return pending;
+  };
+  const ctx: BatchContext = { env, cfg, getHomeToken, isPublicRepo, publicEpoch, fetchImpl };
   const out: Record<string, TitleInfo | null> = {};
   await Promise.all(
     refs.map(async (ref) => {
