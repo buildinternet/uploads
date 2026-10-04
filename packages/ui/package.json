@@ -31,7 +31,8 @@
     "./lib/utils": {
       "types": "./dist/lib/utils.d.ts",
       "import": "./dist/lib/utils.js"
-    }
+    },
+    "./lib/pr-label": "./src/lib/pr-label.ts"
   },
   "files": [
     "dist",
@@ -43,7 +44,8 @@
   "scripts": {
     "build": "tsup && tsc -p tsconfig.build.json --emitDeclarationOnly --outDir dist && tailwindcss -i src/theme.css -o dist/design-theme.css",
     "dev": "tsup --watch",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "peerDependencies": {
     "files-sdk": ">=2.3.1",
@@ -69,6 +71,7 @@
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "tsup": "^8.3.5",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
   }
 }
