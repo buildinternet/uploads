@@ -208,8 +208,9 @@ describe("dynamic client registration", () => {
   // porting the upstream fix for better-auth#10946): the dist's native
   // redirect validator rejected host-bearing private-use-scheme redirects
   // like `cursor://host/path` even for an explicit `application_type:
-  // "native"` client. Delete this test (and patches/@better-auth__oauth-provider@1.7.1.patch)
-  // once a Better Auth release ships #10956 or equivalent.
+  // "native"` client. Delete this test (and patches/@better-auth__oauth-provider.patch)
+  // once a Better Auth release ships #10956 or equivalent. The patch was
+  // refreshed for 1.7.7; the upstream issue is still open.
   it("registers an explicit native client with a host-bearing cursor:// redirect", async () => {
     const res = await app.request(
       "/api/auth/oauth2/register",
