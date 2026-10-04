@@ -12,10 +12,10 @@ import {
 import { publicObjectDateFields } from "./files-core";
 import { getMetadataForKeys } from "./file-metadata";
 import {
-  encodeScopeCursor,
+  encodePublicFeedCursor,
   prScopeQuery,
   scanScopeKeys,
-  type ScopeCursor,
+  type ScopeResume,
   type ScopeItem,
 } from "./pr-scope";
 import {
@@ -385,7 +385,7 @@ export async function hydratePublicFeed(
   env: Env,
   workspace: WorkspaceRecord,
   record: FeedRecord,
-  opts: { cursor?: ScopeCursor | null } = {},
+  opts: { cursor?: ScopeResume | null } = {},
 ): Promise<PublicFeedDto> {
   const page = await prScopeQuery(dbFor(env), {
     workspace: record.workspace,
@@ -407,7 +407,7 @@ export async function hydratePublicFeed(
     createdAt: record.created_at,
     updatedAt: record.updated_at,
     items: items.map(toPublicItem),
-    nextCursor: page.nextCursor ? encodeScopeCursor(page.nextCursor) : null,
+    nextCursor: page.nextCursor ? await encodePublicFeedCursor(page.nextCursor) : null,
   };
 }
 

@@ -2,7 +2,7 @@ import { NotFoundError } from "@uploads/errors";
 import { Hono } from "hono";
 import { resolvePublicFeed } from "../feeds";
 import { hydratePublicFeed, publicFeedItemPage } from "../feed-service";
-import { decodeScopeCursor } from "../pr-scope";
+import { decodePublicFeedCursor } from "../pr-scope";
 import { loadWorkspaceRecord, type WorkspaceVars } from "../workspace";
 import { dbFor } from "../db-session";
 
@@ -21,7 +21,16 @@ async function liveFeed(env: Env, id: string) {
 export const publicFeeds = new Hono<WorkspaceVars>()
   .get("/:id", async (c) => {
     const { record, workspace } = await liveFeed(c.env, c.req.param("id"));
-    const cursor = decodeScopeCursor(c.req.query("cursor"));
+    const cursor = await decodePublicFeedCursor(
+      dbFor(c.env),
+      {
+        workspace: record.workspace,
+        repo: record.repo,
+        ...(record.path ? { path: record.path } : {}),
+        ...(record.number > 0 ? { number: record.number } : {}),
+      },
+      c.req.query("cursor"),
+    );
     return c.json(await hydratePublicFeed(c.env, workspace, record, { cursor }));
   })
   // Pager item plus neighbours, found by a scope scan (cap 2,000) so items

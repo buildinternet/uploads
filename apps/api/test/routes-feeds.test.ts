@@ -457,6 +457,92 @@ describe("public feed pagination and pager", () => {
     expect(await bad.json()).toMatchObject({ error: { code: "invalid_cursor" } });
   });
 
+  it("keeps object keys out of the public nextCursor when the last item is private", async () => {
+    const privateKey = `gh/private/${"a1".repeat(16)}/acme/app/pull/7/secret.png`;
+    for (let i = 0; i < 52; i++) {
+      const key = i === 49 ? privateKey : shotKey(i);
+      await seedFeedObject(
+        key,
+        { "gh.repo": "acme/app", "gh.number": "7", "gh.kind": "pull" },
+        minutesBefore(i),
+        { private: i === 49 },
+      );
+    }
+    const id = await createPr7Feed();
+    const page = (await (await app.request(`/public/feeds/${id}`, {}, env)).json()) as {
+      items: Array<{ filename: string; status: string }>;
+      nextCursor: string;
+    };
+    expect(page.items.at(-1)).toMatchObject({ filename: "secret.png", status: "withheld" });
+    const decoded = Buffer.from(page.nextCursor, "base64url").toString("utf8");
+    expect(decoded).not.toContain("gh/private/");
+    expect(decoded).not.toContain("secret.png");
+    expect(decoded).not.toContain("acme/app");
+    expect(decoded).toContain(await itemIdFor(privateKey));
+
+    const next = (await (
+      await app.request(`/public/feeds/${id}?cursor=${page.nextCursor}`, {}, env)
+    ).json()) as { items: Array<{ filename: string }>; nextCursor: string | null };
+    expect(next.items.map((item) => item.filename)).toEqual(["shot-50.png", "shot-51.png"]);
+  });
+
+  it("pages every item exactly once across a boundary with shared updated_at values", async () => {
+    // Items 49, 50, and 51 share one timestamp, so the 50-item boundary splits a tie.
+    for (let i = 0; i < 55; i++) {
+      await seedFeedObject(
+        shotKey(i),
+        { "gh.repo": "acme/app", "gh.number": "7", "gh.kind": "pull" },
+        minutesBefore(i >= 49 && i <= 51 ? 49 : i),
+      );
+    }
+    const id = await createPr7Feed();
+    const seen: string[] = [];
+    let cursor: string | null = null;
+    let pages = 0;
+    do {
+      const res = await app.request(
+        `/public/feeds/${id}${cursor ? `?cursor=${cursor}` : ""}`,
+        {},
+        env,
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        items: Array<{ filename: string }>;
+        nextCursor: string | null;
+      };
+      seen.push(...body.items.map((item) => item.filename));
+      cursor = body.nextCursor;
+      pages++;
+    } while (cursor && pages < 5);
+    expect(pages).toBe(2);
+    expect(seen).toHaveLength(55);
+    expect(new Set(seen).size).toBe(55);
+    expect(new Set(seen)).toEqual(
+      new Set(Array.from({ length: 55 }, (_, i) => `shot-${String(i).padStart(2, "0")}.png`)),
+    );
+  });
+
+  it("resumes strictly older when the cursor's item vanished", async () => {
+    await seedPr7(55);
+    const id = await createPr7Feed();
+    const page = (await (await app.request(`/public/feeds/${id}`, {}, env)).json()) as {
+      nextCursor: string;
+    };
+    sqlite.db
+      .prepare(`DELETE FROM file_metadata WHERE workspace = ? AND object_key = ?`)
+      .run("alpha", shotKey(49));
+    const next = (await (
+      await app.request(`/public/feeds/${id}?cursor=${page.nextCursor}`, {}, env)
+    ).json()) as { items: Array<{ filename: string }> };
+    expect(next.items.map((item) => item.filename)).toEqual([
+      "shot-50.png",
+      "shot-51.png",
+      "shot-52.png",
+      "shot-53.png",
+      "shot-54.png",
+    ]);
+  });
+
   it("resolves a pager item older than the newest 50 with its neighbours", async () => {
     await seedPr7(55);
     const id = await createPr7Feed();

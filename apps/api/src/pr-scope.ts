@@ -15,7 +15,7 @@
  * the SQL or SQLite cannot use that partial index.
  */
 import { ValidationError } from "@uploads/errors";
-import type { FileTypeClass } from "@uploads/comment-render/scope";
+import { feedItemIdFor, type FileTypeClass } from "@uploads/comment-render/scope";
 import { type D1Queryable } from "./db-session";
 import { getMetadataForKeys } from "./file-metadata";
 import { fileTypeSql } from "./file-type-sql";
@@ -30,6 +30,15 @@ export interface ScopeCursor {
   key: string;
 }
 
+/**
+ * Where a page resumes. A null `key` means "strictly older than `updatedAt`"
+ * (no tie-break among rows sharing that timestamp).
+ */
+export interface ScopeResume {
+  updatedAt: string;
+  key: string | null;
+}
+
 export interface ScopeQuery {
   workspace: string;
   /** Lowercased `owner/repo`. */
@@ -38,7 +47,7 @@ export interface ScopeQuery {
   path?: string;
   /** Signed-in views only; live links never pass it. */
   type?: FileTypeClass;
-  cursor?: ScopeCursor | null;
+  cursor?: ScopeResume | null;
   /** Default 50, max 100. */
   limit?: number;
 }
@@ -96,7 +105,10 @@ export async function prScopeQuery(
   const limit = clampScopeLimit(q.limit);
   const { sql, params } = scopeFrom(q);
   let select = `SELECT r.object_key AS object_key, r.updated_at AS updated_at ${sql}`;
-  if (q.cursor) {
+  if (q.cursor && q.cursor.key === null) {
+    select += ` AND r.updated_at < ?`;
+    params.push(q.cursor.updatedAt);
+  } else if (q.cursor) {
     select += ` AND (r.updated_at < ? OR (r.updated_at = ? AND r.object_key > ?))`;
     params.push(q.cursor.updatedAt, q.cursor.updatedAt, q.cursor.key);
   }
@@ -152,6 +164,22 @@ export async function scanScopeKeys(
     updatedAt: row.updated_at,
     metadata: {},
   }));
+}
+
+/** Keys in the scope stamped exactly `updatedAt`, in tie-break order. Small: rows sharing one timestamp. */
+export async function scopeKeysAt(
+  db: D1Queryable,
+  q: Omit<ScopeQuery, "cursor" | "limit">,
+  updatedAt: string,
+): Promise<string[]> {
+  const { sql, params } = scopeFrom(q);
+  const { results } = await db
+    .prepare(
+      `SELECT r.object_key AS object_key ${sql} AND r.updated_at = ? ORDER BY r.object_key ASC LIMIT ?`,
+    )
+    .bind(...params, updatedAt, SCOPE_SCAN_CAP)
+    .all<{ object_key: string }>();
+  return (results ?? []).map((row) => row.object_key);
 }
 
 /** Distinct `gh.repo` values with their newest upload time, newest first. */
@@ -230,4 +258,54 @@ export function decodeScopeCursor(raw: string | undefined): ScopeCursor | null {
     throw invalid();
   }
   return { updatedAt: record.u, key: record.k };
+}
+
+/**
+ * Public live-link cursor. Public pages must not expose object keys (a
+ * withheld item's key can be a capability URL), so it carries the item id
+ * (`sha256(key)` prefix) instead of the key: `{ v: 1, u: updatedAt, h: itemId }`.
+ * Signed-in routes keep `encodeScopeCursor`.
+ */
+export async function encodePublicFeedCursor(cursor: ScopeCursor): Promise<string> {
+  return base64UrlEncode(
+    JSON.stringify({ v: 1, u: cursor.updatedAt, h: await feedItemIdFor(cursor.key) }),
+  );
+}
+
+/**
+ * Decode a public cursor and resolve its tie-break key from the scope rows
+ * stamped `updatedAt`. If no row matches (the item was deleted or re-scoped
+ * since the cursor was issued), resume strictly older than `updatedAt`
+ * (`key: null`): same-timestamp rows past the vanished item are skipped
+ * rather than risking a duplicate. Malformed input is a 400 `invalid_cursor`.
+ */
+export async function decodePublicFeedCursor(
+  db: D1Queryable,
+  scope: Omit<ScopeQuery, "cursor" | "limit">,
+  raw: string | undefined,
+): Promise<ScopeResume | null> {
+  if (raw === undefined || raw === "") return null;
+  const invalid = () =>
+    new ValidationError("cursor is not valid for this query", { code: "invalid_cursor" });
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(base64UrlDecode(raw));
+  } catch {
+    throw invalid();
+  }
+  if (typeof parsed !== "object" || parsed === null) throw invalid();
+  const record = parsed as Record<string, unknown>;
+  if (
+    record.v !== 1 ||
+    typeof record.u !== "string" ||
+    !Number.isFinite(Date.parse(record.u)) ||
+    typeof record.h !== "string" ||
+    !/^[0-9a-f]{32}$/.test(record.h)
+  ) {
+    throw invalid();
+  }
+  for (const key of await scopeKeysAt(db, scope, record.u)) {
+    if ((await feedItemIdFor(key)) === record.h) return { updatedAt: record.u, key };
+  }
+  return { updatedAt: record.u, key: null };
 }
