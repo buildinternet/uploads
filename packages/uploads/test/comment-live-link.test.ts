@@ -94,6 +94,19 @@ describe("applyLocalFeedLinks", () => {
     expect(inScope.pageUrl).toBe(`https://uploads.test/f/acme/${inScope.key}`);
   });
 
+  it("degrades without the line when the server returns a non-string url", async () => {
+    const createFeed = vi.fn(async () => ({ ...feed, url: 42 }) as unknown as Feed);
+    const inScope = item("in.png");
+    const url = await applyLocalFeedLinks(
+      { createFeed },
+      pr,
+      [inScope],
+      new Map([[inScope.key, { "gh.repo": "acme/web", "gh.number": "12" }]]),
+    );
+    expect(url).toBeNull();
+    expect(inScope.pageUrl).toBe(`https://uploads.test/f/acme/${inScope.key}`);
+  });
+
   it("does not call create with no items or no createFeed method", async () => {
     const createFeed = vi.fn(async () => feed);
     expect(await applyLocalFeedLinks({ createFeed }, pr, [], new Map())).toBeNull();

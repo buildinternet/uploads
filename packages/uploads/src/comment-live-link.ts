@@ -37,7 +37,8 @@ export async function applyLocalFeedLinks(
   }
   // A PR/issue create never carries a path; anything else is not this scope.
   // An unexpected shape (older server) degrades instead of throwing.
-  if (!feed?.url || typeof feed.repo !== "string" || feed.path) return null;
+  if (!feed || typeof feed.url !== "string" || !feed.url) return null;
+  if (typeof feed.repo !== "string" || feed.path) return null;
   const scope = {
     repo: feed.repo.toLowerCase(),
     ...(feed.number ? { number: feed.number } : {}),

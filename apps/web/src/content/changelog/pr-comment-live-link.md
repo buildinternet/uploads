@@ -1,7 +1,7 @@
 ---
 title: "PR comments link to the pull request's live link"
 date: 2026-10-04
-tags: [platform, web]
+tags: [platform, web, cli]
 ---
 
 The managed PR comment now opens with one line, such as `12 files · View all on uploads.sh →`. It

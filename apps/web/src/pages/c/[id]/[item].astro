@@ -52,8 +52,10 @@ const newestItems = listResult.status === "ok" ? listResult.feed.items : [];
 const strip = item && newestItems.some((entry) => entry.id === item.id) ? newestItems : [];
 const newer = pageData?.prev ?? null;
 const older = pageData?.next ?? null;
+// The API caps `total` at the scan cap and sends no "capped" flag, so a total
+// at the cap may be exact or truncated. "or more" is true either way.
 const position = pageData
-  ? `${pageData.index + 1} of ${pageData.total}${pageData.total >= PUBLIC_FEED_SCAN_CAP ? "+" : ""}`
+  ? `${pageData.index + 1} of ${pageData.total}${pageData.total >= PUBLIC_FEED_SCAN_CAP ? " or more" : ""}`
   : "";
 const listPath = feedPath(id);
 const itemPath = (target: PublicFeedItem) => feedItemPath(id, target.id);
