@@ -27,7 +27,8 @@ under a top-level `comment:` map and is optional. With it you can set:
 - **Image width** for inline images, pair cells, and video posters.
 - **How many images** render inline before the rest collapse to links.
 - **Caption metadata** — the path and state labels under each image.
-- **Whether images link** to the file's share page.
+- **Whether images link** to a share page, and whether the comment links to the PR's
+  [live link](/docs/feeds).
 - **A short note** shown at the top of the comment.
 - **Whether GitHub-posted attachments are [imported](/docs/github-app#ingest) into the workspace**,
   and whether bot-authored ones count.
@@ -65,8 +66,9 @@ comment:
     path: true
     state: true
 
-  # Whether images link to a share page. On a PR comment that is the feed
-  # item pager; otherwise the /f/ file page. Overrides the workspace setting.
+  # Whether images link to a share page. On a PR comment that is the file's
+  # page in the PR's live link, and the comment opens with a link to the
+  # live link. Otherwise it is the /f/ file page. Overrides the workspace setting.
   linkToFilePage: true
 
   # Whether images and video dropped directly on GitHub PRs and issues get
