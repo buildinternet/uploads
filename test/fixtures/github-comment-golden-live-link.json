@@ -1,0 +1,20 @@
+{
+  "target": { "kind": "pull", "num": 12 },
+  "liveLinkUrl": "https://uploads.sh/c/feed_abcdefghijklmnopqrstuv",
+  "galleries": [],
+  "items": [
+    {
+      "key": "gh/acme/web/pull/12/settings.png",
+      "url": "https://storage.uploads.sh/acme/gh/acme/web/pull/12/settings.png",
+      "embedUrl": "https://embed.uploads.sh/acme/gh/acme/web/pull/12/settings.png",
+      "pageUrl": "https://uploads.sh/c/feed_abcdefghijklmnopqrstuv/22222222222222222222222222222222"
+    },
+    {
+      "key": "gh/acme/web/pull/12/dashboard.png",
+      "url": "https://storage.uploads.sh/acme/gh/acme/web/pull/12/dashboard.png",
+      "embedUrl": "https://embed.uploads.sh/acme/gh/acme/web/pull/12/dashboard.png",
+      "pageUrl": "https://uploads.sh/c/feed_abcdefghijklmnopqrstuv/11111111111111111111111111111111"
+    }
+  ],
+  "expected": "<!-- uploads.sh:attachments -->\n2 files · <a href=\"https://uploads.sh/c/feed_abcdefghijklmnopqrstuv\">View all on uploads.sh →</a>\n\n<a href=\"https://uploads.sh/c/feed_abcdefghijklmnopqrstuv/11111111111111111111111111111111\"><img width=\"720\" alt=\"dashboard.png\" src=\"https://embed.uploads.sh/acme/gh/acme/web/pull/12/dashboard.png\"></a>\n\n<a href=\"https://uploads.sh/c/feed_abcdefghijklmnopqrstuv/22222222222222222222222222222222\"><img width=\"560\" alt=\"settings.png\" src=\"https://embed.uploads.sh/acme/gh/acme/web/pull/12/settings.png\"></a>\n\n<sub>Maintained by <a href=\"https://uploads.sh\">uploads.sh</a> · add media: <code>uploads put &lt;file&gt; --pr 12</code> · <a href=\"https://uploads.sh/docs/github-app\">docs</a></sub>"
+}
