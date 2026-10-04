@@ -106,16 +106,11 @@ export const session = sqliteTable(
  * but is part of Better Auth's canonical account shape.
  *
  * Better Auth 1.7.0–1.7.2 keyed accounts by `(issuer, accountId)` and wrote a
- * synthetic issuer. 1.7.3 restored the 1.6 key `(providerId, accountId)` and
- * stopped writing `issuer`. The column stays: it was added nullable (SQLite
- * can't add NOT NULL to a populated table), so new rows simply leave it null,
- * and dropping it in the same deploy as the 1.7.7 worker would break the
- * previous worker, which still inserts the column. The unique index allows
- * multiple NULL issuers in SQLite, so sign-ups keep working. Drop the column
- * and `idx_account_issuer_account_id` only after 1.7.7 is the live worker.
- * A rollback to 1.7.1 looks accounts up by `(issuer, accountId)` and misses
- * these NULL rows (same during a mixed-worker rollout). Backfill
- * `issuer = 'local:oauth:github'` where null before rolling back.
+ * synthetic issuer. 1.7.3 restored the 1.6 key `(providerId, accountId)`, so
+ * the `issuer` column and `idx_account_issuer_account_id` are no longer part
+ * of this table. The live column is dropped by a separate migration that
+ * lands after this worker is deployed: the previous worker's Drizzle table
+ * still selects `issuer`, so dropping it first would break account reads.
  *
  * Paired migrations: `apps/api/migrations/20260822120000_auth_tables.sql`
  * (squashed `issuer` + lookup index from the retired auth chain).
@@ -129,11 +124,6 @@ export const account = sqliteTable(
       .references(() => user.id, { onDelete: "cascade" }),
     accountId: text("account_id").notNull(),
     providerId: text("provider_id").notNull(),
-    /**
-     * Unused since Better Auth 1.7.3. Kept so the Drizzle table matches the
-     * live column until a follow-up migration drops it. See the table doc.
-     */
-    issuer: text("issuer"),
     accessToken: text("access_token"),
     refreshToken: text("refresh_token"),
     accessTokenExpiresAt: integer("access_token_expires_at", { mode: "timestamp" }),
@@ -144,14 +134,7 @@ export const account = sqliteTable(
     createdAt: timestampCol("created_at"),
     updatedAt: timestampCol("updated_at"),
   },
-  (t) => [
-    index("idx_account_user_id").on(t.userId),
-    // Leftover from Better Auth 1.7.0–1.7.2, which keyed accounts on
-    // (issuer, accountId). 1.7.3+ looks up (providerId, accountId) and no
-    // longer writes issuer. SQLite unique indexes treat NULL as distinct, so
-    // this does not reject new rows. Drop with the column (see table doc).
-    uniqueIndex("idx_account_issuer_account_id").on(t.issuer, t.accountId),
-  ],
+  (t) => [index("idx_account_user_id").on(t.userId)],
 );
 
 /**
