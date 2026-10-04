@@ -1,4 +1,10 @@
-import { isSafePrHref, prLabelParts, type PrLabelInput, type PrState } from "../lib/pr-label";
+import {
+  isSafePrHref,
+  prLabelParts,
+  prLabelSrText,
+  type PrLabelInput,
+  type PrState,
+} from "../lib/pr-label";
 import { cn } from "../lib/utils";
 
 /**
@@ -60,7 +66,7 @@ function PrLabel({
   const stateKey = parts.state ?? "unknown";
   const link = href !== undefined && isSafePrHref(href) ? href : null;
   const rootClass = cn(
-    "inline-flex max-w-full min-w-0 items-center align-middle",
+    "relative inline-flex max-w-full min-w-0 items-center align-middle",
     SIZE_CLASS[size],
     link ? LINK_CLASS : "text-fg",
     className,
@@ -104,7 +110,7 @@ function PrLabel({
   return (
     <span data-slot="pr-label" data-state={stateKey} className={rootClass}>
       {body}
-      {parts.state && <span className="sr-only">{` (${parts.state})`}</span>}
+      <span className="sr-only">{prLabelSrText({ ghRef, title, state, kind }, compact)}</span>
     </span>
   );
 }

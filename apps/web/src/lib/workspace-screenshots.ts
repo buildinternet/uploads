@@ -4,6 +4,8 @@
  * list), so media kind is inferred from the key's extension — same trade-off
  * the search results accept.
  */
+import { asPrState, type PrLabelInput } from "@uploads/ui/lib/pr-label";
+import type { GithubTitleMap } from "./api-client";
 
 export type ShotKind = "image" | "video" | "other";
 
@@ -140,6 +142,39 @@ export function shotPreviewCaption(item: {
   if (pr && ref) caption.ref = ref;
   if (uploadedAt) caption.uploadedAt = uploadedAt;
   return caption;
+}
+
+/**
+ * PrLabel props for a shot's PR/issue tile badge or hover-card line. The ref
+ * follows `shotPreviewCaption`'s fallback chain and ends at a bare `#n` when
+ * only the number is known. Title and live state come from the page's
+ * resolved `titles` map. Until a ref resolves, the label shows its fallback
+ * text and a neutral dot. Null when the shot has no GitHub number or ref.
+ */
+export function shotPrLabelInput(
+  item: {
+    ghKind?: string;
+    ghNumber?: string;
+    ghRef?: string;
+    metadata?: Record<string, string>;
+  },
+  titles: GithubTitleMap,
+): PrLabelInput | null {
+  const kindValue = item.ghKind ?? item.metadata?.["gh.kind"];
+  const number = item.ghNumber ?? item.metadata?.["gh.number"];
+  const repo = item.metadata?.["gh.repo"];
+  const ghRef =
+    item.ghRef ??
+    item.metadata?.["gh.ref"] ??
+    (repo && number ? `${repo}#${number}` : number ? `#${number}` : undefined);
+  if (!ghRef) return null;
+  const info = titles[ghRef];
+  return {
+    ghRef,
+    kind: kindValue === "issue" || kindValue === "issues" ? "issue" : "pull",
+    title: info?.title || null,
+    state: asPrState(info?.state),
+  };
 }
 
 export function pairedShotKeys(items: Array<{ key: string; state?: string }>): Set<string> {

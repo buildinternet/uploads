@@ -1619,44 +1619,6 @@ button.wft-row {
   color: var(--muted);
   font: var(--text-micro) var(--mono);
 }
-/* Live PR/issue status pill (open/merged/closed) with a leading dot. */
-.wsp-preview__status {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  margin-right: 6px;
-  padding: 1px 6px;
-  border-radius: 999px;
-  border: 1px solid color-mix(in srgb, currentColor 35%, transparent);
-  font: var(--weight-medium) var(--text-micro) / 1 var(--sans);
-  text-transform: uppercase;
-  letter-spacing: 0.02em;
-  vertical-align: 1px;
-}
-.wsp-preview__status::before {
-  content: "";
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: currentColor;
-}
-.wsp-preview__status--open {
-  color: oklch(0.72 0.17 150);
-}
-.wsp-preview__status--merged {
-  color: oklch(0.66 0.18 300);
-}
-.wsp-preview__status--closed {
-  color: oklch(0.65 0.2 25);
-}
-.wsp-preview__title {
-  color: var(--fg);
-  font: var(--text-micro) var(--body);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: min(560px, calc(100vw - 24px));
-}
 .wsp-preview__time {
   color: var(--muted);
   font: var(--text-micro) var(--mono);

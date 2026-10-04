@@ -33,6 +33,7 @@ import {
   EmptyTitle,
 } from "@uploads/ui/components/ui/empty";
 import { Kbd } from "@uploads/ui/components/ui/kbd";
+import { PrLabel } from "@uploads/ui/components/pr-label";
 import {
   useEffect,
   useLayoutEffect,
@@ -80,6 +81,7 @@ import {
   SHOT_COUNT_DISPLAY_CAP,
   shotKindFromKey,
   shotPreviewCaption,
+  shotPrLabelInput,
   shotPreviewPosition,
   writeScreenshotsLocation,
   type ScreenshotsFeed,
@@ -262,20 +264,6 @@ function GhKindIcon({ kind, size = 10 }: { kind: string | undefined; size?: numb
     );
   }
   return null;
-}
-
-/** "PR #7" / "Issue #3", plus the author when present. */
-function ghLabel(item: SearchFileItem): string {
-  const kind = item.metadata["gh.kind"];
-  const number = item.metadata["gh.number"];
-  // Stored vocabulary is singular ("issue"), matching the CLI and
-  // deriveGithubContext (routes/public-files.ts) — "issues" is kept too for
-  // robustness against any pre-migration row still carrying the old value.
-  const kindLabel = kind === "pull" ? "PR" : kind === "issue" || kind === "issues" ? "Issue" : kind;
-  const numberLabel = number ? `#${number}` : "";
-  const base = [kindLabel, numberLabel].filter(Boolean).join(" ") || "GitHub";
-  const author = item.metadata["gh.author"];
-  return author ? `${base} · ${author}` : base;
 }
 
 // ── Thumb tile ─────────────────────────────────────────────────────────
@@ -1127,8 +1115,10 @@ function ScreenshotsByPathInner({
       onMerged={setMerged}
     />
   ) : null;
-  const previewTitle = preview?.ref ? titles[preview.ref] : undefined;
-  const previewState = previewTitle?.state;
+  const previewLabel =
+    preview?.pr && preview.ref
+      ? shotPrLabelInput({ ghRef: preview.ref, ghKind: preview.kind }, titles)
+      : null;
   const previewLayer = preview ? (
     <div
       className="wsp-preview"
@@ -1141,17 +1131,11 @@ function ScreenshotsByPathInner({
       <img src={preview.src} alt="" onLoad={positionPreview} />
       <div className="wsp-preview__meta">
         <div className="wsp-preview__name">{preview.name}</div>
-        {preview.pr && (
+        {previewLabel && (
           <div className="wsp-preview__pr">
-            {previewState && (
-              <span className={`wsp-preview__status wsp-preview__status--${previewState}`}>
-                {previewState}
-              </span>
-            )}
-            <GhKindIcon kind={preview.kind} /> {preview.pr}
+            <GhKindIcon kind={preview.kind} /> <PrLabel size="sm" {...previewLabel} />
           </div>
         )}
-        {previewTitle?.title && <div className="wsp-preview__title">{previewTitle.title}</div>}
         {preview.uploadedAt && (
           <div className="wsp-preview__time">
             uploaded {lastUpdatedLabel(preview.uploadedAt, new Date())}
@@ -1291,24 +1275,27 @@ function ScreenshotsByPathInner({
         ) : (
           <>
             <div className="wsp-grid grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(220px,1fr))]">
-              {latestItems.map((item) => (
-                <ShotThumb
-                  key={item.key}
-                  item={item}
-                  paired={latestPaired.has(item.key)}
-                  contextLabel={
-                    item.ghNumber ? (
-                      <>
-                        <GhKindIcon kind={item.ghKind} />{" "}
-                        {item.ghKind === "pull" ? `PR #${item.ghNumber}` : `#${item.ghNumber}`}
-                      </>
-                    ) : undefined
-                  }
-                  href={opener.href(item)}
-                  onOpen={() => opener.activate(item)}
-                  {...previewHandlers}
-                />
-              ))}
+              {latestItems.map((item) => {
+                const prLabel = shotPrLabelInput(item, titles);
+                return (
+                  <ShotThumb
+                    key={item.key}
+                    item={item}
+                    paired={latestPaired.has(item.key)}
+                    contextLabel={
+                      prLabel ? (
+                        <>
+                          <GhKindIcon kind={item.ghKind} />{" "}
+                          <PrLabel size="sm" compact {...prLabel} />
+                        </>
+                      ) : undefined
+                    }
+                    href={opener.href(item)}
+                    onOpen={() => opener.activate(item)}
+                    {...previewHandlers}
+                  />
+                );
+              })}
             </div>
             <p className="wft-end">
               Showing the {latestItems.length === 1 ? "newest upload" : "newest uploads"} — switch
@@ -1402,6 +1389,7 @@ function ScreenshotsByPathInner({
                 }
                 opener={opener}
                 preview={previewHandlers}
+                titles={titles}
               />
             );
           })}
@@ -1450,6 +1438,7 @@ function ProjectSection({
   drillHref,
   opener,
   preview,
+  titles,
 }: {
   label: string;
   summary: ProjectSummary | undefined;
@@ -1466,6 +1455,7 @@ function ProjectSection({
   drillHref: (group: { project: string; path: string }) => string;
   opener: FileOpener;
   preview: PreviewHandlers;
+  titles: GithubTitleMap;
 }) {
   // A GH-only label (no by-path groups) has no ProjectSummary — fall back to
   // the GitHub items' count so the header still reads sensibly.
@@ -1524,7 +1514,13 @@ function ProjectSection({
         />
       ))}
       {ghItems && (
-        <GitHubSection items={ghItems} truncated={ghTruncated} opener={opener} preview={preview} />
+        <GitHubSection
+          items={ghItems}
+          truncated={ghTruncated}
+          opener={opener}
+          preview={preview}
+          titles={titles}
+        />
       )}
     </div>
   );
@@ -1535,11 +1531,13 @@ function GitHubSection({
   truncated,
   opener,
   preview,
+  titles,
 }: {
   items: SearchFileItem[];
   truncated: boolean;
   opener: FileOpener;
   preview: PreviewHandlers;
+  titles: GithubTitleMap;
 }) {
   return (
     <div className="wsp-group grid gap-2.5">
@@ -1554,20 +1552,26 @@ function GitHubSection({
         </span>
       </div>
       <div className="wsp-strip">
-        {items.map((item) => (
-          <ShotThumb
-            key={item.key}
-            item={item}
-            contextLabel={
-              <>
-                <GhKindIcon kind={item.metadata["gh.kind"]} /> {ghLabel(item)}
-              </>
-            }
-            href={opener.href(item)}
-            onOpen={() => opener.activate(item)}
-            {...preview}
-          />
-        ))}
+        {items.map((item) => {
+          const prLabel = shotPrLabelInput(item, titles);
+          const author = item.metadata["gh.author"];
+          return (
+            <ShotThumb
+              key={item.key}
+              item={item}
+              contextLabel={
+                <>
+                  <GhKindIcon kind={item.metadata["gh.kind"]} />{" "}
+                  {prLabel ? <PrLabel size="sm" compact {...prLabel} /> : "GitHub"}
+                  {author ? ` · ${author}` : ""}
+                </>
+              }
+              href={opener.href(item)}
+              onOpen={() => opener.activate(item)}
+              {...preview}
+            />
+          );
+        })}
       </div>
     </div>
   );

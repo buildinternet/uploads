@@ -15,7 +15,7 @@ describe("PrLabel", () => {
     expect(html).toContain('data-state="merged"');
     expect(html).toContain("bg-primary");
     expect(html).toContain(">#12 Fix login<");
-    expect(html).toContain('<span class="sr-only"> (merged)</span>');
+    expect(html).toContain('<span class="sr-only"> (pull request, merged)</span>');
   });
 
   it("colors the dot from tokens for each state", () => {
@@ -24,7 +24,16 @@ describe("PrLabel", () => {
     const unknown = render({ ghRef: "a/b#1" });
     expect(unknown).toContain("bg-muted-foreground/60");
     expect(unknown).toContain('data-state="unknown"');
-    expect(unknown).not.toContain("sr-only");
+    expect(unknown).toContain('<span class="sr-only"> (pull request)</span>');
+  });
+
+  it("names issues and the compact variant for screen readers", () => {
+    expect(render({ ghRef: "a/b#1", kind: "issue", state: "closed" })).toContain(
+      '<span class="sr-only"> (issue, closed)</span>',
+    );
+    expect(
+      render({ ghRef: "acme/web#3", title: "Fix", state: "open", size: "sm", compact: true }),
+    ).toContain('<span class="sr-only"> (Pull request #3 in acme/web: Fix (open))</span>');
   });
 
   it("falls back to owner/repo #n without a title", () => {
@@ -55,8 +64,9 @@ describe("PrLabel", () => {
 
   it("shows only the number when compact", () => {
     const html = render({ ghRef: "acme/web#12", title: "Fix", size: "sm", compact: true });
-    expect(html).toContain(">#12<");
-    expect(html).not.toContain("Fix");
+    expect(html).toContain('<span class="truncate">#12</span>');
+    // The title stays out of the visible text; only the sr-only name carries it.
+    expect(html.replace(/<span class="sr-only">.*?<\/span>/, "")).not.toContain("Fix");
   });
 
   it("puts the title first and the number muted at lg", () => {
