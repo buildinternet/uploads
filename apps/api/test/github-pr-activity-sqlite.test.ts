@@ -14,7 +14,10 @@ import { processWebhookEvent } from "../src/github-webhook";
 import { FakeKv } from "./fake-kv";
 import { SqliteD1, database } from "./helpers/sqlite-d1";
 
-const MIGRATION = "migrations/20260721150000_github_pr_activity.sql";
+const MIGRATION = [
+  "migrations/20260721150000_github_pr_activity.sql",
+  "migrations/20261004120100_pr_activity_title_state.sql",
+];
 
 describe("github pr activity persistence against SQLite", () => {
   it("returns an empty feed for a workspace with no activity", async () => {
@@ -328,6 +331,80 @@ describe("PR rollup title/state", () => {
     }
   });
 
+  it("resets title/state when another workspace's media upsert takes the row over", async () => {
+    const sqlite = new SqliteD1(ROLLUP_MIGRATIONS);
+    try {
+      const db = database(sqlite);
+      await recordPrMediaActivity(db, {
+        repo: "acme/secret",
+        prNumber: 1,
+        workspaceName: "acme",
+        count: 1,
+      });
+      linkRepo(sqlite, "acme/secret", "acme");
+      await applyPrActivityWebhook(db, {
+        repo: "acme/secret",
+        number: 1,
+        title: "Secret plan",
+        state: "open",
+      });
+      expect(rollup(sqlite, "acme/secret#1")).toMatchObject({
+        title: "Secret plan",
+        state: "open",
+      });
+
+      // Same workspace writing again keeps title/state.
+      await recordPrMediaActivity(db, {
+        repo: "acme/secret",
+        prNumber: 1,
+        workspaceName: "acme",
+        count: 1,
+      });
+      expect(rollup(sqlite, "acme/secret#1")).toMatchObject({
+        title: "Secret plan",
+        state: "open",
+      });
+
+      // mallory tags the same gh.repo/gh.number afterwards: the row changes hands without the title.
+      await recordPrMediaActivity(db, {
+        repo: "acme/secret",
+        prNumber: 1,
+        workspaceName: "mallory",
+        count: 1,
+      });
+      expect(rollup(sqlite, "acme/secret#1")).toMatchObject({
+        workspace_name: "mallory",
+        title: null,
+        state: null,
+      });
+      const page = await listPrActivityPage(db, "mallory", { limit: 10 });
+      expect(page.rows).toHaveLength(1);
+      expect(page.rows[0]).toMatchObject({ title: null, state: null });
+      expect((await countOpenPullsByRepo(db, "mallory", ["acme/secret"])).size).toBe(0);
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("backfill never writes a row owned by another workspace", async () => {
+    const sqlite = new SqliteD1(ROLLUP_MIGRATIONS);
+    try {
+      const db = database(sqlite);
+      await recordPrMediaActivity(db, {
+        repo: "acme/web",
+        prNumber: 1,
+        workspaceName: "acme",
+        count: 1,
+      });
+      await backfillPrActivityState(db, "mallory", [
+        { ref: "acme/web#1", title: "Nope", state: "open" },
+      ]);
+      expect(rollup(sqlite, "acme/web#1")).toMatchObject({ title: null, state: null });
+    } finally {
+      sqlite.close();
+    }
+  });
+
   it("backfills title/state, skipping invalid states, and counts open PRs per repo", async () => {
     const sqlite = new SqliteD1(ROLLUP_MIGRATIONS);
     try {
@@ -346,7 +423,7 @@ describe("PR rollup title/state", () => {
         workspaceName: "acme",
         count: 1,
       });
-      await backfillPrActivityState(db, [
+      await backfillPrActivityState(db, "acme", [
         { ref: "acme/web#1", title: "One", state: "open" },
         { ref: "acme/web#2", title: "Two", state: "open" },
         { ref: "acme/web#3", title: "Three", state: "draft" },

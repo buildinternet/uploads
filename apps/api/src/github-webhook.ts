@@ -65,7 +65,7 @@ import { hasIngestableAttachmentUrl } from "./github-attachment-extract";
 import { cacheRepoPrivacy, githubAppConfig, installationForRepo } from "./github-app";
 import { commentCacheKey, gatherCommentBody, upsertBotComment } from "./github-comment";
 import { bumpPublicTitleEpoch, titleCacheKeys } from "./github-titles";
-import { applyPrActivityWebhook } from "./github-pr-activity";
+import { applyPrActivityWebhook, type PrState } from "./github-pr-activity";
 import { ATTACHMENTS_MARKER } from "./github-comment-render";
 import { findObjectsByMetadata, setFileMetadata } from "./file-metadata";
 import type { GhTarget } from "./github-comment-render";
@@ -145,10 +145,7 @@ const PROMOTE_ACTIONS = new Set(["opened", "reopened", "synchronize"]);
 const PR_ACTIVITY_ACTIONS = new Set(["opened", "edited", "closed", "reopened"]);
 
 /** Rollup state from a `pull_request` delivery, or null when the action is not one we record. */
-function pullRequestState(
-  action: unknown,
-  pr: PullRequestPayload["pull_request"],
-): "open" | "closed" | "merged" | null {
+function pullRequestState(action: unknown, pr: PullRequestPayload["pull_request"]): PrState | null {
   if (typeof action !== "string" || !PR_ACTIVITY_ACTIONS.has(action) || !pr) return null;
   const merged =
     pr.merged === true || (typeof pr.merged_at === "string" && pr.merged_at.length > 0);
@@ -449,7 +446,7 @@ export interface WebhookEvent {
   /** `pull_request` opened/edited/closed/reopened → title + state onto the
    * PR's rollup row (`applyPrActivityWebhook`: UPDATE only, linked repos
    * only). GitHub caps titles at 256 chars, so this stays queue-compact. */
-  prActivity?: { repo: string; number: number; title: string; state: "open" | "closed" | "merged" };
+  prActivity?: { repo: string; number: number; title: string; state: PrState };
 }
 
 /**

@@ -63,7 +63,12 @@ export interface PrMediaEvent {
  * Best-effort upsert: never throws — activity tracking rides along with an
  * upload/promote response and a D1 blip here must not fail that request.
  * `first_media_at` is set once; `last_media_at` always advances; a null
- * branch never clobbers a previously recorded one.
+ * branch never clobbers a previously recorded one. Invariant: `title`/`state`
+ * belong to the workspace that owns the row, so when the writer's workspace
+ * differs from the stored one the row changes hands and title/state reset to
+ * NULL (they refill via the linked-repo webhook or the `/pulls` backfill).
+ * Without this, a workspace that tags another's `gh.repo`/`gh.number` would
+ * inherit that workspace's private title and state.
  */
 export async function recordPrMediaActivity(
   db: D1Queryable,
@@ -82,6 +87,8 @@ export async function recordPrMediaActivity(
          ON CONFLICT(ref) DO UPDATE SET
            media_count = media_count + excluded.media_count,
            branch = COALESCE(excluded.branch, branch),
+           title = CASE WHEN workspace_name = excluded.workspace_name THEN title ELSE NULL END,
+           state = CASE WHEN workspace_name = excluded.workspace_name THEN state ELSE NULL END,
            workspace_name = excluded.workspace_name,
            last_media_at = excluded.last_media_at`,
       )
@@ -297,10 +304,13 @@ export async function applyPrActivityWebhook(
 
 /**
  * Lazy fill from the `/pulls` handler: rows whose resolved title/state
- * differs from the stored one. Invalid states are skipped. Never throws.
+ * differs from the stored one. Scoped to `workspaceName`: a row is only
+ * written while it still belongs to the caller's workspace. Invalid states
+ * are skipped. Never throws.
  */
 export async function backfillPrActivityState(
   db: D1Queryable,
+  workspaceName: string,
   rows: Array<{ ref: string; title: string; state: string }>,
 ): Promise<void> {
   const valid = rows.filter((row) => isPrState(row.state));
@@ -309,8 +319,11 @@ export async function backfillPrActivityState(
     await db.batch(
       valid.map((row) =>
         db
-          .prepare(`UPDATE github_pr_activity SET title = ?, state = ? WHERE ref = ?`)
-          .bind(row.title, row.state, row.ref),
+          .prepare(
+            `UPDATE github_pr_activity SET title = ?, state = ?
+             WHERE ref = ? AND workspace_name = ?`,
+          )
+          .bind(row.title, row.state, row.ref, workspaceName),
       ),
     );
   } catch (err) {
