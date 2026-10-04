@@ -24,6 +24,7 @@ import type { StorageConfig } from "@uploads/storage";
 import { allowPoster, VIDEO_TYPES } from "./guards";
 import { overlayPlayButton } from "./poster-overlay";
 import { objectPublicUrls } from "./storage";
+import type { VideoDimensions } from "./scope-wire";
 
 /** Server-owned namespace for derived artifacts — never listed to users. */
 export const POSTER_KEY_PREFIX = "_internal/posters/";
@@ -37,11 +38,7 @@ export function posterKeyFor(key: string): string {
   return `${POSTER_KEY_PREFIX}${key}.jpg`;
 }
 
-/** Real display dimensions of a video, as stamped in `video.width`/`video.height`. */
-export interface VideoDimensions {
-  width: number;
-  height: number;
-}
+export type { VideoDimensions };
 
 const POSITIVE_INT_RE_STRICT = /^[1-9][0-9]*$/;
 

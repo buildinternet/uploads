@@ -260,3 +260,18 @@ export async function setRepoLink(
     .bind(normalizeRepo(repo), workspaceName, installationId, source, now.toISOString())
     .run();
 }
+
+/**
+ * Lowercased repos bound to `workspaceName`: the `linkedRepos` of the member
+ * title audience (`resolveTitles(env, refs, { audience: "member", linkedRepos })`,
+ * github-titles.ts). Fails closed: a D1 error yields an empty set, so every
+ * ref falls back to the public ladder.
+ */
+export async function linkedRepoSet(db: D1Queryable, workspaceName: string): Promise<Set<string>> {
+  return new Set(
+    await listRepoLinksForWorkspace(db, workspaceName).then(
+      (links) => links.map((link) => link.repo.toLowerCase()),
+      () => [],
+    ),
+  );
+}

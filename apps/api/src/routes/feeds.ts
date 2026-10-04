@@ -13,6 +13,7 @@ import { requireScope, type WorkspaceVars } from "../workspace";
 import { jsonBody } from "./json-body";
 import { dbFor } from "../db-session";
 import { boundedDataRead } from "../data-read-bounds";
+import type { FeedListResponse } from "../scope-wire";
 
 async function ownerFeed(c: Context<WorkspaceVars>, id: string) {
   const record = await getFeed(dbFor(c.env), c.get("workspaceName"), id);
@@ -51,10 +52,11 @@ export async function listFeedsHandler(c: Context<WorkspaceVars>) {
       }),
     { name: "d1_feeds_list" },
   );
-  return c.json({
+  const body: FeedListResponse = {
     feeds: page.feeds.map((feed) => feedSummary(c.env, feed)),
     nextCursor: page.nextCursor ? encodeFeedCursor(page.nextCursor) : null,
-  });
+  };
+  return c.json(body);
 }
 
 export async function getFeedHandler(c: Context<WorkspaceVars>) {

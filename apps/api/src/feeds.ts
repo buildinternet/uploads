@@ -5,6 +5,7 @@
  * matches galleries: anyone who knows the URL can view the feed.
  */
 import { type D1Queryable } from "./db-session";
+import type { FeedSource } from "./scope-wire";
 
 /**
  * Live repo-scoped feeds (`number = 0`) with `source = 'user'` per workspace.
@@ -24,7 +25,7 @@ const FEED_SELECT =
   "id, workspace, repo, path, number, kind, source, created_at, updated_at, deleted_at";
 
 /** Who created a feed row. Comment-sync rows are uncapped; see `createFeed`. */
-export type FeedSource = "comment" | "user";
+export type { FeedSource };
 
 export interface FeedRecord {
   id: string;

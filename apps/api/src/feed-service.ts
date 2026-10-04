@@ -21,7 +21,8 @@ import {
   type FeedRecord,
   type FeedSource,
 } from "./feeds";
-import { isDerivedPosterContentType, videoPresentation, type VideoDimensions } from "./poster";
+import { isDerivedPosterContentType, videoPresentation } from "./poster";
+import type { FeedItemDto, FeedSummaryDto, PublicFeedItemDto } from "./scope-wire";
 import { createLaneResolver, objectPublicUrls, type LaneResolver } from "./storage";
 import type { StorageConfig } from "@uploads/storage";
 import { objectVisibility } from "./visibility";
@@ -37,40 +38,7 @@ type FeedObjectHead = {
   metadata?: Record<string, string>;
 };
 
-export interface FeedItemDto {
-  id: string;
-  objectKey: string;
-  filename: string;
-  status: "available" | "missing" | "withheld";
-  url: string | null;
-  embedUrl: string | null;
-  /** Owner-only item page (`/c/<id>/<item>`). Absent on the public DTO. */
-  pageUrl?: string;
-  contentType: string | null;
-  size: number | null;
-  uploaded: string | null;
-  modified: string | null;
-  path: string | null;
-  state: string | null;
-  posterUrl?: string;
-  videoDimensions?: VideoDimensions;
-}
-
-export interface PublicFeedItemDto {
-  id: string;
-  filename: string;
-  status: "available" | "missing" | "withheld";
-  url: string | null;
-  embedUrl: string | null;
-  contentType: string | null;
-  size: number | null;
-  uploaded?: string;
-  modified?: string;
-  path: string | null;
-  state: string | null;
-  posterUrl?: string;
-  videoDimensions?: VideoDimensions;
-}
+export type { FeedItemDto, FeedSummaryDto, PublicFeedItemDto };
 
 export interface FeedDto {
   id: string;
@@ -85,21 +53,6 @@ export interface FeedDto {
   createdAt: string;
   updatedAt: string;
   items: FeedItemDto[];
-}
-
-export interface FeedSummaryDto {
-  id: string;
-  url: string;
-  workspace: string;
-  repo: string;
-  path: string | null;
-  number: number | null;
-  kind: "pull" | "issue" | null;
-  title: string;
-  /** "comment" (PR comment sync), "user", or null for feeds created before this field. */
-  source: FeedSource | null;
-  createdAt: string;
-  updatedAt: string;
 }
 
 export type PublicFeedDto = {

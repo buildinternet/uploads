@@ -28,6 +28,7 @@ import { galleries } from "./routes/galleries";
 import { publicGalleries } from "./routes/public-galleries";
 import { feeds } from "./routes/feeds";
 import { workspaceFeeds } from "./routes/workspace-feeds";
+import { workspaceScope } from "./routes/workspace-scope";
 import { publicFeeds } from "./routes/public-feeds";
 import { publicFiles } from "./routes/public-files";
 import { publicGithubAvatars } from "./routes/public-github-avatars";
@@ -163,6 +164,9 @@ export const app = new Hono<WorkspaceVars>()
   // `workspaceFiles` above.
   .route("/v1/workspaces", workspaceGalleries)
   .route("/v1/workspaces", workspaceFeeds)
+  // Files views (spec 2026-10-04): `/pulls`, `/repos`, `/scope/:owner/:repo/files`.
+  // Dual-auth, files:read; own auth + error boundary like the verticals above.
+  .route("/v1/workspaces", workspaceScope)
   .route("/v1/workspaces", workspaceUsage)
   // Canonical dual-auth github vertical (issue #613 phase 3):
   // `/v1/workspaces/:workspace/github/*`, collapsing the five sub-routers
