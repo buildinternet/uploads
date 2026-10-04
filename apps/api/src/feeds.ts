@@ -8,10 +8,10 @@ import { type D1Queryable } from "./db-session";
 import type { FeedSource } from "./scope-wire";
 
 /**
- * Live repo-scoped feeds (`number = 0`) with `source = 'user'` per workspace.
- * PR- and issue-scoped feeds (`number > 0`) are uncapped from every source
+ * Live repo-scoped feeds (`number = 0`) per workspace, whatever their source
+ * (legacy NULL-source rows included). Only user creates are checked against
+ * it. PR- and issue-scoped feeds (`number > 0`) are uncapped from every source
  * (API, CLI `gh` fallback, GitHub App): they are one row per real PR or issue.
- * Repo-scoped feeds created by comment sync are uncapped too.
  */
 export const MAX_FEEDS_PER_WORKSPACE = 50;
 export const MAX_FEED_PAGE_SIZE = 100;
@@ -227,14 +227,15 @@ export async function findFeedByRepoPath(
 }
 
 /**
- * Live user-created repo-scoped feeds (`number = 0`). Comment-sync rows,
- * legacy (NULL) rows, and PR/issue-scoped rows do not count.
+ * Live repo-scoped feeds (`number = 0`), whatever their source. Comment sync
+ * only creates `number > 0` rows, so in practice these are user-created and
+ * legacy (NULL-source) repo feeds. PR/issue-scoped rows do not count.
  */
-async function countUserRepoFeeds(db: D1Queryable, workspace: string): Promise<number> {
+async function countRepoFeeds(db: D1Queryable, workspace: string): Promise<number> {
   const found = await db
     .prepare(
       `SELECT COUNT(*) AS count FROM feeds
-       WHERE workspace = ? AND deleted_at IS NULL AND source = 'user' AND number = 0`,
+       WHERE workspace = ? AND deleted_at IS NULL AND number = 0`,
     )
     .bind(workspace)
     .first<{ count: number }>();
@@ -273,13 +274,13 @@ export async function createFeed(
 
   // One live row per scope whatever the source: the lookup above already
   // returned an existing comment-sync row to a user caller without touching
-  // the cap. Only user-created repo-scoped feeds are capped; PR/issue-scoped
-  // feeds (number > 0) are uncapped whatever the source.
+  // the cap. Only user creates of repo-scoped feeds are checked against it;
+  // PR/issue-scoped feeds (number > 0) are uncapped whatever the source.
   const source: FeedSource = input.source ?? "user";
   if (
     source === "user" &&
     scopeResult.value.number === 0 &&
-    (await countUserRepoFeeds(db, input.workspace)) >= MAX_FEEDS_PER_WORKSPACE
+    (await countRepoFeeds(db, input.workspace)) >= MAX_FEEDS_PER_WORKSPACE
   ) {
     return { status: "limit", limit: MAX_FEEDS_PER_WORKSPACE };
   }

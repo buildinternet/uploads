@@ -330,7 +330,7 @@ describe("feed persistence against SQLite", () => {
       const counted = sqlite.db
         .prepare(
           `SELECT COUNT(*) AS n FROM feeds
-           WHERE workspace = 'alpha' AND deleted_at IS NULL AND source = 'user' AND number = 0`,
+           WHERE workspace = 'alpha' AND deleted_at IS NULL AND number = 0`,
         )
         .get() as { n: number };
       expect(counted.n).toBe(MAX_FEEDS_PER_WORKSPACE);
@@ -376,23 +376,29 @@ describe("feed persistence against SQLite", () => {
     }
   });
 
-  it("maps legacy NULL-source rows to null and leaves them out of the cap", async () => {
+  it("maps legacy NULL-source rows to null and counts repo-scoped ones toward the cap", async () => {
     const sqlite = newSqlite();
     try {
       const db = database(sqlite);
       sqlite.db
         .prepare(
           `INSERT INTO feeds (id, workspace, repo, path, number, kind, created_at, updated_at, deleted_at)
-           VALUES ('feed_legacylegacylegacy0000', 'alpha', 'acme/old', '', 0, '', '2026-09-20T00:00:00Z', '2026-09-20T00:00:00Z', NULL)`,
+           VALUES ('feed_legacylegacylegacy0000', 'alpha', 'acme/old', '', 0, '', '2026-09-20T00:00:00Z', '2026-09-20T00:00:00Z', NULL),
+                  ('feed_legacylegacylegacy0001', 'alpha', 'acme/old', '', 5, 'pull', '2026-09-20T00:00:00Z', '2026-09-20T00:00:00Z', NULL)`,
         )
         .run();
       expect(await getFeed(db, "alpha", "feed_legacylegacylegacy0000")).toMatchObject({
         source: null,
       });
-      for (let i = 0; i < MAX_FEEDS_PER_WORKSPACE; i++) {
+      // The legacy repo-scoped row takes one of the 50 slots; the legacy PR row does not.
+      for (let i = 0; i < MAX_FEEDS_PER_WORKSPACE - 1; i++) {
         const created = await createFeed(db, { workspace: "alpha", repo: `acme/app${i}` });
         expect(created.status).toBe("ok");
       }
+      expect(await createFeed(db, { workspace: "alpha", repo: "acme/overflow" })).toEqual({
+        status: "limit",
+        limit: MAX_FEEDS_PER_WORKSPACE,
+      });
     } finally {
       sqlite.close();
     }
