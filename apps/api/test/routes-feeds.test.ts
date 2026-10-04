@@ -19,6 +19,7 @@ const MIGRATIONS = [
   "migrations/20260713210559_file_metadata.sql",
   "migrations/20260915120000_feeds.sql",
   "migrations/20260915153000_feeds_number.sql",
+  "migrations/20261004120000_feeds_source.sql",
 ];
 
 beforeAll(() => {
@@ -326,5 +327,56 @@ describe("feed routes", () => {
     });
     expect(again.status).toBe(200);
     expect(((await again.json()) as { id: string; url: string }).url).toBe(uploads.url);
+  });
+
+  it("reports who created each feed on the owner DTOs and ignores a client-sent source", async () => {
+    const created = await request("/v1/workspaces/alpha/feeds", {
+      method: "POST",
+      body: JSON.stringify({ repo: "acme/app", source: "comment" }),
+    });
+    expect(created.status).toBe(201);
+    const feed = (await created.json()) as { id: string; source: string | null };
+    expect(feed.source).toBe("user");
+
+    const listed = await request("/v1/workspaces/alpha/feeds");
+    const page = (await listed.json()) as { feeds: Array<{ id: string; source: string | null }> };
+    expect(page.feeds).toEqual([expect.objectContaining({ id: feed.id, source: "user" })]);
+
+    const single = await request(`/v1/workspaces/alpha/feeds/${feed.id}`);
+    expect(((await single.json()) as { source: string | null }).source).toBe("user");
+
+    const publicFeed = await app.request(`/public/feeds/${feed.id}`, {}, env);
+    expect(await publicFeed.json()).not.toHaveProperty("source");
+  });
+
+  it("creates 60 PR-scoped feeds over the API and caps only repo-scoped feeds at 50", async () => {
+    for (let n = 1; n <= 60; n++) {
+      const created = await request("/v1/workspaces/alpha/feeds", {
+        method: "POST",
+        body: JSON.stringify({ repo: "acme/web", pr: n }),
+      });
+      expect(created.status).toBe(201);
+    }
+    for (let i = 0; i < 50; i++) {
+      const created = await request("/v1/workspaces/alpha/feeds", {
+        method: "POST",
+        body: JSON.stringify({ repo: `acme/app${i}` }),
+      });
+      expect(created.status).toBe(201);
+    }
+    const overflow = await request("/v1/workspaces/alpha/feeds", {
+      method: "POST",
+      body: JSON.stringify({ repo: "acme/overflow" }),
+    });
+    expect(overflow.status).toBe(409);
+    expect(await overflow.json()).toMatchObject({
+      error: { code: "feed_limit_reached", details: { limit: 50 } },
+    });
+    // PR-scoped creates are still accepted after the repo quota is full.
+    const next = await request("/v1/workspaces/alpha/feeds", {
+      method: "POST",
+      body: JSON.stringify({ repo: "acme/web", pr: 61 }),
+    });
+    expect(next.status).toBe(201);
   });
 });

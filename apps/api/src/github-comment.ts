@@ -316,9 +316,14 @@ async function applyPrFeedPageUrls(
   linkToFilePage: boolean,
 ): Promise<void> {
   try {
+    // Comment-sync rows are uncapped and keep `comment` for life. GhTarget
+    // spells issues `issues`; createFeed takes `pr`/`issue`, and the slot
+    // lookup ignores kind, so a later web/CLI create for the same number
+    // reuses this row.
     const created = await createFeed(dbFor(env), {
       workspace: workspaceName,
       repo: target.repo,
+      source: "comment",
       ...(target.kind === "pull" ? { pr: target.num } : { issue: target.num }),
     });
     if (created.status !== "ok") return;

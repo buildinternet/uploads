@@ -1299,6 +1299,11 @@
           "number": { "type": ["integer", "null"], "minimum": 1 },
           "kind": { "type": ["string", "null"], "enum": ["pull", "issue"] },
           "title": { "type": "string" },
+          "source": {
+            "type": ["string", "null"],
+            "enum": ["comment", "user", null],
+            "description": "Who created the feed: PR comment sync or a user. Null for feeds created before this field."
+          },
           "createdAt": { "type": "string", "format": "date-time" },
           "updatedAt": { "type": "string", "format": "date-time" }
         }

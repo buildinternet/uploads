@@ -19,6 +19,7 @@ import {
   type FeedCursor,
   type FeedMutationResult,
   type FeedRecord,
+  type FeedSource,
 } from "./feeds";
 import { isDerivedPosterContentType, videoPresentation, type VideoDimensions } from "./poster";
 import { createLaneResolver, objectPublicUrls, type LaneResolver } from "./storage";
@@ -80,6 +81,7 @@ export interface FeedDto {
   number: number | null;
   kind: "pull" | "issue" | null;
   title: string;
+  source: FeedSource | null;
   createdAt: string;
   updatedAt: string;
   items: FeedItemDto[];
@@ -94,6 +96,8 @@ export interface FeedSummaryDto {
   number: number | null;
   kind: "pull" | "issue" | null;
   title: string;
+  /** "comment" (PR comment sync), "user", or null for feeds created before this field. */
+  source: FeedSource | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -133,6 +137,7 @@ export function feedSummary(env: Env, record: FeedRecord): FeedSummaryDto {
     number: record.number > 0 ? record.number : null,
     kind: record.kind === "pull" || record.kind === "issue" ? record.kind : null,
     title: feedTitle(record.repo, record.path, record.number),
+    source: record.source,
     createdAt: record.created_at,
     updatedAt: record.updated_at,
   };

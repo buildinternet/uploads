@@ -25,6 +25,7 @@ const MIGRATION = [
   "migrations/20260903120000_github_attachments.sql",
   "migrations/20260915120000_feeds.sql",
   "migrations/20260915153000_feeds_number.sql",
+  "migrations/20261004120000_feeds_source.sql",
 ];
 const PRAGMAS = ["PRAGMA foreign_keys = ON"];
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
@@ -268,6 +269,7 @@ describe("gatherCommentBody", () => {
     );
     const feed = await findFeedByScope(env.DB, workspaceName, "acme/web", "", 12);
     expect(feed).toBeTruthy();
+    expect(feed!.source).toBe("comment");
     const idA = await feedItemId(keyA);
     const idB = await feedItemId(keyB);
     expect(first.body).toContain(`/c/${feed!.id}/${idA}`);
