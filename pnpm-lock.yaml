@@ -209,6 +209,9 @@ importers:
       '@uploads/billing':
         specifier: workspace:^
         version: link:../../packages/billing
+      '@uploads/comment-render':
+        specifier: workspace:^
+        version: link:../../packages/comment-render
       '@uploads/observability':
         specifier: workspace:^
         version: link:../../packages/observability

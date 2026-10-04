@@ -4,20 +4,16 @@
  * list), so media kind is inferred from the key's extension — same trade-off
  * the search results accept.
  */
+import { fileTypeClassFromKey } from "@uploads/comment-render/scope";
 import { asPrState, type PrLabelInput } from "@uploads/ui/lib/pr-label";
 import type { GithubTitleMap } from "./api-client";
 
 export type ShotKind = "image" | "video" | "other";
 
-const IMAGE_EXT = new Set(["png", "jpg", "jpeg", "webp", "gif", "avif"]);
-const VIDEO_EXT = new Set(["mp4", "webm", "mov"]);
-
+/** Media kind from the key's extension, through the rule the API's type filter shares. */
 export function shotKindFromKey(key: string): ShotKind {
-  const match = /\.([a-z0-9]{1,8})$/i.exec(key);
-  const ext = match?.[1]?.toLowerCase() ?? "";
-  if (IMAGE_EXT.has(ext)) return "image";
-  if (VIDEO_EXT.has(ext)) return "video";
-  return "other";
+  const cls = fileTypeClassFromKey(key);
+  return cls === "screenshot" ? "image" : cls;
 }
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
