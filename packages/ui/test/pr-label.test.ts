@@ -84,6 +84,9 @@ describe("isSafePrHref", () => {
     expect(isSafePrHref("http://127.0.0.1:4321/x")).toBe(true);
     expect(isSafePrHref("/account/workspaces/acme/files")).toBe(true);
     expect(isSafePrHref("//evil.example/x")).toBe(false);
+    expect(isSafePrHref("//evil.example")).toBe(false);
+    expect(isSafePrHref("/\\evil.example")).toBe(false);
+    expect(isSafePrHref("/account/x")).toBe(true);
     expect(isSafePrHref("javascript:alert(1)")).toBe(false);
     expect(isSafePrHref("JavaScript:alert(1)")).toBe(false);
     expect(isSafePrHref("")).toBe(false);

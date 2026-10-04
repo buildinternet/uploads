@@ -52,7 +52,9 @@ function LockGlyph() {
 }
 
 export function MediaTile({ item, width = 560, className }: MediaTileProps) {
-  const [broken, setBroken] = useState(false);
+  // Keyed by item so a reused tile showing a different item starts unbroken.
+  const [brokenKey, setBrokenKey] = useState<string | null>(null);
+  const broken = brokenKey === item.key;
   const view = mediaTileView(item);
   const frame = className ? `${FRAME} ${className}` : FRAME;
 
@@ -74,7 +76,7 @@ export function MediaTile({ item, width = 560, className }: MediaTileProps) {
             alt=""
             loading="lazy"
             decoding="async"
-            onError={() => setBroken(true)}
+            onError={() => setBrokenKey(item.key)}
           />
         </span>
       );
@@ -88,7 +90,7 @@ export function MediaTile({ item, width = 560, className }: MediaTileProps) {
               alt=""
               loading="lazy"
               decoding="async"
-              onError={() => setBroken(true)}
+              onError={() => setBrokenKey(item.key)}
             />
           ) : (
             <video
@@ -97,7 +99,7 @@ export function MediaTile({ item, width = 560, className }: MediaTileProps) {
               preload="metadata"
               muted
               playsInline
-              onError={() => setBroken(true)}
+              onError={() => setBrokenKey(item.key)}
             />
           )}
           <PlayBadge />
@@ -112,7 +114,7 @@ export function MediaTile({ item, width = 560, className }: MediaTileProps) {
             alt=""
             loading="lazy"
             decoding="async"
-            onError={() => setBroken(true)}
+            onError={() => setBrokenKey(item.key)}
           />
         </span>
       );
