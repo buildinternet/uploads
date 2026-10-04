@@ -115,6 +115,7 @@ import {
   upsertStandbyLane,
 } from "../workspace-lanes";
 import { mutateWorkspaceRecord } from "../workspace-mutate";
+import { webOrigin } from "../web-url";
 import { planResponse, planSourceFor } from "../workspace-plan";
 import type { ListBucketsResult } from "../r2-list-buckets";
 import {
@@ -1511,13 +1512,22 @@ export async function commentPreviewHandler(c: Context<SettingsVars>) {
     }
   }
 
-  const body = attachmentsCommentBody(items, [], attachmentsMarker(name), {
-    imageWidth: resolved.imageWidth,
-    maxInlineImages: resolved.maxInlineImages,
-    metaPath: resolved.metaPath,
-    metaState: resolved.metaState,
-    note: resolved.note,
-  });
+  const body = attachmentsCommentBody(
+    items,
+    [],
+    attachmentsMarker(name),
+    {
+      imageWidth: resolved.imageWidth,
+      maxInlineImages: resolved.maxInlineImages,
+      metaPath: resolved.metaPath,
+      metaState: resolved.metaState,
+      note: resolved.note,
+    },
+    undefined,
+    // The preview has no PR, so its sample line points at the docs that
+    // explain live links. Same gate as the real comment.
+    { liveLinkUrl: linkToFilePage ? `${webOrigin(c.env)}/docs/feeds` : null },
+  );
 
   return c.json({ resolved, source, repoConfig, body, sample });
 }
