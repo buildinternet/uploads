@@ -15,10 +15,12 @@
  * the SQL or SQLite cannot use that partial index.
  */
 import { ValidationError } from "@uploads/errors";
-import { feedItemIdFor, type FileTypeClass } from "@uploads/comment-render/scope";
+import { FEED_ITEM_ID_RE, feedItemIdFor, type FileTypeClass } from "@uploads/comment-render/scope";
 import { type D1Queryable } from "./db-session";
-import { getMetadataForKeys } from "./file-metadata";
+import type { FeedRecord } from "./feeds";
+import { getMetadataForKeys, PROMOTED_SHADOW_STATUS_SQL } from "./file-metadata";
 import { fileTypeSql } from "./file-type-sql";
+import { b64urlDecode, b64urlEncode } from "./secrets";
 
 export const SCOPE_DEFAULT_LIMIT = 50;
 export const SCOPE_MAX_LIMIT = 100;
@@ -63,6 +65,18 @@ interface ScopeRow {
   updated_at: string;
 }
 
+/** A live link's scope: repo, plus `path` and `number` when the feed has them. */
+export function feedRecordScope(
+  record: Pick<FeedRecord, "workspace" | "repo" | "path" | "number">,
+): Omit<ScopeQuery, "cursor" | "limit"> {
+  return {
+    workspace: record.workspace,
+    repo: record.repo,
+    ...(record.path ? { path: record.path } : {}),
+    ...(record.number > 0 ? { number: record.number } : {}),
+  };
+}
+
 function scopeFrom(q: Omit<ScopeQuery, "cursor" | "limit">): { sql: string; params: unknown[] } {
   const params: unknown[] = [q.workspace, q.repo];
   let sql = `FROM file_metadata r
@@ -70,7 +84,7 @@ function scopeFrom(q: Omit<ScopeQuery, "cursor" | "limit">): { sql: string; para
                AND NOT EXISTS (
                  SELECT 1 FROM file_metadata s
                  WHERE s.workspace = r.workspace AND s.object_key = r.object_key
-                   AND s.meta_key = 'gh.status' AND s.meta_value = 'promoted'
+                   AND ${PROMOTED_SHADOW_STATUS_SQL}
                )`;
   if (q.number !== undefined && q.number > 0) {
     sql += ` AND EXISTS (
@@ -143,43 +157,32 @@ export async function prScopeQuery(
 
 /**
  * The whole scope, newest first, up to `cap` keys. No metadata (`{}`): the
- * pager and the private count need only keys.
+ * pager and the private count need only keys. `at` keeps only rows stamped
+ * exactly that `updated_at` (in tie-break order), for resolving a public cursor.
  */
 export async function scanScopeKeys(
   db: D1Queryable,
   q: Omit<ScopeQuery, "cursor" | "limit">,
-  cap: number = SCOPE_SCAN_CAP,
+  opts: { cap?: number; at?: string } = {},
 ): Promise<ScopeItem[]> {
-  const bounded = Math.max(1, Math.min(SCOPE_SCAN_CAP, Math.floor(cap)));
+  const bounded = Math.max(1, Math.min(SCOPE_SCAN_CAP, Math.floor(opts.cap ?? SCOPE_SCAN_CAP)));
   const { sql, params } = scopeFrom(q);
+  let select = `SELECT r.object_key AS object_key, r.updated_at AS updated_at ${sql}`;
+  if (opts.at !== undefined) {
+    select += ` AND r.updated_at = ?`;
+    params.push(opts.at);
+  }
+  select += ` ORDER BY r.updated_at DESC, r.object_key ASC LIMIT ?`;
+  params.push(bounded);
   const { results } = await db
-    .prepare(
-      `SELECT r.object_key AS object_key, r.updated_at AS updated_at ${sql}
-       ORDER BY r.updated_at DESC, r.object_key ASC LIMIT ?`,
-    )
-    .bind(...params, bounded)
+    .prepare(select)
+    .bind(...params)
     .all<ScopeRow>();
   return (results ?? []).map((row) => ({
     key: row.object_key,
     updatedAt: row.updated_at,
     metadata: {},
   }));
-}
-
-/** Keys in the scope stamped exactly `updatedAt`, in tie-break order. Small: rows sharing one timestamp. */
-export async function scopeKeysAt(
-  db: D1Queryable,
-  q: Omit<ScopeQuery, "cursor" | "limit">,
-  updatedAt: string,
-): Promise<string[]> {
-  const { sql, params } = scopeFrom(q);
-  const { results } = await db
-    .prepare(
-      `SELECT r.object_key AS object_key ${sql} AND r.updated_at = ? ORDER BY r.object_key ASC LIMIT ?`,
-    )
-    .bind(...params, updatedAt, SCOPE_SCAN_CAP)
-    .all<{ object_key: string }>();
-  return (results ?? []).map((row) => row.object_key);
 }
 
 /**
@@ -202,7 +205,7 @@ export async function listWorkspaceRepos(
                AND NOT EXISTS (
                  SELECT 1 FROM file_metadata s
                  WHERE s.workspace = r.workspace AND s.object_key = r.object_key
-                   AND s.meta_key = 'gh.status' AND s.meta_value = 'promoted'
+                   AND ${PROMOTED_SHADOW_STATUS_SQL}
                )
              GROUP BY r.meta_value`;
   if (opts.cursor) {
@@ -226,46 +229,45 @@ export async function listWorkspaceRepos(
   };
 }
 
-function base64UrlEncode(text: string): string {
-  const bytes = new TextEncoder().encode(text);
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+function invalidCursor(): ValidationError {
+  return new ValidationError("cursor is not valid for this query", { code: "invalid_cursor" });
 }
 
-function base64UrlDecode(text: string): string {
-  const binary = atob(text.replace(/-/g, "+").replace(/_/g, "/"));
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
-  return new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(bytes);
+function encodeCursorEnvelope(body: Record<string, unknown>): string {
+  return b64urlEncode(new TextEncoder().encode(JSON.stringify(body)));
+}
+
+/**
+ * The `{ v: 1, u: updatedAt, ... }` envelope both cursors share. Malformed
+ * input (bad base64url, bad UTF-8, non-object JSON, wrong version, unparseable
+ * `u`) is a 400 `invalid_cursor`; each decoder checks its own fields.
+ */
+function parseCursorEnvelope(raw: string): Record<string, unknown> & { u: string } {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(
+      new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(b64urlDecode(raw)),
+    );
+  } catch {
+    throw invalidCursor();
+  }
+  if (typeof parsed !== "object" || parsed === null) throw invalidCursor();
+  const record = parsed as Record<string, unknown>;
+  if (record.v !== 1 || typeof record.u !== "string" || !Number.isFinite(Date.parse(record.u))) {
+    throw invalidCursor();
+  }
+  return record as Record<string, unknown> & { u: string };
 }
 
 /** Opaque keyset cursor. Also carries the `/pulls` (ref) and `/repos` (repo) cursors. */
 export function encodeScopeCursor(cursor: ScopeCursor): string {
-  return base64UrlEncode(JSON.stringify({ v: 1, u: cursor.updatedAt, k: cursor.key }));
+  return encodeCursorEnvelope({ v: 1, u: cursor.updatedAt, k: cursor.key });
 }
 
 export function decodeScopeCursor(raw: string | undefined): ScopeCursor | null {
   if (raw === undefined || raw === "") return null;
-  const invalid = () =>
-    new ValidationError("cursor is not valid for this query", { code: "invalid_cursor" });
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(base64UrlDecode(raw));
-  } catch {
-    throw invalid();
-  }
-  if (typeof parsed !== "object" || parsed === null) throw invalid();
-  const record = parsed as Record<string, unknown>;
-  if (
-    record.v !== 1 ||
-    typeof record.u !== "string" ||
-    !Number.isFinite(Date.parse(record.u)) ||
-    typeof record.k !== "string" ||
-    record.k.length === 0
-  ) {
-    throw invalid();
-  }
+  const record = parseCursorEnvelope(raw);
+  if (typeof record.k !== "string" || record.k.length === 0) throw invalidCursor();
   return { updatedAt: record.u, key: record.k };
 }
 
@@ -276,9 +278,7 @@ export function decodeScopeCursor(raw: string | undefined): ScopeCursor | null {
  * Signed-in routes keep `encodeScopeCursor`.
  */
 export async function encodePublicFeedCursor(cursor: ScopeCursor): Promise<string> {
-  return base64UrlEncode(
-    JSON.stringify({ v: 1, u: cursor.updatedAt, h: await feedItemIdFor(cursor.key) }),
-  );
+  return encodeCursorEnvelope({ v: 1, u: cursor.updatedAt, h: await feedItemIdFor(cursor.key) });
 }
 
 /**
@@ -294,26 +294,9 @@ export async function decodePublicFeedCursor(
   raw: string | undefined,
 ): Promise<ScopeResume | null> {
   if (raw === undefined || raw === "") return null;
-  const invalid = () =>
-    new ValidationError("cursor is not valid for this query", { code: "invalid_cursor" });
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(base64UrlDecode(raw));
-  } catch {
-    throw invalid();
-  }
-  if (typeof parsed !== "object" || parsed === null) throw invalid();
-  const record = parsed as Record<string, unknown>;
-  if (
-    record.v !== 1 ||
-    typeof record.u !== "string" ||
-    !Number.isFinite(Date.parse(record.u)) ||
-    typeof record.h !== "string" ||
-    !/^[0-9a-f]{32}$/.test(record.h)
-  ) {
-    throw invalid();
-  }
-  for (const key of await scopeKeysAt(db, scope, record.u)) {
+  const record = parseCursorEnvelope(raw);
+  if (typeof record.h !== "string" || !FEED_ITEM_ID_RE.test(record.h)) throw invalidCursor();
+  for (const { key } of await scanScopeKeys(db, scope, { at: record.u })) {
     if ((await feedItemIdFor(key)) === record.h) return { updatedAt: record.u, key };
   }
   return { updatedAt: record.u, key: null };

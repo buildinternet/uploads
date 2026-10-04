@@ -57,6 +57,9 @@ interface WebCryptoGlobals {
   TextEncoder: new () => { encode(input: string): Uint8Array };
 }
 
+/** Shape of a live-link item id (`feedItemIdFor`): 32 lowercase hex chars. */
+export const FEED_ITEM_ID_RE = /^[0-9a-f]{32}$/;
+
 /** Stable live-link item id: first 32 hex chars of SHA-256(object key). */
 export async function feedItemIdFor(objectKey: string): Promise<string> {
   const g = globalThis as unknown as WebCryptoGlobals;

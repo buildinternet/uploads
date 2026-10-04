@@ -64,10 +64,10 @@ export async function backfillLowercasedMetaValues(
     return { dryRun, affected, updated: 0, batches: 0, remaining: affected };
   }
 
+  const keys = keyList();
   let updated = 0;
   let batches = 0;
   while (batches < maxBatches) {
-    const keys = keyList();
     const result = await db
       .prepare(
         `UPDATE file_metadata SET meta_value = lower(meta_value)

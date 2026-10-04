@@ -3,11 +3,11 @@ import {
   FILE_TYPE_CLASSES,
   IMAGE_EXTENSIONS,
   VIDEO_EXTENSIONS,
+  FEED_ITEM_ID_RE,
   feedItemIdFor,
   fileTypeClassFromKey,
   isInFeedScope,
 } from "@uploads/comment-render/scope";
-import { feedItemId } from "../src/feed-service";
 import { sha256Hex } from "../src/workspace";
 
 describe("fileTypeClassFromKey", () => {
@@ -52,12 +52,12 @@ describe("isInFeedScope", () => {
 });
 
 describe("feedItemIdFor", () => {
-  it("is the first 32 hex chars of sha256(key) and equals the API feedItemId", async () => {
+  it("is the first 32 hex chars of sha256(key) and matches FEED_ITEM_ID_RE", async () => {
     for (const key of ["gh/acme/app/pull/7/shot.png", "shots/café-née.png"]) {
       const id = await feedItemIdFor(key);
       expect(id).toMatch(/^[0-9a-f]{32}$/);
       expect(id).toBe((await sha256Hex(key)).slice(0, 32));
-      expect(await feedItemId(key)).toBe(id);
+      expect(FEED_ITEM_ID_RE.test(id)).toBe(true);
     }
   });
 });

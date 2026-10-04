@@ -8,7 +8,8 @@
  */
 
 import { dbFor } from "./db-session";
-import { feedItemId, feedItemUrl, findLatestRepoScreenshots } from "./feed-service";
+import { feedItemIdFor } from "@uploads/comment-render/scope";
+import { feedItemUrl, findLatestRepoScreenshots } from "./feed-service";
 import { createFeed } from "./feeds";
 import { listObjects } from "./files-core";
 import { getMetadataForKeys } from "./file-metadata";
@@ -336,7 +337,7 @@ async function applyPrFeedPageUrls(
     const idByKey = new Map<string, string>();
     await Promise.all(
       matches.map(async (match) => {
-        idByKey.set(match.key, await feedItemId(match.key));
+        idByKey.set(match.key, await feedItemIdFor(match.key));
       }),
     );
     for (const item of items) {

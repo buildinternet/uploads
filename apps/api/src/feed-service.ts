@@ -13,10 +13,11 @@ import { publicObjectDateFields } from "./files-core";
 import { getMetadataForKeys } from "./file-metadata";
 import {
   encodePublicFeedCursor,
+  feedRecordScope,
   prScopeQuery,
   scanScopeKeys,
-  type ScopeResume,
   type ScopeItem,
+  type ScopeResume,
 } from "./pr-scope";
 import {
   FEED_ID_RE,
@@ -38,7 +39,7 @@ import { createLaneResolver, objectPublicUrls, type LaneResolver } from "./stora
 import type { StorageConfig } from "@uploads/storage";
 import { objectVisibility } from "./visibility";
 import { webOrigin } from "./web-url";
-import { feedItemIdFor } from "@uploads/comment-render/scope";
+import { FEED_ITEM_ID_RE, feedItemIdFor } from "@uploads/comment-render/scope";
 import { type WorkspaceRecord } from "./workspace";
 import { dbFor, type D1Queryable } from "./db-session";
 
@@ -82,11 +83,6 @@ export type PublicFeedDto = {
 
 export function feedUrl(env: Env, id: string): string {
   return webOrigin(env) + "/c/" + encodeURIComponent(id);
-}
-
-/** Stable public-item id: first 32 hex chars of SHA-256(object key). One implementation, shared with the web and CLI. */
-export function feedItemId(objectKey: string): Promise<string> {
-  return feedItemIdFor(objectKey);
 }
 
 export function feedItemUrl(env: Env, feedId: string, itemId: string): string {
@@ -257,7 +253,7 @@ export async function hydrateFeedItems(
         code: "feed_object_not_public",
       });
     const dates = meta && !withheld ? publicObjectDateFields(meta) : {};
-    const id = await feedItemId(match.key);
+    const id = await feedItemIdFor(match.key);
     return {
       id,
       objectKey: match.key,
@@ -409,10 +405,7 @@ export async function hydratePublicFeed(
   opts: { cursor?: ScopeResume | null } = {},
 ): Promise<PublicFeedDto> {
   const page = await prScopeQuery(dbFor(env), {
-    workspace: record.workspace,
-    repo: record.repo,
-    ...(record.path ? { path: record.path } : {}),
-    ...(record.number > 0 ? { number: record.number } : {}),
+    ...feedRecordScope(record),
     cursor: opts.cursor ?? null,
     limit: FEED_ITEM_LIMIT,
   });
@@ -432,8 +425,6 @@ export async function hydratePublicFeed(
   };
 }
 
-const FEED_ITEM_ID_RE = /^[0-9a-f]{32}$/;
-
 /**
  * One public item plus its neighbours, for the `/c/<id>/<item>` pager. Scans
  * the scope's keys (cap 2,000) and hashes them until one matches: item ids
@@ -448,21 +439,16 @@ export async function publicFeedItemPage(
 ): Promise<PublicFeedItemPage | null> {
   if (!FEED_ITEM_ID_RE.test(itemId)) return null;
   const db = dbFor(env);
-  const scope: ScopeItem[] = await scanScopeKeys(db, {
-    workspace: record.workspace,
-    repo: record.repo,
-    ...(record.path ? { path: record.path } : {}),
-    ...(record.number > 0 ? { number: record.number } : {}),
-  });
-  const ids: string[] = [];
+  const scope = await scanScopeKeys(db, feedRecordScope(record));
+  let prevId: string | null = null;
   let index = -1;
-  for (const entry of scope) {
-    const id = await feedItemId(entry.key);
-    ids.push(id);
+  for (const [i, entry] of scope.entries()) {
+    const id = await feedItemIdFor(entry.key);
     if (id === itemId) {
-      index = ids.length - 1;
+      index = i;
       break;
     }
+    prevId = id;
   }
   if (index < 0) return null;
 
@@ -483,8 +469,8 @@ export async function publicFeedItemPage(
       kind: summary.kind,
     },
     item: toPublicItem(item),
-    prev: index > 0 ? ids[index - 1] : null,
-    next: index + 1 < scope.length ? await feedItemId(scope[index + 1].key) : null,
+    prev: prevId,
+    next: index + 1 < scope.length ? await feedItemIdFor(scope[index + 1].key) : null,
     index,
     total: scope.length,
   };

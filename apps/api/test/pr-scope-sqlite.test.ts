@@ -255,7 +255,7 @@ describe("scanScopeKeys", () => {
       ]);
       expect(all[0]?.metadata).toEqual({});
       expect(all[0]?.updatedAt).toBe("2026-10-01T00:00:06.000Z");
-      const capped = await scanScopeKeys(db, { workspace: "alpha", repo: "acme/app" }, 5);
+      const capped = await scanScopeKeys(db, { workspace: "alpha", repo: "acme/app" }, { cap: 5 });
       expect(capped).toHaveLength(5);
     } finally {
       sqlite.close();

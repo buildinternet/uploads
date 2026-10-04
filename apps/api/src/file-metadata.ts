@@ -541,7 +541,7 @@ const PREFIX_FILTER_SQL = `substr(object_key, 1, length(?)) = ?`;
  * in — `find_files({ "gh.status": "promoted" })` must still return it. Written
  * against a subquery alias `s`; the caller supplies how to reach the outer row.
  */
-const PROMOTED_SHADOW_STATUS_SQL = `s.meta_key = 'gh.status' AND s.meta_value = 'promoted'`;
+export const PROMOTED_SHADOW_STATUS_SQL = `s.meta_key = 'gh.status' AND s.meta_value = 'promoted'`;
 
 /**
  * Predicate matching an object stamped `gh.merged=true` — written by

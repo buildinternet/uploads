@@ -105,6 +105,20 @@ async function resolvePullTitles(
   );
 }
 
+/**
+ * A PR title stored on the rollup row, served only when this workspace may see
+ * the repo's private titles (the repo is linked to it). A stored title may
+ * predate a link change or a repo going private, or come from another
+ * workspace that owned the row.
+ */
+function storedTitleFor(
+  linkedRepos: ReadonlySet<string>,
+  repo: string,
+  title: string | null,
+): string | null {
+  return linkedRepos.has(repo) ? title : null;
+}
+
 export async function pullsHandler(c: Context<DualAuthVars>) {
   const workspace = c.get("workspaceName");
   const db = dbFor(c.env);
@@ -169,10 +183,7 @@ export async function pullsHandler(c: Context<DualAuthVars>) {
         repo: row.repo,
         number: row.prNumber,
         branch: row.branch,
-        // A stored title may predate a link change or a repo going private,
-        // or come from another workspace that owned the row: serve it only
-        // when this workspace may see the repo's private titles.
-        title: info?.title ?? (linkedRepos.has(row.repo) ? row.title : null),
+        title: info?.title ?? storedTitleFor(linkedRepos, row.repo, row.title),
         state: info?.state ?? row.state,
         lastMediaAt: row.lastMediaAt,
         thumbnails: (thumbs[index]?.items ?? []).map((item) => toThumbItem(c.env, cfg, item)),
@@ -278,10 +289,9 @@ export async function scopeFilesHandler(c: Context<DualAuthVars>) {
     });
   }
 
-  // Same rule as /pulls: a stored title is served only for a repo linked to
-  // this workspace. Otherwise `pull.title` is null and the PR page resolves
-  // it through the member titles route (public ladder for unlinked repos).
-  const titleVisible = pullRow?.title != null && (await linkedRepoSet(db, workspace)).has(repo);
+  // Same rule as /pulls. When `pull.title` is null the PR page resolves it
+  // through the member titles route (public ladder for unlinked repos).
+  const linkedRepos = await linkedRepoSet(db, workspace);
 
   const response: ScopeFilesResponse = {
     repo,
@@ -293,7 +303,7 @@ export async function scopeFilesHandler(c: Context<DualAuthVars>) {
     pull: pullRow
       ? {
           branch: pullRow.branch,
-          title: titleVisible ? pullRow.title : null,
+          title: storedTitleFor(linkedRepos, repo, pullRow.title),
           state: pullRow.state,
         }
       : null,

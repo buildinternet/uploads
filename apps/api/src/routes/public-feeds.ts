@@ -2,7 +2,7 @@ import { NotFoundError } from "@uploads/errors";
 import { Hono } from "hono";
 import { resolvePublicFeed } from "../feeds";
 import { hydratePublicFeed, publicFeedItemPage } from "../feed-service";
-import { decodePublicFeedCursor } from "../pr-scope";
+import { decodePublicFeedCursor, feedRecordScope } from "../pr-scope";
 import { loadWorkspaceRecord, type WorkspaceVars } from "../workspace";
 import { dbFor } from "../db-session";
 
@@ -23,12 +23,7 @@ export const publicFeeds = new Hono<WorkspaceVars>()
     const { record, workspace } = await liveFeed(c.env, c.req.param("id"));
     const cursor = await decodePublicFeedCursor(
       dbFor(c.env),
-      {
-        workspace: record.workspace,
-        repo: record.repo,
-        ...(record.path ? { path: record.path } : {}),
-        ...(record.number > 0 ? { number: record.number } : {}),
-      },
+      feedRecordScope(record),
       c.req.query("cursor"),
     );
     return c.json(await hydratePublicFeed(c.env, workspace, record, { cursor }));
