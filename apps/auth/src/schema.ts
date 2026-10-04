@@ -113,6 +113,9 @@ export const session = sqliteTable(
  * previous worker, which still inserts the column. The unique index allows
  * multiple NULL issuers in SQLite, so sign-ups keep working. Drop the column
  * and `idx_account_issuer_account_id` only after 1.7.7 is the live worker.
+ * A rollback to 1.7.1 looks accounts up by `(issuer, accountId)` and misses
+ * these NULL rows (same during a mixed-worker rollout). Backfill
+ * `issuer = 'local:oauth:github'` where null before rolling back.
  *
  * Paired migrations: `apps/api/migrations/20260822120000_auth_tables.sql`
  * (squashed `issuer` + lookup index from the retired auth chain).

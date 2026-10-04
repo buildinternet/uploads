@@ -11,6 +11,23 @@ describe("oauthErrorCopy", () => {
     });
   });
 
+  it("maps the built-in GitHub unverified-email refusal", () => {
+    expect(oauthErrorCopy("account_not_linked")).toEqual({
+      title: "Email isn’t verified",
+      message:
+        "That GitHub email isn’t verified, so it can’t be linked to an existing account. Use a verified address, or sign in with a magic link.",
+      reference: "account_not_linked",
+    });
+  });
+
+  it("maps an OAuth-provider authorize failure before the redirect is trusted", () => {
+    const copy = oauthErrorCopy("invalid_redirect");
+    expect(copy.title).toBe("Invalid app sign-in request");
+    expect(copy.reference).toBe("invalid_redirect");
+    expect(oauthErrorCopy("invalid_client").title).toBe(copy.title);
+    expect(oauthErrorCopy("unsupported_response_type").message).toBe(copy.message);
+  });
+
   it("uses the banned-account message for BANNED_USER", () => {
     expect(oauthErrorCopy("BANNED_USER")).toMatchObject({
       title: "Account deactivated",

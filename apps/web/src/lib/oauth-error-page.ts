@@ -20,6 +20,24 @@ const GENERIC = {
   message: "Something went wrong while signing in. Try again from the sign-in page.",
 };
 
+/** Unverified GitHub email (or any other implicit-link refusal). */
+const EMAIL_NOT_LINKED = {
+  title: "Email isn’t verified",
+  message:
+    "That GitHub email isn’t verified, so it can’t be linked to an existing account. Use a verified address, or sign in with a magic link.",
+};
+
+/**
+ * OAuth-provider `/oauth2/authorize` failures that arrive here because
+ * `redirect_uri` is not verified yet (`getErrorURL` → `onAPIError.errorURL`).
+ * The reference code still shows which check failed.
+ */
+const INVALID_APP = {
+  title: "Invalid app sign-in request",
+  message:
+    "The app that started this sign-in sent a request uploads.sh couldn’t accept. Check the app’s client and redirect URL, then try again from that app.",
+};
+
 const KNOWN: Record<string, { title: string; message: string }> = {
   access_denied: {
     title: "Sign-in cancelled",
@@ -41,11 +59,10 @@ const KNOWN: Record<string, { title: string; message: string }> = {
     title: "Sign-in didn’t complete",
     message: "The sign-in response did not include a code. Start again.",
   },
-  email_not_verified: {
-    title: "Email isn’t verified",
-    message:
-      "That GitHub email isn’t verified, so it can’t be linked to an existing account. Use a verified address, or sign in with a magic link.",
-  },
+  // generic-oauth only. Built-in GitHub (oauth2/link-account) returns
+  // "account not linked", which the callback turns into account_not_linked.
+  email_not_verified: EMAIL_NOT_LINKED,
+  account_not_linked: EMAIL_NOT_LINKED,
   email_not_found: {
     title: "No email on that account",
     message: "GitHub did not return an email address. Sign in with a magic link instead.",
@@ -62,6 +79,13 @@ const KNOWN: Record<string, { title: string; message: string }> = {
     title: "GitHub account already linked",
     message: "That GitHub account is already linked to a different uploads.sh user.",
   },
+  invalid_client: INVALID_APP,
+  invalid_redirect: INVALID_APP,
+  invalid_request: INVALID_APP,
+  unsupported_response_type: INVALID_APP,
+  unsupported_prompt_select_account: INVALID_APP,
+  client_disabled: INVALID_APP,
+  unauthorized_client: INVALID_APP,
   oauth_provider_not_found: GENERIC,
   unable_to_get_user_info: GENERIC,
   issuer_mismatch: GENERIC,

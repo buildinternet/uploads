@@ -193,7 +193,9 @@ describe("account linking (issue #233)", () => {
     // onAPIError.errorURL sends failures to the web app, not Better Auth's
     // default /api/auth/error page.
     expect(location).toContain("https://uploads.sh/auth/error");
-    expect(location).toContain("error=");
+    // 1.7.7 link-account returns "account not linked"; the callback
+    // underscores it. email_not_verified is generic-oauth only.
+    expect(location).toContain("error=account_not_linked");
 
     const users = await orm.select().from(schema.user).where(eq(schema.user.email, email));
     expect(users).toHaveLength(1);
