@@ -58,6 +58,7 @@ import {
 import { loadWorkspaces } from "../lib/workspaces-nav";
 import { resolveWorkspaceInfo, type WorkspaceInfoStatus } from "../lib/workspace-file-row";
 import { thumbUrl } from "../lib/thumb-url";
+import { mediaExtLabel } from "../lib/media-tile";
 import { onSession } from "../lib/account-shell";
 import { makeFileOpener, newTabLinkProps, type FileOpener } from "../lib/file-opener";
 import {
@@ -188,12 +189,6 @@ type DrillState =
   | { status: "loading" }
   | { status: "error" }
   | { status: "ready"; items: SearchFileItem[]; truncated: boolean };
-
-/** Extension label for a generic (non-image, non-embeddable) tile. */
-function extLabel(key: string): string {
-  const match = /\.([a-z0-9]{1,8})$/i.exec(key);
-  return match ? match[1].toLowerCase() : "file";
-}
 
 /**
  * Left-click without a modifier stays on this page (`setView` + history).
@@ -360,7 +355,7 @@ function ShotThumb({
         </span>
       ) : (
         <span className="wsp-thumb wsp-thumb--tile" aria-hidden="true">
-          {showLock ? "🔒" : extLabel(item.key)}
+          {showLock ? "🔒" : mediaExtLabel(item.key)}
         </span>
       )}
       {contextLabel && (
