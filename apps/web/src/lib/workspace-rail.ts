@@ -28,6 +28,7 @@ import { readWorkspaceSnapshot } from "./workspace-cache";
 import { loadWorkspaceSummary } from "./workspace-summary-source";
 import { githubKindSvg } from "./brand-icons";
 import { applyGhTitles, githubOwnerAvatarUrl, type GhKind, type GhWorkItem } from "./gh-context";
+import { prLabelHtml } from "./pr-label-html";
 
 /** Optional titles come from the files tab's one listing-scoped title request. */
 export type ConnectedWorkSetter = (items: GhWorkItem[], titles?: GithubTitleMap) => void;
@@ -51,7 +52,16 @@ function connectedWorkRowHtml(item: GhWorkItem, apiOrigin?: string): string {
     item.owner && apiOrigin
       ? `<img class="ws-rail__connected-avatar" src="${escapeHtml(githubOwnerAvatarUrl(apiOrigin, item.owner))}" alt="" width="16" height="16" loading="lazy" decoding="async" />`
       : "";
-  return `<div class="ws-rail__connected-item">${avatar}${CONNECTED_WORK_ICON[item.kind]}<div class="ws-rail__connected-meta"><a href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(item.label)}</a></div></div>`;
+  const label = prLabelHtml({
+    ghRef: item.ref,
+    title: item.title ?? null,
+    state: item.state ?? null,
+    kind: item.kind,
+    size: "md",
+    href: item.url,
+    target: "_blank",
+  });
+  return `<div class="ws-rail__connected-item">${avatar}${CONNECTED_WORK_ICON[item.kind]}<div class="ws-rail__connected-meta">${label}</div></div>`;
 }
 
 /** Pure row-HTML builder for the rail's "connected work" section. `[]` → `""`. */
@@ -97,7 +107,7 @@ const CONNECTED_WORK_CAP = 6;
 
 /**
  * Decide whether a titles response warrants a repaint: the relabeled items
- * when at least one label changed, else null (failed fetch, empty map, or
+ * when at least one label or live state changed, else null (failed fetch, empty map, or
  * titles identical to what's already painted).
  */
 export function planTitleRepaint(
@@ -106,7 +116,10 @@ export function planTitleRepaint(
 ): GhWorkItem[] | null {
   if (!titles) return null;
   const updated = applyGhTitles(items, titles);
-  return updated.some((item, i) => item.label !== items[i].label) ? updated : null;
+  const changed = updated.some(
+    (item, i) => item.label !== items[i].label || (item.state ?? null) !== (items[i].state ?? null),
+  );
+  return changed ? updated : null;
 }
 
 function bindConnectedWorkSetter(
