@@ -16,6 +16,19 @@ import { type D1Queryable } from "./db-session";
 export const META_KEY_RE = /^[a-z][a-z0-9._-]{0,63}$/;
 
 /**
+ * Metadata keys whose value is stored lowercased (every write and every search
+ * filter). `gh.repo`: the live-link scope (pr-scope.ts) and `isInFeedScope`
+ * match it exactly, and the PR rollup already lowercases its repo. The one-time
+ * backfill (Task 8, gh-repo-case-backfill.ts) reads this same list.
+ */
+export const LOWERCASED_META_KEYS: readonly string[] = ["gh.repo"];
+
+/** Stored spelling of a metadata value; keys outside the list keep their value as written. */
+export function canonicalMetaValue(key: string, value: string): string {
+  return LOWERCASED_META_KEYS.includes(key) ? value.toLowerCase() : value;
+}
+
+/**
  * Server-set provenance keys (e.g. `content-sha256`) are reserved: a custom
  * metadata row with the same name would be a spoofable shadow of a value the
  * server computes and vouches for. Enforced here — the single choke point for
@@ -296,7 +309,7 @@ function upsertStatements(
          ON CONFLICT(workspace, object_key, meta_key)
          DO UPDATE SET meta_value = excluded.meta_value, updated_at = excluded.updated_at`,
       )
-      .bind(workspace, objectKey, key, value, now),
+      .bind(workspace, objectKey, key, canonicalMetaValue(key, value), now),
   );
 }
 
@@ -343,7 +356,7 @@ export async function setFileMetadata(
   const current = await getFileMetadata(db, workspace, objectKey);
   const next: Record<string, string> = { ...current };
   for (const key of remove) delete next[key];
-  Object.assign(next, set);
+  for (const [key, value] of Object.entries(set)) next[key] = canonicalMetaValue(key, value);
 
   // `current` may already carry server-owned video.* rows (e.g. a poster),
   // so this post-merge pass enforces the count/byte caps on the merged
@@ -424,7 +437,13 @@ export async function updateFileMetadataValue(
     .prepare(
       "UPDATE file_metadata SET meta_value = ?, updated_at = ? WHERE workspace = ? AND object_key = ? AND meta_key = ?",
     )
-    .bind(value, new Date().toISOString(), workspace, objectKey, metaKey)
+    .bind(
+      canonicalMetaValue(metaKey, value),
+      new Date().toISOString(),
+      workspace,
+      objectKey,
+      metaKey,
+    )
     .run();
 }
 
@@ -522,7 +541,7 @@ const PREFIX_FILTER_SQL = `substr(object_key, 1, length(?)) = ?`;
  * in — `find_files({ "gh.status": "promoted" })` must still return it. Written
  * against a subquery alias `s`; the caller supplies how to reach the outer row.
  */
-const PROMOTED_SHADOW_STATUS_SQL = `s.meta_key = 'gh.status' AND s.meta_value = 'promoted'`;
+export const PROMOTED_SHADOW_STATUS_SQL = `s.meta_key = 'gh.status' AND s.meta_value = 'promoted'`;
 
 /**
  * Predicate matching an object stamped `gh.merged=true` — written by
@@ -579,7 +598,7 @@ export async function findObjectsByMetadata(
   const limit = Math.max(1, Math.min(opts.limit ?? FIND_DEFAULT_LIMIT, FIND_PROBE_MAX_LIMIT));
   const params: unknown[] = [];
   const legs = entries.map(([key, value]) => {
-    params.push(workspace, key, value);
+    params.push(workspace, key, canonicalMetaValue(key, value));
     return `SELECT object_key FROM file_metadata WHERE workspace = ? AND meta_key = ? AND meta_value = ?`;
   });
 

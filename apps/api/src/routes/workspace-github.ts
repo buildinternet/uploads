@@ -71,7 +71,12 @@ import { parseExternalReference } from "../external-references";
 import { respondError } from "../error-response";
 import { githubInstallStatus, type GithubInstallStatus } from "../github-install-status";
 import { reconcileIngestTarget } from "../github-ingest";
-import { deriveRepoBinding, findRepoLink, listRepoLinksForWorkspace } from "../github-repo-links";
+import {
+  deriveRepoBinding,
+  findRepoLink,
+  linkedRepoSet,
+  listRepoLinksForWorkspace,
+} from "../github-repo-links";
 import { resolveTitles } from "../github-titles";
 import { writeRateLimit } from "../guards";
 import { adminWorkspaceOr403, memberWorkspaceOr404 } from "../org-workspaces";
@@ -247,12 +252,7 @@ const githubTitlesHandler: Handler<DualAuthVars> = async (c) => {
 
   const name = c.req.param("workspace") ?? "";
   // Fail closed: a D1 blip degrades every ref to the public audience.
-  const linkedRepos = new Set(
-    await listRepoLinksForWorkspace(dbFor(c.env), name).then(
-      (links) => links.map((link) => link.repo.toLowerCase()),
-      () => [],
-    ),
-  );
+  const linkedRepos = await linkedRepoSet(dbFor(c.env), name);
   const titles = await resolveTitles(c.env, [...new Set(normalized)], {
     audience: "member",
     linkedRepos,

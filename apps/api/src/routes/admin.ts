@@ -6,7 +6,7 @@ import {
   RateLimitedError,
   ValidationError,
 } from "@uploads/errors";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { adminAuth } from "../admin";
 import { adminTokenRows, HASH_PREFIX_LEN, legacyTokens } from "../admin-token-list";
 import { runActiveContentHostSweep } from "../active-content-hosts";
@@ -24,6 +24,7 @@ import {
 import { deriveWebOrigin, inviteLinkUrl as inviteMagicLink } from "../invite-links";
 import { reencryptRegistryCredentials } from "../reencrypt-registry";
 import { backfillSelfServePlans } from "../self-serve-plan-backfill";
+import { backfillLowercasedMetaValues } from "../gh-repo-case-backfill";
 import { storage } from "../storage";
 import { mutateWorkspaceRecord } from "../workspace-mutate";
 import { teardownWorkspace } from "../workspace-teardown";
@@ -35,10 +36,19 @@ import {
   stampSoftDelete,
   type WorkspaceRecord,
 } from "../workspace";
-import { dbFor } from "../db-session";
+import { dbFor, primaryDbFor } from "../db-session";
 import { createMemberlessOrg, membersForOrg } from "../org-workspaces";
 
 const WS_NAME_RE = /^[a-z0-9][a-z0-9-]{1,62}$/;
+
+/** `?dryRun=1`, `?dryRun=true`, or `?dry_run=1` on the one-off backfill routes. */
+function isDryRun(c: Context): boolean {
+  return (
+    c.req.query("dryRun") === "1" ||
+    c.req.query("dryRun") === "true" ||
+    c.req.query("dry_run") === "1"
+  );
+}
 const SECONDS_PER_DAY = 24 * 60 * 60;
 // Ceiling for --expires-in. 24h caps how long a single-use invite secret can
 // live; the floor stays 60s at the validation site below.
@@ -437,10 +447,7 @@ export const admin = new Hono<{ Bindings: Env }>()
    * Query: ?dryRun=1
    */
   .post("/credentials/reencrypt", async (c) => {
-    const dryRun =
-      c.req.query("dryRun") === "1" ||
-      c.req.query("dryRun") === "true" ||
-      c.req.query("dry_run") === "1";
+    const dryRun = isDryRun(c);
     try {
       const result = await reencryptRegistryCredentials(c.env, { dryRun });
       return c.json(result);
@@ -460,10 +467,7 @@ export const admin = new Hono<{ Bindings: Env }>()
    * ?dryRun=1
    */
   .post("/self-serve/backfill-plan", async (c) => {
-    const dryRun =
-      c.req.query("dryRun") === "1" ||
-      c.req.query("dryRun") === "true" ||
-      c.req.query("dry_run") === "1";
+    const dryRun = isDryRun(c);
     try {
       const result = await backfillSelfServePlans(c.env, { dryRun });
       return c.json(result);
@@ -471,6 +475,19 @@ export const admin = new Hono<{ Bindings: Env }>()
       const message = err instanceof Error ? err.message : String(err);
       throw new ValidationError(message, { cause: err });
     }
+  })
+
+  /**
+   * One-time backfill for slice 1 of the Files/live-link work: lowercases
+   * `gh.repo` (and any other key in LOWERCASED_META_KEYS) on file_metadata
+   * rows written before canonical spelling existed, so those objects appear in
+   * By pull request files, PR pages, and live links. Idempotent; run by hand
+   * once after the API deploy (docs/ops.md). Repeat while `remaining` > 0.
+   * Query: ?dryRun=1
+   */
+  .post("/file-metadata/backfill-gh-repo-case", async (c) => {
+    const dryRun = isDryRun(c);
+    return c.json(await backfillLowercasedMetaValues(primaryDbFor(c.env), { dryRun }));
   })
 
   /**

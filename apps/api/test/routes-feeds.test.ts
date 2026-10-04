@@ -4,7 +4,9 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { app } from "../src/index";
 import { sha256Hex, type WorkspaceRecord } from "../src/workspace";
 import { FakeR2Bucket } from "./fake-r2";
-import { SqliteD1 } from "./helpers/sqlite-d1";
+import { SqliteD1, database } from "./helpers/sqlite-d1";
+import { replaceFileMetadata } from "../src/file-metadata";
+import type { PublicFeedItemPage } from "../src/scope-wire";
 
 const TOKEN = "feed-token";
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
@@ -19,6 +21,7 @@ const MIGRATIONS = [
   "migrations/20260713210559_file_metadata.sql",
   "migrations/20260915120000_feeds.sql",
   "migrations/20260915153000_feeds_number.sql",
+  "migrations/20261004120000_feeds_source.sql",
 ];
 
 beforeAll(() => {
@@ -326,5 +329,287 @@ describe("feed routes", () => {
     });
     expect(again.status).toBe(200);
     expect(((await again.json()) as { id: string; url: string }).url).toBe(uploads.url);
+  });
+
+  it("reports who created each feed on the owner DTOs and ignores a client-sent source", async () => {
+    const created = await request("/v1/workspaces/alpha/feeds", {
+      method: "POST",
+      body: JSON.stringify({ repo: "acme/app", source: "comment" }),
+    });
+    expect(created.status).toBe(201);
+    const feed = (await created.json()) as { id: string; source: string | null };
+    expect(feed.source).toBe("user");
+
+    const listed = await request("/v1/workspaces/alpha/feeds");
+    const page = (await listed.json()) as { feeds: Array<{ id: string; source: string | null }> };
+    expect(page.feeds).toEqual([expect.objectContaining({ id: feed.id, source: "user" })]);
+
+    const single = await request(`/v1/workspaces/alpha/feeds/${feed.id}`);
+    expect(((await single.json()) as { source: string | null }).source).toBe("user");
+
+    const publicFeed = await app.request(`/public/feeds/${feed.id}`, {}, env);
+    expect(await publicFeed.json()).not.toHaveProperty("source");
+  });
+
+  it("creates 60 PR-scoped feeds over the API and caps only repo-scoped feeds at 50", async () => {
+    for (let n = 1; n <= 60; n++) {
+      const created = await request("/v1/workspaces/alpha/feeds", {
+        method: "POST",
+        body: JSON.stringify({ repo: "acme/web", pr: n }),
+      });
+      expect(created.status).toBe(201);
+    }
+    for (let i = 0; i < 50; i++) {
+      const created = await request("/v1/workspaces/alpha/feeds", {
+        method: "POST",
+        body: JSON.stringify({ repo: `acme/app${i}` }),
+      });
+      expect(created.status).toBe(201);
+    }
+    const overflow = await request("/v1/workspaces/alpha/feeds", {
+      method: "POST",
+      body: JSON.stringify({ repo: "acme/overflow" }),
+    });
+    expect(overflow.status).toBe(409);
+    expect(await overflow.json()).toMatchObject({
+      error: { code: "feed_limit_reached", details: { limit: 50 } },
+    });
+    // PR-scoped creates are still accepted after the repo quota is full.
+    const next = await request("/v1/workspaces/alpha/feeds", {
+      method: "POST",
+      body: JSON.stringify({ repo: "acme/web", pr: 61 }),
+    });
+    expect(next.status).toBe(201);
+  });
+});
+
+/** Seed one object straight into R2 + D1, pinned to `updatedAt`. */
+async function seedFeedObject(
+  key: string,
+  meta: Record<string, string>,
+  updatedAt: string,
+  opts: { private?: boolean } = {},
+) {
+  await bucket.put(`alpha/${key}`, PNG, {
+    httpMetadata: { contentType: "image/png" },
+    ...(opts.private ? { customMetadata: { visibility: "private" } } : {}),
+  });
+  await replaceFileMetadata(database(sqlite), "alpha", key, meta);
+  sqlite.db
+    .prepare(`UPDATE file_metadata SET updated_at = ? WHERE workspace = ? AND object_key = ?`)
+    .run(updatedAt, "alpha", key);
+}
+
+const shotKey = (i: number) => `gh/acme/app/pull/7/shot-${String(i).padStart(2, "0")}.png`;
+const minutesBefore = (i: number) => new Date(Date.UTC(2026, 9, 1) - i * 60_000).toISOString();
+const itemIdFor = async (key: string) => (await sha256Hex(key)).slice(0, 32);
+
+/** `count` PR #7 shots; index 0 is newest. */
+async function seedPr7(count: number, privateIndex?: number) {
+  for (let i = 0; i < count; i++) {
+    await seedFeedObject(
+      shotKey(i),
+      { "gh.repo": "acme/app", "gh.number": "7", "gh.kind": "pull" },
+      minutesBefore(i),
+      { private: i === privateIndex },
+    );
+  }
+}
+
+async function createPr7Feed(): Promise<string> {
+  const created = await request("/v1/workspaces/alpha/feeds", {
+    method: "POST",
+    body: JSON.stringify({ repo: "acme/app", pr: 7 }),
+  });
+  expect(created.status).toBe(201);
+  return ((await created.json()) as { id: string }).id;
+}
+
+describe("public feed pagination and pager", () => {
+  it("pages a public feed past 50 items with nextCursor", async () => {
+    await seedPr7(55);
+    const id = await createPr7Feed();
+
+    const first = await app.request(`/public/feeds/${id}`, {}, env);
+    expect(first.status).toBe(200);
+    const page = (await first.json()) as {
+      items: Array<{ filename: string }>;
+      nextCursor: string | null;
+    };
+    expect(page.items).toHaveLength(50);
+    expect(page.items[0]?.filename).toBe("shot-00.png");
+    expect(page.nextCursor).toEqual(expect.any(String));
+
+    const second = (await (
+      await app.request(`/public/feeds/${id}?cursor=${page.nextCursor}`, {}, env)
+    ).json()) as typeof page;
+    expect(second.items.map((item) => item.filename)).toEqual([
+      "shot-50.png",
+      "shot-51.png",
+      "shot-52.png",
+      "shot-53.png",
+      "shot-54.png",
+    ]);
+    expect(second.nextCursor).toBeNull();
+
+    const bad = await app.request(`/public/feeds/${id}?cursor=not-a-cursor`, {}, env);
+    expect(bad.status).toBe(400);
+    expect(await bad.json()).toMatchObject({ error: { code: "invalid_cursor" } });
+  });
+
+  it("keeps object keys out of the public nextCursor when the last item is private", async () => {
+    const privateKey = `gh/private/${"a1".repeat(16)}/acme/app/pull/7/secret.png`;
+    for (let i = 0; i < 52; i++) {
+      const key = i === 49 ? privateKey : shotKey(i);
+      await seedFeedObject(
+        key,
+        { "gh.repo": "acme/app", "gh.number": "7", "gh.kind": "pull" },
+        minutesBefore(i),
+        { private: i === 49 },
+      );
+    }
+    const id = await createPr7Feed();
+    const page = (await (await app.request(`/public/feeds/${id}`, {}, env)).json()) as {
+      items: Array<{ filename: string; status: string }>;
+      nextCursor: string;
+    };
+    expect(page.items.at(-1)).toMatchObject({ filename: "secret.png", status: "withheld" });
+    const decoded = Buffer.from(page.nextCursor, "base64url").toString("utf8");
+    expect(decoded).not.toContain("gh/private/");
+    expect(decoded).not.toContain("secret.png");
+    expect(decoded).not.toContain("acme/app");
+    expect(decoded).toContain(await itemIdFor(privateKey));
+
+    const next = (await (
+      await app.request(`/public/feeds/${id}?cursor=${page.nextCursor}`, {}, env)
+    ).json()) as { items: Array<{ filename: string }>; nextCursor: string | null };
+    expect(next.items.map((item) => item.filename)).toEqual(["shot-50.png", "shot-51.png"]);
+  });
+
+  it("pages every item exactly once across a boundary with shared updated_at values", async () => {
+    // Items 49, 50, and 51 share one timestamp, so the 50-item boundary splits a tie.
+    for (let i = 0; i < 55; i++) {
+      await seedFeedObject(
+        shotKey(i),
+        { "gh.repo": "acme/app", "gh.number": "7", "gh.kind": "pull" },
+        minutesBefore(i >= 49 && i <= 51 ? 49 : i),
+      );
+    }
+    const id = await createPr7Feed();
+    const seen: string[] = [];
+    let cursor: string | null = null;
+    let pages = 0;
+    do {
+      const res = await app.request(
+        `/public/feeds/${id}${cursor ? `?cursor=${cursor}` : ""}`,
+        {},
+        env,
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        items: Array<{ filename: string }>;
+        nextCursor: string | null;
+      };
+      seen.push(...body.items.map((item) => item.filename));
+      cursor = body.nextCursor;
+      pages++;
+    } while (cursor && pages < 5);
+    expect(pages).toBe(2);
+    expect(seen).toHaveLength(55);
+    expect(new Set(seen).size).toBe(55);
+    expect(new Set(seen)).toEqual(
+      new Set(Array.from({ length: 55 }, (_, i) => `shot-${String(i).padStart(2, "0")}.png`)),
+    );
+  });
+
+  it("resumes strictly older when the cursor's item vanished", async () => {
+    await seedPr7(55);
+    const id = await createPr7Feed();
+    const page = (await (await app.request(`/public/feeds/${id}`, {}, env)).json()) as {
+      nextCursor: string;
+    };
+    sqlite.db
+      .prepare(`DELETE FROM file_metadata WHERE workspace = ? AND object_key = ?`)
+      .run("alpha", shotKey(49));
+    const next = (await (
+      await app.request(`/public/feeds/${id}?cursor=${page.nextCursor}`, {}, env)
+    ).json()) as { items: Array<{ filename: string }> };
+    expect(next.items.map((item) => item.filename)).toEqual([
+      "shot-50.png",
+      "shot-51.png",
+      "shot-52.png",
+      "shot-53.png",
+      "shot-54.png",
+    ]);
+  });
+
+  it("resolves a pager item older than the newest 50 with its neighbours", async () => {
+    await seedPr7(55);
+    const id = await createPr7Feed();
+
+    const res = await app.request(
+      `/public/feeds/${id}/items/${await itemIdFor(shotKey(52))}`,
+      {},
+      env,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as PublicFeedItemPage;
+    expect(body).toMatchObject({
+      feed: { id, title: "acme/app#7", repo: "acme/app", number: 7, kind: "pull" },
+      item: { id: await itemIdFor(shotKey(52)), filename: "shot-52.png", status: "available" },
+      prev: await itemIdFor(shotKey(51)),
+      next: await itemIdFor(shotKey(53)),
+      index: 52,
+      total: 55,
+    });
+    expect(body.item).not.toHaveProperty("objectKey");
+    expect(body.feed).not.toHaveProperty("source");
+
+    const newest = (await (
+      await app.request(`/public/feeds/${id}/items/${await itemIdFor(shotKey(0))}`, {}, env)
+    ).json()) as PublicFeedItemPage;
+    expect(newest).toMatchObject({ index: 0, prev: null, next: await itemIdFor(shotKey(1)) });
+    const oldest = (await (
+      await app.request(`/public/feeds/${id}/items/${await itemIdFor(shotKey(54))}`, {}, env)
+    ).json()) as PublicFeedItemPage;
+    expect(oldest).toMatchObject({ index: 54, next: null });
+  });
+
+  it("reports a repo-scope pager item's feed kind as null, like the public feed", async () => {
+    await seedPr7(2);
+    const created = await request("/v1/workspaces/alpha/feeds", {
+      method: "POST",
+      body: JSON.stringify({ repo: "acme/app" }),
+    });
+    const id = ((await created.json()) as { id: string }).id;
+    const body = (await (
+      await app.request(`/public/feeds/${id}/items/${await itemIdFor(shotKey(0))}`, {}, env)
+    ).json()) as PublicFeedItemPage;
+    expect(body.feed).toMatchObject({ id, number: null, kind: null });
+  });
+
+  it("withholds a private pager item and 404s unknown, malformed, and revoked ids", async () => {
+    await seedPr7(3, 1);
+    const id = await createPr7Feed();
+
+    const hidden = (await (
+      await app.request(`/public/feeds/${id}/items/${await itemIdFor(shotKey(1))}`, {}, env)
+    ).json()) as PublicFeedItemPage;
+    expect(hidden.item).toMatchObject({ status: "withheld", url: null, embedUrl: null });
+
+    const unknown = await app.request(`/public/feeds/${id}/items/${"0".repeat(32)}`, {}, env);
+    expect(unknown.status).toBe(404);
+    expect(await unknown.json()).toMatchObject({ error: { code: "feed_item_not_found" } });
+    expect((await app.request(`/public/feeds/${id}/items/not-hex`, {}, env)).status).toBe(404);
+
+    expect((await request(`/v1/workspaces/alpha/feeds/${id}`, { method: "DELETE" })).status).toBe(
+      200,
+    );
+    const revoked = await app.request(
+      `/public/feeds/${id}/items/${await itemIdFor(shotKey(0))}`,
+      {},
+      env,
+    );
+    expect(revoked.status).toBe(404);
   });
 });

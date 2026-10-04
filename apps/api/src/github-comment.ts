@@ -8,7 +8,8 @@
  */
 
 import { dbFor } from "./db-session";
-import { feedItemId, feedItemUrl, findLatestRepoScreenshots } from "./feed-service";
+import { feedItemIdFor } from "@uploads/comment-render/scope";
+import { feedItemUrl, findLatestRepoScreenshots } from "./feed-service";
 import { createFeed } from "./feeds";
 import { listObjects } from "./files-core";
 import { getMetadataForKeys } from "./file-metadata";
@@ -316,9 +317,14 @@ async function applyPrFeedPageUrls(
   linkToFilePage: boolean,
 ): Promise<void> {
   try {
+    // Comment-sync rows are uncapped and keep `comment` for life. GhTarget
+    // spells issues `issues`; createFeed takes `pr`/`issue`, and the slot
+    // lookup ignores kind, so a later web/CLI create for the same number
+    // reuses this row.
     const created = await createFeed(dbFor(env), {
       workspace: workspaceName,
       repo: target.repo,
+      source: "comment",
       ...(target.kind === "pull" ? { pr: target.num } : { issue: target.num }),
     });
     if (created.status !== "ok") return;
@@ -331,7 +337,7 @@ async function applyPrFeedPageUrls(
     const idByKey = new Map<string, string>();
     await Promise.all(
       matches.map(async (match) => {
-        idByKey.set(match.key, await feedItemId(match.key));
+        idByKey.set(match.key, await feedItemIdFor(match.key));
       }),
     );
     for (const item of items) {

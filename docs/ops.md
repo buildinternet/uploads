@@ -347,6 +347,29 @@ node --env-file=.env apps/api/scripts/backfill-gh-metadata.mjs
 for one run. Test against a local `wrangler dev` stack first — never point
 this at production while testing.
 
+## Backfill mixed-case `gh.repo`
+
+Run **by hand, once, after the Files/live-link API slice deploys.** Before that
+slice, a generic write (`uploads put --meta gh.repo=Acme/Web`, an
+`X-Uploads-Meta-gh.repo` header, `set_metadata`) stored `gh.repo` as typed. The
+API now stores it lowercased, and the scope views and live links match the
+lowercase spelling exactly, so older mixed-case rows stay hidden until this runs.
+It is not a migration (migrations auto-apply on merge and never rewrite data).
+
+```bash
+# dry run: prints { dryRun: true, affected, updated: 0, batches: 0, remaining }
+# ("remaining" equals "affected") and writes nothing
+curl -XPOST -H "Authorization: Bearer $ADMIN_TOKEN" \
+  'https://api.uploads.sh/admin/file-metadata/backfill-gh-repo-case?dryRun=1'
+# live: repeat until "remaining" is 0
+curl -XPOST -H "Authorization: Bearer $ADMIN_TOKEN" \
+  https://api.uploads.sh/admin/file-metadata/backfill-gh-repo-case
+```
+
+Idempotent. Each call rewrites at most 20,000 rows (`updated_at` is not
+touched). `github_pr_activity` and `feeds` already store the repo lowercased and
+need no backfill.
+
 ## Account linking (issue #233)
 
 A person can end up with two Better Auth users for one identity: a

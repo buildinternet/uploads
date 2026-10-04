@@ -24,8 +24,9 @@
       "get": {
         "operationId": "getPublicFeed",
         "summary": "Read a public change feed",
-        "description": "Returns the public newest-first screenshot list for a feed. It omits workspace ownership and object keys. Items are resolved at view time from `gh.repo` and optional `gh.number` metadata.",
+        "description": "Returns one page (up to 50) of the public newest-first item list for a feed, plus `nextCursor` for the next page. It omits workspace ownership and object keys. Items are resolved at view time from `gh.repo` and optional `gh.number` metadata.",
         "security": [],
+        "parameters": [{ "$ref": "#/components/parameters/Cursor" }],
         "responses": {
           "200": { "description": "The public feed and its current items." },
           "404": { "$ref": "#/components/responses/NotFound" },
@@ -1299,6 +1300,11 @@
           "number": { "type": ["integer", "null"], "minimum": 1 },
           "kind": { "type": ["string", "null"], "enum": ["pull", "issue"] },
           "title": { "type": "string" },
+          "source": {
+            "type": ["string", "null"],
+            "enum": ["comment", "user", null],
+            "description": "Who created the feed: PR comment sync or a user. Null for feeds created before this field."
+          },
           "createdAt": { "type": "string", "format": "date-time" },
           "updatedAt": { "type": "string", "format": "date-time" }
         }

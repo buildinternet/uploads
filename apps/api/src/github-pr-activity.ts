@@ -12,6 +12,7 @@
  * per repo, per the `github_repo_links` binding model).
  */
 import { type D1Queryable } from "./db-session";
+import type { ScopeCursor } from "./pr-scope";
 
 export interface PrActivity {
   ref: string;
@@ -62,7 +63,12 @@ export interface PrMediaEvent {
  * Best-effort upsert: never throws — activity tracking rides along with an
  * upload/promote response and a D1 blip here must not fail that request.
  * `first_media_at` is set once; `last_media_at` always advances; a null
- * branch never clobbers a previously recorded one.
+ * branch never clobbers a previously recorded one. Invariant: `title`/`state`
+ * belong to the workspace that owns the row, so when the writer's workspace
+ * differs from the stored one the row changes hands and title/state reset to
+ * NULL (they refill via the linked-repo webhook or the `/pulls` backfill).
+ * Without this, a workspace that tags another's `gh.repo`/`gh.number` would
+ * inherit that workspace's private title and state.
  */
 export async function recordPrMediaActivity(
   db: D1Queryable,
@@ -81,6 +87,8 @@ export async function recordPrMediaActivity(
          ON CONFLICT(ref) DO UPDATE SET
            media_count = media_count + excluded.media_count,
            branch = COALESCE(excluded.branch, branch),
+           title = CASE WHEN workspace_name = excluded.workspace_name THEN title ELSE NULL END,
+           state = CASE WHEN workspace_name = excluded.workspace_name THEN state ELSE NULL END,
            workspace_name = excluded.workspace_name,
            last_media_at = excluded.last_media_at`,
       )
@@ -153,4 +161,201 @@ export async function listPrActivityForWorkspace(
     .bind(workspaceName, limit)
     .all<PrActivityRow>();
   return (results ?? []).map(rowToActivity);
+}
+
+export type PrState = "open" | "closed" | "merged";
+
+export function isPrState(value: unknown): value is PrState {
+  return value === "open" || value === "closed" || value === "merged";
+}
+
+export interface PrActivityPageRow extends PrActivity {
+  title: string | null;
+  state: PrState | null;
+}
+
+/** Rollup columns plus title/state; shared by `listPrActivityPage` and `getPrActivityRow` (Task 6). */
+const PAGE_ROW_COLUMNS = `ref, repo_full_name, pr_number, branch, workspace_name,
+                    media_count, first_media_at, last_media_at, title, state`;
+
+type PageRowRecord = PrActivityRow & { title: string | null; state: string | null };
+
+function toPageRow(row: PageRowRecord): PrActivityPageRow {
+  return {
+    ...rowToActivity(row),
+    title: row.title ?? null,
+    state: isPrState(row.state) ? row.state : null,
+  };
+}
+
+/**
+ * One keyset page of the workspace's PRs with media, newest activity first.
+ * Rows never resolved (null state) drop out when a `state` filter is set.
+ * `since` bounds the window by `last_media_at` (the `/pulls` default is 90 days).
+ * Strict: a D1 failure surfaces as a 5xx.
+ */
+export async function listPrActivityPage(
+  db: D1Queryable,
+  workspaceName: string,
+  opts: {
+    repo?: string;
+    state?: PrState;
+    /** ISO timestamp: keep rows with `last_media_at >= since` (the `/pulls` recency window). */
+    since?: string;
+    cursor?: ScopeCursor | null;
+    limit: number;
+  },
+): Promise<{ rows: PrActivityPageRow[]; nextCursor: ScopeCursor | null }> {
+  const params: unknown[] = [workspaceName];
+  let sql = `SELECT ${PAGE_ROW_COLUMNS}
+             FROM github_pr_activity
+             WHERE workspace_name = ?`;
+  if (opts.repo) {
+    sql += ` AND repo_full_name = ?`;
+    params.push(opts.repo);
+  }
+  if (opts.state) {
+    sql += ` AND state = ?`;
+    params.push(opts.state);
+  }
+  if (opts.since) {
+    sql += ` AND last_media_at >= ?`;
+    params.push(opts.since);
+  }
+  if (opts.cursor) {
+    sql += ` AND (last_media_at < ? OR (last_media_at = ? AND ref > ?))`;
+    params.push(opts.cursor.updatedAt, opts.cursor.updatedAt, opts.cursor.key);
+  }
+  sql += ` ORDER BY last_media_at DESC, ref ASC LIMIT ?`;
+  params.push(opts.limit + 1);
+
+  const { results } = await db
+    .prepare(sql)
+    .bind(...params)
+    .all<PageRowRecord>();
+  const rows = (results ?? []).map(toPageRow);
+  const hasMore = rows.length > opts.limit;
+  const page = hasMore ? rows.slice(0, opts.limit) : rows;
+  const last = page.at(-1);
+  return {
+    rows: page,
+    nextCursor: hasMore && last ? { updatedAt: last.lastMediaAt, key: last.ref } : null,
+  };
+}
+
+/** Open-PR count per repo from the rollup. One bound parameter per repo: pass at most 99. */
+export async function countOpenPullsByRepo(
+  db: D1Queryable,
+  workspaceName: string,
+  repos: string[],
+): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  if (repos.length === 0) return out;
+  const { results } = await db
+    .prepare(
+      `SELECT repo_full_name AS repo, COUNT(*) AS n
+       FROM github_pr_activity
+       WHERE workspace_name = ? AND state = 'open'
+         AND repo_full_name IN (${repos.map(() => "?").join(", ")})
+       GROUP BY repo_full_name`,
+    )
+    .bind(workspaceName, ...repos)
+    .all<{ repo: string; n: number }>();
+  for (const row of results ?? []) out.set(row.repo, Number(row.n));
+  return out;
+}
+
+/**
+ * `pull_request` webhook write-through: title + state from the payload onto
+ * the PR's existing rollup row. UPDATE only (rows come from media writes).
+ * Gated to rows whose repo is linked to the row's own workspace: rows are
+ * created from client-writable `gh.*` metadata, so without the gate another
+ * workspace could fabricate a row and receive a private PR title. Unlinked
+ * rows heal through the `/pulls` backfill instead. Never throws.
+ */
+export async function applyPrActivityWebhook(
+  db: D1Queryable,
+  input: { repo: string; number: number; title: string; state: PrState },
+): Promise<void> {
+  const ref = `${input.repo.toLowerCase()}#${input.number}`;
+  try {
+    await db
+      .prepare(
+        `UPDATE github_pr_activity SET title = ?, state = ?
+         WHERE ref = ?
+           AND EXISTS (
+             SELECT 1 FROM github_repo_links l
+             WHERE l.repo_full_name = github_pr_activity.repo_full_name
+               AND l.workspace_name = github_pr_activity.workspace_name
+           )`,
+      )
+      .bind(input.title, input.state, ref)
+      .run();
+  } catch (err) {
+    console.error(
+      JSON.stringify({
+        message: "pr activity webhook update failed",
+        ref,
+        error: err instanceof Error ? err.message : String(err),
+      }),
+    );
+  }
+}
+
+/**
+ * Lazy fill from the `/pulls` handler: rows whose resolved title/state
+ * differs from the stored one. Scoped to `workspaceName`: a row is only
+ * written while it still belongs to the caller's workspace. Invalid states
+ * are skipped. Never throws.
+ */
+export async function backfillPrActivityState(
+  db: D1Queryable,
+  workspaceName: string,
+  rows: Array<{ ref: string; title: string; state: string }>,
+): Promise<void> {
+  const valid = rows.filter((row) => isPrState(row.state));
+  if (valid.length === 0) return;
+  try {
+    await db.batch(
+      valid.map((row) =>
+        db
+          .prepare(
+            `UPDATE github_pr_activity SET title = ?, state = ?
+             WHERE ref = ? AND workspace_name = ?`,
+          )
+          .bind(row.title, row.state, row.ref, workspaceName),
+      ),
+    );
+  } catch (err) {
+    console.error(
+      JSON.stringify({
+        message: "pr activity backfill failed",
+        count: valid.length,
+        error: err instanceof Error ? err.message : String(err),
+      }),
+    );
+  }
+}
+
+/**
+ * One PR's rollup row, only when it belongs to `workspaceName` (rows are
+ * keyed by ref, and another workspace may have written one for the same
+ * PR). Feeds the PR page header (`ScopeFilesResponse.pull`). Strict: a D1
+ * failure surfaces as a 5xx.
+ */
+export async function getPrActivityRow(
+  db: D1Queryable,
+  workspaceName: string,
+  repo: string,
+  number: number,
+): Promise<PrActivityPageRow | null> {
+  const row = await db
+    .prepare(
+      `SELECT ${PAGE_ROW_COLUMNS}
+       FROM github_pr_activity
+       WHERE ref = ? AND workspace_name = ?`,
+    )
+    .bind(`${repo.toLowerCase()}#${number}`, workspaceName)
+    .first<PageRowRecord>();
+  return row ? toPageRow(row) : null;
 }
