@@ -11,11 +11,18 @@ import { boundedDataRead } from "../data-read-bounds";
 import { dbFor } from "../db-session";
 import { dualWorkspaceAuth, type DualAuthVars } from "../dual-workspace-auth";
 import { respondError } from "../error-response";
-import { unwrapFeedMutation } from "../feed-service";
-import { normalizeFeedRepo } from "../feeds";
+import {
+  countPrivateScopeItems,
+  feedItemUrl,
+  feedUrl,
+  hydrateFeedItems,
+  unwrapFeedMutation,
+} from "../feed-service";
+import { findFeedByScope, normalizeFeedNumber, normalizeFeedRepo } from "../feeds";
 import {
   backfillPrActivityState,
   countOpenPullsByRepo,
+  getPrActivityRow,
   isPrState,
   listPrActivityPage,
   type PrState,
@@ -28,10 +35,13 @@ import {
   encodeScopeCursor,
   listWorkspaceRepos,
   prScopeQuery,
+  scanScopeKeys,
+  SCOPE_DEFAULT_LIMIT,
+  SCOPE_MAX_LIMIT,
 } from "../pr-scope";
 import { heavyReadRateLimit } from "../read-limits";
 import { toThumbItem } from "../scope-service";
-import type { PullsResponse, ReposResponse } from "../scope-wire";
+import type { PullsResponse, ReposResponse, ScopeFilesResponse } from "../scope-wire";
 import { storageConfig } from "../storage";
 import { requireScope } from "../workspace";
 
@@ -213,7 +223,91 @@ export async function reposHandler(c: Context<DualAuthVars>) {
   return c.json(response);
 }
 
+/**
+ * One scope's files (a PR when `number` is set, else the whole repo), newest
+ * first, hydrated like a live link for the owner audience. Owner and repo
+ * are lowercased before matching. `privateCount` runs on the first page only
+ * and reuses the page's HEADs; `liveLink` is the existing feed for exactly
+ * this scope; `pull` is this workspace's rollup row for the PR.
+ */
+export async function scopeFilesHandler(c: Context<DualAuthVars>) {
+  const workspace = c.get("workspaceName");
+  const record = c.get("workspace");
+  const db = dbFor(c.env);
+  const repo = parseRepo(`${c.req.param("owner") ?? ""}/${c.req.param("repo") ?? ""}`);
+  // Positive integer or absent; anything else is a 400 (`scopeFrom` would
+  // silently drop a bad value and widen the scope to the whole repo).
+  const number = unwrapFeedMutation(normalizeFeedNumber(c.req.query("number"))).value;
+  const type = parseFileTypeQuery(c.req.query("type"));
+  const cursor = decodeScopeCursor(c.req.query("cursor"));
+  const limit = parseLimit(c.req.query("limit"), SCOPE_DEFAULT_LIMIT, SCOPE_MAX_LIMIT);
+  const scope = { workspace, repo, ...(number > 0 ? { number } : {}) };
+
+  const [page, pullRow] = await boundedDataRead(
+    c,
+    () =>
+      Promise.all([
+        prScopeQuery(db, { ...scope, type, cursor, limit }),
+        number > 0 ? getPrActivityRow(db, workspace, repo, number) : Promise.resolve(null),
+      ]),
+    { name: "d1_scope_files" },
+  );
+  const privateKeys = new Set<string>();
+  const items = await hydrateFeedItems(c.env, record, page.items, {
+    audience: "owner",
+    privateKeys,
+  });
+  const feed = await findFeedByScope(db, workspace, repo, "", number);
+  if (feed) {
+    for (const item of items) item.pageUrl = feedItemUrl(c.env, feed.id, item.id);
+  }
+
+  // First page only: the share confirm reads it before the first copy.
+  let privateCount: number | null = null;
+  if (!cursor) {
+    const pageIsWholeScope = page.nextCursor === null && type === undefined;
+    const keys = pageIsWholeScope
+      ? page.items.map((item) => item.key)
+      : (await boundedDataRead(c, () => scanScopeKeys(db, scope), { name: "d1_scope_scan" })).map(
+          (item) => item.key,
+        );
+    privateCount = await countPrivateScopeItems(c.env, record, keys, {
+      checked: new Set(page.items.map((item) => item.key)),
+      privateKeys,
+    });
+  }
+
+  // Same rule as /pulls: a stored title is served only for a repo linked to
+  // this workspace. Otherwise `pull.title` is null and the PR page resolves
+  // it through the member titles route (public ladder for unlinked repos).
+  const titleVisible = pullRow?.title != null && (await linkedRepoSet(db, workspace)).has(repo);
+
+  const response: ScopeFilesResponse = {
+    repo,
+    number: number > 0 ? number : null,
+    items,
+    nextCursor: page.nextCursor ? encodeScopeCursor(page.nextCursor) : null,
+    privateCount,
+    liveLink: feed ? { id: feed.id, url: feedUrl(c.env, feed.id), source: feed.source } : null,
+    pull: pullRow
+      ? {
+          branch: pullRow.branch,
+          title: titleVisible ? pullRow.title : null,
+          state: pullRow.state,
+        }
+      : null,
+  };
+  return c.json(response);
+}
+
 export const workspaceScope = new Hono<DualAuthVars>()
   .get("/:workspace/pulls", dualWorkspaceAuth(), heavyRead, scoped("files:read"), pullsHandler)
   .get("/:workspace/repos", dualWorkspaceAuth(), heavyRead, scoped("files:read"), reposHandler)
+  .get(
+    "/:workspace/scope/:owner/:repo/files",
+    dualWorkspaceAuth(),
+    heavyRead,
+    scoped("files:read"),
+    scopeFilesHandler,
+  )
   .onError((err, c) => respondError(c, err));

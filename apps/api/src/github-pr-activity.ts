@@ -336,3 +336,26 @@ export async function backfillPrActivityState(
     );
   }
 }
+
+/**
+ * One PR's rollup row, only when it belongs to `workspaceName` (rows are
+ * keyed by ref, and another workspace may have written one for the same
+ * PR). Feeds the PR page header (`ScopeFilesResponse.pull`). Strict: a D1
+ * failure surfaces as a 5xx.
+ */
+export async function getPrActivityRow(
+  db: D1Queryable,
+  workspaceName: string,
+  repo: string,
+  number: number,
+): Promise<PrActivityPageRow | null> {
+  const row = await db
+    .prepare(
+      `SELECT ${PAGE_ROW_COLUMNS}
+       FROM github_pr_activity
+       WHERE ref = ? AND workspace_name = ?`,
+    )
+    .bind(`${repo.toLowerCase()}#${number}`, workspaceName)
+    .first<PageRowRecord>();
+  return row ? toPageRow(row) : null;
+}

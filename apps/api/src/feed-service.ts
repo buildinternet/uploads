@@ -193,11 +193,16 @@ async function mapBounded<T, R>(
   return result;
 }
 
-async function hydrateFeedItems(
+/**
+ * HEAD each match (lane-aware) and build its DTO. `privateKeys`, when given,
+ * collects every key whose object is private, so a caller can reuse these
+ * HEADs (see `countPrivateScopeItems`).
+ */
+export async function hydrateFeedItems(
   env: Env,
   workspace: WorkspaceRecord,
   matches: Array<{ key: string; metadata: Record<string, string> }>,
-  opts: { audience: "owner" | "public" },
+  opts: { audience: "owner" | "public"; privateKeys?: Set<string> },
 ): Promise<FeedItemDto[]> {
   const resolver: LaneResolver = createLaneResolver(env, workspace);
   try {
@@ -228,6 +233,7 @@ async function hydrateFeedItems(
       });
     }
     const isPrivate = meta ? objectVisibility(meta.metadata) === "private" : false;
+    if (isPrivate) opts.privateKeys?.add(match.key);
     const withheld = opts.audience === "public" && isPrivate;
     const urls =
       meta && !withheld && itemConfig
@@ -289,6 +295,39 @@ async function hydrateFeedItems(
     }
   }
   return hydrated;
+}
+
+/**
+ * How many of `keys` are private (what a live link renders as `withheld`).
+ * Visibility lives only in R2 custom metadata (`visibility.ts`; D1 rejects
+ * the key), so each key the page did not already HEAD (`seen.checked`) costs
+ * one lane lookup + HEAD. Keys already HEADed count from `seen.privateKeys`.
+ */
+export async function countPrivateScopeItems(
+  env: Env,
+  workspace: WorkspaceRecord,
+  keys: string[],
+  seen: { checked: Set<string>; privateKeys: Set<string> },
+): Promise<number> {
+  const known = keys.filter((key) => seen.privateKeys.has(key)).length;
+  const unchecked = keys.filter((key) => !seen.checked.has(key));
+  if (unchecked.length === 0) return known;
+  const resolver = createLaneResolver(env, workspace);
+  let flags: boolean[];
+  try {
+    flags = await mapBounded(unchecked, 8, async (key) => {
+      const lane = await resolver.resolve(key);
+      if (!lane) return false;
+      const head = (await lane.store.head(key)) as FeedObjectHead | null;
+      return objectVisibility(head?.metadata) === "private";
+    });
+  } catch (cause) {
+    throw new ServiceUnavailableError("Feed storage unavailable.", {
+      code: "feed_storage_unavailable",
+      cause,
+    });
+  }
+  return known + flags.filter(Boolean).length;
 }
 
 function toPublicItem(item: FeedItemDto): PublicFeedItemDto {

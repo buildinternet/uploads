@@ -3,7 +3,7 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { app } from "../src/index";
 import { deleteFileMetadata, replaceFileMetadata } from "../src/file-metadata";
-import type { PullsResponse, ReposResponse } from "../src/scope-wire";
+import type { PullsResponse, ReposResponse, ScopeFilesResponse } from "../src/scope-wire";
 import { sha256Hex, type WorkspaceRecord } from "../src/workspace";
 import { FakeKv } from "./fake-kv";
 import { FakeR2Bucket } from "./fake-r2";
@@ -398,5 +398,186 @@ describe("GET /v1/workspaces/:ws/repos", () => {
       code: "invalid_limit",
     });
     expect((await getJson<ReposResponse>("/v1/workspaces/beta/repos")).repos).toEqual([]);
+  });
+});
+
+describe("GET /v1/workspaces/:ws/scope/:owner/:repo/files", () => {
+  it("lists a PR's files newest first, links items to the existing live link, and pages", async () => {
+    await seedObject("gh/acme/app/pull/4/a.png", prMeta("acme/app", 4));
+    await seedObject("gh/acme/app/pull/4/b.png", prMeta("acme/app", 4));
+    await seedObject("gh/acme/app/pull/4/c.mp4", prMeta("acme/app", 4), {
+      contentType: "video/mp4",
+    });
+    await seedObject("gh/acme/app/pull/5/other.png", prMeta("acme/app", 5));
+    stamp("gh/acme/app/pull/4/a.png", "2026-10-01T01:00:00.000Z");
+    stamp("gh/acme/app/pull/4/b.png", "2026-10-01T02:00:00.000Z");
+    stamp("gh/acme/app/pull/4/c.mp4", "2026-10-01T03:00:00.000Z");
+    stamp("gh/acme/app/pull/5/other.png", "2026-10-01T04:00:00.000Z");
+    const created = await request("/v1/workspaces/alpha/feeds", {
+      method: "POST",
+      body: JSON.stringify({ repo: "acme/app", pr: 4 }),
+    });
+    const feed = (await created.json()) as { id: string; url: string };
+
+    const page = await getJson<ScopeFilesResponse>(
+      "/v1/workspaces/alpha/scope/acme/app/files?number=4&limit=2",
+    );
+    expect(page).toMatchObject({
+      repo: "acme/app",
+      number: 4,
+      privateCount: 0,
+      liveLink: { id: feed.id, url: feed.url, source: "user" },
+    });
+    expect(page.items.map((i) => i.objectKey)).toEqual([
+      "gh/acme/app/pull/4/c.mp4",
+      "gh/acme/app/pull/4/b.png",
+    ]);
+    expect(page.items[0]?.pageUrl).toBe(
+      `${feed.url}/${(await sha256Hex("gh/acme/app/pull/4/c.mp4")).slice(0, 32)}`,
+    );
+
+    const next = await getJson<ScopeFilesResponse>(
+      `/v1/workspaces/alpha/scope/acme/app/files?number=4&limit=2&cursor=${page.nextCursor}`,
+    );
+    expect(next.items.map((i) => i.objectKey)).toEqual(["gh/acme/app/pull/4/a.png"]);
+    expect(next.nextCursor).toBeNull();
+    expect(next.privateCount).toBeNull();
+
+    const repoWide = await getJson<ScopeFilesResponse>("/v1/workspaces/alpha/scope/acme/app/files");
+    expect(repoWide.number).toBeNull();
+    expect(repoWide.items).toHaveLength(4);
+    expect(repoWide.liveLink).toBeNull();
+
+    // Scope parity: the live link and the Files view hold the same objects.
+    const repoFeed = (await (
+      await request("/v1/workspaces/alpha/feeds", {
+        method: "POST",
+        body: JSON.stringify({ repo: "acme/app" }),
+      })
+    ).json()) as { items: Array<{ objectKey: string }> };
+    expect(repoFeed.items.map((i) => i.objectKey)).toEqual(repoWide.items.map((i) => i.objectKey));
+  });
+
+  it("counts private items across the whole scope, ignoring type and page size (review focus 4)", async () => {
+    const meta = prMeta("acme/app", 6);
+    await seedObject("gh/acme/app/pull/6/p1.png", meta);
+    await seedObject("gh/acme/app/pull/6/p2.png", meta);
+    await seedObject("gh/acme/app/pull/6/s1.png", meta, { private: true });
+    await seedObject("gh/acme/app/pull/6/s2.mp4", meta, {
+      private: true,
+      contentType: "video/mp4",
+    });
+    await seedObject("gh/acme/app/pull/6/p3.png", meta);
+    stamp("gh/acme/app/pull/6/p1.png", "2026-10-01T01:00:00.000Z");
+    stamp("gh/acme/app/pull/6/p2.png", "2026-10-01T02:00:00.000Z");
+    stamp("gh/acme/app/pull/6/s1.png", "2026-10-01T03:00:00.000Z");
+    stamp("gh/acme/app/pull/6/s2.mp4", "2026-10-01T04:00:00.000Z");
+    stamp("gh/acme/app/pull/6/p3.png", "2026-10-01T05:00:00.000Z");
+
+    const videos = await getJson<ScopeFilesResponse>(
+      "/v1/workspaces/alpha/scope/acme/app/files?number=6&type=video&limit=1",
+    );
+    expect(videos.items.map((i) => i.objectKey)).toEqual(["gh/acme/app/pull/6/s2.mp4"]);
+    expect(videos.items[0]?.status).toBe("available");
+    expect(videos.privateCount).toBe(2);
+
+    const firstPage = await getJson<ScopeFilesResponse>(
+      "/v1/workspaces/alpha/scope/acme/app/files?number=6&limit=2",
+    );
+    expect(firstPage.items.map((i) => i.objectKey)).toEqual([
+      "gh/acme/app/pull/6/p3.png",
+      "gh/acme/app/pull/6/s2.mp4",
+    ]);
+    expect(firstPage.privateCount).toBe(2);
+
+    const all = await getJson<ScopeFilesResponse>(
+      "/v1/workspaces/alpha/scope/acme/app/files?number=6",
+    );
+    expect(all.items).toHaveLength(5);
+    expect(all.privateCount).toBe(2);
+  });
+
+  it("lowercases an owner/repo with dots, dashes, underscores, and capitals (index review focus 2)", async () => {
+    await seedObject("gh/foo.bar/my-repo_x/pull/2/shot.png", prMeta("foo.bar/my-repo_x", 2));
+    const created = await request("/v1/workspaces/alpha/feeds", {
+      method: "POST",
+      body: JSON.stringify({ repo: "Foo.Bar/My-Repo_x", pr: 2 }),
+    });
+    expect(created.status).toBe(201);
+    const feedId = ((await created.json()) as { id: string }).id;
+
+    const body = await getJson<ScopeFilesResponse>(
+      "/v1/workspaces/alpha/scope/Foo.Bar/My-Repo_x/files?number=2",
+    );
+    expect(body.repo).toBe("foo.bar/my-repo_x");
+    expect(body.items.map((i) => i.objectKey)).toEqual(["gh/foo.bar/my-repo_x/pull/2/shot.png"]);
+    expect(body.liveLink?.id).toBe(feedId);
+  });
+
+  it("carries the PR's branch, title, and state from this workspace's rollup row", async () => {
+    await putShot("alpha", "gh/acme/app/pull/3/a.png", {
+      ...prMeta("acme/app", 3),
+      "gh.branch": "feat/dark",
+    });
+    sqlite.db
+      .prepare(`UPDATE github_pr_activity SET title = ?, state = ? WHERE ref = ?`)
+      .run("Add dark mode", "open", "acme/app#3");
+
+    // Unlinked repo: the stored title is withheld (member title rule), branch and state are not.
+    const unlinked = await getJson<ScopeFilesResponse>(
+      "/v1/workspaces/alpha/scope/acme/app/files?number=3",
+    );
+    expect(unlinked.pull).toEqual({ branch: "feat/dark", title: null, state: "open" });
+
+    linkRepo("acme/app");
+    const pr = await getJson<ScopeFilesResponse>(
+      "/v1/workspaces/alpha/scope/acme/app/files?number=3",
+    );
+    expect(pr.pull).toEqual({ branch: "feat/dark", title: "Add dark mode", state: "open" });
+
+    // Repo scope, a PR without a rollup row, and another workspace all get null.
+    expect(
+      (await getJson<ScopeFilesResponse>("/v1/workspaces/alpha/scope/acme/app/files")).pull,
+    ).toBeNull();
+    expect(
+      (await getJson<ScopeFilesResponse>("/v1/workspaces/alpha/scope/acme/app/files?number=99"))
+        .pull,
+    ).toBeNull();
+    expect(
+      (await getJson<ScopeFilesResponse>("/v1/workspaces/beta/scope/acme/app/files?number=3")).pull,
+    ).toBeNull();
+  });
+
+  it("returns an empty scope for a PR whose media were deleted (index review focus 1)", async () => {
+    await seedObject("gh/acme/app/pull/9/gone.png", prMeta("acme/app", 9));
+    await deleteFileMetadata(database(sqlite), "alpha", "gh/acme/app/pull/9/gone.png");
+    const body = await getJson<ScopeFilesResponse>(
+      "/v1/workspaces/alpha/scope/acme/app/files?number=9",
+    );
+    expect(body).toMatchObject({ items: [], nextCursor: null, privateCount: 0, liveLink: null });
+  });
+
+  it("rejects a bad type, number, owner/repo, and cursor, and isolates workspaces", async () => {
+    await seedObject("gh/acme/app/pull/4/a.png", prMeta("acme/app", 4));
+    expect(await errorOf("/v1/workspaces/alpha/scope/acme/app/files?type=gif")).toEqual({
+      status: 400,
+      code: "invalid_type",
+    });
+    expect(await errorOf("/v1/workspaces/alpha/scope/acme/app/files?number=abc")).toEqual({
+      status: 400,
+      code: "feed_invalid_field",
+    });
+    expect(await errorOf("/v1/workspaces/alpha/scope/a%20b/app/files")).toEqual({
+      status: 400,
+      code: "feed_invalid_field",
+    });
+    expect(await errorOf("/v1/workspaces/alpha/scope/acme/app/files?cursor=not-a-cursor")).toEqual({
+      status: 400,
+      code: "invalid_cursor",
+    });
+    const beta = await getJson<ScopeFilesResponse>(
+      "/v1/workspaces/beta/scope/acme/app/files?number=4",
+    );
+    expect(beta).toMatchObject({ items: [], liveLink: null, privateCount: 0 });
   });
 });
