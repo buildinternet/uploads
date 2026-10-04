@@ -12,6 +12,9 @@ import type { ScopeItem } from "./pr-scope";
 import type { ThumbItem } from "./scope-wire";
 import { objectPublicUrls } from "./storage";
 
+/** The only metadata `toThumbItem` reads: the poster flags. */
+export const THUMB_META_KEYS = ["video.poster", "pdf.poster"];
+
 export function toThumbItem(env: Env, cfg: StorageConfig, item: ScopeItem): ThumbItem {
   const urls = objectPublicUrls(env, cfg, item.key);
   const { posterUrl } = videoPresentation(

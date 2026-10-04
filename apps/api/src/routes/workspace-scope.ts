@@ -13,6 +13,7 @@ import { dualWorkspaceAuth, type DualAuthVars } from "../dual-workspace-auth";
 import { respondError } from "../error-response";
 import {
   countPrivateScopeItems,
+  PRIVATE_COUNT_PROBE_CAP,
   feedItemUrl,
   feedUrl,
   hydrateFeedItems,
@@ -34,13 +35,14 @@ import {
   decodeScopeCursor,
   encodeScopeCursor,
   listWorkspaceRepos,
+  prScopeFirstPages,
   prScopeQuery,
   scanScopeKeys,
   SCOPE_DEFAULT_LIMIT,
   SCOPE_MAX_LIMIT,
 } from "../pr-scope";
 import { heavyReadRateLimit } from "../read-limits";
-import { toThumbItem } from "../scope-service";
+import { THUMB_META_KEYS, toThumbItem } from "../scope-service";
 import type { PullsResponse, ReposResponse, ScopeFilesResponse } from "../scope-wire";
 import { storageConfig } from "../storage";
 import { requireScope } from "../workspace";
@@ -119,6 +121,20 @@ function storedTitleFor(
   return linkedRepos.has(repo) ? title : null;
 }
 
+/**
+ * Run best-effort `task` after the response via `waitUntil`. Awaits it when
+ * there is no ExecutionContext (vitest `app.request` supplies none).
+ */
+async function afterResponse(c: Context<DualAuthVars>, task: Promise<unknown>): Promise<void> {
+  try {
+    c.executionCtx.waitUntil(task);
+    return;
+  } catch {
+    // No ExecutionContext: fall through and await.
+  }
+  await task;
+}
+
 export async function pullsHandler(c: Context<DualAuthVars>) {
   const workspace = c.get("workspaceName");
   const db = dbFor(c.env);
@@ -133,46 +149,54 @@ export async function pullsHandler(c: Context<DualAuthVars>) {
   // days unless `all=1` (the Files list's "Show older pull requests").
   const since = pullsSince(c.req.query("all"));
 
-  const page = await boundedDataRead(
-    c,
-    () => listPrActivityPage(db, workspace, { repo, state, since, cursor, limit }),
-    { name: "d1_pulls_list" },
-  );
-  const linkedRepos = await linkedRepoSet(db, workspace);
-  const titles = await resolvePullTitles(
-    c.env,
-    page.rows.map((row) => row.ref),
-    linkedRepos,
-  );
-  // Every resolved title here came from the member audience built from this
-  // workspace's own links, and the UPDATE is scoped to this workspace's rows.
-  await backfillPrActivityState(
-    db,
-    workspace,
-    page.rows.flatMap((row) => {
-      const info = titles[row.ref];
-      return info && (info.title !== row.title || info.state !== row.state)
-        ? [{ ref: row.ref, title: info.title, state: info.state }]
-        : [];
-    }),
-  );
-  const thumbs = await boundedDataRead(
-    c,
-    () =>
-      Promise.all(
-        page.rows.map((row) =>
-          prScopeQuery(db, {
-            workspace,
+  const [page, linkedRepos, cfg] = await Promise.all([
+    boundedDataRead(
+      c,
+      () => listPrActivityPage(db, workspace, { repo, state, since, cursor, limit }),
+      { name: "d1_pulls_list" },
+    ),
+    linkedRepoSet(db, workspace),
+    storageConfig(c.env, c.get("workspace")),
+  ]);
+  const [titles, thumbs] = await Promise.all([
+    resolvePullTitles(
+      c.env,
+      page.rows.map((row) => row.ref),
+      linkedRepos,
+    ),
+    boundedDataRead(
+      c,
+      () =>
+        prScopeFirstPages(
+          db,
+          workspace,
+          page.rows.map((row) => ({
             repo: row.repo,
             number: row.prNumber,
             type,
             limit: THUMBNAIL_LIMIT,
-          }),
+          })),
+          { metaKeys: THUMB_META_KEYS },
         ),
-      ),
-    { name: "d1_pulls_thumbs" },
+      { name: "d1_pulls_thumbs" },
+    ),
+  ]);
+  // Best effort, off the response path. Every resolved title here came from
+  // the member audience built from this workspace's own links, and the UPDATE
+  // is scoped to this workspace's rows.
+  await afterResponse(
+    c,
+    backfillPrActivityState(
+      db,
+      workspace,
+      page.rows.flatMap((row) => {
+        const info = titles[row.ref];
+        return info && (info.title !== row.title || info.state !== row.state)
+          ? [{ ref: row.ref, title: info.title, state: info.state }]
+          : [];
+      }),
+    ),
   );
-  const cfg = await storageConfig(c.env, c.get("workspace"));
 
   const response: PullsResponse = {
     workspace,
@@ -186,7 +210,7 @@ export async function pullsHandler(c: Context<DualAuthVars>) {
         title: info?.title ?? storedTitleFor(linkedRepos, row.repo, row.title),
         state: info?.state ?? row.state,
         lastMediaAt: row.lastMediaAt,
-        thumbnails: (thumbs[index]?.items ?? []).map((item) => toThumbItem(c.env, cfg, item)),
+        thumbnails: (thumbs[index] ?? []).map((item) => toThumbItem(c.env, cfg, item)),
       };
     }),
     nextCursor: page.nextCursor ? encodeScopeCursor(page.nextCursor) : null,
@@ -202,24 +226,27 @@ export async function reposHandler(c: Context<DualAuthVars>) {
   const type = parseFileTypeQuery(c.req.query("type"));
   const cursor = decodeScopeCursor(c.req.query("cursor"));
 
-  const page = await boundedDataRead(
-    c,
-    () => listWorkspaceRepos(db, workspace, { cursor, limit }),
-    { name: "d1_repos_list" },
-  );
+  const [page, cfg] = await Promise.all([
+    boundedDataRead(c, () => listWorkspaceRepos(db, workspace, { cursor, limit }), {
+      name: "d1_repos_list",
+    }),
+    storageConfig(c.env, c.get("workspace")),
+  ]);
   const repos = page.repos.map((row) => row.repo);
   const [openCounts, thumbs] = await boundedDataRead(
     c,
     () =>
       Promise.all([
         countOpenPullsByRepo(db, workspace, repos),
-        Promise.all(
-          repos.map((repo) => prScopeQuery(db, { workspace, repo, type, limit: THUMBNAIL_LIMIT })),
+        prScopeFirstPages(
+          db,
+          workspace,
+          repos.map((repo) => ({ repo, type, limit: THUMBNAIL_LIMIT })),
+          { metaKeys: THUMB_META_KEYS },
         ),
       ]),
     { name: "d1_repos_detail" },
   );
-  const cfg = await storageConfig(c.env, c.get("workspace"));
 
   const response: ReposResponse = {
     workspace,
@@ -227,7 +254,7 @@ export async function reposHandler(c: Context<DualAuthVars>) {
       repo: row.repo,
       lastUpdatedAt: row.lastUpdatedAt,
       openPullCount: openCounts.get(row.repo) ?? 0,
-      thumbnails: (thumbs[index]?.items ?? []).map((item) => toThumbItem(c.env, cfg, item)),
+      thumbnails: (thumbs[index] ?? []).map((item) => toThumbItem(c.env, cfg, item)),
     })),
     nextCursor: page.nextCursor ? encodeScopeCursor(page.nextCursor) : null,
   };
@@ -255,34 +282,41 @@ export async function scopeFilesHandler(c: Context<DualAuthVars>) {
   const limit = parseLimit(c.req.query("limit"), SCOPE_DEFAULT_LIMIT, SCOPE_MAX_LIMIT);
   const scope = { workspace, repo, ...(number > 0 ? { number } : {}) };
 
-  const [page, pullRow] = await boundedDataRead(
+  const [page, pullRow, feed, linkedRepos] = await boundedDataRead(
     c,
     () =>
       Promise.all([
         prScopeQuery(db, { ...scope, type, cursor, limit }),
         number > 0 ? getPrActivityRow(db, workspace, repo, number) : Promise.resolve(null),
+        findFeedByScope(db, workspace, repo, "", number),
+        linkedRepoSet(db, workspace),
       ]),
     { name: "d1_scope_files" },
   );
+
+  // privateCount is first page only: the share confirm reads it before the
+  // first copy. The scan runs alongside hydration. Its cap is the probe cap
+  // plus the page plus one: past that, more than PRIVATE_COUNT_PROBE_CAP keys
+  // would need a probe, so the count is null whether or not the scan stops.
+  const needsScan = !cursor && !(page.nextCursor === null && type === undefined);
   const privateKeys = new Set<string>();
-  const items = await hydrateFeedItems(c.env, record, page.items, {
-    audience: "owner",
-    privateKeys,
-  });
-  const feed = await findFeedByScope(db, workspace, repo, "", number);
+  const [items, scanned] = await Promise.all([
+    hydrateFeedItems(c.env, record, page.items, { audience: "owner", privateKeys }),
+    needsScan
+      ? boundedDataRead(
+          c,
+          () => scanScopeKeys(db, scope, { cap: PRIVATE_COUNT_PROBE_CAP + page.items.length + 1 }),
+          { name: "d1_scope_scan" },
+        )
+      : null,
+  ]);
   if (feed) {
     for (const item of items) item.pageUrl = feedItemUrl(c.env, feed.id, item.id);
   }
 
-  // First page only: the share confirm reads it before the first copy.
   let privateCount: number | null = null;
   if (!cursor) {
-    const pageIsWholeScope = page.nextCursor === null && type === undefined;
-    const keys = pageIsWholeScope
-      ? page.items.map((item) => item.key)
-      : (await boundedDataRead(c, () => scanScopeKeys(db, scope), { name: "d1_scope_scan" })).map(
-          (item) => item.key,
-        );
+    const keys = (scanned ?? page.items).map((item) => item.key);
     privateCount = await countPrivateScopeItems(c.env, record, keys, {
       checked: new Set(page.items.map((item) => item.key)),
       privateKeys,
@@ -291,7 +325,6 @@ export async function scopeFilesHandler(c: Context<DualAuthVars>) {
 
   // Same rule as /pulls. When `pull.title` is null the PR page resolves it
   // through the member titles route (public ladder for unlinked repos).
-  const linkedRepos = await linkedRepoSet(db, workspace);
 
   const response: ScopeFilesResponse = {
     repo,

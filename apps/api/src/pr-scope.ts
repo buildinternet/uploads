@@ -111,11 +111,11 @@ export function clampScopeLimit(limit: number | undefined): number {
   return Math.max(1, Math.min(SCOPE_MAX_LIMIT, Math.floor(limit)));
 }
 
-/** One newest-first page of the scope, with metadata for each item. */
-export async function prScopeQuery(
+/** The SELECT for one newest-first page (`limit + 1` rows, to detect a next page). */
+function scopePageStatement(
   db: D1Queryable,
   q: ScopeQuery,
-): Promise<{ items: ScopeItem[]; nextCursor: ScopeCursor | null }> {
+): { statement: D1PreparedStatement; limit: number } {
   const limit = clampScopeLimit(q.limit);
   const { sql, params } = scopeFrom(q);
   let select = `SELECT r.object_key AS object_key, r.updated_at AS updated_at ${sql}`;
@@ -128,14 +128,38 @@ export async function prScopeQuery(
   }
   select += ` ORDER BY r.updated_at DESC, r.object_key ASC LIMIT ?`;
   params.push(limit + 1);
+  return { statement: db.prepare(select).bind(...params), limit };
+}
 
-  const { results } = await db
-    .prepare(select)
-    .bind(...params)
-    .all<ScopeRow>();
-  const rows = results ?? [];
+function splitScopePage(
+  rows: ScopeRow[],
+  limit: number,
+): { page: ScopeRow[]; nextCursor: ScopeCursor | null } {
   const hasMore = rows.length > limit;
   const page = hasMore ? rows.slice(0, limit) : rows;
+  const last = page.at(-1);
+  return {
+    page,
+    nextCursor: hasMore && last ? { updatedAt: last.updated_at, key: last.object_key } : null,
+  };
+}
+
+function toScopeItems(page: ScopeRow[], byKey: Map<string, Record<string, string>>): ScopeItem[] {
+  return page.map((row) => ({
+    key: row.object_key,
+    updatedAt: row.updated_at,
+    metadata: byKey.get(row.object_key) ?? {},
+  }));
+}
+
+/** One newest-first page of the scope, with metadata for each item. */
+export async function prScopeQuery(
+  db: D1Queryable,
+  q: ScopeQuery,
+): Promise<{ items: ScopeItem[]; nextCursor: ScopeCursor | null }> {
+  const { statement, limit } = scopePageStatement(db, q);
+  const { results } = await statement.all<ScopeRow>();
+  const { page, nextCursor } = splitScopePage(results ?? [], limit);
   const byKey =
     page.length > 0
       ? await getMetadataForKeys(
@@ -144,15 +168,32 @@ export async function prScopeQuery(
           page.map((row) => row.object_key),
         )
       : new Map<string, Record<string, string>>();
-  const last = page.at(-1);
-  return {
-    items: page.map((row) => ({
-      key: row.object_key,
-      updatedAt: row.updated_at,
-      metadata: byKey.get(row.object_key) ?? {},
-    })),
-    nextCursor: hasMore && last ? { updatedAt: last.updated_at, key: last.object_key } : null,
-  };
+  return { items: toScopeItems(page, byKey), nextCursor };
+}
+
+/**
+ * The first page of several scopes in one workspace: every page SELECT in one
+ * D1 batch, then one metadata lookup over the union of their keys limited to
+ * `metaKeys`. For list thumbnails (`/pulls`, `/repos`), one entry per scope.
+ */
+export async function prScopeFirstPages(
+  db: D1Queryable,
+  workspace: string,
+  scopes: Array<Omit<ScopeQuery, "workspace" | "cursor">>,
+  opts: { metaKeys: string[] },
+): Promise<ScopeItem[][]> {
+  if (scopes.length === 0) return [];
+  const built = scopes.map((q) => scopePageStatement(db, { ...q, workspace }));
+  const results = await db.batch<ScopeRow>(built.map((entry) => entry.statement));
+  const pages = results.map(
+    (result, index) => splitScopePage(result.results ?? [], built[index].limit).page,
+  );
+  const keys = [...new Set(pages.flat().map((row) => row.object_key))];
+  const byKey =
+    keys.length > 0
+      ? await getMetadataForKeys(db, workspace, keys, { metaKeys: opts.metaKeys })
+      : new Map<string, Record<string, string>>();
+  return pages.map((page) => toScopeItems(page, byKey));
 }
 
 /**
