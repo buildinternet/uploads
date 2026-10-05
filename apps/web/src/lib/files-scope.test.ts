@@ -64,6 +64,23 @@ describe("groupScopeItemsByPath", () => {
   });
 });
 
+describe("groupScopeItemsByPath path normalization", () => {
+  it("treats empty, whitespace, and bare slash paths as no path, and trims real ones", () => {
+    const groups = groupScopeItemsByPath([
+      tile("x/a.png", undefined, "/"),
+      tile("x/b.png", undefined, ""),
+      tile("x/c.png", undefined, "   "),
+      tile("x/d.png", undefined, null),
+      tile("x/e.png", undefined, " /home "),
+      tile("x/f.png", undefined, "/home"),
+    ]);
+    expect(groups.map((g) => [g.path, g.items.map((t) => t.key)])).toEqual([
+      [null, ["x/a.png", "x/b.png", "x/c.png", "x/d.png"]],
+      ["/home", ["x/e.png", "x/f.png"]],
+    ]);
+  });
+});
+
 describe("appendPage", () => {
   it("appends and drops rows already present", () => {
     expect(appendPage([{ id: "a" }, { id: "b" }], [{ id: "b" }, { id: "c" }], (r) => r.id)).toEqual(

@@ -19,16 +19,18 @@ export function useCursorList<T>(opts: {
   keyOf: (row: T) => string;
   load: (cursor: string | undefined) => Promise<Loaded<CursorPage<T>>>;
 }): { state: CursorListState<T>; loadMore: () => void; retry: () => void } {
-  // keyOf is stable per view; the reducer is built once.
-  const reducer = useMemo(() => cursorListReducer<T>(opts.keyOf), []);
+  const keyOfRef = useRef(opts.keyOf);
+  const reducer = useMemo(() => cursorListReducer<T>((row) => keyOfRef.current(row)), []);
   const [state, dispatch] = useReducer(reducer, opts.seed, initialCursorList<T>);
   const loadRef = useRef(opts.load);
   const genRef = useRef(state.gen);
+  const moreInFlight = useRef(false);
   const skipSeeded = useRef(opts.seed !== undefined);
   const [nonce, setNonce] = useState(0);
 
   useEffect(() => {
     loadRef.current = opts.load;
+    keyOfRef.current = opts.keyOf;
   });
 
   useEffect(() => {
@@ -38,6 +40,7 @@ export function useCursorList<T>(opts: {
     }
     const gen = genRef.current + 1;
     genRef.current = gen;
+    moreInFlight.current = false;
     dispatch({ type: "reset", gen });
     onSession(() => {
       void loadRef.current(undefined).then((result) => {
@@ -58,10 +61,14 @@ export function useCursorList<T>(opts: {
 
   const loadMore = () => {
     if (state.status !== "ready" || !state.nextCursor || state.more === "loading") return;
+    if (moreInFlight.current) return;
+    moreInFlight.current = true;
     const gen = genRef.current;
     const cursor = state.nextCursor;
     dispatch({ type: "more-start", gen });
     void loadRef.current(cursor).then((result) => {
+      // A reset since this request started owns the flag now; leave it alone.
+      if (genRef.current === gen) moreInFlight.current = false;
       dispatch(
         result.ok
           ? {

@@ -72,14 +72,21 @@ export function keepPairsTogether<T extends { key: string; state?: string }>(ite
   return out;
 }
 
+/** Same rule as comment-render's pairAttachments: trimmed, and ""/whitespace/bare "/" mean no path. */
+function usablePath(path: string | null): string | null {
+  const trimmed = path?.trim();
+  return !trimmed || trimmed === "/" ? null : trimmed;
+}
+
 export function groupScopeItemsByPath<
   T extends { key: string; state?: string; path: string | null },
 >(items: T[]): Array<{ path: string | null; items: T[] }> {
   const groups = new Map<string | null, T[]>();
   for (const item of items) {
-    const bucket = groups.get(item.path);
+    const path = usablePath(item.path);
+    const bucket = groups.get(path);
     if (bucket) bucket.push(item);
-    else groups.set(item.path, [item]);
+    else groups.set(path, [item]);
   }
   return [...groups.entries()].map(([path, grouped]) => ({
     path,

@@ -70,4 +70,17 @@ describe("cursorListReducer", () => {
     expect(stale).toBe(fresh);
     expect(reduce(fresh, { type: "first", gen: 0, ok: false })).toBe(fresh);
   });
+
+  it("drops a stale more-start and a stale more failure after a reset", () => {
+    const start = initialCursorList({ rows: [{ id: "old" }], nextCursor: "c1" });
+    const fresh = reduce(reduce(start, { type: "reset", gen: 1 }), {
+      type: "first",
+      gen: 1,
+      ok: true,
+      rows: [{ id: "new" }],
+      nextCursor: "c9",
+    });
+    expect(reduce(fresh, { type: "more-start", gen: 0 })).toBe(fresh);
+    expect(reduce(fresh, { type: "more", gen: 0, ok: false })).toBe(fresh);
+  });
 });
