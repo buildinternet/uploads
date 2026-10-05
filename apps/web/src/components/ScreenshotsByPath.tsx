@@ -25,13 +25,6 @@
  */
 import { Callout, Input, Select } from "@uploads/ui";
 import "@uploads/ui/styles.css";
-import {
-  Empty,
-  EmptyContent,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyTitle,
-} from "@uploads/ui/components/ui/empty";
 import { Kbd } from "@uploads/ui/components/ui/kbd";
 import { PrLabel } from "@uploads/ui/components/pr-label";
 import {
@@ -41,9 +34,11 @@ import {
   useState,
   type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
-  type ReactNode,
 } from "react";
 import { IslandErrorBoundary } from "./IslandErrorBoundary";
+import { CommandEmpty, InlineEmpty } from "./files/FilesEmpty";
+import { GhKindIcon, GitHubMark } from "./files/gh-glyphs";
+import { ShotThumb, type PreviewCaption, type PreviewHandlers } from "./files/ShotThumb";
 import {
   getGithubTitles,
   getWorkspaceFilesByPath,
@@ -57,20 +52,16 @@ import {
 } from "../lib/api-client";
 import { loadWorkspaces } from "../lib/workspaces-nav";
 import { resolveWorkspaceInfo, type WorkspaceInfoStatus } from "../lib/workspace-file-row";
-import { thumbUrl } from "../lib/thumb-url";
-import { mediaExtLabel } from "../lib/media-tile";
 import { onSession } from "../lib/account-shell";
-import { makeFileOpener, newTabLinkProps, type FileOpener } from "../lib/file-opener";
+import { makeFileOpener, type FileOpener } from "../lib/file-opener";
 import {
   filesPagesPath,
   filterCatalog,
-  focusIsKeyboardDriven,
   formatShotCount,
   groupsFromCatalog,
   isRepoLabel,
   isScreenshotsNavState,
   lastUpdatedLabel,
-  leafName,
   pairedShotKeys,
   pathQueryMatches,
   pathSuggestions,
@@ -81,8 +72,6 @@ import {
   screenshotsViewHref,
   screenshotsViewsEqual,
   SHOT_COUNT_DISPLAY_CAP,
-  shotKindFromKey,
-  shotPreviewCaption,
   shotPrLabelInput,
   previewPrDisplay,
   ghKindFallbackLabel,
@@ -98,60 +87,14 @@ const PREVIEW_PATHS_PER_PROJECT = 3;
 
 const EMPTY_CTA_CMD = "uploads put ./shot.png --meta path=/settings";
 
-/**
- * Gallery-style empty state (the shared Empty card shape, React-side):
- * a title, a one-line hint, and ONE copyable command. `put` is the general
- * upload path; `--meta path=` is what actually groups the file here. The
- * rail tip still carries the how-grouping-works detail.
- */
+/** By page empty state: `--meta path=` is what groups a file here. */
 function EmptyShotsCta({ title }: { title: string }) {
-  const [copied, setCopied] = useState(false);
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(EMPTY_CTA_CMD);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1200);
-    } catch {
-      // clipboard blocked — leave the label
-    }
-  };
   return (
-    <Empty>
-      <EmptyHeader>
-        <EmptyTitle>{title}</EmptyTitle>
-        <EmptyDescription>Upload a file with a page path and it groups here.</EmptyDescription>
-      </EmptyHeader>
-      <EmptyContent className="max-w-xl">
-        <div className="ws-empty__command flex w-full min-w-0 items-center gap-2 rounded-[6px] border border-line bg-panel px-3 py-2">
-          <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap font-[var(--mono)] text-[13px] text-fg">
-            {EMPTY_CTA_CMD}
-          </code>
-          <button
-            type="button"
-            aria-live="polite"
-            className="text-btn text-btn--boxed flex-none"
-            onClick={() => void copy()}
-          >
-            {copied ? "copied ✓" : "copy"}
-          </button>
-        </div>
-      </EmptyContent>
-    </Empty>
-  );
-}
-
-/**
- * Compact Empty for inline filter/drill "nothing found" messages — smaller
- * than the CTA-style empty state above, since these sit inside already-
- * scoped list/grid contexts rather than replacing the whole page.
- */
-function InlineEmpty({ title }: { title: ReactNode }) {
-  return (
-    <Empty className="gap-2 p-3">
-      <EmptyHeader className="gap-1">
-        <EmptyTitle>{title}</EmptyTitle>
-      </EmptyHeader>
-    </Empty>
+    <CommandEmpty
+      title={title}
+      description="Upload a file with a page path and it groups here."
+      command={EMPTY_CTA_CMD}
+    />
   );
 }
 
@@ -211,191 +154,6 @@ function sameDocumentClick(
   }
   event.preventDefault();
   go();
-}
-
-// ── Small GitHub glyphs (Octicons, 16-grid paths at 12px) ──────────────
-
-function GitHubMark({ size = 12 }: { size?: number }) {
-  return (
-    <svg
-      className="wsp-ghicon"
-      width={size}
-      height={size}
-      viewBox="0 0 16 16"
-      fill="currentColor"
-      aria-hidden="true"
-    >
-      <path d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z" />
-    </svg>
-  );
-}
-
-/** Pull-request or issue-opened Octicon for a `gh.kind` value; null otherwise. */
-function GhKindIcon({ kind, size = 10 }: { kind: string | undefined; size?: number }) {
-  if (kind === "pull") {
-    return (
-      <svg
-        className="wsp-ghicon"
-        width={size}
-        height={size}
-        viewBox="0 0 16 16"
-        fill="currentColor"
-        aria-hidden="true"
-      >
-        <path d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354ZM3.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0 9.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm8.25.75a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Z" />
-      </svg>
-    );
-  }
-  if (kind === "issue" || kind === "issues") {
-    return (
-      <svg
-        className="wsp-ghicon"
-        width={size}
-        height={size}
-        viewBox="0 0 16 16"
-        fill="currentColor"
-        aria-hidden="true"
-      >
-        <path d="M8 9.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z" />
-        <path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Z" />
-      </svg>
-    );
-  }
-  return null;
-}
-
-// ── Thumb tile ─────────────────────────────────────────────────────────
-
-/** Strip thumbs size from the image's intrinsic ratio (cached + onLoad). */
-function applyShotThumbAspect(img: HTMLImageElement | null) {
-  if (!img?.naturalWidth || !img.naturalHeight) return;
-  img.parentElement?.style.setProperty("--wsp-ar", `${img.naturalWidth} / ${img.naturalHeight}`);
-}
-
-function ShotThumb({
-  item,
-  paired,
-  contextLabel,
-  href,
-  onOpen,
-  onPreviewEnter,
-  onPreviewLeave,
-}: {
-  item: {
-    key: string;
-    url: string | null;
-    embedUrl: string | null;
-    state?: string;
-    ghKind?: string;
-    ghNumber?: string;
-    ghRef?: string;
-    updatedAt?: string;
-    uploadedAt?: string;
-    metadata?: Record<string, string>;
-  };
-  /** True when a before/after counterpart sits in the same strip/grid. */
-  paired?: boolean;
-  /** Optional pill (GitHub "PR #7 · author" context) — not the state. */
-  contextLabel?: ReactNode;
-  /** Known destination; when null the tile falls back to a button + `onOpen`. */
-  href: string | null;
-  onOpen: () => void;
-  onPreviewEnter?: (
-    el: HTMLElement,
-    src: string,
-    caption: PreviewCaption,
-    opts?: { immediate?: boolean },
-  ) => void;
-  onPreviewLeave?: () => void;
-}) {
-  const name = leafName(item.key);
-  const kind = shotKindFromKey(item.key);
-  const [broken, setBroken] = useState(false);
-  const showLock = kind === "image" && item.url === null;
-  const showImage = kind === "image" && !!item.embedUrl && !broken;
-  // State stays in the accessible name, not a native `title` tooltip — that
-  // tooltip sat on top of the hover preview.
-  const stateSuffix = item.state ? ` (${item.state})` : "";
-  const ghKindValue = item.ghKind ?? item.metadata?.["gh.kind"];
-  const base = shotPreviewCaption(item);
-  const caption: PreviewCaption = base.pr ? { ...base, kind: ghKindValue } : base;
-
-  const previewSrc = showImage ? thumbUrl(item.embedUrl!, 1120) : null;
-  const shared = {
-    className: "wsp-tile",
-    "aria-label": `Open ${name}${stateSuffix}${caption.pr ? ` — ${caption.pr}` : ""}${paired ? " — has before/after pair" : ""}`,
-    onMouseEnter: (event: { currentTarget: HTMLElement }) => {
-      if (previewSrc) onPreviewEnter?.(event.currentTarget, previewSrc, caption);
-    },
-    onMouseLeave: () => onPreviewLeave?.(),
-    // Keyboard-focus parity for the hover preview: `:focus-visible` gates
-    // this to genuine keyboard navigation, so tapping a tile on a touch
-    // device (which also focuses it) never opens a preview it can't hover
-    // away from. Escape (handled globally below) dismisses it either way,
-    // and dismissal never moves focus, so tab order is untouched.
-    onFocus: (event: { currentTarget: HTMLElement }) => {
-      if (previewSrc && focusIsKeyboardDriven(event.currentTarget)) {
-        onPreviewEnter?.(event.currentTarget, previewSrc, caption, { immediate: true });
-      }
-    },
-    onBlur: () => onPreviewLeave?.(),
-  };
-  const body = (
-    <>
-      {showImage ? (
-        <span className="wsp-thumb" aria-hidden="true">
-          <img
-            src={thumbUrl(item.embedUrl!, 560)}
-            alt=""
-            loading="lazy"
-            decoding="async"
-            ref={applyShotThumbAspect}
-            onLoad={(event) => applyShotThumbAspect(event.currentTarget)}
-            onError={() => setBroken(true)}
-          />
-        </span>
-      ) : (
-        <span className="wsp-thumb wsp-thumb--tile" aria-hidden="true">
-          {showLock ? "🔒" : mediaExtLabel(item.key)}
-        </span>
-      )}
-      {contextLabel && (
-        <span className="wsp-state absolute top-1 left-1 rounded-full border border-line bg-panel px-[5px] py-px text-[12px] leading-[1.4] tracking-[0.04em] text-muted-foreground uppercase">
-          {contextLabel}
-        </span>
-      )}
-      {paired && (
-        <span
-          className="wsp-pair absolute top-1 right-1 grid h-[18px] w-[18px] place-items-center rounded-[4px] border border-line bg-panel text-muted-foreground"
-          aria-hidden="true"
-          title="Has a before/after pair"
-        >
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="block">
-            <rect x="1" y="1" width="4.5" height="10" rx="1" fill="currentColor" opacity="0.45" />
-            <rect
-              x="6.5"
-              y="1"
-              width="4.5"
-              height="10"
-              rx="1"
-              stroke="currentColor"
-              strokeWidth="1.2"
-            />
-          </svg>
-        </span>
-      )}
-    </>
-  );
-
-  return href ? (
-    <a {...shared} {...newTabLinkProps} href={href}>
-      {body}
-    </a>
-  ) : (
-    <button {...shared} type="button" onClick={onOpen}>
-      {body}
-    </button>
-  );
 }
 
 // ── Loading skeleton ───────────────────────────────────────────────────
@@ -648,26 +406,6 @@ function FilterBar({
     </div>
   );
 }
-
-type PreviewCaption = {
-  name: string;
-  pr?: string;
-  kind?: string;
-  /** `owner/repo#n` — key into the resolved titles map for live PR status. */
-  ref?: string;
-  /** ISO upload time, rendered as a relative "uploaded …" line. */
-  uploadedAt?: string;
-};
-
-type PreviewHandlers = {
-  onPreviewEnter: (
-    el: HTMLElement,
-    src: string,
-    caption: PreviewCaption,
-    opts?: { immediate?: boolean },
-  ) => void;
-  onPreviewLeave: () => void;
-};
 
 // ── Component ──────────────────────────────────────────────────────────
 
