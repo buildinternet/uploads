@@ -16,7 +16,7 @@ const URL_A = "https://uploads.sh/c/abc";
 /** `copyText` resolves each write's URL promise; `writes` records the outcome per write. */
 function deps(
   overrides: Partial<CopyLiveLinkDeps> = {},
-  info: ScopeShareInfo | "not_public" | null = { privateCount: 0, liveLink: null },
+  info: ScopeShareInfo | null = { privateCount: 0, liveLink: null },
 ) {
   const writes: Array<Promise<string>> = [];
   const copyText = vi.fn(async (url: Promise<string>) => {
@@ -145,22 +145,16 @@ describe("runCopyLiveLink", () => {
     });
   });
 
-  it("says live links need publicly served files, with no retry, on a #1079 workspace", async () => {
-    const d = deps({}, "not_public");
+  it("says live links need publicly served files, with no retry, when the create is refused", async () => {
+    const d = deps({ create: vi.fn(async () => ({ kind: "not_public" as const })) });
     const outcome = await runCopyLiveLink(d, PR, { confirmed: new Set() });
     expect(outcome).toEqual({ kind: "not_public" });
-    expect(d.create).not.toHaveBeenCalled();
     await expect(d.writes[0]).rejects.toThrow();
     const toast = liveLinkToast(outcome, PR, "/l");
     expect(toast).toEqual({
       text: "Live links need publicly served files, and this workspace's files aren't publicly served yet.",
     });
     expect(toast?.text).not.toContain("Try again");
-
-    const fromCreate = deps({ create: vi.fn(async () => ({ kind: "not_public" as const })) });
-    expect(await runCopyLiveLink(fromCreate, PR, { confirmed: new Set() })).toEqual({
-      kind: "not_public",
-    });
   });
 
   it("hands the URL back, sticky with a Copy button, when the clipboard write is rejected", async () => {

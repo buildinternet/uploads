@@ -32,14 +32,6 @@ export function loaded<T>(result: ApiResult<T>): Loaded<T> {
     : { ok: false, reason: result.reason };
 }
 
-/**
- * The scope endpoint's deterministic 503 (issue #1079): the workspace has no
- * public base URL, so its files cannot be listed here and a retry won't help.
- */
-export function isNotPubliclyServed(result: Loaded<unknown>): boolean {
-  return !result.ok && result.reason === "not_public";
-}
-
 export async function loadPulls(
   apiOrigin: string,
   workspace: string,
@@ -116,14 +108,13 @@ export async function loadShareInfo(
   apiOrigin: string,
   workspace: string,
   scope: LiveLinkScope,
-): Promise<ScopeShareInfo | "not_public" | null> {
+): Promise<ScopeShareInfo | null> {
   const result = await loadScopeFiles(apiOrigin, workspace, {
     repo: scope.repo,
     number: scope.pr ?? null,
     type: null,
   });
-  if (result.ok) return shareInfoFromScope(result.value);
-  return isNotPubliclyServed(result) ? "not_public" : null;
+  return result.ok ? shareInfoFromScope(result.value) : null;
 }
 
 export function normalizeCreateResult(result: CreateFeedResult): CreateLiveLinkResult {
