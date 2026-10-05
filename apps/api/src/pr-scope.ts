@@ -199,12 +199,14 @@ export async function prScopeFirstPages(
 /**
  * The whole scope, newest first, up to `cap` keys. No metadata (`{}`): the
  * pager and the private count need only keys. `at` keeps only rows stamped
- * exactly that `updated_at` (in tie-break order), for resolving a public cursor.
+ * exactly that `updated_at` (in tie-break order), for resolving a public
+ * cursor. `since` keeps only rows stamped at or after it, for checking a
+ * cached live-link index for rows written after it was built.
  */
 export async function scanScopeKeys(
   db: D1Queryable,
   q: Omit<ScopeQuery, "cursor" | "limit">,
-  opts: { cap?: number; at?: string } = {},
+  opts: { cap?: number; at?: string; since?: string } = {},
 ): Promise<ScopeItem[]> {
   const bounded = Math.max(1, Math.min(SCOPE_SCAN_CAP, Math.floor(opts.cap ?? SCOPE_SCAN_CAP)));
   const { sql, params } = scopeFrom(q);
@@ -212,6 +214,10 @@ export async function scanScopeKeys(
   if (opts.at !== undefined) {
     select += ` AND r.updated_at = ?`;
     params.push(opts.at);
+  }
+  if (opts.since !== undefined) {
+    select += ` AND r.updated_at >= ?`;
+    params.push(opts.since);
   }
   select += ` ORDER BY r.updated_at DESC, r.object_key ASC LIMIT ?`;
   params.push(bounded);
@@ -224,6 +230,20 @@ export async function scanScopeKeys(
     updatedAt: row.updated_at,
     metadata: {},
   }));
+}
+
+/** Whether `key` is in the scope now (one indexed row lookup, no scan). */
+export async function scopeHasKey(
+  db: D1Queryable,
+  q: Omit<ScopeQuery, "cursor" | "limit">,
+  key: string,
+): Promise<boolean> {
+  const { sql, params } = scopeFrom(q);
+  const row = await db
+    .prepare(`SELECT 1 AS hit ${sql} AND r.object_key = ? LIMIT 1`)
+    .bind(...params, key)
+    .first<{ hit: number }>();
+  return row !== null;
 }
 
 /**

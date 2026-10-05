@@ -15,7 +15,6 @@ import {
   encodePublicFeedCursor,
   feedRecordScope,
   prScopeQuery,
-  scanScopeKeys,
   type ScopeItem,
   type ScopeResume,
 } from "./pr-scope";
@@ -42,6 +41,7 @@ import { webOrigin } from "./web-url";
 import { FEED_ITEM_ID_RE, feedItemIdFor } from "@uploads/comment-render/scope";
 import { type WorkspaceRecord } from "./workspace";
 import { dbFor, type D1Queryable } from "./db-session";
+import { findLiveLinkItem } from "./live-link-index";
 
 type FeedObjectHead = {
   type?: string;
@@ -435,10 +435,11 @@ export async function hydratePublicFeed(
 }
 
 /**
- * One public item plus its neighbours, for the `/c/<id>/<item>` pager. Scans
- * the scope's keys (cap 2,000) and hashes them until one matches: item ids
- * are `sha256(key)`, so there is no id-to-key table to keep in step with
- * every upload. Null when the id is malformed or not in scope.
+ * One public item plus its neighbours, for the `/c/<id>/<item>` pager. Item
+ * ids are `sha256(key)`, so there is no id-to-key table to keep in step with
+ * every upload. `findLiveLinkItem` resolves the id from a short-lived cached
+ * list of the scope's hashed keys (cap 2,000), or scans and hashes the scope
+ * when no cached list can answer. Null when the id is malformed or not in scope.
  */
 export async function publicFeedItemPage(
   env: Env,
@@ -448,18 +449,9 @@ export async function publicFeedItemPage(
 ): Promise<PublicFeedItemPage | null> {
   if (!FEED_ITEM_ID_RE.test(itemId)) return null;
   const db = dbFor(env);
-  const scope = await scanScopeKeys(db, feedRecordScope(record));
-  let prevId: string | null = null;
-  let index = -1;
-  for (const [i, entry] of scope.entries()) {
-    const id = await feedItemIdFor(entry.key);
-    if (id === itemId) {
-      index = i;
-      break;
-    }
-    prevId = id;
-  }
-  if (index < 0) return null;
+  const found = await findLiveLinkItem(db, record, itemId);
+  if (!found) return null;
+  const { entries: scope, position: index } = found;
 
   const match = scope[index];
   const metadata =
@@ -478,8 +470,8 @@ export async function publicFeedItemPage(
       kind: summary.kind,
     },
     item: toPublicItem(item),
-    prev: prevId,
-    next: index + 1 < scope.length ? await feedItemIdFor(scope[index + 1].key) : null,
+    prev: index > 0 ? scope[index - 1].id : null,
+    next: index + 1 < scope.length ? scope[index + 1].id : null,
     index,
     total: scope.length,
   };
