@@ -180,7 +180,7 @@ describe("openPullsLabel", () => {
   });
 });
 
-describe("scopeEmptyCopy (Review Focus 4)", () => {
+describe("scopeEmptyCopy", () => {
   it("gives a PR with zero in-scope items an empty state with the PR's own put command", () => {
     expect(scopeEmptyCopy({ number: 7, type: null })).toEqual({
       title: "No files on this pull request",

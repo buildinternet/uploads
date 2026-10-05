@@ -1897,7 +1897,7 @@ export async function listWorkspaceFolder(
 }
 
 /**
- * Workspace-level managed-comment defaults (issue #307, Task 7 — the
+ * Workspace-level managed-comment defaults (issue #307, the
  * settings-tab block). The producer's inferred `commentSettingsResponse`
  * type (apps/api's `workspace-settings` route), imported not re-declared:
  * `null` means "unset/auto" for every field, never a separate "not
@@ -2072,7 +2072,7 @@ export async function patchWorkspacePosterSettings(
 
 /**
  * GET /v1/workspaces/:name/github/repo-links — repo names this workspace has
- * linked (issue #307, Task 7's repo picker). Fails open to `[]`: an empty
+ * linked (issue #307, the repo picker). Fails open to `[]`: an empty
  * picker just means "no repo config" is the only option, same as a
  * workspace that genuinely has no linked repos.
  */
@@ -2739,7 +2739,7 @@ export async function deleteWorkspaceStorage(
 
 // ── Scope views and live links (Files / Links slices) ─────────────────────
 //
-// Wire types are slice 1's `@uploads/api/scope-wire` (Env-free); ./scope-parsers
+// Wire types are `@uploads/api/scope-wire` (Env-free); ./scope-parsers
 // checks the JSON. Every call returns ApiResult<T> (or CreateFeedResult) and
 // takes a trailing `opts` for the SSR cookie/transport, the same pair
 // listWorkspaceServiceTokens uses.

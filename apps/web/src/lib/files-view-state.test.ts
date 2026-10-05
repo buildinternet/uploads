@@ -99,7 +99,7 @@ describe("readScopePageQuery / scopePageSearch", () => {
 });
 
 describe("normalizeRepoParam / normalizeRepoFilter", () => {
-  it("lowercases and keeps dots, dashes, underscores (index Review Focus 2)", () => {
+  it("lowercases and keeps dots, dashes, underscores", () => {
     expect(normalizeRepoParam("Foo.Bar", "My-Repo")).toBe("foo.bar/my-repo");
     expect(normalizeRepoParam("acme", "my_repo")).toBe("acme/my_repo");
     expect(normalizeRepoParam("acme", ".github")).toBe("acme/.github");
@@ -170,7 +170,7 @@ describe("route builders", () => {
   });
 });
 
-describe("canonicalScopePath (Review Focus 3)", () => {
+describe("canonicalScopePath", () => {
   it("lowercases owner/repo and strips leading zeros from the PR number", () => {
     expect(
       canonicalScopePath("acme", { owner: "Foo.Bar", repo: "My-Repo", number: "007" }),

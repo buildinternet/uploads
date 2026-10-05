@@ -35,6 +35,21 @@ describe("renderConnectedWorkHtml", () => {
     expect(html).toContain('aria-label="Open Acme/Web#7 on GitHub"');
   });
 
+  it("opens the GitHub arrow in a new tab and the Files label in the same tab", () => {
+    const html = renderConnectedWorkHtml(
+      [ghItem({ repo: "acme/web", number: "7" })],
+      undefined,
+      "acme",
+    );
+    const anchors = html.match(/<a\b[^>]*>/g) ?? [];
+    const filesLink = anchors.find((tag) => tag.includes('href="/account/workspaces/acme/files/'));
+    const githubLink = anchors.find((tag) => tag.includes('class="ws-rail__connected-gh"'));
+    expect(filesLink).toBeDefined();
+    expect(filesLink).not.toContain("target=");
+    expect(githubLink).toContain('target="_blank"');
+    expect(githubLink).toContain('rel="noopener noreferrer"');
+  });
+
   it("keeps issue rows pointing at GitHub only", () => {
     const html = renderConnectedWorkHtml(
       [

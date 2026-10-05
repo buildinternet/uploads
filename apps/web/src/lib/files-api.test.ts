@@ -113,20 +113,24 @@ describe("normalizeCreateResult", () => {
   });
 });
 
+/** Fetch options whose every request answers 503 with `body`. */
+function respond503(body: unknown) {
+  return {
+    fetchImpl: (async () => Response.json(body, { status: 503 })) as unknown as typeof fetch,
+  };
+}
+
 describe("createWorkspaceFeed", () => {
   it("reads the feed_object_not_public 503 as not_public and any other 503 as server", async () => {
-    const opts = (body: unknown) => ({
-      fetchImpl: (async () => Response.json(body, { status: 503 })) as unknown as typeof fetch,
-    });
     expect(
-      await createWorkspaceFeed("/api", "acme", { repo: "acme/web" }, opts(NOT_PUBLIC_BODY)),
+      await createWorkspaceFeed("/api", "acme", { repo: "acme/web" }, respond503(NOT_PUBLIC_BODY)),
     ).toEqual({ kind: "unavailable", reason: "not_public" });
     expect(
       await createWorkspaceFeed(
         "/api",
         "acme",
         { repo: "acme/web" },
-        opts({ error: { code: "d1_unavailable" } }),
+        respond503({ error: { code: "d1_unavailable" } }),
       ),
     ).toEqual({ kind: "unavailable", reason: "server" });
   });

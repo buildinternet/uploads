@@ -28,7 +28,7 @@ const workspace = isBrowseWorkspace(nameParam) ? nameParam : "";
 if (!workspace) return Astro.redirect("/account/workspaces");
 
 // Old bucket-browser deep links go to Storage. Keep this call at the top of
-// the frontmatter, before any view seed (slice 3, ruling R9).
+// the frontmatter, before any view seed, so a redirect never pays for one.
 const storageTarget = filesRouteRedirect(workspace, Astro.url.search);
 if (storageTarget) return Astro.redirect(storageTarget, 301);
 

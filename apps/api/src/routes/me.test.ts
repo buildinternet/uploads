@@ -521,7 +521,7 @@ describe("GET /me/workspaces/:name/billing", () => {
     // enforcement treats as unlimited (explicit overrides only). The
     // billing tab must never show free-plan default caps (250MB etc.) as
     // if they were real limits here — see workspace-plan.ts's
-    // `planResponse` doc comment and Task 5's Critical fix on the admin
+    // `planResponse` doc comment and the matching guard on the admin
     // surface.
     const db = new UsageFakeD1();
     db.usage.set("acme", {
@@ -2652,7 +2652,7 @@ describe("GET /me/workspaces/:name/comment-preview", () => {
   });
 });
 
-describe("workspace storage routes (self-serve BYO bucket, issue #583 Task 1.1)", () => {
+describe("workspace storage routes (self-serve BYO bucket, issue #583)", () => {
   const SECRET = "test-workspace-secrets-key-0000";
   const SHARED_RECORD = { provider: "r2", bucket: "uploads-default", prefix: "acme/" };
   const BYO_RECORD = {

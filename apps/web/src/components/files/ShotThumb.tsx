@@ -1,7 +1,7 @@
 /**
  * One media tile for the Files views and the By page strips. Images keep
  * the strip's resized thumbnail and intrinsic aspect ratio; videos and PDF
- * posters render through slice 2's MediaTile (same rules as the public live
+ * posters render through MediaTile (same rules as the public live
  * link page, including its play badge); withheld files show a lock, removed
  * ones say so, and anything else shows its extension. Renders as an <a> when
  * the destination is known at render time and a <button> only for the
@@ -110,7 +110,7 @@ export function ShotThumb({
     // Keyboard-focus parity for the hover preview: `:focus-visible` gates
     // this to genuine keyboard navigation, so tapping a tile on a touch
     // device (which also focuses it) never opens a preview it can't hover
-    // away from. Escape (handled globally below) dismisses it either way,
+    // away from. Escape (handled in useShotPreview) dismisses it either way,
     // and dismissal never moves focus, so tab order is untouched.
     onFocus: (event: { currentTarget: HTMLElement }) => {
       if (previewSrc && focusIsKeyboardDriven(event.currentTarget)) {

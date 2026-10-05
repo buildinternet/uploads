@@ -49,7 +49,7 @@ describe("cursorListReducer", () => {
     expect(reduce(pending, { type: "more", gen: 0, ok: false }).more).toBe("error");
   });
 
-  it("ignores a Load more page that lands after a filter change (Review Focus 2)", () => {
+  it("ignores a Load more page that lands after a filter change", () => {
     const start = initialCursorList({ rows: [{ id: "old" }], nextCursor: "c1" });
     const pending = reduce(start, { type: "more-start", gen: 0 });
     const filtered = reduce(pending, { type: "reset", gen: 1 });

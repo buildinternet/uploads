@@ -9,7 +9,7 @@
  * a name term or one or more metadata filters are active (URL-synced via
  * `workspace-search-url`).
  * After every listing/search resolves, the current row set is pushed to the
- * right-rail "connected work" section (Task 7's
+ * right-rail "connected work" section (the
  * `window.__uploadsSetConnectedWork` hook) and checked for an exact
  * single-pull-request match (the banner).
  *
@@ -1732,7 +1732,7 @@ function WorkspaceFileTableInner({
  * boundary here means Astro sees exactly one island (this function), so
  * `<WorkspaceFileTable client:load .../>` hydrates the whole subtree,
  * boundary included, as a single React root — the same effective tree the
- * pre-plan-005 manual `withIslandBoundary(createElement(WorkspaceFileTable,
+ * earlier manual `withIslandBoundary(createElement(WorkspaceFileTable,
  * …))` mount produced.
  */
 export function WorkspaceFileTable(props: WorkspaceFileTableProps) {

@@ -261,8 +261,8 @@ describe("screenshots view URL state", () => {
     );
   });
 
-  // Slice 3's Review Focus 2, kept: a drill-in URL the island writes must not
-  // be mistaken for an old bucket-browser `?path=` link and bounce to Storage.
+  // A drill-in URL the island writes must not be mistaken for an old
+  // bucket-browser `?path=` link and bounce to Storage.
   it("never writes a URL that /files would redirect to Storage", () => {
     for (const search of [
       screenshotsSearch("", "/settings"),

@@ -21,7 +21,7 @@ export const META_KEY_RE = /^[a-z][a-z0-9._-]{0,63}$/;
  * Metadata keys whose value is stored lowercased (every write and every search
  * filter). `gh.repo`: the live-link scope (pr-scope.ts) and `isInFeedScope`
  * match it exactly, and the PR rollup already lowercases its repo. The one-time
- * backfill (Task 8, gh-repo-case-backfill.ts) reads this same list.
+ * backfill (gh-repo-case-backfill.ts) reads this same list.
  */
 export const LOWERCASED_META_KEYS: readonly string[] = ["gh.repo"];
 

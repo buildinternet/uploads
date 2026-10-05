@@ -150,7 +150,7 @@ export function useShotPreview(
   };
 
   // A caption with a PR but no ref keeps its plain-text label instead of
-  // dropping the line (previewPrDisplay, slice 2).
+  // dropping the line (previewPrDisplay).
   const previewPr = preview ? previewPrDisplay(preview, titles) : null;
   const layer = preview ? (
     <div

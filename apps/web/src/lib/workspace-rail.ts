@@ -14,7 +14,7 @@
  *    synchronously, then revalidates through the shared `loadWorkspaceSummary`
  *    request once the session gate resolves.
  *
- * Connected-work hook contract (Task 8's files tab is the only caller):
+ * Connected-work hook contract (WorkspaceFileTable is the only caller):
  *   `window.__uploadsSetConnectedWork(items: GhWorkItem[], titles?: GithubTitleMap): void`
  * Call with the current view's deduped `connectedWork(files)` result. A
  * non-empty array shows the "connected work" section and renders one row per
@@ -36,7 +36,7 @@ export type ConnectedWorkSetter = (items: GhWorkItem[], titles?: GithubTitleMap)
 
 declare global {
   interface Window {
-    /** See module doc — the documented connected-work hook Task 8's files tab calls. */
+    /** See module doc — the documented connected-work hook WorkspaceFileTable calls. */
     __uploadsSetConnectedWork?: ConnectedWorkSetter;
   }
 }
