@@ -269,7 +269,9 @@ export function workspaceTabFromPathname(pathname: string): WorkspaceNavTab | ""
   if (!match) return "";
   const slug = decodeURIComponent(match[1] ?? "");
   if (!slug || slug === "new") return "";
-  const [segment, ...tail] = (match[2] ?? "").split("/").filter(Boolean);
+  const parts = (match[2] ?? "").split("/").filter(Boolean);
+  const segment = parts[0];
+  const tail = parts.slice(1);
   if (!segment) return "files";
   if (segment === "files") return "files";
   if (segment === "settings" && tail.length === 1) {
