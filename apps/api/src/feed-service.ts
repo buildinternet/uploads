@@ -184,6 +184,22 @@ export async function findLatestRepoScreenshots(
   return page.items;
 }
 
+/**
+ * Whether a live link in this workspace can serve its files: the active
+ * storage lane (the record's own fields) has a public base URL, without which
+ * `publicUrl` in @uploads/storage is null. A live link is public, so creating
+ * one without it would leave a link whose page can only fail.
+ */
+export function liveLinksServable(workspace: WorkspaceRecord): boolean {
+  return Boolean(workspace.publicBaseUrl);
+}
+
+export function feedNotPublicError(): ServiceUnavailableError {
+  return new ServiceUnavailableError("Feed object is not publicly served.", {
+    code: "feed_object_not_public",
+  });
+}
+
 async function mapBounded<T, R>(
   values: T[],
   concurrency: number,
@@ -258,9 +274,7 @@ export async function hydrateFeedItems(
         ? objectPublicUrls(env, itemConfig, match.key)
         : { url: null, embedUrl: null };
     if (opts.requirePublicUrls !== false && meta && !withheld && urls.url === null)
-      throw new ServiceUnavailableError("Feed object is not publicly served.", {
-        code: "feed_object_not_public",
-      });
+      throw feedNotPublicError();
     const dates = meta && !withheld ? publicObjectDateFields(meta) : {};
     const id = await feedItemIdFor(match.key);
     return {

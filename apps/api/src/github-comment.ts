@@ -9,7 +9,7 @@
 
 import { dbFor } from "./db-session";
 import { feedItemIdFor, isInFeedScope, type FeedScope } from "@uploads/comment-render/scope";
-import { feedItemUrl, feedUrl } from "./feed-service";
+import { feedItemUrl, feedUrl, liveLinksServable } from "./feed-service";
 import { createFeed } from "./feeds";
 import { listObjects } from "./files-core";
 import { getMetadataForKeys } from "./file-metadata";
@@ -232,7 +232,15 @@ async function gatherAttachments(
 
   const liveLinkUrl =
     items.length > 0
-      ? await applyPrFeedPageUrls(env, workspaceName, target, items, scopeMetaByKey, linkToFilePage)
+      ? await applyPrFeedPageUrls(
+          env,
+          ws,
+          workspaceName,
+          target,
+          items,
+          scopeMetaByKey,
+          linkToFilePage,
+        )
       : null;
 
   if (!showMetadata || items.length === 0) return { items, liveLinkUrl };
@@ -325,10 +333,12 @@ async function resolvePosterUrl(
  * predicate as the scope query — and the id is hashed directly, with no
  * 50-row page to fall off. Returns the live link URL when `linkToFilePage`
  * is on, else null. Failures never fail the comment: `/f/` (or the raw URL)
- * stays and the line is omitted.
+ * stays and the line is omitted. A workspace with no public base URL gets no
+ * live link at all, since its page could not serve the files.
  */
 async function applyPrFeedPageUrls(
   env: Env,
+  ws: WorkspaceRecord,
   workspaceName: string,
   target: GhTarget,
   items: AttachmentItem[],
@@ -336,6 +346,7 @@ async function applyPrFeedPageUrls(
   linkToFilePage: boolean,
 ): Promise<string | null> {
   try {
+    if (!liveLinksServable(ws)) return null;
     // Comment-sync rows are uncapped and keep `comment` for life. GhTarget
     // spells issues `issues`; createFeed takes `pr`/`issue`, and the slot
     // lookup ignores kind, so a later web/CLI create for the same number
