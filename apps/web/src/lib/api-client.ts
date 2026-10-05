@@ -2925,7 +2925,7 @@ export async function createWorkspaceFeed(
   return feed ? { kind: "ok", data: feed } : { kind: "unavailable", reason: "malformed" };
 }
 
-/** DELETE /v1/workspaces/:ws/feeds/:id — revoke a live link (soft delete). */
+/** DELETE /v1/workspaces/:ws/feeds/:id — revoke a live link (soft delete). A 404 counts as revoked. */
 export async function deleteWorkspaceFeed(
   apiOrigin: string,
   ws: string,
@@ -2938,6 +2938,8 @@ export async function deleteWorkspaceFeed(
     { fetchImpl: opts?.fetchImpl },
   );
   if (result.kind === "unavailable") return result;
+  // Already revoked elsewhere: the link is gone either way, so treat it as revoked.
+  if (result.response.status === 404) return { kind: "ok", data: undefined };
   if (!result.response.ok) {
     return { kind: "unavailable", reason: failureForStatus(result.response.status) };
   }

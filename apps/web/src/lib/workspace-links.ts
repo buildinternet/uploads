@@ -99,7 +99,9 @@ export function buildLinkRows(
   const rows: LinkRow[] = [...feeds.map(liveLinkRow), ...galleries.map(galleryLinkRow)];
   return rows.sort(
     (a, b) =>
-      timeOf(b.updatedAt) - timeOf(a.updatedAt) || linkRowKey(a).localeCompare(linkRowKey(b)),
+      timeOf(b.updatedAt) - timeOf(a.updatedAt) ||
+      // Code-unit order, not localeCompare: the server render and the browser must agree.
+      (linkRowKey(a) < linkRowKey(b) ? -1 : linkRowKey(a) > linkRowKey(b) ? 1 : 0),
   );
 }
 

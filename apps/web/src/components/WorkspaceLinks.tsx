@@ -316,6 +316,8 @@ function WorkspaceLinksInner({ apiOrigin, workspace, initialState }: WorkspaceLi
   const alive = useRef(true);
   // Refs already sent to the titles route, so "Load more" only asks for new ones.
   const requestedRefs = useRef(new Set<string>());
+  // Refs whose failed batch was already re-armed once, so a dead route can't loop.
+  const retriedRefs = useRef(new Set<string>());
 
   useEffect(() => {
     alive.current = true;
@@ -380,6 +382,16 @@ function WorkspaceLinksInner({ apiOrigin, workspace, initialState }: WorkspaceLi
       chunkRefs(fresh).map((batch) => getGithubTitles(apiOrigin, workspace, batch)),
     ).then((maps) => {
       if (!alive.current) return;
+      // A failed batch (null) un-marks its refs so a later render or "Load
+      // more" asks again, once per ref: refs that succeeded stay marked (R5).
+      maps.forEach((map, i) => {
+        if (map) return;
+        for (const ref of chunkRefs(fresh)[i] ?? []) {
+          if (retriedRefs.current.has(ref)) continue;
+          retriedRefs.current.add(ref);
+          requestedRefs.current.delete(ref);
+        }
+      });
       setTitles((prev) => {
         const next: GithubTitleMap = { ...prev };
         for (const map of maps) if (map) Object.assign(next, map);
