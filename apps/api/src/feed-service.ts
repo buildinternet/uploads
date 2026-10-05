@@ -460,10 +460,12 @@ export async function publicFeedItemPage(
   workspace: WorkspaceRecord,
   record: FeedRecord,
   itemId: string,
+  /** The API Worker's `LIVE_LINK_INDEX` KV; other Workers pass nothing and scan. */
+  indexStore?: KVNamespace,
 ): Promise<PublicFeedItemPage | null> {
   if (!FEED_ITEM_ID_RE.test(itemId)) return null;
   const db = dbFor(env);
-  const found = await findLiveLinkItem(db, record, itemId);
+  const found = await findLiveLinkItem(db, indexStore, record, itemId);
   if (!found) return null;
   const { entries: scope, position: index } = found;
 

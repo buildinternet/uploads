@@ -80,6 +80,12 @@
       "binding": "GITHUB_CACHE",
       "id": "8076084dae50495ab883ec79c1c5968f",
     },
+    // Public live link item lookup (src/live-link-index.ts): each live link's
+    // hashed scope list, 60 s TTL. Holds object keys, so not shared with preview.
+    {
+      "binding": "LIVE_LINK_INDEX",
+      "id": "72021c9af60b4d2e846c30264bd38eb6",
+    },
   ],
   // GitHub webhook ingestion queue + DLQ (issue #287), matching the
   // releases/workers/webhooks shape. Create once per account before deploy:
@@ -350,6 +356,11 @@
       {
         "binding": "GITHUB_CACHE",
         "id": "8076084dae50495ab883ec79c1c5968f",
+      },
+      // Isolated: holds object keys from the preview D1.
+      {
+        "binding": "LIVE_LINK_INDEX",
+        "id": "500f169b84ae49258654ff9af86ffe9e",
       },
     ],
     "d1_databases": [
