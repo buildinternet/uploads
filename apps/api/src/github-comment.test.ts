@@ -386,6 +386,20 @@ describe("gatherCommentBody live link (spec: PR comment links to the live link)"
     );
   });
 
+  it("creates no live link on a workspace with no public base URL", async () => {
+    const { env, ws, workspaceName, bucket } = makeTestEnv();
+    await putTagged(env, bucket, "gh/acme/web/pull/12/a.png", PR12);
+    const result = await gatherCommentBody(
+      env,
+      { ...ws, name: workspaceName, publicBaseUrl: undefined },
+      workspaceName,
+      target,
+    );
+    expect(await findFeedByScope(env.DB, workspaceName, "acme/web", "", 12)).toBeNull();
+    expect(result.body).not.toContain("View all on uploads.sh");
+    expect(result.body).not.toContain("/c/");
+  });
+
   it("omits the line when githubCommentLinkToFilePage is false", async () => {
     const { env, ws, workspaceName, bucket } = makeTestEnv();
     await putTagged(env, bucket, "gh/acme/web/pull/12/a.png", PR12);

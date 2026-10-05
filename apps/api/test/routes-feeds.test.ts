@@ -73,6 +73,14 @@ beforeEach(async () => {
       publicBaseUrl: "https://storage.uploads.sh",
       tokenHash: await sha256Hex(TOKEN),
     },
+    // No public base URL: objects are reachable only through signed URLs.
+    gamma: {
+      provider: "r2",
+      bucket: "shared",
+      binding: "UPLOADS_DEFAULT",
+      prefix: "gamma/",
+      tokenHash: await sha256Hex(TOKEN),
+    },
   };
   env = {
     DB: sqlite as unknown as D1Database,
@@ -425,6 +433,21 @@ describe("feed routes", () => {
     });
     expect(res.status).toBe(201);
     expect(((await res.json()) as { source: string | null }).source).toBe("user");
+  });
+
+  it("refuses a live link on a workspace with no public base URL and saves no row", async () => {
+    // Both an empty scope and one with files: a live link could serve neither.
+    await putShot("gamma", "gh/acme/app/pull/1/a.png", { "gh.repo": "acme/app" });
+    for (const body of [{ repo: "acme/app", pr: 1 }, { repo: "acme/empty" }]) {
+      const created = await request("/v1/workspaces/gamma/feeds", {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+      expect(created.status).toBe(503);
+      expect(await created.json()).toMatchObject({ error: { code: "feed_object_not_public" } });
+    }
+    const list = await request("/v1/workspaces/gamma/feeds");
+    expect(((await list.json()) as { feeds: unknown[] }).feeds).toEqual([]);
   });
 
   it("creates 60 PR-scoped feeds over the API and caps only repo-scoped feeds at 50", async () => {

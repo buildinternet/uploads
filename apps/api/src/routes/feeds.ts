@@ -4,8 +4,10 @@ import { createFeed, getFeed, listFeeds, softDeleteFeed } from "../feeds";
 import {
   decodeFeedCursor,
   encodeFeedCursor,
+  feedNotPublicError,
   feedSummary,
   hydrateOwnerFeed,
+  liveLinksServable,
   unwrapFeedMutation,
 } from "../feed-service";
 import { writeRateLimit } from "../guards";
@@ -23,6 +25,8 @@ async function ownerFeed(c: Context<WorkspaceVars>, id: string) {
 
 export async function createFeedHandler(c: Context<WorkspaceVars>) {
   const body = await jsonBody(c);
+  // Checked before the insert, so a refused create leaves no row behind.
+  if (!liveLinksServable(c.get("workspace"))) throw feedNotPublicError();
   const result = unwrapFeedMutation(
     await createFeed(dbFor(c.env), {
       workspace: c.get("workspaceName"),
