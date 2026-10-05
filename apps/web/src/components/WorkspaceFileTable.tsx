@@ -21,6 +21,8 @@ import { Callout } from "@uploads/ui";
 import "@uploads/ui/styles.css";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@uploads/ui/components/ui/empty";
 import { Kbd } from "@uploads/ui/components/ui/kbd";
+import { PrLabel } from "@uploads/ui/components/pr-label";
+import { asPrState } from "@uploads/ui/lib/pr-label";
 import {
   Fragment,
   useEffect,
@@ -63,6 +65,7 @@ import {
   isPrivateFile,
   leafName,
   pickThumbnail,
+  prChipRef,
   resolveWorkspaceInfo,
   type WorkspaceInfoStatus,
 } from "../lib/workspace-file-row";
@@ -1054,6 +1057,8 @@ function WorkspaceFileTableInner({
   const opener = makeFileOpener(apiOrigin, workspace, info.hasPublicUrl);
   const bareMatch: GhWorkItem | null = state.status === "ok" ? exactPrMatch(state.files) : null;
   const match = bareMatch && githubTitles ? applyGhTitles([bareMatch], githubTitles)[0] : bareMatch;
+  const prChip = prChipRef(filters);
+  const prChipInfo = prChip && githubTitles ? githubTitles[prChip.ghRef] : null;
   // Folders only in browse mode (search has no prefix tree). Empty while loading/error.
   const folders = state.status === "ok" && !filtered ? state.prefixes : [];
   const files = state.status === "ok" ? state.files : [];
@@ -1426,7 +1431,18 @@ function WorkspaceFileTableInner({
                     <span className="wft-chip__eq text-muted-foreground">=</span>
                   </>
                 )}
-                <span className="wft-chip__value text-fg">{f.value}</span>
+                {kind === "pr" && prChip ? (
+                  <PrLabel
+                    size="sm"
+                    ghRef={prChip.ghRef}
+                    kind={prChip.kind}
+                    title={prChipInfo?.title ?? null}
+                    state={asPrState(prChipInfo?.state)}
+                    className="wft-chip__value"
+                  />
+                ) : (
+                  <span className="wft-chip__value text-fg">{f.value}</span>
+                )}
                 <button
                   type="button"
                   className="wft-chip__remove font-[var(--sans)] text-[length:var(--text-micro)] leading-none text-muted-foreground cursor-pointer border-0 bg-none px-1 hover:text-red-500 focus-visible:text-red-500 focus-visible:outline-none"
@@ -1483,14 +1499,16 @@ function WorkspaceFileTableInner({
             className="wft-banner__icon h-[15px] w-[15px] flex-none text-fg"
             title={match.kindLabel}
           />
-          <a
-            className="wft-banner__ref text-[length:var(--text-meta)] font-semibold text-fg no-underline hover:text-accent focus-visible:text-accent focus-visible:outline-none"
+          <PrLabel
+            size="md"
+            ghRef={match.ref}
+            kind="pull"
+            title={match.title ?? null}
+            state={match.state ?? null}
             href={match.url}
             target="_blank"
-            rel="noopener noreferrer"
-          >
-            {match.label}
-          </a>
+            className="wft-banner__ref font-semibold"
+          />
           <span className="wft-banner__spacer flex-1" />
           <a
             className="wft-banner__open flex-none text-[length:var(--text-micro)] text-muted-foreground no-underline hover:text-accent focus-visible:text-accent focus-visible:outline-none"

@@ -23,6 +23,9 @@ import {
   shotKindFromKey,
   shotPreviewCaption,
   shotPreviewPosition,
+  previewPrDisplay,
+  ghKindFallbackLabel,
+  shotPrLabelInput,
 } from "./workspace-screenshots";
 
 describe("pairedShotKeys", () => {
@@ -471,5 +474,77 @@ describe("focusIsKeyboardDriven", () => {
         },
       }),
     ).toBe(false);
+  });
+});
+
+describe("shotPrLabelInput", () => {
+  const titles = { "acme/web#7": { title: "Fix nav", state: "merged", kind: "pull" as const } };
+
+  it("uses the stored ref with the resolved title and state", () => {
+    expect(
+      shotPrLabelInput({ ghKind: "pull", ghNumber: "7", ghRef: "acme/web#7" }, titles),
+    ).toEqual({ ghRef: "acme/web#7", kind: "pull", title: "Fix nav", state: "merged" });
+  });
+
+  it("reads gh.* metadata on search items and normalizes issue kinds", () => {
+    expect(
+      shotPrLabelInput(
+        { metadata: { "gh.kind": "issues", "gh.number": "3", "gh.ref": "acme/web#3" } },
+        {},
+      ),
+    ).toEqual({ ghRef: "acme/web#3", kind: "issue", title: null, state: null });
+  });
+
+  it("rebuilds the ref from repo and number", () => {
+    expect(
+      shotPrLabelInput({ metadata: { "gh.repo": "acme/web", "gh.number": "7" } }, titles),
+    ).toMatchObject({ ghRef: "acme/web#7", title: "Fix nav" });
+  });
+
+  it("falls back to a bare #n when only the number is known", () => {
+    expect(shotPrLabelInput({ ghNumber: "9" }, {})?.ghRef).toBe("#9");
+  });
+
+  it("returns null without a GitHub number or ref", () => {
+    expect(shotPrLabelInput({ metadata: {} }, {})).toBeNull();
+  });
+
+  it("drops an empty title and an unknown state", () => {
+    expect(
+      shotPrLabelInput(
+        { ghRef: "acme/web#7" },
+        { "acme/web#7": { title: "", state: "draft", kind: "pull" } },
+      ),
+    ).toMatchObject({ title: null, state: null });
+  });
+});
+
+describe("previewPrDisplay", () => {
+  const titles = { "acme/web#7": { title: "Fix nav", state: "open", kind: "pull" as const } };
+
+  it("returns a label when the caption has a ref", () => {
+    expect(previewPrDisplay({ pr: "PR #7", ref: "acme/web#7", kind: "pull" }, titles)).toEqual({
+      label: { ghRef: "acme/web#7", kind: "pull", title: "Fix nav", state: "open" },
+    });
+  });
+
+  it("keeps the plain caption text when there is a number but no ref", () => {
+    const caption = shotPreviewCaption({ key: "x/a.png", ghKind: "issue", ghNumber: "3" });
+    expect(caption.ref).toBeUndefined();
+    expect(previewPrDisplay({ ...caption, kind: "issue" }, titles)).toEqual({ text: "Issue #3" });
+  });
+
+  it("is null without a PR caption", () => {
+    expect(previewPrDisplay({}, titles)).toBeNull();
+  });
+});
+
+describe("ghKindFallbackLabel", () => {
+  it("restores the kind-only wording", () => {
+    expect(ghKindFallbackLabel("pull")).toBe("PR");
+    expect(ghKindFallbackLabel("issue")).toBe("Issue");
+    expect(ghKindFallbackLabel("issues")).toBe("Issue");
+    expect(ghKindFallbackLabel("discussion")).toBe("discussion");
+    expect(ghKindFallbackLabel(undefined)).toBe("GitHub");
   });
 });

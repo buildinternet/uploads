@@ -1,0 +1,13 @@
+---
+/**
+ * Server-rendered PR label for pages that ship no framework JS (/c/, /f/).
+ * Same markup and copy as prLabelHtml(); the React twin for signed-in
+ * islands is @uploads/ui/components/pr-label.
+ */
+import "../styles/pr-label.css";
+import { prLabelHtml, type PrLabelHtmlProps } from "../lib/pr-label-html";
+
+type Props = PrLabelHtmlProps;
+---
+
+<Fragment set:html={prLabelHtml(Astro.props)} />

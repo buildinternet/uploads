@@ -57,6 +57,25 @@ export function chipKind(key: string): ChipKind {
   return "plain";
 }
 
+/**
+ * The PR (or issue) a metadata-filter set pins down, for the `gh.number`
+ * chip's PrLabel. Needs `gh.repo` as `owner/name` and a decimal `gh.number`.
+ * `gh.kind=issue` reads as an issue; anything else reads as a pull request.
+ */
+export function prChipRef(
+  filters: Array<{ key: string; value: string }>,
+): { ghRef: string; kind: "pull" | "issue" } | null {
+  const get = (key: string) => filters.find((f) => f.key === key)?.value.trim();
+  const repo = get("gh.repo")?.toLowerCase();
+  const number = get("gh.number");
+  if (!repo || !repo.includes("/") || !number || !/^\d+$/.test(number)) return null;
+  const kind = get("gh.kind");
+  return {
+    ghRef: `${repo}#${number}`,
+    kind: kind === "issue" || kind === "issues" ? "issue" : "pull",
+  };
+}
+
 /** Short lowercase type label for the row's "type" column — prefers the MIME subtype, falls back to the key's extension. */
 export function fileTypeLabel(file: { contentType?: string; key: string }): string {
   const contentType = file.contentType?.split(";")[0]?.trim();

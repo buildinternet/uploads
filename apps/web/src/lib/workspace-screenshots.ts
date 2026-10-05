@@ -4,18 +4,16 @@
  * list), so media kind is inferred from the key's extension — same trade-off
  * the search results accept.
  */
+import { fileTypeClassFromKey } from "@uploads/comment-render/scope";
+import { asPrState, type PrLabelInput } from "@uploads/ui/lib/pr-label";
+import type { GithubTitleMap } from "./api-client";
 
 export type ShotKind = "image" | "video" | "other";
 
-const IMAGE_EXT = new Set(["png", "jpg", "jpeg", "webp", "gif", "avif"]);
-const VIDEO_EXT = new Set(["mp4", "webm", "mov"]);
-
+/** Media kind from the key's extension, through the rule the API's type filter shares. */
 export function shotKindFromKey(key: string): ShotKind {
-  const match = /\.([a-z0-9]{1,8})$/i.exec(key);
-  const ext = match?.[1]?.toLowerCase() ?? "";
-  if (IMAGE_EXT.has(ext)) return "image";
-  if (VIDEO_EXT.has(ext)) return "video";
-  return "other";
+  const cls = fileTypeClassFromKey(key);
+  return cls === "screenshot" ? "image" : cls;
 }
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -140,6 +138,39 @@ export function shotPreviewCaption(item: {
   if (pr && ref) caption.ref = ref;
   if (uploadedAt) caption.uploadedAt = uploadedAt;
   return caption;
+}
+
+/**
+ * PrLabel props for a shot's PR/issue tile badge or hover-card line. The ref
+ * follows `shotPreviewCaption`'s fallback chain and ends at a bare `#n` when
+ * only the number is known. Title and live state come from the page's
+ * resolved `titles` map. Until a ref resolves, the label shows its fallback
+ * text and a neutral dot. Null when the shot has no GitHub number or ref.
+ */
+export function shotPrLabelInput(
+  item: {
+    ghKind?: string;
+    ghNumber?: string;
+    ghRef?: string;
+    metadata?: Record<string, string>;
+  },
+  titles: GithubTitleMap,
+): PrLabelInput | null {
+  const kindValue = item.ghKind ?? item.metadata?.["gh.kind"];
+  const number = item.ghNumber ?? item.metadata?.["gh.number"];
+  const repo = item.metadata?.["gh.repo"];
+  const ghRef =
+    item.ghRef ??
+    item.metadata?.["gh.ref"] ??
+    (repo && number ? `${repo}#${number}` : number ? `#${number}` : undefined);
+  if (!ghRef) return null;
+  const info = titles[ghRef];
+  return {
+    ghRef,
+    kind: kindValue === "issue" || kindValue === "issues" ? "issue" : "pull",
+    title: info?.title || null,
+    state: asPrState(info?.state),
+  };
 }
 
 export function pairedShotKeys(items: Array<{ key: string; state?: string }>): Set<string> {
@@ -428,4 +459,30 @@ export function focusIsKeyboardDriven(el: { matches(selector: string): boolean }
     // rather than letting it break the tile's focus handling.
     return false;
   }
+}
+
+/**
+ * What the hover card shows on its PR line: a PrLabel when the caption has a
+ * resolvable ref, else the plain "PR #7" / "Issue #3" caption text (a shot
+ * with gh.number + gh.kind but no gh.ref or gh.repo), else nothing.
+ */
+export function previewPrDisplay(
+  caption: { pr?: string; ref?: string; kind?: string },
+  titles: GithubTitleMap,
+): { label: PrLabelInput } | { text: string } | null {
+  if (!caption.pr) return null;
+  if (!caption.ref) return { text: caption.pr };
+  const label = shotPrLabelInput({ ghRef: caption.ref, ghKind: caption.kind }, titles);
+  return label ? { label } : { text: caption.pr };
+}
+
+/**
+ * Text for a GitHub-strip tile whose shot has no number or ref to build a
+ * PrLabel from: "PR" / "Issue" from `gh.kind` (stored vocabulary is singular;
+ * "issues" tolerated), the raw kind otherwise, "GitHub" with none.
+ */
+export function ghKindFallbackLabel(kind: string | undefined): string {
+  if (kind === "pull") return "PR";
+  if (kind === "issue" || kind === "issues") return "Issue";
+  return kind || "GitHub";
 }
