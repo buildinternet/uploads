@@ -1,6 +1,6 @@
 /// <reference types="node" />
 
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { app } from "../src/index";
 import { sha256Hex, type WorkspaceRecord } from "../src/workspace";
 import { FakeR2Bucket } from "./fake-r2";
@@ -10,6 +10,8 @@ import { withGlobalFetch } from "./helpers/github-fetch-fakes";
 import { SqliteD1, database } from "./helpers/sqlite-d1";
 import { replaceFileMetadata } from "../src/file-metadata";
 import type { PublicFeedItemPage } from "../src/scope-wire";
+import { FakeCacheStorage } from "./helpers/fake-cache-storage";
+import { LIVE_LINK_INDEX_CACHE_NAME, LIVE_LINK_INDEX_TTL_SECONDS } from "../src/live-link-index";
 
 const TOKEN = "feed-token";
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
@@ -685,5 +687,176 @@ describe("public feed pagination and pager", () => {
       env,
     );
     expect(revoked.status).toBe(404);
+  });
+});
+
+describe("public pager item index cache", () => {
+  let cacheStorage: FakeCacheStorage;
+  let sql: string[];
+
+  beforeEach(() => {
+    cacheStorage = new FakeCacheStorage().install();
+    sql = [];
+    const prepare = sqlite.prepare.bind(sqlite);
+    vi.spyOn(sqlite, "prepare").mockImplementation((statement: string) => {
+      sql.push(statement);
+      return prepare(statement);
+    });
+  });
+
+  afterEach(() => {
+    FakeCacheStorage.uninstall();
+    vi.restoreAllMocks();
+  });
+
+  /** Scope queries the last request ran, by kind. */
+  function scopeQueries() {
+    const scans = sql.filter((s) => s.includes("ORDER BY r.updated_at DESC"));
+    return {
+      full: scans.filter((s) => !s.includes("r.updated_at >= ?")).length,
+      newer: scans.filter((s) => s.includes("r.updated_at >= ?")).length,
+      verify: sql.filter((s) => s.includes("r.object_key = ? LIMIT 1")).length,
+    };
+  }
+
+  async function getItem(id: string, key: string) {
+    sql.length = 0;
+    return app.request(`/public/feeds/${id}/items/${await itemIdFor(key)}`, {}, env);
+  }
+
+  it("serves later pager items from the cached list without rescanning the scope", async () => {
+    await seedPr7(55);
+    const id = await createPr7Feed();
+
+    expect((await getItem(id, shotKey(52))).status).toBe(200);
+    expect(scopeQueries()).toEqual({ full: 1, newer: 0, verify: 0 });
+    const stored = [...(cacheStorage.named.get(LIVE_LINK_INDEX_CACHE_NAME)?.entries.keys() ?? [])];
+    expect(stored).toHaveLength(1);
+    expect(stored[0]).toContain(id);
+
+    const res = await getItem(id, shotKey(3));
+    expect(res.status).toBe(200);
+    expect(scopeQueries()).toEqual({ full: 0, newer: 0, verify: 1 });
+    expect(await res.json()).toMatchObject({
+      item: { id: await itemIdFor(shotKey(3)), filename: "shot-03.png", status: "available" },
+      prev: await itemIdFor(shotKey(2)),
+      next: await itemIdFor(shotKey(4)),
+      index: 3,
+      total: 55,
+    });
+  });
+
+  it("404s an unknown id from the cached list with one bounded query, not a scan", async () => {
+    await seedPr7(5);
+    const id = await createPr7Feed();
+    expect((await getItem(id, shotKey(0))).status).toBe(200);
+
+    sql.length = 0;
+    const res = await app.request(`/public/feeds/${id}/items/${"0".repeat(32)}`, {}, env);
+    expect(res.status).toBe(404);
+    expect(await res.json()).toMatchObject({ error: { code: "feed_item_not_found" } });
+    expect(scopeQueries()).toEqual({ full: 0, newer: 1, verify: 0 });
+  });
+
+  it("finds an item uploaded after the list was cached", async () => {
+    await seedPr7(5);
+    const id = await createPr7Feed();
+    expect((await getItem(id, shotKey(0))).status).toBe(200);
+
+    const newKey = "gh/acme/app/pull/7/fresh.png";
+    await seedFeedObject(
+      newKey,
+      { "gh.repo": "acme/app", "gh.number": "7", "gh.kind": "pull" },
+      new Date(Date.UTC(2026, 9, 1) + 60_000).toISOString(),
+    );
+    const res = await getItem(id, newKey);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      item: { filename: "fresh.png" },
+      prev: null,
+      next: await itemIdFor(shotKey(0)),
+      index: 0,
+      total: 6,
+    });
+    expect(scopeQueries()).toEqual({ full: 1, newer: 1, verify: 0 });
+
+    // The rebuilt list now answers neighbours with the new item in place.
+    const next = await getItem(id, shotKey(0));
+    expect(await next.json()).toMatchObject({ prev: await itemIdFor(newKey), index: 1 });
+    expect(scopeQueries()).toEqual({ full: 0, newer: 0, verify: 1 });
+  });
+
+  it("never serves a cached item whose file left the scope", async () => {
+    await seedPr7(5);
+    const id = await createPr7Feed();
+    expect((await getItem(id, shotKey(0))).status).toBe(200);
+
+    sqlite.db
+      .prepare(`DELETE FROM file_metadata WHERE workspace = ? AND object_key = ?`)
+      .run("alpha", shotKey(2));
+    expect((await getItem(id, shotKey(2))).status).toBe(404);
+
+    // The rebuild dropped the deleted file from the neighbours.
+    const res = await getItem(id, shotKey(3));
+    expect(await res.json()).toMatchObject({
+      prev: await itemIdFor(shotKey(1)),
+      index: 2,
+      total: 4,
+    });
+    expect(scopeQueries()).toEqual({ full: 0, newer: 0, verify: 1 });
+  });
+
+  it("withholds a cached item made private after the list was cached", async () => {
+    await seedPr7(3);
+    const id = await createPr7Feed();
+    expect((await getItem(id, shotKey(0))).status).toBe(200);
+
+    await bucket.put(`alpha/${shotKey(1)}`, PNG, {
+      httpMetadata: { contentType: "image/png" },
+      customMetadata: { visibility: "private" },
+    });
+    const res = await getItem(id, shotKey(1));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as PublicFeedItemPage;
+    expect(body.item).toMatchObject({ status: "withheld", url: null, embedUrl: null });
+    expect(JSON.stringify(body)).not.toContain(shotKey(1));
+    expect(scopeQueries().full).toBe(0);
+  });
+
+  it("keeps each live link's list to itself and 404s a revoked link", async () => {
+    await seedPr7(3);
+    await seedFeedObject(
+      "gh/acme/app/pull/8/other.png",
+      { "gh.repo": "acme/app", "gh.number": "8", "gh.kind": "pull" },
+      minutesBefore(0),
+    );
+    const pr7 = await createPr7Feed();
+    const created = await request("/v1/workspaces/alpha/feeds", {
+      method: "POST",
+      body: JSON.stringify({ repo: "acme/app", pr: 8 }),
+    });
+    const pr8 = ((await created.json()) as { id: string }).id;
+
+    expect((await getItem(pr7, shotKey(0))).status).toBe(200);
+    expect((await getItem(pr8, shotKey(0))).status).toBe(404);
+    expect((await getItem(pr8, "gh/acme/app/pull/8/other.png")).status).toBe(200);
+    expect((await getItem(pr7, "gh/acme/app/pull/8/other.png")).status).toBe(404);
+
+    expect((await request(`/v1/workspaces/alpha/feeds/${pr7}`, { method: "DELETE" })).status).toBe(
+      200,
+    );
+    expect((await getItem(pr7, shotKey(0))).status).toBe(404);
+  });
+
+  it("ignores a cached list older than the TTL", async () => {
+    await seedPr7(3);
+    const id = await createPr7Feed();
+    const start = Date.now();
+    const now = vi.spyOn(Date, "now").mockReturnValue(start);
+    expect((await getItem(id, shotKey(0))).status).toBe(200);
+
+    now.mockReturnValue(start + (LIVE_LINK_INDEX_TTL_SECONDS + 1) * 1000);
+    expect((await getItem(id, shotKey(1))).status).toBe(200);
+    expect(scopeQueries()).toEqual({ full: 1, newer: 0, verify: 0 });
   });
 });
