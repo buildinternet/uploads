@@ -4,9 +4,12 @@
  * An item id is `sha256(key)` (`feedItemIdFor`), so there is no id-to-key
  * table. Finding an item means listing the scope (cap 2,000 rows) and hashing
  * every key until one matches. This module keeps that list, already hashed,
- * in a named Workers Cache API cache for `LIVE_LINK_INDEX_TTL_SECONDS`, keyed
- * by the live link's id and scope. The cache is per data center and is never
- * served to a client: only this module reads it.
+ * in the `LIVE_LINK_INDEX` KV namespace for `LIVE_LINK_INDEX_TTL_SECONDS`,
+ * keyed by the live link's id and scope. Only this module reads it.
+ *
+ * KV, not the Cache API: public item pages reach this Worker through the web
+ * Worker's service binding, and Cache API writes made on that path never
+ * produced a hit.
  *
  * A cached list is a hint, never the authority:
  *
@@ -23,8 +26,7 @@
  * A file that joins the scope without a new `gh.repo` timestamp (for example,
  * a `path` row added later) can miss until the cached list expires.
  *
- * With no Cache API (unit tests, a `workers.dev` preview) every lookup scans,
- * as it did before this module existed.
+ * Without the binding every lookup scans.
  */
 import { feedItemIdFor } from "@uploads/comment-render/scope";
 import type { D1Queryable } from "./db-session";
@@ -32,10 +34,8 @@ import type { FeedRecord } from "./feeds";
 import { feedRecordScope, scanScopeKeys, scopeHasKey, type ScopeQuery } from "./pr-scope";
 import { sha256Hex } from "./workspace";
 
+/** KV's minimum `expirationTtl`. */
 export const LIVE_LINK_INDEX_TTL_SECONDS = 60;
-export const LIVE_LINK_INDEX_CACHE_NAME = "live-link-index";
-/** Cache keys only. Nothing ever requests this host. */
-const CACHE_ORIGIN = "https://live-link-index.internal";
 
 /** One scope row: its item id, object key, and `gh.repo` `updated_at`. */
 export interface LiveLinkIndexEntry {
@@ -46,10 +46,10 @@ export interface LiveLinkIndexEntry {
 
 type Scope = Omit<ScopeQuery, "cursor" | "limit">;
 
-interface IndexCache {
-  match(request: Request): Promise<Response | undefined>;
-  put(request: Request, response: Response): Promise<void>;
-}
+type IndexStore = Pick<KVNamespace, "get" | "put">;
+
+/** How a lookup was answered, logged once per lookup. */
+type LookupOutcome = "hit" | "absent" | "stale" | "newer" | "miss" | "unbound";
 
 /** Stored shape: compact tuples, plus the build time for the TTL check. */
 interface StoredIndex {
@@ -58,21 +58,12 @@ interface StoredIndex {
   entries: Array<[id: string, key: string, updatedAt: string]>;
 }
 
-async function openIndexCache(): Promise<IndexCache | null> {
-  try {
-    if (typeof caches === "undefined" || typeof caches.open !== "function") return null;
-    return await caches.open(LIVE_LINK_INDEX_CACHE_NAME);
-  } catch {
-    return null;
-  }
-}
-
 /** Distinct per live link and per scope, so no list is shared across links. */
-async function indexCacheRequest(record: FeedRecord, scope: Scope): Promise<Request> {
+async function indexKey(record: FeedRecord, scope: Scope): Promise<string> {
   const fingerprint = await sha256Hex(
     JSON.stringify([scope.workspace, scope.repo, scope.path ?? "", scope.number ?? 0]),
   );
-  return new Request(`${CACHE_ORIGIN}/v1/${encodeURIComponent(record.id)}/${fingerprint}`);
+  return `v1:${record.id}:${fingerprint}`;
 }
 
 function isStoredIndex(value: unknown): value is StoredIndex {
@@ -91,17 +82,11 @@ function isStoredIndex(value: unknown): value is StoredIndex {
   );
 }
 
-async function readIndex(
-  cache: IndexCache,
-  request: Request,
-): Promise<LiveLinkIndexEntry[] | null> {
+async function readIndex(store: IndexStore, key: string): Promise<LiveLinkIndexEntry[] | null> {
   try {
-    const response = await cache.match(request);
-    if (!response) return null;
-    const stored: unknown = await response.json();
+    const stored: unknown = await store.get(key, "json");
     if (!isStoredIndex(stored)) return null;
-    // The Cache API honours max-age. This check bounds the age even if it
-    // does not (or the clock moved backwards).
+    // KV expires the key itself; this bounds the age even if expiry lags.
     const age = Date.now() - stored.builtAt;
     if (age < 0 || age > LIVE_LINK_INDEX_TTL_SECONDS * 1000) return null;
     return stored.entries.map(([id, key, updatedAt]) => ({ id, key, updatedAt }));
@@ -111,8 +96,8 @@ async function readIndex(
 }
 
 async function writeIndex(
-  cache: IndexCache,
-  request: Request,
+  store: IndexStore,
+  key: string,
   entries: LiveLinkIndexEntry[],
 ): Promise<void> {
   const stored: StoredIndex = {
@@ -121,17 +106,12 @@ async function writeIndex(
     entries: entries.map((entry) => [entry.id, entry.key, entry.updatedAt]),
   };
   try {
-    await cache.put(
-      request,
-      new Response(JSON.stringify(stored), {
-        headers: {
-          "Content-Type": "application/json",
-          "Cache-Control": `max-age=${LIVE_LINK_INDEX_TTL_SECONDS}`,
-        },
-      }),
-    );
+    await store.put(key, JSON.stringify(stored), {
+      expirationTtl: LIVE_LINK_INDEX_TTL_SECONDS,
+    });
   } catch {
-    // A failed write only costs the next request a scan.
+    // A failed write (including KV's one-write-per-second limit per key)
+    // only costs the next request a scan.
   }
 }
 
@@ -162,6 +142,10 @@ async function newerRowsHave(
   return false;
 }
 
+function logOutcome(outcome: LookupOutcome): void {
+  console.log(JSON.stringify({ message: "live_link_index", outcome }));
+}
+
 /**
  * The live link's scope list (newest first) and the position of `itemId` in
  * it, or null when the id is not in scope. The caller must already have
@@ -169,26 +153,35 @@ async function newerRowsHave(
  */
 export async function findLiveLinkItem(
   db: D1Queryable,
+  store: IndexStore | undefined,
   record: FeedRecord,
   itemId: string,
 ): Promise<{ entries: LiveLinkIndexEntry[]; position: number } | null> {
   const scope = feedRecordScope(record);
-  const cache = await openIndexCache();
-  const request = cache ? await indexCacheRequest(record, scope) : null;
-  const cached = cache && request ? await readIndex(cache, request) : null;
+  const key = store ? await indexKey(record, scope) : null;
+  const cached = store && key ? await readIndex(store, key) : null;
 
+  let outcome: LookupOutcome = store ? "miss" : "unbound";
   if (cached) {
     const position = cached.findIndex((entry) => entry.id === itemId);
     if (position >= 0) {
-      if (await scopeHasKey(db, scope, cached[position].key)) return { entries: cached, position };
+      if (await scopeHasKey(db, scope, cached[position].key)) {
+        logOutcome("hit");
+        return { entries: cached, position };
+      }
       // The key left the scope (deleted or re-scoped): rebuild below.
-    } else if (!(await newerRowsHave(db, scope, cached, itemId))) {
+      outcome = "stale";
+    } else if (await newerRowsHave(db, scope, cached, itemId)) {
+      outcome = "newer";
+    } else {
+      logOutcome("absent");
       return null;
     }
   }
 
+  logOutcome(outcome);
   const entries = await buildIndex(db, scope);
-  if (cache && request) await writeIndex(cache, request, entries);
+  if (store && key) await writeIndex(store, key, entries);
   const position = entries.findIndex((entry) => entry.id === itemId);
   return position >= 0 ? { entries, position } : null;
 }

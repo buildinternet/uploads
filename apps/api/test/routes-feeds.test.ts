@@ -10,8 +10,7 @@ import { withGlobalFetch } from "./helpers/github-fetch-fakes";
 import { SqliteD1, database } from "./helpers/sqlite-d1";
 import { replaceFileMetadata } from "../src/file-metadata";
 import type { PublicFeedItemPage } from "../src/scope-wire";
-import { FakeCacheStorage } from "./helpers/fake-cache-storage";
-import { LIVE_LINK_INDEX_CACHE_NAME, LIVE_LINK_INDEX_TTL_SECONDS } from "../src/live-link-index";
+import { LIVE_LINK_INDEX_TTL_SECONDS } from "../src/live-link-index";
 
 const TOKEN = "feed-token";
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
@@ -714,11 +713,12 @@ describe("public feed pagination and pager", () => {
 });
 
 describe("public pager item index cache", () => {
-  let cacheStorage: FakeCacheStorage;
+  let indexKv: FakeKv;
   let sql: string[];
 
   beforeEach(() => {
-    cacheStorage = new FakeCacheStorage().install();
+    indexKv = new FakeKv();
+    Object.assign(env as object, { LIVE_LINK_INDEX: indexKv });
     sql = [];
     const prepare = sqlite.prepare.bind(sqlite);
     vi.spyOn(sqlite, "prepare").mockImplementation((statement: string) => {
@@ -728,7 +728,6 @@ describe("public pager item index cache", () => {
   });
 
   afterEach(() => {
-    FakeCacheStorage.uninstall();
     vi.restoreAllMocks();
   });
 
@@ -753,9 +752,10 @@ describe("public pager item index cache", () => {
 
     expect((await getItem(id, shotKey(52))).status).toBe(200);
     expect(scopeQueries()).toEqual({ full: 1, newer: 0, verify: 0 });
-    const stored = [...(cacheStorage.named.get(LIVE_LINK_INDEX_CACHE_NAME)?.entries.keys() ?? [])];
+    const stored = [...indexKv.store.entries()];
     expect(stored).toHaveLength(1);
-    expect(stored[0]).toContain(id);
+    expect(stored[0]?.[0]).toContain(id);
+    expect(stored[0]?.[1].expirationTtl).toBe(LIVE_LINK_INDEX_TTL_SECONDS);
 
     const res = await getItem(id, shotKey(3));
     expect(res.status).toBe(200);

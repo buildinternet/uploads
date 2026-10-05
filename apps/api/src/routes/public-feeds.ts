@@ -37,11 +37,17 @@ export const publicFeeds = new Hono<WorkspaceVars>()
     return c.json({ ...dto, github });
   })
   // Pager item plus neighbours, found in the scope (cap 2,000) so items older
-  // than the first page still resolve. `findLiveLinkItem` caches the hashed
-  // scope list per live link (live-link-index.ts).
+  // than the first page still resolve. `findLiveLinkItem` keeps the hashed
+  // scope list per live link in KV (live-link-index.ts).
   .get("/:id/items/:item", async (c) => {
     const { record, workspace } = await liveFeed(c.env, c.req.param("id"));
-    const page = await publicFeedItemPage(c.env, workspace, record, c.req.param("item"));
+    const page = await publicFeedItemPage(
+      c.env,
+      workspace,
+      record,
+      c.req.param("item"),
+      c.env.LIVE_LINK_INDEX,
+    );
     if (!page) throw new NotFoundError("Feed item not found.", { code: "feed_item_not_found" });
     return c.json(page);
   });
