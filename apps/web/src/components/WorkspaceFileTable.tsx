@@ -2,7 +2,7 @@
  * The 3A workspace files tab — filter bar, chips ↔ breadcrumbs, a conditional
  * exact-PR-match banner, and the file listing (list or grid view: thumbnail,
  * size, type, visibility, `⋯` actions). The single island mounted by
- * `pages/account/workspaces/[name].astro`.
+ * `pages/account/workspaces/[name]/storage.astro`.
  *
  * Data source: `listWorkspaceFolder` when nothing is being filtered (folder
  * browse, URL-synced via `workspace-browse-url`), `searchWorkspaceFiles` when
@@ -74,6 +74,7 @@ import {
   normalizeBrowsePath,
   readBrowseLocation,
   replaceBrowseLocation,
+  workspaceStoragePath,
 } from "../lib/workspace-browse-url";
 import { replaceFilesView, resolveFilesView, type FilesView } from "../lib/workspace-files-view";
 import {
@@ -95,6 +96,7 @@ import {
 } from "../lib/workspace-search-suggest";
 import { fetchWithTimeout } from "../lib/request";
 import { onSession } from "../lib/account-shell";
+import { useTwoStepConfirm } from "../lib/use-two-step-confirm";
 import { FilePreviewDrawer } from "./FilePreviewDrawer";
 
 interface WorkspaceFileTableProps {
@@ -294,9 +296,6 @@ function VisibilityBadge({ private: priv }: { private: boolean }) {
   );
 }
 
-/** How long an armed "Confirm delete" stays armed before auto-disarming. */
-const DELETE_DISARM_MS = 5000;
-
 function FileActionsMenu({
   open,
   busy,
@@ -318,22 +317,11 @@ function FileActionsMenu({
 }) {
   // Two-step destructive confirm (spec 2026-07-30): "delete…" swaps the menu
   // for a warning panel; its button arms a red confirm that auto-disarms.
-  // The /f/ file page carries a vanilla twin of this state machine (public
-  // pages ship no framework JS) — keep DELETE_DISARM_MS and the arm/disarm
-  // semantics in sync with apps/web/src/pages/f/[workspace]/[...key].astro.
-  const [confirm, setConfirm] = useState<"closed" | "confirm" | "armed">("closed");
-  const disarmTimer = useRef<number | null>(null);
+  const { state: confirm, open: openConfirm, arm, close, reset } = useTwoStepConfirm();
 
   useEffect(() => {
-    if (!open) setConfirm("closed");
-  }, [open]);
-  useEffect(() => {
-    if (confirm !== "armed") return;
-    disarmTimer.current = window.setTimeout(() => setConfirm("confirm"), DELETE_DISARM_MS);
-    return () => {
-      if (disarmTimer.current !== null) window.clearTimeout(disarmTimer.current);
-    };
-  }, [confirm]);
+    if (!open) close();
+  }, [open, close]);
 
   const menuItem =
     "wft-menu__item block w-full cursor-pointer rounded-[2px] border-0 bg-none px-[9px] py-[7px] text-left font-[var(--sans)] text-[length:var(--text-micro)] text-fg hover:bg-accent/12 hover:text-accent focus-visible:bg-accent/12 focus-visible:text-accent focus-visible:outline-none disabled:cursor-default disabled:opacity-55";
@@ -376,7 +364,7 @@ function FileActionsMenu({
             type="button"
             role="menuitem"
             className={`${menuItem} ${menuItemDanger}`}
-            onClick={() => setConfirm("confirm")}
+            onClick={openConfirm}
           >
             delete…
           </button>
@@ -397,7 +385,7 @@ function FileActionsMenu({
               type="button"
               className={`${menuItem} ${menuItemDanger}`}
               disabled={busy}
-              onClick={() => setConfirm("armed")}
+              onClick={arm}
             >
               Delete file
             </button>
@@ -411,7 +399,7 @@ function FileActionsMenu({
                 // delete fails, the menu stays open (see the parent's
                 // `deleteFile`) but the very next click must re-confirm
                 // rather than delete instantly.
-                setConfirm("confirm");
+                reset();
                 onDelete();
               }}
             >
@@ -620,13 +608,10 @@ function WorkspaceFileTableInner({
   const seedSearch = initialSearch ?? (typeof window !== "undefined" ? window.location.search : "");
   // `readBrowseLocation` resolves workspace identity from the pathname; when
   // there's no `window` yet, synthesize this route's own pathname from the
-  // `workspace` prop (this component only ever mounts on
-  // `/account/workspaces/:name/files`) so the server's parse agrees with the
-  // client's.
+  // `workspace` prop (this component only ever mounts on the Storage tab) so
+  // the server's parse agrees with the client's.
   const seedPathname =
-    typeof window !== "undefined"
-      ? window.location.pathname
-      : `/account/workspaces/${encodeURIComponent(workspace)}/files`;
+    typeof window !== "undefined" ? window.location.pathname : workspaceStoragePath(workspace);
 
   const [info, setInfo] = useState<WorkspaceInfoStatus | { status: "loading" }>(
     () => initialInfo ?? { status: "loading" },

@@ -292,6 +292,8 @@ export interface GallerySummary {
    * older API deployments that predate the field.
    */
   previewUrl?: string | null;
+  /** Optimistic-concurrency version; `DELETE` requires it. Omitted on older API deployments. */
+  version?: number;
 }
 
 function isGalleryReferenceSummary(value: unknown): value is GalleryReferenceSummary {
@@ -315,6 +317,7 @@ function isGallerySummary(value: unknown): value is GallerySummary {
   if (g.previewUrl !== undefined && g.previewUrl !== null && typeof g.previewUrl !== "string") {
     return false;
   }
+  if (g.version !== undefined && !Number.isSafeInteger(g.version)) return false;
   if (g.references !== undefined) {
     if (!Array.isArray(g.references) || !g.references.every(isGalleryReferenceSummary)) {
       return false;
@@ -329,7 +332,16 @@ export function getMyWorkspaceGalleries(
   name: string,
   opts?: { cookie?: string; fetchImpl?: typeof fetch },
 ): Promise<GallerySummary[]> {
-  return fetchWorkspaceList(apiOrigin, name, "galleries", "galleries", isGallerySummary, opts);
+  // The list endpoint pages at 50 by default; one page of 100 covers every
+  // gallery a workspace can hold (MAX_GALLERIES_PER_WORKSPACE in apps/api).
+  return fetchWorkspaceList(
+    apiOrigin,
+    name,
+    "galleries?limit=100",
+    "galleries",
+    isGallerySummary,
+    opts,
+  );
 }
 
 export interface WorkspaceFile {
@@ -431,6 +443,40 @@ export async function deleteWorkspaceFile(
     { method: "DELETE", credentials: "include", cache: "no-store" },
   );
   if (result.kind === "unavailable") return result;
+  if (!result.response.ok) return { kind: "unavailable", reason: "server" };
+  return { kind: "success" };
+}
+
+export type DeleteWorkspaceGalleryResult =
+  | { kind: "success" }
+  | { kind: "conflict" }
+  | { kind: "unavailable"; reason: RequestFailure | "server" };
+
+/**
+ * DELETE /v1/workspaces/:name/galleries/:id: soft-deletes a gallery, so its
+ * `/g/` link stops resolving. The API requires the caller's last-seen
+ * `version`; a 409 means the gallery changed since this list loaded.
+ */
+export async function deleteWorkspaceGallery(
+  apiOrigin: string,
+  name: string,
+  id: string,
+  expectedVersion: number,
+): Promise<DeleteWorkspaceGalleryResult> {
+  const result = await fetchWithTimeout(
+    `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(name)}/galleries/${encodeURIComponent(id)}`,
+    {
+      method: "DELETE",
+      credentials: "include",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ expectedVersion }),
+    },
+  );
+  if (result.kind === "unavailable") return result;
+  if (result.response.status === 409) return { kind: "conflict" };
+  // Already deleted elsewhere: the row is gone either way, so treat it as deleted.
+  if (result.response.status === 404) return { kind: "success" };
   if (!result.response.ok) return { kind: "unavailable", reason: "server" };
   return { kind: "success" };
 }
@@ -2879,7 +2925,7 @@ export async function createWorkspaceFeed(
   return feed ? { kind: "ok", data: feed } : { kind: "unavailable", reason: "malformed" };
 }
 
-/** DELETE /v1/workspaces/:ws/feeds/:id — revoke a live link (soft delete). */
+/** DELETE /v1/workspaces/:ws/feeds/:id — revoke a live link (soft delete). A 404 counts as revoked. */
 export async function deleteWorkspaceFeed(
   apiOrigin: string,
   ws: string,
@@ -2892,6 +2938,8 @@ export async function deleteWorkspaceFeed(
     { fetchImpl: opts?.fetchImpl },
   );
   if (result.kind === "unavailable") return result;
+  // Already revoked elsewhere: the link is gone either way, so treat it as revoked.
+  if (result.response.status === 404) return { kind: "ok", data: undefined };
   if (!result.response.ok) {
     return { kind: "unavailable", reason: failureForStatus(result.response.status) };
   }

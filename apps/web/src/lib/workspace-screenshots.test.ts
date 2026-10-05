@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  filesPagesPath,
   filterCatalog,
   focusIsKeyboardDriven,
   formatShotCount,
@@ -27,6 +28,7 @@ import {
   ghKindFallbackLabel,
   shotPrLabelInput,
 } from "./workspace-screenshots";
+import { filesRouteRedirect } from "./workspace-route-redirects";
 
 describe("pairedShotKeys", () => {
   it("marks a tile paired only when the opposite state exists in the same collection", () => {
@@ -204,8 +206,8 @@ describe("projectLabelFromItemMeta", () => {
 });
 
 describe("screenshots view URL state", () => {
-  it("round-trips project, path, and q", () => {
-    expect(readScreenshotsView("?project=acme%2Fweb&path=%2Fadmin&q=%2Fcat")).toEqual({
+  it("round-trips project, path, and q under view=pages", () => {
+    expect(readScreenshotsView("?view=pages&project=acme%2Fweb&path=%2Fadmin&q=%2Fcat")).toEqual({
       project: "acme/web",
       path: "/admin",
       q: "/cat",
@@ -213,21 +215,27 @@ describe("screenshots view URL state", () => {
       merged: false,
     });
     expect(screenshotsSearch("acme/web", "/admin", "/cat")).toBe(
-      "?project=acme%2Fweb&path=%2Fadmin&q=%2Fcat",
+      "?view=pages&project=acme%2Fweb&path=%2Fadmin&q=%2Fcat",
     );
-    expect(screenshotsSearch("acme/web", "")).toBe("?project=acme%2Fweb");
-    expect(screenshotsSearch("", "")).toBe("");
-    expect(screenshotsSearch("", "", "/catalog")).toBe("?q=%2Fcatalog");
+    expect(screenshotsSearch("acme/web", "")).toBe("?view=pages&project=acme%2Fweb");
+    expect(screenshotsSearch("", "")).toBe("?view=pages");
+    expect(screenshotsSearch("", "", "/catalog")).toBe("?view=pages&q=%2Fcatalog");
   });
-  it("round-trips the recent-feed toggle, defaulting to grouped", () => {
+
+  it("writes the Recent toggle as sort=recent and still reads legacy view=recent", () => {
+    expect(readScreenshotsView("?view=pages&sort=recent").feed).toBe("recent");
     expect(readScreenshotsView("?view=recent").feed).toBe("recent");
+    expect(readScreenshotsView("?sort=nonsense").feed).toBe("grouped");
     expect(readScreenshotsView("?view=nonsense").feed).toBe("grouped");
     expect(readScreenshotsView("").feed).toBe("grouped");
-    expect(screenshotsSearch("", "", "", "recent")).toBe("?view=recent");
-    expect(screenshotsSearch("acme/web", "", "", "recent")).toBe("?project=acme%2Fweb&view=recent");
-    expect(screenshotsSearch("", "", "", "grouped")).toBe("");
+    expect(screenshotsSearch("", "", "", "recent")).toBe("?view=pages&sort=recent");
+    expect(screenshotsSearch("acme/web", "", "", "recent")).toBe(
+      "?view=pages&sort=recent&project=acme%2Fweb",
+    );
+    expect(screenshotsSearch("", "", "", "grouped")).toBe("?view=pages");
   });
-  it("keeps legacy bare ?path= links working", () => {
+
+  it("keeps legacy bare ?path= links readable", () => {
     expect(readScreenshotsView("?path=%2Fadmin")).toEqual({
       project: "",
       path: "/admin",
@@ -235,18 +243,30 @@ describe("screenshots view URL state", () => {
       feed: "grouped",
       merged: false,
     });
-    expect(screenshotsSearch("", "/admin")).toBe("?path=%2Fadmin");
+    expect(screenshotsSearch("", "/admin")).toBe("?view=pages&path=%2Fadmin");
   });
 
   it("round-trips the merged-only toggle, defaulting to false", () => {
     expect(readScreenshotsView("?merged=1").merged).toBe(true);
     expect(readScreenshotsView("?merged=0").merged).toBe(false);
     expect(readScreenshotsView("").merged).toBe(false);
-    expect(screenshotsSearch("", "", "", "grouped", true)).toBe("?merged=1");
-    expect(screenshotsSearch("", "", "", "grouped", false)).toBe("");
+    expect(screenshotsSearch("", "", "", "grouped", true)).toBe("?view=pages&merged=1");
+    expect(screenshotsSearch("", "", "", "grouped", false)).toBe("?view=pages");
     expect(screenshotsSearch("acme/web", "", "", "recent", true)).toBe(
-      "?project=acme%2Fweb&view=recent&merged=1",
+      "?view=pages&sort=recent&project=acme%2Fweb&merged=1",
     );
+  });
+
+  // A drill-in URL the island writes must not be mistaken for an old
+  // bucket-browser `?path=` link and bounce to Storage on reload.
+  it("never writes a URL that /files would redirect to Storage", () => {
+    for (const search of [
+      screenshotsSearch("", "/settings"),
+      screenshotsSearch("acme/web", "/admin", "/cat", "recent", true),
+      screenshotsSearch("", ""),
+    ]) {
+      expect(filesRouteRedirect("acme", search)).toBeNull();
+    }
   });
 });
 
@@ -259,7 +279,8 @@ describe("screenshots view hrefs and history mode", () => {
     merged: false,
   };
 
-  it("builds a path-based screenshots URL with encoded query state", () => {
+  it("builds a Files By page URL with encoded query state", () => {
+    expect(filesPagesPath("acme")).toBe("/account/workspaces/acme/files");
     expect(
       screenshotsViewHref("acme", {
         project: "acme/web",
@@ -268,9 +289,9 @@ describe("screenshots view hrefs and history mode", () => {
         feed: "grouped",
         merged: false,
       }),
-    ).toBe("/account/workspaces/acme/screenshots?project=acme%2Fweb&path=%2Fadmin");
-    expect(screenshotsViewHref("acme", overview)).toBe("/account/workspaces/acme/screenshots");
-    expect(screenshotsSearchFromView(overview)).toBe("");
+    ).toBe("/account/workspaces/acme/files?view=pages&project=acme%2Fweb&path=%2Fadmin");
+    expect(screenshotsViewHref("acme", overview)).toBe("/account/workspaces/acme/files?view=pages");
+    expect(screenshotsSearchFromView(overview)).toBe("?view=pages");
   });
 
   it("pushes history for project or path changes, replaces for filter tweaks", () => {

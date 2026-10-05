@@ -20,13 +20,7 @@ import { isBrowseWorkspace, workspaceFromPathname } from "./workspace-browse-url
 export const WORKSPACES_CACHE_KEY = "uploads:myWorkspaces";
 export const ACTIVE_WORKSPACE_CACHE_KEY = "uploads:activeWorkspace";
 
-export type WorkspaceNavTab =
-  | "files"
-  | "screenshots"
-  | "galleries"
-  | "people"
-  | "billing"
-  | "settings";
+export type WorkspaceNavTab = "files" | "links" | "people" | "storage" | "billing" | "settings";
 
 export const WORKSPACE_NAV_TABS: {
   id: WorkspaceNavTab;
@@ -34,32 +28,29 @@ export const WORKSPACE_NAV_TABS: {
   /** Path suffix after `/account/workspaces/:name`. */
   path: string;
 }[] = [
-  { id: "screenshots", label: "screenshots", path: "/screenshots" },
   { id: "files", label: "files", path: "/files" },
-  { id: "galleries", label: "galleries", path: "/galleries" },
+  { id: "links", label: "links", path: "/links" },
   { id: "people", label: "people", path: "/people" },
+  { id: "storage", label: "storage", path: "/storage" },
   { id: "billing", label: "billing", path: "/billing" },
   { id: "settings", label: "settings", path: "/settings" },
 ];
 
-/** Workspace home — the screenshots tab. */
+/** Workspace home: the Files tab. */
 export function workspaceHomePath(workspace: string): string {
-  return workspacePath(workspace, "screenshots");
+  return workspacePath(workspace, "files");
 }
 
-/** Path for a workspace tab. Unknown/empty tab falls through to screenshots. */
-export function workspacePath(
-  workspace: string,
-  tab: WorkspaceNavTab | "" = "screenshots",
-): string {
+/** Path for a workspace tab. Unknown/empty tab falls through to Files. */
+export function workspacePath(workspace: string, tab: WorkspaceNavTab | "" = "files"): string {
   const base = `/account/workspaces/${encodeURIComponent(workspace)}`;
   const suffix = tabPathSuffix(tab);
   return `${base}${suffix}`;
 }
 
-/** `?to=` allowlist for the workspaces index auto-open. Anything else is home. */
-export function workspaceOpenTab(to: string | null | undefined): "files" | "screenshots" {
-  return to === "files" ? "files" : "screenshots";
+/** `?to=` allowlist for the workspaces index auto-open. Anything else is home (Files). */
+export function workspaceOpenTab(to: string | null | undefined): "files" | "storage" {
+  return to === "storage" ? "storage" : "files";
 }
 
 /**
@@ -251,37 +242,45 @@ export function resolveSidebarWorkspace(pathname: string, bootGlobal = ""): stri
 }
 
 /**
- * Active workspace tab from `/account/workspaces/:name[/*]`.
- * Empty on the index, create page, or unrelated routes. `settings` is the one
- * tab that spans several routes (`/settings`, `/settings/storage`,
- * `/settings/tokens`), so a third segment is accepted only there — every
- * other tab stays a strict single segment rather than silently matching
- * paths that don't exist.
+ * Single-segment workspace routes and the tab each one lights up. A Map, not an object literal, so a
+ * segment like `constructor` can't resolve through the prototype.
+ */
+const TAB_SEGMENTS = new Map<string, WorkspaceNavTab>([
+  ["links", "links"],
+  ["storage", "storage"],
+  ["people", "people"],
+  ["invite", "people"],
+  ["billing", "billing"],
+  ["settings", "settings"],
+]);
+
+/**
+ * Active workspace tab from `/account/workspaces/:name[/*]`. Empty on the
+ * index, create page, or unrelated routes. Two tabs span several routes:
+ * Files (its repo and PR pages, `/files/:owner/:repo[/pull/:n]`) and
+ * Settings (one sub-page segment). Every other tab is a strict single segment.
  */
 export function workspaceTabFromPathname(pathname: string): WorkspaceNavTab | "" {
-  const match =
-    pathname.match(/^\/account\/workspaces\/([^/]+)(?:\/([^/]+))?\/?$/) ??
-    pathname.match(/^\/account\/workspaces\/([^/]+)\/(settings)\/[^/]+\/?$/);
+  const match = pathname.match(/^\/account\/workspaces\/([^/]+)(?:\/(.*))?$/);
   if (!match) return "";
   const slug = decodeURIComponent(match[1] ?? "");
   if (!slug || slug === "new") return "";
-  const segment = match[2] ?? "";
-  if (!segment) return "screenshots";
-  if (segment === "screenshots") return "screenshots";
+  const parts = (match[2] ?? "").split("/").filter(Boolean);
+  const segment = parts[0];
+  const tail = parts.slice(1);
+  if (!segment) return "files";
   if (segment === "files") return "files";
-  if (segment === "galleries") return "galleries";
-  if (segment === "people" || segment === "invite") return "people";
-  if (segment === "billing") return "billing";
-  if (segment === "settings") return "settings";
-  return "";
+  if (segment === "settings" && tail.length === 1) return "settings";
+  if (tail.length) return "";
+  return TAB_SEGMENTS.get(segment) ?? "";
 }
 
-export type WorkspaceSettingsSubpage = "comment" | "storage" | "tokens";
+export type WorkspaceSettingsSubpage = "comment" | "tokens";
 
 /**
  * Which settings sub-page is active, for the sidebar's nested sub-nav
- * (`shell-sidebar-data.ts`'s workspace section). `""` off the settings routes
- * entirely — callers only render the sub-nav when this is non-empty.
+ * (`shell-sidebar-data.ts`). `""` off the settings routes; callers only
+ * render the sub-nav when this is non-empty.
  */
 export function workspaceSettingsSubpageFromPathname(
   pathname: string,
@@ -290,16 +289,14 @@ export function workspaceSettingsSubpageFromPathname(
   if (!match) return "";
   const sub = match[1] ?? "";
   if (!sub) return "comment";
-  if (sub === "storage") return "storage";
   if (sub === "tokens") return "tokens";
   return "";
 }
 
 /** Path suffix that keeps the current tab when switching workspaces.
- * Off-workspace routes (empty tab) land on screenshots, the workspace home.
- * Settings deliberately maps to the tab root, not the sub-page — sub-pages
- * are workspace-specific detail views. */
+ * Off-workspace routes (empty tab) land on Files, the workspace home.
+ * Settings deliberately maps to the tab root, not the sub-page. */
 function tabPathSuffix(tab: WorkspaceNavTab | ""): string {
-  if (!tab) return "/screenshots";
-  return WORKSPACE_NAV_TABS.find((t) => t.id === tab)?.path ?? "/screenshots";
+  if (!tab) return "/files";
+  return WORKSPACE_NAV_TABS.find((t) => t.id === tab)?.path ?? "/files";
 }

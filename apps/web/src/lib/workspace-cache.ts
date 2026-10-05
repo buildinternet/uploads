@@ -132,7 +132,7 @@ export function clearSnapshotsIn(store: KeyValueStore): void {
 }
 
 /** `localStorage` when it exists and is reachable, else null (node, private mode). */
-function browserStore(): KeyValueStore | null {
+export function browserStore(): KeyValueStore | null {
   try {
     return typeof localStorage === "undefined" ? null : localStorage;
   } catch {

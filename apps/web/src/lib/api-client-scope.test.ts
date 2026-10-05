@@ -281,7 +281,7 @@ describe("createWorkspaceFeed", () => {
 });
 
 describe("deleteWorkspaceFeed", () => {
-  it("DELETEs the feed and maps 404 to not_found", async () => {
+  it("DELETEs the feed and treats 404 as already revoked", async () => {
     const fetchMock = stubFetch(Response.json({ deleted: true, id: FEED_ID }));
     expect(await deleteWorkspaceFeed("/api", "acme", FEED_ID)).toEqual({
       kind: "ok",
@@ -291,8 +291,16 @@ describe("deleteWorkspaceFeed", () => {
     expect(fetchMock.mock.calls[0]?.[1]?.method).toBe("DELETE");
     stubFetch(new Response(null, { status: 404 }));
     expect(await deleteWorkspaceFeed("/api", "acme", FEED_ID)).toEqual({
+      kind: "ok",
+      data: undefined,
+    });
+  });
+
+  it("maps other failures to unavailable", async () => {
+    stubFetch(new Response(null, { status: 403 }));
+    expect(await deleteWorkspaceFeed("/api", "acme", FEED_ID)).toEqual({
       kind: "unavailable",
-      reason: "not_found",
+      reason: "forbidden",
     });
   });
 });

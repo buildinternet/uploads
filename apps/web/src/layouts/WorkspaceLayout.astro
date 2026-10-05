@@ -12,8 +12,8 @@
  * The details section (slug + base URL) that used to sit here was dropped —
  * the switcher/URL already carries the slug and the settings tab has its own
  * slug/public-url summary, so the rail copy was pure duplication. Slug and
- * base URL still render via `renderDetailsHtml`, just on the settings page
- * only.
+ * base URL still render via `renderDetailsHtml`, just in the Storage tab's
+ * Bucket section only.
  *
  * `tip` is a per-page static hint, server-rendered (no JS, no placeholder):
  * one short line, optionally linked. Omit it on pages with nothing worth
@@ -27,6 +27,7 @@
  * paired with `wideRail`, widens the rail to ~430px for that column.
  */
 import { GITHUB_APP_INSTALL_URL } from "../lib/github-app";
+import { workspaceStorageBucketHref } from "../lib/workspace-browse-url";
 import { renderUsagePlaceholderHtml } from "../lib/workspace-ui";
 import AccountLayout from "./AccountLayout.astro";
 import "../styles/pr-label.css";
@@ -61,7 +62,7 @@ const {
 const hasPreview = Astro.slots.has("preview");
 
 const invitePath = `/account/workspaces/${encodeURIComponent(workspace)}/people`;
-const storagePath = `/account/workspaces/${encodeURIComponent(workspace)}/settings/storage`;
+const storagePath = workspaceStorageBucketHref(workspace);
 ---
 
 <AccountLayout
@@ -80,7 +81,7 @@ const storagePath = `/account/workspaces/${encodeURIComponent(workspace)}/settin
     <div class="ws-storage-alert__body">
       <p class="ws-storage-alert__msg" data-storage-health-message></p>
       <a class="ws-storage-alert__link" data-storage-health-link href={storagePath}
-        >Fix storage settings</a
+        >Fix the bucket</a
       >
     </div>
     <button

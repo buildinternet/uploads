@@ -227,19 +227,28 @@ export interface ScreenshotsView {
   merged: boolean;
 }
 
-/** `?project=` / `?path=` / `?q=` / `?view=` / `?merged=` state, ""/grouped/false when absent. */
+/**
+ * By page view state: `?project=` / `?path=` / `?q=` / `?sort=recent` /
+ * `?merged=1`. Legacy `?view=recent` (the retired Screenshots tab) still
+ * reads as the Recent feed.
+ */
 export function readScreenshotsView(search: string): ScreenshotsView {
   const params = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search);
+  const recent = params.get("sort") === "recent" || params.get("view") === "recent";
   return {
     project: params.get("project") ?? "",
     path: params.get("path") ?? "",
     q: params.get("q") ?? "",
-    feed: params.get("view") === "recent" ? "recent" : "grouped",
+    feed: recent ? "recent" : "grouped",
     merged: params.get("merged") === "1",
   };
 }
 
-/** Search string for a view (all defaults clears back to the overview). */
+/**
+ * Search string for a By page view. Always carries `view=pages`: on `/files`
+ * a bare `?path=` is an old bucket-browser link and 301s to Storage
+ * (`filesRouteRedirect`), so the drill-in must say which view it is.
+ */
 export function screenshotsSearch(
   project: string,
   path: string,
@@ -248,28 +257,31 @@ export function screenshotsSearch(
   merged = false,
 ): string {
   const params = new URLSearchParams();
+  params.set("view", "pages");
+  if (feed === "recent") params.set("sort", "recent");
   if (project) params.set("project", project);
   if (path) params.set("path", path);
   if (q) params.set("q", q);
-  if (feed === "recent") params.set("view", "recent");
   if (merged) params.set("merged", "1");
-  const qs = params.toString();
-  return qs ? `?${qs}` : "";
+  return `?${params.toString()}`;
 }
 
 export function screenshotsSearchFromView(view: ScreenshotsView): string {
   return screenshotsSearch(view.project, view.path, view.q, view.feed, view.merged);
 }
 
+/** `/account/workspaces/:name/files`, home of the By page view. */
+export function filesPagesPath(workspace: string): string {
+  return `/account/workspaces/${encodeURIComponent(workspace)}/files`;
+}
+
 /**
- * Shareable URL for a screenshots view. Project labels and page paths both
+ * Shareable URL for a By page view. Project labels and page paths both
  * contain slashes (`acme/web`, `/settings/team`), so they stay on the query
- * string — a pathname rest segment would need the same encoding and a second
- * Astro route. History participation is `writeScreenshotsLocation`'s job.
+ * string. History participation is `writeScreenshotsLocation`'s job.
  */
 export function screenshotsViewHref(workspace: string, view: ScreenshotsView): string {
-  const path = `/account/workspaces/${encodeURIComponent(workspace)}/screenshots`;
-  return `${path}${screenshotsSearchFromView(view)}`;
+  return `${filesPagesPath(workspace)}${screenshotsSearchFromView(view)}`;
 }
 
 export function screenshotsViewsEqual(a: ScreenshotsView, b: ScreenshotsView): boolean {

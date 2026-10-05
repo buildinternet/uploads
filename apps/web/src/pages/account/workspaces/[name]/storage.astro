@@ -1,0 +1,179 @@
+---
+/**
+ * Workspace Storage tab: the bucket browser (`WorkspaceFileTable`, "Browse"):
+ * every object by key, folder browse, metadata filters, copy link, delete.
+ * Visible to every member. Old bucket-browser deep links on `/files` and
+ * the bare workspace URL 301 here (`lib/workspace-route-redirects.ts`).
+ *
+ * SSR-first (plan 005, Phase B): when the request carries a session and the
+ * URL is the plain unfiltered root browse (no `?path=`, `meta.*`, or
+ * `name=`), server-fetch the workspace summary + default folder listing so
+ * first paint has real rows instead of the loading skeleton.
+ * `WorkspaceFileTable` itself renders here with no `client:*` directive, so
+ * Astro emits it as plain static HTML (no `astro-island`, no hydration
+ * bootstrap) — the seeded rows are real, visible markup even before any JS
+ * runs. A companion JSON `<script>` carries the same props, and a manual
+ * `hydrateRoot` mount (below, off `astro:page-load`/`astro:before-swap`,
+ * same shape every sibling workspace-tab page already uses) attaches
+ * interactivity to that exact markup afterwards.
+ *
+ * Phase A prototyped `client:load` instead and rejected it: it hydrates
+ * fine in a production build, but in `astro dev` it 404s fetching
+ * `@astrojs/react`'s Fast-Refresh bootstrap before hydration ever starts —
+ * the exact class of bug this file's `astro.config.mjs` already documents
+ * and works around by keeping `client:*` out of this codebase entirely
+ * (`vite.server.hmr = false` only dodges it for the manual-mount path this
+ * page is back to using). `client:load` also opts out of the
+ * `astro:before-swap` teardown every sibling tab relies on for clean
+ * ClientRouter re-mounts. See plan 005's review-gate notes for the full
+ * writeup.
+ */
+import { env } from "cloudflare:workers";
+import WorkspaceLayout from "../../../../layouts/WorkspaceLayout.astro";
+import StorageBucketSection from "../../../../components/workspace/StorageBucketSection.astro";
+import { WorkspaceFileTable, type ListingState } from "../../../../components/WorkspaceFileTable";
+import { getWorkspaceSummary, listWorkspaceFolder } from "../../../../lib/api-client";
+import { serverApiFetchImpl } from "../../../../lib/api-proxy";
+import { resolveSignedInOrigins } from "../../../../lib/signed-in-page";
+import { isBrowseWorkspace, readBrowseLocation } from "../../../../lib/workspace-browse-url";
+import { readSearchFilters, readSearchName } from "../../../../lib/workspace-search-url";
+import type { WorkspaceInfoStatus } from "../../../../lib/workspace-file-row";
+
+export const prerender = false;
+
+const nameParam = Astro.params.name ?? "";
+const workspace = isBrowseWorkspace(nameParam) ? nameParam : "";
+if (!workspace) return Astro.redirect("/account/workspaces");
+
+const tip = {
+  body: "Attach uploads to a pull request with <code>uploads put ./shot.png --pr 123</code> — they collect into one managed comment.",
+};
+
+const { apiOrigin } = resolveSignedInOrigins();
+const cookie = Astro.request.headers.get("cookie") ?? "";
+const initialSearch = Astro.url.search;
+
+let initialInfo: WorkspaceInfoStatus | undefined;
+let initialListing: ListingState | undefined;
+
+if (cookie.trim()) {
+  // Only seed the listing for the plain root browse — a deep link into a
+  // folder or an active search needs a *different* fetch than "default,
+  // unfiltered, root", and seeding the wrong data would show rows that don't
+  // match the breadcrumbs/chips the same URL seeds on the client. The
+  // workspace-info seed has no such constraint (its render is identical
+  // regardless of URL), so it's fetched unconditionally below.
+  const isDefaultBrowse =
+    readBrowseLocation(initialSearch, Astro.url.pathname).path === "" &&
+    readSearchFilters(initialSearch).length === 0 &&
+    !readSearchName(initialSearch);
+
+  const fetchImpl = serverApiFetchImpl(env, Astro.request);
+  const [summary, listing] = await Promise.all([
+    getWorkspaceSummary(apiOrigin, workspace, { cookie, fetchImpl }),
+    isDefaultBrowse
+      ? listWorkspaceFolder(apiOrigin, workspace, { cookie, fetchImpl })
+      : Promise.resolve(null),
+  ]);
+
+  if (summary.kind === "success") {
+    initialInfo = { status: "ready", hasPublicUrl: summary.workspace.hasPublicUrl };
+    if (listing) {
+      initialListing = {
+        status: "ok",
+        files: listing.files,
+        prefixes: listing.prefixes,
+        cursor: listing.cursor,
+      };
+    }
+  }
+}
+
+// Carries the exact same props into the client mount script below (plain
+// `<script>`, not `client:*` — see the file-level doc comment for why).
+// `<`-escaped so a filename/metadata value containing `</script>` can't
+// break out of the tag; this is the same data `WorkspaceFileTable` above
+// already rendered, so nothing here is newly untrusted.
+const filesSeedJson = JSON.stringify({
+  apiOrigin,
+  workspace,
+  initialSearch,
+  initialListing,
+  initialInfo,
+}).replace(/</g, "\\u003c");
+---
+
+<WorkspaceLayout workspace={workspace} tip={tip}>
+  <div
+    id="storage-moved-notice"
+    class="ul-callout mb-4 flex items-start justify-between gap-3"
+    role="status"
+    hidden
+  >
+    <p class="m-0">
+      <strong>Files moved here.</strong> This tab is the full bucket browser, now called Storage. The
+      Files tab groups uploads by the page or pull request they came from.
+    </p>
+    <button type="button" class="ul-btn ul-btn--ghost" data-storage-moved-dismiss>Dismiss</button>
+  </div>
+  <div id="ws-files-table">
+    <WorkspaceFileTable
+      apiOrigin={apiOrigin}
+      workspace={workspace}
+      initialSearch={initialSearch}
+      initialListing={initialListing}
+      initialInfo={initialInfo}
+    />
+  </div>
+  <script type="application/json" id="ws-files-seed" set:html={filesSeedJson} />
+  <StorageBucketSection />
+
+  <script>
+    import { onAstroPageLoad } from "../../../../lib/account-shell";
+    import { createIslandMounter } from "../../../../lib/react-island";
+    import type { ListingState } from "../../../../components/WorkspaceFileTable";
+    import type { WorkspaceInfoStatus } from "../../../../lib/workspace-file-row";
+    import { browserStore } from "../../../../lib/workspace-cache";
+    import {
+      dismissStorageMovedNotice,
+      isStorageMovedNoticeDismissed,
+    } from "../../../../lib/storage-moved-notice";
+
+    interface FilesSeed {
+      apiOrigin: string;
+      workspace: string;
+      initialSearch: string;
+      initialListing?: ListingState;
+      initialInfo?: WorkspaceInfoStatus;
+    }
+
+    // `WorkspaceFileTable` composes its own IslandErrorBoundary, so mounting it
+    // directly matches the SSR'd tree and hydrateRoot reconciles cleanly.
+    const boot = createIslandMounter<FilesSeed>({
+      mountId: "ws-files-table",
+      seedId: "ws-files-seed",
+      load: () =>
+        import("../../../../components/WorkspaceFileTable").then((m) => m.WorkspaceFileTable),
+    });
+
+    // astro:page-load fires on the initial load too (same as every sibling
+    // tab), so this single registration mounts on first load and on nav —
+    // no separate eager call, which would double-mount + double-fetch.
+    onAstroPageLoad(() => {
+      void boot();
+      const notice = document.getElementById("storage-moved-notice");
+      if (!notice) return;
+      const store = browserStore();
+      if (isStorageMovedNoticeDismissed(store)) return;
+      notice.hidden = false;
+      notice.querySelector<HTMLButtonElement>("[data-storage-moved-dismiss]")?.addEventListener(
+        "click",
+        () => {
+          notice.hidden = true;
+          dismissStorageMovedNotice(store);
+        },
+        { once: true },
+      );
+    });
+  </script>
+</WorkspaceLayout>

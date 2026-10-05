@@ -42,8 +42,16 @@ describe.each([
   { path: "/account/workspaces/new", title: "New workspace · uploads.sh" },
   { path: "/account/workspaces/buildinternet", title: "buildinternet · uploads.sh" },
   {
-    path: "/account/workspaces/buildinternet/galleries",
-    title: "Galleries · buildinternet · uploads.sh",
+    path: "/account/workspaces/buildinternet/files",
+    title: "buildinternet · uploads.sh",
+  },
+  {
+    path: "/account/workspaces/buildinternet/storage",
+    title: "buildinternet · uploads.sh",
+  },
+  {
+    path: "/account/workspaces/buildinternet/links",
+    title: "buildinternet · uploads.sh",
   },
   {
     path: "/account/workspaces/buildinternet/people",

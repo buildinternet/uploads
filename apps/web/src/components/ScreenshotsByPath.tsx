@@ -62,6 +62,7 @@ import { mediaExtLabel } from "../lib/media-tile";
 import { onSession } from "../lib/account-shell";
 import { makeFileOpener, newTabLinkProps, type FileOpener } from "../lib/file-opener";
 import {
+  filesPagesPath,
   filterCatalog,
   focusIsKeyboardDriven,
   formatShotCount,
@@ -98,7 +99,7 @@ const PREVIEW_PATHS_PER_PROJECT = 3;
 const EMPTY_CTA_CMD = "uploads put ./shot.png --meta path=/settings";
 
 /**
- * Gallery-style empty state (renderGalleriesEmptyHtml's markup, React-side):
+ * Gallery-style empty state (the shared Empty card shape, React-side):
  * a title, a one-line hint, and ONE copyable command. `put` is the general
  * upload path; `--meta path=` is what actually groups the file here. The
  * rail tip still carries the how-grouping-works detail.
@@ -847,13 +848,13 @@ function ScreenshotsByPathInner({
 
   // ClientRouter also listens for popstate and would treat a query-only
   // change as a full page swap. While this island is mounted and the
-  // destination is still this screenshots URL, steal the event in capture
+  // destination is still the Files By page view, steal the event in capture
   // and update `view` in place. Leaving the page (sidebar, browser Back
   // off the overview) does not match, so ClientRouter handles that swap.
   useEffect(() => {
-    const screenshotsPath = `/account/workspaces/${encodeURIComponent(workspace)}/screenshots`;
+    const pagesPath = filesPagesPath(workspace);
     const onPop = (event: PopStateEvent) => {
-      if (window.location.pathname !== screenshotsPath) return;
+      if (window.location.pathname !== pagesPath) return;
       event.stopImmediatePropagation();
       const next = readScreenshotsView(window.location.search);
       setView((prev) => (screenshotsViewsEqual(prev, next) ? prev : next));

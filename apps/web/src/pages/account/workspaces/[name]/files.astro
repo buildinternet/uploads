@@ -1,42 +1,47 @@
 ---
 /**
- * Workspace files — `WorkspaceLayout` + file table. Sibling of screenshots
- * (the workspace home). The bare `/account/workspaces/:name` URL redirects
- * here only for files-tab deep links (`?path=`, `meta.*`, `name=`, `view=`);
- * everything else goes to screenshots.
+ * Workspace Files tab. Until slice 4 adds the By pull request and By repo
+ * views, every `/files` URL renders the By page view: `ScreenshotsByPath`
+ * grouped by `path` metadata. Old bucket-browser deep links (`?prefix=`,
+ * `?path=` without `view=pages`, `meta.*`, `name=`, `view=list|grid`) 301 to
+ * Storage before anything renders (`filesRouteRedirect`).
  *
- * SSR-first (plan 005, Phase B): when the request carries a session and the
- * URL is the plain unfiltered root browse (no `?path=`, `meta.*`, or
- * `name=`), server-fetch the workspace summary + default folder listing so
- * first paint has real rows instead of the loading skeleton.
- * `WorkspaceFileTable` itself renders here with no `client:*` directive, so
- * Astro emits it as plain static HTML (no `astro-island`, no hydration
- * bootstrap) — the seeded rows are real, visible markup even before any JS
- * runs. A companion JSON `<script>` carries the same props, and a manual
- * `hydrateRoot` mount (below, off `astro:page-load`/`astro:before-swap`,
- * same shape every sibling workspace-tab page already uses) attaches
- * interactivity to that exact markup afterwards.
+ * `WorkspaceLayout` + the `ScreenshotsByPath` island, own mount id. The rail
+ * shows usage meters (`showUsage`) because this is where people land most
+ * often; quick actions stay off.
  *
- * Phase A prototyped `client:load` instead and rejected it: it hydrates
- * fine in a production build, but in `astro dev` it 404s fetching
- * `@astrojs/react`'s Fast-Refresh bootstrap before hydration ever starts —
- * the exact class of bug this file's `astro.config.mjs` already documents
- * and works around by keeping `client:*` out of this codebase entirely
- * (`vite.server.hmr = false` only dodges it for the manual-mount path this
- * page is back to using). `client:load` also opts out of the
- * `astro:before-swap` teardown every sibling tab relies on for clean
- * ClientRouter re-mounts. See plan 005's review-gate notes for the full
- * writeup.
+ * SSR-first (plan 006, following plan 005's `WorkspaceFileTable`/`storage.astro`
+ * shape): when the request carries a session, server-fetch the workspace
+ * summary + by-path overview so first paint has real groups instead of the
+ * loading skeleton. `ScreenshotsByPath` itself renders here with no
+ * `client:*` directive, so Astro emits it as plain static HTML (no
+ * `astro-island`, no hydration bootstrap) — the seeded groups are real,
+ * visible markup even before any JS runs. A companion JSON `<script>` carries
+ * the same props, and a manual `hydrateRoot` mount (below, off
+ * `astro:page-load`/`astro:before-swap`, same shape every sibling
+ * workspace-tab page already uses) attaches interactivity to that exact
+ * markup afterwards. See `storage.astro`'s doc comment for why this codebase
+ * uses a manual mount instead of `client:load`.
+ *
+ * Unlike the Storage tab's `listWorkspaceFolder` (which depends on the current
+ * folder, so plan 005 only seeds it for the plain root browse),
+ * `getWorkspaceFilesByPath` returns the by-path overview for the current
+ * merge filter (`?merged=1` or the default unfiltered catalog). `?project=`
+ * and `?q=` only change how `ScreenshotsByPath` filters that same payload,
+ * and `?path=` switches to a *different* client-side fetch (drill-in search).
+ * The seed below always runs when a session cookie is present, not gated to
+ * a "default view" URL the way plan 005's listing seed is.
  */
 import { env } from "cloudflare:workers";
 import WorkspaceLayout from "../../../../layouts/WorkspaceLayout.astro";
-import { WorkspaceFileTable, type ListingState } from "../../../../components/WorkspaceFileTable";
-import { getWorkspaceSummary, listWorkspaceFolder } from "../../../../lib/api-client";
+import { ScreenshotsByPath, type OverviewState } from "../../../../components/ScreenshotsByPath";
+import { getWorkspaceFilesByPath, getWorkspaceSummary } from "../../../../lib/api-client";
 import { serverApiFetchImpl } from "../../../../lib/api-proxy";
 import { resolveSignedInOrigins } from "../../../../lib/signed-in-page";
-import { isBrowseWorkspace, readBrowseLocation } from "../../../../lib/workspace-browse-url";
-import { readSearchFilters, readSearchName } from "../../../../lib/workspace-search-url";
+import { isBrowseWorkspace } from "../../../../lib/workspace-browse-url";
+import { filesRouteRedirect } from "../../../../lib/workspace-route-redirects";
 import type { WorkspaceInfoStatus } from "../../../../lib/workspace-file-row";
+import { readScreenshotsView } from "../../../../lib/workspace-screenshots";
 
 export const prerender = false;
 
@@ -44,97 +49,100 @@ const nameParam = Astro.params.name ?? "";
 const workspace = isBrowseWorkspace(nameParam) ? nameParam : "";
 if (!workspace) return Astro.redirect("/account/workspaces");
 
+// Old bucket-browser deep links go to Storage. Keep this call at the top of
+// the frontmatter, separate from the By page seed below (slice 4 rewrites
+// this page and must keep the redirect).
+const storageTarget = filesRouteRedirect(workspace, Astro.url.search);
+if (storageTarget) return Astro.redirect(storageTarget, 301);
+
 const tip = {
-  body: "Attach uploads to a pull request with <code>uploads put ./shot.png --pr 123</code> — they collect into one managed comment.",
+  body: "Groups come from metadata: <code>path</code> for pages; <code>repo</code>, <code>app</code>, or the URL host for projects.",
+  href: "/docs/attach-pull-request-images#put",
+  linkLabel: "How grouping works",
 };
 
 const { apiOrigin } = resolveSignedInOrigins();
 const cookie = Astro.request.headers.get("cookie") ?? "";
 const initialSearch = Astro.url.search;
+const { merged: mergedOnly } = readScreenshotsView(initialSearch);
 
 let initialInfo: WorkspaceInfoStatus | undefined;
-let initialListing: ListingState | undefined;
+let initialOverview: OverviewState | undefined;
 
 if (cookie.trim()) {
-  // Only seed the listing for the plain root browse — a deep link into a
-  // folder or an active search needs a *different* fetch than "default,
-  // unfiltered, root", and seeding the wrong data would show rows that don't
-  // match the breadcrumbs/chips the same URL seeds on the client. The
-  // workspace-info seed has no such constraint (its render is identical
-  // regardless of URL), so it's fetched unconditionally below.
-  const isDefaultBrowse =
-    readBrowseLocation(initialSearch, Astro.url.pathname).path === "" &&
-    readSearchFilters(initialSearch).length === 0 &&
-    !readSearchName(initialSearch);
-
   const fetchImpl = serverApiFetchImpl(env, Astro.request);
-  const [summary, listing] = await Promise.all([
+  const [summary, overview] = await Promise.all([
     getWorkspaceSummary(apiOrigin, workspace, { cookie, fetchImpl }),
-    isDefaultBrowse
-      ? listWorkspaceFolder(apiOrigin, workspace, { cookie, fetchImpl })
-      : Promise.resolve(null),
+    getWorkspaceFilesByPath(apiOrigin, workspace, {
+      cookie,
+      fetchImpl,
+      merged: mergedOnly,
+    }),
   ]);
 
   if (summary.kind === "success") {
     initialInfo = { status: "ready", hasPublicUrl: summary.workspace.hasPublicUrl };
-    if (listing) {
-      initialListing = {
-        status: "ok",
-        files: listing.files,
-        prefixes: listing.prefixes,
-        cursor: listing.cursor,
-      };
-    }
+  }
+  if (overview.kind === "ok") {
+    initialOverview = {
+      status: "ready",
+      groups: overview.groups,
+      catalog: overview.catalog,
+      projects: overview.projects,
+      latest: overview.latest,
+      truncated: overview.truncated,
+      catalogTruncated: overview.catalogTruncated,
+    };
   }
 }
 
 // Carries the exact same props into the client mount script below (plain
 // `<script>`, not `client:*` — see the file-level doc comment for why).
 // `<`-escaped so a filename/metadata value containing `</script>` can't
-// break out of the tag; this is the same data `WorkspaceFileTable` above
+// break out of the tag; this is the same data `ScreenshotsByPath` above
 // already rendered, so nothing here is newly untrusted.
-const filesSeedJson = JSON.stringify({
+const screenshotsSeedJson = JSON.stringify({
   apiOrigin,
   workspace,
   initialSearch,
-  initialListing,
+  initialOverview,
   initialInfo,
 }).replace(/</g, "\\u003c");
 ---
 
-<WorkspaceLayout workspace={workspace} tip={tip}>
-  <div id="ws-files-table">
-    <WorkspaceFileTable
+<WorkspaceLayout workspace={workspace} tip={tip} showUsage showQuickActions={false}>
+  <div id="ws-screenshots">
+    <ScreenshotsByPath
       apiOrigin={apiOrigin}
       workspace={workspace}
       initialSearch={initialSearch}
-      initialListing={initialListing}
+      initialOverview={initialOverview}
       initialInfo={initialInfo}
     />
   </div>
-  <script type="application/json" id="ws-files-seed" set:html={filesSeedJson} />
+  <script type="application/json" id="ws-screenshots-seed" set:html={screenshotsSeedJson} />
 
   <script>
     import { onAstroPageLoad } from "../../../../lib/account-shell";
     import { createIslandMounter } from "../../../../lib/react-island";
-    import type { ListingState } from "../../../../components/WorkspaceFileTable";
+    import type { OverviewState } from "../../../../components/ScreenshotsByPath";
     import type { WorkspaceInfoStatus } from "../../../../lib/workspace-file-row";
 
-    interface FilesSeed {
+    interface ScreenshotsSeed {
       apiOrigin: string;
       workspace: string;
       initialSearch: string;
-      initialListing?: ListingState;
+      initialOverview?: OverviewState;
       initialInfo?: WorkspaceInfoStatus;
     }
 
-    // `WorkspaceFileTable` composes its own IslandErrorBoundary, so mounting it
+    // `ScreenshotsByPath` composes its own IslandErrorBoundary, so mounting it
     // directly matches the SSR'd tree and hydrateRoot reconciles cleanly.
-    const boot = createIslandMounter<FilesSeed>({
-      mountId: "ws-files-table",
-      seedId: "ws-files-seed",
+    const boot = createIslandMounter<ScreenshotsSeed>({
+      mountId: "ws-screenshots",
+      seedId: "ws-screenshots-seed",
       load: () =>
-        import("../../../../components/WorkspaceFileTable").then((m) => m.WorkspaceFileTable),
+        import("../../../../components/ScreenshotsByPath").then((m) => m.ScreenshotsByPath),
     });
 
     // astro:page-load fires on the initial load too (same as every sibling

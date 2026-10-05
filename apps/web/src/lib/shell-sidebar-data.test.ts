@@ -71,38 +71,56 @@ describe("accountNavSections", () => {
     expect(sections[0]!.items[1]!.current).toBe(true);
   });
 
-  it("adds the workspace group with the active tab marked", () => {
+  it("adds the workspace group in the new tab order with the active tab marked", () => {
     const sections = accountNavSections({
-      pathname: "/account/workspaces/acme/galleries",
+      pathname: "/account/workspaces/acme/links",
       workspace: "acme",
       section: "workspaces",
     });
     expect(sections.map((s) => s.label)).toEqual(["Workspace", "Personal"]);
     const items = sections[0]!.items;
     expect(items.map((i) => i.label)).toEqual([
-      "Screenshots",
       "Files",
-      "Galleries",
+      "Links",
       "People",
+      "Storage",
       "Billing",
       "Settings",
     ]);
-    expect(items.filter((i) => i.current).map((i) => i.label)).toEqual(["Galleries"]);
-    expect(items[0]!.href).toBe("/account/workspaces/acme/screenshots");
+    expect(items.map((i) => i.icon)).toEqual([
+      "files",
+      "links",
+      "people",
+      "storage",
+      "billing",
+      "settings",
+    ]);
+    expect(items.filter((i) => i.current).map((i) => i.label)).toEqual(["Links"]);
+    expect(items[0]!.href).toBe("/account/workspaces/acme/files");
+    expect(items[3]!.href).toBe("/account/workspaces/acme/storage");
   });
 
-  it("treats the bare workspace URL as screenshots", () => {
+  it("treats the bare workspace URL and PR pages as Files", () => {
+    for (const pathname of [
+      "/account/workspaces/acme",
+      "/account/workspaces/acme/files/o/r/pull/3",
+    ]) {
+      const sections = accountNavSections({ pathname, workspace: "acme", section: "workspaces" });
+      expect(sections[0]!.items.filter((i) => i.current).map((i) => i.label)).toEqual(["Files"]);
+    }
+  });
+
+  it("marks Storage current on its tab and not Settings", () => {
     const sections = accountNavSections({
-      pathname: "/account/workspaces/acme",
+      pathname: "/account/workspaces/acme/storage",
       workspace: "acme",
       section: "workspaces",
     });
-    expect(sections[0]!.items.filter((i) => i.current).map((i) => i.label)).toEqual([
-      "Screenshots",
-    ]);
+    expect(sections[0]!.items.filter((i) => i.current).map((i) => i.label)).toEqual(["Storage"]);
+    expect(sections[0]!.items.some((i) => i.nested)).toBe(false);
   });
 
-  it("nests the settings sub-pages under settings only on settings routes", () => {
+  it("nests GitHub comment and Service tokens under Settings only on settings routes", () => {
     const plain = accountNavSections({
       pathname: "/account/workspaces/acme/people",
       workspace: "acme",
@@ -111,27 +129,17 @@ describe("accountNavSections", () => {
     expect(plain[0]!.items.some((i) => i.nested)).toBe(false);
 
     const settings = accountNavSections({
-      pathname: "/account/workspaces/acme/settings/storage",
-      workspace: "acme",
-      section: "workspaces",
-    });
-    const nested = settings[0]!.items.filter((i) => i.nested);
-    expect(nested.map((i) => i.label)).toEqual(["GitHub comment", "Storage", "Service tokens"]);
-    expect(nested.map((i) => i.current)).toEqual([false, true, false]);
-    expect(nested[1]!.href).toBe("/account/workspaces/acme/settings/storage");
-    expect(nested[2]!.href).toBe("/account/workspaces/acme/settings/tokens");
-  });
-
-  it("marks the service tokens sub-page current on its route", () => {
-    const sections = accountNavSections({
       pathname: "/account/workspaces/acme/settings/tokens",
       workspace: "acme",
       section: "workspaces",
     });
-    const settingsRow = sections[0]!.items.find((i) => i.label === "Settings");
+    const settingsRow = settings[0]!.items.find((i) => i.label === "Settings");
     expect(settingsRow?.current).toBe(true);
-    const nested = sections[0]!.items.filter((i) => i.nested);
-    expect(nested.map((i) => i.current)).toEqual([false, false, true]);
+    const nested = settings[0]!.items.filter((i) => i.nested);
+    expect(nested.map((i) => i.label)).toEqual(["GitHub comment", "Service tokens"]);
+    expect(nested.map((i) => i.current)).toEqual([false, true]);
+    expect(nested[0]!.href).toBe("/account/workspaces/acme/settings");
+    expect(nested[1]!.href).toBe("/account/workspaces/acme/settings/tokens");
   });
 
   it("marks the comment sub-page current on the settings root", () => {
@@ -141,7 +149,7 @@ describe("accountNavSections", () => {
       section: "workspaces",
     });
     const nested = sections[0]!.items.filter((i) => i.nested);
-    expect(nested.map((i) => i.current)).toEqual([true, false, false]);
+    expect(nested.map((i) => i.current)).toEqual([true, false]);
   });
 
   it("encodes the workspace slug in hrefs", () => {
@@ -150,7 +158,7 @@ describe("accountNavSections", () => {
       workspace: "a b",
       section: "profile",
     });
-    expect(sections[0]!.items[0]!.href).toBe("/account/workspaces/a%20b/screenshots");
+    expect(sections[0]!.items[0]!.href).toBe("/account/workspaces/a%20b/files");
   });
 
   it("marks no workspace tab current on a personal route", () => {
@@ -204,9 +212,9 @@ describe("workspaceSwitcherData", () => {
     expect(data.options.map((o) => o.current)).toEqual([true, false]);
   });
 
-  it("falls back to screenshots with no active tab", () => {
+  it("falls back to Files with no active tab", () => {
     expect(workspaceSwitcherData(sample)!.options[0]!.href).toBe(
-      "/account/workspaces/buildinternet/screenshots",
+      "/account/workspaces/buildinternet/files",
     );
   });
 

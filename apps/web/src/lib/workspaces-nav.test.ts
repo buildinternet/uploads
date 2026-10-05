@@ -100,47 +100,57 @@ describe("workspaces cache", () => {
 });
 
 describe("workspaceTabFromPathname", () => {
+  const tab = (rest: string) =>
+    workspaceTabFromPathname(`/account/workspaces/buildinternet${rest}`);
+
   it("maps workspace shell paths to tab ids", () => {
-    expect(workspaceTabFromPathname("/account/workspaces/buildinternet")).toBe("screenshots");
-    expect(workspaceTabFromPathname("/account/workspaces/buildinternet/")).toBe("screenshots");
-    expect(workspaceTabFromPathname("/account/workspaces/buildinternet/files")).toBe("files");
-    expect(workspaceTabFromPathname("/account/workspaces/buildinternet/galleries")).toBe(
-      "galleries",
-    );
-    expect(workspaceTabFromPathname("/account/workspaces/buildinternet/people")).toBe("people");
-    expect(workspaceTabFromPathname("/account/workspaces/buildinternet/invite")).toBe("people");
-    expect(workspaceTabFromPathname("/account/workspaces/buildinternet/billing")).toBe("billing");
-    expect(workspaceTabFromPathname("/account/workspaces/buildinternet/settings")).toBe("settings");
-    expect(workspaceTabFromPathname("/account/workspaces/buildinternet/settings/tokens")).toBe(
-      "settings",
-    );
+    expect(tab("")).toBe("files");
+    expect(tab("/")).toBe("files");
+    expect(tab("/files")).toBe("files");
+    expect(tab("/links")).toBe("links");
+    expect(tab("/people")).toBe("people");
+    expect(tab("/invite")).toBe("people");
+    expect(tab("/storage")).toBe("storage");
+    expect(tab("/billing")).toBe("billing");
+    expect(tab("/settings")).toBe("settings");
+    expect(tab("/settings/tokens")).toBe("settings");
+  });
+
+  it("keeps Files current on its repo and PR pages", () => {
+    expect(tab("/files/acme/web")).toBe("files");
+    expect(tab("/files/acme/web/pull/12")).toBe("files");
+  });
+
+  it("rejects unknown and over-deep routes", () => {
+    expect(tab("/nope")).toBe("");
+    expect(tab("/constructor")).toBe("");
+    expect(tab("/links/extra")).toBe("");
+    expect(tab("/settings/a/b")).toBe("");
   });
 
   it("maps settings routes to their sub-page", () => {
     expect(workspaceSettingsSubpageFromPathname("/account/workspaces/acme/settings")).toBe(
       "comment",
     );
-    expect(workspaceSettingsSubpageFromPathname("/account/workspaces/acme/settings/storage")).toBe(
-      "storage",
-    );
     expect(workspaceSettingsSubpageFromPathname("/account/workspaces/acme/settings/tokens")).toBe(
       "tokens",
+    );
+    expect(workspaceSettingsSubpageFromPathname("/account/workspaces/acme/settings/storage")).toBe(
+      "",
     );
     expect(workspaceSettingsSubpageFromPathname("/account/workspaces/acme/settings/nope")).toBe("");
     expect(workspaceSettingsSubpageFromPathname("/account/workspaces/acme/people")).toBe("");
   });
 
-  it("maps /screenshots to the screenshots tab", () => {
-    expect(workspaceTabFromPathname("/account/workspaces/acme/screenshots")).toBe("screenshots");
-  });
-
-  it("builds the screenshots home and files tab paths", () => {
-    expect(workspaceHomePath("acme")).toBe("/account/workspaces/acme/screenshots");
-    expect(workspacePath("acme", "files")).toBe("/account/workspaces/acme/files");
-    expect(workspacePath("acme", "")).toBe("/account/workspaces/acme/screenshots");
+  it("builds the Files home and tab paths", () => {
+    expect(workspaceHomePath("acme")).toBe("/account/workspaces/acme/files");
+    expect(workspacePath("acme", "storage")).toBe("/account/workspaces/acme/storage");
+    expect(workspacePath("acme", "links")).toBe("/account/workspaces/acme/links");
+    expect(workspacePath("acme", "")).toBe("/account/workspaces/acme/files");
+    expect(workspaceOpenTab("storage")).toBe("storage");
     expect(workspaceOpenTab("files")).toBe("files");
-    expect(workspaceOpenTab("screenshots")).toBe("screenshots");
-    expect(workspaceOpenTab(null)).toBe("screenshots");
+    expect(workspaceOpenTab("screenshots")).toBe("files");
+    expect(workspaceOpenTab(null)).toBe("files");
   });
 
   it("returns empty outside the workspace shell", () => {
