@@ -1,16 +1,22 @@
 /**
- * One media tile for the Files views and the By page strips. Moved from
- * ScreenshotsByPath.tsx; Task 5 adds video and poster rendering.
+ * One media tile for the Files views and the By page strips. Images keep
+ * the strip's resized thumbnail and intrinsic aspect ratio; videos and PDF
+ * posters render through slice 2's MediaTile (same rules as the public live
+ * link page, including its play badge); withheld files show a lock, removed
+ * ones say so, and anything else shows its extension. Renders as an <a> when
+ * the destination is known at render time and a <button> only for the
+ * private/BYO signed-URL fallback.
  */
 import { useState, type ReactNode } from "react";
+import { MediaTile } from "../MediaTile";
 import { newTabLinkProps } from "../../lib/file-opener";
-import { mediaExtLabel } from "../../lib/media-tile";
+import { mediaExtLabel, mediaTileView } from "../../lib/media-tile";
 import { thumbUrl } from "../../lib/thumb-url";
 import {
   focusIsKeyboardDriven,
   leafName,
-  shotKindFromKey,
   shotPreviewCaption,
+  shotTileInput,
 } from "../../lib/workspace-screenshots";
 
 export interface ShotThumbItem {
@@ -24,6 +30,10 @@ export interface ShotThumbItem {
   updatedAt?: string;
   uploadedAt?: string;
   metadata?: Record<string, string>;
+  /** Scope/feed DTOs carry these; by-path items do not. */
+  status?: string;
+  contentType?: string | null;
+  posterUrl?: string | null;
 }
 
 export type PreviewCaption = {
@@ -78,10 +88,10 @@ export function ShotThumb({
   onPreviewLeave?: () => void;
 }) {
   const name = leafName(item.key);
-  const kind = shotKindFromKey(item.key);
+  const tileInput = shotTileInput(item);
+  const view = mediaTileView(tileInput);
   const [broken, setBroken] = useState(false);
-  const showLock = kind === "image" && item.url === null;
-  const showImage = kind === "image" && !!item.embedUrl && !broken;
+  const imageSrc = view.mode === "image" && !broken ? view.src : null;
   // State stays in the accessible name, not a native `title` tooltip — that
   // tooltip sat on top of the hover preview.
   const stateSuffix = item.state ? ` (${item.state})` : "";
@@ -89,7 +99,7 @@ export function ShotThumb({
   const base = shotPreviewCaption(item);
   const caption: PreviewCaption = base.pr ? { ...base, kind: ghKindValue } : base;
 
-  const previewSrc = showImage ? thumbUrl(item.embedUrl!, 1120) : null;
+  const previewSrc = imageSrc ? thumbUrl(imageSrc, 1120) : null;
   const shared = {
     className: "wsp-tile",
     "aria-label": `Open ${name}${stateSuffix}${caption.pr ? ` — ${caption.pr}` : ""}${paired ? " — has before/after pair" : ""}`,
@@ -109,25 +119,44 @@ export function ShotThumb({
     },
     onBlur: () => onPreviewLeave?.(),
   };
+
+  let media: ReactNode;
+  if (imageSrc) {
+    media = (
+      <span className="wsp-thumb" aria-hidden="true">
+        <img
+          src={thumbUrl(imageSrc, 560)}
+          alt=""
+          loading="lazy"
+          decoding="async"
+          ref={applyShotThumbAspect}
+          onLoad={(event) => applyShotThumbAspect(event.currentTarget)}
+          onError={() => setBroken(true)}
+        />
+      </span>
+    );
+  } else if (view.mode === "video" || view.mode === "poster") {
+    media = (
+      <span className="wsp-thumb wsp-thumb--media" aria-hidden="true">
+        <MediaTile item={tileInput} />
+      </span>
+    );
+  } else {
+    // image (broken), locked, missing, or ext
+    let label = mediaExtLabel(item.key);
+    if (view.mode === "locked") label = "🔒";
+    else if (view.mode === "missing") label = "removed";
+    else if (view.mode === "ext") label = view.label;
+    media = (
+      <span className="wsp-thumb wsp-thumb--tile" aria-hidden="true">
+        {label}
+      </span>
+    );
+  }
+
   const body = (
     <>
-      {showImage ? (
-        <span className="wsp-thumb" aria-hidden="true">
-          <img
-            src={thumbUrl(item.embedUrl!, 560)}
-            alt=""
-            loading="lazy"
-            decoding="async"
-            ref={applyShotThumbAspect}
-            onLoad={(event) => applyShotThumbAspect(event.currentTarget)}
-            onError={() => setBroken(true)}
-          />
-        </span>
-      ) : (
-        <span className="wsp-thumb wsp-thumb--tile" aria-hidden="true">
-          {showLock ? "🔒" : mediaExtLabel(item.key)}
-        </span>
-      )}
+      {media}
       {contextLabel && (
         <span className="wsp-state absolute top-1 left-1 rounded-full border border-line bg-panel px-[5px] py-px text-[12px] leading-[1.4] tracking-[0.04em] text-muted-foreground uppercase">
           {contextLabel}

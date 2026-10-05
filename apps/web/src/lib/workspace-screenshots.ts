@@ -8,6 +8,7 @@ import { fileTypeClassFromKey, type FileTypeClass } from "@uploads/comment-rende
 import { asPrState, type PrLabelInput } from "@uploads/ui/lib/pr-label";
 import type { GithubTitleMap } from "./api-client";
 import { filesBasePath, parseFileTypeParam, readFilesView } from "./files-view-state";
+import type { MediaTileInput } from "./media-tile";
 
 export type ShotKind = "image" | "video" | "other";
 
@@ -512,4 +513,28 @@ export function ghKindFallbackLabel(kind: string | undefined): string {
   if (kind === "pull") return "PR";
   if (kind === "issue" || kind === "issues") return "Issue";
   return kind || "GitHub";
+}
+
+/**
+ * `mediaTileView` / `MediaTile` input for a tile. The by-path payload has no
+ * `status`, so a null `url` (no public URL for this workspace) reads as
+ * withheld, which is the lock tile the strip already showed. A null
+ * `contentType` lets `mediaTileView` classify by key extension.
+ */
+export function shotTileInput(item: {
+  key: string;
+  url: string | null;
+  embedUrl: string | null;
+  status?: string;
+  contentType?: string | null;
+  posterUrl?: string | null;
+}): MediaTileInput {
+  return {
+    key: item.key,
+    status: item.status ?? (item.url === null ? "withheld" : "available"),
+    url: item.url,
+    embedUrl: item.embedUrl,
+    contentType: item.contentType ?? null,
+    posterUrl: item.posterUrl ?? null,
+  };
 }

@@ -23,6 +23,7 @@ import {
   type ScreenshotsView,
   shotKindFromKey,
   shotPreviewCaption,
+  shotTileInput,
   shotPreviewPosition,
   previewPrDisplay,
   ghKindFallbackLabel,
@@ -570,5 +571,38 @@ describe("ghKindFallbackLabel", () => {
     expect(ghKindFallbackLabel("issues")).toBe("Issue");
     expect(ghKindFallbackLabel("discussion")).toBe("discussion");
     expect(ghKindFallbackLabel(undefined)).toBe("GitHub");
+  });
+});
+
+describe("shotTileInput", () => {
+  it("treats a url-less item as withheld when no status is given", () => {
+    expect(shotTileInput({ key: "a.png", url: null, embedUrl: null })).toEqual({
+      key: "a.png",
+      status: "withheld",
+      url: null,
+      embedUrl: null,
+      contentType: null,
+      posterUrl: null,
+    });
+  });
+
+  it("keeps an explicit status, content type, and poster", () => {
+    expect(
+      shotTileInput({
+        key: "d.pdf",
+        url: "https://s/d.pdf",
+        embedUrl: null,
+        status: "available",
+        contentType: "application/pdf",
+        posterUrl: "https://s/d.poster.png",
+      }),
+    ).toEqual({
+      key: "d.pdf",
+      status: "available",
+      url: "https://s/d.pdf",
+      embedUrl: null,
+      contentType: "application/pdf",
+      posterUrl: "https://s/d.poster.png",
+    });
   });
 });

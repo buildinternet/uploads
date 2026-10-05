@@ -125,6 +125,11 @@ export function signedInCsp(authOrigin: string, apiOrigin: string): string {
     import.meta.env.DEV
       ? "img-src data: https: http://127.0.0.1:* http://localhost:*"
       : "img-src data: https:",
+    // `<video>` first-frame tiles (MediaTile on a poster-less video). Mirrors
+    // img-src; the public file page allows `media-src https:` the same way.
+    import.meta.env.DEV
+      ? "media-src https: http://127.0.0.1:* http://localhost:*"
+      : "media-src https:",
     // Dev tooling (in-app-browser/devtools instrumentation) occasionally
     // spawns a blob: worker in page context; with no worker-src the strict
     // script-src blocks it and logs a scary console error on signed-in
