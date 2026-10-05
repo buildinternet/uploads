@@ -23,9 +23,9 @@ import {
 
 /** Icon slot names. The island owns the glyph; props stay serializable JSON. */
 export type ShellNavIcon =
-  | "screenshots"
   | "files"
-  | "galleries"
+  | "links"
+  | "storage"
   | "people"
   | "billing"
   | "settings"
@@ -86,10 +86,10 @@ export interface ShellSidebarProps {
 }
 
 const TAB_ICONS: Record<WorkspaceNavTab, ShellNavIcon> = {
-  screenshots: "screenshots",
   files: "files",
-  galleries: "galleries",
+  links: "links",
   people: "people",
+  storage: "storage",
   billing: "billing",
   settings: "settings",
 };
@@ -151,13 +151,6 @@ export function accountNavSections(options: {
         label: "GitHub comment",
         href: base,
         current: subpage === "comment",
-        icon: "dot",
-        nested: true,
-      });
-      items.push({
-        label: "Storage",
-        href: `${base}/storage`,
-        current: subpage === "storage",
         icon: "dot",
         nested: true,
       });

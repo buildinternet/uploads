@@ -6,7 +6,7 @@
  * page content below keeps its own max-width column.
  *
  * Left: <Brand /> + optional badge.
- * Right (consistent on every surface): Screenshots (signed-in only) · Docs ·
+ * Right (consistent on every surface): Files (signed-in only) · Docs ·
  * Star on GitHub · <AuthIndicator /> (Sign in CTA, or avatar menu).
  *
  * The nav stays this short on purpose. Changelog lives in the footer under
@@ -48,7 +48,7 @@ const REPO = "https://github.com/buildinternet/uploads";
 const stars = await githubStarCount();
 
 // Section match, not exact match: /docs/agents should light up "Docs", and
-// /account/workspaces/acme/screenshots should light up "Screenshots".
+// /account/workspaces/acme/files should light up "Files".
 //
 // Normalize before comparing. Prerendered routes build to files, so at build
 // time this reads "/docs.html" rather than "/docs" — without stripping the
@@ -83,9 +83,9 @@ const inSection = (base: string) => path === base || path.startsWith(base + "/")
       <nav class="site-header__nav" aria-label="Site">
         {
           /*
-          Screenshots is signed-in only. AuthIndicator toggles
+          Files is signed-in only. AuthIndicator toggles
           [data-header-files] after the session check (optimistic paint from
-          session cache). The workspaces index auto-opens on screenshots.
+          session cache). The workspaces index auto-opens on Files.
         */
         }
         <a
@@ -93,7 +93,7 @@ const inSection = (base: string) => path === base || path.startsWith(base + "/")
           data-header-files
           href="/account/workspaces"
           aria-current={inSection("/account") ? "page" : undefined}
-          hidden>Screenshots</a
+          hidden>Files</a
         >
         <a
           class="site-header__link"

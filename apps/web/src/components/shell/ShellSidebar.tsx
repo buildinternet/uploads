@@ -25,11 +25,11 @@ import {
   CircleUser,
   CreditCard,
   Dot,
-  File,
-  Frame,
+  HardDrive,
   Images,
   KeyRound,
   LayoutGrid,
+  Link2,
   Mail,
   ChartColumn,
   Plus,
@@ -100,9 +100,9 @@ export interface ShellSidebarIslandProps extends ShellSidebarProps {
  * weight, so the collapsed icon rail stays consistent with the rest of the DS.
  */
 const ICON_MAP: Record<ShellNavIcon | "switcher" | "plus", LucideIcon> = {
-  screenshots: Frame,
-  files: File,
-  galleries: Images,
+  files: Images,
+  links: Link2,
+  storage: HardDrive,
   people: Users,
   billing: CreditCard,
   settings: Settings,
