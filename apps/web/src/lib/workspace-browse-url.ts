@@ -1,6 +1,6 @@
 /**
- * Deep links for the account file browser:
- *   /account/workspaces/<workspace>?path=screenshots/releases/
+ * Deep links for the account bucket browser (the Storage tab):
+ *   /account/workspaces/<workspace>/storage?path=screenshots/releases/
  *
  * Legacy query form (`?ws=`) is still parsed so old links and profile
  * bookmarks keep working; new writes prefer the path-based route.
@@ -49,6 +49,16 @@ export function resolveActiveWorkspace(pathname: string, bootGlobal = ""): strin
   return workspaceFromPathname(pathname) || bootGlobal || "";
 }
 
+/** `/account/workspaces/:name/storage`: the bucket browser (Storage tab). */
+export function workspaceStoragePath(workspace: string): string {
+  return `/account/workspaces/${encodeURIComponent(workspace)}/storage`;
+}
+
+/** The Storage tab, scrolled to its bucket configuration section. */
+export function workspaceStorageBucketHref(workspace: string): string {
+  return `${workspaceStoragePath(workspace)}#bucket`;
+}
+
 function hasControlChars(value: string): boolean {
   for (let i = 0; i < value.length; i++) {
     const code = value.charCodeAt(i);
@@ -86,7 +96,10 @@ export function readBrowseLocation(search: string, pathname = ""): BrowseLocatio
   const fromPath = pathname ? workspaceFromPathname(pathname) : "";
   const workspaceRaw = fromPath || (params.get("ws") ?? "").trim();
   const workspace = isBrowseWorkspace(workspaceRaw) ? workspaceRaw : "";
-  const path = workspace ? normalizeBrowsePath(params.get("path") ?? "") : "";
+  // `prefix` is a read-only alias: old bucket-browser links used it, and the
+  // `/files` → `/storage` redirect preserves query strings verbatim.
+  const rawPath = params.get("path") ?? params.get("prefix") ?? "";
+  const path = workspace ? normalizeBrowsePath(rawPath) : "";
   return { workspace, path };
 }
 
@@ -107,7 +120,7 @@ export function isFilesBrowseSearch(search: string): boolean {
 
 /**
  * Apply browse location onto a URL. When already under
- * `/account/workspaces/:name/files` (or navigating to one), the workspace
+ * `/account/workspaces/:name/storage` (or navigating to one), the workspace
  * lives in the pathname and `ws` is stripped from the query. Returns a new
  * URL for `history.replaceState`.
  */
@@ -117,10 +130,12 @@ export function applyBrowseLocation(current: URL, location: BrowseLocation): URL
   const path = workspace ? normalizeBrowsePath(location.path) : "";
 
   if (workspace) {
-    const filesPath = `/account/workspaces/${encodeURIComponent(workspace)}/files`;
-    if (next.pathname !== filesPath) next.pathname = filesPath;
+    const storagePath = workspaceStoragePath(workspace);
+    if (next.pathname !== storagePath) next.pathname = storagePath;
   }
   next.searchParams.delete("ws");
+  // Once the browser writes a location, `path` is the one canonical key.
+  next.searchParams.delete("prefix");
   if (path) next.searchParams.set("path", path);
   else next.searchParams.delete("path");
   return next;

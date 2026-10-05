@@ -2,7 +2,7 @@
  * The 3A workspace files tab — filter bar, chips ↔ breadcrumbs, a conditional
  * exact-PR-match banner, and the file listing (list or grid view: thumbnail,
  * size, type, visibility, `⋯` actions). The single island mounted by
- * `pages/account/workspaces/[name].astro`.
+ * `pages/account/workspaces/[name]/storage.astro`.
  *
  * Data source: `listWorkspaceFolder` when nothing is being filtered (folder
  * browse, URL-synced via `workspace-browse-url`), `searchWorkspaceFiles` when
@@ -74,6 +74,7 @@ import {
   normalizeBrowsePath,
   readBrowseLocation,
   replaceBrowseLocation,
+  workspaceStoragePath,
 } from "../lib/workspace-browse-url";
 import { replaceFilesView, resolveFilesView, type FilesView } from "../lib/workspace-files-view";
 import {
@@ -620,13 +621,10 @@ function WorkspaceFileTableInner({
   const seedSearch = initialSearch ?? (typeof window !== "undefined" ? window.location.search : "");
   // `readBrowseLocation` resolves workspace identity from the pathname; when
   // there's no `window` yet, synthesize this route's own pathname from the
-  // `workspace` prop (this component only ever mounts on
-  // `/account/workspaces/:name/files`) so the server's parse agrees with the
-  // client's.
+  // `workspace` prop (this component only ever mounts on the Storage tab) so
+  // the server's parse agrees with the client's.
   const seedPathname =
-    typeof window !== "undefined"
-      ? window.location.pathname
-      : `/account/workspaces/${encodeURIComponent(workspace)}/files`;
+    typeof window !== "undefined" ? window.location.pathname : workspaceStoragePath(workspace);
 
   const [info, setInfo] = useState<WorkspaceInfoStatus | { status: "loading" }>(
     () => initialInfo ?? { status: "loading" },
