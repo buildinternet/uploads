@@ -475,6 +475,8 @@ export async function deleteWorkspaceGallery(
   );
   if (result.kind === "unavailable") return result;
   if (result.response.status === 409) return { kind: "conflict" };
+  // Already deleted elsewhere: the row is gone either way, so treat it as deleted.
+  if (result.response.status === 404) return { kind: "success" };
   if (!result.response.ok) return { kind: "unavailable", reason: "server" };
   return { kind: "success" };
 }

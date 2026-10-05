@@ -114,8 +114,10 @@ export function titleRefs(rows: readonly LinkRow[]): string[] {
 
 /** Split refs into batches the titles route accepts (it caps refs per request). */
 export function chunkRefs(refs: readonly string[], size = GITHUB_TITLES_MAX_REFS): string[][] {
+  // A non-positive or non-finite size would never advance the loop.
+  const step = Number.isFinite(size) && size >= 1 ? Math.floor(size) : GITHUB_TITLES_MAX_REFS;
   const out: string[][] = [];
-  for (let i = 0; i < refs.length; i += size) out.push(refs.slice(i, i + size));
+  for (let i = 0; i < refs.length; i += step) out.push(refs.slice(i, i + step));
   return out;
 }
 

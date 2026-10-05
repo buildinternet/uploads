@@ -2199,6 +2199,27 @@ describe("deleteWorkspaceGallery", () => {
       deleteWorkspaceGallery("http://127.0.0.1:8787", "acme", "gal_1", 3),
     ).resolves.toEqual({ kind: "unavailable", reason: "server" });
   });
+
+  it("treats a 404 (already deleted elsewhere) as success", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 404 })),
+    );
+    await expect(
+      deleteWorkspaceGallery("http://127.0.0.1:8787", "acme", "gal_1", 3),
+    ).resolves.toEqual({ kind: "success" });
+  });
+
+  it("reports a transport failure as unavailable", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new TypeError("network down");
+      }),
+    );
+    const result = await deleteWorkspaceGallery("http://127.0.0.1:8787", "acme", "gal_1", 3);
+    expect(result.kind).toBe("unavailable");
+  });
 });
 
 describe("getMyWorkspaceGalleries version", () => {
