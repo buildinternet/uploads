@@ -234,7 +234,10 @@ function ScopePageInner({
           {number !== null ? `← ${repo}` : "← All repos"}
         </a>
         <div className="flex flex-wrap items-center gap-3">
-          <h1 className="m-0 min-w-0 flex-1 text-[19px] leading-[1.3] font-semibold [overflow-wrap:anywhere]">
+          {/* Full row: in this wrapping flex row a `flex-1` heading shrinks to
+              nothing beside the buttons and the label (PR number included)
+              ellipsizes away. The branch and actions wrap below it. */}
+          <h1 className="m-0 min-w-0 basis-full text-[19px] leading-[1.3] font-semibold [overflow-wrap:anywhere]">
             {prRef ? (
               <PrLabel
                 ghRef={prRef}
