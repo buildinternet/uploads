@@ -1,0 +1,97 @@
+---
+/**
+ * Files PR page (spec: "PR page and repo page"): `/files/:owner/:repo/pull/:number`.
+ * Canonical lowercase owner/repo and a leading-zero-free number (301
+ * otherwise). SSR-first like files.astro: seeded when the request carries a
+ * session, hydrated by the manual mounter below.
+ */
+import { env } from "cloudflare:workers";
+import WorkspaceLayout from "../../../../../../../../layouts/WorkspaceLayout.astro";
+import { ScopePage, type ScopePageProps } from "../../../../../../../../components/files/ScopePage";
+import { getWorkspaceSummary } from "../../../../../../../../lib/api-client";
+import { serverApiFetchImpl } from "../../../../../../../../lib/api-proxy";
+import { loadScopeFiles } from "../../../../../../../../lib/files-api";
+import {
+  canonicalScopePath,
+  filesViewHref,
+  readScopePageQuery,
+} from "../../../../../../../../lib/files-view-state";
+import { resolveSignedInOrigins } from "../../../../../../../../lib/signed-in-page";
+import { isBrowseWorkspace } from "../../../../../../../../lib/workspace-browse-url";
+
+export const prerender = false;
+
+const nameParam = Astro.params.name ?? "";
+const workspace = isBrowseWorkspace(nameParam) ? nameParam : "";
+if (!workspace) return Astro.redirect("/account/workspaces");
+
+const canonical = canonicalScopePath(workspace, {
+  owner: Astro.params.owner,
+  repo: Astro.params.repo,
+  number: Astro.params.number ?? "",
+});
+if (!canonical || canonical.number === null) {
+  return Astro.redirect(filesViewHref(workspace, "pulls"));
+}
+if (Astro.url.pathname.replace(/\/$/, "") !== canonical.path) {
+  return Astro.redirect(`${canonical.path}${Astro.url.search}`, 301);
+}
+
+const initialSearch = Astro.url.search;
+const { type } = readScopePageQuery(initialSearch);
+const { apiOrigin } = resolveSignedInOrigins();
+const cookie = Astro.request.headers.get("cookie") ?? "";
+const props: ScopePageProps = {
+  apiOrigin,
+  workspace,
+  repo: canonical.repo,
+  number: canonical.number,
+  initialSearch,
+};
+
+if (cookie.trim()) {
+  const fetchOpts = { cookie, fetchImpl: serverApiFetchImpl(env, Astro.request) };
+  const [summary, scope] = await Promise.all([
+    getWorkspaceSummary(apiOrigin, workspace, fetchOpts),
+    loadScopeFiles(
+      apiOrigin,
+      workspace,
+      { repo: canonical.repo, number: canonical.number, type },
+      fetchOpts,
+    ),
+  ]);
+  if (summary.kind === "success") {
+    props.initialInfo = { status: "ready", hasPublicUrl: summary.workspace.hasPublicUrl };
+  }
+  if (scope.ok) props.initialScope = scope.value;
+}
+
+// `<`-escaped so a filename or title containing `</script>` cannot break out.
+const seedJson = JSON.stringify(props).replace(/</g, "\\u003c");
+const tip = {
+  body: "Copy live link shares this pull request's files as they're pushed. Private files show as hidden.",
+  href: "/docs/attach-pull-request-images#put",
+  linkLabel: "Attach files to a PR",
+};
+---
+
+<WorkspaceLayout workspace={workspace} tip={tip} showQuickActions={false}>
+  <div id="ws-files-scope">
+    <ScopePage {...props} />
+  </div>
+  <script type="application/json" id="ws-files-scope-seed" set:html={seedJson} />
+
+  <script>
+    import { onAstroPageLoad } from "../../../../../../../../lib/account-shell";
+    import { createIslandMounter } from "../../../../../../../../lib/react-island";
+    import type { ScopePageProps } from "../../../../../../../../components/files/ScopePage";
+
+    const boot = createIslandMounter<ScopePageProps>({
+      mountId: "ws-files-scope",
+      seedId: "ws-files-scope-seed",
+      load: () =>
+        import("../../../../../../../../components/files/ScopePage").then((m) => m.ScopePage),
+    });
+    onAstroPageLoad(() => void boot());
+  </script>
+</WorkspaceLayout>
