@@ -11,7 +11,7 @@ import { IslandErrorBoundary } from "../IslandErrorBoundary";
 import type { RepoRow } from "../../lib/api-client";
 import { makeFileOpener, type FileOpener } from "../../lib/file-opener";
 import { loadRepos } from "../../lib/files-api";
-import { openPullsLabel, thumbToTile } from "../../lib/files-scope";
+import { openPullsLabel } from "../../lib/files-scope";
 import {
   filesRepoHref,
   filesSearch,
@@ -23,9 +23,12 @@ import { lastUpdatedLabel } from "../../lib/workspace-screenshots";
 import { CommandEmpty, RowsSkeleton } from "./FilesEmpty";
 import { TypeSelect } from "./FilterControls";
 import { GitHubMark } from "./gh-glyphs";
+import { LoadMoreFooter } from "./LoadMoreFooter";
 import { RowOverflowMenu, useLiveLink, type LiveLinkControls } from "./LiveLink";
-import { ShotThumb, type PreviewHandlers } from "./ShotThumb";
+import type { PreviewHandlers } from "./ShotThumb";
+import { ThumbStrip } from "./ThumbStrip";
 import { useCursorList } from "./useCursorList";
+import { useReplaceSearch } from "./useReplaceSearch";
 import { useShotPreview } from "./useShotPreview";
 import { InfoBlocked, useWorkspaceInfo } from "./useWorkspaceInfo";
 
@@ -78,11 +81,7 @@ function ReposViewInner({
   }, [workspace]);
 
   // filesSearch keeps `?view=repos`, so hydration never rewrites the URL to the default view.
-  useEffect(() => {
-    const target = window.location.pathname + filesSearch(query);
-    if (target === window.location.pathname + window.location.search) return;
-    window.history.replaceState(window.history.state, "", target);
-  }, [query]);
+  useReplaceSearch(filesSearch(query));
 
   if (info.status === "loading") return <RowsSkeleton rows={4} />;
   if (info.status !== "ready") return <InfoBlocked info={info} retry={retryInfo} />;
@@ -124,21 +123,7 @@ function ReposViewInner({
         </ul>
       )}
       {list.status === "ready" && list.nextCursor && (
-        <div className="flex items-center justify-center gap-3">
-          <button
-            type="button"
-            className="text-btn text-btn--boxed"
-            onClick={loadMore}
-            disabled={list.more === "loading"}
-          >
-            {list.more === "loading" ? "Loading…" : "Load more"}
-          </button>
-          {list.more === "error" && (
-            <span role="alert" className="text-[12px] text-muted-foreground">
-              Couldn’t load more. Try again.
-            </span>
-          )}
-        </div>
+        <LoadMoreFooter more={list.more} onLoadMore={loadMore} />
       )}
       {preview.layer}
       {liveLink.dialog}
@@ -190,22 +175,7 @@ function RepoRowItem({
           onCopyLiveLink={() => void liveLink.copy(scope)}
         />
       </div>
-      {row.thumbnails.length > 0 && (
-        <div className="wsp-strip">
-          {row.thumbnails.map((thumb) => {
-            const tile = thumbToTile(thumb);
-            return (
-              <ShotThumb
-                key={tile.key}
-                item={tile}
-                href={opener.href(tile)}
-                onOpen={() => opener.activate(tile)}
-                {...preview}
-              />
-            );
-          })}
-        </div>
-      )}
+      <ThumbStrip thumbnails={row.thumbnails} opener={opener} preview={preview} />
     </li>
   );
 }

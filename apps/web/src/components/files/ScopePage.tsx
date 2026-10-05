@@ -2,8 +2,8 @@
  * Files PR page (`/files/:owner/:repo/pull/:number`) and repo page
  * (`/files/:owner/:repo`), spec "PR page and repo page". Same scope query as
  * the live link (scope endpoint → prScopeQuery), so the page and the shared
- * link show the same objects. Newest first; before/after pairs stay side by
- * side; the PR page can group by `path` (`?group=path`). Tiles open through
+ * link show the same objects. Newest first; a before/after pair is one grid
+ * cell, side by side; the PR page can group by `path` (`?group=path`). Tiles open through
  * file-opener, never the `/c/` item page.
  *
  * PR header: branch, title, and state come from the scope response's `pull`
@@ -32,7 +32,7 @@ import {
 } from "../../lib/files-api";
 import {
   groupScopeItemsByPath,
-  keepPairsTogether,
+  pairCells,
   scopeEmptyCopy,
   scopeItemToTile,
   type ScopeTile,
@@ -58,9 +58,11 @@ import type { WorkspaceInfoStatus } from "../../lib/workspace-file-row";
 import { lastUpdatedLabel, pairedShotKeys } from "../../lib/workspace-screenshots";
 import { CommandEmpty, InlineEmpty, RowsSkeleton } from "./FilesEmpty";
 import { TypeSelect } from "./FilterControls";
+import { LoadMoreFooter } from "./LoadMoreFooter";
 import { useLiveLink } from "./LiveLink";
 import { ShotThumb, type PreviewHandlers } from "./ShotThumb";
 import { useCursorList } from "./useCursorList";
+import { useReplaceSearch } from "./useReplaceSearch";
 import { useShotPreview } from "./useShotPreview";
 import { InfoBlocked, useWorkspaceInfo } from "./useWorkspaceInfo";
 
@@ -158,11 +160,7 @@ function ScopePageInner({
     document.title = `${scopeLabel} · Files · ${workspace} · uploads.sh`;
   }, [scopeLabel, workspace]);
 
-  useEffect(() => {
-    const target = window.location.pathname + scopePageSearch(query);
-    if (target === window.location.pathname + window.location.search) return;
-    window.history.replaceState(window.history.state, "", target);
-  }, [query]);
+  useReplaceSearch(scopePageSearch(query));
 
   // Fallback only: the rollup row has no title (no row, or an unlinked repo).
   // Also runs when the scope load failed, so the header still names the PR.
@@ -220,6 +218,7 @@ function ScopePageInner({
     type: null,
     repo,
     state: null,
+    all: false,
   })}`;
 
   return (
@@ -394,28 +393,10 @@ function ScopePageInner({
             </section>
           ))
         ) : (
-          <TileGrid
-            items={keepPairsTogether(list.rows)}
-            opener={opener}
-            preview={preview.handlers}
-          />
+          <TileGrid items={list.rows} opener={opener} preview={preview.handlers} />
         ))}
       {list.status === "ready" && list.nextCursor && (
-        <div className="flex items-center justify-center gap-3">
-          <button
-            type="button"
-            className="text-btn text-btn--boxed"
-            onClick={loadMore}
-            disabled={list.more === "loading"}
-          >
-            {list.more === "loading" ? "Loading…" : "Load more"}
-          </button>
-          {list.more === "error" && (
-            <span role="alert" className="text-[12px] text-muted-foreground">
-              Couldn’t load more. Try again.
-            </span>
-          )}
-        </div>
+        <LoadMoreFooter more={list.more} onLoadMore={loadMore} />
       )}
       {preview.layer}
       {liveLink.dialog}
@@ -424,7 +405,12 @@ function ScopePageInner({
   );
 }
 
-/** One grid of tiles, already in display order. Pair flags are per grid, so a pair split across path groups is not announced as paired. */
+/**
+ * One grid of tiles, newest first. A before/after pair is one cell spanning
+ * two columns (before first), so its halves never wrap onto different rows.
+ * Pair flags are per grid, so a pair split across path groups is not
+ * announced as paired.
+ */
 function TileGrid({
   items,
   opener,
@@ -435,18 +421,27 @@ function TileGrid({
   preview: PreviewHandlers;
 }) {
   const paired = pairedShotKeys(items);
+  const thumb = (tile: ScopeTile) => (
+    <ShotThumb
+      key={tile.key}
+      item={tile}
+      paired={paired.has(tile.key)}
+      href={opener.href(tile)}
+      onOpen={() => opener.activate(tile)}
+      {...preview}
+    />
+  );
   return (
-    <div className={GRID_CLASS}>
-      {items.map((tile) => (
-        <ShotThumb
-          key={tile.key}
-          item={tile}
-          paired={paired.has(tile.key)}
-          href={opener.href(tile)}
-          onOpen={() => opener.activate(tile)}
-          {...preview}
-        />
-      ))}
+    <div className={`${GRID_CLASS} wsp-grid--pairs`}>
+      {pairCells(items).map((cell) =>
+        cell.kind === "pair" ? (
+          <div className="wsp-pair-cell" key={`pair:${cell.items[0].key}`}>
+            {cell.items.map(thumb)}
+          </div>
+        ) : (
+          thumb(cell.item)
+        ),
+      )}
     </div>
   );
 }

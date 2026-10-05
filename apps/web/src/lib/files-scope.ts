@@ -49,27 +49,35 @@ export function thumbToTile(thumb: ThumbItem): ScopeTile {
   };
 }
 
-/** Newest-first order, except a before/after pair renders side by side (before first). */
-export function keepPairsTogether<T extends { key: string; state?: string }>(items: T[]): T[] {
+/** One grid cell: a lone tile, or a before/after pair (before first) that must stay on one row. */
+export type GridCell<T> = { kind: "single"; item: T } | { kind: "pair"; items: [T, T] };
+
+/** Newest-first cells; a before/after pair becomes one cell at its newer member's position. */
+export function pairCells<T extends { key: string; state?: string }>(items: T[]): GridCell<T>[] {
   const partners = pairPartners(items);
   const byKey = new Map(items.map((item) => [item.key, item]));
   const placed = new Set<string>();
-  const out: T[] = [];
+  const cells: GridCell<T>[] = [];
   for (const item of items) {
     if (placed.has(item.key)) continue;
     const partnerKey = partners.get(item.key);
     const partner = partnerKey ? byKey.get(partnerKey) : undefined;
     if (partner && !placed.has(partner.key)) {
       const [first, second] = item.state === "after" ? [partner, item] : [item, partner];
-      out.push(first, second);
+      cells.push({ kind: "pair", items: [first, second] });
       placed.add(first.key);
       placed.add(second.key);
     } else {
-      out.push(item);
+      cells.push({ kind: "single", item });
       placed.add(item.key);
     }
   }
-  return out;
+  return cells;
+}
+
+/** Newest-first order, except a before/after pair renders side by side (before first). */
+export function keepPairsTogether<T extends { key: string; state?: string }>(items: T[]): T[] {
+  return pairCells(items).flatMap((cell) => (cell.kind === "pair" ? cell.items : [cell.item]));
 }
 
 /** Same rule as comment-render's pairAttachments: trimmed, and ""/whitespace/bare "/" mean no path. */
@@ -78,6 +86,7 @@ function usablePath(path: string | null): string | null {
   return !trimmed || trimmed === "/" ? null : trimmed;
 }
 
+/** PR page "Group by page": one group per usable `path`, then the "No page" group (path null). */
 export function groupScopeItemsByPath<
   T extends { key: string; state?: string; path: string | null },
 >(items: T[]): Array<{ path: string | null; items: T[] }> {
@@ -88,10 +97,10 @@ export function groupScopeItemsByPath<
     if (bucket) bucket.push(item);
     else groups.set(path, [item]);
   }
-  return [...groups.entries()].map(([path, grouped]) => ({
-    path,
-    items: keepPairsTogether(grouped),
-  }));
+  // Pathed groups keep first-seen (newest-first) order; "No page" goes last.
+  return [...groups.entries()]
+    .sort(([a], [b]) => Number(a === null) - Number(b === null))
+    .map(([path, grouped]) => ({ path, items: keepPairsTogether(grouped) }));
 }
 
 export function appendPage<T>(prev: T[], next: T[], keyOf: (row: T) => string): T[] {

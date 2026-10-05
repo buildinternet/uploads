@@ -4,6 +4,7 @@ import {
   groupScopeItemsByPath,
   keepPairsTogether,
   openPullsLabel,
+  pairCells,
   scopeEmptyCopy,
   scopeItemToTile,
   thumbToTile,
@@ -48,19 +49,50 @@ describe("keepPairsTogether", () => {
   });
 });
 
+describe("pairCells", () => {
+  it("makes one cell per pair (before first) at the newer member's position", () => {
+    const cells = pairCells([
+      tile("p/new.png"),
+      tile("p/hero-after.png", "after"),
+      tile("p/other.png"),
+      tile("p/hero-before.png", "before"),
+    ]);
+    expect(
+      cells.map((cell) => (cell.kind === "pair" ? cell.items.map((t) => t.key) : cell.item.key)),
+    ).toEqual(["p/new.png", ["p/hero-before.png", "p/hero-after.png"], "p/other.png"]);
+  });
+
+  it("keeps single tiles as single cells", () => {
+    expect(pairCells([tile("a.png"), tile("b.png", "after")])).toEqual([
+      { kind: "single", item: tile("a.png") },
+      { kind: "single", item: tile("b.png", "after") },
+    ]);
+  });
+});
+
 describe("groupScopeItemsByPath", () => {
-  it("groups in first-seen (newest-first) order, null path as its own group, pairs kept", () => {
+  it("keeps pathed groups in first-seen (newest-first) order with pairs kept, and No page last", () => {
     const groups = groupScopeItemsByPath([
       tile("x/home-after.png", "after", "/home"),
       tile("x/doc.pdf", undefined, null),
       tile("x/settings.png", undefined, "/settings"),
       tile("x/home-before.png", "before", "/home"),
+      tile("x/about.png", undefined, "/about"),
     ]);
     expect(groups.map((g) => [g.path, g.items.map((t) => t.key)])).toEqual([
       ["/home", ["x/home-before.png", "x/home-after.png"]],
-      [null, ["x/doc.pdf"]],
       ["/settings", ["x/settings.png"]],
+      ["/about", ["x/about.png"]],
+      [null, ["x/doc.pdf"]],
     ]);
+  });
+
+  it("sorts No page last even when the newest item has no path", () => {
+    const groups = groupScopeItemsByPath([
+      tile("x/a.png", undefined, null),
+      tile("x/b.png", undefined, "/b"),
+    ]);
+    expect(groups.map((g) => g.path)).toEqual(["/b", null]);
   });
 });
 
@@ -75,8 +107,8 @@ describe("groupScopeItemsByPath path normalization", () => {
       tile("x/f.png", undefined, "/home"),
     ]);
     expect(groups.map((g) => [g.path, g.items.map((t) => t.key)])).toEqual([
-      [null, ["x/a.png", "x/b.png", "x/c.png", "x/d.png"]],
       ["/home", ["x/e.png", "x/f.png"]],
+      [null, ["x/a.png", "x/b.png", "x/c.png", "x/d.png"]],
     ]);
   });
 });

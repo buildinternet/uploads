@@ -16,6 +16,11 @@ export interface FilesQuery {
   repo: string;
   /** By pull request only. */
   state: PrStateFilter | null;
+  /**
+   * By pull request only: "Show older pull requests" lifted the 90-day
+   * window (`?all=1`). In the URL so Back from a PR page keeps the older rows.
+   */
+  all: boolean;
 }
 
 export interface ScopePageQuery {
@@ -74,6 +79,7 @@ export function readFilesQuery(search: string): FilesQuery {
     type: parseFileTypeParam(params.get("type")),
     repo: view === "pulls" ? normalizeRepoFilter(params.get("repo")) : "",
     state: view === "pulls" ? parsePrStateParam(params.get("state")) : null,
+    all: view === "pulls" && params.get("all") === "1",
   };
 }
 
@@ -83,6 +89,7 @@ export function filesSearch(query: FilesQuery): string {
   if (query.type) params.set("type", query.type);
   if (query.view === "pulls" && query.repo) params.set("repo", query.repo);
   if (query.view === "pulls" && query.state) params.set("state", query.state);
+  if (query.view === "pulls" && query.all) params.set("all", "1");
   const qs = params.toString();
   return qs ? `?${qs}` : "";
 }
@@ -108,7 +115,7 @@ export function filesBasePath(workspace: string): string {
 }
 
 export function filesViewHref(workspace: string, view: FilesView): string {
-  return `${filesBasePath(workspace)}${filesSearch({ view, type: null, repo: "", state: null })}`;
+  return `${filesBasePath(workspace)}${filesSearch({ view, type: null, repo: "", state: null, all: false })}`;
 }
 
 function splitRepo(repo: string): [string, string] | null {

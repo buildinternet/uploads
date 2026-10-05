@@ -7,7 +7,7 @@
  * with replaceState, so Back leaves the page instead of undoing filters.
  * Type narrows each row's thumbnails (server-side), never the rows. Only PRs
  * with media in the last 90 days load by default; "Show older pull requests"
- * at the end of the list reloads with all=1.
+ * at the end of the list reloads with all=1, which also lands in the URL.
  * Rows say "updated 2h ago", never a count: the rollup's media_count includes
  * promoted copies and never decrements.
  */
@@ -20,7 +20,6 @@ import { onSession } from "../../lib/account-shell";
 import type { PullRow } from "../../lib/api-client";
 import { makeFileOpener, type FileOpener } from "../../lib/file-opener";
 import { loadPulls, loadRepos } from "../../lib/files-api";
-import { thumbToTile } from "../../lib/files-scope";
 import {
   filesPrHref,
   filesSearch,
@@ -34,9 +33,12 @@ import type { WorkspaceInfoStatus } from "../../lib/workspace-file-row";
 import { lastUpdatedLabel } from "../../lib/workspace-screenshots";
 import { CommandEmpty, InlineEmpty, RowsSkeleton } from "./FilesEmpty";
 import { PrStateSelect, RepoSelect, TypeSelect } from "./FilterControls";
+import { LoadMoreFooter } from "./LoadMoreFooter";
 import { RowOverflowMenu, useLiveLink, type LiveLinkControls } from "./LiveLink";
-import { ShotThumb, type PreviewHandlers } from "./ShotThumb";
+import type { PreviewHandlers } from "./ShotThumb";
+import { ThumbStrip } from "./ThumbStrip";
 import { useCursorList } from "./useCursorList";
+import { useReplaceSearch } from "./useReplaceSearch";
 import { useShotPreview } from "./useShotPreview";
 import { InfoBlocked, useWorkspaceInfo } from "./useWorkspaceInfo";
 
@@ -67,10 +69,8 @@ function PullsViewInner({
   const [query, setQuery] = useState<FilesQuery>(() => readFilesQuery(initialSearch));
   const { info, retry: retryInfo } = useWorkspaceInfo(apiOrigin, workspace, initialInfo);
   const [repoOptions, setRepoOptions] = useState<string[]>(() => initialRepoOptions ?? []);
-  // The API lists PRs with media in the last 90 days. "Show older pull requests"
-  // switches to all=1. Component state only: a reload returns to the window,
-  // which is also what the SSR seed holds.
-  const [showOlder, setShowOlder] = useState(false);
+  // The API lists PRs with media in the last 90 days; `query.all` (all=1 in
+  // the URL, which the SSR seed reads too) lifts that window.
   // The windowed rows stay on screen while the all=1 reload runs. Keyed to
   // that reload's query, so a later filter change still gets the skeleton.
   const [olderPending, setOlderPending] = useState<{ key: string; rows: PullRow[] } | null>(null);
@@ -81,7 +81,7 @@ function PullsViewInner({
     loadMore,
     retry,
   } = useCursorList<PullRow>({
-    queryKey: pullsQueryKey(query, showOlder),
+    queryKey: filesSearch(query),
     seed: initialPage,
     keyOf: (row) => row.ref,
     load: (cursor) =>
@@ -89,7 +89,7 @@ function PullsViewInner({
         type: query.type,
         repo: query.repo,
         state: query.state,
-        all: showOlder,
+        all: query.all,
         cursor,
       }).then((result) =>
         result.ok
@@ -105,11 +105,7 @@ function PullsViewInner({
     document.title = `Files · ${workspace} · uploads.sh`;
   }, [workspace]);
 
-  useEffect(() => {
-    const target = window.location.pathname + filesSearch(query);
-    if (target === window.location.pathname + window.location.search) return;
-    window.history.replaceState(window.history.state, "", target);
-  }, [query]);
+  useReplaceSearch(filesSearch(query));
 
   useEffect(() => {
     if (initialRepoOptions !== undefined) return;
@@ -130,15 +126,16 @@ function PullsViewInner({
   const opener = makeFileOpener(apiOrigin, workspace, info.hasPublicUrl);
   // Type never empties the list (it narrows thumbnails), so only repo and state count.
   const filtering = query.repo !== "" || query.state !== null;
-  const empty = pullsEmptyCopy({ filtering, showOlder });
+  const empty = pullsEmptyCopy({ filtering, showOlder: query.all });
   const keptRows =
-    list.status === "loading" && olderPending?.key === pullsQueryKey(query, showOlder)
+    list.status === "loading" && olderPending?.key === filesSearch(query)
       ? olderPending.rows
       : null;
   const rows = list.status === "ready" ? list.rows : (keptRows ?? []);
   const showOlderPullRequests = () => {
-    setOlderPending({ key: pullsQueryKey(query, true), rows: list.rows });
-    setShowOlder(true);
+    const next = { ...query, all: true };
+    setOlderPending({ key: filesSearch(next), rows: list.rows });
+    setQuery(next);
   };
 
   return (
@@ -193,23 +190,9 @@ function PullsViewInner({
         </ul>
       )}
       {list.status === "ready" && list.nextCursor && (
-        <div className="flex items-center justify-center gap-3">
-          <button
-            type="button"
-            className="text-btn text-btn--boxed"
-            onClick={loadMore}
-            disabled={list.more === "loading"}
-          >
-            {list.more === "loading" ? "Loading…" : "Load more"}
-          </button>
-          {list.more === "error" && (
-            <span role="alert" className="text-[12px] text-muted-foreground">
-              Couldn’t load more. Try again.
-            </span>
-          )}
-        </div>
+        <LoadMoreFooter more={list.more} onLoadMore={loadMore} />
       )}
-      {((list.status === "ready" && !list.nextCursor && !showOlder) || keptRows) && (
+      {((list.status === "ready" && !list.nextCursor && !query.all) || keptRows) && (
         <div className="flex items-center justify-center">
           <button
             type="button"
@@ -226,11 +209,6 @@ function PullsViewInner({
       {liveLink.toast}
     </div>
   );
-}
-
-/** useCursorList key: the URL filters plus the all=1 opt-out. */
-function pullsQueryKey(query: FilesQuery, showOlder: boolean): string {
-  return filesSearch(query) + (showOlder ? "|all" : "");
 }
 
 function PullRowItem({
@@ -279,22 +257,7 @@ function PullRowItem({
           onCopyLiveLink={() => void liveLink.copy(scope)}
         />
       </div>
-      {row.thumbnails.length > 0 && (
-        <div className="wsp-strip">
-          {row.thumbnails.map((thumb) => {
-            const tile = thumbToTile(thumb);
-            return (
-              <ShotThumb
-                key={tile.key}
-                item={tile}
-                href={opener.href(tile)}
-                onOpen={() => opener.activate(tile)}
-                {...preview}
-              />
-            );
-          })}
-        </div>
-      )}
+      <ThumbStrip thumbnails={row.thumbnails} opener={opener} preview={preview} />
     </li>
   );
 }

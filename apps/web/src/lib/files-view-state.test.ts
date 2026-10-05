@@ -35,8 +35,25 @@ describe("readFilesView", () => {
 describe("readFilesQuery / filesSearch", () => {
   it("reads every filter on the pulls view and round-trips", () => {
     const query = readFilesQuery("?type=video&repo=Acme%2FWeb&state=merged");
-    expect(query).toEqual({ view: "pulls", type: "video", repo: "acme/web", state: "merged" });
+    expect(query).toEqual({
+      view: "pulls",
+      type: "video",
+      repo: "acme/web",
+      state: "merged",
+      all: false,
+    });
     expect(filesSearch(query)).toBe("?type=video&repo=acme%2Fweb&state=merged");
+  });
+
+  it("round-trips all=1 (Show older pull requests) on the pulls view only", () => {
+    const query = readFilesQuery("?repo=acme%2Fweb&all=1");
+    expect(query).toEqual({ view: "pulls", type: null, repo: "acme/web", state: null, all: true });
+    expect(filesSearch(query)).toBe("?repo=acme%2Fweb&all=1");
+    expect(readFilesQuery("?all=yes").all).toBe(false);
+    expect(readFilesQuery("?view=repos&all=1").all).toBe(false);
+    expect(filesSearch({ view: "repos", type: null, repo: "", state: null, all: true })).toBe(
+      "?view=repos",
+    );
   });
 
   it("drops unknown values instead of failing", () => {
@@ -45,6 +62,7 @@ describe("readFilesQuery / filesSearch", () => {
       type: null,
       repo: "",
       state: null,
+      all: false,
     });
   });
 
@@ -54,14 +72,15 @@ describe("readFilesQuery / filesSearch", () => {
       type: "other",
       repo: "",
       state: null,
+      all: false,
     });
-    expect(filesSearch({ view: "repos", type: "other", repo: "a/b", state: "open" })).toBe(
-      "?view=repos&type=other",
-    );
+    expect(
+      filesSearch({ view: "repos", type: "other", repo: "a/b", state: "open", all: false }),
+    ).toBe("?view=repos&type=other");
   });
 
   it("omits every default", () => {
-    expect(filesSearch({ view: "pulls", type: null, repo: "", state: null })).toBe("");
+    expect(filesSearch({ view: "pulls", type: null, repo: "", state: null, all: false })).toBe("");
   });
 });
 
@@ -209,11 +228,13 @@ describe("small mappers", () => {
 describe("Files URLs are never redirected to Storage", () => {
   it("keeps every builder output on /files", () => {
     const searches = [
-      filesSearch({ view: "pulls", type: "video", repo: "acme/web", state: "merged" }),
-      filesSearch({ view: "pulls", type: null, repo: "acme/web", state: null }),
-      filesSearch({ view: "pulls", type: null, repo: "", state: "open" }),
-      filesSearch({ view: "repos", type: "other", repo: "", state: null }),
-      filesSearch({ view: "pages", type: "screenshot", repo: "", state: null }),
+      filesSearch({ view: "pulls", type: "video", repo: "acme/web", state: "merged", all: false }),
+      filesSearch({ view: "pulls", type: null, repo: "acme/web", state: null, all: false }),
+      filesSearch({ view: "pulls", type: null, repo: "", state: "open", all: false }),
+      filesSearch({ view: "pulls", type: null, repo: "", state: null, all: true }),
+      filesSearch({ view: "pulls", type: "video", repo: "acme/web", state: null, all: true }),
+      filesSearch({ view: "repos", type: "other", repo: "", state: null, all: false }),
+      filesSearch({ view: "pages", type: "screenshot", repo: "", state: null, all: false }),
       scopePageSearch({ type: "screenshot", groupByPath: true }),
     ];
     for (const search of searches) {
