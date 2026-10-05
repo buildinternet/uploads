@@ -8,8 +8,8 @@
  */
 
 import { dbFor } from "./db-session";
-import { feedItemIdFor } from "@uploads/comment-render/scope";
-import { feedItemUrl, findLatestRepoScreenshots } from "./feed-service";
+import { feedItemIdFor, isInFeedScope, type FeedScope } from "@uploads/comment-render/scope";
+import { feedItemUrl, feedUrl } from "./feed-service";
 import { createFeed } from "./feeds";
 import { listObjects } from "./files-core";
 import { getMetadataForKeys } from "./file-metadata";
@@ -70,7 +70,7 @@ export async function gatherCommentBody(
 
   // Attachments (R2 list) and galleries (D1) are independent reads — overlap
   // them so the request only waits the longer of the two, not their sum.
-  const [items, galleries] = await Promise.all([
+  const [{ items, liveLinkUrl }, galleries] = await Promise.all([
     gatherAttachments(env, ws, workspaceName, target, options, opts),
     gatherGalleries(env, ws, workspaceName, target),
   ]);
@@ -86,7 +86,10 @@ export async function gatherCommentBody(
   };
   // count may be 0 — attachmentsCommentBody renders a neutral empty state.
   // Callers gate create-vs-patch on count (see upsertBotComment createIfMissing).
-  return { body: attachmentsCommentBody(items, galleries, marker, renderOptions, target), count };
+  return {
+    body: attachmentsCommentBody(items, galleries, marker, renderOptions, target, { liveLinkUrl }),
+    count,
+  };
 }
 
 /**
@@ -120,6 +123,14 @@ const COMMENT_META_KEYS = [
  */
 const DETACH_META_KEY = "gh.detached";
 
+/**
+ * Feed-scope keys (spec "Item links beyond 50"). Read in the same
+ * unconditional query as `gh.detached` — never in `COMMENT_META_KEYS`,
+ * which is skipped when both caption settings are off — so live link item
+ * ids never depend on caption settings.
+ */
+const SCOPE_META_KEYS = ["gh.repo", "gh.number", "gh.status"];
+
 /** The workspace's own objects under the stable gh key prefix. */
 async function gatherAttachments(
   env: Env,
@@ -128,7 +139,7 @@ async function gatherAttachments(
   target: GhTarget,
   options: ResolvedCommentOptions,
   gatherOpts: { headBranch?: string; shadow?: boolean },
-): Promise<AttachmentItem[]> {
+): Promise<{ items: AttachmentItem[]; liveLinkUrl: string | null }> {
   // Per-workspace/repo choice (issues #304, #307): default (auto/true) links
   // the managed comment's attachments to a share page — the PR/issue feed
   // item when that object is in the feed, otherwise `/f/`. `false` links to
@@ -201,14 +212,15 @@ async function gatherAttachments(
   // path/state/video.* fetch below is skipped when the repo's meta display
   // settings are both off, but this one always runs since a detached copy
   // must never render regardless.
+  let scopeMetaByKey = new Map<string, Record<string, string>>();
   if (items.length > 0) {
-    const detachByKey = await getMetadataForKeys(
+    scopeMetaByKey = await getMetadataForKeys(
       dbFor(env),
       workspaceName,
       items.map((item) => item.key),
-      { metaKeys: [DETACH_META_KEY] },
+      { metaKeys: [DETACH_META_KEY, ...SCOPE_META_KEYS] },
     );
-    items = items.filter((item) => detachByKey.get(item.key)?.[DETACH_META_KEY] !== "true");
+    items = items.filter((item) => scopeMetaByKey.get(item.key)?.[DETACH_META_KEY] !== "true");
   }
 
   reportAttachmentIndexShadow(
@@ -218,11 +230,12 @@ async function gatherAttachments(
     items.map((item) => item.key),
   );
 
-  if (items.length > 0) {
-    await applyPrFeedPageUrls(env, workspaceName, target, items, linkToFilePage);
-  }
+  const liveLinkUrl =
+    items.length > 0
+      ? await applyPrFeedPageUrls(env, workspaceName, target, items, scopeMetaByKey, linkToFilePage)
+      : null;
 
-  if (!showMetadata || items.length === 0) return items;
+  if (!showMetadata || items.length === 0) return { items, liveLinkUrl };
 
   const metaByKey = await getMetadataForKeys(
     dbFor(env),
@@ -289,7 +302,7 @@ async function gatherAttachments(
       };
     }
   }
-  return items;
+  return { items, liveLinkUrl };
 }
 
 async function resolvePosterUrl(
@@ -305,17 +318,23 @@ async function resolvePosterUrl(
 }
 
 /**
- * Ensure the PR/issue change feed exists (idempotent `createFeed`) and point
- * attachment click-throughs at `/c/<id>/<item>` when that object is in the
- * feed. Failures never fail the comment — `/f/` (or raw URL) stays.
+ * Ensure the PR/issue live link (a feed, `source: "comment"`) exists and
+ * point each attachment whose OWN metadata is in the feed's scope at
+ * `/c/<id>/<item>`. The comment gathers by key prefix and the feed by
+ * metadata, so membership is decided per item by `isInFeedScope` — the same
+ * predicate as the scope query — and the id is hashed directly, with no
+ * 50-row page to fall off. Returns the live link URL when `linkToFilePage`
+ * is on, else null. Failures never fail the comment: `/f/` (or the raw URL)
+ * stays and the line is omitted.
  */
 async function applyPrFeedPageUrls(
   env: Env,
   workspaceName: string,
   target: GhTarget,
   items: AttachmentItem[],
+  scopeMetaByKey: ReadonlyMap<string, Record<string, string>>,
   linkToFilePage: boolean,
-): Promise<void> {
+): Promise<string | null> {
   try {
     // Comment-sync rows are uncapped and keep `comment` for life. GhTarget
     // spells issues `issues`; createFeed takes `pr`/`issue`, and the slot
@@ -327,25 +346,24 @@ async function applyPrFeedPageUrls(
       source: "comment",
       ...(target.kind === "pull" ? { pr: target.num } : { issue: target.num }),
     });
-    if (created.status !== "ok") return;
-    if (!linkToFilePage) return;
+    if (created.status !== "ok") return null;
+    if (!linkToFilePage) return null;
     const feed = created.value;
-    const matches = await findLatestRepoScreenshots(dbFor(env), workspaceName, {
+    const scope: FeedScope = {
       repo: feed.repo,
-      number: feed.number > 0 ? feed.number : undefined,
-    });
-    const idByKey = new Map<string, string>();
+      ...(feed.number > 0 ? { number: feed.number } : {}),
+    };
     await Promise.all(
-      matches.map(async (match) => {
-        idByKey.set(match.key, await feedItemIdFor(match.key));
+      items.map(async (item) => {
+        const meta = scopeMetaByKey.get(item.key);
+        if (!meta || !isInFeedScope(meta, scope)) return;
+        item.pageUrl = feedItemUrl(env, feed.id, await feedItemIdFor(item.key));
       }),
     );
-    for (const item of items) {
-      const itemId = idByKey.get(item.key);
-      if (itemId) item.pageUrl = feedItemUrl(env, feed.id, itemId);
-    }
+    return feedUrl(env, feed.id);
   } catch {
     // Comment sync must not fail if feeds are unavailable.
+    return null;
   }
 }
 

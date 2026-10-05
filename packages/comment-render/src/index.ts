@@ -685,12 +685,35 @@ function addMediaFooter(target?: Pick<GhTarget, "kind" | "num">): string {
   return `<sub>Maintained by <a href="https://uploads.sh">uploads.sh</a> · add media: <code>uploads put &lt;file&gt; ${flag} ${n}</code> · <a href="https://uploads.sh/docs/github-app">docs</a></sub>`;
 }
 
+/** Links the managed comment renders around its attachments. */
+export interface CommentLinks {
+  /**
+   * The PR/issue live link (`/c/<id>`), when the caller has one and the
+   * repo's `linkToFilePage` is on. Canonical URL from the API; never
+   * synthesized here.
+   */
+  liveLinkUrl?: string | null;
+}
+
+/**
+ * `12 files · View all on uploads.sh →` — the reviewer's way into the live
+ * link. The count is the comment's own attachments (galleries excluded), so
+ * it can never disagree with what the comment lists.
+ */
+function liveLinkLine(count: number, url: string): string {
+  const noun = count === 1 ? "file" : "files";
+  return `${count} ${noun} · <a href="${escapeHtmlAttr(url)}">View all on uploads.sh →</a>`;
+}
+
 /**
  * Render the one marker-owned GitHub comment. When there are no galleries this
  * intentionally preserves the legacy attachment-only body byte-for-byte.
  *
  * `target` is optional so goldens, the settings preview, and other callers
  * without a PR/issue stay on the generic `--pr <N>` hint.
+ *
+ * `links.liveLinkUrl` adds the live link line under the heading (absent:
+ * byte-identical to before).
  */
 export function attachmentsCommentBody(
   items: AttachmentItem[],
@@ -698,6 +721,7 @@ export function attachmentsCommentBody(
   marker: string = ATTACHMENTS_MARKER,
   options: CommentRenderOptions = AUTO_RENDER_OPTIONS,
   target?: Pick<GhTarget, "kind" | "num">,
+  links: CommentLinks = {},
 ): string {
   // Non-mutating sort (equivalent to Array#toSorted) — the api worker's
   // tsconfig targets lib ES2022, which predates Array#toSorted (ES2023);
@@ -708,6 +732,11 @@ export function attachmentsCommentBody(
   );
   const lines: string[] = [marker];
   if (options.note) lines.push(options.note, "");
+  // Live link line: under the heading, not in the <sub> footer — it is the
+  // main destination for reviewers. Never on the empty state.
+  if (links.liveLinkUrl && sorted.length > 0) {
+    lines.push(liveLinkLine(sorted.length, links.liveLinkUrl), "");
+  }
   if (sortedGalleries.length > 0) {
     lines.push("### 🖼️ Galleries", "");
     for (const gallery of sortedGalleries) {

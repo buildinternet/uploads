@@ -165,8 +165,8 @@ export function feedItemFilename(objectKey: string): string {
 
 /**
  * The newest (at most `FEED_ITEM_LIMIT`) items in a feed's scope. Thin
- * wrapper over the shared scope query (`pr-scope.ts`), kept for the comment
- * sync and owner-feed call sites.
+ * wrapper over the shared scope query (`pr-scope.ts`), kept for the
+ * owner-feed call site.
  */
 export async function findLatestRepoScreenshots(
   db: D1Queryable,

@@ -274,10 +274,23 @@ describe("resolveOEmbed", () => {
     });
   });
 
-  it("returns photo for a feed item image", async () => {
+  it("returns photo for a feed item image, including one past the newest 50", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      expect(String(input)).toContain(`/public/feeds/${FEED_ID}`);
-      return jsonResponse(publicFeed);
+      expect(String(input)).toContain(`/public/feeds/${FEED_ID}/items/${FEED_ITEM_ID}`);
+      return jsonResponse({
+        feed: {
+          id: FEED_ID,
+          title: publicFeed.title,
+          repo: publicFeed.repo,
+          number: publicFeed.number,
+          kind: publicFeed.kind,
+        },
+        item: publicFeed.items[0],
+        prev: null,
+        next: null,
+        index: 61,
+        total: 62,
+      });
     });
     const page = sharePageUrl(SITE, {
       kind: "feed-item",

@@ -45,6 +45,8 @@ export const DOCS_SEARCH_ALIASES: Record<string, string[]> = {
   galleries: ["gallery", "collection"],
   feeds: [
     "feed",
+    "live link",
+    "live links",
     "change feed",
     "repo feed",
     "pr feed",

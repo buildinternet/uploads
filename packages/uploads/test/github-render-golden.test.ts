@@ -517,3 +517,96 @@ describe("attachmentsCommentBody (CLI copy)", () => {
     });
   });
 });
+
+const goldenLiveLink = JSON.parse(
+  readFileSync(
+    fileURLToPath(
+      new URL("../../../test/fixtures/github-comment-golden-live-link.json", import.meta.url),
+    ),
+    "utf8",
+  ),
+) as {
+  items: AttachmentItem[];
+  galleries: [];
+  target: Pick<GhTarget, "kind" | "num">;
+  liveLinkUrl: string;
+  expected: string;
+};
+
+describe("live link line (CLI copy)", () => {
+  const one: AttachmentItem[] = [
+    {
+      key: "gh/acme/web/pull/12/shot.png",
+      url: "https://storage.uploads.sh/acme/gh/acme/web/pull/12/shot.png",
+    },
+  ];
+
+  it("renders the golden body with the line under the heading", () => {
+    expect(
+      attachmentsCommentBody(
+        goldenLiveLink.items,
+        goldenLiveLink.galleries,
+        ATTACHMENTS_MARKER,
+        AUTO_RENDER_OPTIONS,
+        goldenLiveLink.target,
+        { liveLinkUrl: goldenLiveLink.liveLinkUrl },
+      ),
+    ).toBe(goldenLiveLink.expected);
+  });
+
+  it("uses the singular for one file", () => {
+    const body = attachmentsCommentBody(
+      one,
+      [],
+      ATTACHMENTS_MARKER,
+      AUTO_RENDER_OPTIONS,
+      undefined,
+      {
+        liveLinkUrl: "https://uploads.sh/c/feed_x",
+      },
+    );
+    expect(body).toContain(
+      `\n1 file · <a href="https://uploads.sh/c/feed_x">View all on uploads.sh →</a>\n`,
+    );
+  });
+
+  it("sits after the repo note and before the media", () => {
+    const body = attachmentsCommentBody(
+      one,
+      [],
+      ATTACHMENTS_MARKER,
+      { ...AUTO_RENDER_OPTIONS, note: "Staging only." },
+      undefined,
+      { liveLinkUrl: "https://uploads.sh/c/feed_x" },
+    );
+    expect(body.startsWith(`${ATTACHMENTS_MARKER}\nStaging only.\n\n1 file · `)).toBe(true);
+  });
+
+  it("omits the line without a URL and on an empty comment", () => {
+    expect(attachmentsCommentBody(one)).not.toContain("View all on uploads.sh");
+    expect(
+      attachmentsCommentBody(one, [], ATTACHMENTS_MARKER, AUTO_RENDER_OPTIONS, undefined, {
+        liveLinkUrl: null,
+      }),
+    ).not.toContain("View all on uploads.sh");
+    expect(
+      attachmentsCommentBody([], [], ATTACHMENTS_MARKER, AUTO_RENDER_OPTIONS, undefined, {
+        liveLinkUrl: "https://uploads.sh/c/feed_x",
+      }),
+    ).toBe(attachmentsCommentBody([]));
+  });
+
+  it("escapes the URL into the href", () => {
+    const body = attachmentsCommentBody(
+      one,
+      [],
+      ATTACHMENTS_MARKER,
+      AUTO_RENDER_OPTIONS,
+      undefined,
+      {
+        liveLinkUrl: 'https://uploads.sh/c/a"b<c',
+      },
+    );
+    expect(body).toContain('href="https://uploads.sh/c/a&quot;b&lt;c"');
+  });
+});

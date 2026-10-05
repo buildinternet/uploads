@@ -299,7 +299,10 @@ describe("gatherCommentBody", () => {
       kind: "pull",
     });
     expect(result.body).toContain(`/f/${workspaceName}/`);
-    expect(result.body).not.toContain("/c/");
+    // The live link line still links `/c/<id>`; the untagged item must not
+    // get a `/c/<id>/<item>` link.
+    expect(result.body).not.toContain(await feedItemIdFor("gh/acme/web/pull/12/hero.png"));
+    expect(result.body).not.toMatch(/\/c\/[^"/]+\//);
   });
 
   it("renders galleries linked to the PR via an external reference, scoped to the calling workspace", async () => {
@@ -349,6 +352,115 @@ describe("gatherCommentBody", () => {
     expect(result.body).toContain("Launch media");
     expect(result.body).not.toContain("Not ours");
     expect(result.count).toBe(1);
+  });
+});
+
+describe("gatherCommentBody live link (spec: PR comment links to the live link)", () => {
+  const target = { repo: "acme/web", num: 12, kind: "pull" as const };
+  const PR12 = { "gh.repo": "acme/web", "gh.number": "12", "gh.kind": "pull" };
+
+  async function putTagged(
+    env: Env,
+    bucket: FakeR2Bucket,
+    key: string,
+    meta: Record<string, string>,
+  ): Promise<void> {
+    await bucket.put(`acme/${key}`, PNG, { httpMetadata: { contentType: "image/png" } });
+    await replaceFileMetadata(env.DB, "acme", key, meta);
+  }
+
+  it("renders the live link line and records the feed as comment-sourced", async () => {
+    const { env, ws, workspaceName, bucket } = makeTestEnv();
+    await putTagged(env, bucket, "gh/acme/web/pull/12/a.png", PR12);
+    await putTagged(env, bucket, "gh/acme/web/pull/12/b.png", PR12);
+    const result = await gatherCommentBody(
+      env,
+      { ...ws, name: workspaceName },
+      workspaceName,
+      target,
+    );
+    const feed = await findFeedByScope(env.DB, workspaceName, "acme/web", "", 12);
+    expect(feed?.source).toBe("comment");
+    expect(result.body).toContain(
+      `\n2 files · <a href="https://uploads.test/c/${feed!.id}">View all on uploads.sh →</a>\n`,
+    );
+  });
+
+  it("omits the line when githubCommentLinkToFilePage is false", async () => {
+    const { env, ws, workspaceName, bucket } = makeTestEnv();
+    await putTagged(env, bucket, "gh/acme/web/pull/12/a.png", PR12);
+    const result = await gatherCommentBody(
+      env,
+      { ...ws, name: workspaceName, githubCommentLinkToFilePage: false },
+      workspaceName,
+      target,
+    );
+    expect(result.body).not.toContain("View all on uploads.sh");
+    expect(result.body).not.toContain("/c/");
+  });
+
+  it("keeps /f/ for an item whose gh.number points at another PR", async () => {
+    const { env, ws, workspaceName, bucket } = makeTestEnv();
+    const moved = "gh/acme/web/pull/12/moved.png";
+    await putTagged(env, bucket, "gh/acme/web/pull/12/a.png", PR12);
+    await putTagged(env, bucket, moved, { ...PR12, "gh.number": "13" });
+    const result = await gatherCommentBody(
+      env,
+      { ...ws, name: workspaceName },
+      workspaceName,
+      target,
+    );
+    expect(result.body).not.toContain(await feedItemIdFor(moved));
+    expect(result.body).toContain(`/f/${workspaceName}/${moved}`);
+  });
+
+  it("keeps /f/ for a promoted copy", async () => {
+    const { env, ws, workspaceName, bucket } = makeTestEnv();
+    const promoted = "gh/acme/web/pull/12/promoted.png";
+    await putTagged(env, bucket, "gh/acme/web/pull/12/a.png", PR12);
+    await putTagged(env, bucket, promoted, { ...PR12, "gh.status": "promoted" });
+    const result = await gatherCommentBody(
+      env,
+      { ...ws, name: workspaceName },
+      workspaceName,
+      target,
+    );
+    expect(result.body).not.toContain(await feedItemIdFor(promoted));
+  });
+
+  it("links every in-scope item past the newest 50", async () => {
+    const { env, ws, workspaceName, bucket } = makeTestEnv();
+    const keys = Array.from(
+      { length: 55 },
+      (_, i) => `gh/acme/web/pull/12/shot-${String(i).padStart(2, "0")}.png`,
+    );
+    for (const key of keys) await putTagged(env, bucket, key, PR12);
+    const result = await gatherCommentBody(
+      env,
+      { ...ws, name: workspaceName },
+      workspaceName,
+      target,
+    );
+    const feed = await findFeedByScope(env.DB, workspaceName, "acme/web", "", 12);
+    for (const key of keys) {
+      expect(result.body).toContain(`/c/${feed!.id}/${await feedItemIdFor(key)}`);
+    }
+    expect(result.body).toContain("\n55 files · ");
+  });
+
+  it("links in-scope items even when caption metadata is off", async () => {
+    const { env, ws, workspaceName, bucket } = makeTestEnv();
+    const key = "gh/acme/web/pull/12/a.png";
+    await putTagged(env, bucket, key, PR12);
+    const result = await gatherCommentBody(
+      env,
+      { ...ws, name: workspaceName, githubCommentShowMetadata: false },
+      workspaceName,
+      target,
+    );
+    const feed = await findFeedByScope(env.DB, workspaceName, "acme/web", "", 12);
+    expect(result.body).toContain(`/c/${feed!.id}/${await feedItemIdFor(key)}`);
+    expect(result.body).toContain("1 file · ");
   });
 });
 
@@ -662,10 +774,10 @@ describe("gatherCommentBody attachment metadata (issue #365)", () => {
       { repo: "acme/web", num: 12, kind: "pull" },
     );
 
-    // Three queries: the private-prefix discovery scan (issue #934), the
-    // unconditional gh.detached filter (issue #709), and the PR-feed
-    // membership lookup — the path/state fetch itself is still skipped.
-    expect(metadataQueries).toBe(3);
+    // Two queries: the private-prefix discovery scan (issue #934) and the
+    // unconditional gh.detached + feed-scope read. The path/state fetch is
+    // skipped, and the comment path no longer queries the PR scope.
+    expect(metadataQueries).toBe(2);
     expect(result.body).not.toContain("<code>/settings");
   });
 

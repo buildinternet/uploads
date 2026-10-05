@@ -1,6 +1,7 @@
 import { NotFoundError } from "@uploads/errors";
 import { Hono } from "hono";
 import { resolvePublicFeed } from "../feeds";
+import { publicFeedGithub } from "../feed-github";
 import { hydratePublicFeed, publicFeedItemPage } from "../feed-service";
 import { decodePublicFeedCursor, feedRecordScope } from "../pr-scope";
 import { loadWorkspaceRecord, type WorkspaceVars } from "../workspace";
@@ -21,12 +22,19 @@ async function liveFeed(env: Env, id: string) {
 export const publicFeeds = new Hono<WorkspaceVars>()
   .get("/:id", async (c) => {
     const { record, workspace } = await liveFeed(c.env, c.req.param("id"));
+    // Never throws, so starting it before the decode cannot leave an
+    // unhandled rejection when the decode throws `invalid_cursor`.
+    const githubPromise = publicFeedGithub(c.env, record);
     const cursor = await decodePublicFeedCursor(
       dbFor(c.env),
       feedRecordScope(record),
       c.req.query("cursor"),
     );
-    return c.json(await hydratePublicFeed(c.env, workspace, record, { cursor }));
+    const [dto, github] = await Promise.all([
+      hydratePublicFeed(c.env, workspace, record, { cursor }),
+      githubPromise,
+    ]);
+    return c.json({ ...dto, github });
   })
   // Pager item plus neighbours, found by a scope scan (cap 2,000) so items
   // older than the first page still resolve.
