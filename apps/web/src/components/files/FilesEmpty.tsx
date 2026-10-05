@@ -10,7 +10,7 @@ import {
   EmptyHeader,
   EmptyTitle,
 } from "@uploads/ui/components/ui/empty";
-import { useState, type ReactNode } from "react";
+import { useState, type CSSProperties, type ReactNode } from "react";
 
 export function CommandEmpty({
   title,
@@ -68,5 +68,27 @@ export function InlineEmpty({ title }: { title: ReactNode }) {
         <EmptyTitle>{title}</EmptyTitle>
       </EmptyHeader>
     </Empty>
+  );
+}
+
+/** Row placeholders for the list views (label bar + four thumbs per row). */
+export function RowsSkeleton({ rows = 3 }: { rows?: number }) {
+  return (
+    <div className="grid gap-6" aria-busy="true">
+      {Array.from({ length: rows }, (_, row) => (
+        <div className="wsp-group grid gap-2.5" key={row}>
+          <span
+            className="ws-skel"
+            aria-hidden="true"
+            style={{ "--ws-skel-w": "220px" } as CSSProperties}
+          />
+          <div className="wsp-strip">
+            {[0, 1, 2, 3].map((i) => (
+              <span className="wsp-thumb wsp-thumb--skel" key={i} aria-hidden="true" />
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
