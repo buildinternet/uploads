@@ -255,8 +255,15 @@ function ScopePageInner({
               {pull.branch}
             </span>
           )}
-          {/* One copy at a time across the page: busy disables every Copy control. */}
-          <Button onClick={onCopy} disabled={liveLink.busy}>
+          {/* One copy at a time across the page: busy disables every Copy
+              control. focusableWhenDisabled keeps focus on the button (and
+              gives the confirm dialog a target to return focus to). */}
+          <Button
+            onClick={onCopy}
+            disabled={liveLink.busy}
+            focusableWhenDisabled
+            className="aria-disabled:opacity-50"
+          >
             Copy live link
           </Button>
           {share?.liveLink && (

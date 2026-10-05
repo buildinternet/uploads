@@ -1,10 +1,12 @@
 /**
  * Copy live link (spec: "Copy live link flow"). Pure decision flow with
  * injected effects so every branch is testable:
- *  1. read privateCount (+ any existing live link) for the scope;
+ *  1. read privateCount for the scope;
  *  2. confirm once per scope per page session when privateCount > 0
  *     (null, as on a cursor page, never asks);
- *  3. reuse an existing link (comment sync may have made one) or create;
+ *  3. find-or-create through the API every time. The POST is idempotent and
+ *     returns the scope's one live link (comment sync may have made it), so a
+ *     link revoked in another tab is replaced, never handed out again;
  *  4. copy; a rejected clipboard write still hands the URL back.
  *
  * Clipboard timing: browsers (Safari above all) only allow a clipboard write
@@ -31,10 +33,13 @@ export type CreateLiveLinkResult =
   | { kind: "ok"; id: string; url: string }
   /** Only repo-wide links are capped; `limit` is the cap the API reported. */
   | { kind: "limit"; limit: number }
+  /** The workspace has no public base URL (issue #1079); retrying won't help. */
+  | { kind: "not_public" }
   | { kind: "error" };
 
 export interface CopyLiveLinkDeps {
-  loadShareInfo(scope: LiveLinkScope): Promise<ScopeShareInfo | null>;
+  /** Null on a failure worth retrying; "not_public" on the #1079 no-public-URL workspace. */
+  loadShareInfo(scope: LiveLinkScope): Promise<ScopeShareInfo | "not_public" | null>;
   create(scope: LiveLinkScope): Promise<CreateLiveLinkResult>;
   confirmPrivate(count: number): Promise<boolean>;
   /**
@@ -46,10 +51,11 @@ export interface CopyLiveLinkDeps {
 }
 
 export type CopyLiveLinkOutcome =
-  | { kind: "copied"; url: string; id: string; created: boolean }
+  | { kind: "copied"; url: string; id: string }
   | { kind: "clipboard-blocked"; url: string; id: string }
   | { kind: "cancelled" }
   | { kind: "limit"; limit: number }
+  | { kind: "not_public" }
   | { kind: "error" };
 
 export interface ToastMessage {
@@ -125,9 +131,9 @@ export async function runCopyLiveLink(
 
   try {
     const info = opts.known ?? (await deps.loadShareInfo(scope));
-    if (!info) {
+    if (info === null || info === "not_public") {
       abandon();
-      return { kind: "error" };
+      return { kind: info === null ? "error" : "not_public" };
     }
 
     const count = confirmCount(info);
@@ -138,18 +144,12 @@ export async function runCopyLiveLink(
       pending = startWrite(deps);
     }
 
-    let link: { id: string; url: string };
-    let created = false;
-    if (info.liveLink) {
-      link = info.liveLink;
-    } else {
-      const result = await deps.create(scope);
-      if (result.kind !== "ok") {
-        abandon();
-        return result.kind === "limit" ? { kind: "limit", limit: result.limit } : { kind: "error" };
-      }
-      link = { id: result.id, url: result.url };
-      created = true;
+    // Always ask the API, even when share info already names a link: that
+    // link may have been revoked since the page loaded.
+    const link = await deps.create(scope);
+    if (link.kind !== "ok") {
+      abandon();
+      return link.kind === "limit" ? { kind: "limit", limit: link.limit } : { kind: link.kind };
     }
     // Remember the answer only once the link exists, so a retry after a
     // limit or error asks again.
@@ -157,7 +157,7 @@ export async function runCopyLiveLink(
 
     pending?.resolve(link.url);
     return (await pending?.done)
-      ? { kind: "copied", url: link.url, id: link.id, created }
+      ? { kind: "copied", url: link.url, id: link.id }
       : { kind: "clipboard-blocked", url: link.url, id: link.id };
   } catch {
     abandon();
@@ -219,6 +219,12 @@ export function liveLinkToast(
       return {
         text: `This workspace has reached its limit of ${outcome.limit} repo live links. Revoke one to add another.`,
         link: { href: linksPageHref, label: "Manage live links" },
+        // The link is the only way forward, so it waits for the viewer.
+        sticky: true,
+      };
+    case "not_public":
+      return {
+        text: "Live links need publicly served files, and this workspace's files aren't publicly served yet.",
       };
     case "error":
       return { text: "Couldn't create the live link. Try again." };

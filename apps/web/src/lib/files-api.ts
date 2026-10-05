@@ -1,5 +1,5 @@
 /**
- * The one adapter between the Files views and slice 2's api-client
+ * The one adapter between the Files views and the api-client scope/feed
  * functions (`ApiResult<T>` = `{ kind: "ok"; data } | { kind: "unavailable"; reason }`).
  * Views depend on `Loaded<T>` and `CreateLiveLinkResult` only, so the view
  * code never branches on api-client's result spelling.
@@ -116,19 +116,20 @@ export async function loadShareInfo(
   apiOrigin: string,
   workspace: string,
   scope: LiveLinkScope,
-): Promise<ScopeShareInfo | null> {
+): Promise<ScopeShareInfo | "not_public" | null> {
   const result = await loadScopeFiles(apiOrigin, workspace, {
     repo: scope.repo,
     number: scope.pr ?? null,
     type: null,
   });
-  return result.ok ? shareInfoFromScope(result.value) : null;
+  if (result.ok) return shareInfoFromScope(result.value);
+  return isNotPubliclyServed(result) ? "not_public" : null;
 }
 
 export function normalizeCreateResult(result: CreateFeedResult): CreateLiveLinkResult {
   if (result.kind === "limit") return { kind: "limit", limit: result.limit };
   if (result.kind === "ok") return { kind: "ok", id: result.data.id, url: result.data.url };
-  return { kind: "error" };
+  return result.reason === "not_public" ? { kind: "not_public" } : { kind: "error" };
 }
 
 export async function createLiveLink(

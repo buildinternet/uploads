@@ -153,7 +153,10 @@ export interface LiveLinkControls {
    * another is running is a no-op that resolves `cancelled`.
    */
   copy: (scope: LiveLinkScope, known?: ScopeShareInfo | null) => Promise<CopyLiveLinkOutcome>;
-  /** True while any copy runs: disable every Copy control, not just one row's. */
+  /**
+   * True while any copy runs: every Copy control reads as disabled, not just
+   * one row's. Controls stay focusable (aria-disabled) so focus never drops.
+   */
   busy: boolean;
   /** `liveLinkScopeKey` of the scope being copied. */
   busyKey: string | null;
@@ -220,7 +223,12 @@ export function useLiveLink(apiOrigin: string, workspace: string): LiveLinkContr
   };
 }
 
-/** PR and repo rows: Copy live link, Open on GitHub. */
+/**
+ * PR and repo rows: Copy live link, Open on GitHub. While a copy runs the
+ * trigger stays focusable (aria-disabled, never native `disabled`) and
+ * refuses to open: the menu returns focus to it after "Copy live link", and
+ * a natively disabled trigger would drop that focus to <body>.
+ */
 export function RowOverflowMenu({
   label,
   githubUrl,
@@ -232,15 +240,17 @@ export function RowOverflowMenu({
   busy: boolean;
   onCopyLiveLink: () => void;
 }) {
+  const [open, setOpen] = useState(false);
   return (
-    <DropdownMenu>
+    <DropdownMenu open={open} onOpenChange={(next) => setOpen(next && !busy)}>
       <DropdownMenuTrigger
         render={
           <Button
             variant="ghost"
             size="icon-sm"
             aria-label={`Actions for ${label}`}
-            disabled={busy}
+            aria-disabled={busy || undefined}
+            className="aria-disabled:opacity-50"
           >
             <EllipsisIcon aria-hidden="true" />
           </Button>

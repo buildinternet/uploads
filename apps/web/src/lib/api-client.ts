@@ -2941,7 +2941,17 @@ export async function createWorkspaceFeed(
       return { kind: "limit", limit };
     }
   }
-  if (!response.ok) return { kind: "unavailable", reason: failureForStatus(response.status) };
+  if (!response.ok) {
+    const notPublic =
+      response.status === 503 &&
+      isRecord(body) &&
+      isRecord(body.error) &&
+      body.error.code === "feed_object_not_public";
+    return {
+      kind: "unavailable",
+      reason: notPublic ? "not_public" : failureForStatus(response.status),
+    };
+  }
   const feed = parseOwnerFeed(body);
   return feed ? { kind: "ok", data: feed } : { kind: "unavailable", reason: "malformed" };
 }

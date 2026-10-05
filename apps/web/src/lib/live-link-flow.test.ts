@@ -16,7 +16,7 @@ const URL_A = "https://uploads.sh/c/abc";
 /** `copyText` resolves each write's URL promise; `writes` records the outcome per write. */
 function deps(
   overrides: Partial<CopyLiveLinkDeps> = {},
-  info: ScopeShareInfo | null = { privateCount: 0, liveLink: null },
+  info: ScopeShareInfo | "not_public" | null = { privateCount: 0, liveLink: null },
 ) {
   const writes: Array<Promise<string>> = [];
   const copyText = vi.fn(async (url: Promise<string>) => {
@@ -42,7 +42,7 @@ describe("runCopyLiveLink", () => {
   it("creates, copies, and skips the confirm when nothing is private", async () => {
     const d = deps();
     const outcome = await runCopyLiveLink(d, PR, { confirmed: new Set() });
-    expect(outcome).toEqual({ kind: "copied", url: URL_A, id: "abc", created: true });
+    expect(outcome).toEqual({ kind: "copied", url: URL_A, id: "abc" });
     expect(d.create).toHaveBeenCalledWith(PR);
     expect(d.copyText).toHaveBeenCalledTimes(1);
     await expect(d.writes[0]).resolves.toBe(URL_A);
@@ -95,25 +95,45 @@ describe("runCopyLiveLink", () => {
     expect(confirmed.has("acme/web#7")).toBe(true);
   });
 
-  it("reuses a link comment sync already made: same URL, no POST (Review Focus 5)", async () => {
+  it("asks the API every time, so a link revoked since the page loaded is replaced", async () => {
     const d = deps(
       {},
-      { privateCount: 0, liveLink: { id: "fromcomment", url: "https://uploads.sh/c/fromcomment" } },
+      { privateCount: 0, liveLink: { id: "revoked", url: "https://uploads.sh/c/revoked" } },
     );
     const outcome = await runCopyLiveLink(d, PR, { confirmed: new Set() });
-    expect(outcome).toEqual({
-      kind: "copied",
-      url: "https://uploads.sh/c/fromcomment",
-      id: "fromcomment",
-      created: false,
-    });
-    expect(d.create).not.toHaveBeenCalled();
+    expect(d.create).toHaveBeenCalledTimes(1);
+    expect(d.create).toHaveBeenCalledWith(PR);
+    expect(outcome).toEqual({ kind: "copied", url: URL_A, id: "abc" });
+    await expect(d.writes[0]).resolves.toBe(URL_A);
     expect(liveLinkToast(outcome, PR, "/account/workspaces/acme/links")).toEqual({
       text: "Copied. Anyone with the link sees this PR's files as they're pushed.",
     });
   });
 
-  it("reports the repo cap with the API's number and links to Links", async () => {
+  it("asks the API with known share info too, and copies the link it returns", async () => {
+    const d = deps({
+      create: vi.fn(async () => ({
+        kind: "ok" as const,
+        id: "fromcomment",
+        url: "https://uploads.sh/c/fromcomment",
+      })),
+    });
+    const outcome = await runCopyLiveLink(d, PR, {
+      known: {
+        privateCount: 0,
+        liveLink: { id: "fromcomment", url: "https://uploads.sh/c/fromcomment" },
+      },
+      confirmed: new Set(),
+    });
+    expect(d.create).toHaveBeenCalledTimes(1);
+    expect(outcome).toEqual({
+      kind: "copied",
+      url: "https://uploads.sh/c/fromcomment",
+      id: "fromcomment",
+    });
+  });
+
+  it("reports the repo cap with the API's number and a sticky link to Links", async () => {
     const d = deps({ create: vi.fn(async () => ({ kind: "limit" as const, limit: 50 })) });
     const outcome = await runCopyLiveLink(d, PR, { confirmed: new Set() });
     expect(outcome).toEqual({ kind: "limit", limit: 50 });
@@ -121,6 +141,25 @@ describe("runCopyLiveLink", () => {
     expect(liveLinkToast(outcome, PR, "/account/workspaces/acme/links")).toEqual({
       text: "This workspace has reached its limit of 50 repo live links. Revoke one to add another.",
       link: { href: "/account/workspaces/acme/links", label: "Manage live links" },
+      sticky: true,
+    });
+  });
+
+  it("says live links need publicly served files, with no retry, on a #1079 workspace", async () => {
+    const d = deps({}, "not_public");
+    const outcome = await runCopyLiveLink(d, PR, { confirmed: new Set() });
+    expect(outcome).toEqual({ kind: "not_public" });
+    expect(d.create).not.toHaveBeenCalled();
+    await expect(d.writes[0]).rejects.toThrow();
+    const toast = liveLinkToast(outcome, PR, "/l");
+    expect(toast).toEqual({
+      text: "Live links need publicly served files, and this workspace's files aren't publicly served yet.",
+    });
+    expect(toast?.text).not.toContain("Try again");
+
+    const fromCreate = deps({ create: vi.fn(async () => ({ kind: "not_public" as const })) });
+    expect(await runCopyLiveLink(fromCreate, PR, { confirmed: new Set() })).toEqual({
+      kind: "not_public",
     });
   });
 
@@ -276,7 +315,7 @@ describe("copy text", () => {
   });
 
   it("uses repo wording for a repo scope and nothing for a cancel", () => {
-    const outcome = { kind: "copied" as const, url: URL_A, id: "abc", created: true };
+    const outcome = { kind: "copied" as const, url: URL_A, id: "abc" };
     expect(liveLinkToast(outcome, { repo: "acme/web" }, "/l")?.text).toBe(
       "Copied. Anyone with the link sees this repo's files as they're pushed.",
     );
