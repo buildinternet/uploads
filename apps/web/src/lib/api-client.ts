@@ -2820,18 +2820,20 @@ async function getParsed<T>(
 
 /**
  * GET /v1/workspaces/:ws/pulls: PR rollup rows, newest media first. `type`
- * narrows each row's thumbnails only; it never drops a row.
+ * narrows each row's thumbnails only; it never drops a row. `all: true`
+ * lifts the default 90-day recency window.
  */
 export function fetchPulls(
   apiOrigin: string,
   ws: string,
-  q: { repo?: string; state?: string; type?: FileTypeClass; cursor?: string } = {},
+  q: { repo?: string; state?: string; type?: FileTypeClass; all?: boolean; cursor?: string } = {},
   opts?: SessionOpts,
 ): Promise<ApiResult<PullsResponse>> {
   const path = withQuery(`${workspacePath(ws)}/pulls`, {
     repo: q.repo,
     state: q.state,
     type: q.type,
+    all: q.all ? "1" : undefined,
     cursor: q.cursor,
   });
   return getParsed(apiOrigin, path, parsePullsResponse, opts);
