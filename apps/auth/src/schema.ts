@@ -134,7 +134,13 @@ export const account = sqliteTable(
     createdAt: timestampCol("created_at"),
     updatedAt: timestampCol("updated_at"),
   },
-  (t) => [index("idx_account_user_id").on(t.userId)],
+  (t) => [
+    index("idx_account_user_id").on(t.userId),
+    // One row per provider identity. Better Auth 1.7.7's findAccountByKey reads
+    // up to two rows for (providerId, accountId) and throws on a duplicate,
+    // which blocks that user's GitHub sign-in. Migration 20261005000000.
+    uniqueIndex("idx_account_provider_account_id").on(t.providerId, t.accountId),
+  ],
 );
 
 /**
