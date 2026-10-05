@@ -152,6 +152,16 @@ export function sourceLabel(row: LiveLinkRow): string {
   return "";
 }
 
+/**
+ * Plain-text name for a row, for accessible names: the `owner/repo#n` ref
+ * for a PR or issue link, `owner/repo` (plus any path scope) for a repo
+ * link, the title for a gallery.
+ */
+export function linkRowName(row: LinkRow): string {
+  if (row.type === "gallery") return row.title;
+  return row.ref && row.scope !== "repo" ? row.ref : repoScopeLabel(row);
+}
+
 /** Confirm copy for Delete. The PR text is the spec's, verbatim. */
 export function deleteConfirmText(row: LinkRow): string {
   if (row.type === "gallery") {

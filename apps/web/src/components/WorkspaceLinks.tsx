@@ -32,6 +32,7 @@ import {
   formatLinkDate,
   itemsLabel,
   linkRowKey,
+  linkRowName,
   liveLinkLabel,
   repoScopeLabel,
   sourceLabel,
@@ -69,11 +70,31 @@ function RowActions({
 }: {
   row: LinkRow;
   busy: boolean;
-  onDelete: () => void;
+  /** Resolves true when the row was deleted, false when the delete failed. */
+  onDelete: () => Promise<boolean>;
 }) {
   const [copied, setCopied] = useState<"idle" | "copied" | "failed">("idle");
   const [confirm, setConfirm] = useState<"closed" | "confirm" | "armed">("closed");
   const canDelete = row.type === "live" || row.version !== null;
+  const name = linkRowName(row);
+  const kindLabel = row.type === "live" ? "live link" : "gallery";
+  const deleteBtnRef = useRef<HTMLButtonElement | null>(null);
+  const cancelBtnRef = useRef<HTMLButtonElement | null>(null);
+  // Where focus goes after the next confirm-state change: into the dialog
+  // when it opens, back to "Delete…" when it closes without a delete.
+  const pendingFocus = useRef<"cancel" | "delete" | null>(null);
+
+  useEffect(() => {
+    const target = pendingFocus.current;
+    pendingFocus.current = null;
+    if (target === "cancel" && confirm !== "closed") cancelBtnRef.current?.focus();
+    if (target === "delete" && confirm === "closed") deleteBtnRef.current?.focus();
+  }, [confirm]);
+
+  function closeConfirm(): void {
+    pendingFocus.current = "delete";
+    setConfirm("closed");
+  }
 
   useEffect(() => {
     if (copied === "idle") return;
@@ -99,22 +120,41 @@ function RowActions({
   return (
     <div className="flex flex-col items-end gap-1.5">
       <div className="flex items-center gap-1">
-        <a className={ACTION_BTN} href={row.url} target="_blank" rel="noopener noreferrer">
+        <a
+          className={ACTION_BTN}
+          href={row.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label={`Open ${kindLabel} ${name}`}
+        >
           Open
         </a>
-        <button type="button" className={ACTION_BTN} onClick={() => void copy()}>
+        <button
+          type="button"
+          className={ACTION_BTN}
+          aria-label={`Copy link to ${name}`}
+          onClick={() => void copy()}
+        >
           {copied === "copied" ? "Copied" : copied === "failed" ? "Copy failed" : "Copy"}
         </button>
         {canDelete && confirm === "closed" && (
           <button
+            ref={deleteBtnRef}
             type="button"
             className={`${ACTION_BTN} text-destructive`}
-            onClick={() => setConfirm("confirm")}
+            aria-label={`Delete ${kindLabel} ${name}`}
+            onClick={() => {
+              pendingFocus.current = "cancel";
+              setConfirm("confirm");
+            }}
           >
             Delete…
           </button>
         )}
       </div>
+      <span className="sr-only" role="status" aria-live="polite">
+        {copied === "copied" ? "Copied" : copied === "failed" ? "Copy failed" : ""}
+      </span>
       {confirm !== "closed" && (
         <div
           role="alertdialog"
@@ -123,7 +163,7 @@ function RowActions({
         >
           <p className="m-0 mb-2">{deleteConfirmText(row)}</p>
           <div className="flex justify-end gap-1.5">
-            <button type="button" className={ACTION_BTN} onClick={() => setConfirm("closed")}>
+            <button ref={cancelBtnRef} type="button" className={ACTION_BTN} onClick={closeConfirm}>
               Cancel
             </button>
             {confirm === "confirm" ? (
@@ -141,10 +181,13 @@ function RowActions({
                 className="ul-btn ul-btn--solid bg-destructive px-2 text-xs text-white"
                 disabled={busy}
                 onClick={() => {
-                  // Back to a fresh two-step confirm first: a failed delete
-                  // keeps the row, and the next click must re-confirm.
+                  // Back to a fresh two-step confirm first, so the next click
+                  // after a failure must re-confirm. A failure closes the
+                  // dialog and returns focus to this row's "Delete…".
                   setConfirm("confirm");
-                  onDelete();
+                  void onDelete().then((deleted) => {
+                    if (!deleted) closeConfirm();
+                  });
                 }}
               >
                 Confirm
@@ -282,13 +325,13 @@ function LinkRowItem({
       <RowActions
         row={row}
         busy={busy}
-        onDelete={() => {
+        onDelete={async () => {
           setBusy(true);
           setError(null);
-          void onDelete(row).then((message) => {
-            setBusy(false);
-            if (message) setError(message);
-          });
+          const message = await onDelete(row);
+          setBusy(false);
+          if (message) setError(message);
+          return message === null;
         }}
       />
     </li>

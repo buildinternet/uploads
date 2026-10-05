@@ -7,6 +7,7 @@ import {
   formatLinkDate,
   galleryLinkRow,
   itemsLabel,
+  linkRowName,
   liveLinkLabel,
   liveLinkRow,
   repoScopeLabel,
@@ -154,6 +155,16 @@ describe("labels", () => {
     expect(repoScopeLabel(repo)).toBe("acme/web");
     expect(repoScopeLabel(liveLinkRow(feed({ number: null, kind: null, path: "/settings" })))).toBe(
       "acme/web · /settings",
+    );
+  });
+
+  it("names each row for accessible labels", () => {
+    expect(linkRowName(liveLinkRow(feed()))).toBe("acme/web#12");
+    expect(linkRowName(liveLinkRow(feed({ number: null, kind: null, path: "/settings" })))).toBe(
+      "acme/web · /settings",
+    );
+    expect(linkRowName(galleryLinkRow(gallery({ title: "Release screenshots" })))).toBe(
+      "Release screenshots",
     );
   });
 
