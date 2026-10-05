@@ -31,11 +31,10 @@ import {
   DropdownMenuTrigger,
 } from "@uploads/ui/components/ui/dropdown-menu";
 import { PrLabel } from "@uploads/ui/components/pr-label";
-import { EllipsisIcon } from "lucide-react";
+import { EllipsisIcon, ImagesIcon } from "lucide-react";
 import "@uploads/ui/styles.css";
 import { IslandErrorBoundary } from "./IslandErrorBoundary";
 import { onSession } from "../lib/account-shell";
-import { imageLoadFailed } from "../lib/media-load";
 import {
   deleteWorkspaceFeed,
   deleteWorkspaceGallery,
@@ -205,78 +204,50 @@ function LiveLinkBody({ row, titles }: { row: LiveLinkRow; titles: GithubTitleMa
 }
 
 function GalleryBody({ row }: { row: GalleryLinkRow }) {
-  const [coverFailed, setCoverFailed] = useState(false);
-  const imgRef = useRef<HTMLImageElement | null>(null);
-  // The SSR'd <img> can fail before hydration attaches onError, so check the
-  // already-failed case once on mount (the gotcha media-load.ts documents).
-  useEffect(() => {
-    const img = imgRef.current;
-    if (img && imageLoadFailed(img)) setCoverFailed(true);
-  }, []);
   const shown = row.references.slice(0, 3);
   const extra = row.references.length - shown.length;
+  // Same shape as a live-link row: icon + title line, then the meta line.
   return (
-    <div className="flex min-w-0 items-start gap-3">
-      <a
-        href={row.url}
-        target="_blank"
-        rel="noopener noreferrer"
-        aria-label={`Open ${row.title}`}
-        className="size-10 flex-none overflow-hidden rounded-md border border-border bg-muted"
-      >
-        {row.previewUrl && !coverFailed ? (
-          <img
-            ref={imgRef}
-            src={row.previewUrl}
-            alt=""
-            loading="lazy"
-            decoding="async"
-            className="size-full object-cover"
-            onError={() => setCoverFailed(true)}
-          />
-        ) : null}
-      </a>
-      <div className="min-w-0">
-        <div className="flex min-w-0 items-center gap-2">
-          <a
-            href={row.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="truncate font-medium text-foreground hover:underline"
-          >
-            {row.title}
-          </a>
-          <Badge variant="outline">Gallery</Badge>
-        </div>
-        {row.description ? (
-          <p className="m-0 truncate text-xs text-muted-foreground">{row.description}</p>
-        ) : null}
-        <p className="m-0 text-xs text-muted-foreground">
-          {itemsLabel(row.itemCount)} · {formatLinkDate(row.updatedAt)}
-        </p>
-        {shown.length > 0 ? (
-          <div className="mt-1 flex flex-wrap items-center gap-1.5">
-            {shown.map((ref) =>
-              ref.canonicalUrl ? (
-                <a
-                  key={ref.coordinate}
-                  className="ws-gallery-link"
-                  href={ref.canonicalUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  {ref.coordinate}
-                </a>
-              ) : (
-                <span key={ref.coordinate} className="ws-gallery-link ws-gallery-link--plain">
-                  {ref.coordinate}
-                </span>
-              ),
-            )}
-            {extra > 0 ? <span className="text-xs text-muted-foreground">+{extra}</span> : null}
-          </div>
-        ) : null}
+    <div className="flex min-w-0 flex-col gap-1">
+      <div className="flex min-w-0 items-center gap-2">
+        <a
+          href={row.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex min-w-0 items-center gap-1.5 text-(length:--text-meta) text-fg no-underline! hover:text-primary focus-visible:text-primary focus-visible:outline-none"
+        >
+          <ImagesIcon aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
+          <span className="truncate">{row.title}</span>
+        </a>
+        <Badge variant="outline">Gallery</Badge>
       </div>
+      <p className="m-0 text-xs text-muted-foreground">
+        {[row.description, itemsLabel(row.itemCount), formatLinkDate(row.updatedAt)]
+          .filter(Boolean)
+          .join(" · ")}
+      </p>
+      {shown.length > 0 ? (
+        <div className="flex flex-wrap items-center gap-1.5">
+          {shown.map((ref) =>
+            ref.canonicalUrl ? (
+              <a
+                key={ref.coordinate}
+                className="ws-gallery-link"
+                href={ref.canonicalUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                {ref.coordinate}
+              </a>
+            ) : (
+              <span key={ref.coordinate} className="ws-gallery-link ws-gallery-link--plain">
+                {ref.coordinate}
+              </span>
+            ),
+          )}
+          {extra > 0 ? <span className="text-xs text-muted-foreground">+{extra}</span> : null}
+        </div>
+      ) : null}
     </div>
   );
 }
