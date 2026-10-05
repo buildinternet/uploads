@@ -197,6 +197,18 @@ Each channel updates on its own. For a short time they can disagree:
   one is published. Docs that describe a new plugin feature are ahead of
   directory users until then.
 
+## OpenAI directory
+
+Build the directory ZIP with `pnpm plugin-directory:build`. The builder uses
+the existing `@uploads/plugin` version and shared skills. It excludes local
+hooks and Claude mods. CI validates the archive with
+`pnpm plugin-directory:check`.
+
+See [the submission runbook](../plugins/codex/directory.md) for reviewer
+fixtures, importing the existing recording, OAuth checks, domain verification,
+and the portal steps. Build a new ZIP for metadata or skill changes. Hosted
+MCP tool updates go through OpenAI's server scans separately.
+
 ## Manual / recovery
 
 ```bash

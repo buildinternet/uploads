@@ -110,6 +110,9 @@ export function isCliSessionUserAgent(ua?: string | null): boolean {
  */
 export const OAUTH_SCOPES = ["files:read", "files:write", "files:delete"] as const;
 
+/** Optional identity scopes, kept separate from workspace file permissions. */
+const OAUTH_IDENTITY_SCOPES = ["openid", "email"] as const;
+
 /**
  * Issue #911: `@better-auth/oauth-provider` only issues a refresh token when
  * the grant's scopes include `offline_access` (see createUserTokens in the
@@ -133,7 +136,10 @@ const OAUTH_CLIENT_REGISTRATION_DEFAULT_SCOPES = [
  * Extra scopes a CIMD/DCR client may request (consent still required). Better
  * Auth 1.7 persists self-registered clients as default ∪ allowed.
  */
-const OAUTH_CLIENT_REGISTRATION_ALLOWED_SCOPES = ["files:delete"] as const;
+const OAUTH_CLIENT_REGISTRATION_ALLOWED_SCOPES = [
+  "files:delete",
+  ...OAUTH_IDENTITY_SCOPES,
+] as const;
 
 /**
  * Fallback when the oauth_client row is missing (CIMD first-use: persist
@@ -312,6 +318,12 @@ async function applyOAuthClientInterop(
     const query = ctx.query;
     const allowedScopes = await registeredScopesForClientId(oauthClientIdFromQuery(query));
     const nextQuery = restrictOAuthQueryScopes(query, allowedScopes);
+    if (nextQuery?.scope === "") {
+      throw new APIError("BAD_REQUEST", {
+        error: "invalid_scope",
+        error_description: "No requested scopes can be granted",
+      });
+    }
     if (nextQuery) return { context: { query: nextQuery } };
     return;
   }
@@ -658,8 +670,8 @@ function buildAuth(
   /**
    * Registered `oauth_client.scopes`, or {@link OAUTH_SELF_REGISTERED_SCOPES}
    * when the row is missing (CIMD first-use: persist can run after this
-   * hook). Never the empty list: authorize still has to downscope extras
-   * such as `openid` on the first request.
+   * hook). Never the empty list: authorize still has to downscope unknown
+   * scopes on the first request.
    */
   const registeredScopesForClientId = async (
     clientId: string | undefined,
@@ -919,7 +931,7 @@ function buildAuth(
       oauthProvider({
         loginPage: `${webOrigin}/login`,
         consentPage: `${webOrigin}/oauth/consent`,
-        scopes: [...OAUTH_SCOPES, OAUTH_OFFLINE_ACCESS_SCOPE],
+        scopes: [...OAUTH_SCOPES, ...OAUTH_IDENTITY_SCOPES, OAUTH_OFFLINE_ACCESS_SCOPE],
         clientRegistrationDefaultScopes: [...OAUTH_CLIENT_REGISTRATION_DEFAULT_SCOPES],
         // Better Auth 1.7 persists every self-registered client (DCR and
         // CIMD alike) with scope = defaultScopes ∪ allowedScopes, DISCARDING
@@ -931,7 +943,7 @@ function buildAuth(
         // files:delete here lets self-registered clients REQUEST it; every
         // grant still goes through the user's consent screen, and device-flow
         // workspace tokens already get files:delete by default.
-        // Generic clients also copy extras (openid, admin) that are not in
+        // Generic clients also copy extras (profile, admin) that are not in
         // this product's scope list; hooks.before downscopes those rather
         // than expanding this allowlist further.
         clientRegistrationAllowedScopes: [...OAUTH_CLIENT_REGISTRATION_ALLOWED_SCOPES],
@@ -1003,8 +1015,14 @@ function buildAuth(
         // — the user's per-grant choice wins. Zero memberships still issues
         // a token (workspace: null) — the MCP worker is responsible for the
         // 403.
-        customAccessTokenClaims: async ({ user, referenceId }) =>
-          applyWorkspaceChoice(await resolveWorkspaceClaims(db, user?.id), referenceId),
+        // Identity-only grants carry no workspace claims, so they cannot
+        // reveal membership or authorize MCP tools such as whoami.
+        // Identity-only grants must not disclose workspace membership or
+        // authorize MCP operations. File grants keep the existing claims.
+        customAccessTokenClaims: async ({ user, referenceId, scopes }) =>
+          scopes.some((scope) => (OAUTH_SCOPES as readonly string[]).includes(scope))
+            ? applyWorkspaceChoice(await resolveWorkspaceClaims(db, user?.id), referenceId)
+            : {},
       }),
       // Issue #556: Client ID Metadata Documents (CIMD). MCP spec 2026-07-28
       // deprecates DCR in favour of an HTTPS-URL `client_id` that points at a
