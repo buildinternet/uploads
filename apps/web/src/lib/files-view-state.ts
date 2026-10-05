@@ -183,3 +183,35 @@ export function typeEmptyNoun(type: FileTypeClass | null): string {
   if (type === "other") return "other files";
   return "files";
 }
+
+export type PullsEmptyCopy =
+  | { kind: "filtered"; title: string }
+  | { kind: "command"; title: string; description: string };
+
+/**
+ * By pull request empty state. `/pulls` only covers the last 90 days unless
+ * `all=1` ("Show older pull requests"), and it never says whether older rows
+ * exist, so the copy names the window until the viewer has looked past it.
+ */
+export function pullsEmptyCopy(input: { filtering: boolean; showOlder: boolean }): PullsEmptyCopy {
+  if (input.filtering) {
+    return {
+      kind: "filtered",
+      title: input.showOlder
+        ? "No pull requests match these filters."
+        : "No pull requests in the last 90 days match these filters.",
+    };
+  }
+  return input.showOlder
+    ? {
+        kind: "command",
+        title: "No pull request files yet",
+        description: "Files attached to a pull request show up here, newest first.",
+      }
+    : {
+        kind: "command",
+        title: "No pull request files in the last 90 days",
+        description:
+          "Files attached to a pull request show up here, newest first. Older pull requests are below.",
+      };
+}

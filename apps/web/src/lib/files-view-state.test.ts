@@ -13,6 +13,7 @@ import {
   parseFileTypeParam,
   parsePrNumberParam,
   prStateFromTitle,
+  pullsEmptyCopy,
   readFilesQuery,
   readFilesView,
   readScopePageQuery,
@@ -214,5 +215,32 @@ describe("Files URLs are never redirected to Storage", () => {
     for (const search of searches) {
       expect(filesRouteRedirect("acme", search)).toBeNull();
     }
+  });
+});
+
+describe("pullsEmptyCopy", () => {
+  it("names the 90-day window until older pull requests are shown", () => {
+    expect(pullsEmptyCopy({ filtering: false, showOlder: false })).toEqual({
+      kind: "command",
+      title: "No pull request files in the last 90 days",
+      description:
+        "Files attached to a pull request show up here, newest first. Older pull requests are below.",
+    });
+    expect(pullsEmptyCopy({ filtering: true, showOlder: false })).toEqual({
+      kind: "filtered",
+      title: "No pull requests in the last 90 days match these filters.",
+    });
+  });
+
+  it("keeps the onboarding and plain filtered copy once all=1 is on", () => {
+    expect(pullsEmptyCopy({ filtering: false, showOlder: true })).toEqual({
+      kind: "command",
+      title: "No pull request files yet",
+      description: "Files attached to a pull request show up here, newest first.",
+    });
+    expect(pullsEmptyCopy({ filtering: true, showOlder: true })).toEqual({
+      kind: "filtered",
+      title: "No pull requests match these filters.",
+    });
   });
 });

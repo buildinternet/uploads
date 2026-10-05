@@ -25,6 +25,7 @@ import {
   filesPrHref,
   filesSearch,
   filesViewHref,
+  pullsEmptyCopy,
   readFilesQuery,
   type FilesQuery,
 } from "../../lib/files-view-state";
@@ -70,6 +71,9 @@ function PullsViewInner({
   // switches to all=1. Component state only: a reload returns to the window,
   // which is also what the SSR seed holds.
   const [showOlder, setShowOlder] = useState(false);
+  // The windowed rows stay on screen while the all=1 reload runs. Keyed to
+  // that reload's query, so a later filter change still gets the skeleton.
+  const [olderPending, setOlderPending] = useState<{ key: string; rows: PullRow[] } | null>(null);
   const preview = useShotPreview(apiOrigin, workspace);
   const liveLink = useLiveLink(apiOrigin, workspace);
   const {
@@ -77,7 +81,7 @@ function PullsViewInner({
     loadMore,
     retry,
   } = useCursorList<PullRow>({
-    queryKey: filesSearch(query) + (showOlder ? "|all" : ""),
+    queryKey: pullsQueryKey(query, showOlder),
     seed: initialPage,
     keyOf: (row) => row.ref,
     load: (cursor) =>
@@ -126,6 +130,16 @@ function PullsViewInner({
   const opener = makeFileOpener(apiOrigin, workspace, info.hasPublicUrl);
   // Type never empties the list (it narrows thumbnails), so only repo and state count.
   const filtering = query.repo !== "" || query.state !== null;
+  const empty = pullsEmptyCopy({ filtering, showOlder });
+  const keptRows =
+    list.status === "loading" && olderPending?.key === pullsQueryKey(query, showOlder)
+      ? olderPending.rows
+      : null;
+  const rows = list.status === "ready" ? list.rows : (keptRows ?? []);
+  const showOlderPullRequests = () => {
+    setOlderPending({ key: pullsQueryKey(query, true), rows: list.rows });
+    setShowOlder(true);
+  };
 
   return (
     <div className="wsp grid gap-6" aria-busy={list.status === "loading" || undefined}>
@@ -139,7 +153,7 @@ function PullsViewInner({
         <PrStateSelect value={query.state} onChange={(state) => setQuery({ ...query, state })} />
       </div>
 
-      {list.status === "loading" && <RowsSkeleton rows={4} />}
+      {list.status === "loading" && !keptRows && <RowsSkeleton rows={4} />}
       {list.status === "error" && (
         <Callout tone="error" role="alert">
           Pull requests are temporarily unavailable.{" "}
@@ -150,12 +164,12 @@ function PullsViewInner({
       )}
       {list.status === "ready" &&
         list.rows.length === 0 &&
-        (filtering ? (
-          <InlineEmpty title="No pull requests match these filters." />
+        (empty.kind === "filtered" ? (
+          <InlineEmpty title={empty.title} />
         ) : (
           <CommandEmpty
-            title="No pull request files yet"
-            description="Files attached to a pull request show up here, newest first."
+            title={empty.title}
+            description={empty.description}
             command="uploads put ./shot.png --pr 123"
             footer={
               <a className="text-btn" href={filesViewHref(workspace, "pages")}>
@@ -164,9 +178,9 @@ function PullsViewInner({
             }
           />
         ))}
-      {list.status === "ready" && list.rows.length > 0 && (
+      {rows.length > 0 && (
         <ul className="m-0 grid list-none p-0">
-          {list.rows.map((row) => (
+          {rows.map((row) => (
             <PullRowItem
               key={row.ref}
               row={row}
@@ -195,14 +209,15 @@ function PullsViewInner({
           )}
         </div>
       )}
-      {list.status === "ready" && !list.nextCursor && !showOlder && (
+      {((list.status === "ready" && !list.nextCursor && !showOlder) || keptRows) && (
         <div className="flex items-center justify-center">
           <button
             type="button"
             className="text-btn text-btn--boxed"
-            onClick={() => setShowOlder(true)}
+            onClick={showOlderPullRequests}
+            disabled={keptRows !== null}
           >
-            Show older pull requests
+            {keptRows ? "Loading older pull requests…" : "Show older pull requests"}
           </button>
         </div>
       )}
@@ -211,6 +226,11 @@ function PullsViewInner({
       {liveLink.toast}
     </div>
   );
+}
+
+/** useCursorList key: the URL filters plus the all=1 opt-out. */
+function pullsQueryKey(query: FilesQuery, showOlder: boolean): string {
+  return filesSearch(query) + (showOlder ? "|all" : "");
 }
 
 function PullRowItem({
@@ -242,7 +262,11 @@ function PullRowItem({
           <div className="flex flex-wrap gap-x-2 text-[12px] text-muted-foreground">
             <span>{row.repo}</span>
             {row.branch && <span>· {row.branch}</span>}
-            <span>· updated {lastUpdatedLabel(row.lastMediaAt, new Date())}</span>
+            {/* Relative to render time, so SSR and hydrate can straddle a
+                minute boundary; React keeps the server text in that case. */}
+            <span suppressHydrationWarning>
+              {`· updated ${lastUpdatedLabel(row.lastMediaAt, new Date())}`}
+            </span>
           </div>
         </div>
         {/* copy() runs straight from the menu click (no await first) so the
