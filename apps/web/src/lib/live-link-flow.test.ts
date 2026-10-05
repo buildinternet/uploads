@@ -1,9 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   liveLinkScopeKey,
+  liveLinkScopeLabel,
   liveLinkToast,
   privateConfirmText,
   runCopyLiveLink,
+  writeClipboardUrl,
   type CopyLiveLinkDeps,
   type ScopeShareInfo,
 } from "./live-link-flow";
@@ -11,15 +13,27 @@ import {
 const PR = { repo: "acme/web", pr: 7 };
 const URL_A = "https://uploads.sh/c/abc";
 
+/** `copyText` resolves each write's URL promise; `writes` records the outcome per write. */
 function deps(
   overrides: Partial<CopyLiveLinkDeps> = {},
   info: ScopeShareInfo | null = { privateCount: 0, liveLink: null },
 ) {
+  const writes: Array<Promise<string>> = [];
+  const copyText = vi.fn(async (url: Promise<string>) => {
+    writes.push(url);
+    try {
+      await url;
+      return true;
+    } catch {
+      return false;
+    }
+  });
   return {
+    writes,
     loadShareInfo: vi.fn(async () => info),
     create: vi.fn(async () => ({ kind: "ok" as const, id: "abc", url: URL_A })),
     confirmPrivate: vi.fn(async () => true),
-    writeClipboard: vi.fn(async () => true),
+    copyText,
     ...overrides,
   };
 }
@@ -30,7 +44,8 @@ describe("runCopyLiveLink", () => {
     const outcome = await runCopyLiveLink(d, PR, { confirmed: new Set() });
     expect(outcome).toEqual({ kind: "copied", url: URL_A, id: "abc", created: true });
     expect(d.create).toHaveBeenCalledWith(PR);
-    expect(d.writeClipboard).toHaveBeenCalledWith(URL_A);
+    expect(d.copyText).toHaveBeenCalledTimes(1);
+    await expect(d.writes[0]).resolves.toBe(URL_A);
     expect(d.confirmPrivate).not.toHaveBeenCalled();
   });
 
@@ -62,6 +77,24 @@ describe("runCopyLiveLink", () => {
     expect(d.confirmPrivate).toHaveBeenCalledTimes(1);
   });
 
+  it("re-asks on retry when the create hit the limit or failed", async () => {
+    const confirmed = new Set<string>();
+    const info = { privateCount: 2, liveLink: null };
+    const limited = deps(
+      { create: vi.fn(async () => ({ kind: "limit" as const, limit: 50 })) },
+      info,
+    );
+    expect(await runCopyLiveLink(limited, PR, { confirmed })).toEqual({ kind: "limit", limit: 50 });
+    expect(confirmed.size).toBe(0);
+    const failed = deps({ create: vi.fn(async () => ({ kind: "error" as const })) }, info);
+    expect(await runCopyLiveLink(failed, PR, { confirmed })).toEqual({ kind: "error" });
+    expect(confirmed.size).toBe(0);
+    const retry = deps({}, info);
+    expect(await runCopyLiveLink(retry, PR, { confirmed })).toMatchObject({ kind: "copied" });
+    expect(retry.confirmPrivate).toHaveBeenCalledTimes(1);
+    expect(confirmed.has("acme/web#7")).toBe(true);
+  });
+
   it("reuses a link comment sync already made: same URL, no POST (Review Focus 5)", async () => {
     const d = deps(
       {},
@@ -80,24 +113,26 @@ describe("runCopyLiveLink", () => {
     });
   });
 
-  it("reports the cap and links to Links", async () => {
-    const d = deps({ create: vi.fn(async () => ({ kind: "limit" as const })) });
+  it("reports the repo cap with the API's number and links to Links", async () => {
+    const d = deps({ create: vi.fn(async () => ({ kind: "limit" as const, limit: 50 })) });
     const outcome = await runCopyLiveLink(d, PR, { confirmed: new Set() });
-    expect(outcome).toEqual({ kind: "limit" });
-    expect(d.writeClipboard).not.toHaveBeenCalled();
+    expect(outcome).toEqual({ kind: "limit", limit: 50 });
+    await expect(d.writes[0]).rejects.toThrow();
     expect(liveLinkToast(outcome, PR, "/account/workspaces/acme/links")).toEqual({
-      text: "This workspace has reached its live link limit.",
+      text: "This workspace has reached its limit of 50 repo live links. Revoke one to add another.",
       link: { href: "/account/workspaces/acme/links", label: "Manage live links" },
     });
   });
 
-  it("hands the URL back when the clipboard write is rejected (Review Focus 1)", async () => {
-    const d = deps({ writeClipboard: vi.fn(async () => false) });
+  it("hands the URL back, sticky with a Copy button, when the clipboard write is rejected", async () => {
+    const d = deps({ copyText: vi.fn(async () => false) });
     const outcome = await runCopyLiveLink(d, PR, { confirmed: new Set() });
     expect(outcome).toEqual({ kind: "clipboard-blocked", url: URL_A, id: "abc" });
     expect(liveLinkToast(outcome, PR, "/l")).toEqual({
       text: "Couldn't copy automatically. Your live link:",
       link: { href: URL_A, label: URL_A, external: true },
+      copyText: URL_A,
+      sticky: true,
     });
   });
 
@@ -110,6 +145,123 @@ describe("runCopyLiveLink", () => {
     expect(d.loadShareInfo).not.toHaveBeenCalled();
     const failing = deps({}, null);
     expect(await runCopyLiveLink(failing, PR, { confirmed: new Set() })).toEqual({ kind: "error" });
+    await expect(failing.writes[0]).rejects.toThrow();
+  });
+
+  it("returns error (no throw) when loading share info throws", async () => {
+    const d = deps({
+      loadShareInfo: vi.fn(async () => {
+        throw new Error("network");
+      }),
+    });
+    expect(await runCopyLiveLink(d, PR, { confirmed: new Set() })).toEqual({ kind: "error" });
+  });
+});
+
+describe("clipboard gesture ordering", () => {
+  it("starts the write synchronously in the click when known info needs no confirm", () => {
+    const d = deps();
+    void runCopyLiveLink(d, PR, {
+      known: { privateCount: 0, liveLink: null },
+      confirmed: new Set(),
+    });
+    expect(d.copyText).toHaveBeenCalledTimes(1);
+  });
+
+  it("writes optimistically in the click when share info is not known yet", async () => {
+    const order: string[] = [];
+    const d = deps({
+      loadShareInfo: vi.fn(async () => {
+        order.push("load");
+        return { privateCount: 0, liveLink: null };
+      }),
+    });
+    const copyText = d.copyText;
+    d.copyText = vi.fn((url) => {
+      order.push("write");
+      return copyText(url);
+    });
+    await runCopyLiveLink(d, PR, { confirmed: new Set() });
+    expect(order).toEqual(["write", "load"]);
+    await expect(d.writes[0]).resolves.toBe(URL_A);
+  });
+
+  it("with known private items, waits for the confirm and starts the write after it", async () => {
+    let answer!: (ok: boolean) => void;
+    const d = deps({
+      confirmPrivate: vi.fn(() => new Promise<boolean>((resolve) => (answer = resolve))),
+    });
+    const run = runCopyLiveLink(d, PR, {
+      known: { privateCount: 2, liveLink: null },
+      confirmed: new Set(),
+    });
+    expect(d.copyText).not.toHaveBeenCalled();
+    answer(true);
+    expect(await run).toMatchObject({ kind: "copied" });
+    expect(d.copyText).toHaveBeenCalledTimes(1);
+    await expect(d.writes[0]).resolves.toBe(URL_A);
+  });
+
+  it("abandons the optimistic write when a confirm turns up, then writes in the confirm gesture", async () => {
+    const d = deps({}, { privateCount: 2, liveLink: null });
+    const outcome = await runCopyLiveLink(d, PR, { confirmed: new Set() });
+    expect(outcome).toMatchObject({ kind: "copied" });
+    expect(d.copyText).toHaveBeenCalledTimes(2);
+    await expect(d.writes[0]).rejects.toThrow("abandoned");
+    await expect(d.writes[1]).resolves.toBe(URL_A);
+  });
+});
+
+describe("writeClipboardUrl", () => {
+  class FakeItem {
+    constructor(readonly items: Record<string, Promise<Blob>>) {}
+  }
+
+  it("starts clipboard.write before the URL resolves, with a text/plain Blob promise", async () => {
+    let resolveUrl!: (url: string) => void;
+    const url = new Promise<string>((resolve) => (resolveUrl = resolve));
+    let item: FakeItem | undefined;
+    const write = vi.fn(async (items: unknown[]) => {
+      item = items[0] as FakeItem;
+      await item.items["text/plain"];
+    });
+    const writeText = vi.fn(async () => {});
+    const done = writeClipboardUrl({ write, writeText }, FakeItem, url);
+    expect(write).toHaveBeenCalledTimes(1);
+    resolveUrl(URL_A);
+    expect(await done).toBe(true);
+    expect(await (await item!.items["text/plain"]).text()).toBe(URL_A);
+    expect(writeText).not.toHaveBeenCalled();
+  });
+
+  it("falls back to writeText after the URL resolves when ClipboardItem is missing", async () => {
+    const writeText = vi.fn(async () => {});
+    expect(await writeClipboardUrl({ writeText }, undefined, Promise.resolve(URL_A))).toBe(true);
+    expect(writeText).toHaveBeenCalledWith(URL_A);
+  });
+
+  it("returns false when the write is rejected, the URL rejects, or there is no clipboard", async () => {
+    const reject = vi.fn(async () => {
+      throw new Error("blocked");
+    });
+    expect(
+      await writeClipboardUrl(
+        { write: reject, writeText: reject },
+        FakeItem,
+        Promise.resolve(URL_A),
+      ),
+    ).toBe(false);
+    expect(await writeClipboardUrl({ writeText: reject }, undefined, Promise.resolve(URL_A))).toBe(
+      false,
+    );
+    expect(
+      await writeClipboardUrl(
+        { writeText: vi.fn(async () => {}) },
+        undefined,
+        Promise.reject(new Error("x")),
+      ),
+    ).toBe(false);
+    expect(await writeClipboardUrl(undefined, undefined, Promise.resolve(URL_A))).toBe(false);
   });
 });
 
@@ -134,8 +286,10 @@ describe("copy text", () => {
     );
   });
 
-  it("keys scopes by repo and PR", () => {
+  it("keys and labels scopes by repo and PR", () => {
     expect(liveLinkScopeKey(PR)).toBe("acme/web#7");
     expect(liveLinkScopeKey({ repo: "acme/web" })).toBe("acme/web");
+    expect(liveLinkScopeLabel(PR)).toBe("acme/web #7");
+    expect(liveLinkScopeLabel({ repo: "acme/web" })).toBe("acme/web");
   });
 });

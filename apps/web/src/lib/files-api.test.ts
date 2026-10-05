@@ -34,7 +34,10 @@ describe("normalizeCreateResult", () => {
         data: { id: "abc", url: "https://uploads.sh/c/abc" },
       } as never),
     ).toEqual({ kind: "ok", id: "abc", url: "https://uploads.sh/c/abc" });
-    expect(normalizeCreateResult({ kind: "limit", limit: 50 })).toEqual({ kind: "limit" });
+    expect(normalizeCreateResult({ kind: "limit", limit: 50 })).toEqual({
+      kind: "limit",
+      limit: 50,
+    });
     expect(normalizeCreateResult({ kind: "unavailable", reason: "server" })).toEqual({
       kind: "error",
     });

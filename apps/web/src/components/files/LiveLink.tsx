@@ -26,22 +26,24 @@ import { createLiveLink, loadShareInfo } from "../../lib/files-api";
 import { linksHref } from "../../lib/files-view-state";
 import {
   liveLinkScopeKey,
+  liveLinkScopeLabel,
   liveLinkToast,
   privateConfirmText,
   runCopyLiveLink,
+  writeClipboardUrl,
   type CopyLiveLinkOutcome,
   type LiveLinkScope,
   type ScopeShareInfo,
   type ToastMessage,
 } from "../../lib/live-link-flow";
 
-async function writeClipboardText(text: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(text);
-    return true;
-  } catch {
-    return false;
-  }
+/** Starts the write now; the caller is inside the user's click. */
+function copyUrlToClipboard(url: Promise<string>): Promise<boolean> {
+  return writeClipboardUrl(
+    typeof navigator === "undefined" ? undefined : navigator.clipboard,
+    typeof ClipboardItem === "undefined" ? undefined : ClipboardItem,
+    url,
+  );
 }
 
 /** Polite live region; always mounted so screen readers announce inserts. */
@@ -52,8 +54,10 @@ export function Toast({
   message: ToastMessage | null;
   onDismiss: () => void;
 }) {
+  const [copied, setCopied] = useState(false);
   useEffect(() => {
-    if (!message) return;
+    setCopied(false);
+    if (!message || message.sticky) return;
     const timer = window.setTimeout(onDismiss, 8000);
     return () => window.clearTimeout(timer);
   }, [message, onDismiss]);
@@ -75,6 +79,18 @@ export function Toast({
               {message.link.label}
             </a>
           )}
+          {message.copyText !== undefined && (
+            <button
+              type="button"
+              className="text-btn flex-none"
+              onClick={() => {
+                // A fresh click, so the browser allows the write.
+                void copyUrlToClipboard(Promise.resolve(message.copyText!)).then(setCopied);
+              }}
+            >
+              {copied ? "Copied" : "Copy"}
+            </button>
+          )}
           <button
             type="button"
             className="text-btn flex-none"
@@ -89,25 +105,32 @@ export function Toast({
   );
 }
 
+interface PendingConfirm {
+  count: number;
+  label: string;
+}
+
 function LiveLinkConfirmDialog({
-  count,
+  pending,
   onDone,
 }: {
-  count: number | null;
+  pending: PendingConfirm | null;
   onDone: (ok: boolean) => void;
 }) {
   return (
     <AlertDialog
-      open={count !== null}
+      open={pending !== null}
       onOpenChange={(open) => {
         if (!open) onDone(false);
       }}
     >
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Copy live link?</AlertDialogTitle>
+          <AlertDialogTitle>
+            {pending ? `Copy live link for ${pending.label}?` : "Copy live link?"}
+          </AlertDialogTitle>
           <AlertDialogDescription>
-            {count !== null ? privateConfirmText(count) : null}
+            {pending ? privateConfirmText(pending.count) : null}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
@@ -124,8 +147,15 @@ function LiveLinkConfirmDialog({
 }
 
 export interface LiveLinkControls {
+  /**
+   * Call straight from the click handler (no await first): the clipboard
+   * write starts inside that gesture. One copy runs at a time; a call while
+   * another is running is a no-op that resolves `cancelled`.
+   */
   copy: (scope: LiveLinkScope, known?: ScopeShareInfo | null) => Promise<CopyLiveLinkOutcome>;
-  /** `liveLinkScopeKey` of the scope being copied, for disabling its control. */
+  /** True while any copy runs: disable every Copy control, not just one row's. */
+  busy: boolean;
+  /** `liveLinkScopeKey` of the scope being copied. */
   busyKey: string | null;
   dialog: ReactNode;
   toast: ReactNode;
@@ -134,7 +164,8 @@ export interface LiveLinkControls {
 export function useLiveLink(apiOrigin: string, workspace: string): LiveLinkControls {
   const confirmed = useRef(new Set<string>());
   const resolver = useRef<((ok: boolean) => void) | null>(null);
-  const [pendingCount, setPendingCount] = useState<number | null>(null);
+  const inFlight = useRef(false);
+  const [pending, setPending] = useState<PendingConfirm | null>(null);
   const [toast, setToast] = useState<ToastMessage | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const dismissToast = useCallback(() => setToast(null), []);
@@ -142,7 +173,7 @@ export function useLiveLink(apiOrigin: string, workspace: string): LiveLinkContr
   const settle = (ok: boolean) => {
     const resolve = resolver.current;
     resolver.current = null;
-    setPendingCount(null);
+    setPending(null);
     resolve?.(ok);
   };
 
@@ -150,6 +181,8 @@ export function useLiveLink(apiOrigin: string, workspace: string): LiveLinkContr
     scope: LiveLinkScope,
     known?: ScopeShareInfo | null,
   ): Promise<CopyLiveLinkOutcome> => {
+    if (inFlight.current) return { kind: "cancelled" };
+    inFlight.current = true;
     setBusyKey(liveLinkScopeKey(scope));
     setToast(null);
     let outcome: CopyLiveLinkOutcome;
@@ -161,9 +194,9 @@ export function useLiveLink(apiOrigin: string, workspace: string): LiveLinkContr
           confirmPrivate: (count) =>
             new Promise<boolean>((resolve) => {
               resolver.current = resolve;
-              setPendingCount(count);
+              setPending({ count, label: liveLinkScopeLabel(scope) });
             }),
-          writeClipboard: writeClipboardText,
+          copyText: copyUrlToClipboard,
         },
         scope,
         { known: known ?? null, confirmed: confirmed.current },
@@ -171,6 +204,7 @@ export function useLiveLink(apiOrigin: string, workspace: string): LiveLinkContr
     } catch {
       outcome = { kind: "error" };
     } finally {
+      inFlight.current = false;
       setBusyKey(null);
     }
     setToast(liveLinkToast(outcome, scope, linksHref(workspace)));
@@ -179,8 +213,9 @@ export function useLiveLink(apiOrigin: string, workspace: string): LiveLinkContr
 
   return {
     copy,
+    busy: busyKey !== null,
     busyKey,
-    dialog: <LiveLinkConfirmDialog count={pendingCount} onDone={settle} />,
+    dialog: <LiveLinkConfirmDialog pending={pending} onDone={settle} />,
     toast: <Toast message={toast} onDismiss={dismissToast} />,
   };
 }

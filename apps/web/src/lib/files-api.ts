@@ -116,7 +116,7 @@ export async function loadShareInfo(
 }
 
 export function normalizeCreateResult(result: CreateFeedResult): CreateLiveLinkResult {
-  if (result.kind === "limit") return { kind: "limit" };
+  if (result.kind === "limit") return { kind: "limit", limit: result.limit };
   if (result.kind === "ok") return { kind: "ok", id: result.data.id, url: result.data.url };
   return { kind: "error" };
 }
