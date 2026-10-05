@@ -30,6 +30,7 @@
  */
 import { env } from "cloudflare:workers";
 import WorkspaceLayout from "../../../../layouts/WorkspaceLayout.astro";
+import StorageBucketSection from "../../../../components/workspace/StorageBucketSection.astro";
 import { WorkspaceFileTable, type ListingState } from "../../../../components/WorkspaceFileTable";
 import { getWorkspaceSummary, listWorkspaceFolder } from "../../../../lib/api-client";
 import { serverApiFetchImpl } from "../../../../lib/api-proxy";
@@ -103,6 +104,18 @@ const filesSeedJson = JSON.stringify({
 ---
 
 <WorkspaceLayout workspace={workspace} tip={tip}>
+  <div
+    id="storage-moved-notice"
+    class="ul-callout mb-4 flex items-start justify-between gap-3"
+    role="status"
+    hidden
+  >
+    <p class="m-0">
+      <strong>Files moved here.</strong> This tab is the full bucket browser, now called Storage. The
+      Files tab groups uploads by the page or pull request they came from.
+    </p>
+    <button type="button" class="ul-btn ul-btn--ghost" data-storage-moved-dismiss>Dismiss</button>
+  </div>
   <div id="ws-files-table">
     <WorkspaceFileTable
       apiOrigin={apiOrigin}
@@ -113,12 +126,18 @@ const filesSeedJson = JSON.stringify({
     />
   </div>
   <script type="application/json" id="ws-files-seed" set:html={filesSeedJson} />
+  <StorageBucketSection />
 
   <script>
     import { onAstroPageLoad } from "../../../../lib/account-shell";
     import { createIslandMounter } from "../../../../lib/react-island";
     import type { ListingState } from "../../../../components/WorkspaceFileTable";
     import type { WorkspaceInfoStatus } from "../../../../lib/workspace-file-row";
+    import {
+      browserLocalStorage,
+      dismissStorageMovedNotice,
+      isStorageMovedNoticeDismissed,
+    } from "../../../../lib/storage-moved-notice";
 
     interface FilesSeed {
       apiOrigin: string;
@@ -140,6 +159,21 @@ const filesSeedJson = JSON.stringify({
     // astro:page-load fires on the initial load too (same as every sibling
     // tab), so this single registration mounts on first load and on nav —
     // no separate eager call, which would double-mount + double-fetch.
-    onAstroPageLoad(() => void boot());
+    onAstroPageLoad(() => {
+      void boot();
+      const notice = document.getElementById("storage-moved-notice");
+      if (!notice) return;
+      const store = browserLocalStorage();
+      if (isStorageMovedNoticeDismissed(store)) return;
+      notice.hidden = false;
+      notice.querySelector<HTMLButtonElement>("[data-storage-moved-dismiss]")?.addEventListener(
+        "click",
+        () => {
+          notice.hidden = true;
+          dismissStorageMovedNotice(store);
+        },
+        { once: true },
+      );
+    });
   </script>
 </WorkspaceLayout>

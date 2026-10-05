@@ -1,7 +1,7 @@
 /**
  * Signed-in banner for a broken BYO bucket (issue #826).
  *
- * An admin shouldn't have to open the storage settings tab to find out that
+ * An admin shouldn't have to open the Storage tab to find out that
  * uploads are failing, so every workspace tab checks the active lane's health
  * once per page load and paints a dismissable notice pointing at the fix.
  *
@@ -12,6 +12,7 @@
  */
 import { getWorkspaceStorageStatus } from "./api-client";
 import { onSession } from "./account-shell";
+import { workspaceStorageBucketHref, workspaceStoragePath } from "./workspace-browse-url";
 
 /** sessionStorage prefix for per-failure dismissals. */
 const DISMISS_KEY_PREFIX = "uploads:storageHealthDismissed:";
@@ -43,10 +44,6 @@ function markDismissed(workspace: string, since: string | undefined): void {
   }
 }
 
-export function storageSettingsPath(workspace: string): string {
-  return `/account/workspaces/${encodeURIComponent(workspace)}/settings/storage`;
-}
-
 export interface InitStorageHealthBannerOptions {
   /** Query root for `[data-storage-health-banner]`. Defaults to `document`. */
   root?: Document | Element;
@@ -58,7 +55,7 @@ export interface InitStorageHealthBannerOptions {
  * Mounts the banner for one workspace-tab page load. Safe to call on every
  * tab: it no-ops when the banner element is absent, when the caller is not an
  * admin, when storage is healthy, when the notice was already dismissed for
- * this failure, and when the user is already on the storage settings page
+ * this failure, and when the user is already on the Storage tab
  * (where the lane card says the same thing in more detail — a banner above it
  * would be pure repetition).
  */
@@ -70,9 +67,10 @@ export function initStorageHealthBanner(
   const root = opts.root ?? document;
   const banner = root.querySelector<HTMLElement>("[data-storage-health-banner]");
   if (!banner || !workspace) return;
-  const settingsPath = storageSettingsPath(workspace);
+  // The Storage tab carries the bucket section itself, where the lane card
+  // says the same thing in more detail; a banner above it would repeat it.
   const pathname = opts.pathname ?? location.pathname;
-  if (pathname === settingsPath) return;
+  if (pathname === workspaceStoragePath(workspace)) return;
 
   onSession(() => {
     void getWorkspaceStorageStatus(apiOrigin, workspace).then((result) => {
@@ -88,7 +86,7 @@ export function initStorageHealthBanner(
       if (messageEl) {
         messageEl.textContent = `${health.message}. New uploads to this workspace are failing.`;
       }
-      if (linkEl) linkEl.href = settingsPath;
+      if (linkEl) linkEl.href = workspaceStorageBucketHref(workspace);
       dismissEl?.addEventListener("click", () => {
         banner.hidden = true;
         markDismissed(workspace, health.since);
