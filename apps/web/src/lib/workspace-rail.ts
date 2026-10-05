@@ -26,9 +26,8 @@ import { onSession } from "./account-shell";
 import { escapeHtml, renderUsageHtml, type UsageSnapshot } from "./workspace-ui";
 import { readWorkspaceSnapshot } from "./workspace-cache";
 import { loadWorkspaceSummary } from "./workspace-summary-source";
-import { githubKindSvg } from "./brand-icons";
 import { filesPrHrefForWorkItem } from "./files-view-state";
-import { applyGhTitles, githubOwnerAvatarUrl, type GhKind, type GhWorkItem } from "./gh-context";
+import { applyGhTitles, githubOwnerAvatarUrl, type GhWorkItem } from "./gh-context";
 import { prLabelHtml } from "./pr-label-html";
 
 /** Optional titles come from the files tab's one listing-scoped title request. */
@@ -40,13 +39,6 @@ declare global {
     __uploadsSetConnectedWork?: ConnectedWorkSetter;
   }
 }
-
-// The kind octicon (branch = pull request, circled dot = issue) carries the
-// kind on its own, so the row no longer repeats the word as a subtitle.
-const CONNECTED_WORK_ICON: Record<GhKind, string> = {
-  pull: githubKindSvg("pull", { className: "ws-rail__connected-icon" }),
-  issue: githubKindSvg("issue", { className: "ws-rail__connected-icon" }),
-};
 
 function connectedWorkRowHtml(item: GhWorkItem, apiOrigin?: string, workspace?: string): string {
   const avatar =
@@ -68,7 +60,7 @@ function connectedWorkRowHtml(item: GhWorkItem, apiOrigin?: string, workspace?: 
   const github = filesHref
     ? `<a class="ws-rail__connected-gh" href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer" aria-label="Open ${escapeHtml(item.label)} on GitHub">↗</a>`
     : "";
-  return `<div class="ws-rail__connected-item">${avatar}${CONNECTED_WORK_ICON[item.kind]}<div class="ws-rail__connected-meta">${label}${github}</div></div>`;
+  return `<div class="ws-rail__connected-item">${avatar}<div class="ws-rail__connected-meta">${label}${github}</div></div>`;
 }
 
 /** Pure row-HTML builder for the rail's "connected work" section. `[]` → `""`. */
