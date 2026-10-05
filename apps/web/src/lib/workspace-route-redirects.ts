@@ -11,11 +11,11 @@
  *   /:name + old bucket-browser params → /storage?…, otherwise /files?…
  */
 
+import { parseFilesView } from "./workspace-files-view";
+import { workspacePath } from "./workspaces-nav";
+
 /** Top-level Files views selected by `?view=`. */
 const FILES_VIEWS = new Set(["pages", "repos"]);
-
-/** The bucket browser's own list/grid layout values for `?view=`. */
-const BUCKET_LAYOUT_VIEWS = new Set(["list", "grid"]);
 
 function paramsOf(search: string): URLSearchParams {
   return new URLSearchParams(search.startsWith("?") ? search.slice(1) : search);
@@ -27,10 +27,6 @@ function normalizeSearch(search: string): string {
   return raw ? `?${raw}` : "";
 }
 
-function workspaceBase(workspace: string): string {
-  return `/account/workspaces/${encodeURIComponent(workspace)}`;
-}
-
 /**
  * True when the query is an old bucket-browser deep link: a folder (`path`,
  * or its `prefix` alias), a filename search (`name`), a metadata filter
@@ -39,8 +35,7 @@ function workspaceBase(workspace: string): string {
 export function isBucketBrowseSearch(search: string): boolean {
   const params = paramsOf(search);
   if (params.has("path") || params.has("prefix") || params.has("name")) return true;
-  const view = params.get("view");
-  if (view !== null && BUCKET_LAYOUT_VIEWS.has(view)) return true;
+  if (parseFilesView(params.get("view"))) return true;
   for (const key of params.keys()) {
     if (key.startsWith("meta.")) return true;
   }
@@ -62,7 +57,7 @@ export function isFilesViewSearch(search: string): boolean {
 export function filesRouteRedirect(workspace: string, search: string): string | null {
   if (isFilesViewSearch(search)) return null;
   if (!isBucketBrowseSearch(search)) return null;
-  return `${workspaceBase(workspace)}/storage${normalizeSearch(search)}`;
+  return `${workspacePath(workspace, "storage")}${normalizeSearch(search)}`;
 }
 
 export type LegacyWorkspaceRoute = "root" | "screenshots" | "galleries" | "settings-storage";
@@ -87,15 +82,17 @@ export function legacyWorkspaceRedirect(
   workspace: string,
   search: string,
 ): string {
-  const base = workspaceBase(workspace);
   switch (route) {
     case "root":
-      return filesRouteRedirect(workspace, search) ?? `${base}/files${normalizeSearch(search)}`;
+      return (
+        filesRouteRedirect(workspace, search) ??
+        `${workspacePath(workspace, "files")}${normalizeSearch(search)}`
+      );
     case "screenshots":
-      return `${base}/files${screenshotsToPagesSearch(search)}`;
+      return `${workspacePath(workspace, "files")}${screenshotsToPagesSearch(search)}`;
     case "galleries":
-      return `${base}/links${normalizeSearch(search)}`;
+      return `${workspacePath(workspace, "links")}${normalizeSearch(search)}`;
     case "settings-storage":
-      return `${base}/storage${normalizeSearch(search)}#bucket`;
+      return `${workspacePath(workspace, "storage")}${normalizeSearch(search)}#bucket`;
   }
 }
