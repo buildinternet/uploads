@@ -6,7 +6,8 @@
  */
 import { appendPage } from "./files-scope";
 
-export type Loaded<T> = { ok: true; value: T } | { ok: false };
+/** `reason` is the api-client failure reason when the adapter kept it (files-api `loaded`). */
+export type Loaded<T> = { ok: true; value: T } | { ok: false; reason?: string };
 
 export interface CursorPage<T> {
   rows: T[];

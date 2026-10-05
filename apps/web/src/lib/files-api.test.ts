@@ -1,10 +1,63 @@
 import { describe, expect, it, vi } from "vitest";
-import { loadPulls, loaded, normalizeCreateResult, shareInfoFromScope } from "./files-api";
+import {
+  isNotPubliclyServed,
+  loadPulls,
+  loadScopeFiles,
+  loaded,
+  normalizeCreateResult,
+  shareInfoFromScope,
+} from "./files-api";
 
 describe("loaded", () => {
-  it("unwraps slice 2's ApiResult ok and collapses everything else", () => {
+  it("unwraps slice 2's ApiResult ok and keeps the failure reason", () => {
     expect(loaded({ kind: "ok", data: 1 })).toEqual({ ok: true, value: 1 });
-    expect(loaded<number>({ kind: "unavailable", reason: "server" })).toEqual({ ok: false });
+    expect(loaded<number>({ kind: "unavailable", reason: "server" })).toEqual({
+      ok: false,
+      reason: "server",
+    });
+  });
+});
+
+describe("isNotPubliclyServed", () => {
+  it("is true only for the not_public failure", () => {
+    expect(isNotPubliclyServed({ ok: false, reason: "not_public" })).toBe(true);
+    expect(isNotPubliclyServed({ ok: false, reason: "server" })).toBe(false);
+    expect(isNotPubliclyServed({ ok: false })).toBe(false);
+    expect(isNotPubliclyServed({ ok: true, value: null })).toBe(false);
+  });
+});
+
+describe("loadScopeFiles", () => {
+  it("keeps the not_public reason from the #1079 503", async () => {
+    const fetchImpl = vi.fn(async () =>
+      Response.json(
+        {
+          error: { code: "feed_object_not_public", message: "Feed object is not publicly served." },
+        },
+        { status: 503 },
+      ),
+    );
+    const result = await loadScopeFiles(
+      "/api",
+      "acme",
+      { repo: "acme/web", number: 7, type: null },
+      { fetchImpl: fetchImpl as unknown as typeof fetch },
+    );
+    expect(result).toEqual({ ok: false, reason: "not_public" });
+    expect(isNotPubliclyServed(result)).toBe(true);
+  });
+
+  it("reads any other 503 as a retryable server failure", async () => {
+    const fetchImpl = vi.fn(async () =>
+      Response.json({ error: { code: "d1_unavailable" } }, { status: 503 }),
+    );
+    const result = await loadScopeFiles(
+      "/api",
+      "acme",
+      { repo: "acme/web", number: null, type: null },
+      { fetchImpl: fetchImpl as unknown as typeof fetch },
+    );
+    expect(result).toEqual({ ok: false, reason: "server" });
   });
 });
 

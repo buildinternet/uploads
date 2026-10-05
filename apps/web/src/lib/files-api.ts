@@ -27,7 +27,17 @@ export type { Loaded } from "./cursor-list";
 export type ServerFetchOpts = SessionOpts;
 
 export function loaded<T>(result: ApiResult<T>): Loaded<T> {
-  return result.kind === "ok" ? { ok: true, value: result.data } : { ok: false };
+  return result.kind === "ok"
+    ? { ok: true, value: result.data }
+    : { ok: false, reason: result.reason };
+}
+
+/**
+ * The scope endpoint's deterministic 503 (issue #1079): the workspace has no
+ * public base URL, so its files cannot be listed here and a retry won't help.
+ */
+export function isNotPubliclyServed(result: Loaded<unknown>): boolean {
+  return !result.ok && result.reason === "not_public";
 }
 
 export async function loadPulls(

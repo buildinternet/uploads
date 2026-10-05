@@ -2765,7 +2765,13 @@ export type ApiFailureReason =
   | "not_found"
   | "invalid"
   | "server"
-  | "malformed";
+  | "malformed"
+  /**
+   * 503 `feed_object_not_public`: the workspace has no public base URL, so
+   * the scope/feed hydration cannot build item URLs (issue #1079). Retrying
+   * does not help.
+   */
+  | "not_public";
 
 export type ApiResult<T> =
   | { kind: "ok"; data: T }
@@ -2785,6 +2791,17 @@ function failureForStatus(status: number): ApiFailureReason {
   if (status === 403) return "forbidden";
   if (status === 404) return "not_found";
   return "server";
+}
+
+/** `failureForStatus`, plus the one deterministic 503 the Files pages tell apart. */
+async function failureForResponse(response: Response): Promise<ApiFailureReason> {
+  if (response.status === 503) {
+    const body = (await response.json().catch(() => null)) as {
+      error?: { code?: unknown };
+    } | null;
+    if (body?.error?.code === "feed_object_not_public") return "not_public";
+  }
+  return failureForStatus(response.status);
 }
 
 function workspacePath(ws: string): string {
@@ -2813,7 +2830,7 @@ async function getParsed<T>(
   );
   if (result.kind === "unavailable") return result;
   const { response } = result;
-  if (!response.ok) return { kind: "unavailable", reason: failureForStatus(response.status) };
+  if (!response.ok) return { kind: "unavailable", reason: await failureForResponse(response) };
   const data = parse(await response.json().catch(() => null));
   return data === null ? { kind: "unavailable", reason: "malformed" } : { kind: "ok", data };
 }

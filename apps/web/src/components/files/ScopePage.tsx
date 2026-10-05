@@ -24,7 +24,12 @@ import {
   type ScopeFilesResponse,
 } from "../../lib/api-client";
 import { makeFileOpener, type FileOpener } from "../../lib/file-opener";
-import { loadPulls, loadScopeFiles, shareInfoFromScope } from "../../lib/files-api";
+import {
+  isNotPubliclyServed,
+  loadPulls,
+  loadScopeFiles,
+  shareInfoFromScope,
+} from "../../lib/files-api";
 import {
   groupScopeItemsByPath,
   keepPairsTogether,
@@ -98,15 +103,23 @@ function ScopePageInner({
   );
   const [pull, setPull] = useState<ScopeFilesResponse["pull"]>(() => initialScope?.pull ?? null);
   const [fallbackTitle, setFallbackTitle] = useState<GithubTitleInfo | null>(null);
-  const [pulls, setPulls] = useState<PullRow[] | null>(() => initialPulls ?? null);
+  /** Repo page PR list: null while loading, "error" when the fetch failed. */
+  const [pulls, setPulls] = useState<PullRow[] | "error" | null>(() => initialPulls ?? null);
+  const [pullsAttempt, setPullsAttempt] = useState(0);
+  /** The last first-page failure was the #1079 no-public-URL 503 (no retry offered). */
+  const [notPublic, setNotPublic] = useState(false);
   const prRef = number !== null ? `${repo}#${number}` : null;
   const scope: LiveLinkScope = number !== null ? { repo, pr: number } : { repo };
 
-  // Only the newest first-page load may update the header and share info; a
-  // slower response for a filter the viewer already left must not win.
+  // Only the newest first-page load may update the header, share info, and
+  // failure kind; a slower response for a filter the viewer already left must
+  // not win. Declared before useCursorList so the ref is current before its
+  // fetch effect runs in the same commit.
   const queryKey = `${repo}#${number ?? ""}:${query.type ?? ""}`;
   const queryKeyRef = useRef(queryKey);
-  queryKeyRef.current = queryKey;
+  useEffect(() => {
+    queryKeyRef.current = queryKey;
+  }, [queryKey]);
 
   const {
     state: list,
@@ -121,9 +134,11 @@ function ScopePageInner({
     load: (cursor) =>
       loadScopeFiles(apiOrigin, workspace, { repo, number, type: query.type, cursor }).then(
         (result) => {
+          const current = cursor === undefined && queryKeyRef.current === queryKey;
+          if (current) setNotPublic(isNotPubliclyServed(result));
           if (!result.ok) return { ok: false as const };
           // privateCount ignores `type`, so any first page carries the scope's share info.
-          if (cursor === undefined && queryKeyRef.current === queryKey) {
+          if (current) {
             setShare(shareInfoFromScope(result.value));
             setPull(result.value.pull);
           }
@@ -151,32 +166,35 @@ function ScopePageInner({
 
   // Fallback only: the rollup row has no title (no row, or an unlinked repo).
   // Also runs when the scope load failed, so the header still names the PR.
+  // At most once per page mount: a type change reloads the list, not the PR.
   const needsTitle = prRef !== null && list.status !== "loading" && !pull?.title;
+  const titleRequested = useRef(false);
   useEffect(() => {
-    if (!needsTitle || !prRef) return;
-    let cancelled = false;
+    if (!needsTitle || !prRef || titleRequested.current) return;
+    titleRequested.current = true;
     onSession(() => {
       void getGithubTitles(apiOrigin, workspace, [prRef]).then((map) => {
-        if (!cancelled) setFallbackTitle(map?.[prRef] ?? null);
+        setFallbackTitle(map?.[prRef] ?? null);
       });
     });
-    return () => {
-      cancelled = true;
-    };
   }, [apiOrigin, workspace, prRef, needsTitle]);
 
   useEffect(() => {
-    if (number !== null || initialPulls !== undefined) return;
+    if (number !== null || (initialPulls !== undefined && pullsAttempt === 0)) return;
     let cancelled = false;
     onSession(() => {
       void loadPulls(apiOrigin, workspace, { type: null, repo, state: null }).then((result) => {
-        if (!cancelled) setPulls(result.ok ? result.value.pulls : []);
+        if (!cancelled) setPulls(result.ok ? result.value.pulls : "error");
       });
     });
     return () => {
       cancelled = true;
     };
-  }, [apiOrigin, workspace, repo, number, initialPulls]);
+  }, [apiOrigin, workspace, repo, number, initialPulls, pullsAttempt]);
+  const retryPulls = () => {
+    setPulls(null);
+    setPullsAttempt((n) => n + 1);
+  };
 
   if (info.status === "loading") return <RowsSkeleton rows={2} />;
   if (info.status !== "ready") return <InfoBlocked info={info} retry={retryInfo} />;
@@ -205,7 +223,7 @@ function ScopePageInner({
   })}`;
 
   return (
-    <div className="wsp grid gap-6" aria-busy={list.status === "loading" || undefined}>
+    <div className="wsp grid gap-6">
       <header className="grid gap-2">
         <a
           className="text-btn justify-self-start"
@@ -261,6 +279,13 @@ function ScopePageInner({
           </h2>
           {pulls === null ? (
             <RowsSkeleton rows={1} />
+          ) : pulls === "error" ? (
+            <p role="alert" className="m-0 text-[13px] text-muted-foreground">
+              Couldn’t load pull requests for this repo.{" "}
+              <button type="button" className="text-btn" onClick={retryPulls}>
+                Try again
+              </button>
+            </p>
           ) : pulls.length === 0 ? (
             <p className="m-0 text-[13px] text-muted-foreground">
               No pull requests with files in this repo in the last 90 days.
@@ -322,14 +347,20 @@ function ScopePageInner({
           ))}
         </div>
       )}
-      {list.status === "error" && (
-        <Callout tone="error" role="alert">
-          Couldn’t load these files.{" "}
-          <button type="button" className="text-btn" onClick={retry}>
-            Try again
-          </button>
-        </Callout>
-      )}
+      {list.status === "error" &&
+        (notPublic ? (
+          // Issue #1079: deterministic until the workspace has a public base URL.
+          <Callout tone="muted">
+            Files in this workspace aren’t publicly served, so they can’t be shown here yet.
+          </Callout>
+        ) : (
+          <Callout tone="error" role="alert">
+            Couldn’t load these files.{" "}
+            <button type="button" className="text-btn" onClick={retry}>
+              Try again
+            </button>
+          </Callout>
+        ))}
       {list.status === "ready" &&
         list.rows.length === 0 &&
         (empty.command ? (
