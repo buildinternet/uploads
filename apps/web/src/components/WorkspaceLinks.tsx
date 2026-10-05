@@ -14,6 +14,8 @@ import { PrLabel } from "@uploads/ui/components/pr-label";
 import "@uploads/ui/styles.css";
 import { IslandErrorBoundary } from "./IslandErrorBoundary";
 import { onSession } from "../lib/account-shell";
+import { imageLoadFailed } from "../lib/media-load";
+import { useTwoStepConfirm } from "../lib/use-two-step-confirm";
 import {
   deleteWorkspaceFeed,
   deleteWorkspaceGallery,
@@ -58,9 +60,6 @@ export interface WorkspaceLinksProps {
   initialState?: LinksState;
 }
 
-/** How long an armed "Confirm" stays armed. Same value as the file table's. */
-const DELETE_DISARM_MS = 5000;
-
 const ACTION_BTN = "ul-btn ul-btn--ghost px-2 text-xs";
 
 function RowActions({
@@ -74,9 +73,10 @@ function RowActions({
   onDelete: () => Promise<boolean>;
 }) {
   const [copied, setCopied] = useState<"idle" | "copied" | "failed">("idle");
-  const [confirm, setConfirm] = useState<"closed" | "confirm" | "armed">("closed");
+  const { state: confirm, open: openConfirm, arm, close, reset } = useTwoStepConfirm();
   const canDelete = row.type === "live" || row.version !== null;
   const name = linkRowName(row);
+  const copyLabel = copied === "copied" ? "Copied" : copied === "failed" ? "Copy failed" : "Copy";
   const kindLabel = row.type === "live" ? "live link" : "gallery";
   const deleteBtnRef = useRef<HTMLButtonElement | null>(null);
   const cancelBtnRef = useRef<HTMLButtonElement | null>(null);
@@ -93,7 +93,7 @@ function RowActions({
 
   function closeConfirm(): void {
     pendingFocus.current = "delete";
-    setConfirm("closed");
+    close();
   }
 
   useEffect(() => {
@@ -101,12 +101,6 @@ function RowActions({
     const timer = window.setTimeout(() => setCopied("idle"), 1500);
     return () => window.clearTimeout(timer);
   }, [copied]);
-
-  useEffect(() => {
-    if (confirm !== "armed") return;
-    const timer = window.setTimeout(() => setConfirm("confirm"), DELETE_DISARM_MS);
-    return () => window.clearTimeout(timer);
-  }, [confirm]);
 
   async function copy(): Promise<void> {
     try {
@@ -135,7 +129,7 @@ function RowActions({
           aria-label={`Copy link to ${name}`}
           onClick={() => void copy()}
         >
-          {copied === "copied" ? "Copied" : copied === "failed" ? "Copy failed" : "Copy"}
+          {copyLabel}
         </button>
         {canDelete && confirm === "closed" && (
           <button
@@ -145,7 +139,7 @@ function RowActions({
             aria-label={`Delete ${kindLabel} ${name}`}
             onClick={() => {
               pendingFocus.current = "cancel";
-              setConfirm("confirm");
+              openConfirm();
             }}
           >
             Delete…
@@ -153,7 +147,7 @@ function RowActions({
         )}
       </div>
       <span className="sr-only" role="status" aria-live="polite">
-        {copied === "copied" ? "Copied" : copied === "failed" ? "Copy failed" : ""}
+        {copied === "idle" ? "" : copyLabel}
       </span>
       {confirm !== "closed" && (
         <div
@@ -171,7 +165,7 @@ function RowActions({
                 type="button"
                 className={`${ACTION_BTN} text-destructive`}
                 disabled={busy}
-                onClick={() => setConfirm("armed")}
+                onClick={arm}
               >
                 {row.type === "live" ? "Revoke link" : "Delete gallery"}
               </button>
@@ -184,7 +178,7 @@ function RowActions({
                   // Back to a fresh two-step confirm first, so the next click
                   // after a failure must re-confirm. A failure closes the
                   // dialog and returns focus to this row's "Delete…".
-                  setConfirm("confirm");
+                  reset();
                   void onDelete().then((deleted) => {
                     if (!deleted) closeConfirm();
                   });
@@ -227,7 +221,7 @@ function GalleryBody({ row }: { row: GalleryLinkRow }) {
   // already-failed case once on mount (the gotcha media-load.ts documents).
   useEffect(() => {
     const img = imgRef.current;
-    if (img && img.complete && img.naturalWidth === 0) setCoverFailed(true);
+    if (img && imageLoadFailed(img)) setCoverFailed(true);
   }, []);
   const shown = row.references.slice(0, 3);
   const extra = row.references.length - shown.length;
@@ -371,7 +365,11 @@ function WorkspaceLinksInner({ apiOrigin, workspace, initialState }: WorkspaceLi
 
   async function load(): Promise<void> {
     setState({ status: "loading" });
-    const summary = await loadWorkspaceSummary(apiOrigin, workspace);
+    const [summary, feeds, galleries] = await Promise.all([
+      loadWorkspaceSummary(apiOrigin, workspace),
+      listWorkspaceFeeds(apiOrigin, workspace),
+      getMyWorkspaceGalleries(apiOrigin, workspace),
+    ]);
     if (!alive.current) return;
     if (summary.kind !== "success") {
       setState(
@@ -381,11 +379,6 @@ function WorkspaceLinksInner({ apiOrigin, workspace, initialState }: WorkspaceLi
       );
       return;
     }
-    const [feeds, galleries] = await Promise.all([
-      listWorkspaceFeeds(apiOrigin, workspace),
-      getMyWorkspaceGalleries(apiOrigin, workspace),
-    ]);
-    if (!alive.current) return;
     if (feeds.kind !== "ok") {
       setState({ status: "error", message: "Live links couldn’t load.", retry: true });
       return;
@@ -421,26 +414,27 @@ function WorkspaceLinksInner({ apiOrigin, workspace, initialState }: WorkspaceLi
     for (const ref of fresh) requestedRefs.current.add(ref);
     // No per-run cancel: a later run asks only for newer refs, so dropping
     // this run's answer would leave its rows on the fallback label for good.
-    void Promise.all(
-      chunkRefs(fresh).map((batch) => getGithubTitles(apiOrigin, workspace, batch)),
-    ).then((maps) => {
-      if (!alive.current) return;
-      // A failed batch (null) un-marks its refs so a later render or "Load
-      // more" asks again, once per ref: refs that succeeded stay marked (R5).
-      maps.forEach((map, i) => {
-        if (map) return;
-        for (const ref of chunkRefs(fresh)[i] ?? []) {
-          if (retriedRefs.current.has(ref)) continue;
-          retriedRefs.current.add(ref);
-          requestedRefs.current.delete(ref);
-        }
-      });
-      setTitles((prev) => {
-        const next: GithubTitleMap = { ...prev };
-        for (const map of maps) if (map) Object.assign(next, map);
-        return next;
-      });
-    });
+    const batches = chunkRefs(fresh);
+    void Promise.all(batches.map((batch) => getGithubTitles(apiOrigin, workspace, batch))).then(
+      (maps) => {
+        if (!alive.current) return;
+        // A failed batch (null) un-marks its refs so a later render or "Load
+        // more" asks again, once per ref: refs that succeeded stay marked (R5).
+        maps.forEach((map, i) => {
+          if (map) return;
+          for (const ref of batches[i] ?? []) {
+            if (retriedRefs.current.has(ref)) continue;
+            retriedRefs.current.add(ref);
+            requestedRefs.current.delete(ref);
+          }
+        });
+        setTitles((prev) => {
+          const next: GithubTitleMap = { ...prev };
+          for (const map of maps) if (map) Object.assign(next, map);
+          return next;
+        });
+      },
+    );
     // refsKey stands in for refs: same content, stable identity.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apiOrigin, workspace, refsKey]);

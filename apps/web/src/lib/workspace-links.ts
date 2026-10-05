@@ -115,11 +115,11 @@ export function titleRefs(rows: readonly LinkRow[]): string[] {
 }
 
 /** Split refs into batches the titles route accepts (it caps refs per request). */
-export function chunkRefs(refs: readonly string[], size = GITHUB_TITLES_MAX_REFS): string[][] {
-  // A non-positive or non-finite size would never advance the loop.
-  const step = Number.isFinite(size) && size >= 1 ? Math.floor(size) : GITHUB_TITLES_MAX_REFS;
+export function chunkRefs(refs: readonly string[]): string[][] {
   const out: string[][] = [];
-  for (let i = 0; i < refs.length; i += step) out.push(refs.slice(i, i + step));
+  for (let i = 0; i < refs.length; i += GITHUB_TITLES_MAX_REFS) {
+    out.push(refs.slice(i, i + GITHUB_TITLES_MAX_REFS));
+  }
   return out;
 }
 
@@ -159,7 +159,7 @@ export function sourceLabel(row: LiveLinkRow): string {
  */
 export function linkRowName(row: LinkRow): string {
   if (row.type === "gallery") return row.title;
-  return row.ref && row.scope !== "repo" ? row.ref : repoScopeLabel(row);
+  return row.ref ?? repoScopeLabel(row);
 }
 
 /** Confirm copy for Delete. The PR text is the spec's, verbatim. */
