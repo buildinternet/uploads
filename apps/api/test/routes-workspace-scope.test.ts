@@ -2,6 +2,7 @@
 
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { app } from "../src/index";
+import { createFeed } from "../src/feeds";
 import { deleteFileMetadata, replaceFileMetadata } from "../src/file-metadata";
 import type { PullsResponse, ReposResponse, ScopeFilesResponse } from "../src/scope-wire";
 import { sha256Hex, type WorkspaceRecord } from "../src/workspace";
@@ -67,6 +68,12 @@ beforeEach(async () => {
   const records: Record<string, WorkspaceRecord> = {
     alpha: { ...record("alpha/"), tokenHash: await sha256Hex(TOKEN) },
     beta: { ...record("beta/"), tokenHash: await sha256Hex(TOKEN) },
+    // No public base URL: objects are reachable only through signed URLs.
+    gamma: {
+      ...record("gamma/"),
+      publicBaseUrl: undefined,
+      tokenHash: await sha256Hex(TOKEN),
+    },
   };
   env = {
     DB: sqlite as unknown as D1Database,
@@ -456,6 +463,46 @@ describe("GET /v1/workspaces/:ws/scope/:owner/:repo/files", () => {
       })
     ).json()) as { items: Array<{ objectKey: string }> };
     expect(repoFeed.items.map((i) => i.objectKey)).toEqual(repoWide.items.map((i) => i.objectKey));
+  });
+
+  it("lists files with a null url on a workspace with no public base URL, while live links still refuse", async () => {
+    await seedObject("gh/acme/app/pull/4/a.png", prMeta("acme/app", 4), { workspace: "gamma" });
+
+    const page = await getJson<ScopeFilesResponse>(
+      "/v1/workspaces/gamma/scope/acme/app/files?number=4",
+    );
+    expect(page.items).toHaveLength(1);
+    expect(page.items[0]).toMatchObject({
+      objectKey: "gh/acme/app/pull/4/a.png",
+      status: "available",
+      url: null,
+      embedUrl: null,
+      contentType: "image/png",
+    });
+    expect(page.privateCount).toBe(0);
+
+    // A live link is public by definition, so creating one still fails here.
+    const created = await request("/v1/workspaces/gamma/feeds", {
+      method: "POST",
+      body: JSON.stringify({ repo: "acme/app", pr: 4 }),
+    });
+    expect(created.status).toBe(503);
+    expect(((await created.json()) as { error?: { code?: string } }).error?.code).toBe(
+      "feed_object_not_public",
+    );
+
+    // The public page cannot serve the object either.
+    const feed = await createFeed(database(sqlite), {
+      workspace: "gamma",
+      repo: "acme/app",
+      pr: 4,
+    });
+    if (feed.status !== "ok") throw new Error("feed create failed");
+    const publicRes = await app.request(`/public/feeds/${feed.value.id}`, {}, env);
+    expect(publicRes.status).toBe(503);
+    expect(((await publicRes.json()) as { error?: { code?: string } }).error?.code).toBe(
+      "feed_object_not_public",
+    );
   });
 
   it("counts private items across the whole scope, ignoring type and page size (review focus 4)", async () => {

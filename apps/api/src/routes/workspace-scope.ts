@@ -301,7 +301,11 @@ export async function scopeFilesHandler(c: Context<DualAuthVars>) {
   const needsScan = !cursor && !(page.nextCursor === null && type === undefined);
   const privateKeys = new Set<string>();
   const [items, scanned] = await Promise.all([
-    hydrateFeedItems(c.env, record, page.items, { audience: "owner", privateKeys }),
+    hydrateFeedItems(c.env, record, page.items, {
+      audience: "owner",
+      privateKeys,
+      requirePublicUrls: false,
+    }),
     needsScan
       ? boundedDataRead(
           c,

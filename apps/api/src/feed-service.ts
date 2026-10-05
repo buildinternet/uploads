@@ -206,12 +206,21 @@ async function mapBounded<T, R>(
  * HEAD each match (lane-aware) and build its DTO. `privateKeys`, when given,
  * collects every key whose object is private, so a caller can reuse these
  * HEADs (see `countPrivateScopeItems`).
+ *
+ * A live link only works when its objects have public URLs, so by default an
+ * available object without one is a 503 `feed_object_not_public`. The
+ * signed-in Files view passes `requirePublicUrls: false` and gets `url: null`
+ * instead; its tiles open through a signed URL.
  */
 export async function hydrateFeedItems(
   env: Env,
   workspace: WorkspaceRecord,
   matches: Array<{ key: string; metadata: Record<string, string> }>,
-  opts: { audience: "owner" | "public"; privateKeys?: Set<string> },
+  opts: {
+    audience: "owner" | "public";
+    privateKeys?: Set<string>;
+    requirePublicUrls?: boolean;
+  },
 ): Promise<FeedItemDto[]> {
   const resolver: LaneResolver = createLaneResolver(env, workspace);
   try {
@@ -248,7 +257,7 @@ export async function hydrateFeedItems(
       meta && !withheld && itemConfig
         ? objectPublicUrls(env, itemConfig, match.key)
         : { url: null, embedUrl: null };
-    if (meta && !withheld && urls.url === null)
+    if (opts.requirePublicUrls !== false && meta && !withheld && urls.url === null)
       throw new ServiceUnavailableError("Feed object is not publicly served.", {
         code: "feed_object_not_public",
       });
