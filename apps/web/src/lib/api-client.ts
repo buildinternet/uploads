@@ -1237,13 +1237,15 @@ function catalogFromGroups(groups: FilesPathGroup[]): PathCatalogEntry[] {
 export async function getWorkspaceFilesByPath(
   apiOrigin: string,
   name: string,
-  opts?: { cookie?: string; merged?: boolean; fetchImpl?: typeof fetch },
+  opts?: { cookie?: string; merged?: boolean; type?: FileTypeClass; fetchImpl?: typeof fetch },
 ): Promise<FilesByPathResult> {
-  // Opt-in "Merged only" filter (persisted PR merge-state tagging) — omitted
-  // entirely rather than sent as `merged=0`/`false`, so a default call's URL
-  // is unchanged.
-  const query = opts?.merged ? "?merged=1" : "";
-  const url = `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(name)}/files/by-path${query}`;
+  // Opt-in filters are omitted entirely when off (never `merged=0`), so a
+  // default call's URL is unchanged.
+  const params = new URLSearchParams();
+  if (opts?.merged) params.set("merged", "1");
+  if (opts?.type) params.set("type", opts.type);
+  const qs = params.toString();
+  const url = `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(name)}/files/by-path${qs ? `?${qs}` : ""}`;
   const result = await fetchWithTimeout(url, sessionFetchInit(opts?.cookie), {
     fetchImpl: opts?.fetchImpl,
   });
@@ -1895,7 +1897,7 @@ export async function listWorkspaceFolder(
 }
 
 /**
- * Workspace-level managed-comment defaults (issue #307, Task 7 — the
+ * Workspace-level managed-comment defaults (issue #307, the
  * settings-tab block). The producer's inferred `commentSettingsResponse`
  * type (apps/api's `workspace-settings` route), imported not re-declared:
  * `null` means "unset/auto" for every field, never a separate "not
@@ -2070,7 +2072,7 @@ export async function patchWorkspacePosterSettings(
 
 /**
  * GET /v1/workspaces/:name/github/repo-links — repo names this workspace has
- * linked (issue #307, Task 7's repo picker). Fails open to `[]`: an empty
+ * linked (issue #307, the repo picker). Fails open to `[]`: an empty
  * picker just means "no repo config" is the only option, same as a
  * workspace that genuinely has no linked repos.
  */
@@ -2737,7 +2739,7 @@ export async function deleteWorkspaceStorage(
 
 // ── Scope views and live links (Files / Links slices) ─────────────────────
 //
-// Wire types are slice 1's `@uploads/api/scope-wire` (Env-free); ./scope-parsers
+// Wire types are `@uploads/api/scope-wire` (Env-free); ./scope-parsers
 // checks the JSON. Every call returns ApiResult<T> (or CreateFeedResult) and
 // takes a trailing `opts` for the SSR cookie/transport, the same pair
 // listWorkspaceServiceTokens uses.
@@ -2763,7 +2765,13 @@ export type ApiFailureReason =
   | "not_found"
   | "invalid"
   | "server"
-  | "malformed";
+  | "malformed"
+  /**
+   * 503 `feed_object_not_public`: the workspace has no public base URL, so
+   * the scope/feed hydration cannot build item URLs (issue #1079). Retrying
+   * does not help.
+   */
+  | "not_public";
 
 export type ApiResult<T> =
   | { kind: "ok"; data: T }
@@ -2783,6 +2791,17 @@ function failureForStatus(status: number): ApiFailureReason {
   if (status === 403) return "forbidden";
   if (status === 404) return "not_found";
   return "server";
+}
+
+/** `failureForStatus`, plus the one deterministic 503 the Files pages tell apart. */
+async function failureForResponse(response: Response): Promise<ApiFailureReason> {
+  if (response.status === 503) {
+    const body = (await response.json().catch(() => null)) as {
+      error?: { code?: unknown };
+    } | null;
+    if (body?.error?.code === "feed_object_not_public") return "not_public";
+  }
+  return failureForStatus(response.status);
 }
 
 function workspacePath(ws: string): string {
@@ -2811,25 +2830,27 @@ async function getParsed<T>(
   );
   if (result.kind === "unavailable") return result;
   const { response } = result;
-  if (!response.ok) return { kind: "unavailable", reason: failureForStatus(response.status) };
+  if (!response.ok) return { kind: "unavailable", reason: await failureForResponse(response) };
   const data = parse(await response.json().catch(() => null));
   return data === null ? { kind: "unavailable", reason: "malformed" } : { kind: "ok", data };
 }
 
 /**
  * GET /v1/workspaces/:ws/pulls: PR rollup rows, newest media first. `type`
- * narrows each row's thumbnails only; it never drops a row.
+ * narrows each row's thumbnails only; it never drops a row. `all: true`
+ * lifts the default 90-day recency window.
  */
 export function fetchPulls(
   apiOrigin: string,
   ws: string,
-  q: { repo?: string; state?: string; type?: FileTypeClass; cursor?: string } = {},
+  q: { repo?: string; state?: string; type?: FileTypeClass; all?: boolean; cursor?: string } = {},
   opts?: SessionOpts,
 ): Promise<ApiResult<PullsResponse>> {
   const path = withQuery(`${workspacePath(ws)}/pulls`, {
     repo: q.repo,
     state: q.state,
     type: q.type,
+    all: q.all ? "1" : undefined,
     cursor: q.cursor,
   });
   return getParsed(apiOrigin, path, parsePullsResponse, opts);
@@ -2920,7 +2941,17 @@ export async function createWorkspaceFeed(
       return { kind: "limit", limit };
     }
   }
-  if (!response.ok) return { kind: "unavailable", reason: failureForStatus(response.status) };
+  if (!response.ok) {
+    const notPublic =
+      response.status === 503 &&
+      isRecord(body) &&
+      isRecord(body.error) &&
+      body.error.code === "feed_object_not_public";
+    return {
+      kind: "unavailable",
+      reason: notPublic ? "not_public" : failureForStatus(response.status),
+    };
+  }
   const feed = parseOwnerFeed(body);
   return feed ? { kind: "ok", data: feed } : { kind: "unavailable", reason: "malformed" };
 }

@@ -9,6 +9,8 @@
  */
 
 import { InternalError, ValidationError } from "@uploads/errors";
+import type { FileTypeClass } from "@uploads/comment-render/scope";
+import { fileTypeSql } from "./file-type-sql";
 import { PROVENANCE_SERVER_KEYS } from "./provenance";
 import { type D1Queryable } from "./db-session";
 
@@ -19,7 +21,7 @@ export const META_KEY_RE = /^[a-z][a-z0-9._-]{0,63}$/;
  * Metadata keys whose value is stored lowercased (every write and every search
  * filter). `gh.repo`: the live-link scope (pr-scope.ts) and `isInFeedScope`
  * match it exactly, and the PR rollup already lowercases its repo. The one-time
- * backfill (Task 8, gh-repo-case-backfill.ts) reads this same list.
+ * backfill (gh-repo-case-backfill.ts) reads this same list.
  */
 export const LOWERCASED_META_KEYS: readonly string[] = ["gh.repo"];
 
@@ -835,6 +837,7 @@ export type ProjectSummary = { label: string; count: number; lastUpdated: string
  * clause above, keeping only objects stamped `gh.merged=true`
  * (`MERGED_STATUS_SQL`). Applies to the single underlying query, so `groups`,
  * `catalog`, `projects`, and `latest` all reflect the same filtered rows.
+ * `opts.type` keeps only keys whose extension class matches (file-type-sql.ts).
  *
  * Section `count` is files in the last BY_PATH_COUNT_WINDOW_MS, capped at
  * BY_PATH_COUNT_DISPLAY_CAP + 1 so the overview can say "100+" instead of
@@ -845,7 +848,7 @@ export type ProjectSummary = { label: string; count: number; lastUpdated: string
 export async function groupObjectsByPath(
   db: D1Queryable,
   workspace: string,
-  opts: { mergedOnly?: boolean; now?: Date } = {},
+  opts: { mergedOnly?: boolean; now?: Date; type?: FileTypeClass } = {},
 ): Promise<{
   groups: PathGroup[];
   catalog: PathCatalogEntry[];
@@ -861,6 +864,9 @@ export async function groupObjectsByPath(
              AND ${MERGED_STATUS_SQL}
          )`
     : "";
+  // Optional Files `type` filter (signed-in only). Applies to the one query,
+  // so groups, catalog, projects, and latest all reflect it.
+  const typeFilterSql = opts.type ? `AND ${fileTypeSql("p.object_key", opts.type)}` : "";
   const result = await db
     .prepare(
       `SELECT p.meta_value AS path, p.object_key AS object_key, p.updated_at AS updated_at,
@@ -876,6 +882,7 @@ export async function groupObjectsByPath(
              AND ${PROMOTED_SHADOW_STATUS_SQL}
          )
          ${mergedFilterSql}
+         ${typeFilterSql}
        ORDER BY p.updated_at DESC, p.object_key ASC`,
     )
     .bind(workspace)

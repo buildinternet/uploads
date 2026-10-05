@@ -521,7 +521,7 @@ describe("GET /me/workspaces/:name/billing", () => {
     // enforcement treats as unlimited (explicit overrides only). The
     // billing tab must never show free-plan default caps (250MB etc.) as
     // if they were real limits here — see workspace-plan.ts's
-    // `planResponse` doc comment and Task 5's Critical fix on the admin
+    // `planResponse` doc comment and the matching guard on the admin
     // surface.
     const db = new UsageFakeD1();
     db.usage.set("acme", {
@@ -2049,6 +2049,25 @@ describe("GET /me/workspaces/:name/files/by-path", () => {
     expect(filteredBody.groups[0]).toMatchObject({ count: 1 });
     expect(filteredBody.groups[0]!.recent.map((r) => r.key)).toEqual(["shots/merged.png"]);
   });
+
+  it("filters to one file type with ?type= and rejects an unknown type", async () => {
+    const db = metadataDb([
+      { workspace: "acme", key: "shots/a.png", meta: { path: "/settings" } },
+      { workspace: "acme", key: "shots/b.mp4", meta: { path: "/settings" } },
+      { workspace: "acme", key: "shots/c.pdf", meta: { path: "/settings" } },
+    ]);
+    const env = memberEnv({ workspace: "acme", db, bucket: new FakeR2Bucket(), record: R2_RECORD });
+
+    const videos = await app().request("/me/workspaces/acme/files/by-path?type=video", {}, env);
+    expect(videos.status).toBe(200);
+    const body = (await videos.json()) as { groups: { recent: { key: string }[] }[] };
+    expect(body.groups.flatMap((g) => g.recent.map((r) => r.key))).toEqual(["shots/b.mp4"]);
+
+    const bad = await app().request("/me/workspaces/acme/files/by-path?type=gif", {}, env);
+    expect(bad.status).toBe(400);
+    const error = (await bad.json()) as { error: { code: string } };
+    expect(error.error.code).toBe("invalid_type");
+  });
 });
 
 describe("GET /me/workspaces/:name/files/facets", () => {
@@ -2633,7 +2652,7 @@ describe("GET /me/workspaces/:name/comment-preview", () => {
   });
 });
 
-describe("workspace storage routes (self-serve BYO bucket, issue #583 Task 1.1)", () => {
+describe("workspace storage routes (self-serve BYO bucket, issue #583)", () => {
   const SECRET = "test-workspace-secrets-key-0000";
   const SHARED_RECORD = { provider: "r2", bucket: "uploads-default", prefix: "acme/" };
   const BYO_RECORD = {

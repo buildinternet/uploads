@@ -743,6 +743,22 @@ describe("getWorkspaceFilesByPath", () => {
       "https://api.uploads.sh/v1/workspaces/acme/files/by-path",
     );
   });
+
+  it("sends merged and type as query params", async () => {
+    const seen: string[] = [];
+    const fetchImpl = (async (input: RequestInfo | URL) => {
+      seen.push(String(input));
+      return new Response("", { status: 500 });
+    }) as typeof fetch;
+    await getWorkspaceFilesByPath("https://api.uploads.sh", "acme", {
+      fetchImpl,
+      merged: true,
+      type: "video",
+    });
+    expect(seen[0]).toBe(
+      "https://api.uploads.sh/v1/workspaces/acme/files/by-path?merged=1&type=video",
+    );
+  });
 });
 
 describe("getWorkspaceFacets", () => {

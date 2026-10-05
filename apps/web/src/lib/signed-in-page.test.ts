@@ -114,6 +114,7 @@ describe("signed-in / auth CSP builders", () => {
     expect(csp).toContain("https://static.cloudflareinsights.com");
     expect(csp).toContain("style-src 'self' 'unsafe-inline'");
     expect(csp).toContain("img-src data: https:");
+    expect(csp).toContain("media-src https:");
     expect(csp).toContain("frame-ancestors 'none'");
     expect(csp).toContain("base-uri 'none'");
     expect(csp).toContain("form-action 'none'");

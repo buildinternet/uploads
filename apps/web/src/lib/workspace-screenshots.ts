@@ -4,9 +4,11 @@
  * list), so media kind is inferred from the key's extension — same trade-off
  * the search results accept.
  */
-import { fileTypeClassFromKey } from "@uploads/comment-render/scope";
+import { fileTypeClassFromKey, type FileTypeClass } from "@uploads/comment-render/scope";
 import { asPrState, type PrLabelInput } from "@uploads/ui/lib/pr-label";
 import type { GithubTitleMap } from "./api-client";
+import { filesBasePath, parseFileTypeParam, readFilesView } from "./files-view-state";
+import type { MediaTileInput } from "./media-tile";
 
 export type ShotKind = "image" | "video" | "other";
 
@@ -173,29 +175,40 @@ export function shotPrLabelInput(
   };
 }
 
-export function pairedShotKeys(items: Array<{ key: string; state?: string }>): Set<string> {
-  const paired = new Set<string>();
+/**
+ * Before/after counterpart for each paired key, in both directions. Same
+ * rules as before-after.ts on the API: swap the filename token and look for
+ * that exact sibling; otherwise pair a LONE before with a LONE after when
+ * neither carries a token. Anything ambiguous stays unpaired.
+ */
+export function pairPartners(items: Array<{ key: string; state?: string }>): Map<string, string> {
+  const partners = new Map<string, string>();
   const stated = items.filter((i) => i.state === "before" || i.state === "after");
   const byKey = new Set(stated.map((i) => i.key));
 
   for (const item of stated) {
     const counterpartKey = swapPairToken(item.key);
-    if (counterpartKey && byKey.has(counterpartKey)) paired.add(item.key);
+    if (counterpartKey && byKey.has(counterpartKey)) partners.set(item.key, counterpartKey);
   }
 
   // Token-less fallback: exactly one before and one after (neither already
   // token-paired) is an unambiguous pair.
-  const loneBefore = stated.filter((i) => i.state === "before" && !paired.has(i.key));
-  const loneAfter = stated.filter((i) => i.state === "after" && !paired.has(i.key));
+  const loneBefore = stated.filter((i) => i.state === "before" && !partners.has(i.key));
+  const loneAfter = stated.filter((i) => i.state === "after" && !partners.has(i.key));
   if (loneBefore.length === 1 && loneAfter.length === 1) {
     // Only when neither carries a token that failed to match — a token that
     // points at a missing sibling is a declared non-pair, not an ambiguity.
     if (swapPairToken(loneBefore[0]!.key) === null && swapPairToken(loneAfter[0]!.key) === null) {
-      paired.add(loneBefore[0]!.key);
-      paired.add(loneAfter[0]!.key);
+      partners.set(loneBefore[0]!.key, loneAfter[0]!.key);
+      partners.set(loneAfter[0]!.key, loneBefore[0]!.key);
     }
   }
-  return paired;
+  return partners;
+}
+
+/** Which tiles have a real before/after counterpart in the same collection. */
+export function pairedShotKeys(items: Array<{ key: string; state?: string }>): Set<string> {
+  return new Set(pairPartners(items).keys());
 }
 
 /**
@@ -213,24 +226,26 @@ export function formatShotCount(count: number, opts?: { truncated?: boolean }): 
   return count === 1 ? "1 file" : `${count} files`;
 }
 
-/** Overview layout: grouped by project/path, or one flat newest-first feed. */
-export type ScreenshotsFeed = "grouped" | "recent";
+/** By page layout: grouped by project/path, or one flat newest-first list (`sort=recent`). */
+export type RecentView = "grouped" | "recent";
 
 export interface ScreenshotsView {
   project: string;
   path: string;
   q: string;
-  feed: ScreenshotsFeed;
+  sort: RecentView;
   /** "Merged only" toggle (persisted PR merge-state tagging) — filters both
    * the grouped overview (`?merged=1` on files/by-path) and the drill-in
    * (`meta.gh.merged=true`). */
   merged: boolean;
+  /** Files type filter: server-side on the overview, by key extension on drill-in. */
+  type: FileTypeClass | null;
 }
 
 /**
  * By page view state: `?project=` / `?path=` / `?q=` / `?sort=recent` /
- * `?merged=1`. Legacy `?view=recent` (the retired Screenshots tab) still
- * reads as the Recent feed.
+ * `?merged=1` / `?type=`. Legacy `?view=recent` (the retired Screenshots tab)
+ * still reads as the Recent list.
  */
 export function readScreenshotsView(search: string): ScreenshotsView {
   const params = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search);
@@ -239,40 +254,40 @@ export function readScreenshotsView(search: string): ScreenshotsView {
     project: params.get("project") ?? "",
     path: params.get("path") ?? "",
     q: params.get("q") ?? "",
-    feed: recent ? "recent" : "grouped",
+    sort: recent ? "recent" : "grouped",
     merged: params.get("merged") === "1",
+    type: parseFileTypeParam(params.get("type")),
   };
 }
 
 /**
  * Search string for a By page view. Always carries `view=pages`: on `/files`
  * a bare `?path=` is an old bucket-browser link and 301s to Storage
- * (`filesRouteRedirect`), so the drill-in must say which view it is.
+ * (`filesRouteRedirect`), so the drill-in must say which view it is. Slice 3's
+ * order (view, sort, project, path, q, merged) with `type` appended, so the
+ * island never rewrites a URL the redirect produced.
  */
 export function screenshotsSearch(
   project: string,
   path: string,
   q = "",
-  feed: ScreenshotsFeed = "grouped",
+  sort: RecentView = "grouped",
   merged = false,
+  type: FileTypeClass | null = null,
 ): string {
   const params = new URLSearchParams();
   params.set("view", "pages");
-  if (feed === "recent") params.set("sort", "recent");
+  if (sort === "recent") params.set("sort", "recent");
   if (project) params.set("project", project);
   if (path) params.set("path", path);
   if (q) params.set("q", q);
   if (merged) params.set("merged", "1");
+  if (type) params.set("type", type);
   return `?${params.toString()}`;
 }
 
 export function screenshotsSearchFromView(view: ScreenshotsView): string {
-  return screenshotsSearch(view.project, view.path, view.q, view.feed, view.merged);
-}
-
-/** `/account/workspaces/:name/files`, home of the By page view. */
-export function filesPagesPath(workspace: string): string {
-  return `/account/workspaces/${encodeURIComponent(workspace)}/files`;
+  return screenshotsSearch(view.project, view.path, view.q, view.sort, view.merged, view.type);
 }
 
 /**
@@ -281,7 +296,7 @@ export function filesPagesPath(workspace: string): string {
  * string. History participation is `writeScreenshotsLocation`'s job.
  */
 export function screenshotsViewHref(workspace: string, view: ScreenshotsView): string {
-  return `${filesPagesPath(workspace)}${screenshotsSearchFromView(view)}`;
+  return `${filesBasePath(workspace)}${screenshotsSearchFromView(view)}`;
 }
 
 export function screenshotsViewsEqual(a: ScreenshotsView, b: ScreenshotsView): boolean {
@@ -289,14 +304,26 @@ export function screenshotsViewsEqual(a: ScreenshotsView, b: ScreenshotsView): b
     a.project === b.project &&
     a.path === b.path &&
     a.q === b.q &&
-    a.feed === b.feed &&
-    a.merged === b.merged
+    a.sort === b.sort &&
+    a.merged === b.merged &&
+    a.type === b.type
+  );
+}
+
+/**
+ * Whether a popstate destination is still the By page view, so the island
+ * may handle it in place. Any other Files view (or tab) is a page swap the
+ * ClientRouter owns.
+ */
+export function isPagesLocation(workspace: string, pathname: string, search: string): boolean {
+  return (
+    pathname.replace(/\/$/, "") === filesBasePath(workspace) && readFilesView(search) === "pages"
   );
 }
 
 /**
  * Folder navigation (`project` / `path`) gets its own history entry so Back
- * returns to the previous folder. Filter tweaks (`q`, feed, merged) rewrite
+ * returns to the previous folder. Filter tweaks (`q`, sort, merged, type) rewrite
  * the current entry in place so typing does not spam the stack.
  */
 export function screenshotsHistoryMode(
@@ -497,4 +524,28 @@ export function ghKindFallbackLabel(kind: string | undefined): string {
   if (kind === "pull") return "PR";
   if (kind === "issue" || kind === "issues") return "Issue";
   return kind || "GitHub";
+}
+
+/**
+ * `mediaTileView` / `MediaTile` input for a tile. The by-path payload has no
+ * `status`, so a null `url` (no public URL for this workspace) reads as
+ * withheld, which is the lock tile the strip already showed. A null
+ * `contentType` lets `mediaTileView` classify by key extension.
+ */
+export function shotTileInput(item: {
+  key: string;
+  url: string | null;
+  embedUrl: string | null;
+  status?: string;
+  contentType?: string | null;
+  posterUrl?: string | null;
+}): MediaTileInput {
+  return {
+    key: item.key,
+    status: item.status ?? (item.url === null ? "withheld" : "available"),
+    url: item.url,
+    embedUrl: item.embedUrl,
+    contentType: item.contentType ?? null,
+    posterUrl: item.posterUrl ?? null,
+  };
 }

@@ -1,5 +1,5 @@
 /**
- * Screenshots grouped by `path` metadata (spec:
+ * Files tab, By page view (`?view=pages`): uploads grouped by `path` metadata (spec:
  * docs/superpowers/specs/2026-08-10-screenshots-by-path-design.md).
  * Overview = one `files/by-path` fetch; `?project=` / `?q=` filter that
  * payload in the toolbar (project select + path input). Drill-in (?path=)
@@ -15,7 +15,7 @@
  * the thumbed-group cap no longer fans out into one search request per group.
  *
  * SSR-first (plan 006, following plan 005's `WorkspaceFileTable` shape):
- * when the request carries a session, `screenshots.astro` server-fetches the
+ * when the request carries a session, `files.astro` server-fetches the
  * by-path overview + workspace summary and renders this component with no
  * `client:*` directive, so first paint has real groups instead of the
  * loading skeleton. A manual `hydrateRoot` mount (same lifecycle every
@@ -23,29 +23,19 @@
  * OVERVIEW is server-seeded — the GitHub-mirrored section and the `?path=`
  * drill-in still fetch client-side, unchanged.
  */
-import { Callout, Input, Select } from "@uploads/ui";
+import { Callout } from "@uploads/ui";
+import type { FileTypeClass } from "@uploads/comment-render/scope";
 import "@uploads/ui/styles.css";
-import {
-  Empty,
-  EmptyContent,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyTitle,
-} from "@uploads/ui/components/ui/empty";
-import { Kbd } from "@uploads/ui/components/ui/kbd";
 import { PrLabel } from "@uploads/ui/components/pr-label";
-import {
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type CSSProperties,
-  type KeyboardEvent as ReactKeyboardEvent,
-  type ReactNode,
-} from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { IslandErrorBoundary } from "./IslandErrorBoundary";
+import { CommandEmpty, InlineEmpty } from "./files/FilesEmpty";
+import { GhKindIcon, GitHubMark } from "./files/gh-glyphs";
+import { PathFilterBar } from "./files/PathFilterBar";
+import { ShotThumb, type PreviewHandlers } from "./files/ShotThumb";
+import { useShotPreview } from "./files/useShotPreview";
+import { InfoBlocked, useWorkspaceInfo } from "./files/useWorkspaceInfo";
 import {
-  getGithubTitles,
   getWorkspaceFilesByPath,
   searchWorkspaceFiles,
   type FilesPathGroup,
@@ -55,25 +45,20 @@ import {
   type ProjectSummary,
   type SearchFileItem,
 } from "../lib/api-client";
-import { loadWorkspaces } from "../lib/workspaces-nav";
-import { resolveWorkspaceInfo, type WorkspaceInfoStatus } from "../lib/workspace-file-row";
-import { thumbUrl } from "../lib/thumb-url";
-import { mediaExtLabel } from "../lib/media-tile";
+import type { WorkspaceInfoStatus } from "../lib/workspace-file-row";
 import { onSession } from "../lib/account-shell";
-import { makeFileOpener, newTabLinkProps, type FileOpener } from "../lib/file-opener";
+import { makeFileOpener, type FileOpener } from "../lib/file-opener";
+import { matchesTypeFilter, typeEmptyNoun } from "../lib/files-view-state";
 import {
-  filesPagesPath,
   filterCatalog,
-  focusIsKeyboardDriven,
   formatShotCount,
   groupsFromCatalog,
+  isPagesLocation,
   isRepoLabel,
   isScreenshotsNavState,
   lastUpdatedLabel,
-  leafName,
   pairedShotKeys,
   pathQueryMatches,
-  pathSuggestions,
   projectLabelFromItemMeta,
   readScreenshotsView,
   screenshotsHistoryMode,
@@ -81,16 +66,11 @@ import {
   screenshotsViewHref,
   screenshotsViewsEqual,
   SHOT_COUNT_DISPLAY_CAP,
-  shotKindFromKey,
-  shotPreviewCaption,
   shotPrLabelInput,
-  previewPrDisplay,
   ghKindFallbackLabel,
-  shotPreviewPosition,
   writeScreenshotsLocation,
-  type ScreenshotsFeed,
+  type RecentView,
   type ScreenshotsView,
-  type ShotPreviewBox,
 } from "../lib/workspace-screenshots";
 
 /** How many path groups a project section previews before "view project →". */
@@ -98,60 +78,14 @@ const PREVIEW_PATHS_PER_PROJECT = 3;
 
 const EMPTY_CTA_CMD = "uploads put ./shot.png --meta path=/settings";
 
-/**
- * Gallery-style empty state (the shared Empty card shape, React-side):
- * a title, a one-line hint, and ONE copyable command. `put` is the general
- * upload path; `--meta path=` is what actually groups the file here. The
- * rail tip still carries the how-grouping-works detail.
- */
+/** By page empty state: `--meta path=` is what groups a file here. */
 function EmptyShotsCta({ title }: { title: string }) {
-  const [copied, setCopied] = useState(false);
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(EMPTY_CTA_CMD);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1200);
-    } catch {
-      // clipboard blocked — leave the label
-    }
-  };
   return (
-    <Empty>
-      <EmptyHeader>
-        <EmptyTitle>{title}</EmptyTitle>
-        <EmptyDescription>Upload a file with a page path and it groups here.</EmptyDescription>
-      </EmptyHeader>
-      <EmptyContent className="max-w-xl">
-        <div className="ws-empty__command flex w-full min-w-0 items-center gap-2 rounded-[6px] border border-line bg-panel px-3 py-2">
-          <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap font-[var(--mono)] text-[13px] text-fg">
-            {EMPTY_CTA_CMD}
-          </code>
-          <button
-            type="button"
-            aria-live="polite"
-            className="text-btn text-btn--boxed flex-none"
-            onClick={() => void copy()}
-          >
-            {copied ? "copied ✓" : "copy"}
-          </button>
-        </div>
-      </EmptyContent>
-    </Empty>
-  );
-}
-
-/**
- * Compact Empty for inline filter/drill "nothing found" messages — smaller
- * than the CTA-style empty state above, since these sit inside already-
- * scoped list/grid contexts rather than replacing the whole page.
- */
-function InlineEmpty({ title }: { title: ReactNode }) {
-  return (
-    <Empty className="gap-2 p-3">
-      <EmptyHeader className="gap-1">
-        <EmptyTitle>{title}</EmptyTitle>
-      </EmptyHeader>
-    </Empty>
+    <CommandEmpty
+      title={title}
+      description="Upload a file with a page path and it groups here."
+      command={EMPTY_CTA_CMD}
+    />
   );
 }
 
@@ -213,194 +147,9 @@ function sameDocumentClick(
   go();
 }
 
-// ── Small GitHub glyphs (Octicons, 16-grid paths at 12px) ──────────────
-
-function GitHubMark({ size = 12 }: { size?: number }) {
-  return (
-    <svg
-      className="wsp-ghicon"
-      width={size}
-      height={size}
-      viewBox="0 0 16 16"
-      fill="currentColor"
-      aria-hidden="true"
-    >
-      <path d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z" />
-    </svg>
-  );
-}
-
-/** Pull-request or issue-opened Octicon for a `gh.kind` value; null otherwise. */
-function GhKindIcon({ kind, size = 10 }: { kind: string | undefined; size?: number }) {
-  if (kind === "pull") {
-    return (
-      <svg
-        className="wsp-ghicon"
-        width={size}
-        height={size}
-        viewBox="0 0 16 16"
-        fill="currentColor"
-        aria-hidden="true"
-      >
-        <path d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354ZM3.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0 9.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm8.25.75a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Z" />
-      </svg>
-    );
-  }
-  if (kind === "issue" || kind === "issues") {
-    return (
-      <svg
-        className="wsp-ghicon"
-        width={size}
-        height={size}
-        viewBox="0 0 16 16"
-        fill="currentColor"
-        aria-hidden="true"
-      >
-        <path d="M8 9.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z" />
-        <path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Z" />
-      </svg>
-    );
-  }
-  return null;
-}
-
-// ── Thumb tile ─────────────────────────────────────────────────────────
-
-/** Strip thumbs size from the image's intrinsic ratio (cached + onLoad). */
-function applyShotThumbAspect(img: HTMLImageElement | null) {
-  if (!img?.naturalWidth || !img.naturalHeight) return;
-  img.parentElement?.style.setProperty("--wsp-ar", `${img.naturalWidth} / ${img.naturalHeight}`);
-}
-
-function ShotThumb({
-  item,
-  paired,
-  contextLabel,
-  href,
-  onOpen,
-  onPreviewEnter,
-  onPreviewLeave,
-}: {
-  item: {
-    key: string;
-    url: string | null;
-    embedUrl: string | null;
-    state?: string;
-    ghKind?: string;
-    ghNumber?: string;
-    ghRef?: string;
-    updatedAt?: string;
-    uploadedAt?: string;
-    metadata?: Record<string, string>;
-  };
-  /** True when a before/after counterpart sits in the same strip/grid. */
-  paired?: boolean;
-  /** Optional pill (GitHub "PR #7 · author" context) — not the state. */
-  contextLabel?: ReactNode;
-  /** Known destination; when null the tile falls back to a button + `onOpen`. */
-  href: string | null;
-  onOpen: () => void;
-  onPreviewEnter?: (
-    el: HTMLElement,
-    src: string,
-    caption: PreviewCaption,
-    opts?: { immediate?: boolean },
-  ) => void;
-  onPreviewLeave?: () => void;
-}) {
-  const name = leafName(item.key);
-  const kind = shotKindFromKey(item.key);
-  const [broken, setBroken] = useState(false);
-  const showLock = kind === "image" && item.url === null;
-  const showImage = kind === "image" && !!item.embedUrl && !broken;
-  // State stays in the accessible name, not a native `title` tooltip — that
-  // tooltip sat on top of the hover preview.
-  const stateSuffix = item.state ? ` (${item.state})` : "";
-  const ghKindValue = item.ghKind ?? item.metadata?.["gh.kind"];
-  const base = shotPreviewCaption(item);
-  const caption: PreviewCaption = base.pr ? { ...base, kind: ghKindValue } : base;
-
-  const previewSrc = showImage ? thumbUrl(item.embedUrl!, 1120) : null;
-  const shared = {
-    className: "wsp-tile",
-    "aria-label": `Open ${name}${stateSuffix}${caption.pr ? ` — ${caption.pr}` : ""}${paired ? " — has before/after pair" : ""}`,
-    onMouseEnter: (event: { currentTarget: HTMLElement }) => {
-      if (previewSrc) onPreviewEnter?.(event.currentTarget, previewSrc, caption);
-    },
-    onMouseLeave: () => onPreviewLeave?.(),
-    // Keyboard-focus parity for the hover preview: `:focus-visible` gates
-    // this to genuine keyboard navigation, so tapping a tile on a touch
-    // device (which also focuses it) never opens a preview it can't hover
-    // away from. Escape (handled globally below) dismisses it either way,
-    // and dismissal never moves focus, so tab order is untouched.
-    onFocus: (event: { currentTarget: HTMLElement }) => {
-      if (previewSrc && focusIsKeyboardDriven(event.currentTarget)) {
-        onPreviewEnter?.(event.currentTarget, previewSrc, caption, { immediate: true });
-      }
-    },
-    onBlur: () => onPreviewLeave?.(),
-  };
-  const body = (
-    <>
-      {showImage ? (
-        <span className="wsp-thumb" aria-hidden="true">
-          <img
-            src={thumbUrl(item.embedUrl!, 560)}
-            alt=""
-            loading="lazy"
-            decoding="async"
-            ref={applyShotThumbAspect}
-            onLoad={(event) => applyShotThumbAspect(event.currentTarget)}
-            onError={() => setBroken(true)}
-          />
-        </span>
-      ) : (
-        <span className="wsp-thumb wsp-thumb--tile" aria-hidden="true">
-          {showLock ? "🔒" : mediaExtLabel(item.key)}
-        </span>
-      )}
-      {contextLabel && (
-        <span className="wsp-state absolute top-1 left-1 rounded-full border border-line bg-panel px-[5px] py-px text-[12px] leading-[1.4] tracking-[0.04em] text-muted-foreground uppercase">
-          {contextLabel}
-        </span>
-      )}
-      {paired && (
-        <span
-          className="wsp-pair absolute top-1 right-1 grid h-[18px] w-[18px] place-items-center rounded-[4px] border border-line bg-panel text-muted-foreground"
-          aria-hidden="true"
-          title="Has a before/after pair"
-        >
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="block">
-            <rect x="1" y="1" width="4.5" height="10" rx="1" fill="currentColor" opacity="0.45" />
-            <rect
-              x="6.5"
-              y="1"
-              width="4.5"
-              height="10"
-              rx="1"
-              stroke="currentColor"
-              strokeWidth="1.2"
-            />
-          </svg>
-        </span>
-      )}
-    </>
-  );
-
-  return href ? (
-    <a {...shared} {...newTabLinkProps} href={href}>
-      {body}
-    </a>
-  ) : (
-    <button {...shared} type="button" onClick={onOpen}>
-      {body}
-    </button>
-  );
-}
-
 // ── Loading skeleton ───────────────────────────────────────────────────
 //
-// Plan 006: `screenshots.astro` now renders this component itself
+// Plan 006: `files.astro` (with `view=pages`) renders this component itself
 // (server-side, via its own `initialInfo`/`initialOverview` props) instead of
 // a separate `set:html` placeholder — so this is also what a cookie-less
 // request's *server* render shows, not just the client's pre-fetch gap.
@@ -446,229 +195,6 @@ function OverviewLoadingSkeleton() {
   );
 }
 
-function FilterBar({
-  project,
-  q,
-  path,
-  feed,
-  merged,
-  projects,
-  catalog,
-  onProject,
-  onQuery,
-  onFeed,
-  onPickPath,
-  onMerged,
-}: {
-  project: string;
-  q: string;
-  /** Exact drill-in path, shown in the input so editing it widens the filter. */
-  path: string;
-  feed: ScreenshotsFeed;
-  /** "Merged only" toggle (persisted PR merge-state tagging). */
-  merged: boolean;
-  projects: string[];
-  /** Path catalog backing the input's autocomplete suggestions. */
-  catalog: PathCatalogEntry[];
-  onProject: (project: string) => void;
-  onQuery: (q: string) => void;
-  onFeed: (feed: ScreenshotsFeed) => void;
-  onPickPath: (path: string) => void;
-  onMerged: (merged: boolean) => void;
-}) {
-  const options = project && !projects.includes(project) ? [...projects, project] : projects;
-  const [suggestOpen, setSuggestOpen] = useState(false);
-  const [active, setActive] = useState(-1);
-  const value = path || q;
-  // Exact drill-in state means the value already IS a suggestion — nothing
-  // useful to offer until the user edits it back into a query.
-  const suggestions = path ? [] : pathSuggestions(catalog, { project, q });
-  const open = suggestOpen && suggestions.length > 0;
-  // "Ctrl K" is the deterministic default so the server's render and the
-  // client's first render agree bit-for-bit (no `navigator` at SSR time) —
-  // corrected to "⌘K" after mount, once hydration has already reconciled.
-  const [modKbd, setModKbd] = useState("Ctrl K");
-  useEffect(() => {
-    if (/Mac|iPhone|iPad|iPod/.test(navigator.userAgent)) setModKbd("⌘K");
-  }, []);
-
-  const pick = (picked: string) => {
-    setSuggestOpen(false);
-    setActive(-1);
-    onPickPath(picked);
-  };
-
-  const onKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
-    if (!open) {
-      if (event.key === "ArrowDown" && suggestions.length > 0) {
-        event.preventDefault();
-        setSuggestOpen(true);
-        setActive(0);
-      }
-      return;
-    }
-    if (event.key === "ArrowDown") {
-      event.preventDefault();
-      setActive((i) => (i + 1) % suggestions.length);
-    } else if (event.key === "ArrowUp") {
-      event.preventDefault();
-      setActive((i) => (i <= 0 ? suggestions.length - 1 : i - 1));
-    } else if (event.key === "Enter" && active >= 0 && suggestions[active]) {
-      event.preventDefault();
-      pick(suggestions[active].path);
-    } else if (event.key === "Escape") {
-      setSuggestOpen(false);
-      setActive(-1);
-    }
-  };
-
-  return (
-    <div className="wsp-filter flex flex-wrap items-stretch gap-2">
-      <Select
-        className="ul-select--sm wsp-filter__project flex-[0_1_16rem] min-w-[12rem] max-w-full min-h-9 text-base sm:text-[13px] box-border"
-        aria-label="Filter by project"
-        value={project}
-        onChange={(event) => onProject(event.target.value)}
-      >
-        <option value="">All projects</option>
-        {options.map((label) => (
-          <option key={label} value={label}>
-            {label}
-          </option>
-        ))}
-      </Select>
-      <div className="wsp-filter__qwrap relative flex flex-[1_1_16rem] min-w-0">
-        <Input
-          id="wsp-path-filter"
-          type="search"
-          className={`wsp-filter__q flex-1 min-w-0 min-h-9 px-3 py-1.5 text-base sm:text-[13px] rounded-[6px] box-border${value === "" ? " pr-14" : ""}`}
-          aria-label="Filter by path"
-          aria-keyshortcuts="Meta+K Control+K Slash"
-          aria-expanded={open}
-          aria-controls="wsp-path-suggest"
-          aria-activedescendant={active >= 0 ? `wsp-path-suggest-${active}` : undefined}
-          role="combobox"
-          placeholder="Filter path  e.g. /catalog"
-          value={value}
-          spellCheck={false}
-          autoComplete="off"
-          autoCorrect="off"
-          autoCapitalize="off"
-          onChange={(event) => {
-            setSuggestOpen(true);
-            setActive(-1);
-            onQuery(event.target.value);
-          }}
-          onFocus={() => setSuggestOpen(true)}
-          onBlur={() => {
-            // Delay so a mousedown on an option can land first.
-            window.setTimeout(() => setSuggestOpen(false), 120);
-          }}
-          onKeyDown={onKeyDown}
-        />
-        {value === "" && (
-          <Kbd className="absolute top-1/2 right-2.5 -translate-y-1/2">{modKbd}</Kbd>
-        )}
-        {open && (
-          <ul
-            className="wsp-suggest absolute top-[calc(100%+4px)] left-0 right-0 z-30 m-0 max-h-[280px] list-none overflow-y-auto rounded-[6px] border border-line bg-panel p-1 shadow-[0_8px_24px_rgb(0_0_0_/_0.25)]"
-            id="wsp-path-suggest"
-            role="listbox"
-            aria-label="Paths"
-          >
-            {suggestions.map((entry, index) => (
-              <li key={entry.path} role="presentation">
-                <button
-                  type="button"
-                  role="option"
-                  id={`wsp-path-suggest-${index}`}
-                  aria-selected={index === active}
-                  className={`wsp-suggest__opt flex w-full items-baseline gap-3 rounded-sm border-0 bg-none px-2 py-1.5 text-left font-[inherit] text-inherit cursor-pointer ${index === active ? "is-active bg-bg" : ""}`}
-                  onMouseDown={(event) => {
-                    event.preventDefault();
-                    pick(entry.path);
-                  }}
-                  onMouseEnter={() => setActive(index)}
-                >
-                  <span className="wsp-suggest__path text-[13px] font-semibold [overflow-wrap:anywhere]">
-                    {entry.path}
-                  </span>
-                  <span className="wsp-suggest__count ml-auto text-[12px] whitespace-nowrap text-muted-foreground">
-                    {formatShotCount(entry.count)}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-      {/* One flex item so the two toggle groups wrap together as a cluster —
-          separately they wrap independently and "Merged only" ends up
-          orphaned on its own row. */}
-      <div className="wsp-filter__toggles flex flex-none items-stretch gap-2">
-        <div
-          className="wsp-toggle flex items-stretch overflow-hidden rounded-[6px] border border-line box-border"
-          role="group"
-          aria-label="Layout"
-        >
-          <button
-            type="button"
-            className="wsp-toggle__opt min-h-[34px] whitespace-nowrap border-0 bg-none px-3 text-[13px] text-muted-foreground cursor-pointer first:border-l-0 [&+&]:border-l [&+&]:border-line aria-pressed:bg-panel aria-pressed:text-fg hover:text-fg focus-visible:text-fg"
-            aria-pressed={feed === "grouped"}
-            onClick={() => onFeed("grouped")}
-          >
-            Grouped
-          </button>
-          <button
-            type="button"
-            className="wsp-toggle__opt min-h-[34px] whitespace-nowrap border-0 bg-none px-3 text-[13px] text-muted-foreground cursor-pointer [&+&]:border-l [&+&]:border-line aria-pressed:bg-panel aria-pressed:text-fg hover:text-fg focus-visible:text-fg"
-            aria-pressed={feed === "recent"}
-            onClick={() => onFeed("recent")}
-          >
-            Recent
-          </button>
-        </div>
-        {/* Persisted PR merge-state tagging: filters both the drill-in
-            (meta.gh.merged=true) and the grouped overview (?merged=1). */}
-        <div
-          className="wsp-toggle flex items-stretch overflow-hidden rounded-[6px] border border-line box-border"
-          role="group"
-          aria-label="Merge filter"
-        >
-          <button
-            type="button"
-            className="wsp-toggle__opt min-h-[34px] whitespace-nowrap border-0 bg-none px-3 text-[13px] text-muted-foreground cursor-pointer aria-pressed:bg-panel aria-pressed:text-fg hover:text-fg focus-visible:text-fg"
-            aria-pressed={merged}
-            onClick={() => onMerged(!merged)}
-          >
-            Merged only
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-type PreviewCaption = {
-  name: string;
-  pr?: string;
-  kind?: string;
-  /** `owner/repo#n` — key into the resolved titles map for live PR status. */
-  ref?: string;
-  /** ISO upload time, rendered as a relative "uploaded …" line. */
-  uploadedAt?: string;
-};
-
-type PreviewHandlers = {
-  onPreviewEnter: (
-    el: HTMLElement,
-    src: string,
-    caption: PreviewCaption,
-    opts?: { immediate?: boolean },
-  ) => void;
-  onPreviewLeave: () => void;
-};
-
 // ── Component ──────────────────────────────────────────────────────────
 
 /**
@@ -682,6 +208,9 @@ function ScreenshotsByPathInner({
   initialOverview,
   initialInfo,
 }: ScreenshotsByPathProps) {
+  useEffect(() => {
+    document.title = `Files · ${workspace} · uploads.sh`;
+  }, [workspace]);
   // Seed source for URL-derived initial state: the server-fetched
   // `initialSearch` prop when present (SSR, and the client's first
   // hydration-parity render), else the live location for the pre-existing
@@ -689,10 +218,12 @@ function ScreenshotsByPathInner({
   // never be read unconditionally at the top of the component body.
   const seedSearch = initialSearch ?? (typeof window !== "undefined" ? window.location.search : "");
 
-  const [info, setInfo] = useState<WorkspaceInfoStatus | { status: "loading" }>(
-    () => initialInfo ?? { status: "loading" },
-  );
-  const [infoRetryNonce, setInfoRetryNonce] = useState(0);
+  const { info, retry: retryInfo } = useWorkspaceInfo(apiOrigin, workspace, initialInfo);
+  const {
+    handlers: previewHandlers,
+    layer: previewLayer,
+    titles,
+  } = useShotPreview(apiOrigin, workspace);
   const [overview, setOverview] = useState<OverviewState>(
     () => initialOverview ?? { status: "loading" },
   );
@@ -714,32 +245,12 @@ function ScreenshotsByPathInner({
   // instead of pushing, so Back then leaves the page rather than returning
   // to the same drill-in.
   const locationWriteRef = useRef<"auto" | "replace">("auto");
-  const previewTimer = useRef<number | null>(null);
-  const [preview, setPreview] = useState<{
-    src: string;
-    /** Trigger tile's viewport box, kept around so a re-measure (image load,
-     * resolved title) can re-run `shotPreviewPosition` without re-reading a
-     * DOM node that may have scrolled or unmounted. */
-    thumb: ShotPreviewBox;
-    left: number;
-    top: number;
-    name: string;
-    pr?: string;
-    kind?: string;
-    ref?: string;
-    uploadedAt?: string;
-  } | null>(null);
-  // Live PR/issue status (open/closed/merged + title) keyed by `owner/repo#n`,
-  // resolved lazily the first time a shot with that ref is hovered. A miss
-  // stays recorded so a null/outage isn't re-fetched on every hover.
-  const [titles, setTitles] = useState<GithubTitleMap>({});
-  const titleFetches = useRef(new Set<string>());
   const [drill, setDrill] = useState<DrillState>({ status: "idle" });
   const [drillRetryNonce, setDrillRetryNonce] = useState(0);
   const [ghState, setGhState] = useState<DrillState>({ status: "loading" });
   // Scope of the last overview fetch that is allowed to replace the page with
-  // the full-page skeleton. `view.merged` is deliberately excluded: toggling
-  // Merged only refetches the same workspace, and dropping a ready overview
+  // the full-page skeleton. `view.merged` and `view.type` are deliberately excluded: toggling
+  // Merged only or the type filter refetches the same workspace, and dropping a ready overview
   // unmounts the filter bar (Grouped/Recent is a client-side layout switch
   // on the same payload, so it never hits this path).
   const overviewScopeRef = useRef(`${apiOrigin}\0${workspace}\0${overviewRetryNonce}`);
@@ -748,25 +259,7 @@ function ScreenshotsByPathInner({
   // seeded groups busy and immediately replace them with the same payload.
   const skipSeededOverviewFetch = useRef(initialOverview?.status === "ready");
 
-  // Workspace-level facts (hasPublicUrl), gated behind session resolution —
-  // same pattern as WorkspaceFileTable.
-  useEffect(() => {
-    let cancelled = false;
-    // Don't flash the full-page skeleton over SSR-seeded info on hydrate.
-    // Retry (nonce) still goes through loading because prev is not ready.
-    setInfo((prev) => (prev.status === "ready" ? prev : { status: "loading" }));
-    onSession(() => {
-      void loadWorkspaces(apiOrigin).then((result) => {
-        if (cancelled) return;
-        setInfo(resolveWorkspaceInfo(result, workspace));
-      });
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [apiOrigin, workspace, infoRetryNonce]);
-
-  // Overview fetch, once per mount/workspace/retry/merged-toggle.
+  // Overview fetch, once per mount/workspace/retry/merged-or-type change.
   useEffect(() => {
     let cancelled = false;
     const scope = `${apiOrigin}\0${workspace}\0${overviewRetryNonce}`;
@@ -783,7 +276,10 @@ function ScreenshotsByPathInner({
       setOverviewRefreshing(true);
     }
     onSession(() => {
-      void getWorkspaceFilesByPath(apiOrigin, workspace, { merged: view.merged }).then((result) => {
+      void getWorkspaceFilesByPath(apiOrigin, workspace, {
+        merged: view.merged,
+        type: view.type ?? undefined,
+      }).then((result) => {
         if (cancelled) return;
         setOverviewRefreshing(false);
         setOverview(
@@ -804,7 +300,7 @@ function ScreenshotsByPathInner({
     return () => {
       cancelled = true;
     };
-  }, [apiOrigin, workspace, overviewRetryNonce, view.merged]);
+  }, [apiOrigin, workspace, overviewRetryNonce, view.merged, view.type]);
 
   // GitHub-mirrored screenshots ("From GitHub" section), fetched in parallel
   // with the by-path overview. A failure here must never block or break the
@@ -830,7 +326,7 @@ function ScreenshotsByPathInner({
   }, [apiOrigin, workspace]);
 
   // Keep the address bar in sync. Project/path changes push so Back returns
-  // to the previous folder; q/feed/merged replace the current entry. Skip
+  // to the previous folder; q/sort/merged/type replace the current entry. Skip
   // when the URL already matches (popstate, first paint). Preserve
   // ClientRouter's history.state — a `replaceState(null)` here used to wipe
   // it, which is part of why Back left the page.
@@ -849,12 +345,12 @@ function ScreenshotsByPathInner({
   // ClientRouter also listens for popstate and would treat a query-only
   // change as a full page swap. While this island is mounted and the
   // destination is still the Files By page view, steal the event in capture
-  // and update `view` in place. Leaving the page (sidebar, browser Back
-  // off the overview) does not match, so ClientRouter handles that swap.
+  // and update `view` in place. Leaving the page (sidebar, another Files
+  // view, browser Back off the overview) does not match, so ClientRouter
+  // handles that swap.
   useEffect(() => {
-    const pagesPath = filesPagesPath(workspace);
     const onPop = (event: PopStateEvent) => {
-      if (window.location.pathname !== pagesPath) return;
+      if (!isPagesLocation(workspace, window.location.pathname, window.location.search)) return;
       event.stopImmediatePropagation();
       const next = readScreenshotsView(window.location.search);
       setView((prev) => (screenshotsViewsEqual(prev, next) ? prev : next));
@@ -899,12 +395,9 @@ function ScreenshotsByPathInner({
     };
   }, [apiOrigin, workspace, view.path, view.merged, drillRetryNonce]);
 
+  // Cmd/Ctrl-K and "/" focus the path filter. Escape and scroll dismissal of
+  // the hover preview live in useShotPreview.
   useEffect(() => {
-    const dismiss = () => {
-      if (previewTimer.current !== null) window.clearTimeout(previewTimer.current);
-      previewTimer.current = null;
-      setPreview(null);
-    };
     const typingInField = (event: KeyboardEvent) => {
       const target = event.target;
       if (!(target instanceof HTMLElement)) return false;
@@ -917,10 +410,6 @@ function ScreenshotsByPathInner({
       input.select();
     };
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        dismiss();
-        return;
-      }
       if (event.isComposing) return;
       if ((event.key === "k" || event.key === "K") && (event.metaKey || event.ctrlKey)) {
         event.preventDefault();
@@ -933,126 +422,16 @@ function ScreenshotsByPathInner({
         focusPathFilter();
       }
     };
-    window.addEventListener("scroll", dismiss, true);
     window.addEventListener("keydown", onKey);
-    return () => {
-      if (previewTimer.current !== null) window.clearTimeout(previewTimer.current);
-      window.removeEventListener("scroll", dismiss, true);
-      window.removeEventListener("keydown", onKey);
-    };
+    return () => window.removeEventListener("keydown", onKey);
   }, []);
-
-  // Flip-aware placement, measured rather than estimated: `shotPreviewPosition`
-  // needs the pop-over's real box (the image's intrinsic aspect ratio and the
-  // meta block's line count are both unknown before mount — a PR title can
-  // add a line, an error state adds none), so this measures the ACTUAL
-  // rendered element and only then decides which side/edge to place it on.
-  // Runs in a layout effect, which lands the corrected position before the
-  // browser paints — no visible jump — and re-runs whenever the full-size
-  // image finishes loading or a resolved title changes the box's height.
-  const previewRef = useRef<HTMLDivElement | null>(null);
-  const positionPreview = () => {
-    const el = previewRef.current;
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
-    setPreview((prev) => {
-      if (!prev) return prev;
-      const pos = shotPreviewPosition(
-        prev.thumb,
-        { width: window.innerWidth, height: window.innerHeight },
-        { width: rect.width, height: rect.height },
-      );
-      // Bail out to the same object when nothing moved — an unstable object
-      // identity here would re-trigger this effect every render.
-      if (pos.left === prev.left && pos.top === prev.top) return prev;
-      return { ...prev, left: pos.left, top: pos.top };
-    });
-  };
-  useLayoutEffect(positionPreview, [preview, titles]);
-
-  const onPreviewLeave = () => {
-    if (previewTimer.current !== null) window.clearTimeout(previewTimer.current);
-    previewTimer.current = null;
-    setPreview(null);
-  };
-  // Resolve a ref's live PR/issue status once; the pop-over reads `titles`.
-  const ensureTitle = (ref: string | undefined) => {
-    if (!ref || ref in titles || titleFetches.current.has(ref)) return;
-    titleFetches.current.add(ref);
-    void getGithubTitles(apiOrigin, workspace, [ref]).then((map) => {
-      const info = map?.[ref];
-      if (info) setTitles((prev) => ({ ...prev, [ref]: info }));
-    });
-  };
-  const onPreviewEnter = (
-    el: HTMLElement,
-    src: string,
-    caption: PreviewCaption,
-    opts?: { immediate?: boolean },
-  ) => {
-    // Keyboard focus (`opts.immediate`) opens regardless of hover capability
-    // — `focusIsKeyboardDriven` at the call site already excludes touch taps.
-    if (!opts?.immediate && !window.matchMedia("(hover: hover) and (pointer: fine)").matches) {
-      return;
-    }
-    if (previewTimer.current !== null) window.clearTimeout(previewTimer.current);
-    // Prefetch the title now (not inside the timeout) so it's likely resolved
-    // by the time the pop-over appears.
-    ensureTitle(caption.ref);
-    const open = () => {
-      const rect = el.getBoundingClientRect();
-      const thumb: ShotPreviewBox = {
-        left: rect.left,
-        top: rect.top,
-        right: rect.right,
-        bottom: rect.bottom,
-      };
-      setPreview({
-        src,
-        thumb,
-        // Placeholder until the layout effect above measures the real box
-        // and repositions before paint.
-        left: thumb.right + 12,
-        top: thumb.top,
-        name: caption.name,
-        pr: caption.pr,
-        kind: caption.kind,
-        ref: caption.ref,
-        uploadedAt: caption.uploadedAt,
-      });
-    };
-    if (opts?.immediate) {
-      open();
-      return;
-    }
-    const delay = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 250;
-    previewTimer.current = window.setTimeout(open, delay);
-  };
-  const previewHandlers: PreviewHandlers = { onPreviewEnter, onPreviewLeave };
 
   if (info.status === "loading" || overview.status === "loading") {
     return <OverviewLoadingSkeleton />;
   }
 
-  if (info.status === "unavailable") {
-    return (
-      <div className="wft-status-block">
-        <p className="wft-error" role="alert">
-          Workspaces are temporarily unavailable. Check the local stack or try again.
-        </p>
-        <button type="button" className="text-btn" onClick={() => setInfoRetryNonce((n) => n + 1)}>
-          Try again
-        </button>
-      </div>
-    );
-  }
-
-  if (info.status === "no-access") {
-    return (
-      <p className="wft-error" role="alert">
-        You don’t have access to this workspace.
-      </p>
-    );
+  if (info.status === "unavailable" || info.status === "no-access") {
+    return <InfoBlocked info={info} retry={retryInfo} />;
   }
 
   if (overview.status === "error") {
@@ -1075,7 +454,8 @@ function ScreenshotsByPathInner({
     setView({ ...view, project: group.project, path: group.path });
   const setProject = (project: string) => setView({ ...view, project, path: "" });
   const setQuery = (q: string) => setView({ ...view, path: "", q });
-  const setFeed = (feed: ScreenshotsFeed) => setView({ ...view, path: "", feed });
+  const setSort = (sort: RecentView) => setView({ ...view, path: "", sort });
+  const setType = (type: FileTypeClass | null) => setView({ ...view, type });
   const setMerged = (merged: boolean) => setView({ ...view, merged });
 
   // GitHub items bucketed by project label, for both the overview's
@@ -1083,6 +463,7 @@ function ScreenshotsByPathInner({
   const ghByProject = new Map<string, SearchFileItem[]>();
   if (ghState.status === "ready") {
     for (const item of ghState.items) {
+      if (!matchesTypeFilter(item.key, view.type)) continue;
       const label = projectLabelFromItemMeta(item.metadata);
       ghByProject.set(label, [...(ghByProject.get(label) ?? []), item]);
     }
@@ -1096,49 +477,25 @@ function ScreenshotsByPathInner({
   // merged-only filter itself narrows the catalog to nothing — otherwise a
   // workspace with no merged shots would hide the only control that can turn
   // the filter back off.
-  const showFilter = projectLabels.length > 0 || overview.catalog.length > 0 || view.merged;
+  const showFilter =
+    projectLabels.length > 0 || overview.catalog.length > 0 || view.merged || view.type !== null;
   const filterBar = showFilter ? (
-    <FilterBar
+    <PathFilterBar
       project={view.project}
       q={view.q}
       path={view.path}
-      feed={view.feed}
+      sort={view.sort}
+      type={view.type}
       merged={view.merged}
       projects={projectLabels}
       catalog={overview.catalog}
       onProject={setProject}
       onQuery={setQuery}
-      onFeed={setFeed}
+      onSort={setSort}
+      onType={setType}
       onPickPath={(path) => setView({ ...view, path })}
       onMerged={setMerged}
     />
-  ) : null;
-  const previewPr = preview ? previewPrDisplay(preview, titles) : null;
-  const previewLayer = preview ? (
-    <div
-      className="wsp-preview"
-      ref={previewRef}
-      style={{ left: preview.left, top: preview.top }}
-      role="presentation"
-    >
-      {/* onLoad: the real image height is only known once bytes arrive —
-          re-clamp so a tall capture doesn't push the meta off-screen. */}
-      <img src={preview.src} alt="" onLoad={positionPreview} />
-      <div className="wsp-preview__meta">
-        <div className="wsp-preview__name">{preview.name}</div>
-        {previewPr && (
-          <div className="wsp-preview__pr">
-            <GhKindIcon kind={preview.kind} />{" "}
-            {"label" in previewPr ? <PrLabel size="sm" {...previewPr.label} /> : previewPr.text}
-          </div>
-        )}
-        {preview.uploadedAt && (
-          <div className="wsp-preview__time">
-            uploaded {lastUpdatedLabel(preview.uploadedAt, new Date())}
-          </div>
-        )}
-      </div>
-    </div>
   ) : null;
 
   // Drill-in view (?path=, optionally scoped to ?project=).
@@ -1151,15 +508,23 @@ function ScreenshotsByPathInner({
           (item) => projectLabelFromItemMeta(item.metadata) === view.project,
         );
       }
+      // The type filter runs client-side AFTER files/search's 100-item cap
+      // (it is not paginated), so a truncated response may hide matches past
+      // the cap; the empty state and the footer note say so below.
+      drillItems = drillItems.filter((item) => matchesTypeFilter(item.key, view.type));
     }
     const drillPaired = pairedShotKeys(
       drillItems.map((item) => ({ key: item.key, state: item.metadata?.state })),
     );
-    let drillEmptyMessage = "No screenshots at this path.";
-    if (view.project && drill.status === "ready" && drill.truncated) {
-      drillEmptyMessage = `None of the first 100 at this path belong to ${view.project} — there may be more beyond that.`;
+    const noun = view.type ? typeEmptyNoun(view.type) : "screenshots";
+    const scopeFiltered = Boolean(view.project) || view.type !== null;
+    let drillEmptyMessage = `No ${noun} at this path.`;
+    if (scopeFiltered && drill.status === "ready" && drill.truncated) {
+      drillEmptyMessage = view.type
+        ? `None of the first 100 files at this path are ${noun}${view.project ? ` from ${view.project}` : ""} — there may be more beyond that.`
+        : `None of the first 100 at this path belong to ${view.project} — there may be more beyond that.`;
     } else if (view.project) {
-      drillEmptyMessage = "No screenshots at this path for this project.";
+      drillEmptyMessage = `No ${noun} at this path for this project.`;
     }
 
     const parentView = { ...view, path: "" };
@@ -1223,16 +588,16 @@ function ScreenshotsByPathInner({
                 />
               ))}
             </div>
-            {/* The project scope is applied client-side AFTER the search's
-                100-item cap (the origin-labeled fallback can't be expressed
-                as a metadata filter — spec keeps URL-prefix search out of
-                scope), so a truncated response may hide project matches: say
-                so rather than claiming an empty/complete result. */}
+            {/* The project scope and the type filter are applied client-side
+                AFTER the search's 100-item cap (the origin-labeled fallback
+                can't be expressed as a metadata filter — spec keeps URL-prefix
+                search out of scope), so a truncated response may hide matches:
+                say so rather than claiming an empty/complete result. */}
             {drillItems.length === 0 && <InlineEmpty title={drillEmptyMessage} />}
             {drillItems.length > 0 && drill.truncated && (
               <p className="wft-end">
-                {view.project
-                  ? "Project filter applied to the first 100 at this path — there may be more."
+                {scopeFiltered
+                  ? `${view.project && view.type ? "Project and type filters" : view.project ? "Project filter" : "Type filter"} applied to the first 100 at this path — there may be more.`
                   : "Showing the first 100 — narrow the path to see more."}
               </p>
             )}
@@ -1243,8 +608,8 @@ function ScreenshotsByPathInner({
     );
   }
 
-  // Flat newest-first feed (?view=recent) — same filters, no grouping.
-  if (view.feed === "recent") {
+  // Flat newest-first list (?sort=recent) — same filters, no grouping.
+  if (view.sort === "recent") {
     const qTrimmed = view.q.trim();
     const latestItems = overview.latest.filter((item) => {
       if (view.project && item.project !== view.project) return false;
@@ -1255,7 +620,10 @@ function ScreenshotsByPathInner({
       <div className="wsp grid gap-8" aria-busy={overviewRefreshing || undefined}>
         {filterBar}
         {latestItems.length === 0 ? (
-          !view.merged && overview.latest.length === 0 && overview.catalog.length === 0 ? (
+          !view.merged &&
+          view.type === null &&
+          overview.latest.length === 0 &&
+          overview.catalog.length === 0 ? (
             <EmptyShotsCta title="No screenshots yet" />
           ) : (
             <InlineEmpty
@@ -1327,14 +695,17 @@ function ScreenshotsByPathInner({
     ].filter(sectionHasContent);
   }
 
-  // `view.merged` excluded from `isEmptyWorkspace`: an empty catalog under
-  // the merged-only filter means "no merged shots yet", not "no screenshots
+  // `view.merged` and `view.type` excluded from `isEmptyWorkspace`: an empty
+  // catalog under the merged-only or type filter means "no merged shots yet", not "no screenshots
   // ever uploaded" — that's the filtered-empty message below, not the CLI CTA.
-  const isEmptyWorkspace = !view.merged && overview.catalog.length === 0 && ghByProject.size === 0;
+  const isEmptyWorkspace =
+    !view.merged && view.type === null && overview.catalog.length === 0 && ghByProject.size === 0;
   const isEmptyFilter = !isEmptyWorkspace && sectionLabels.length === 0;
+  const emptyNoun = view.type ? typeEmptyNoun(view.type) : "screenshots";
+  const emptyScope = view.project ? " for this project" : "";
   let emptyFilterMessage = view.merged
-    ? "No merged screenshots for this project yet."
-    : "No screenshots for this project.";
+    ? `No merged ${emptyNoun}${emptyScope} yet.`
+    : `No ${emptyNoun}${emptyScope}.`;
   if (qTrim) {
     emptyFilterMessage = overview.catalogTruncated
       ? `No paths matching ${qTrim} in the most active set.`
@@ -1364,6 +735,7 @@ function ScreenshotsByPathInner({
                 groups={previewGroups}
                 ghItems={ghItems}
                 ghTruncated={ghTruncated}
+                typeFiltered={view.type !== null}
                 showViewProject={!view.project}
                 // Each subsequent project opens with a full-width hairline —
                 // the section boundary is structural, not just whitespace —
@@ -1406,7 +778,7 @@ function ScreenshotsByPathInner({
  * The exported island. Wraps `ScreenshotsByPathInner` in `IslandErrorBoundary`
  * *inside* this same component's own render (plan 006, following plan 005's
  * `WorkspaceFileTable`) — composing the boundary here means Astro sees
- * exactly one component when `screenshots.astro` renders `<ScreenshotsByPath
+ * exactly one component when `files.astro` renders `<ScreenshotsByPath
  * ... />` with no client directive, so the manual `hydrateRoot` mount (which
  * imports this same exported name) hydrates the whole subtree, boundary
  * included, as a single React root that matches the server-rendered tree
@@ -1420,12 +792,24 @@ export function ScreenshotsByPath(props: ScreenshotsByPathProps) {
   );
 }
 
+/**
+ * Count label for GitHub-mirrored items. Unfiltered, a capped search page
+ * reads "100+ files". Under a type filter the visible count is a subset of
+ * that page, so the truncation flag (not the filtered count) drives the
+ * marker, and it reads "N+ files" rather than claiming 100.
+ */
+function ghCountLabel(count: number, truncated: boolean, typeFiltered: boolean): string {
+  if (typeFiltered && truncated) return `${count}+ files`;
+  return formatShotCount(count, { truncated: truncated && count >= SHOT_COUNT_DISPLAY_CAP });
+}
+
 function ProjectSection({
   label,
   summary,
   groups,
   ghItems,
   ghTruncated,
+  typeFiltered,
   showViewProject,
   bordered,
   projectHref,
@@ -1442,6 +826,8 @@ function ProjectSection({
   ghItems: SearchFileItem[] | undefined;
   /** GitHub search page hit its cap — only affects a GH-only heading. */
   ghTruncated: boolean;
+  /** A type filter is active, so GitHub counts are post-cap-filter counts. */
+  typeFiltered: boolean;
   showViewProject: boolean;
   /** True for every project section after the first — see call site. */
   bordered: boolean;
@@ -1456,7 +842,6 @@ function ProjectSection({
   // A GH-only label (no by-path groups) has no ProjectSummary — fall back to
   // the GitHub items' count so the header still reads sensibly.
   const count = summary?.count ?? ghItems?.length ?? 0;
-  const countTruncated = !summary && ghTruncated && count >= SHOT_COUNT_DISPLAY_CAP;
   const lastUpdated = summary?.lastUpdated;
 
   const labelBody = (
@@ -1495,7 +880,7 @@ function ProjectSection({
           </span>
         )}
         <span className="wsp-group__meta text-muted-foreground text-[12px] whitespace-nowrap">
-          {formatShotCount(count, { truncated: countTruncated })}
+          {summary ? formatShotCount(count) : ghCountLabel(count, ghTruncated, typeFiltered)}
           {lastUpdated ? ` · ${lastUpdatedLabel(lastUpdated, new Date())}` : ""}
         </span>
       </div>
@@ -1513,6 +898,7 @@ function ProjectSection({
         <GitHubSection
           items={ghItems}
           truncated={ghTruncated}
+          typeFiltered={typeFiltered}
           opener={opener}
           preview={preview}
           titles={titles}
@@ -1525,12 +911,14 @@ function ProjectSection({
 function GitHubSection({
   items,
   truncated,
+  typeFiltered,
   opener,
   preview,
   titles,
 }: {
   items: SearchFileItem[];
   truncated: boolean;
+  typeFiltered: boolean;
   opener: FileOpener;
   preview: PreviewHandlers;
   titles: GithubTitleMap;
@@ -1542,9 +930,7 @@ function GitHubSection({
           From GitHub
         </span>
         <span className="wsp-group__meta text-muted-foreground text-[12px] whitespace-nowrap">
-          {formatShotCount(items.length, {
-            truncated: truncated && items.length >= SHOT_COUNT_DISPLAY_CAP,
-          })}
+          {ghCountLabel(items.length, truncated, typeFiltered)}
         </span>
       </div>
       <div className="wsp-strip">

@@ -1,46 +1,24 @@
 ---
 /**
- * Workspace Files tab. Until slice 4 adds the By pull request and By repo
- * views, every `/files` URL renders the By page view: `ScreenshotsByPath`
- * grouped by `path` metadata. Old bucket-browser deep links (`?prefix=`,
- * `?path=` without `view=pages`, `meta.*`, `name=`, `view=list|grid`) 301 to
- * Storage before anything renders (`filesRouteRedirect`).
- *
- * `WorkspaceLayout` + the `ScreenshotsByPath` island, own mount id. The rail
- * shows usage meters (`showUsage`) because this is where people land most
- * often; quick actions stay off.
- *
- * SSR-first (plan 006, following plan 005's `WorkspaceFileTable`/`storage.astro`
- * shape): when the request carries a session, server-fetch the workspace
- * summary + by-path overview so first paint has real groups instead of the
- * loading skeleton. `ScreenshotsByPath` itself renders here with no
- * `client:*` directive, so Astro emits it as plain static HTML (no
- * `astro-island`, no hydration bootstrap) — the seeded groups are real,
- * visible markup even before any JS runs. A companion JSON `<script>` carries
- * the same props, and a manual `hydrateRoot` mount (below, off
- * `astro:page-load`/`astro:before-swap`, same shape every sibling
- * workspace-tab page already uses) attaches interactivity to that exact
- * markup afterwards. See `storage.astro`'s doc comment for why this codebase
- * uses a manual mount instead of `client:load`.
- *
- * Unlike the Storage tab's `listWorkspaceFolder` (which depends on the current
- * folder, so plan 005 only seeds it for the plain root browse),
- * `getWorkspaceFilesByPath` returns the by-path overview for the current
- * merge filter (`?merged=1` or the default unfiltered catalog). `?project=`
- * and `?q=` only change how `ScreenshotsByPath` filters that same payload,
- * and `?path=` switches to a *different* client-side fetch (drill-in search).
- * The seed below always runs when a session cookie is present, not gated to
- * a "default view" URL the way plan 005's listing seed is.
+ * Files tab shell (spec: "Files views"). `?view=` picks the view: By pull
+ * request (default), By repo, By page. Each view is an SSR-first island
+ * (no client:* directive, manual hydrateRoot below) seeded when the request
+ * carries a session, same lifecycle as the old screenshots page.
  */
 import { env } from "cloudflare:workers";
 import WorkspaceLayout from "../../../../layouts/WorkspaceLayout.astro";
+import FilesViewNav from "../../../../components/files/FilesViewNav.astro";
+import { PullsView, type PullsViewProps } from "../../../../components/files/PullsView";
+import { ReposView, type ReposViewProps } from "../../../../components/files/ReposView";
 import { ScreenshotsByPath, type OverviewState } from "../../../../components/ScreenshotsByPath";
 import { getWorkspaceFilesByPath, getWorkspaceSummary } from "../../../../lib/api-client";
 import { serverApiFetchImpl } from "../../../../lib/api-proxy";
+import { loadPulls, loadRepos } from "../../../../lib/files-api";
+import { readFilesQuery } from "../../../../lib/files-view-state";
 import { resolveSignedInOrigins } from "../../../../lib/signed-in-page";
 import { isBrowseWorkspace } from "../../../../lib/workspace-browse-url";
-import { filesRouteRedirect } from "../../../../lib/workspace-route-redirects";
 import type { WorkspaceInfoStatus } from "../../../../lib/workspace-file-row";
+import { filesRouteRedirect } from "../../../../lib/workspace-route-redirects";
 import { readScreenshotsView } from "../../../../lib/workspace-screenshots";
 
 export const prerender = false;
@@ -50,41 +28,73 @@ const workspace = isBrowseWorkspace(nameParam) ? nameParam : "";
 if (!workspace) return Astro.redirect("/account/workspaces");
 
 // Old bucket-browser deep links go to Storage. Keep this call at the top of
-// the frontmatter, separate from the By page seed below (slice 4 rewrites
-// this page and must keep the redirect).
+// the frontmatter, before any view seed, so a redirect never pays for one.
 const storageTarget = filesRouteRedirect(workspace, Astro.url.search);
 if (storageTarget) return Astro.redirect(storageTarget, 301);
 
-const tip = {
-  body: "Groups come from metadata: <code>path</code> for pages; <code>repo</code>, <code>app</code>, or the URL host for projects.",
-  href: "/docs/attach-pull-request-images#put",
-  linkLabel: "How grouping works",
-};
-
+const initialSearch = Astro.url.search;
+const query = readFilesQuery(initialSearch);
 const { apiOrigin } = resolveSignedInOrigins();
 const cookie = Astro.request.headers.get("cookie") ?? "";
-const initialSearch = Astro.url.search;
-const { merged: mergedOnly } = readScreenshotsView(initialSearch);
+const fetchOpts = cookie.trim()
+  ? { cookie, fetchImpl: serverApiFetchImpl(env, Astro.request) }
+  : undefined;
 
-let initialInfo: WorkspaceInfoStatus | undefined;
-let initialOverview: OverviewState | undefined;
+const TIPS = {
+  pulls: {
+    body: "Rows come from PR attachments: <code>uploads put &lt;file&gt; --pr &lt;n&gt;</code>.",
+    href: "/docs/attach-pull-request-images#put",
+    linkLabel: "Attach files to a PR",
+  },
+  repos: {
+    body: "Repos come from the <code>gh.repo</code> metadata on uploads.",
+    href: "/docs/attach-pull-request-images#put",
+    linkLabel: "Attach files to a PR",
+  },
+  pages: {
+    body: "Groups come from metadata: <code>path</code> for pages; <code>repo</code>, <code>app</code>, or the URL host for projects.",
+    href: "/docs/attach-pull-request-images#put",
+    linkLabel: "How grouping works",
+  },
+} as const;
 
-if (cookie.trim()) {
-  const fetchImpl = serverApiFetchImpl(env, Astro.request);
-  const [summary, overview] = await Promise.all([
-    getWorkspaceSummary(apiOrigin, workspace, { cookie, fetchImpl }),
-    getWorkspaceFilesByPath(apiOrigin, workspace, {
-      cookie,
-      fetchImpl,
-      merged: mergedOnly,
-    }),
-  ]);
+const summaryPromise = fetchOpts
+  ? getWorkspaceSummary(apiOrigin, workspace, fetchOpts)
+  : Promise.resolve(null);
 
-  if (summary.kind === "success") {
-    initialInfo = { status: "ready", hasPublicUrl: summary.workspace.hasPublicUrl };
+let pullsProps: PullsViewProps | undefined;
+let reposProps: ReposViewProps | undefined;
+let pagesOverview: OverviewState | undefined;
+
+if (query.view === "pulls") {
+  pullsProps = { apiOrigin, workspace, initialSearch };
+  if (fetchOpts) {
+    const [pulls, repos] = await Promise.all([
+      loadPulls(apiOrigin, workspace, query, fetchOpts),
+      loadRepos(apiOrigin, workspace, { type: null }, fetchOpts),
+    ]);
+    if (pulls.ok) {
+      pullsProps.initialPage = { rows: pulls.value.pulls, nextCursor: pulls.value.nextCursor };
+    }
+    if (repos.ok) pullsProps.initialRepoOptions = repos.value.repos.map((row) => row.repo);
   }
+} else if (query.view === "repos") {
+  reposProps = { apiOrigin, workspace, initialSearch };
+  if (fetchOpts) {
+    const repos = await loadRepos(apiOrigin, workspace, { type: query.type }, fetchOpts);
+    if (repos.ok) {
+      reposProps.initialPage = { rows: repos.value.repos, nextCursor: repos.value.nextCursor };
+    }
+  }
+} else if (query.view === "pages" && fetchOpts) {
+  const { merged, type } = readScreenshotsView(initialSearch);
+  const overview = await getWorkspaceFilesByPath(apiOrigin, workspace, {
+    ...fetchOpts,
+    merged,
+    type: type ?? undefined,
+  });
   if (overview.kind === "ok") {
-    initialOverview = {
+    pagesOverview = {
       status: "ready",
       groups: overview.groups,
       catalog: overview.catalog,
@@ -96,39 +106,67 @@ if (cookie.trim()) {
   }
 }
 
-// Carries the exact same props into the client mount script below (plain
-// `<script>`, not `client:*` — see the file-level doc comment for why).
-// `<`-escaped so a filename/metadata value containing `</script>` can't
-// break out of the tag; this is the same data `ScreenshotsByPath` above
-// already rendered, so nothing here is newly untrusted.
-const screenshotsSeedJson = JSON.stringify({
+const summary = await summaryPromise;
+const initialInfo: WorkspaceInfoStatus | undefined =
+  summary?.kind === "success"
+    ? { status: "ready", hasPublicUrl: summary.workspace.hasPublicUrl }
+    : undefined;
+if (pullsProps) pullsProps.initialInfo = initialInfo;
+if (reposProps) reposProps.initialInfo = initialInfo;
+
+// `<`-escaped so a filename or title containing `</script>` cannot break out.
+const seedJson = (value: unknown) => JSON.stringify(value).replace(/</g, "\\u003c");
+const pagesProps = {
   apiOrigin,
   workspace,
   initialSearch,
-  initialOverview,
+  initialOverview: pagesOverview,
   initialInfo,
-}).replace(/</g, "\\u003c");
+};
 ---
 
-<WorkspaceLayout workspace={workspace} tip={tip} showUsage showQuickActions={false}>
-  <div id="ws-screenshots">
-    <ScreenshotsByPath
-      apiOrigin={apiOrigin}
-      workspace={workspace}
-      initialSearch={initialSearch}
-      initialOverview={initialOverview}
-      initialInfo={initialInfo}
-    />
-  </div>
-  <script type="application/json" id="ws-screenshots-seed" set:html={screenshotsSeedJson} />
+<WorkspaceLayout workspace={workspace} tip={TIPS[query.view]} showUsage showQuickActions={false}>
+  <FilesViewNav workspace={workspace} current={query.view} />
+  {
+    pullsProps && (
+      <>
+        <div id="ws-files-pulls">
+          <PullsView {...pullsProps} />
+        </div>
+        <script type="application/json" id="ws-files-pulls-seed" set:html={seedJson(pullsProps)} />
+      </>
+    )
+  }
+  {
+    reposProps && (
+      <>
+        <div id="ws-files-repos">
+          <ReposView {...reposProps} />
+        </div>
+        <script type="application/json" id="ws-files-repos-seed" set:html={seedJson(reposProps)} />
+      </>
+    )
+  }
+  {
+    query.view === "pages" && (
+      <>
+        <div id="ws-screenshots">
+          <ScreenshotsByPath {...pagesProps} />
+        </div>
+        <script type="application/json" id="ws-screenshots-seed" set:html={seedJson(pagesProps)} />
+      </>
+    )
+  }
 
   <script>
     import { onAstroPageLoad } from "../../../../lib/account-shell";
     import { createIslandMounter } from "../../../../lib/react-island";
+    import type { PullsViewProps } from "../../../../components/files/PullsView";
+    import type { ReposViewProps } from "../../../../components/files/ReposView";
     import type { OverviewState } from "../../../../components/ScreenshotsByPath";
     import type { WorkspaceInfoStatus } from "../../../../lib/workspace-file-row";
 
-    interface ScreenshotsSeed {
+    interface PagesSeed {
       apiOrigin: string;
       workspace: string;
       initialSearch: string;
@@ -136,18 +174,33 @@ const screenshotsSeedJson = JSON.stringify({
       initialInfo?: WorkspaceInfoStatus;
     }
 
-    // `ScreenshotsByPath` composes its own IslandErrorBoundary, so mounting it
-    // directly matches the SSR'd tree and hydrateRoot reconciles cleanly.
-    const boot = createIslandMounter<ScreenshotsSeed>({
+    // Each mounter returns early when its mount element is absent, so only
+    // the current view's island boots. The By page island in particular must
+    // never mount off `?view=pages`: its URL-sync effect would rewrite bare
+    // `/files` or `?view=repos` to `?view=pages` on mount.
+    const bootPulls = createIslandMounter<PullsViewProps>({
+      mountId: "ws-files-pulls",
+      seedId: "ws-files-pulls-seed",
+      load: () => import("../../../../components/files/PullsView").then((m) => m.PullsView),
+    });
+    const bootRepos = createIslandMounter<ReposViewProps>({
+      mountId: "ws-files-repos",
+      seedId: "ws-files-repos-seed",
+      load: () => import("../../../../components/files/ReposView").then((m) => m.ReposView),
+    });
+    const bootPages = createIslandMounter<PagesSeed>({
       mountId: "ws-screenshots",
       seedId: "ws-screenshots-seed",
       load: () =>
         import("../../../../components/ScreenshotsByPath").then((m) => m.ScreenshotsByPath),
     });
 
-    // astro:page-load fires on the initial load too (same as every sibling
-    // tab), so this single registration mounts on first load and on nav —
-    // no separate eager call, which would double-mount + double-fetch.
-    onAstroPageLoad(() => void boot());
+    // astro:page-load fires on the initial load and on every ClientRouter
+    // nav, so this one registration mounts each view as it is visited.
+    onAstroPageLoad(() => {
+      void bootPulls();
+      void bootRepos();
+      void bootPages();
+    });
   </script>
 </WorkspaceLayout>

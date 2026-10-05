@@ -1568,8 +1568,57 @@ button.wft-row {
   font: var(--text-micro) var(--sans);
   text-transform: lowercase;
 }
+/* Video and PDF-poster tiles (MediaTile inside a .wsp-tile).
+   Fixed 4:3 box like the extension tile, since there is no intrinsic ratio
+   to read before the poster loads. MediaTile's own frame (16:10 by default)
+   fills the box here. pointer-events none keeps the tile itself the click
+   and hover target, so a <video> never swallows the open. MediaTile draws
+   the play badge. */
+.wsp-thumb--media {
+  position: relative;
+  background: var(--panel);
+}
+.wsp-thumb--media > span {
+  aspect-ratio: auto;
+  height: 100%;
+}
+.wsp-thumb--media video,
+.wsp-thumb--media img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+}
+/* A PDF poster is a page render: crop from the top, like strip screenshots. */
+.wsp-thumb--media img {
+  object-position: top center;
+}
+.wsp-strip .wsp-thumb--media {
+  width: calc(var(--wsp-strip-h) * 4 / 3);
+  aspect-ratio: 4 / 3;
+}
 .wsp-thumb--skel {
   background: var(--panel);
+}
+
+/* PR and repo page grids: a before/after pair is one cell spanning two
+   columns, so its halves never wrap onto different rows. Two 220px tracks
+   plus the 12px gap need 452px; below that the grid has one column and the
+   pair stacks, before above after. */
+.wsp-grid--pairs {
+  container-type: inline-size;
+}
+.wsp-pair-cell {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr);
+}
+@container (min-width: 452px) {
+  .wsp-pair-cell {
+    grid-column: span 2;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 .wsp-strip .wsp-thumb--skel,
 .wsp-strip .wsp-thumb--tile {

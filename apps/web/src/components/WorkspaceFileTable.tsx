@@ -9,7 +9,7 @@
  * a name term or one or more metadata filters are active (URL-synced via
  * `workspace-search-url`).
  * After every listing/search resolves, the current row set is pushed to the
- * right-rail "connected work" section (Task 7's
+ * right-rail "connected work" section (the
  * `window.__uploadsSetConnectedWork` hook) and checked for an exact
  * single-pull-request match (the banner).
  *
@@ -35,6 +35,7 @@ import {
 import { IslandErrorBoundary } from "./IslandErrorBoundary";
 import type { ConnectedWorkSetter } from "../lib/workspace-rail";
 import { applyGhTitles, connectedWork, exactPrMatch, type GhWorkItem } from "../lib/gh-context";
+import { filesPrHrefForWorkItem } from "../lib/files-view-state";
 import {
   deleteWorkspaceFile,
   GITHUB_TITLES_MAX_REFS,
@@ -712,6 +713,10 @@ function WorkspaceFileTableInner({
     setView((prev) => (prev === stored ? prev : stored));
   }, []);
 
+  useEffect(() => {
+    document.title = `Storage · ${workspace} · uploads.sh`;
+  }, [workspace]);
+
   // Resolve workspace-level facts once (public-domain-configured),
   // gated behind the layout's session resolution like the rail (workspace-rail.ts).
   useEffect(() => {
@@ -1042,6 +1047,7 @@ function WorkspaceFileTableInner({
   const opener = makeFileOpener(apiOrigin, workspace, info.hasPublicUrl);
   const bareMatch: GhWorkItem | null = state.status === "ok" ? exactPrMatch(state.files) : null;
   const match = bareMatch && githubTitles ? applyGhTitles([bareMatch], githubTitles)[0] : bareMatch;
+  const matchFilesHref = match ? filesPrHrefForWorkItem(workspace, match) : null;
   const prChip = prChipRef(filters);
   const prChipInfo = prChip && githubTitles ? githubTitles[prChip.ghRef] : null;
   // Folders only in browse mode (search has no prefix tree). Empty while loading/error.
@@ -1490,8 +1496,8 @@ function WorkspaceFileTableInner({
             kind="pull"
             title={match.title ?? null}
             state={match.state ?? null}
-            href={match.url}
-            target="_blank"
+            href={matchFilesHref ?? match.url}
+            {...(matchFilesHref ? {} : { target: "_blank" as const })}
             className="wft-banner__ref font-semibold"
           />
           <span className="wft-banner__spacer flex-1" />
@@ -1726,7 +1732,7 @@ function WorkspaceFileTableInner({
  * boundary here means Astro sees exactly one island (this function), so
  * `<WorkspaceFileTable client:load .../>` hydrates the whole subtree,
  * boundary included, as a single React root — the same effective tree the
- * pre-plan-005 manual `withIslandBoundary(createElement(WorkspaceFileTable,
+ * earlier manual `withIslandBoundary(createElement(WorkspaceFileTable,
  * …))` mount produced.
  */
 export function WorkspaceFileTable(props: WorkspaceFileTableProps) {
