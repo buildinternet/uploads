@@ -848,7 +848,7 @@ function ScreenshotsByPathInner({
 
   // ClientRouter also listens for popstate and would treat a query-only
   // change as a full page swap. While this island is mounted and the
-  // destination is still this screenshots URL, steal the event in capture
+  // destination is still the Files By page view, steal the event in capture
   // and update `view` in place. Leaving the page (sidebar, browser Back
   // off the overview) does not match, so ClientRouter handles that swap.
   useEffect(() => {

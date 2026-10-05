@@ -5,13 +5,16 @@
  * / BYO-bucket panel (admins only). Moved from the retired
  * `settings/storage.astro`, which now 301s to `/storage#bucket`.
  *
- * The admin gate is unchanged and server-side. `#storage-section` starts
- * hidden, and `loadStorage()` reveals it only when
- * `GET /v1/workspaces/:name/storage` answers `ok` with `byoBucketEnabled`.
+ * The admin gate is unchanged and server-side. The outer `#bucket` section is
+ * always visible (every member sees the details summary); only the inner
+ * `#storage-section` panel starts hidden, and `loadStorage()` reveals it only
+ * when `GET /v1/workspaces/:name/storage` answers `ok` with `byoBucketEnabled`.
  * That route is admin/owner-only, so a member's 403 leaves it hidden.
  *
- * Anchors: `#bucket` scrolls to the panel once it is revealed (the browser's
- * own jump runs before the reveal). `#bucket-connect` also opens the connect
+ * Anchors: `#bucket` is a real anchor on the visible section, so the
+ * browser's own jump lands on it. That jump goes stale once the panel is
+ * revealed after load, or the file table above it grows, so `loadStorage()`
+ * scrolls again after the reveal. `#bucket-connect` also opens the connect
  * form; `new.astro` uses it after a create with "bring your own bucket".
  *
  * One-screen connect flow (direction A of the storage-settings redesign):
@@ -493,7 +496,7 @@ import ActiveContentDetails from "../settings/ActiveContentDetails.astro";
     const detailsEl = document.querySelector<HTMLElement>("[data-ws-settings-details]");
     if (!detailsEl) return;
 
-    const page = "workspace storage settings";
+    const page = "The Storage tab's Bucket section";
     const visit = getPageVisit();
     const stillHere = (): boolean => isCurrentPageVisit(visit);
     const w = window as unknown as {
@@ -1628,9 +1631,10 @@ import ActiveContentDetails from "../settings/ActiveContentDetails.astro";
       storageSection.hidden = false;
       applyStatus(result.status);
       // `#bucket-connect`: the create-flow hand-off (issue #583 Task 2.1)
-      // opens straight into the connect form. `#bucket` (the target of the
-      // retired /settings/storage URL) only scrolls: the Bucket panel was
-      // hidden at load, so the browser's own anchor jump landed above it.
+      // opens straight into the connect form. `#bucket` (also the target of
+      // the retired /settings/storage URL) only scrolls: the browser's own
+      // anchor jump ran before the panel was revealed and before the file
+      // table above it finished growing, so it can land off target.
       const hash = window.location.hash;
       if (result.status.mode === "shared" && hash === "#bucket-connect") {
         openForm("connect");

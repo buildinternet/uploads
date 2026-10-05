@@ -55,8 +55,9 @@ export function isFilesViewSearch(search: string): boolean {
 
 /**
  * Where a request to `/files` goes instead, or null to render Files. A Files
- * view (`?view=pages|repos`) always stays, even with `path`: the By page
- * drill-in uses `?path=` for the app page path, not a bucket folder.
+ * view param (`view=pages|repos`) wins over every bucket-browser param
+ * (`path`, `prefix`, `name`, `meta.*`): the By page drill-in uses `?path=`
+ * for the app page path, not a bucket folder.
  */
 export function filesRouteRedirect(workspace: string, search: string): string | null {
   if (isFilesViewSearch(search)) return null;

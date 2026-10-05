@@ -34,8 +34,8 @@ Point a workspace at a Cloudflare R2 bucket you already control. With your own b
 - Switch back to hosted storage any time, instantly and without touching existing files.
 - See [what's different](#degraded) on a BYO bucket before you switch.
 
-A workspace admin connects from the workspace settings page — one form, filled from three things you
-set up on the Cloudflare dashboard first (plus one optional cache rule). Any other S3-compatible
+A workspace admin connects from the workspace's **Storage** tab, in the **Bucket** section — one form,
+filled from three things you set up on the Cloudflare dashboard first (plus one optional cache rule). Any other S3-compatible
 provider works too — see [Other S3-compatible providers](#s3-compatible).
 
 ### 1. Create an R2 bucket
@@ -60,7 +60,7 @@ up your buckets for you where the token allows it.
 
 Bucket → **Settings** → **Public access** → **Custom Domains**, connect a domain on a Cloudflare zone
 in your account, then paste the URL (for example `https://media.example.com`) into the form as the
-public base URL. The settings page requires one — it's what makes links stable and embeddable. See
+public base URL. The Bucket form requires one — it's what makes links stable and embeddable. See
 the serving matrix below.
 
 ### 4. Optional but recommended: add a cache rule for GitHub embeds
@@ -80,8 +80,8 @@ GitHub embed can just keep showing the old bytes after an in-place overwrite.
 
 Then **Verify & save**: one click checks the settings, signs in to the bucket, round-trips a test
 object, and fetches it through your public URL. Anything that fails is spelled out on the form; a
-clean pass saves. Saving never changes where uploads go — the bucket sits on your settings page as
-"Not in use yet" until you click **Use this bucket**.
+clean pass saves. Saving never changes where uploads go — the bucket sits in the Storage tab's Bucket
+section as "Not in use yet" until you click **Use this bucket**.
 
 <div class="note">
   Switching is instant and reversible, even for a workspace that already has files: existing files
@@ -109,7 +109,7 @@ Two things decide whether the check passes:
 - **Send exactly one `Content-Security-Policy` header.** Two are legal CSP, but repeated headers
   arrive comma-joined and the check can't read them apart, so it fails closed.
 
-Then, on the workspace settings page, open the bucket's **Serve SVG and XML** details and click
+Then, in the Storage tab's Bucket section, open the bucket's **Serve SVG and XML** details and click
 **Check now** — it uploads an inert SVG and an inert XML file, fetches both back through your public
 URL, checks the headers on each, and deletes them. Both have to pass. A passing check is good for 30
 days; after that (or if the check ever fails) SVG and XML go back to 415ing until you check again.
@@ -170,7 +170,7 @@ S3 providers.
       <td>Signed URLs, generated on demand.</td>
       <td>
         Degraded — links expire after an hour and GitHub embeds won't render (see below). The
-        settings page requires a public base URL; signed-only configs can only be saved through the
+        Bucket form requires a public base URL; signed-only configs can only be saved through the
         API.
       </td>
     </tr>
