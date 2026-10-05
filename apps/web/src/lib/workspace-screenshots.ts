@@ -175,29 +175,40 @@ export function shotPrLabelInput(
   };
 }
 
-export function pairedShotKeys(items: Array<{ key: string; state?: string }>): Set<string> {
-  const paired = new Set<string>();
+/**
+ * Before/after counterpart for each paired key, in both directions. Same
+ * rules as before-after.ts on the API: swap the filename token and look for
+ * that exact sibling; otherwise pair a LONE before with a LONE after when
+ * neither carries a token. Anything ambiguous stays unpaired.
+ */
+export function pairPartners(items: Array<{ key: string; state?: string }>): Map<string, string> {
+  const partners = new Map<string, string>();
   const stated = items.filter((i) => i.state === "before" || i.state === "after");
   const byKey = new Set(stated.map((i) => i.key));
 
   for (const item of stated) {
     const counterpartKey = swapPairToken(item.key);
-    if (counterpartKey && byKey.has(counterpartKey)) paired.add(item.key);
+    if (counterpartKey && byKey.has(counterpartKey)) partners.set(item.key, counterpartKey);
   }
 
   // Token-less fallback: exactly one before and one after (neither already
   // token-paired) is an unambiguous pair.
-  const loneBefore = stated.filter((i) => i.state === "before" && !paired.has(i.key));
-  const loneAfter = stated.filter((i) => i.state === "after" && !paired.has(i.key));
+  const loneBefore = stated.filter((i) => i.state === "before" && !partners.has(i.key));
+  const loneAfter = stated.filter((i) => i.state === "after" && !partners.has(i.key));
   if (loneBefore.length === 1 && loneAfter.length === 1) {
     // Only when neither carries a token that failed to match — a token that
     // points at a missing sibling is a declared non-pair, not an ambiguity.
     if (swapPairToken(loneBefore[0]!.key) === null && swapPairToken(loneAfter[0]!.key) === null) {
-      paired.add(loneBefore[0]!.key);
-      paired.add(loneAfter[0]!.key);
+      partners.set(loneBefore[0]!.key, loneAfter[0]!.key);
+      partners.set(loneAfter[0]!.key, loneBefore[0]!.key);
     }
   }
-  return paired;
+  return partners;
+}
+
+/** Which tiles have a real before/after counterpart in the same collection. */
+export function pairedShotKeys(items: Array<{ key: string; state?: string }>): Set<string> {
+  return new Set(pairPartners(items).keys());
 }
 
 /**

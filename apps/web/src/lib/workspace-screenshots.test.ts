@@ -9,6 +9,7 @@ import {
   isScreenshotsNavState,
   lastUpdatedLabel,
   leafName,
+  pairPartners,
   pairedShotKeys,
   pathQueryMatches,
   pathSuggestions,
@@ -604,5 +605,33 @@ describe("shotTileInput", () => {
       contentType: "application/pdf",
       posterUrl: "https://s/d.poster.png",
     });
+  });
+});
+
+describe("pairPartners", () => {
+  it("maps each paired key to its counterpart, by token and by lone fallback", () => {
+    expect(
+      pairPartners([
+        { key: "g/hero-after.png", state: "after" },
+        { key: "g/hero-before.png", state: "before" },
+        { key: "g/other-after.png", state: "after" },
+      ]),
+    ).toEqual(
+      new Map([
+        ["g/hero-after.png", "g/hero-before.png"],
+        ["g/hero-before.png", "g/hero-after.png"],
+      ]),
+    );
+    expect(
+      pairPartners([
+        { key: "g/old.png", state: "before" },
+        { key: "g/new.png", state: "after" },
+      ]),
+    ).toEqual(
+      new Map([
+        ["g/old.png", "g/new.png"],
+        ["g/new.png", "g/old.png"],
+      ]),
+    );
   });
 });
