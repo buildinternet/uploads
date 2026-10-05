@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   activateWorkspaceStorage,
   deleteWorkspaceFile,
+  deleteWorkspaceGallery,
   deleteWorkspaceStorage,
   getGithubInstalled,
   getMyWorkspaceFiles,
@@ -2155,5 +2156,71 @@ describe("verifyLaneActiveContent — per-lane cooldown", () => {
     await expect(
       verifyLaneActiveContent("http://127.0.0.1:8787", "acme", "active"),
     ).resolves.toEqual({ kind: "unavailable", reason: "server" });
+  });
+});
+
+describe("deleteWorkspaceGallery", () => {
+  it("DELETEs with the expected version and reports success", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe("http://127.0.0.1:8787/v1/workspaces/acme/galleries/gal_1");
+      expect(init?.method).toBe("DELETE");
+      expect(init?.credentials).toBe("include");
+      expect(JSON.parse(String(init?.body))).toEqual({ expectedVersion: 3 });
+      return Response.json({ deleted: true, id: "gal_1" });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(
+      deleteWorkspaceGallery("http://127.0.0.1:8787", "acme", "gal_1", 3),
+    ).resolves.toEqual({ kind: "success" });
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("maps a 409 version conflict to conflict", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json(
+          { error: { code: "gallery_version_conflict", type: "conflict", message: "x" } },
+          { status: 409 },
+        ),
+      ),
+    );
+    await expect(
+      deleteWorkspaceGallery("http://127.0.0.1:8787", "acme", "gal_1", 3),
+    ).resolves.toEqual({ kind: "conflict" });
+  });
+
+  it("reports other non-2xx responses as unavailable", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 500 })),
+    );
+    await expect(
+      deleteWorkspaceGallery("http://127.0.0.1:8787", "acme", "gal_1", 3),
+    ).resolves.toEqual({ kind: "unavailable", reason: "server" });
+  });
+});
+
+describe("getMyWorkspaceGalleries version", () => {
+  it("keeps a numeric version and drops rows with a malformed one", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        // One page holds every gallery: the API caps a workspace at 100.
+        expect(String(input)).toBe("http://127.0.0.1:8787/v1/workspaces/acme/galleries?limit=100");
+        return Response.json({
+          galleries: [
+            { id: "a", url: "https://uploads.sh/g/a", title: "A", version: 2 },
+            { id: "b", url: "https://uploads.sh/g/b", title: "B", version: "2" },
+            { id: "c", url: "https://uploads.sh/g/c", title: "C" },
+          ],
+        });
+      }),
+    );
+    const rows = await getMyWorkspaceGalleries("http://127.0.0.1:8787", "acme");
+    expect(rows.map((g) => [g.id, g.version])).toEqual([
+      ["a", 2],
+      ["c", undefined],
+    ]);
   });
 });
