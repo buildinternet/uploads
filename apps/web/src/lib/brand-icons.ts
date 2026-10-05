@@ -28,18 +28,3 @@ export const GH_KIND_PATH: Record<"pull" | "issue", string> = {
   issue:
     "M8 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm9 3a1 1 0 1 1-2 0 1 1 0 0 1 2 0ZM8 4a.75.75 0 0 0-.75.75v3.5a.75.75 0 0 0 1.5 0v-3.5A.75.75 0 0 0 8 4Z",
 };
-
-const GH_KIND_LABEL: Record<"pull" | "issue", string> = {
-  pull: "pull request",
-  issue: "issue",
-};
-
-/**
- * Inline SVG for the PR/issue octicon in script-built HTML. Titled with the
- * kind so the glyph is announced to assistive tech and shown on hover.
- */
-export function githubKindSvg(kind: "pull" | "issue", opts?: { className?: string }): string {
-  const className = opts?.className ? ` class="${opts.className}"` : "";
-  const label = GH_KIND_LABEL[kind];
-  return `<svg${className} viewBox="0 0 16 16" width="14" height="14" role="img" aria-label="${label}"><title>${label}</title><path fill="currentColor" d="${GH_KIND_PATH[kind]}"/></svg>`;
-}

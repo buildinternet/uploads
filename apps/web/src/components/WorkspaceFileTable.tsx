@@ -1413,7 +1413,7 @@ function WorkspaceFileTableInner({
                 {kind === "repo" && (
                   <GithubMarkIcon className="wft-chip__icon h-3 w-3 flex-none text-muted-foreground" />
                 )}
-                {kind === "pr" && (
+                {kind === "pr" && !prChip && (
                   <PullRequestIcon className="wft-chip__icon h-3 w-3 flex-none text-muted-foreground" />
                 )}
                 {kind === "plain" && (
@@ -1486,10 +1486,6 @@ function WorkspaceFileTableInner({
 
       {match && (
         <div className="wft-banner mt-3 flex items-center gap-3 rounded-[2px] border border-line bg-panel px-3.5 py-2.5">
-          <PullRequestIcon
-            className="wft-banner__icon h-[15px] w-[15px] flex-none text-fg"
-            title={match.kindLabel}
-          />
           <PrLabel
             size="md"
             ghRef={match.ref}

@@ -73,16 +73,18 @@ describe("renderConnectedWorkHtml", () => {
     expect(renderConnectedWorkHtml([])).toBe("");
   });
 
-  it("renders a pull-request row with the label link and a kind icon (no subtitle)", () => {
+  it("renders a pull-request row with the label link and a single state icon (no subtitle)", () => {
     const html = renderConnectedWorkHtml([ghItem()]);
     expect(html).toContain('href="https://github.com/buildinternet/uploads/pull/1789"');
     expect(html).toContain('<span class="pr-label__text">buildinternet/uploads #1789</span>');
     expect(html).toContain('class="pr-label pr-label--md"');
     expect(html).toContain('target="_blank" rel="noopener noreferrer"');
     expect(html).toContain("ws-rail__connected-item");
-    // The octicon carries the kind (title/aria-label); no repeated word subtitle.
+    // The label's state icon carries the kind (aria-label); no repeated word
+    // subtitle and no second kind octicon beside it.
     expect(html).not.toContain("ws-rail__connected-sub");
-    expect(html).toContain("<title>pull request</title>");
+    expect(html).toContain('aria-label="Pull request #1789 in buildinternet/uploads"');
+    expect(html.match(/<svg/g)).toHaveLength(1);
     // No apiOrigin → no avatar img (client always passes origin from the rail).
     expect(html).not.toContain("ws-rail__connected-avatar");
   });
@@ -109,14 +111,14 @@ describe("renderConnectedWorkHtml", () => {
         kindLabel: "issue",
       }),
     ]);
-    expect(issueHtml).toContain(">issue<");
+    expect(issueHtml).toContain('aria-label="Issue #1740 in buildinternet/uploads"');
     expect(issueHtml).not.toBe(pullHtml);
-    // Different octicon path data per kind.
-    const pullIconPath = pullHtml.match(/<path[^>]* d="([^"]+)"/)?.[1];
-    const issueIconPath = issueHtml.match(/<path[^>]* d="([^"]+)"/)?.[1];
-    expect(pullIconPath).toBeTruthy();
-    expect(issueIconPath).toBeTruthy();
-    expect(pullIconPath).not.toBe(issueIconPath);
+    // Different label icon per kind.
+    const pullIcon = pullHtml.match(/data-icon="([^"]+)"/)?.[1];
+    const issueIcon = issueHtml.match(/data-icon="([^"]+)"/)?.[1];
+    expect(pullIcon).toBeTruthy();
+    expect(issueIcon).toBeTruthy();
+    expect(pullIcon).not.toBe(issueIcon);
   });
 
   it("renders the resolved title and a state dot", () => {

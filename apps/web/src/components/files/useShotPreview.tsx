@@ -166,8 +166,15 @@ export function useShotPreview(
         <div className="wsp-preview__name">{preview.name}</div>
         {previewPr && (
           <div className="wsp-preview__pr">
-            <GhKindIcon kind={preview.kind} />{" "}
-            {"label" in previewPr ? <PrLabel size="sm" {...previewPr.label} /> : previewPr.text}
+            {/* PrLabel draws its own state icon; the bare kind glyph is
+                only for the plain-text fallback. */}
+            {"label" in previewPr ? (
+              <PrLabel size="sm" {...previewPr.label} />
+            ) : (
+              <>
+                <GhKindIcon kind={preview.kind} /> {previewPr.text}
+              </>
+            )}
           </div>
         )}
         {preview.uploadedAt && (

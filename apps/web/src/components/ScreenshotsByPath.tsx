@@ -646,14 +646,7 @@ function ScreenshotsByPathInner({
                     key={item.key}
                     item={item}
                     paired={latestPaired.has(item.key)}
-                    contextLabel={
-                      prLabel ? (
-                        <>
-                          <GhKindIcon kind={item.ghKind} />{" "}
-                          <PrLabel size="sm" compact {...prLabel} />
-                        </>
-                      ) : undefined
-                    }
+                    contextLabel={prLabel ? <PrLabel size="sm" compact {...prLabel} /> : undefined}
                     href={opener.href(item)}
                     onOpen={() => opener.activate(item)}
                     {...previewHandlers}
@@ -943,11 +936,13 @@ function GitHubSection({
               item={item}
               contextLabel={
                 <>
-                  <GhKindIcon kind={item.metadata["gh.kind"]} />{" "}
                   {prLabel ? (
                     <PrLabel size="sm" compact {...prLabel} />
                   ) : (
-                    ghKindFallbackLabel(item.metadata["gh.kind"])
+                    <>
+                      <GhKindIcon kind={item.metadata["gh.kind"]} />{" "}
+                      {ghKindFallbackLabel(item.metadata["gh.kind"])}
+                    </>
                   )}
                   {author ? ` · ${author}` : ""}
                 </>
