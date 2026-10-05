@@ -16,6 +16,44 @@ function ghItem(overrides: Partial<GhWorkItem> = {}): GhWorkItem {
 }
 
 describe("renderConnectedWorkHtml", () => {
+  it("links a pull row to the Files PR page and keeps a GitHub link when the workspace is known", () => {
+    const html = renderConnectedWorkHtml(
+      [
+        ghItem({
+          repo: "Acme/Web",
+          number: "7",
+          ref: "Acme/Web#7",
+          url: "https://github.com/Acme/Web/pull/7",
+          label: "Acme/Web#7",
+        }),
+      ],
+      undefined,
+      "acme",
+    );
+    expect(html).toContain('href="/account/workspaces/acme/files/acme/web/pull/7"');
+    expect(html).toContain('href="https://github.com/Acme/Web/pull/7"');
+    expect(html).toContain('aria-label="Open Acme/Web#7 on GitHub"');
+  });
+
+  it("keeps issue rows pointing at GitHub only", () => {
+    const html = renderConnectedWorkHtml(
+      [
+        ghItem({
+          kind: "issue",
+          number: "3",
+          ref: "acme/web#3",
+          url: "https://github.com/acme/web/issues/3",
+          label: "acme/web#3",
+          kindLabel: "issue",
+        }),
+      ],
+      undefined,
+      "acme",
+    );
+    expect(html).not.toContain("/files/");
+    expect(html).toContain('href="https://github.com/acme/web/issues/3"');
+  });
+
   it("returns an empty string for no items", () => {
     expect(renderConnectedWorkHtml([])).toBe("");
   });

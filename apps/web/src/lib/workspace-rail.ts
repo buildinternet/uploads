@@ -27,6 +27,7 @@ import { escapeHtml, renderUsageHtml, type UsageSnapshot } from "./workspace-ui"
 import { readWorkspaceSnapshot } from "./workspace-cache";
 import { loadWorkspaceSummary } from "./workspace-summary-source";
 import { githubKindSvg } from "./brand-icons";
+import { filesPrHrefForWorkItem } from "./files-view-state";
 import { applyGhTitles, githubOwnerAvatarUrl, type GhKind, type GhWorkItem } from "./gh-context";
 import { prLabelHtml } from "./pr-label-html";
 
@@ -47,26 +48,36 @@ const CONNECTED_WORK_ICON: Record<GhKind, string> = {
   issue: githubKindSvg("issue", { className: "ws-rail__connected-icon" }),
 };
 
-function connectedWorkRowHtml(item: GhWorkItem, apiOrigin?: string): string {
+function connectedWorkRowHtml(item: GhWorkItem, apiOrigin?: string, workspace?: string): string {
   const avatar =
     item.owner && apiOrigin
       ? `<img class="ws-rail__connected-avatar" src="${escapeHtml(githubOwnerAvatarUrl(apiOrigin, item.owner))}" alt="" width="16" height="16" loading="lazy" decoding="async" />`
       : "";
+  // Pull rows: the label opens the Files PR page (same tab), plus a GitHub ↗
+  // link. Issue rows and rows without a workspace keep the GitHub-only label.
+  const filesHref = workspace ? filesPrHrefForWorkItem(workspace, item) : null;
   const label = prLabelHtml({
     ghRef: item.ref,
     title: item.title ?? null,
     state: item.state ?? null,
     kind: item.kind,
     size: "md",
-    href: item.url,
-    target: "_blank",
+    href: filesHref ?? item.url,
+    ...(filesHref ? {} : { target: "_blank" as const }),
   });
-  return `<div class="ws-rail__connected-item">${avatar}${CONNECTED_WORK_ICON[item.kind]}<div class="ws-rail__connected-meta">${label}</div></div>`;
+  const github = filesHref
+    ? `<a class="ws-rail__connected-gh" href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer" aria-label="Open ${escapeHtml(item.label)} on GitHub">↗</a>`
+    : "";
+  return `<div class="ws-rail__connected-item">${avatar}${CONNECTED_WORK_ICON[item.kind]}<div class="ws-rail__connected-meta">${label}${github}</div></div>`;
 }
 
 /** Pure row-HTML builder for the rail's "connected work" section. `[]` → `""`. */
-export function renderConnectedWorkHtml(items: GhWorkItem[], apiOrigin?: string): string {
-  return items.map((item) => connectedWorkRowHtml(item, apiOrigin)).join("");
+export function renderConnectedWorkHtml(
+  items: GhWorkItem[],
+  apiOrigin?: string,
+  workspace?: string,
+): string {
+  return items.map((item) => connectedWorkRowHtml(item, apiOrigin, workspace)).join("");
 }
 
 /** Minimal shape `renderDetailsHtml` needs — `MyWorkspace` is a structural superset. */
@@ -125,6 +136,7 @@ export function planTitleRepaint(
 function bindConnectedWorkSetter(
   root: Document | Element,
   apiOrigin?: string,
+  workspace?: string,
 ): ConnectedWorkSetter {
   const section = root.querySelector<HTMLElement>("[data-rail-connected]");
   const list = root.querySelector<HTMLElement>("[data-rail-connected-list]");
@@ -152,7 +164,7 @@ function bindConnectedWorkSetter(
       const shown = items.slice(0, limit);
       const hidden = items.length - shown.length;
       list.innerHTML =
-        renderConnectedWorkHtml(shown, apiOrigin) +
+        renderConnectedWorkHtml(shown, apiOrigin, workspace) +
         (hidden > 0
           ? `<button type="button" class="ws-rail__more" data-rail-more>show ${hidden} more</button>`
           : "");
@@ -197,7 +209,7 @@ export function initWorkspaceRail(
 ): void {
   const root = opts.root ?? document;
 
-  const setConnectedWork = bindConnectedWorkSetter(root, apiOrigin);
+  const setConnectedWork = bindConnectedWorkSetter(root, apiOrigin, workspace);
   setConnectedWork([]);
 
   const usageEl = root.querySelector<HTMLElement>("[data-rail-usage]");

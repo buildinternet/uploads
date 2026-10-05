@@ -125,7 +125,9 @@ export function filesRepoHref(workspace: string, repo: string): string {
 }
 
 export function filesPrHref(workspace: string, repo: string, number: number): string {
-  if (!splitRepo(repo)) return filesViewHref(workspace, "pulls");
+  if (!splitRepo(repo) || !Number.isInteger(number) || number <= 0) {
+    return filesViewHref(workspace, "pulls");
+  }
   return `${filesRepoHref(workspace, repo)}/pull/${number}`;
 }
 

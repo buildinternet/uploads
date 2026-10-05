@@ -131,6 +131,10 @@ describe("route builders", () => {
   it("falls back to the list view for an invalid repo", () => {
     expect(filesRepoHref("acme", "not-a-repo")).toBe("/account/workspaces/acme/files?view=repos");
     expect(filesPrHref("acme", "not-a-repo", 7)).toBe("/account/workspaces/acme/files");
+    expect(filesPrHref("acme", "acme/web", 0)).toBe("/account/workspaces/acme/files");
+    expect(filesPrHref("acme", "acme/web", -1)).toBe("/account/workspaces/acme/files");
+    expect(filesPrHref("acme", "acme/web", 1.5)).toBe("/account/workspaces/acme/files");
+    expect(filesPrHref("acme", "acme/web", Number.NaN)).toBe("/account/workspaces/acme/files");
   });
 
   it("maps a connected-work pull item to its Files PR page, and nothing else", () => {

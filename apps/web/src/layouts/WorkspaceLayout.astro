@@ -278,14 +278,20 @@ const storagePath = workspaceStorageBucketHref(workspace);
   }
   :global(.account-shell) .ws-rail :global(.ws-rail__connected-meta) {
     min-width: 0;
-    display: grid;
-    gap: 2px;
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
   }
   :global(.account-shell) .ws-rail :global(.ws-rail__connected-meta a) {
     color: var(--fg);
     font-weight: var(--weight-semibold);
     font-size: var(--text-meta);
     text-decoration: none;
+  }
+  :global(.account-shell) .ws-rail :global(.ws-rail__connected-meta a.ws-rail__connected-gh) {
+    flex: none;
+    color: var(--muted);
+    font-weight: var(--weight-regular);
   }
   :global(.account-shell) .ws-rail :global(.ws-rail__connected-meta a:hover),
   :global(.account-shell) .ws-rail :global(.ws-rail__connected-meta a:focus-visible) {
