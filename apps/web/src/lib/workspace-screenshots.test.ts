@@ -220,6 +220,8 @@ describe("screenshots view URL state", () => {
     );
     expect(screenshotsSearch("acme/web", "")).toBe("?view=pages&project=acme%2Fweb");
     expect(screenshotsSearch("", "")).toBe("?view=pages");
+    expect(screenshotsSearch("", "/admin")).toBe("?view=pages&path=%2Fadmin");
+    expect(screenshotsSearch("", "", "", "grouped", false)).toBe("?view=pages");
     expect(screenshotsSearch("", "", "/catalog")).toBe("?view=pages&q=%2Fcatalog");
   });
 
@@ -227,6 +229,7 @@ describe("screenshots view URL state", () => {
     expect(readScreenshotsView("?view=pages&sort=recent").sort).toBe("recent");
     expect(readScreenshotsView("?view=recent").sort).toBe("recent");
     expect(readScreenshotsView("?sort=nonsense").sort).toBe("grouped");
+    expect(readScreenshotsView("?view=nonsense").sort).toBe("grouped");
     expect(readScreenshotsView("").sort).toBe("grouped");
     expect(screenshotsSearch("", "", "", "recent")).toBe("?view=pages&sort=recent");
     expect(screenshotsSearch("acme/web", "", "", "recent")).toBe(

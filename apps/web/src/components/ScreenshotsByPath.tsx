@@ -15,7 +15,7 @@
  * the thumbed-group cap no longer fans out into one search request per group.
  *
  * SSR-first (plan 006, following plan 005's `WorkspaceFileTable` shape):
- * when the request carries a session, `screenshots.astro` server-fetches the
+ * when the request carries a session, `files.astro` server-fetches the
  * by-path overview + workspace summary and renders this component with no
  * `client:*` directive, so first paint has real groups instead of the
  * loading skeleton. A manual `hydrateRoot` mount (same lifecycle every
@@ -48,7 +48,7 @@ import {
 import type { WorkspaceInfoStatus } from "../lib/workspace-file-row";
 import { onSession } from "../lib/account-shell";
 import { makeFileOpener, type FileOpener } from "../lib/file-opener";
-import { matchesTypeFilter } from "../lib/files-view-state";
+import { matchesTypeFilter, typeEmptyNoun } from "../lib/files-view-state";
 import {
   filterCatalog,
   formatShotCount,
@@ -149,7 +149,7 @@ function sameDocumentClick(
 
 // ── Loading skeleton ───────────────────────────────────────────────────
 //
-// Plan 006: `screenshots.astro` now renders this component itself
+// Plan 006: `files.astro` (with `view=pages`) renders this component itself
 // (server-side, via its own `initialInfo`/`initialOverview` props) instead of
 // a separate `set:html` placeholder — so this is also what a cookie-less
 // request's *server* render shows, not just the client's pre-fetch gap.
@@ -508,18 +508,23 @@ function ScreenshotsByPathInner({
           (item) => projectLabelFromItemMeta(item.metadata) === view.project,
         );
       }
-      // files/search is capped at 100 with a `truncated` flag, not paginated,
-      // so filtering by key extension here cannot skip a page.
+      // The type filter runs client-side AFTER files/search's 100-item cap
+      // (it is not paginated), so a truncated response may hide matches past
+      // the cap; the empty state and the footer note say so below.
       drillItems = drillItems.filter((item) => matchesTypeFilter(item.key, view.type));
     }
     const drillPaired = pairedShotKeys(
       drillItems.map((item) => ({ key: item.key, state: item.metadata?.state })),
     );
-    let drillEmptyMessage = "No screenshots at this path.";
-    if (view.project && drill.status === "ready" && drill.truncated) {
-      drillEmptyMessage = `None of the first 100 at this path belong to ${view.project} — there may be more beyond that.`;
+    const noun = view.type ? typeEmptyNoun(view.type) : "screenshots";
+    const scopeFiltered = Boolean(view.project) || view.type !== null;
+    let drillEmptyMessage = `No ${noun} at this path.`;
+    if (scopeFiltered && drill.status === "ready" && drill.truncated) {
+      drillEmptyMessage = view.type
+        ? `None of the first 100 files at this path are ${noun}${view.project ? ` from ${view.project}` : ""} — there may be more beyond that.`
+        : `None of the first 100 at this path belong to ${view.project} — there may be more beyond that.`;
     } else if (view.project) {
-      drillEmptyMessage = "No screenshots at this path for this project.";
+      drillEmptyMessage = `No ${noun} at this path for this project.`;
     }
 
     const parentView = { ...view, path: "" };
@@ -583,16 +588,16 @@ function ScreenshotsByPathInner({
                 />
               ))}
             </div>
-            {/* The project scope is applied client-side AFTER the search's
-                100-item cap (the origin-labeled fallback can't be expressed
-                as a metadata filter — spec keeps URL-prefix search out of
-                scope), so a truncated response may hide project matches: say
-                so rather than claiming an empty/complete result. */}
+            {/* The project scope and the type filter are applied client-side
+                AFTER the search's 100-item cap (the origin-labeled fallback
+                can't be expressed as a metadata filter — spec keeps URL-prefix
+                search out of scope), so a truncated response may hide matches:
+                say so rather than claiming an empty/complete result. */}
             {drillItems.length === 0 && <InlineEmpty title={drillEmptyMessage} />}
             {drillItems.length > 0 && drill.truncated && (
               <p className="wft-end">
-                {view.project
-                  ? "Project filter applied to the first 100 at this path — there may be more."
+                {scopeFiltered
+                  ? `${view.project && view.type ? "Project and type filters" : view.project ? "Project filter" : "Type filter"} applied to the first 100 at this path — there may be more.`
                   : "Showing the first 100 — narrow the path to see more."}
               </p>
             )}
@@ -696,9 +701,11 @@ function ScreenshotsByPathInner({
   const isEmptyWorkspace =
     !view.merged && view.type === null && overview.catalog.length === 0 && ghByProject.size === 0;
   const isEmptyFilter = !isEmptyWorkspace && sectionLabels.length === 0;
+  const emptyNoun = view.type ? typeEmptyNoun(view.type) : "screenshots";
+  const emptyScope = view.project ? " for this project" : "";
   let emptyFilterMessage = view.merged
-    ? "No merged screenshots for this project yet."
-    : "No screenshots for this project.";
+    ? `No merged ${emptyNoun}${emptyScope} yet.`
+    : `No ${emptyNoun}${emptyScope}.`;
   if (qTrim) {
     emptyFilterMessage = overview.catalogTruncated
       ? `No paths matching ${qTrim} in the most active set.`
@@ -728,6 +735,7 @@ function ScreenshotsByPathInner({
                 groups={previewGroups}
                 ghItems={ghItems}
                 ghTruncated={ghTruncated}
+                typeFiltered={view.type !== null}
                 showViewProject={!view.project}
                 // Each subsequent project opens with a full-width hairline —
                 // the section boundary is structural, not just whitespace —
@@ -770,7 +778,7 @@ function ScreenshotsByPathInner({
  * The exported island. Wraps `ScreenshotsByPathInner` in `IslandErrorBoundary`
  * *inside* this same component's own render (plan 006, following plan 005's
  * `WorkspaceFileTable`) — composing the boundary here means Astro sees
- * exactly one component when `screenshots.astro` renders `<ScreenshotsByPath
+ * exactly one component when `files.astro` renders `<ScreenshotsByPath
  * ... />` with no client directive, so the manual `hydrateRoot` mount (which
  * imports this same exported name) hydrates the whole subtree, boundary
  * included, as a single React root that matches the server-rendered tree
@@ -784,12 +792,24 @@ export function ScreenshotsByPath(props: ScreenshotsByPathProps) {
   );
 }
 
+/**
+ * Count label for GitHub-mirrored items. Unfiltered, a capped search page
+ * reads "100+ files". Under a type filter the visible count is a subset of
+ * that page, so the truncation flag (not the filtered count) drives the
+ * marker, and it reads "N+ files" rather than claiming 100.
+ */
+function ghCountLabel(count: number, truncated: boolean, typeFiltered: boolean): string {
+  if (typeFiltered && truncated) return `${count}+ files`;
+  return formatShotCount(count, { truncated: truncated && count >= SHOT_COUNT_DISPLAY_CAP });
+}
+
 function ProjectSection({
   label,
   summary,
   groups,
   ghItems,
   ghTruncated,
+  typeFiltered,
   showViewProject,
   bordered,
   projectHref,
@@ -806,6 +826,8 @@ function ProjectSection({
   ghItems: SearchFileItem[] | undefined;
   /** GitHub search page hit its cap — only affects a GH-only heading. */
   ghTruncated: boolean;
+  /** A type filter is active, so GitHub counts are post-cap-filter counts. */
+  typeFiltered: boolean;
   showViewProject: boolean;
   /** True for every project section after the first — see call site. */
   bordered: boolean;
@@ -820,7 +842,6 @@ function ProjectSection({
   // A GH-only label (no by-path groups) has no ProjectSummary — fall back to
   // the GitHub items' count so the header still reads sensibly.
   const count = summary?.count ?? ghItems?.length ?? 0;
-  const countTruncated = !summary && ghTruncated && count >= SHOT_COUNT_DISPLAY_CAP;
   const lastUpdated = summary?.lastUpdated;
 
   const labelBody = (
@@ -859,7 +880,7 @@ function ProjectSection({
           </span>
         )}
         <span className="wsp-group__meta text-muted-foreground text-[12px] whitespace-nowrap">
-          {formatShotCount(count, { truncated: countTruncated })}
+          {summary ? formatShotCount(count) : ghCountLabel(count, ghTruncated, typeFiltered)}
           {lastUpdated ? ` · ${lastUpdatedLabel(lastUpdated, new Date())}` : ""}
         </span>
       </div>
@@ -877,6 +898,7 @@ function ProjectSection({
         <GitHubSection
           items={ghItems}
           truncated={ghTruncated}
+          typeFiltered={typeFiltered}
           opener={opener}
           preview={preview}
           titles={titles}
@@ -889,12 +911,14 @@ function ProjectSection({
 function GitHubSection({
   items,
   truncated,
+  typeFiltered,
   opener,
   preview,
   titles,
 }: {
   items: SearchFileItem[];
   truncated: boolean;
+  typeFiltered: boolean;
   opener: FileOpener;
   preview: PreviewHandlers;
   titles: GithubTitleMap;
@@ -906,9 +930,7 @@ function GitHubSection({
           From GitHub
         </span>
         <span className="wsp-group__meta text-muted-foreground text-[12px] whitespace-nowrap">
-          {formatShotCount(items.length, {
-            truncated: truncated && items.length >= SHOT_COUNT_DISPLAY_CAP,
-          })}
+          {ghCountLabel(items.length, truncated, typeFiltered)}
         </span>
       </div>
       <div className="wsp-strip">
