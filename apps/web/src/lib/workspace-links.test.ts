@@ -11,7 +11,6 @@ import {
   liveLinkLabel,
   liveLinkRow,
   repoScopeLabel,
-  sourceLabel,
   titleRefs,
 } from "./workspace-links";
 
@@ -159,13 +158,6 @@ describe("labels", () => {
     expect(linkRowName(galleryLinkRow(gallery({ title: "Release screenshots" })))).toBe(
       "Release screenshots",
     );
-  });
-
-  it("names the source", () => {
-    expect(sourceLabel(liveLinkRow(feed()))).toBe("From PR comment");
-    expect(sourceLabel(liveLinkRow(feed({ kind: "issue" })))).toBe("From issue comment");
-    expect(sourceLabel(liveLinkRow(feed({ source: "user" })))).toBe("Created by you");
-    expect(sourceLabel(liveLinkRow(feed({ source: null })))).toBe("");
   });
 
   it("uses the spec's confirm copy for a PR link", () => {

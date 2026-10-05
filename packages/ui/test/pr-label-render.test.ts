@@ -8,21 +8,33 @@ function render(props: PrLabelProps): string {
 }
 
 describe("PrLabel", () => {
-  it("renders #n Title with a merged dot and a screen-reader state", () => {
+  it("renders #n Title with a merge icon and a screen-reader state", () => {
     const html = render({ ghRef: "acme/web#12", title: "Fix login", state: "merged" });
     expect(html).toMatch(/^<span /);
     expect(html).toContain('data-slot="pr-label"');
     expect(html).toContain('data-state="merged"');
-    expect(html).toContain("bg-primary");
+    expect(html).toContain("text-primary");
+    expect(html).toContain('data-icon="pull-merged"');
     expect(html).toContain(">#12 Fix login<");
     expect(html).toContain('<span class="sr-only"> (pull request, merged)</span>');
   });
 
-  it("colors the dot from tokens for each state", () => {
-    expect(render({ ghRef: "a/b#1", state: "open" })).toContain("bg-success");
-    expect(render({ ghRef: "a/b#1", state: "closed" })).toContain("bg-destructive");
+  it("picks the icon and token color for each state and kind", () => {
+    const open = render({ ghRef: "a/b#1", state: "open" });
+    expect(open).toContain("text-success");
+    expect(open).toContain('data-icon="pull-open"');
+    const closed = render({ ghRef: "a/b#1", state: "closed" });
+    expect(closed).toContain("text-destructive");
+    expect(closed).toContain('data-icon="pull-closed"');
+    expect(render({ ghRef: "a/b#1", kind: "issue", state: "open" })).toContain(
+      'data-icon="issue-open"',
+    );
+    expect(render({ ghRef: "a/b#1", kind: "issue", state: "closed" })).toContain(
+      'data-icon="issue-closed"',
+    );
     const unknown = render({ ghRef: "a/b#1" });
-    expect(unknown).toContain("bg-muted-foreground/60");
+    expect(unknown).toContain("text-muted-foreground/60");
+    expect(unknown).toContain('data-icon="pull-open"');
     expect(unknown).toContain('data-state="unknown"');
     expect(unknown).toContain('<span class="sr-only"> (pull request)</span>');
   });

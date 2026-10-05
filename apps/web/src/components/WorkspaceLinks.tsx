@@ -1,7 +1,9 @@
 /**
  * Links tab island: every shareable link in the workspace in one list, live
- * links (change feeds) and galleries, with open, copy, and delete per row
- * (spec "Links tab"). SSR'd with no client directive and hydrated by
+ * links (change feeds) and galleries, with open, copy, and delete in a
+ * per-row overflow menu (spec "Links tab"). Live links are the common case,
+ * so only galleries carry a badge, and a filter appears once both kinds
+ * are present. SSR'd with no client directive and hydrated by
  * `links.astro`'s manual mount, the same shape as `WorkspaceFileTable`.
  *
  * PR/issue titles resolve after hydration through the batched
@@ -9,13 +11,31 @@
  * fallback, which is also what the server rendered.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@uploads/ui/components/ui/alert-dialog";
 import { Badge } from "@uploads/ui/components/ui/badge";
+import { Button } from "@uploads/ui/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@uploads/ui/components/ui/dropdown-menu";
 import { PrLabel } from "@uploads/ui/components/pr-label";
+import { EllipsisIcon } from "lucide-react";
 import "@uploads/ui/styles.css";
 import { IslandErrorBoundary } from "./IslandErrorBoundary";
 import { onSession } from "../lib/account-shell";
 import { imageLoadFailed } from "../lib/media-load";
-import { useTwoStepConfirm } from "../lib/use-two-step-confirm";
 import {
   deleteWorkspaceFeed,
   deleteWorkspaceGallery,
@@ -37,7 +57,6 @@ import {
   linkRowName,
   liveLinkLabel,
   repoScopeLabel,
-  sourceLabel,
   titleRefs,
   type GalleryLinkRow,
   type LinkRow,
@@ -60,8 +79,20 @@ export interface WorkspaceLinksProps {
   initialState?: LinksState;
 }
 
-const ACTION_BTN = "ul-btn ul-btn--ghost px-2 text-xs";
+type LinkFilter = "all" | "live" | "gallery";
 
+const FILTERS: Array<{ value: LinkFilter; label: string }> = [
+  { value: "all", label: "All" },
+  { value: "live", label: "Live links" },
+  { value: "gallery", label: "Galleries" },
+];
+
+/**
+ * Overflow menu per row: Open, Copy link, Delete…. Delete confirms in an
+ * AlertDialog whose copy comes from `deleteConfirmText`. "Copied" shows
+ * beside the trigger for a moment, with a polite live region for screen
+ * readers.
+ */
 function RowActions({
   row,
   busy,
@@ -73,28 +104,11 @@ function RowActions({
   onDelete: () => Promise<boolean>;
 }) {
   const [copied, setCopied] = useState<"idle" | "copied" | "failed">("idle");
-  const { state: confirm, open: openConfirm, arm, close, reset } = useTwoStepConfirm();
+  const [confirming, setConfirming] = useState(false);
   const canDelete = row.type === "live" || row.version !== null;
   const name = linkRowName(row);
-  const copyLabel = copied === "copied" ? "Copied" : copied === "failed" ? "Copy failed" : "Copy";
+  const copyLabel = copied === "copied" ? "Copied" : copied === "failed" ? "Copy failed" : "";
   const kindLabel = row.type === "live" ? "live link" : "gallery";
-  const deleteBtnRef = useRef<HTMLButtonElement | null>(null);
-  const cancelBtnRef = useRef<HTMLButtonElement | null>(null);
-  // Where focus goes after the next confirm-state change: into the dialog
-  // when it opens, back to "Delete…" when it closes without a delete.
-  const pendingFocus = useRef<"cancel" | "delete" | null>(null);
-
-  useEffect(() => {
-    const target = pendingFocus.current;
-    pendingFocus.current = null;
-    if (target === "cancel" && confirm !== "closed") cancelBtnRef.current?.focus();
-    if (target === "delete" && confirm === "closed") deleteBtnRef.current?.focus();
-  }, [confirm]);
-
-  function closeConfirm(): void {
-    pendingFocus.current = "delete";
-    close();
-  }
 
   useEffect(() => {
     if (copied === "idle") return;
@@ -112,100 +126,76 @@ function RowActions({
   }
 
   return (
-    <div className="flex flex-col items-end gap-1.5">
-      <div className="flex items-center gap-1">
-        <a
-          className={ACTION_BTN}
-          href={row.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          aria-label={`Open ${kindLabel} ${name}`}
-        >
-          Open
-        </a>
-        <button
-          type="button"
-          className={ACTION_BTN}
-          aria-label={`Copy link to ${name}`}
-          onClick={() => void copy()}
-        >
-          {copyLabel}
-        </button>
-        {canDelete && confirm === "closed" && (
-          <button
-            ref={deleteBtnRef}
-            type="button"
-            className={`${ACTION_BTN} text-destructive`}
-            aria-label={`Delete ${kindLabel} ${name}`}
-            onClick={() => {
-              pendingFocus.current = "cancel";
-              openConfirm();
-            }}
-          >
-            Delete…
-          </button>
-        )}
-      </div>
-      <span className="sr-only" role="status" aria-live="polite">
-        {copied === "idle" ? "" : copyLabel}
+    <div className="flex items-center gap-2">
+      <span className="text-xs text-muted-foreground" role="status" aria-live="polite">
+        {copyLabel}
       </span>
-      {confirm !== "closed" && (
-        <div
-          role="alertdialog"
-          aria-label={row.type === "live" ? "Revoke live link" : `Delete ${row.title}`}
-          className="w-[260px] rounded-md border border-border bg-popover p-2.5 text-xs shadow-lg"
-        >
-          <p className="m-0 mb-2">{deleteConfirmText(row)}</p>
-          <div className="flex justify-end gap-1.5">
-            <button ref={cancelBtnRef} type="button" className={ACTION_BTN} onClick={closeConfirm}>
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          render={
+            <Button variant="ghost" size="icon-sm" aria-label={`Actions for ${kindLabel} ${name}`}>
+              <EllipsisIcon aria-hidden="true" />
+            </Button>
+          }
+        />
+        <DropdownMenuContent align="end" className="min-w-40">
+          <DropdownMenuItem render={<a href={row.url} target="_blank" rel="noopener noreferrer" />}>
+            Open
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => void copy()}>Copy link</DropdownMenuItem>
+          {canDelete ? (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem variant="destructive" onClick={() => setConfirming(true)}>
+                {row.type === "live" ? "Revoke…" : "Delete…"}
+              </DropdownMenuItem>
+            </>
+          ) : null}
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <AlertDialog open={confirming} onOpenChange={setConfirming}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {row.type === "live" ? `Revoke live link for ${name}?` : `Delete ${row.title}?`}
+            </AlertDialogTitle>
+            <AlertDialogDescription>{deleteConfirmText(row)}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel variant="outline" size="default">
               Cancel
-            </button>
-            {confirm === "confirm" ? (
-              <button
-                type="button"
-                className={`${ACTION_BTN} text-destructive`}
-                disabled={busy}
-                onClick={arm}
-              >
-                {row.type === "live" ? "Revoke link" : "Delete gallery"}
-              </button>
-            ) : (
-              <button
-                type="button"
-                className="ul-btn ul-btn--solid bg-destructive px-2 text-xs text-white"
-                disabled={busy}
-                onClick={() => {
-                  // Back to a fresh two-step confirm first, so the next click
-                  // after a failure must re-confirm. A failure closes the
-                  // dialog and returns focus to this row's "Delete…".
-                  reset();
-                  void onDelete().then((deleted) => {
-                    if (!deleted) closeConfirm();
-                  });
-                }}
-              >
-                Confirm
-              </button>
-            )}
-          </div>
-        </div>
-      )}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              size="default"
+              disabled={busy}
+              onClick={() => {
+                setConfirming(false);
+                void onDelete();
+              }}
+            >
+              {row.type === "live" ? "Revoke link" : "Delete gallery"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
 
 function LiveLinkBody({ row, titles }: { row: LiveLinkRow; titles: GithubTitleMap }) {
   const label = liveLinkLabel(row, titles);
-  const source = sourceLabel(row);
   // A live feed row's updated_at only changes when it is revoked, so for a
   // listed link it is the creation date.
-  const meta = [label ? row.repo : "", source, `Created ${formatLinkDate(row.updatedAt)}`]
+  // The repo only when the title is known: the no-title fallback already
+  // reads "owner/repo #n".
+  const meta = [label?.title ? row.repo : "", formatLinkDate(row.updatedAt)]
     .filter(Boolean)
     .join(" · ");
   return (
     <div className="flex min-w-0 flex-col gap-1">
       {label ? (
-        <PrLabel {...label} size="sm" />
+        <PrLabel {...label} size="md" />
       ) : (
         <span className="font-mono text-sm">{repoScopeLabel(row)}</span>
       )}
@@ -247,19 +237,22 @@ function GalleryBody({ row }: { row: GalleryLinkRow }) {
         ) : null}
       </a>
       <div className="min-w-0">
-        <a
-          href={row.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="font-medium text-foreground hover:underline"
-        >
-          {row.title}
-        </a>
+        <div className="flex min-w-0 items-center gap-2">
+          <a
+            href={row.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="truncate font-medium text-foreground hover:underline"
+          >
+            {row.title}
+          </a>
+          <Badge variant="outline">Gallery</Badge>
+        </div>
         {row.description ? (
           <p className="m-0 truncate text-xs text-muted-foreground">{row.description}</p>
         ) : null}
         <p className="m-0 text-xs text-muted-foreground">
-          {itemsLabel(row.itemCount)} · Updated {formatLinkDate(row.updatedAt)}
+          {itemsLabel(row.itemCount)} · {formatLinkDate(row.updatedAt)}
         </p>
         {shown.length > 0 ? (
           <div className="mt-1 flex flex-wrap items-center gap-1.5">
@@ -300,10 +293,7 @@ function LinkRowItem({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   return (
-    <li className="grid grid-cols-[auto_1fr_auto] items-start gap-3 py-3" data-link-type={row.type}>
-      <Badge variant={row.type === "live" ? "secondary" : "outline"}>
-        {row.type === "live" ? "Live link" : "Gallery"}
-      </Badge>
+    <li className="grid grid-cols-[1fr_auto] items-center gap-3 py-2.5" data-link-type={row.type}>
       <div className="min-w-0">
         {row.type === "live" ? (
           <LiveLinkBody row={row} titles={titles} />
@@ -350,6 +340,7 @@ function WorkspaceLinksInner({ apiOrigin, workspace, initialState }: WorkspaceLi
   const [titles, setTitles] = useState<GithubTitleMap>({});
   const [loadingMore, setLoadingMore] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [filter, setFilter] = useState<LinkFilter>("all");
   const alive = useRef(true);
   // Refs already sent to the titles route, so "Load more" only asks for new ones.
   const requestedRefs = useRef(new Set<string>());
@@ -405,6 +396,9 @@ function WorkspaceLinksInner({ apiOrigin, workspace, initialState }: WorkspaceLi
     () => (state.status === "ready" ? buildLinkRows(state.feeds, state.galleries) : []),
     [state],
   );
+  const hasBothKinds =
+    rows.some((r) => r.type === "live") && rows.some((r) => r.type === "gallery");
+  const shownRows = hasBothKinds && filter !== "all" ? rows.filter((r) => r.type === filter) : rows;
   const refs = useMemo(() => titleRefs(rows), [rows]);
   const refsKey = refs.join(",");
 
@@ -494,6 +488,25 @@ function WorkspaceLinksInner({ apiOrigin, workspace, initialState }: WorkspaceLi
               sets.
             </p>
           </div>
+          {hasBothKinds ? (
+            <div
+              className="wsp-toggle flex items-stretch overflow-hidden rounded-[6px] border border-line box-border"
+              role="group"
+              aria-label="Show"
+            >
+              {FILTERS.map((f) => (
+                <button
+                  key={f.value}
+                  type="button"
+                  className="wsp-toggle__opt min-h-[34px] whitespace-nowrap border-0 bg-none px-3 text-[13px] text-muted-foreground cursor-pointer [&+&]:border-l [&+&]:border-line aria-pressed:bg-panel aria-pressed:text-fg hover:text-fg focus-visible:text-fg"
+                  aria-pressed={filter === f.value}
+                  onClick={() => setFilter(f.value)}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+          ) : null}
         </div>
 
         {state.status === "loading" ? (
@@ -515,7 +528,7 @@ function WorkspaceLinksInner({ apiOrigin, workspace, initialState }: WorkspaceLi
           <LinksEmpty />
         ) : (
           <ul className="m-0 list-none divide-y divide-border p-0" aria-label="Links">
-            {rows.map((row) => (
+            {shownRows.map((row) => (
               <LinkRowItem key={linkRowKey(row)} row={row} titles={titles} onDelete={deleteRow} />
             ))}
           </ul>

@@ -143,15 +143,6 @@ export function repoScopeLabel(row: LiveLinkRow): string {
   return row.path ? `${row.repo} · ${row.path}` : row.repo;
 }
 
-/** Source column copy (`feeds.source`). Legacy rows have none. */
-export function sourceLabel(row: LiveLinkRow): string {
-  if (row.source === "comment") {
-    return row.scope === "issue" ? "From issue comment" : "From PR comment";
-  }
-  if (row.source === "user") return "Created by you";
-  return "";
-}
-
 /**
  * Plain-text name for a row, for accessible names: the `owner/repo#n` ref
  * for a PR or issue link, `owner/repo` (plus any path scope) for a repo

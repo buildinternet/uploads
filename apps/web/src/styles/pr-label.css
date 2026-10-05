@@ -1,7 +1,7 @@
 /*
  * Styles for prLabelHtml() (lib/pr-label-html.ts) and PrLabel.astro. The
  * React twin in @uploads/ui uses Tailwind instead; keep the two visually in
- * step. Dot colors come from tokens.css: open = --green, merged = --accent,
+ * step. Icon colors come from tokens.css: open = --green, merged = --accent,
  * closed = --red, unknown = --muted.
  */
 .pr-label {
@@ -34,29 +34,28 @@ a.pr-label:focus-visible {
   font-weight: var(--weight-semibold);
   line-height: 1.2;
 }
-.pr-label__dot {
+.pr-label__icon {
   flex: none;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--muted) 60%, transparent);
+  width: 12px;
+  height: 12px;
+  color: color-mix(in srgb, var(--muted) 60%, transparent);
 }
-.pr-label--md .pr-label__dot {
-  width: 7px;
-  height: 7px;
+.pr-label--md .pr-label__icon {
+  width: 14px;
+  height: 14px;
 }
-.pr-label--lg .pr-label__dot {
-  width: 10px;
-  height: 10px;
+.pr-label--lg .pr-label__icon {
+  width: 20px;
+  height: 20px;
 }
-.pr-label[data-state="open"] .pr-label__dot {
-  background: var(--green);
+.pr-label[data-state="open"] .pr-label__icon {
+  color: var(--green);
 }
-.pr-label[data-state="merged"] .pr-label__dot {
-  background: var(--accent);
+.pr-label[data-state="merged"] .pr-label__icon {
+  color: var(--accent);
 }
-.pr-label[data-state="closed"] .pr-label__dot {
-  background: var(--red);
+.pr-label[data-state="closed"] .pr-label__icon {
+  color: var(--red);
 }
 .pr-label__text {
   min-width: 0;
