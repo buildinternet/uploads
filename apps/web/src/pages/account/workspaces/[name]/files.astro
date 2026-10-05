@@ -9,6 +9,7 @@ import { env } from "cloudflare:workers";
 import WorkspaceLayout from "../../../../layouts/WorkspaceLayout.astro";
 import FilesViewNav from "../../../../components/files/FilesViewNav.astro";
 import { PullsView, type PullsViewProps } from "../../../../components/files/PullsView";
+import { ReposView, type ReposViewProps } from "../../../../components/files/ReposView";
 import { ScreenshotsByPath, type OverviewState } from "../../../../components/ScreenshotsByPath";
 import { getWorkspaceFilesByPath, getWorkspaceSummary } from "../../../../lib/api-client";
 import { serverApiFetchImpl } from "../../../../lib/api-proxy";
@@ -62,6 +63,7 @@ const summaryPromise = fetchOpts
   : Promise.resolve(null);
 
 let pullsProps: PullsViewProps | undefined;
+let reposProps: ReposViewProps | undefined;
 let pagesOverview: OverviewState | undefined;
 
 if (query.view === "pulls") {
@@ -75,6 +77,14 @@ if (query.view === "pulls") {
       pullsProps.initialPage = { rows: pulls.value.pulls, nextCursor: pulls.value.nextCursor };
     }
     if (repos.ok) pullsProps.initialRepoOptions = repos.value.repos.map((row) => row.repo);
+  }
+} else if (query.view === "repos") {
+  reposProps = { apiOrigin, workspace, initialSearch };
+  if (fetchOpts) {
+    const repos = await loadRepos(apiOrigin, workspace, { type: query.type }, fetchOpts);
+    if (repos.ok) {
+      reposProps.initialPage = { rows: repos.value.repos, nextCursor: repos.value.nextCursor };
+    }
   }
 } else if (query.view === "pages" && fetchOpts) {
   const { merged, type } = readScreenshotsView(initialSearch);
@@ -102,6 +112,7 @@ const initialInfo: WorkspaceInfoStatus | undefined =
     ? { status: "ready", hasPublicUrl: summary.workspace.hasPublicUrl }
     : undefined;
 if (pullsProps) pullsProps.initialInfo = initialInfo;
+if (reposProps) reposProps.initialInfo = initialInfo;
 
 // `<`-escaped so a filename or title containing `</script>` cannot break out.
 const seedJson = (value: unknown) => JSON.stringify(value).replace(/</g, "\\u003c");
@@ -127,6 +138,16 @@ const pagesProps = {
     )
   }
   {
+    reposProps && (
+      <>
+        <div id="ws-files-repos">
+          <ReposView {...reposProps} />
+        </div>
+        <script type="application/json" id="ws-files-repos-seed" set:html={seedJson(reposProps)} />
+      </>
+    )
+  }
+  {
     query.view === "pages" && (
       <>
         <div id="ws-screenshots">
@@ -141,6 +162,7 @@ const pagesProps = {
     import { onAstroPageLoad } from "../../../../lib/account-shell";
     import { createIslandMounter } from "../../../../lib/react-island";
     import type { PullsViewProps } from "../../../../components/files/PullsView";
+    import type { ReposViewProps } from "../../../../components/files/ReposView";
     import type { OverviewState } from "../../../../components/ScreenshotsByPath";
     import type { WorkspaceInfoStatus } from "../../../../lib/workspace-file-row";
 
@@ -161,6 +183,11 @@ const pagesProps = {
       seedId: "ws-files-pulls-seed",
       load: () => import("../../../../components/files/PullsView").then((m) => m.PullsView),
     });
+    const bootRepos = createIslandMounter<ReposViewProps>({
+      mountId: "ws-files-repos",
+      seedId: "ws-files-repos-seed",
+      load: () => import("../../../../components/files/ReposView").then((m) => m.ReposView),
+    });
     const bootPages = createIslandMounter<PagesSeed>({
       mountId: "ws-screenshots",
       seedId: "ws-screenshots-seed",
@@ -172,6 +199,7 @@ const pagesProps = {
     // nav, so this one registration mounts each view as it is visited.
     onAstroPageLoad(() => {
       void bootPulls();
+      void bootRepos();
       void bootPages();
     });
   </script>
