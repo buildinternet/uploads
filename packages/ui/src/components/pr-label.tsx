@@ -1,5 +1,8 @@
 import {
   isSafePrHref,
+  PR_ICON_NODES,
+  PR_ICON_SVG_ATTRS,
+  prIconName,
   prLabelParts,
   prLabelSrText,
   type PrLabelInput,
@@ -9,8 +12,8 @@ import { cn } from "../lib/utils";
 
 /**
  * One label for a pull request or issue everywhere in the signed-in app:
- * a status dot plus "#123 Title", or "owner/repo #123" while the title is
- * unknown. Copy comes from `prLabelParts`; the HTML-string twin in apps/web
+ * a state icon (pull request, merge, closed, issue) plus "#123 Title", or
+ * "owner/repo #123" while the title is unknown. Copy comes from `prLabelParts`; the HTML-string twin in apps/web
  * (lib/pr-label-html.ts) renders the same parts for Astro and string markup.
  */
 
@@ -22,7 +25,7 @@ export interface PrLabelProps extends PrLabelInput {
   href?: string;
   /** "_blank" also sets rel="noopener noreferrer". */
   target?: "_blank";
-  /** Dot and "#123" only, for tile badges where a title cannot fit. */
+  /** Icon and "#123" only, for tile badges where a title cannot fit. */
   compact?: boolean;
   className?: string;
 }
@@ -33,20 +36,55 @@ const SIZE_CLASS: Record<PrLabelSize, string> = {
   lg: "gap-2.5 text-(length:--text-h2) leading-tight font-semibold",
 };
 
-const DOT_SIZE_CLASS: Record<PrLabelSize, string> = {
-  sm: "size-1.5",
-  md: "size-[7px]",
-  lg: "size-2.5",
+const ICON_SIZE_CLASS: Record<PrLabelSize, string> = {
+  sm: "size-3",
+  md: "size-3.5",
+  lg: "size-5",
 };
 
 // Token-backed: --color-success = --green, --color-primary = --accent (violet),
 // --color-destructive = --red (packages/ui/src/theme.css).
-const DOT_STATE_CLASS: Record<PrState | "unknown", string> = {
-  open: "bg-success",
-  merged: "bg-primary",
-  closed: "bg-destructive",
-  unknown: "bg-muted-foreground/60",
+const ICON_STATE_CLASS: Record<PrState | "unknown", string> = {
+  open: "text-success",
+  merged: "text-primary",
+  closed: "text-destructive",
+  unknown: "text-muted-foreground/60",
 };
+
+const SVG_PROPS = {
+  viewBox: PR_ICON_SVG_ATTRS.viewBox,
+  fill: PR_ICON_SVG_ATTRS.fill,
+  stroke: PR_ICON_SVG_ATTRS.stroke,
+  strokeWidth: PR_ICON_SVG_ATTRS["stroke-width"],
+  strokeLinecap: PR_ICON_SVG_ATTRS["stroke-linecap"],
+  strokeLinejoin: PR_ICON_SVG_ATTRS["stroke-linejoin"],
+} as const;
+
+/** The state icon on its own, for places that show state without a label. */
+function PrStateIcon({
+  kind,
+  state,
+  className,
+}: {
+  kind?: "pull" | "issue";
+  state?: PrState | null;
+  className?: string;
+}) {
+  const name = prIconName(kind, state ?? null);
+  return (
+    <svg
+      {...SVG_PROPS}
+      aria-hidden="true"
+      data-icon={name}
+      className={cn("shrink-0", ICON_STATE_CLASS[state ?? "unknown"], className)}
+    >
+      {PR_ICON_NODES[name].map(([tag, attrs], i) => {
+        const Tag = tag;
+        return <Tag key={i} {...attrs} />;
+      })}
+    </svg>
+  );
+}
 
 // `no-underline!` (important): the app's unlayered global `a` underline rule
 // beats a layered utility otherwise.
@@ -77,10 +115,7 @@ function PrLabel({
 
   const body = (
     <>
-      <span
-        aria-hidden="true"
-        className={cn("shrink-0 rounded-full", DOT_SIZE_CLASS[size], DOT_STATE_CLASS[stateKey])}
-      />
+      <PrStateIcon kind={kind} state={parts.state} className={ICON_SIZE_CLASS[size]} />
       {compact ? (
         <span className="truncate">{parts.number || parts.text}</span>
       ) : split ? (
@@ -117,4 +152,4 @@ function PrLabel({
   );
 }
 
-export { PrLabel };
+export { PrLabel, PrStateIcon };

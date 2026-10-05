@@ -1,16 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { prLabelHtml } from "./pr-label-html";
+import { prLabelHtml, prStateIconHtml } from "./pr-label-html";
 
 describe("prLabelHtml", () => {
-  it("renders a span with dot, #n Title, and a screen-reader state", () => {
+  it("renders a span with an icon, #n Title, and a screen-reader state", () => {
+    const icon = prStateIconHtml("pull", "open");
+    expect(icon).toMatch(/^<svg class="pr-label__icon" viewBox="0 0 24 24" /);
+    expect(icon).toContain('data-icon="pull-open"');
     expect(prLabelHtml({ ghRef: "acme/web#12", title: "Fix login", state: "open" })).toBe(
-      '<span class="pr-label pr-label--md" data-state="open"><span class="pr-label__dot" aria-hidden="true"></span><span class="pr-label__text">#12 Fix login</span><span class="pr-label__sr"> (pull request, open)</span></span>',
+      `<span class="pr-label pr-label--md" data-state="open">${icon}<span class="pr-label__text">#12 Fix login</span><span class="pr-label__sr"> (pull request, open)</span></span>`,
     );
   });
 
-  it("falls back to owner/repo #n with an unknown-state dot", () => {
+  it("falls back to owner/repo #n with an unknown-state icon", () => {
     const html = prLabelHtml({ ghRef: "acme/web#12" });
     expect(html).toContain('data-state="unknown"');
+    expect(html).toContain('data-icon="pull-open"');
     expect(html).toContain('<span class="pr-label__text">acme/web #12</span>');
     expect(html).toContain('<span class="pr-label__sr"> (pull request)</span>');
   });
@@ -26,7 +30,7 @@ describe("prLabelHtml", () => {
         target: "_blank",
       }),
     ).toBe(
-      '<a class="pr-label pr-label--sm" data-state="merged" href="https://github.com/acme/web/pull/12" target="_blank" rel="noopener noreferrer" aria-label="Pull request #12 in acme/web: Fix (merged)"><span class="pr-label__dot" aria-hidden="true"></span><span class="pr-label__text">#12 Fix</span></a>',
+      `<a class="pr-label pr-label--sm" data-state="merged" href="https://github.com/acme/web/pull/12" target="_blank" rel="noopener noreferrer" aria-label="Pull request #12 in acme/web: Fix (merged)">${prStateIconHtml("pull", "merged")}<span class="pr-label__text">#12 Fix</span></a>`,
     );
   });
 
