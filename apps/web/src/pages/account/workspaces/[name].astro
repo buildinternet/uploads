@@ -1,21 +1,17 @@
 ---
 /**
- * Workspace home. Screenshots is the default tab, so the bare
- * `/account/workspaces/:name` URL redirects there. Files-tab deep links
- * (`?path=`, `meta.*`, `name=`, `view=`) keep working by sending to `/files`.
+ * Bare workspace URL. Files is the workspace home; old bucket-browser deep
+ * links (`?path=`, `?prefix=`, `meta.*`, `name=`, `view=list|grid`) go to
+ * Storage instead. The decision is `legacyWorkspaceRedirect`, so the spec's
+ * redirect table is unit-tested.
  */
-import { isBrowseWorkspace, isFilesBrowseSearch } from "../../../lib/workspace-browse-url";
-import { workspaceHomePath, workspacePath } from "../../../lib/workspaces-nav";
+import { isBrowseWorkspace } from "../../../lib/workspace-browse-url";
+import { legacyWorkspaceRedirect } from "../../../lib/workspace-route-redirects";
 
 export const prerender = false;
 
 const nameParam = Astro.params.name ?? "";
 const workspace = isBrowseWorkspace(nameParam) ? nameParam : "";
 if (!workspace) return Astro.redirect("/account/workspaces");
-
-const rest = `${Astro.url.search}${Astro.url.hash}`;
-if (isFilesBrowseSearch(Astro.url.search)) {
-  return Astro.redirect(`${workspacePath(workspace, "files")}${rest}`);
-}
-return Astro.redirect(`${workspaceHomePath(workspace)}${rest}`);
+return Astro.redirect(legacyWorkspaceRedirect("root", workspace, Astro.url.search), 301);
 ---

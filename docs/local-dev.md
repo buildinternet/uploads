@@ -126,9 +126,9 @@ curl -X PUT http://127.0.0.1:8787/v1/default/files/test.txt \
   --data-binary "hello"
 ```
 
-## Verifying the screenshots page with real thumbnails
+## Verifying the Files By page view with real thumbnails
 
-`/account/workspaces/[name]/screenshots` needs a signed-in session, fixture
+`/account/workspaces/[name]/files?view=pages` needs a signed-in session, fixture
 uploads, and a place to actually serve their bytes from — none of which the
 smoke test above sets up. This recipe uses the raw loopback stack
 (`pnpm dev:stack:raw`, or `pnpm dev` + `pnpm dev:auth` + `pnpm dev:web`

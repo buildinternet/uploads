@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   applyBrowseLocation,
   isBrowseWorkspace,
-  isFilesBrowseSearch,
   normalizeBrowsePath,
   readBrowseLocation,
   resolveActiveWorkspace,
@@ -119,17 +118,6 @@ describe("applyBrowseLocation", () => {
     });
     expect(next.pathname).toBe("/account/workspaces/buildinternet/storage");
     expect(next.searchParams.get("path")).toBe("screenshots/");
-  });
-});
-
-describe("isFilesBrowseSearch", () => {
-  it("detects files-tab query keys", () => {
-    expect(isFilesBrowseSearch("?path=screenshots/")).toBe(true);
-    expect(isFilesBrowseSearch("?name=hero")).toBe(true);
-    expect(isFilesBrowseSearch("?view=grid")).toBe(true);
-    expect(isFilesBrowseSearch("?meta.app=web")).toBe(true);
-    expect(isFilesBrowseSearch("?project=acme")).toBe(false);
-    expect(isFilesBrowseSearch("")).toBe(false);
   });
 });
 

@@ -62,6 +62,7 @@ import { mediaExtLabel } from "../lib/media-tile";
 import { onSession } from "../lib/account-shell";
 import { makeFileOpener, newTabLinkProps, type FileOpener } from "../lib/file-opener";
 import {
+  filesPagesPath,
   filterCatalog,
   focusIsKeyboardDriven,
   formatShotCount,
@@ -851,9 +852,9 @@ function ScreenshotsByPathInner({
   // and update `view` in place. Leaving the page (sidebar, browser Back
   // off the overview) does not match, so ClientRouter handles that swap.
   useEffect(() => {
-    const screenshotsPath = `/account/workspaces/${encodeURIComponent(workspace)}/screenshots`;
+    const pagesPath = filesPagesPath(workspace);
     const onPop = (event: PopStateEvent) => {
-      if (window.location.pathname !== screenshotsPath) return;
+      if (window.location.pathname !== pagesPath) return;
       event.stopImmediatePropagation();
       const next = readScreenshotsView(window.location.search);
       setView((prev) => (screenshotsViewsEqual(prev, next) ? prev : next));
