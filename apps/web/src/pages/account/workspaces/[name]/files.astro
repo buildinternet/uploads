@@ -64,7 +64,7 @@ const tip = {
 const { apiOrigin } = resolveSignedInOrigins();
 const cookie = Astro.request.headers.get("cookie") ?? "";
 const initialSearch = Astro.url.search;
-const { merged: mergedOnly } = readScreenshotsView(initialSearch);
+const { merged: mergedOnly, type } = readScreenshotsView(initialSearch);
 
 let initialInfo: WorkspaceInfoStatus | undefined;
 let initialOverview: OverviewState | undefined;
@@ -77,6 +77,7 @@ if (cookie.trim()) {
       cookie,
       fetchImpl,
       merged: mergedOnly,
+      type: type ?? undefined,
     }),
   ]);
 

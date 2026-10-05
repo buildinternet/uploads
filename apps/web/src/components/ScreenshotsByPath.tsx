@@ -1,5 +1,5 @@
 /**
- * Screenshots grouped by `path` metadata (spec:
+ * Files tab, By page view (`?view=pages`): uploads grouped by `path` metadata (spec:
  * docs/superpowers/specs/2026-08-10-screenshots-by-path-design.md).
  * Overview = one `files/by-path` fetch; `?project=` / `?q=` filter that
  * payload in the toolbar (project select + path input). Drill-in (?path=)
@@ -24,6 +24,7 @@
  * drill-in still fetch client-side, unchanged.
  */
 import { Callout } from "@uploads/ui";
+import type { FileTypeClass } from "@uploads/comment-render/scope";
 import "@uploads/ui/styles.css";
 import { PrLabel } from "@uploads/ui/components/pr-label";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
@@ -47,11 +48,12 @@ import {
 import type { WorkspaceInfoStatus } from "../lib/workspace-file-row";
 import { onSession } from "../lib/account-shell";
 import { makeFileOpener, type FileOpener } from "../lib/file-opener";
+import { matchesTypeFilter } from "../lib/files-view-state";
 import {
-  filesPagesPath,
   filterCatalog,
   formatShotCount,
   groupsFromCatalog,
+  isPagesLocation,
   isRepoLabel,
   isScreenshotsNavState,
   lastUpdatedLabel,
@@ -67,7 +69,7 @@ import {
   shotPrLabelInput,
   ghKindFallbackLabel,
   writeScreenshotsLocation,
-  type ScreenshotsFeed,
+  type RecentView,
   type ScreenshotsView,
 } from "../lib/workspace-screenshots";
 
@@ -206,6 +208,9 @@ function ScreenshotsByPathInner({
   initialOverview,
   initialInfo,
 }: ScreenshotsByPathProps) {
+  useEffect(() => {
+    document.title = `Files · ${workspace} · uploads.sh`;
+  }, [workspace]);
   // Seed source for URL-derived initial state: the server-fetched
   // `initialSearch` prop when present (SSR, and the client's first
   // hydration-parity render), else the live location for the pre-existing
@@ -244,8 +249,8 @@ function ScreenshotsByPathInner({
   const [drillRetryNonce, setDrillRetryNonce] = useState(0);
   const [ghState, setGhState] = useState<DrillState>({ status: "loading" });
   // Scope of the last overview fetch that is allowed to replace the page with
-  // the full-page skeleton. `view.merged` is deliberately excluded: toggling
-  // Merged only refetches the same workspace, and dropping a ready overview
+  // the full-page skeleton. `view.merged` and `view.type` are deliberately excluded: toggling
+  // Merged only or the type filter refetches the same workspace, and dropping a ready overview
   // unmounts the filter bar (Grouped/Recent is a client-side layout switch
   // on the same payload, so it never hits this path).
   const overviewScopeRef = useRef(`${apiOrigin}\0${workspace}\0${overviewRetryNonce}`);
@@ -254,7 +259,7 @@ function ScreenshotsByPathInner({
   // seeded groups busy and immediately replace them with the same payload.
   const skipSeededOverviewFetch = useRef(initialOverview?.status === "ready");
 
-  // Overview fetch, once per mount/workspace/retry/merged-toggle.
+  // Overview fetch, once per mount/workspace/retry/merged-or-type change.
   useEffect(() => {
     let cancelled = false;
     const scope = `${apiOrigin}\0${workspace}\0${overviewRetryNonce}`;
@@ -271,7 +276,10 @@ function ScreenshotsByPathInner({
       setOverviewRefreshing(true);
     }
     onSession(() => {
-      void getWorkspaceFilesByPath(apiOrigin, workspace, { merged: view.merged }).then((result) => {
+      void getWorkspaceFilesByPath(apiOrigin, workspace, {
+        merged: view.merged,
+        type: view.type ?? undefined,
+      }).then((result) => {
         if (cancelled) return;
         setOverviewRefreshing(false);
         setOverview(
@@ -292,7 +300,7 @@ function ScreenshotsByPathInner({
     return () => {
       cancelled = true;
     };
-  }, [apiOrigin, workspace, overviewRetryNonce, view.merged]);
+  }, [apiOrigin, workspace, overviewRetryNonce, view.merged, view.type]);
 
   // GitHub-mirrored screenshots ("From GitHub" section), fetched in parallel
   // with the by-path overview. A failure here must never block or break the
@@ -318,7 +326,7 @@ function ScreenshotsByPathInner({
   }, [apiOrigin, workspace]);
 
   // Keep the address bar in sync. Project/path changes push so Back returns
-  // to the previous folder; q/feed/merged replace the current entry. Skip
+  // to the previous folder; q/sort/merged/type replace the current entry. Skip
   // when the URL already matches (popstate, first paint). Preserve
   // ClientRouter's history.state — a `replaceState(null)` here used to wipe
   // it, which is part of why Back left the page.
@@ -337,12 +345,12 @@ function ScreenshotsByPathInner({
   // ClientRouter also listens for popstate and would treat a query-only
   // change as a full page swap. While this island is mounted and the
   // destination is still the Files By page view, steal the event in capture
-  // and update `view` in place. Leaving the page (sidebar, browser Back
-  // off the overview) does not match, so ClientRouter handles that swap.
+  // and update `view` in place. Leaving the page (sidebar, another Files
+  // view, browser Back off the overview) does not match, so ClientRouter
+  // handles that swap.
   useEffect(() => {
-    const pagesPath = filesPagesPath(workspace);
     const onPop = (event: PopStateEvent) => {
-      if (window.location.pathname !== pagesPath) return;
+      if (!isPagesLocation(workspace, window.location.pathname, window.location.search)) return;
       event.stopImmediatePropagation();
       const next = readScreenshotsView(window.location.search);
       setView((prev) => (screenshotsViewsEqual(prev, next) ? prev : next));
@@ -446,7 +454,8 @@ function ScreenshotsByPathInner({
     setView({ ...view, project: group.project, path: group.path });
   const setProject = (project: string) => setView({ ...view, project, path: "" });
   const setQuery = (q: string) => setView({ ...view, path: "", q });
-  const setFeed = (feed: ScreenshotsFeed) => setView({ ...view, path: "", feed });
+  const setSort = (sort: RecentView) => setView({ ...view, path: "", sort });
+  const setType = (type: FileTypeClass | null) => setView({ ...view, type });
   const setMerged = (merged: boolean) => setView({ ...view, merged });
 
   // GitHub items bucketed by project label, for both the overview's
@@ -454,6 +463,7 @@ function ScreenshotsByPathInner({
   const ghByProject = new Map<string, SearchFileItem[]>();
   if (ghState.status === "ready") {
     for (const item of ghState.items) {
+      if (!matchesTypeFilter(item.key, view.type)) continue;
       const label = projectLabelFromItemMeta(item.metadata);
       ghByProject.set(label, [...(ghByProject.get(label) ?? []), item]);
     }
@@ -467,19 +477,22 @@ function ScreenshotsByPathInner({
   // merged-only filter itself narrows the catalog to nothing — otherwise a
   // workspace with no merged shots would hide the only control that can turn
   // the filter back off.
-  const showFilter = projectLabels.length > 0 || overview.catalog.length > 0 || view.merged;
+  const showFilter =
+    projectLabels.length > 0 || overview.catalog.length > 0 || view.merged || view.type !== null;
   const filterBar = showFilter ? (
     <PathFilterBar
       project={view.project}
       q={view.q}
       path={view.path}
-      feed={view.feed}
+      sort={view.sort}
+      type={view.type}
       merged={view.merged}
       projects={projectLabels}
       catalog={overview.catalog}
       onProject={setProject}
       onQuery={setQuery}
-      onFeed={setFeed}
+      onSort={setSort}
+      onType={setType}
       onPickPath={(path) => setView({ ...view, path })}
       onMerged={setMerged}
     />
@@ -495,6 +508,9 @@ function ScreenshotsByPathInner({
           (item) => projectLabelFromItemMeta(item.metadata) === view.project,
         );
       }
+      // files/search is capped at 100 with a `truncated` flag, not paginated,
+      // so filtering by key extension here cannot skip a page.
+      drillItems = drillItems.filter((item) => matchesTypeFilter(item.key, view.type));
     }
     const drillPaired = pairedShotKeys(
       drillItems.map((item) => ({ key: item.key, state: item.metadata?.state })),
@@ -587,8 +603,8 @@ function ScreenshotsByPathInner({
     );
   }
 
-  // Flat newest-first feed (?view=recent) — same filters, no grouping.
-  if (view.feed === "recent") {
+  // Flat newest-first list (?sort=recent) — same filters, no grouping.
+  if (view.sort === "recent") {
     const qTrimmed = view.q.trim();
     const latestItems = overview.latest.filter((item) => {
       if (view.project && item.project !== view.project) return false;
@@ -599,7 +615,10 @@ function ScreenshotsByPathInner({
       <div className="wsp grid gap-8" aria-busy={overviewRefreshing || undefined}>
         {filterBar}
         {latestItems.length === 0 ? (
-          !view.merged && overview.latest.length === 0 && overview.catalog.length === 0 ? (
+          !view.merged &&
+          view.type === null &&
+          overview.latest.length === 0 &&
+          overview.catalog.length === 0 ? (
             <EmptyShotsCta title="No screenshots yet" />
           ) : (
             <InlineEmpty
@@ -671,10 +690,11 @@ function ScreenshotsByPathInner({
     ].filter(sectionHasContent);
   }
 
-  // `view.merged` excluded from `isEmptyWorkspace`: an empty catalog under
-  // the merged-only filter means "no merged shots yet", not "no screenshots
+  // `view.merged` and `view.type` excluded from `isEmptyWorkspace`: an empty
+  // catalog under the merged-only or type filter means "no merged shots yet", not "no screenshots
   // ever uploaded" — that's the filtered-empty message below, not the CLI CTA.
-  const isEmptyWorkspace = !view.merged && overview.catalog.length === 0 && ghByProject.size === 0;
+  const isEmptyWorkspace =
+    !view.merged && view.type === null && overview.catalog.length === 0 && ghByProject.size === 0;
   const isEmptyFilter = !isEmptyWorkspace && sectionLabels.length === 0;
   let emptyFilterMessage = view.merged
     ? "No merged screenshots for this project yet."

@@ -322,6 +322,22 @@ describe("groupObjectsByPath", () => {
     expect(result.catalog.find((e) => e.path === "/web-0")!.recent).toEqual(["web-0.png"]);
   });
 
+  it("narrows groups, catalog, projects, and latest to one file type", async () => {
+    const rows = [
+      { workspace: "acme", key: "a.png", meta: { path: "/settings" }, at: at(1) },
+      { workspace: "acme", key: "b.MP4", meta: { path: "/settings" }, at: at(2) },
+      { workspace: "acme", key: "c.pdf", meta: { path: "/home" }, at: at(3) },
+    ];
+    const videos = await groupObjectsByPath(timedDb(rows), "acme", { type: "video" });
+    expect(videos.groups.map((g) => [g.path, g.recent])).toEqual([["/settings", ["b.MP4"]]]);
+    expect(videos.catalog.map((c) => c.recent)).toEqual([["b.MP4"]]);
+    expect(videos.latest.map((l) => l.key)).toEqual(["b.MP4"]);
+    expect(videos.projects).toEqual([{ label: "Other", count: 1, lastUpdated: at(2) }]);
+
+    const other = await groupObjectsByPath(timedDb(rows), "acme", { type: "other" });
+    expect(other.groups.map((g) => [g.path, g.recent])).toEqual([["/home", ["c.pdf"]]]);
+  });
+
   it("caps the catalog at BY_PATH_CATALOG_LIMIT", async () => {
     const rows = Array.from({ length: BY_PATH_CATALOG_LIMIT + 1 }, (_, i) => ({
       workspace: "acme",

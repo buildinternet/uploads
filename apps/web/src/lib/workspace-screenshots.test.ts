@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
-  filesPagesPath,
   filterCatalog,
   focusIsKeyboardDriven,
   formatShotCount,
   groupsFromCatalog,
+  isPagesLocation,
   isRepoLabel,
   isScreenshotsNavState,
   lastUpdatedLabel,
@@ -211,8 +211,9 @@ describe("screenshots view URL state", () => {
       project: "acme/web",
       path: "/admin",
       q: "/cat",
-      feed: "grouped",
+      sort: "grouped",
       merged: false,
+      type: null,
     });
     expect(screenshotsSearch("acme/web", "/admin", "/cat")).toBe(
       "?view=pages&project=acme%2Fweb&path=%2Fadmin&q=%2Fcat",
@@ -222,47 +223,45 @@ describe("screenshots view URL state", () => {
     expect(screenshotsSearch("", "", "/catalog")).toBe("?view=pages&q=%2Fcatalog");
   });
 
-  it("writes the Recent toggle as sort=recent and still reads legacy view=recent", () => {
-    expect(readScreenshotsView("?view=pages&sort=recent").feed).toBe("recent");
-    expect(readScreenshotsView("?view=recent").feed).toBe("recent");
-    expect(readScreenshotsView("?sort=nonsense").feed).toBe("grouped");
-    expect(readScreenshotsView("?view=nonsense").feed).toBe("grouped");
-    expect(readScreenshotsView("").feed).toBe("grouped");
+  it("reads sort=recent and the legacy view=recent, writes sort=recent", () => {
+    expect(readScreenshotsView("?view=pages&sort=recent").sort).toBe("recent");
+    expect(readScreenshotsView("?view=recent").sort).toBe("recent");
+    expect(readScreenshotsView("?sort=nonsense").sort).toBe("grouped");
+    expect(readScreenshotsView("").sort).toBe("grouped");
     expect(screenshotsSearch("", "", "", "recent")).toBe("?view=pages&sort=recent");
     expect(screenshotsSearch("acme/web", "", "", "recent")).toBe(
       "?view=pages&sort=recent&project=acme%2Fweb",
     );
-    expect(screenshotsSearch("", "", "", "grouped")).toBe("?view=pages");
   });
 
-  it("keeps legacy bare ?path= links readable", () => {
+  it("keeps legacy bare ?path= links working", () => {
     expect(readScreenshotsView("?path=%2Fadmin")).toEqual({
       project: "",
       path: "/admin",
       q: "",
-      feed: "grouped",
+      sort: "grouped",
       merged: false,
+      type: null,
     });
-    expect(screenshotsSearch("", "/admin")).toBe("?view=pages&path=%2Fadmin");
   });
 
-  it("round-trips the merged-only toggle, defaulting to false", () => {
+  it("round-trips the merged-only toggle and the type filter", () => {
     expect(readScreenshotsView("?merged=1").merged).toBe(true);
     expect(readScreenshotsView("?merged=0").merged).toBe(false);
-    expect(readScreenshotsView("").merged).toBe(false);
+    expect(readScreenshotsView("?type=video").type).toBe("video");
+    expect(readScreenshotsView("?type=gif").type).toBeNull();
     expect(screenshotsSearch("", "", "", "grouped", true)).toBe("?view=pages&merged=1");
-    expect(screenshotsSearch("", "", "", "grouped", false)).toBe("?view=pages");
-    expect(screenshotsSearch("acme/web", "", "", "recent", true)).toBe(
-      "?view=pages&sort=recent&project=acme%2Fweb&merged=1",
+    expect(screenshotsSearch("acme/web", "", "", "recent", true, "other")).toBe(
+      "?view=pages&sort=recent&project=acme%2Fweb&merged=1&type=other",
     );
   });
 
-  // A drill-in URL the island writes must not be mistaken for an old
-  // bucket-browser `?path=` link and bounce to Storage on reload.
+  // Slice 3's Review Focus 2, kept: a drill-in URL the island writes must not
+  // be mistaken for an old bucket-browser `?path=` link and bounce to Storage.
   it("never writes a URL that /files would redirect to Storage", () => {
     for (const search of [
       screenshotsSearch("", "/settings"),
-      screenshotsSearch("acme/web", "/admin", "/cat", "recent", true),
+      screenshotsSearch("acme/web", "/admin", "/cat", "recent", true, "video"),
       screenshotsSearch("", ""),
     ]) {
       expect(filesRouteRedirect("acme", search)).toBeNull();
@@ -275,21 +274,15 @@ describe("screenshots view hrefs and history mode", () => {
     project: "",
     path: "",
     q: "",
-    feed: "grouped",
+    sort: "grouped",
     merged: false,
+    type: null,
   };
 
   it("builds a Files By page URL with encoded query state", () => {
-    expect(filesPagesPath("acme")).toBe("/account/workspaces/acme/files");
-    expect(
-      screenshotsViewHref("acme", {
-        project: "acme/web",
-        path: "/admin",
-        q: "",
-        feed: "grouped",
-        merged: false,
-      }),
-    ).toBe("/account/workspaces/acme/files?view=pages&project=acme%2Fweb&path=%2Fadmin");
+    expect(screenshotsViewHref("acme", { ...overview, project: "acme/web", path: "/admin" })).toBe(
+      "/account/workspaces/acme/files?view=pages&project=acme%2Fweb&path=%2Fadmin",
+    );
     expect(screenshotsViewHref("acme", overview)).toBe("/account/workspaces/acme/files?view=pages");
     expect(screenshotsSearchFromView(overview)).toBe("?view=pages");
   });
@@ -298,26 +291,33 @@ describe("screenshots view hrefs and history mode", () => {
     expect(screenshotsHistoryMode(overview, { ...overview, path: "/settings" })).toBe("push");
     expect(screenshotsHistoryMode(overview, { ...overview, project: "acme/web" })).toBe("push");
     expect(screenshotsHistoryMode(overview, { ...overview, q: "/cat" })).toBe("replace");
-    expect(screenshotsHistoryMode(overview, { ...overview, feed: "recent" })).toBe("replace");
+    expect(screenshotsHistoryMode(overview, { ...overview, sort: "recent" })).toBe("replace");
     expect(screenshotsHistoryMode(overview, { ...overview, merged: true })).toBe("replace");
+    expect(screenshotsHistoryMode(overview, { ...overview, type: "video" })).toBe("replace");
   });
 
   it("treats views as equal only when every field matches", () => {
     expect(screenshotsViewsEqual(overview, { ...overview })).toBe(true);
     expect(screenshotsViewsEqual(overview, { ...overview, path: "/x" })).toBe(false);
+    expect(screenshotsViewsEqual(overview, { ...overview, type: "other" })).toBe(false);
   });
 
   it("recognizes the nav marker on a ClientRouter-shaped history state", () => {
     expect(isScreenshotsNavState({ index: 2, scrollX: 0, scrollY: 0 })).toBe(false);
     expect(
-      isScreenshotsNavState({
-        index: 2,
-        scrollX: 0,
-        scrollY: 0,
-        uploadsScreenshotsNav: true,
-      }),
+      isScreenshotsNavState({ index: 2, scrollX: 0, scrollY: 0, uploadsScreenshotsNav: true }),
     ).toBe(true);
     expect(isScreenshotsNavState(null)).toBe(false);
+  });
+
+  it("claims popstate only for the Files By page URL", () => {
+    expect(isPagesLocation("acme", "/account/workspaces/acme/files", "?view=pages&path=%2Fx")).toBe(
+      true,
+    );
+    expect(isPagesLocation("acme", "/account/workspaces/acme/files/", "?view=pages")).toBe(true);
+    expect(isPagesLocation("acme", "/account/workspaces/acme/files", "")).toBe(false);
+    expect(isPagesLocation("acme", "/account/workspaces/acme/files", "?view=repos")).toBe(false);
+    expect(isPagesLocation("acme", "/account/workspaces/acme/storage", "?view=pages")).toBe(false);
   });
 });
 

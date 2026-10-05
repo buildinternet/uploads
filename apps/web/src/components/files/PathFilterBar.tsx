@@ -1,29 +1,29 @@
 /**
  * By page filter bar: project select, path input with autocomplete
  * (Cmd/Ctrl-K, "/"), Grouped/Recent, Merged only. Moved from
- * ScreenshotsByPath.tsx; Task 4 adds the type select and renames feed → sort.
+ * ScreenshotsByPath.tsx. The Type select leads the bar.
  */
+import type { FileTypeClass } from "@uploads/comment-render/scope";
 import { Input, Select } from "@uploads/ui";
 import { Kbd } from "@uploads/ui/components/ui/kbd";
 import { useEffect, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { PathCatalogEntry } from "../../lib/api-client";
-import {
-  formatShotCount,
-  pathSuggestions,
-  type ScreenshotsFeed,
-} from "../../lib/workspace-screenshots";
+import { formatShotCount, pathSuggestions, type RecentView } from "../../lib/workspace-screenshots";
+import { TypeSelect } from "./FilterControls";
 
 export function PathFilterBar({
   project,
   q,
   path,
-  feed,
+  sort,
+  type,
   merged,
   projects,
   catalog,
   onProject,
   onQuery,
-  onFeed,
+  onSort,
+  onType,
   onPickPath,
   onMerged,
 }: {
@@ -31,7 +31,8 @@ export function PathFilterBar({
   q: string;
   /** Exact drill-in path, shown in the input so editing it widens the filter. */
   path: string;
-  feed: ScreenshotsFeed;
+  sort: RecentView;
+  type: FileTypeClass | null;
   /** "Merged only" toggle (persisted PR merge-state tagging). */
   merged: boolean;
   projects: string[];
@@ -39,7 +40,8 @@ export function PathFilterBar({
   catalog: PathCatalogEntry[];
   onProject: (project: string) => void;
   onQuery: (q: string) => void;
-  onFeed: (feed: ScreenshotsFeed) => void;
+  onSort: (sort: RecentView) => void;
+  onType: (type: FileTypeClass | null) => void;
   onPickPath: (path: string) => void;
   onMerged: (merged: boolean) => void;
 }) {
@@ -91,6 +93,7 @@ export function PathFilterBar({
 
   return (
     <div className="wsp-filter flex flex-wrap items-stretch gap-2">
+      <TypeSelect value={type} onChange={onType} />
       <Select
         className="ul-select--sm wsp-filter__project flex-[0_1_16rem] min-w-[12rem] max-w-full min-h-9 text-base sm:text-[13px] box-border"
         aria-label="Filter by project"
@@ -181,16 +184,16 @@ export function PathFilterBar({
           <button
             type="button"
             className="wsp-toggle__opt min-h-[34px] whitespace-nowrap border-0 bg-none px-3 text-[13px] text-muted-foreground cursor-pointer first:border-l-0 [&+&]:border-l [&+&]:border-line aria-pressed:bg-panel aria-pressed:text-fg hover:text-fg focus-visible:text-fg"
-            aria-pressed={feed === "grouped"}
-            onClick={() => onFeed("grouped")}
+            aria-pressed={sort === "grouped"}
+            onClick={() => onSort("grouped")}
           >
             Grouped
           </button>
           <button
             type="button"
             className="wsp-toggle__opt min-h-[34px] whitespace-nowrap border-0 bg-none px-3 text-[13px] text-muted-foreground cursor-pointer [&+&]:border-l [&+&]:border-line aria-pressed:bg-panel aria-pressed:text-fg hover:text-fg focus-visible:text-fg"
-            aria-pressed={feed === "recent"}
-            onClick={() => onFeed("recent")}
+            aria-pressed={sort === "recent"}
+            onClick={() => onSort("recent")}
           >
             Recent
           </button>

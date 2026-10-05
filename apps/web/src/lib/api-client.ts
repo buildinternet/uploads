@@ -1237,13 +1237,15 @@ function catalogFromGroups(groups: FilesPathGroup[]): PathCatalogEntry[] {
 export async function getWorkspaceFilesByPath(
   apiOrigin: string,
   name: string,
-  opts?: { cookie?: string; merged?: boolean; fetchImpl?: typeof fetch },
+  opts?: { cookie?: string; merged?: boolean; type?: FileTypeClass; fetchImpl?: typeof fetch },
 ): Promise<FilesByPathResult> {
-  // Opt-in "Merged only" filter (persisted PR merge-state tagging) — omitted
-  // entirely rather than sent as `merged=0`/`false`, so a default call's URL
-  // is unchanged.
-  const query = opts?.merged ? "?merged=1" : "";
-  const url = `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(name)}/files/by-path${query}`;
+  // Opt-in filters are omitted entirely when off (never `merged=0`), so a
+  // default call's URL is unchanged.
+  const params = new URLSearchParams();
+  if (opts?.merged) params.set("merged", "1");
+  if (opts?.type) params.set("type", opts.type);
+  const qs = params.toString();
+  const url = `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(name)}/files/by-path${qs ? `?${qs}` : ""}`;
   const result = await fetchWithTimeout(url, sessionFetchInit(opts?.cookie), {
     fetchImpl: opts?.fetchImpl,
   });

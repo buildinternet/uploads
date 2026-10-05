@@ -48,8 +48,9 @@ describe("ScreenshotsByPath seed contract — initialSearch provided", () => {
       project: "",
       path: "",
       q: "",
-      feed: "grouped",
+      sort: "grouped",
       merged: false,
+      type: null,
     });
   });
 
@@ -58,8 +59,20 @@ describe("ScreenshotsByPath seed contract — initialSearch provided", () => {
       project: "",
       path: "",
       q: "",
-      feed: "recent",
+      sort: "recent",
       merged: false,
+      type: null,
+    });
+  });
+
+  it("a Files By page URL seeds sort and type", () => {
+    expect(readScreenshotsView("?view=pages&sort=recent&type=video")).toEqual({
+      project: "",
+      path: "",
+      q: "",
+      sort: "recent",
+      merged: false,
+      type: "video",
     });
   });
 
@@ -68,8 +81,9 @@ describe("ScreenshotsByPath seed contract — initialSearch provided", () => {
       project: "acme/web",
       path: "",
       q: "",
-      feed: "grouped",
+      sort: "grouped",
       merged: false,
+      type: null,
     });
   });
 
@@ -78,8 +92,9 @@ describe("ScreenshotsByPath seed contract — initialSearch provided", () => {
       project: "acme/web",
       path: "/admin",
       q: "",
-      feed: "grouped",
+      sort: "grouped",
       merged: false,
+      type: null,
     });
   });
 
@@ -88,8 +103,9 @@ describe("ScreenshotsByPath seed contract — initialSearch provided", () => {
       project: "",
       path: "",
       q: "/catalog",
-      feed: "grouped",
+      sort: "grouped",
       merged: false,
+      type: null,
     });
   });
 
@@ -98,8 +114,9 @@ describe("ScreenshotsByPath seed contract — initialSearch provided", () => {
       project: "",
       path: "",
       q: "",
-      feed: "grouped",
+      sort: "grouped",
       merged: true,
+      type: null,
     });
   });
 });
@@ -118,8 +135,9 @@ describe("ScreenshotsByPath seed contract — no initialSearch prop (props-less 
       project: "",
       path: "",
       q: "",
-      feed: "grouped",
+      sort: "grouped",
       merged: false,
+      type: null,
     });
   });
 });

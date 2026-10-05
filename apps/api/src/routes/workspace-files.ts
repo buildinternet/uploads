@@ -30,6 +30,7 @@
 import { ForbiddenError, NotFoundError, ValidationError } from "@uploads/errors";
 import { dbFor } from "../db-session";
 import { boundedDataRead } from "../data-read-bounds";
+import { parseFileTypeQuery } from "../file-type-sql";
 import { createFilesRouter, signedDownloadUrl } from "@uploads/storage";
 import { Hono, type Context, type Handler, type MiddlewareHandler } from "hono";
 import {
@@ -277,10 +278,13 @@ export const workspaceFiles = new Hono<DualAuthVars>()
       // default (unfiltered) overview and general `meta.gh.merged=` search
       // semantics untouched.
       const mergedOnly = c.req.query("merged") === "1";
+      const type = parseFileTypeQuery(c.req.query("type"));
       const { groups, catalog, projects, latest, truncated, catalogTruncated } =
-        await boundedDataRead(c, () => groupObjectsByPath(dbFor(c.env), name, { mergedOnly }), {
-          name: "d1_screenshots_by_path",
-        });
+        await boundedDataRead(
+          c,
+          () => groupObjectsByPath(dbFor(c.env), name, { mergedOnly, type }),
+          { name: "d1_screenshots_by_path" },
+        );
       const shotKeys = [
         ...groups.flatMap((group) => group.recent),
         ...latest.map((item) => item.key),
