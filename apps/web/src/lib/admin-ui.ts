@@ -62,7 +62,7 @@ export interface AdminSkeletonColumn {
  * reserving close-to-real height before async data lands. Pairs with a
  * static `<thead>` already present in the page's server HTML — callers swap
  * only the `<tbody>` in place once data arrives, same as `workspace-ui.ts`'s
- * `renderGalleriesPlaceholderHtml` reserves for its table.
+ * `renderMembersPlaceholderHtml` reserves for its table.
  */
 export function renderAdminTableSkeletonRowsHtml(columns: AdminSkeletonColumn[], rows = 3): string {
   return Array.from(

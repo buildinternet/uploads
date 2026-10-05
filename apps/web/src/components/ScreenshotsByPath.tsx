@@ -98,7 +98,7 @@ const PREVIEW_PATHS_PER_PROJECT = 3;
 const EMPTY_CTA_CMD = "uploads put ./shot.png --meta path=/settings";
 
 /**
- * Gallery-style empty state (renderGalleriesEmptyHtml's markup, React-side):
+ * Gallery-style empty state (the shared Empty card shape, React-side):
  * a title, a one-line hint, and ONE copyable command. `put` is the general
  * upload path; `--meta path=` is what actually groups the file here. The
  * rail tip still carries the how-grouping-works detail.

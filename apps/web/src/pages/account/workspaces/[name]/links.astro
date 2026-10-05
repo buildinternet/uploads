@@ -1,0 +1,85 @@
+---
+/**
+ * Workspace Links tab: live links (change feeds) and galleries in one list
+ * (spec "Links tab"). Replaces the Galleries tab; `/galleries` 301s here.
+ *
+ * SSR-first, the `files.astro`/`storage.astro` shape: with a session, the
+ * server fetches the summary, the first page of live links, and the
+ * galleries, and `WorkspaceLinks` renders here with no `client:*` directive.
+ * The JSON seed below carries the same props, and `createIslandMounter`
+ * hydrates that markup on `astro:page-load`.
+ *
+ * `getMyWorkspaceGalleries` returns [] for both "none" and "failed", the
+ * same conflation the old Galleries tab lived with.
+ */
+import { env } from "cloudflare:workers";
+import WorkspaceLayout from "../../../../layouts/WorkspaceLayout.astro";
+import { WorkspaceLinks, type LinksState } from "../../../../components/WorkspaceLinks";
+import {
+  getMyWorkspaceGalleries,
+  getWorkspaceSummary,
+  listWorkspaceFeeds,
+} from "../../../../lib/api-client";
+import { serverApiFetchImpl } from "../../../../lib/api-proxy";
+import { resolveSignedInOrigins } from "../../../../lib/signed-in-page";
+import { isBrowseWorkspace } from "../../../../lib/workspace-browse-url";
+
+export const prerender = false;
+
+const nameParam = Astro.params.name ?? "";
+const workspace = isBrowseWorkspace(nameParam) ? nameParam : "";
+if (!workspace) return Astro.redirect("/account/workspaces");
+
+const tip = {
+  body: "A live link follows a pull request or repo, so it never goes stale. A gallery is a fixed, hand-picked set.",
+  href: "/docs/feeds",
+  linkLabel: "Working with live links",
+};
+
+const { apiOrigin } = resolveSignedInOrigins();
+const cookie = Astro.request.headers.get("cookie") ?? "";
+
+let initialState: LinksState | undefined;
+if (cookie.trim()) {
+  const fetchImpl = serverApiFetchImpl(env, Astro.request);
+  const [summary, feeds, galleries] = await Promise.all([
+    getWorkspaceSummary(apiOrigin, workspace, { cookie, fetchImpl }),
+    listWorkspaceFeeds(apiOrigin, workspace, undefined, { cookie, fetchImpl }),
+    getMyWorkspaceGalleries(apiOrigin, workspace, { cookie, fetchImpl }),
+  ]);
+  if (summary.kind === "success" && feeds.kind === "ok") {
+    initialState = {
+      status: "ready",
+      feeds: feeds.data.feeds,
+      feedsCursor: feeds.data.nextCursor,
+      galleries,
+    };
+  }
+}
+
+const linksSeedJson = JSON.stringify({ apiOrigin, workspace, initialState }).replace(
+  /</g,
+  "\\u003c",
+);
+---
+
+<WorkspaceLayout workspace={workspace} tip={tip} showQuickActions={false}>
+  <div id="ws-links">
+    <WorkspaceLinks apiOrigin={apiOrigin} workspace={workspace} initialState={initialState} />
+  </div>
+  <script type="application/json" id="ws-links-seed" set:html={linksSeedJson} />
+
+  <script>
+    import { onAstroPageLoad } from "../../../../lib/account-shell";
+    import { createIslandMounter } from "../../../../lib/react-island";
+    import type { WorkspaceLinksProps } from "../../../../components/WorkspaceLinks";
+
+    const boot = createIslandMounter<WorkspaceLinksProps>({
+      mountId: "ws-links",
+      seedId: "ws-links-seed",
+      load: () => import("../../../../components/WorkspaceLinks").then((m) => m.WorkspaceLinks),
+    });
+
+    onAstroPageLoad(() => void boot());
+  </script>
+</WorkspaceLayout>
