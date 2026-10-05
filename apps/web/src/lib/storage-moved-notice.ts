@@ -6,15 +6,6 @@
  */
 export const STORAGE_MOVED_NOTICE_KEY = "uploads:storageMovedNoticeDismissed";
 
-/** `localStorage`, or null where even reading the accessor throws. */
-export function browserLocalStorage(): Storage | null {
-  try {
-    return typeof localStorage === "undefined" ? null : localStorage;
-  } catch {
-    return null;
-  }
-}
-
 export function isStorageMovedNoticeDismissed(store: Pick<Storage, "getItem"> | null): boolean {
   if (!store) return false;
   try {

@@ -121,12 +121,6 @@ describe("workspaceTabFromPathname", () => {
     expect(tab("/files/acme/web/pull/12")).toBe("files");
   });
 
-  it("maps the retired tab routes to where they redirect", () => {
-    expect(tab("/screenshots")).toBe("files");
-    expect(tab("/galleries")).toBe("links");
-    expect(tab("/settings/storage")).toBe("storage");
-  });
-
   it("rejects unknown and over-deep routes", () => {
     expect(tab("/nope")).toBe("");
     expect(tab("/constructor")).toBe("");

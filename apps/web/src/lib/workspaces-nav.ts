@@ -242,14 +242,11 @@ export function resolveSidebarWorkspace(pathname: string, bootGlobal = ""): stri
 }
 
 /**
- * Single-segment workspace routes and the tab each one lights up. Retired
- * routes map to where they redirect. A Map, not an object literal, so a
+ * Single-segment workspace routes and the tab each one lights up. A Map, not an object literal, so a
  * segment like `constructor` can't resolve through the prototype.
  */
 const TAB_SEGMENTS = new Map<string, WorkspaceNavTab>([
   ["links", "links"],
-  ["galleries", "links"],
-  ["screenshots", "files"],
   ["storage", "storage"],
   ["people", "people"],
   ["invite", "people"],
@@ -261,8 +258,7 @@ const TAB_SEGMENTS = new Map<string, WorkspaceNavTab>([
  * Active workspace tab from `/account/workspaces/:name[/*]`. Empty on the
  * index, create page, or unrelated routes. Two tabs span several routes:
  * Files (its repo and PR pages, `/files/:owner/:repo[/pull/:n]`) and
- * Settings (one sub-page segment; the retired `/settings/storage` lights
- * Storage, where it redirects). Every other tab is a strict single segment.
+ * Settings (one sub-page segment). Every other tab is a strict single segment.
  */
 export function workspaceTabFromPathname(pathname: string): WorkspaceNavTab | "" {
   const match = pathname.match(/^\/account\/workspaces\/([^/]+)(?:\/(.*))?$/);
@@ -274,9 +270,7 @@ export function workspaceTabFromPathname(pathname: string): WorkspaceNavTab | ""
   const tail = parts.slice(1);
   if (!segment) return "files";
   if (segment === "files") return "files";
-  if (segment === "settings" && tail.length === 1) {
-    return tail[0] === "storage" ? "storage" : "settings";
-  }
+  if (segment === "settings" && tail.length === 1) return "settings";
   if (tail.length) return "";
   return TAB_SEGMENTS.get(segment) ?? "";
 }

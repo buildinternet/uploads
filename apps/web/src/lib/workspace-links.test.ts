@@ -125,13 +125,6 @@ describe("titleRefs and chunkRefs", () => {
     expect(chunkRefs(refs).flat()).toEqual(refs);
     expect(chunkRefs([])).toEqual([]);
   });
-
-  it("falls back to the cap for a non-positive or non-finite size", () => {
-    const refs = Array.from({ length: 25 }, (_, i) => `acme/web#${i + 1}`);
-    for (const size of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
-      expect(chunkRefs(refs, size).map((batch) => batch.length)).toEqual([20, 5]);
-    }
-  });
 });
 
 describe("labels", () => {

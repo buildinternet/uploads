@@ -133,8 +133,8 @@ const filesSeedJson = JSON.stringify({
     import { createIslandMounter } from "../../../../lib/react-island";
     import type { ListingState } from "../../../../components/WorkspaceFileTable";
     import type { WorkspaceInfoStatus } from "../../../../lib/workspace-file-row";
+    import { browserStore } from "../../../../lib/workspace-cache";
     import {
-      browserLocalStorage,
       dismissStorageMovedNotice,
       isStorageMovedNoticeDismissed,
     } from "../../../../lib/storage-moved-notice";
@@ -163,7 +163,7 @@ const filesSeedJson = JSON.stringify({
       void boot();
       const notice = document.getElementById("storage-moved-notice");
       if (!notice) return;
-      const store = browserLocalStorage();
+      const store = browserStore();
       if (isStorageMovedNoticeDismissed(store)) return;
       notice.hidden = false;
       notice.querySelector<HTMLButtonElement>("[data-storage-moved-dismiss]")?.addEventListener(
