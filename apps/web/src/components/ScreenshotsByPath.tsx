@@ -23,24 +23,18 @@
  * OVERVIEW is server-seeded — the GitHub-mirrored section and the `?path=`
  * drill-in still fetch client-side, unchanged.
  */
-import { Callout, Input, Select } from "@uploads/ui";
+import { Callout } from "@uploads/ui";
 import "@uploads/ui/styles.css";
-import { Kbd } from "@uploads/ui/components/ui/kbd";
 import { PrLabel } from "@uploads/ui/components/pr-label";
-import {
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type CSSProperties,
-  type KeyboardEvent as ReactKeyboardEvent,
-} from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { IslandErrorBoundary } from "./IslandErrorBoundary";
 import { CommandEmpty, InlineEmpty } from "./files/FilesEmpty";
 import { GhKindIcon, GitHubMark } from "./files/gh-glyphs";
-import { ShotThumb, type PreviewCaption, type PreviewHandlers } from "./files/ShotThumb";
+import { PathFilterBar } from "./files/PathFilterBar";
+import { ShotThumb, type PreviewHandlers } from "./files/ShotThumb";
+import { useShotPreview } from "./files/useShotPreview";
+import { InfoBlocked, useWorkspaceInfo } from "./files/useWorkspaceInfo";
 import {
-  getGithubTitles,
   getWorkspaceFilesByPath,
   searchWorkspaceFiles,
   type FilesPathGroup,
@@ -50,8 +44,7 @@ import {
   type ProjectSummary,
   type SearchFileItem,
 } from "../lib/api-client";
-import { loadWorkspaces } from "../lib/workspaces-nav";
-import { resolveWorkspaceInfo, type WorkspaceInfoStatus } from "../lib/workspace-file-row";
+import type { WorkspaceInfoStatus } from "../lib/workspace-file-row";
 import { onSession } from "../lib/account-shell";
 import { makeFileOpener, type FileOpener } from "../lib/file-opener";
 import {
@@ -64,7 +57,6 @@ import {
   lastUpdatedLabel,
   pairedShotKeys,
   pathQueryMatches,
-  pathSuggestions,
   projectLabelFromItemMeta,
   readScreenshotsView,
   screenshotsHistoryMode,
@@ -73,13 +65,10 @@ import {
   screenshotsViewsEqual,
   SHOT_COUNT_DISPLAY_CAP,
   shotPrLabelInput,
-  previewPrDisplay,
   ghKindFallbackLabel,
-  shotPreviewPosition,
   writeScreenshotsLocation,
   type ScreenshotsFeed,
   type ScreenshotsView,
-  type ShotPreviewBox,
 } from "../lib/workspace-screenshots";
 
 /** How many path groups a project section previews before "view project →". */
@@ -204,209 +193,6 @@ function OverviewLoadingSkeleton() {
   );
 }
 
-function FilterBar({
-  project,
-  q,
-  path,
-  feed,
-  merged,
-  projects,
-  catalog,
-  onProject,
-  onQuery,
-  onFeed,
-  onPickPath,
-  onMerged,
-}: {
-  project: string;
-  q: string;
-  /** Exact drill-in path, shown in the input so editing it widens the filter. */
-  path: string;
-  feed: ScreenshotsFeed;
-  /** "Merged only" toggle (persisted PR merge-state tagging). */
-  merged: boolean;
-  projects: string[];
-  /** Path catalog backing the input's autocomplete suggestions. */
-  catalog: PathCatalogEntry[];
-  onProject: (project: string) => void;
-  onQuery: (q: string) => void;
-  onFeed: (feed: ScreenshotsFeed) => void;
-  onPickPath: (path: string) => void;
-  onMerged: (merged: boolean) => void;
-}) {
-  const options = project && !projects.includes(project) ? [...projects, project] : projects;
-  const [suggestOpen, setSuggestOpen] = useState(false);
-  const [active, setActive] = useState(-1);
-  const value = path || q;
-  // Exact drill-in state means the value already IS a suggestion — nothing
-  // useful to offer until the user edits it back into a query.
-  const suggestions = path ? [] : pathSuggestions(catalog, { project, q });
-  const open = suggestOpen && suggestions.length > 0;
-  // "Ctrl K" is the deterministic default so the server's render and the
-  // client's first render agree bit-for-bit (no `navigator` at SSR time) —
-  // corrected to "⌘K" after mount, once hydration has already reconciled.
-  const [modKbd, setModKbd] = useState("Ctrl K");
-  useEffect(() => {
-    if (/Mac|iPhone|iPad|iPod/.test(navigator.userAgent)) setModKbd("⌘K");
-  }, []);
-
-  const pick = (picked: string) => {
-    setSuggestOpen(false);
-    setActive(-1);
-    onPickPath(picked);
-  };
-
-  const onKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
-    if (!open) {
-      if (event.key === "ArrowDown" && suggestions.length > 0) {
-        event.preventDefault();
-        setSuggestOpen(true);
-        setActive(0);
-      }
-      return;
-    }
-    if (event.key === "ArrowDown") {
-      event.preventDefault();
-      setActive((i) => (i + 1) % suggestions.length);
-    } else if (event.key === "ArrowUp") {
-      event.preventDefault();
-      setActive((i) => (i <= 0 ? suggestions.length - 1 : i - 1));
-    } else if (event.key === "Enter" && active >= 0 && suggestions[active]) {
-      event.preventDefault();
-      pick(suggestions[active].path);
-    } else if (event.key === "Escape") {
-      setSuggestOpen(false);
-      setActive(-1);
-    }
-  };
-
-  return (
-    <div className="wsp-filter flex flex-wrap items-stretch gap-2">
-      <Select
-        className="ul-select--sm wsp-filter__project flex-[0_1_16rem] min-w-[12rem] max-w-full min-h-9 text-base sm:text-[13px] box-border"
-        aria-label="Filter by project"
-        value={project}
-        onChange={(event) => onProject(event.target.value)}
-      >
-        <option value="">All projects</option>
-        {options.map((label) => (
-          <option key={label} value={label}>
-            {label}
-          </option>
-        ))}
-      </Select>
-      <div className="wsp-filter__qwrap relative flex flex-[1_1_16rem] min-w-0">
-        <Input
-          id="wsp-path-filter"
-          type="search"
-          className={`wsp-filter__q flex-1 min-w-0 min-h-9 px-3 py-1.5 text-base sm:text-[13px] rounded-[6px] box-border${value === "" ? " pr-14" : ""}`}
-          aria-label="Filter by path"
-          aria-keyshortcuts="Meta+K Control+K Slash"
-          aria-expanded={open}
-          aria-controls="wsp-path-suggest"
-          aria-activedescendant={active >= 0 ? `wsp-path-suggest-${active}` : undefined}
-          role="combobox"
-          placeholder="Filter path  e.g. /catalog"
-          value={value}
-          spellCheck={false}
-          autoComplete="off"
-          autoCorrect="off"
-          autoCapitalize="off"
-          onChange={(event) => {
-            setSuggestOpen(true);
-            setActive(-1);
-            onQuery(event.target.value);
-          }}
-          onFocus={() => setSuggestOpen(true)}
-          onBlur={() => {
-            // Delay so a mousedown on an option can land first.
-            window.setTimeout(() => setSuggestOpen(false), 120);
-          }}
-          onKeyDown={onKeyDown}
-        />
-        {value === "" && (
-          <Kbd className="absolute top-1/2 right-2.5 -translate-y-1/2">{modKbd}</Kbd>
-        )}
-        {open && (
-          <ul
-            className="wsp-suggest absolute top-[calc(100%+4px)] left-0 right-0 z-30 m-0 max-h-[280px] list-none overflow-y-auto rounded-[6px] border border-line bg-panel p-1 shadow-[0_8px_24px_rgb(0_0_0_/_0.25)]"
-            id="wsp-path-suggest"
-            role="listbox"
-            aria-label="Paths"
-          >
-            {suggestions.map((entry, index) => (
-              <li key={entry.path} role="presentation">
-                <button
-                  type="button"
-                  role="option"
-                  id={`wsp-path-suggest-${index}`}
-                  aria-selected={index === active}
-                  className={`wsp-suggest__opt flex w-full items-baseline gap-3 rounded-sm border-0 bg-none px-2 py-1.5 text-left font-[inherit] text-inherit cursor-pointer ${index === active ? "is-active bg-bg" : ""}`}
-                  onMouseDown={(event) => {
-                    event.preventDefault();
-                    pick(entry.path);
-                  }}
-                  onMouseEnter={() => setActive(index)}
-                >
-                  <span className="wsp-suggest__path text-[13px] font-semibold [overflow-wrap:anywhere]">
-                    {entry.path}
-                  </span>
-                  <span className="wsp-suggest__count ml-auto text-[12px] whitespace-nowrap text-muted-foreground">
-                    {formatShotCount(entry.count)}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-      {/* One flex item so the two toggle groups wrap together as a cluster —
-          separately they wrap independently and "Merged only" ends up
-          orphaned on its own row. */}
-      <div className="wsp-filter__toggles flex flex-none items-stretch gap-2">
-        <div
-          className="wsp-toggle flex items-stretch overflow-hidden rounded-[6px] border border-line box-border"
-          role="group"
-          aria-label="Layout"
-        >
-          <button
-            type="button"
-            className="wsp-toggle__opt min-h-[34px] whitespace-nowrap border-0 bg-none px-3 text-[13px] text-muted-foreground cursor-pointer first:border-l-0 [&+&]:border-l [&+&]:border-line aria-pressed:bg-panel aria-pressed:text-fg hover:text-fg focus-visible:text-fg"
-            aria-pressed={feed === "grouped"}
-            onClick={() => onFeed("grouped")}
-          >
-            Grouped
-          </button>
-          <button
-            type="button"
-            className="wsp-toggle__opt min-h-[34px] whitespace-nowrap border-0 bg-none px-3 text-[13px] text-muted-foreground cursor-pointer [&+&]:border-l [&+&]:border-line aria-pressed:bg-panel aria-pressed:text-fg hover:text-fg focus-visible:text-fg"
-            aria-pressed={feed === "recent"}
-            onClick={() => onFeed("recent")}
-          >
-            Recent
-          </button>
-        </div>
-        {/* Persisted PR merge-state tagging: filters both the drill-in
-            (meta.gh.merged=true) and the grouped overview (?merged=1). */}
-        <div
-          className="wsp-toggle flex items-stretch overflow-hidden rounded-[6px] border border-line box-border"
-          role="group"
-          aria-label="Merge filter"
-        >
-          <button
-            type="button"
-            className="wsp-toggle__opt min-h-[34px] whitespace-nowrap border-0 bg-none px-3 text-[13px] text-muted-foreground cursor-pointer aria-pressed:bg-panel aria-pressed:text-fg hover:text-fg focus-visible:text-fg"
-            aria-pressed={merged}
-            onClick={() => onMerged(!merged)}
-          >
-            Merged only
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ── Component ──────────────────────────────────────────────────────────
 
 /**
@@ -427,10 +213,12 @@ function ScreenshotsByPathInner({
   // never be read unconditionally at the top of the component body.
   const seedSearch = initialSearch ?? (typeof window !== "undefined" ? window.location.search : "");
 
-  const [info, setInfo] = useState<WorkspaceInfoStatus | { status: "loading" }>(
-    () => initialInfo ?? { status: "loading" },
-  );
-  const [infoRetryNonce, setInfoRetryNonce] = useState(0);
+  const { info, retry: retryInfo } = useWorkspaceInfo(apiOrigin, workspace, initialInfo);
+  const {
+    handlers: previewHandlers,
+    layer: previewLayer,
+    titles,
+  } = useShotPreview(apiOrigin, workspace);
   const [overview, setOverview] = useState<OverviewState>(
     () => initialOverview ?? { status: "loading" },
   );
@@ -452,26 +240,6 @@ function ScreenshotsByPathInner({
   // instead of pushing, so Back then leaves the page rather than returning
   // to the same drill-in.
   const locationWriteRef = useRef<"auto" | "replace">("auto");
-  const previewTimer = useRef<number | null>(null);
-  const [preview, setPreview] = useState<{
-    src: string;
-    /** Trigger tile's viewport box, kept around so a re-measure (image load,
-     * resolved title) can re-run `shotPreviewPosition` without re-reading a
-     * DOM node that may have scrolled or unmounted. */
-    thumb: ShotPreviewBox;
-    left: number;
-    top: number;
-    name: string;
-    pr?: string;
-    kind?: string;
-    ref?: string;
-    uploadedAt?: string;
-  } | null>(null);
-  // Live PR/issue status (open/closed/merged + title) keyed by `owner/repo#n`,
-  // resolved lazily the first time a shot with that ref is hovered. A miss
-  // stays recorded so a null/outage isn't re-fetched on every hover.
-  const [titles, setTitles] = useState<GithubTitleMap>({});
-  const titleFetches = useRef(new Set<string>());
   const [drill, setDrill] = useState<DrillState>({ status: "idle" });
   const [drillRetryNonce, setDrillRetryNonce] = useState(0);
   const [ghState, setGhState] = useState<DrillState>({ status: "loading" });
@@ -485,24 +253,6 @@ function ScreenshotsByPathInner({
   // `?merged=1`). Skip the first client fetch so hydrate doesn't mark the
   // seeded groups busy and immediately replace them with the same payload.
   const skipSeededOverviewFetch = useRef(initialOverview?.status === "ready");
-
-  // Workspace-level facts (hasPublicUrl), gated behind session resolution —
-  // same pattern as WorkspaceFileTable.
-  useEffect(() => {
-    let cancelled = false;
-    // Don't flash the full-page skeleton over SSR-seeded info on hydrate.
-    // Retry (nonce) still goes through loading because prev is not ready.
-    setInfo((prev) => (prev.status === "ready" ? prev : { status: "loading" }));
-    onSession(() => {
-      void loadWorkspaces(apiOrigin).then((result) => {
-        if (cancelled) return;
-        setInfo(resolveWorkspaceInfo(result, workspace));
-      });
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [apiOrigin, workspace, infoRetryNonce]);
 
   // Overview fetch, once per mount/workspace/retry/merged-toggle.
   useEffect(() => {
@@ -637,12 +387,9 @@ function ScreenshotsByPathInner({
     };
   }, [apiOrigin, workspace, view.path, view.merged, drillRetryNonce]);
 
+  // Cmd/Ctrl-K and "/" focus the path filter. Escape and scroll dismissal of
+  // the hover preview live in useShotPreview.
   useEffect(() => {
-    const dismiss = () => {
-      if (previewTimer.current !== null) window.clearTimeout(previewTimer.current);
-      previewTimer.current = null;
-      setPreview(null);
-    };
     const typingInField = (event: KeyboardEvent) => {
       const target = event.target;
       if (!(target instanceof HTMLElement)) return false;
@@ -655,10 +402,6 @@ function ScreenshotsByPathInner({
       input.select();
     };
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        dismiss();
-        return;
-      }
       if (event.isComposing) return;
       if ((event.key === "k" || event.key === "K") && (event.metaKey || event.ctrlKey)) {
         event.preventDefault();
@@ -671,126 +414,16 @@ function ScreenshotsByPathInner({
         focusPathFilter();
       }
     };
-    window.addEventListener("scroll", dismiss, true);
     window.addEventListener("keydown", onKey);
-    return () => {
-      if (previewTimer.current !== null) window.clearTimeout(previewTimer.current);
-      window.removeEventListener("scroll", dismiss, true);
-      window.removeEventListener("keydown", onKey);
-    };
+    return () => window.removeEventListener("keydown", onKey);
   }, []);
-
-  // Flip-aware placement, measured rather than estimated: `shotPreviewPosition`
-  // needs the pop-over's real box (the image's intrinsic aspect ratio and the
-  // meta block's line count are both unknown before mount — a PR title can
-  // add a line, an error state adds none), so this measures the ACTUAL
-  // rendered element and only then decides which side/edge to place it on.
-  // Runs in a layout effect, which lands the corrected position before the
-  // browser paints — no visible jump — and re-runs whenever the full-size
-  // image finishes loading or a resolved title changes the box's height.
-  const previewRef = useRef<HTMLDivElement | null>(null);
-  const positionPreview = () => {
-    const el = previewRef.current;
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
-    setPreview((prev) => {
-      if (!prev) return prev;
-      const pos = shotPreviewPosition(
-        prev.thumb,
-        { width: window.innerWidth, height: window.innerHeight },
-        { width: rect.width, height: rect.height },
-      );
-      // Bail out to the same object when nothing moved — an unstable object
-      // identity here would re-trigger this effect every render.
-      if (pos.left === prev.left && pos.top === prev.top) return prev;
-      return { ...prev, left: pos.left, top: pos.top };
-    });
-  };
-  useLayoutEffect(positionPreview, [preview, titles]);
-
-  const onPreviewLeave = () => {
-    if (previewTimer.current !== null) window.clearTimeout(previewTimer.current);
-    previewTimer.current = null;
-    setPreview(null);
-  };
-  // Resolve a ref's live PR/issue status once; the pop-over reads `titles`.
-  const ensureTitle = (ref: string | undefined) => {
-    if (!ref || ref in titles || titleFetches.current.has(ref)) return;
-    titleFetches.current.add(ref);
-    void getGithubTitles(apiOrigin, workspace, [ref]).then((map) => {
-      const info = map?.[ref];
-      if (info) setTitles((prev) => ({ ...prev, [ref]: info }));
-    });
-  };
-  const onPreviewEnter = (
-    el: HTMLElement,
-    src: string,
-    caption: PreviewCaption,
-    opts?: { immediate?: boolean },
-  ) => {
-    // Keyboard focus (`opts.immediate`) opens regardless of hover capability
-    // — `focusIsKeyboardDriven` at the call site already excludes touch taps.
-    if (!opts?.immediate && !window.matchMedia("(hover: hover) and (pointer: fine)").matches) {
-      return;
-    }
-    if (previewTimer.current !== null) window.clearTimeout(previewTimer.current);
-    // Prefetch the title now (not inside the timeout) so it's likely resolved
-    // by the time the pop-over appears.
-    ensureTitle(caption.ref);
-    const open = () => {
-      const rect = el.getBoundingClientRect();
-      const thumb: ShotPreviewBox = {
-        left: rect.left,
-        top: rect.top,
-        right: rect.right,
-        bottom: rect.bottom,
-      };
-      setPreview({
-        src,
-        thumb,
-        // Placeholder until the layout effect above measures the real box
-        // and repositions before paint.
-        left: thumb.right + 12,
-        top: thumb.top,
-        name: caption.name,
-        pr: caption.pr,
-        kind: caption.kind,
-        ref: caption.ref,
-        uploadedAt: caption.uploadedAt,
-      });
-    };
-    if (opts?.immediate) {
-      open();
-      return;
-    }
-    const delay = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 250;
-    previewTimer.current = window.setTimeout(open, delay);
-  };
-  const previewHandlers: PreviewHandlers = { onPreviewEnter, onPreviewLeave };
 
   if (info.status === "loading" || overview.status === "loading") {
     return <OverviewLoadingSkeleton />;
   }
 
-  if (info.status === "unavailable") {
-    return (
-      <div className="wft-status-block">
-        <p className="wft-error" role="alert">
-          Workspaces are temporarily unavailable. Check the local stack or try again.
-        </p>
-        <button type="button" className="text-btn" onClick={() => setInfoRetryNonce((n) => n + 1)}>
-          Try again
-        </button>
-      </div>
-    );
-  }
-
-  if (info.status === "no-access") {
-    return (
-      <p className="wft-error" role="alert">
-        You don’t have access to this workspace.
-      </p>
-    );
+  if (info.status === "unavailable" || info.status === "no-access") {
+    return <InfoBlocked info={info} retry={retryInfo} />;
   }
 
   if (overview.status === "error") {
@@ -836,7 +469,7 @@ function ScreenshotsByPathInner({
   // the filter back off.
   const showFilter = projectLabels.length > 0 || overview.catalog.length > 0 || view.merged;
   const filterBar = showFilter ? (
-    <FilterBar
+    <PathFilterBar
       project={view.project}
       q={view.q}
       path={view.path}
@@ -850,33 +483,6 @@ function ScreenshotsByPathInner({
       onPickPath={(path) => setView({ ...view, path })}
       onMerged={setMerged}
     />
-  ) : null;
-  const previewPr = preview ? previewPrDisplay(preview, titles) : null;
-  const previewLayer = preview ? (
-    <div
-      className="wsp-preview"
-      ref={previewRef}
-      style={{ left: preview.left, top: preview.top }}
-      role="presentation"
-    >
-      {/* onLoad: the real image height is only known once bytes arrive —
-          re-clamp so a tall capture doesn't push the meta off-screen. */}
-      <img src={preview.src} alt="" onLoad={positionPreview} />
-      <div className="wsp-preview__meta">
-        <div className="wsp-preview__name">{preview.name}</div>
-        {previewPr && (
-          <div className="wsp-preview__pr">
-            <GhKindIcon kind={preview.kind} />{" "}
-            {"label" in previewPr ? <PrLabel size="sm" {...previewPr.label} /> : previewPr.text}
-          </div>
-        )}
-        {preview.uploadedAt && (
-          <div className="wsp-preview__time">
-            uploaded {lastUpdatedLabel(preview.uploadedAt, new Date())}
-          </div>
-        )}
-      </div>
-    </div>
   ) : null;
 
   // Drill-in view (?path=, optionally scoped to ?project=).
