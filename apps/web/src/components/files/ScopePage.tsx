@@ -24,12 +24,7 @@ import {
   type ScopeFilesResponse,
 } from "../../lib/api-client";
 import { makeFileOpener, type FileOpener } from "../../lib/file-opener";
-import {
-  isNotPubliclyServed,
-  loadPulls,
-  loadScopeFiles,
-  shareInfoFromScope,
-} from "../../lib/files-api";
+import { loadPulls, loadScopeFiles, shareInfoFromScope } from "../../lib/files-api";
 import {
   groupScopeItemsByPath,
   pairCells,
@@ -108,8 +103,6 @@ function ScopePageInner({
   /** Repo page PR list: null while loading, "error" when the fetch failed. */
   const [pulls, setPulls] = useState<PullRow[] | "error" | null>(() => initialPulls ?? null);
   const [pullsAttempt, setPullsAttempt] = useState(0);
-  /** The last first-page failure was the #1079 no-public-URL 503 (no retry offered). */
-  const [notPublic, setNotPublic] = useState(false);
   const prRef = number !== null ? `${repo}#${number}` : null;
   const scope: LiveLinkScope = number !== null ? { repo, pr: number } : { repo };
 
@@ -137,7 +130,6 @@ function ScopePageInner({
       loadScopeFiles(apiOrigin, workspace, { repo, number, type: query.type, cursor }).then(
         (result) => {
           const current = cursor === undefined && queryKeyRef.current === queryKey;
-          if (current) setNotPublic(isNotPubliclyServed(result));
           if (!result.ok) return { ok: false as const };
           // privateCount ignores `type`, so any first page carries the scope's share info.
           if (current) {
@@ -356,20 +348,14 @@ function ScopePageInner({
           ))}
         </div>
       )}
-      {list.status === "error" &&
-        (notPublic ? (
-          // Issue #1079: deterministic until the workspace has a public base URL.
-          <Callout tone="muted">
-            Files in this workspace aren’t publicly served, so they can’t be shown here yet.
-          </Callout>
-        ) : (
-          <Callout tone="error" role="alert">
-            Couldn’t load these files.{" "}
-            <button type="button" className="text-btn" onClick={retry}>
-              Try again
-            </button>
-          </Callout>
-        ))}
+      {list.status === "error" && (
+        <Callout tone="error" role="alert">
+          Couldn’t load these files.{" "}
+          <button type="button" className="text-btn" onClick={retry}>
+            Try again
+          </button>
+        </Callout>
+      )}
       {list.status === "ready" &&
         list.rows.length === 0 &&
         (empty.command ? (

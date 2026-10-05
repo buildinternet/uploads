@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createWorkspaceFeed } from "./api-client";
 import {
-  isNotPubliclyServed,
   loadPulls,
   loadScopeFiles,
   loadShareInfo,
@@ -28,35 +27,7 @@ describe("loaded", () => {
   });
 });
 
-describe("isNotPubliclyServed", () => {
-  it("is true only for the not_public failure", () => {
-    expect(isNotPubliclyServed({ ok: false, reason: "not_public" })).toBe(true);
-    expect(isNotPubliclyServed({ ok: false, reason: "server" })).toBe(false);
-    expect(isNotPubliclyServed({ ok: false })).toBe(false);
-    expect(isNotPubliclyServed({ ok: true, value: null })).toBe(false);
-  });
-});
-
 describe("loadScopeFiles", () => {
-  it("keeps the not_public reason from the #1079 503", async () => {
-    const fetchImpl = vi.fn(async () =>
-      Response.json(
-        {
-          error: { code: "feed_object_not_public", message: "Feed object is not publicly served." },
-        },
-        { status: 503 },
-      ),
-    );
-    const result = await loadScopeFiles(
-      "/api",
-      "acme",
-      { repo: "acme/web", number: 7, type: null },
-      { fetchImpl: fetchImpl as unknown as typeof fetch },
-    );
-    expect(result).toEqual({ ok: false, reason: "not_public" });
-    expect(isNotPubliclyServed(result)).toBe(true);
-  });
-
   it("reads any other 503 as a retryable server failure", async () => {
     const fetchImpl = vi.fn(async () =>
       Response.json({ error: { code: "d1_unavailable" } }, { status: 503 }),
@@ -106,7 +77,7 @@ describe("normalizeCreateResult", () => {
     });
   });
 
-  it("keeps the #1079 not_public failure apart from a retryable one", () => {
+  it("keeps the not_public failure apart from a retryable one", () => {
     expect(normalizeCreateResult({ kind: "unavailable", reason: "not_public" })).toEqual({
       kind: "not_public",
     });
@@ -137,12 +108,7 @@ describe("createWorkspaceFeed", () => {
 });
 
 describe("loadShareInfo", () => {
-  it("returns not_public for the #1079 503 and null for a retryable failure", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => Response.json(NOT_PUBLIC_BODY, { status: 503 })),
-    );
-    expect(await loadShareInfo("/api", "acme", { repo: "acme/web", pr: 7 })).toBe("not_public");
+  it("returns null on a failure", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => Response.json({}, { status: 500 })),

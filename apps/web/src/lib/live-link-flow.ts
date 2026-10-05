@@ -33,13 +33,13 @@ export type CreateLiveLinkResult =
   | { kind: "ok"; id: string; url: string }
   /** Only repo-wide links are capped; `limit` is the cap the API reported. */
   | { kind: "limit"; limit: number }
-  /** The workspace has no public base URL (issue #1079); retrying won't help. */
+  /** The workspace has no public base URL; retrying won't help. */
   | { kind: "not_public" }
   | { kind: "error" };
 
 export interface CopyLiveLinkDeps {
-  /** Null on a failure worth retrying; "not_public" on the #1079 no-public-URL workspace. */
-  loadShareInfo(scope: LiveLinkScope): Promise<ScopeShareInfo | "not_public" | null>;
+  /** Null on a failure worth retrying. */
+  loadShareInfo(scope: LiveLinkScope): Promise<ScopeShareInfo | null>;
   create(scope: LiveLinkScope): Promise<CreateLiveLinkResult>;
   confirmPrivate(count: number): Promise<boolean>;
   /**
@@ -131,9 +131,9 @@ export async function runCopyLiveLink(
 
   try {
     const info = opts.known ?? (await deps.loadShareInfo(scope));
-    if (info === null || info === "not_public") {
+    if (info === null) {
       abandon();
-      return { kind: info === null ? "error" : "not_public" };
+      return { kind: "error" };
     }
 
     const count = confirmCount(info);
