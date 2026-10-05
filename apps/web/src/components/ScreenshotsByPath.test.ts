@@ -76,6 +76,16 @@ describe("ScreenshotsByPath seed contract — initialSearch provided", () => {
     });
   });
 
+  it("a Files By page URL with sort=recent seeds the recent feed", () => {
+    expect(readScreenshotsView("?view=pages&sort=recent")).toEqual({
+      project: "",
+      path: "",
+      q: "",
+      feed: "recent",
+      merged: false,
+    });
+  });
+
   it("a deep-linked project view seeds that project, no path", () => {
     expect(readScreenshotsView("?project=acme%2Fweb")).toEqual({
       project: "acme/web",
