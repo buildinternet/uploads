@@ -105,7 +105,7 @@ const EMPTY_AUTH: AuthMetrics = {
 };
 
 export function overviewCacheKey(days: number): string {
-  return `metrics:overview:v5:${days}`;
+  return `metrics:overview:v6:${days}`;
 }
 
 /**

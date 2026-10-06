@@ -307,7 +307,7 @@ describe("GET /admin-ui/metrics/overview", () => {
       const env = { AUTH: stubAuth(ADMIN_USER), DB: db, REGISTRY: kv.binding } as unknown as Env;
       await app().request("/admin-ui/metrics/overview?days=30", {}, env);
       expect(kv.puts).toBe(1);
-      expect(kv.store.has("metrics:overview:v5:30")).toBe(true);
+      expect(kv.store.has("metrics:overview:v6:30")).toBe(true);
       const res = await app().request("/admin-ui/metrics/overview?days=30", {}, env);
       expect(res.status).toBe(200);
       expect(kv.puts).toBe(1);
