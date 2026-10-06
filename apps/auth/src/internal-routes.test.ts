@@ -625,7 +625,7 @@ describe("DB-backed behavior", () => {
       expect(res.status).toBe(200);
       const body = (await res.json()) as {
         organizations: Array<{
-          organization: { slug: string };
+          organization: { slug: string; createdAt: string };
           memberCount: number;
           pendingInviteCount: number;
         }>;
@@ -633,6 +633,8 @@ describe("DB-backed behavior", () => {
       const bySlug = new Map(body.organizations.map((row) => [row.organization.slug, row]));
       expect(bySlug.get("acme")).toMatchObject({ memberCount: 1, pendingInviteCount: 1 });
       expect(bySlug.get("beta")).toMatchObject({ memberCount: 1, pendingInviteCount: 0 });
+      // Admin workspace list sorts/filters on creation date.
+      expect(Date.parse(bySlug.get("acme")!.organization.createdAt)).not.toBeNaN();
     });
   });
 

@@ -31,6 +31,7 @@ import { teardownWorkspace } from "../workspace-teardown";
 import {
   isPastGrace,
   isPurgedTombstone,
+  listWorkspaceNames,
   loadWorkspaceRecordRaw,
   stampRestore,
   stampSoftDelete,
@@ -152,18 +153,10 @@ export const admin = new Hono<{ Bindings: Env }>()
   .post("/orgs/backfill", async (c) => {
     const created: string[] = [];
     const existing: string[] = [];
-    let cursor: string | undefined;
-    do {
-      const page = await c.env.REGISTRY.list({ prefix: "ws:", cursor, limit: 100 });
-      for (const entry of page.keys) {
-        const name = entry.name.startsWith("ws:") ? entry.name.slice(3) : entry.name;
-        if (!name) continue;
-
-        const result = await createMemberlessOrg(c.env, name);
-        (result.created ? created : existing).push(name);
-      }
-      cursor = page.list_complete ? undefined : page.cursor;
-    } while (cursor);
+    for (const name of await listWorkspaceNames(c.env)) {
+      const result = await createMemberlessOrg(c.env, name);
+      (result.created ? created : existing).push(name);
+    }
 
     return c.json({ created, existing });
   })

@@ -85,7 +85,12 @@ describe("GET /admin-ui/workspaces", () => {
         return Response.json({
           organizations: [
             {
-              organization: { id: "org1", slug: "acme", name: "acme" },
+              organization: {
+                id: "org1",
+                slug: "acme",
+                name: "acme",
+                createdAt: "2026-09-01T12:00:00.000Z",
+              },
               memberCount: 2,
               pendingInviteCount: 1,
             },
@@ -101,11 +106,17 @@ describe("GET /admin-ui/workspaces", () => {
       workspaces: [
         {
           workspace: "acme",
-          organization: { id: "org1", slug: "acme", name: "acme" },
+          organization: {
+            id: "org1",
+            slug: "acme",
+            name: "acme",
+            createdAt: "2026-09-01T12:00:00.000Z",
+          },
           memberCount: 2,
           pendingInviteCount: 1,
           plan: "free",
           byob: false,
+          createdAt: "2026-09-01T12:00:00.000Z",
         },
       ],
     });
@@ -143,6 +154,33 @@ describe("GET /admin-ui/workspaces", () => {
     expect(byName.plain).toMatchObject({ plan: "free", byob: false });
   });
 
+  it("dates an org-less, non-self-serve workspace by its earliest token", async () => {
+    const auth = stubAuth((req) => {
+      const url = new URL(req.url);
+      if (url.pathname === "/api/auth/get-session") {
+        return new Response(JSON.stringify({ session: {}, user: ADMIN_USER }), { status: 200 });
+      }
+      if (url.pathname === "/internal/orgs/summaries") {
+        return Response.json({ organizations: [] });
+      }
+      return new Response(null, { status: 404 });
+    });
+    const env = {
+      AUTH: auth,
+      REGISTRY: fakeKv(["provisioned"], {
+        provisioned: {
+          tokens: [
+            { hash: "b", createdAt: "2026-09-03T00:00:00.000Z" },
+            { hash: "a", createdAt: "2026-07-01T00:00:00.000Z" },
+          ],
+        },
+      }),
+    } as unknown as Env;
+    const res = await app().request("/admin-ui/workspaces", {}, env);
+    const body = (await res.json()) as { workspaces: { createdAt: string | null }[] };
+    expect(body.workspaces[0].createdAt).toBe("2026-07-01T00:00:00.000Z");
+  });
+
   it("leaves org null when a workspace has no matching summary", async () => {
     const auth = stubAuth((req) => {
       const url = new URL(req.url);
@@ -154,7 +192,10 @@ describe("GET /admin-ui/workspaces", () => {
       }
       return new Response(null, { status: 404 });
     });
-    const env = { AUTH: auth, REGISTRY: fakeKv(["orphan"]) } as unknown as Env;
+    const env = {
+      AUTH: auth,
+      REGISTRY: fakeKv(["orphan"], { orphan: { createdAt: "2026-08-15T00:00:00.000Z" } }),
+    } as unknown as Env;
     const res = await app().request("/admin-ui/workspaces", {}, env);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
@@ -166,6 +207,8 @@ describe("GET /admin-ui/workspaces", () => {
           pendingInviteCount: 0,
           plan: "free",
           byob: false,
+          // No org → falls back to the record's self-serve timestamp.
+          createdAt: "2026-08-15T00:00:00.000Z",
         },
       ],
     });

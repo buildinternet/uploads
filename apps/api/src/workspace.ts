@@ -584,6 +584,24 @@ export async function isWorkspaceNameTaken(env: Env, name: string): Promise<bool
 }
 
 /**
+ * Every registered workspace name, from paging the `ws:` REGISTRY keys. Keys
+ * only — callers that need records fan out `loadWorkspaceRecord` themselves.
+ */
+export async function listWorkspaceNames(env: Pick<Env, "REGISTRY">): Promise<string[]> {
+  const names: string[] = [];
+  let cursor: string | undefined;
+  do {
+    const page = await env.REGISTRY.list({ prefix: "ws:", cursor, limit: 100 });
+    for (const entry of page.keys) {
+      const name = entry.name.startsWith("ws:") ? entry.name.slice(3) : entry.name;
+      if (name) names.push(name);
+    }
+    cursor = page.list_complete ? undefined : page.cursor;
+  } while (cursor);
+  return names;
+}
+
+/**
  * Unfiltered read of `ws:<name>` — used by admin routes and the retention
  * sweep, which need to see soft-deleted records and purged tombstones rather
  * than have them collapsed to "not found". No `cacheTtl`: these callers act

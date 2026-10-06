@@ -12,6 +12,8 @@
 import { fetchUploadClassSeries, type UploadClassSeriesResult } from "./analytics-engine";
 import { dbFor } from "./db-session";
 import { fillDaySeries } from "./day-series";
+import { isByoRecord } from "./routes/workspace-storage";
+import { listWorkspaceNames, loadWorkspaceRecord } from "./workspace";
 import {
   activeWorkspacesSince,
   featureTotals,
@@ -20,10 +22,12 @@ import {
   platformStorage,
   windowStart,
   workspaceActivity,
+  workspaceDaySeries,
   workspacesWithGithubApp,
   type DayPoint,
   type MultiIdentityWorkspace,
   type WorkspaceActivity,
+  type WorkspaceDayPoint,
 } from "./adoption-queries";
 
 export const OVERVIEW_CACHE_TTL = 600;
@@ -55,6 +59,8 @@ export interface MetricsOverview {
     bytes: number;
     /** Workspaces with at least one `github_repo_links` row that has the GitHub App installed. */
     workspacesWithGithubApp: number;
+    /** Registered workspaces storing objects in their own bucket (`isByoRecord`). */
+    workspacesWithByob: number;
   };
   series: {
     uploads: DayPoint[];
@@ -62,9 +68,15 @@ export interface MetricsOverview {
     orgs: SignupPoint[];
     /** Per-day upload counts by media class, from Analytics Engine. Degrades when AE is unavailable. */
     uploadClasses: UploadClassSeriesResult;
+    /**
+     * Sparse per-workspace daily uploads (D1-exact), busiest first within a
+     * day. Lets the page attribute a day's bar to the workspaces behind it
+     * and filter the chart to one workspace without another round trip.
+     */
+    uploadsByWorkspace: WorkspaceDayPoint[];
   };
   features: Record<string, number>;
-  workspaces: WorkspaceActivity[];
+  workspaces: (WorkspaceActivity & { byob: boolean })[];
   /**
    * Workspaces with two or more distinct `minting_user_id` values in
    * `auth_tokens` — a read-only revisit trigger for the actor-on-PR gate
@@ -87,7 +99,23 @@ const EMPTY_AUTH: AuthMetrics = {
 };
 
 export function overviewCacheKey(days: number): string {
-  return `metrics:overview:v3:${days}`;
+  return `metrics:overview:v4:${days}`;
+}
+
+/**
+ * Names of registered workspaces on their own bucket. KV has no multi-get,
+ * so this is one record read per workspace — the same fan-out the admin
+ * workspace list does, bounded here by the overview's KV cache TTL. Best
+ * effort: a KV failure reports no BYO workspaces rather than failing the page.
+ */
+async function byobWorkspaces(env: Env): Promise<Set<string>> {
+  try {
+    const names = await listWorkspaceNames(env);
+    const records = await Promise.all(names.map((name) => loadWorkspaceRecord(env, name)));
+    return new Set(names.filter((_, i) => records[i] && isByoRecord(records[i])));
+  } catch {
+    return new Set();
+  }
 }
 
 /**
@@ -139,6 +167,8 @@ export async function buildOverview(
     multiIdentity,
     githubApp,
     uploadClasses,
+    byWorkspace,
+    byob,
   ] = await Promise.all([
     platformSeries(dbFor(env), "upload", since),
     featureTotals(dbFor(env), since),
@@ -154,6 +184,8 @@ export async function buildOverview(
     multiIdentityWorkspaces(dbFor(env)),
     workspacesWithGithubApp(dbFor(env)),
     fetchUploadClassSeries(env, days, fetch, now),
+    workspaceDaySeries(dbFor(env), since),
+    byobWorkspaces(env),
   ]);
 
   // Sparse SQL rows → one point per calendar day so the charts' bar
@@ -189,15 +221,17 @@ export async function buildOverview(
       uploads: uploadsFilled.reduce((sum, point) => sum + point.count, 0),
       bytes: uploadsFilled.reduce((sum, point) => sum + point.bytes, 0),
       workspacesWithGithubApp: githubApp.size,
+      workspacesWithByob: byob.size,
     },
     series: {
       uploads: uploadsFilled,
       users: usersFilled,
       orgs: orgsFilled,
       uploadClasses: uploadClassesFilled,
+      uploadsByWorkspace: byWorkspace,
     },
     features,
-    workspaces: table,
+    workspaces: table.map((row) => ({ ...row, byob: byob.has(row.workspace) })),
     multiIdentityWorkspaces: multiIdentity,
   };
 }
