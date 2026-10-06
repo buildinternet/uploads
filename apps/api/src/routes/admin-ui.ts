@@ -239,8 +239,8 @@ function workspaceSummaryResponse(
     byob: record ? isByoRecord(record) : false,
     // The backing org is provisioned with the workspace, so its timestamp is
     // the best creation date available. Without an org, fall back to the
-    // record's self-serve stamp, then to its earliest token (admin
-    // provisioning mints one at creation).
+    // record's own creation stamp, then (legacy records without one) to its
+    // earliest token.
     createdAt:
       summary?.organization.createdAt ?? record?.createdAt ?? earliestTokenAt(record) ?? null,
   };
