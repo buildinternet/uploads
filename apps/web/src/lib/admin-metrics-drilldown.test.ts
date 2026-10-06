@@ -1,33 +1,39 @@
 import { describe, expect, it } from "vitest";
-import { buildUploadDrilldown, peakIndex } from "./admin-metrics-drilldown";
+import { indexDaySummaries, peakIndex, withShares } from "./admin-metrics-drilldown";
 
-const rows = [
-  { day: "2026-09-01", workspace: "beta", count: 1, bytes: 10 },
-  { day: "2026-09-01", workspace: "acme", count: 3, bytes: 300 },
-  { day: "2026-09-02", workspace: "beta", count: 5, bytes: 50 },
-];
+describe("indexDaySummaries", () => {
+  it("indexes by day and tolerates a missing summary", () => {
+    const byDay = indexDaySummaries([
+      { day: "2026-09-01", total: 4, workspaces: 2, top: [{ workspace: "acme", count: 3 }] },
+    ]);
+    expect(byDay.get("2026-09-01")?.top[0].workspace).toBe("acme");
+    expect(byDay.has("2026-09-02")).toBe(false);
+    expect(indexDaySummaries(undefined).size).toBe(0);
+  });
+});
 
-describe("buildUploadDrilldown", () => {
-  const drill = buildUploadDrilldown(rows);
-
-  it("groups by day, busiest first, with totals and each workspace's share", () => {
-    expect(drill.byDay.get("2026-09-01")).toEqual({
-      total: 4,
-      contributors: [
-        { workspace: "acme", count: 3, bytes: 300, share: 0.75 },
-        { workspace: "beta", count: 1, bytes: 10, share: 0.25 },
-      ],
-    });
-    expect(drill.byDay.get("2026-09-02")?.contributors.map((c) => c.workspace)).toEqual(["beta"]);
-    expect(drill.byDay.has("2026-09-03")).toBe(false);
+describe("withShares", () => {
+  it("adds each contributor's share of the day total, preserving order", () => {
+    expect(
+      withShares({
+        day: "2026-09-01",
+        total: 4,
+        contributors: [
+          { workspace: "acme", count: 3, bytes: 300 },
+          { workspace: "beta", count: 1, bytes: 10 },
+        ],
+      }),
+    ).toEqual([
+      { workspace: "acme", count: 3, bytes: 300, share: 0.75 },
+      { workspace: "beta", count: 1, bytes: 10, share: 0.25 },
+    ]);
   });
 
-  it("orders workspaces by total uploads across the window", () => {
-    expect(drill.workspaces).toEqual(["beta", "acme"]);
-  });
-
-  it("keeps each workspace's own daily points", () => {
-    expect(drill.byWorkspace.get("acme")).toEqual([{ day: "2026-09-01", value: 3 }]);
+  it("gives a zero share when the total is 0", () => {
+    expect(
+      withShares({ day: "d", total: 0, contributors: [{ workspace: "a", count: 0, bytes: 0 }] })[0]
+        .share,
+    ).toBe(0);
   });
 });
 

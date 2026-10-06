@@ -50,6 +50,8 @@ import { allowWrite } from "../guards";
 import { throwForInviteError } from "../invite-error";
 import { deriveWebOrigin, inviteLinkUrl } from "../invite-links";
 import { ALLOWED_WINDOWS, cachedOverview } from "../metrics-overview";
+import { utcDay } from "../adoption";
+import { uploadsOnDay, windowStart, workspaceUploadSeries } from "../adoption-queries";
 import {
   invitesForOrg,
   membersForOrg,
@@ -588,6 +590,44 @@ export const adminUi = new Hono<SessionVars>()
       });
     }
     return c.json(await cachedOverview(c.env, days, c.req.query("fresh") === "1"));
+  })
+
+  // On-demand uploads drill-down behind the overview's bounded summary: all
+  // contributors for one UTC day, and one workspace's daily series. Kept out
+  // of the cached overview so its size doesn't scale with workspaces x days.
+  .get("/metrics/uploads/day", async (c) => {
+    const day = c.req.query("day") ?? "";
+    const parsed = new Date(`${day}T00:00:00Z`);
+    if (
+      !/^\d{4}-\d{2}-\d{2}$/.test(day) ||
+      Number.isNaN(parsed.getTime()) ||
+      utcDay(parsed) !== day
+    ) {
+      throw new ValidationError("day must be a valid YYYY-MM-DD date", { code: "invalid_day" });
+    }
+    const rows = await uploadsOnDay(dbFor(c.env), day);
+    return c.json({
+      day,
+      total: rows.reduce((sum, row) => sum + row.count, 0),
+      contributors: rows.map(({ workspace, count, bytes }) => ({ workspace, count, bytes })),
+    });
+  })
+
+  .get("/metrics/uploads/workspace", async (c) => {
+    const workspace = c.req.query("workspace") ?? "";
+    if (!workspace || workspace.length > 100) {
+      throw new ValidationError("workspace is required", { code: "invalid_workspace" });
+    }
+    const raw = c.req.query("days");
+    const days = raw === undefined ? 30 : Number(raw);
+    if (!ALLOWED_WINDOWS.includes(days as (typeof ALLOWED_WINDOWS)[number])) {
+      throw new ValidationError(`days must be one of ${ALLOWED_WINDOWS.join(", ")}`, {
+        code: "invalid_window",
+      });
+    }
+    const since = windowStart(days);
+    const series = await workspaceUploadSeries(dbFor(c.env), workspace, since);
+    return c.json({ workspace, window: { days, since }, series });
   })
 
   // Analytics Engine upload breakdown by dimension (surface, content type,

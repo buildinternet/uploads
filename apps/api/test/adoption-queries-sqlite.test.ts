@@ -4,13 +4,16 @@ import { describe, expect, it } from "vitest";
 import { bumpDailyMetric } from "../src/adoption";
 import {
   countActiveWorkspaces,
+  deriveUploadSummary,
   deriveWorkspaceActivity,
   featureTotals,
   platformSeries,
   platformStorage,
   rowsSince,
+  uploadsOnDay,
   windowStart,
   workspaceDaySeries,
+  workspaceUploadSeries,
   workspacesWithGithubApp,
 } from "../src/adoption-queries";
 import { SqliteD1, database } from "./helpers/sqlite-d1";
@@ -87,6 +90,78 @@ describe("workspaceDaySeries", () => {
     } finally {
       sqlite.close();
     }
+  });
+});
+
+describe("uploadsOnDay", () => {
+  it("returns every contributor for exactly that day, busiest first", async () => {
+    const sqlite = new SqliteD1(MIGRATION);
+    try {
+      const db = database(sqlite);
+      await seed(db);
+      await bumpDailyMetric(
+        db,
+        { metric: "upload", workspace: "beta", bytes: 5 },
+        new Date("2026-07-28T11:00:00Z"),
+      );
+      expect(await uploadsOnDay(db, "2026-07-28")).toEqual([
+        { day: "2026-07-28", workspace: "beta", count: 2, bytes: 55 },
+        { day: "2026-07-28", workspace: "acme", count: 1, bytes: 200 },
+      ]);
+      expect(await uploadsOnDay(db, "2026-07-27")).toEqual([]);
+    } finally {
+      sqlite.close();
+    }
+  });
+});
+
+describe("workspaceUploadSeries", () => {
+  it("returns one workspace's daily upload rows within the window", async () => {
+    const sqlite = new SqliteD1(MIGRATION);
+    try {
+      const db = database(sqlite);
+      await seed(db);
+      expect(await workspaceUploadSeries(db, "acme", "2026-07-01")).toEqual([
+        { day: "2026-07-26", count: 1, bytes: 100 },
+        { day: "2026-07-28", count: 1, bytes: 200 },
+      ]);
+      expect(await workspaceUploadSeries(db, "acme", "2026-07-27")).toEqual([
+        { day: "2026-07-28", count: 1, bytes: 200 },
+      ]);
+      expect(await workspaceUploadSeries(db, "nobody", "2026-07-01")).toEqual([]);
+    } finally {
+      sqlite.close();
+    }
+  });
+});
+
+describe("deriveUploadSummary", () => {
+  const rows = [
+    { day: "2026-07-26", workspace: "acme", count: 1, bytes: 1 },
+    { day: "2026-07-28", workspace: "a", count: 5, bytes: 1 },
+    { day: "2026-07-28", workspace: "b", count: 3, bytes: 1 },
+    { day: "2026-07-28", workspace: "c", count: 3, bytes: 1 },
+    { day: "2026-07-28", workspace: "d", count: 1, bytes: 1 },
+  ];
+
+  it("keeps the top contributors per day with totals and distinct counts", () => {
+    const { byDay } = deriveUploadSummary(rows);
+    expect(byDay[0]).toEqual({
+      day: "2026-07-26",
+      total: 1,
+      workspaces: 1,
+      top: [{ workspace: "acme", count: 1 }],
+    });
+    expect(byDay[1].total).toBe(12);
+    expect(byDay[1].workspaces).toBe(4);
+    expect(byDay[1].top.map((t) => t.workspace)).toEqual(["a", "b", "c"]);
+  });
+
+  it("caps and orders the workspace list by window volume", () => {
+    expect(deriveUploadSummary(rows, 3, 2).workspaces).toEqual([
+      { workspace: "a", count: 5 },
+      { workspace: "b", count: 3 },
+    ]);
   });
 });
 
