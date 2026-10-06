@@ -35,6 +35,7 @@ import {
 import "@uploads/ui/styles.css";
 import { IslandErrorBoundary } from "../IslandErrorBoundary";
 import { makeAdminApi, type AdminWorkspaceSummary } from "../../lib/admin-api";
+import { formatAdminDate } from "../../lib/admin-ui";
 import {
   DEFAULT_SORT_DIR,
   sortWorkspaces,
@@ -52,11 +53,20 @@ export interface AdminWorkspacesTableProps {
   apiOrigin: string;
 }
 
-const createdFormat = new Intl.DateTimeFormat(undefined, {
-  year: "numeric",
-  month: "short",
-  day: "numeric",
-});
+const COLUMNS: [SortKey, string, ("left" | "right")?][] = [
+  ["workspace", "Workspace"],
+  ["created", "Created"],
+  ["plan", "Plan"],
+  ["storage", "Storage"],
+  ["members", "Members", "right"],
+  ["pending", "Pending", "right"],
+];
+
+/** The org name under the slug, only when it adds information (most orgs share the slug). */
+function orgByline(ws: AdminWorkspaceSummary): string | null {
+  if (!ws.organization) return "no organization yet";
+  return ws.organization.name !== ws.workspace ? ws.organization.name : null;
+}
 
 function SortableHead({
   label,
@@ -98,7 +108,7 @@ function AdminWorkspacesTableInner({ apiOrigin }: AdminWorkspacesTableProps) {
   const [selected, setSelected] = useState<AdminWorkspaceSummary | null>(null);
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({
     key: "created",
-    dir: "desc",
+    dir: DEFAULT_SORT_DIR.created,
   });
   const sorted = useMemo(
     () => (state.status === "ok" ? sortWorkspaces(state.workspaces, sort.key, sort.dir) : []),
@@ -138,24 +148,16 @@ function AdminWorkspacesTableInner({ apiOrigin }: AdminWorkspacesTableProps) {
         <Table>
           <TableHeader>
             <TableRow>
-              <SortableHead label="Workspace" column="workspace" sort={sort} onSort={onSort} />
-              <SortableHead label="Created" column="created" sort={sort} onSort={onSort} />
-              <SortableHead label="Plan" column="plan" sort={sort} onSort={onSort} />
-              <SortableHead label="Storage" column="storage" sort={sort} onSort={onSort} />
-              <SortableHead
-                label="Members"
-                column="members"
-                sort={sort}
-                onSort={onSort}
-                align="right"
-              />
-              <SortableHead
-                label="Pending"
-                column="pending"
-                sort={sort}
-                onSort={onSort}
-                align="right"
-              />
+              {COLUMNS.map(([column, label, align]) => (
+                <SortableHead
+                  key={column}
+                  label={label}
+                  column={column}
+                  sort={sort}
+                  onSort={onSort}
+                  align={align}
+                />
+              ))}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -176,24 +178,19 @@ function AdminWorkspacesTableInner({ apiOrigin }: AdminWorkspacesTableProps) {
               >
                 <TableCell>
                   <div className="font-mono font-medium text-foreground">{ws.workspace}</div>
-                  {/* Byline only when it adds information: most orgs share the slug. */}
-                  {!ws.organization ? (
+                  {orgByline(ws) && (
                     <div className="text-(length:--text-micro) text-muted-foreground">
-                      no organization yet
+                      {orgByline(ws)}
                     </div>
-                  ) : ws.organization.name !== ws.workspace ? (
-                    <div className="text-(length:--text-micro) text-muted-foreground">
-                      {ws.organization.name}
-                    </div>
-                  ) : null}
+                  )}
                 </TableCell>
                 <TableCell className="tabular-nums text-muted-foreground">
                   {ws.createdAt ? (
                     <time dateTime={ws.createdAt} title={ws.createdAt}>
-                      {createdFormat.format(new Date(ws.createdAt))}
+                      {formatAdminDate(ws.createdAt)}
                     </time>
                   ) : (
-                    "—"
+                    "-"
                   )}
                 </TableCell>
                 <TableCell>

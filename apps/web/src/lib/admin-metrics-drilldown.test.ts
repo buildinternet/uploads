@@ -1,10 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  contributorsByDay,
-  peakIndex,
-  workspaceDayPoints,
-  workspacesByVolume,
-} from "./admin-metrics-drilldown";
+import { buildUploadDrilldown, peakIndex } from "./admin-metrics-drilldown";
 
 const rows = [
   { day: "2026-09-01", workspace: "beta", count: 1, bytes: 10 },
@@ -12,27 +7,27 @@ const rows = [
   { day: "2026-09-02", workspace: "beta", count: 5, bytes: 50 },
 ];
 
-describe("contributorsByDay", () => {
-  it("groups by day, busiest first, with each workspace's share", () => {
-    const byDay = contributorsByDay(rows);
-    expect(byDay.get("2026-09-01")).toEqual([
-      { workspace: "acme", count: 3, bytes: 300, share: 0.75 },
-      { workspace: "beta", count: 1, bytes: 10, share: 0.25 },
-    ]);
-    expect(byDay.get("2026-09-02")?.map((c) => c.workspace)).toEqual(["beta"]);
-    expect(byDay.has("2026-09-03")).toBe(false);
-  });
-});
+describe("buildUploadDrilldown", () => {
+  const drill = buildUploadDrilldown(rows);
 
-describe("workspacesByVolume", () => {
-  it("orders by total uploads across the window", () => {
-    expect(workspacesByVolume(rows)).toEqual(["beta", "acme"]);
+  it("groups by day, busiest first, with totals and each workspace's share", () => {
+    expect(drill.byDay.get("2026-09-01")).toEqual({
+      total: 4,
+      contributors: [
+        { workspace: "acme", count: 3, bytes: 300, share: 0.75 },
+        { workspace: "beta", count: 1, bytes: 10, share: 0.25 },
+      ],
+    });
+    expect(drill.byDay.get("2026-09-02")?.contributors.map((c) => c.workspace)).toEqual(["beta"]);
+    expect(drill.byDay.has("2026-09-03")).toBe(false);
   });
-});
 
-describe("workspaceDayPoints", () => {
-  it("returns only the chosen workspace's days", () => {
-    expect(workspaceDayPoints(rows, "acme")).toEqual([{ day: "2026-09-01", value: 3 }]);
+  it("orders workspaces by total uploads across the window", () => {
+    expect(drill.workspaces).toEqual(["beta", "acme"]);
+  });
+
+  it("keeps each workspace's own daily points", () => {
+    expect(drill.byWorkspace.get("acme")).toEqual([{ day: "2026-09-01", value: 3 }]);
   });
 });
 

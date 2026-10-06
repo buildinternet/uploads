@@ -541,11 +541,10 @@ const slowOpsSkeleton = renderAdminTableSkeletonRowsHtml(
       xLabelAnchor,
     } from "../../lib/admin-metrics-chart";
     import {
-      contributorsByDay,
+      buildUploadDrilldown,
       peakIndex,
-      workspaceDayPoints,
-      workspacesByVolume,
       type DayContributor,
+      type UploadDrilldown,
     } from "../../lib/admin-metrics-drilldown";
     import { ADMIN_TD, ADMIN_TD_NUM, escapeHtml } from "../../lib/admin-ui";
     import { formatBytes } from "../../lib/workspace-ui";
@@ -577,10 +576,14 @@ const slowOpsSkeleton = renderAdminTableSkeletonRowsHtml(
       // Uploads drill-down state (renderUploads). `current` is the last
       // rendered overview so a bar click or filter change re-renders without
       // refetching.
-      let current: MetricsOverview | null = null;
+      let current: {
+        overview: MetricsOverview;
+        drill: UploadDrilldown;
+        days: string[];
+        setup: Map<string, MetricsOverview["workspaces"][number]>;
+      } | null = null;
       let filterWorkspace = "";
       let selectedDay: string | null = null;
-      let setupByWorkspace = new Map<string, MetricsOverview["workspaces"][number]>();
       const filterSelect = requireElement<HTMLElement>(
         "#uploads-workspace-filter",
         "admin metrics",
@@ -616,8 +619,50 @@ const slowOpsSkeleton = renderAdminTableSkeletonRowsHtml(
        */
       interface ChartOpts {
         selectedIndex?: number | null;
-        onSelect?: (index: number, viaKeyboard: boolean) => void;
-        tooltipExtra?: (index: number) => HTMLElement | null;
+        onSelect?: (index: number) => void;
+        tooltipExtra?: (index: number) => string;
+      }
+
+      /** `<svg>` role + selection attrs: a group of buttons when bars are selectable. */
+      function svgSelectAttrs(opts: ChartOpts): string {
+        return `role="${opts.onSelect ? "group" : "img"}"${opts.selectedIndex != null ? " data-has-selection" : ""}`;
+      }
+
+      /** Per-bar hit-rect role: a toggle button when selectable, otherwise an image. */
+      function hitSelectAttrs(opts: ChartOpts, index: number): string {
+        return opts.onSelect
+          ? `role="button" aria-pressed="${index === opts.selectedIndex}"`
+          : `role="img"`;
+      }
+
+      /** Click / Enter / Space on a bar calls `onSelect` with its index. */
+      function wireBarSelect(
+        wrap: HTMLElement | null,
+        indexFromEvent: (event: Event) => number | null,
+        onSelect: ((index: number) => void) | undefined,
+      ): void {
+        if (!wrap || !onSelect) return;
+        wrap.addEventListener("click", (event) => {
+          const idx = indexFromEvent(event);
+          if (idx !== null) onSelect(idx);
+        });
+        wrap.addEventListener("keydown", (event) => {
+          if (event.key !== "Enter" && event.key !== " ") return;
+          const idx = indexFromEvent(event);
+          if (idx === null) return;
+          event.preventDefault();
+          onSelect(idx);
+        });
+      }
+
+      /** Moves the selection in an already-drawn chart without redrawing it. */
+      function markSelectedBar(container: HTMLElement | null, index: number): void {
+        container?.querySelector(".metrics-chart")?.setAttribute("data-has-selection", "");
+        container?.querySelectorAll<SVGGElement>(".metrics-bar[data-index]").forEach((bar) => {
+          const selected = Number(bar.dataset.index) === index;
+          bar.classList.toggle("is-selected", selected);
+          bar.querySelector(".metrics-bar-hit")?.setAttribute("aria-pressed", String(selected));
+        });
       }
 
       /** A rect path rounded only at the top — square at the baseline. */
@@ -704,8 +749,7 @@ const slowOpsSkeleton = renderAdminTableSkeletonRowsHtml(
                   width="${barWidth + gap}"
                   height="${plotH}"
                   tabindex="0"
-                  role="${opts.onSelect ? "button" : "img"}"
-                  ${opts.onSelect ? `aria-pressed="${i === opts.selectedIndex}"` : ""}
+                  ${hitSelectAttrs(opts, i)}
                   aria-label="${dayLabel}: ${escapeHtml(value.toLocaleString())} ${escapeHtml(label.toLowerCase())}"
                 />
                 ${xLabel}
@@ -719,7 +763,7 @@ const slowOpsSkeleton = renderAdminTableSkeletonRowsHtml(
         // accessible name still quotes the requested window, not the array
         // length, in case a stale payload is still sparse.
         const windowLabel = `last ${windowDays} day${windowDays === 1 ? "" : "s"}`;
-        const svg = `<svg class="metrics-chart" viewBox="0 0 ${W} ${H}" role="${opts.onSelect ? "group" : "img"}" ${opts.selectedIndex != null ? "data-has-selection" : ""} aria-label="${escapeHtml(label)}, ${windowLabel}">
+        const svg = `<svg class="metrics-chart" viewBox="0 0 ${W} ${H}" ${svgSelectAttrs(opts)} aria-label="${escapeHtml(label)}, ${windowLabel}">
             <line x1="${marginLeft}" y1="${baseline}" x2="${W - marginRight}" y2="${baseline}" class="metrics-axis-line" />
             ${gridlines}
             ${bars}
@@ -800,8 +844,7 @@ const slowOpsSkeleton = renderAdminTableSkeletonRowsHtml(
           // admin/index.astro re: Element.remove()). appendChild is unaffected.
           tooltip.appendChild(dayEl);
           tooltip.appendChild(valueEl);
-          const extra = opts.tooltipExtra?.(index);
-          if (extra) tooltip.appendChild(extra);
+          tooltip.insertAdjacentHTML("beforeend", opts.tooltipExtra?.(index) ?? "");
           tooltip.dataset.visible = "true";
           setLift(index);
           lastShownIndex = index;
@@ -830,20 +873,7 @@ const slowOpsSkeleton = renderAdminTableSkeletonRowsHtml(
           if (idx !== null) show(idx);
         });
         wrap?.addEventListener("focusout", hide);
-        if (opts.onSelect) {
-          const select = opts.onSelect;
-          wrap?.addEventListener("click", (event) => {
-            const idx = indexFromEvent(event);
-            if (idx !== null) select(idx, false);
-          });
-          wrap?.addEventListener("keydown", (event) => {
-            if (event.key !== "Enter" && event.key !== " ") return;
-            const idx = indexFromEvent(event);
-            if (idx === null) return;
-            event.preventDefault();
-            select(idx, true);
-          });
-        }
+        wireBarSelect(wrap, indexFromEvent, opts.onSelect);
       }
 
       /** Stacked-bar segment keys, in bottom-to-top draw order. */
@@ -948,8 +978,7 @@ const slowOpsSkeleton = renderAdminTableSkeletonRowsHtml(
                   width="${barWidth + gap}"
                   height="${plotH}"
                   tabindex="0"
-                  role="${opts.onSelect ? "button" : "img"}"
-                  ${opts.onSelect ? `aria-pressed="${i === opts.selectedIndex}"` : ""}
+                  ${hitSelectAttrs(opts, i)}
                   aria-label="${dayLabel}: ${escapeHtml(total.toLocaleString())} uploads (${escapeHtml(ariaParts)})"
                 />
                 ${xLabel}
@@ -963,7 +992,7 @@ const slowOpsSkeleton = renderAdminTableSkeletonRowsHtml(
             `<span class="metrics-legend-item"><span class="metrics-legend-swatch metrics-legend-swatch--${key}"></span>${UPLOAD_CLASS_LABELS[key]}</span>`,
         ).join("");
 
-        const svg = `<svg class="metrics-chart" viewBox="0 0 ${W} ${H}" role="${opts.onSelect ? "group" : "img"}" ${opts.selectedIndex != null ? "data-has-selection" : ""} aria-label="Uploads per day by media type, ${windowLabel}">
+        const svg = `<svg class="metrics-chart" viewBox="0 0 ${W} ${H}" ${svgSelectAttrs(opts)} aria-label="Uploads per day by media type, ${windowLabel}">
             <line x1="${marginLeft}" y1="${baseline}" x2="${W - marginRight}" y2="${baseline}" class="metrics-axis-line" />
             ${gridlines}
             ${bars}
@@ -1042,8 +1071,7 @@ const slowOpsSkeleton = renderAdminTableSkeletonRowsHtml(
           totalEl.className = "value";
           totalEl.textContent = `Total ${total.toLocaleString()}`;
           tooltip.appendChild(totalEl);
-          const extra = opts.tooltipExtra?.(index);
-          if (extra) tooltip.appendChild(extra);
+          tooltip.insertAdjacentHTML("beforeend", opts.tooltipExtra?.(index) ?? "");
           tooltip.dataset.visible = "true";
           setLift(index);
           lastShownIndex = index;
@@ -1072,25 +1100,12 @@ const slowOpsSkeleton = renderAdminTableSkeletonRowsHtml(
           if (idx !== null) show(idx);
         });
         wrap?.addEventListener("focusout", hide);
-        if (opts.onSelect) {
-          const select = opts.onSelect;
-          wrap?.addEventListener("click", (event) => {
-            const idx = indexFromEvent(event);
-            if (idx !== null) select(idx, false);
-          });
-          wrap?.addEventListener("keydown", (event) => {
-            if (event.key !== "Enter" && event.key !== " ") return;
-            const idx = indexFromEvent(event);
-            if (idx === null) return;
-            event.preventDefault();
-            select(idx, true);
-          });
-        }
+        wireBarSelect(wrap, indexFromEvent, opts.onSelect);
       }
 
       /** GH App / BYO badges for a workspace, from the activity table rows. */
       function setupBadges(workspace: string): string {
-        const row = setupByWorkspace.get(workspace);
+        const row = current?.setup.get(workspace);
         if (!row) return "";
         return [
           row.githubApp ? `<span class="metrics-gh-badge">GH App</span>` : "",
@@ -1105,44 +1120,40 @@ const slowOpsSkeleton = renderAdminTableSkeletonRowsHtml(
         return `<button type="button" class="metrics-ws-link" data-filter-workspace="${escapeHtml(workspace)}" title="Chart ${escapeHtml(workspace)} alone">${escapeHtml(workspace)}</button>`;
       }
 
+      const sharePct = (c: DayContributor) => `${Math.round(c.share * 100)}%`;
+
       /** Up to three of the day's busiest workspaces, appended to the bar tooltip. */
-      function topWorkspacesTooltip(contributors: DayContributor[]): HTMLElement | null {
-        if (!contributors.length) return null;
-        const box = document.createElement("div");
-        box.className = "metrics-tooltip-top";
-        for (const c of contributors.slice(0, 3)) {
-          const line = document.createElement("div");
-          line.className = "metrics-tooltip-row";
-          const name = document.createElement("span");
-          name.className = "ws";
-          name.textContent = c.workspace;
-          const count = document.createElement("span");
-          count.textContent = `${c.count.toLocaleString()} (${Math.round(c.share * 100)}%)`;
-          line.appendChild(name);
-          line.appendChild(count);
-          box.appendChild(line);
-        }
-        if (contributors.length > 3) {
-          const more = document.createElement("div");
-          more.className = "metrics-tooltip-more";
-          more.textContent = `+${contributors.length - 3} more · click for all`;
-          box.appendChild(more);
-        }
-        return box;
+      function topWorkspacesTooltip(contributors: DayContributor[]): string {
+        if (!contributors.length) return "";
+        const rows = contributors
+          .slice(0, 3)
+          .map(
+            (c) =>
+              `<div class="metrics-tooltip-row"><span class="ws">${escapeHtml(c.workspace)}</span><span>${num(c.count)} (${sharePct(c)})</span></div>`,
+          )
+          .join("");
+        const more =
+          contributors.length > 3
+            ? `<div class="metrics-tooltip-more">+${contributors.length - 3} more · click for all</div>`
+            : "";
+        return `<div class="metrics-tooltip-top">${rows}${more}</div>`;
       }
 
-      function renderDayDetail(day: string | null, contributors: DayContributor[]): void {
+      function renderDayDetail(day: string | null): void {
         dayDetail.hidden = day === null;
         if (day === null) return;
-        const total = contributors.reduce((sum, c) => sum + c.count, 0);
-        dayHeading.textContent = `Workspaces on ${formatChartDay(day)} · ${total.toLocaleString()} uploads`;
+        const { total, contributors } = current?.drill.byDay.get(day) ?? {
+          total: 0,
+          contributors: [],
+        };
+        dayHeading.textContent = `Workspaces on ${formatChartDay(day)} · ${num(total)} uploads`;
         const tbody = dayTable.querySelector<HTMLElement>("tbody");
         if (!tbody) return;
         tbody.innerHTML = contributors.length
           ? contributors
               .map(
                 (c) =>
-                  `<tr class="admin-row"><td class="${ADMIN_TD}">${workspaceButton(c.workspace)}</td><td class="num ${ADMIN_TD_NUM}">${num(c.count)}</td><td class="num ${ADMIN_TD_NUM}">${Math.round(c.share * 100)}%</td><td class="num ${ADMIN_TD_NUM}">${bytes(c.bytes)}</td><td class="${ADMIN_TD}">${setupBadges(c.workspace)}</td></tr>`,
+                  `<tr class="admin-row"><td class="${ADMIN_TD}">${workspaceButton(c.workspace)}</td><td class="num ${ADMIN_TD_NUM}">${num(c.count)}</td><td class="num ${ADMIN_TD_NUM}">${sharePct(c)}</td><td class="num ${ADMIN_TD_NUM}">${bytes(c.bytes)}</td><td class="${ADMIN_TD}">${setupBadges(c.workspace)}</td></tr>`,
               )
               .join("")
           : `<tr class="admin-row"><td colspan="5" class="muted ${ADMIN_TD}">No uploads on this day.</td></tr>`;
@@ -1152,100 +1163,79 @@ const slowOpsSkeleton = renderAdminTableSkeletonRowsHtml(
        * The uploads chart plus its drill-down: with no workspace filter, the
        * platform chart (stacked by media class when Analytics Engine is
        * available) with a selectable day whose contributors list below it;
-       * with a filter, that one workspace's D1 daily series.
+       * with a filter, that one workspace's D1 daily series. Selecting a day
+       * only moves the highlight and refills the table — no chart redraw.
        */
       function renderUploads(): void {
-        const overview = current;
-        if (!overview) return;
-        // uploadClasses is Analytics Engine-sampled while series.uploads is
-        // D1-exact — the two totals may differ slightly; the stacked chart
-        // is rendered whenever class data is available rather than
-        // reconciled against the D1 series. Both series are re-indexed onto
-        // every calendar day in the window so a stale/sparse payload still
-        // plots quiet days as 0.
-        const since = overview.window.since;
-        const windowDays = overview.window.days;
-        const note = () =>
-          document
-            .getElementById("chart-uploads")
-            ?.parentElement?.querySelector(".metrics-chart-note");
+        if (!current) return;
+        const { overview, drill, days } = current;
+        const { since, days: windowDays } = overview.window;
+        const chart = document.getElementById("chart-uploads");
+        chart?.parentElement?.querySelector(".metrics-chart-note")?.remove();
 
         if (filterWorkspace) {
-          note()?.remove();
           dayDetail.hidden = true;
           drawChart(
             "chart-uploads",
-            fillCountSeries(
-              since,
-              windowDays,
-              workspaceDayPoints(overview.series.uploadsByWorkspace ?? [], filterWorkspace),
-            ),
+            fillCountSeries(since, windowDays, drill.byWorkspace.get(filterWorkspace) ?? []),
             `Uploads per day for ${filterWorkspace}`,
             windowDays,
           );
           return;
         }
 
-        const byDay = contributorsByDay(overview.series.uploadsByWorkspace ?? []);
-        const windowDayList = utcDaysInWindow(since, windowDays);
-        if (selectedDay === null || !windowDayList.includes(selectedDay)) {
-          const totals = windowDayList.map((day) =>
-            (byDay.get(day) ?? []).reduce((sum, c) => sum + c.count, 0),
-          );
-          const peak = peakIndex(totals);
-          selectedDay = peak === null ? null : windowDayList[peak];
+        if (selectedDay === null || !days.includes(selectedDay)) {
+          const peak = peakIndex(days.map((day) => drill.byDay.get(day)?.total ?? 0));
+          selectedDay = peak === null ? null : days[peak];
         }
-        const selectedIndex = selectedDay === null ? null : windowDayList.indexOf(selectedDay);
-        const chartOpts = {
-          selectedIndex,
-          onSelect: (index: number, viaKeyboard: boolean) => {
-            selectedDay = windowDayList[index] ?? null;
-            renderUploads();
-            // The redraw replaces the bars; keep keyboard focus on the
-            // activated one so tabbing continues from that day.
-            if (!viaKeyboard) return;
-            document
-              .querySelector<SVGElement>(`#chart-uploads .metrics-bar-hit[data-index="${index}"]`)
-              ?.focus();
+        renderDayDetail(selectedDay);
+        const chartOpts: ChartOpts = {
+          selectedIndex: selectedDay === null ? null : days.indexOf(selectedDay),
+          onSelect: (index) => {
+            selectedDay = days[index] ?? null;
+            markSelectedBar(chart, index);
+            renderDayDetail(selectedDay);
           },
-          tooltipExtra: (index: number) =>
-            topWorkspacesTooltip(byDay.get(windowDayList[index]) ?? []),
+          tooltipExtra: (index) =>
+            topWorkspacesTooltip(drill.byDay.get(days[index])?.contributors ?? []),
         };
-        renderDayDetail(selectedDay, selectedDay ? (byDay.get(selectedDay) ?? []) : []);
 
+        // uploadClasses is Analytics Engine-sampled while series.uploads is
+        // D1-exact — the two totals may differ slightly; the stacked chart
+        // is rendered whenever class data is available rather than
+        // reconciled against the D1 series. Both series are re-indexed onto
+        // every calendar day in the window so a stale/sparse payload still
+        // plots quiet days as 0.
         if (overview.series.uploadClasses?.available) {
-          note()?.remove();
           drawStackedChart(
             "chart-uploads",
             fillUploadClassSeries(since, windowDays, overview.series.uploadClasses.days),
             windowDays,
             chartOpts,
           );
-        } else {
-          drawChart(
-            "chart-uploads",
-            fillCountSeries(
-              since,
-              windowDays,
-              overview.series.uploads.map((p) => ({ day: p.day, value: p.count })),
-            ),
-            "Uploads per day",
+          return;
+        }
+        drawChart(
+          "chart-uploads",
+          fillCountSeries(
+            since,
             windowDays,
-            chartOpts,
-          );
-          const reason = overview.series.uploadClasses?.reason;
-          const container = document.getElementById("chart-uploads");
-          container?.parentElement?.querySelector(".metrics-chart-note")?.remove();
-          if (container && reason) {
-            const note = document.createElement("p");
-            note.className =
-              "metrics-chart-note m-0 mt-2 text-muted-foreground text-(length:--text-micro)";
-            note.textContent =
-              reason === "not_configured"
-                ? "Media-type breakdown unavailable: Analytics Engine is not configured."
-                : "Media-type breakdown is temporarily unavailable.";
-            container.insertAdjacentElement("afterend", note);
-          }
+            overview.series.uploads.map((p) => ({ day: p.day, value: p.count })),
+          ),
+          "Uploads per day",
+          windowDays,
+          chartOpts,
+        );
+        const reason = overview.series.uploadClasses?.reason;
+        if (chart && reason) {
+          const note = document.createElement("p");
+          note.className =
+            "metrics-chart-note m-0 mt-2 text-muted-foreground text-(length:--text-micro)";
+          note.textContent =
+            reason === "not_configured"
+              ? "Media-type breakdown unavailable: Analytics Engine is not configured."
+              : "Media-type breakdown is temporarily unavailable.";
+          chart.insertAdjacentElement("afterend", note);
         }
       }
 
@@ -1263,8 +1253,14 @@ const slowOpsSkeleton = renderAdminTableSkeletonRowsHtml(
         tile("tile-uploads", num(overview.totals.uploads));
         tile("tile-github-app", num(overview.totals.workspacesWithGithubApp));
         tile("tile-byob", num(overview.totals.workspacesWithByob ?? 0));
-        current = overview;
-        setupByWorkspace = new Map(overview.workspaces.map((row) => [row.workspace, row]));
+        const since = overview.window.since;
+        const windowDays = overview.window.days;
+        current = {
+          overview,
+          drill: buildUploadDrilldown(overview.series.uploadsByWorkspace ?? []),
+          days: utcDaysInWindow(since, windowDays),
+          setup: new Map(overview.workspaces.map((row) => [row.workspace, row])),
+        };
 
         // `upload`/`delete` are deliberately excluded — they're already the
         // "Uploads in window" tile and the uploads chart above; repeating
@@ -1318,7 +1314,7 @@ const slowOpsSkeleton = renderAdminTableSkeletonRowsHtml(
 
         // A new window keeps the workspace filter only if that workspace
         // still uploaded in it; the selected day resets to the window's peak.
-        const options = workspacesByVolume(overview.series.uploadsByWorkspace ?? []);
+        const options = current.drill.workspaces;
         if (filterWorkspace && !options.includes(filterWorkspace)) filterWorkspace = "";
         filterSelect.innerHTML =
           `<option value="">All workspaces</option>` +
@@ -1329,8 +1325,6 @@ const slowOpsSkeleton = renderAdminTableSkeletonRowsHtml(
         selectedDay = null;
         renderUploads();
 
-        const since = overview.window.since;
-        const windowDays = overview.window.days;
         drawChart(
           "chart-signups",
           fillCountSeries(

@@ -1,18 +1,14 @@
 /**
  * Per-workspace drill-down for the operator uploads chart (`/admin/metrics`):
  * which workspaces made up a given day's bar, and one workspace's own daily
- * series for the chart filter. Input is the overview's sparse
- * `series.uploadsByWorkspace` rows; everything here is pure so the page
- * script only owns DOM wiring.
+ * series for the chart filter. Built once per overview from its sparse
+ * `series.uploadsByWorkspace` rows; pure so the page script only owns DOM
+ * wiring.
  */
+import type { MetricsOverview } from "@uploads/api/admin-ui";
 import { normalizeUtcDay } from "./admin-metrics-chart";
 
-export interface WorkspaceDayRow {
-  day: string;
-  workspace: string;
-  count: number;
-  bytes: number;
-}
+export type WorkspaceDayRow = MetricsOverview["series"]["uploadsByWorkspace"][number];
 
 export interface DayContributor {
   workspace: string;
@@ -22,57 +18,52 @@ export interface DayContributor {
   share: number;
 }
 
-/** Contributors per UTC day, busiest first (ties by name). */
-export function contributorsByDay(rows: readonly WorkspaceDayRow[]): Map<string, DayContributor[]> {
-  const grouped = new Map<string, WorkspaceDayRow[]>();
+export interface UploadDrilldown {
+  /** Per UTC day: attributed total and contributors, busiest first (ties by name). */
+  byDay: Map<string, { total: number; contributors: DayContributor[] }>;
+  /** Each workspace's sparse `{ day, value }` points, for `fillCountSeries`. */
+  byWorkspace: Map<string, { day: string; value: number }[]>;
+  /** Workspaces that uploaded in the window, by total uploads descending. */
+  workspaces: string[];
+}
+
+const nonNegative = (value: unknown): number => Math.max(0, Number(value) || 0);
+
+export function buildUploadDrilldown(rows: readonly WorkspaceDayRow[]): UploadDrilldown {
+  const byDay: UploadDrilldown["byDay"] = new Map();
+  const byWorkspace: UploadDrilldown["byWorkspace"] = new Map();
+  const volume = new Map<string, number>();
+
   for (const row of rows) {
     const day = normalizeUtcDay(row.day);
     if (!day || !row.workspace) continue;
-    const list = grouped.get(day) ?? [];
-    list.push(row);
-    grouped.set(day, list);
-  }
-  const out = new Map<string, DayContributor[]>();
-  for (const [day, list] of grouped) {
-    const total = list.reduce((sum, row) => sum + Math.max(0, Number(row.count) || 0), 0);
-    out.set(
-      day,
-      list
-        .map((row) => {
-          const count = Math.max(0, Number(row.count) || 0);
-          return {
-            workspace: row.workspace,
-            count,
-            bytes: Math.max(0, Number(row.bytes) || 0),
-            share: total > 0 ? count / total : 0,
-          };
-        })
-        .sort((a, b) => b.count - a.count || a.workspace.localeCompare(b.workspace)),
-    );
-  }
-  return out;
-}
+    const count = nonNegative(row.count);
+    const entry = byDay.get(day) ?? { total: 0, contributors: [] };
+    entry.total += count;
+    entry.contributors.push({
+      workspace: row.workspace,
+      count,
+      bytes: nonNegative(row.bytes),
+      share: 0,
+    });
+    byDay.set(day, entry);
 
-/** Workspaces that uploaded in the window, by total uploads descending. */
-export function workspacesByVolume(rows: readonly WorkspaceDayRow[]): string[] {
-  const totals = new Map<string, number>();
-  for (const row of rows) {
-    if (!row.workspace) continue;
-    totals.set(row.workspace, (totals.get(row.workspace) ?? 0) + (Number(row.count) || 0));
+    const points = byWorkspace.get(row.workspace) ?? [];
+    points.push({ day, value: count });
+    byWorkspace.set(row.workspace, points);
+    volume.set(row.workspace, (volume.get(row.workspace) ?? 0) + count);
   }
-  return [...totals.entries()]
+
+  for (const { total, contributors } of byDay.values()) {
+    for (const c of contributors) c.share = total > 0 ? c.count / total : 0;
+    contributors.sort((a, b) => b.count - a.count || a.workspace.localeCompare(b.workspace));
+  }
+
+  const workspaces = [...volume.entries()]
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
     .map(([workspace]) => workspace);
-}
 
-/** One workspace's uploads as sparse `{ day, value }` points for `fillCountSeries`. */
-export function workspaceDayPoints(
-  rows: readonly WorkspaceDayRow[],
-  workspace: string,
-): { day: string; value: number }[] {
-  return rows
-    .filter((row) => row.workspace === workspace)
-    .map((row) => ({ day: row.day, value: Number(row.count) || 0 }));
+  return { byDay, byWorkspace, workspaces };
 }
 
 /** Index of the largest value (latest wins a tie), or null when every value is 0. */

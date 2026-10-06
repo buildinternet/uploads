@@ -204,11 +204,14 @@ async function allOrgSummaries(env: Env): Promise<Map<string, OrgSummary>> {
   return map;
 }
 
+/** Earliest valid token `createdAt` (ISO strings compare chronologically). */
 function earliestTokenAt(record: WorkspaceRecord | null): string | undefined {
-  const stamps = (record?.tokens ?? [])
-    .map((token) => token.createdAt)
-    .filter((at) => typeof at === "string" && Number.isFinite(Date.parse(at)));
-  return stamps.sort()[0];
+  let earliest: string | undefined;
+  for (const { createdAt } of record?.tokens ?? []) {
+    if (!Number.isFinite(Date.parse(createdAt))) continue;
+    if (earliest === undefined || createdAt < earliest) earliest = createdAt;
+  }
+  return earliest;
 }
 
 /**
