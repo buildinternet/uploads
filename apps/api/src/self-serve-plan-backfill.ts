@@ -26,7 +26,7 @@
  */
 import { LIMIT_FIELDS, PLANS } from "@uploads/billing";
 import { mutateWorkspaceRecord } from "./workspace-mutate";
-import type { WorkspaceRecord } from "./workspace";
+import { listWorkspaceNames, type WorkspaceRecord } from "./workspace";
 
 const FREE_DEFAULTS = PLANS.free.defaultLimits;
 
@@ -63,89 +63,82 @@ export async function backfillSelfServePlans(
 ): Promise<SelfServePlanBackfillResult> {
   const dryRun = opts.dryRun === true;
 
-  let cursor: string | undefined;
   let scanned = 0;
   let updated = 0;
   let skipped = 0;
   const errors: SelfServePlanBackfillResult["errors"] = [];
   const workspaces: SelfServePlanBackfillResult["workspaces"] = [];
 
-  do {
-    const page = await env.REGISTRY.list({ prefix: "ws:", cursor, limit: 100 });
-    for (const entry of page.keys) {
-      scanned += 1;
-      const name = entry.name.startsWith("ws:") ? entry.name.slice(3) : entry.name;
-      if (!name) continue;
+  for (const name of await listWorkspaceNames(env)) {
+    scanned += 1;
 
-      let record: WorkspaceRecord | null;
-      try {
-        record = await env.REGISTRY.get<WorkspaceRecord>(entry.name, "json");
-      } catch (err) {
-        errors.push({ workspace: name, error: err instanceof Error ? err.message : String(err) });
-        continue;
-      }
-      if (!record) {
-        skipped += 1;
-        workspaces.push({ workspace: name, action: "skipped", reason: "missing" });
-        continue;
-      }
-      if (!record.selfServe) {
-        skipped += 1;
-        workspaces.push({ workspace: name, action: "skipped", reason: "not_self_serve" });
-        continue;
-      }
+    let record: WorkspaceRecord | null;
+    try {
+      record = await env.REGISTRY.get<WorkspaceRecord>(`ws:${name}`, "json");
+    } catch (err) {
+      errors.push({ workspace: name, error: err instanceof Error ? err.message : String(err) });
+      continue;
+    }
+    if (!record) {
+      skipped += 1;
+      workspaces.push({ workspace: name, action: "skipped", reason: "missing" });
+      continue;
+    }
+    if (!record.selfServe) {
+      skipped += 1;
+      workspaces.push({ workspace: name, action: "skipped", reason: "not_self_serve" });
+      continue;
+    }
 
-      const plan = planBackfillForRecord(record);
-      if (!plan) {
+    const plan = planBackfillForRecord(record);
+    if (!plan) {
+      skipped += 1;
+      workspaces.push({ workspace: name, action: "skipped", reason: "already_backfilled" });
+      continue;
+    }
+
+    if (dryRun) {
+      updated += 1;
+      workspaces.push({
+        workspace: name,
+        action: "would_update",
+        clearedFields: plan.clearFields,
+      });
+      continue;
+    }
+
+    try {
+      // Recomputed inside the mutation against the freshest record (issue
+      // #387) — this sweep walks every workspace, so a write landing
+      // mid-sweep (e.g. a live upgrade) must not be reverted or reapplied
+      // against stale data.
+      let applied: ReturnType<typeof planBackfillForRecord> = null;
+      await mutateWorkspaceRecord(env, name, (current) => {
+        applied = planBackfillForRecord(current);
+        if (!applied) return null;
+        const next: WorkspaceRecord = { ...current };
+        if (applied.plan) next.plan = applied.plan;
+        for (const field of applied.clearFields) {
+          delete next[field as keyof WorkspaceRecord];
+        }
+        return next;
+      });
+      const appliedResult = applied as ReturnType<typeof planBackfillForRecord>;
+      if (!appliedResult) {
         skipped += 1;
         workspaces.push({ workspace: name, action: "skipped", reason: "already_backfilled" });
         continue;
       }
-
-      if (dryRun) {
-        updated += 1;
-        workspaces.push({
-          workspace: name,
-          action: "would_update",
-          clearedFields: plan.clearFields,
-        });
-        continue;
-      }
-
-      try {
-        // Recomputed inside the mutation against the freshest record (issue
-        // #387) — this sweep walks every workspace, so a write landing
-        // mid-sweep (e.g. a live upgrade) must not be reverted or reapplied
-        // against stale data.
-        let applied: ReturnType<typeof planBackfillForRecord> = null;
-        await mutateWorkspaceRecord(env, name, (current) => {
-          applied = planBackfillForRecord(current);
-          if (!applied) return null;
-          const next: WorkspaceRecord = { ...current };
-          if (applied.plan) next.plan = applied.plan;
-          for (const field of applied.clearFields) {
-            delete next[field as keyof WorkspaceRecord];
-          }
-          return next;
-        });
-        const appliedResult = applied as ReturnType<typeof planBackfillForRecord>;
-        if (!appliedResult) {
-          skipped += 1;
-          workspaces.push({ workspace: name, action: "skipped", reason: "already_backfilled" });
-          continue;
-        }
-        updated += 1;
-        workspaces.push({
-          workspace: name,
-          action: "updated",
-          clearedFields: appliedResult.clearFields,
-        });
-      } catch (err) {
-        errors.push({ workspace: name, error: err instanceof Error ? err.message : String(err) });
-      }
+      updated += 1;
+      workspaces.push({
+        workspace: name,
+        action: "updated",
+        clearedFields: appliedResult.clearFields,
+      });
+    } catch (err) {
+      errors.push({ workspace: name, error: err instanceof Error ? err.message : String(err) });
     }
-    cursor = page.list_complete ? undefined : page.cursor;
-  } while (cursor);
+  }
 
   return { dryRun, scanned, updated, skipped, errors, workspaces };
 }

@@ -15,7 +15,12 @@
 import { enforcedMaxStorageBytes, enforcedStorageUsageBytes, resolveBudgetLimits } from "./budget";
 import { dbFor } from "./db-session";
 import { getWorkspaceUsage, usagePeriodStart } from "./usage";
-import { isPurgedTombstone, type PurgedTombstone, type WorkspaceRecord } from "./workspace";
+import {
+  listWorkspaceNames,
+  isPurgedTombstone,
+  type PurgedTombstone,
+  type WorkspaceRecord,
+} from "./workspace";
 import type { UsageAlertEvent, UsageAlertThreshold } from "@uploads/email";
 
 const INTERNAL_ORIGIN = "https://auth.internal";
@@ -119,7 +124,6 @@ async function postUsageAlert(
 export async function runUsageAlertSweep(env: Env): Promise<UsageAlertSweepResult> {
   const db = dbFor(env);
   const period = usagePeriodStart();
-  let cursor: string | undefined;
   const result: UsageAlertSweepResult = {
     workspacesScanned: 0,
     workspacesAlerted: 0,
@@ -127,76 +131,70 @@ export async function runUsageAlertSweep(env: Env): Promise<UsageAlertSweepResul
     errors: [],
   };
 
-  do {
-    const page = await env.REGISTRY.list({ prefix: "ws:", cursor, limit: 100 });
-    for (const entry of page.keys) {
-      result.workspacesScanned += 1;
-      const name = entry.name.startsWith("ws:") ? entry.name.slice(3) : entry.name;
-      if (!name) continue;
+  for (const name of await listWorkspaceNames(env)) {
+    result.workspacesScanned += 1;
 
-      try {
-        const record = await env.REGISTRY.get<WorkspaceRecord | PurgedTombstone>(
-          entry.name,
-          "json",
-        );
-        if (!record) continue;
-        if (isPurgedTombstone(record)) continue;
-        // Soft-deleted workspaces are on their way out — don't alert them.
-        if (record.deletedAt) continue;
+    try {
+      const record = await env.REGISTRY.get<WorkspaceRecord | PurgedTombstone>(
+        `ws:${name}`,
+        "json",
+      );
+      if (!record) continue;
+      if (isPurgedTombstone(record)) continue;
+      // Soft-deleted workspaces are on their way out — don't alert them.
+      if (record.deletedAt) continue;
 
-        const maxStorageBytes = enforcedMaxStorageBytes(record);
-        const { maxUploadsPerPeriod } = resolveBudgetLimits(record);
-        // Legacy/unlimited (plan===undefined and no explicit cap): nothing to
-        // cross. Skip the D1 read entirely when neither cap is set.
-        if (maxStorageBytes === undefined && maxUploadsPerPeriod === undefined) continue;
+      const maxStorageBytes = enforcedMaxStorageBytes(record);
+      const { maxUploadsPerPeriod } = resolveBudgetLimits(record);
+      // Legacy/unlimited (plan===undefined and no explicit cap): nothing to
+      // cross. Skip the D1 read entirely when neither cap is set.
+      if (maxStorageBytes === undefined && maxUploadsPerPeriod === undefined) continue;
 
-        const usage = await getWorkspaceUsage(db, name);
-        const crossed: UsageAlertEvent[] = [];
-        const pendingRaises: Array<() => Promise<void>> = [];
+      const usage = await getWorkspaceUsage(db, name);
+      const crossed: UsageAlertEvent[] = [];
+      const pendingRaises: Array<() => Promise<void>> = [];
 
-        if (maxStorageBytes !== undefined) {
-          const used = enforcedStorageUsageBytes(record, usage);
-          if (used !== undefined) {
-            await evaluateCap(
-              env.REGISTRY,
-              `usage:alert:${name}:storage`,
-              STORAGE_MARKER_TTL_S,
-              { cap: "storage", used, limit: maxStorageBytes },
-              crossed,
-              pendingRaises,
-            );
-          }
-        }
-
-        if (maxUploadsPerPeriod !== undefined) {
+      if (maxStorageBytes !== undefined) {
+        const used = enforcedStorageUsageBytes(record, usage);
+        if (used !== undefined) {
           await evaluateCap(
             env.REGISTRY,
-            `usage:alert:${name}:uploads:${period}`,
-            UPLOADS_MARKER_TTL_S,
-            { cap: "uploads", used: usage.uploadsInPeriod, limit: maxUploadsPerPeriod },
+            `usage:alert:${name}:storage`,
+            STORAGE_MARKER_TTL_S,
+            { cap: "storage", used, limit: maxStorageBytes },
             crossed,
             pendingRaises,
           );
         }
-
-        if (crossed.length > 0) {
-          const delivered = await postUsageAlert(env, name, crossed, record.plan);
-          if (delivered) {
-            // Only now commit the raised markers, so a failed delivery retries.
-            for (const commit of pendingRaises) await commit();
-            result.workspacesAlerted += 1;
-            result.crossings += crossed.length;
-          }
-        }
-      } catch (err) {
-        result.errors.push({
-          workspace: name,
-          error: err instanceof Error ? err.message : String(err),
-        });
       }
+
+      if (maxUploadsPerPeriod !== undefined) {
+        await evaluateCap(
+          env.REGISTRY,
+          `usage:alert:${name}:uploads:${period}`,
+          UPLOADS_MARKER_TTL_S,
+          { cap: "uploads", used: usage.uploadsInPeriod, limit: maxUploadsPerPeriod },
+          crossed,
+          pendingRaises,
+        );
+      }
+
+      if (crossed.length > 0) {
+        const delivered = await postUsageAlert(env, name, crossed, record.plan);
+        if (delivered) {
+          // Only now commit the raised markers, so a failed delivery retries.
+          for (const commit of pendingRaises) await commit();
+          result.workspacesAlerted += 1;
+          result.crossings += crossed.length;
+        }
+      }
+    } catch (err) {
+      result.errors.push({
+        workspace: name,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
-    cursor = page.list_complete ? undefined : page.cursor;
-  } while (cursor);
+  }
 
   console.log(
     JSON.stringify({
