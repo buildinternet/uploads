@@ -31,6 +31,7 @@
  *   node scripts/set-workspace-limits.mjs <name> [--local]
  */
 import { wranglerKvKey } from "./run-timed.mjs";
+import { workspaceKeyMetadata } from "./workspace-key-metadata.mjs";
 
 const [name, ...rest] = process.argv.slice(2);
 const opts = { local: false };
@@ -149,11 +150,12 @@ function parseOnOff(raw, label) {
 }
 
 function wranglerKv(args) {
-  const [op, key, value] = args;
+  const [op, key, value, metadata] = args;
   return wranglerKvKey({
     op,
     key,
     value,
+    metadata,
     local: opts.local,
   });
 }
@@ -263,7 +265,7 @@ for (const [field, value] of Object.entries(patch)) {
 }
 
 try {
-  wranglerKv(["put", key, JSON.stringify(record)]);
+  wranglerKv(["put", key, JSON.stringify(record), workspaceKeyMetadata(record)]);
 } catch (err) {
   if (err?.timedOut) {
     fail(

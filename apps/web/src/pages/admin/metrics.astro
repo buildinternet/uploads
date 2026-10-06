@@ -1319,7 +1319,13 @@ const slowOpsSkeleton = renderAdminTableSkeletonRowsHtml(
         tile("tile-active-30", num(overview.totals.activeWorkspaces30d));
         tile("tile-uploads", num(overview.totals.uploads));
         tile("tile-github-app", num(overview.totals.workspacesWithGithubApp));
-        tile("tile-byob", num(overview.totals.workspacesWithByob ?? 0));
+        // null = the registry could not be read: unknown, never a confident 0.
+        tile(
+          "tile-byob",
+          overview.totals.workspacesWithByob == null
+            ? "—"
+            : num(overview.totals.workspacesWithByob),
+        );
         const since = overview.window.since;
         const windowDays = overview.window.days;
         drillCache.clear();

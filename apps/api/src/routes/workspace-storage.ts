@@ -22,7 +22,7 @@ import {
   type StorageVerifyResult,
 } from "../storage-verify";
 import type { ActiveContentReason } from "../active-content";
-import { storageBudgetApplies } from "../budget";
+import { isByoRecord } from "../workspace-byob";
 import { healthFromFields, storageHealth, type StorageHealth } from "../storage-health";
 import { reconcileWorkspaceUsage } from "../reconcile";
 import { isSharedLane, storageConfig } from "../storage";
@@ -35,20 +35,8 @@ export function maskTrailing(value: string | undefined): string | undefined {
   return `…${value.slice(-4)}`;
 }
 
-/**
- * True when `record` is customer-credential (BYO) storage: HTTP credentials
- * with no R2 binding. Delegates to `storageBudgetApplies` (budget.ts) rather
- * than re-deriving the signal, so the two surfaces can't drift on what counts
- * as BYO — `storageBudgetApplies` returns `false` for exactly this shape.
- */
-export function isByoRecord(
-  record: Pick<
-    WorkspaceRecord,
-    "binding" | "accountId" | "accessKeyId" | "secretAccessKey" | "endpoint"
-  >,
-): boolean {
-  return !storageBudgetApplies(record);
-}
+/** Re-exported from the neutral module; kept so existing route imports keep working. */
+export { isByoRecord };
 
 /** A saved-but-inactive lane, projected for the settings/admin UI — never a credential value. */
 export interface StorageLaneStatus {

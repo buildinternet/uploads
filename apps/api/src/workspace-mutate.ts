@@ -15,6 +15,7 @@
  * durable fix (moving the mutable field groups to D1).
  */
 import { ConflictError, NotFoundError } from "@uploads/errors";
+import { workspaceKeyMetadata } from "./workspace-byob";
 import { isPurgedTombstone, loadWorkspaceRecordRaw, type WorkspaceRecord } from "./workspace";
 
 /** How many times a mutation is re-applied after losing a write race. */
@@ -82,7 +83,7 @@ export async function mutateWorkspaceRecord(
 
     const next: WorkspaceRecord = { ...mutated, version: workspaceRecordVersion(current) + 1 };
     const serialized = JSON.stringify(next);
-    await env.REGISTRY.put(key, serialized);
+    await env.REGISTRY.put(key, serialized, { metadata: workspaceKeyMetadata(next) });
 
     // Byte-compare rather than compare versions: two racing writers can land on
     // the same next version, and only the exact blob proves ours is the one

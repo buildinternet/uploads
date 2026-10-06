@@ -27,25 +27,9 @@
  * log line here.
  */
 import { storageBudgetApplies } from "./budget";
+import { isByoRecord } from "./workspace-byob";
 import { mutateWorkspaceRecord } from "./workspace-mutate";
 import type { WorkspaceRecord } from "./workspace";
-
-/**
- * True for customer-credential (BYO) storage. Identical to
- * `isByoRecord` in `routes/workspace-storage.ts` and derived from the same
- * single source (`storageBudgetApplies`, which returns `false` for exactly
- * this shape) rather than importing it — that module imports *this* one for
- * `storageHealth`, and routing a core detection path through a route module
- * to save four lines is not worth the import cycle.
- */
-function isByoRecord(
-  record: Pick<
-    WorkspaceRecord,
-    "binding" | "accountId" | "accessKeyId" | "secretAccessKey" | "endpoint"
-  >,
-): boolean {
-  return !storageBudgetApplies(record);
-}
 
 /**
  * Why the active lane is considered unhealthy. Deliberately coarse — these

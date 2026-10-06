@@ -48,6 +48,8 @@ export interface FakeRegistry {
   store: Map<string, string>;
   /** Every `put`, in order — for tests asserting on what was written. */
   puts: [string, string][];
+  /** Key metadata by full key. Like real KV, a `put` without `metadata` erases it. */
+  metadata: Map<string, unknown>;
   /** The parsed record stored under `ws:<name>`, or undefined. */
   record<T = Record<string, unknown>>(name: string): T | undefined;
 }
@@ -67,10 +69,12 @@ export function fakeRegistry(records: Record<string, unknown> = {}): FakeRegistr
     store.set(name.startsWith("ws:") ? name : `ws:${name}`, JSON.stringify(record));
   }
   const puts: [string, string][] = [];
+  const metadata = new Map<string, unknown>();
 
   return {
     store,
     puts,
+    metadata,
     record<T = Record<string, unknown>>(name: string): T | undefined {
       const raw = store.get(name.startsWith("ws:") ? name : `ws:${name}`);
       return raw === undefined ? undefined : (JSON.parse(raw) as T);
@@ -80,17 +84,23 @@ export function fakeRegistry(records: Record<string, unknown> = {}): FakeRegistr
       if (raw === undefined) return null;
       return wantsJson(type) ? JSON.parse(raw) : raw;
     }) as unknown as KVNamespace["get"],
-    put: (async (key: string, value: string) => {
+    put: (async (key: string, value: string, opts?: { metadata?: unknown }) => {
       puts.push([key, value]);
       store.set(key, value);
+      if (opts?.metadata === undefined) metadata.delete(key);
+      else metadata.set(key, opts.metadata);
     }) as unknown as KVNamespace["put"],
     delete: (async (key: string) => {
       store.delete(key);
+      metadata.delete(key);
     }) as unknown as KVNamespace["delete"],
     list: (async (opts?: { prefix?: string }) => ({
       keys: [...store.keys()]
         .filter((key) => !opts?.prefix || key.startsWith(opts.prefix))
-        .map((name) => ({ name })),
+        .map((name) => ({
+          name,
+          ...(metadata.has(name) ? { metadata: metadata.get(name) } : {}),
+        })),
       list_complete: true as const,
       cacheStatus: null,
     })) as unknown as KVNamespace["list"],

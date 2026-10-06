@@ -12,8 +12,7 @@
 import { fetchUploadClassSeries, type UploadClassSeriesResult } from "./analytics-engine";
 import { dbFor } from "./db-session";
 import { fillDaySeries } from "./day-series";
-import { isByoRecord } from "./routes/workspace-storage";
-import { listWorkspaceNames, loadWorkspaceRecord } from "./workspace";
+import { listWorkspaceByobStatus } from "./workspace-byob";
 import {
   countActiveWorkspaces,
   deriveUploadSummary,
@@ -61,8 +60,11 @@ export interface MetricsOverview {
     bytes: number;
     /** Workspaces with at least one `github_repo_links` row that has the GitHub App installed. */
     workspacesWithGithubApp: number;
-    /** Registered workspaces storing objects in their own bucket (`isByoRecord`). */
-    workspacesWithByob: number;
+    /**
+     * Registered workspaces storing objects in their own bucket (`isByoRecord`).
+     * `null` when the registry could not be read — unknown, not zero (#1094).
+     */
+    workspacesWithByob: number | null;
   };
   series: {
     uploads: DayPoint[];
@@ -103,22 +105,23 @@ const EMPTY_AUTH: AuthMetrics = {
 };
 
 export function overviewCacheKey(days: number): string {
-  return `metrics:overview:v5:${days}`;
+  return `metrics:overview:v6:${days}`;
 }
 
 /**
- * Names of registered workspaces on their own bucket. KV has no multi-get,
- * so this is one record read per workspace — the same fan-out the admin
- * workspace list does, bounded here by the overview's KV cache TTL. Best
- * effort: a KV failure reports no BYO workspaces rather than failing the page.
+ * Names of registered workspaces on their own bucket, read from the `ws:` key
+ * metadata on the paged registry list (one KV list, not a read per workspace).
+ * Records written before #1094 and not yet backfilled fall back to one read
+ * each. Returns `null` — "unknown", not "none" — when the registry can't be
+ * read, so a KV failure never renders as a confident 0.
  */
-async function byobWorkspaces(env: Env): Promise<Set<string>> {
+async function byobWorkspaces(env: Env): Promise<Set<string> | null> {
   try {
-    const names = await listWorkspaceNames(env);
-    const records = await Promise.all(names.map((name) => loadWorkspaceRecord(env, name)));
-    return new Set(names.filter((_, i) => records[i] && isByoRecord(records[i])));
-  } catch {
-    return new Set();
+    const status = await listWorkspaceByobStatus(env);
+    return new Set([...status].filter(([, byob]) => byob).map(([name]) => name));
+  } catch (err) {
+    console.error("metrics overview: byob status unavailable", err);
+    return null;
   }
 }
 
@@ -223,7 +226,7 @@ export async function buildOverview(
       uploads: uploadsFilled.reduce((sum, point) => sum + point.count, 0),
       bytes: uploadsFilled.reduce((sum, point) => sum + point.bytes, 0),
       workspacesWithGithubApp: githubApp.size,
-      workspacesWithByob: byob.size,
+      workspacesWithByob: byob ? byob.size : null,
     },
     series: {
       uploads: uploadsFilled,
@@ -234,7 +237,7 @@ export async function buildOverview(
       uploadWorkspaces: uploadSummary.workspaces,
     },
     features,
-    workspaces: table.map((row) => ({ ...row, byob: byob.has(row.workspace) })),
+    workspaces: table.map((row) => ({ ...row, byob: byob?.has(row.workspace) ?? false })),
     multiIdentityWorkspaces: multiIdentity,
   };
 }
