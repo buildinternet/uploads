@@ -370,6 +370,27 @@ Idempotent. Each call rewrites at most 20,000 rows (`updated_at` is not
 touched). `github_pr_activity` and `feeds` already store the repo lowercased and
 need no backfill.
 
+## Workspace key metadata backfill (#1094)
+
+Every `ws:<name>` KV key carries `{ byob }` metadata so the admin metrics
+overview and workspace list read BYO status off the paged key list instead of
+one record read per workspace. New and rewritten records get it automatically.
+Records last written before that change have none; readers fall back to one
+record read for those keys, so the backfill is an optimisation, not a
+prerequisite. Run it once after deploy.
+
+```bash
+# dry run: counts what would change, writes nothing
+curl -XPOST -H "Authorization: Bearer $ADMIN_TOKEN" \
+  'https://api.uploads.sh/admin/workspaces/backfill-key-metadata?dryRun=1'
+curl -XPOST -H "Authorization: Bearer $ADMIN_TOKEN" \
+  https://api.uploads.sh/admin/workspaces/backfill-key-metadata
+```
+
+Idempotent. It re-puts each unchanged record blob with metadata (`version` is
+not bumped). Any script that rewrites a `ws:` record with `wrangler kv key put`
+must pass `--metadata`, or the put erases it.
+
 ## Account linking (issue #233)
 
 A person can end up with two Better Auth users for one identity: a

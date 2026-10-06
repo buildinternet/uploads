@@ -69,7 +69,6 @@ import { getWorkspaceUsage } from "../usage";
 import {
   byoBucketAllowed,
   isPurgedTombstone,
-  listWorkspaceNames,
   loadWorkspaceRecord,
   loadWorkspaceRecordRaw,
   type WorkspaceRecord,
@@ -78,7 +77,8 @@ import { mutateWorkspaceRecord } from "../workspace-mutate";
 import { LIMIT_FIELDS, validateLimitsPatch } from "../workspace-limits";
 import { planResponse, planSourceFor, validatePlanPatch } from "../workspace-plan";
 import { getPlan, resolveEffectiveLimits, type WorkspacePlanLimits } from "@uploads/billing";
-import { isByoRecord, storageStatusResponse } from "./workspace-storage";
+import { storageStatusResponse } from "./workspace-storage";
+import { listWorkspaceByobStatus } from "../workspace-byob";
 import { dbFor } from "../db-session";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -231,6 +231,7 @@ function workspaceSummaryResponse(
   name: string,
   summary: OrgSummary | undefined,
   record: WorkspaceRecord | null,
+  byob: boolean,
 ) {
   return {
     workspace: name,
@@ -238,7 +239,7 @@ function workspaceSummaryResponse(
     memberCount: summary?.memberCount ?? 0,
     pendingInviteCount: summary?.pendingInviteCount ?? 0,
     plan: getPlan(record?.plan).id,
-    byob: record ? isByoRecord(record) : false,
+    byob,
     // The backing org is provisioned with the workspace, so its timestamp is
     // the best creation date available. Without an org, fall back to the
     // record's own creation stamp, then (legacy records without one) to its
@@ -653,19 +654,21 @@ export const adminUi = new Hono<SessionVars>()
 
   // List every KV workspace joined with its org + member/invite counts.
   .get("/workspaces", async (c) => {
-    const names = await listWorkspaceNames(c.env);
+    const byobStatus = await listWorkspaceByobStatus(c.env);
+    const names = [...byobStatus.keys()];
     const summaries = await allOrgSummaries(c.env);
-    // Plan + BYOB come off each workspace record. KV has no multi-get and the
-    // list enumeration returns keys only, so a per-workspace read is
-    // unavoidable; run them as one parallel fan-out rather than serially. This
-    // adds N subrequests (one KV get each) on top of the list pages — fine for
-    // the operator surface's current workspace count, but note it scales with N
-    // and would need chunking or a denormalized summary blob before N could
-    // approach the Workers subrequest ceiling. A null record (soft-deleted /
-    // purged tombstone) falls back to free / shared, same as an unknown workspace.
+    // BYOB comes off the `ws:` key metadata on the paged list (#1094), so it
+    // costs no per-workspace read. Plan still lives on the record, so that
+    // read remains; a null record (soft-deleted / purged tombstone) falls back
+    // to free, same as an unknown workspace.
     const records = await Promise.all(names.map((name) => loadWorkspaceRecord(c.env, name)));
     const workspaces = names.map((name, i) =>
-      workspaceSummaryResponse(name, summaries.get(name), records[i]),
+      workspaceSummaryResponse(
+        name,
+        summaries.get(name),
+        records[i],
+        byobStatus.get(name) ?? false,
+      ),
     );
     return c.json({ workspaces });
   })

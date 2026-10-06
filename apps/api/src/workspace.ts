@@ -588,21 +588,32 @@ export async function isWorkspaceNameTaken(env: Env, name: string): Promise<bool
 }
 
 /**
- * Every registered workspace name, from paging the `ws:` REGISTRY keys. Keys
- * only — callers that need records fan out `loadWorkspaceRecord` themselves.
+ * Every registered `ws:` key with its KV metadata (`unknown` here — parse it
+ * with `parseWorkspaceKeyMetadata` in workspace-byob.ts; absent on records
+ * written before #1094). One paged list, no record reads.
  */
-export async function listWorkspaceNames(env: Pick<Env, "REGISTRY">): Promise<string[]> {
-  const names: string[] = [];
+export async function listWorkspaceKeys(
+  env: Pick<Env, "REGISTRY">,
+): Promise<{ name: string; metadata: unknown }[]> {
+  const keys: { name: string; metadata: unknown }[] = [];
   let cursor: string | undefined;
   do {
     const page = await env.REGISTRY.list({ prefix: "ws:", cursor, limit: 100 });
     for (const entry of page.keys) {
       const name = entry.name.startsWith("ws:") ? entry.name.slice(3) : entry.name;
-      if (name) names.push(name);
+      if (name) keys.push({ name, metadata: entry.metadata });
     }
     cursor = page.list_complete ? undefined : page.cursor;
   } while (cursor);
-  return names;
+  return keys;
+}
+
+/**
+ * Every registered workspace name, from paging the `ws:` REGISTRY keys. Keys
+ * only — callers that need records fan out `loadWorkspaceRecord` themselves.
+ */
+export async function listWorkspaceNames(env: Pick<Env, "REGISTRY">): Promise<string[]> {
+  return (await listWorkspaceKeys(env)).map((key) => key.name);
 }
 
 /**

@@ -24,6 +24,7 @@ import {
 import { deriveWebOrigin, inviteLinkUrl as inviteMagicLink } from "../invite-links";
 import { reencryptRegistryCredentials } from "../reencrypt-registry";
 import { backfillSelfServePlans } from "../self-serve-plan-backfill";
+import { backfillWorkspaceKeyMetadata } from "../workspace-byob";
 import { backfillLowercasedMetaValues } from "../gh-repo-case-backfill";
 import { storage } from "../storage";
 import { mutateWorkspaceRecord } from "../workspace-mutate";
@@ -468,6 +469,19 @@ export const admin = new Hono<{ Bindings: Env }>()
       const message = err instanceof Error ? err.message : String(err);
       throw new ValidationError(message, { cause: err });
     }
+  })
+
+  /**
+   * One-time backfill for #1094: stamps `{ byob }` KV key metadata onto every
+   * existing `ws:` record so the admin metrics overview and workspace list can
+   * read BYO status off the paged key list. Records without metadata still
+   * work (readers fall back to one record read), so this is an optimisation to
+   * run once after deploy, not a prerequisite. Re-puts the unchanged blob, so
+   * `version` is not bumped. Idempotent. Query: ?dryRun=1
+   */
+  .post("/workspaces/backfill-key-metadata", async (c) => {
+    const dryRun = isDryRun(c);
+    return c.json(await backfillWorkspaceKeyMetadata(c.env, { dryRun }));
   })
 
   /**

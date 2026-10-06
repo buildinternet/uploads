@@ -55,28 +55,46 @@ function stubAuth(
  * seeds `ws:<name>` workspace records (returned pre-parsed, as for
  * `{ type: "json" }` reads) and the `ws:` key listing.
  */
-function fakeKv(records: Record<string, Record<string, unknown>> = {}) {
+function fakeKv(
+  records: Record<string, Record<string, unknown>> = {},
+  metadata: Record<string, unknown> = {},
+  opts: { failList?: boolean; failWsGets?: boolean } = {},
+) {
   const store = new Map<string, string>();
   let puts = 0;
+  let wsGets = 0;
   return {
     store,
+    get wsGets() {
+      return wsGets;
+    },
     get puts() {
       return puts;
     },
     binding: {
-      get: (async (key: string) =>
-        key.startsWith("ws:")
-          ? (records[key.slice(3)] ?? null)
-          : (store.get(key) ?? null)) as unknown as KVNamespace["get"],
+      get: (async (key: string) => {
+        if (key.startsWith("ws:")) {
+          wsGets += 1;
+          if (opts.failWsGets) throw new Error("kv down");
+          return records[key.slice(3)] ?? null;
+        }
+        return store.get(key) ?? null;
+      }) as unknown as KVNamespace["get"],
       put: (async (key: string, value: string) => {
         puts += 1;
         store.set(key, value);
       }) as unknown as KVNamespace["put"],
-      list: (async () => ({
-        keys: Object.keys(records).map((name) => ({ name: `ws:${name}` })),
-        list_complete: true,
-        cacheStatus: null,
-      })) as unknown as KVNamespace["list"],
+      list: (async () => {
+        if (opts.failList) throw new Error("kv list down");
+        return {
+          keys: Object.keys(records).map((name) => ({
+            name: `ws:${name}`,
+            ...(name in metadata ? { metadata: metadata[name] } : {}),
+          })),
+          list_complete: true,
+          cacheStatus: null,
+        };
+      }) as unknown as KVNamespace["list"],
     } as KVNamespace,
   };
 }
@@ -238,6 +256,45 @@ describe("GET /admin-ui/metrics/overview", () => {
       ]);
       const byName = Object.fromEntries(body.workspaces.map((w) => [w.workspace, w.byob]));
       expect(byName).toEqual({ acme: true, beta: false });
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("reads BYO status from key metadata without per-workspace record reads", async () => {
+    const { sqlite, db } = await seededDb();
+    try {
+      const kv = fakeKv(
+        { acme: {}, beta: {} },
+        { acme: { byob: true }, beta: { byob: false } },
+        { failWsGets: true },
+      );
+      const env = { AUTH: stubAuth(ADMIN_USER), DB: db, REGISTRY: kv.binding } as unknown as Env;
+      const res = await app().request("/admin-ui/metrics/overview?days=7", {}, env);
+      const body = (await res.json()) as {
+        totals: { workspacesWithByob: number | null };
+        workspaces: { workspace: string; byob: boolean }[];
+      };
+      expect(body.totals.workspacesWithByob).toBe(1);
+      expect(kv.wsGets).toBe(0);
+      expect(Object.fromEntries(body.workspaces.map((w) => [w.workspace, w.byob]))).toEqual({
+        acme: true,
+        beta: false,
+      });
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("reports BYO count as null (unknown) when the registry cannot be listed", async () => {
+    const { sqlite, db } = await seededDb();
+    try {
+      const kv = fakeKv({ acme: {} }, {}, { failList: true });
+      const env = { AUTH: stubAuth(ADMIN_USER), DB: db, REGISTRY: kv.binding } as unknown as Env;
+      const res = await app().request("/admin-ui/metrics/overview?days=7", {}, env);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { totals: { workspacesWithByob: number | null } };
+      expect(body.totals.workspacesWithByob).toBeNull();
     } finally {
       sqlite.close();
     }

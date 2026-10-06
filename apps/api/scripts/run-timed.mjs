@@ -152,6 +152,7 @@ async function runDetachedGroup(cmd, args, { timeoutSec }) {
  *   op: "get" | "put";
  *   key: string;
  *   value?: string;
+ *   metadata?: unknown;
  *   local: boolean;
  *   binding?: string;
  *   timeoutSec?: number;
@@ -159,13 +160,14 @@ async function runDetachedGroup(cmd, args, { timeoutSec }) {
  * }} opts
  */
 export function wranglerKvKey(opts) {
-  const { op, key, value, local, binding = "REGISTRY", stdio = "pipe" } = opts;
+  const { op, key, value, metadata, local, binding = "REGISTRY", stdio = "pipe" } = opts;
   const timeoutSec = opts.timeoutSec ?? (local ? (op === "get" ? 30 : 60) : 120);
 
   const args = ["exec", "wrangler", "kv", "key", op, key];
   if (op === "put") {
     if (value === undefined) throw new Error("wranglerKvKey put requires value");
     args.push(value);
+    if (metadata !== undefined) args.push("--metadata", JSON.stringify(metadata));
   }
   args.push("--binding", binding, local ? "--local" : "--remote");
 

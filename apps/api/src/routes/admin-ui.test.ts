@@ -37,10 +37,14 @@ function stubEnv(
 function fakeKv(
   names: string[],
   records: Record<string, Record<string, unknown>> = {},
+  metadata: Record<string, unknown> = {},
 ): Pick<KVNamespace, "list" | "get"> {
   return {
     list: (async () => ({
-      keys: names.map((name) => ({ name: `ws:${name}` })),
+      keys: names.map((name) => ({
+        name: `ws:${name}`,
+        ...(name in metadata ? { metadata: metadata[name] } : {}),
+      })),
       list_complete: true,
       cacheStatus: null,
     })) as unknown as KVNamespace["list"],

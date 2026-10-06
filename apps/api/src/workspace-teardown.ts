@@ -28,6 +28,7 @@ import {
   type PurgedTombstone,
   type WorkspaceRecord,
 } from "./workspace";
+import { workspaceKeyMetadata } from "./workspace-byob";
 
 // files-sdk bulk-delete batch size — mirrors retention.ts's DELETE_BATCH
 // (stays under R2/S3's 1000-key DeleteObjects cap while bounding memory).
@@ -123,7 +124,9 @@ export async function teardownWorkspace(
       purgedAt: new Date().toISOString(),
       deletedAt: record.deletedAt,
     };
-    await env.REGISTRY.put(`ws:${name}`, JSON.stringify(tombstone));
+    await env.REGISTRY.put(`ws:${name}`, JSON.stringify(tombstone), {
+      metadata: workspaceKeyMetadata(tombstone),
+    });
   } else {
     await env.REGISTRY.delete(`ws:${name}`);
   }
