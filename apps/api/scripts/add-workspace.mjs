@@ -230,6 +230,8 @@ if (master && (record.accessKeyId || record.secretAccessKey)) {
   }
 }
 
+record.createdAt = new Date().toISOString();
+
 Object.keys(record).forEach((k) => record[k] === undefined && delete record[k]);
 
 const appliedLimits = {

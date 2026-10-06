@@ -161,7 +161,11 @@ export interface WorkspaceRecord {
   selfServe?: boolean;
   /** Better Auth user id that created this workspace via self-serve. */
   createdByUserId?: string;
-  /** ISO timestamp of self-serve creation. */
+  /**
+   * ISO timestamp of when the record was created, stamped by every provisioning
+   * path (self-serve `POST /v1/workspaces` and `pnpm workspace:add`). Absent on
+   * legacy records created before it was recorded.
+   */
   createdAt?: string;
   /**
    * Governs the managed GitHub-comment attachment click-through target only
