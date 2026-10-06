@@ -67,6 +67,7 @@ import { getWorkspaceUsage } from "../usage";
 import {
   byoBucketAllowed,
   isPurgedTombstone,
+  listWorkspaceNames,
   loadWorkspaceRecord,
   loadWorkspaceRecordRaw,
   type WorkspaceRecord,
@@ -181,7 +182,8 @@ function parseBanReason(body: unknown): string {
 // `routes/workspace-members.ts`'s member-kind links) lives in `auth-db.ts`.
 
 interface OrgSummary {
-  organization: { id: string; slug: string; name: string };
+  /** `createdAt` is ISO; absent from an auth worker deployed before it was added. */
+  organization: { id: string; slug: string; name: string; createdAt?: string };
   memberCount: number;
   pendingInviteCount: number;
 }
@@ -200,6 +202,13 @@ async function allOrgSummaries(env: Env): Promise<Map<string, OrgSummary>> {
     if (row?.organization?.slug) map.set(row.organization.slug, row);
   }
   return map;
+}
+
+function earliestTokenAt(record: WorkspaceRecord | null): string | undefined {
+  const stamps = (record?.tokens ?? [])
+    .map((token) => token.createdAt)
+    .filter((at) => typeof at === "string" && Number.isFinite(Date.parse(at)));
+  return stamps.sort()[0];
 }
 
 /**
@@ -225,6 +234,12 @@ function workspaceSummaryResponse(
     pendingInviteCount: summary?.pendingInviteCount ?? 0,
     plan: getPlan(record?.plan).id,
     byob: record ? isByoRecord(record) : false,
+    // The backing org is provisioned with the workspace, so its timestamp is
+    // the best creation date available. Without an org, fall back to the
+    // record's self-serve stamp, then to its earliest token (admin
+    // provisioning mints one at creation).
+    createdAt:
+      summary?.organization.createdAt ?? record?.createdAt ?? earliestTokenAt(record) ?? null,
   };
 }
 
@@ -595,17 +610,7 @@ export const adminUi = new Hono<SessionVars>()
 
   // List every KV workspace joined with its org + member/invite counts.
   .get("/workspaces", async (c) => {
-    const names: string[] = [];
-    let cursor: string | undefined;
-    do {
-      const page = await c.env.REGISTRY.list({ prefix: "ws:", cursor, limit: 100 });
-      for (const entry of page.keys) {
-        const name = entry.name.startsWith("ws:") ? entry.name.slice(3) : entry.name;
-        if (name) names.push(name);
-      }
-      cursor = page.list_complete ? undefined : page.cursor;
-    } while (cursor);
-
+    const names = await listWorkspaceNames(c.env);
     const summaries = await allOrgSummaries(c.env);
     // Plan + BYOB come off each workspace record. KV has no multi-get and the
     // list enumeration returns keys only, so a per-workspace read is

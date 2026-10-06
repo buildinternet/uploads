@@ -1,9 +1,11 @@
 /**
  * The admin operator "Workspaces" view: a shadcn `Table` of every registered
- * workspace with at-a-glance Plan and BYOB columns (previously only visible by
- * expanding a row), and a right-hand `Sheet` drawer for the full per-workspace
- * detail (people, plan, limits, storage, GitHub links). Replaces the imperative
- * innerHTML table the page shipped with.
+ * workspace with at-a-glance Plan, BYOB, and creation-date columns, sortable by
+ * any column header, and a right-hand `Sheet` drawer for the full
+ * per-workspace detail (people, plan, limits, storage, GitHub links). The
+ * backing organization's name rides under the workspace slug as a byline
+ * rather than a column of its own — it only differs from the slug once a
+ * workspace has been renamed.
  *
  * The single island mounted by `pages/admin/index.astro` (manual SSR +
  * hydrateRoot, no `client:*` — same mechanism as WorkspaceFileTable). It
@@ -13,6 +15,7 @@
  * client-side gate in AdminLayout is a UX affordance only.
  */
 import { useEffect, useMemo, useState } from "react";
+import { ArrowDown, ArrowUp } from "lucide-react";
 import { Badge } from "@uploads/ui/components/ui/badge";
 import {
   Sheet,
@@ -32,6 +35,12 @@ import {
 import "@uploads/ui/styles.css";
 import { IslandErrorBoundary } from "../IslandErrorBoundary";
 import { makeAdminApi, type AdminWorkspaceSummary } from "../../lib/admin-api";
+import {
+  DEFAULT_SORT_DIR,
+  sortWorkspaces,
+  type SortDir,
+  type SortKey,
+} from "../../lib/admin-workspace-sort";
 import { WorkspaceDetail } from "./WorkspaceDetail";
 
 type LoadState =
@@ -43,10 +52,64 @@ export interface AdminWorkspacesTableProps {
   apiOrigin: string;
 }
 
+const createdFormat = new Intl.DateTimeFormat(undefined, {
+  year: "numeric",
+  month: "short",
+  day: "numeric",
+});
+
+function SortableHead({
+  label,
+  column,
+  sort,
+  onSort,
+  align = "left",
+}: {
+  label: string;
+  column: SortKey;
+  sort: { key: SortKey; dir: SortDir };
+  onSort: (key: SortKey) => void;
+  align?: "left" | "right";
+}) {
+  const active = sort.key === column;
+  const Icon = sort.dir === "asc" ? ArrowUp : ArrowDown;
+  return (
+    <TableHead
+      aria-sort={active ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}
+      className={align === "right" ? "text-right" : undefined}
+    >
+      <button
+        type="button"
+        onClick={() => onSort(column)}
+        className={`inline-flex items-center gap-1 rounded-sm hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring ${
+          align === "right" ? "flex-row-reverse" : ""
+        } ${active ? "text-foreground" : ""}`}
+      >
+        {label}
+        <Icon aria-hidden="true" className={`size-3 ${active ? "opacity-100" : "opacity-0"}`} />
+      </button>
+    </TableHead>
+  );
+}
+
 function AdminWorkspacesTableInner({ apiOrigin }: AdminWorkspacesTableProps) {
   const api = useMemo(() => makeAdminApi(apiOrigin), [apiOrigin]);
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [selected, setSelected] = useState<AdminWorkspaceSummary | null>(null);
+  const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({
+    key: "created",
+    dir: "desc",
+  });
+  const sorted = useMemo(
+    () => (state.status === "ok" ? sortWorkspaces(state.workspaces, sort.key, sort.dir) : []),
+    [state, sort],
+  );
+  const onSort = (key: SortKey) =>
+    setSort((prev) =>
+      prev.key === key
+        ? { key, dir: prev.dir === "asc" ? "desc" : "asc" }
+        : { key, dir: DEFAULT_SORT_DIR[key] },
+    );
 
   useEffect(() => {
     let alive = true;
@@ -75,16 +138,28 @@ function AdminWorkspacesTableInner({ apiOrigin }: AdminWorkspacesTableProps) {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Workspace</TableHead>
-              <TableHead>Organization</TableHead>
-              <TableHead>Plan</TableHead>
-              <TableHead>Storage</TableHead>
-              <TableHead className="text-right">Members</TableHead>
-              <TableHead className="text-right">Pending</TableHead>
+              <SortableHead label="Workspace" column="workspace" sort={sort} onSort={onSort} />
+              <SortableHead label="Created" column="created" sort={sort} onSort={onSort} />
+              <SortableHead label="Plan" column="plan" sort={sort} onSort={onSort} />
+              <SortableHead label="Storage" column="storage" sort={sort} onSort={onSort} />
+              <SortableHead
+                label="Members"
+                column="members"
+                sort={sort}
+                onSort={onSort}
+                align="right"
+              />
+              <SortableHead
+                label="Pending"
+                column="pending"
+                sort={sort}
+                onSort={onSort}
+                align="right"
+              />
             </TableRow>
           </TableHeader>
           <TableBody>
-            {state.workspaces.map((ws) => (
+            {sorted.map((ws) => (
               <TableRow
                 key={ws.workspace}
                 tabIndex={0}
@@ -99,11 +174,27 @@ function AdminWorkspacesTableInner({ apiOrigin }: AdminWorkspacesTableProps) {
                   }
                 }}
               >
-                <TableCell className="font-mono font-medium text-foreground">
-                  {ws.workspace}
+                <TableCell>
+                  <div className="font-mono font-medium text-foreground">{ws.workspace}</div>
+                  {/* Byline only when it adds information: most orgs share the slug. */}
+                  {!ws.organization ? (
+                    <div className="text-(length:--text-micro) text-muted-foreground">
+                      no organization yet
+                    </div>
+                  ) : ws.organization.name !== ws.workspace ? (
+                    <div className="text-(length:--text-micro) text-muted-foreground">
+                      {ws.organization.name}
+                    </div>
+                  ) : null}
                 </TableCell>
-                <TableCell className={ws.organization ? "" : "text-muted-foreground"}>
-                  {ws.organization ? ws.organization.name : "no organization yet"}
+                <TableCell className="tabular-nums text-muted-foreground">
+                  {ws.createdAt ? (
+                    <time dateTime={ws.createdAt} title={ws.createdAt}>
+                      {createdFormat.format(new Date(ws.createdAt))}
+                    </time>
+                  ) : (
+                    "—"
+                  )}
                 </TableCell>
                 <TableCell>
                   {ws.plan === "free" ? (

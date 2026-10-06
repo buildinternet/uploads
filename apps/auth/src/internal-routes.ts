@@ -408,6 +408,7 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
           id: schema.organization.id,
           slug: schema.organization.slug,
           name: schema.organization.name,
+          createdAt: schema.organization.createdAt,
         })
         .from(schema.organization),
       db
@@ -434,7 +435,12 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
 
     return c.json({
       organizations: orgs.map((org) => ({
-        organization: { id: org.id, slug: org.slug, name: org.name },
+        organization: {
+          id: org.id,
+          slug: org.slug,
+          name: org.name,
+          createdAt: org.createdAt.toISOString(),
+        },
         memberCount: membersByOrg.get(org.id) ?? 0,
         pendingInviteCount: invitesByOrg.get(org.id) ?? 0,
       })),

@@ -99,6 +99,35 @@ export async function workspaceActivity(
   return result.results.map((row) => ({ ...row, githubApp: linked.has(row.workspace) }));
 }
 
+/** One workspace's upload count on one day. */
+export interface WorkspaceDayPoint {
+  day: string;
+  workspace: string;
+  count: number;
+  bytes: number;
+}
+
+/**
+ * Every (day, workspace) upload row in the window, busiest workspace first
+ * within each day — the drill-down behind the platform uploads chart ("who
+ * caused this spike"). Served entirely from `daily_metrics_window_idx`, and
+ * the table is sparse, so cost is one entry per workspace per active day.
+ */
+export async function workspaceDaySeries(
+  db: D1Queryable,
+  since: string,
+): Promise<WorkspaceDayPoint[]> {
+  const result = await db
+    .prepare(
+      `SELECT day, workspace, count, bytes FROM daily_metrics
+       WHERE metric = 'upload' AND workspace <> '' AND day >= ?
+       ORDER BY day ASC, count DESC, workspace ASC`,
+    )
+    .bind(since)
+    .all<WorkspaceDayPoint>();
+  return result.results;
+}
+
 /**
  * Workspace names with at least one `github_repo_links` row whose
  * `installation_id` is set — i.e. the workspace has the GitHub App

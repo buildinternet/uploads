@@ -50,8 +50,12 @@ function stubAuth(
   };
 }
 
-/** Minimal KV stub recording puts so cache behavior is assertable. */
-function fakeKv() {
+/**
+ * Minimal KV stub recording puts so cache behavior is assertable. `records`
+ * seeds `ws:<name>` workspace records (returned pre-parsed, as for
+ * `{ type: "json" }` reads) and the `ws:` key listing.
+ */
+function fakeKv(records: Record<string, Record<string, unknown>> = {}) {
   const store = new Map<string, string>();
   let puts = 0;
   return {
@@ -60,13 +64,16 @@ function fakeKv() {
       return puts;
     },
     binding: {
-      get: (async (key: string) => store.get(key) ?? null) as unknown as KVNamespace["get"],
+      get: (async (key: string) =>
+        key.startsWith("ws:")
+          ? (records[key.slice(3)] ?? null)
+          : (store.get(key) ?? null)) as unknown as KVNamespace["get"],
       put: (async (key: string, value: string) => {
         puts += 1;
         store.set(key, value);
       }) as unknown as KVNamespace["put"],
       list: (async () => ({
-        keys: [],
+        keys: Object.keys(records).map((name) => ({ name: `ws:${name}` })),
         list_complete: true,
         cacheStatus: null,
       })) as unknown as KVNamespace["list"],
@@ -184,6 +191,46 @@ describe("GET /admin-ui/metrics/overview", () => {
     }
   });
 
+  it("attributes daily uploads to workspaces and flags BYO-bucket workspaces", async () => {
+    const { sqlite, db } = await seededDb();
+    try {
+      // A second acme upload makes it the busier workspace on the day.
+      await bumpDailyMetric(db, { metric: "upload", workspace: "acme", bytes: 10 }, new Date());
+      const env = {
+        AUTH: stubAuth(ADMIN_USER),
+        DB: db,
+        REGISTRY: fakeKv({
+          acme: { accountId: "acc", accessKeyId: "ak", secretAccessKey: "sk" },
+          beta: {},
+        }).binding,
+      } as unknown as Env;
+      const res = await app().request("/admin-ui/metrics/overview?days=7", {}, env);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        totals: { workspacesWithByob: number };
+        series: {
+          uploadsByWorkspace: { day: string; workspace: string; count: number; bytes: number }[];
+        };
+        workspaces: { workspace: string; byob: boolean }[];
+      };
+      expect(body.totals.workspacesWithByob).toBe(1);
+      expect(
+        body.series.uploadsByWorkspace.map(({ workspace, count, bytes }) => ({
+          workspace,
+          count,
+          bytes,
+        })),
+      ).toEqual([
+        { workspace: "acme", count: 2, bytes: 110 },
+        { workspace: "beta", count: 1, bytes: 50 },
+      ]);
+      const byName = Object.fromEntries(body.workspaces.map((w) => [w.workspace, w.byob]));
+      expect(byName).toEqual({ acme: true, beta: false });
+    } finally {
+      sqlite.close();
+    }
+  });
+
   it("serves the second request from cache without recomputing", async () => {
     const { sqlite, db } = await seededDb();
     try {
@@ -191,7 +238,7 @@ describe("GET /admin-ui/metrics/overview", () => {
       const env = { AUTH: stubAuth(ADMIN_USER), DB: db, REGISTRY: kv.binding } as unknown as Env;
       await app().request("/admin-ui/metrics/overview?days=30", {}, env);
       expect(kv.puts).toBe(1);
-      expect(kv.store.has("metrics:overview:v3:30")).toBe(true);
+      expect(kv.store.has("metrics:overview:v4:30")).toBe(true);
       const res = await app().request("/admin-ui/metrics/overview?days=30", {}, env);
       expect(res.status).toBe(200);
       expect(kv.puts).toBe(1);
