@@ -1,14 +1,28 @@
 /**
- * Per-workspace drill-down for the operator uploads chart (`/admin/metrics`):
- * which workspaces made up a given day's bar, and one workspace's own daily
- * series for the chart filter. Built once per overview from its sparse
- * `series.uploadsByWorkspace` rows; pure so the page script only owns DOM
- * wiring.
+ * Helpers for the operator uploads drill-down (`/admin/metrics`). The overview
+ * carries only a bounded per-day top-contributors summary; the full day table
+ * and a single workspace's series are fetched on demand from
+ * `/admin-ui/metrics/uploads/{day,workspace}`. Pure so the page script only
+ * owns DOM wiring and fetching.
  */
 import type { MetricsOverview } from "@uploads/api/admin-ui";
 import { normalizeUtcDay } from "./admin-metrics-chart";
 
-export type WorkspaceDayRow = MetricsOverview["series"]["uploadsByWorkspace"][number];
+export type UploadDaySummary = MetricsOverview["series"]["uploadsByDay"][number];
+
+/** Response of `GET /admin-ui/metrics/uploads/day`. */
+export interface UploadsDayResponse {
+  day: string;
+  total: number;
+  contributors: { workspace: string; count: number; bytes: number }[];
+}
+
+/** Response of `GET /admin-ui/metrics/uploads/workspace`. */
+export interface UploadsWorkspaceResponse {
+  workspace: string;
+  window: { days: number; since: string };
+  series: { day: string; count: number; bytes: number }[];
+}
 
 export interface DayContributor {
   workspace: string;
@@ -18,52 +32,29 @@ export interface DayContributor {
   share: number;
 }
 
-export interface UploadDrilldown {
-  /** Per UTC day: attributed total and contributors, busiest first (ties by name). */
-  byDay: Map<string, { total: number; contributors: DayContributor[] }>;
-  /** Each workspace's sparse `{ day, value }` points, for `fillCountSeries`. */
-  byWorkspace: Map<string, { day: string; value: number }[]>;
-  /** Workspaces that uploaded in the window, by total uploads descending. */
-  workspaces: string[];
-}
-
 const nonNegative = (value: unknown): number => Math.max(0, Number(value) || 0);
 
-export function buildUploadDrilldown(rows: readonly WorkspaceDayRow[]): UploadDrilldown {
-  const byDay: UploadDrilldown["byDay"] = new Map();
-  const byWorkspace: UploadDrilldown["byWorkspace"] = new Map();
-  const volume = new Map<string, number>();
-
-  for (const row of rows) {
+/** Index the overview's per-day summary by normalized UTC day. */
+export function indexDaySummaries(
+  rows: readonly UploadDaySummary[] | undefined,
+): Map<string, UploadDaySummary> {
+  const byDay = new Map<string, UploadDaySummary>();
+  for (const row of rows ?? []) {
     const day = normalizeUtcDay(row.day);
-    if (!day || !row.workspace) continue;
-    const count = nonNegative(row.count);
-    const entry = byDay.get(day) ?? { total: 0, contributors: [] };
-    entry.total += count;
-    entry.contributors.push({
-      workspace: row.workspace,
-      count,
-      bytes: nonNegative(row.bytes),
-      share: 0,
-    });
-    byDay.set(day, entry);
-
-    const points = byWorkspace.get(row.workspace) ?? [];
-    points.push({ day, value: count });
-    byWorkspace.set(row.workspace, points);
-    volume.set(row.workspace, (volume.get(row.workspace) ?? 0) + count);
+    if (day) byDay.set(day, { ...row, day, total: nonNegative(row.total) });
   }
+  return byDay;
+}
 
-  for (const { total, contributors } of byDay.values()) {
-    for (const c of contributors) c.share = total > 0 ? c.count / total : 0;
-    contributors.sort((a, b) => b.count - a.count || a.workspace.localeCompare(b.workspace));
-  }
-
-  const workspaces = [...volume.entries()]
-    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-    .map(([workspace]) => workspace);
-
-  return { byDay, byWorkspace, workspaces };
+/** Attach each contributor's share of the day's total, busiest first. */
+export function withShares(response: UploadsDayResponse): DayContributor[] {
+  const total = nonNegative(response.total);
+  return response.contributors.map((c) => ({
+    workspace: c.workspace,
+    count: nonNegative(c.count),
+    bytes: nonNegative(c.bytes),
+    share: total > 0 ? nonNegative(c.count) / total : 0,
+  }));
 }
 
 /** Index of the largest value (latest wins a tie), or null when every value is 0. */

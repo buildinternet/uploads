@@ -16,6 +16,7 @@ import { isByoRecord } from "./routes/workspace-storage";
 import { listWorkspaceNames, loadWorkspaceRecord } from "./workspace";
 import {
   countActiveWorkspaces,
+  deriveUploadSummary,
   deriveWorkspaceActivity,
   featureTotals,
   multiIdentityWorkspaces,
@@ -28,7 +29,7 @@ import {
   type DayPoint,
   type MultiIdentityWorkspace,
   type WorkspaceActivity,
-  type WorkspaceDayPoint,
+  type UploadDaySummary,
 } from "./adoption-queries";
 
 export const OVERVIEW_CACHE_TTL = 600;
@@ -70,11 +71,13 @@ export interface MetricsOverview {
     /** Per-day upload counts by media class, from Analytics Engine. Degrades when AE is unavailable. */
     uploadClasses: UploadClassSeriesResult;
     /**
-     * Sparse per-workspace daily uploads (D1-exact), busiest first within a
-     * day. Lets the page attribute a day's bar to the workspaces behind it
-     * and filter the chart to one workspace without another round trip.
+     * Bounded per-day attribution (D1-exact): total plus the top 3
+     * contributors, for the bar tooltip. Full per-day and per-workspace
+     * detail is fetched on demand from `/admin-ui/metrics/uploads/*`.
      */
-    uploadsByWorkspace: WorkspaceDayPoint[];
+    uploadsByDay: UploadDaySummary[];
+    /** Workspaces for the chart filter: top 50 by window volume. */
+    uploadWorkspaces: { workspace: string; count: number }[];
   };
   features: Record<string, number>;
   workspaces: (WorkspaceActivity & { byob: boolean })[];
@@ -100,7 +103,7 @@ const EMPTY_AUTH: AuthMetrics = {
 };
 
 export function overviewCacheKey(days: number): string {
-  return `metrics:overview:v4:${days}`;
+  return `metrics:overview:v5:${days}`;
 }
 
 /**
@@ -184,7 +187,7 @@ export async function buildOverview(
     byobWorkspaces(env),
   ]);
 
-  const byWorkspace = rowsSince(workspaceRows, since);
+  const uploadSummary = deriveUploadSummary(rowsSince(workspaceRows, since));
   const table = deriveWorkspaceActivity(workspaceRows, since, githubApp);
 
   // Sparse SQL rows → one point per calendar day so the charts' bar
@@ -227,7 +230,8 @@ export async function buildOverview(
       users: usersFilled,
       orgs: orgsFilled,
       uploadClasses: uploadClassesFilled,
-      uploadsByWorkspace: byWorkspace,
+      uploadsByDay: uploadSummary.byDay,
+      uploadWorkspaces: uploadSummary.workspaces,
     },
     features,
     workspaces: table.map((row) => ({ ...row, byob: byob.has(row.workspace) })),

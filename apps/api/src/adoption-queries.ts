@@ -111,6 +111,101 @@ export async function workspaceDaySeries(
   return result.results;
 }
 
+/** Bounded per-day attribution for the uploads chart tooltip. */
+export interface UploadDaySummary {
+  day: string;
+  /** Uploads attributed to a workspace that day. */
+  total: number;
+  /** Distinct contributing workspaces that day. */
+  workspaces: number;
+  /** The busiest contributors, busiest first (ties by name). */
+  top: { workspace: string; count: number }[];
+}
+
+export interface UploadSummary {
+  byDay: UploadDaySummary[];
+  /** Workspaces for the chart filter, by window volume descending, capped. */
+  workspaces: { workspace: string; count: number }[];
+}
+
+/**
+ * Bounded summary of `workspaceDaySeries` rows for the overview payload: the
+ * top contributors per day (tooltip) and the top workspaces by volume (filter
+ * options). Everything else is fetched on demand via `uploadsOnDay` /
+ * `workspaceUploadSeries`, so the cached overview no longer grows with
+ * workspaces x days. Pure; callers pass rows already narrowed to the window.
+ */
+export function deriveUploadSummary(
+  rows: WorkspaceDayPoint[],
+  topPerDay = 3,
+  workspaceLimit = 50,
+): UploadSummary {
+  const days = new Map<string, { workspace: string; count: number }[]>();
+  const volume = new Map<string, number>();
+  for (const row of rows) {
+    const list = days.get(row.day) ?? [];
+    list.push({ workspace: row.workspace, count: row.count });
+    days.set(row.day, list);
+    volume.set(row.workspace, (volume.get(row.workspace) ?? 0) + row.count);
+  }
+  const byName = (a: { workspace: string }, b: { workspace: string }) =>
+    a.workspace < b.workspace ? -1 : a.workspace > b.workspace ? 1 : 0;
+  const byDay = [...days.entries()]
+    .sort((a, b) => (a[0] < b[0] ? -1 : 1))
+    .map(([day, list]) => ({
+      day,
+      total: list.reduce((sum, item) => sum + item.count, 0),
+      workspaces: list.length,
+      top: [...list].sort((a, b) => b.count - a.count || byName(a, b)).slice(0, topPerDay),
+    }));
+  const workspaces = [...volume.entries()]
+    .map(([workspace, count]) => ({ workspace, count }))
+    .sort((a, b) => b.count - a.count || byName(a, b))
+    .slice(0, workspaceLimit);
+  return { byDay, workspaces };
+}
+
+/**
+ * Every workspace's upload count and bytes on one UTC day, busiest first.
+ * Binds `metric` and an exact `day`, so it is a SEEK on
+ * `daily_metrics_window_idx` (metric, day, ...) — one entry per contributing
+ * workspace that day, no table lookups.
+ */
+export async function uploadsOnDay(db: D1Queryable, day: string): Promise<WorkspaceDayPoint[]> {
+  const result = await db
+    .prepare(
+      `SELECT day, workspace, count, bytes FROM daily_metrics
+       WHERE metric = 'upload' AND workspace <> '' AND day = ?
+       ORDER BY count DESC, workspace ASC`,
+    )
+    .bind(day)
+    .all<WorkspaceDayPoint>();
+  return result.results;
+}
+
+/**
+ * One workspace's daily upload series from `since`. Served by
+ * `daily_metrics_window_idx` (metric, day >= ?); `workspace = ?` is a
+ * residual filter within that day range, so cost is the window's sparse
+ * (day, workspace) entries, not the whole table — acceptable for an on-demand
+ * operator drill-down.
+ */
+export async function workspaceUploadSeries(
+  db: D1Queryable,
+  workspace: string,
+  since: string,
+): Promise<DayPoint[]> {
+  const result = await db
+    .prepare(
+      `SELECT day, count, bytes FROM daily_metrics
+       WHERE metric = 'upload' AND day >= ? AND workspace = ?
+       ORDER BY day ASC`,
+    )
+    .bind(since, workspace)
+    .all<DayPoint>();
+  return result.results;
+}
+
 /** Rows on or after `since` (`YYYY-MM-DD` compares lexically). Preserves order. */
 export function rowsSince(rows: WorkspaceDayPoint[], since: string): WorkspaceDayPoint[] {
   return rows.filter((row) => row.day >= since);

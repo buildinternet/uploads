@@ -541,10 +541,13 @@ const slowOpsSkeleton = renderAdminTableSkeletonRowsHtml(
       xLabelAnchor,
     } from "../../lib/admin-metrics-chart";
     import {
-      buildUploadDrilldown,
+      indexDaySummaries,
       peakIndex,
+      withShares,
       type DayContributor,
-      type UploadDrilldown,
+      type UploadDaySummary,
+      type UploadsDayResponse,
+      type UploadsWorkspaceResponse,
     } from "../../lib/admin-metrics-drilldown";
     import { ADMIN_TD, ADMIN_TD_NUM, escapeHtml } from "../../lib/admin-ui";
     import { formatBytes } from "../../lib/workspace-ui";
@@ -575,10 +578,15 @@ const slowOpsSkeleton = renderAdminTableSkeletonRowsHtml(
 
       // Uploads drill-down state (renderUploads). `current` is the last
       // rendered overview so a bar click or filter change re-renders without
-      // refetching.
+      // refetching the overview. The day table and a single workspace's
+      // series are fetched lazily; `drillSeq` drops stale responses (a slower
+      // earlier click must not overwrite a later one) and `drillCache`
+      // remembers them for the lifetime of the rendered window.
+      let drillSeq = 0;
+      const drillCache = new Map<string, unknown>();
       let current: {
         overview: MetricsOverview;
-        drill: UploadDrilldown;
+        daySummaries: Map<string, UploadDaySummary>;
         days: string[];
         setup: Map<string, MetricsOverview["workspaces"][number]>;
       } | null = null;
@@ -1122,41 +1130,106 @@ const slowOpsSkeleton = renderAdminTableSkeletonRowsHtml(
 
       const sharePct = (c: DayContributor) => `${Math.round(c.share * 100)}%`;
 
-      /** Up to three of the day's busiest workspaces, appended to the bar tooltip. */
-      function topWorkspacesTooltip(contributors: DayContributor[]): string {
-        if (!contributors.length) return "";
-        const rows = contributors
-          .slice(0, 3)
+      /** Top contributors from the overview's per-day summary, for the bar tooltip. */
+      function topWorkspacesTooltip(summary: UploadDaySummary | undefined): string {
+        if (!summary?.top.length) return "";
+        const rows = summary.top
           .map(
             (c) =>
-              `<div class="metrics-tooltip-row"><span class="ws">${escapeHtml(c.workspace)}</span><span>${num(c.count)} (${sharePct(c)})</span></div>`,
+              `<div class="metrics-tooltip-row"><span class="ws">${escapeHtml(c.workspace)}</span><span>${num(c.count)} (${summary.total > 0 ? Math.round((c.count / summary.total) * 100) : 0}%)</span></div>`,
           )
           .join("");
+        const rest = summary.workspaces - summary.top.length;
         const more =
-          contributors.length > 3
-            ? `<div class="metrics-tooltip-more">+${contributors.length - 3} more · click for all</div>`
-            : "";
+          rest > 0 ? `<div class="metrics-tooltip-more">+${rest} more · click for all</div>` : "";
         return `<div class="metrics-tooltip-top">${rows}${more}</div>`;
       }
 
-      function renderDayDetail(day: string | null): void {
+      /** Fetch a drill-down endpoint, cached per rendered window. */
+      async function drillFetch<T>(path: string): Promise<T> {
+        const hit = drillCache.get(path);
+        if (hit) return hit as T;
+        const res = await fetch(`${apiOrigin}/admin-ui/metrics/uploads/${path}`, {
+          credentials: "include",
+        });
+        if (!res.ok) throw new Error(`request failed: ${res.status}`);
+        const body = (await res.json()) as T;
+        drillCache.set(path, body);
+        return body;
+      }
+
+      function setDayRows(html: string): void {
+        const tbody = dayTable.querySelector<HTMLElement>("tbody");
+        if (tbody) tbody.innerHTML = html;
+      }
+
+      async function renderDayDetail(day: string | null): Promise<void> {
+        const seq = ++drillSeq;
         dayDetail.hidden = day === null;
         if (day === null) return;
-        const { total, contributors } = current?.drill.byDay.get(day) ?? {
-          total: 0,
-          contributors: [],
-        };
-        dayHeading.textContent = `Workspaces on ${formatChartDay(day)} · ${num(total)} uploads`;
-        const tbody = dayTable.querySelector<HTMLElement>("tbody");
-        if (!tbody) return;
-        tbody.innerHTML = contributors.length
-          ? contributors
-              .map(
-                (c) =>
-                  `<tr class="admin-row"><td class="${ADMIN_TD}">${workspaceButton(c.workspace)}</td><td class="num ${ADMIN_TD_NUM}">${num(c.count)}</td><td class="num ${ADMIN_TD_NUM}">${sharePct(c)}</td><td class="num ${ADMIN_TD_NUM}">${bytes(c.bytes)}</td><td class="${ADMIN_TD}">${setupBadges(c.workspace)}</td></tr>`,
-              )
-              .join("")
-          : `<tr class="admin-row"><td colspan="5" class="muted ${ADMIN_TD}">No uploads on this day.</td></tr>`;
+        const summary = current?.daySummaries.get(day);
+        dayHeading.textContent = `Workspaces on ${formatChartDay(day)}${summary ? ` · ${num(summary.total)} uploads` : ""}`;
+        setDayRows(
+          `<tr class="admin-row"><td colspan="5" class="muted ${ADMIN_TD}">Loading…</td></tr>`,
+        );
+        dayTable.setAttribute("aria-busy", "true");
+        try {
+          const body = await drillFetch<UploadsDayResponse>(`day?day=${encodeURIComponent(day)}`);
+          if (seq !== drillSeq) return;
+          dayHeading.textContent = `Workspaces on ${formatChartDay(day)} · ${num(body.total)} uploads`;
+          const contributors = withShares(body);
+          setDayRows(
+            contributors.length
+              ? contributors
+                  .map(
+                    (c) =>
+                      `<tr class="admin-row"><td class="${ADMIN_TD}">${workspaceButton(c.workspace)}</td><td class="num ${ADMIN_TD_NUM}">${num(c.count)}</td><td class="num ${ADMIN_TD_NUM}">${sharePct(c)}</td><td class="num ${ADMIN_TD_NUM}">${bytes(c.bytes)}</td><td class="${ADMIN_TD}">${setupBadges(c.workspace)}</td></tr>`,
+                  )
+                  .join("")
+              : `<tr class="admin-row"><td colspan="5" class="muted ${ADMIN_TD}">No uploads on this day.</td></tr>`,
+          );
+        } catch {
+          if (seq !== drillSeq) return;
+          setDayRows(
+            `<tr class="admin-row"><td colspan="5" class="muted ${ADMIN_TD}">Could not load this day. Click the bar to retry.</td></tr>`,
+          );
+        } finally {
+          if (seq === drillSeq) dayTable.removeAttribute("aria-busy");
+        }
+      }
+
+      /** Chart one workspace's own daily series, fetched on demand. */
+      async function renderWorkspaceChart(workspace: string): Promise<void> {
+        if (!current) return;
+        const seq = ++drillSeq;
+        const { since, days: windowDays } = current.overview.window;
+        const chart = document.getElementById("chart-uploads");
+        chart?.setAttribute("aria-busy", "true");
+        try {
+          const body = await drillFetch<UploadsWorkspaceResponse>(
+            `workspace?workspace=${encodeURIComponent(workspace)}&days=${windowDays}`,
+          );
+          if (seq !== drillSeq || filterWorkspace !== workspace) return;
+          drawChart(
+            "chart-uploads",
+            fillCountSeries(
+              since,
+              windowDays,
+              body.series.map((p) => ({ day: p.day, value: p.count })),
+            ),
+            `Uploads per day for ${workspace}`,
+            windowDays,
+          );
+        } catch {
+          if (seq !== drillSeq) return;
+          const note = document.createElement("p");
+          note.className =
+            "metrics-chart-note m-0 mt-2 text-muted-foreground text-(length:--text-micro)";
+          note.textContent = `Could not load uploads for ${workspace}. Re-select it to retry.`;
+          chart?.insertAdjacentElement("afterend", note);
+        } finally {
+          if (seq === drillSeq) chart?.removeAttribute("aria-busy");
+        }
       }
 
       /**
@@ -1168,36 +1241,30 @@ const slowOpsSkeleton = renderAdminTableSkeletonRowsHtml(
        */
       function renderUploads(): void {
         if (!current) return;
-        const { overview, drill, days } = current;
+        const { overview, daySummaries, days } = current;
         const { since, days: windowDays } = overview.window;
         const chart = document.getElementById("chart-uploads");
         chart?.parentElement?.querySelector(".metrics-chart-note")?.remove();
 
         if (filterWorkspace) {
           dayDetail.hidden = true;
-          drawChart(
-            "chart-uploads",
-            fillCountSeries(since, windowDays, drill.byWorkspace.get(filterWorkspace) ?? []),
-            `Uploads per day for ${filterWorkspace}`,
-            windowDays,
-          );
+          void renderWorkspaceChart(filterWorkspace);
           return;
         }
 
         if (selectedDay === null || !days.includes(selectedDay)) {
-          const peak = peakIndex(days.map((day) => drill.byDay.get(day)?.total ?? 0));
+          const peak = peakIndex(days.map((day) => daySummaries.get(day)?.total ?? 0));
           selectedDay = peak === null ? null : days[peak];
         }
-        renderDayDetail(selectedDay);
+        void renderDayDetail(selectedDay);
         const chartOpts: ChartOpts = {
           selectedIndex: selectedDay === null ? null : days.indexOf(selectedDay),
           onSelect: (index) => {
             selectedDay = days[index] ?? null;
             markSelectedBar(chart, index);
-            renderDayDetail(selectedDay);
+            void renderDayDetail(selectedDay);
           },
-          tooltipExtra: (index) =>
-            topWorkspacesTooltip(drill.byDay.get(days[index])?.contributors ?? []),
+          tooltipExtra: (index) => topWorkspacesTooltip(daySummaries.get(days[index])),
         };
 
         // uploadClasses is Analytics Engine-sampled while series.uploads is
@@ -1255,9 +1322,10 @@ const slowOpsSkeleton = renderAdminTableSkeletonRowsHtml(
         tile("tile-byob", num(overview.totals.workspacesWithByob ?? 0));
         const since = overview.window.since;
         const windowDays = overview.window.days;
+        drillCache.clear();
         current = {
           overview,
-          drill: buildUploadDrilldown(overview.series.uploadsByWorkspace ?? []),
+          daySummaries: indexDaySummaries(overview.series.uploadsByDay),
           days: utcDaysInWindow(since, windowDays),
           setup: new Map(overview.workspaces.map((row) => [row.workspace, row])),
         };
@@ -1314,7 +1382,7 @@ const slowOpsSkeleton = renderAdminTableSkeletonRowsHtml(
 
         // A new window keeps the workspace filter only if that workspace
         // still uploaded in it; the selected day resets to the window's peak.
-        const options = current.drill.workspaces;
+        const options = (overview.series.uploadWorkspaces ?? []).map((w) => w.workspace);
         if (filterWorkspace && !options.includes(filterWorkspace)) filterWorkspace = "";
         filterSelect.innerHTML =
           `<option value="">All workspaces</option>` +
@@ -1538,6 +1606,11 @@ const slowOpsSkeleton = renderAdminTableSkeletonRowsHtml(
         const workspace = button?.dataset.filterWorkspace;
         if (!workspace) return;
         filterWorkspace = workspace;
+        // The filter lists only the top workspaces by volume; a workspace
+        // reached from a day table may sit outside that list.
+        if (!Array.from(filterSelect.options).some((o) => o.value === workspace)) {
+          filterSelect.add(new Option(workspace, workspace));
+        }
         filterSelect.value = workspace;
         renderUploads();
         filterSelect.closest(".metrics-section")?.scrollIntoView({ block: "start" });
