@@ -3,12 +3,14 @@
 import { describe, expect, it } from "vitest";
 import { bumpDailyMetric } from "../src/adoption";
 import {
-  activeWorkspacesSince,
+  countActiveWorkspaces,
+  deriveWorkspaceActivity,
   featureTotals,
   platformSeries,
   platformStorage,
+  rowsSince,
   windowStart,
-  workspaceActivity,
+  workspaceDaySeries,
   workspacesWithGithubApp,
 } from "../src/adoption-queries";
 import { SqliteD1, database } from "./helpers/sqlite-d1";
@@ -65,13 +67,36 @@ describe("platformSeries", () => {
   });
 });
 
-describe("workspaceActivity", () => {
+/** Read the single per-workspace scan and derive the activity table from it. */
+async function activity(db: D1Database, since: string, limit?: number) {
+  const rows = await workspaceDaySeries(db, since);
+  return deriveWorkspaceActivity(rows, since, await workspacesWithGithubApp(db), limit);
+}
+
+describe("workspaceDaySeries", () => {
+  it("returns one row per (day, workspace), busiest first within a day", async () => {
+    const sqlite = new SqliteD1(MIGRATION);
+    try {
+      const db = database(sqlite);
+      await seed(db);
+      expect(await workspaceDaySeries(db, "2026-07-01")).toEqual([
+        { day: "2026-07-26", workspace: "acme", count: 1, bytes: 100 },
+        { day: "2026-07-28", workspace: "acme", count: 1, bytes: 200 },
+        { day: "2026-07-28", workspace: "beta", count: 1, bytes: 50 },
+      ]);
+    } finally {
+      sqlite.close();
+    }
+  });
+});
+
+describe("deriveWorkspaceActivity", () => {
   it("aggregates per workspace and sorts by uploads descending", async () => {
     const sqlite = new SqliteD1([MIGRATION, REPO_LINKS_MIGRATION]);
     try {
       const db = database(sqlite);
       await seed(db);
-      expect(await workspaceActivity(db, "2026-07-01")).toEqual([
+      expect(await activity(db, "2026-07-01")).toEqual([
         { workspace: "acme", uploads: 2, bytes: 300, lastActive: "2026-07-28", githubApp: false },
         { workspace: "beta", uploads: 1, bytes: 50, lastActive: "2026-07-28", githubApp: false },
       ]);
@@ -85,8 +110,37 @@ describe("workspaceActivity", () => {
     try {
       const db = database(sqlite);
       await seed(db);
-      const rows = await workspaceActivity(db, "2026-07-01");
+      const rows = await activity(db, "2026-07-01");
       expect(rows.some((row) => row.workspace === "")).toBe(false);
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("breaks ties by workspace name and applies the limit", () => {
+    const rows = [
+      { day: "2026-07-28", workspace: "zed", count: 2, bytes: 1 },
+      { day: "2026-07-28", workspace: "bob", count: 2, bytes: 1 },
+      { day: "2026-07-28", workspace: "amy", count: 1, bytes: 1 },
+    ];
+    expect(deriveWorkspaceActivity(rows, "2026-07-01", new Set()).map((r) => r.workspace)).toEqual([
+      "bob",
+      "zed",
+      "amy",
+    ]);
+    expect(deriveWorkspaceActivity(rows, "2026-07-01", new Set(), 2)).toHaveLength(2);
+  });
+
+  it("totals only days inside the window, from a wider scan", async () => {
+    const sqlite = new SqliteD1([MIGRATION, REPO_LINKS_MIGRATION]);
+    try {
+      const db = database(sqlite);
+      await seed(db);
+      const wide = await workspaceDaySeries(db, "2026-07-01");
+      expect(deriveWorkspaceActivity(wide, "2026-07-27", new Set())).toEqual([
+        { workspace: "acme", uploads: 1, bytes: 200, lastActive: "2026-07-28", githubApp: false },
+        { workspace: "beta", uploads: 1, bytes: 50, lastActive: "2026-07-28", githubApp: false },
+      ]);
     } finally {
       sqlite.close();
     }
@@ -103,7 +157,7 @@ describe("workspaceActivity", () => {
            VALUES ('acme/repo', 'acme', 42, 'comment', '2026-07-28T00:00:00Z')`,
         )
         .run();
-      const rows = await workspaceActivity(db, "2026-07-01");
+      const rows = await activity(db, "2026-07-01");
       expect(rows.find((r) => r.workspace === "acme")?.githubApp).toBe(true);
       expect(rows.find((r) => r.workspace === "beta")?.githubApp).toBe(false);
     } finally {
@@ -122,8 +176,23 @@ describe("workspaceActivity", () => {
            VALUES ('acme/repo', 'acme', NULL, 'comment', '2026-07-28T00:00:00Z')`,
         )
         .run();
-      const rows = await workspaceActivity(db, "2026-07-01");
+      const rows = await activity(db, "2026-07-01");
       expect(rows.find((r) => r.workspace === "acme")?.githubApp).toBe(false);
+    } finally {
+      sqlite.close();
+    }
+  });
+});
+
+describe("rowsSince", () => {
+  it("keeps only rows on or after the day, preserving order", async () => {
+    const sqlite = new SqliteD1(MIGRATION);
+    try {
+      const db = database(sqlite);
+      await seed(db);
+      const rows = await workspaceDaySeries(db, "2026-07-01");
+      expect(rowsSince(rows, "2026-07-27").map((r) => r.workspace)).toEqual(["acme", "beta"]);
+      expect(rowsSince(rows, "2026-07-29")).toEqual([]);
     } finally {
       sqlite.close();
     }
@@ -160,17 +229,15 @@ describe("workspacesWithGithubApp", () => {
   });
 });
 
-describe("activeWorkspacesSince", () => {
-  it("returns one row per workspace that uploaded in the window, with lastActive", async () => {
+describe("countActiveWorkspaces", () => {
+  it("counts distinct workspaces that uploaded in the window", async () => {
     const sqlite = new SqliteD1(MIGRATION);
     try {
       const db = database(sqlite);
       await seed(db);
-      const rows = await activeWorkspacesSince(db, "2026-07-01");
-      expect(rows).toHaveLength(2);
-      expect(rows.map((r) => r.workspace).sort()).toEqual(["acme", "beta"]);
-      expect(rows.find((r) => r.workspace === "acme")?.lastActive).toBe("2026-07-28");
-      expect(rows.find((r) => r.workspace === "beta")?.lastActive).toBe("2026-07-28");
+      const rows = await workspaceDaySeries(db, "2026-07-01");
+      // acme has two days of rows but is one workspace.
+      expect(countActiveWorkspaces(rows, "2026-07-01")).toBe(2);
     } finally {
       sqlite.close();
     }
@@ -181,7 +248,8 @@ describe("activeWorkspacesSince", () => {
     try {
       const db = database(sqlite);
       await seed(db);
-      expect(await activeWorkspacesSince(db, "2026-07-29")).toEqual([]);
+      const rows = await workspaceDaySeries(db, "2026-07-01");
+      expect(countActiveWorkspaces(rows, "2026-07-29")).toBe(0);
     } finally {
       sqlite.close();
     }
@@ -196,24 +264,20 @@ describe("activeWorkspacesSince", () => {
         { metric: "gallery_created", workspace: "gamma" },
         new Date("2026-07-28T10:00:00Z"),
       );
-      expect(await activeWorkspacesSince(db, "2026-07-01")).toEqual([]);
+      const rows = await workspaceDaySeries(db, "2026-07-01");
+      expect(countActiveWorkspaces(rows, "2026-07-01")).toBe(0);
     } finally {
       sqlite.close();
     }
   });
 
-  // Fix 5: metrics-overview.ts derives BOTH the 7d and 30d active-workspace
-  // counts from a single 30-day activeWorkspacesSince call (rather than two
-  // separate queries), by filtering these rows on `lastActive`. Prove that
-  // derivation is correct for a workspace active in the 30d window but NOT
-  // the 7d window — the case a naive "just count the 30d rows" approach for
-  // both figures would get wrong.
-  it("supports deriving both a 7d and 30d count from one 30-day call", async () => {
+  // metrics-overview.ts derives BOTH the 7d and 30d counts (and the selected
+  // window's table) from one scan over the widest window. A workspace active
+  // in the 30d window but not the 7d window must drop out of the 7d count.
+  it("derives both a 7d and 30d count from one 30-day scan", async () => {
     const sqlite = new SqliteD1(MIGRATION);
     try {
       const db = database(sqlite);
-      // Only active on 2026-07-05: inside a 30-day window starting
-      // 2026-06-29, but well before a 7-day window starting 2026-07-22.
       await bumpDailyMetric(
         db,
         { metric: "upload", workspace: "delta" },
@@ -221,17 +285,9 @@ describe("activeWorkspacesSince", () => {
       );
       await seed(db); // acme/beta, both last active 2026-07-28
 
-      const since30 = "2026-06-29";
-      const since7 = "2026-07-22";
-      const rows = await activeWorkspacesSince(db, since30);
-
-      expect(rows.map((r) => r.workspace).sort()).toEqual(["acme", "beta", "delta"]);
-
-      const active30d = rows.length;
-      const active7d = rows.filter((r) => r.lastActive >= since7).length;
-      expect(active30d).toBe(3);
-      // delta is in the 30d count but drops out of the 7d count.
-      expect(active7d).toBe(2);
+      const rows = await workspaceDaySeries(db, "2026-06-29");
+      expect(countActiveWorkspaces(rows, "2026-06-29")).toBe(3);
+      expect(countActiveWorkspaces(rows, "2026-07-22")).toBe(2);
     } finally {
       sqlite.close();
     }

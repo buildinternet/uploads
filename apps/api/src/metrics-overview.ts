@@ -15,13 +15,14 @@ import { fillDaySeries } from "./day-series";
 import { isByoRecord } from "./routes/workspace-storage";
 import { listWorkspaceNames, loadWorkspaceRecord } from "./workspace";
 import {
-  activeWorkspacesSince,
+  countActiveWorkspaces,
+  deriveWorkspaceActivity,
   featureTotals,
   multiIdentityWorkspaces,
   platformSeries,
   platformStorage,
+  rowsSince,
   windowStart,
-  workspaceActivity,
   workspaceDaySeries,
   workspacesWithGithubApp,
   type DayPoint,
@@ -160,33 +161,31 @@ export async function buildOverview(
   const [
     uploads,
     features,
-    table,
-    active30,
+    workspaceRows,
     storage,
     auth,
     multiIdentity,
     githubApp,
     uploadClasses,
-    byWorkspace,
     byob,
   ] = await Promise.all([
     platformSeries(dbFor(env), "upload", since),
     featureTotals(dbFor(env), since),
-    workspaceActivity(dbFor(env), since),
-    // Scans the 30-day window ONCE; the 7-day count is derived below by
-    // filtering these same rows rather than issuing a second query — the
-    // last 7 days of index entries are always a subset of the last 30, so a
-    // separate activeWorkspaceCount(since7) call would just re-read them
-    // (D1 bills rows read).
-    activeWorkspacesSince(dbFor(env), since30),
+    // The per-workspace rows are read ONCE, over the wider of the selected
+    // window and the 30-day active window. The activity table, the 7d/30d
+    // active counts and the per-workspace series are all derived from them in
+    // JS below (D1 bills rows read, and every narrower window is a subset).
+    workspaceDaySeries(dbFor(env), since < since30 ? since : since30),
     platformStorage(dbFor(env)),
     authMetrics(env, since),
     multiIdentityWorkspaces(dbFor(env)),
     workspacesWithGithubApp(dbFor(env)),
     fetchUploadClassSeries(env, days, fetch, now),
-    workspaceDaySeries(dbFor(env), since),
     byobWorkspaces(env),
   ]);
+
+  const byWorkspace = rowsSince(workspaceRows, since);
+  const table = deriveWorkspaceActivity(workspaceRows, since, githubApp);
 
   // Sparse SQL rows → one point per calendar day so the charts' bar
   // spacing matches the selected window (quiet days plot as 0).
@@ -216,8 +215,8 @@ export async function buildOverview(
       orgs: auth.totals.orgs,
       workspaces: storage.workspaces,
       storedBytes: storage.storedBytes,
-      activeWorkspaces7d: active30.filter((w) => w.lastActive >= since7).length,
-      activeWorkspaces30d: active30.length,
+      activeWorkspaces7d: countActiveWorkspaces(workspaceRows, since7),
+      activeWorkspaces30d: countActiveWorkspaces(workspaceRows, since30),
       uploads: uploadsFilled.reduce((sum, point) => sum + point.count, 0),
       bytes: uploadsFilled.reduce((sum, point) => sum + point.bytes, 0),
       workspacesWithGithubApp: githubApp.size,

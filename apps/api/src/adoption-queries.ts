@@ -21,6 +21,11 @@
  *     count/bytes so there is no per-row table lookup. The table is sparse —
  *     a row exists only for a (metric, day, workspace) with real activity —
  *     so that scan is proportional to actual usage, not workspaces × days.
+ *     That scan happens ONCE, in `workspaceDaySeries`; the per-workspace
+ *     activity table and active-workspace counts are derived from its rows by
+ *     the pure helpers below (`deriveWorkspaceActivity`,
+ *     `countActiveWorkspaces`, `rowsSince`) rather than by re-querying the
+ *     same rows with different GROUP BYs.
  */
 
 import type { AdoptionMetric } from "./adoption";
@@ -73,32 +78,6 @@ export async function platformSeries(
   return result.results;
 }
 
-/** Per-workspace upload activity in the window, busiest first. */
-export async function workspaceActivity(
-  db: D1Queryable,
-  since: string,
-  limit = DEFAULT_LIMIT,
-): Promise<WorkspaceActivity[]> {
-  const [result, linked] = await Promise.all([
-    db
-      .prepare(
-        `SELECT workspace,
-                SUM(count) AS uploads,
-                SUM(bytes) AS bytes,
-                MAX(day)   AS lastActive
-         FROM daily_metrics
-         WHERE metric = 'upload' AND workspace <> '' AND day >= ?
-         GROUP BY workspace
-         ORDER BY uploads DESC, workspace ASC
-         LIMIT ?`,
-      )
-      .bind(since, limit)
-      .all<Omit<WorkspaceActivity, "githubApp">>(),
-    workspacesWithGithubApp(db),
-  ]);
-  return result.results.map((row) => ({ ...row, githubApp: linked.has(row.workspace) }));
-}
-
 /** One workspace's upload count on one day. */
 export interface WorkspaceDayPoint {
   day: string;
@@ -112,6 +91,10 @@ export interface WorkspaceDayPoint {
  * within each day — the drill-down behind the platform uploads chart ("who
  * caused this spike"). Served entirely from `daily_metrics_window_idx`, and
  * the table is sparse, so cost is one entry per workspace per active day.
+ *
+ * This is the single per-workspace read: callers needing a shorter window,
+ * the per-workspace totals, or active-workspace counts fetch the widest
+ * window they need and narrow it in JS with the helpers below.
  */
 export async function workspaceDaySeries(
   db: D1Queryable,
@@ -128,13 +111,60 @@ export async function workspaceDaySeries(
   return result.results;
 }
 
+/** Rows on or after `since` (`YYYY-MM-DD` compares lexically). Preserves order. */
+export function rowsSince(rows: WorkspaceDayPoint[], since: string): WorkspaceDayPoint[] {
+  return rows.filter((row) => row.day >= since);
+}
+
+/**
+ * Per-workspace totals for the window starting at `since`, busiest first
+ * (uploads DESC, workspace ASC), capped at `limit`. Pure derivation from
+ * `workspaceDaySeries` rows; `githubApp` is the set from
+ * `workspacesWithGithubApp`, passed in so it is queried once per build.
+ */
+export function deriveWorkspaceActivity(
+  rows: WorkspaceDayPoint[],
+  since: string,
+  githubApp: ReadonlySet<string>,
+  limit = DEFAULT_LIMIT,
+): WorkspaceActivity[] {
+  const byWorkspace = new Map<string, Omit<WorkspaceActivity, "githubApp">>();
+  for (const row of rows) {
+    if (row.day < since) continue;
+    const entry = byWorkspace.get(row.workspace);
+    if (entry) {
+      entry.uploads += row.count;
+      entry.bytes += row.bytes;
+      if (row.day > entry.lastActive) entry.lastActive = row.day;
+    } else {
+      byWorkspace.set(row.workspace, {
+        workspace: row.workspace,
+        uploads: row.count,
+        bytes: row.bytes,
+        lastActive: row.day,
+      });
+    }
+  }
+  return [...byWorkspace.values()]
+    .sort((a, b) => b.uploads - a.uploads || (a.workspace < b.workspace ? -1 : 1))
+    .slice(0, limit)
+    .map((entry) => ({ ...entry, githubApp: githubApp.has(entry.workspace) }));
+}
+
+/** Distinct workspaces with at least one upload row on or after `since`. */
+export function countActiveWorkspaces(rows: WorkspaceDayPoint[], since: string): number {
+  const active = new Set<string>();
+  for (const row of rows) if (row.day >= since) active.add(row.workspace);
+  return active.size;
+}
+
 /**
  * Workspace names with at least one `github_repo_links` row whose
  * `installation_id` is set — i.e. the workspace has the GitHub App
  * installed, not merely a self-serve repo link (`installation_id IS NULL`).
  * One query, joined against callers in JS rather than a SQL join, since the
- * set of linked workspaces is small and shared by both `workspaceActivity`
- * and the `workspacesWithGithubApp` total.
+ * set of linked workspaces is small and shared by both the per-workspace
+ * activity table and the `workspacesWithGithubApp` total.
  */
 export async function workspacesWithGithubApp(db: D1Queryable): Promise<Set<string>> {
   const result = await db
@@ -143,35 +173,6 @@ export async function workspacesWithGithubApp(db: D1Queryable): Promise<Set<stri
     )
     .all<{ workspace_name: string }>();
   return new Set(result.results.map((row) => row.workspace_name));
-}
-
-/** One row per workspace that uploaded at least once since `since`, with its most recent active day. */
-export interface ActiveWorkspace {
-  workspace: string;
-  lastActive: string;
-}
-
-/**
- * Workspaces active (at least one upload) since `since`, one row each with
- * their most recent active day. Scans the window ONCE so callers who need
- * both a 7-day and a 30-day active-workspace count can derive both from a
- * single 30-day call — `buildOverview` (metrics-overview.ts) does exactly
- * this — instead of the 30-day window's rows being read twice (D1 bills rows
- * read, and the last 7 days are always a subset of the last 30).
- */
-export async function activeWorkspacesSince(
-  db: D1Queryable,
-  since: string,
-): Promise<ActiveWorkspace[]> {
-  const result = await db
-    .prepare(
-      `SELECT workspace, MAX(day) AS lastActive FROM daily_metrics
-       WHERE metric = 'upload' AND workspace <> '' AND day >= ?
-       GROUP BY workspace`,
-    )
-    .bind(since)
-    .all<ActiveWorkspace>();
-  return result.results;
 }
 
 /**
