@@ -192,10 +192,11 @@ export function accountNavSections(options: {
   return sections;
 }
 
-export type AdminSectionId = "workspaces" | "metrics" | "users" | "oauth" | "email";
+export type AdminSectionId = "workspaces" | "clients" | "metrics" | "users" | "oauth" | "email";
 
 const ADMIN_NAV: { id: AdminSectionId; label: string; href: string; icon: ShellNavIcon }[] = [
   { id: "workspaces", label: "Workspaces", href: "/admin", icon: "workspaces" },
+  { id: "clients", label: "Clients", href: "/admin/clients", icon: "developers" },
   { id: "metrics", label: "Metrics", href: "/admin/metrics", icon: "metrics" },
   { id: "users", label: "Users", href: "/admin/users", icon: "users" },
   { id: "oauth", label: "OAuth apps", href: "/admin/oauth", icon: "oauth" },

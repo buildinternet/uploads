@@ -8,6 +8,7 @@
 import { NOTE_MAX_CHARS } from "@uploads/comment-config";
 import { runActiveContentHostSweep } from "../active-content-hosts";
 import { adminTokenRows } from "../admin-token-list";
+import { clientActivityResponse, listClientActivity } from "../client-activity";
 import {
   ForbiddenError,
   NotFoundError,
@@ -72,6 +73,7 @@ import {
   loadWorkspaceRecord,
   loadWorkspaceRecordRaw,
   type WorkspaceRecord,
+  WS_NAME_RE,
 } from "../workspace";
 import { mutateWorkspaceRecord } from "../workspace-mutate";
 import { LIMIT_FIELDS, validateLimitsPatch } from "../workspace-limits";
@@ -570,6 +572,7 @@ export type AdminPlanResponse = ReturnType<typeof planResponse> &
 export type AdminStorageResponse = ReturnType<typeof adminStorageResponse>;
 export type AdminGithubLink = ReturnType<typeof repoLinkResponse>;
 export type { AdminTokenRow } from "../admin-token-list";
+export type { AdminClientActivity } from "../client-activity";
 export type { MetricsOverview } from "../metrics-overview";
 export type { OrgInvite, OrgMember } from "../org-workspaces";
 export type { OpenEnrollment } from "../auth-db";
@@ -650,6 +653,23 @@ export const adminUi = new Hono<SessionVars>()
     const raw = c.req.query("window");
     const window: SlowOpWindow = raw === "7d" ? "7d" : "24h";
     return c.json(await fetchSlowOps(c.env, window));
+  })
+
+  // Which CLI / MCP client (and version) each credential last used, newest
+  // first (client-activity.ts). `?workspace=` narrows to one tenant; `?days=`
+  // (default 30, 0 = all) drops rows not seen in that window. Outdatedness
+  // is judged client-side against /cli-version.json.
+  .get("/clients", async (c) => {
+    const workspace = c.req.query("workspace")?.trim() || undefined;
+    if (workspace && !WS_NAME_RE.test(workspace)) {
+      throw new ValidationError("invalid workspace name");
+    }
+    const days = Number(c.req.query("days") ?? 30);
+    const rows = await listClientActivity(dbFor(c.env), {
+      workspace,
+      sinceDays: Number.isFinite(days) && days > 0 ? Math.min(days, 365) : undefined,
+    });
+    return c.json({ clients: rows.map(clientActivityResponse) });
   })
 
   // List every KV workspace joined with its org + member/invite counts.

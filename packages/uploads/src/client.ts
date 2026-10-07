@@ -797,10 +797,13 @@ export function createEnrollment(
 export const DEVICE_CLIENT_ID = "uploads-cli";
 
 /**
- * User-Agent for device-flow requests. Stored on the Better Auth session row
- * when `/device/token` creates the session, so the web account UI can tell a
- * completed `uploads login` apart from a browser tab. Keep the
- * `@buildinternet/uploads` prefix in sync with apps/web `CLI_USER_AGENT_RE`.
+ * User-Agent for CLI requests. Device-flow requests store it on the Better
+ * Auth session row when `/device/token` creates the session, so the web
+ * account UI can tell a completed `uploads login` apart from a browser tab;
+ * API requests send it so the API can record the client version per
+ * credential (apps/api `parseCliUserAgent`, where a `mcp` purpose marks the
+ * stdio MCP server). Keep the `@buildinternet/uploads` prefix in sync with
+ * apps/web `CLI_USER_AGENT_RE` and apps/api `CLI_UA_RE`.
  */
 export function cliUserAgent(purpose = "device-login"): string {
   return `@buildinternet/uploads/${packageVersion()} (${purpose})`;
@@ -1160,7 +1163,21 @@ async function parseErrorResponse(res: Response): Promise<UploadsError> {
   return mapApiError(res.status, message, code, requiredScope, existingUrl);
 }
 
-export function createUploadsClient(config: UploadsClientConfig) {
+export interface UploadsClientOptions {
+  /**
+   * Which surface is calling, sent in the User-Agent comment so the API can
+   * record the client version per credential (`client_activity`). `mcp` for
+   * the stdio `uploads mcp` server; defaults to `cli`.
+   */
+  surface?: "cli" | "mcp";
+}
+
+export function createUploadsClient(
+  config: UploadsClientConfig,
+  clientOpts: UploadsClientOptions = {},
+) {
+  const userAgent = cliUserAgent(clientOpts.surface ?? "cli");
+
   async function request<T>(
     method: string,
     path: string,
@@ -1177,7 +1194,7 @@ export function createUploadsClient(config: UploadsClientConfig) {
       longTimeout?: boolean;
     },
   ): Promise<T> {
-    const headers: Record<string, string> = { ...opts?.headers };
+    const headers: Record<string, string> = { "User-Agent": userAgent, ...opts?.headers };
     if (opts?.auth !== false) {
       headers.Authorization = `Bearer ${config.token}`;
     }

@@ -15,6 +15,7 @@ import {
   type McpServer,
 } from "@buildinternet/uploads/mcp";
 import {
+  CLIENT_INFO_META_KEY,
   createMcpHandler,
   isLegacyRequest,
   WebStandardStreamableHTTPServerTransport,
@@ -35,6 +36,7 @@ import {
   type WorkspaceVars,
 } from "@uploads/api/workspace";
 import { userUploaderIdentity } from "@uploads/api/uploader-identity";
+import { mcpClientInfo, recordClient, userClientPrincipal } from "@uploads/api/client-activity";
 import { protectedResourceMetadata, requestOrigin } from "@uploads/api/well-known";
 import { Hono, type Context, type Next } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
@@ -148,10 +150,9 @@ async function oauthAuth(
   // config on this AS), the same id `uploaderTags()` resolves against the
   // internal `/users/:id/github-account` route. `tokenWorkspaceAuth`/
   // `workspaceAuth` set the same var from `up_` tokens' `minting_user_id`.
-  c.set(
-    "uploaderIdentity",
-    userUploaderIdentity(typeof verified.raw.sub === "string" ? verified.raw.sub : null),
-  );
+  const sub = typeof verified.raw.sub === "string" ? verified.raw.sub : null;
+  c.set("uploaderIdentity", userUploaderIdentity(sub));
+  if (sub) c.set("clientPrincipal", userClientPrincipal(sub));
   return null;
 }
 
@@ -210,6 +211,7 @@ function buildServer(c: Context<WorkspaceVars>): McpServer {
  * anything that would hit it).
  */
 async function handleMcp(c: Context<WorkspaceVars>): Promise<Response> {
+  await recordMcpClient(c);
   if (await isLegacyRequest(c.req.raw)) {
     const server = buildServer(c);
     const transport = new WebStandardStreamableHTTPServerTransport({
@@ -248,6 +250,31 @@ async function handleMcp(c: Context<WorkspaceVars>): Promise<Response> {
   } finally {
     await handler.close();
   }
+}
+
+/** Bodies larger than this (tool calls carrying file bytes) skip the clientInfo read. */
+const CLIENT_INFO_MAX_BODY_BYTES = 64 * 1024;
+
+/**
+ * Records the MCP host's clientInfo for this credential (`client_activity`,
+ * surface `mcp-remote`): `params.clientInfo` on a 2025-era `initialize`, or
+ * the `_meta` key the 2026-07-28 protocol repeats on every request. Reads a
+ * clone of the body so the transport still gets the original, and skips
+ * large bodies rather than parse megabytes of base64.
+ */
+async function recordMcpClient(c: Context<WorkspaceVars>): Promise<void> {
+  const declared = c.req.header("Content-Length");
+  if (declared !== undefined && !(Number(declared) <= CLIENT_INFO_MAX_BODY_BYTES)) return;
+  let params: { clientInfo?: unknown; _meta?: Record<string, unknown> } | undefined;
+  try {
+    const text = await c.req.raw.clone().text();
+    if (text.length > CLIENT_INFO_MAX_BODY_BYTES || !text.includes("clientInfo")) return;
+    params = (JSON.parse(text) as { params?: typeof params } | null)?.params;
+  } catch {
+    return;
+  }
+  const client = mcpClientInfo(params?._meta?.[CLIENT_INFO_META_KEY] ?? params?.clientInfo);
+  if (client) await recordClient(c, client);
 }
 
 function respondError(c: Context, err: unknown): Response {

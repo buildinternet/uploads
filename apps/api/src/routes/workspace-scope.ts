@@ -5,6 +5,7 @@
  * Dual-auth (session or bearer), `files:read`, tight read limiter: each
  * request fans out into one D1 scope query per row for thumbnails.
  */
+import { afterResponse } from "../after-response";
 import { ValidationError } from "@uploads/errors";
 import { Hono, type Context, type MiddlewareHandler } from "hono";
 import { boundedDataRead } from "../data-read-bounds";
@@ -119,20 +120,6 @@ function storedTitleFor(
   title: string | null,
 ): string | null {
   return linkedRepos.has(repo) ? title : null;
-}
-
-/**
- * Run best-effort `task` after the response via `waitUntil`. Awaits it when
- * there is no ExecutionContext (vitest `app.request` supplies none).
- */
-async function afterResponse(c: Context<DualAuthVars>, task: Promise<unknown>): Promise<void> {
-  try {
-    c.executionCtx.waitUntil(task);
-    return;
-  } catch {
-    // No ExecutionContext: fall through and await.
-  }
-  await task;
 }
 
 export async function pullsHandler(c: Context<DualAuthVars>) {

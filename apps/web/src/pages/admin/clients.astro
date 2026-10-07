@@ -1,0 +1,44 @@
+---
+import AdminLayout from "../../layouts/AdminLayout.astro";
+import { AdminClientsTable } from "../../components/admin/AdminClientsTable";
+import { resolveSignedInOrigins } from "../../lib/signed-in-page";
+
+export const prerender = false;
+
+const { apiOrigin } = resolveSignedInOrigins();
+
+// Same SSR-first island mechanism as pages/admin/index.astro.
+const seedJson = JSON.stringify({ apiOrigin }).replace(/</g, "\\u003c");
+---
+
+<AdminLayout section="clients">
+  <section class="admin-page grid gap-4 min-w-0">
+    <header class="admin-page-header grid gap-1.5 max-w-2xl">
+      <h2 class="m-0 text-(length:--text-body) font-semibold text-foreground">Clients</h2>
+      <p class="m-0 text-body text-(length:--text-meta) leading-[1.55] text-pretty">
+        The CLI and MCP version each credential last used, per workspace. Versions refresh within an
+        hour of use, and right away after an upgrade.
+      </p>
+    </header>
+    <div id="admin-clients-mount">
+      <AdminClientsTable apiOrigin={apiOrigin} />
+    </div>
+  </section>
+
+  <script type="application/json" id="admin-clients-seed" set:html={seedJson} />
+
+  <script>
+    import { onAstroPageLoad } from "../../lib/account-shell";
+    import { createIslandMounter } from "../../lib/react-island";
+    import type { AdminClientsTableProps } from "../../components/admin/AdminClientsTable";
+
+    const boot = createIslandMounter<AdminClientsTableProps>({
+      mountId: "admin-clients-mount",
+      seedId: "admin-clients-seed",
+      load: () =>
+        import("../../components/admin/AdminClientsTable").then((m) => m.AdminClientsTable),
+    });
+
+    onAstroPageLoad(() => void boot());
+  </script>
+</AdminLayout>

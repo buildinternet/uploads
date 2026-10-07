@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./workspace": "./src/workspace.ts",
+    "./client-activity": "./src/client-activity.ts",
     "./well-known": "./src/well-known.ts",
     "./storage": "./src/storage.ts",
     "./files": "./src/files-core.ts",

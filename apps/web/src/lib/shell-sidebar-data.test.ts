@@ -178,6 +178,7 @@ describe("adminNavSections", () => {
     const items = sections[0]!.items;
     expect(items.map((i) => i.href)).toEqual([
       "/admin",
+      "/admin/clients",
       "/admin/metrics",
       "/admin/users",
       "/admin/oauth",
