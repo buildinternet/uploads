@@ -1137,6 +1137,55 @@ errors never fail the upload.
 Stage 1 is advisory. When it fails, stage 2 still decides the enums from the
 file facts. When stage 2 fails, the classifier writes nothing.
 
+### Luna Decisions try
+
+The default stays the two-stage path above (`ai.classifier=v3`).
+
+`openai/gpt-6-luna-decisions` is a separate, opt-in provider. It is one
+OpenRouter Decisions call. Raster images under the same 512 KiB cap go in
+`state` as an inline image (an OpenAI Decisions `input_image` data URL) plus
+the filename, content type, size, and dimensions. That path skips the Llama
+vision stage. Every other file sends the same text state Jev sees, and no
+image. Luna writes `ai.classifier=v4` and the same closed enums. It uses the same
+0.5 confidence threshold. It does not write `ai.tags` or `ai.summary`.
+Decisions models only answer closed questions.
+
+Select it only on a workspace that already has `llm-file-classifier` on.
+Two switches, and an explicit `jev` pin wins over the flag:
+
+1. **Env pin.** `CLASSIFIER_PROVIDER=luna` selects Luna for every allowlisted
+   workspace. `CLASSIFIER_PROVIDER=jev` forces the hybrid path. Unset defers
+   to the flag below. The value is not a secret. Set it in `.dev.vars` locally
+   or as a worker var when you want the try on a whole deploy.
+
+2. **Flagship flag.** `llm-file-classifier-luna` fails closed. Same
+   `{ org, workspace }` context as the main flag. Create it once (boolean,
+   served off), then allowlist an org:
+
+   ```bash
+   wrangler flagship flags create 8371bfe7-9767-4b4d-b75a-37b94d2724f7 \
+     llm-file-classifier-luna --description "try openai/gpt-6-luna-decisions"
+   wrangler flagship flags update 8371bfe7-9767-4b4d-b75a-37b94d2724f7 \
+     llm-file-classifier-luna --default off
+   ```
+
+The call needs an OpenRouter API key. The Jev path does not use it.
+
+```bash
+cd apps/api && pnpm exec wrangler secret put OPENROUTER_API_KEY
+```
+
+Luna goes through the same AI Gateway as Jev (`AI_GATEWAY_ID`, provider
+`openrouter`, path `alpha/decisions`), so the gateway rate limit and spend
+limit still apply. A Luna upload is one gateway request, including images.
+Pass the OpenRouter key on that request. Leave **Require provider credentials**
+off — that setting still rejects Jev. The key is billed on the OpenRouter
+account. Listed input price is $0.10 per million tokens, and output tokens
+are free. The worker log records the model and the confidences only. The
+gateway request body carries the image. A missing key or a gateway error
+fails open: the upload succeeds, and that file gets no `ai.*` rows. A thrown
+evaluation of `llm-file-classifier-luna` stays on the Jev hybrid.
+
 Jev reports a calibrated confidence per answer. An answer under **0.5**
 (`CLASSIFIER_MIN_CONFIDENCE`) omits its key, so a low-confidence `screen`
 drops while a confident `kind` still lands. The worker logs

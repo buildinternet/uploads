@@ -76,6 +76,20 @@ interface Env {
    */
   AI_GATEWAY_ID?: string;
   /**
+   * Optional classifier decision provider. `luna` selects
+   * `openai/gpt-6-luna-decisions`. `jev` pins the hybrid path and ignores
+   * Flagship `llm-file-classifier-luna`. Unset defers to that flag
+   * (default off, so the hybrid path stays). Not a secret.
+   */
+  CLASSIFIER_PROVIDER?: string;
+  /**
+   * OpenRouter API key for the Luna Decisions try. Set with
+   * `wrangler secret put OPENROUTER_API_KEY`. Unset leaves the Jev path
+   * unchanged. A Luna selection without this key fails open (the upload
+   * still succeeds, and no `ai.*` rows are written).
+   */
+  OPENROUTER_API_KEY?: string;
+  /**
    * Browser Run (screenshot rendering, `POST /v1/render`). Like `MEDIA`, this
    * has no local Miniflare simulation and self-hosters may skip the block
    * entirely (uploads#754 item 3) — `browserRenderer()` in render.ts treats

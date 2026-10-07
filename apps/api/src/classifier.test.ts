@@ -2,19 +2,26 @@ import { describe, expect, it, vi } from "vitest";
 import {
   CLASSIFIER_DECISION_MODEL,
   CLASSIFIER_FLAG,
+  CLASSIFIER_LUNA_FLAG,
+  CLASSIFIER_LUNA_MODEL,
   CLASSIFIER_MAX_IMAGE_BYTES,
   CLASSIFIER_VISION_MODEL,
+  OPENROUTER_DECISIONS_ENDPOINT,
   buildClassifierQuestions,
   buildClassifierState,
   buildDecideRequest,
   buildDescribeRequest,
+  buildLunaDecideRequest,
+  buildLunaDecisionState,
   classificationAllowed,
   classifierEvaluationContext,
   classifierGatewayId,
   extractJsonObject,
   extractModelText,
+  openRouterLunaClassifierRun,
   parseDescribeOutput,
   parseJevAnswers,
+  resolveClassifierProvider,
   scheduleFileClassification,
   textExcerpt,
 } from "./classifier";
@@ -106,6 +113,72 @@ describe("classificationAllowed", () => {
   });
 });
 
+describe("resolveClassifierProvider", () => {
+  it("defaults to jev when the provider is unset and the luna flag is off", async () => {
+    expect(await resolveClassifierProvider(env({ FLAGS: flagsOff }), {}, "acme")).toBe("jev");
+    expect(await resolveClassifierProvider(env({ FLAGS: undefined }), {}, "acme")).toBe("jev");
+    expect(
+      await resolveClassifierProvider(
+        env({ CLASSIFIER_PROVIDER: "nope", FLAGS: flagsOff }),
+        {},
+        "acme",
+      ),
+    ).toBe("jev");
+  });
+
+  it("selects luna when the flag serves on for the workspace", async () => {
+    let seen: { name?: string; def?: boolean; context?: unknown } = {};
+    const flags = {
+      getBooleanValue: async (name: string, def: boolean, context?: unknown) => {
+        seen = { name, def, context };
+        return name === CLASSIFIER_LUNA_FLAG;
+      },
+    };
+    expect(
+      await resolveClassifierProvider(env({ FLAGS: flags }), { name: "acme" }, "ignored"),
+    ).toBe("luna");
+    expect(seen).toEqual({
+      name: CLASSIFIER_LUNA_FLAG,
+      def: false,
+      context: { org: "acme", workspace: "acme" },
+    });
+  });
+
+  it("pins from CLASSIFIER_PROVIDER and does not read the flag", async () => {
+    let called = false;
+    const flags = {
+      getBooleanValue: async () => {
+        called = true;
+        return true;
+      },
+    };
+    expect(
+      await resolveClassifierProvider(
+        env({ FLAGS: flags, CLASSIFIER_PROVIDER: "luna" }),
+        {},
+        "acme",
+      ),
+    ).toBe("luna");
+    expect(
+      await resolveClassifierProvider(
+        env({ FLAGS: flags, CLASSIFIER_PROVIDER: " JEV " }),
+        {},
+        "acme",
+      ),
+    ).toBe("jev");
+    expect(called).toBe(false);
+  });
+
+  it("stays on jev when the luna flag throws", async () => {
+    const flags = {
+      getBooleanValue: async () => {
+        throw new Error("flagship down");
+      },
+    };
+    expect(await resolveClassifierProvider(env({ FLAGS: flags }), {}, "acme")).toBe("jev");
+  });
+});
+
 describe("classifierGatewayId", () => {
   it("uses the wrangler var when set", () => {
     expect(classifierGatewayId(env({ AI_GATEWAY_ID: "my-gw" }))).toBe("my-gw");
@@ -194,6 +267,136 @@ describe("buildClassifierState", () => {
     expect(state.description).toBe("A settings page with a sidebar.");
     expect(state.tags).toEqual(["ui", "settings"]);
     expect(state.summary).toBe("Settings");
+  });
+});
+
+describe("buildLunaDecisionState", () => {
+  it("sends filename, type, size, dimensions, and an inline image", () => {
+    const png = pngOf(1440, 900);
+    const state = buildLunaDecisionState("screenshots/settings.png", "image/png", png);
+    expect(state).toMatchObject({
+      filename: "settings.png",
+      content_type: "image/png",
+      byte_size: png.byteLength,
+      image_width: 1440,
+      image_height: 900,
+      aspect: "landscape",
+    });
+    expect(state.image?.type).toBe("input_image");
+    expect(state.image?.image_url.startsWith("data:image/png;base64,")).toBe(true);
+    const b64 = state.image!.image_url.slice("data:image/png;base64,".length);
+    expect(Uint8Array.from(Buffer.from(b64, "base64"))).toEqual(png);
+    expect(state.description).toBeUndefined();
+  });
+
+  it("keeps a high byte in the data URL", () => {
+    const bytes = new Uint8Array(pngOf(8, 8));
+    bytes[10] = 0xff;
+    const state = buildLunaDecisionState("a.png", "image/png", bytes);
+    const b64 = state.image!.image_url.slice("data:image/png;base64,".length);
+    expect(Uint8Array.from(Buffer.from(b64, "base64"))[10]).toBe(0xff);
+  });
+
+  it("omits the image for text, SVG, empty, and oversized rasters", () => {
+    const text = new TextEncoder().encode("hello world");
+    const textState = buildLunaDecisionState("notes.txt", "text/plain", text);
+    expect(textState.image).toBeUndefined();
+    expect(textState.excerpt).toContain("hello world");
+
+    const svg = new TextEncoder().encode("<svg xmlns='http://www.w3.org/2000/svg'></svg>");
+    expect(buildLunaDecisionState("icon.svg", "image/svg+xml", svg).image).toBeUndefined();
+    expect(
+      buildLunaDecisionState("empty.png", "image/png", new Uint8Array()).image,
+    ).toBeUndefined();
+
+    const big = new Uint8Array(CLASSIFIER_MAX_IMAGE_BYTES + 1);
+    const bigState = buildLunaDecisionState("huge.png", "image/png", big);
+    expect(bigState.image).toBeUndefined();
+    expect(bigState.note).toContain("image skipped");
+  });
+});
+
+describe("buildLunaDecideRequest", () => {
+  it("asks Luna the same closed enums", () => {
+    const req = buildLunaDecideRequest(buildLunaDecisionState("a.png", "image/png", pngOf(32, 32)));
+    expect(req.stage).toBe("decide");
+    expect(req.model).toBe(CLASSIFIER_LUNA_MODEL);
+    expect(Object.keys(req.questions)).toEqual(["kind", "surface", "screen"]);
+    expect(req.state.image?.type).toBe("input_image");
+  });
+});
+
+describe("openRouterLunaClassifierRun", () => {
+  const req = buildLunaDecideRequest({
+    filename: "a.png",
+    content_type: "image/png",
+    byte_size: 4,
+    image: { type: "input_image", image_url: "data:image/png;base64,AAAA" },
+  });
+
+  it("posts decisions through the AI Gateway OpenRouter provider", async () => {
+    const calls: Array<{
+      id: string;
+      data: {
+        provider: string;
+        endpoint: string;
+        headers: Record<string, string>;
+        query: { model: string; state: { image?: unknown }; questions: unknown };
+      };
+      options: { gateway?: { skipCache?: boolean } };
+    }> = [];
+    const run = openRouterLunaClassifierRun(
+      env({
+        OPENROUTER_API_KEY: "secret-key",
+        AI: {
+          gateway: (id: string) => ({
+            run: async (data: unknown, options: unknown) => {
+              calls.push({ id, data, options } as (typeof calls)[number]);
+              return new Response(
+                JSON.stringify({
+                  answers: { kind: { type: "choice", choice: "photo", confidence: 0.9 } },
+                }),
+                { status: 200 },
+              );
+            },
+          }),
+        },
+      }),
+    );
+    await expect(run(req)).resolves.toMatchObject({ answers: { kind: { choice: "photo" } } });
+    expect(calls).toHaveLength(1);
+    const call = calls[0]!;
+    expect(call.id).toBe("uploads-classifier");
+    expect(call.data.provider).toBe("openrouter");
+    expect(call.data.endpoint).toBe(OPENROUTER_DECISIONS_ENDPOINT);
+    expect(call.data.headers.Authorization).toBe("Bearer secret-key");
+    expect(call.data.headers["Content-Type"]).toBe("application/json");
+    expect(call.data.query.model).toBe(CLASSIFIER_LUNA_MODEL);
+    expect(call.data.query.state.image).toEqual(req.state.image);
+    expect(Object.keys(call.data.query.questions as object)).toEqual(["kind", "surface", "screen"]);
+    expect(call.options.gateway?.skipCache).toBe(true);
+  });
+
+  it("does not run a describe stage", async () => {
+    const run = openRouterLunaClassifierRun(env({ OPENROUTER_API_KEY: "k" }));
+    await expect(run({ stage: "describe", model: "x", prompt: "p" })).rejects.toThrow(/describe/);
+  });
+
+  it("throws when the key is missing or the gateway is not ok", async () => {
+    await expect(
+      openRouterLunaClassifierRun(env({ OPENROUTER_API_KEY: "  " }))(req),
+    ).rejects.toThrow(/OPENROUTER_API_KEY/);
+    const run = openRouterLunaClassifierRun(
+      env({
+        OPENROUTER_API_KEY: "k",
+        AI: {
+          gateway: () => ({
+            run: async () => new Response("nope", { status: 502 }),
+          }),
+        },
+      }),
+    );
+    await expect(run(req)).rejects.toThrow(/502/);
   });
 });
 

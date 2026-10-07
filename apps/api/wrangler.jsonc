@@ -134,12 +134,16 @@
     "binding": "MEDIA",
     "remote": true,
   },
-  // Workers AI (experimental file classifier). Two models run per upload:
-  // `@cf/meta/llama-3.2-11b-vision-instruct` describes a raster image, and
-  // `typesafe/jev` picks the closed enums. Requests go through AI Gateway
-  // (`AI_GATEWAY_ID` var, default `uploads-classifier`). An absent binding
-  // is a hard off switch (`classificationAllowed`). Self-hosters can delete
-  // this block; classification simply stays off.
+  // Workers AI (experimental file classifier). The default path runs two
+  // models per raster upload: `@cf/meta/llama-3.2-11b-vision-instruct`
+  // describes the image, and `typesafe/jev` picks the closed enums. An
+  // optional Luna try (`CLASSIFIER_PROVIDER=luna` or Flagship
+  // `llm-file-classifier-luna`) calls OpenRouter
+  // `openai/gpt-6-luna-decisions` through the same gateway instead.
+  // Requests go through AI Gateway (`AI_GATEWAY_ID` var, default
+  // `uploads-classifier`). An absent binding is a hard off switch
+  // (`classificationAllowed`). Self-hosters can delete this block;
+  // classification simply stays off.
   "ai": {
     "binding": "AI",
   },

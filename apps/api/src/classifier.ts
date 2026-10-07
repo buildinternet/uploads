@@ -11,7 +11,7 @@
  * does not block. Fail-open: classifier errors never fail the upload.
  * Presigned (`POST /sign`) uploads never reach this hook.
  *
- * Two stages (`ai.classifier=v3`):
+ * Default path, two stages (`ai.classifier=v3`):
  *
  * 1. **describe** — a vision model looks at a raster image under the size
  *    cap and returns free-text `description`, `tags`, and `summary`. Every
@@ -23,6 +23,15 @@
  *
  * Stage 1 is advisory: when it throws, stage 2 still runs on the file facts
  * alone. When stage 2 throws, the classifier writes nothing.
+ *
+ * Optional Luna path (`ai.classifier=v4`): `CLASSIFIER_PROVIDER=luna` or
+ * Flagship `llm-file-classifier-luna` (default off) selects
+ * `openai/gpt-6-luna-decisions` on OpenRouter. One Decisions call answers
+ * the same closed enums. Raster images under the same cap go in `state`
+ * as an inline image, and stage 1 does not run. Other files send the text
+ * state only. Luna does not write `ai.tags` or `ai.summary` — Decisions
+ * models only answer closed questions. Unset provider and a flag that is
+ * off keep the Jev hybrid.
  */
 
 import { setServerFileMetadata } from "./file-metadata";
@@ -33,8 +42,20 @@ import type { WorkspaceRecord } from "./workspace";
 /** Flagship flag. Default `false`; evaluation errors are treated as off. */
 export const CLASSIFIER_FLAG = "llm-file-classifier";
 
-/** Written to `ai.classifier` so agents can tell schema versions apart. */
+/**
+ * Flagship flag that selects the Luna Decisions try for one workspace.
+ * Default `false`. Evaluation errors stay on the Jev hybrid path.
+ */
+export const CLASSIFIER_LUNA_FLAG = "llm-file-classifier-luna";
+
+/** Written to `ai.classifier` on the default Jev hybrid path. */
 export const CLASSIFIER_VERSION = "v3";
+
+/**
+ * Written to `ai.classifier` when Luna Decisions runs, so a try is distinct
+ * from the Jev hybrid in stored metadata.
+ */
+export const CLASSIFIER_LUNA_VERSION = "v4";
 
 /** Vision-capable Workers AI model for raster images (stage 1). */
 export const CLASSIFIER_VISION_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
@@ -44,6 +65,27 @@ export const CLASSIFIER_VISION_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
  * calibrated confidence. Input-token priced; output tokens are free.
  */
 export const CLASSIFIER_DECISION_MODEL = "typesafe/jev";
+
+/**
+ * OpenRouter model id for the Luna try. Vision-capable Decisions model:
+ * text and image in, closed answers out.
+ */
+export const CLASSIFIER_LUNA_MODEL = "openai/gpt-6-luna-decisions";
+
+/**
+ * Path under the AI Gateway OpenRouter provider.
+ *
+ * Cloudflare's OpenRouter cURL maps
+ * `…/openrouter/v1/chat/completions` to
+ * `https://openrouter.ai/api/v1/chat/completions`, so the provider root is
+ * `https://openrouter.ai/api/`. Decisions is
+ * `POST https://openrouter.ai/api/alpha/decisions`.
+ */
+export const OPENROUTER_DECISIONS_ENDPOINT = "alpha/decisions";
+
+/** Decision provider. `jev` is the default hybrid. `luna` is the try. */
+export const CLASSIFIER_PROVIDERS = ["jev", "luna"] as const;
+export type ClassifierProvider = (typeof CLASSIFIER_PROVIDERS)[number];
 
 /** Skip vision on images larger than this — cost/latency cap. */
 export const CLASSIFIER_MAX_IMAGE_BYTES = 512 * 1024;
@@ -148,11 +190,31 @@ export interface JevChoiceQuestion {
   criteria: Record<string, string>;
 }
 
+/**
+ * OpenAI Decisions image part. The native API puts this in `input` as
+ * `{ type: "input_image", image_url: "data:<mime>;base64,…" }` and rejects
+ * hosted URLs. OpenRouter Decisions has no separate image field — `state`
+ * is a string, object, or array — and the Luna catalog modality is
+ * `text+image -> decisions`. The Luna path nests this part on `state.image`.
+ */
+export interface LunaImagePart {
+  type: "input_image";
+  image_url: string;
+}
+
+/**
+ * Text facts plus an optional inline image. Only the Luna path sets `image`.
+ * The Jev path keeps `ClassifierState`, which never carries bytes.
+ */
+export interface LunaDecisionState extends ClassifierState {
+  image?: LunaImagePart;
+}
+
 /** Stage 2: closed-enum decision over the facts gathered so far. */
 export interface ClassifierDecideRequest {
   stage: "decide";
   model: string;
-  state: ClassifierState;
+  state: LunaDecisionState;
   questions: Record<string, JevChoiceQuestion>;
 }
 
@@ -220,6 +282,42 @@ export async function classificationAllowed(
 export function classifierGatewayId(env: Env): string {
   const id = env.AI_GATEWAY_ID?.trim();
   return id && id.length > 0 ? id : "uploads-classifier";
+}
+
+/**
+ * `CLASSIFIER_PROVIDER` when it is `jev` or `luna`. Anything else (unset,
+ * blank, unknown) defers to the Luna flag.
+ */
+export function classifierProviderFromEnv(
+  value: string | undefined,
+): ClassifierProvider | undefined {
+  const trimmed = value?.trim().toLowerCase();
+  if (trimmed === "luna" || trimmed === "jev") return trimmed;
+  return undefined;
+}
+
+/**
+ * Which decision model to run. An explicit env pin wins, so a try can be
+ * forced on or pinned back to Jev without waiting on Flagship. Otherwise
+ * `llm-file-classifier-luna` may select Luna for one workspace. A missing
+ * flag or a thrown evaluation stays on Jev — the default path must not
+ * move because Flagship blipped.
+ */
+export async function resolveClassifierProvider(
+  env: Env,
+  ws: Pick<WorkspaceRecord, "name">,
+  workspaceName: string,
+): Promise<ClassifierProvider> {
+  const pinned = classifierProviderFromEnv(env.CLASSIFIER_PROVIDER);
+  if (pinned) return pinned;
+  if (!env.FLAGS) return "jev";
+  try {
+    const context = classifierEvaluationContext(ws, workspaceName);
+    if (await env.FLAGS.getBooleanValue(CLASSIFIER_LUNA_FLAG, false, context)) return "luna";
+  } catch {
+    return "jev";
+  }
+  return "jev";
 }
 
 /**
@@ -317,6 +415,58 @@ export function buildDecideRequest(state: ClassifierState): ClassifierDecideRequ
     state,
     questions: buildClassifierQuestions(),
   };
+}
+
+/**
+ * Inline image for Luna, or `undefined` when a pixel pass adds nothing.
+ * Same raster types and size cap as stage 1, so SVG and oversized images
+ * never attach bytes.
+ */
+export function buildLunaImagePart(
+  contentType: string,
+  bytes: Uint8Array,
+): LunaImagePart | undefined {
+  if (!VISION_TYPES.has(contentType)) return undefined;
+  if (bytes.byteLength === 0 || bytes.byteLength > CLASSIFIER_MAX_IMAGE_BYTES) return undefined;
+  return {
+    type: "input_image",
+    image_url: `data:${contentType};base64,${bytesToBase64(bytes)}`,
+  };
+}
+
+/**
+ * Facts Luna decides from. Images under the cap include the pixels in
+ * `state.image`. Everything else is the same text state stage 2 already
+ * builds, with no stage-1 description.
+ */
+export function buildLunaDecisionState(
+  key: string,
+  contentType: string,
+  bytes: Uint8Array,
+): LunaDecisionState {
+  const state = buildClassifierState(key, contentType, bytes);
+  const image = buildLunaImagePart(contentType, bytes);
+  if (!image) return state;
+  return { ...state, image };
+}
+
+export function buildLunaDecideRequest(state: LunaDecisionState): ClassifierDecideRequest {
+  return {
+    stage: "decide",
+    model: CLASSIFIER_LUNA_MODEL,
+    state,
+    questions: buildClassifierQuestions(),
+  };
+}
+
+/** Base64 without spreading the whole buffer into one `fromCharCode` call. */
+function bytesToBase64(bytes: Uint8Array): string {
+  const chunkSize = 0x8000;
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+  }
+  return btoa(binary);
 }
 
 function isSafeTextExcerptType(contentType: string): boolean {
@@ -508,6 +658,47 @@ export function workersAiClassifierRun(env: Env): ClassifierRun {
   };
 }
 
+/**
+ * Luna runner: one OpenRouter Decisions call through the same AI Gateway
+ * the Jev path already uses. The model is not in the Workers AI catalog,
+ * so this uses `env.AI.gateway().run` (provider `openrouter`) instead of
+ * `env.AI.run`. Does not log image bytes, data URLs, or the API key.
+ */
+export function openRouterLunaClassifierRun(env: Env): ClassifierRun {
+  return async (req) => {
+    if (req.stage !== "decide") {
+      throw new Error("luna decisions does not run a describe stage");
+    }
+    const apiKey = env.OPENROUTER_API_KEY?.trim();
+    if (!apiKey) throw new Error("OPENROUTER_API_KEY missing");
+    if (!env.AI) throw new Error("AI binding missing");
+
+    const gatewayId = classifierGatewayId(env);
+    const response = await env.AI.gateway(gatewayId).run(
+      {
+        provider: "openrouter",
+        endpoint: OPENROUTER_DECISIONS_ENDPOINT,
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        query: {
+          model: req.model,
+          state: req.state,
+          questions: req.questions,
+        },
+      },
+      // `id` is required by the generated options type. The binding call
+      // above already selects the gateway; skipCache matches the Jev path.
+      { gateway: { id: gatewayId, skipCache: true } },
+    );
+    if (!response.ok) {
+      throw new Error(`openrouter decisions failed: ${response.status}`);
+    }
+    return response.json();
+  };
+}
+
 /** Stage 1, best effort. A throw or an unusable reply is not fatal. */
 async function describeFile(
   run: ClassifierRun,
@@ -527,7 +718,25 @@ async function runClassifierPipeline(
   bytes: Uint8Array,
   contentType: string,
   minConfidence: number,
+  provider: ClassifierProvider,
 ): Promise<Record<string, string> | undefined> {
+  if (provider === "luna") {
+    const state = buildLunaDecisionState(key, contentType, bytes);
+    const decided = parseJevAnswers(await run(buildLunaDecideRequest(state)), { minConfidence });
+    const meta: Record<string, string> = {
+      "ai.classifier": CLASSIFIER_LUNA_VERSION,
+      ...decided?.meta,
+    };
+    if (Object.keys(meta).length === 1) return undefined;
+    console.log({
+      event: "classifier_decided",
+      provider: "luna",
+      model: CLASSIFIER_LUNA_MODEL,
+      confidences: decided?.confidences ?? {},
+    });
+    return meta;
+  }
+
   const describeRequest = buildDescribeRequest(key, contentType, bytes);
   const described = describeRequest ? await describeFile(run, describeRequest) : undefined;
 
@@ -544,6 +753,7 @@ async function runClassifierPipeline(
   if (Object.keys(meta).length === 1) return undefined;
   console.log({
     event: "classifier_decided",
+    provider: "jev",
     model: CLASSIFIER_DECISION_MODEL,
     confidences: decided?.confidences ?? {},
   });
@@ -561,13 +771,16 @@ export async function classifyAndStore(
 ): Promise<Record<string, string> | undefined> {
   try {
     if (!(await classificationAllowed(env, ws, workspaceName))) return undefined;
-    const run = deps?.run ?? workersAiClassifierRun(env);
+    const provider = await resolveClassifierProvider(env, ws, workspaceName);
+    const run =
+      deps?.run ??
+      (provider === "luna" ? openRouterLunaClassifierRun(env) : workersAiClassifierRun(env));
     const timeoutMs = deps?.timeoutMs ?? CLASSIFIER_TIMEOUT_MS;
     const minConfidence = deps?.minConfidence ?? CLASSIFIER_MIN_CONFIDENCE;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    // One deadline for both stages, not one per call.
+    // One deadline for the whole pipeline, not one per call.
     const meta = await Promise.race([
-      runClassifierPipeline(run, key, bytes, contentType, minConfidence),
+      runClassifierPipeline(run, key, bytes, contentType, minConfidence, provider),
       new Promise<never>((_, reject) => {
         timer = setTimeout(() => reject(new Error("classifier timed out")), timeoutMs);
       }),
