@@ -18,7 +18,13 @@ import {
   type FileScope,
   type WorkspaceScope,
 } from "./auth-db";
-import { parseCliUserAgent, principalFromAuth, scheduleClientActivity } from "./client-activity";
+import {
+  type ClientPrincipal,
+  legacyClientPrincipal,
+  parseCliUserAgent,
+  recordClient,
+  tokenClientPrincipal,
+} from "./client-activity";
 import { dbFor } from "./db-session";
 import { writeSlowOpPoint } from "./slow-op-analytics";
 import { type UploaderIdentity, userUploaderIdentity } from "./uploader-identity";
@@ -457,6 +463,8 @@ export type WorkspaceVars = {
      * `mintingUserIdOf` when only the user id matters.
      */
     uploaderIdentity: UploaderIdentity;
+    /** Credential identity for client-activity rows (client-activity.ts); unset on session auth. */
+    clientPrincipal?: ClientPrincipal;
   };
   Bindings: Env;
 };
@@ -715,6 +723,10 @@ function workspaceAuthWith(
     c.set("authScopes", d1Token ? parseScopes(d1Token.scopes) : [...FILE_SCOPES]);
     c.set("authSource", d1Token ? "d1" : "legacy");
     c.set("authPrincipal", d1Token ? `d1-token:${d1Token.id}` : `legacy-token:${providedHash}`);
+    c.set(
+      "clientPrincipal",
+      d1Token ? tokenClientPrincipal(d1Token) : legacyClientPrincipal(providedHash),
+    );
     // Uploader attribution (issues #340, #1026) — `none` for legacy/enrollment tokens.
     c.set("uploaderIdentity", uploaderIdentityOf(d1Token));
     if (d1Token) {
@@ -733,12 +745,7 @@ function workspaceAuthWith(
       }
     }
     const client = parseCliUserAgent(c.req.header("User-Agent"));
-    const principal = client
-      ? principalFromAuth(c.get("authPrincipal"), d1Token?.minting_user_id ?? null)
-      : null;
-    if (client && principal) {
-      await scheduleClientActivity(c, dbFor(c.env), { ...principal, ...client, workspace: name });
-    }
+    if (client) await recordClient(c, client);
     await next();
   };
 }

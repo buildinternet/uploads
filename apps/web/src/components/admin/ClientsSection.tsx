@@ -3,16 +3,10 @@
  * credential last used (all time), with an outdated badge against the
  * published CLI. Read-only; the cross-workspace view is /admin/clients.
  */
-import { Badge } from "@uploads/ui/components/ui/badge";
 import type { AdminApi } from "../../lib/admin-api";
-import {
-  clientLabel,
-  clientOwnerLabel,
-  fetchLatestCliVersion,
-  surfaceLabel,
-} from "../../lib/admin-clients";
+import { clientLabel, fetchLatestCliVersion, surfaceLabel } from "../../lib/admin-clients";
 import { formatDate } from "../../lib/subscription-copy";
-import { ClientVersion } from "./ClientVersion";
+import { ClientOwner, ClientVersion } from "./ClientVersion";
 import { Muted, SectionHeading } from "./StatusLine";
 import { useAdminResource } from "./use-admin-resource";
 
@@ -42,10 +36,7 @@ export function ClientsSection({ api, workspace }: { api: AdminApi; workspace: s
               className="grid gap-0.5 text-(length:--text-micro) text-body"
             >
               <div className="flex items-center justify-between gap-2">
-                <span className="flex min-w-0 items-center gap-1.5">
-                  <span className="truncate">{clientOwnerLabel(row)}</span>
-                  {row.serviceToken ? <Badge variant="secondary">service</Badge> : null}
-                </span>
+                <ClientOwner row={row} />
                 <ClientVersion row={row} latest={latest} />
               </div>
               <div className="text-muted-foreground">

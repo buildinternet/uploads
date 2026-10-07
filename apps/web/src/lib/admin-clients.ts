@@ -6,10 +6,10 @@
 import type { AdminClientActivity } from "./admin-api";
 import { isNewerVersion, parseSemver } from "./cli-upgrade";
 
-export type ClientVersionStatus = "current" | "outdated" | "unknown";
+type ClientVersionStatus = "current" | "outdated" | "unknown";
 
 /** Surfaces that run our npm package, so their version can be outdated. */
-export function runsCliPackage(row: Pick<AdminClientActivity, "surface">): boolean {
+function runsCliPackage(row: Pick<AdminClientActivity, "surface">): boolean {
   return row.surface === "cli" || row.surface === "mcp-local";
 }
 
@@ -27,7 +27,7 @@ export function clientVersionStatus(
   return isNewerVersion(latest, row.clientVersion) ? "outdated" : "current";
 }
 
-export const SURFACE_LABELS: Record<string, string> = {
+const SURFACE_LABELS: Record<string, string> = {
   cli: "CLI",
   "mcp-local": "Local MCP",
   "mcp-remote": "Hosted MCP",
@@ -58,7 +58,7 @@ export function clientLabel(row: Pick<AdminClientActivity, "clientName" | "surfa
   return row.clientName ?? "unknown";
 }
 
-export interface ClientsSummary {
+interface ClientsSummary {
   /** CLI / local-MCP rows with a known status. */
   tracked: number;
   outdated: number;
@@ -79,18 +79,26 @@ export function summarizeClients(
   return { tracked, outdated };
 }
 
+let latestCliVersion: Promise<string | null> | undefined;
+
 /**
  * Published CLI version from the same-origin `/cli-version.json` (cached at
- * the edge; see pages/cli-version.json.ts). Null when npm is unreachable —
- * the views then show versions without an outdated judgment.
+ * the edge; see pages/cli-version.json.ts), fetched once per page and shared
+ * by the Clients table and every drawer. Null when npm is unreachable (the
+ * next call retries) — the views then show versions without an outdated
+ * judgment.
  */
-export async function fetchLatestCliVersion(): Promise<string | null> {
-  try {
-    const res = await fetch("/cli-version.json");
-    if (!res.ok) return null;
-    const body = (await res.json()) as { latest?: unknown };
-    return typeof body.latest === "string" && body.latest.trim() ? body.latest.trim() : null;
-  } catch {
-    return null;
-  }
+export function fetchLatestCliVersion(): Promise<string | null> {
+  latestCliVersion ??= fetch("/cli-version.json")
+    .then(async (res) => {
+      if (!res.ok) return null;
+      const body = (await res.json()) as { latest?: unknown };
+      return typeof body.latest === "string" && body.latest.trim() ? body.latest.trim() : null;
+    })
+    .catch(() => null)
+    .then((latest) => {
+      if (latest === null) latestCliVersion = undefined;
+      return latest;
+    });
+  return latestCliVersion;
 }

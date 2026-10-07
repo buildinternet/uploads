@@ -9,7 +9,6 @@
  * mechanism as AdminWorkspacesTable.
  */
 import { useEffect, useMemo, useState } from "react";
-import { Badge } from "@uploads/ui/components/ui/badge";
 import { Checkbox } from "@uploads/ui/components/ui/checkbox";
 import {
   Table,
@@ -24,14 +23,13 @@ import { IslandErrorBoundary } from "../IslandErrorBoundary";
 import { makeAdminApi, type AdminClientActivity } from "../../lib/admin-api";
 import {
   clientLabel,
-  clientOwnerLabel,
   clientVersionStatus,
   fetchLatestCliVersion,
   summarizeClients,
   surfaceLabel,
 } from "../../lib/admin-clients";
 import { formatAdminDate } from "../../lib/admin-ui";
-import { ClientVersion } from "./ClientVersion";
+import { ClientOwner, ClientVersion } from "./ClientVersion";
 import { SELECT_SM } from "./field-classes";
 
 export interface AdminClientsTableProps {
@@ -152,10 +150,7 @@ function AdminClientsTableInner({ apiOrigin }: AdminClientsTableProps) {
                 <TableRow key={`${row.workspace}|${row.principal}|${row.surface}`}>
                   <TableCell className="font-mono">{row.workspace}</TableCell>
                   <TableCell>
-                    <span className="inline-flex items-center gap-1.5">
-                      <span className="truncate">{clientOwnerLabel(row)}</span>
-                      {row.serviceToken ? <Badge variant="secondary">service</Badge> : null}
-                    </span>
+                    <ClientOwner row={row} />
                   </TableCell>
                   <TableCell className="text-muted-foreground">
                     {surfaceLabel(row.surface)}

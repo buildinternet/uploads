@@ -8,14 +8,14 @@
 
 import { describe, expect, it } from "vitest";
 import {
-  CLIENT_ACTIVITY_TOUCH_SECONDS,
   clientActivityResponse,
+  legacyClientPrincipal,
   listClientActivity,
+  mcpClientInfo,
   parseCliUserAgent,
-  parseMcpClientInfo,
-  principalFromAuth,
   recordClientActivity,
-  type ClientActivityInput,
+  tokenClientPrincipal,
+  userClientPrincipal,
 } from "../src/client-activity";
 import { database, SqliteD1 } from "./helpers/sqlite-d1";
 
@@ -33,6 +33,9 @@ function setup() {
   return { sqlite, db: database(sqlite) };
 }
 
+const TOUCH_SECONDS = 60 * 60;
+type ClientActivityInput = Parameters<typeof recordClientActivity>[1];
+
 const T0 = new Date("2026-10-07T12:00:00.000Z");
 const at = (seconds: number) => new Date(T0.getTime() + seconds * 1000);
 
@@ -41,7 +44,7 @@ function cliInput(overrides: Partial<ClientActivityInput> = {}): ClientActivityI
     workspace: "acme",
     principal: "token:tok-1",
     tokenId: "tok-1",
-    userId: null,
+    userId: "u1",
     surface: "cli",
     clientName: "@buildinternet/uploads",
     clientVersion: "1.2.0",
@@ -77,57 +80,40 @@ describe("parseCliUserAgent", () => {
   });
 });
 
-describe("parseMcpClientInfo", () => {
-  it("reads clientInfo from a 2025-era initialize", () => {
-    expect(
-      parseMcpClientInfo({
-        jsonrpc: "2.0",
-        id: 1,
-        method: "initialize",
-        params: { clientInfo: { name: "claude-code", version: "2.1.0" } },
-      }),
-    ).toEqual({ surface: "mcp-remote", clientName: "claude-code", clientVersion: "2.1.0" });
+describe("mcpClientInfo", () => {
+  it("reads an MCP host's name and version", () => {
+    expect(mcpClientInfo({ name: "claude-code", version: "2.1.0" })).toEqual({
+      surface: "mcp-remote",
+      clientName: "claude-code",
+      clientVersion: "2.1.0",
+    });
+    expect(mcpClientInfo({ name: "cursor" })?.clientVersion).toBeNull();
   });
 
-  it("prefers the per-request _meta clientInfo", () => {
-    expect(
-      parseMcpClientInfo({
-        method: "tools/call",
-        params: {
-          name: "put",
-          _meta: { "io.modelcontextprotocol/clientInfo": { name: "cursor", version: "1.0" } },
-        },
-      }),
-    ).toEqual({ surface: "mcp-remote", clientName: "cursor", clientVersion: "1.0" });
-  });
-
-  it("rejects bodies without a usable name", () => {
-    expect(parseMcpClientInfo(null)).toBeNull();
-    expect(parseMcpClientInfo([{ method: "initialize" }])).toBeNull();
-    expect(parseMcpClientInfo({ method: "tools/list", params: {} })).toBeNull();
-    expect(parseMcpClientInfo({ params: { clientInfo: { name: "\u0000 " } } })).toBeNull();
+  it("rejects values without a usable name", () => {
+    expect(mcpClientInfo(undefined)).toBeNull();
+    expect(mcpClientInfo("claude-code")).toBeNull();
+    expect(mcpClientInfo({ name: "\u0000 " })).toBeNull();
   });
 });
 
-describe("principalFromAuth", () => {
-  it("maps each auth lane to a row identity", () => {
-    expect(principalFromAuth("d1-token:abc", "u1")).toEqual({
+describe("client principals", () => {
+  it("builds one row identity per auth lane", () => {
+    expect(tokenClientPrincipal({ id: "abc", minting_user_id: "u1" })).toEqual({
       principal: "token:abc",
       tokenId: "abc",
       userId: "u1",
     });
-    expect(principalFromAuth(`legacy-token:${"f".repeat(64)}`, null)).toEqual({
+    expect(legacyClientPrincipal("f".repeat(64))).toEqual({
       principal: "legacy:ffffffff",
       tokenId: null,
       userId: null,
     });
-    expect(principalFromAuth("oauth-user:u2", null)).toEqual({
+    expect(userClientPrincipal("u2")).toEqual({
       principal: "user:u2",
       tokenId: null,
       userId: "u2",
     });
-    expect(principalFromAuth(undefined, null)).toBeNull();
-    expect(principalFromAuth("something-else:x", null)).toBeNull();
   });
 });
 
@@ -152,7 +138,7 @@ describe("recordClientActivity", () => {
     const { sqlite, db } = setup();
     try {
       await recordClientActivity(db, cliInput(), T0);
-      const later = at(CLIENT_ACTIVITY_TOUCH_SECONDS + 1);
+      const later = at(TOUCH_SECONDS + 1);
       await recordClientActivity(db, cliInput(), later);
       const [row] = await rows(sqlite);
       expect(row).toMatchObject({
@@ -202,7 +188,12 @@ describe("listClientActivity", () => {
       await recordClientActivity(db, cliInput(), T0);
       await recordClientActivity(
         db,
-        cliInput({ principal: "token:tok-2", tokenId: "tok-2", clientVersion: "1.0.0" }),
+        cliInput({
+          principal: "token:tok-2",
+          tokenId: "tok-2",
+          userId: null,
+          clientVersion: "1.0.0",
+        }),
         at(10),
       );
       await recordClientActivity(
@@ -220,7 +211,6 @@ describe("listClientActivity", () => {
           principal: "token:tok-1",
           tokenLabel: "laptop",
           serviceToken: false,
-          userId: "u1",
           email: "ada@example.com",
         },
       ]);

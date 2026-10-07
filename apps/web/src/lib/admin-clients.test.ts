@@ -13,13 +13,11 @@ function row(overrides: Partial<AdminClientActivity> = {}): AdminClientActivity 
     workspace: "acme",
     principal: "token:tok-1",
     surface: "cli",
-    userId: "u1",
     email: "ada@example.com",
     tokenLabel: "laptop",
     serviceToken: false,
     clientName: "@buildinternet/uploads",
     clientVersion: "1.2.0",
-    firstSeenAt: "2026-10-01T00:00:00.000Z",
     lastSeenAt: "2026-10-07T00:00:00.000Z",
     ...overrides,
   };

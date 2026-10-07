@@ -15,6 +15,7 @@ import {
   type McpServer,
 } from "@buildinternet/uploads/mcp";
 import {
+  CLIENT_INFO_META_KEY,
   createMcpHandler,
   isLegacyRequest,
   WebStandardStreamableHTTPServerTransport,
@@ -34,12 +35,8 @@ import {
   workspaceAuth,
   type WorkspaceVars,
 } from "@uploads/api/workspace";
-import { mintingUserIdOf, userUploaderIdentity } from "@uploads/api/uploader-identity";
-import {
-  parseMcpClientInfo,
-  principalFromAuth,
-  scheduleClientActivity,
-} from "@uploads/api/client-activity";
+import { userUploaderIdentity } from "@uploads/api/uploader-identity";
+import { mcpClientInfo, recordClient, userClientPrincipal } from "@uploads/api/client-activity";
 import { protectedResourceMetadata, requestOrigin } from "@uploads/api/well-known";
 import { Hono, type Context, type Next } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
@@ -155,9 +152,7 @@ async function oauthAuth(
   // `workspaceAuth` set the same var from `up_` tokens' `minting_user_id`.
   const sub = typeof verified.raw.sub === "string" ? verified.raw.sub : null;
   c.set("uploaderIdentity", userUploaderIdentity(sub));
-  // Client-activity row identity (one row per user per workspace); nothing
-  // on this worker keys idempotency off it.
-  if (sub) c.set("authPrincipal", `oauth-user:${sub}`);
+  if (sub) c.set("clientPrincipal", userClientPrincipal(sub));
   return null;
 }
 
@@ -262,34 +257,24 @@ const CLIENT_INFO_MAX_BODY_BYTES = 64 * 1024;
 
 /**
  * Records the MCP host's clientInfo for this credential (`client_activity`,
- * surface `mcp-remote`). Reads a clone of the body so the transport still
- * gets the original; skips large bodies rather than parse megabytes of
- * base64 — a 2026-era client repeats clientInfo on every request, so the next
- * small one records it.
+ * surface `mcp-remote`): `params.clientInfo` on a 2025-era `initialize`, or
+ * the `_meta` key the 2026-07-28 protocol repeats on every request. Reads a
+ * clone of the body so the transport still gets the original, and skips
+ * large bodies rather than parse megabytes of base64.
  */
 async function recordMcpClient(c: Context<WorkspaceVars>): Promise<void> {
   const declared = c.req.header("Content-Length");
   if (declared !== undefined && !(Number(declared) <= CLIENT_INFO_MAX_BODY_BYTES)) return;
-  let body: unknown;
+  let params: { clientInfo?: unknown; _meta?: Record<string, unknown> } | undefined;
   try {
     const text = await c.req.raw.clone().text();
-    if (text.length > CLIENT_INFO_MAX_BODY_BYTES) return;
-    body = JSON.parse(text);
+    if (text.length > CLIENT_INFO_MAX_BODY_BYTES || !text.includes("clientInfo")) return;
+    params = (JSON.parse(text) as { params?: typeof params } | null)?.params;
   } catch {
     return;
   }
-  const client = parseMcpClientInfo(body);
-  if (!client) return;
-  const principal = principalFromAuth(
-    c.get("authPrincipal"),
-    mintingUserIdOf(c.get("uploaderIdentity")),
-  );
-  if (!principal) return;
-  await scheduleClientActivity(c, c.env.DB, {
-    ...principal,
-    ...client,
-    workspace: c.get("workspaceName"),
-  });
+  const client = mcpClientInfo(params?._meta?.[CLIENT_INFO_META_KEY] ?? params?.clientInfo);
+  if (client) await recordClient(c, client);
 }
 
 function respondError(c: Context, err: unknown): Response {
