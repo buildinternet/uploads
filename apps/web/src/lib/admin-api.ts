@@ -16,6 +16,7 @@
  * a compile error, never a silent shape mismatch.
  */
 import type {
+  AdminClientActivity,
   AdminGithubLink,
   AdminLimitsResponse,
   AdminPlanResponse,
@@ -29,6 +30,7 @@ import type {
 import { trimOrigin } from "./api-client";
 
 export type {
+  AdminClientActivity,
   AdminGithubLink,
   AdminLimitsResponse,
   AdminPlanResponse,
@@ -68,6 +70,8 @@ export interface AdminApi {
   saveStorage(workspace: string, byoBucketEnabled: boolean): Promise<AdminStorageResponse>;
   getGithubLinks(workspace: string): Promise<AdminGithubLink[]>;
   getTokens(workspace: string): Promise<AdminTokenRow[]>;
+  /** Client activity (CLI / MCP versions), newest first; `days: 0` = all time. */
+  listClients(opts?: { workspace?: string; days?: number }): Promise<AdminClientActivity[]>;
   getInviteLinks(workspace: string): Promise<OpenEnrollment[]>;
   createInviteLink(workspace: string, body: { label?: string; scopes: string[] }): Promise<string>;
   revokeInviteLink(workspace: string, id: string): Promise<void>;
@@ -169,6 +173,17 @@ export function makeAdminApi(apiOrigin: string): AdminApi {
         "load tokens failed",
       );
       return tokens;
+    },
+    async listClients(opts = {}) {
+      const params = new URLSearchParams();
+      if (opts.workspace) params.set("workspace", opts.workspace);
+      if (opts.days !== undefined) params.set("days", String(opts.days));
+      const query = params.toString() ? `?${params.toString()}` : "";
+      const { clients } = await get<{ clients: AdminClientActivity[] }>(
+        `${base}/admin-ui/clients${query}`,
+        "load clients failed",
+      );
+      return clients;
     },
     async getInviteLinks(workspace) {
       const { links } = await get<{ links: OpenEnrollment[] }>(

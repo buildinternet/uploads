@@ -152,6 +152,7 @@ async function makeEnv(
   env: Env;
   bucket: FakeR2Bucket;
   metadata: Map<string, Map<string, string>>;
+  clientActivity: unknown[][];
 }> {
   const record: WorkspaceRecord = {
     ...workspace,
@@ -163,6 +164,7 @@ async function makeEnv(
   // real enough to exercise putObject's file_metadata read/write/delete path
   // (see apps/api/test/routes-files.test.ts's makeFakeDB for the fuller version).
   const metadata = new Map<string, Map<string, string>>();
+  const clientActivity: unknown[][] = [];
   const scopeKey = (ws: string, objectKey: string) => `${ws} ${objectKey}`;
   const env = {
     REGISTRY: {
@@ -198,7 +200,9 @@ async function makeEnv(
             return null;
           },
           async run() {
-            if (normalized.startsWith("INSERT INTO file_metadata")) {
+            if (normalized.startsWith("INSERT INTO client_activity")) {
+              clientActivity.push(values);
+            } else if (normalized.startsWith("INSERT INTO file_metadata")) {
               const [ws, objectKey, key, value] = values as [string, string, string, string];
               const map = metadata.get(scopeKey(ws, objectKey)) ?? new Map<string, string>();
               map.set(key, value);
@@ -370,7 +374,7 @@ async function makeEnv(
       ? {}
       : { OPENAI_APPS_CHALLENGE: options.openaiAppsChallenge }),
   } as unknown as Env;
-  return { env, bucket, metadata };
+  return { env, bucket, metadata, clientActivity };
 }
 
 async function makeGalleryEnv(): Promise<{ env: Env; bucket: FakeR2Bucket }> {
@@ -703,6 +707,29 @@ describe("mcp worker", () => {
     expect(body.result.serverInfo.title).toBe("uploads.sh");
     expect(body.result.serverInfo.websiteUrl).toBe("https://uploads.sh");
     expect(body.result.serverInfo.icons?.[0]?.src).toBe("https://uploads.sh/apple-touch-icon.png");
+  });
+
+  it("records the MCP host's clientInfo against the credential", async () => {
+    const { env, clientActivity } = await makeEnv();
+    await rpc(env, {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: {
+        protocolVersion: "2025-06-18",
+        capabilities: {},
+        clientInfo: { name: "claude-code", version: "2.1.0" },
+      },
+    });
+    expect(clientActivity).toHaveLength(1);
+    const [ws, principal, surface, , , name, version] = clientActivity[0]!;
+    expect({ ws, surface, name, version }).toEqual({
+      ws: "test-ws",
+      surface: "mcp-remote",
+      name: "claude-code",
+      version: "2.1.0",
+    });
+    expect(principal).toMatch(/^legacy:[0-9a-f]{8}$/);
   });
 
   it("lists exactly the remote tools", async () => {

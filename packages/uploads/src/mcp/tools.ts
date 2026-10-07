@@ -243,7 +243,9 @@ export function createUploadsMcpTools(opts: {
 }): McpTool[] {
   const { globals } = opts;
   const run = opts.runner ?? execRunner;
-  const clientFactory = opts.clientFactory ?? createUploadsClient;
+  const clientFactory =
+    opts.clientFactory ??
+    ((config: UploadsClientConfig) => createUploadsClient(config, { surface: "mcp" }));
 
   async function clientFor(
     args: ToolArgs,

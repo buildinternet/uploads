@@ -18,6 +18,7 @@ import {
   type FileScope,
   type WorkspaceScope,
 } from "./auth-db";
+import { parseCliUserAgent, principalFromAuth, scheduleClientActivity } from "./client-activity";
 import { dbFor } from "./db-session";
 import { writeSlowOpPoint } from "./slow-op-analytics";
 import { type UploaderIdentity, userUploaderIdentity } from "./uploader-identity";
@@ -730,6 +731,13 @@ function workspaceAuthWith(
       } finally {
         appendServerTiming(c, touchTiming);
       }
+    }
+    const client = parseCliUserAgent(c.req.header("User-Agent"));
+    const principal = client
+      ? principalFromAuth(c.get("authPrincipal"), d1Token?.minting_user_id ?? null)
+      : null;
+    if (client && principal) {
+      await scheduleClientActivity(c, dbFor(c.env), { ...principal, ...client, workspace: name });
     }
     await next();
   };
