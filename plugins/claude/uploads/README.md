@@ -75,7 +75,9 @@ matcher.
 
 The script runs the locally installed `uploads` CLI
 (`uploads hook pre-pr-screenshot`). If the CLI is not installed or not signed
-in, the hook does nothing. Set `UPLOADS_HOOK_DISABLE=1` to turn it off.
+in, the hook does nothing. Set `UPLOADS_HOOK_DISABLE=1` to turn it off. The
+hook resolves the plugin root from `GROK_PLUGIN_ROOT`, then `PLUGIN_ROOT`
+(Codex), then `CLAUDE_PLUGIN_ROOT`.
 
 `hooks/register.tsx` is a separate Claude Code mod. It draws staged
 attachments above the prompt. It is not part of the portable hooks contract.
