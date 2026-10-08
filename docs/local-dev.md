@@ -19,16 +19,16 @@ pnpm typecheck        # wrangler types + tsc across workspaces
 ## Named local URLs (portless)
 
 `pnpm dev:stack` runs through [portless](https://npmjs.com/portless) on the
-shared `local.buildinternet.dev` infra zone, same as the sibling repos. WEB
-gets a stable named HTTPS origin instead of a bare port. Google and Apple
-reject `*.localhost` redirect URIs; this hostname is a real Public Suffix
-domain that they accept.
+project's own `local.uploadrouter.dev` zone. WEB gets a stable named HTTPS
+origin instead of a bare port. Google (like most OAuth providers) rejects
+`*.localhost` redirect URIs; this hostname is a real Public Suffix domain
+that it accepts.
 
-| Service | URL                                       | Browser-visible?                                      |
-| ------- | ----------------------------------------- | ----------------------------------------------------- |
-| web     | `https://uploads.local.buildinternet.dev` | yes — the only origin the browser talks to            |
-| auth    | plain loopback (dynamic)                  | no — internal upstream behind web's `/api/auth` proxy |
-| api     | plain loopback (dynamic)                  | no — internal upstream behind web's `/api` proxy      |
+| Service | URL                              | Browser-visible?                                      |
+| ------- | -------------------------------- | ----------------------------------------------------- |
+| web     | `https://local.uploadrouter.dev` | yes — the only origin the browser talks to            |
+| auth    | plain loopback (dynamic)         | no — internal upstream behind web's `/api/auth` proxy |
+| api     | plain loopback (dynamic)         | no — internal upstream behind web's `/api` proxy      |
 
 The name and TLD live in the repo (`portless.json` plus `PORTLESS_TLD=dev` on
 `dev:stack`). You do not set `PORTLESS_NAME` in a local env file. A short
@@ -45,20 +45,21 @@ as plain `127.0.0.1` loopback processes on ports assigned dynamically at boot
 is host-only on the web origin (same shape as prod's host-only `uploads.sh`
 cookie), and signed-in pages (`/account/*`, `/admin/*`) just work in a local
 browser, including agent browser panels. In a linked git worktree, portless
-prefixes the branch name (`fix-ui.uploads.local.buildinternet.dev`); nothing
+prefixes the branch name (`fix-ui.local.uploadrouter.dev`); nothing
 else changes. `dev:stack` prints the resolved `previewUrl` when ready, and
 `pnpm dev:stack:check --json` reports it too.
 
-The zone is deliberately not under uploads.sh. Prod's session cookie is
+The zone is deliberately not under uploads.sh, and not shared with other
+projects. Prod's session cookie is
 host-only on `uploads.sh`, and keeping local dev off that host means a local
 stack never shares an origin with production. DNS:
-`local.buildinternet.dev` + `*.local.buildinternet.dev` are public DNS-only
+`local.uploadrouter.dev` + `*.local.uploadrouter.dev` are public DNS-only
 A records → `127.0.0.1` (never proxy them), so the names resolve to loopback
 on any machine, worktree prefixes included.
 `pnpm exec portless hosts sync` is only a fallback for offline work.
 
 Register OAuth redirect URIs on the web origin:
-`https://uploads.local.buildinternet.dev/api/auth/callback/<provider>`.
+`https://local.uploadrouter.dev/api/auth/callback/<provider>`.
 Auth has no named subdomain — it is a loopback upstream that web forwards
 `/api/auth/*` to. `pnpm dev:stack:oauth` is an alias of `pnpm dev:stack`.
 
@@ -134,7 +135,7 @@ smoke test above sets up. This recipe uses the raw loopback stack
 (`pnpm dev:stack:raw`, or `pnpm dev` + `pnpm dev:auth` + `pnpm dev:web`
 separately) so thumbnail bytes can come from a loopback `publicBaseUrl`.
 `pnpm dev:stack` also enables the `dev-session` bypass on
-`https://uploads.local.buildinternet.dev`. A few steps here aren't obvious
+`https://local.uploadrouter.dev`. A few steps here aren't obvious
 from the API alone:
 
 1. **Sign in with the `dev-session` bypass, from a page already on

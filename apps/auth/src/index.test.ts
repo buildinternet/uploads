@@ -181,10 +181,10 @@ describe("local demo session", () => {
     }
   });
 
-  it("is available for the owned local.buildinternet.dev zone, including worktree-prefixed", async () => {
+  it("is available for the owned local.uploadrouter.dev zone, including worktree-prefixed", async () => {
     for (const webOrigin of [
-      "https://uploads.local.buildinternet.dev",
-      "https://fix-ui.uploads.local.buildinternet.dev",
+      "https://local.uploadrouter.dev",
+      "https://fix-ui.local.uploadrouter.dev",
     ]) {
       const env = localEnv({ BETTER_AUTH_URL: webOrigin, WEB_ORIGIN: webOrigin });
       const res = await app.request(

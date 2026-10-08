@@ -6,9 +6,9 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 // Portless (see the `portless` skill) gives WEB a stable named HTTPS origin
-// (`https://uploads.local.buildinternet.dev`), the only origin the browser
-// ever talks to. Same sibling-repo convention as Either: TLD `dev` plus the
-// long name under the owned `local.buildinternet.dev` zone (OAuth providers
+// (`https://local.uploadrouter.dev`), the only origin the browser
+// ever talks to. TLD `dev` plus the name `local.uploadrouter`, under the
+// project's own `uploadrouter.dev` domain (OAuth providers
 // reject `*.localhost`). Since #731 auth and api are internal upstreams
 // reached through web's same-origin `/api/auth` + `/api` proxies, so they
 // need no hostname of their own — they run as plain loopback ports
@@ -16,8 +16,8 @@ import { join } from "node:path";
 // `PORTLESS=0` falls back to the legacy pinned ports (also the path for the
 // dev GitHub OAuth app, whose callback is pinned to 127.0.0.1:8788).
 export const USE_PORTLESS = process.env.PORTLESS !== "0";
-export const PORTLESS_BASE = process.env.PORTLESS_NAME || "uploads.local.buildinternet";
-export const LOCAL_STACK_DEV_HOST = "uploads.local.buildinternet.dev";
+export const PORTLESS_BASE = process.env.PORTLESS_NAME || "local.uploadrouter";
+export const LOCAL_STACK_DEV_HOST = "local.uploadrouter.dev";
 
 const PORTLESS_CA = join(process.env.PORTLESS_STATE_DIR || join(homedir(), ".portless"), "ca.pem");
 
