@@ -1,9 +1,9 @@
 {
-  "name": "uploads.local.buildinternet",
+  "name": "local.uploadrouter",
   "apps": {
-    "apps/web": { "name": "uploads.local.buildinternet" },
-    "apps/api": { "name": "api.uploads.local.buildinternet" },
-    "apps/auth": { "name": "auth.uploads.local.buildinternet" },
-    "apps/mcp": { "name": "mcp.uploads.local.buildinternet" }
+    "apps/web": { "name": "local.uploadrouter" },
+    "apps/api": { "name": "api.local.uploadrouter" },
+    "apps/auth": { "name": "auth.local.uploadrouter" },
+    "apps/mcp": { "name": "mcp.local.uploadrouter" }
   }
 }

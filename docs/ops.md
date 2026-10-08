@@ -29,6 +29,21 @@ you run `workspace:limits`.
 
 KV cache ~60s. Agents: `uploads usage`.
 
+## Domains
+
+`uploads.sh` is the only canonical domain. Two backup domains live in the same
+Cloudflare account. Neither one serves app content.
+
+| Zone               | Use                                                                                                                                                        |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `uploadrouter.com` | Alias. Apex and `www` are proxied placeholder `AAAA 100::` records. A zone Single Redirect sends every request to `https://uploads.sh` + path, query kept. |
+| `uploadrouter.dev` | Local dev only. `local` and `*.local` are DNS-only `A 127.0.0.1` records for the portless stack ([local-dev.md](local-dev.md#named-local-urls-portless)).  |
+
+The `uploadrouter.com` redirect is a **302**, on purpose. It is a backup
+domain, so keep it temporary until there is a decision to make it permanent.
+Do not proxy the `uploadrouter.dev` records. The apex stays unassigned until
+there is a staging environment to point it at.
+
 ## Dual public hosts (stable vs embed / GitHub Camo)
 
 Shared-bucket objects are available on two custom domains of `uploads-default`

@@ -117,14 +117,14 @@ export type SessionResult =
 
 const LOCAL_STACK_WEB_ORIGIN = "http://127.0.0.1:4321";
 /** Keep in sync with `LOCAL_STACK_DEV_HOST` in `apps/auth/src/local-demo.ts`. */
-const LOCAL_STACK_DEV_HOST = "uploads.local.buildinternet.dev";
+const LOCAL_STACK_DEV_HOST = "local.uploadrouter.dev";
 
 /**
  * True only when `pageOrigin` is a recognized local-stack web origin: the
  * raw stack's pinned loopback port, a leftover portless `*.localhost`
  * origin (optionally worktree-prefixed), or the owned
- * `uploads.local.buildinternet.dev` zone (worktree prefix
- * `fix-ui.uploads.local.buildinternet.dev`).
+ * `local.uploadrouter.dev` zone (worktree prefix
+ * `fix-ui.local.uploadrouter.dev`).
  *
  * #731 phase C: this used to compare the injected auth origin against its
  * own pinned loopback port, but Phase B made every injected auth origin `""`

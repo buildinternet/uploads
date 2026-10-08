@@ -56,7 +56,7 @@ describe("isTrustedOrigin", () => {
     const worktree = { WEB_ORIGIN: "https://fix-ui.uploads.localhost", ENVIRONMENT: "development" };
     expect(isTrustedOrigin("https://fix-ui.uploads.localhost", worktree)).toBe(true);
 
-    const zone = "uploads.local.buildinternet.dev";
+    const zone = "local.uploadrouter.dev";
     const realTld = { WEB_ORIGIN: `https://${zone}`, ENVIRONMENT: "development" };
     expect(isTrustedOrigin(`https://${zone}`, realTld)).toBe(true);
     expect(isTrustedOrigin(`https://auth.${zone}`, realTld)).toBe(false);
@@ -66,7 +66,7 @@ describe("isTrustedOrigin", () => {
     const env = { WEB_ORIGIN: "https://uploads.sh", ENVIRONMENT: "development" };
     expect(isTrustedOrigin("https://evil.example", env)).toBe(false);
     expect(isTrustedOrigin("https://uploads.localhost", env)).toBe(false);
-    expect(isTrustedOrigin("https://uploads.local.buildinternet.dev", env)).toBe(false);
+    expect(isTrustedOrigin("https://local.uploadrouter.dev", env)).toBe(false);
   });
 
   it("allows extra trusted origins from env in any environment", () => {

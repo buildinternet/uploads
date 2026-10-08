@@ -796,9 +796,9 @@ describe("isLocalDemoStack", () => {
     expect(isLocalDemoStack("http://uploads.localhost:1355")).toBe(true);
   });
 
-  it("matches the owned local.buildinternet.dev zone, including worktree-prefixed", () => {
-    expect(isLocalDemoStack("https://uploads.local.buildinternet.dev")).toBe(true);
-    expect(isLocalDemoStack("https://fix-ui.uploads.local.buildinternet.dev")).toBe(true);
+  it("matches the owned local.uploadrouter.dev zone, including worktree-prefixed", () => {
+    expect(isLocalDemoStack("https://local.uploadrouter.dev")).toBe(true);
+    expect(isLocalDemoStack("https://fix-ui.local.uploadrouter.dev")).toBe(true);
   });
 
   it("rejects production and other non-local-stack origins", () => {

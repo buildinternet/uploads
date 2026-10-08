@@ -32,7 +32,7 @@ function snapshot(overrides: Partial<WorkspaceSnapshot> = {}): WorkspaceSnapshot
     slug: "buildinternet",
     role: "owner",
     hasPublicUrl: true,
-    publicBaseUrl: "https://media.buildinternet.dev",
+    publicBaseUrl: "https://media.uploadrouter.dev",
     plan: "free",
     usage: { bytes: 8_500_000, objects: 78, uploadsInPeriod: 15, maxStorageBytes: 10_000_000_000 },
     ...overrides,
@@ -120,7 +120,7 @@ describe("toWorkspaceSnapshot", () => {
         organization: { id: "org_1", slug: "buildinternet", name: "BuildInternet" },
         role: "owner",
         hasPublicUrl: true,
-        publicBaseUrl: "https://media.buildinternet.dev",
+        publicBaseUrl: "https://media.uploadrouter.dev",
         plan: "free",
       },
       {
@@ -140,7 +140,7 @@ describe("toWorkspaceSnapshot", () => {
       slug: "buildinternet",
       role: "owner",
       hasPublicUrl: true,
-      publicBaseUrl: "https://media.buildinternet.dev",
+      publicBaseUrl: "https://media.uploadrouter.dev",
       plan: "free",
       usage: {
         bytes: 8_500_000,
