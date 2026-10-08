@@ -13,8 +13,8 @@ import { join } from "node:path";
 // reached through web's same-origin `/api/auth` + `/api` proxies, so they
 // need no hostname of their own — they run as plain loopback ports
 // (dynamically assigned here so concurrent worktree stacks don't collide).
-// `PORTLESS=0` falls back to the legacy pinned ports (also the path for the
-// dev GitHub OAuth app, whose callback is pinned to 127.0.0.1:8788).
+// `PORTLESS=0` falls back to the legacy pinned ports. The dev GitHub OAuth
+// app registers callbacks for both origins (see docs/local-dev.md).
 export const USE_PORTLESS = process.env.PORTLESS !== "0";
 export const PORTLESS_BASE = process.env.PORTLESS_NAME || "local.uploadrouter";
 export const LOCAL_STACK_DEV_HOST = "local.uploadrouter.dev";
