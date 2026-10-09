@@ -73,11 +73,22 @@ only key the tool name, so the hook starts before Bash commands. The script
 acts only on `gh pr create`. That filter lives in the uploads CLI, not in the
 matcher.
 
+The hook command names the script directly:
+
+```text
+"${CLAUDE_PLUGIN_ROOT}"/hooks/pre-pr-screenshot.sh
+```
+
+That path is the whole program. It uses `${CLAUDE_PLUGIN_ROOT}` and no other
+variable. Claude Code sets `CLAUDE_PLUGIN_ROOT` to the installed plugin
+directory. Grok Build sets `GROK_PLUGIN_ROOT` to that same directory and also
+sets `CLAUDE_PLUGIN_ROOT`. Codex sets `PLUGIN_ROOT` and also sets
+`CLAUDE_PLUGIN_ROOT`. Codex reads the `command` string and ignores an `args`
+array, so the path stays in `command`.
+
 The script runs the locally installed `uploads` CLI
 (`uploads hook pre-pr-screenshot`). If the CLI is not installed or not signed
-in, the hook does nothing. Set `UPLOADS_HOOK_DISABLE=1` to turn it off. The
-hook resolves the plugin root from `GROK_PLUGIN_ROOT`, then `PLUGIN_ROOT`
-(Codex), then `CLAUDE_PLUGIN_ROOT`.
+in, the hook does nothing. Set `UPLOADS_HOOK_DISABLE=1` to turn it off.
 
 `hooks/register.tsx` is a separate Claude Code mod. It draws staged
 attachments above the prompt. It is not part of the portable hooks contract.
@@ -128,21 +139,34 @@ to find the branch's open PR. Thumbnails are fetched with `curl` from
 `storage.uploads.sh`, resized by Cloudflare's image transform, and kept in
 the mod's session state.
 
-Every program the mod starts goes through one helper. The full list:
+Every program the mod starts goes through one helper, `run` in
+`hooks/register.tsx`. That helper calls `$.process.run` with an argument
+list, so a scan of that line cannot see the program. The helper runs only
+the commands in this table, each written here as fixed text.
 
-| Program                                                                 | When                                                  | What it sends, and where                                                     |
-| :---------------------------------------------------------------------- | :---------------------------------------------------- | :--------------------------------------------------------------------------- |
-| `uploads staged --format json`                                          | Session start, after matching shell commands, at idle | Branch and repo name to the uploads.sh API                                   |
-| `uploads attach --promote --pr <n> --repo <r> --from-branch <b> --json` | After `gh pr create`, when the repo is not linked     | PR number, repo and branch to the uploads.sh API, which posts the PR comment |
-| `uploads feed create --repo <r> --pr <n>`                               | You press **Copy link** in the pane                   | Repo and PR number to the uploads.sh API                                     |
-| `uploads delete <key>`                                                  | You press **Remove** in the pane                      | The file's key to the uploads.sh API                                         |
-| `gh pr view` (current branch, and `<n> --repo <r>` after a PR opens)    | With the staged read, and after `gh pr create`        | Branch or PR number to the GitHub API                                        |
-| `sh -c 'curl -sfL --max-time 15 "$1" \| base64'`                        | Drawing thumbnails on the Desktop app                 | A request for a resized image to `storage.uploads.sh`; nothing else          |
+| Program                                                                               | Why it runs                                                                 | What it sends, and where                                                                                                                                             |
+| :------------------------------------------------------------------------------------ | :-------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `uploads staged --format json`                                                        | Session start, after a matching shell command, and when the session is idle | Branch and repository name to the uploads.sh API at `api.uploads.sh`, using the CLI's saved sign-in                                                                  |
+| `uploads staged --format json --branch <branch> --repo <owner/repo>`                  | After `gh pr create`, to read files staged on the PR's head branch          | That branch and repository to the uploads.sh API                                                                                                                     |
+| `uploads attach --promote --pr <n> --repo <owner/repo> --from-branch <branch> --json` | After `gh pr create`, when this workspace should attach the files           | PR number, repository, and branch to the uploads.sh API, which posts the PR comment                                                                                  |
+| `uploads feed create --repo <owner/repo> --pr <n>`                                    | You press **Copy link** in the pane                                         | Repository and PR number to the uploads.sh API. The CLI prints the feed URL back to the mod                                                                          |
+| `uploads delete <key>`                                                                | You press **Remove** in the pane                                            | The file's key to the uploads.sh API                                                                                                                                 |
+| `gh pr view --json number,url,state`                                                  | With the staged read, to find the open PR for the current branch            | The current branch, through your local `gh` login, to the GitHub API                                                                                                 |
+| `gh pr view <n> --repo <owner/repo> --json headRefName -q .headRefName`               | After `gh pr create`, to learn the PR's head branch                         | The PR number and repository to the GitHub API                                                                                                                       |
+| `sh -c 'curl -sfL --max-time 15 "$1" \| base64' sh <url>`                             | Drawing a thumbnail or a large preview on the Desktop app                   | An HTTPS GET to `storage.uploads.sh`. For an image on that host, `<url>` is Cloudflare's image transform (`/cdn-cgi/image/...`). The JPEG stays in the mod's session |
+
+`<branch>`, `<owner/repo>`, `<n>`, `<key>`, and `<url>` are the only parts
+that change. The words of each command stay as written.
+
+Local data the mod reads is the staged-file list from `uploads staged`, the
+open PR from `gh pr view`, and those thumbnail bytes. It keeps them in the
+mod's session state.
 
 What the mod reads from the conversation: the text of shell commands Claude
-runs (to spot the ones above that change what is staged) and the output
-of `gh pr create` (to find the new PR's URL). It sends none of that text
-anywhere; only the values in the table leave the machine.
+runs, so it can spot `uploads`, a branch switch, or `gh pr create`, and the
+output of `gh pr create`, so it can read the new PR's URL. That text stays
+on the machine. The values that leave are the ones in the table, and each
+one leaves through the program in its row.
 
 If the CLI is not installed or not signed in, the mod does nothing.
 

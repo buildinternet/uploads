@@ -8,7 +8,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh \"${GROK_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}}/hooks/pre-pr-screenshot.sh\"",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/pre-pr-screenshot.sh",
             "timeout": 15,
             "statusMessage": "Checking staged screenshots"
           }
