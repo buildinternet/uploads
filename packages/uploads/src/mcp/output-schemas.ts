@@ -456,6 +456,60 @@ const feedItemSchema: JsonSchema = objectSchema({
   },
 });
 
+const activityRepoSchema: JsonSchema = objectSchema(
+  {
+    repo: { type: "string" },
+    lastUpdatedAt: { type: "string" },
+  },
+  ["repo", "lastUpdatedAt"],
+);
+
+const activityPullSchema: JsonSchema = objectSchema(
+  {
+    ref: { type: "string" },
+    repo: { type: "string" },
+    number: { type: "number" },
+    branch: nullableString,
+    state: nullableString,
+    lastMediaAt: { type: "string" },
+    title: nullableString,
+  },
+  ["ref", "repo", "number", "branch", "state", "lastMediaAt", "title"],
+);
+
+/** Hosted `list_activity`. Only the array for `by` is present. */
+const listActivityResultSchema: JsonSchema = objectSchema(
+  {
+    by: { type: "string", enum: ["pull", "repo"] },
+    repos: { type: "array", items: activityRepoSchema },
+    pulls: { type: "array", items: activityPullSchema },
+    cursor: nullableString,
+  },
+  ["by", "cursor"],
+);
+
+const repoFileSchema: JsonSchema = objectSchema(
+  {
+    key: { type: "string" },
+    url: nullableString,
+    embedUrl: nullableString,
+    updatedAt: { type: "string" },
+    path: nullableString,
+    state: nullableString,
+    kind: { type: "string", enum: ["screenshot", "video", "other"] },
+  },
+  ["key", "url", "embedUrl", "updatedAt", "path", "state", "kind"],
+);
+
+/** Hosted `list_repo_files`. */
+const listRepoFilesResultSchema: JsonSchema = objectSchema(
+  {
+    items: { type: "array", items: repoFileSchema },
+    cursor: nullableString,
+  },
+  ["items", "cursor"],
+);
+
 export const feedResultSchema: JsonSchema = objectSchema({
   id: { type: "string" },
   url: { type: "string" },
@@ -481,6 +535,8 @@ export const hostedOutputSchemas: Record<string, JsonSchema> = {
   feed_get: feedResultSchema,
   put: putResultSchema,
   list: listResultSchema,
+  list_activity: listActivityResultSchema,
+  list_repo_files: listRepoFilesResultSchema,
   delete: deleteResultSchema,
   comment: commentResultSchema,
   promote: promoteToolResultSchema,

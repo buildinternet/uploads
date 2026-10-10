@@ -45,6 +45,7 @@ Same product, two transports. Skills do not install a binary.
 | Bytes already in context (ChatGPT attachment, base64) | Hosted MCP `put`                                | `files: [{ filename, contentBase64 }]`. Pass `repo` + (`pr` \| `branch`). No git inference.                                                                                                                                                                                                                            |
 | File already at a public HTTPS URL                    | CLI `put --url` or hosted MCP `put`             | CLI: `uploads put --url https://… --pr 123`. Hosted: `{ contentUrl }` (filename optional when the URL path has a leaf). Worker/CLI fetches; no auth headers. Hosted rejects private/internal hosts. CLI (and stdio MCP) also fetch `http://localhost` / `127.0.0.1` / `*.localhost`. LAN and link-local stay rejected. |
 | List, find, metadata, comment, promote                | Either                                          | Hosted: `list`, `find_files`, `get_metadata` / `set_metadata`, `comment`, `promote`. CLI: `uploads list` / `find` / `meta` / `comment` / `attach --promote`.                                                                                                                                                           |
+| Recent tagged files, by pull request or by repo       | Hosted MCP `list_activity` / `list_repo_files`  | Hosted only. `list_activity` groups by pull (default) or repo. `list_repo_files` needs `repo`. Times are tag metadata, not upload time. Does not publish a feed.                                                                                                                                                       |
 | Live page of this PR's (or repo's) screenshots        | Either                                          | CLI `uploads feed create` or MCP `feed_create`. Repo-wide: `repo` only. One PR: `repo` + `pr`, or `github` (`owner/repo#123` / a GitHub URL). Same product — not a curated gallery. `feed_get` / `uploads feed show` opens an existing feed.                                                                           |
 | Local path or current-branch attach                   | CLI                                             | Hosted server has no filesystem and no `attach` tool. Use `put` instead.                                                                                                                                                                                                                                               |
 | `localhost` / private-network screenshot              | CLI `uploads screenshot --via local`            | Remote render cannot reach your machine.                                                                                                                                                                                                                                                                               |
@@ -1055,7 +1056,21 @@ uploads --api-url http://localhost:8787 doctor
   `get_metadata` / `set_metadata` / `find_files` / `list_metadata_keys` (same
   as `meta get` / `meta set` / `find` / `meta keys`|`meta values`).
   `find_files` accepts optional `name` (filename substring) with or without
-  `filters`. Both support multi-file `put` in one call. Stdio takes `files`
+  `filters`. Hosted MCP also has `list_activity` and `list_repo_files`
+  (not on the local `uploads mcp` server). `list_activity` lists recent
+  GitHub-tagged activity. `by` is `pull` (default) or `repo`. Pull rows are
+  pull requests that received media tagged `gh.kind=pull`, newest
+  `last_media_at` first, from the last 90 days unless `all` is true. A pull
+  `title` is present only when that repo is linked to this workspace. Repo
+  rows are distinct `gh.repo` values, newest metadata `updated_at` first.
+  `list_repo_files` takes a required `repo` and optional `pr`, `path`, and
+  `type` (`screenshot`, `video`, or `other`; a PDF is `other`). It returns
+  that repo's tagged files, newest metadata `updated_at` first, with `url`
+  and `embedUrl`. These times are not the object's `uploaded-at`. Untagged
+  uploads are absent. Neither tool publishes a `/c/<id>` feed. Use
+  `feed_create` when you want that public page.
+
+  Stdio and hosted `put` both accept multiple files in one call. Stdio takes `files`
   as paths. Hosted takes
   `files: [{ filename?, contentBase64 | contentUrl, alt? }]` (max 20/call).
   Filename is required with `contentBase64`, and optional with `contentUrl`
@@ -1130,8 +1145,10 @@ uploads --api-url http://localhost:8787 doctor
 
   **Hosted MCP: checking what's staged.** There's no dedicated
   `staged` tool on the hosted server — it has no local git context to default
-  `branch` from, so it always needs the caller's own `repo`/`branch`. Answer
-  "what's staged?" with the existing tools instead:
+  `branch` from, so it always needs the caller's own `repo`/`branch`.
+  `list_activity` and `list_repo_files` are the newest-tagged-file views,
+  not this staged-branch view. Answer "what's staged?" with the existing
+  tools instead:
 
   ```text
   list  { prefix: "gh/<owner>/<repo>/branch/<branch>/" }

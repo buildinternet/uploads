@@ -24,6 +24,12 @@ import { b64urlDecode, b64urlEncode } from "./secrets";
 
 export const SCOPE_DEFAULT_LIMIT = 50;
 export const SCOPE_MAX_LIMIT = 100;
+/**
+ * `/repos` page size. The max is 50 because `countOpenPullsByRepo` binds one
+ * parameter per repo and D1 allows 100 parameters per query.
+ */
+export const REPOS_DEFAULT_LIMIT = 20;
+export const REPOS_MAX_LIMIT = 50;
 /** Hard cap on a whole-scope scan (pager, private count). */
 export const SCOPE_SCAN_CAP = 2000;
 

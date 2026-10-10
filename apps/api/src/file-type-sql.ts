@@ -14,6 +14,8 @@ import {
   type FileTypeClass,
 } from "@uploads/comment-render/scope";
 
+export { fileTypeClassFromKey } from "@uploads/comment-render/scope";
+
 const COLUMN_RE = /^[a-z_][a-z0-9_]*(\.[a-z_][a-z0-9_]*)?$/i;
 
 /** `(lower(substr(col, -4)) IN ('.png', …) OR lower(substr(col, -5)) IN (…))`. */

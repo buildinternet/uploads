@@ -21,15 +21,18 @@ import {
   unwrapFeedMutation,
 } from "../feed-service";
 import { findFeedByScope, normalizeFeedNumber, normalizeFeedRepo } from "../feeds";
+import { parseFileTypeQuery } from "../file-type-sql";
 import {
   backfillPrActivityState,
   countOpenPullsByRepo,
   getPrActivityRow,
   isPrState,
   listPrActivityPage,
+  PULLS_DEFAULT_LIMIT,
+  PULLS_DEFAULT_WINDOW_DAYS,
+  PULLS_MAX_LIMIT,
   type PrState,
 } from "../github-pr-activity";
-import { parseFileTypeQuery } from "../file-type-sql";
 import { linkedRepoSet } from "../github-repo-links";
 import { resolveTitles, withPublicTitleBudget, type TitleInfo } from "../github-titles";
 import {
@@ -38,6 +41,8 @@ import {
   listWorkspaceRepos,
   prScopeFirstPages,
   prScopeQuery,
+  REPOS_DEFAULT_LIMIT,
+  REPOS_MAX_LIMIT,
   scanScopeKeys,
   SCOPE_DEFAULT_LIMIT,
   SCOPE_MAX_LIMIT,
@@ -48,13 +53,6 @@ import type { PullsResponse, ReposResponse, ScopeFilesResponse } from "../scope-
 import { storageConfig } from "../storage";
 import { requireScope } from "../workspace";
 
-const PULLS_DEFAULT_LIMIT = 20;
-const PULLS_MAX_LIMIT = 100;
-/** `/pulls` shows PRs with media in this many days unless `all=1`. */
-export const PULLS_DEFAULT_WINDOW_DAYS = 90;
-const REPOS_DEFAULT_LIMIT = 20;
-/** `countOpenPullsByRepo` binds one parameter per repo; D1 allows 100 per query. */
-const REPOS_MAX_LIMIT = 50;
 const THUMBNAIL_LIMIT = 4;
 
 function scoped(scope: Parameters<typeof requireScope>[0]): MiddlewareHandler<DualAuthVars> {
