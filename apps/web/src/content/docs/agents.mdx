@@ -179,7 +179,7 @@ The **MCP server** gives the agent upload tools directly. There are two:
 | Server                                  | Use it when                     | Differences                                                                                                  |
 | --------------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------ |
 | Local, `uploads mcp`                    | The agent runs on your machine  | Same tools as the CLI, including `attach`.                                                                   |
-| Hosted, `https://agents.uploads.sh/mcp` | The agent has no local checkout | No `attach` and no git defaults. Pass `repo` and `branch` to `put`, then call `promote` once the PR exists. |
+| Hosted, `https://agents.uploads.sh/mcp` | The agent has no local checkout | No `attach` and no git defaults. Pass `repo` and `branch` to `put`, then call `promote` once the PR exists. `list_activity` and `list_repo_files` list recent tagged files by pull request or by repo, and only this server has them. |
 
 To use the local server instead of the hosted one:
 

@@ -10,6 +10,8 @@
  *   stage pre-PR, or `promote` to copy staged files into a PR.
  * - No `doctor` (local checks). No `staged` tool — no git defaults for branch;
  *   use `list` / `find_files` + `repo_link_status` (issue #405).
+ * - `list_activity` and `list_repo_files` are hosted-only reads of the Files
+ *   views. They return tagged files, not a bucket listing.
  */
 import {
   buildAttachmentMarkdown,
@@ -128,6 +130,7 @@ import { reconcileWorkspaceUsage } from "@uploads/api/reconcile";
 import { purgeExpiredObjects } from "@uploads/api/retention";
 import { getWorkspaceUsage } from "@uploads/api/usage";
 import type { FileScope, WorkspaceRecord } from "@uploads/api/workspace";
+import { activityReadTools } from "./activity-tools";
 
 export interface RemoteToolContext {
   env: Env;
@@ -1197,6 +1200,7 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
         });
       },
     },
+    ...activityReadTools({ env, workspace, workspaceName, requireScope }),
     {
       name: "delete",
       title: "Delete file",

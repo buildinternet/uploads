@@ -163,6 +163,12 @@ export async function listPrActivityForWorkspace(
   return (results ?? []).map(rowToActivity);
 }
 
+/** `/pulls` page size. */
+export const PULLS_DEFAULT_LIMIT = 20;
+export const PULLS_MAX_LIMIT = 100;
+/** `/pulls` keeps PRs with media in this many days unless the caller opts out. */
+export const PULLS_DEFAULT_WINDOW_DAYS = 90;
+
 export type PrState = "open" | "closed" | "merged";
 
 export function isPrState(value: unknown): value is PrState {
