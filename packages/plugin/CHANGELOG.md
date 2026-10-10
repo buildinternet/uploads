@@ -1,5 +1,12 @@
 # @uploads/plugin
 
+## 0.4.1
+
+### Patch Changes
+
+- e625574: The CLI skill documents the hosted MCP tools `list_activity` and `list_repo_files`, so existing plugin installs learn those reads.
+- 95ef759: The pre-PR screenshot hook finds its script through `CLAUDE_PLUGIN_ROOT`, which Claude Code, Grok Build, and Codex all set.
+
 ## 0.4.0
 
 ### Minor Changes

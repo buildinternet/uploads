@@ -1,5 +1,11 @@
 # @buildinternet/uploads
 
+## 0.57.1
+
+### Patch Changes
+
+- e625574: Hosted MCP output schemas include `list_activity` and `list_repo_files`. The local `uploads mcp` server does not gain those tools.
+
 ## 0.57.0
 
 ### Minor Changes
