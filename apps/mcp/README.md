@@ -8,7 +8,9 @@ the CLI package's transport-agnostic MCP core (`@buildinternet/uploads/mcp`).
 
 Stateless MCP Streamable HTTP: one JSON-RPC message per POST, no sessions or
 SSE (GET/DELETE on the endpoint are 405). Tools cover put/list/delete, metadata
-(`get_metadata` / `set_metadata` / `find_files`), galleries, change feeds
+(`get_metadata` / `set_metadata` / `find_files`), recent tagged files
+(`list_activity` by pull request or repo, `list_repo_files` for one repo),
+galleries, change feeds
 (`feed_create` / `feed_get` — pass `pr` or `github` to scope a feed to one
 pull request), usage, whoami,
 branch staging (`put` with `branch` + `repo`), promote (`promote` with
