@@ -59,6 +59,10 @@ export interface SessionUser {
   notifyMemberJoin?: boolean | null;
   /** Per-user pref: email me when a workspace I administer nears its usage limit. */
   notifyUsageLimits?: boolean | null;
+  /** Per-user pref: weekly summary of workspaces I belong to. Default off. */
+  notifyWeeklyDigest?: boolean | null;
+  /** Per-user pref: weekly summary of workspaces I administer. Default off. */
+  notifyWeeklyWorkspaceDigest?: boolean | null;
 }
 
 /** Operator-facing copy when sign-in is refused for a banned account. */
@@ -322,6 +326,42 @@ export async function updateNotifyUsageLimits(origin: string, value: boolean): P
       credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ notifyUsageLimits: value }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Weekly member digest. Same update-user additionalField as the other
+ * notification toggles. Default off; returns false so the toggle can revert.
+ */
+export async function updateNotifyWeeklyDigest(origin: string, value: boolean): Promise<boolean> {
+  try {
+    const res = await fetch(`${authOrigin(origin)}/api/auth/update-user`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ notifyWeeklyDigest: value }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/** Weekly workspace digest for admins. Default off. */
+export async function updateNotifyWeeklyWorkspaceDigest(
+  origin: string,
+  value: boolean,
+): Promise<boolean> {
+  try {
+    const res = await fetch(`${authOrigin(origin)}/api/auth/update-user`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ notifyWeeklyWorkspaceDigest: value }),
     });
     return res.ok;
   } catch {

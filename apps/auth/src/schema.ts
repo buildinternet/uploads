@@ -66,6 +66,14 @@ export const user = sqliteTable("user", {
   notifyUsageLimits: integer("notify_usage_limits", { mode: "boolean" })
     .notNull()
     .$defaultFn(() => true),
+  /** Per-user pref: weekly summary of workspaces I belong to. Default off. */
+  notifyWeeklyDigest: integer("notify_weekly_digest", { mode: "boolean" })
+    .notNull()
+    .$defaultFn(() => false),
+  /** Per-user pref: weekly summary of workspaces I administer. Default off. */
+  notifyWeeklyWorkspaceDigest: integer("notify_weekly_workspace_digest", { mode: "boolean" })
+    .notNull()
+    .$defaultFn(() => false),
 });
 
 /**

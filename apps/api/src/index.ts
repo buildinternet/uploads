@@ -22,6 +22,7 @@ import { me } from "./routes/me";
 import { runRetentionSweep } from "./retention-sweep";
 import { runUsageAlertSweep } from "./usage-alert-sweep";
 import { runActiveContentHostSweep } from "./active-content-hosts";
+import { runWeeklyDigestSweep, WEEKLY_DIGEST_CRON } from "./weekly-digest-sweep";
 import { runObservabilityRetention } from "./observability-retention";
 import { purgeExpiredIdempotencyRequests } from "./idempotency-core";
 import { galleries } from "./routes/galleries";
@@ -246,13 +247,33 @@ export const app = new Hono<WorkspaceVars>()
   .onError((err, c) => respondError(c, err))
   .notFound((c) => respondError(c, new NotFoundError()));
 
-/** Worker entry: fetch + daily retention cron + GitHub webhook queue consumer. */
+const DAILY_MAINTENANCE_CRON = "0 6 * * *";
+
+/** Worker entry: fetch + daily retention cron + weekly digest + GitHub webhook queue. */
 export default {
   fetch: app.fetch.bind(app),
   // GitHub webhook ingestion queue + its DLQ (issue #287); see
   // github-webhook-queue.ts. Batch handling never throws.
   queue: handleGithubWebhookBatch,
-  async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext) {
+  async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext) {
+    // A second cron must not re-run retention. An unset cron (tests) keeps
+    // the daily sweeps, which is what those tests drive.
+    if (controller.cron === WEEKLY_DIGEST_CRON) {
+      ctx.waitUntil(
+        runWeeklyDigestSweep(env).catch((err) => {
+          const appErr = AppError.from(err);
+          console.error(
+            JSON.stringify({
+              message: "weekly_digest_sweep_failed",
+              error: appErr.message,
+              code: appErr.code,
+            }),
+          );
+        }),
+      );
+      return;
+    }
+    if (controller.cron && controller.cron !== DAILY_MAINTENANCE_CRON) return;
     ctx.waitUntil(
       runRetentionSweep(env).catch((err) => {
         const appErr = AppError.from(err);

@@ -58,6 +58,25 @@ const sessionsEmpty = sessionsReady && (initial.sessions?.length ?? 0) === 0;
         />
         <span>Email me when a workspace I administer nears its usage limit.</span>
       </label>
+      <label class="notify-row">
+        <input
+          type="checkbox"
+          id="notify-weekly-digest"
+          checked={initial.user?.notifyWeeklyDigest ?? false}
+        />
+        <span>Email me a weekly summary of workspaces I belong to.</span>
+      </label>
+      <label class="notify-row">
+        <input
+          type="checkbox"
+          id="notify-weekly-workspace-digest"
+          checked={initial.user?.notifyWeeklyWorkspaceDigest ?? false}
+        />
+        <span>Email me a weekly summary of workspaces I administer.</span>
+      </label>
+      <p class="muted settings-note">
+        The weekly emails stay off until you turn them on. Each one has an unsubscribe link.
+      </p>
       <p id="notify-status" class="muted settings-note" role="status" aria-live="polite"></p>
     </div>
 
@@ -179,6 +198,8 @@ const sessionsEmpty = sessionsReady && (initial.sessions?.length ?? 0) === 0;
       revokeSession,
       updateNotifyMemberJoin,
       updateNotifyUsageLimits,
+      updateNotifyWeeklyDigest,
+      updateNotifyWeeklyWorkspaceDigest,
       type AuthSession,
     } from "../../lib/auth-client";
     import {
@@ -423,6 +444,12 @@ const sessionsEmpty = sessionsReady && (initial.sessions?.length ?? 0) === 0;
 
       const notifyToggle = document.getElementById("notify-member-join") as HTMLInputElement | null;
       const usageToggle = document.getElementById("notify-usage-limits") as HTMLInputElement | null;
+      const digestToggle = document.getElementById(
+        "notify-weekly-digest",
+      ) as HTMLInputElement | null;
+      const workspaceDigestToggle = document.getElementById(
+        "notify-weekly-workspace-digest",
+      ) as HTMLInputElement | null;
       const notifyStatus = document.getElementById("notify-status");
       function setNotifyStatus(message: string): void {
         if (notifyStatus) notifyStatus.textContent = message;
@@ -451,6 +478,8 @@ const sessionsEmpty = sessionsReady && (initial.sessions?.length ?? 0) === 0;
       }
       wireNotifyToggle(notifyToggle, updateNotifyMemberJoin);
       wireNotifyToggle(usageToggle, updateNotifyUsageLimits);
+      wireNotifyToggle(digestToggle, updateNotifyWeeklyDigest);
+      wireNotifyToggle(workspaceDigestToggle, updateNotifyWeeklyWorkspaceDigest);
 
       onSession((user) => {
         requireElement<HTMLElement>("#acct-email", "account profile").textContent = user.email;
@@ -462,6 +491,12 @@ const sessionsEmpty = sessionsReady && (initial.sessions?.length ?? 0) === 0;
         }
         if (usageToggle && typeof user.notifyUsageLimits === "boolean") {
           usageToggle.checked = user.notifyUsageLimits;
+        }
+        if (digestToggle && typeof user.notifyWeeklyDigest === "boolean") {
+          digestToggle.checked = user.notifyWeeklyDigest;
+        }
+        if (workspaceDigestToggle && typeof user.notifyWeeklyWorkspaceDigest === "boolean") {
+          workspaceDigestToggle.checked = user.notifyWeeklyWorkspaceDigest;
         }
         void loadAccounts();
         void loadSessions();

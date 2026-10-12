@@ -49,6 +49,8 @@ async function seedUser(id: string, role = "user"): Promise<void> {
     stripeCustomerId: null,
     notifyMemberJoin: true,
     notifyUsageLimits: true,
+    notifyWeeklyDigest: false,
+    notifyWeeklyWorkspaceDigest: false,
   });
 }
 

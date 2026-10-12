@@ -1,3 +1,4 @@
+import { drizzle } from "drizzle-orm/d1";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { createAuth, type AuthEnv } from "./auth";
@@ -8,6 +9,9 @@ import { isTrustedOrigin } from "./trusted-origins";
 import { runAuthRetentionSweep } from "./retention-sweep";
 import { sweepOauthClients } from "./oauth-client-reaper";
 import { BILLING_OUTBOX_CRON, drainBillingOutbox } from "./billing-outbox";
+import { applyDigestUnsubscribe, unsubscribePage } from "./notify-weekly-digest";
+import { signingSecret } from "./digest-token";
+import * as schema from "./schema";
 import { billingPricesResponseBody } from "./billing-prices";
 import { ROBOTS_TXT } from "./robots";
 
@@ -161,6 +165,27 @@ export const app = new Hono<{ Bindings: AuthEnv }>()
   .get("/billing/prices", async (c) => {
     const body = await billingPricesResponseBody(c.env);
     return c.json(body, 200, { "Cache-Control": "public, max-age=300" });
+  })
+  // Public unsubscribe from the weekly digest. The token is the credential;
+  // the visitor does not need a session. GET is the link in the mail, POST
+  // is the one-click List-Unsubscribe action.
+  .on(["GET", "POST"], "/digest/unsubscribe", async (c) => {
+    const url = new URL(c.req.url);
+    let token = url.searchParams.get("token") ?? "";
+    if (!token && c.req.method === "POST") {
+      const form = await c.req.raw
+        .clone()
+        .formData()
+        .catch(() => null);
+      const fromForm = form?.get("token");
+      if (typeof fromForm === "string") token = fromForm;
+    }
+    const secret = await signingSecret(c.env);
+    if (!secret) {
+      return c.html(unsubscribePage(false), 503);
+    }
+    const result = await applyDigestUnsubscribe(drizzle(c.env.DB, { schema }), secret, token);
+    return c.html(unsubscribePage(result.ok), result.ok ? 200 : 400);
   })
   // RFC 8414 path-inserted form: /.well-known/oauth-authorization-server{issuer-path}.
   // Issuer is `${BETTER_AUTH_URL}/api/auth`, so both the bare and `/*` forms
