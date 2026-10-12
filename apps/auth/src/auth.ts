@@ -1091,6 +1091,18 @@ function buildAuth(
           input: true,
           defaultValue: true,
         },
+        notifyWeeklyDigest: {
+          type: "boolean",
+          required: false,
+          input: true,
+          defaultValue: false,
+        },
+        notifyWeeklyWorkspaceDigest: {
+          type: "boolean",
+          required: false,
+          input: true,
+          defaultValue: false,
+        },
       },
     },
     session: {

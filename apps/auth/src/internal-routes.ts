@@ -4,8 +4,15 @@
  * applied in src/index.ts before this router is even reached).
  */
 import { isStripeBackingStatus } from "@uploads/billing";
-import { drizzle } from "drizzle-orm/d1";
+import type {
+  UsageAlertCap,
+  UsageAlertEvent,
+  UsageAlertThreshold,
+  WeeklyDigestMessage,
+  WeeklyDigestSection,
+} from "@uploads/email";
 import { and, count, countDistinct, eq, gt, gte, isNull, max, sql } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/d1";
 import { Hono } from "hono";
 import { OAUTH_SCOPES, type AuthEnv } from "./auth";
 import { sendAuthEmail } from "./email";
@@ -17,6 +24,8 @@ import {
 } from "./member-tokens";
 import { notifyAdminsOfMemberJoin } from "./notify-member-join";
 import { notifyAdminsOfUsageAlert } from "./notify-usage-alert";
+import { sendWeeklyDigests, type DigestSendEnv } from "./notify-weekly-digest";
+import { signingSecret } from "./digest-token";
 import * as schema from "./schema";
 import {
   isOfficial,
@@ -25,7 +34,6 @@ import {
   type OauthClientRow,
   type OauthClientStats,
 } from "./oauth-client-serialize";
-import type { UsageAlertCap, UsageAlertEvent, UsageAlertThreshold } from "@uploads/email";
 
 const USAGE_ALERT_CAPS = new Set<UsageAlertCap>(["storage", "uploads"]);
 const USAGE_ALERT_THRESHOLDS = new Set<UsageAlertThreshold>([50, 90, 100]);
@@ -44,6 +52,134 @@ function parseUsageAlertEvent(raw: unknown): UsageAlertEvent | null {
   if (typeof used !== "number" || !Number.isFinite(used)) return null;
   if (typeof limit !== "number" || !Number.isFinite(limit) || limit <= 0) return null;
   return { cap: cap as UsageAlertCap, threshold: threshold as UsageAlertThreshold, used, limit };
+}
+
+function asCount(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.round(value) : 0;
+}
+
+function asText(value: unknown, limit: number): string {
+  if (typeof value !== "string") return "";
+  const trimmed = value.trim();
+  return trimmed.length > limit ? trimmed.slice(0, limit) : trimmed;
+}
+
+function parseDigestSection(raw: unknown): WeeklyDigestSection | null {
+  if (!raw || typeof raw !== "object") return null;
+  const row = raw as Record<string, unknown>;
+  const slug = asText(row.slug, 80);
+  const name = asText(row.name, 120);
+  if (!slug || !name) return null;
+  const repos = Array.isArray(row.repos)
+    ? row.repos.flatMap((item) => {
+        if (!item || typeof item !== "object") return [];
+        const repo = item as { name?: unknown; count?: unknown };
+        const repoName = asText(repo.name, 200);
+        if (!repoName) return [];
+        return [{ name: repoName, count: asCount(repo.count) }];
+      })
+    : [];
+  const screenshots = Array.isArray(row.screenshots)
+    ? row.screenshots.flatMap((item) => {
+        if (!item || typeof item !== "object") return [];
+        const shot = item as { url?: unknown; embedUrl?: unknown; label?: unknown };
+        const url = asText(shot.url, 2000);
+        const label = asText(shot.label, 200);
+        if (!url.startsWith("https://") || !label) return [];
+        const embed = asText(shot.embedUrl, 2000);
+        return [{ url, embedUrl: embed.startsWith("https://") ? embed : null, label }];
+      })
+    : [];
+  const links = (value: unknown) =>
+    Array.isArray(value)
+      ? value.flatMap((item) => {
+          if (!item || typeof item !== "object") return [];
+          const link = item as { label?: unknown; href?: unknown; detail?: unknown };
+          const label = asText(link.label, 200);
+          if (!label) return [];
+          const href = asText(link.href, 2000);
+          const detail = asText(link.detail, 200);
+          return [
+            {
+              label,
+              href: href.startsWith("https://") ? href : undefined,
+              detail: detail || undefined,
+            },
+          ];
+        })
+      : [];
+  const pages = Array.isArray(row.pages)
+    ? row.pages.flatMap((item) => {
+        if (!item || typeof item !== "object") return [];
+        const page = item as { path?: unknown; count?: unknown };
+        const path = asText(page.path, 512);
+        if (!path) return [];
+        return [{ path, count: asCount(page.count) }];
+      })
+    : [];
+  const galleries = Array.isArray(row.galleries)
+    ? row.galleries.flatMap((item) => {
+        const title = asText(item, 120);
+        return title ? [title] : [];
+      })
+    : [];
+  let admin: WeeklyDigestSection["admin"];
+  if (row.admin && typeof row.admin === "object") {
+    const block = row.admin as Record<string, unknown>;
+    admin = {
+      storageBytes: asCount(block.storageBytes),
+      objects: asCount(block.objects),
+      uploadsThisMonth: asCount(block.uploadsThisMonth),
+      newMembers: asCount(block.newMembers),
+      activePeople: asCount(block.activePeople),
+    };
+  }
+  return {
+    slug,
+    name,
+    blurb: asText(row.blurb, 600),
+    uploads: asCount(row.uploads),
+    bytesAdded: asCount(row.bytesAdded),
+    repos: repos.slice(0, 8),
+    screenshots: screenshots.slice(0, 4),
+    pulls: links(row.pulls).slice(0, 8),
+    issues: links(row.issues).slice(0, 8),
+    pages: pages.slice(0, 8),
+    galleries: galleries.slice(0, 6),
+    galleryCount: asCount(row.galleryCount),
+    feeds: asCount(row.feeds),
+    admin,
+  };
+}
+
+function parseDigestMessage(raw: unknown): WeeklyDigestMessage[] {
+  if (!raw || typeof raw !== "object") return [];
+  const row = raw as Record<string, unknown>;
+  const userId = asText(row.userId, 80);
+  const to = asText(row.to, 320);
+  const weekLabel = asText(row.weekLabel, 40);
+  if (!userId || !to.includes("@") || !weekLabel) return [];
+  const sections = Array.isArray(row.sections)
+    ? row.sections.flatMap((item) => {
+        const section = parseDigestSection(item);
+        return section ? [section] : [];
+      })
+    : [];
+  if (sections.length === 0) return [];
+  const unsubscribes = Array.isArray(row.unsubscribes)
+    ? row.unsubscribes.flatMap((kind) => (kind === "digest" || kind === "workspace" ? [kind] : []))
+    : [];
+  if (unsubscribes.length === 0) return [];
+  return [
+    {
+      userId,
+      to,
+      weekLabel,
+      sections: sections.slice(0, 8),
+      omittedWorkspaces: asCount(row.omittedWorkspaces),
+      unsubscribes,
+    },
+  ];
 }
 
 function errorJson(code: string, message: string) {
@@ -1078,6 +1214,24 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
       plan,
     });
     return c.json({ ok: true }, 200);
+  })
+  // Weekly digest: the API worker assembles activity and posts the messages.
+  // This worker signs the unsubscribe links and sends, because the preference
+  // columns and the allowed sender both live here.
+  .post("/weekly-digest/send", async (c) => {
+    const body = await c.req
+      .json<{ messages?: unknown }>()
+      .catch(() => ({}) as { messages?: unknown });
+    const messages = Array.isArray(body.messages) ? body.messages.flatMap(parseDigestMessage) : [];
+    if (messages.length === 0) {
+      return c.json({ sent: [], failed: [] }, 200);
+    }
+    const secret = await signingSecret(c.env);
+    if (!secret) {
+      return c.json(errorJson("auth_unavailable", "Auth is not configured yet."), 503);
+    }
+    const result = await sendWeeklyDigests(c.env as DigestSendEnv, secret, messages);
+    return c.json(result, 200);
   })
   // Self-serve provisioning (spec 2026-07-14): create an org WITH the caller
   // as owner member, non-idempotent — a taken slug is a 409 the API surfaces

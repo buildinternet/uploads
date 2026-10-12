@@ -58,6 +58,8 @@ async function seedUser(
     stripeCustomerId: overrides.stripeCustomerId ?? null,
     notifyMemberJoin: overrides.notifyMemberJoin ?? true,
     notifyUsageLimits: overrides.notifyUsageLimits ?? true,
+    notifyWeeklyDigest: overrides.notifyWeeklyDigest ?? false,
+    notifyWeeklyWorkspaceDigest: overrides.notifyWeeklyWorkspaceDigest ?? false,
   };
   await orm.insert(schema.user).values(user);
   return user;
