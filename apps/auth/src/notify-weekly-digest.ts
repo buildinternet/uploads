@@ -63,7 +63,8 @@ export async function sendWeeklyDigests(
   const webOrigin = env.WEB_ORIGIN || "https://uploads.sh";
 
   for (const message of messages) {
-    if (!message.userId || !message.to || message.sections.length === 0) {
+    const hasBody = Boolean(message.user) || message.pulses.length > 0;
+    if (!message.userId || !message.to || !hasBody) {
       result.failed.push(message.userId || "");
       continue;
     }
@@ -83,7 +84,8 @@ export async function sendWeeklyDigests(
       const combined = await signDigestUnsubscribe(secret, message.userId, kinds, now);
       const rendered = renderWeeklyDigestEmail({
         weekLabel: message.weekLabel,
-        sections: message.sections,
+        user: message.user,
+        pulses: message.pulses,
         omittedWorkspaces: message.omittedWorkspaces,
         unsubscribeDigestUrl: links.get("digest"),
         unsubscribeWorkspaceUrl: links.get("workspace"),

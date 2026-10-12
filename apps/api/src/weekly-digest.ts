@@ -1,13 +1,21 @@
 /**
- * Weekly digest assembly. Turns the rows the API already stores (upload
- * counters, GitHub attachments, galleries, feeds, membership) into the
- * section payload `@uploads/email` renders. No I/O here.
+ * Weekly digest assembly. Turns the rows the API already stores into the
+ * short payload `@uploads/email` renders. No I/O here.
  *
- * The short "your week" line is a template. Jev may pick which fact leads
- * and which screenshot goes first; a missing or low-confidence answer keeps
- * the deterministic order.
+ * A member digest is one highlight, the busiest pull request, and a stat
+ * line. An admin digest is three headline numbers plus at most a few linked
+ * callouts. Jev may choose the highlight from screenshot captions. A missing
+ * or low-confidence answer keeps the newest image.
  */
-import type { WeeklyDigestMessage, WeeklyDigestSection } from "@uploads/email";
+import type {
+  WeeklyDigestHighlight,
+  WeeklyDigestMessage,
+  WeeklyDigestNote,
+  WeeklyDigestPulse,
+  WeeklyDigestPulseBlock,
+  WeeklyDigestTopPull,
+  WeeklyDigestUser,
+} from "@uploads/email";
 import {
   CLASSIFIER_DECISION_MODEL,
   CLASSIFIER_MIN_CONFIDENCE,
@@ -17,19 +25,18 @@ import {
   type ClassifierState,
 } from "./classifier";
 
-export const DIGEST_MAX_REPOS = 5;
-export const DIGEST_MAX_PULLS = 5;
-export const DIGEST_MAX_ISSUES = 5;
-export const DIGEST_MAX_PAGES = 5;
-export const DIGEST_MAX_GALLERIES = 3;
+/** Screenshot candidates Jev may choose among. The mail shows one. */
 export const DIGEST_MAX_SHOTS = 3;
-export const DIGEST_MAX_SECTIONS = 8;
-/** Model calls per sweep. The rest of the workspaces keep the template. */
+export const DIGEST_MAX_PULSES = 3;
+export const DIGEST_MAX_NOTES = 3;
+/** Model calls per sweep. The rest of the workspaces keep the newest image. */
 export const DIGEST_MAX_CURATIONS = 15;
+/** A repo is "suddenly busy" once it clears this many files in the week. */
+export const DIGEST_BUSY_REPO_MIN = 3;
+/** Storage at or above this fraction of the plan cap is worth a callout. */
+export const DIGEST_STORAGE_PRESSURE = 0.8;
 
 const REPO_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
-const LEADS = ["uploads", "repo", "pull", "page", "gallery", "members"] as const;
-export type DigestLead = (typeof LEADS)[number];
 
 export interface DigestShotSource {
   key: string;
@@ -37,25 +44,40 @@ export interface DigestShotSource {
   url: string;
   embedUrl: string | null;
   at: string;
+  repo?: string;
+  number?: number;
+  kind?: "pull" | "issues";
+}
+
+export interface DigestPullSource {
+  repo: string;
+  number: number;
+  title: string | null;
+  count: number;
+  state: "open" | "closed" | "merged" | null;
+  shot?: { url: string; embedUrl: string | null };
+}
+
+export interface DigestRepoSource {
+  name: string;
+  count: number;
+  prev: number;
 }
 
 export interface WorkspaceDigestSource {
   slug: string;
   uploads: number;
+  prevUploads: number;
   bytesAdded: number;
-  repos: { name: string; count: number }[];
+  bytesDeleted: number;
+  repos: DigestRepoSource[];
   shots: DigestShotSource[];
-  pulls: { repo: string; number: number; title: string | null; count: number }[];
-  issues: { repo: string; number: number; count: number }[];
-  pages: { path: string; count: number }[];
-  galleryNames: string[];
-  galleryCount: number;
-  feeds: number;
+  pulls: DigestPullSource[];
   storageBytes: number;
-  objects: number;
-  uploadsThisMonth: number;
-  newMembers: number;
+  storageLimitBytes?: number;
   activePeople: number;
+  newPeople: number;
+  firstUploads?: { count: number; name: string | null };
 }
 
 export interface DigestMembership {
@@ -74,7 +96,6 @@ export interface DigestRecipient {
 }
 
 export interface DigestCuration {
-  lead?: DigestLead;
   shotIndex?: number;
 }
 
@@ -82,13 +103,18 @@ export function digestWindow(now = new Date()): {
   sinceIso: string;
   sinceDay: string;
   sinceUnix: number;
+  prevSinceIso: string;
+  prevSinceDay: string;
   weekLabel: string;
 } {
   const since = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const prev = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
   return {
     sinceIso: since.toISOString(),
     sinceDay: since.toISOString().slice(0, 10),
     sinceUnix: Math.floor(since.getTime() / 1000),
+    prevSinceIso: prev.toISOString(),
+    prevSinceDay: prev.toISOString().slice(0, 10),
     weekLabel: weekLabel(since, now),
   };
 }
@@ -111,19 +137,10 @@ export function hasFileActivity(source: WorkspaceDigestSource): boolean {
   return (
     source.uploads > 0 ||
     source.bytesAdded > 0 ||
-    source.repos.length > 0 ||
+    source.repos.some((repo) => repo.count > 0) ||
     source.shots.length > 0 ||
-    source.pulls.length > 0 ||
-    source.issues.length > 0 ||
-    source.pages.length > 0 ||
-    source.galleryCount > 0 ||
-    source.feeds > 0
+    source.pulls.length > 0
   );
-}
-
-/** People who joined or showed up. A storage snapshot alone is not activity. */
-export function hasAdminActivity(source: WorkspaceDigestSource): boolean {
-  return source.newMembers > 0 || source.activePeople > 0;
 }
 
 function isAdminRole(role: string): boolean {
@@ -135,111 +152,17 @@ function githubHref(repo: string, kind: "pull" | "issues", num: number): string 
   return `https://github.com/${repo}/${kind}/${num}`;
 }
 
-function formatBytes(n: number): string {
-  if (!Number.isFinite(n) || n < 1000) return `${Math.max(0, Math.round(n))} B`;
-  const units = ["kB", "MB", "GB", "TB"];
-  let value = n;
-  let unit = -1;
-  do {
-    value /= 1000;
-    unit += 1;
-  } while (value >= 1000 && unit < units.length - 1);
-  const rounded =
-    value >= 10 || Number.isInteger(value) ? Math.round(value) : Number(value.toFixed(1));
-  return `${rounded} ${units[unit]}`;
+function repoHref(repo: string): string | undefined {
+  if (!REPO_RE.test(repo)) return undefined;
+  return `https://github.com/${repo}`;
 }
 
-function formatCount(n: number): string {
-  return Math.max(0, Math.round(n)).toLocaleString("en-US");
-}
-
-export interface DigestFacts {
-  name: string;
-  uploads: number;
-  bytesAdded: number;
-  topRepo?: string;
-  topPull?: string;
-  topPage?: string;
-  galleryCount: number;
-  feeds: number;
-  newMembers: number;
-}
-
-export function factsFor(
-  source: WorkspaceDigestSource,
-  name: string,
-  includeAdmin: boolean,
-): DigestFacts {
-  return {
-    name,
-    uploads: source.uploads,
-    bytesAdded: source.bytesAdded,
-    topRepo: source.repos[0]?.name,
-    topPull: source.pulls[0] ? `${source.pulls[0].repo}#${source.pulls[0].number}` : undefined,
-    topPage: source.pages[0]?.path,
-    galleryCount: source.galleryCount,
-    feeds: source.feeds,
-    newMembers: includeAdmin ? source.newMembers : 0,
-  };
-}
-
-export function availableLeads(facts: DigestFacts): DigestLead[] {
-  const leads: DigestLead[] = [];
-  if (facts.uploads > 0 || facts.bytesAdded > 0) leads.push("uploads");
-  if (facts.topRepo) leads.push("repo");
-  if (facts.topPull) leads.push("pull");
-  if (facts.topPage) leads.push("page");
-  if (facts.galleryCount > 0 || facts.feeds > 0) leads.push("gallery");
-  if (facts.newMembers > 0) leads.push("members");
-  return leads;
-}
-
-/** Highest-priority fact. Used when Jev is absent or declines. */
-export function defaultLead(facts: DigestFacts): DigestLead {
-  return availableLeads(facts)[0] ?? "uploads";
-}
-
-function leadSentence(facts: DigestFacts, lead: DigestLead): string {
-  switch (lead) {
-    case "uploads": {
-      const files = facts.uploads === 1 ? "1 file" : `${formatCount(facts.uploads)} files`;
-      const bytes = facts.bytesAdded > 0 ? ` (${formatBytes(facts.bytesAdded)} added)` : "";
-      return `${facts.name} uploaded ${files}${bytes} this week.`;
-    }
-    case "repo":
-      return `Most of the week's files in ${facts.name} landed in ${facts.topRepo}.`;
-    case "pull":
-      return `${facts.topPull} picked up the most screenshots in ${facts.name}.`;
-    case "page":
-      return `${facts.topPage} was the page worked on most in ${facts.name}.`;
-    case "gallery": {
-      const parts: string[] = [];
-      if (facts.galleryCount > 0) {
-        parts.push(
-          facts.galleryCount === 1 ? "1 gallery" : `${formatCount(facts.galleryCount)} galleries`,
-        );
-      }
-      if (facts.feeds > 0) {
-        parts.push(
-          facts.feeds === 1 ? "1 change feed" : `${formatCount(facts.feeds)} change feeds`,
-        );
-      }
-      return `${facts.name} updated ${parts.join(" and ")} this week.`;
-    }
-    case "members":
-      return facts.newMembers === 1
-        ? `1 person joined ${facts.name} this week.`
-        : `${formatCount(facts.newMembers)} people joined ${facts.name} this week.`;
-  }
-}
-
-export function weeklyBlurb(facts: DigestFacts, preferred?: DigestLead): string {
-  const leads = availableLeads(facts);
-  const lead = preferred && leads.includes(preferred) ? preferred : defaultLead(facts);
-  const primary = leadSentence(facts, lead);
-  const second = leads.find((item) => item !== lead);
-  if (!second) return primary;
-  return `${primary} ${leadSentence(facts, second)}`;
+/** Newest first, capped. Jev's `s0` is this list's first item. */
+export function candidateShots(source: WorkspaceDigestSource): DigestShotSource[] {
+  return source.shots
+    .slice()
+    .sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : a.key.localeCompare(b.key)))
+    .slice(0, DIGEST_MAX_SHOTS);
 }
 
 export function orderShots<T>(shots: T[], index: number | undefined): T[] {
@@ -255,96 +178,190 @@ function emptySource(slug: string): WorkspaceDigestSource {
   return {
     slug,
     uploads: 0,
+    prevUploads: 0,
     bytesAdded: 0,
+    bytesDeleted: 0,
     repos: [],
     shots: [],
     pulls: [],
-    issues: [],
-    pages: [],
-    galleryNames: [],
-    galleryCount: 0,
-    feeds: 0,
     storageBytes: 0,
-    objects: 0,
-    uploadsThisMonth: 0,
-    newMembers: 0,
     activePeople: 0,
+    newPeople: 0,
   };
 }
 
-export function sectionFromSource(
-  source: WorkspaceDigestSource,
-  opts: {
-    name: string;
-    includeActivity: boolean;
-    includeAdmin: boolean;
-    curation?: DigestCuration;
-  },
-): WeeklyDigestSection | null {
-  const showFiles = (opts.includeActivity || opts.includeAdmin) && hasFileActivity(source);
-  const showPeople = opts.includeAdmin && hasAdminActivity(source);
-  if (!showFiles && !showPeople) return null;
-
-  const facts = factsFor(source, opts.name, opts.includeAdmin);
-  const shots = orderShots(source.shots, opts.curation?.shotIndex).slice(0, DIGEST_MAX_SHOTS);
-  const admin =
-    opts.includeAdmin &&
-    (showFiles || showPeople) &&
-    (source.storageBytes > 0 ||
-      source.objects > 0 ||
-      source.uploadsThisMonth > 0 ||
-      source.newMembers > 0 ||
-      source.activePeople > 0)
-      ? {
-          storageBytes: source.storageBytes,
-          objects: source.objects,
-          uploadsThisMonth: source.uploadsThisMonth,
-          newMembers: source.newMembers,
-          activePeople: source.activePeople,
-        }
-      : undefined;
-
-  return {
-    slug: source.slug,
-    name: opts.name,
-    blurb: weeklyBlurb(facts, opts.curation?.lead),
-    uploads: showFiles ? source.uploads : 0,
-    bytesAdded: showFiles ? source.bytesAdded : 0,
-    repos: showFiles ? source.repos.slice(0, DIGEST_MAX_REPOS) : [],
-    screenshots: showFiles
-      ? shots.map((shot) => ({ url: shot.url, embedUrl: shot.embedUrl, label: shot.label }))
-      : [],
-    pulls: showFiles
-      ? source.pulls.slice(0, DIGEST_MAX_PULLS).map((pull) => ({
-          label: `${pull.repo}#${pull.number}`,
-          href: githubHref(pull.repo, "pull", pull.number),
-          detail: pull.title ?? undefined,
-        }))
-      : [],
-    issues: showFiles
-      ? source.issues.slice(0, DIGEST_MAX_ISSUES).map((issue) => ({
-          label: `${issue.repo}#${issue.number}`,
-          href: githubHref(issue.repo, "issues", issue.number),
-        }))
-      : [],
-    pages: showFiles ? source.pages.slice(0, DIGEST_MAX_PAGES) : [],
-    galleries: showFiles ? source.galleryNames.slice(0, DIGEST_MAX_GALLERIES) : [],
-    galleryCount: showFiles ? source.galleryCount : 0,
-    feeds: showFiles ? source.feeds : 0,
-    admin,
-  };
-}
-
-function sectionScore(section: WeeklyDigestSection): number {
-  return (
-    section.uploads +
-    section.pulls.length +
-    section.issues.length +
-    (section.admin?.newMembers ?? 0)
+/** The repo whose week jumped the most, once it clears the busy threshold. */
+export function notableRepo(repos: DigestRepoSource[]): DigestRepoSource | null {
+  const hits = repos.filter(
+    (repo) =>
+      repo.count >= DIGEST_BUSY_REPO_MIN && repo.count > repo.prev && repo.count >= repo.prev * 2,
   );
+  hits.sort(
+    (a, b) =>
+      b.count - b.prev - (a.count - a.prev) || b.count - a.count || a.name.localeCompare(b.name),
+  );
+  return hits[0] ?? null;
 }
 
-/** One email per opted-in user. Quiet memberships are left out. */
+/** Whole-number percent when storage is near the plan cap, otherwise null. */
+export function storagePressurePercent(bytes: number, limit: number | undefined): number | null {
+  if (!limit || limit <= 0 || bytes <= 0) return null;
+  if (bytes / limit < DIGEST_STORAGE_PRESSURE) return null;
+  return Math.min(100, Math.round((bytes / limit) * 100));
+}
+
+export function hasAdminPulse(source: WorkspaceDigestSource): boolean {
+  if (source.uploads > 0 || source.prevUploads > 0) return true;
+  if (source.activePeople > 0 || source.newPeople > 0) return true;
+  if (source.bytesAdded > 0 || source.bytesDeleted > 0) return true;
+  if ((source.firstUploads?.count ?? 0) > 0) return true;
+  if (notableRepo(source.repos)) return true;
+  if (storagePressurePercent(source.storageBytes, source.storageLimitBytes) !== null) return true;
+  return false;
+}
+
+function filesPath(slug: string): string {
+  return `/account/workspaces/${encodeURIComponent(slug)}/files`;
+}
+
+function billingPath(slug: string): string {
+  return `/account/workspaces/${encodeURIComponent(slug)}/billing`;
+}
+
+function highlightFrom(shot: DigestShotSource): WeeklyDigestHighlight {
+  const kind = shot.kind === "issues" ? "issues" : "pull";
+  const href = shot.repo && shot.number ? githubHref(shot.repo, kind, shot.number) : undefined;
+  const hrefLabel = shot.repo && shot.number ? `${shot.repo}#${shot.number}` : undefined;
+  return {
+    url: shot.url,
+    embedUrl: shot.embedUrl,
+    caption: shot.label,
+    href,
+    hrefLabel,
+  };
+}
+
+function topPullFrom(pull: DigestPullSource): WeeklyDigestTopPull {
+  return {
+    title: pull.title?.trim() || `${pull.repo}#${pull.number}`,
+    repo: pull.repo,
+    number: pull.number,
+    href: githubHref(pull.repo, "pull", pull.number),
+    state: pull.state ?? undefined,
+    thumbnailUrl: pull.shot?.url,
+    thumbnailEmbedUrl: pull.shot?.embedUrl,
+  };
+}
+
+function notesFor(source: WorkspaceDigestSource): WeeklyDigestNote[] {
+  const notes: WeeklyDigestNote[] = [];
+  const repo = notableRepo(source.repos);
+  if (repo) {
+    notes.push({
+      text:
+        repo.prev > 0
+          ? `${repo.name} got busy — ${repo.count} files, up from ${repo.prev}`
+          : `${repo.name} got busy — ${repo.count} files this week`,
+      href: repoHref(repo.name),
+    });
+  }
+  const first = source.firstUploads;
+  if (first && first.count > 0) {
+    const text =
+      first.count === 1
+        ? first.name
+          ? `${first.name}'s first upload`
+          : "A teammate's first upload"
+        : `${first.count} people's first uploads`;
+    notes.push({ text, href: filesPath(source.slug) });
+  }
+  const percent = storagePressurePercent(source.storageBytes, source.storageLimitBytes);
+  if (percent !== null) {
+    notes.push({ text: `Storage is at ${percent}% of the plan`, href: billingPath(source.slug) });
+  }
+  return notes.slice(0, DIGEST_MAX_NOTES);
+}
+
+function pulseFrom(source: WorkspaceDigestSource): WeeklyDigestPulse {
+  return {
+    uploads: source.uploads,
+    uploadsDelta: source.uploads - source.prevUploads,
+    activeMembers: source.activePeople,
+    activeMembersNew: source.newPeople,
+    storageBytes: source.storageBytes,
+    storageDeltaBytes: source.bytesAdded - source.bytesDeleted,
+    notes: notesFor(source),
+  };
+}
+
+function buildUser(
+  recipient: DigestRecipient,
+  sources: Map<string, WorkspaceDigestSource>,
+  curation: Map<string, DigestCuration>,
+): WeeklyDigestUser | undefined {
+  if (!recipient.digest) return undefined;
+  let uploads = 0;
+  const repoNames = new Set<string>();
+  const active: DigestMembership[] = [];
+  let bestShot: { uploads: number; at: string; shot: DigestShotSource } | null = null;
+  let bestPull: DigestPullSource | null = null;
+
+  for (const membership of recipient.memberships) {
+    const source = sources.get(membership.slug);
+    if (!source || !hasFileActivity(source)) continue;
+    active.push(membership);
+    uploads += source.uploads;
+    for (const repo of source.repos) {
+      if (repo.count > 0) repoNames.add(repo.name);
+    }
+    const shot = orderShots(candidateShots(source), curation.get(membership.slug)?.shotIndex)[0];
+    const betterShot =
+      shot &&
+      (!bestShot ||
+        source.uploads > bestShot.uploads ||
+        (source.uploads === bestShot.uploads && shot.at > bestShot.at));
+    if (shot && betterShot) {
+      bestShot = { uploads: source.uploads, at: shot.at, shot };
+    }
+    const pull = source.pulls[0];
+    if (pull && pull.count > 0 && (!bestPull || pull.count > bestPull.count)) bestPull = pull;
+  }
+  if (active.length === 0) return undefined;
+  const only = active.length === 1 ? active[0] : undefined;
+  return {
+    workspaceName: only ? only.orgName || only.slug : undefined,
+    workspaceSlug: only?.slug,
+    highlight: bestShot ? highlightFrom(bestShot.shot) : undefined,
+    topPull: bestPull ? topPullFrom(bestPull) : undefined,
+    uploads,
+    repos: repoNames.size,
+  };
+}
+
+function buildPulses(
+  recipient: DigestRecipient,
+  sources: Map<string, WorkspaceDigestSource>,
+): { pulses: WeeklyDigestPulseBlock[]; omitted: number } {
+  if (!recipient.workspaceDigest) return { pulses: [], omitted: 0 };
+  const blocks: WeeklyDigestPulseBlock[] = [];
+  for (const membership of recipient.memberships) {
+    if (!isAdminRole(membership.role)) continue;
+    const source = sources.get(membership.slug);
+    if (!source || !hasAdminPulse(source)) continue;
+    blocks.push({
+      slug: source.slug,
+      name: membership.orgName || membership.slug,
+      pulse: pulseFrom(source),
+    });
+  }
+  blocks.sort((a, b) => b.pulse.uploads - a.pulse.uploads || a.name.localeCompare(b.name));
+  return {
+    pulses: blocks.slice(0, DIGEST_MAX_PULSES),
+    omitted: Math.max(0, blocks.length - DIGEST_MAX_PULSES),
+  };
+}
+
+/** One email per opted-in user. A quiet week produces no draft. */
 export function draftForRecipient(
   recipient: DigestRecipient,
   sources: Map<string, WorkspaceDigestSource>,
@@ -355,53 +372,36 @@ export function draftForRecipient(
   if (!email.includes("@")) return null;
   if (!recipient.digest && !recipient.workspaceDigest) return null;
 
-  const sections: WeeklyDigestSection[] = [];
-  let digestContributed = false;
-  let workspaceContributed = false;
+  const user = buildUser(recipient, sources, curation);
+  const { pulses, omitted } = buildPulses(recipient, sources);
+  if (!user && pulses.length === 0) return null;
 
-  for (const membership of recipient.memberships) {
-    const source = sources.get(membership.slug);
-    if (!source) continue;
-    const admin = recipient.workspaceDigest && isAdminRole(membership.role);
-    const includeActivity = recipient.digest;
-    const section = sectionFromSource(source, {
-      name: membership.orgName || membership.slug,
-      includeActivity: includeActivity || admin,
-      includeAdmin: admin,
-      curation: curation.get(membership.slug),
-    });
-    if (!section) continue;
-    // The member digest only covers file activity. New members alone belong
-    // to the workspace digest, so they must not add its unsubscribe link.
-    if (recipient.digest && hasFileActivity(source)) digestContributed = true;
-    if (admin) workspaceContributed = true;
-    sections.push(section);
-  }
-
-  if (sections.length === 0) return null;
-  sections.sort((a, b) => sectionScore(b) - sectionScore(a) || a.name.localeCompare(b.name));
-  const omittedWorkspaces = Math.max(0, sections.length - DIGEST_MAX_SECTIONS);
-  const kept = sections.slice(0, DIGEST_MAX_SECTIONS);
   const unsubscribes: WeeklyDigestMessage["unsubscribes"] = [];
-  if (recipient.digest && digestContributed) unsubscribes.push("digest");
-  if (workspaceContributed) unsubscribes.push("workspace");
-  if (unsubscribes.length === 0) unsubscribes.push(recipient.digest ? "digest" : "workspace");
+  if (user) unsubscribes.push("digest");
+  if (pulses.length > 0) unsubscribes.push("workspace");
 
   return {
     userId: recipient.userId,
     to: email,
     weekLabel: label,
-    sections: kept,
-    omittedWorkspaces,
+    user,
+    pulses,
+    omittedWorkspaces: omitted,
     unsubscribes,
   };
 }
 
-export function slugsWorthCurating(messages: WeeklyDigestMessage[]): string[] {
+export function slugsWorthCurating(
+  recipients: DigestRecipient[],
+  sources: Map<string, WorkspaceDigestSource>,
+): string[] {
   const score = new Map<string, number>();
-  for (const message of messages) {
-    for (const section of message.sections) {
-      score.set(section.slug, Math.max(score.get(section.slug) ?? 0, section.uploads));
+  for (const recipient of recipients) {
+    if (!recipient.digest) continue;
+    for (const membership of recipient.memberships) {
+      const source = sources.get(membership.slug);
+      if (!source || source.shots.length < 2) continue;
+      score.set(membership.slug, source.uploads);
     }
   }
   return [...score.entries()]
@@ -410,70 +410,36 @@ export function slugsWorthCurating(messages: WeeklyDigestMessage[]): string[] {
     .map(([slug]) => slug);
 }
 
-function isLead(value: string): value is DigestLead {
-  return (LEADS as readonly string[]).includes(value);
-}
-
-/** Text state only. Screenshot pixels never go to the model. */
+/** Text labels only. Screenshot pixels and file URLs never go to the model. */
 export function buildDigestDecideRequest(
   source: WorkspaceDigestSource,
-  name: string,
 ): ClassifierDecideRequest | null {
-  const facts = factsFor(source, name, true);
-  const leads = availableLeads(facts);
-  const shots = source.shots.slice(0, DIGEST_MAX_SHOTS);
-  if (leads.length < 2 && shots.length < 2) return null;
-
+  const shots = candidateShots(source);
+  if (shots.length < 2) return null;
   const criteria: Record<string, string> = {};
-  for (const lead of leads) criteria[lead] = leadSentence(facts, lead);
-  const questions: ClassifierDecideRequest["questions"] = {};
-  if (leads.length >= 2) {
-    questions.lead = {
-      type: "choice",
-      instructions:
-        "Which fact should open a two-sentence weekly summary? Prefer a specific repo, pull request, or page over a raw upload count when both are present.",
-      criteria,
-    };
-  }
-  if (shots.length >= 2) {
-    const shotCriteria: Record<string, string> = {};
-    shots.forEach((shot, index) => {
-      shotCriteria[`s${index}`] = shot.label.slice(0, 140);
-    });
-    questions.shot = {
-      type: "choice",
-      instructions: "Which screenshot label best represents this workspace's week?",
-      criteria: shotCriteria,
-    };
-  }
-
-  const excerpt = [
-    `Workspace ${name}.`,
-    facts.uploads > 0 ? `${facts.uploads} files, ${facts.bytesAdded} bytes added.` : "",
-    facts.topRepo ? `Top repo ${facts.topRepo}.` : "",
-    facts.topPull ? `Top pull ${facts.topPull}.` : "",
-    facts.topPage ? `Top page ${facts.topPage}.` : "",
-    facts.galleryCount > 0 ? `${facts.galleryCount} galleries.` : "",
-    facts.newMembers > 0 ? `${facts.newMembers} new members.` : "",
-    shots.length > 0 ? `Screenshots: ${shots.map((shot) => shot.label).join("; ")}.` : "",
-  ]
-    .filter((part) => part.length > 0)
-    .join(" ");
-
+  shots.forEach((shot, index) => {
+    criteria[`s${index}`] = shot.label.slice(0, 140);
+  });
+  const excerpt = `Screenshots: ${shots.map((shot) => shot.label).join("; ")}.`;
   const state: ClassifierState = {
     filename: "weekly-digest",
     content_type: "text/plain",
     byte_size: excerpt.length,
     excerpt,
     summary: excerpt.slice(0, 140),
-    note: "Counts are from the product database. Choose among the questions. Do not invent activity.",
+    note: "Captions are from file metadata. Choose one. Do not invent a file.",
   };
-
   return {
     stage: "decide",
     model: CLASSIFIER_DECISION_MODEL,
     state,
-    questions,
+    questions: {
+      shot: {
+        type: "choice",
+        instructions: "Which caption is the single best highlight of this workspace's week?",
+        criteria,
+      },
+    },
   };
 }
 
@@ -509,32 +475,24 @@ function findAnswers(result: unknown): Record<string, unknown> | null {
   return null;
 }
 
-export function curationFromModel(
-  source: WorkspaceDigestSource,
-  name: string,
-  result: unknown,
-): DigestCuration {
-  const facts = factsFor(source, name, true);
-  const leadChoice = answerChoice(result, "lead", new Set(availableLeads(facts)));
+export function curationFromModel(source: WorkspaceDigestSource, result: unknown): DigestCuration {
   const shotChoice = answerChoice(
     result,
     "shot",
-    new Set(source.shots.slice(0, DIGEST_MAX_SHOTS).map((_, index) => `s${index}`)),
+    new Set(candidateShots(source).map((_, index) => `s${index}`)),
   );
   const shotIndex = shotChoice ? Number(shotChoice.slice(1)) : undefined;
   return {
-    lead: leadChoice && isLead(leadChoice) ? leadChoice : undefined,
     shotIndex: shotIndex !== undefined && Number.isInteger(shotIndex) ? shotIndex : undefined,
   };
 }
 
 export async function curateWorkspace(
   source: WorkspaceDigestSource,
-  name: string,
   run: ClassifierRun,
   timeoutMs = CLASSIFIER_TIMEOUT_MS,
 ): Promise<DigestCuration> {
-  const request = buildDigestDecideRequest(source, name);
+  const request = buildDigestDecideRequest(source);
   if (!request) return {};
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -544,7 +502,7 @@ export async function curateWorkspace(
         timer = setTimeout(() => reject(new Error("digest curation timed out")), timeoutMs);
       }),
     ]);
-    return curationFromModel(source, name, result);
+    return curationFromModel(source, result);
   } catch (err) {
     console.error(
       JSON.stringify({
@@ -559,16 +517,19 @@ export async function curateWorkspace(
   }
 }
 
-/** Merge counted maps, keeping the larger signal so attachments and PR events are not summed. */
-export function mergeCounts(groups: Array<Map<string, number>>): { name: string; count: number }[] {
-  const names = new Set<string>();
-  for (const group of groups) for (const name of group.keys()) names.add(name);
+/** Merge counted maps. `prev` is the previous week's count for the same name. */
+export function mergeRepoCounts(
+  current: Map<string, number>,
+  previous: Map<string, number>,
+): DigestRepoSource[] {
+  const names = new Set<string>([...current.keys(), ...previous.keys()]);
   return [...names]
     .map((name) => ({
       name,
-      count: Math.max(...groups.map((group) => group.get(name) ?? 0)),
+      count: current.get(name) ?? 0,
+      prev: previous.get(name) ?? 0,
     }))
-    .filter((row) => row.count > 0 && row.name.length > 0)
+    .filter((row) => (row.count > 0 || row.prev > 0) && row.name.length > 0)
     .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
 }
 

@@ -21,21 +21,25 @@ const message: WeeklyDigestMessage = {
   weekLabel: "Oct 5–12",
   omittedWorkspaces: 0,
   unsubscribes: ["digest", "workspace"],
-  sections: [
+  user: {
+    workspaceName: "Acme",
+    workspaceSlug: "acme",
+    uploads: 2,
+    repos: 1,
+  },
+  pulses: [
     {
       slug: "acme",
       name: "Acme",
-      blurb: "Acme uploaded 2 files this week.",
-      uploads: 2,
-      bytesAdded: 1000,
-      repos: [],
-      screenshots: [],
-      pulls: [],
-      issues: [],
-      pages: [],
-      galleries: [],
-      galleryCount: 0,
-      feeds: 0,
+      pulse: {
+        uploads: 2,
+        uploadsDelta: 1,
+        activeMembers: 1,
+        activeMembersNew: 0,
+        storageBytes: 1000,
+        storageDeltaBytes: 1000,
+        notes: [],
+      },
     },
   ],
 };
@@ -121,7 +125,7 @@ describe("sendWeeklyDigests", () => {
       NOW,
     );
     expect(result.sent).toEqual(["user-1"]);
-    expect(sent[0]?.html).toContain("Acme uploaded 2 files");
+    expect(sent[0]?.html).toContain("2 uploads across 1 repo");
     expect(sent[0]?.text).toContain("Unsubscribe from this weekly summary");
     expect(sent[0]?.text).toContain("Unsubscribe from workspace summaries");
     expect(sent[0]?.headers?.["List-Unsubscribe"]).toMatch(

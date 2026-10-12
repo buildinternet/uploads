@@ -1,53 +1,57 @@
-import { escapeHtml, renderEmailCard, strong, type RenderedEmail } from "./card";
+import { escapeHtml, renderEmailCard, type RenderedEmail } from "./card";
 
-/** One public image from the week. `url` is the stable link; `embedUrl` is the img src. */
-export interface WeeklyDigestShot {
+/** The one image that opens a member digest. `url` is the file; `href` is the repo or pull request. */
+export interface WeeklyDigestHighlight {
   url: string;
   embedUrl?: string | null;
-  label: string;
-}
-
-export interface WeeklyDigestCount {
-  name: string;
-  count: number;
-}
-
-export interface WeeklyDigestLink {
-  label: string;
+  caption: string;
   href?: string;
-  detail?: string;
+  hrefLabel?: string;
 }
 
-export interface WeeklyDigestPage {
-  path: string;
-  count: number;
+export interface WeeklyDigestTopPull {
+  title: string;
+  repo: string;
+  number: number;
+  href?: string;
+  state?: "open" | "closed" | "merged";
+  thumbnailUrl?: string;
+  thumbnailEmbedUrl?: string | null;
 }
 
-/** Usage and people, present only on the workspace digest for an admin. */
-export interface WeeklyDigestAdmin {
+/** A single linked callout. Paths starting with `/account/` are resolved against the web origin. */
+export interface WeeklyDigestNote {
+  text: string;
+  href?: string;
+}
+
+export interface WeeklyDigestUser {
+  /** Set when the week's file activity is in one workspace. */
+  workspaceName?: string;
+  workspaceSlug?: string;
+  highlight?: WeeklyDigestHighlight;
+  topPull?: WeeklyDigestTopPull;
+  uploads: number;
+  repos: number;
+}
+
+export interface WeeklyDigestPulse {
+  uploads: number;
+  /** This week minus the previous week. */
+  uploadsDelta: number;
+  activeMembers: number;
+  /** People whose first activity in the workspace fell in this week. */
+  activeMembersNew: number;
   storageBytes: number;
-  objects: number;
-  uploadsThisMonth: number;
-  newMembers: number;
-  activePeople: number;
+  /** Net bytes added this week (uploads minus deletes). */
+  storageDeltaBytes: number;
+  notes: WeeklyDigestNote[];
 }
 
-/** One workspace block inside the weekly email. */
-export interface WeeklyDigestSection {
+export interface WeeklyDigestPulseBlock {
   slug: string;
   name: string;
-  blurb: string;
-  uploads: number;
-  bytesAdded: number;
-  repos: WeeklyDigestCount[];
-  screenshots: WeeklyDigestShot[];
-  pulls: WeeklyDigestLink[];
-  issues: WeeklyDigestLink[];
-  pages: WeeklyDigestPage[];
-  galleries: string[];
-  galleryCount: number;
-  feeds: number;
-  admin?: WeeklyDigestAdmin;
+  pulse: WeeklyDigestPulse;
 }
 
 export type WeeklyDigestKind = "digest" | "workspace";
@@ -60,18 +64,18 @@ export interface WeeklyDigestMessage {
   userId: string;
   to: string;
   weekLabel: string;
-  sections: WeeklyDigestSection[];
+  user?: WeeklyDigestUser;
+  pulses: WeeklyDigestPulseBlock[];
   omittedWorkspaces: number;
   unsubscribes: WeeklyDigestKind[];
 }
 
 export interface WeeklyDigestEmailInput {
   weekLabel: string;
-  sections: WeeklyDigestSection[];
+  user?: WeeklyDigestUser;
+  pulses?: WeeklyDigestPulseBlock[];
   omittedWorkspaces?: number;
-  /** Opt out of the member digest. */
   unsubscribeDigestUrl?: string;
-  /** Opt out of the workspace digest. */
   unsubscribeWorkspaceUrl?: string;
   webOrigin?: string;
 }
@@ -79,23 +83,31 @@ export interface WeeklyDigestEmailInput {
 const LINK = "color:#b9b0cf;text-decoration:underline;";
 const META =
   "font-family:ui-monospace,'SF Mono',SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;line-height:1.6;color:#8a8a83;";
+const TITLE =
+  "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;";
 
 function formatBytes(n: number): string {
-  if (!Number.isFinite(n) || n < 1000) return `${Math.max(0, Math.round(n))} B`;
+  const value = Math.abs(n);
+  if (!Number.isFinite(value) || value < 1000) return `${Math.max(0, Math.round(value))} B`;
   const units = ["kB", "MB", "GB", "TB", "PB"];
-  let value = n;
+  let scaled = value;
   let unit = -1;
   do {
-    value /= 1000;
+    scaled /= 1000;
     unit += 1;
-  } while (value >= 1000 && unit < units.length - 1);
+  } while (scaled >= 1000 && unit < units.length - 1);
   const rounded =
-    value >= 10 || Number.isInteger(value) ? Math.round(value) : Number(value.toFixed(1));
+    scaled >= 10 || Number.isInteger(scaled) ? Math.round(scaled) : Number(scaled.toFixed(1));
   return `${rounded} ${units[unit]}`;
 }
 
 function formatCount(n: number): string {
-  return Math.max(0, Math.round(n)).toLocaleString("en-US");
+  return Math.max(0, Math.round(Math.abs(n))).toLocaleString("en-US");
+}
+
+function signedDelta(n: number, body: string): string {
+  if (n === 0) return "no change";
+  return n > 0 ? `+${body}` : `-${body}`;
 }
 
 /** https URLs only. A metadata value must not become a javascript: link. */
@@ -110,173 +122,152 @@ function safeHttps(value: string | undefined | null): string | null {
   }
 }
 
-function linkHtml(href: string | undefined, label: string): string {
-  const safe = safeHttps(href);
+function resolveHref(href: string | undefined, webOrigin: string): string | null {
+  if (!href) return null;
+  if (href.startsWith("/account/")) return safeHttps(`${webOrigin}${href}`);
+  return safeHttps(href);
+}
+
+function linkHtml(href: string | null, label: string): string {
   const text = escapeHtml(label);
-  if (!safe) return text;
-  return `<a href="${escapeHtml(safe)}" style="${LINK}">${text}</a>`;
+  if (!href) return text;
+  return `<a href="${escapeHtml(href)}" style="${LINK}">${text}</a>`;
 }
 
-function itemLine(item: WeeklyDigestLink): { html: string; text: string } {
-  const extra = item.detail ? ` — ${item.detail}` : "";
-  return {
-    html: `${linkHtml(item.href, item.label)}${escapeHtml(extra)}`,
-    text: `${item.label}${extra}${item.href ? ` (${item.href})` : ""}`,
-  };
+function filesPath(slug: string): string {
+  return `/account/workspaces/${encodeURIComponent(slug)}/files`;
 }
 
-function bulletList(items: { html: string; text: string }[]): { html: string; text: string } {
-  if (items.length === 0) return { html: "", text: "" };
-  return {
-    html: `<ul style="margin:0 0 14px;padding-left:18px;">${items
-      .map((item) => `<li style="margin:0 0 4px;">${item.html}</li>`)
-      .join("")}</ul>`,
-    text: items.map((item) => `- ${item.text}`).join("\n"),
-  };
+function statLine(uploads: number, repos: number): string {
+  const files = uploads === 1 ? "1 upload" : `${formatCount(uploads)} uploads`;
+  if (repos <= 0) return files;
+  const repoLabel = repos === 1 ? "1 repo" : `${formatCount(repos)} repos`;
+  return `${files} across ${repoLabel}`;
 }
 
-function heading(label: string): string {
-  return `<p style="margin:0 0 4px;${META}text-transform:uppercase;letter-spacing:.08em;">${escapeHtml(label)}</p>`;
+function stateLabel(state: WeeklyDigestTopPull["state"]): string | null {
+  if (state === "open") return "Open";
+  if (state === "merged") return "Merged";
+  if (state === "closed") return "Closed";
+  return null;
 }
 
-function screenshotBlock(shots: WeeklyDigestShot[]): { html: string; text: string } {
-  const usable = shots.flatMap((shot) => {
-    const href = safeHttps(shot.url);
-    if (!href) return [];
-    const src = safeHttps(shot.embedUrl) ?? href;
-    return [{ ...shot, href, src }];
-  });
-  if (usable.length === 0) return { html: "", text: "" };
-  const cells = usable
-    .map(
-      (shot) => `<tr><td style="padding:0 0 12px;">
-        <a href="${escapeHtml(shot.href)}" style="text-decoration:none;">
-          <img src="${escapeHtml(shot.src)}" width="240" alt="${escapeHtml(shot.label)}" style="display:block;width:240px;max-width:100%;height:auto;border:0;border-radius:8px;">
-        </a>
-        <div style="${META}padding-top:4px;">${escapeHtml(shot.label)}</div>
-      </td></tr>`,
-    )
-    .join("");
-  return {
-    html: `${heading("Screenshots")}<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 8px;">${cells}</table>`,
-    text: ["Screenshots:", ...usable.map((shot) => `- ${shot.label}: ${shot.href}`)].join("\n"),
-  };
-}
-
-function statsText(section: WeeklyDigestSection): string | null {
-  const parts: string[] = [];
-  if (section.uploads > 0) {
-    const files = `${formatCount(section.uploads)} ${section.uploads === 1 ? "file" : "files"} uploaded`;
-    parts.push(
-      section.bytesAdded > 0 ? `${files}, ${formatBytes(section.bytesAdded)} added` : files,
-    );
-  } else if (section.bytesAdded > 0) {
-    parts.push(`${formatBytes(section.bytesAdded)} added`);
-  }
-  if (parts.length === 0) return null;
-  return parts.join(" · ");
-}
-
-function galleryText(section: WeeklyDigestSection): string | null {
-  if (section.galleryCount <= 0 && section.feeds <= 0) return null;
-  const bits: string[] = [];
-  if (section.galleryCount > 0) {
-    const names = section.galleries.slice(0, 3).join(", ");
-    const extra = section.galleryCount - section.galleries.length;
-    const label = section.galleryCount === 1 ? "gallery" : "galleries";
-    bits.push(
-      names
-        ? `${section.galleryCount} ${label} (${names}${extra > 0 ? `, and ${extra} more` : ""})`
-        : `${section.galleryCount} ${label}`,
-    );
-  }
-  if (section.feeds > 0) {
-    bits.push(`${section.feeds} ${section.feeds === 1 ? "change feed" : "change feeds"}`);
-  }
-  return bits.join(" · ");
-}
-
-function adminText(admin: WeeklyDigestAdmin): string | null {
-  const parts: string[] = [];
-  if (admin.storageBytes > 0 || admin.objects > 0) {
-    parts.push(
-      `Storage ${formatBytes(admin.storageBytes)} across ${formatCount(admin.objects)} ${admin.objects === 1 ? "object" : "objects"}`,
-    );
-  }
-  if (admin.uploadsThisMonth > 0) {
-    parts.push(`${formatCount(admin.uploadsThisMonth)} uploads this month`);
-  }
-  if (admin.newMembers > 0) {
-    parts.push(
-      `${formatCount(admin.newMembers)} ${admin.newMembers === 1 ? "person" : "people"} joined`,
-    );
-  }
-  if (admin.activePeople > 0) {
-    parts.push(
-      `${formatCount(admin.activePeople)} ${admin.activePeople === 1 ? "person" : "people"} active`,
-    );
-  }
-  if (parts.length === 0) return null;
-  return parts.join(" · ");
-}
-
-function sectionBlock(
-  section: WeeklyDigestSection,
+function highlightBlock(
+  highlight: WeeklyDigestHighlight,
   webOrigin: string,
 ): { html: string; text: string } {
-  const filesUrl = safeHttps(
-    `${webOrigin}/account/workspaces/${encodeURIComponent(section.slug)}/files`,
-  );
-  const title = filesUrl
-    ? `<a href="${escapeHtml(filesUrl)}" style="${LINK}font-weight:600;">${escapeHtml(section.name)}</a>`
-    : strong(section.name);
-  const stats = statsText(section);
-  const repos = bulletList(
-    section.repos.map((repo) => ({
-      html: `${escapeHtml(repo.name)} <span style="color:#8a8a83;">(${formatCount(repo.count)})</span>`,
-      text: `${repo.name} (${formatCount(repo.count)})`,
-    })),
-  );
-  const shots = screenshotBlock(section.screenshots);
-  const pulls = bulletList(section.pulls.map(itemLine));
-  const issues = bulletList(section.issues.map(itemLine));
-  const pages = bulletList(
-    section.pages.map((page) => ({
-      html: `${escapeHtml(page.path)} <span style="color:#8a8a83;">(${formatCount(page.count)})</span>`,
-      text: `${page.path} (${formatCount(page.count)})`,
-    })),
-  );
-  const galleries = galleryText(section);
-  const admin = section.admin ? adminText(section.admin) : null;
+  const fileHref = safeHttps(highlight.url);
+  if (!fileHref) return { html: "", text: "" };
+  const src = safeHttps(highlight.embedUrl) ?? fileHref;
+  const link = resolveHref(highlight.href, webOrigin);
+  const imageHref = link ?? fileHref;
+  const caption = highlight.caption.trim();
+  const hrefLabel = highlight.hrefLabel?.trim();
+  const showLink = Boolean(link && hrefLabel && hrefLabel !== caption);
+  const html = `<a href="${escapeHtml(imageHref)}" style="text-decoration:none;">
+      <img src="${escapeHtml(src)}" width="456" alt="${escapeHtml(caption)}" style="display:block;width:100%;max-width:456px;height:auto;border:0;border-radius:10px;">
+    </a>
+    <p style="margin:10px 0 0;${TITLE}font-size:15px;line-height:1.4;color:#ececea;">${escapeHtml(caption)}</p>
+    ${showLink ? `<p style="margin:4px 0 0;">${linkHtml(link, hrefLabel ?? "")}</p>` : ""}`;
+  const text = [caption, showLink ? `${hrefLabel} (${link})` : fileHref].join("\n");
+  return { html, text };
+}
 
-  const htmlParts = [
-    `<p style="margin:0 0 8px;font-size:16px;">${title}</p>`,
-    section.blurb ? `<p style="margin:0 0 12px;">${escapeHtml(section.blurb)}</p>` : "",
-    stats ? `<p style="margin:0 0 12px;">${escapeHtml(stats)}</p>` : "",
-    repos.html ? `${heading("Active repos")}${repos.html}` : "",
-    shots.html,
-    pulls.html ? `${heading("Pull requests")}${pulls.html}` : "",
-    issues.html ? `${heading("Issues")}${issues.html}` : "",
-    pages.html ? `${heading("Pages")}${pages.html}` : "",
-    galleries ? `<p style="margin:0 0 12px;">${escapeHtml(galleries)}</p>` : "",
-    admin ? `${heading("Workspace")}<p style="margin:0 0 4px;">${escapeHtml(admin)}</p>` : "",
+function topPullBlock(pull: WeeklyDigestTopPull): { html: string; text: string } {
+  const href = safeHttps(pull.href);
+  const title = linkHtml(href, pull.title);
+  const state = stateLabel(pull.state);
+  const meta = [pull.repo, state].filter((part): part is string => Boolean(part)).join(" · ");
+  const thumbHref = safeHttps(pull.thumbnailUrl);
+  const thumbSrc = thumbHref ? (safeHttps(pull.thumbnailEmbedUrl) ?? thumbHref) : null;
+  const thumb = thumbSrc
+    ? `<td style="width:96px;padding-right:12px;vertical-align:top;">
+        <a href="${escapeHtml(href ?? thumbHref ?? thumbSrc)}" style="text-decoration:none;">
+          <img src="${escapeHtml(thumbSrc)}" width="96" alt="" style="display:block;width:96px;height:auto;border:0;border-radius:8px;">
+        </a>
+      </td>`
+    : "";
+  const html = `<p style="margin:18px 0 8px;${META}text-transform:uppercase;letter-spacing:.08em;">Top pull request</p>
+    <table role="presentation" cellpadding="0" cellspacing="0"><tr>
+      ${thumb}
+      <td style="vertical-align:top;">
+        <div style="${TITLE}font-size:15px;line-height:1.4;color:#ececea;">${title}</div>
+        <div style="${META}">${escapeHtml(meta)}</div>
+      </td>
+    </tr></table>`;
+  const text = ["Top pull request:", `${pull.title}${state ? ` (${state})` : ""}`, meta, href ?? ""]
+    .filter((part) => part.length > 0)
+    .join("\n");
+  return { html, text };
+}
+
+function userBlock(user: WeeklyDigestUser, webOrigin: string): { html: string; text: string } {
+  const highlight = user.highlight
+    ? highlightBlock(user.highlight, webOrigin)
+    : { html: "", text: "" };
+  const pull = user.topPull ? topPullBlock(user.topPull) : { html: "", text: "" };
+  const stats = statLine(user.uploads, user.repos);
+  return {
+    html: `${highlight.html}${pull.html}<p style="margin:16px 0 0;">${escapeHtml(stats)}</p>`,
+    text: [highlight.text, pull.text, stats].filter((part) => part.length > 0).join("\n"),
+  };
+}
+
+function pulseNumbers(pulse: WeeklyDigestPulse): { html: string; text: string } {
+  const cells = [
+    {
+      value: formatCount(pulse.uploads),
+      label: "uploads",
+      delta: signedDelta(pulse.uploadsDelta, formatCount(pulse.uploadsDelta)),
+    },
+    {
+      value: formatCount(pulse.activeMembers),
+      label: pulse.activeMembers === 1 ? "active member" : "active members",
+      delta:
+        pulse.activeMembersNew > 0 ? `+${formatCount(pulse.activeMembersNew)} new` : "no change",
+    },
+    {
+      value: formatBytes(pulse.storageBytes),
+      label: "storage",
+      delta: signedDelta(pulse.storageDeltaBytes, formatBytes(pulse.storageDeltaBytes)),
+    },
   ];
+  const html = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 8px;"><tr>${cells
+    .map(
+      (cell) => `<td style="width:33%;vertical-align:top;padding:0 8px 0 0;">
+        <div style="${TITLE}font-size:22px;line-height:1.2;font-weight:600;color:#ececea;">${escapeHtml(cell.value)}</div>
+        <div style="${META}">${escapeHtml(cell.label)}</div>
+        <div style="${META}">${escapeHtml(cell.delta)}</div>
+      </td>`,
+    )
+    .join("")}</tr></table>`;
+  const text = cells.map((cell) => `${cell.value} ${cell.label}, ${cell.delta}`).join("\n");
+  return { html, text };
+}
 
-  const textParts = [
-    section.name,
-    section.blurb,
-    stats ?? "",
-    repos.text ? `Active repos:\n${repos.text}` : "",
-    shots.text,
-    pulls.text ? `Pull requests:\n${pulls.text}` : "",
-    issues.text ? `Issues:\n${issues.text}` : "",
-    pages.text ? `Pages:\n${pages.text}` : "",
-    galleries ?? "",
-    admin ? `Workspace: ${admin}` : "",
-    filesUrl ? filesUrl : "",
-  ].filter((part) => part.length > 0);
-
-  return { html: htmlParts.join(""), text: textParts.join("\n") };
+function pulseBlock(
+  block: WeeklyDigestPulseBlock,
+  webOrigin: string,
+): { html: string; text: string } {
+  const files = resolveHref(filesPath(block.slug), webOrigin);
+  const name = linkHtml(files, block.name);
+  const numbers = pulseNumbers(block.pulse);
+  const notes = block.pulse.notes
+    .map((note) => {
+      const href = resolveHref(note.href, webOrigin);
+      return { html: linkHtml(href, note.text), text: href ? `${note.text} (${href})` : note.text };
+    })
+    .filter((note) => note.text.length > 0);
+  const notesHtml =
+    notes.length > 0
+      ? notes.map((note) => `<p style="margin:8px 0 0;">${note.html}</p>`).join("")
+      : "";
+  return {
+    html: `<p style="margin:0 0 12px;font-size:16px;">${name}</p>${numbers.html}${notesHtml}`,
+    text: [block.name, numbers.text, ...notes.map((note) => note.text)]
+      .filter((part) => part.length > 0)
+      .join("\n"),
+  };
 }
 
 function unsubscribeNote(input: WeeklyDigestEmailInput): { html: string; text: string } {
@@ -302,45 +293,77 @@ function unsubscribeNote(input: WeeklyDigestEmailInput): { html: string; text: s
   };
 }
 
-/** Weekly digest card. Callers skip the send when `sections` is empty. */
+function singleName(input: WeeklyDigestEmailInput): string | undefined {
+  const names = new Set<string>();
+  if (input.user?.workspaceName) names.add(input.user.workspaceName);
+  for (const pulse of input.pulses ?? []) names.add(pulse.name);
+  if (names.size === 1) return [...names][0];
+  return undefined;
+}
+
+function destination(input: WeeklyDigestEmailInput, webOrigin: string): string | null {
+  if (input.user?.workspaceSlug) return resolveHref(filesPath(input.user.workspaceSlug), webOrigin);
+  const pulses = input.pulses ?? [];
+  if (!input.user && pulses.length === 1 && pulses[0]) {
+    return resolveHref(filesPath(pulses[0].slug), webOrigin);
+  }
+  return safeHttps(`${webOrigin}/account/workspaces`);
+}
+
+/** Weekly digest card. Callers skip the send when both parts are empty. */
 export function renderWeeklyDigestEmail(input: WeeklyDigestEmailInput): RenderedEmail {
   const webOrigin = (input.webOrigin || "https://uploads.sh").replace(/\/$/, "");
-  const sections = input.sections;
-  const first = sections[0];
-  const subject =
-    sections.length === 1 && first ? `Your week in ${first.name}` : "Your week on uploads.sh";
-  const blocks = sections.map((section) => sectionBlock(section, webOrigin));
+  const pulses = input.pulses ?? [];
+  const name = singleName(input);
+  const adminOnly = !input.user && pulses.length > 0;
+  const subject = name ? `Your week in ${name}` : "Your week on uploads.sh";
+  const user = input.user ? userBlock(input.user, webOrigin) : { html: "", text: "" };
+  const pulseHtml = pulses.map((pulse) => pulseBlock(pulse, webOrigin));
   const omitted =
     input.omittedWorkspaces && input.omittedWorkspaces > 0
-      ? `${input.omittedWorkspaces} more ${input.omittedWorkspaces === 1 ? "workspace" : "workspaces"} had activity this week.`
+      ? `${input.omittedWorkspaces} more ${input.omittedWorkspaces === 1 ? "workspace" : "workspaces"} had something to report.`
       : "";
   const unsub = unsubscribeNote(input);
-  const filesUrl = first
-    ? safeHttps(`${webOrigin}/account/workspaces/${encodeURIComponent(first.slug)}/files`)
-    : null;
+  const see = destination(input, webOrigin);
   const divider = `<div style="border-top:1px solid #232327;margin:18px 0;"></div>`;
-  const bodyHtml = blocks
-    .map((block) => block.html)
-    .join(divider)
-    .concat(omitted ? `<p style="margin:16px 0 0;${META}">${escapeHtml(omitted)}</p>` : "");
+  const adminHeading =
+    input.user && pulses.length > 0
+      ? `<p style="margin:0 0 10px;${META}text-transform:uppercase;letter-spacing:.08em;">Admin pulse</p>`
+      : "";
+  const bodyHtml = [
+    user.html,
+    pulses.length > 0
+      ? `${user.html ? divider : ""}${adminHeading}${pulseHtml.map((block) => block.html).join(divider)}`
+      : "",
+    omitted
+      ? `<p style="margin:16px 0 0;${META}">${linkHtml(safeHttps(`${webOrigin}/account/workspaces`), omitted)}</p>`
+      : "",
+  ].join("");
   const text = [
-    `Your week on uploads.sh (${input.weekLabel})`,
+    adminOnly ? `Admin pulse (${input.weekLabel})` : `Your week on uploads.sh (${input.weekLabel})`,
     "",
-    blocks.map((block) => block.text).join("\n\n"),
+    user.text,
+    pulseHtml.map((block) => block.text).join("\n\n"),
     omitted,
+    see ? `See your full week: ${see}` : "",
     unsub.text,
   ]
     .filter((part) => part.length > 0)
     .join("\n\n");
+  const preheader = input.user
+    ? statLine(input.user.uploads, input.user.repos)
+    : name
+      ? `Admin pulse for ${name}`
+      : `Admin pulse for ${input.weekLabel}`;
 
   return renderEmailCard({
     subject,
-    preheader: first?.blurb || `Activity for ${input.weekLabel}.`,
+    preheader,
     eyebrow: "Weekly digest",
-    title: "Your week",
+    title: adminOnly ? "Admin pulse" : "Your week",
     bodyHtml,
     text,
-    cta: filesUrl ? { url: filesUrl, label: "View files →" } : undefined,
+    cta: see ? { url: see, label: "See your full week →" } : undefined,
     footNoteHtml: unsub.html || undefined,
     webOrigin,
   });

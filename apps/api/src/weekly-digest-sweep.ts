@@ -1,10 +1,13 @@
 /**
  * Monday digest sweep. Reads activity in this worker (the tables live on the
- * shared D1), asks Jev which fact should lead when the AI binding is up, and
- * posts the messages to the auth worker to sign unsubscribe links and send.
+ * shared D1), asks Jev which screenshot should be the highlight when the AI
+ * binding is up, and posts the messages to the auth worker to sign
+ * unsubscribe links and send.
  *
- * A workspace with no uploads, gallery/feed changes, GitHub activity, page
- * tags, or new members is omitted. A storage snapshot alone does not send.
+ * A workspace with no uploads, screenshots, or pull-request media is left
+ * out of the member mail. The admin pulse also stays quiet when nothing
+ * changed and nothing is near a plan limit. A storage snapshot alone does
+ * not send.
  */
 import type { WeeklyDigestMessage } from "@uploads/email";
 import { workersAiClassifierRun } from "./classifier";
@@ -140,19 +143,13 @@ export async function runWeeklyDigestSweep(
   const pending = recipients.filter((recipient) => !already.has(recipient.userId));
   result.skipped = recipients.length - pending.length;
 
-  const drafts = pending.flatMap((recipient) => {
-    const draft = draftForRecipient(recipient, sources, window.weekLabel);
-    return draft ? [draft] : [];
-  });
-  result.recipients = drafts.length;
-
   const curation = new Map<string, DigestCuration>();
-  if (env.AI && drafts.length > 0) {
+  if (env.AI && pending.length > 0) {
     const run = workersAiClassifierRun(env);
-    for (const slug of slugsWorthCurating(drafts)) {
+    for (const slug of slugsWorthCurating(pending, sources)) {
       const source = sources.get(slug);
       if (!source) continue;
-      curation.set(slug, await curateWorkspace(source, source.slug, run));
+      curation.set(slug, await curateWorkspace(source, run));
       result.curated += 1;
     }
   }
@@ -161,6 +158,7 @@ export async function runWeeklyDigestSweep(
     const draft = draftForRecipient(recipient, sources, window.weekLabel, curation);
     return draft ? [draft] : [];
   });
+  result.recipients = messages.length;
 
   if (messages.length === 0) {
     console.log(JSON.stringify({ message: "weekly_digest_sweep", ...result }));

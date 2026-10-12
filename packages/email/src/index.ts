@@ -23,9 +23,13 @@ export {
 } from "./usage";
 export {
   renderWeeklyDigestEmail,
-  type WeeklyDigestAdmin,
   type WeeklyDigestEmailInput,
+  type WeeklyDigestHighlight,
   type WeeklyDigestKind,
   type WeeklyDigestMessage,
-  type WeeklyDigestSection,
+  type WeeklyDigestNote,
+  type WeeklyDigestPulse,
+  type WeeklyDigestPulseBlock,
+  type WeeklyDigestTopPull,
+  type WeeklyDigestUser,
 } from "./digest";

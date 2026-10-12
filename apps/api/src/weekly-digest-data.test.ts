@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { database, SqliteD1 } from "../test/helpers/sqlite-d1";
+import { hasAdminPulse } from "./weekly-digest";
 import { loadDigestSources } from "./weekly-digest-data";
 import { runWeeklyDigestSweep } from "./weekly-digest-sweep";
 
@@ -47,15 +48,16 @@ function registry(records: Record<string, unknown>) {
 }
 
 describe("loadDigestSources", () => {
-  it("collects the week's files, repos, shots, pages, and admin activity", async () => {
+  it("collects this week, the previous week, shots, and a storage-only pulse", async () => {
     const sqlite = new SqliteD1(MIGRATIONS);
     try {
       const db = sqlite.db;
       db.prepare(
-        `INSERT INTO daily_metrics (metric, day, workspace, count, bytes) VALUES ('upload', '2026-10-11', 'acme', 4, 2500000)`,
-      ).run();
-      db.prepare(
-        `INSERT INTO daily_metrics (metric, day, workspace, count, bytes) VALUES ('upload', '2026-09-01', 'acme', 99, 999)`,
+        `INSERT INTO daily_metrics (metric, day, workspace, count, bytes) VALUES
+           ('upload', '2026-10-11', 'acme', 4, 2500000),
+           ('upload', '2026-10-04', 'acme', 7, 100),
+           ('delete', '2026-10-11', 'acme', 1, 400),
+           ('upload', '2026-09-01', 'acme', 99, 999)`,
       ).run();
       db.prepare(
         `INSERT INTO github_pr_activity
@@ -65,8 +67,15 @@ describe("loadDigestSources", () => {
       db.prepare(
         `INSERT INTO github_attachments
            (workspace, repo, kind, num, object_key, source, created_at, updated_at)
-         VALUES ('acme', 'acme/web', 'issues', 4, 'gh/acme/web/issues/4/note.png', 'attach', ?, ?)`,
-      ).run(RECENT, RECENT);
+         VALUES
+           ('acme', 'acme/web', 'pull', 12, 'gh/acme/web/pull/12/review.png', 'attach', ?, ?),
+           ('acme', 'acme/web', 'issues', 4, 'gh/acme/web/issues/4/note.png', 'attach', ?, ?)`,
+      ).run(RECENT, RECENT, RECENT, RECENT);
+      db.prepare(
+        `INSERT INTO github_attachments
+           (workspace, repo, kind, num, object_key, source, created_at, updated_at)
+         VALUES ('acme', 'acme/web', 'pull', 2, 'gh/acme/web/pull/2/old.png', 'attach', ?, ?)`,
+      ).run("2026-10-04T00:00:00.000Z", "2026-10-04T00:00:00.000Z");
       db.prepare(
         `INSERT INTO file_metadata (workspace, object_key, meta_key, meta_value, updated_at)
          VALUES ('acme', 'shots/settings.png', 'path', '/settings', ?)`,
@@ -76,27 +85,19 @@ describe("loadDigestSources", () => {
          VALUES ('acme', 'shots/old.png', 'path', '/old', ?)`,
       ).run(OLD);
       db.prepare(
-        `INSERT INTO galleries (id, workspace, title, created_at, updated_at)
-         VALUES ('g1', 'acme', 'Launch', ?, ?)`,
-      ).run(RECENT, RECENT);
-      db.prepare(
-        `INSERT INTO feeds (id, workspace, repo, path, created_at, updated_at)
-         VALUES ('f1', 'acme', 'acme/web', '', ?, ?)`,
-      ).run(RECENT, RECENT);
+        `INSERT INTO file_metadata (workspace, object_key, meta_key, meta_value, updated_at)
+         VALUES ('acme', 'shots/settings.png', 'gh.uploader-id', 'new', ?)`,
+      ).run(RECENT);
       db.prepare(
         `INSERT INTO workspace_usage (workspace, bytes, objects, uploads_in_period, period_start, updated_at)
-         VALUES ('acme', 8000, 6, 4, '2026-10', ?)`,
-      ).run(RECENT);
+         VALUES ('acme', 8000, 6, 4, '2026-10', ?), ('tight', 220000000, 1, 0, '2026-10', ?)`,
+      ).run(RECENT, RECENT);
       db.prepare(
         `INSERT INTO organization (id, name, slug, created_at) VALUES ('org', 'Acme', 'acme', 1)`,
       ).run();
       db.prepare(
         `INSERT INTO user (id, name, email, created_at, updated_at) VALUES ('new', 'New', 'new@example.com', 1, 1)`,
       ).run();
-      const joined = Math.floor(new Date(RECENT).getTime() / 1000);
-      db.prepare(
-        `INSERT INTO member (id, organization_id, user_id, role, created_at) VALUES ('m1', 'org', 'new', 'member', ?)`,
-      ).run(joined);
       db.prepare(
         `INSERT INTO client_activity
            (workspace, principal, surface, user_id, first_seen_at, last_seen_at)
@@ -109,29 +110,51 @@ describe("loadDigestSources", () => {
           bucket: "uploads-default",
           publicBaseUrl: "https://storage.uploads.sh",
           prefix: "acme/",
+          plan: "free",
+        },
+        "ws:tight": {
+          provider: "r2",
+          bucket: "uploads-default",
+          publicBaseUrl: "https://storage.uploads.sh",
+          prefix: "tight/",
+          plan: "free",
         },
       });
       const sources = await loadDigestSources(database(sqlite), kv, NOW);
       const acme = sources.get("acme");
       expect(acme?.uploads).toBe(4);
+      expect(acme?.prevUploads).toBe(7);
       expect(acme?.bytesAdded).toBe(2_500_000);
-      expect(acme?.pulls[0]).toMatchObject({ repo: "acme/web", number: 12, title: "Weekly mail" });
-      expect(acme?.issues[0]).toMatchObject({ repo: "acme/web", number: 4 });
-      expect(acme?.repos.some((repo) => repo.name === "acme/web")).toBe(true);
-      expect(acme?.pages.map((page) => page.path)).toEqual(["/settings"]);
-      expect(acme?.galleryNames).toEqual(["Launch"]);
-      expect(acme?.feeds).toBe(1);
-      expect(acme?.newMembers).toBe(1);
+      expect(acme?.bytesDeleted).toBe(400);
+      expect(acme?.pulls[0]).toMatchObject({
+        repo: "acme/web",
+        number: 12,
+        title: "Weekly mail",
+        state: "open",
+        count: 1,
+      });
+      expect(acme?.pulls[0]?.shot?.url).toBe(
+        "https://storage.uploads.sh/acme/gh/acme/web/pull/12/review.png",
+      );
+      expect(acme?.repos.find((repo) => repo.name === "acme/web")).toMatchObject({
+        count: 2,
+        prev: 1,
+      });
       expect(acme?.activePeople).toBe(1);
-      expect(acme?.uploadsThisMonth).toBe(4);
-      expect(acme?.shots.map((shot) => shot.label)).toContain("/settings");
-      expect(acme?.shots.find((shot) => shot.label === "/settings")?.url).toBe(
-        "https://storage.uploads.sh/acme/shots/settings.png",
-      );
-      expect(acme?.shots.find((shot) => shot.label === "/settings")?.embedUrl).toContain(
-        "embed.uploads.sh",
-      );
+      expect(acme?.newPeople).toBe(1);
+      expect(acme?.firstUploads).toEqual({ count: 1, name: "New" });
+      expect(acme?.storageBytes).toBe(8000);
+      expect(acme?.storageLimitBytes).toBe(250_000_000);
+      const settings = acme?.shots.find((shot) => shot.label === "/settings");
+      expect(settings?.url).toBe("https://storage.uploads.sh/acme/shots/settings.png");
+      expect(settings?.embedUrl).toContain("embed.uploads.sh");
       expect(acme?.shots.some((shot) => shot.label === "/old")).toBe(false);
+
+      const tight = sources.get("tight");
+      expect(tight?.uploads).toBe(0);
+      expect(tight?.storageBytes).toBe(220_000_000);
+      expect(tight?.storageLimitBytes).toBe(250_000_000);
+      expect(tight && hasAdminPulse(tight)).toBe(true);
     } finally {
       sqlite.close();
     }

@@ -9,7 +9,10 @@ import type {
   UsageAlertEvent,
   UsageAlertThreshold,
   WeeklyDigestMessage,
-  WeeklyDigestSection,
+  WeeklyDigestNote,
+  WeeklyDigestPulse,
+  WeeklyDigestTopPull,
+  WeeklyDigestUser,
 } from "@uploads/email";
 import { and, count, countDistinct, eq, gt, gte, isNull, max, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
@@ -64,91 +67,98 @@ function asText(value: unknown, limit: number): string {
   return trimmed.length > limit ? trimmed.slice(0, limit) : trimmed;
 }
 
-function parseDigestSection(raw: unknown): WeeklyDigestSection | null {
+function asSigned(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? Math.round(value) : 0;
+}
+
+function asHref(value: unknown): string | undefined {
+  const text = asText(value, 2000);
+  if (text.startsWith("https://") || text.startsWith("/account/")) return text;
+  return undefined;
+}
+
+function parseHighlight(raw: unknown): WeeklyDigestUser["highlight"] {
+  if (!raw || typeof raw !== "object") return undefined;
+  const shot = raw as Record<string, unknown>;
+  const url = asText(shot.url, 2000);
+  const caption = asText(shot.caption, 200);
+  if (!url.startsWith("https://") || !caption) return undefined;
+  const embed = asText(shot.embedUrl, 2000);
+  return {
+    url,
+    embedUrl: embed.startsWith("https://") ? embed : null,
+    caption,
+    href: asHref(shot.href),
+    hrefLabel: asText(shot.hrefLabel, 200) || undefined,
+  };
+}
+
+function parseTopPull(raw: unknown): WeeklyDigestTopPull | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const pull = raw as Record<string, unknown>;
+  const title = asText(pull.title, 200);
+  const repo = asText(pull.repo, 200);
+  const number = asCount(pull.number);
+  if (!title || !repo || number <= 0) return undefined;
+  const state =
+    pull.state === "open" || pull.state === "closed" || pull.state === "merged"
+      ? pull.state
+      : undefined;
+  const thumb = asText(pull.thumbnailUrl, 2000);
+  const embed = asText(pull.thumbnailEmbedUrl, 2000);
+  return {
+    title,
+    repo,
+    number,
+    href: asHref(pull.href),
+    state,
+    thumbnailUrl: thumb.startsWith("https://") ? thumb : undefined,
+    thumbnailEmbedUrl: embed.startsWith("https://") ? embed : null,
+  };
+}
+
+function parseNotes(raw: unknown): WeeklyDigestNote[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const note = item as { text?: unknown; href?: unknown };
+    const text = asText(note.text, 240);
+    if (!text) return [];
+    return [{ text, href: asHref(note.href) }];
+  });
+}
+
+function parseUser(raw: unknown): WeeklyDigestUser | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const row = raw as Record<string, unknown>;
+  const uploads = asCount(row.uploads);
+  const repos = asCount(row.repos);
+  const highlight = parseHighlight(row.highlight);
+  const topPull = parseTopPull(row.topPull);
+  if (!highlight && !topPull && uploads <= 0 && repos <= 0) return undefined;
+  const slug = asText(row.workspaceSlug, 80);
+  const name = asText(row.workspaceName, 120);
+  return {
+    workspaceSlug: slug || undefined,
+    workspaceName: name || undefined,
+    highlight,
+    topPull,
+    uploads,
+    repos,
+  };
+}
+
+function parsePulse(raw: unknown): WeeklyDigestPulse | null {
   if (!raw || typeof raw !== "object") return null;
   const row = raw as Record<string, unknown>;
-  const slug = asText(row.slug, 80);
-  const name = asText(row.name, 120);
-  if (!slug || !name) return null;
-  const repos = Array.isArray(row.repos)
-    ? row.repos.flatMap((item) => {
-        if (!item || typeof item !== "object") return [];
-        const repo = item as { name?: unknown; count?: unknown };
-        const repoName = asText(repo.name, 200);
-        if (!repoName) return [];
-        return [{ name: repoName, count: asCount(repo.count) }];
-      })
-    : [];
-  const screenshots = Array.isArray(row.screenshots)
-    ? row.screenshots.flatMap((item) => {
-        if (!item || typeof item !== "object") return [];
-        const shot = item as { url?: unknown; embedUrl?: unknown; label?: unknown };
-        const url = asText(shot.url, 2000);
-        const label = asText(shot.label, 200);
-        if (!url.startsWith("https://") || !label) return [];
-        const embed = asText(shot.embedUrl, 2000);
-        return [{ url, embedUrl: embed.startsWith("https://") ? embed : null, label }];
-      })
-    : [];
-  const links = (value: unknown) =>
-    Array.isArray(value)
-      ? value.flatMap((item) => {
-          if (!item || typeof item !== "object") return [];
-          const link = item as { label?: unknown; href?: unknown; detail?: unknown };
-          const label = asText(link.label, 200);
-          if (!label) return [];
-          const href = asText(link.href, 2000);
-          const detail = asText(link.detail, 200);
-          return [
-            {
-              label,
-              href: href.startsWith("https://") ? href : undefined,
-              detail: detail || undefined,
-            },
-          ];
-        })
-      : [];
-  const pages = Array.isArray(row.pages)
-    ? row.pages.flatMap((item) => {
-        if (!item || typeof item !== "object") return [];
-        const page = item as { path?: unknown; count?: unknown };
-        const path = asText(page.path, 512);
-        if (!path) return [];
-        return [{ path, count: asCount(page.count) }];
-      })
-    : [];
-  const galleries = Array.isArray(row.galleries)
-    ? row.galleries.flatMap((item) => {
-        const title = asText(item, 120);
-        return title ? [title] : [];
-      })
-    : [];
-  let admin: WeeklyDigestSection["admin"];
-  if (row.admin && typeof row.admin === "object") {
-    const block = row.admin as Record<string, unknown>;
-    admin = {
-      storageBytes: asCount(block.storageBytes),
-      objects: asCount(block.objects),
-      uploadsThisMonth: asCount(block.uploadsThisMonth),
-      newMembers: asCount(block.newMembers),
-      activePeople: asCount(block.activePeople),
-    };
-  }
   return {
-    slug,
-    name,
-    blurb: asText(row.blurb, 600),
     uploads: asCount(row.uploads),
-    bytesAdded: asCount(row.bytesAdded),
-    repos: repos.slice(0, 8),
-    screenshots: screenshots.slice(0, 4),
-    pulls: links(row.pulls).slice(0, 8),
-    issues: links(row.issues).slice(0, 8),
-    pages: pages.slice(0, 8),
-    galleries: galleries.slice(0, 6),
-    galleryCount: asCount(row.galleryCount),
-    feeds: asCount(row.feeds),
-    admin,
+    uploadsDelta: asSigned(row.uploadsDelta),
+    activeMembers: asCount(row.activeMembers),
+    activeMembersNew: asCount(row.activeMembersNew),
+    storageBytes: asCount(row.storageBytes),
+    storageDeltaBytes: asSigned(row.storageDeltaBytes),
+    notes: parseNotes(row.notes).slice(0, 3),
   };
 }
 
@@ -159,13 +169,19 @@ function parseDigestMessage(raw: unknown): WeeklyDigestMessage[] {
   const to = asText(row.to, 320);
   const weekLabel = asText(row.weekLabel, 40);
   if (!userId || !to.includes("@") || !weekLabel) return [];
-  const sections = Array.isArray(row.sections)
-    ? row.sections.flatMap((item) => {
-        const section = parseDigestSection(item);
-        return section ? [section] : [];
+  const user = parseUser(row.user);
+  const pulses = Array.isArray(row.pulses)
+    ? row.pulses.flatMap((item) => {
+        if (!item || typeof item !== "object") return [];
+        const block = item as Record<string, unknown>;
+        const slug = asText(block.slug, 80);
+        const name = asText(block.name, 120);
+        const pulse = parsePulse(block.pulse);
+        if (!slug || !name || !pulse) return [];
+        return [{ slug, name, pulse }];
       })
     : [];
-  if (sections.length === 0) return [];
+  if (!user && pulses.length === 0) return [];
   const unsubscribes = Array.isArray(row.unsubscribes)
     ? row.unsubscribes.flatMap((kind) => (kind === "digest" || kind === "workspace" ? [kind] : []))
     : [];
@@ -175,7 +191,8 @@ function parseDigestMessage(raw: unknown): WeeklyDigestMessage[] {
       userId,
       to,
       weekLabel,
-      sections: sections.slice(0, 8),
+      user,
+      pulses: pulses.slice(0, 3),
       omittedWorkspaces: asCount(row.omittedWorkspaces),
       unsubscribes,
     },
