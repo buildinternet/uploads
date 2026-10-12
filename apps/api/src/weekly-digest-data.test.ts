@@ -1,3 +1,4 @@
+import { digestDeliveryId, type WeeklyDigestMessage } from "@uploads/email";
 import { describe, expect, it } from "vitest";
 import { database, SqliteD1 } from "../test/helpers/sqlite-d1";
 import { hasAdminPulse } from "./weekly-digest";
@@ -201,10 +202,16 @@ describe("runWeeklyDigestSweep", () => {
         DB: database(sqlite),
         AUTH: {
           fetch: async (_url: string, init?: RequestInit) => {
-            const body = JSON.parse(String(init?.body)) as { messages: { userId: string }[] };
+            const body = JSON.parse(String(init?.body)) as { messages: WeeklyDigestMessage[] };
             posts.push(body.messages);
             return new Response(
-              JSON.stringify({ sent: body.messages.map((message) => message.userId), failed: [] }),
+              JSON.stringify({
+                sent: body.messages.flatMap((message) => {
+                  const id = digestDeliveryId(message);
+                  return id ? [id] : [];
+                }),
+                failed: [],
+              }),
               { status: 200 },
             );
           },

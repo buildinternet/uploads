@@ -124,8 +124,16 @@ function parseNotes(raw: unknown): WeeklyDigestNote[] {
     const note = item as { text?: unknown; href?: unknown };
     const text = asText(note.text, 240);
     if (!text) return [];
-    return [{ text, href: asHref(note.href) }];
+    return [{ text }];
   });
+}
+
+function parseStorageNote(raw: unknown): WeeklyDigestNote | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const note = raw as { text?: unknown; href?: unknown };
+  const text = asText(note.text, 240);
+  if (!text) return undefined;
+  return { text, href: asHref(note.href) };
 }
 
 function parseUser(raw: unknown): WeeklyDigestUser | undefined {
@@ -159,6 +167,7 @@ function parsePulse(raw: unknown): WeeklyDigestPulse | null {
     storageBytes: asCount(row.storageBytes),
     storageDeltaBytes: asSigned(row.storageDeltaBytes),
     notes: parseNotes(row.notes).slice(0, 3),
+    storageNote: parseStorageNote(row.storageNote),
   };
 }
 
@@ -181,9 +190,16 @@ function parseDigestMessage(raw: unknown): WeeklyDigestMessage[] {
         return [{ slug, name, pulse }];
       })
     : [];
-  if (!user && pulses.length === 0) return [];
+  const matched = user?.workspaceSlug
+    ? pulses.filter((pulse) => pulse.slug === user.workspaceSlug).slice(0, 1)
+    : pulses.slice(0, 1);
+  if (!user && matched.length === 0) return [];
   const unsubscribes = Array.isArray(row.unsubscribes)
-    ? row.unsubscribes.flatMap((kind) => (kind === "digest" || kind === "workspace" ? [kind] : []))
+    ? row.unsubscribes.flatMap((kind) => {
+        if (kind === "digest" && user) return [kind];
+        if (kind === "workspace" && matched.length > 0) return [kind];
+        return [];
+      })
     : [];
   if (unsubscribes.length === 0) return [];
   return [
@@ -192,8 +208,7 @@ function parseDigestMessage(raw: unknown): WeeklyDigestMessage[] {
       to,
       weekLabel,
       user,
-      pulses: pulses.slice(0, 3),
-      omittedWorkspaces: asCount(row.omittedWorkspaces),
+      pulses: matched,
       unsubscribes,
     },
   ];

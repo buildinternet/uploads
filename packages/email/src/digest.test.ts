@@ -41,8 +41,11 @@ const pulse: WeeklyDigestPulseBlock = {
     notes: [
       { text: "acme/web got busy — 8 files, up from 1", href: "https://github.com/acme/web" },
       { text: "Ada's first upload", href: "/account/workspaces/acme/files" },
-      { text: "Storage is at 86% of the plan", href: "/account/workspaces/acme/billing" },
     ],
+    storageNote: {
+      text: "Storage is at 86% of the plan",
+      href: "/account/workspaces/acme/billing",
+    },
   },
 };
 
@@ -55,7 +58,8 @@ describe("renderWeeklyDigestEmail", () => {
       unsubscribeDigestUrl: "https://auth.uploads.sh/digest/unsubscribe?token=member",
       webOrigin: "https://uploads.sh",
     });
-    expect(email.subject).toBe("Your week in Acme");
+    expect(email.subject).toBe("Your week in Acme (Oct 5–12)");
+    expect(email.html).toContain("Your week in Acme");
     expect(email.html).toContain("https://embed.uploads.sh/acme/settings.png");
     expect(email.html).toContain('alt="/settings"');
     expect(email.html).toContain("https://github.com/acme/web/pull/12");
@@ -71,24 +75,35 @@ describe("renderWeeklyDigestEmail", () => {
     expect(email.text).toContain("Unsubscribe from this weekly summary");
   });
 
-  it("renders an admin pulse as three numbers and linked callouts", () => {
+  it("renders an admin pulse as three numbers, plain lines, and a storage footnote", () => {
     const email = renderWeeklyDigestEmail({
       weekLabel: "Oct 5–12",
       pulses: [pulse],
       unsubscribeWorkspaceUrl: "https://auth.uploads.sh/digest/unsubscribe?token=admin",
       webOrigin: "https://uploads.sh",
     });
-    expect(email.subject).toBe("Your week in Acme");
-    expect(email.html).toContain("Admin pulse");
+    expect(email.subject).toBe("Acme admin pulse (Oct 5–12)");
+    expect(email.html).toContain(">Acme<");
     expect(email.html).toContain("37");
     expect(email.html).toContain("+12");
     expect(email.html).toContain("+2 new");
     expect(email.html).toContain("1.2 GB");
     expect(email.html).toContain("+80 MB");
-    expect(email.html).toContain("https://github.com/acme/web");
-    expect(email.html).toContain("https://uploads.sh/account/workspaces/acme/files");
+    expect(email.html).toContain("<ul");
+    expect(email.html).toContain("acme/web got busy");
+    expect(email.html).toContain("Ada&#39;s first upload");
+    expect(email.html).not.toContain("https://github.com/acme/web");
+    const list = email.html.slice(email.html.indexOf("<ul"), email.html.indexOf("</ul>"));
+    expect(list).not.toContain("<a");
+    expect(list).toContain("got busy");
+    expect(email.html).toContain("Storage is at 86% of the plan.");
+    expect(email.html).toContain("View billing");
     expect(email.html).toContain("https://uploads.sh/account/workspaces/acme/billing");
-    expect(email.html).not.toContain("<ul");
+    expect(email.html).not.toMatch(/<a[^>]*>Storage is at 86%/);
+    expect(email.html).toContain("See your full week");
+    expect(email.text).toContain("- acme/web got busy — 8 files, up from 1");
+    expect(email.text).toContain("- Ada's first upload");
+    expect(email.text).not.toContain("https://github.com/acme/web");
     expect(email.text).toContain("Unsubscribe from workspace summaries");
   });
 
@@ -104,6 +119,7 @@ describe("renderWeeklyDigestEmail", () => {
             activeMembersNew: 0,
             storageDeltaBytes: 0,
             notes: [],
+            storageNote: undefined,
           },
         },
       ],
@@ -128,15 +144,28 @@ describe("renderWeeklyDigestEmail", () => {
     expect(email.html).toContain("37 uploads across 4 repos");
   });
 
-  it("uses a general subject when the week spans more than one workspace", () => {
+  it("names one workspace in the subject and ignores a second pulse", () => {
     const email = renderWeeklyDigestEmail({
       weekLabel: "Oct 5–12",
       user: { ...user, workspaceName: undefined, workspaceSlug: undefined },
       pulses: [pulse, { ...pulse, slug: "beta", name: "Beta" }],
-      omittedWorkspaces: 2,
     });
-    expect(email.subject).toBe("Your week on uploads.sh");
-    expect(email.html).toContain("2 more workspaces");
-    expect(email.html).toContain("https://uploads.sh/account/workspaces");
+    expect(email.subject).toBe("Your week in Acme (Oct 5–12)");
+    expect(email.html).not.toContain("Beta");
+    expect(email.html).not.toContain("Your week on uploads.sh");
+    expect(email.subject).not.toContain("Your week on uploads.sh");
+  });
+
+  it("uses the member subject when the same workspace also includes an admin pulse", () => {
+    const email = renderWeeklyDigestEmail({
+      weekLabel: "Oct 5–12",
+      user,
+      pulses: [pulse],
+      webOrigin: "https://uploads.sh",
+    });
+    expect(email.subject).toBe("Your week in Acme (Oct 5–12)");
+    expect(email.html).toContain("Admin pulse");
+    expect(email.html).toContain("37 uploads across 4 repos");
+    expect(email.html).toContain("acme/web got busy");
   });
 });

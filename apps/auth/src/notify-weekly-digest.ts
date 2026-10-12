@@ -6,6 +6,7 @@
 import { eq } from "drizzle-orm";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
 import {
+  digestDeliveryId,
   renderWeeklyDigestEmail,
   type WeeklyDigestKind,
   type WeeklyDigestMessage,
@@ -64,15 +65,16 @@ export async function sendWeeklyDigests(
 
   for (const message of messages) {
     const hasBody = Boolean(message.user) || message.pulses.length > 0;
-    if (!message.userId || !message.to || !hasBody) {
-      result.failed.push(message.userId || "");
+    const deliveryId = digestDeliveryId(message);
+    if (!message.userId || !message.to || !hasBody || !deliveryId) {
+      result.failed.push(deliveryId || message.userId || "");
       continue;
     }
     const kinds = message.unsubscribes.filter(
       (kind): kind is WeeklyDigestKind => kind === "digest" || kind === "workspace",
     );
     if (kinds.length === 0) {
-      result.failed.push(message.userId);
+      result.failed.push(deliveryId);
       continue;
     }
     try {
@@ -86,7 +88,6 @@ export async function sendWeeklyDigests(
         weekLabel: message.weekLabel,
         user: message.user,
         pulses: message.pulses,
-        omittedWorkspaces: message.omittedWorkspaces,
         unsubscribeDigestUrl: links.get("digest"),
         unsubscribeWorkspaceUrl: links.get("workspace"),
         webOrigin,
@@ -95,7 +96,7 @@ export async function sendWeeklyDigests(
         console.warn(
           `[auth email] no EMAIL binding — weekly digest not sent. To: ${message.to}. "${rendered.subject}".`,
         );
-        result.failed.push(message.userId);
+        result.failed.push(deliveryId);
         continue;
       }
       await env.EMAIL.send({
@@ -106,13 +107,13 @@ export async function sendWeeklyDigests(
         html: rendered.html,
         headers: listUnsubscribe([unsubscribeUrl(base, combined)]),
       });
-      result.sent.push(message.userId);
+      result.sent.push(deliveryId);
     } catch (err) {
       console.error(
         `[auth email] weekly digest failed for ${message.to}`,
         err instanceof Error ? err.message : String(err),
       );
-      result.failed.push(message.userId);
+      result.failed.push(deliveryId);
     }
   }
   return result;

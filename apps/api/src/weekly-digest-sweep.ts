@@ -4,12 +4,12 @@
  * binding is up, and posts the messages to the auth worker to sign
  * unsubscribe links and send.
  *
- * A workspace with no uploads, screenshots, or pull-request media is left
- * out of the member mail. The admin pulse also stays quiet when nothing
- * changed and nothing is near a plan limit. A storage snapshot alone does
- * not send.
+ * Each workspace with something to say gets its own email. A workspace with
+ * no uploads, screenshots, or pull-request media is left out of the member
+ * mail. The admin pulse also stays quiet when nothing changed and nothing
+ * is near a plan limit. A storage snapshot alone does not send.
  */
-import type { WeeklyDigestMessage } from "@uploads/email";
+import { digestDeliveryId, type WeeklyDigestMessage } from "@uploads/email";
 import { workersAiClassifierRun } from "./classifier";
 import type { D1Queryable } from "./db-session";
 import { dbFor } from "./db-session";
@@ -17,7 +17,7 @@ import { loadDigestSources } from "./weekly-digest-data";
 import {
   curateWorkspace,
   digestWindow,
-  draftForRecipient,
+  draftsForRecipient,
   slugsWorthCurating,
   type DigestCuration,
   type DigestRecipient,
@@ -140,13 +140,21 @@ export async function runWeeklyDigestSweep(
   result.workspaces = sources.size;
   const recipients = await loadRecipients(db);
   const already = await sentThisWeek(env.REGISTRY, window.sinceDay);
-  const pending = recipients.filter((recipient) => !already.has(recipient.userId));
-  result.skipped = recipients.length - pending.length;
+
+  const unsentSlugs = new Set<string>();
+  for (const recipient of recipients) {
+    for (const draft of draftsForRecipient(recipient, sources, window.weekLabel)) {
+      const id = digestDeliveryId(draft);
+      const slug = draft.user?.workspaceSlug;
+      if (id && slug && !already.has(id)) unsentSlugs.add(slug);
+    }
+  }
 
   const curation = new Map<string, DigestCuration>();
-  if (env.AI && pending.length > 0) {
+  if (env.AI && unsentSlugs.size > 0) {
     const run = workersAiClassifierRun(env);
-    for (const slug of slugsWorthCurating(pending, sources)) {
+    for (const slug of slugsWorthCurating(recipients, sources)) {
+      if (!unsentSlugs.has(slug)) continue;
       const source = sources.get(slug);
       if (!source) continue;
       curation.set(slug, await curateWorkspace(source, run));
@@ -154,10 +162,16 @@ export async function runWeeklyDigestSweep(
     }
   }
 
-  const messages = pending.flatMap((recipient) => {
-    const draft = draftForRecipient(recipient, sources, window.weekLabel, curation);
-    return draft ? [draft] : [];
-  });
+  const messages: WeeklyDigestMessage[] = [];
+  for (const recipient of recipients) {
+    const drafts = draftsForRecipient(recipient, sources, window.weekLabel, curation);
+    const fresh = drafts.filter((draft) => {
+      const id = digestDeliveryId(draft);
+      return id !== null && !already.has(id);
+    });
+    if (drafts.length > 0 && fresh.length === 0) result.skipped += 1;
+    messages.push(...fresh);
+  }
   result.recipients = messages.length;
 
   if (messages.length === 0) {
@@ -167,8 +181,8 @@ export async function runWeeklyDigestSweep(
 
   try {
     const delivered = await postDigests(env, messages);
-    for (const userId of delivered.sent) {
-      await env.REGISTRY.put(`digest:sent:${window.sinceDay}:${userId}`, "1", {
+    for (const id of delivered.sent) {
+      await env.REGISTRY.put(`digest:sent:${window.sinceDay}:${id}`, "1", {
         expirationTtl: MARKER_TTL_S,
       });
     }

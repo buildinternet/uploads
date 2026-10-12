@@ -3,8 +3,9 @@
  * short payload `@uploads/email` renders. No I/O here.
  *
  * A member digest is one highlight, the busiest pull request, and a stat
- * line. An admin digest is three headline numbers plus at most a few linked
- * callouts. Jev may choose the highlight from screenshot captions. A missing
+ * line. An admin digest is three headline numbers, a few plain sentences,
+ * and a storage footnote when the plan is nearly full. Each workspace is its
+ * own email. Jev may choose the highlight from screenshot captions. A missing
  * or low-confidence answer keeps the newest image.
  */
 import type {
@@ -27,7 +28,7 @@ import {
 
 /** Screenshot candidates Jev may choose among. The mail shows one. */
 export const DIGEST_MAX_SHOTS = 3;
-export const DIGEST_MAX_PULSES = 3;
+/** Plain activity lines in one admin pulse. The storage footnote is separate. */
 export const DIGEST_MAX_NOTES = 3;
 /** Model calls per sweep. The rest of the workspaces keep the newest image. */
 export const DIGEST_MAX_CURATIONS = 15;
@@ -152,11 +153,6 @@ function githubHref(repo: string, kind: "pull" | "issues", num: number): string 
   return `https://github.com/${repo}/${kind}/${num}`;
 }
 
-function repoHref(repo: string): string | undefined {
-  if (!REPO_RE.test(repo)) return undefined;
-  return `https://github.com/${repo}`;
-}
-
 /** Newest first, capped. Jev's `s0` is this list's first item. */
 export function candidateShots(source: WorkspaceDigestSource): DigestShotSource[] {
   return source.shots
@@ -220,10 +216,6 @@ export function hasAdminPulse(source: WorkspaceDigestSource): boolean {
   return false;
 }
 
-function filesPath(slug: string): string {
-  return `/account/workspaces/${encodeURIComponent(slug)}/files`;
-}
-
 function billingPath(slug: string): string {
   return `/account/workspaces/${encodeURIComponent(slug)}/billing`;
 }
@@ -253,7 +245,7 @@ function topPullFrom(pull: DigestPullSource): WeeklyDigestTopPull {
   };
 }
 
-function notesFor(source: WorkspaceDigestSource): WeeklyDigestNote[] {
+function activityNotes(source: WorkspaceDigestSource): WeeklyDigestNote[] {
   const notes: WeeklyDigestNote[] = [];
   const repo = notableRepo(source.repos);
   if (repo) {
@@ -262,7 +254,6 @@ function notesFor(source: WorkspaceDigestSource): WeeklyDigestNote[] {
         repo.prev > 0
           ? `${repo.name} got busy — ${repo.count} files, up from ${repo.prev}`
           : `${repo.name} got busy — ${repo.count} files this week`,
-      href: repoHref(repo.name),
     });
   }
   const first = source.firstUploads;
@@ -273,13 +264,15 @@ function notesFor(source: WorkspaceDigestSource): WeeklyDigestNote[] {
           ? `${first.name}'s first upload`
           : "A teammate's first upload"
         : `${first.count} people's first uploads`;
-    notes.push({ text, href: filesPath(source.slug) });
-  }
-  const percent = storagePressurePercent(source.storageBytes, source.storageLimitBytes);
-  if (percent !== null) {
-    notes.push({ text: `Storage is at ${percent}% of the plan`, href: billingPath(source.slug) });
+    notes.push({ text });
   }
   return notes.slice(0, DIGEST_MAX_NOTES);
+}
+
+function storageNoteFor(source: WorkspaceDigestSource): WeeklyDigestNote | undefined {
+  const percent = storagePressurePercent(source.storageBytes, source.storageLimitBytes);
+  if (percent === null) return undefined;
+  return { text: `Storage is at ${percent}% of the plan`, href: billingPath(source.slug) };
 }
 
 function pulseFrom(source: WorkspaceDigestSource): WeeklyDigestPulse {
@@ -290,105 +283,96 @@ function pulseFrom(source: WorkspaceDigestSource): WeeklyDigestPulse {
     activeMembersNew: source.newPeople,
     storageBytes: source.storageBytes,
     storageDeltaBytes: source.bytesAdded - source.bytesDeleted,
-    notes: notesFor(source),
+    notes: activityNotes(source),
+    storageNote: storageNoteFor(source),
   };
 }
 
-function buildUser(
-  recipient: DigestRecipient,
-  sources: Map<string, WorkspaceDigestSource>,
-  curation: Map<string, DigestCuration>,
+function buildUserForWorkspace(
+  membership: DigestMembership,
+  source: WorkspaceDigestSource,
+  curation: DigestCuration | undefined,
 ): WeeklyDigestUser | undefined {
-  if (!recipient.digest) return undefined;
-  let uploads = 0;
+  if (!hasFileActivity(source)) return undefined;
   const repoNames = new Set<string>();
-  const active: DigestMembership[] = [];
-  let bestShot: { uploads: number; at: string; shot: DigestShotSource } | null = null;
-  let bestPull: DigestPullSource | null = null;
-
-  for (const membership of recipient.memberships) {
-    const source = sources.get(membership.slug);
-    if (!source || !hasFileActivity(source)) continue;
-    active.push(membership);
-    uploads += source.uploads;
-    for (const repo of source.repos) {
-      if (repo.count > 0) repoNames.add(repo.name);
-    }
-    const shot = orderShots(candidateShots(source), curation.get(membership.slug)?.shotIndex)[0];
-    const betterShot =
-      shot &&
-      (!bestShot ||
-        source.uploads > bestShot.uploads ||
-        (source.uploads === bestShot.uploads && shot.at > bestShot.at));
-    if (shot && betterShot) {
-      bestShot = { uploads: source.uploads, at: shot.at, shot };
-    }
-    const pull = source.pulls[0];
-    if (pull && pull.count > 0 && (!bestPull || pull.count > bestPull.count)) bestPull = pull;
+  for (const repo of source.repos) {
+    if (repo.count > 0) repoNames.add(repo.name);
   }
-  if (active.length === 0) return undefined;
-  const only = active.length === 1 ? active[0] : undefined;
+  const shot = orderShots(candidateShots(source), curation?.shotIndex)[0];
+  const pull = source.pulls.find((item) => item.count > 0);
   return {
-    workspaceName: only ? only.orgName || only.slug : undefined,
-    workspaceSlug: only?.slug,
-    highlight: bestShot ? highlightFrom(bestShot.shot) : undefined,
-    topPull: bestPull ? topPullFrom(bestPull) : undefined,
-    uploads,
+    workspaceName: membership.orgName || membership.slug,
+    workspaceSlug: membership.slug,
+    highlight: shot ? highlightFrom(shot) : undefined,
+    topPull: pull ? topPullFrom(pull) : undefined,
+    uploads: source.uploads,
     repos: repoNames.size,
   };
 }
 
-function buildPulses(
-  recipient: DigestRecipient,
-  sources: Map<string, WorkspaceDigestSource>,
-): { pulses: WeeklyDigestPulseBlock[]; omitted: number } {
-  if (!recipient.workspaceDigest) return { pulses: [], omitted: 0 };
-  const blocks: WeeklyDigestPulseBlock[] = [];
-  for (const membership of recipient.memberships) {
-    if (!isAdminRole(membership.role)) continue;
-    const source = sources.get(membership.slug);
-    if (!source || !hasAdminPulse(source)) continue;
-    blocks.push({
-      slug: source.slug,
-      name: membership.orgName || membership.slug,
-      pulse: pulseFrom(source),
-    });
-  }
-  blocks.sort((a, b) => b.pulse.uploads - a.pulse.uploads || a.name.localeCompare(b.name));
+function buildPulseForWorkspace(
+  membership: DigestMembership,
+  source: WorkspaceDigestSource,
+): WeeklyDigestPulseBlock | undefined {
+  if (!isAdminRole(membership.role) || !hasAdminPulse(source)) return undefined;
   return {
-    pulses: blocks.slice(0, DIGEST_MAX_PULSES),
-    omitted: Math.max(0, blocks.length - DIGEST_MAX_PULSES),
+    slug: source.slug,
+    name: membership.orgName || membership.slug,
+    pulse: pulseFrom(source),
   };
 }
 
-/** One email per opted-in user. A quiet week produces no draft. */
-export function draftForRecipient(
+function draftScore(message: WeeklyDigestMessage): number {
+  return message.user?.uploads ?? message.pulses[0]?.pulse.uploads ?? 0;
+}
+
+function draftName(message: WeeklyDigestMessage): string {
+  return message.user?.workspaceName || message.pulses[0]?.name || message.pulses[0]?.slug || "";
+}
+
+/**
+ * One email per workspace that has something to say. A quiet workspace is
+ * absent. Member and admin content for the same workspace stay in that one
+ * email.
+ */
+export function draftsForRecipient(
   recipient: DigestRecipient,
   sources: Map<string, WorkspaceDigestSource>,
   label: string,
   curation = new Map<string, DigestCuration>(),
-): WeeklyDigestMessage | null {
+): WeeklyDigestMessage[] {
   const email = recipient.email.trim();
-  if (!email.includes("@")) return null;
-  if (!recipient.digest && !recipient.workspaceDigest) return null;
+  if (!email.includes("@")) return [];
+  if (!recipient.digest && !recipient.workspaceDigest) return [];
 
-  const user = buildUser(recipient, sources, curation);
-  const { pulses, omitted } = buildPulses(recipient, sources);
-  if (!user && pulses.length === 0) return null;
-
-  const unsubscribes: WeeklyDigestMessage["unsubscribes"] = [];
-  if (user) unsubscribes.push("digest");
-  if (pulses.length > 0) unsubscribes.push("workspace");
-
-  return {
-    userId: recipient.userId,
-    to: email,
-    weekLabel: label,
-    user,
-    pulses,
-    omittedWorkspaces: omitted,
-    unsubscribes,
-  };
+  const seen = new Set<string>();
+  const drafts: WeeklyDigestMessage[] = [];
+  for (const membership of recipient.memberships) {
+    if (seen.has(membership.slug)) continue;
+    seen.add(membership.slug);
+    const source = sources.get(membership.slug);
+    if (!source) continue;
+    const user = recipient.digest
+      ? buildUserForWorkspace(membership, source, curation.get(membership.slug))
+      : undefined;
+    const pulse = recipient.workspaceDigest
+      ? buildPulseForWorkspace(membership, source)
+      : undefined;
+    if (!user && !pulse) continue;
+    const unsubscribes: WeeklyDigestMessage["unsubscribes"] = [];
+    if (user) unsubscribes.push("digest");
+    if (pulse) unsubscribes.push("workspace");
+    drafts.push({
+      userId: recipient.userId,
+      to: email,
+      weekLabel: label,
+      user,
+      pulses: pulse ? [pulse] : [],
+      unsubscribes,
+    });
+  }
+  drafts.sort((a, b) => draftScore(b) - draftScore(a) || draftName(a).localeCompare(draftName(b)));
+  return drafts;
 }
 
 export function slugsWorthCurating(

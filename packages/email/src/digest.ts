@@ -19,7 +19,10 @@ export interface WeeklyDigestTopPull {
   thumbnailEmbedUrl?: string | null;
 }
 
-/** A single linked callout. Paths starting with `/account/` are resolved against the web origin. */
+/**
+ * One line in an admin pulse. Activity lines are plain text. The storage
+ * footnote is the only note that may carry `href`.
+ */
 export interface WeeklyDigestNote {
   text: string;
   href?: string;
@@ -45,7 +48,10 @@ export interface WeeklyDigestPulse {
   storageBytes: number;
   /** Net bytes added this week (uploads minus deletes). */
   storageDeltaBytes: number;
+  /** Plain sentences. Not links. */
   notes: WeeklyDigestNote[];
+  /** Small muted line under the pulse. `href` is an optional billing link. */
+  storageNote?: WeeklyDigestNote;
 }
 
 export interface WeeklyDigestPulseBlock {
@@ -66,15 +72,24 @@ export interface WeeklyDigestMessage {
   weekLabel: string;
   user?: WeeklyDigestUser;
   pulses: WeeklyDigestPulseBlock[];
-  omittedWorkspaces: number;
   unsubscribes: WeeklyDigestKind[];
+}
+
+/** KV and send-result id for one person and one workspace. */
+export function digestDeliveryId(message: {
+  userId: string;
+  user?: { workspaceSlug?: string };
+  pulses: { slug: string }[];
+}): string | null {
+  const slug = message.user?.workspaceSlug || message.pulses[0]?.slug || "";
+  if (!message.userId || !slug || slug.includes("|")) return null;
+  return `${message.userId}|${slug}`;
 }
 
 export interface WeeklyDigestEmailInput {
   weekLabel: string;
   user?: WeeklyDigestUser;
   pulses?: WeeklyDigestPulseBlock[];
-  omittedWorkspaces?: number;
   unsubscribeDigestUrl?: string;
   unsubscribeWorkspaceUrl?: string;
   webOrigin?: string;
@@ -245,29 +260,62 @@ function pulseNumbers(pulse: WeeklyDigestPulse): { html: string; text: string } 
   return { html, text };
 }
 
-function pulseBlock(
+const FOOT =
+  "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:12px;line-height:1.5;color:#8a8a83;";
+
+function activityLines(notes: WeeklyDigestNote[]): { html: string; text: string } {
+  const lines = notes.map((note) => note.text.trim()).filter((text) => text.length > 0);
+  if (lines.length === 0) return { html: "", text: "" };
+  const html = `<ul style="margin:14px 0 0;padding:0 0 0 18px;">${lines
+    .map(
+      (text) =>
+        `<li style="margin:0 0 6px;${TITLE}font-size:15px;line-height:1.45;color:#b3b3ad;">${escapeHtml(text)}</li>`,
+    )
+    .join("")}</ul>`;
+  return { html, text: lines.map((text) => `- ${text}`).join("\n") };
+}
+
+function storageFootnote(
+  note: WeeklyDigestNote | undefined,
+  webOrigin: string,
+): { html: string; text: string } {
+  const sentence = note?.text.trim().replace(/\.+$/u, "") ?? "";
+  if (!sentence) return { html: "", text: "" };
+  const href = resolveHref(note?.href, webOrigin);
+  const link = href
+    ? ` <a href="${escapeHtml(href)}" style="color:#8a8a83;text-decoration:underline;">View billing</a>`
+    : "";
+  return {
+    html: `<p style="margin:18px 0 0;${FOOT}">${escapeHtml(sentence)}.${link}</p>`,
+    text: href ? `${sentence}. View billing: ${href}` : `${sentence}.`,
+  };
+}
+
+function pulseBody(
   block: WeeklyDigestPulseBlock,
   webOrigin: string,
 ): { html: string; text: string } {
-  const files = resolveHref(filesPath(block.slug), webOrigin);
-  const name = linkHtml(files, block.name);
   const numbers = pulseNumbers(block.pulse);
-  const notes = block.pulse.notes
-    .map((note) => {
-      const href = resolveHref(note.href, webOrigin);
-      return { html: linkHtml(href, note.text), text: href ? `${note.text} (${href})` : note.text };
-    })
-    .filter((note) => note.text.length > 0);
-  const notesHtml =
-    notes.length > 0
-      ? notes.map((note) => `<p style="margin:8px 0 0;">${note.html}</p>`).join("")
-      : "";
+  const lines = activityLines(block.pulse.notes);
+  const foot = storageFootnote(block.pulse.storageNote, webOrigin);
   return {
-    html: `<p style="margin:0 0 12px;font-size:16px;">${name}</p>${numbers.html}${notesHtml}`,
-    text: [block.name, numbers.text, ...notes.map((note) => note.text)]
-      .filter((part) => part.length > 0)
-      .join("\n"),
+    html: `${numbers.html}${lines.html}${foot.html}`,
+    text: [numbers.text, lines.text, foot.text].filter((part) => part.length > 0).join("\n"),
   };
+}
+
+function chosenPulse(input: WeeklyDigestEmailInput): WeeklyDigestPulseBlock | undefined {
+  const pulses = input.pulses ?? [];
+  const slug = input.user?.workspaceSlug;
+  if (slug) return pulses.find((pulse) => pulse.slug === slug);
+  return pulses[0];
+}
+
+function workspaceIdentity(input: WeeklyDigestEmailInput): { name?: string; slug?: string } {
+  const pulse = chosenPulse(input);
+  const name = input.user?.workspaceName?.trim() || pulse?.name?.trim() || undefined;
+  const slug = input.user?.workspaceSlug || pulse?.slug;
+  return { name, slug };
 }
 
 function unsubscribeNote(input: WeeklyDigestEmailInput): { html: string; text: string } {
@@ -293,58 +341,49 @@ function unsubscribeNote(input: WeeklyDigestEmailInput): { html: string; text: s
   };
 }
 
-function singleName(input: WeeklyDigestEmailInput): string | undefined {
-  const names = new Set<string>();
-  if (input.user?.workspaceName) names.add(input.user.workspaceName);
-  for (const pulse of input.pulses ?? []) names.add(pulse.name);
-  if (names.size === 1) return [...names][0];
-  return undefined;
+function destination(slug: string | undefined, webOrigin: string): string | null {
+  if (!slug) return null;
+  return resolveHref(filesPath(slug), webOrigin);
 }
 
-function destination(input: WeeklyDigestEmailInput, webOrigin: string): string | null {
-  if (input.user?.workspaceSlug) return resolveHref(filesPath(input.user.workspaceSlug), webOrigin);
-  const pulses = input.pulses ?? [];
-  if (!input.user && pulses.length === 1 && pulses[0]) {
-    return resolveHref(filesPath(pulses[0].slug), webOrigin);
-  }
-  return safeHttps(`${webOrigin}/account/workspaces`);
-}
-
-/** Weekly digest card. Callers skip the send when both parts are empty. */
+/** Weekly digest card. One workspace per message. Callers skip an empty week. */
 export function renderWeeklyDigestEmail(input: WeeklyDigestEmailInput): RenderedEmail {
   const webOrigin = (input.webOrigin || "https://uploads.sh").replace(/\/$/, "");
-  const pulses = input.pulses ?? [];
-  const name = singleName(input);
-  const adminOnly = !input.user && pulses.length > 0;
-  const subject = name ? `Your week in ${name}` : "Your week on uploads.sh";
+  const { name, slug } = workspaceIdentity(input);
+  const pulse = chosenPulse(input);
+  const adminOnly = !input.user && Boolean(pulse);
+  const week = input.weekLabel;
+  const subject = name
+    ? adminOnly
+      ? `${name} admin pulse (${week})`
+      : `Your week in ${name} (${week})`
+    : adminOnly
+      ? `Admin pulse (${week})`
+      : `Your week (${week})`;
+  const title = name
+    ? adminOnly
+      ? name
+      : `Your week in ${name}`
+    : adminOnly
+      ? "Admin pulse"
+      : "Your week";
   const user = input.user ? userBlock(input.user, webOrigin) : { html: "", text: "" };
-  const pulseHtml = pulses.map((pulse) => pulseBlock(pulse, webOrigin));
-  const omitted =
-    input.omittedWorkspaces && input.omittedWorkspaces > 0
-      ? `${input.omittedWorkspaces} more ${input.omittedWorkspaces === 1 ? "workspace" : "workspaces"} had something to report.`
-      : "";
+  const pulseHtml = pulse ? pulseBody(pulse, webOrigin) : { html: "", text: "" };
   const unsub = unsubscribeNote(input);
-  const see = destination(input, webOrigin);
+  const see = destination(slug, webOrigin);
   const divider = `<div style="border-top:1px solid #232327;margin:18px 0;"></div>`;
   const adminHeading =
-    input.user && pulses.length > 0
+    input.user && pulse
       ? `<p style="margin:0 0 10px;${META}text-transform:uppercase;letter-spacing:.08em;">Admin pulse</p>`
       : "";
   const bodyHtml = [
     user.html,
-    pulses.length > 0
-      ? `${user.html ? divider : ""}${adminHeading}${pulseHtml.map((block) => block.html).join(divider)}`
-      : "",
-    omitted
-      ? `<p style="margin:16px 0 0;${META}">${linkHtml(safeHttps(`${webOrigin}/account/workspaces`), omitted)}</p>`
-      : "",
+    pulse ? `${user.html ? divider : ""}${adminHeading}${pulseHtml.html}` : "",
   ].join("");
   const text = [
-    adminOnly ? `Admin pulse (${input.weekLabel})` : `Your week on uploads.sh (${input.weekLabel})`,
-    "",
+    subject,
     user.text,
-    pulseHtml.map((block) => block.text).join("\n\n"),
-    omitted,
+    pulseHtml.text,
     see ? `See your full week: ${see}` : "",
     unsub.text,
   ]
@@ -353,14 +392,14 @@ export function renderWeeklyDigestEmail(input: WeeklyDigestEmailInput): Rendered
   const preheader = input.user
     ? statLine(input.user.uploads, input.user.repos)
     : name
-      ? `Admin pulse for ${name}`
-      : `Admin pulse for ${input.weekLabel}`;
+      ? `${name} admin pulse`
+      : `Admin pulse, ${week}`;
 
   return renderEmailCard({
     subject,
     preheader,
-    eyebrow: "Weekly digest",
-    title: adminOnly ? "Admin pulse" : "Your week",
+    eyebrow: adminOnly ? "Admin pulse" : "Weekly digest",
+    title,
     bodyHtml,
     text,
     cta: see ? { url: see, label: "See your full week →" } : undefined,

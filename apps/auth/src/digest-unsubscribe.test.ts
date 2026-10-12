@@ -19,7 +19,6 @@ const message: WeeklyDigestMessage = {
   userId: "user-1",
   to: "ada@example.com",
   weekLabel: "Oct 5–12",
-  omittedWorkspaces: 0,
   unsubscribes: ["digest", "workspace"],
   user: {
     workspaceName: "Acme",
@@ -124,7 +123,7 @@ describe("sendWeeklyDigests", () => {
       [message],
       NOW,
     );
-    expect(result.sent).toEqual(["user-1"]);
+    expect(result.sent).toEqual(["user-1|acme"]);
     expect(sent[0]?.html).toContain("2 uploads across 1 repo");
     expect(sent[0]?.text).toContain("Unsubscribe from this weekly summary");
     expect(sent[0]?.text).toContain("Unsubscribe from workspace summaries");
@@ -137,7 +136,7 @@ describe("sendWeeklyDigests", () => {
   it("does not report a send when the EMAIL binding is missing", async () => {
     const result = await sendWeeklyDigests({}, SECRET, [message], NOW);
     expect(result.sent).toEqual([]);
-    expect(result.failed).toEqual(["user-1"]);
+    expect(result.failed).toEqual(["user-1|acme"]);
   });
 });
 

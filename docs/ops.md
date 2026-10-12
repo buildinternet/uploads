@@ -257,8 +257,11 @@ through the auth worker's existing `EMAIL` binding (`noreply@uploads.sh`).
 Unsubscribe links are HMAC-signed with `BETTER_AUTH_SECRET`. There is no
 new secret. Both preferences default off. People turn them on from Account,
 under Email notifications. The API is `POST /api/auth/update-user` with
-`notifyWeeklyDigest` or `notifyWeeklyWorkspaceDigest`. A quiet week sends
-nothing. Jev may pick the one highlight screenshot from its caption.
+`notifyWeeklyDigest` or `notifyWeeklyWorkspaceDigest`. Each workspace gets
+its own email. The subject names that workspace and the week, for example
+`Your week in Acme (Oct 5–12)` or `Acme admin pulse (Oct 5–12)`. A quiet
+workspace is left out. The other workspaces still send. Jev may pick the
+one highlight screenshot from its caption.
 If the `AI` binding is missing, or Jev declines, the highlight is the
 newest screenshot. Jev does not write the email.
 

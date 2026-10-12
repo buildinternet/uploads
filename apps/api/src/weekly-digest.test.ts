@@ -5,7 +5,7 @@ import {
   buildDigestDecideRequest,
   curationFromModel,
   curateWorkspace,
-  draftForRecipient,
+  draftsForRecipient,
   hasAdminPulse,
   notableRepo,
   storagePressurePercent,
@@ -60,6 +60,16 @@ function source(over: Partial<WorkspaceDigestSource> = {}): WorkspaceDigestSourc
     storageBytes: 1_200_000_000,
     ...over,
   };
+}
+
+function draftForRecipient(
+  ...args: Parameters<typeof draftsForRecipient>
+): ReturnType<typeof draftsForRecipient>[number] | null {
+  const drafts = draftsForRecipient(...args);
+  if (drafts.length > 1) {
+    throw new Error(`expected at most one draft, got ${drafts.length}`);
+  }
+  return drafts[0] ?? null;
 }
 
 function recipient(over: Partial<DigestRecipient> = {}): DigestRecipient {
@@ -157,12 +167,14 @@ describe("weekly digest assembly", () => {
     expect(pulse?.uploadsDelta).toBe(12);
     expect(pulse?.activeMembersNew).toBe(2);
     expect(pulse?.storageDeltaBytes).toBe(80_000_000);
-    expect(pulse?.notes.map((note) => note.text)).toEqual([
-      "acme/web got busy — 8 files, up from 1",
-      "Ada's first upload",
-      "Storage is at 86% of the plan",
+    expect(pulse?.notes).toEqual([
+      { text: "acme/web got busy — 8 files, up from 1" },
+      { text: "Ada's first upload" },
     ]);
-    expect(pulse?.notes[2]?.href).toBe("/account/workspaces/acme/billing");
+    expect(pulse?.storageNote).toEqual({
+      text: "Storage is at 86% of the plan",
+      href: "/account/workspaces/acme/billing",
+    });
   });
 
   it("leaves the callout list empty when the week is ordinary", () => {
@@ -209,7 +221,9 @@ describe("weekly digest assembly", () => {
     );
     expect(draft?.user).toBeUndefined();
     expect(draft?.unsubscribes).toEqual(["workspace"]);
-    expect(draft?.pulses[0]?.pulse.notes[0]?.text).toBe("Storage is at 88% of the plan");
+    expect(draft?.pulses[0]?.pulse.notes).toEqual([]);
+    expect(draft?.pulses[0]?.pulse.storageNote?.text).toBe("Storage is at 88% of the plan");
+    expect(draft?.pulses[0]?.pulse.storageNote?.href).toBe("/account/workspaces/acme/billing");
   });
 
   it("puts both parts in one email when both preferences are on", () => {
@@ -226,7 +240,7 @@ describe("weekly digest assembly", () => {
     expect(draft?.pulses).toHaveLength(1);
   });
 
-  it("caps admin pulses at three workspaces", () => {
+  it("sends one admin email per workspace, busiest first", () => {
     const sources = new Map<string, WorkspaceDigestSource>();
     const memberships = [];
     for (let i = 0; i < 5; i += 1) {
@@ -234,14 +248,55 @@ describe("weekly digest assembly", () => {
       sources.set(slug, source({ slug, uploads: 10 - i, repos: [] }));
       memberships.push({ slug, orgName: slug, role: "owner" });
     }
-    const draft = draftForRecipient(
+    const drafts = draftsForRecipient(
       recipient({ digest: false, workspaceDigest: true, memberships }),
       sources,
       "Oct 5–12",
     );
-    expect(draft?.pulses).toHaveLength(3);
-    expect(draft?.omittedWorkspaces).toBe(2);
-    expect(draft?.pulses[0]?.pulse.uploads).toBe(10);
+    expect(drafts).toHaveLength(5);
+    expect(drafts.every((draft) => draft.pulses.length === 1 && !draft.user)).toBe(true);
+    expect(drafts.map((draft) => draft.pulses[0]?.pulse.uploads)).toEqual([10, 9, 8, 7, 6]);
+  });
+
+  it("sends a separate member email per workspace and skips a quiet one", () => {
+    const beta = source({
+      slug: "beta",
+      uploads: 4,
+      repos: [{ name: "beta/web", count: 4, prev: 1 }],
+      shots: [],
+      pulls: [],
+    });
+    const quiet = source({
+      slug: "quiet",
+      uploads: 0,
+      prevUploads: 0,
+      bytesAdded: 0,
+      repos: [],
+      shots: [],
+      pulls: [],
+      activePeople: 0,
+      newPeople: 0,
+      storageBytes: 0,
+    });
+    const drafts = draftsForRecipient(
+      recipient({
+        memberships: [
+          { slug: "acme", orgName: "Acme", role: "member" },
+          { slug: "beta", orgName: "Beta", role: "member" },
+          { slug: "quiet", orgName: "Quiet", role: "member" },
+        ],
+      }),
+      new Map([
+        ["acme", source()],
+        ["beta", beta],
+        ["quiet", quiet],
+      ]),
+      "Oct 5–12",
+    );
+    expect(drafts.map((draft) => draft.user?.workspaceName)).toEqual(["Acme", "Beta"]);
+    expect(drafts.map((draft) => draft.user?.uploads)).toEqual([37, 4]);
+    expect(drafts.map((draft) => draft.user?.workspaceSlug)).toEqual(["acme", "beta"]);
+    expect(drafts.every((draft) => draft.pulses.length === 0)).toBe(true);
   });
 });
 

@@ -22,6 +22,7 @@ export {
   type UsageAlertThreshold,
 } from "./usage";
 export {
+  digestDeliveryId,
   renderWeeklyDigestEmail,
   type WeeklyDigestEmailInput,
   type WeeklyDigestHighlight,
