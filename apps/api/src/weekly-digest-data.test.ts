@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { fileURLToPath, URL as NodeURL } from "node:url";
 import { digestDeliveryId, type WeeklyDigestMessage } from "@uploads/email";
 import { describe, expect, it } from "vitest";
 import { database, SqliteD1 } from "../test/helpers/sqlite-d1";
@@ -19,6 +22,7 @@ const MIGRATIONS = [
   "migrations/20261004120100_pr_activity_title_state.sql",
   "migrations/20261007120000_client_activity.sql",
   "migrations/20261012140000_auth_user_weekly_digest.sql",
+  "migrations/20261012150000_auth_member_weekly_digest.sql",
 ];
 
 const NOW = new Date("2026-10-12T14:00:00.000Z");
@@ -178,8 +182,8 @@ describe("runWeeklyDigestSweep", () => {
         .run();
       sqlite.db
         .prepare(
-          `INSERT INTO user (id, name, email, created_at, updated_at, notify_weekly_digest)
-           VALUES ('ada', 'Ada', 'ada@example.com', 1, 1, 1)`,
+          `INSERT INTO user (id, name, email, created_at, updated_at)
+           VALUES ('ada', 'Ada', 'ada@example.com', 1, 1)`,
         )
         .run();
       sqlite.db
@@ -190,8 +194,8 @@ describe("runWeeklyDigestSweep", () => {
         .run();
       sqlite.db
         .prepare(
-          `INSERT INTO member (id, organization_id, user_id, role, created_at)
-           VALUES ('m-ada', 'org', 'ada', 'member', 1), ('m-quiet', 'org', 'quiet', 'member', 1)`,
+          `INSERT INTO member (id, organization_id, user_id, role, created_at, notify_weekly_digest)
+           VALUES ('m-ada', 'org', 'ada', 'member', 1, 1), ('m-quiet', 'org', 'quiet', 'member', 1, 0)`,
         )
         .run();
 
@@ -248,14 +252,14 @@ describe("runWeeklyDigestSweep", () => {
         .run();
       sqlite.db
         .prepare(
-          `INSERT INTO user (id, name, email, created_at, updated_at, notify_weekly_digest)
-           VALUES ('ada', 'Ada', 'ada@example.com', 1, 1, 1)`,
+          `INSERT INTO user (id, name, email, created_at, updated_at)
+           VALUES ('ada', 'Ada', 'ada@example.com', 1, 1)`,
         )
         .run();
       sqlite.db
         .prepare(
-          `INSERT INTO member (id, organization_id, user_id, role, created_at)
-           VALUES ('m-ada', 'org', 'ada', 'member', 1)`,
+          `INSERT INTO member (id, organization_id, user_id, role, created_at, notify_weekly_digest)
+           VALUES ('m-ada', 'org', 'ada', 'member', 1, 1)`,
         )
         .run();
       let called = false;
@@ -275,6 +279,122 @@ describe("runWeeklyDigestSweep", () => {
       expect(result.sent).toBe(0);
       expect(result.recipients).toBe(0);
       expect(called).toBe(false);
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("sends only the workspace whose membership opted in", async () => {
+    const sqlite = new SqliteD1(MIGRATIONS);
+    try {
+      sqlite.db
+        .prepare(
+          `INSERT INTO daily_metrics (metric, day, workspace, count, bytes) VALUES
+             ('upload', '2026-10-11', 'acme', 2, 1000),
+             ('upload', '2026-10-11', 'beta', 4, 1000)`,
+        )
+        .run();
+      sqlite.db
+        .prepare(
+          `INSERT INTO organization (id, name, slug, created_at) VALUES
+             ('org-acme', 'Acme', 'acme', 1),
+             ('org-beta', 'Beta', 'beta', 1)`,
+        )
+        .run();
+      sqlite.db
+        .prepare(
+          `INSERT INTO user (id, name, email, created_at, updated_at)
+           VALUES ('ada', 'Ada', 'ada@example.com', 1, 1)`,
+        )
+        .run();
+      sqlite.db
+        .prepare(
+          `INSERT INTO member
+             (id, organization_id, user_id, role, created_at, notify_weekly_digest, notify_weekly_workspace_digest)
+           VALUES
+             ('m-acme', 'org-acme', 'ada', 'owner', 1, 0, 1),
+             ('m-beta', 'org-beta', 'ada', 'member', 1, 0, 1)`,
+        )
+        .run();
+
+      const posts: WeeklyDigestMessage[][] = [];
+      const env = {
+        REGISTRY: registry({}),
+        DB: database(sqlite),
+        AUTH: {
+          fetch: async (_url: string, init?: RequestInit) => {
+            const body = JSON.parse(String(init?.body)) as { messages: WeeklyDigestMessage[] };
+            posts.push(body.messages);
+            return new Response(
+              JSON.stringify({
+                sent: body.messages.flatMap((message) => {
+                  const id = digestDeliveryId(message);
+                  return id ? [id] : [];
+                }),
+                failed: [],
+              }),
+              { status: 200 },
+            );
+          },
+        },
+      };
+      const result = await runWeeklyDigestSweep(env as unknown as Env, {
+        now: NOW,
+        db: database(sqlite),
+      });
+      expect(result.sent).toBe(1);
+      expect(
+        posts[0]?.map((message) => message.user?.workspaceSlug ?? message.pulses[0]?.slug),
+      ).toEqual(["acme"]);
+      expect(posts[0]?.[0]?.unsubscribes).toEqual(["workspace"]);
+      expect(posts[0]?.[0]?.user).toBeUndefined();
+    } finally {
+      sqlite.close();
+    }
+  });
+});
+
+const API_ROOT = fileURLToPath(new NodeURL("../", import.meta.url));
+
+describe("member weekly digest migration", () => {
+  it("copies an account-wide opt-in onto current memberships", () => {
+    const prior = MIGRATIONS.filter((path) => !path.endsWith("auth_member_weekly_digest.sql"));
+    const sqlite = new SqliteD1(prior);
+    try {
+      sqlite.db.exec(`
+        INSERT INTO organization (id, name, slug, created_at) VALUES
+          ('org-acme', 'Acme', 'acme', 1),
+          ('org-beta', 'Beta', 'beta', 1);
+        INSERT INTO user (id, name, email, created_at, updated_at, notify_weekly_digest, notify_weekly_workspace_digest) VALUES
+          ('ada', 'Ada', 'ada@example.com', 1, 1, 1, 1),
+          ('bev', 'Bev', 'bev@example.com', 1, 1, 0, 1),
+          ('cy', 'Cy', 'cy@example.com', 1, 1, 0, 0);
+        INSERT INTO member (id, organization_id, user_id, role, created_at) VALUES
+          ('m1', 'org-acme', 'ada', 'owner', 1),
+          ('m2', 'org-beta', 'ada', 'member', 1),
+          ('m3', 'org-acme', 'bev', 'admin', 1),
+          ('m4', 'org-beta', 'bev', 'member', 1),
+          ('m5', 'org-acme', 'cy', 'owner', 1);
+      `);
+      sqlite.db.exec(
+        readFileSync(
+          resolve(API_ROOT, "migrations/20261012150000_auth_member_weekly_digest.sql"),
+          "utf8",
+        ),
+      );
+      const rows = sqlite.db
+        .prepare(
+          `SELECT id, notify_weekly_digest AS digest, notify_weekly_workspace_digest AS pulse
+           FROM member ORDER BY id`,
+        )
+        .all();
+      expect(rows).toEqual([
+        { id: "m1", digest: 1, pulse: 1 },
+        { id: "m2", digest: 1, pulse: 0 },
+        { id: "m3", digest: 0, pulse: 1 },
+        { id: "m4", digest: 0, pulse: 0 },
+        { id: "m5", digest: 0, pulse: 0 },
+      ]);
     } finally {
       sqlite.close();
     }

@@ -9,8 +9,10 @@ import {
   getAccountInfo,
   getSession,
   listAccounts,
+  listDigestPreferences,
   listSessions,
   type AuthSession,
+  type DigestWorkspacePreference,
   type LinkedAccount,
   type ProviderAccountInfo,
   type SessionUser,
@@ -27,6 +29,8 @@ export interface ProfilePageData {
   /** Live GitHub profile when a github account is linked; null otherwise or on failure. */
   githubInfo: ProviderAccountInfo | null;
   sessions: AuthSession[] | null;
+  /** Null when the preferences request failed. An empty list means no memberships. */
+  digestWorkspaces: DigestWorkspacePreference[] | null;
 }
 
 /**
@@ -42,13 +46,21 @@ export async function loadProfilePageData(
   fetchImpl?: typeof fetch,
 ): Promise<ProfilePageData> {
   if (!cookie.trim()) {
-    return { user: null, currentToken: null, accounts: null, githubInfo: null, sessions: null };
+    return {
+      user: null,
+      currentToken: null,
+      accounts: null,
+      githubInfo: null,
+      sessions: null,
+      digestWorkspaces: null,
+    };
   }
 
-  const [sessionResult, accounts, sessions] = await Promise.all([
+  const [sessionResult, accounts, sessions, digestWorkspaces] = await Promise.all([
     getSession(authOrigin, { cookie, fetchImpl }),
     listAccounts(authOrigin, { cookie, fetchImpl }),
     listSessions(authOrigin, { cookie, fetchImpl }),
+    listDigestPreferences(authOrigin, { cookie, fetchImpl }),
   ]);
 
   const user = sessionResult.kind === "signed_in" ? sessionResult.session.user : null;
@@ -67,7 +79,40 @@ export async function loadProfilePageData(
       })
     : null;
 
-  return { user, currentToken, accounts, githubInfo, sessions };
+  return { user, currentToken, accounts, githubInfo, sessions, digestWorkspaces };
+}
+
+function digestChecked(on: boolean): string {
+  return on ? " checked" : "";
+}
+
+/**
+ * One switch group per workspace. The admin pulse appears only when the
+ * membership is an admin or owner. Server-safe.
+ */
+export function renderWeeklyDigestHtml(workspaces: DigestWorkspacePreference[]): string {
+  if (workspaces.length === 0) {
+    return `<p class="muted settings-note">Join a workspace to get a weekly digest.</p>`;
+  }
+  return workspaces
+    .map((workspace) => {
+      const titleId = `digest-${workspace.organizationId}`;
+      const admin = workspace.admin
+        ? `<label class="notify-row">
+        <input type="checkbox" data-digest="admin" data-org-id="${escapeHtml(workspace.organizationId)}"${digestChecked(workspace.notifyWeeklyWorkspaceDigest)} />
+        <span>Email me this workspace's admin pulse.</span>
+      </label>`
+        : "";
+      return `<section class="weekly-workspace" aria-labelledby="${escapeHtml(titleId)}">
+      <h3 class="weekly-workspace__name" id="${escapeHtml(titleId)}">${escapeHtml(workspace.name || workspace.slug)}</h3>
+      <label class="notify-row">
+        <input type="checkbox" data-digest="member" data-org-id="${escapeHtml(workspace.organizationId)}"${digestChecked(workspace.notifyWeeklyDigest)} />
+        <span>Email me a weekly summary of this workspace.</span>
+      </label>
+      ${admin}
+    </section>`;
+    })
+    .join("");
 }
 
 function asNonEmptyString(value: unknown): string | null {

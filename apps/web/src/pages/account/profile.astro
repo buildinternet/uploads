@@ -5,6 +5,7 @@ import {
   loadProfilePageData,
   renderSessionsHtml,
   renderSignInMethodsHtml,
+  renderWeeklyDigestHtml,
 } from "../../lib/account-profile-ui";
 import { serverAuthFetchImpl } from "../../lib/auth-proxy";
 import { resolveSignedInOrigins } from "../../lib/signed-in-page";
@@ -58,25 +59,19 @@ const sessionsEmpty = sessionsReady && (initial.sessions?.length ?? 0) === 0;
         />
         <span>Email me when a workspace I administer nears its usage limit.</span>
       </label>
-      <label class="notify-row">
-        <input
-          type="checkbox"
-          id="notify-weekly-digest"
-          checked={initial.user?.notifyWeeklyDigest ?? false}
+      <div class="weekly-digest">
+        <p class="weekly-digest__title">Weekly digest</p>
+        <p class="muted settings-note">
+          Each workspace has its own switches. They stay off until you turn them on. An unsubscribe
+          link turns off that workspace only. The admin pulse is for workspaces you administer.
+        </p>
+        <div
+          id="weekly-digest-list"
+          set:html={initial.digestWorkspaces
+            ? renderWeeklyDigestHtml(initial.digestWorkspaces)
+            : `<p class="muted settings-note">Couldn’t load weekly digest settings.</p>`}
         />
-        <span>Email me a weekly summary of workspaces I belong to.</span>
-      </label>
-      <label class="notify-row">
-        <input
-          type="checkbox"
-          id="notify-weekly-workspace-digest"
-          checked={initial.user?.notifyWeeklyWorkspaceDigest ?? false}
-        />
-        <span>Email me a weekly summary of workspaces I administer.</span>
-      </label>
-      <p class="muted settings-note">
-        The weekly emails stay off until you turn them on. Each one has an unsubscribe link.
-      </p>
+      </div>
       <p id="notify-status" class="muted settings-note" role="status" aria-live="polite"></p>
     </div>
 
@@ -184,22 +179,49 @@ const sessionsEmpty = sessionsReady && (initial.sessions?.length ?? 0) === 0;
     .notify-row input {
       margin: 0;
     }
+    .weekly-digest {
+      display: grid;
+      gap: 12px;
+      margin-top: 14px;
+    }
+    .weekly-digest__title {
+      margin: 0;
+      font-size: var(--text-meta);
+      font-weight: 600;
+    }
+    .weekly-workspace {
+      display: grid;
+      gap: 8px;
+    }
+    .weekly-workspace + .weekly-workspace {
+      padding-top: 12px;
+      border-top: 1px solid var(--line);
+    }
+    .weekly-workspace__name {
+      margin: 0;
+      font-size: var(--text-meta);
+      font-weight: 600;
+    }
   </style>
 
   <script>
     import { onAstroPageLoad, onSession, requireElement } from "../../lib/account-shell";
-    import { renderSessionsHtml, renderSignInMethodsHtml } from "../../lib/account-profile-ui";
+    import {
+      renderSessionsHtml,
+      renderSignInMethodsHtml,
+      renderWeeklyDigestHtml,
+    } from "../../lib/account-profile-ui";
     import {
       getAccountInfo,
       getSession,
       linkGitHub,
       listAccounts,
+      listDigestPreferences,
       listSessions,
       revokeSession,
+      updateDigestPreference,
       updateNotifyMemberJoin,
       updateNotifyUsageLimits,
-      updateNotifyWeeklyDigest,
-      updateNotifyWeeklyWorkspaceDigest,
       type AuthSession,
     } from "../../lib/auth-client";
     import {
@@ -444,18 +466,11 @@ const sessionsEmpty = sessionsReady && (initial.sessions?.length ?? 0) === 0;
 
       const notifyToggle = document.getElementById("notify-member-join") as HTMLInputElement | null;
       const usageToggle = document.getElementById("notify-usage-limits") as HTMLInputElement | null;
-      const digestToggle = document.getElementById(
-        "notify-weekly-digest",
-      ) as HTMLInputElement | null;
-      const workspaceDigestToggle = document.getElementById(
-        "notify-weekly-workspace-digest",
-      ) as HTMLInputElement | null;
       const notifyStatus = document.getElementById("notify-status");
       function setNotifyStatus(message: string): void {
         if (notifyStatus) notifyStatus.textContent = message;
       }
-      // Both toggles share one status line and the same save-and-revert dance.
-      // Only the persistence call differs.
+      // Account-wide toggles share one status line and the same save-and-revert dance.
       function wireNotifyToggle(
         el: HTMLInputElement | null,
         save: (origin: string, value: boolean) => Promise<boolean>,
@@ -467,7 +482,7 @@ const sessionsEmpty = sessionsReady && (initial.sessions?.length ?? 0) === 0;
             setNotifyStatus("Saving…");
             const ok = await save(authOrigin, desired);
             if (!ok) {
-              el.checked = !desired; // revert
+              el.checked = !desired;
               setNotifyStatus("Couldn’t save — try again.");
             } else {
               setNotifyStatus(desired ? "Notifications on." : "Notifications off.");
@@ -478,8 +493,41 @@ const sessionsEmpty = sessionsReady && (initial.sessions?.length ?? 0) === 0;
       }
       wireNotifyToggle(notifyToggle, updateNotifyMemberJoin);
       wireNotifyToggle(usageToggle, updateNotifyUsageLimits);
-      wireNotifyToggle(digestToggle, updateNotifyWeeklyDigest);
-      wireNotifyToggle(workspaceDigestToggle, updateNotifyWeeklyWorkspaceDigest);
+
+      const digestList = document.getElementById("weekly-digest-list");
+      async function loadWeeklyDigests(): Promise<void> {
+        if (!digestList) return;
+        const workspaces = await listDigestPreferences(authOrigin);
+        digestList.innerHTML = workspaces
+          ? renderWeeklyDigestHtml(workspaces)
+          : `<p class="muted settings-note">Couldn’t load weekly digest settings.</p>`;
+      }
+      digestList?.addEventListener("change", (event) => {
+        const input = event.target;
+        if (!(input instanceof HTMLInputElement)) return;
+        const organizationId = input.dataset.orgId;
+        const kind = input.dataset.digest;
+        if (!organizationId || (kind !== "member" && kind !== "admin")) return;
+        void (async () => {
+          const desired = input.checked;
+          input.disabled = true;
+          setNotifyStatus("Saving…");
+          const ok = await updateDigestPreference(
+            authOrigin,
+            organizationId,
+            kind === "admin"
+              ? { notifyWeeklyWorkspaceDigest: desired }
+              : { notifyWeeklyDigest: desired },
+          );
+          if (!ok) {
+            input.checked = !desired;
+            setNotifyStatus("Couldn’t save — try again.");
+          } else {
+            setNotifyStatus(desired ? "Notifications on." : "Notifications off.");
+          }
+          input.disabled = false;
+        })();
+      });
 
       onSession((user) => {
         requireElement<HTMLElement>("#acct-email", "account profile").textContent = user.email;
@@ -492,12 +540,7 @@ const sessionsEmpty = sessionsReady && (initial.sessions?.length ?? 0) === 0;
         if (usageToggle && typeof user.notifyUsageLimits === "boolean") {
           usageToggle.checked = user.notifyUsageLimits;
         }
-        if (digestToggle && typeof user.notifyWeeklyDigest === "boolean") {
-          digestToggle.checked = user.notifyWeeklyDigest;
-        }
-        if (workspaceDigestToggle && typeof user.notifyWeeklyWorkspaceDigest === "boolean") {
-          workspaceDigestToggle.checked = user.notifyWeeklyWorkspaceDigest;
-        }
+        void loadWeeklyDigests();
         void loadAccounts();
         void loadSessions();
       });

@@ -66,11 +66,15 @@ export const user = sqliteTable("user", {
   notifyUsageLimits: integer("notify_usage_limits", { mode: "boolean" })
     .notNull()
     .$defaultFn(() => true),
-  /** Per-user pref: weekly summary of workspaces I belong to. Default off. */
+  /**
+   * Retired account-wide weekly digest flags (#1108). Live preferences are
+   * on `member`. These columns stay so that release can still read them
+   * during rollout. Migration `20261012150000` copies an existing opt-in
+   * onto current memberships. New mail does not read these columns.
+   */
   notifyWeeklyDigest: integer("notify_weekly_digest", { mode: "boolean" })
     .notNull()
     .$defaultFn(() => false),
-  /** Per-user pref: weekly summary of workspaces I administer. Default off. */
   notifyWeeklyWorkspaceDigest: integer("notify_weekly_workspace_digest", { mode: "boolean" })
     .notNull()
     .$defaultFn(() => false),
@@ -224,7 +228,9 @@ export const organization = sqliteTable("organization", {
  * role (stock organization-plugin roles, no custom access control) — distinct
  * from the global `user.role` written by the `admin` plugin (Phase 2).
  *
- * Paired migration: `migrations/20260712220000_organization.sql`.
+ * Paired migrations: `migrations/20260712220000_organization.sql`,
+ * `apps/api/migrations/20261012150000_auth_member_weekly_digest.sql`
+ * (`notify_weekly_digest`, `notify_weekly_workspace_digest`).
  */
 export const member = sqliteTable(
   "member",
@@ -238,6 +244,14 @@ export const member = sqliteTable(
       .references(() => user.id, { onDelete: "cascade" }),
     role: text("role").notNull().default("member"),
     createdAt: timestampCol("created_at"),
+    /** Weekly summary of this workspace. Default off. */
+    notifyWeeklyDigest: integer("notify_weekly_digest", { mode: "boolean" })
+      .notNull()
+      .$defaultFn(() => false),
+    /** Weekly admin pulse for this workspace. Default off. Admins and owners only. */
+    notifyWeeklyWorkspaceDigest: integer("notify_weekly_workspace_digest", { mode: "boolean" })
+      .notNull()
+      .$defaultFn(() => false),
   },
   (t) => [
     index("idx_member_organization_id").on(t.organizationId),

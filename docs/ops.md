@@ -255,15 +255,28 @@ digest. It does not delete anything. The handler dispatches on the cron
 string, so the Monday run does not repeat the daily sweeps. Mail goes out
 through the auth worker's existing `EMAIL` binding (`noreply@uploads.sh`).
 Unsubscribe links are HMAC-signed with `BETTER_AUTH_SECRET`. There is no
-new secret. Both preferences default off. People turn them on from Account,
-under Email notifications. The API is `POST /api/auth/update-user` with
-`notifyWeeklyDigest` or `notifyWeeklyWorkspaceDigest`. Each workspace gets
-its own email. The subject names that workspace and the week, for example
-`Your week in Acme (Oct 5–12)` or `Acme admin pulse (Oct 5–12)`. A quiet
-workspace is left out. The other workspaces still send. Jev may pick the
-one highlight screenshot from its caption.
-If the `AI` binding is missing, or Jev declines, the highlight is the
-newest screenshot. Jev does not write the email.
+new secret.
+
+Both kinds of mail default off, per workspace. A person turns them on from
+Account, under Email notifications. Each workspace has its own switches. The
+admin pulse switch appears only when that person is an admin or an owner of
+the workspace. The API is `GET` and `POST /api/auth/digest-preferences`.
+
+Each opted-in workspace gets its own email. The subject names that workspace
+and the seven-day range, for example `Your week in Acme (Oct 5–11)` or
+`Acme admin pulse (Oct 5–11)`. The range starts on the previous Monday and
+ends on Sunday. An unsubscribe link turns off that workspace and that kind
+only. A quiet workspace is left out. The other workspaces still send.
+
+Jev may pick the one highlight screenshot from its caption. If the `AI`
+binding is missing, or Jev declines, the highlight is the newest screenshot.
+Jev does not write the email.
+
+Migration `20261012150000_auth_member_weekly_digest.sql` copies an existing
+account-wide opt-in onto current memberships. The member digest copies onto
+every membership. The admin pulse copies onto admin and owner memberships
+only. The old `user` columns stay in the database so a worker from that
+release can still read them. New mail does not read them.
 
 The same sweep also finalizes soft-deleted workspaces (see below): once a
 workspace's grace window elapses, the sweep runs the full hard teardown and

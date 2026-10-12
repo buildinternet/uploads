@@ -318,20 +318,30 @@ function workspaceIdentity(input: WeeklyDigestEmailInput): { name?: string; slug
   return { name, slug };
 }
 
-function unsubscribeNote(input: WeeklyDigestEmailInput): { html: string; text: string } {
+function unsubscribeNote(
+  input: WeeklyDigestEmailInput,
+  workspaceName: string | undefined,
+): { html: string; text: string } {
   const links: { html: string; text: string }[] = [];
   const digest = safeHttps(input.unsubscribeDigestUrl);
   const workspace = safeHttps(input.unsubscribeWorkspaceUrl);
+  const name = workspaceName?.trim();
+  const memberLabel = name
+    ? `Unsubscribe from ${name}'s weekly summary`
+    : "Unsubscribe from this weekly summary";
+  const adminLabel = name
+    ? `Unsubscribe from ${name}'s admin pulse`
+    : "Unsubscribe from this admin pulse";
   if (digest) {
     links.push({
-      html: `<a href="${escapeHtml(digest)}" style="${LINK}">Unsubscribe from this weekly summary</a>`,
-      text: `Unsubscribe from this weekly summary: ${digest}`,
+      html: `<a href="${escapeHtml(digest)}" style="${LINK}">${escapeHtml(memberLabel)}</a>`,
+      text: `${memberLabel}: ${digest}`,
     });
   }
   if (workspace) {
     links.push({
-      html: `<a href="${escapeHtml(workspace)}" style="${LINK}">Unsubscribe from workspace summaries</a>`,
-      text: `Unsubscribe from workspace summaries: ${workspace}`,
+      html: `<a href="${escapeHtml(workspace)}" style="${LINK}">${escapeHtml(adminLabel)}</a>`,
+      text: `${adminLabel}: ${workspace}`,
     });
   }
   if (links.length === 0) return { html: "", text: "" };
@@ -369,7 +379,7 @@ export function renderWeeklyDigestEmail(input: WeeklyDigestEmailInput): Rendered
       : "Your week";
   const user = input.user ? userBlock(input.user, webOrigin) : { html: "", text: "" };
   const pulseHtml = pulse ? pulseBody(pulse, webOrigin) : { html: "", text: "" };
-  const unsub = unsubscribeNote(input);
+  const unsub = unsubscribeNote(input, name);
   const see = destination(slug, webOrigin);
   const divider = `<div style="border-top:1px solid #232327;margin:18px 0;"></div>`;
   const adminHeading =

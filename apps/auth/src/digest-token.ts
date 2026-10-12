@@ -1,19 +1,25 @@
 /**
  * HMAC tokens for one-click digest unsubscribe. Signed with the existing
  * Better Auth secret so the link does not need a new credential or a login.
- * Payload is `v.u.k.e` JSON: version, user id, kinds, expiry (unix seconds).
+ *
+ * Version 2 payload is `v.u.k.w.e`: version, user id, kinds, workspace slug,
+ * expiry (unix seconds). Version 1 tokens have no workspace and turn that
+ * kind off for every membership. New mail signs version 2.
  */
 import { resolveSigningSecret, type SigningSecretEnv } from "./secrets";
 
 export const DIGEST_KINDS = ["digest", "workspace"] as const;
 export type DigestUnsubscribeKind = (typeof DIGEST_KINDS)[number];
 
-const TOKEN_VERSION = 1;
+const TOKEN_VERSION = 2;
+const LEGACY_TOKEN_VERSION = 1;
 const TOKEN_TTL_S = 90 * 24 * 60 * 60;
 
 export interface DigestUnsubscribeClaims {
   userId: string;
   kinds: DigestUnsubscribeKind[];
+  /** Null on a version 1 token, which applies to every membership. */
+  workspace: string | null;
   exp: number;
 }
 
@@ -61,7 +67,35 @@ function timingSafeEqual(a: Uint8Array, b: Uint8Array): boolean {
   return diff === 0;
 }
 
+async function tokenString(secret: string, payload: string): Promise<string> {
+  const sig = await hmac(secret, payload);
+  return `${bytesToB64Url(new TextEncoder().encode(payload))}.${bytesToB64Url(sig)}`;
+}
+
 export async function signDigestUnsubscribe(
+  secret: string,
+  userId: string,
+  kinds: DigestUnsubscribeKind[],
+  workspace: string,
+  now = new Date(),
+): Promise<string> {
+  const unique = [...new Set(kinds.filter(isKind))].sort();
+  if (!userId || unique.length === 0) throw new Error("digest unsubscribe needs a user and a kind");
+  if (!workspace || workspace.length > 128) {
+    throw new Error("digest unsubscribe needs a workspace");
+  }
+  const payload = JSON.stringify({
+    v: TOKEN_VERSION,
+    u: userId,
+    k: unique,
+    w: workspace,
+    e: Math.floor(now.getTime() / 1000) + TOKEN_TTL_S,
+  });
+  return tokenString(secret, payload);
+}
+
+/** Version 1 token. Turns the kind off for every membership. New mail does not sign these. */
+export async function signLegacyDigestUnsubscribe(
   secret: string,
   userId: string,
   kinds: DigestUnsubscribeKind[],
@@ -70,13 +104,12 @@ export async function signDigestUnsubscribe(
   const unique = [...new Set(kinds.filter(isKind))].sort();
   if (!userId || unique.length === 0) throw new Error("digest unsubscribe needs a user and a kind");
   const payload = JSON.stringify({
-    v: TOKEN_VERSION,
+    v: LEGACY_TOKEN_VERSION,
     u: userId,
     k: unique,
     e: Math.floor(now.getTime() / 1000) + TOKEN_TTL_S,
   });
-  const sig = await hmac(secret, payload);
-  return `${bytesToB64Url(new TextEncoder().encode(payload))}.${bytesToB64Url(sig)}`;
+  return tokenString(secret, payload);
 }
 
 export async function verifyDigestUnsubscribe(
@@ -100,12 +133,25 @@ export async function verifyDigestUnsubscribe(
     return null;
   }
   if (!parsed || typeof parsed !== "object") return null;
-  const { v, u, k, e } = parsed as { v?: unknown; u?: unknown; k?: unknown; e?: unknown };
-  if (v !== TOKEN_VERSION || typeof u !== "string" || !u) return null;
-  if (typeof e !== "number" || !Number.isFinite(e) || e < Math.floor(now.getTime() / 1000))
+  const { v, u, k, w, e } = parsed as {
+    v?: unknown;
+    u?: unknown;
+    k?: unknown;
+    w?: unknown;
+    e?: unknown;
+  };
+  if ((v !== TOKEN_VERSION && v !== LEGACY_TOKEN_VERSION) || typeof u !== "string" || !u) {
     return null;
+  }
+  if (typeof e !== "number" || !Number.isFinite(e) || e < Math.floor(now.getTime() / 1000)) {
+    return null;
+  }
   if (!Array.isArray(k) || k.length === 0 || !k.every(isKind)) return null;
-  return { userId: u, kinds: [...new Set(k)], exp: e };
+  if (v === LEGACY_TOKEN_VERSION) {
+    return { userId: u, kinds: [...new Set(k)], workspace: null, exp: e };
+  }
+  if (typeof w !== "string" || !w || w.length > 128) return null;
+  return { userId: u, kinds: [...new Set(k)], workspace: w, exp: e };
 }
 
 export function unsubscribeUrl(base: string, token: string): string {

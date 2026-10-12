@@ -6,6 +6,7 @@
   "exports": {
     "./oauth-client-serialize": "./src/oauth-client-serialize.ts",
     "./connected-apps-wire": "./src/connected-apps-wire.ts",
+    "./digest-preferences-wire": "./src/digest-preferences-wire.ts",
     "./billing-prices": "./src/billing-prices.ts"
   },
   "scripts": {

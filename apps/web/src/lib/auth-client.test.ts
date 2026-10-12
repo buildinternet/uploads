@@ -22,10 +22,9 @@ import {
   startLocalDemoSession,
   submitOAuthConsent,
   unbanUser,
+  updateDigestPreference,
   updateNotifyMemberJoin,
   updateNotifyUsageLimits,
-  updateNotifyWeeklyDigest,
-  updateNotifyWeeklyWorkspaceDigest,
   upgradeOrganizationSubscription,
 } from "./auth-client";
 import { BROWSER_REQUEST_TIMEOUT_MS, fetchWithTimeout } from "./request";
@@ -967,16 +966,19 @@ describe("updateNotifyUsageLimits", () => {
   });
 });
 
-describe("updateNotifyWeeklyDigest", () => {
-  it("POSTs update-user with the boolean and returns true on ok", async () => {
+describe("updateDigestPreference", () => {
+  it("POSTs one workspace switch and returns true on ok", async () => {
     const fetchMock = vi
       .spyOn(globalThis, "fetch")
       .mockResolvedValue(new Response("{}", { status: 200 }));
-    const ok = await updateNotifyWeeklyDigest("", true);
+    const ok = await updateDigestPreference("", "org-acme", { notifyWeeklyDigest: true });
     expect(ok).toBe(true);
     const [url, init] = fetchMock.mock.calls[0]!;
-    expect(String(url)).toContain("/api/auth/update-user");
-    expect(JSON.parse(String(init?.body))).toEqual({ notifyWeeklyDigest: true });
+    expect(String(url)).toContain("/api/auth/digest-preferences");
+    expect(JSON.parse(String(init?.body))).toEqual({
+      organizationId: "org-acme",
+      notifyWeeklyDigest: true,
+    });
     fetchMock.mockRestore();
   });
 
@@ -984,7 +986,9 @@ describe("updateNotifyWeeklyDigest", () => {
     const fetchMock = vi
       .spyOn(globalThis, "fetch")
       .mockResolvedValue(new Response("nope", { status: 500 }));
-    expect(await updateNotifyWeeklyWorkspaceDigest("", false)).toBe(false);
+    expect(
+      await updateDigestPreference("", "org-acme", { notifyWeeklyWorkspaceDigest: false }),
+    ).toBe(false);
     fetchMock.mockRestore();
   });
 });
