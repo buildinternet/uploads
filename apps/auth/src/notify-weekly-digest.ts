@@ -3,7 +3,7 @@
  * Sending lives here because the EMAIL binding's allowed sender and the
  * signing secret both live on this worker.
  */
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
 import {
   digestDeliveryId,
@@ -73,17 +73,18 @@ export async function sendWeeklyDigests(
     const kinds = message.unsubscribes.filter(
       (kind): kind is WeeklyDigestKind => kind === "digest" || kind === "workspace",
     );
-    if (kinds.length === 0) {
+    const workspace = message.user?.workspaceSlug || message.pulses[0]?.slug || "";
+    if (kinds.length === 0 || !workspace) {
       result.failed.push(deliveryId);
       continue;
     }
     try {
       const links = new Map<WeeklyDigestKind, string>();
       for (const kind of kinds) {
-        const token = await signDigestUnsubscribe(secret, message.userId, [kind], now);
+        const token = await signDigestUnsubscribe(secret, message.userId, [kind], workspace, now);
         links.set(kind, unsubscribeUrl(base, token));
       }
-      const combined = await signDigestUnsubscribe(secret, message.userId, kinds, now);
+      const combined = await signDigestUnsubscribe(secret, message.userId, kinds, workspace, now);
       const rendered = renderWeeklyDigestEmail({
         weekLabel: message.weekLabel,
         user: message.user,
@@ -124,20 +125,45 @@ export async function applyDigestUnsubscribe(
   secret: string,
   token: string,
   now = new Date(),
-): Promise<{ ok: true; kinds: DigestUnsubscribeKind[] } | { ok: false }> {
+): Promise<
+  { ok: true; kinds: DigestUnsubscribeKind[]; workspaceName: string | null } | { ok: false }
+> {
   const claims = await verifyDigestUnsubscribe(secret, token, now);
   if (!claims) return { ok: false };
-  const patch: Partial<typeof schema.user.$inferInsert> = { updatedAt: now };
+  const patch: Partial<typeof schema.member.$inferInsert> = {};
   if (claims.kinds.includes("digest")) patch.notifyWeeklyDigest = false;
   if (claims.kinds.includes("workspace")) patch.notifyWeeklyWorkspaceDigest = false;
-  await db.update(schema.user).set(patch).where(eq(schema.user.id, claims.userId));
-  return { ok: true, kinds: claims.kinds };
+
+  if (!claims.workspace) {
+    await db.update(schema.member).set(patch).where(eq(schema.member.userId, claims.userId));
+    return { ok: true, kinds: claims.kinds, workspaceName: null };
+  }
+
+  const [org] = await db
+    .select({ id: schema.organization.id, name: schema.organization.name })
+    .from(schema.organization)
+    .where(eq(schema.organization.slug, claims.workspace))
+    .limit(1);
+  if (!org) return { ok: true, kinds: claims.kinds, workspaceName: null };
+  await db
+    .update(schema.member)
+    .set(patch)
+    .where(and(eq(schema.member.userId, claims.userId), eq(schema.member.organizationId, org.id)));
+  return { ok: true, kinds: claims.kinds, workspaceName: org.name };
 }
 
-export function unsubscribePage(ok: boolean): string {
+function escapeHtml(value: string): string {
+  return value.replace(
+    /[&<>"']/g,
+    (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch] ?? ch,
+  );
+}
+
+export function unsubscribePage(ok: boolean, workspaceName?: string | null): string {
   const title = ok ? "You're unsubscribed" : "This link doesn't work";
+  const where = workspaceName ? ` for ${escapeHtml(workspaceName)}` : "";
   const body = ok
-    ? "You won't get that weekly digest anymore. You can turn it back on from Account, under Email notifications."
+    ? `You won't get that weekly digest${where} anymore. You can turn it back on from Account, under Email notifications.`
     : "This unsubscribe link is invalid or expired. You can change the setting from Account, under Email notifications.";
   return `<!doctype html>
 <html lang="en">

@@ -28,6 +28,7 @@ import {
   rewriteClientMetadataGrantTypes,
 } from "./cimd-transport";
 import { connectedAppsPlugin } from "./connected-apps";
+import { digestPreferencesPlugin } from "./digest-preferences";
 import { deviceWorkspacePlugin } from "./device-workspace";
 import {
   oauthClientIdFromAuthorizationCode,
@@ -1068,6 +1069,8 @@ function buildAuth(
       // stamps `revoked` on that grant's access/refresh token rows (unlike
       // the plugin's own delete-consent, which only removes the consent row).
       connectedAppsPlugin(db),
+      // Per-workspace weekly digest switches for Account → Profile.
+      digestPreferencesPlugin(db),
       // Hosted dashboard (`@better-auth/infra`). Omit when the API key is unset.
       ...(dashApiKey ? [dash({ apiKey: dashApiKey })] : []),
       // This endpoint is omitted entirely unless the lifecycle runner supplies
@@ -1090,18 +1093,6 @@ function buildAuth(
           required: false,
           input: true,
           defaultValue: true,
-        },
-        notifyWeeklyDigest: {
-          type: "boolean",
-          required: false,
-          input: true,
-          defaultValue: false,
-        },
-        notifyWeeklyWorkspaceDigest: {
-          type: "boolean",
-          required: false,
-          input: true,
-          defaultValue: false,
         },
       },
     },

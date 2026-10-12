@@ -52,13 +52,13 @@ async function loadRecipients(db: D1Queryable): Promise<DigestRecipient[]> {
   const { results } = await db
     .prepare(
       `SELECT u.id AS user_id, u.email, u.name,
-              u.notify_weekly_digest AS digest,
-              u.notify_weekly_workspace_digest AS workspace_digest,
+              m.notify_weekly_digest AS digest,
+              m.notify_weekly_workspace_digest AS workspace_digest,
               o.slug AS slug, o.name AS org_name, m.role AS role
        FROM user u
        INNER JOIN member m ON m.user_id = u.id
        INNER JOIN organization o ON o.id = m.organization_id
-       WHERE (u.notify_weekly_digest = 1 OR u.notify_weekly_workspace_digest = 1)
+       WHERE (m.notify_weekly_digest = 1 OR m.notify_weekly_workspace_digest = 1)
          AND COALESCE(u.banned, 0) = 0`,
     )
     .all<RecipientRow>();
@@ -71,13 +71,17 @@ async function loadRecipients(db: D1Queryable): Promise<DigestRecipient[]> {
         userId: row.user_id,
         email: row.email,
         name: row.name,
-        digest: row.digest === 1,
-        workspaceDigest: row.workspace_digest === 1,
         memberships: [],
       };
       byUser.set(row.user_id, recipient);
     }
-    recipient.memberships.push({ slug: row.slug, orgName: row.org_name, role: row.role });
+    recipient.memberships.push({
+      slug: row.slug,
+      orgName: row.org_name,
+      role: row.role,
+      digest: row.digest === 1,
+      workspaceDigest: row.workspace_digest === 1,
+    });
   }
   return [...byUser.values()];
 }

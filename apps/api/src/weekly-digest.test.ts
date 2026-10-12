@@ -5,10 +5,13 @@ import {
   buildDigestDecideRequest,
   curationFromModel,
   curateWorkspace,
+  digestWindow,
   draftsForRecipient,
   hasAdminPulse,
   notableRepo,
+  slugsWorthCurating,
   storagePressurePercent,
+  type DigestMembership,
   type DigestRecipient,
   type WorkspaceDigestSource,
 } from "./weekly-digest";
@@ -72,14 +75,23 @@ function draftForRecipient(
   return drafts[0] ?? null;
 }
 
+function membership(over: Partial<DigestMembership> = {}): DigestMembership {
+  return {
+    slug: "acme",
+    orgName: "Acme",
+    role: "member",
+    digest: true,
+    workspaceDigest: false,
+    ...over,
+  };
+}
+
 function recipient(over: Partial<DigestRecipient> = {}): DigestRecipient {
   return {
     userId: "user-1",
     email: "ada@example.com",
     name: "Ada",
-    digest: true,
-    workspaceDigest: false,
-    memberships: [{ slug: "acme", orgName: "Acme", role: "member" }],
+    memberships: [membership()],
     ...over,
   };
 }
@@ -154,9 +166,7 @@ describe("weekly digest assembly", () => {
     });
     const draft = draftForRecipient(
       recipient({
-        digest: false,
-        workspaceDigest: true,
-        memberships: [{ slug: "acme", orgName: "Acme", role: "owner" }],
+        memberships: [membership({ role: "owner", digest: false, workspaceDigest: true })],
       }),
       new Map([["acme", row]]),
       "Oct 5–12",
@@ -187,9 +197,7 @@ describe("weekly digest assembly", () => {
     expect(storagePressurePercent(row.storageBytes, 10_000_000_000)).toBeNull();
     const draft = draftForRecipient(
       recipient({
-        digest: false,
-        workspaceDigest: true,
-        memberships: [{ slug: "acme", orgName: "Acme", role: "admin" }],
+        memberships: [membership({ role: "admin", digest: false, workspaceDigest: true })],
       }),
       new Map([["acme", row]]),
       "Oct 5–12",
@@ -212,9 +220,7 @@ describe("weekly digest assembly", () => {
     });
     const draft = draftForRecipient(
       recipient({
-        digest: true,
-        workspaceDigest: true,
-        memberships: [{ slug: "acme", orgName: "Acme", role: "admin" }],
+        memberships: [membership({ role: "admin", digest: true, workspaceDigest: true })],
       }),
       new Map([["acme", row]]),
       "Oct 5–12",
@@ -229,8 +235,7 @@ describe("weekly digest assembly", () => {
   it("puts both parts in one email when both preferences are on", () => {
     const draft = draftForRecipient(
       recipient({
-        workspaceDigest: true,
-        memberships: [{ slug: "acme", orgName: "Acme", role: "owner" }],
+        memberships: [membership({ role: "owner", digest: true, workspaceDigest: true })],
       }),
       new Map([["acme", source()]]),
       "Oct 5–12",
@@ -246,13 +251,11 @@ describe("weekly digest assembly", () => {
     for (let i = 0; i < 5; i += 1) {
       const slug = `ws-${i}`;
       sources.set(slug, source({ slug, uploads: 10 - i, repos: [] }));
-      memberships.push({ slug, orgName: slug, role: "owner" });
+      memberships.push(
+        membership({ slug, orgName: slug, role: "owner", digest: false, workspaceDigest: true }),
+      );
     }
-    const drafts = draftsForRecipient(
-      recipient({ digest: false, workspaceDigest: true, memberships }),
-      sources,
-      "Oct 5–12",
-    );
+    const drafts = draftsForRecipient(recipient({ memberships }), sources, "Oct 5–12");
     expect(drafts).toHaveLength(5);
     expect(drafts.every((draft) => draft.pulses.length === 1 && !draft.user)).toBe(true);
     expect(drafts.map((draft) => draft.pulses[0]?.pulse.uploads)).toEqual([10, 9, 8, 7, 6]);
@@ -281,9 +284,9 @@ describe("weekly digest assembly", () => {
     const drafts = draftsForRecipient(
       recipient({
         memberships: [
-          { slug: "acme", orgName: "Acme", role: "member" },
-          { slug: "beta", orgName: "Beta", role: "member" },
-          { slug: "quiet", orgName: "Quiet", role: "member" },
+          membership(),
+          membership({ slug: "beta", orgName: "Beta" }),
+          membership({ slug: "quiet", orgName: "Quiet" }),
         ],
       }),
       new Map([
@@ -297,6 +300,72 @@ describe("weekly digest assembly", () => {
     expect(drafts.map((draft) => draft.user?.uploads)).toEqual([37, 4]);
     expect(drafts.map((draft) => draft.user?.workspaceSlug)).toEqual(["acme", "beta"]);
     expect(drafts.every((draft) => draft.pulses.length === 0)).toBe(true);
+  });
+
+  it("sends only the workspaces that membership opted into", () => {
+    const drafts = draftsForRecipient(
+      recipient({
+        memberships: [
+          membership({ role: "owner", digest: true, workspaceDigest: false }),
+          membership({ slug: "beta", orgName: "Beta", digest: false, workspaceDigest: true }),
+          membership({
+            slug: "gamma",
+            orgName: "Gamma",
+            role: "owner",
+            digest: false,
+            workspaceDigest: true,
+          }),
+        ],
+      }),
+      new Map([
+        ["acme", source()],
+        ["beta", source({ slug: "beta" })],
+        ["gamma", source({ slug: "gamma", uploads: 3, repos: [] })],
+      ]),
+      "Oct 5–11",
+    );
+    expect(drafts.map((draft) => draft.user?.workspaceSlug ?? draft.pulses[0]?.slug)).toEqual([
+      "acme",
+      "gamma",
+    ]);
+    expect(drafts.find((draft) => draft.pulses[0]?.slug === "gamma")?.user).toBeUndefined();
+  });
+});
+
+describe("digestWindow", () => {
+  it("labels a Monday-to-Monday window as seven calendar days", () => {
+    const window = digestWindow(new Date("2026-10-12T14:00:00.000Z"));
+    expect(window.sinceDay).toBe("2026-10-05");
+    expect(window.weekLabel).toBe("Oct 5–11");
+  });
+
+  it("names both months when the seven days cross a month", () => {
+    expect(digestWindow(new Date("2026-11-02T14:00:00.000Z")).weekLabel).toBe("Oct 26–Nov 1");
+  });
+
+  it("names both months when the seven days cross a year", () => {
+    expect(digestWindow(new Date("2027-01-04T14:00:00.000Z")).weekLabel).toBe("Dec 28–Jan 3");
+  });
+});
+
+describe("slugsWorthCurating", () => {
+  it("skips a workspace whose membership did not opt into the member digest", () => {
+    const sources = new Map<string, WorkspaceDigestSource>([
+      ["acme", source()],
+      ["beta", source({ slug: "beta" })],
+    ]);
+    const slugs = slugsWorthCurating(
+      [
+        recipient({
+          memberships: [
+            membership({ digest: true }),
+            membership({ slug: "beta", orgName: "Beta", digest: false, workspaceDigest: true }),
+          ],
+        }),
+      ],
+      sources,
+    );
+    expect(slugs).toEqual(["acme"]);
   });
 });
 

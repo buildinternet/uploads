@@ -85,14 +85,16 @@ export interface DigestMembership {
   slug: string;
   orgName: string;
   role: string;
+  /** Member digest for this workspace. */
+  digest: boolean;
+  /** Admin pulse for this workspace. Ignored unless the role is admin or owner. */
+  workspaceDigest: boolean;
 }
 
 export interface DigestRecipient {
   userId: string;
   email: string;
   name: string;
-  digest: boolean;
-  workspaceDigest: boolean;
   memberships: DigestMembership[];
 }
 
@@ -116,22 +118,26 @@ export function digestWindow(now = new Date()): {
     sinceUnix: Math.floor(since.getTime() / 1000),
     prevSinceIso: prev.toISOString(),
     prevSinceDay: prev.toISOString().slice(0, 10),
-    weekLabel: weekLabel(since, now),
+    // The query window ends when the cron runs. The label is the seven
+    // calendar dates that start that window (Monday through Sunday), so a
+    // Monday run does not print both Mondays.
+    weekLabel: weekLabel(since),
   };
 }
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-function weekLabel(since: Date, now: Date): string {
+function weekLabel(since: Date): string {
+  const end = new Date(since.getTime() + 6 * 24 * 60 * 60 * 1000);
   const start = `${MONTHS[since.getUTCMonth()]} ${since.getUTCDate()}`;
-  const endDay = String(now.getUTCDate());
+  const endDay = String(end.getUTCDate());
   if (
-    since.getUTCMonth() === now.getUTCMonth() &&
-    since.getUTCFullYear() === now.getUTCFullYear()
+    since.getUTCMonth() === end.getUTCMonth() &&
+    since.getUTCFullYear() === end.getUTCFullYear()
   ) {
     return `${start}–${endDay}`;
   }
-  return `${start}–${MONTHS[now.getUTCMonth()]} ${endDay}`;
+  return `${start}–${MONTHS[end.getUTCMonth()]} ${endDay}`;
 }
 
 export function hasFileActivity(source: WorkspaceDigestSource): boolean {
@@ -145,7 +151,10 @@ export function hasFileActivity(source: WorkspaceDigestSource): boolean {
 }
 
 function isAdminRole(role: string): boolean {
-  return role === "admin" || role === "owner";
+  return role.split(",").some((part) => {
+    const trimmed = part.trim();
+    return trimmed === "admin" || trimmed === "owner";
+  });
 }
 
 function githubHref(repo: string, kind: "pull" | "issues", num: number): string | undefined {
@@ -343,7 +352,11 @@ export function draftsForRecipient(
 ): WeeklyDigestMessage[] {
   const email = recipient.email.trim();
   if (!email.includes("@")) return [];
-  if (!recipient.digest && !recipient.workspaceDigest) return [];
+  if (
+    !recipient.memberships.some((membership) => membership.digest || membership.workspaceDigest)
+  ) {
+    return [];
+  }
 
   const seen = new Set<string>();
   const drafts: WeeklyDigestMessage[] = [];
@@ -352,10 +365,10 @@ export function draftsForRecipient(
     seen.add(membership.slug);
     const source = sources.get(membership.slug);
     if (!source) continue;
-    const user = recipient.digest
+    const user = membership.digest
       ? buildUserForWorkspace(membership, source, curation.get(membership.slug))
       : undefined;
-    const pulse = recipient.workspaceDigest
+    const pulse = membership.workspaceDigest
       ? buildPulseForWorkspace(membership, source)
       : undefined;
     if (!user && !pulse) continue;
@@ -381,8 +394,8 @@ export function slugsWorthCurating(
 ): string[] {
   const score = new Map<string, number>();
   for (const recipient of recipients) {
-    if (!recipient.digest) continue;
     for (const membership of recipient.memberships) {
+      if (!membership.digest) continue;
       const source = sources.get(membership.slug);
       if (!source || source.shots.length < 2) continue;
       score.set(membership.slug, source.uploads);

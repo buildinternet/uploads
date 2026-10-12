@@ -185,7 +185,10 @@ export const app = new Hono<{ Bindings: AuthEnv }>()
       return c.html(unsubscribePage(false), 503);
     }
     const result = await applyDigestUnsubscribe(drizzle(c.env.DB, { schema }), secret, token);
-    return c.html(unsubscribePage(result.ok), result.ok ? 200 : 400);
+    return c.html(
+      unsubscribePage(result.ok, result.ok ? result.workspaceName : null),
+      result.ok ? 200 : 400,
+    );
   })
   // RFC 8414 path-inserted form: /.well-known/oauth-authorization-server{issuer-path}.
   // Issuer is `${BETTER_AUTH_URL}/api/auth`, so both the bare and `/*` forms
