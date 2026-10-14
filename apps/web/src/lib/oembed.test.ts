@@ -272,7 +272,7 @@ describe("resolveOEmbed", () => {
     expect(sized.body.width).toBe(960);
     expect(sized.body.height).toBe(540);
     expect(sized.body.thumbnail_url).toBe(
-      "https://storage.uploads.sh/acme/_internal/posters/clips/demo.mp4.jpg",
+      "https://storage.uploads.sh/cdn-cgi/image/width=1200,quality=82,fit=scale-down,format=jpeg,onerror=redirect/acme/_internal/posters/clips/demo.mp4.jpg",
     );
     expect(sized.body.thumbnail_width).toBe(960);
     expect(sized.body.thumbnail_height).toBe(540);

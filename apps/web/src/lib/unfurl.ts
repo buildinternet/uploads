@@ -13,9 +13,12 @@
  */
 
 import { OG_DEFAULT_IMAGE, OG_SITE_NAME } from "./og";
+import { thumbUrl, type ThumbFormat } from "./thumb-url";
 
 export const DEFAULT_VIDEO_WIDTH = 1280;
 export const DEFAULT_VIDEO_HEIGHT = 720;
+/** Card image width. Large enough for Discord/Slack/X, small enough to fetch quickly. */
+const UNFURL_IMAGE_WIDTH = 1200;
 
 /** Declared frame cap. Larger stored values fall back to the default frame. */
 const MAX_DECLARED_DIMENSION = 8192;
@@ -156,15 +159,41 @@ function meta(attr: "property" | "name", name: string, content: string): UnfurlT
   return { attr, name, content };
 }
 
+const ALPHA_IMAGE_TYPES = new Set(["image/png", "image/gif", "image/webp", "image/avif"]);
+
+/** PNG when the image can carry transparency. JPEG for posters and everything else. */
+function cardFormat(
+  url: string,
+  contentType: string | null | undefined,
+): Exclude<ThumbFormat, "auto"> {
+  const base = contentType?.split(";")[0]?.trim().toLowerCase() ?? "";
+  if (ALPHA_IMAGE_TYPES.has(base)) return "png";
+  if (base === "image/jpeg" || base === "image/jpg") return "jpeg";
+  try {
+    if (/\.(png|gif|webp|avif)$/i.test(new URL(url).pathname)) return "png";
+  } catch {
+    // Unparseable URL: jpeg is the crawler-safe default.
+  }
+  return "jpeg";
+}
+
+/**
+ * Resize a card image on hosts `thumbUrl` already transforms. Other hosts,
+ * and a result that would exceed Discord's 2048-character URL cap, stay raw.
+ */
+function cardImage(url: string, contentType: string | null | undefined): string {
+  const transformed = thumbUrl(url, UNFURL_IMAGE_WIDTH, { format: cardFormat(url, contentType) });
+  return transformed.length <= 2048 ? transformed : url;
+}
+
 /** Tags for one share page. Video tags are omitted unless the file is a public video. */
 export function unfurlTags(input: UnfurlInput): UnfurlTag[] {
   const fallback = input.fallbackImage ?? OG_DEFAULT_IMAGE;
-  const imageUrl =
-    input.kind === "image" && isPublicMediaUrl(input.mediaUrl)
-      ? input.mediaUrl
-      : isPublicMediaUrl(input.posterUrl)
-        ? input.posterUrl
-        : fallback;
+  const fileImage =
+    input.kind === "image" && isPublicMediaUrl(input.mediaUrl) ? input.mediaUrl : null;
+  const rawImage = fileImage ?? (isPublicMediaUrl(input.posterUrl) ? input.posterUrl : fallback);
+  // Posters are derived JPEGs. The file content type belongs to the video or PDF, not the poster.
+  const imageUrl = cardImage(rawImage, fileImage ? input.contentType : null);
   const videoType = input.kind === "video" ? videoContentType(input.contentType) : null;
   const videoUrl = videoType && isPublicMediaUrl(input.mediaUrl) ? input.mediaUrl : null;
   const frame = videoFrame(input.width, input.height);
@@ -248,7 +277,7 @@ export function renderPlayerDocument(options: {
 }): string | null {
   if (!isPublicMediaUrl(options.videoUrl) || !videoContentType(options.contentType)) return null;
   const poster = isPublicMediaUrl(options.posterUrl)
-    ? ` poster="${escapeHtml(options.posterUrl)}"`
+    ? ` poster="${escapeHtml(cardImage(options.posterUrl, null))}"`
     : "";
   return `<!doctype html>
 <html lang="en">

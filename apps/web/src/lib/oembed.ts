@@ -10,6 +10,7 @@
  */
 
 import { fetchPublicFile, fileKind, filePath, isSafeKey } from "./public-file";
+import { thumbUrl } from "./thumb-url";
 import { isPublicMediaUrl, renderPlayerIframe, videoContentType, videoFrame } from "./unfurl";
 import {
   fetchPublicFeed,
@@ -295,6 +296,15 @@ function galleryCoverUrl(gallery: PublicGallery): string | null {
   return isPublicMediaUrl(cover?.url) ? cover.url : null;
 }
 
+/**
+ * Poster frames are derived JPEGs. Resize them on hosts `thumbUrl` already
+ * transforms. A result past Discord's 2048-character URL cap stays raw.
+ */
+function posterCard(url: string): string {
+  const transformed = thumbUrl(url, 1200, { format: "jpeg" });
+  return transformed.length <= 2048 ? transformed : url;
+}
+
 function oembedBody(media: ShareMedia, options: OEmbedRequest): OEmbedResponse {
   const { maxwidth, maxheight } = options;
   if (media.presentation === "image" && isPublicMediaUrl(media.mediaUrl)) {
@@ -321,7 +331,7 @@ function oembedBody(media: ShareMedia, options: OEmbedRequest): OEmbedResponse {
       title: media.title,
     });
     if (html) {
-      const poster = isPublicMediaUrl(media.posterUrl) ? media.posterUrl : undefined;
+      const poster = isPublicMediaUrl(media.posterUrl) ? posterCard(media.posterUrl) : undefined;
       return {
         ...provider(media.title),
         type: "video",

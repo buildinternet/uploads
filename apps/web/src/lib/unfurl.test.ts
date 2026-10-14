@@ -18,6 +18,10 @@ const PAGE = "https://uploads.sh/c/feed_abcdefghijklmnopqrstuv/aaaaaaaaaaaaaaaaa
 const MP4 = "https://storage.uploads.sh/acme/clips/demo.mp4";
 const POSTER = "https://storage.uploads.sh/acme/_internal/posters/clips/demo.mp4.jpg";
 const PNG = "https://storage.uploads.sh/acme/screenshots/shot.png";
+const CARD = (format: "jpeg" | "png", path: string) =>
+  `https://storage.uploads.sh/cdn-cgi/image/width=1200,quality=82,fit=scale-down,format=${format},onerror=redirect${path}`;
+const POSTER_CARD = CARD("jpeg", "/acme/_internal/posters/clips/demo.mp4.jpg");
+const PNG_CARD = CARD("png", "/acme/screenshots/shot.png");
 
 function content(html: string, attr: "property" | "name", name: string): string | undefined {
   const match = new RegExp(`<meta ${attr}="${name}" content="([^"]*)" />`).exec(html);
@@ -63,7 +67,8 @@ describe("renderUnfurlMeta", () => {
     expect(content(html, "property", "og:video:type")).toBe("video/mp4");
     expect(content(html, "property", "og:video:width")).toBe("1920");
     expect(content(html, "property", "og:video:height")).toBe("1080");
-    expect(content(html, "property", "og:image")).toBe(POSTER);
+    expect(content(html, "property", "og:image")).toBe(POSTER_CARD);
+    expect(content(html, "name", "twitter:image")).toBe(POSTER_CARD);
     expect(content(html, "name", "twitter:card")).toBe("player");
     expect(content(html, "name", "twitter:player")).toBe(playerPageUrl(SITE, PAGE));
     expect(content(html, "name", "twitter:player:width")).toBe("1920");
@@ -142,11 +147,69 @@ describe("renderUnfurlMeta", () => {
       contentType: "image/png",
     });
     expect(content(html, "property", "og:type")).toBe("website");
-    expect(content(html, "property", "og:image")).toBe(PNG);
+    expect(content(html, "property", "og:image")).toBe(PNG_CARD);
     expect(content(html, "name", "twitter:card")).toBe("summary_large_image");
-    expect(content(html, "name", "twitter:image")).toBe(PNG);
+    expect(content(html, "name", "twitter:image")).toBe(PNG_CARD);
     expect(html).not.toContain("og:video");
     expect(html).not.toContain("twitter:player");
+    expect(html).not.toContain("format=auto");
+  });
+
+  it("uses jpeg for opaque images and leaves unsupported hosts raw", () => {
+    const jpeg = "https://storage.uploads.sh/acme/shots/a.jpg";
+    const jpegHtml = renderUnfurlMeta({
+      pageUrl: "https://uploads.sh/f/acme/shots/a.jpg",
+      siteOrigin: SITE,
+      title: "a.jpg",
+      description: "Public file hosted by uploads.sh.",
+      kind: "image",
+      mediaUrl: jpeg,
+      contentType: "image/jpeg",
+    });
+    expect(content(jpegHtml, "property", "og:image")).toBe(CARD("jpeg", "/acme/shots/a.jpg"));
+
+    const gif = "https://embed.uploads.sh/acme/shots/a.gif";
+    const gifHtml = renderUnfurlMeta({
+      pageUrl: PAGE,
+      siteOrigin: SITE,
+      title: "a.gif",
+      description: "Public file hosted by uploads.sh.",
+      kind: "image",
+      mediaUrl: gif,
+      contentType: "image/gif",
+    });
+    expect(content(gifHtml, "property", "og:image")).toBe(
+      "https://embed.uploads.sh/cdn-cgi/image/width=1200,quality=82,fit=scale-down,format=png,onerror=redirect/acme/shots/a.gif",
+    );
+
+    const byo = "https://cdn.example.com/acme/shot.png";
+    const byoHtml = renderUnfurlMeta({
+      pageUrl: PAGE,
+      siteOrigin: SITE,
+      title: "shot.png",
+      description: "Public file hosted by uploads.sh.",
+      kind: "image",
+      mediaUrl: byo,
+      contentType: "image/png",
+    });
+    expect(content(byoHtml, "property", "og:image")).toBe(byo);
+    expect(content(byoHtml, "name", "twitter:image")).toBe(byo);
+  });
+
+  it("keeps the original image when the resized URL would exceed 2048 characters", () => {
+    const raw = `https://storage.uploads.sh/${"a".repeat(1960)}.jpg`;
+    expect(raw.length).toBeLessThanOrEqual(2048);
+    const html = renderUnfurlMeta({
+      pageUrl: PAGE,
+      siteOrigin: SITE,
+      title: "long.jpg",
+      description: "A public image.",
+      kind: "image",
+      mediaUrl: raw,
+      contentType: "image/jpeg",
+    });
+    expect(content(html, "property", "og:image")).toBe(raw);
+    expect(content(html, "name", "twitter:image")).toBe(raw);
   });
 
   it("keeps a PDF poster as a large image and does not treat the PDF as video", () => {
@@ -162,8 +225,12 @@ describe("renderUnfurlMeta", () => {
       contentType: "application/pdf",
       posterUrl: poster,
     });
-    expect(content(html, "property", "og:image")).toBe(poster);
-    expect(content(html, "name", "twitter:image")).toBe(poster);
+    expect(content(html, "property", "og:image")).toBe(
+      CARD("jpeg", "/acme/_internal/posters/report.pdf.jpg"),
+    );
+    expect(content(html, "name", "twitter:image")).toBe(
+      CARD("jpeg", "/acme/_internal/posters/report.pdf.jpg"),
+    );
     expect(html).not.toContain(pdf);
     expect(html).not.toContain("og:video");
   });
@@ -177,7 +244,7 @@ describe("player document", () => {
       contentType: "video/quicktime",
       posterUrl: POSTER,
     });
-    expect(html).toContain(`<video src="${MP4}" poster="${POSTER}" controls playsinline`);
+    expect(html).toContain(`<video src="${MP4}" poster="${POSTER_CARD}" controls playsinline`);
     expect(html).toContain("<title>clip &quot;1&quot;</title>");
     expect(html).not.toContain("<script");
 

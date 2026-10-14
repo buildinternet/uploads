@@ -43,7 +43,9 @@ describe("resolveEmbedPlayer", () => {
     });
     expect(result.status).toBe("ok");
     if (result.status !== "ok") return;
-    expect(result.html).toContain(`<video src="${MP4}" poster="${POSTER}"`);
+    expect(result.html).toContain(
+      `<video src="${MP4}" poster="https://storage.uploads.sh/cdn-cgi/image/width=1200,quality=82,fit=scale-down,format=jpeg,onerror=redirect/acme/_internal/posters/clips/demo.mp4.jpg"`,
+    );
     expect(result.html).toContain("controls playsinline");
     expect(result.html).not.toContain("<script");
 
