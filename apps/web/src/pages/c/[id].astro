@@ -4,6 +4,7 @@ import Brand from "../../components/Brand.astro";
 import Footer from "../../components/Footer.astro";
 import MediaFallback from "../../components/MediaFallback.astro";
 import PrLabel from "../../components/PrLabel.astro";
+import UnfurlMeta from "../../components/UnfurlMeta.astro";
 import { mediaPreviewFailedBody, MEDIA_PREVIEW_FAILED_TITLE } from "../../lib/media-load";
 import { mediaTileView } from "../../lib/media-tile";
 import {
@@ -12,9 +13,10 @@ import {
   feedItemPath,
   feedPageCopy,
   feedPath,
+  mediaKind,
   type PublicFeedItem,
 } from "../../lib/public-feed";
-import { OG_DEFAULT_IMAGE, OG_SITE_NAME } from "../../lib/og";
+import { collectionPreview } from "../../lib/unfurl";
 import { env } from "cloudflare:workers";
 import { publicApiFetch } from "../../lib/ssr-fetch";
 
@@ -41,6 +43,18 @@ const page = feed ? feedPageCopy(feed) : null;
 const olderHref = feed?.nextCursor
   ? `${feedPath(feed.id)}?cursor=${encodeURIComponent(feed.nextCursor)}`
   : null;
+const description = feed
+  ? `Files for ${page?.scopeLabel}, newest first.`
+  : "A public live link hosted by uploads.sh.";
+const preview = feed
+  ? collectionPreview(
+      feed.items.map((item) => ({
+        kind: mediaKind(item),
+        url: item.url,
+        posterUrl: item.posterUrl,
+      })),
+    )
+  : null;
 
 function itemDate(item: PublicFeedItem): string | null {
   const raw = item.uploaded ?? item.modified;
@@ -58,23 +72,16 @@ function itemDate(item: PublicFeedItem): string | null {
     <meta name="robots" content="noindex, nofollow, noarchive" />
     <link rel="canonical" href={canonical} />
     <title>{feed ? `${feed.title} · uploads.sh` : "Live link unavailable · uploads.sh"}</title>
-    <meta
-      name="description"
-      content={feed
-        ? `Files for ${page?.scopeLabel}, newest first.`
-        : "A public live link hosted by uploads.sh."}
+    <meta name="description" content={description} />
+    <UnfurlMeta
+      pageUrl={canonical}
+      siteOrigin={Astro.url.origin}
+      title={feed?.title ?? "Live link unavailable"}
+      description={description}
+      kind={preview?.source === "image" ? "image" : "other"}
+      mediaUrl={preview?.source === "image" ? preview.url : null}
+      posterUrl={preview?.source === "poster" ? preview.url : null}
     />
-    <meta property="og:type" content="website" />
-    <meta property="og:title" content={feed?.title ?? "Live link unavailable"} />
-    <meta
-      property="og:description"
-      content={feed
-        ? `Files for ${page?.scopeLabel}, newest first.`
-        : "A public live link hosted by uploads.sh."}
-    />
-    <meta property="og:url" content={canonical} />
-    <meta property="og:site_name" content={OG_SITE_NAME} />
-    <meta property="og:image" content={OG_DEFAULT_IMAGE} />
     <style>
       * {
         box-sizing: border-box;

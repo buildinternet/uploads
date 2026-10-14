@@ -4,6 +4,7 @@ import Brand from "../../../components/Brand.astro";
 import CopyAsControls from "../../../components/CopyAsControls.astro";
 import Footer from "../../../components/Footer.astro";
 import MediaStage from "../../../components/MediaStage.astro";
+import UnfurlMeta from "../../../components/UnfurlMeta.astro";
 import { buildEmbedFormats, type EmbedFormatOption } from "../../../lib/embed-formats";
 import {
   formatBytes,
@@ -23,7 +24,6 @@ import {
   type PublicFeedItem,
 } from "../../../lib/public-feed";
 import { oembedDiscoveryHref } from "../../../lib/oembed";
-import { OG_DEFAULT_IMAGE, OG_SITE_NAME, ogImageFor } from "../../../lib/og";
 import { env } from "cloudflare:workers";
 import { publicApiFetch } from "../../../lib/ssr-fetch";
 
@@ -84,7 +84,14 @@ const withTime = Boolean(
 const uploadedLabel = uploadedIso ? formatFileDate(uploadedIso, { withTime }) : null;
 const modifiedLabel =
   showModified && modifiedIso ? formatFileDate(modifiedIso, { withTime }) : null;
-const ogImage = item ? ogImageFor(kind(item), item.url, item.posterUrl) : OG_DEFAULT_IMAGE;
+const description =
+  item && page
+    ? `${item.filename} in the ${page.scopeLabel} live link.`
+    : "A public live link hosted by uploads.sh.";
+const unfurlKind =
+  item && item.status === "available" && (itemKind === "image" || itemKind === "video")
+    ? itemKind
+    : "other";
 const sizeLabel =
   item && item.size != null && Number.isSafeInteger(item.size) ? formatBytes(item.size) : null;
 const footnoteParts = [
@@ -111,23 +118,19 @@ function thumbSrc(entry: PublicFeedItem): string | null {
     <meta name="robots" content="noindex, nofollow, noarchive" />
     <link rel="canonical" href={canonical} />
     <title>{title}</title>
-    <meta
-      name="description"
-      content={item && page
-        ? `${item.filename} in the ${page.scopeLabel} live link.`
-        : "A public live link hosted by uploads.sh."}
+    <meta name="description" content={description} />
+    <UnfurlMeta
+      pageUrl={canonical}
+      siteOrigin={Astro.url.origin}
+      title={item ? item.filename : "Media unavailable"}
+      description={description}
+      kind={unfurlKind}
+      mediaUrl={item && item.status === "available" ? item.url : null}
+      contentType={item?.contentType ?? null}
+      posterUrl={item?.posterUrl ?? null}
+      width={item?.videoDimensions?.width ?? null}
+      height={item?.videoDimensions?.height ?? null}
     />
-    <meta property="og:type" content="website" />
-    <meta property="og:title" content={item ? item.filename : "Media unavailable"} />
-    <meta
-      property="og:description"
-      content={item && page
-        ? `${item.filename} in the ${page.scopeLabel} live link.`
-        : "A public live link hosted by uploads.sh."}
-    />
-    <meta property="og:url" content={canonical} />
-    <meta property="og:site_name" content={OG_SITE_NAME} />
-    <meta property="og:image" content={ogImage} />
     {
       oembedHref && item && (
         <link

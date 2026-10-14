@@ -5,6 +5,7 @@ import CopyAsControls from "../../../components/CopyAsControls.astro";
 import Footer from "../../../components/Footer.astro";
 import MediaStage from "../../../components/MediaStage.astro";
 import ReportAbuse from "../../../components/ReportAbuse.astro";
+import UnfurlMeta from "../../../components/UnfurlMeta.astro";
 import { GH_KIND_PATH } from "../../../lib/brand-icons";
 import {
   comparisonRows,
@@ -27,7 +28,6 @@ import {
   sameUtcDay,
 } from "../../../lib/public-file";
 import { oembedDiscoveryHref } from "../../../lib/oembed";
-import { OG_DEFAULT_IMAGE, OG_SITE_NAME, ogImageFor } from "../../../lib/og";
 import { env } from "cloudflare:workers";
 import { publicApiFetch } from "../../../lib/ssr-fetch";
 import { resolveSignedInOrigins } from "../../../lib/signed-in-page";
@@ -142,9 +142,8 @@ const compare =
   counterpart && ownState && kind(file!.contentType) === "image"
     ? { src: counterpart.url, ownState }
     : null;
-const ogImage = file
-  ? ogImageFor(kind(file.contentType), file.url, file.posterUrl)
-  : OG_DEFAULT_IMAGE;
+const mediaKind = file ? kind(file.contentType) : null;
+const unfurlKind = mediaKind === "image" || mediaKind === "video" ? mediaKind : "other";
 ---
 
 <!doctype html>
@@ -155,12 +154,18 @@ const ogImage = file
     <link rel="canonical" href={canonical} />
     <title>{title}</title>
     <meta name="description" content="Public file hosted by uploads.sh." />
-    <meta property="og:type" content="website" />
-    <meta property="og:title" content={file ? filename : "File unavailable"} />
-    <meta property="og:description" content="Public file hosted by uploads.sh." />
-    <meta property="og:url" content={canonical} />
-    <meta property="og:site_name" content={OG_SITE_NAME} />
-    <meta property="og:image" content={ogImage} />
+    <UnfurlMeta
+      pageUrl={canonical}
+      siteOrigin={Astro.url.origin}
+      title={file ? filename : "File unavailable"}
+      description="Public file hosted by uploads.sh."
+      kind={unfurlKind}
+      mediaUrl={file?.url ?? null}
+      contentType={file?.contentType ?? null}
+      posterUrl={file?.posterUrl ?? null}
+      width={file?.videoDimensions?.width ?? null}
+      height={file?.videoDimensions?.height ?? null}
+    />
     {
       oembedHref && (
         <link

@@ -82,6 +82,7 @@ Claude Code plugin (bundles the skills, the hosted MCP server, the /uploads:atta
 - Agents / MCP: https://agents.uploads.sh/mcp
 - Public storage: https://storage.uploads.sh
 - oEmbed (share pages `/f/…`, `/g/…`, `/c/…`): https://uploads.sh/oembed?url=<page-url>&format=json
+- Video player (public videos only): https://uploads.sh/player?url=<page-url>
 
 ## Machine-readable discovery
 
