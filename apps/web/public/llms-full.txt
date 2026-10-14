@@ -235,6 +235,7 @@ Install: `npx skills add buildinternet/uploads` or `uploads install`.
 - Public storage: https://storage.uploads.sh
 - Embed (GitHub Camo-friendly): https://embed.uploads.sh
 - oEmbed: https://uploads.sh/oembed?url=<page-url>&format=json
+- Video player (public share-page videos): https://uploads.sh/player?url=<page-url>
 
 ## Machine-readable discovery
 

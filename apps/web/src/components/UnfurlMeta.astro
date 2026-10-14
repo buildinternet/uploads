@@ -1,0 +1,11 @@
+---
+/**
+ * Open Graph and Twitter tags for a public share page.
+ * Markup comes from renderUnfurlMeta(), which escapes attribute values.
+ */
+import { renderUnfurlMeta, type UnfurlInput } from "../lib/unfurl";
+
+interface Props extends UnfurlInput {}
+---
+
+<Fragment set:html={renderUnfurlMeta(Astro.props)} />
