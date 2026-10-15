@@ -376,11 +376,17 @@ describe("root discovery aliases", () => {
         grant_types_supported?: string[];
         introspection_endpoint_auth_methods_supported?: string[];
         revocation_endpoint_auth_methods_supported?: string[];
+        token_endpoint_auth_signing_alg_values_supported?: string[];
+        revocation_endpoint_auth_signing_alg_values_supported?: string[];
       };
       expect(body.token_endpoint_auth_methods_supported, path).toEqual(["none"]);
       expect(body.grant_types_supported, path).toEqual(["authorization_code", "refresh_token"]);
       expect(body.introspection_endpoint_auth_methods_supported, path).toEqual(confidential);
-      expect(body.revocation_endpoint_auth_methods_supported, path).toEqual(confidential);
+      expect(body.revocation_endpoint_auth_methods_supported, path).toEqual(["none"]);
+      expect(body, path).not.toHaveProperty("token_endpoint_auth_signing_alg_values_supported");
+      expect(body, path).not.toHaveProperty(
+        "revocation_endpoint_auth_signing_alg_values_supported",
+      );
     }
   });
 

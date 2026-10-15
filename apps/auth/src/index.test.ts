@@ -243,6 +243,7 @@ const discoveryMetadata = () => ({
   // Already honest, so origin-rewrite cases can stay a true no-op.
   token_endpoint_auth_methods_supported: ["none"],
   grant_types_supported: ["authorization_code", "refresh_token"],
+  revocation_endpoint_auth_methods_supported: ["none"],
 });
 const discoveryEnv = (overrides: Partial<AuthEnv> = {}): AuthEnv => ({
   DB: {} as unknown as D1Database,
@@ -349,7 +350,28 @@ describe("rewriteDiscoveryEndpoints (#749)", () => {
     expect(j.token_endpoint_auth_methods_supported).toEqual(["none"]);
     expect(j.token_endpoint).toBe("https://uploads.sh/api/auth/oauth2/token");
     expect(j.introspection_endpoint_auth_methods_supported).toEqual(confidentialEndpointMethods);
-    expect(j.revocation_endpoint_auth_methods_supported).toEqual(confidentialEndpointMethods);
+    expect(j.revocation_endpoint_auth_methods_supported).toEqual(["none"]);
+  });
+
+  it("drops JWT signing-alg lists for the token and revocation endpoints", async () => {
+    const algs = ["RS256", "ES256", "EdDSA"];
+    const out = await rewriteDiscoveryEndpoints(
+      META_URL,
+      jsonRes({
+        ...metadata(),
+        token_endpoint_auth_signing_alg_values_supported: algs,
+        revocation_endpoint_auth_signing_alg_values_supported: algs,
+        introspection_endpoint_auth_methods_supported: confidentialEndpointMethods,
+        introspection_endpoint_auth_signing_alg_values_supported: algs,
+      }),
+      metaEnv({ AUTH_DIRECT_ORIGIN: undefined }),
+    );
+    const j = (await out.json()) as Record<string, unknown>;
+    expect(j).not.toHaveProperty("token_endpoint_auth_signing_alg_values_supported");
+    expect(j).not.toHaveProperty("revocation_endpoint_auth_signing_alg_values_supported");
+    // Introspection still takes a secret or an assertion, so its lists stay.
+    expect(j.introspection_endpoint_auth_methods_supported).toEqual(confidentialEndpointMethods);
+    expect(j.introspection_endpoint_auth_signing_alg_values_supported).toEqual(algs);
   });
 
   it("clamps token auth methods and moves form-POST endpoints in one document", async () => {

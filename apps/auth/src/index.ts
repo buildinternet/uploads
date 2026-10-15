@@ -96,8 +96,13 @@ function isDiscoveryMetadataPath(pathname: string): boolean {
  * The token endpoint rejects that grant for a public client. RFC 8414's
  * defaults (omitted auth methods → `client_secret_basic`; omitted grants →
  * `authorization_code` + `implicit`) are wrong for this server, so both
- * fields are always set. Introspection and revocation method lists stay as
- * the plugin emits them. The `client_credentials` handler stays registered
+ * fields are always set. Revocation gets the same `["none"]` list: the
+ * plugin accepts a bare `client_id` there for a public client. The JWT
+ * signing-algorithm lists for the token and revocation endpoints are
+ * removed. RFC 8414 only calls for them alongside a `*_jwt` method, and a
+ * leftover list reads as a `private_key_jwt` hint (Vercel Connect's form
+ * still pre-filled it). Introspection lists stay as the plugin emits them:
+ * that endpoint requires a secret or an assertion, so `none` would be false. The `client_credentials` handler stays registered
  * for a non-discovery client; discovery describes what a self-registered
  * client can do. Seeded `uploads-cli` uses the device-code plugin, not this
  * list.
@@ -123,6 +128,12 @@ const PUBLIC_TOKEN_ENDPOINT_AUTH_METHODS = ["none"] as const;
  * registration strips it.
  */
 const PUBLIC_GRANT_TYPES = ["authorization_code", "refresh_token"] as const;
+
+/** Signing-alg lists that only make sense next to a `*_jwt` auth method. */
+const JWT_ONLY_SIGNING_ALG_KEYS = [
+  "token_endpoint_auth_signing_alg_values_supported",
+  "revocation_endpoint_auth_signing_alg_values_supported",
+] as const;
 
 function listEquals(value: unknown, expected: readonly string[]): boolean {
   return (
@@ -172,6 +183,19 @@ export async function rewriteDiscoveryEndpoints(
   if (!listEquals(json.grant_types_supported, PUBLIC_GRANT_TYPES)) {
     json.grant_types_supported = [...PUBLIC_GRANT_TYPES];
     changed = true;
+  }
+  if (
+    "revocation_endpoint" in json &&
+    !listEquals(json.revocation_endpoint_auth_methods_supported, PUBLIC_TOKEN_ENDPOINT_AUTH_METHODS)
+  ) {
+    json.revocation_endpoint_auth_methods_supported = [...PUBLIC_TOKEN_ENDPOINT_AUTH_METHODS];
+    changed = true;
+  }
+  for (const key of JWT_ONLY_SIGNING_ALG_KEYS) {
+    if (key in json) {
+      delete json[key];
+      changed = true;
+    }
   }
 
   const origins = directAuthOrigins(env);
