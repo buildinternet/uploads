@@ -17,7 +17,8 @@
 import path from "node:path";
 
 // Repo-relative prefixes from `.oxfmtrc.json` ignorePatterns.
-const OXFMT_IGNORED_DIRS = [".superpowers/"];
+// The MCP tool catalogs are vitest file snapshots; reformatting them breaks the match.
+const OXFMT_IGNORED_DIRS = [".superpowers/", "apps/web/src/data/mcp-tools"];
 
 // Extra oxlint-only ignores from `.oxlintrc.json`.
 const OXLINT_IGNORED_DIRS = [".superpowers/", "apps/api/scripts/"];

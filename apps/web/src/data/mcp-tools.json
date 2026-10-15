@@ -4,7 +4,9 @@
     "title": "Create gallery",
     "description": "Create a public ordered media gallery in this workspace. The returned canonical URL is suitable for an agent response, but anyone who knows it can view the gallery and its media.",
     "access": "write",
-    "scopes": ["files:write"],
+    "scopes": [
+      "files:write"
+    ],
     "params": [
       {
         "name": "title",
@@ -40,7 +42,9 @@
     "title": "Get gallery",
     "description": "Get a workspace-owned gallery, including its ordered media and canonical public URL. Gallery media is public to anyone with the URL.",
     "access": "read",
-    "scopes": ["files:read"],
+    "scopes": [
+      "files:read"
+    ],
     "params": [
       {
         "name": "galleryId",
@@ -70,7 +74,9 @@
     "title": "Add gallery item",
     "description": "Add one existing, publicly served workspace object to a gallery. The tool reads the current version before writing and does not upload or delete the object.",
     "access": "write",
-    "scopes": ["files:write"],
+    "scopes": [
+      "files:write"
+    ],
     "params": [
       {
         "name": "galleryId",
@@ -122,7 +128,9 @@
     "title": "Link gallery",
     "description": "Link a gallery to an external reference. Uses provider-neutral fields; github currently accepts owner/repo#number or a strict GitHub issue/PR URL. No GitHub credentials or API calls are used.",
     "access": "write",
-    "scopes": ["files:write"],
+    "scopes": [
+      "files:write"
+    ],
     "params": [
       {
         "name": "galleryId",
@@ -159,7 +167,9 @@
     "title": "Find galleries",
     "description": "Find galleries in this workspace linked to an external reference. Returns canonical public gallery URLs without contacting the provider.",
     "access": "read",
-    "scopes": ["files:read"],
+    "scopes": [
+      "files:read"
+    ],
     "params": [
       {
         "name": "provider",
@@ -180,14 +190,19 @@
         "description": "Page size (default 50, max 100)."
       }
     ],
-    "returns": ["galleries", "nextCursor"]
+    "returns": [
+      "galleries",
+      "nextCursor"
+    ]
   },
   {
     "name": "feed_create",
     "title": "Create change feed",
     "description": "Create a public newest-first screenshot feed (same product as CLI `uploads feed create`). Pass `repo` alone for the whole GitHub repo. Pass `pr` plus `repo` — or `github` as owner/repo#123 / a GitHub PR URL — to scope that same feed to one pull request. `issue` does the same for an issue. Optional `path` filters by page-path metadata. Creating the same scope again returns the existing URL. This is a live query, not a curated gallery. Anyone who knows the URL can view it. See https://uploads.sh/docs/feeds.",
     "access": "write",
-    "scopes": ["files:write"],
+    "scopes": [
+      "files:write"
+    ],
     "params": [
       {
         "name": "repo",
@@ -239,7 +254,9 @@
     "title": "Get change feed",
     "description": "Get a workspace-owned change feed by ID, including its current newest-first screenshots and the canonical public /c/<id> URL. Each item includes pageUrl (`/c/<id>/<item>`) for the pager. The feed may be repo-wide or scoped to one pull request / issue (see `number` and `kind` on the result). Anyone with the URL can view the media.",
     "access": "read",
-    "scopes": ["files:read"],
+    "scopes": [
+      "files:read"
+    ],
     "params": [
       {
         "name": "feedId",
@@ -267,7 +284,9 @@
     "title": "Upload file",
     "description": "Upload a file (or files) and get a public URL plus GitHub-ready markdown. Prefer the returned `embedUrl` in GitHub markdown. All uploads are public. Pass `pr`+`repo` to attach to a PR (stable key + managed comment). Pass `branch`+`repo` to stage for a PR that does not exist yet. When the bytes are already at a public HTTPS URL, pass `contentUrl` instead of base64 — the server fetches them. Accepts images (PNG, JPEG, GIF, WebP, AVIF), video (MP4, WebM, MOV), PDF, zip, gzip, and text (plain, markdown, CSV, JSON). SVG and XML are accepted only on storage lanes verified to serve them sandboxed (see the workspace's storage settings); HTML is rejected.",
     "access": "destructive",
-    "scopes": ["files:write"],
+    "scopes": [
+      "files:write"
+    ],
     "params": [
       {
         "name": "contentBase64",
@@ -408,7 +427,9 @@
     "title": "List files",
     "description": "List uploaded objects in the workspace, optionally filtered by key prefix. Paginate with cursor; each item includes its public URL when the workspace has one.",
     "access": "read",
-    "scopes": ["files:read"],
+    "scopes": [
+      "files:read"
+    ],
     "params": [
       {
         "name": "prefix",
@@ -429,14 +450,20 @@
         "description": "Pagination cursor from a previous call."
       }
     ],
-    "returns": ["items", "cursor", "prefixes"]
+    "returns": [
+      "items",
+      "cursor",
+      "prefixes"
+    ]
   },
   {
     "name": "list_activity",
     "title": "List recent activity",
     "description": "Recent GitHub-tagged activity in this workspace, grouped by pull request (default) or by repo. Pull rows are pull requests that received media tagged gh.kind=pull, newest last_media_at first. The default window is 90 days. Set all to true to lift it. Optional repo and state (open, closed, or merged) narrow those rows. A title is included only when the repo is linked to this workspace. Repo rows are distinct gh.repo values, newest metadata updated_at first. These times are not the object's uploaded-at. Untagged uploads are absent. This does not publish a feed. Pass cursor back unchanged with the same arguments for the next page. Use list_repo_files to open one repo's files, and find_files for tag or filename search in key order.",
     "access": "read",
-    "scopes": ["files:read"],
+    "scopes": [
+      "files:read"
+    ],
     "params": [
       {
         "name": "by",
@@ -475,14 +502,21 @@
         "description": "Opaque cursor from the previous page. Send it back with the same by, repo, state, and all."
       }
     ],
-    "returns": ["by", "repos", "pulls", "cursor"]
+    "returns": [
+      "by",
+      "repos",
+      "pulls",
+      "cursor"
+    ]
   },
   {
     "name": "list_repo_files",
     "title": "List files in a repo",
     "description": "Files tagged with gh.repo for one repository, newest metadata updated_at first. That time is not the object's uploaded-at. repo is owner/name. Optional pr matches gh.number. Optional path matches the path tag exactly. type is a filename suffix class: screenshot, video, or other. PDFs are other. Promoted copies (gh.status=promoted) are omitted. This does not publish a feed. Pass cursor back unchanged with the same arguments for the next page.",
     "access": "read",
-    "scopes": ["files:read"],
+    "scopes": [
+      "files:read"
+    ],
     "params": [
       {
         "name": "repo",
@@ -521,14 +555,19 @@
         "description": "Opaque cursor from the previous page. Send it back with the same repo, pr, path, and type."
       }
     ],
-    "returns": ["items", "cursor"]
+    "returns": [
+      "items",
+      "cursor"
+    ]
   },
   {
     "name": "delete",
     "title": "Delete file",
     "description": "Permanently delete one uploaded file by key, along with its metadata.",
     "access": "destructive",
-    "scopes": ["files:delete"],
+    "scopes": [
+      "files:delete"
+    ],
     "params": [
       {
         "name": "key",
@@ -537,14 +576,20 @@
         "description": "Object key to delete."
       }
     ],
-    "returns": ["key", "deleted", "dryRun"]
+    "returns": [
+      "key",
+      "deleted",
+      "dryRun"
+    ]
   },
   {
     "name": "comment",
     "title": "Sync attachments comment",
     "description": "Refresh the managed attachments comment on a GitHub PR or issue without re-uploading. Use after deleting media. Requires `repo` and exactly one of `pr`/`issue`.",
     "access": "destructive",
-    "scopes": ["files:read"],
+    "scopes": [
+      "files:read"
+    ],
     "params": [
       {
         "name": "repo",
@@ -581,7 +626,9 @@
     "title": "Promote staged attachments",
     "description": "Copy staged or existing files into a PR's stable `gh/…/pull/…` prefix, then refresh the managed comment. Pass `branch` and/or `keys`. Requires `repo` and `pr`.",
     "access": "destructive",
-    "scopes": ["files:write"],
+    "scopes": [
+      "files:write"
+    ],
     "params": [
       {
         "name": "repo",
@@ -620,14 +667,22 @@
         "description": "Refresh the managed attachments comment after a successful copy. Default true. A comment failure never fails the copy."
       }
     ],
-    "returns": ["promotion", "attached", "attachFailures", "comment", "commentError"]
+    "returns": [
+      "promotion",
+      "attached",
+      "attachFailures",
+      "comment",
+      "commentError"
+    ]
   },
   {
     "name": "get_metadata",
     "title": "Get metadata",
     "description": "Read the queryable tags on one file. Returns `{ metadata }` (empty when none).",
     "access": "read",
-    "scopes": ["files:read"],
+    "scopes": [
+      "files:read"
+    ],
     "params": [
       {
         "name": "key",
@@ -636,14 +691,18 @@
         "description": "Object key to inspect."
       }
     ],
-    "returns": ["metadata"]
+    "returns": [
+      "metadata"
+    ]
   },
   {
     "name": "set_metadata",
     "title": "Set metadata",
     "description": "Set or delete queryable tags on an existing file. `set` wins over `delete` for the same key. Tags appear on the public file page — do not store secrets. Requires `set` and/or `delete`.",
     "access": "destructive",
-    "scopes": ["files:write"],
+    "scopes": [
+      "files:write"
+    ],
     "params": [
       {
         "name": "key",
@@ -664,14 +723,18 @@
         "description": "Keys to remove."
       }
     ],
-    "returns": ["metadata"]
+    "returns": [
+      "metadata"
+    ]
   },
   {
     "name": "find_files",
     "title": "Find files",
     "description": "Search files by metadata (`filters`) and/or filename substring (`name`). At least one is required.",
     "access": "read",
-    "scopes": ["files:read"],
+    "scopes": [
+      "files:read"
+    ],
     "params": [
       {
         "name": "filters",
@@ -704,14 +767,20 @@
         "description": "Opaque continuation from a previous call's `cursor`. Pass it back unchanged with the same filters/name to get the next page; a null `cursor` means there are no more pages."
       }
     ],
-    "returns": ["items", "cursor", "truncated"]
+    "returns": [
+      "items",
+      "cursor",
+      "truncated"
+    ]
   },
   {
     "name": "list_metadata_keys",
     "title": "List metadata keys",
     "description": "List metadata keys in the workspace (with counts). Pass `key` to list that key's values instead. Use before `find_files`.",
     "access": "read",
-    "scopes": ["files:read"],
+    "scopes": [
+      "files:read"
+    ],
     "params": [
       {
         "name": "key",
@@ -720,14 +789,21 @@
         "description": "When set, return distinct values for this metadata key (with counts) instead of the key list."
       }
     ],
-    "returns": ["keys", "truncated", "key", "values"]
+    "returns": [
+      "keys",
+      "truncated",
+      "key",
+      "values"
+    ]
   },
   {
     "name": "repo_link_status",
     "title": "Check repo binding",
     "description": "Whether files staged for a repo will auto-attach into that repo's PRs from this workspace. Returns a tri-state `binding`: \"self\" (this repo is bound to this workspace — staged files will auto-attach), \"other\" (bound to a different workspace — they will not; the owning workspace is deliberately never disclosed), or \"none\" (unbound).",
     "access": "read",
-    "scopes": ["files:read"],
+    "scopes": [
+      "files:read"
+    ],
     "params": [
       {
         "name": "repo",
@@ -736,14 +812,18 @@
         "description": "GitHub repo as owner/name."
       }
     ],
-    "returns": ["binding"]
+    "returns": [
+      "binding"
+    ]
   },
   {
     "name": "usage",
     "title": "Show usage",
     "description": "Workspace storage and monthly upload counters (and remaining headroom when budgets are configured).",
     "access": "read",
-    "scopes": ["files:read"],
+    "scopes": [
+      "files:read"
+    ],
     "params": [],
     "returns": [
       "workspace",
@@ -769,16 +849,28 @@
     "title": "Reconcile usage",
     "description": "Rebuild usage ledger bytes/objects from storage (source of truth). Preserves the monthly upload counter. Requires files:write.",
     "access": "write",
-    "scopes": ["files:write"],
+    "scopes": [
+      "files:write"
+    ],
     "params": [],
-    "returns": ["workspace", "bytes", "objects", "previous", "changed", "usage", "unprefixedBucket"]
+    "returns": [
+      "workspace",
+      "bytes",
+      "objects",
+      "previous",
+      "changed",
+      "usage",
+      "unprefixedBucket"
+    ]
   },
   {
     "name": "purge_expired",
     "title": "Purge expired files",
     "description": "Delete objects older than the workspace retentionDays setting, then reconcile. Skips if retention is unset. Requires files:delete.",
     "access": "destructive",
-    "scopes": ["files:delete"],
+    "scopes": [
+      "files:delete"
+    ],
     "params": [],
     "returns": [
       "skipped",
@@ -819,7 +911,12 @@
         "description": "How many search hits to return (default 5, max 50). Ignored when fetching one page."
       }
     ],
-    "returns": ["url", "query", "results", "total"]
+    "returns": [
+      "url",
+      "query",
+      "results",
+      "total"
+    ]
   },
   {
     "name": "changelog",
@@ -835,7 +932,11 @@
         "description": "How many entries to return (default 5, max 50)."
       }
     ],
-    "returns": ["url", "feed", "entries"]
+    "returns": [
+      "url",
+      "feed",
+      "entries"
+    ]
   },
   {
     "name": "whoami",
@@ -844,6 +945,14 @@
     "access": "read",
     "scopes": [],
     "params": [],
-    "returns": ["ok", "workspace", "scopes", "userId", "serviceToken", "signedIn", "apiUrl"]
+    "returns": [
+      "ok",
+      "workspace",
+      "scopes",
+      "userId",
+      "serviceToken",
+      "signedIn",
+      "apiUrl"
+    ]
   }
 ]
