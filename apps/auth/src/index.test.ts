@@ -240,6 +240,8 @@ const discoveryMetadata = () => ({
   introspection_endpoint: "https://uploads.sh/api/auth/oauth2/introspect",
   revocation_endpoint: "https://uploads.sh/api/auth/oauth2/revoke",
   jwks_uri: "https://uploads.sh/api/auth/jwks",
+  // Already honest, so origin-rewrite cases can stay a true no-op.
+  token_endpoint_auth_methods_supported: ["none"],
 });
 const discoveryEnv = (overrides: Partial<AuthEnv> = {}): AuthEnv => ({
   DB: {} as unknown as D1Database,
@@ -317,5 +319,72 @@ describe("rewriteDiscoveryEndpoints (#749)", () => {
     expect(((await out.json()) as Record<string, string>).token_endpoint).toBe(
       "https://uploads.sh/api/auth/oauth2/token",
     );
+  });
+
+  const libraryAuthMethods = [
+    "none",
+    "client_secret_basic",
+    "client_secret_post",
+    "private_key_jwt",
+  ];
+  const confidentialEndpointMethods = [
+    "client_secret_basic",
+    "client_secret_post",
+    "private_key_jwt",
+  ];
+
+  it("clamps token auth methods to public PKCE even when the origin rewrite is a no-op", async () => {
+    const out = await rewriteDiscoveryEndpoints(
+      META_URL,
+      jsonRes({
+        ...metadata(),
+        token_endpoint_auth_methods_supported: libraryAuthMethods,
+        introspection_endpoint_auth_methods_supported: confidentialEndpointMethods,
+        revocation_endpoint_auth_methods_supported: confidentialEndpointMethods,
+      }),
+      metaEnv({ AUTH_DIRECT_ORIGIN: undefined }),
+    );
+    const j = (await out.json()) as Record<string, unknown>;
+    expect(j.token_endpoint_auth_methods_supported).toEqual(["none"]);
+    expect(j.token_endpoint).toBe("https://uploads.sh/api/auth/oauth2/token");
+    expect(j.introspection_endpoint_auth_methods_supported).toEqual(confidentialEndpointMethods);
+    expect(j.revocation_endpoint_auth_methods_supported).toEqual(confidentialEndpointMethods);
+  });
+
+  it("clamps token auth methods and moves form-POST endpoints in one document", async () => {
+    const out = await rewriteDiscoveryEndpoints(
+      META_URL,
+      jsonRes({
+        ...metadata(),
+        token_endpoint_auth_methods_supported: libraryAuthMethods,
+      }),
+      metaEnv(),
+    );
+    const j = (await out.json()) as Record<string, unknown>;
+    expect(j.token_endpoint_auth_methods_supported).toEqual(["none"]);
+    expect(j.token_endpoint).toBe("https://auth.uploads.sh/api/auth/oauth2/token");
+    expect(j.authorization_endpoint).toBe("https://uploads.sh/api/auth/oauth2/authorize");
+  });
+
+  it("sets token auth methods to none when the field is omitted (RFC 8414 default is client_secret_basic)", async () => {
+    const withoutMethods: Record<string, unknown> = { ...metadata() };
+    delete withoutMethods.token_endpoint_auth_methods_supported;
+    const out = await rewriteDiscoveryEndpoints(META_URL, jsonRes(withoutMethods), metaEnv());
+    const j = (await out.json()) as Record<string, unknown>;
+    expect(j.token_endpoint_auth_methods_supported).toEqual(["none"]);
+    expect(j.token_endpoint).toBe("https://auth.uploads.sh/api/auth/oauth2/token");
+  });
+
+  it("returns the same response when methods are already public-only and origins match", async () => {
+    const res = jsonRes({
+      ...metadata(),
+      token_endpoint_auth_methods_supported: ["none"],
+    });
+    const out = await rewriteDiscoveryEndpoints(
+      META_URL,
+      res,
+      metaEnv({ AUTH_DIRECT_ORIGIN: "https://uploads.sh" }),
+    );
+    expect(out).toBe(res);
   });
 });

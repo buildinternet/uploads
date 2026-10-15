@@ -88,10 +88,20 @@ function isDiscoveryMetadataPath(pathname: string): boolean {
  * the same-origin issuer so session cookies and discovery are unaffected. See
  * issue #749.
  *
- * No-op unless `AUTH_DIRECT_ORIGIN` is set and differs from the issuer origin —
- * dev/preview reach the worker directly, so they skip this. Only rewrites the
- * two discovery documents; every other `/api/auth/*` response passes straight
- * through (the path check short-circuits before the body is ever read).
+ * The same pass clamps `token_endpoint_auth_methods_supported` to `["none"]`.
+ * Better Auth 1.7's oauth-provider also lists `client_secret_basic`,
+ * `client_secret_post`, and `private_key_jwt`, but unauthenticated DCR and
+ * CIMD persist public PKCE only (`sanitizeDcrRegistrationBody`, #990). RFC
+ * 8414 treats an omitted list as `client_secret_basic`, so the field is
+ * always set. Introspection and revocation method lists stay as the plugin
+ * emits them: those endpoints do not accept public clients, and they are not
+ * the signal a registering client uses to pick `token_endpoint_auth_method`.
+ *
+ * The origin rewrite no-ops unless `AUTH_DIRECT_ORIGIN` is set and differs
+ * from the issuer origin — dev/preview reach the worker directly. The auth-
+ * method clamp still runs. Only the two discovery documents are read; every
+ * other `/api/auth/*` response passes straight through (the path check
+ * short-circuits before the body is ever read).
  */
 const FORM_POST_ENDPOINT_KEYS = [
   "token_endpoint",
@@ -99,47 +109,68 @@ const FORM_POST_ENDPOINT_KEYS = [
   "revocation_endpoint",
 ] as const;
 
+/** Only method DCR and CIMD registration will store. */
+const PUBLIC_TOKEN_ENDPOINT_AUTH_METHODS = ["none"] as const;
+
+function tokenEndpointAuthMethodsArePublicOnly(value: unknown): boolean {
+  return Array.isArray(value) && value.length === 1 && value[0] === "none";
+}
+
+function directAuthOrigins(
+  env: AuthEnv,
+): { issuerOrigin: string; directOrigin: string } | undefined {
+  const authOrigin = env.AUTH_DIRECT_ORIGIN;
+  if (!authOrigin) return undefined;
+  try {
+    const issuerOrigin = new URL(env.BETTER_AUTH_URL || "https://auth.uploads.sh").origin;
+    const directOrigin = new URL(authOrigin).origin;
+    if (issuerOrigin === directOrigin) return undefined;
+    return { issuerOrigin, directOrigin };
+  } catch {
+    return undefined;
+  }
+}
+
 export async function rewriteDiscoveryEndpoints(
   requestUrl: string,
   res: Response,
   env: AuthEnv,
 ): Promise<Response> {
-  const authOrigin = env.AUTH_DIRECT_ORIGIN;
-  if (!authOrigin || !res.ok) return res;
+  if (!res.ok) return res;
   if (!isDiscoveryMetadataPath(new URL(requestUrl).pathname)) return res;
-
-  let issuerOrigin: string;
-  let directOrigin: string;
-  try {
-    issuerOrigin = new URL(env.BETTER_AUTH_URL || "https://auth.uploads.sh").origin;
-    directOrigin = new URL(authOrigin).origin;
-  } catch {
-    return res;
-  }
-  if (issuerOrigin === directOrigin) return res;
 
   let json: Record<string, unknown>;
   try {
-    json = (await res.clone().json()) as Record<string, unknown>;
+    const parsed: unknown = await res.clone().json();
+    if (parsed == null || typeof parsed !== "object" || Array.isArray(parsed)) return res;
+    json = parsed as Record<string, unknown>;
   } catch {
     return res;
   }
 
   let changed = false;
-  for (const key of FORM_POST_ENDPOINT_KEYS) {
-    const value = json[key];
-    if (typeof value !== "string") continue;
-    let endpoint: URL;
-    try {
-      endpoint = new URL(value);
-    } catch {
-      continue; // preserve malformed / non-URL values unchanged
-    }
-    // Exact origin match — a `startsWith` prefix check would also rewrite a
-    // lookalike host like `https://uploads.sh.evil/…` (CodeRabbit, #750).
-    if (endpoint.origin === issuerOrigin) {
-      json[key] = `${directOrigin}${endpoint.pathname}${endpoint.search}${endpoint.hash}`;
-      changed = true;
+  if (!tokenEndpointAuthMethodsArePublicOnly(json.token_endpoint_auth_methods_supported)) {
+    json.token_endpoint_auth_methods_supported = [...PUBLIC_TOKEN_ENDPOINT_AUTH_METHODS];
+    changed = true;
+  }
+
+  const origins = directAuthOrigins(env);
+  if (origins) {
+    for (const key of FORM_POST_ENDPOINT_KEYS) {
+      const value = json[key];
+      if (typeof value !== "string") continue;
+      let endpoint: URL;
+      try {
+        endpoint = new URL(value);
+      } catch {
+        continue; // preserve malformed / non-URL values unchanged
+      }
+      // Exact origin match — a `startsWith` prefix check would also rewrite a
+      // lookalike host like `https://uploads.sh.evil/…` (CodeRabbit, #750).
+      if (endpoint.origin === origins.issuerOrigin) {
+        json[key] = `${origins.directOrigin}${endpoint.pathname}${endpoint.search}${endpoint.hash}`;
+        changed = true;
+      }
     }
   }
   if (!changed) return res;
@@ -247,9 +278,10 @@ export const app = new Hono<{ Bindings: AuthEnv }>()
     // better-auth version adds one.
     //
     // The discovery-metadata rewrite (#749) advertises the OAuth form-POST
-    // endpoints on AUTH_DIRECT_ORIGIN; it no-ops for every non-metadata path
-    // (the path check short-circuits before the body is read), so it doesn't
-    // touch the actual /oauth2/token request itself.
+    // endpoints on AUTH_DIRECT_ORIGIN and clamps
+    // token_endpoint_auth_methods_supported to ["none"]. It no-ops for every
+    // non-metadata path (the path check short-circuits before the body is
+    // read), so it doesn't touch the actual /oauth2/token request itself.
     return rewriteDiscoveryEndpoints(c.req.raw.url, await auth.handler(c.req.raw), c.env);
   })
   .notFound((c) => c.json({ error: { code: "not_found", message: "Not found" } }, 404));

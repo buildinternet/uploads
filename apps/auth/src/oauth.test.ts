@@ -362,6 +362,26 @@ describe("root discovery aliases", () => {
     expect(body.issuer).toBe("https://uploads.sh/api/auth");
   });
 
+  it("advertises only public PKCE on the token endpoint", async () => {
+    const confidential = ["client_secret_basic", "client_secret_post", "private_key_jwt"];
+    for (const path of [
+      "/.well-known/oauth-authorization-server",
+      "/.well-known/oauth-authorization-server/api/auth",
+      "/api/auth/.well-known/oauth-authorization-server",
+    ]) {
+      const res = await app.request(path, {}, dbEnv());
+      expect(res.status, path).toBe(200);
+      const body = (await res.json()) as {
+        token_endpoint_auth_methods_supported?: string[];
+        introspection_endpoint_auth_methods_supported?: string[];
+        revocation_endpoint_auth_methods_supported?: string[];
+      };
+      expect(body.token_endpoint_auth_methods_supported, path).toEqual(["none"]);
+      expect(body.introspection_endpoint_auth_methods_supported, path).toEqual(confidential);
+      expect(body.revocation_endpoint_auth_methods_supported, path).toEqual(confidential);
+    }
+  });
+
   it("serves the RFC 8414 path-inserted form", async () => {
     // The path a client actually derives from our issuer
     // (https://uploads.sh/api/auth) per RFC 8414 §3.1.
