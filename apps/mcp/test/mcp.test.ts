@@ -689,6 +689,43 @@ describe("mcp worker", () => {
     }
   });
 
+  it("404s authorization-server and OIDC metadata probes instead of challenging", async () => {
+    const { env } = await makeEnv();
+    for (const path of [
+      "/.well-known/oauth-authorization-server",
+      "/.well-known/oauth-authorization-server/mcp",
+      "/.well-known/openid-configuration",
+      "/.well-known/openid-configuration/mcp",
+      "/mcp/.well-known/oauth-authorization-server",
+      "/mcp/.well-known/openid-configuration",
+    ]) {
+      const response = await app.request(
+        `https://agents.uploads.sh${path}`,
+        { method: "GET" },
+        env,
+      );
+      expect(response.status, path).toBe(404);
+      expect(response.headers.get("WWW-Authenticate"), path).toBeNull();
+    }
+  });
+
+  it("still challenges an unauthenticated POST /mcp with 401", async () => {
+    const { env } = await makeEnv();
+    const response = await app.request(
+      "https://agents.uploads.sh/mcp",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize" }),
+      },
+      env,
+    );
+    expect(response.status).toBe(401);
+    expect(response.headers.get("WWW-Authenticate")).toContain(
+      'resource_metadata="https://agents.uploads.sh/.well-known/oauth-protected-resource"',
+    );
+  });
+
   it("404s the OpenAI apps challenge when no token is configured", async () => {
     const { env } = await makeEnv();
     const response = await app.request(
