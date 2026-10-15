@@ -408,6 +408,57 @@ async function makeGalleryEnv(): Promise<{ env: Env; bucket: FakeR2Bucket }> {
   return { env, bucket };
 }
 
+type JsonSchema = {
+  type?: string | string[];
+  enum?: unknown[];
+  items?: JsonSchema;
+  description?: string;
+  properties?: Record<string, JsonSchema>;
+  required?: string[];
+};
+
+type ListedTool = {
+  name: string;
+  title?: string;
+  description?: string;
+  inputSchema: JsonSchema;
+  outputSchema?: JsonSchema;
+  annotations?: { readOnlyHint?: boolean; destructiveHint?: boolean };
+  _meta?: { securitySchemes?: { type: string; scopes?: string[] }[] };
+};
+
+/** A JSON Schema type as a short label for the docs table (`string[]`, `"a" | "b"`). */
+function schemaTypeLabel(schema: JsonSchema): string {
+  if (schema.enum) return schema.enum.map((value) => JSON.stringify(value)).join(" | ");
+  const types = Array.isArray(schema.type) ? schema.type : [schema.type ?? "object"];
+  return types
+    .map((type) => (type === "array" && schema.items ? `${schemaTypeLabel(schema.items)}[]` : type))
+    .join(" | ");
+}
+
+/** Projects a tools/list entry onto what the /docs/mcp reference renders. */
+function docsCatalogEntry(tool: ListedTool) {
+  const required = new Set(tool.inputSchema.required ?? []);
+  return {
+    name: tool.name,
+    title: tool.title ?? tool.name,
+    description: tool.description ?? "",
+    access: tool.annotations?.readOnlyHint
+      ? "read"
+      : tool.annotations?.destructiveHint
+        ? "destructive"
+        : "write",
+    scopes: (tool._meta?.securitySchemes ?? []).flatMap((scheme) => scheme.scopes ?? []),
+    params: Object.entries(tool.inputSchema.properties ?? {}).map(([name, schema]) => ({
+      name,
+      type: schemaTypeLabel(schema),
+      required: required.has(name),
+      description: schema.description ?? "",
+    })),
+    returns: Object.keys(tool.outputSchema?.properties ?? {}),
+  };
+}
+
 async function rpc(
   env: Env,
   body: unknown,
@@ -769,6 +820,21 @@ describe("mcp worker", () => {
       "usage",
       "whoami",
     ]);
+  });
+
+  /**
+   * The /docs/mcp tool reference renders from this catalog, so the page can't
+   * drift from what tools/list actually serves. A schema or description change
+   * fails here; run `pnpm --filter @uploads/mcp test -u` and commit the JSON.
+   */
+  it("keeps the docs tool catalog in sync with tools/list", async () => {
+    const { env } = await makeEnv();
+    const response = await rpc(env, { jsonrpc: "2.0", id: 2, method: "tools/list" });
+    const body = (await response.json()) as { result: { tools: ListedTool[] } };
+    const catalog = body.result.tools.map(docsCatalogEntry);
+    await expect(`${JSON.stringify(catalog, null, 2)}\n`).toMatchFileSnapshot(
+      "../../web/src/data/mcp-tools.json",
+    );
   });
 
   it("uploads base64 content and returns url + markdown", async () => {

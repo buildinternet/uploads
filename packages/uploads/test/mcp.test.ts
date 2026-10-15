@@ -478,6 +478,23 @@ describe("createMcpServer protocol", () => {
 });
 
 describe("tools/list", () => {
+  /**
+   * /docs/mcp marks which tools only the local `uploads mcp` server has, so
+   * the page reads this list rather than a hand-kept copy. Run
+   * `pnpm --filter @buildinternet/uploads test -u` after adding a tool.
+   */
+  it("keeps the docs list of local tools in sync", async () => {
+    const { server } = serverWith();
+    const res = await rpc(server, "tools/list");
+    const tools = (res.result.tools as Array<{ name: string; title?: string }>).map((tool) => ({
+      name: tool.name,
+      title: tool.title ?? tool.name,
+    }));
+    await expect(`${JSON.stringify(tools, null, 2)}\n`).toMatchFileSnapshot(
+      "../../../apps/web/src/data/mcp-tools-local.json",
+    );
+  });
+
   it("lists all CLI-mirroring tools with object schemas", async () => {
     const { server } = serverWith();
     const res = await rpc(server, "tools/list");

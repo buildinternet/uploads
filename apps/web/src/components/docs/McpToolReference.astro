@@ -1,0 +1,186 @@
+---
+// Tool reference for /docs/mcp. Rendered from src/data/mcp-tools.json, which a
+// test in apps/mcp regenerates from the hosted server's live tools/list, so
+// names, parameters, and descriptions can't drift from what clients see.
+// Grouping is the only hand-kept part; a tool missing from GROUPS still renders
+// under "Other" rather than disappearing.
+import hostedTools from "../../data/mcp-tools.json";
+import localTools from "../../data/mcp-tools-local.json";
+
+type Tool = (typeof hostedTools)[number];
+
+const GROUPS: { id: string; title: string; tools: string[] }[] = [
+  { id: "upload", title: "Upload and attach", tools: ["put", "promote", "comment"] },
+  {
+    id: "files",
+    title: "Files and metadata",
+    tools: ["list", "find_files", "get_metadata", "set_metadata", "list_metadata_keys", "delete"],
+  },
+  {
+    id: "activity",
+    title: "Repo activity",
+    tools: ["list_activity", "list_repo_files", "repo_link_status"],
+  },
+  {
+    id: "galleries",
+    title: "Galleries",
+    tools: [
+      "gallery_create",
+      "gallery_get",
+      "gallery_add",
+      "gallery_link",
+      "gallery_find_by_reference",
+    ],
+  },
+  { id: "feeds", title: "Live links", tools: ["feed_create", "feed_get"] },
+  {
+    id: "workspace",
+    title: "Workspace",
+    tools: ["whoami", "usage", "reconcile", "purge_expired"],
+  },
+  { id: "help", title: "Docs and changelog", tools: ["search_docs", "changelog"] },
+];
+
+const byName = new Map(hostedTools.map((tool) => [tool.name, tool]));
+const grouped = new Set(GROUPS.flatMap((group) => group.tools));
+const sections = GROUPS.map((group) => ({
+  ...group,
+  tools: group.tools.map((name) => byName.get(name)).filter((tool): tool is Tool => !!tool),
+}));
+const other = hostedTools.filter((tool) => !grouped.has(tool.name));
+if (other.length > 0) sections.push({ id: "other", title: "Other", tools: other });
+
+const localNames = new Set(localTools.map((tool) => tool.name));
+
+const ACCESS_LABEL: Record<string, string> = {
+  read: "Read-only",
+  write: "Writes",
+  destructive: "Can overwrite or delete",
+};
+
+function escapeHtml(text: string): string {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/** Tool descriptions use Markdown backticks; render those spans as inline code. */
+function inlineCode(text: string): string {
+  return escapeHtml(text).replace(/`([^`]+)`/g, "<code>$1</code>");
+}
+---
+
+<div class="mcp-tools">
+  {
+    sections.map((section) => (
+      <>
+        <h3 id={`tools-${section.id}`} class="mcp-group">
+          {section.title}
+        </h3>
+        {section.tools.map((tool) => (
+          <article class="mcp-tool" id={`tool-${tool.name}`}>
+            <h4>
+              <a href={`#tool-${tool.name}`}>
+                <code>{tool.name}</code>
+              </a>
+              <span class="mcp-tool-title">{tool.title}</span>
+            </h4>
+            <p class="mcp-tool-meta">
+              <span>{ACCESS_LABEL[tool.access] ?? tool.access}</span>
+              <span>
+                {tool.scopes.length > 0
+                  ? tool.scopes.map((scope) => <code>{scope}</code>)
+                  : "Any token"}
+              </span>
+              {!localNames.has(tool.name) && <span>Hosted only</span>}
+            </p>
+            <p set:html={inlineCode(tool.description)} />
+            {tool.returns.length > 0 && (
+              <p class="mcp-tool-meta">
+                Returns{" "}
+                {tool.returns.map((field) => (
+                  <code>{field}</code>
+                ))}
+              </p>
+            )}
+            {tool.params.length > 0 && (
+              <div class="mcp-params">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Parameter</th>
+                      <th>Type</th>
+                      <th>Description</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {tool.params.map((param) => (
+                      <tr>
+                        <th scope="row">
+                          <code>{param.name}</code>
+                          {param.required && <span class="mcp-required">required</span>}
+                        </th>
+                        <td>
+                          <code>{param.type}</code>
+                        </td>
+                        <td set:html={inlineCode(param.description)} />
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </article>
+        ))}
+      </>
+    ))
+  }
+</div>
+
+<style>
+  .mcp-group {
+    margin-top: 40px;
+  }
+  .mcp-tool {
+    margin: 28px 0 0;
+    scroll-margin-top: 80px;
+  }
+  .mcp-tool h4 {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 10px;
+    margin: 0 0 6px;
+  }
+  .mcp-tool h4 a {
+    text-decoration: none;
+  }
+  .mcp-tool-title {
+    color: var(--muted);
+    font-weight: var(--weight-regular);
+  }
+  .mcp-tool-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 16px;
+    margin: 0 0 8px;
+    color: var(--muted);
+    font-size: var(--text-ui);
+  }
+  .mcp-tool-meta code + code {
+    margin-left: 4px;
+  }
+  .mcp-required {
+    display: block;
+    color: var(--muted);
+    font-weight: var(--weight-regular);
+    font-size: var(--text-micro);
+  }
+  .mcp-params {
+    overflow-x: auto;
+  }
+  .mcp-params table {
+    min-width: 520px;
+  }
+  .mcp-tool table th[scope="row"] {
+    white-space: nowrap;
+  }
+</style>

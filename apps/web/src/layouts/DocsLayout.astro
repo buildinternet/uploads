@@ -403,6 +403,23 @@ const fullTitle = `${title} · uploads.sh`;
         font-weight: var(--weight-semibold);
         white-space: nowrap;
       }
+      /* Once the nav collapses, a table with long code cells would widen the
+         whole page. Make the table its own horizontal scroller instead. Tables
+         come from Markdown, raw MDX, and components alike, so this is CSS
+         rather than a wrapper element. Reference components that set their
+         own scroll wrapper and min-width are left alone. */
+      @media (max-width: 880px) {
+        .doc :not(.api-scroll, .mcp-params) > table {
+          display: block;
+          max-width: 100%;
+          overflow-x: auto;
+        }
+        /* Keep prose columns readable; the table scrolls rather than
+           squeezing a column down to one word per line. */
+        .doc :not(.api-scroll, .mcp-params) > table td {
+          min-width: 6rem;
+        }
+      }
 
       /* FAQ definition list (used by the agent guide) */
       .doc .faq {

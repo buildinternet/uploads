@@ -19,6 +19,7 @@
     "pnpm-lock.yaml",
     "packages/*/dist",
     ".superpowers",
-    ".design-sync"
+    ".design-sync",
+    "apps/web/src/data/mcp-tools*.json"
   ]
 }
