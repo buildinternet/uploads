@@ -51,6 +51,10 @@ Open `/oauth2/register` stays on so MCP Inspector, Claude, and Cursor can self-r
 
 **What we do.** `sanitizeDcrRegistrationBody` on `/oauth2/register` (and the CIMD fetch rewrite) forces `token_endpoint_auth_method: "none"`, strips `skip_consent` / `trusted` / inbound `client_secret` / `jwks` / `client_credentials_scopes`, and drops `client_credentials`. An after-register clamp writes the same posture on the `oauth_client` row and removes any secret from the 201 JSON. The MCP scope ceiling does not change: defaults stay `files:read` + `files:write` + `offline_access`, and `files:delete` stays requestable through consent.
 
+**Discovery.** `rewriteDiscoveryEndpoints` sets `token_endpoint_auth_methods_supported` to `["none"]` on the authorization-server metadata. Better Auth 1.7's oauth-provider also lists `client_secret_basic`, `client_secret_post`, and `private_key_jwt`. This server does not store those methods for a DCR or CIMD client. A client that trusts the library list registers for `private_key_jwt` and then fails the token exchange (`client is not registered for private_key_jwt authentication`). That is what Vercel Connect's Submit-a-Service test hit. Introspection and revocation method lists stay as the plugin emits them.
+
+Registration still rewrites a non-`none` method to `none`. It does not return `invalid_client_metadata`. A client that advertises `client_secret_basic` and then uses PKCE still gets a 201, and the body reports `none`.
+
 First-party seeded clients (`uploads-cli`, `releases-sh`) and admin provisioning are not this path.
 
 ## 3. `invalid_target` / requested resource not configured

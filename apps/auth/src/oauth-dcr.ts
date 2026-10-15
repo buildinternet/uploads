@@ -17,6 +17,13 @@
  * CIMD ingest reuses {@link sanitizeDcrRegistrationBody} on the fetched
  * document. First-party seeded clients (`uploads-cli`, `releases-sh`) and
  * admin / internal provisioning do not go through this path.
+ *
+ * Discovery must advertise the same posture. `rewriteDiscoveryEndpoints` in
+ * `index.ts` sets `token_endpoint_auth_methods_supported` to `["none"]`.
+ * This module still coerces a confidential method to `none` rather than
+ * rejecting the registration: MCP clients advertise `client_secret_*` or
+ * `private_key_jwt` and then authenticate with PKCE. The 201 body reports
+ * `none`.
  */
 
 /**
@@ -78,6 +85,10 @@ export function sanitizeDcrRegistrationBody(
   let next: Record<string, unknown> = body;
   let changed = false;
 
+  // Coerce instead of `invalid_client_metadata`. A hard reject would turn
+  // away clients that already register with `client_secret_basic` and then
+  // use PKCE. Honest discovery (only `"none"`) is what stops a client from
+  // choosing `private_key_jwt` in the first place.
   if (body.token_endpoint_auth_method !== "none") {
     next = { ...next, token_endpoint_auth_method: "none" };
     changed = true;

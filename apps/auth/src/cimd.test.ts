@@ -77,8 +77,12 @@ describe("AS metadata", () => {
   it("advertises client_id_metadata_document_supported", async () => {
     const res = await app.request("/.well-known/oauth-authorization-server", {}, dbEnv());
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { client_id_metadata_document_supported?: boolean };
+    const body = (await res.json()) as {
+      client_id_metadata_document_supported?: boolean;
+      token_endpoint_auth_methods_supported?: string[];
+    };
     expect(body.client_id_metadata_document_supported).toBe(true);
+    expect(body.token_endpoint_auth_methods_supported).toEqual(["none"]);
   });
 });
 
