@@ -18,3 +18,10 @@ export class DurableObject<TEnv = unknown> {
     readonly env: TEnv,
   ) {}
 }
+
+/** `@uploads/observability/issues` reads this. Tests have no active span. */
+export const tracing = {
+  getActiveSpan(): undefined {
+    return undefined;
+  },
+};

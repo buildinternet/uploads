@@ -7,6 +7,7 @@
  * not re-run its batchmates, whose KV deletes are idempotent but whose
  * promote/comment work costs GitHub API calls.
  */
+import { reportHandledError } from "@uploads/observability";
 import { processWebhookEvent, type WebhookEvent } from "./github-webhook";
 
 export const GITHUB_WEBHOOK_QUEUE = "uploads-github-webhook";
@@ -20,11 +21,13 @@ export async function handleGithubWebhookBatch(
   const isDlq = batch.queue === GITHUB_WEBHOOK_DLQ;
   for (const msg of batch.messages) {
     if (isDlq) {
-      // Terminal: every retry burned. Log the compact event (it carries no
-      // secrets) so the loss is visible and manually replayable, then ack.
-      console.error(
+      // Terminal: every retry burned. The Error is what Issues groups. The
+      // compact event (no secrets) stays on a separate log so it can be
+      // replayed from the occurrence.
+      console.log(
         JSON.stringify({ message: "github webhook event dead-lettered", event: msg.body }),
       );
+      reportHandledError(new Error("github webhook event dead-lettered"));
       msg.ack();
       continue;
     }
@@ -32,15 +35,8 @@ export async function handleGithubWebhookBatch(
       await processWebhookEvent(env, msg.body);
       msg.ack();
     } catch (err) {
-      console.error(
-        JSON.stringify({
-          message: "github webhook event failed; retrying",
-          attempts: msg.attempts,
-          promote: msg.body?.promote ?? null,
-          reconcile: msg.body?.reconcile ?? null,
-          ingest: msg.body?.ingest ?? null,
-          error: err instanceof Error ? err.message : String(err),
-        }),
+      reportHandledError(
+        err instanceof Error ? err : new Error("github webhook event failed; retrying"),
       );
       msg.retry();
     }

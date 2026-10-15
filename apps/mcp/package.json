@@ -19,6 +19,7 @@
     "@modelcontextprotocol/server": "^2.0.0",
     "@uploads/api": "workspace:^",
     "@uploads/errors": "workspace:^",
+    "@uploads/observability": "workspace:^",
     "@uploads/storage": "workspace:^",
     "hono": "^4.13.3",
     "jose": "^6.2.3"
@@ -27,6 +28,6 @@
     "@types/node": "^26.1.0",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10",
-    "wrangler": "^4.125.0"
+    "wrangler": "^4.134.0"
   }
 }

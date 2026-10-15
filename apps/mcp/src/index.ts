@@ -29,6 +29,8 @@ import {
   NotFoundError,
   UnauthorizedError,
 } from "@uploads/errors";
+import { reportHandledError } from "@uploads/observability";
+import { setIssueContext } from "@uploads/observability/issues";
 import {
   loadWorkspaceRecord,
   tokenWorkspaceAuth,
@@ -153,6 +155,7 @@ async function oauthAuth(
   const sub = typeof verified.raw.sub === "string" ? verified.raw.sub : null;
   c.set("uploaderIdentity", userUploaderIdentity(sub));
   if (sub) c.set("clientPrincipal", userClientPrincipal(sub));
+  setIssueContext({ userId: sub, workspace: workspaceName });
   return null;
 }
 
@@ -279,15 +282,8 @@ async function recordMcpClient(c: Context<WorkspaceVars>): Promise<void> {
 
 function respondError(c: Context, err: unknown): Response {
   const appErr = isAppError(err) ? err : AppError.from(err);
-  if (!appErr.expose || appErr.type === "internal") {
-    console.error(
-      JSON.stringify({
-        message: appErr.message,
-        code: appErr.code,
-        type: appErr.type,
-        stack: appErr.stack,
-      }),
-    );
+  if (appErr.status >= 500 && appErr.type !== "insufficient_storage") {
+    reportHandledError(appErr.cause instanceof Error ? appErr.cause : appErr);
   }
   return c.json(appErr.toWire(), appErr.status as ContentfulStatusCode);
 }

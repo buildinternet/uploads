@@ -104,6 +104,17 @@ export default defineConfig({
   },
   vite: {
     plugins: [tailwindcss(), servePublicInDev()],
+    // SSR is the Worker bundle. External maps let Wrangler upload them
+    // (`upload_source_maps` in wrangler.jsonc) so Issues stacks point at
+    // the original files. The client environment stays unmapped — those
+    // files are public assets.
+    environments: {
+      ssr: {
+        build: {
+          sourcemap: true,
+        },
+      },
+    },
     server: {
       hmr: false,
     },

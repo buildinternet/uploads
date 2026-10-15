@@ -62,7 +62,15 @@
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1,
+    // Workers Issues. A deploy that omits `issues.enabled` turns the
+    // dashboard toggle back off.
+    "issues": {
+      "enabled": true,
+    },
   },
+  // Original file and line numbers in Issues stacks. Wrangler generates the
+  // maps when it bundles this worker.
+  "upload_source_maps": true,
   // 06:00 UTC daily maintenance. 14:00 UTC Monday weekly digest.
   // The scheduled handler dispatches on the cron string so the two do not
   // run each other's work.

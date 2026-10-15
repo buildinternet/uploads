@@ -18,6 +18,7 @@
  * (they are capability URLs).
  */
 
+import { reportHandledError } from "@uploads/observability";
 import { dbFor } from "./db-session";
 import { listAttachmentsForTarget } from "./github-attachment-index";
 import { normalizeRepo } from "./github-private-prefixes";
@@ -54,18 +55,10 @@ export async function startAttachmentIndexShadow(
   target: GhTarget,
 ): Promise<string[] | null> {
   if (!env.FLAGS) return null;
-  const context = {
-    workspace,
-    repo: normalizeRepo(target.repo),
-    kind: target.kind,
-    num: target.num,
-  };
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<null>((resolve) => {
     timer = setTimeout(() => {
-      console.error(
-        JSON.stringify({ message: "attachment index: shadow read timed out", ...context }),
-      );
+      reportHandledError(new Error("attachment index: shadow read timed out"));
       resolve(null);
     }, SHADOW_TIMEOUT_MS);
   });
@@ -74,13 +67,7 @@ export async function startAttachmentIndexShadow(
     const rows = await listAttachmentsForTarget(dbFor(env), workspace, target.repo, target);
     return rows.map((row) => row.objectKey);
   })().catch((err: unknown) => {
-    console.error(
-      JSON.stringify({
-        message: "attachment index: shadow read failed",
-        ...context,
-        error: err instanceof Error ? err.message : String(err),
-      }),
-    );
+    reportHandledError(new Error("attachment index: shadow read failed", { cause: err }));
     return null;
   });
   try {

@@ -179,6 +179,23 @@ export interface TimeOpOptions<T> {
  * recording/logging it as an `"error"` outcome (with wall ms but no exec ms,
  * since a rejected promise carries no result to extract it from).
  */
+/**
+ * Records a handled failure for Workers Issues.
+ *
+ * Issues groups `console.error` calls that receive an Error (message and
+ * stack). A stringified log is not that object, so callers pass the caught
+ * value here instead of `JSON.stringify`'ing it. Non-Error values are wrapped
+ * so the log still carries an Error.
+ */
+export function reportHandledError(error: unknown): void {
+  if (error instanceof Error) {
+    console.error(error);
+    return;
+  }
+  const message = typeof error === "string" && error ? error : "handled failure";
+  console.error(new Error(message));
+}
+
 export async function timeOp<T>(fn: () => Promise<T>, opts: TimeOpOptions<T>): Promise<T> {
   const thresholdMs = opts.thresholdMs ?? DEFAULT_SLOW_OP_THRESHOLD_MS;
   const start = Date.now();

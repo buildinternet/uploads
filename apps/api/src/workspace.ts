@@ -6,6 +6,7 @@ import {
   slowOpThresholdMs,
   timeOp,
 } from "@uploads/observability";
+import { setIssueContext } from "@uploads/observability/issues";
 import type { Context, MiddlewareHandler } from "hono";
 import type { R2Jurisdiction, StorageProvider } from "@uploads/storage";
 import {
@@ -729,6 +730,10 @@ function workspaceAuthWith(
     );
     // Uploader attribution (issues #340, #1026) — `none` for legacy/enrollment tokens.
     c.set("uploaderIdentity", uploaderIdentityOf(d1Token));
+    setIssueContext({
+      userId: d1Token?.minting_user_id,
+      workspace: name,
+    });
     if (d1Token) {
       const touchTiming = new ServerTiming();
       try {
@@ -881,6 +886,10 @@ export function workspaceGovernanceAuth(scope: WorkspaceScope): MiddlewareHandle
     if (!scopes.has(scope)) throw new ForbiddenError();
 
     c.set("governanceMintingUserId", record.minting_user_id);
+    setIssueContext({
+      userId: record.minting_user_id,
+      workspace: name,
+    });
     const touchTiming = new ServerTiming();
     try {
       await timeOp(() => touchTokenLastUsed(dbFor(c.env), record.id), {

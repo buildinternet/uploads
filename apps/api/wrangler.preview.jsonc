@@ -4,9 +4,18 @@
 // preview database run against this file instead:
 //   npx wrangler d1 migrations apply uploads-preview --remote -c apps/api/wrangler.preview.jsonc
 // Keep database_id in sync with the `previews` block in wrangler.jsonc.
+// Not a deployed worker (no `main`). The Issues and source-map flags match
+// wrangler.jsonc so a future deploy of this file cannot clear the dashboard
+// toggle.
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "uploads-api",
+  "observability": {
+    "issues": {
+      "enabled": true,
+    },
+  },
+  "upload_source_maps": true,
   "d1_databases": [
     {
       "binding": "DB",

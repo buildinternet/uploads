@@ -400,10 +400,10 @@ describe("attachment index safe writers", () => {
     },
   } as unknown as Parameters<typeof recordAttachment>[0];
 
-  it("swallow D1 failures and log a JSON line", async () => {
-    const errors: string[] = [];
+  it("swallow D1 failures and log the Error", async () => {
+    const errors: unknown[] = [];
     const spy = vi.spyOn(console, "error").mockImplementation((msg) => {
-      errors.push(String(msg));
+      errors.push(msg);
     });
     try {
       await recordAttachmentSafe(throwingDb, row());
@@ -417,17 +417,18 @@ describe("attachment index safe writers", () => {
       spy.mockRestore();
     }
     expect(errors).toHaveLength(7);
-    for (const line of errors) {
-      const parsed = JSON.parse(line) as { message: string; error: string };
-      expect(parsed.message).toContain("attachment index");
-      expect(parsed.error).toBe("D1 exploded");
+    for (const logged of errors) {
+      expect(logged).toBeInstanceOf(Error);
+      expect((logged as Error).message).toContain("attachment index");
+      expect((logged as Error).cause).toBeInstanceOf(Error);
+      expect(((logged as Error).cause as Error).message).toBe("D1 exploded");
     }
   });
 
   it("recordAttachmentForKeySafe swallows a throwing db for both a private and a plain key", async () => {
-    const errors: string[] = [];
+    const errors: unknown[] = [];
     const spy = vi.spyOn(console, "error").mockImplementation((msg) => {
-      errors.push(String(msg));
+      errors.push(msg);
     });
     try {
       // Private key: needs a `repoForPrefixId` D1 lookup before the write,
@@ -450,9 +451,9 @@ describe("attachment index safe writers", () => {
       spy.mockRestore();
     }
     expect(errors).toHaveLength(2);
-    for (const line of errors) {
-      const parsed = JSON.parse(line) as { message: string; error: string };
-      expect(parsed.message).toContain("attachment index");
+    for (const logged of errors) {
+      expect(logged).toBeInstanceOf(Error);
+      expect((logged as Error).message).toContain("attachment index");
     }
   });
 });

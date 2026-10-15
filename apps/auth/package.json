@@ -23,6 +23,7 @@
     "@better-auth/stripe": "^1.7.7",
     "@uploads/billing": "workspace:^",
     "@uploads/email": "workspace:^",
+    "@uploads/observability": "workspace:^",
     "better-auth": "^1.7.7",
     "drizzle-orm": "^0.45.2",
     "hono": "^4.13.3",
@@ -32,6 +33,6 @@
     "@types/node": "^26.1.0",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10",
-    "wrangler": "^4.125.0"
+    "wrangler": "^4.134.0"
   }
 }

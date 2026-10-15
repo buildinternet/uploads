@@ -1,4 +1,5 @@
-import { AppError, ServiceUnavailableError } from "@uploads/errors";
+import { ServiceUnavailableError } from "@uploads/errors";
+import { reportHandledError } from "@uploads/observability";
 import {
   createStorage,
   publicAndEmbedUrls,
@@ -78,15 +79,8 @@ async function resolveStorageConfig(env: Env, fields: StorageLaneFields): Promis
     if (err instanceof SecretsKeyUnconfiguredError) {
       // This Worker holds no KEK at all, so it can read no BYO workspace. That
       // is an operator problem, and the settings page cannot fix it — a re-seal
-      // there uses uploads-api's key and this Worker still has none. Log it
-      // distinctly so a missing secret is greppable, and tell the caller the
-      // truth instead of sending them round a loop.
-      console.error(
-        JSON.stringify({
-          message: "secrets_key_unconfigured_on_read",
-          hint: "set WORKSPACE_SECRETS_KEY on this worker to the same value uploads-api holds — see docs/ops.md#secrets",
-        }),
-      );
+      // there uses uploads-api's key and this Worker still has none. The 503
+      // carries the cause so Issues records the missing-key error.
       throw new ServiceUnavailableError(
         "workspace storage is unavailable because of a server configuration problem; reconfiguring storage will not fix it",
         { code: "secrets_key_unconfigured", cause: err },
@@ -191,20 +185,11 @@ async function resolveFallbackLane(env: Env, lane: StorageLane): Promise<Storage
   try {
     return await resolveStorageConfig(env, lane);
   } catch (err) {
-    // Skipping is quiet by design at the request level (a stale fallback must
-    // never take down the active lane), but it is never quiet in the logs: a
-    // read that 404s because its only lane was skipped is otherwise
-    // indistinguishable from a genuinely missing object. `code` carries the
-    // typed reason, so `secrets_key_unconfigured` — the whole-worker
-    // misconfiguration — is greppable rather than buried in prose.
-    console.error(
-      JSON.stringify({
-        message: "storage_lane_skipped",
-        laneId: lane.id,
-        code: err instanceof AppError ? err.code : undefined,
-        reason: err instanceof Error ? err.message : String(err),
-      }),
-    );
+    // Skipping is quiet at the request level (a stale fallback must never
+    // take down the active lane). The Error still goes to Issues: a read
+    // that 404s because its only lane was skipped is otherwise
+    // indistinguishable from a genuinely missing object.
+    reportHandledError(err);
     return null;
   }
 }
