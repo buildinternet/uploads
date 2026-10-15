@@ -1,0 +1,152 @@
+---
+title: REST API
+description: Call the uploads.sh REST API at api.uploads.sh. Bearer-token auth and scopes, a first upload with curl, pagination, errors, rate limits, and a reference for every endpoint.
+heading: REST API
+tagline: Upload, list, search, and organize files over HTTP.
+navLabel: REST API
+navSlug: api
+navOrder: 3
+navGroup: start
+toc:
+  - { id: first-request, label: First request }
+  - { id: auth, label: Authentication }
+  - { id: pagination, label: Pagination }
+  - { id: errors, label: Errors }
+  - { id: rate-limits, label: Rate limits }
+  - { id: endpoints, label: Endpoints }
+---
+
+import ApiReference from "../../components/docs/ApiReference.astro";
+
+<section class="lead" id="first-request">
+
+## First request <a class="anchor" href="#first-request" aria-label="Link to this section">#</a>
+
+The CLI and both MCP servers call this API. Call it directly when you build your own integration.
+With the API you can:
+
+- Upload a file and get a public URL and a GitHub-ready embed URL.
+- List, search, and tag files with [metadata](#endpoints-files).
+- Create [galleries](/docs/galleries) and [live links](/docs/feeds).
+- Read usage for a workspace.
+
+The base URL is `https://api.uploads.sh`, and workspace routes start with
+`/v1/workspaces/{workspace}`. Upload a file:
+
+```sh
+curl -X PUT \
+  https://api.uploads.sh/v1/workspaces/$WORKSPACE/files/screenshots/shot.png \
+  -H "Authorization: Bearer $UPLOADS_TOKEN" \
+  -H "Content-Type: image/png" \
+  --data-binary @shot.png
+```
+
+The response is JSON with the stored `key`, its public `url`, and an `embedUrl` for GitHub
+markdown.
+
+<div class="pointer">
+  Building an agent? The [MCP server](/docs/mcp) wraps these routes as tools
+  <span class="go">→</span>
+</div>
+
+</section>
+
+<section id="auth">
+
+## Authentication <a class="anchor" href="#auth" aria-label="Link to this section">#</a>
+
+Send a workspace token on every request:
+
+```http
+Authorization: Bearer up_<workspace>_…
+```
+
+- **Personal token.** `uploads login` creates one, or create one under
+  [Developers](/account/developers) in your account. Tokens last 90 days by default.
+- **Service token.** For CI and bots, a workspace admin creates an `ups_<workspace>_…` token in
+  the workspace settings. It is not tied to a member.
+
+The workspace in the URL must match the token's workspace. An unknown workspace and a bad token
+both return `401`.
+
+Each endpoint needs one scope. The [endpoint reference](#endpoints) shows it next to each route.
+
+| Scope          | Grants                                                       |
+| -------------- | ------------------------------------------------------------ |
+| `files:read`   | List, search, and read files, metadata, usage, galleries, feeds |
+| `files:write`  | Upload, update metadata, galleries, feeds, usage reconcile    |
+| `files:delete` | Delete files and purge expired ones                          |
+
+<div class="note">
+  The REST API does not accept OAuth access tokens. Those work only on the
+  [hosted MCP server](/docs/mcp#auth).
+</div>
+
+</section>
+
+<section id="pagination">
+
+## Pagination <a class="anchor" href="#pagination" aria-label="Link to this section">#</a>
+
+List endpoints return a `cursor` field. It is an opaque string when there is another page, and
+`null` at the end. Pass it back as `?cursor=` with the same query to read the next page.
+
+- Never parse, build, or edit a cursor. A cursor sent with a different query returns `400`.
+- The gallery and feed lists name the field `nextCursor`. It works the same way.
+
+</section>
+
+<section id="errors">
+
+## Errors <a class="anchor" href="#errors" aria-label="Link to this section">#</a>
+
+Every error response uses one envelope:
+
+```json title="Error response" frame="code"
+{
+  "error": {
+    "code": "storage_quota_exceeded",
+    "type": "insufficient_storage",
+    "message": "storage quota exceeded (…)",
+    "details": { "maxStorageBytes": 1000 }
+  }
+}
+```
+
+| Field     | Use                                                              |
+| --------- | ---------------------------------------------------------------- |
+| `code`    | A stable string for one failure. Branch your client logic on it. |
+| `type`    | A broad category that sets the HTTP status.                      |
+| `message` | Text for people. It can change, so don't parse it.               |
+| `details` | Extra data for some codes. Optional.                             |
+
+</section>
+
+<section id="rate-limits">
+
+## Rate limits <a class="anchor" href="#rate-limits" aria-label="Link to this section">#</a>
+
+Each workspace has separate burst limits for reads and writes. They are set well above normal CLI
+and app traffic. A refused request returns `429` with `type: rate_limited` and a `Retry-After`
+header in seconds. Wait that long, then retry.
+
+The monthly upload budget also returns `429`, with the code `upload_budget_exceeded`. It resets at
+the start of the next UTC month, so it has no `Retry-After`. See [Plans & limits](/docs/limits).
+
+<div class="note">
+  To make an upload or gallery create safe to retry, send an `Idempotency-Key` header. A repeat
+  with the same key and request returns the first response for 24 hours.
+</div>
+
+</section>
+
+<section id="endpoints">
+
+## Endpoints <a class="anchor" href="#endpoints" aria-label="Link to this section">#</a>
+
+Every route in the [OpenAPI document](/openapi.json), grouped by resource. `{workspace}` is your
+workspace name. `{key}` is the file's object key and can include slashes.
+
+<ApiReference />
+
+</section>

@@ -120,8 +120,19 @@ const REPO = "https://github.com/buildinternet/uploads";
         <h3>Set up your agent <span class="go">→</span></h3>
         <p>
           Install the agent skills and the MCP server so your agent uploads on its own. Covers
-          <a href="/docs/agents#experimental-ai-tags">experimental AI labels</a>.
+          experimental AI labels.
         </p>
+      </a>
+      <a class="card" href="/docs/mcp">
+        <h3>MCP server <span class="go">→</span></h3>
+        <p>
+          Connect any MCP client to the hosted server. Authentication, scopes, and every tool's
+          parameters.
+        </p>
+      </a>
+      <a class="card" href="/docs/api">
+        <h3>REST API <span class="go">→</span></h3>
+        <p>Call api.uploads.sh directly. Auth, pagination, errors, and every endpoint.</p>
       </a>
       <a class="card" href="/docs/galleries">
         <h3>Galleries <span class="go">→</span></h3>
@@ -149,10 +160,9 @@ const REPO = "https://github.com/buildinternet/uploads";
     <div class="note">
       More: <a href="/docs/comment-config">comment config</a>, <a href="/docs/byo-bucket"
         >bring your own bucket</a
-      >, and the <a href="/github-screenshots">agent walkthrough</a>. Deeper material — the REST
-      API, enrollment internals, self-hosting, and operator docs — lives in <a href={REPO}
-        >the GitHub repository</a
-      >. Agents can also read <a href="/llms.txt">/llms.txt</a> (index) or <a href="/llms-full.txt"
+      >, and the <a href="/github-screenshots">agent walkthrough</a>. Enrollment internals,
+      self-hosting, and operator docs live in <a href={REPO}>the GitHub repository</a>. Agents can
+      also read <a href="/llms.txt">/llms.txt</a> (index) or <a href="/llms-full.txt"
         >/llms-full.txt</a
       > (one-file guide), or search these pages with <code>uploads docs</code> / MCP
       <code>search_docs</code>.
