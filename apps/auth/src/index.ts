@@ -88,20 +88,25 @@ function isDiscoveryMetadataPath(pathname: string): boolean {
  * the same-origin issuer so session cookies and discovery are unaffected. See
  * issue #749.
  *
- * The same pass clamps `token_endpoint_auth_methods_supported` to `["none"]`.
- * Better Auth 1.7's oauth-provider also lists `client_secret_basic`,
- * `client_secret_post`, and `private_key_jwt`, but unauthenticated DCR and
- * CIMD persist public PKCE only (`sanitizeDcrRegistrationBody`, #990). RFC
- * 8414 treats an omitted list as `client_secret_basic`, so the field is
- * always set. Introspection and revocation method lists stay as the plugin
- * emits them: those endpoints do not accept public clients, and they are not
- * the signal a registering client uses to pick `token_endpoint_auth_method`.
+ * The same pass clamps `token_endpoint_auth_methods_supported` to `["none"]`
+ * and `grant_types_supported` to `authorization_code` + `refresh_token`.
+ * Better Auth 1.7's oauth-provider also lists confidential client auth and
+ * `client_credentials`. Unauthenticated DCR and CIMD persist public PKCE
+ * only (`sanitizeDcrRegistrationBody`, #990) and drop `client_credentials`.
+ * The token endpoint rejects that grant for a public client. RFC 8414's
+ * defaults (omitted auth methods → `client_secret_basic`; omitted grants →
+ * `authorization_code` + `implicit`) are wrong for this server, so both
+ * fields are always set. Introspection and revocation method lists stay as
+ * the plugin emits them. The `client_credentials` handler stays registered
+ * for a non-discovery client; discovery describes what a self-registered
+ * client can do. Seeded `uploads-cli` uses the device-code plugin, not this
+ * list.
  *
  * The origin rewrite no-ops unless `AUTH_DIRECT_ORIGIN` is set and differs
- * from the issuer origin — dev/preview reach the worker directly. The auth-
- * method clamp still runs. Only the two discovery documents are read; every
- * other `/api/auth/*` response passes straight through (the path check
- * short-circuits before the body is ever read).
+ * from the issuer origin — dev/preview reach the worker directly. The
+ * metadata clamps still run. Only the two discovery documents are read;
+ * every other `/api/auth/*` response passes straight through (the path
+ * check short-circuits before the body is ever read).
  */
 const FORM_POST_ENDPOINT_KEYS = [
   "token_endpoint",
@@ -112,8 +117,19 @@ const FORM_POST_ENDPOINT_KEYS = [
 /** Only method DCR and CIMD registration will store. */
 const PUBLIC_TOKEN_ENDPOINT_AUTH_METHODS = ["none"] as const;
 
-function tokenEndpointAuthMethodsArePublicOnly(value: unknown): boolean {
-  return Array.isArray(value) && value.length === 1 && value[0] === "none";
+/**
+ * Grants a self-registered client can use. Matches `DCR_GRANT_TYPES`.
+ * `client_credentials` stays out: public clients cannot use it, and open
+ * registration strips it.
+ */
+const PUBLIC_GRANT_TYPES = ["authorization_code", "refresh_token"] as const;
+
+function listEquals(value: unknown, expected: readonly string[]): boolean {
+  return (
+    Array.isArray(value) &&
+    value.length === expected.length &&
+    expected.every((item, i) => value[i] === item)
+  );
 }
 
 function directAuthOrigins(
@@ -149,8 +165,12 @@ export async function rewriteDiscoveryEndpoints(
   }
 
   let changed = false;
-  if (!tokenEndpointAuthMethodsArePublicOnly(json.token_endpoint_auth_methods_supported)) {
+  if (!listEquals(json.token_endpoint_auth_methods_supported, PUBLIC_TOKEN_ENDPOINT_AUTH_METHODS)) {
     json.token_endpoint_auth_methods_supported = [...PUBLIC_TOKEN_ENDPOINT_AUTH_METHODS];
+    changed = true;
+  }
+  if (!listEquals(json.grant_types_supported, PUBLIC_GRANT_TYPES)) {
+    json.grant_types_supported = [...PUBLIC_GRANT_TYPES];
     changed = true;
   }
 
@@ -277,11 +297,12 @@ export const app = new Hono<{ Bindings: AuthEnv }>()
     // nothing here that needs `c.executionCtx.waitUntil`; revisit if a future
     // better-auth version adds one.
     //
-    // The discovery-metadata rewrite (#749) advertises the OAuth form-POST
-    // endpoints on AUTH_DIRECT_ORIGIN and clamps
-    // token_endpoint_auth_methods_supported to ["none"]. It no-ops for every
-    // non-metadata path (the path check short-circuits before the body is
-    // read), so it doesn't touch the actual /oauth2/token request itself.
+    // The discovery-metadata rewrite (#749, #1117) advertises the OAuth
+    // form-POST endpoints on AUTH_DIRECT_ORIGIN and clamps token auth methods
+    // to ["none"] and grant_types_supported to authorization_code +
+    // refresh_token. It no-ops for every non-metadata path (the path check
+    // short-circuits before the body is read), so it doesn't touch the
+    // actual /oauth2/token request itself.
     return rewriteDiscoveryEndpoints(c.req.raw.url, await auth.handler(c.req.raw), c.env);
   })
   .notFound((c) => c.json({ error: { code: "not_found", message: "Not found" } }, 404));
