@@ -379,6 +379,16 @@ const app = new Hono<WorkspaceVars>()
       "Content-Type": "text/plain; charset=utf-8",
     });
   })
+  // Any other well-known path (AS / OIDC metadata probes included) is a 404:
+  // this origin is a protected resource, not an authorization server. Without
+  // this, `/:workspace/*` treats ".well-known" — or "mcp" in
+  // /mcp/.well-known/* — as a tenant and answers with a misleading 401.
+  .all("/.well-known/*", () => {
+    throw new NotFoundError();
+  })
+  .all("/mcp/.well-known/*", () => {
+    throw new NotFoundError();
+  })
   // Primary endpoint: the workspace is inferred from the bearer token
   // (up_<workspace>_…) or, for a JWT-shaped bearer, the OAuth token's
   // `workspace` claim — so clients only need the URL and the token.
