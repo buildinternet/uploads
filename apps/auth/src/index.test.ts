@@ -242,6 +242,7 @@ const discoveryMetadata = () => ({
   jwks_uri: "https://uploads.sh/api/auth/jwks",
   // Already honest, so origin-rewrite cases can stay a true no-op.
   token_endpoint_auth_methods_supported: ["none"],
+  grant_types_supported: ["authorization_code", "refresh_token"],
 });
 const discoveryEnv = (overrides: Partial<AuthEnv> = {}): AuthEnv => ({
   DB: {} as unknown as D1Database,
@@ -373,6 +374,33 @@ describe("rewriteDiscoveryEndpoints (#749)", () => {
     const j = (await out.json()) as Record<string, unknown>;
     expect(j.token_endpoint_auth_methods_supported).toEqual(["none"]);
     expect(j.token_endpoint).toBe("https://auth.uploads.sh/api/auth/oauth2/token");
+  });
+
+  it("drops client_credentials from grant_types_supported", async () => {
+    const out = await rewriteDiscoveryEndpoints(
+      META_URL,
+      jsonRes({
+        ...metadata(),
+        grant_types_supported: ["authorization_code", "client_credentials", "refresh_token"],
+      }),
+      metaEnv({ AUTH_DIRECT_ORIGIN: undefined }),
+    );
+    const j = (await out.json()) as Record<string, unknown>;
+    expect(j.grant_types_supported).toEqual(["authorization_code", "refresh_token"]);
+    expect(j.token_endpoint).toBe("https://uploads.sh/api/auth/oauth2/token");
+  });
+
+  it("sets grant_types_supported when the field is omitted (RFC 8414 default includes implicit)", async () => {
+    const withoutGrants: Record<string, unknown> = { ...metadata() };
+    delete withoutGrants.grant_types_supported;
+    const out = await rewriteDiscoveryEndpoints(
+      META_URL,
+      jsonRes(withoutGrants),
+      metaEnv({ AUTH_DIRECT_ORIGIN: "https://uploads.sh" }),
+    );
+    const j = (await out.json()) as Record<string, unknown>;
+    expect(j.grant_types_supported).toEqual(["authorization_code", "refresh_token"]);
+    expect(j.token_endpoint).toBe("https://uploads.sh/api/auth/oauth2/token");
   });
 
   it("returns the same response when methods are already public-only and origins match", async () => {

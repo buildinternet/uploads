@@ -362,7 +362,7 @@ describe("root discovery aliases", () => {
     expect(body.issuer).toBe("https://uploads.sh/api/auth");
   });
 
-  it("advertises only public PKCE on the token endpoint", async () => {
+  it("advertises only the grants and token auth a self-registered client can use", async () => {
     const confidential = ["client_secret_basic", "client_secret_post", "private_key_jwt"];
     for (const path of [
       "/.well-known/oauth-authorization-server",
@@ -373,10 +373,12 @@ describe("root discovery aliases", () => {
       expect(res.status, path).toBe(200);
       const body = (await res.json()) as {
         token_endpoint_auth_methods_supported?: string[];
+        grant_types_supported?: string[];
         introspection_endpoint_auth_methods_supported?: string[];
         revocation_endpoint_auth_methods_supported?: string[];
       };
       expect(body.token_endpoint_auth_methods_supported, path).toEqual(["none"]);
+      expect(body.grant_types_supported, path).toEqual(["authorization_code", "refresh_token"]);
       expect(body.introspection_endpoint_auth_methods_supported, path).toEqual(confidential);
       expect(body.revocation_endpoint_auth_methods_supported, path).toEqual(confidential);
     }

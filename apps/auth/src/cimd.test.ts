@@ -80,9 +80,11 @@ describe("AS metadata", () => {
     const body = (await res.json()) as {
       client_id_metadata_document_supported?: boolean;
       token_endpoint_auth_methods_supported?: string[];
+      grant_types_supported?: string[];
     };
     expect(body.client_id_metadata_document_supported).toBe(true);
     expect(body.token_endpoint_auth_methods_supported).toEqual(["none"]);
+    expect(body.grant_types_supported).toEqual(["authorization_code", "refresh_token"]);
   });
 });
 
