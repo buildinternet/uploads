@@ -10,7 +10,17 @@
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1,
+    // Workers Issues. A deploy that omits `issues.enabled` turns the
+    // dashboard toggle back off. The Astro build copies this file into the
+    // generated worker config, so the flag has to live here.
+    "issues": {
+      "enabled": true,
+    },
   },
+  // Upload the SSR source maps the Astro/Vite build emits (`astro.config.mjs`
+  // sets `environments.ssr.build.sourcemap`). Client maps stay off so they
+  // are not published with the static assets.
+  "upload_source_maps": true,
   "vars": {
     "UPLOADS_API_ORIGIN": "https://api.uploads.sh",
     // Public origin of apps/auth (Phase 2, plan D6). Local dev default is

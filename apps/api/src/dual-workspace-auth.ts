@@ -7,6 +7,7 @@
  * vertical built on this.
  */
 import { ForbiddenError, NotFoundError, UnauthorizedError } from "@uploads/errors";
+import { setIssueContext } from "@uploads/observability/issues";
 import type { Context, MiddlewareHandler } from "hono";
 import { type WorkspaceScope } from "./auth-db";
 import { FILE_SCOPES } from "./auth-db";
@@ -163,6 +164,7 @@ export function dualWorkspaceAuth(): MiddlewareHandler<DualAuthVars> {
     // by construction (CodeRabbit PR #617 review finding 3).
     c.set("uploaderIdentity", userUploaderIdentity(userId));
     c.set("sessionUserId", userId);
+    setIssueContext({ userId, workspace: name });
     await next();
   };
 }
@@ -291,6 +293,7 @@ export function dualGovernanceAuth(
     await adminWorkspaceOr403(c.env, userId, name);
 
     c.set("governanceMintingUserId", userId);
+    setIssueContext({ userId, workspace: name });
     await next();
   };
 }

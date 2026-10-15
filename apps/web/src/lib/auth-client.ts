@@ -16,6 +16,7 @@
  * cookie (`.uploads.sh`, see apps/auth/src/auth.ts's crossSubDomainCookies)
  * rides along.
  */
+import { emitIssueContext } from "./issue-context";
 import { fetchWithTimeout, type RequestFailure } from "./request";
 import { normalizeConsentScopes, type ConnectedAppGrant } from "@uploads/auth/connected-apps-wire";
 import {
@@ -185,6 +186,10 @@ export async function sessionResultFromResponse(response: Response): Promise<Ses
   // Ban clears sessions; if a banned flag still appears, treat as signed out
   // so shells never paint account chrome for a deactivated user.
   if (body.user.banned === true) return { kind: "signed_out" };
+  emitIssueContext({
+    userId: body.user.id,
+    sessionId: typeof body.session?.id === "string" ? body.session.id : undefined,
+  });
   return { kind: "signed_in", session: body };
 }
 

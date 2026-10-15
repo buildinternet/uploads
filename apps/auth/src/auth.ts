@@ -54,6 +54,8 @@ import {
   sanitizeDcrRegistrationBody,
 } from "./oauth-dcr";
 import { annotatePublicClientOfficial, PUBLIC_CLIENT_PATHS } from "./oauth-public-client";
+import { reportHandledError } from "@uploads/observability";
+import { setIssueContext } from "@uploads/observability/issues";
 import { buildTokenGrantAfterHandler, captureRefreshTokenPriorState } from "./oauth-observability";
 import { createDurableRateLimitStorage, type RateLimitNamespaceLike } from "./rate-limit";
 import * as schema from "./schema";
@@ -365,11 +367,28 @@ async function clampRegisteredDcrClient(
       .set(dcrClientRowPatch())
       .where(eq(schema.oauthClient.clientId, clientId));
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error(
-      JSON.stringify({ message: "DCR client row clamp failed after register", error: message }),
-    );
+    reportHandledError(new Error("DCR client row clamp failed after register", { cause: err }));
   }
+}
+
+/**
+ * `ctx.context.session` is `{ user, session }` once Better Auth has resolved
+ * a session. Only the row ids are attributes — `session.token` is the cookie.
+ */
+function issueContextFromAuthSession(session: unknown): void {
+  if (!session || typeof session !== "object") return;
+  const bag = session as {
+    id?: unknown;
+    user?: { id?: unknown };
+    session?: { id?: unknown };
+  };
+  const userId = typeof bag.user?.id === "string" ? bag.user.id : undefined;
+  const nestedSessionId = typeof bag.session?.id === "string" ? bag.session.id : undefined;
+  const ownId = typeof bag.id === "string" ? bag.id : undefined;
+  setIssueContext({
+    userId,
+    sessionId: nestedSessionId ?? (ownId !== userId ? ownId : undefined),
+  });
 }
 
 function authAfterHook(
@@ -378,6 +397,7 @@ function authAfterHook(
 ) {
   const tokenAfter = buildTokenGrantAfterHandler(env, isAPIError);
   return createAuthMiddleware(async (ctx) => {
+    issueContextFromAuthSession(ctx.context.session);
     if (ctx.path === "/oauth2/register") {
       await clampRegisteredDcrClient(db, ctx.context.returned);
     }
@@ -421,13 +441,7 @@ async function revokeTokensAfterUserRemoval(
   try {
     await revokeAllTokensForMintingUser(d1, userId);
   } catch (err) {
-    console.error(
-      JSON.stringify({
-        message: "user_removal_token_revoke_failed",
-        userId,
-        error: err instanceof Error ? err.message : String(err),
-      }),
-    );
+    reportHandledError(new Error("user_removal_token_revoke_failed", { cause: err }));
   }
 }
 
@@ -447,14 +461,7 @@ async function revokeTokensAfterLeave(
       .limit(1);
     if (org) await revokeMemberWorkspaceTokens(d1, org.slug, userId);
   } catch (err) {
-    console.error(
-      JSON.stringify({
-        message: "member_leave_token_revoke_failed",
-        organizationId,
-        userId,
-        error: err instanceof Error ? err.message : String(err),
-      }),
-    );
+    reportHandledError(new Error("member_leave_token_revoke_failed", { cause: err }));
   }
 }
 
@@ -636,13 +643,7 @@ export async function upsertGithubLogin(
         set: { login, updatedAt: new Date() },
       });
   } catch (err) {
-    console.error(
-      JSON.stringify({
-        message: "github login capture failed",
-        githubAccountId,
-        error: err instanceof Error ? err.message : String(err),
-      }),
-    );
+    reportHandledError(new Error("github login capture failed", { cause: err }));
   }
 }
 

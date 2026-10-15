@@ -1,4 +1,5 @@
-import { AppError, NotFoundError } from "@uploads/errors";
+import { NotFoundError } from "@uploads/errors";
+import { reportHandledError } from "@uploads/observability";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { createDbSession, dbFor } from "./db-session";
@@ -261,14 +262,7 @@ export default {
     if (controller.cron === WEEKLY_DIGEST_CRON) {
       ctx.waitUntil(
         runWeeklyDigestSweep(env).catch((err) => {
-          const appErr = AppError.from(err);
-          console.error(
-            JSON.stringify({
-              message: "weekly_digest_sweep_failed",
-              error: appErr.message,
-              code: appErr.code,
-            }),
-          );
+          reportHandledError(err);
         }),
       );
       return;
@@ -276,62 +270,27 @@ export default {
     if (controller.cron && controller.cron !== DAILY_MAINTENANCE_CRON) return;
     ctx.waitUntil(
       runRetentionSweep(env).catch((err) => {
-        const appErr = AppError.from(err);
-        console.error(
-          JSON.stringify({
-            message: "retention_sweep_failed",
-            error: appErr.message,
-            code: appErr.code,
-          }),
-        );
+        reportHandledError(err);
       }),
     );
     ctx.waitUntil(
       runObservabilityRetention(env).catch((err) => {
-        const appErr = AppError.from(err);
-        console.error(
-          JSON.stringify({
-            message: "observability_retention_failed",
-            error: appErr.message,
-            code: appErr.code,
-          }),
-        );
+        reportHandledError(err);
       }),
     );
     ctx.waitUntil(
       purgeExpiredIdempotencyRequests(dbFor(env)).catch((err) => {
-        const appErr = AppError.from(err);
-        console.error(
-          JSON.stringify({
-            message: "idempotency_retention_failed",
-            error: appErr.message,
-            code: appErr.code,
-          }),
-        );
+        reportHandledError(err);
       }),
     );
     ctx.waitUntil(
       runUsageAlertSweep(env).catch((err) => {
-        const appErr = AppError.from(err);
-        console.error(
-          JSON.stringify({
-            message: "usage_alert_sweep_failed",
-            error: appErr.message,
-            code: appErr.code,
-          }),
-        );
+        reportHandledError(err);
       }),
     );
     ctx.waitUntil(
       runActiveContentHostSweep(env).catch((err) => {
-        const appErr = AppError.from(err);
-        console.error(
-          JSON.stringify({
-            message: "active_content_sweep_failed",
-            error: appErr.message,
-            code: appErr.code,
-          }),
-        );
+        reportHandledError(err);
       }),
     );
   },

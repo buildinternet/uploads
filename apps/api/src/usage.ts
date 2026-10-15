@@ -12,6 +12,7 @@
  * total usage includes BYO lanes, while the shared subset lets `budget.ts`
  * enforce platform-owned storage residue after a workspace switches to BYO.
  */
+import { reportHandledError } from "@uploads/observability";
 import { type D1Queryable } from "./db-session";
 
 export interface WorkspaceUsage {
@@ -241,15 +242,7 @@ export async function releaseUploadsSafe(
       .bind(period, count, now.toISOString(), workspace)
       .run();
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error(
-      JSON.stringify({
-        message: "upload reservation release failed",
-        workspace,
-        count,
-        error: message,
-      }),
-    );
+    reportHandledError(new Error("upload reservation release failed", { cause: err }));
   }
 }
 
@@ -350,15 +343,7 @@ export async function releaseStorageBytesSafe(
       )
       .run();
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error(
-      JSON.stringify({
-        message: "storage reservation release failed",
-        workspace,
-        reservedBytes,
-        error: message,
-      }),
-    );
+    reportHandledError(new Error("storage reservation release failed", { cause: err }));
   }
 }
 
@@ -373,10 +358,7 @@ export async function recordUsageSafe(
   try {
     await applyUsageDelta(db, workspace, delta, now, opts);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error(
-      JSON.stringify({ message: "usage ledger update failed", workspace, delta, error: message }),
-    );
+    reportHandledError(new Error("usage ledger update failed", { cause: err }));
   }
 }
 
@@ -408,15 +390,7 @@ export async function claimDeleteUsageSafe(
       .run();
     return (result.meta?.changes ?? 0) > 0;
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error(
-      JSON.stringify({
-        message: "delete usage claim failed",
-        workspace,
-        objectKey,
-        error: message,
-      }),
-    );
+    reportHandledError(new Error("delete usage claim failed", { cause: err }));
     return true;
   }
 }
@@ -437,15 +411,7 @@ export async function clearDeleteUsageClaimSafe(
       .bind(workspace, objectKey)
       .run();
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error(
-      JSON.stringify({
-        message: "delete usage claim clear failed",
-        workspace,
-        objectKey,
-        error: message,
-      }),
-    );
+    reportHandledError(new Error("delete usage claim clear failed", { cause: err }));
   }
 }
 

@@ -56,7 +56,15 @@
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1,
+    // Workers Issues. A deploy that omits `issues.enabled` turns the
+    // dashboard toggle back off.
+    "issues": {
+      "enabled": true,
+    },
   },
+  // Original file and line numbers in Issues stacks. Wrangler generates the
+  // maps when it bundles this worker.
+  "upload_source_maps": true,
   // Shared with uploads-api (apps/api/wrangler.jsonc): both workers serve the
   // same tenant registry — keep the id in sync.
   "kv_namespaces": [

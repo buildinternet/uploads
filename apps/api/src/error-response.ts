@@ -4,26 +4,17 @@
  * this turns them into the nested wire envelope.
  */
 import { AppError, isAppError } from "@uploads/errors";
+import { reportHandledError } from "@uploads/observability";
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 
 export function respondError(c: Context, err: unknown): Response {
   const appErr = isAppError(err) ? err : AppError.from(err);
-  if (!appErr.expose || appErr.type === "internal") {
-    const cause = appErr.cause;
-    console.error(
-      JSON.stringify({
-        message: appErr.message,
-        code: appErr.code,
-        type: appErr.type,
-        stack: appErr.stack,
-        ...(cause instanceof Error
-          ? { cause: cause.message, causeStack: cause.stack }
-          : cause !== undefined
-            ? { cause: String(cause) }
-            : {}),
-      }),
-    );
+  // 5xx responses are Issues occurrences. Log the Error object so the
+  // occurrence has a stack. Expected client outcomes stay quiet, including
+  // 507 storage-quota responses (a 5xx status, but not a server failure).
+  if (appErr.status >= 500 && appErr.type !== "insufficient_storage") {
+    reportHandledError(appErr.cause instanceof Error ? appErr.cause : appErr);
   }
   applyRetryAfter(c, appErr);
   return c.json(appErr.toWire(), appErr.status as ContentfulStatusCode);

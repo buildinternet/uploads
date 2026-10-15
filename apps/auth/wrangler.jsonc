@@ -64,7 +64,15 @@
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1,
+    // Workers Issues. A deploy that omits `issues.enabled` turns the
+    // dashboard toggle back off.
+    "issues": {
+      "enabled": true,
+    },
   },
+  // Original file and line numbers in Issues stacks. Wrangler generates the
+  // maps when it bundles this worker.
+  "upload_source_maps": true,
   // Two schedules, dispatched on `controller.cron` in src/index.ts:
   //
   // "15 6 * * *"    daily retention sweep for expired verification/device_code

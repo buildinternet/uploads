@@ -1,3 +1,4 @@
+import { reportHandledError } from "@uploads/observability";
 import { drizzle } from "drizzle-orm/d1";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
@@ -31,6 +32,15 @@ const authCors = cors({
   maxAge: 86400,
 });
 
+/** Signing secret missing. 503, and an Error so Issues records the outage. */
+function authUnavailable(): Response {
+  reportHandledError(new Error("Auth is not configured yet"));
+  return Response.json(
+    { error: { code: "auth_unavailable", message: "Auth is not configured yet." } },
+    { status: 503 },
+  );
+}
+
 /**
  * Rewrite the request path to `pathname` and run it through the Better Auth
  * handler, stamping `Access-Control-Allow-Origin: *` on the response — issue
@@ -45,12 +55,7 @@ async function discoveryAlias(
   pathname: string,
 ): Promise<Response> {
   const auth = await createAuth(c.env);
-  if (!auth) {
-    return Response.json(
-      { error: { code: "auth_unavailable", message: "Auth is not configured yet." } },
-      { status: 503 },
-    );
-  }
+  if (!auth) return authUnavailable();
   const url = new URL(c.req.raw.url);
   url.pathname = pathname;
   const aliasReq = new Request(url.toString(), c.req.raw);
@@ -182,6 +187,7 @@ export const app = new Hono<{ Bindings: AuthEnv }>()
     }
     const secret = await signingSecret(c.env);
     if (!secret) {
+      reportHandledError(new Error("digest unsubscribe signing secret is not configured"));
       return c.html(unsubscribePage(false), 503);
     }
     const result = await applyDigestUnsubscribe(drizzle(c.env.DB, { schema }), secret, token);
@@ -229,10 +235,7 @@ export const app = new Hono<{ Bindings: AuthEnv }>()
       // transitional Secrets Store fallback is also empty/unpopulated) —
       // never boot Better Auth on an ephemeral secret (D7). Fail closed
       // instead of 500ing.
-      return c.json(
-        { error: { code: "auth_unavailable", message: "Auth is not configured yet." } },
-        503,
-      );
+      return authUnavailable();
     }
     // better-auth 1.6.23 has no `advanced.backgroundTasks`/`waitUntil` hook to
     // scope internal fire-and-forget writes to this request's execution
@@ -261,12 +264,7 @@ export default {
       // Issue #451: retry plan syncs whose bridge call to apps/api failed.
       ctx.waitUntil(
         drainBillingOutbox(env).catch((err) => {
-          console.error(
-            JSON.stringify({
-              message: "billing_outbox_drain_failed",
-              error: err instanceof Error ? err.message : String(err),
-            }),
-          );
+          reportHandledError(err);
         }),
       );
       return;
@@ -274,12 +272,7 @@ export default {
 
     ctx.waitUntil(
       runAuthRetentionSweep(env).catch((err) => {
-        console.error(
-          JSON.stringify({
-            message: "auth_retention_sweep_failed",
-            error: err instanceof Error ? err.message : String(err),
-          }),
-        );
+        reportHandledError(err);
       }),
     );
     // Issue #224, Lane A: nightly sweep of stale, never-used dynamically
@@ -287,12 +280,7 @@ export default {
     // is set (see src/oauth-client-reaper.ts).
     ctx.waitUntil(
       sweepOauthClients(env).catch((err) => {
-        console.error(
-          JSON.stringify({
-            message: "oauth_client_reaper_failed",
-            error: err instanceof Error ? err.message : String(err),
-          }),
-        );
+        reportHandledError(err);
       }),
     );
   },

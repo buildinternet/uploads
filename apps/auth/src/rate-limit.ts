@@ -3,8 +3,9 @@
  * incident follow-up; see the `rateLimit` block in src/auth.ts).
  *
  * This module is deliberately free of any `cloudflare:workers` import so the
- * plain-vitest suite can exercise every decision path in-process. The Durable
- * Object class itself lives in src/rate-limit-do.ts and imports `decideWindow`
+ * plain-vitest suite can exercise every decision path in-process.
+ * `reportHandledError` lives on `@uploads/observability` (no Workers import).
+ * The Durable Object class itself lives in src/rate-limit-do.ts and imports `decideWindow`
  * from here.
  *
  * Semantics are a byte-for-byte mirror of Better Auth 1.7.1's own
@@ -23,6 +24,8 @@
  * bumped on every ALLOWED request (upstream does the same), so the window
  * slides forward with traffic rather than being pinned to the first hit.
  */
+
+import { reportHandledError } from "@uploads/observability";
 
 /** A resolved Better Auth rate-limit rule: `window` in seconds, `max` hits. */
 export type RateLimitRule = { window: number; max: number };
@@ -117,16 +120,7 @@ export function createDurableRateLimitStorage(
   options: DurableRateLimitStorageOptions = {},
 ): { consume: (key: string, rule: RateLimitRule) => Promise<RateLimitOutcome> } {
   const timeoutMs = options.timeoutMs ?? DEFAULT_RATE_LIMIT_TIMEOUT_MS;
-  const onError =
-    options.onError ??
-    ((error: unknown) => {
-      console.error(
-        JSON.stringify({
-          message: "auth_rate_limit_storage_failed",
-          error: error instanceof Error ? error.message : String(error),
-        }),
-      );
-    });
+  const onError = options.onError ?? reportHandledError;
 
   return {
     async consume(key, rule) {

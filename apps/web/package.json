@@ -45,6 +45,6 @@
     "@uploads/auth": "workspace:^",
     "typescript": "^6.0.3",
     "vitest": "^4.1.10",
-    "wrangler": "^4.125.0"
+    "wrangler": "^4.134.0"
   }
 }

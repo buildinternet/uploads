@@ -16,6 +16,7 @@
  * Phase 1 is write-only: nothing reads this table yet.
  */
 import { GH_PRIVATE_ROOT, parseGhPrivateKey } from "@uploads/comment-render";
+import { reportHandledError } from "@uploads/observability";
 import { type D1Queryable } from "./db-session";
 import { D1_MAX_BOUND_PARAMS } from "./file-metadata";
 import { normalizeRepo, repoForPrefixId } from "./github-private-prefixes";
@@ -331,17 +332,15 @@ export async function rekeyAttachment(
  * the phase-2 shadow diff and the reconcile job repair) rather than a failed
  * upload.
  */
-async function safely(message: string, context: Record<string, unknown>, run: () => Promise<void>) {
+async function safely(
+  message: string,
+  _context: Record<string, unknown>,
+  run: () => Promise<void>,
+) {
   try {
     await run();
   } catch (err) {
-    console.error(
-      JSON.stringify({
-        message,
-        ...context,
-        error: err instanceof Error ? err.message : String(err),
-      }),
-    );
+    reportHandledError(new Error(message, { cause: err }));
   }
 }
 
