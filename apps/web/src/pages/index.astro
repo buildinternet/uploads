@@ -9,11 +9,11 @@ import SiteHeader from "../components/SiteHeader.astro";
 import WorkflowDemo from "../components/WorkflowDemo.astro";
 import { SAME_ORIGIN_AUTH_BASE } from "../lib/auth-client";
 import { GITHUB_APP_URL } from "../lib/github-app";
+import { HOME_BEST_FOR, HOME_DESCRIPTION, HOME_FAQ, homeFaqJsonLd } from "../lib/home-seo";
 import { OG_DEFAULT_IMAGE, OG_SITE_NAME } from "../lib/og";
 
 const pageTitle = "uploads.sh — the upload tool for coding agents";
-const pageDescription =
-  "Agents produce screenshots, recordings, test reports, and logs long before a pull request exists, and GitHub's own attachments only work inside GitHub. Uploads hosts each file at a stable public URL the moment it's captured. When the pull request opens, every artifact appears in one tidy comment that updates automatically on each revision.";
+const pageDescription = HOME_DESCRIPTION;
 
 const authOrigin = SAME_ORIGIN_AUTH_BASE;
 
@@ -81,6 +81,7 @@ Source (and where to look if something breaks): https://github.com/buildinternet
         offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
       })}
     />
+    <script type="application/ld+json" set:html={homeFaqJsonLd()} />
     <style>
       * {
         box-sizing: border-box;
@@ -152,6 +153,13 @@ Source (and where to look if something breaks): https://github.com/buildinternet
         color: var(--body);
         margin-top: 26px;
         line-height: 1.65;
+      }
+      .best-for {
+        max-width: 520px;
+        margin-top: 14px;
+        font-size: 15px;
+        line-height: 1.55;
+        color: var(--fg);
       }
       .hero-art {
         margin: 0 -20px 0 0;
@@ -331,6 +339,70 @@ Source (and where to look if something breaks): https://github.com/buildinternet
         padding: 56px 0 0;
         scroll-margin-top: 28px;
       }
+      .faq {
+        border-top: 1px solid var(--line);
+        padding: 56px 0 8px;
+        scroll-margin-top: 28px;
+      }
+      .faq-list {
+        display: grid;
+        gap: 10px;
+        max-width: 760px;
+      }
+      .faq-list details {
+        background: #19151f;
+        border: 1px solid var(--line);
+        border-radius: 7px;
+      }
+      .faq-list details[open] {
+        border-color: #5b486e;
+      }
+      .faq-list summary {
+        cursor: pointer;
+        list-style: none;
+        font: 600 16px / 1.4 var(--sans);
+        padding: 16px 48px 16px 18px;
+        position: relative;
+      }
+      .faq-list summary::-webkit-details-marker {
+        display: none;
+      }
+      .faq-list summary::marker {
+        content: "";
+      }
+      .faq-list summary::after {
+        content: "+";
+        position: absolute;
+        right: 16px;
+        top: 50%;
+        transform: translateY(-52%);
+        color: var(--accent);
+        font: 500 22px / 1 var(--sans);
+      }
+      .faq-list details[open] summary::after {
+        content: "−";
+      }
+      .faq-list summary:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: -2px;
+        border-radius: 6px;
+      }
+      .faq-a {
+        padding: 0 18px 16px;
+        color: var(--body);
+        font-size: 15px;
+      }
+      .faq-a p + p {
+        margin-top: 10px;
+      }
+      .faq-a code {
+        font: 0.85em var(--mono);
+        color: #d2b5ef;
+        font-variant-ligatures: none;
+        font-feature-settings:
+          "calt" 0,
+          "liga" 0;
+      }
       .install-layout {
         display: grid;
         grid-template-columns: 0.8fr 1.2fr;
@@ -500,6 +572,15 @@ Source (and where to look if something breaks): https://github.com/buildinternet
         .install {
           padding-top: 35px;
         }
+        .faq {
+          padding: 35px 0 4px;
+        }
+        .faq-list summary {
+          font-size: 15px;
+        }
+        .best-for {
+          font-size: 14px;
+        }
         .install-layout .cta-row {
           margin-bottom: 8px;
         }
@@ -527,6 +608,7 @@ Source (and where to look if something breaks): https://github.com/buildinternet
             Give Claude Code, Codex, and other coding agents a place to upload screenshots,
             recordings, and reports.
           </p>
+          <p class="best-for">{HOME_BEST_FOR}</p>
           <div class="hero-actions">
             <a class="cta-solid" href="#get-started"
               >Get started <span aria-hidden="true">↗</span></a
@@ -655,6 +737,21 @@ Source (and where to look if something breaks): https://github.com/buildinternet
               storage — hosted storage works out of the box, your bucket is there when you want it.
             </p>
           </div>
+        </div>
+      </section>
+
+      <section class="faq" id="faq" aria-labelledby="faq-heading">
+        <p class="eyebrow">Before you install</p>
+        <h2 class="sect-head" id="faq-heading">FAQ</h2>
+        <div class="faq-list">
+          {
+            HOME_FAQ.map((item) => (
+              <details name="home-faq">
+                <summary>{item.q}</summary>
+                <div class="faq-a" set:html={item.a} />
+              </details>
+            ))
+          }
         </div>
       </section>
 
