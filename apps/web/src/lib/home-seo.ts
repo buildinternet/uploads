@@ -1,8 +1,9 @@
 // Homepage SEO copy: the meta description, the hero "best for" line, and the
-// FAQ. Answers are the source for both the server-rendered accordion and the
-// FAQPage JSON-LD, so the two cannot drift. Numbers come from the plan catalog
-// (the same source as /docs/limits). Rate-limit ceilings stay qualitative:
-// the public docs treat them as internal fair-use guards, not marketed quotas.
+// FAQ. Each answer is one HTML string. The accordion renders it, and the
+// FAQPage JSON-LD uses the same string with the tags removed. Numbers come
+// from the plan catalog (the same source as /docs/limits). Rate-limit
+// ceilings stay qualitative: the public docs treat them as internal fair-use
+// guards, not marketed quotas.
 import { PLAN_FACTS } from "./plan-facts";
 
 export const HOME_DESCRIPTION =
@@ -15,171 +16,57 @@ const REPO = "https://github.com/buildinternet/uploads";
 const SELF_HOST_DOCS =
   "https://github.com/buildinternet/uploads/blob/main/docs/ops.md#minimal-binding-profile-self-hosting-uploads754-item-3";
 
-export type HomeFaqSpan = {
-  text: string;
-  href?: string;
-  code?: boolean;
-};
-
 export type HomeFaqItem = {
   q: string;
-  paragraphs: HomeFaqSpan[][];
+  /** HTML rendered in the accordion. JSON-LD is this string with the tags removed. */
+  a: string;
 };
 
 export const HOME_FAQ: HomeFaqItem[] = [
   {
     q: "How do I attach a screenshot to a GitHub PR from Claude Code?",
-    paragraphs: [
-      [
-        { text: "Install the CLI with " },
-        { text: "npm install -g @buildinternet/uploads", code: true },
-        { text: ". Sign in with " },
-        { text: "uploads login", code: true },
-        { text: ", then run " },
-        { text: "uploads install", code: true },
-        { text: " so Claude Code, Codex, and CI know the commands." },
-      ],
-      [
-        { text: "On your branch, run " },
-        { text: "uploads put ./screenshot.png", code: true },
-        {
-          text: ". The file gets a stable public URL immediately. When the pull request opens, staged files land in one attachments comment, and that comment updates when you upload again.",
-        },
-      ],
-      [
-        { text: "A pull request that is already open takes " },
-        { text: "uploads attach ./screenshot.png", code: true },
-        { text: ". A Claude Code cloud session with no local shell uses the " },
-        { text: "hosted MCP server", href: "/guides/cloud-agent-screenshots" },
-        { text: " at " },
-        { text: "agents.uploads.sh", code: true },
-        { text: "." },
-      ],
-    ],
+    a: `<p>Install the CLI with <code>npm install -g @buildinternet/uploads</code>. Sign in with <code>uploads login</code>, then run <code>uploads install</code> so Claude Code, Codex, and CI know the commands.</p>
+<p>On your branch, run <code>uploads put ./screenshot.png</code>. The file gets a stable public URL immediately. When the pull request opens, staged files land in one attachments comment, and that comment updates when you upload again.</p>
+<p>A pull request that is already open takes <code>uploads attach ./screenshot.png</code>. A Claude Code cloud session with no local shell uses the <a href="/guides/cloud-agent-screenshots">hosted MCP server</a> at <code>agents.uploads.sh</code>.</p>`,
   },
   {
     q: "Why does gh have no attachment upload for a GitHub App token?",
-    paragraphs: [
-      [
-        {
-          text: "People still search for “gh has no attachment upload” because GitHub has no public API for attachments.",
-        },
-      ],
-      [
-        {
-          text: "A GitHub App token, an installation token, or a Claude Code cloud session cannot upload an attachment.",
-        },
-      ],
-      [
-        {
-          text: "Uploads hosts the file and posts one comment on the pull request.",
-        },
-      ],
-    ],
+    a: `<p>People still search for “gh has no attachment upload” because GitHub has no public API for attachments.</p>
+<p>A GitHub App token, an installation token, or a Claude Code cloud session cannot upload an attachment.</p>
+<p>Uploads hosts the file and posts one comment on the pull request.</p>`,
   },
   {
     q: "Does it work before the PR exists?",
-    paragraphs: [
-      [
-        { text: "Yes. On any branch other than the default, " },
-        { text: "uploads put", code: true },
-        { text: " and " },
-        { text: "uploads screenshot", code: true },
-        {
-          text: " stage the file for that branch. The file is hosted right away.",
-        },
-      ],
-      [
-        { text: "When a pull request opens, the " },
-        { text: "uploads GitHub App", href: "/docs/github-app#staging" },
-        { text: " promotes the staged files into the PR comment." },
-      ],
-      [
-        { text: "Without the App, run " },
-        { text: "uploads attach --promote", code: true },
-        { text: " once the PR exists." },
-      ],
-      [
-        {
-          text: "A file staged more than 30 days before the PR opens stays hosted. It does not promote on its own.",
-        },
-      ],
-    ],
+    a: `<p>Yes. On any branch other than the default, <code>uploads put</code> and <code>uploads screenshot</code> stage the file for that branch. The file is hosted right away.</p>
+<p>When a pull request opens, the <a href="/docs/github-app#staging">uploads GitHub App</a> promotes the staged files into the PR comment.</p>
+<p>Without the App, run <code>uploads attach --promote</code> once the PR exists.</p>
+<p>A file staged more than 30 days before the PR opens stays hosted. It does not promote on its own.</p>`,
   },
   {
     q: "Do I need to pay, or bring my own bucket?",
-    paragraphs: [
-      [
-        {
-          text: `No. A new workspace starts on the ${PLAN_FACTS.freeName} plan: ${PLAN_FACTS.freeStorage} of hosted storage and files up to ${PLAN_FACTS.freeMaxUpload}. That holds hundreds of screenshots, so you can start with no bucket of your own.`,
-        },
-      ],
-      [
-        {
-          text: `${PLAN_FACTS.proName} is for a workspace that outgrows ${PLAN_FACTS.freeName}: ${PLAN_FACTS.proStorage} of storage and files up to ${PLAN_FACTS.proMaxUpload}. See `,
-        },
-        { text: "plans and limits", href: "/docs/limits" },
-        { text: "." },
-      ],
-      [
-        { text: "Bring your own bucket", href: "/docs/byo-bucket" },
-        {
-          text: " when you want storage you already pay for. Cloudflare R2, Amazon S3, Backblaze B2, MinIO, and other S3-compatible stores all work. Storage on your bucket is unmetered.",
-        },
-      ],
-      [
-        {
-          text: "File-size caps still apply, and Uploads stays in the path under fair-use API limits. Normal agent and CI use does not reach those limits.",
-        },
-      ],
-    ],
+    a: `<p>No. A new workspace starts on the ${PLAN_FACTS.freeName} plan: ${PLAN_FACTS.freeStorage} of hosted storage and files up to ${PLAN_FACTS.freeMaxUpload}. That holds hundreds of screenshots, so you can start with no bucket of your own.</p>
+<p>${PLAN_FACTS.proName} is for a workspace that outgrows ${PLAN_FACTS.freeName}: ${PLAN_FACTS.proStorage} of storage and files up to ${PLAN_FACTS.proMaxUpload}. See <a href="/docs/limits">plans and limits</a>.</p>
+<p><a href="/docs/byo-bucket">Bring your own bucket</a> when you want storage you already pay for. Cloudflare R2, Amazon S3, Backblaze B2, MinIO, and other S3-compatible stores all work. Storage on your bucket is unmetered.</p>
+<p>File-size caps still apply, and Uploads stays in the path under fair-use API limits. Normal agent and CI use does not reach those limits.</p>`,
   },
   {
     q: "Is it open source, and can I self-host it?",
-    paragraphs: [
-      [
-        {
-          text: "Yes. The CLI and the service are open source under the Apache 2.0 license. ",
-        },
-        { text: "Read the source on GitHub", href: REPO },
-        { text: "." },
-      ],
-      [
-        { text: "Self-host from the " },
-        { text: "operator runbook", href: SELF_HOST_DOCS },
-        {
-          text: ". A self-hosted deploy sets its own storage limits. The hosted service is free to start.",
-        },
-      ],
-    ],
+    a: `<p>Yes. The CLI and the service are open source under the Apache 2.0 license. <a href="${REPO}">Read the source on GitHub</a>.</p>
+<p>Self-host from the <a href="${SELF_HOST_DOCS}">operator runbook</a>. A self-hosted deploy sets its own storage limits. The hosted service is free to start.</p>`,
   },
   {
     q: "Does it work with private repos?",
-    paragraphs: [
-      [
-        { text: "Yes. Install the " },
-        { text: "uploads GitHub App", href: "/docs/github-app" },
-        {
-          text: " on the private repository and it can post the attachments comment.",
-        },
-      ],
-      [
-        {
-          text: "Anyone with the file URL can still fetch the file, including a file attached to a private repo. When the App can see that the repo is private, new attachment URLs use an unguessable prefix, so they are not derived from the repository name.",
-        },
-      ],
-      [
-        { text: "Leave secrets out of the capture, or redact them with " },
-        { text: "uploads annotate", code: true },
-        { text: "." },
-      ],
-    ],
+    a: `<p>Yes. Install the <a href="/docs/github-app">uploads GitHub App</a> on the private repository and it can post the attachments comment.</p>
+<p>Anyone with the file URL can still fetch the file, including a file attached to a private repo. When the App can see that the repo is private, new attachment URLs use an unguessable prefix, so they are not derived from the repository name.</p>
+<p>Leave secrets out of the capture, or redact them with <code>uploads annotate</code>.</p>`,
   },
 ];
 
-/** Visible answer text, in order, for JSON-LD and tests. */
-export function homeFaqPlainText(item: HomeFaqItem): string {
-  return item.paragraphs.map((paragraph) => paragraph.map((span) => span.text).join("")).join(" ");
+function faqAnswerText(html: string): string {
+  return html
+    .replaceAll(/<[^>]+>/g, "")
+    .replaceAll(/\s+/g, " ")
+    .trim();
 }
 
 export function homeFaqJsonLd(items: HomeFaqItem[] = HOME_FAQ): string {
@@ -191,7 +78,7 @@ export function homeFaqJsonLd(items: HomeFaqItem[] = HOME_FAQ): string {
       name: item.q,
       acceptedAnswer: {
         "@type": "Answer",
-        text: homeFaqPlainText(item),
+        text: faqAnswerText(item.a),
       },
     })),
   });

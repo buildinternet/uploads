@@ -748,21 +748,7 @@ Source (and where to look if something breaks): https://github.com/buildinternet
             HOME_FAQ.map((item) => (
               <details name="home-faq">
                 <summary>{item.q}</summary>
-                <div class="faq-a">
-                  {item.paragraphs.map((paragraph) => (
-                    <p>
-                      {paragraph.map((span) =>
-                        span.href ? (
-                          <a href={span.href}>{span.text}</a>
-                        ) : span.code ? (
-                          <code>{span.text}</code>
-                        ) : (
-                          span.text
-                        ),
-                      )}
-                    </p>
-                  ))}
-                </div>
+                <div class="faq-a" set:html={item.a} />
               </details>
             ))
           }
