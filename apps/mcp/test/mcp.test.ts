@@ -854,6 +854,7 @@ describe("mcp worker", () => {
       "repo_link_status",
       "search_docs",
       "set_metadata",
+      "unstage",
       "usage",
       "whoami",
     ]);
@@ -1485,7 +1486,10 @@ describe("mcp worker", () => {
     );
     expect(result.isError).toBe(true);
     expect(result.content).toEqual([
-      { type: "text", text: "forbidden: requires files:read scope" },
+      {
+        type: "text",
+        text: "This token needs the files:read scope. Ask a workspace admin, or mint a token with files:read at https://uploads.sh/account/developers.",
+      },
     ]);
     expect(result._meta?.["mcp/www_authenticate"]).toEqual([
       'Bearer resource_metadata="https://agents.uploads.sh/.well-known/oauth-protected-resource", error="insufficient_scope", error_description="This tool requires the files:read scope"',
@@ -1569,7 +1573,10 @@ describe("mcp worker", () => {
     );
     expect(result.isError).toBe(true);
     expect(result.content).toEqual([
-      { type: "text", text: "forbidden: requires files:write scope" },
+      {
+        type: "text",
+        text: "This token needs the files:write scope. Ask a workspace admin, or mint a token with files:write at https://uploads.sh/account/developers.",
+      },
     ]);
   });
 
@@ -1737,7 +1744,10 @@ describe("mcp worker", () => {
     // The shared usage() helper throws UploadsError, whose code the server
     // core appends to the tool error text.
     expect(result.content).toEqual([
-      { type: "text", text: "forbidden: requires files:write scope" },
+      {
+        type: "text",
+        text: "This token needs the files:write scope. Ask a workspace admin, or mint a token with files:write at https://uploads.sh/account/developers.",
+      },
     ]);
     expect(bucket.store.size).toBe(0);
 
@@ -2196,7 +2206,10 @@ describe("OAuth JWT bearer (issue #224)", () => {
     );
     expect(result.isError).toBe(true);
     expect(result.content).toEqual([
-      { type: "text", text: "forbidden: requires files:write scope" },
+      {
+        type: "text",
+        text: "This token needs the files:write scope. Ask a workspace admin, or mint a token with files:write at https://uploads.sh/account/developers.",
+      },
     ]);
     expect(bucket.store.size).toBe(0);
   });

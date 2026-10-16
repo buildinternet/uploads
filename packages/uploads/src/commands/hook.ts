@@ -43,11 +43,27 @@ Harness manifests no-op (exit 0, no output) when this binary is not on PATH.
 Disable with UPLOADS_HOOK_DISABLE=1.
 `;
 
+const STALE_STAGED_MS = 30 * 24 * 60 * 60 * 1000;
+
+export type StagedInspect = {
+  /** Still-staged files for this branch, or null when the lookup failed. */
+  count: number | null;
+  /** Every matching file is older than 30 days. */
+  allStale: boolean;
+  /** Other branches that still have staged files in the same lookup. */
+  foreignBranches: string[];
+};
+
 export type HookDeps = {
   stdin: string;
   testFiles?: string;
   cwd?: string;
+  /**
+   * Tests pass this and skip the richer inspect. Production uses
+   * `defaultInspectStaged` when both are omitted.
+   */
   countStaged?: (branch: string) => Promise<number | null>;
+  inspectStaged?: (branch: string) => Promise<StagedInspect | null>;
   isFork?: () => boolean | null;
   /** Repo binding for the cwd's repo; null/throw → unknown (keeps the promote advice). */
   binding?: () => Promise<StagedBinding | null>;
@@ -168,19 +184,46 @@ function defaultGit(cwd: string): NonNullable<HookDeps["git"]> {
   };
 }
 
-async function defaultCountStaged(branch: string): Promise<number | null> {
+async function defaultInspectStaged(branch: string): Promise<StagedInspect | null> {
   try {
     const config = resolveConfig({ requireToken: false });
     if (!config.token) return null;
     const client = createUploadsClient(config);
+    let repo: string | undefined;
+    try {
+      repo = resolveRepo(undefined);
+    } catch {
+      repo = undefined;
+    }
+    const filters: Record<string, string> = { "gh.status": "staged" };
+    if (repo) filters["gh.repo"] = repo.toLowerCase();
     const result = await Promise.race([
-      // Only still-staged files: promoted ones keep gh.branch but flip status.
-      client.findFiles({ "gh.branch": branch.toLowerCase(), "gh.status": "staged" }, { limit: 1 }),
+      client.findFiles(filters, { limit: 20 }),
       new Promise<never>((_, reject) => {
         setTimeout(() => reject(new Error("find timeout")), FIND_TIMEOUT_MS);
       }),
     ]);
-    return Array.isArray(result.items) ? result.items.length : 0;
+    const wanted = branch.toLowerCase();
+    const mine: { stagedAt?: string }[] = [];
+    const foreign: string[] = [];
+    for (const item of result.items ?? []) {
+      const fileBranch = item.metadata?.["gh.branch"];
+      if (fileBranch && fileBranch.toLowerCase() !== wanted) {
+        if (!foreign.some((name) => name.toLowerCase() === fileBranch.toLowerCase())) {
+          foreign.push(fileBranch);
+        }
+        continue;
+      }
+      mine.push({ stagedAt: item.metadata?.["gh.staged-at"] });
+    }
+    const now = Date.now();
+    const allStale =
+      mine.length > 0 &&
+      mine.every((file) => {
+        const at = file.stagedAt ? Date.parse(file.stagedAt) : Number.NaN;
+        return Number.isFinite(at) && now - at > STALE_STAGED_MS;
+      });
+    return { count: mine.length, allStale, foreignBranches: foreign };
   } catch {
     return null;
   }
@@ -240,14 +283,40 @@ export async function runPrePrScreenshot(deps: HookDeps): Promise<string | null>
   const branch = git.branch();
   if (!branch) return null;
 
-  const staged = await (deps.countStaged ?? defaultCountStaged)(branch);
-  if (staged === null) return null; // error/unconfigured → fail open
+  const inspected = await (deps.inspectStaged
+    ? deps.inspectStaged(branch)
+    : deps.countStaged
+      ? deps
+          .countStaged(branch)
+          .then((count) =>
+            count === null ? null : { count, allStale: false, foreignBranches: [] as string[] },
+          )
+      : defaultInspectStaged(branch));
+  if (inspected === null || inspected.count === null) return null; // error/unconfigured → fail open
+  const staged = inspected.count;
+
+  if (staged === 0 && inspected.foreignBranches.length > 0) {
+    const cmds = inspected.foreignBranches
+      .map((name) => `uploads unstage --branch ${name}`)
+      .join("; ");
+    const message =
+      `Nothing is staged for branch '${branch}', but ${inspected.foreignBranches.join(", ")} still has staged files. ` +
+      `If those files are on the wrong branch, run \`${cmds}\`.`;
+    return formatAdvisory(message, isCursorHookInput(raw));
+  }
 
   // Promote suggestion (issue #700): staged-but-unattached files already
   // exist for this branch right as its PR is about to open. The PR doesn't
   // exist yet at this PreToolUse point, so its number isn't knowable here —
   // the wording still gives the exact command shape, and a bare
   // `attach --promote` (which infers the PR from the branch) works too.
+  // A set older than 30 days is more likely leftover than waiting (issue #1124).
+  if (staged > 0 && inspected.allStale) {
+    const noun = `${staged} file${staged === 1 ? "" : "s"} staged for branch '${branch}'`;
+    const message = `${noun} ${staged === 1 ? "is" : "are"} older than 30 days. If ${staged === 1 ? "it is" : "they are"} not for this pull request, run \`uploads unstage --branch ${branch}\` before opening it.`;
+    return formatAdvisory(message, isCursorHookInput(raw));
+  }
+
   if (staged > 0) {
     const fork = (deps.isFork ?? (() => defaultIsFork(cwd)))();
     const forkNote =

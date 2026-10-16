@@ -513,6 +513,7 @@ describe("tools/list", () => {
       "attach",
       "list",
       "staged",
+      "unstage",
       "delete",
       "get_metadata",
       "set_metadata",

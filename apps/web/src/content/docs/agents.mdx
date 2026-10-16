@@ -144,7 +144,9 @@ For how staging works, see [Stage before a PR exists](/docs/attach-pull-request-
 
 Before `gh pr create`, the reminder hook nudges the agent if the branch touches UI files and
 nothing is staged. When files are staged, it says whether they attach on their own when the PR
-opens. It never blocks the PR. Turn it off with `UPLOADS_HOOK_DISABLE=1`.
+opens. If those files are older than 30 days, or they belong to a different branch, it suggests
+`uploads unstage --branch <name>` instead. It never blocks the PR. Turn it off with
+`UPLOADS_HOOK_DISABLE=1`.
 
 - **Claude Code and Codex:** included in the [plugin](#plugin).
 - **Grok and Cursor:** `uploads install` adds it when those tools are installed.

@@ -149,6 +149,30 @@ describe("promoteBranchAttachments — private prefixes (issue #631)", () => {
     expect(copyMeta["gh.number"]).toBe(String(NUM));
   });
 
+  it("skips a file marked unstaged and does not copy it (issue #1124)", async () => {
+    const seeded = await seededEnv({ isPrivate: false });
+    await seedPlainStaged(seeded, "hero.png");
+    await replaceFileMetadata(seeded.env.DB, WS, stagedKey("hero.png"), {
+      "gh.repo": REPO,
+      "gh.kind": "branch",
+      "gh.branch": BRANCH,
+      "gh.status": "unstaged",
+    });
+
+    const result = await promoteBranchAttachments(seeded.env, seeded.ws, WS, {
+      repo: REPO,
+      num: NUM,
+      branch: BRANCH,
+    });
+
+    expect(result.promoted).toEqual([]);
+    expect(result.skipped).toEqual([{ key: stagedKey("hero.png"), reason: "unstaged" }]);
+    expect(seeded.bucket.store.has(`${PREFIX}${destKey("hero.png")}`)).toBe(false);
+    expect((await getFileMetadata(seeded.env.DB, WS, stagedKey("hero.png")))["gh.status"]).toBe(
+      "unstaged",
+    );
+  });
+
   it("public repo: a stored text/plain object under an extension-less key keeps its content type on promote", async () => {
     const seeded = await seededEnv({ isPrivate: false });
     const notes = new TextEncoder().encode("build log\nno errors\n");

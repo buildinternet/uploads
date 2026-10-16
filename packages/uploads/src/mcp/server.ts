@@ -141,10 +141,15 @@ export class McpAuthError extends Error {
   }
 }
 
+/** Tool-error text for a missing file scope, including where to get it. */
+export function insufficientScopeMessage(scope: string): string {
+  return `This token needs the ${scope} scope. Ask a workspace admin, or mint a token with ${scope} at https://uploads.sh/account/developers.`;
+}
+
 /** Build an insufficient_scope challenge pointing at this resource's metadata. */
 export function insufficientScopeError(resourceMetadataUrl: string, scope: string): McpAuthError {
   return new McpAuthError(
-    `forbidden: requires ${scope} scope`,
+    insufficientScopeMessage(scope),
     `Bearer resource_metadata="${resourceMetadataUrl}", error="insufficient_scope", error_description="This tool requires the ${scope} scope"`,
   );
 }

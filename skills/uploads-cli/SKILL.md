@@ -116,7 +116,28 @@ private repo the staged key is `gh/private/<id>/branch/<filename>`. The
 branch name is not in the key, because the id belongs to one branch.
 `uploads staged --branch` lists that id and keeps a file whose `gh.branch`
 is that branch. A file with no `gh.branch` stays, because it was listed
-under this branch's prefix.
+under this branch's prefix. A file with `gh.status=unstaged` is omitted.
+`uploads staged` never writes.
+
+**Clear a branch: `uploads unstage`.** Marks files `gh.status=unstaged` so
+they drop out of `uploads staged`, auto-promotion, and the Claude plugin
+band. The object and its URL stay. Needs `files:write`, not `files:delete`.
+
+```bash
+uploads unstage --branch feature/thing
+uploads unstage --branch feature/thing --repo owner/name --dry-run
+uploads unstage gh/owner/name/branch/feature-thing/shot.png
+```
+
+`--branch` does not default to the current git branch. Pass keys instead of
+`--branch` to unstage those objects, including one that was already promoted.
+On a private repo the command lists this branch's prefix ids
+(`gh/private/<id>/branch/…`), the same set `uploads staged` uses. Keys and
+`--branch` together are an error.
+
+Local stdio MCP mirrors this as `unstage` (`branch` or `keys`, optional
+`repo` and `dryRun`). The hosted MCP tool is also `unstage`. Hosted has no
+git defaults, so `repo` is required with `branch`.
 
 `uploads list` has no `--branch`. An unknown flag, including `--branch`, is
 an error. Use `uploads staged --branch <name>`.
@@ -297,8 +318,13 @@ agent as `UPLOADS_TOKEN`, or an enrollment code (`upe_…`, an alternative invit
 when you don't have the recipient's email) can be exchanged with `uploads login --code`.
 Neither is the normal path for new setups.
 
-The resulting token defaults to 90 days and `files:read` plus `files:write`; it cannot
-delete files unless an administrator explicitly grants `files:delete`. Verify or inspect
+The resulting token defaults to 90 days and `files:read` plus `files:write`. That
+token can delete a `gh/` object it uploaded (the server-stamped `gh.uploader-id`
+matches the user). Deleting someone else's object, a non-`gh/` key, or running
+`purge-expired` still needs `files:delete`. A missing scope returns 403
+`insufficient_scope` and names the scope plus
+`https://uploads.sh/account/developers`. A service token or a legacy token with
+no uploader id cannot use the own-object path. Verify or inspect
 setup at any time:
 
 ```bash
@@ -845,8 +871,10 @@ uploads comment --pr 123
 uploads comment --issue 45 --repo buildinternet/uploads
 ```
 
-Removed the wrong screenshots? `delete` the object(s) and re-run `comment` to
-re-sync. When the **last** attachment and gallery are gone, the managed comment
+Removed the wrong screenshots? `delete` the object(s). Deleting a `gh/…/pull/`
+or `gh/…/issues/` key refreshes the managed comment when the bot can post, and
+prints `uploads comment --pr <n>` (or `--issue`) when it cannot. Re-run
+`comment` yourself if you still need a refresh. When the **last** attachment and gallery are gone, the managed comment
 is rewritten in place to a neutral empty state (`No attachments are currently
 associated with this pull request.`) — it is never deleted (a later upload
 repopulates it) and never created just to say it's empty:
@@ -1146,6 +1174,10 @@ uploads --api-url http://localhost:8787 doctor
   put  { contentBase64, filename, repo: "owner/name", branch: "feature/x", state: "after" }
   put  { contentUrl: "https://cdn.example/after.png", repo: "owner/name", branch: "feature/x", state: "after" }
   # → key gh/owner/name/branch/feature-x/<filename>, gh.status=staged
+
+  # Drop staged files without deleting them (CLI uploads unstage).
+  unstage  { repo: "owner/name", branch: "feature/x" }
+  unstage  { keys: ["gh/owner/name/branch/feature-x/after.png"], dryRun: true }
 
   # Promote staged files into a PR once it exists (CLI attach --promote).
   promote  { repo: "owner/name", pr: 123, branch: "feature/x" }

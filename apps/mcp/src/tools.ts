@@ -9,7 +9,8 @@
  *   same stable key + managed comment, or `put` with `branch` (+ `repo`) to
  *   stage pre-PR, or `promote` to copy staged files into a PR.
  * - No `doctor` (local checks). No `staged` tool — no git defaults for branch;
- *   use `list` / `find_files` + `repo_link_status` (issue #405).
+ *   use `list` / `find_files` + `repo_link_status` (issue #405). `unstage`
+ *   is hosted: pass `repo` and `branch`, or `keys` (issue #1124).
  * - `list_activity` and `list_repo_files` are hosted-only reads of the Files
  *   views. They return tagged files, not a bucket listing.
  */
@@ -62,8 +63,9 @@ import {
   SEARCH_DOCS_INPUT_SCHEMA,
   runSearchDocsTool,
 } from "@buildinternet/uploads/mcp";
-import { AppError, NotFoundError } from "@uploads/errors";
-import { badKey } from "@uploads/api/files";
+import { AppError, InsufficientScopeError, NotFoundError, ValidationError } from "@uploads/errors";
+import { attachmentCommentTarget, assertDeleteAllowed } from "@uploads/api/delete-auth";
+import { unstageGithubFiles } from "@uploads/api/github-unstage";
 import { postManagedComment, type PostCommentResult } from "@uploads/api/github-comment-service";
 import {
   postPromoteBranchAttachments,
@@ -116,7 +118,7 @@ import { createFeed, getFeed } from "@uploads/api/feeds";
 import { hydrateOwnerFeed, unwrapFeedMutation } from "@uploads/api/feed-service";
 import { parseExternalReference } from "@uploads/api/external-references";
 import { publicUrl, storage, storageConfig } from "@uploads/api/storage";
-import { deleteObject, listObjects, putObject } from "@uploads/api/files";
+import { badKey, deleteObject, listObjects, putObject } from "@uploads/api/files";
 import { activeContentAllowed } from "@uploads/api/active-content";
 import {
   allowWrite,
@@ -1202,11 +1204,59 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
     },
     ...activityReadTools({ env, workspace, workspaceName, requireScope }),
     {
+      name: "unstage",
+      title: "Unstage files",
+      annotations: mcpWritePublic,
+      securitySchemes: mcpOAuthWrite,
+      description:
+        "Clear staged files for a branch, or specific keys, without deleting them. Sets gh.status=unstaged so they drop out of auto-promotion. Pass repo and branch, or keys. Needs files:write.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          repo: { type: "string", description: hostedRepoRequired },
+          branch: {
+            type: "string",
+            description:
+              "Branch whose staged files to clear. Requires repo. Do not combine with keys.",
+          },
+          keys: {
+            type: "array",
+            items: { type: "string" },
+            description: "Object keys to unstage. Do not combine with branch.",
+          },
+          dryRun: {
+            type: "boolean",
+            description: "Report what would change without writing.",
+          },
+        },
+        additionalProperties: false,
+      },
+      async handler(args) {
+        requireScope("files:write");
+        await requireWriteBudget();
+        const branch = branchFromArgs(args);
+        const keys = optStringArray(args, "keys");
+        const repo = optString(args, "repo");
+        const dryRun = optBool(args, "dryRun");
+        if (keys && keys.length > 0 && branch) usage("pass keys or branch, not both");
+        if ((!keys || keys.length === 0) && !branch) usage("branch or keys is required");
+        if (branch && !repo) usage("repo is required with branch");
+        if (repo && !validRepoGrammar(repo)) usage("repo must be owner/name");
+        return unstageGithubFiles(env, workspace, workspaceName, {
+          repo,
+          branch,
+          keys,
+          dryRun,
+        });
+      },
+    },
+    {
       name: "delete",
       title: "Delete file",
       annotations: mcpDestroyPublic,
       securitySchemes: mcpOAuthDelete,
-      description: "Permanently delete one uploaded file by key, along with its metadata.",
+      description:
+        "Permanently delete one uploaded file by key, along with its metadata. A files:write token can delete a gh/ object it uploaded; deleting any other object needs files:delete. Deleting a PR or issue attachment refreshes the managed comment.",
       inputSchema: {
         type: "object",
         properties: {
@@ -1216,11 +1266,50 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
         additionalProperties: false,
       },
       async handler(args) {
-        requireScope("files:delete");
-        await requireWriteBudget();
         const key = optString(args, "key");
         if (!key) usage("key is required");
-        return deleteObject(env, workspace, key, workspaceName);
+        if (badKey(key)) throw new ValidationError("invalid key", { code: "invalid_key" });
+        const attachment =
+          /^gh\/(?:[^/]+\/[^/]+|private\/[0-9a-f]{32})\/(?:pull|issues)\/[1-9][0-9]*\//.test(key);
+        const metadata =
+          attachment || !ctx.authScopes.includes("files:delete")
+            ? await getFileMetadata(env.DB, workspaceName, key)
+            : undefined;
+        try {
+          await assertDeleteAllowed({
+            db: env.DB,
+            workspaceName,
+            key,
+            scopes: ctx.authScopes,
+            identity: ctx.uploaderIdentity,
+            metadata,
+          });
+        } catch (err) {
+          if (err instanceof InsufficientScopeError) {
+            throw insufficientScopeError(ctx.resourceMetadataUrl, "files:delete");
+          }
+          throw err;
+        }
+        await requireWriteBudget();
+        const target = attachmentCommentTarget(key, metadata ?? {});
+        const result = await deleteObject(env, workspace, key, workspaceName);
+        if (!target) return result;
+        const flag = target.kind === "pull" ? "--pr" : "--issue";
+        const commentHint = `uploads comment ${flag} ${target.num}`;
+        try {
+          const comment = await postManagedComment(
+            env,
+            workspace,
+            workspaceName,
+            mintingUserId,
+            target,
+            { resync: true },
+          );
+          if (comment.posted) return { ...result, commentRefreshed: true };
+        } catch {
+          // The object is already gone. The hint is the recovery.
+        }
+        return { ...result, commentRefreshed: false, commentHint };
       },
     },
     {

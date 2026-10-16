@@ -315,8 +315,11 @@ and subscribed to the `issue_comment` event, a deleted or edited-out managed
 comment self-heals automatically on the next webhook delivery — no need to
 run `comment`/`attach` again just to bring it back.
 
-**Removed the wrong screenshots?** `delete` the object(s) and re-run
-`comment` (or the hosted `comment` tool) to re-sync. Once the last attachment
+**Removed the wrong screenshots?** `delete` the object(s). A `gh/` attachment
+delete refreshes the managed comment when it can, and otherwise tells you to
+re-run `comment` (or the hosted `comment` tool). Staged the wrong branch?
+`uploads unstage --branch <name>` keeps the file and drops it from promotion.
+Once the last attachment
 is gone the comment is rewritten in place to a neutral empty state — it stays
 on the PR (a later upload repopulates it) rather than leaving stale entries
 that point at deleted files.

@@ -6,8 +6,10 @@ import {
 } from "@uploads/errors";
 import type { Context, Handler } from "hono";
 import { activeContentAllowed } from "../active-content";
+import { assertDeleteAllowed } from "../delete-auth";
 import {
   badKey,
+  deleteObject,
   finalizeUploadKey,
   headObjectJson,
   isManagedGithubKey,
@@ -337,6 +339,19 @@ export async function getFileHandler(c: Context<WorkspaceVars>) {
   const meta = await lane.store.head(key);
   const urls = objectPublicUrls(c.env, lane.config, key);
   return c.json(headObjectJson(key, meta, urls.url, urls.embedUrl));
+}
+
+export async function deleteFileHandler(c: Context<WorkspaceVars>) {
+  const key = c.req.param("key")!;
+  if (badKey(key)) throw new ValidationError("invalid key", { code: "invalid_key" });
+  await assertDeleteAllowed({
+    db: dbFor(c.env),
+    workspaceName: c.get("workspaceName"),
+    key,
+    scopes: c.get("authScopes"),
+    identity: c.get("uploaderIdentity"),
+  });
+  return c.json(await deleteObject(c.env, c.get("workspace"), key, c.get("workspaceName")));
 }
 
 export async function patchFileHandler(c: Context<WorkspaceVars>) {

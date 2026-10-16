@@ -34,6 +34,8 @@
     "./github-promote-service": "./src/github-promote-service.ts",
     "./github-branch-renames": "./src/github-branch-renames.ts",
     "./github-attach-service": "./src/github-attach-service.ts",
+    "./github-unstage": "./src/github-unstage.ts",
+    "./delete-auth": "./src/delete-auth.ts",
     "./github-repo-binding": "./src/github-repo-binding.ts",
     "./admin-ui": "./src/routes/admin-ui.ts",
     "./workspace-usage": "./src/routes/workspace-usage.ts",

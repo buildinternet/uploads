@@ -1,4 +1,5 @@
 import { ForbiddenError, InsufficientScopeError, UnauthorizedError } from "@uploads/errors";
+import { insufficientScopeMessage } from "./scope-message";
 import {
   d1ExecMs,
   ServerTiming,
@@ -824,7 +825,7 @@ export function stampRestore(record: WorkspaceRecord): WorkspaceRecord {
 export function requireScope(scope: FileScope): MiddlewareHandler<WorkspaceVars> {
   return async (c, next) => {
     if (!c.get("authScopes").includes(scope)) {
-      throw new InsufficientScopeError(scope, "forbidden");
+      throw new InsufficientScopeError(scope, insufficientScopeMessage(scope));
     }
     await next();
   };

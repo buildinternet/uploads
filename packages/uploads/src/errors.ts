@@ -27,17 +27,20 @@ export class UploadsError extends Error {
    * what's already there without a follow-up lookup.
    */
   readonly existingUrl?: string;
+  /** Set for `INSUFFICIENT_SCOPE`: the scope the call needed. */
+  readonly requiredScope?: string;
 
   constructor(
     message: string,
     code: UploadsErrorCode,
     status?: number,
-    opts?: { existingUrl?: string },
+    opts?: { existingUrl?: string; requiredScope?: string },
   ) {
     super(message);
     this.name = "UploadsError";
     this.code = code;
     this.status = status;
     this.existingUrl = opts?.existingUrl;
+    this.requiredScope = opts?.requiredScope;
   }
 }

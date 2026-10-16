@@ -92,7 +92,9 @@ command to run by hand, rather than overwriting your build.
 | `list` / `find k=v`        | List objects, optionally filtered by queryable metadata                                                                  |
 | `meta get` / `meta set`    | Read or merge-set an object's queryable metadata                                                                         |
 | `gallery …`                | Create and organize public media galleries                                                                               |
-| `delete <key>`             | Delete an object                                                                                                         |
+| `staged`                   | Show what's staged for a branch, and whether it will auto-attach                                                         |
+| `unstage`                  | Mark a branch's staged files (or specific keys) `gh.status=unstaged` without deleting them                               |
+| `delete <key>`             | Delete an object. A `files:write` token can delete a `gh/` object it uploaded; other deletes need `files:delete`         |
 | `usage`                    | Workspace storage / upload counters                                                                                      |
 | `install`                  | Skills + remote MCP (Claude/Codex/Grok; skips missing CLIs) + hooks (Grok/Cursor)                                        |
 | `hook`                     | Agent harness handlers (e.g. pre-PR screenshot reminder)                                                                 |
@@ -321,7 +323,9 @@ resolve the PR/issue title. Title resolution is best-effort and never blocks the
 upload.
 
 Branch staging (`attach --branch`) stamps `gh.status=staged`, which promotion
-flips to `promoted`. Query in-flight files with `uploads find gh.status=staged`.
+flips to `promoted`. `uploads unstage --branch <name>` sets `gh.status=unstaged`
+instead: the object and URL stay, and promotion skips the file. Query in-flight
+files with `uploads find gh.status=staged`.
 Promotion only accepts a staged file while it's fresh: 30 days after
 `gh.staged-at` (`FRESHNESS_WINDOW_MS`, `apps/api/src/github-promote.ts`) the file
 stops being promotable, but it **keeps serving** — nothing deletes it. There is
@@ -423,7 +427,10 @@ fail-open (silent when unconfigured or on any error). Two mutually exclusive
 advisories:
 
 - staged-but-unattached files already exist for the branch (`gh.status=staged`;
-  files already promoted to a PR are ignored) → a binding-aware message
+  files already promoted to a PR are ignored). When every one of them is older
+  than 30 days, the hook suggests `uploads unstage --branch <name>` instead of
+  promoting. When nothing is staged for this branch but another branch still
+  has staged files, it suggests unstage for that branch. Otherwise → a binding-aware message
   (issue #700). When the repo is linked to this workspace, it says the files
   attach automatically when the PR opens. When the link is missing or unknown,
   it keeps the promote suggestion: `uploads attach --promote --pr <num>` once

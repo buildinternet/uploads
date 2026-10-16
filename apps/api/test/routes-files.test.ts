@@ -1470,8 +1470,10 @@ describe("GET ?metadata=1 / PATCH /v1/:workspace/files/:key", () => {
 
     const patch = await patchMeta(env, "screenshots/shot.png", { set: { app: "web" } }, READ_TOKEN);
     expect(patch.status).toBe(403);
-    const json = (await patch.json()) as { error: { type: string } };
+    const json = (await patch.json()) as { error: { type: string; message: string } };
     expect(json.error.type).toBe("insufficient_scope");
+    expect(json.error.message).toContain("files:write");
+    expect(json.error.message).toContain("https://uploads.sh/account/developers");
   });
 
   it("a token mixing an operator scope with a file scope grants no extra file permissions (issue #257)", async () => {
@@ -2044,5 +2046,96 @@ describe("uploader attribution never breaks a cap-limit upload (issue #340 revie
     );
     expect(Object.keys(meta)).toHaveLength(24);
     expect(meta["gh.uploader-id"]).toBeUndefined();
+  });
+});
+
+describe("DELETE own gh objects with files:write (issue #1124)", () => {
+  const WRITE = "up_default_write_delete";
+  const KEY = "gh/acme/web/pull/12/shot.png";
+
+  async function writeEnv() {
+    return makeEnv(
+      {},
+      { scopedToken: { rawToken: WRITE, scopes: ["files:write"], mintingUserId: "user-1" } },
+    );
+  }
+
+  async function putGh(env: Parameters<typeof app.request>[2]) {
+    const res = await putShot(env, {
+      key: KEY,
+      headers: {
+        Authorization: `Bearer ${WRITE}`,
+        "X-Uploads-Meta-gh.repo": "acme/web",
+        "X-Uploads-Meta-gh.kind": "pull",
+        "X-Uploads-Meta-gh.number": "12",
+      },
+    });
+    expect(res.status).toBe(201);
+  }
+
+  function del(env: Parameters<typeof app.request>[2], key: string, token = WRITE) {
+    return app.request(
+      `/v1/default/files/${key}`,
+      { method: "DELETE", headers: { Authorization: `Bearer ${token}` } },
+      env,
+    );
+  }
+
+  it("lets the uploading user delete their gh attachment", async () => {
+    const { env, bucket } = await writeEnv();
+    await putGh(env);
+    const res = await del(env, KEY);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ key: KEY, deleted: true });
+    expect(bucket.store.has(`default/${KEY}`)).toBe(false);
+  });
+
+  it("refuses a different user's object, a non-gh key, and a read-only token", async () => {
+    const { env, db } = await writeEnv();
+    await putGh(env);
+    db.metadata.get(`default ${KEY}`)?.set("gh.uploader-id", "someone-else");
+    const other = await del(env, KEY);
+    expect(other.status).toBe(403);
+    const otherBody = (await other.json()) as {
+      error: { message: string; details?: { required_scope?: string } };
+    };
+    expect(otherBody.error.details?.required_scope).toBe("files:delete");
+    expect(otherBody.error.message).toContain("files:delete");
+    expect(otherBody.error.message).toContain("https://uploads.sh/account/developers");
+
+    const shot = await putShot(env, {
+      headers: { Authorization: `Bearer ${WRITE}`, "X-Uploads-Meta-page": "home" },
+    });
+    expect(shot.status).toBe(201);
+    const nonGh = await del(env, "screenshots/shot.png");
+    expect(nonGh.status).toBe(403);
+
+    const read = await makeEnv(
+      {},
+      {
+        scopedToken: { rawToken: "up_read_only", scopes: ["files:read"], mintingUserId: "user-1" },
+      },
+    );
+    await putShot(read.env, {
+      key: KEY,
+      headers: {
+        Authorization: `Bearer ${TOKEN}`,
+        "X-Uploads-Meta-gh.repo": "acme/web",
+        "X-Uploads-Meta-gh.uploader-id": "user-1",
+      },
+    });
+    const denied = await del(read.env, KEY, "up_read_only");
+    expect(denied.status).toBe(403);
+    const deniedBody = (await denied.json()) as { error: { message: string } };
+    expect(deniedBody.error.message).toContain("files:delete");
+  });
+
+  it("rejects a client write of gh.uploader-id", async () => {
+    const { env } = await writeEnv();
+    await putGh(env);
+    const res = await patchMeta(env, KEY, { set: { "gh.uploader-id": "user-1" } }, WRITE);
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("file_metadata_reserved_key");
   });
 });

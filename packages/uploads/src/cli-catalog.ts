@@ -150,6 +150,10 @@ export const ROOT_COMMANDS: readonly CatalogCommand[] = [
     summary: "Show what's staged for a branch, and whether it will auto-attach",
   },
   {
+    name: "unstage",
+    summary: "Clear a branch's staged files without deleting them",
+  },
+  {
     name: "screenshot",
     usage: "screenshot <target>",
     summary: "Capture a URL or .html file and host it (local browser or remote render)",

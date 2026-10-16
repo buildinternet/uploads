@@ -74,8 +74,8 @@ Each endpoint needs one scope. The [endpoint reference](#endpoints) shows it nex
 | Scope          | Grants                                                       |
 | -------------- | ------------------------------------------------------------ |
 | `files:read`   | List, search, and read files, metadata, usage, galleries, feeds |
-| `files:write`  | Upload, update metadata, galleries, feeds, usage reconcile    |
-| `files:delete` | Delete files and purge expired ones                          |
+| `files:write`  | Upload, update metadata, galleries, feeds, usage reconcile. Also delete a `gh/` file this token uploaded |
+| `files:delete` | Delete any file, and purge expired ones                      |
 
 <div class="note">
   The REST API does not accept OAuth access tokens. Those work only on the

@@ -32,6 +32,8 @@ export type Staged = {
   rows: BandRow[];
   binding: Binding;
   autoAttach: boolean;
+  /** Branches named on files this view dropped. Empty when the CLI omitted them. */
+  foreignBranches: string[];
 };
 
 /** The last PR this session opened that had staged files waiting for it. */

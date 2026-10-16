@@ -48,6 +48,10 @@
     "title": "List staged files"
   },
   {
+    "name": "unstage",
+    "title": "Unstage files"
+  },
+  {
     "name": "delete",
     "title": "Delete file"
   },

@@ -40,7 +40,7 @@ import {
   type DualAuthVars,
 } from "../dual-workspace-auth";
 import { respondError } from "../error-response";
-import { badKey, deleteObject, listObjects, setObjectVisibility } from "../files-core";
+import { badKey, listObjects, setObjectVisibility } from "../files-core";
 import {
   getMetadataForKeys,
   getObjectUpdatedAt,
@@ -60,6 +60,7 @@ import { objectPublicUrls, publicUrl, resolveObjectLane, storage, storageConfig 
 import { sanitizeVisibility, VISIBILITY_VALUES } from "../visibility";
 import { loadWorkspaceRecord, requireScope } from "../workspace";
 import {
+  deleteFileHandler,
   getFileHandler,
   patchFileHandler,
   putFileHandler,
@@ -486,17 +487,7 @@ export const workspaceFiles = new Hono<DualAuthVars>()
   // used at `DELETE /v1/:workspace/files/:key{.+}`; see the module docblock
   // for why the pre-existing `/me` query-param DELETE is aliased rather than
   // migrated in place).
-  .delete(
-    "/:workspace/files/:key{.+}",
-    dualWorkspaceAuth(),
-    rateLimited,
-    scoped("files:delete"),
-    async (c) => {
-      return c.json(
-        await deleteObject(c.env, c.get("workspace"), c.req.param("key"), c.get("workspaceName")),
-      );
-    },
-  )
+  .delete("/:workspace/files/:key{.+}", dualWorkspaceAuth(), rateLimited, shared(deleteFileHandler))
   // This router is `.fetch()`-ed directly (not only mounted via `.route()`)
   // by the old-path aliases in `routes/me.ts`'s `forwardToWorkspaceFiles`, so
   // it needs its own error boundary — Hono's default unhandled-throw
