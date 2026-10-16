@@ -1,5 +1,15 @@
 # @buildinternet/uploads
 
+## 0.58.0
+
+### Minor Changes
+
+- 5da7003: Add `uploads unstage` to clear a branch's staged files without deleting them. A write token can delete `gh/` objects the server stamped as that user's. Files uploaded before that stamp still need `files:delete`. A missing-scope error names the scope and where to mint it.
+
+### Patch Changes
+
+- 4879d8a: `uploads staged --branch` returns only that branch's still-staged files on private repos, and the Claude plugin no longer reports another branch's files as waiting.
+
 ## 0.57.1
 
 ### Patch Changes
