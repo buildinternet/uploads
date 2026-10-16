@@ -261,6 +261,12 @@ export async function attachExistingObject(
       "gh.attached-at": nowIso,
     },
     remove,
+    // The source may already carry a server uploader stamp. Copying it is
+    // not a client write; `setFileMetadata` rejects those keys otherwise,
+    // which would fail attach for every attributed file. Own-delete still
+    // requires the proof, so an unproven id on the source does not become
+    // one on the copy.
+    { allowUploaderKeys: true },
   );
 
   // Tag the branch source before a move-delete. The copy already succeeded,

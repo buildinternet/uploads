@@ -561,9 +561,51 @@
     ]
   },
   {
+    "name": "unstage",
+    "title": "Unstage files",
+    "description": "Clear staged files for a branch, or specific keys, without deleting them. Sets gh.status=unstaged so they drop out of auto-promotion. Pass repo and branch, or keys. Needs files:write.",
+    "access": "write",
+    "scopes": [
+      "files:write"
+    ],
+    "params": [
+      {
+        "name": "repo",
+        "type": "string",
+        "required": false,
+        "description": "GitHub `owner/name`. Required — this server cannot infer it from git."
+      },
+      {
+        "name": "branch",
+        "type": "string",
+        "required": false,
+        "description": "Branch whose staged files to clear. Requires repo. Do not combine with keys."
+      },
+      {
+        "name": "keys",
+        "type": "string[]",
+        "required": false,
+        "description": "Object keys to unstage. Do not combine with branch."
+      },
+      {
+        "name": "dryRun",
+        "type": "boolean",
+        "required": false,
+        "description": "Report what would change without writing."
+      }
+    ],
+    "returns": [
+      "dryRun",
+      "repo",
+      "branch",
+      "files",
+      "truncated"
+    ]
+  },
+  {
     "name": "delete",
     "title": "Delete file",
-    "description": "Permanently delete one uploaded file by key, along with its metadata.",
+    "description": "Permanently delete one uploaded file by key, along with its metadata. A files:write token can delete a gh/ object the server stamped as its upload. Older files and any other object need files:delete. Deleting a PR or issue attachment refreshes the managed comment.",
     "access": "destructive",
     "scopes": [
       "files:delete"
@@ -579,7 +621,9 @@
     "returns": [
       "key",
       "deleted",
-      "dryRun"
+      "dryRun",
+      "commentRefreshed",
+      "commentHint"
     ]
   },
   {

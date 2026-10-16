@@ -164,6 +164,34 @@ describe("runPrePrScreenshot", () => {
     expect(out).toBeNull();
   });
 
+  it("suggests unstage for a stale set or a different branch (issue #1124)", async () => {
+    const stale = await runPrePrScreenshot({
+      stdin: JSON.stringify({ tool_input: { command: "gh pr create" } }),
+      git,
+      inspectStaged: async () => ({ count: 2, allStale: true, foreignBranches: [] }),
+      binding: async () => null,
+      isFork: () => false,
+    });
+    expect(JSON.parse(stale!).hookSpecificOutput.additionalContext).toMatch(
+      /uploads unstage --branch feat\/ui/,
+    );
+    expect(JSON.parse(stale!).hookSpecificOutput.additionalContext).not.toMatch(/attach --promote/);
+
+    const foreign = await runPrePrScreenshot({
+      stdin: JSON.stringify({ tool_input: { command: "gh pr create" } }),
+      git,
+      inspectStaged: async () => ({
+        count: 0,
+        allStale: false,
+        foreignBranches: ["refactor/old"],
+      }),
+      isFork: () => false,
+    });
+    expect(JSON.parse(foreign!).hookSpecificOutput.additionalContext).toMatch(
+      /uploads unstage --branch refactor\/old/,
+    );
+  });
+
   it("suggests promoting when screenshots are already staged (issue #700)", async () => {
     const out = await runPrePrScreenshot({
       stdin: JSON.stringify({ tool_input: { command: "gh pr create" } }),

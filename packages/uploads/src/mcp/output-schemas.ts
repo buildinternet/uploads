@@ -196,8 +196,31 @@ export const deleteResultSchema: JsonSchema = objectSchema(
     key: { type: "string" },
     deleted: { type: "boolean" },
     dryRun: { type: "boolean" },
+    commentRefreshed: { type: "boolean" },
+    commentHint: { type: "string" },
   },
   ["key"],
+);
+
+export const unstageResultSchema: JsonSchema = objectSchema(
+  {
+    dryRun: { type: "boolean" },
+    repo: { type: "string" },
+    branch: { type: "string" },
+    files: {
+      type: "array",
+      items: objectSchema(
+        {
+          key: { type: "string" },
+          url: nullableString,
+          action: { type: "string", enum: ["unstaged", "unchanged"] },
+        },
+        ["key", "url", "action"],
+      ),
+    },
+    truncated: { type: "boolean" },
+  },
+  ["dryRun", "files"],
 );
 
 export const metadataResultSchema: JsonSchema = objectSchema({ metadata: stringMap }, ["metadata"]);
@@ -538,6 +561,7 @@ export const hostedOutputSchemas: Record<string, JsonSchema> = {
   list_activity: listActivityResultSchema,
   list_repo_files: listRepoFilesResultSchema,
   delete: deleteResultSchema,
+  unstage: unstageResultSchema,
   comment: commentResultSchema,
   promote: promoteToolResultSchema,
   get_metadata: metadataResultSchema,
@@ -564,6 +588,7 @@ export const stdioOutputSchemas: Record<string, JsonSchema> = {
   feed_get: feedResultSchema,
   put: putResultSchema,
   list: listResultSchema,
+  unstage: unstageResultSchema,
   delete: deleteResultSchema,
   comment: objectSchema({
     posted: { type: "boolean" },

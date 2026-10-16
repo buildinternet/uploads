@@ -6,7 +6,7 @@
  * per-call `workspace` argument behaves like the CLI's --workspace flag, and
  * a missing token surfaces as a tool error rather than a startup failure.
  */
-import type { GlobalFlags } from "../cli-args.js";
+import { UsageError, type GlobalFlags } from "../cli-args.js";
 import {
   createUploadsClient,
   type CreateFeedOptions,
@@ -25,6 +25,8 @@ import {
   registerRenamesBestEffort,
   resolvePutStagingTarget,
   resolveStaged,
+  unstageFiles,
+  deleteAndRefreshComment,
   syncAttachmentsComment,
   autoPrNoteText,
   putNudgeText,
@@ -1621,6 +1623,65 @@ export function createUploadsMcpTools(opts: {
       },
     },
     {
+      name: "unstage",
+      title: "Unstage files",
+      annotations: mcpWritePublic,
+      securitySchemes: mcpOAuthWrite,
+      description:
+        "Clear staged files for a branch, or specific keys, without deleting them. Sets gh.status=unstaged so they drop out of uploads staged and auto-promotion. Pass branch (repo inferred) or keys, not both. Needs files:write.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          branch: {
+            type: "string",
+            description:
+              "Branch to clear. Does not default to the current branch. Mutually exclusive with keys.",
+          },
+          repo: {
+            type: "string",
+            description: "owner/name repo (default: gh/git remote inference). Only with branch.",
+          },
+          keys: {
+            type: "array",
+            items: { type: "string" },
+            description: "Object keys to unstage. Mutually exclusive with branch.",
+          },
+          dryRun: {
+            type: "boolean",
+            description: "Report what would change without writing.",
+          },
+          workspace: workspaceProp,
+        },
+        additionalProperties: false,
+      },
+      async handler(args) {
+        const { client } = await clientFor(args);
+        const keys = optStringArray(args, "keys");
+        const branch = optString(args, "branch");
+        const repoFlag = optString(args, "repo");
+        try {
+          if (branch && repoFlag === undefined && (keys === undefined || keys.length === 0)) {
+            return await unstageFiles({
+              client,
+              branch,
+              repo: resolveRepo(undefined, run),
+              dryRun: optBool(args, "dryRun"),
+            });
+          }
+          return await unstageFiles({
+            client,
+            keys,
+            branch,
+            repo: repoFlag,
+            dryRun: optBool(args, "dryRun"),
+          });
+        } catch (err) {
+          if (err instanceof UsageError) usage(err.message);
+          throw err;
+        }
+      },
+    },
+    {
       name: "delete",
       title: "Delete file",
       annotations: mcpDestroyPublic,
@@ -1645,7 +1706,7 @@ export function createUploadsMcpTools(opts: {
         if (!key) usage("key is required");
         if (optBool(args, "dryRun")) return { key, deleted: false, dryRun: true };
         const { client } = await clientFor(args);
-        return client.delete(key);
+        return deleteAndRefreshComment(client, key);
       },
     },
     {

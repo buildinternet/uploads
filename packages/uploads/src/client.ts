@@ -1085,6 +1085,11 @@ function feedsBase(config: UploadsClientConfig): string {
   return `${config.apiUrl}/v1/workspaces/${encodeURIComponent(config.workspace)}/feeds`;
 }
 
+/** Where to get a missing file scope. Same sentence as the API 403. */
+export function scopeRemedy(scope: string): string {
+  return `Ask a workspace admin, or mint a token with ${scope} at https://uploads.sh/account/developers.`;
+}
+
 function mapApiError(
   status: number,
   error: string,
@@ -1097,10 +1102,13 @@ function mapApiError(
     return new UploadsError(error, "UNAUTHORIZED", status);
   }
   if (code === "insufficient_scope") {
-    // The server's message is a bare "forbidden" — name the missing scope so
-    // the failure is actionable without a doctor run.
-    const message = requiredScope ? `token lacks the ${requiredScope} scope` : error;
-    return new UploadsError(message, "INSUFFICIENT_SCOPE", status);
+    // Name the missing scope and how to get it. The server message is the
+    // same idea; rebuilding from `required_scope` keeps older servers
+    // (message "forbidden") actionable too.
+    const message = requiredScope
+      ? `token lacks the ${requiredScope} scope. ${scopeRemedy(requiredScope)}`
+      : error;
+    return new UploadsError(message, "INSUFFICIENT_SCOPE", status, { requiredScope });
   }
   if (status === 404 || code === "not_found" || normalized === "not found") {
     return new UploadsError(error, "NOT_FOUND", status);

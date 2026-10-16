@@ -12,6 +12,7 @@ import {
   type ResolveGhPrefixOptions,
   type ResolveGhPrefixResult,
   type RotateGhPrefixResult,
+  scopeRemedy,
   type UploadsClient,
 } from "./client.js";
 import {
@@ -2710,6 +2711,7 @@ export async function resolveStaged(opts: {
     // cover a tag that landed without flipping `gh.status`.
     if (
       meta?.["gh.status"] === "promoted" ||
+      meta?.["gh.status"] === "unstaged" ||
       meta?.["gh.promoted-to"] ||
       meta?.["gh.promoted-at"]
     ) {
@@ -2739,7 +2741,8 @@ Read-only view of what's staged for a branch (\`attach --branch\` / bare
 once a PR opens. Lists this branch's staging prefix only. On a private repo
 the key is gh/private/<id>/branch/<file> (no branch segment; the id is per
 branch). A file whose gh.branch is a different branch is omitted, and so is
-a file already copied onto a pull request. Plus a binding check.
+a file already copied onto a pull request or marked unstaged. Plus a
+binding check. Unstage with \`uploads unstage\`; this command never writes.
 
 Defaults: current git branch (same resolution as \`attach --branch\`, worktree-
 safe), repo from --repo / gh / git remote (same as every other command).
@@ -2802,6 +2805,209 @@ export async function runStaged(
   // the cross-tenant gate (#297) would reject it from here.
   if (result.binding.state !== "other") {
     process.stderr.write(`once the PR exists: uploads attach --promote\n`);
+  }
+  return 0;
+}
+
+const UNSTAGE_LIST_LIMIT = 1000;
+const UNSTAGE_MAX_PAGES = 20;
+
+export interface UnstageFile {
+  key: string;
+  url: string | null;
+  action: "unstaged" | "unchanged";
+}
+
+export interface UnstageResult {
+  dryRun: boolean;
+  repo?: string;
+  branch?: string;
+  files: UnstageFile[];
+  truncated?: boolean;
+}
+
+/**
+ * Still in the branch's staged set. A different `gh.branch` is another
+ * branch's file. Promoted and unstaged files are already out. Pull-request
+ * twins stay in: `uploads staged` hides them, but they would still
+ * auto-promote until this command marks them unstaged.
+ */
+function stillStagedForBranch(meta: Record<string, string> | undefined, branch: string): boolean {
+  const fileBranch = meta?.["gh.branch"];
+  if (fileBranch && fileBranch.toLowerCase() !== branch.toLowerCase()) return false;
+  if (meta?.["gh.status"] === "promoted" || meta?.["gh.status"] === "unstaged") return false;
+  if (meta?.["gh.promoted-to"] || meta?.["gh.promoted-at"]) return false;
+  return true;
+}
+
+async function listPrefixForUnstage(
+  client: UploadsClient,
+  prefix: string,
+): Promise<{
+  items: { key: string; url: string | null; metadata?: Record<string, string> }[];
+  truncated: boolean;
+}> {
+  const items: { key: string; url: string | null; metadata?: Record<string, string> }[] = [];
+  let cursor: string | undefined;
+  for (let page = 0; page < UNSTAGE_MAX_PAGES; page++) {
+    const result = await client.list({
+      prefix,
+      metadata: true,
+      limit: UNSTAGE_LIST_LIMIT,
+      cursor,
+    });
+    for (const item of result.items) {
+      items.push({ key: item.key, url: item.url, metadata: item.metadata });
+    }
+    if (!result.cursor) return { items, truncated: false };
+    cursor = result.cursor;
+  }
+  return { items, truncated: true };
+}
+
+/**
+ * Shared core for `uploads unstage` and the stdio `unstage` tool (issue
+ * #1124). Sets `gh.status=unstaged`. The object and its URL stay. Branch
+ * mode requires an explicit branch — it does not default to the current git
+ * branch, so a bare call cannot clear the wrong checkout. `--repo` is
+ * inferred the same way as `uploads staged` when the caller omits it.
+ */
+export async function unstageFiles(opts: {
+  client: UploadsClient;
+  keys?: string[];
+  repo?: string;
+  branch?: string;
+  dryRun?: boolean;
+}): Promise<UnstageResult> {
+  const keys = (opts.keys ?? []).filter((key) => key.length > 0);
+  const branch = opts.branch;
+  const dryRun = opts.dryRun === true;
+  if (keys.length > 0 && branch) {
+    throw new UsageError("pass either keys or --branch, not both", {
+      example: "uploads unstage --branch feature/thing",
+    });
+  }
+  if (keys.length === 0 && !branch) {
+    throw new UsageError("unstage requires --branch or one or more keys", {
+      example: "uploads unstage --branch feature/thing",
+    });
+  }
+  if (opts.repo && !branch) {
+    throw new UsageError("--repo requires --branch", {
+      example: "uploads unstage --branch feature/thing --repo owner/name",
+    });
+  }
+
+  if (keys.length > 0) {
+    const files: UnstageFile[] = [];
+    for (const key of keys) {
+      const { metadata } = await opts.client.getMetadata(key);
+      if (metadata["gh.status"] === "unstaged") {
+        files.push({ key, url: null, action: "unchanged" });
+        continue;
+      }
+      if (!dryRun) {
+        await opts.client.patchMetadata(key, { set: { "gh.status": "unstaged" } });
+      }
+      files.push({ key, url: null, action: "unstaged" });
+    }
+    return { dryRun, files };
+  }
+
+  const repo = opts.repo;
+  if (!repo) {
+    throw new UsageError("unstage --branch needs a repo", {
+      example: "uploads unstage --branch feature/thing --repo owner/name",
+    });
+  }
+  const ghPrefix = await resolveGhPrefixSafe(opts.client, { repo, branch });
+  const prefixes = [
+    ghBranchKeyPrefix(repo, branch!),
+    ...stagedPrivatePrefixIds(ghPrefix).map((id) => ghPrivateBranchKeyPrefix(id)),
+  ];
+  const files: UnstageFile[] = [];
+  let truncated = false;
+  for (const prefix of prefixes) {
+    const listed = await listPrefixForUnstage(opts.client, prefix);
+    if (listed.truncated) truncated = true;
+    for (const item of listed.items) {
+      if (!stillStagedForBranch(item.metadata, branch!)) continue;
+      if (!dryRun) {
+        await opts.client.patchMetadata(item.key, { set: { "gh.status": "unstaged" } });
+      }
+      files.push({ key: item.key, url: item.url, action: "unstaged" });
+    }
+  }
+  return {
+    dryRun,
+    repo,
+    branch,
+    files,
+    ...(truncated ? { truncated: true } : {}),
+  };
+}
+
+const UNSTAGE_HELP = `uploads unstage (--branch <name> [--repo <owner/name>] | <key...>) [--dry-run]
+
+Mark staged files as unstaged. The object and its URL stay. The files drop
+out of \`uploads staged\`, auto-promotion, and the Claude plugin band. Needs
+files:write (a metadata write), not files:delete.
+
+--branch clears everything still staged for that branch, including a private
+repo (\`gh/private/<id>/branch/…\`, this branch's prefix ids only). It does
+not default to the current git branch. Pass keys instead to unstage specific
+objects, including one that was already promoted.
+
+--dry-run reports what would change and writes nothing.
+
+Examples:
+  uploads unstage --branch feature/thing
+  uploads unstage --branch feature/thing --repo owner/name --dry-run
+  uploads unstage gh/owner/name/branch/feature-thing/shot.png
+`;
+
+export async function runUnstage(
+  ctx: CliContext,
+  args: string[],
+  help = false,
+  run: CommandRunner = execRunner,
+): Promise<number> {
+  const parsed = parseCommandArgs(args);
+  if (help || parsed.help) {
+    writeCommandHelp(UNSTAGE_HELP);
+    return 0;
+  }
+  const branch = flagString(parsed.flags, "--branch");
+  const repoFlag = flagString(parsed.flags, "--repo");
+  const dryRun = flagBool(parsed.flags, "--dry-run");
+  const keys = parsed.positionals;
+  const repo = branch ? (repoFlag ?? resolveRepo(undefined, run)) : repoFlag;
+  const result = await unstageFiles({
+    client: ctx.client,
+    keys,
+    branch,
+    repo,
+    dryRun,
+  });
+
+  if (ctx.json) {
+    await writeJson(result);
+  } else if (!ctx.quiet) {
+    if (result.files.length === 0) {
+      const where = result.branch ? ` for ${result.branch}` : "";
+      process.stderr.write(`nothing staged${where}\n`);
+    }
+    for (const file of result.files) {
+      const verb = dryRun
+        ? file.action === "unchanged"
+          ? "unchanged"
+          : "would unstage"
+        : file.action;
+      process.stderr.write(`${verb} ${file.key}\n`);
+    }
+    if (result.truncated) {
+      process.stderr.write("stopped after the list cap; run again to clear the rest\n");
+    }
   }
   return 0;
 }
@@ -4102,10 +4308,52 @@ export async function runDelete(ctx: CliContext, args: string[], help = false): 
     else process.stderr.write(`dry-run: would delete ${key}\n`);
     return 0;
   }
-  const result = await ctx.client.delete(key);
+  const result = await deleteAndRefreshComment(ctx.client, key);
   if (ctx.json) await writeJson(result);
-  else if (!ctx.quiet) process.stderr.write(`deleted ${result.key}\n`);
+  else if (!ctx.quiet) {
+    process.stderr.write(`deleted ${result.key}\n`);
+    if (result.commentRefreshed) {
+      process.stderr.write("refreshed the managed comment\n");
+    } else if (result.commentHint) {
+      process.stderr.write(`tip: run \`${result.commentHint}\` to refresh the PR comment\n`);
+    }
+  }
   return 0;
+}
+
+/** Plain or private PR/issue attachment. Branch keys are not attachments. */
+const GH_ATTACHMENT_KEY =
+  /^gh\/(?:[^/]+\/[^/]+|private\/[0-9a-f]{32})\/(?:pull|issues)\/[1-9][0-9]*\//;
+
+/**
+ * Delete one object. When the key is a PR/issue attachment, resolve the
+ * comment target first (metadata goes away with the object) and refresh the
+ * managed comment, or return the `uploads comment` hint when the bot post
+ * does not land. Non-attachment keys return the delete result alone.
+ */
+export async function deleteAndRefreshComment(
+  client: UploadsClient,
+  key: string,
+): Promise<{ key: string; deleted: boolean; commentRefreshed?: boolean; commentHint?: string }> {
+  const target = GH_ATTACHMENT_KEY.test(key)
+    ? await resolveGhTargetForResync(client, key)
+    : undefined;
+  const result = await client.delete(key);
+  if (!target) return result;
+  const flag = target.kind === "pull" ? "--pr" : "--issue";
+  const commentHint = `uploads comment ${flag} ${target.num}`;
+  try {
+    const bot = await client.upsertGithubComment({
+      repo: target.repo,
+      num: target.num,
+      kind: target.kind,
+      resync: true,
+    });
+    if (bot.posted) return { ...result, commentRefreshed: true };
+  } catch {
+    // The delete already landed. The hint is the recovery.
+  }
+  return { ...result, commentRefreshed: false, commentHint };
 }
 
 // --- comment ---
@@ -4816,8 +5064,11 @@ export async function buildDoctorReport(
       }
       scopes = snap.scopes;
       if (scopes && !scopes.includes("files:delete")) {
+        const remedy = scopeRemedy("files:delete");
         hints.push(
-          "token lacks files:delete (`uploads delete` will be forbidden) — re-run `uploads login` for a full-scope token",
+          scopes.includes("files:write")
+            ? `token has files:write but not files:delete — you can delete gh/ attachments the server stamped as yours; older files and other deletes need files:delete. ${remedy}`
+            : `token lacks files:delete. ${remedy}`,
         );
       }
     } catch (err) {

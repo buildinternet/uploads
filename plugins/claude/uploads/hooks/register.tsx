@@ -22,10 +22,11 @@ const PANE_TITLE = "Staged attachments";
 
 // Bash commands that can change what is staged for the branch, or which branch it is.
 const REFRESH_AFTER =
-  /\buploads\s+(attach|put|screenshot|shot|delete)\b|\bgit\s+(checkout|switch|branch\s+-m)\b|\bgh\s+pr\s+create\b/;
+  /\buploads\s+(attach|put|screenshot|shot|delete|unstage)\b|\bgit\s+(checkout|switch|branch\s+-m)\b|\bgh\s+pr\s+create\b/;
 const PR_CREATE = /\bgh\s+pr\s+create\b/;
 const PR_URL = /https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/pull\/(\d+)/g;
 const IDLE_REFRESH_MS = 2 * 60 * 1000;
+const STALE_STAGED_MS = 30 * 24 * 60 * 60 * 1000;
 // Long enough for the GitHub App's webhook to promote the files after a PR opens.
 const AFTER_PR_REFRESH_MS = 15_000;
 
@@ -142,6 +143,24 @@ const toRows = (files: readonly RawFile[]): BandRow[] => {
   });
 };
 
+/** True when every kept file was staged more than 30 days before `now`. */
+const viewIsStale = (view: Staged, now: number): boolean => {
+  const times: (string | null)[] = [];
+  for (const row of view.rows) {
+    if (row.kind === "file") times.push(row.file.stagedAt);
+    else {
+      if (row.before) times.push(row.before.stagedAt);
+      if (row.after) times.push(row.after.stagedAt);
+    }
+  }
+  if (times.length === 0) return false;
+  return times.every((at) => {
+    if (!at) return false;
+    const parsed = Date.parse(at);
+    return Number.isFinite(parsed) && now - parsed > STALE_STAGED_MS;
+  });
+};
+
 /** How many staged files a row stands for. */
 const filesIn = (row: BandRow): number =>
   row.kind === "file" ? 1 : (row.before ? 1 : 0) + (row.after ? 1 : 0);
@@ -168,11 +187,19 @@ const parseStaged = (stdout: string): Staged | null => {
     // with no `branch` (an older CLI) stay: the count is already what that
     // CLI returned. Count the files we keep, not `doc.files.length`, so a
     // mismatched row cannot make the band or the PR-create hook claim work.
-    const files: RawFile[] = doc.files.filter((f: { filename?: unknown; branch?: unknown }) => {
-      if (typeof f?.filename !== "string") return false;
-      if (typeof f.branch === "string" && f.branch.toLowerCase() !== wanted) return false;
-      return true;
-    });
+    const foreignBranches: string[] = [];
+    const files: RawFile[] = [];
+    for (const raw of doc.files as RawFile[]) {
+      if (typeof raw?.filename !== "string") continue;
+      const fileBranch = typeof raw.branch === "string" ? raw.branch : undefined;
+      if (fileBranch && fileBranch.toLowerCase() !== wanted) {
+        if (!foreignBranches.some((name) => name.toLowerCase() === fileBranch.toLowerCase())) {
+          foreignBranches.push(fileBranch);
+        }
+        continue;
+      }
+      files.push(raw);
+    }
     return {
       repo: doc.repo,
       branch: doc.branch,
@@ -180,6 +207,7 @@ const parseStaged = (stdout: string): Staged | null => {
       rows: toRows(files),
       binding: BINDINGS.includes(state) ? state : "unknown",
       autoAttach: doc.binding?.autoAttach === true,
+      foreignBranches,
     };
   } catch {
     return null;
@@ -747,7 +775,22 @@ export const register: Register = (on, options) => {
           context: `uploads: the GitHub App added the ${attachments(prior)} for ${head} to ${pr}. Don't re-upload them.`,
           record: { count: prior, via: "app" },
         };
+      } else if (view.foreignBranches.length > 0) {
+        const cmds = view.foreignBranches
+          .map((name) => `uploads unstage --branch ${name}`)
+          .join("; ");
+        outcome = {
+          toast: `uploads: nothing on ${head} for ${pr}; run ${cmds}`,
+          context: `uploads: ${view.foreignBranches.join(", ")} still has staged files, and they are not on ${head}. If they are stale or on the wrong branch, run \`${cmds}\`.`,
+        };
       }
+    } else if (viewIsStale(view, await $.clock.now())) {
+      const cmd = `uploads unstage --branch ${head}`;
+      const verb = view.count === 1 ? "looks" : "look";
+      outcome = {
+        toast: `uploads: ${files} for ${head} ${verb} stale; run ${cmd}`,
+        context: `uploads: ${files} for ${head} ${view.count === 1 ? "was" : "were"} staged more than 30 days ago. If ${view.count === 1 ? "it is" : "they are"} not for ${pr}, run \`${cmd}\`.`,
+      };
     } else if (view.binding === "other") {
       outcome = {
         toast: `uploads: ${files} won't attach to ${pr}: this repo is linked to another workspace`,

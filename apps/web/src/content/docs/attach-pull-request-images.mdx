@@ -68,6 +68,11 @@ once the PR exists: uploads attach --promote
 If `binding` shows anything other than `self`, the files won't attach on their own. See
 [GitHub App: staging before a PR exists](/docs/github-app#staging) to fix it.
 
+Staged the wrong branch, or the files are leftover? `uploads unstage --branch <name>`
+marks them unstaged. The file and its URL stay. They drop out of `uploads staged`
+and out of auto-promotion. Add `--dry-run` to preview. Pass object keys instead of
+`--branch` to unstage those objects only.
+
 </section>
 
 <section id="put">

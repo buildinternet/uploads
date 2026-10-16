@@ -20,7 +20,13 @@ type Cli = {
   counts: Record<string, number>;
   binding: [state: string, autoAttach: boolean];
   /** Overrides for the nth staged file's JSON (filename, state, path, branch). */
-  files?: { filename: string; state?: string; path?: string; branch?: string }[];
+  files?: {
+    filename: string;
+    state?: string;
+    path?: string;
+    branch?: string;
+    stagedAt?: string;
+  }[];
   /** How `attach --promote` ends: everything moved (default), one skipped, or a server error. */
   promote?: "ok" | "partial" | "error";
   /** The open PR for the session branch, as `gh pr view` reports it. */
@@ -245,6 +251,22 @@ describe("gh pr create", () => {
     );
   });
 
+  test("suggests unstage when every staged file is older than 30 days", async ($, on) => {
+    const staleAt = new Date(1_000_000 - 40 * 24 * 60 * 60 * 1000).toISOString();
+    const world = setup(on, {
+      binding: ["self", true],
+      files: [{ filename: "old.png", stagedAt: staleAt }],
+    });
+
+    const ran = await runBash($, world, "gh pr create --fill");
+
+    expect(promoted(world)).toBe(false);
+    expect(world.toasts).toEqual([
+      "uploads: 1 attachment for feat/x looks stale; run uploads unstage --branch feat/x",
+    ]);
+    expect(ran.context?.join("\n") ?? "").not.toContain("Don't re-upload");
+  });
+
   test("does not claim the App will attach when this branch has nothing staged", async ($, on) => {
     const world = setup(on, { counts: { "feat/x": 0 }, binding: ["self", true] });
 
@@ -274,8 +296,12 @@ describe("gh pr create", () => {
     world.output.text = PR_OUTPUT;
     const ran = await runBash($, world, "gh pr create --fill");
     expect(promoted(world)).toBe(false);
-    expect(world.toasts).toEqual([]);
-    expect(ran.context?.join("\n") ?? "").not.toContain("Don't re-upload");
+    expect(world.toasts).toEqual([
+      "uploads: nothing on feat/x for PR #1051; run uploads unstage --branch refactor/room-stage-top-bar",
+    ]);
+    const context = ran.context?.join("\n") ?? "";
+    expect(context).toContain("uploads unstage --branch refactor/room-stage-top-bar");
+    expect(context).not.toContain("Don't re-upload");
   });
 
   test("does not promote when nothing is staged for the PR head", async ($, on) => {

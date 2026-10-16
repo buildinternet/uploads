@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { deleteObject, listObjects } from "../files-core";
+import { listObjects } from "../files-core";
 import { getMetadataForKeys, listFacets } from "../file-metadata";
 import {
   clampSearchLimit,
@@ -12,6 +12,7 @@ import { requireScope, type WorkspaceVars } from "../workspace";
 import { writeRateLimit } from "../guards";
 import { heavyReadRateLimit, legacyListingReadRateLimit, readRateLimit } from "../read-limits";
 import {
+  deleteFileHandler,
   getFileHandler,
   patchFileHandler,
   putFileHandler,
@@ -137,8 +138,7 @@ export const files = new Hono<WorkspaceVars>()
 
   .patch("/:key{.+}", writeRateLimit, requireScope("files:write"), patchFileHandler)
 
-  .delete("/:key{.+}", writeRateLimit, requireScope("files:delete"), async (c) => {
-    return c.json(
-      await deleteObject(c.env, c.get("workspace"), c.req.param("key"), c.get("workspaceName")),
-    );
-  });
+  // `files:delete` deletes any key. `files:write` may delete a gh/ object the
+  // same user uploaded (assertDeleteAllowed). The scope check is inside the
+  // handler so a write token is not rejected before that lookup.
+  .delete("/:key{.+}", writeRateLimit, deleteFileHandler);

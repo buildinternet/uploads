@@ -385,7 +385,9 @@ describe("list_activity and list_repo_files", () => {
     for (const name of ["list_activity", "list_repo_files"] as const) {
       const result = await callTool(env.env, name, { repo: "acme/widgets" }, WRITE_TOKEN);
       expect(result.isError).toBe(true);
-      expect(result.content[0]?.text).toBe("forbidden: requires files:read scope");
+      expect(result.content[0]?.text).toBe(
+        "This token needs the files:read scope. Ask a workspace admin, or mint a token with files:read at https://uploads.sh/account/developers.",
+      );
     }
   });
 
