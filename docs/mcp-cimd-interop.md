@@ -62,7 +62,6 @@ DCR rejects `private_key_jwt` with `invalid_client_metadata` (`dcrRegistrationRe
 - The document declares `token_endpoint_auth_method: "private_key_jwt"`.
 - The document has a `jwks_uri` and no inline `jwks`.
 - `jwks_uri` is `https:`, has no credentials or fragment, and has the same origin as the URL the document was fetched from (the `client_id`).
-
 - After `client_credentials` is removed, `grant_types` still allows `authorization_code` (or is omitted).
 
 Any other document gets the DCR policy: the method becomes `none`, and `jwks` and `jwks_uri` are removed. A cross-origin, `http:`, or inline key does not cause a rejection. The client can still finish an authorization_code + PKCE flow as a public client. Public CIMD clients (Claude, Flowy) do not change. Both paths strip secrets, `skip_consent`, `trusted`, and `require_pkce`, and drop `client_credentials`. Every token still needs a user's consent through authorization_code.

@@ -709,7 +709,7 @@ export function directAuthOrigins(
 
 /**
  * oauth-provider option added by our patch
- * (patches/@better-auth__oauth-provider.patch, `clientAssertionAliasAudiences`).
+ * (patches/@better-auth__oauth-provider.patch, `clientAssertionAudienceOrigins`).
  * A `private_key_jwt` assertion's `aud` is checked against
  * `${baseURL}<endpoint>` and the issuer. Discovery advertises the token and
  * revocation endpoints on AUTH_DIRECT_ORIGIN, and RFC 7523 clients (Vercel
