@@ -5067,7 +5067,7 @@ export async function buildDoctorReport(
         const remedy = scopeRemedy("files:delete");
         hints.push(
           scopes.includes("files:write")
-            ? `token has files:write but not files:delete — you can delete gh/ attachments you uploaded; other deletes need files:delete. ${remedy}`
+            ? `token has files:write but not files:delete — you can delete gh/ attachments the server stamped as yours; older files and other deletes need files:delete. ${remedy}`
             : `token lacks files:delete. ${remedy}`,
         );
       }

@@ -319,8 +319,8 @@ when you don't have the recipient's email) can be exchanged with `uploads login 
 Neither is the normal path for new setups.
 
 The resulting token defaults to 90 days and `files:read` plus `files:write`. That
-token can delete a `gh/` object it uploaded (the server-stamped `gh.uploader-id`
-matches the user). Deleting someone else's object, a non-`gh/` key, or running
+token can delete a `gh/` object the server stamped as that user's. Files uploaded
+before that stamp, someone else's object, a non-`gh/` key, and running
 `purge-expired` still needs `files:delete`. A missing scope returns 403
 `insufficient_scope` and names the scope plus
 `https://uploads.sh/account/developers`. A service token or a legacy token with

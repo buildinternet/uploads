@@ -17,7 +17,7 @@
  * same contract as any other overwrite in this API).
  */
 
-import { UPLOADER_KEYS } from "./uploader-identity";
+import { UPLOADER_KEYS, UPLOADER_PROOF_KEY } from "./uploader-identity";
 import { UnsupportedMediaTypeError } from "@uploads/errors";
 import { getMetadataForKeys, setFileMetadata } from "./file-metadata";
 import { putObject, putOptsFromStoredObject } from "./files-core";
@@ -410,7 +410,9 @@ export async function promoteBranchAttachments(
           // written by the server, so the staged original's tags are the only
           // source of "who staged this".
           ...Object.fromEntries(
-            UPLOADER_KEYS.flatMap((key) => (stagedMeta?.[key] ? [[key, stagedMeta[key]]] : [])),
+            [...UPLOADER_KEYS, UPLOADER_PROOF_KEY].flatMap((metaKey) =>
+              stagedMeta?.[metaKey] ? [[metaKey, stagedMeta[metaKey]]] : [],
+            ),
           ),
           "gh.repo": `${owner}/${name}`.toLowerCase(),
           "gh.kind": "pull",

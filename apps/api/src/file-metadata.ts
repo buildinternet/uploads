@@ -9,7 +9,7 @@
  */
 
 import { InternalError, ValidationError } from "@uploads/errors";
-import { UPLOADER_KEYS } from "./uploader-identity";
+import { UPLOADER_KEYS, UPLOADER_PROOF_KEY } from "./uploader-identity";
 import type { FileTypeClass } from "@uploads/comment-render/scope";
 import { fileTypeSql } from "./file-type-sql";
 import { PROVENANCE_SERVER_KEYS } from "./provenance";
@@ -334,13 +334,15 @@ function upsertStatements(
  * rewrites in files-core.ts; single-tenant writes sit behind the write
  * rate limiter). Caps are re-enforced on the next merge.
  */
-const CLIENT_LOCKED_UPLOADER_KEYS = new Set<string>(UPLOADER_KEYS);
+const CLIENT_LOCKED_UPLOADER_KEYS = new Set<string>([...UPLOADER_KEYS, UPLOADER_PROOF_KEY]);
 
 /**
- * Uploader attribution is server-stamped. A client write of these keys would
- * let a `files:write` token claim someone else's object and then delete it
- * (issue #1124). `putObject` stamps them through `replaceFileMetadata`, which
- * does not call this check.
+ * Uploader attribution is server-stamped, including `gh.uploader-proof`.
+ * A client write of these keys would let a `files:write` token claim
+ * someone else's object and then delete it (issue #1124). `putObject`
+ * stamps them through `replaceFileMetadata`, which does not call this
+ * check. Server copies that must keep a stamp already on the source
+ * (attach) pass `allowUploaderKeys`.
  */
 function assertUploaderKeysLocked(keys: Iterable<string>): void {
   for (const key of keys) {
@@ -358,9 +360,12 @@ export async function setFileMetadata(
   objectKey: string,
   set: Record<string, string>,
   remove: string[] = [],
+  opts?: { allowUploaderKeys?: boolean },
 ): Promise<Record<string, string>> {
-  assertUploaderKeysLocked(Object.keys(set));
-  assertUploaderKeysLocked(remove);
+  if (!opts?.allowUploaderKeys) {
+    assertUploaderKeysLocked(Object.keys(set));
+    assertUploaderKeysLocked(remove);
+  }
   validateMetadataEntries(set);
   // Symmetry with the write path: a client that cannot SET a reserved or
   // server-owned key (RESERVED_META_KEYS / video.*) has no legitimate reason

@@ -605,7 +605,7 @@
   {
     "name": "delete",
     "title": "Delete file",
-    "description": "Permanently delete one uploaded file by key, along with its metadata. A files:write token can delete a gh/ object it uploaded; deleting any other object needs files:delete. Deleting a PR or issue attachment refreshes the managed comment.",
+    "description": "Permanently delete one uploaded file by key, along with its metadata. A files:write token can delete a gh/ object the server stamped as its upload. Older files and any other object need files:delete. Deleting a PR or issue attachment refreshes the managed comment.",
     "access": "destructive",
     "scopes": [
       "files:delete"

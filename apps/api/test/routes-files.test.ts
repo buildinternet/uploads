@@ -2082,8 +2082,10 @@ describe("DELETE own gh objects with files:write (issue #1124)", () => {
   }
 
   it("lets the uploading user delete their gh attachment", async () => {
-    const { env, bucket } = await writeEnv();
+    const { env, bucket, db } = await writeEnv();
     await putGh(env);
+    expect(db.metadata.get(`default ${KEY}`)?.get("gh.uploader-id")).toBe("user-1");
+    expect(db.metadata.get(`default ${KEY}`)?.get("gh.uploader-proof")).toBe("server");
     const res = await del(env, KEY);
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ key: KEY, deleted: true });
@@ -2124,6 +2126,8 @@ describe("DELETE own gh objects with files:write (issue #1124)", () => {
         "X-Uploads-Meta-gh.uploader-id": "user-1",
       },
     });
+    const stored = await getFileMetadata(read.db as unknown as D1Database, "default", KEY);
+    expect(stored["gh.uploader-id"]).toBeUndefined();
     const denied = await del(read.env, KEY, "up_read_only");
     expect(denied.status).toBe(403);
     const deniedBody = (await denied.json()) as { error: { message: string } };
@@ -2137,5 +2141,68 @@ describe("DELETE own gh objects with files:write (issue #1124)", () => {
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error: { code: string } };
     expect(body.error.code).toBe("file_metadata_reserved_key");
+  });
+
+  it("rejects a client write of the uploader proof", async () => {
+    const { env } = await writeEnv();
+    await putGh(env);
+    const res = await patchMeta(env, KEY, { set: { "gh.uploader-proof": "server" } }, WRITE);
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("file_metadata_reserved_key");
+  });
+
+  it("does not store a forged uploader id from a legacy token, and refuses own-delete", async () => {
+    const { env, db } = await writeEnv();
+    const res = await putShot(env, {
+      key: KEY,
+      headers: {
+        Authorization: `Bearer ${TOKEN}`,
+        "X-Uploads-Meta-gh.repo": "acme/web",
+        "X-Uploads-Meta-gh.kind": "pull",
+        "X-Uploads-Meta-gh.number": "12",
+        "X-Uploads-Meta-gh.uploader-id": "user-1",
+        "X-Uploads-Meta-gh.uploader-proof": "server",
+      },
+    });
+    expect(res.status).toBe(201);
+    const meta = await getFileMetadata(db as unknown as D1Database, "default", KEY);
+    expect(meta["gh.uploader-id"]).toBeUndefined();
+    expect(meta["gh.uploader-proof"]).toBeUndefined();
+    expect(meta["gh.repo"]).toBe("acme/web");
+    const denied = await del(env, KEY);
+    expect(denied.status).toBe(403);
+  });
+
+  it("drops a forged uploader id when the upload is at the key cap, and refuses own-delete", async () => {
+    const { env, db } = await writeEnv();
+    // 24 client keys, one of them a forged id for this write token. Stripping
+    // that key leaves 23, and the server stamp (id + proof) does not fit.
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${WRITE}`,
+      "X-Uploads-Meta-gh.repo": "acme/web",
+      "X-Uploads-Meta-gh.kind": "pull",
+      "X-Uploads-Meta-gh.number": "12",
+      "X-Uploads-Meta-gh.uploader-id": "user-1",
+    };
+    for (let i = 1; i <= 20; i++) headers[`X-Uploads-Meta-extra${i}`] = "v";
+    const res = await putShot(env, { key: KEY, headers });
+    expect(res.status).toBe(201);
+    const meta = await getFileMetadata(db as unknown as D1Database, "default", KEY);
+    expect(meta["gh.uploader-id"]).toBeUndefined();
+    expect(meta["gh.uploader-proof"]).toBeUndefined();
+    expect(Object.keys(meta)).toHaveLength(23);
+    const denied = await del(env, KEY);
+    expect(denied.status).toBe(403);
+  });
+
+  it("refuses own-delete for an older row that has an uploader id and no proof", async () => {
+    const { env, db } = await writeEnv();
+    await putGh(env);
+    db.metadata.get(`default ${KEY}`)?.delete("gh.uploader-proof");
+    const denied = await del(env, KEY);
+    expect(denied.status).toBe(403);
+    const allowed = await del(env, KEY, TOKEN);
+    expect(allowed.status).toBe(200);
   });
 });

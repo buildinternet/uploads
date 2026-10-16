@@ -203,7 +203,10 @@ describe("repo_link_status", () => {
     const result = await callTool(env, "repo_link_status", { repo: "acme/widgets" });
     expect(result.isError).toBe(true);
     expect(result.content).toEqual([
-      { type: "text", text: expect.stringContaining("requires files:read scope") },
+      {
+        type: "text",
+        text: expect.stringContaining("This token needs the files:read scope"),
+      },
     ]);
   });
 });
