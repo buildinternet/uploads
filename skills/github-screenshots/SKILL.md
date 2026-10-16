@@ -381,7 +381,10 @@ handful of milestones reads better than a dumped folder.
   crop/redact first.
 - **Private repos get an unguessable URL automatically.** When the uploads
   GitHub App can see a target repo is private, attachments key under
-  `gh/private/<id>/…` instead — no flag needed. The id is durable, not
+  `gh/private/<id>/…` instead — no flag needed. A staged file's key is
+  `gh/private/<id>/branch/<filename>`: the id belongs to one branch, so the
+  branch name is not in the key. `uploads staged --branch` lists that id
+  only. A file already on a pull request is left out. The id is durable, not
   access-controlled: anyone who gets the URL can read it until you rotate it
   (`uploads github rotate-prefix`). See **docs/private-attachments.md** for
   the full model.

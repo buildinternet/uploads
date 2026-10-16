@@ -20,6 +20,7 @@ import {
   flagBool,
   flagInt,
   flagValues,
+  unknownFlags,
   UsageError,
   type CommandFlags,
 } from "./cli-args.js";
@@ -132,9 +133,15 @@ export async function resolveGhPrefixSafe(
  * prefixes (e.g. a prefix rotation, or the repo went private after some
  * files were uploaded), not just the currently-resolved one. Falls back to
  * `[prefixId]` when the server omits `activePrefixIds` (optional field — an
- * older/self-hosted worker), so a private repo is never listed as zero
- * private prefixes. Collapses to `[plainPrefix]` in plain mode, so callers
- * that special-case a single-prefix array stay byte-identical to pre-#631.
+ * older/self-hosted worker) or sends an empty list. An empty list is not
+ * "missing" for `??`, and treating it that way made a failed id lookup skip
+ * the private prefix entirely. Collapses to `[plainPrefix]` in plain mode,
+ * so callers that special-case a single-prefix array stay byte-identical to
+ * pre-#631.
+ *
+ * Not for `uploads staged`. A branch resolve's private key has no branch
+ * segment, so a repo-wide `activePrefixIds` lists every branch (issue
+ * #1122). Staged uses `branchPrefixIds` instead.
  */
 export function ghListPrefixes(
   plainPrefix: string,
@@ -142,7 +149,9 @@ export function ghListPrefixes(
   privatePrefixFor: (prefixId: string) => string,
 ): string[] {
   if (ghPrefix.mode !== "private") return [plainPrefix];
-  return [plainPrefix, ...(ghPrefix.activePrefixIds ?? [ghPrefix.prefixId]).map(privatePrefixFor)];
+  const ids = ghPrefix.activePrefixIds;
+  const privateIds = ids && ids.length > 0 ? ids : [ghPrefix.prefixId];
+  return [plainPrefix, ...privateIds.map(privatePrefixFor)];
 }
 
 /**
@@ -2522,6 +2531,8 @@ export interface StagedFile {
   state?: string;
   /** `path` metadata (the captured page path), when present: pairs a before with its after. */
   path?: string;
+  /** `gh.branch` when the object carries it. Absent on older staged files. */
+  branch?: string;
 }
 
 /** Tri-state binding, folded into a ready-to-render advisory (issue #405/#398). */
@@ -2582,11 +2593,87 @@ export async function resolveStagedBinding(
 }
 
 /**
+ * Private prefix ids `uploads staged` may list for one branch.
+ *
+ * A private staged key is `gh/private/<id>/branch/<filename>`. The branch
+ * name is not in the key; the id belongs to one branch. `branchPrefixIds`
+ * is that branch's active id, then its retired ids. An older worker omits
+ * the field and may put every branch's id in `activePrefixIds`. Listing
+ * those mixes branches (issue #1122), so this ignores `activePrefixIds` and
+ * uses the single resolved id. Installed CLIs that still read
+ * `activePrefixIds` are fixed when the API scopes that list to the branch.
+ */
+function stagedPrivatePrefixIds(ghPrefix: ResolveGhPrefixResult): string[] {
+  if (ghPrefix.mode !== "private") return [];
+  const scoped = ghPrefix.branchPrefixIds?.filter((id) => id !== "");
+  if (scoped && scoped.length > 0) return scoped;
+  return [ghPrefix.prefixId];
+}
+
+/**
+ * Pull-request copies of this branch's files, keyed by filename.
+ *
+ * The value is the latest `gh.promoted-at` or `gh.attached-at`, or null when
+ * a copy carries neither. Promotion usually flips the branch object's
+ * `gh.status`, but a copy that landed through link adoption can leave the
+ * branch object at `staged` with no promoted marker. Comparing timestamps
+ * hides those without a backfill, and a newer `gh.staged-at` (a re-stage of
+ * the same name) stays visible. A lookup failure returns an empty map: the
+ * view must still list what the prefix scan found.
+ */
+async function promotedPullTwins(
+  client: UploadsClient,
+  repo: string,
+  branch: string,
+): Promise<Map<string, string | null>> {
+  const twins = new Map<string, string | null>();
+  if (typeof client.findFilesAll !== "function") return twins;
+  let items: { key: string; metadata?: Record<string, string> }[];
+  try {
+    const found = await client.findFilesAll({
+      "gh.repo": repo.toLowerCase(),
+      "gh.branch": branch.toLowerCase(),
+      "gh.kind": "pull",
+    });
+    items = found.items;
+  } catch {
+    return twins;
+  }
+  for (const item of items) {
+    const filename = item.key.split("/").pop();
+    if (!filename) continue;
+    const at = item.metadata?.["gh.promoted-at"] || item.metadata?.["gh.attached-at"] || null;
+    const prev = twins.get(filename);
+    if (prev === undefined) twins.set(filename, at);
+    else if (at && (prev === null || at > prev)) twins.set(filename, at);
+  }
+  return twins;
+}
+
+/** True when a pull copy of this filename is at least as new as the stage. */
+function pullTwinHidesFile(
+  filename: string,
+  stagedAt: string | undefined,
+  twins: Map<string, string | null>,
+): boolean {
+  const base = filename.split("/").pop() ?? filename;
+  const twinAt = twins.get(base);
+  // No twin, or a twin with no timestamp: don't guess. A missing time must
+  // not hide a file that is still staged.
+  if (twinAt === undefined || twinAt === null) return false;
+  return !stagedAt || twinAt >= stagedAt;
+}
+
+/**
  * Shared core for `uploads staged` (CLI) and the `staged` MCP tool (issue
- * #405): lists files still staged (not yet promoted) via one `list` call against the branch staging prefix
- * (`ghBranchKeyPrefix` — never hand-built) plus the #398 binding check. Never
- * throws on the binding check (see `resolveStagedBinding`); a failed `list`
- * call still propagates, same as every other read command.
+ * #405): lists files still staged for this branch. The plain prefix is
+ * `ghBranchKeyPrefix`. On a private repo the extra prefixes are this
+ * branch's ids only (`stagedPrivatePrefixIds`), never every active id in
+ * the repo. A file stays when its `gh.branch` matches (or is absent — it
+ * was listed under this branch's own prefix) and it has not been promoted.
+ * Never throws on the binding check (see `resolveStagedBinding`); a failed
+ * `list` call still propagates, same as every other read command. The
+ * pull-copy lookup fails open.
  */
 export async function resolveStaged(opts: {
   client: UploadsClient;
@@ -2595,34 +2682,53 @@ export async function resolveStaged(opts: {
 }): Promise<StagedResult> {
   const { client, repo, branch } = opts;
   const plainPrefix = ghBranchKeyPrefix(repo, branch);
-  // Also list every active private prefix, if any (issue #631) — mirrors
-  // syncAttachmentsComment's gh-fallback gather above: a repo's staged
-  // history can be split across the plain shape and MULTIPLE private
-  // prefixes (e.g. a prefix rotation, or the repo went private after some
-  // files were staged), not just the currently-resolved one. Fail-open: any
-  // resolve failure degrades to plain-only, byte-identical to pre-#631.
+  // Fail-open: any resolve failure degrades to plain-only, byte-identical
+  // to pre-#631 behavior.
   const ghPrefix = await resolveGhPrefixSafe(client, { repo, branch });
-  const prefixes = ghListPrefixes(plainPrefix, ghPrefix, (id) => ghPrivateBranchKeyPrefix(id));
-  const [files, binding] = await Promise.all([
+  const prefixes = [
+    plainPrefix,
+    ...stagedPrivatePrefixIds(ghPrefix).map((id) => ghPrivateBranchKeyPrefix(id)),
+  ];
+  const wanted = branch.toLowerCase();
+  const [listed, binding, twins] = await Promise.all([
     ghMergedList(prefixes, undefined, async (prefix) => {
       const list = await client.list({ prefix, metadata: true });
-      // Promotion copies files into the PR prefix but leaves the branch copy
-      // behind marked `gh.status=promoted`; those are no longer "staged".
-      // A missing status (older files) still counts as staged.
-      return list.items
-        .filter((item) => item.metadata?.["gh.status"] !== "promoted")
-        .map((item) => ({
-          key: item.key,
-          filename: item.key.slice(prefix.length),
-          size: item.size,
-          stagedAt: item.metadata?.["gh.staged-at"],
-          url: item.url,
-          ...(item.metadata?.state ? { state: item.metadata.state } : {}),
-          ...(item.metadata?.path ? { path: item.metadata.path } : {}),
-        }));
+      return list.items.map((item) => ({ item, prefix }));
     }),
     resolveStagedBinding(client, repo),
+    promotedPullTwins(client, repo, branch),
   ]);
+  const files: StagedFile[] = [];
+  for (const { item, prefix } of listed) {
+    const meta = item.metadata;
+    const fileBranch = meta?.["gh.branch"];
+    // Present-and-different is another branch's file. Absent stays: the
+    // prefix we listed is already this branch's (public key, or this
+    // branch's private id).
+    if (fileBranch && fileBranch.toLowerCase() !== wanted) continue;
+    // Promotion tags the branch copy. `gh.promoted-to` / `gh.promoted-at`
+    // cover a tag that landed without flipping `gh.status`.
+    if (
+      meta?.["gh.status"] === "promoted" ||
+      meta?.["gh.promoted-to"] ||
+      meta?.["gh.promoted-at"]
+    ) {
+      continue;
+    }
+    const filename = item.key.startsWith(prefix) ? item.key.slice(prefix.length) : item.key;
+    const stagedAt = meta?.["gh.staged-at"];
+    if (pullTwinHidesFile(filename, stagedAt, twins)) continue;
+    files.push({
+      key: item.key,
+      filename,
+      size: item.size,
+      stagedAt,
+      url: item.url,
+      ...(fileBranch ? { branch: fileBranch } : {}),
+      ...(meta?.state ? { state: meta.state } : {}),
+      ...(meta?.path ? { path: meta.path } : {}),
+    });
+  }
   return { repo, branch, files, binding };
 }
 
@@ -2630,9 +2736,10 @@ const STAGED_HELP = `uploads staged [--branch <name>] [--repo <owner/name>] [--f
 
 Read-only view of what's staged for a branch (\`attach --branch\` / bare
 \`put\` on a non-default branch, issue #403) and whether it will auto-attach
-once a PR opens. One \`list\` call against the branch staging prefix
-(gh/<owner>/<repo>/branch/<branch>/) plus a binding check — files:read only,
-no new server surface.
+once a PR opens. Lists this branch's staging prefix only. On a private repo
+the key is gh/private/<id>/branch/<file> (no branch segment; the id is per
+branch). A file whose gh.branch is a different branch is omitted, and so is
+a file already copied onto a pull request. Plus a binding check.
 
 Defaults: current git branch (same resolution as \`attach --branch\`, worktree-
 safe), repo from --repo / gh / git remote (same as every other command).
@@ -3513,6 +3620,9 @@ const LIST_HELP = `uploads list [--prefix <p>] [--pr <num> | --issue <num>] [--r
 
 Default prefix: UPLOADS_DEFAULT_PREFIX (screenshots if unset).
 
+uploads list has no --branch. To see files staged for a branch, run
+uploads staged --branch <name>. An unknown flag is an error.
+
 --meta <k=v> (repeatable, ANDed) and/or --name <term> switch to the search
 endpoint — returned items include their matched metadata. Combines with
 --prefix, not with --pr/--issue. --name is a case-insensitive
@@ -3581,6 +3691,45 @@ async function runFindFiles(
   return 0;
 }
 
+const LIST_FLAGS = new Set([
+  "--prefix",
+  "--pr",
+  "--issue",
+  "--repo",
+  "--limit",
+  "--cursor",
+  "--all",
+  "--meta",
+  "--name",
+  "--workspace",
+  "-w",
+  "--json",
+  "--quiet",
+]);
+
+function rejectUnknownListFlags(flags: CommandFlags["flags"]): void {
+  const name = unknownFlags(flags, LIST_FLAGS)[0];
+  if (!name) return;
+  if (name === "--branch") {
+    throw new UsageError(
+      "unknown flag --branch for uploads list. Files staged for a branch are uploads staged.",
+      { example: "uploads staged --branch feature/thing" },
+    );
+  }
+  throw new UsageError(`unknown flag ${name} for uploads list`, {
+    example: "uploads list --prefix screenshots/",
+  });
+}
+
+/** `--json` / `--quiet` after the command, which global parsing does not see. */
+function commandOutputView(ctx: CliContext, flags: CommandFlags["flags"]): CliContext {
+  return {
+    ...ctx,
+    json: ctx.json || flagBool(flags, "--json"),
+    quiet: ctx.quiet || flagBool(flags, "--quiet"),
+  };
+}
+
 export async function runList(
   ctx: CliContext,
   args: string[],
@@ -3592,6 +3741,8 @@ export async function runList(
     writeCommandHelp(LIST_HELP);
     return 0;
   }
+  rejectUnknownListFlags(parsed.flags);
+  const view = commandOutputView(ctx, parsed.flags);
   const metaPairs = flagValues(parsed.flags, "--meta");
   const nameFlag = flagString(parsed.flags, "--name");
   if (metaPairs.length > 0 || nameFlag !== undefined) {
@@ -3599,13 +3750,13 @@ export async function runList(
       throw new UsageError("--meta/--name cannot be combined with --pr/--issue");
     }
     return runFindFiles(
-      ctx,
+      view,
       metaPairs.length > 0 ? parseMetaFlags(metaPairs) : {},
       parsed.flags,
       nameFlag,
     );
   }
-  const defaults = resolvePutDefaults({ envFile: ctx.envFile });
+  const defaults = resolvePutDefaults({ envFile: view.envFile });
   const prefixFlag = flagString(parsed.flags, "--prefix");
   let prefix = prefixFlag ?? (defaults.prefix ? `${defaults.prefix}/` : undefined);
   const ghTarget = ghTargetFromFlags(parsed.flags, run);
@@ -3620,7 +3771,7 @@ export async function runList(
   if (ghTarget) {
     if (prefixFlag) throw new UsageError("--prefix cannot be combined with --pr/--issue");
     prefix = ghKeyPrefix(ghTarget);
-    const ghPrefix = await resolveGhPrefixSafe(ctx.client, {
+    const ghPrefix = await resolveGhPrefixSafe(view.client, {
       repo: ghTarget.repo,
       target: { kind: ghTarget.kind, num: ghTarget.num },
     });
@@ -3634,10 +3785,10 @@ export async function runList(
     const items =
       prefixes && prefixes.length > 1
         ? await ghMergedList(prefixes, cursor, (p, c) =>
-            ctx.client.listAll({ prefix: p, limit, cursor: c }),
+            view.client.listAll({ prefix: p, limit, cursor: c }),
           )
-        : await ctx.client.listAll({ prefix, limit, cursor });
-    if (ctx.json) await writeJson({ items, cursor: null });
+        : await view.client.listAll({ prefix, limit, cursor });
+    if (view.json) await writeJson({ items, cursor: null });
     else
       for (const item of items)
         await writeStdout(`${item.key}${item.url ? `  ${item.url}` : ""}\n`);
@@ -3654,12 +3805,12 @@ export async function runList(
           items: await ghMergedList(
             prefixes,
             cursor,
-            async (p, c) => (await ctx.client.list({ prefix: p, limit, cursor: c })).items,
+            async (p, c) => (await view.client.list({ prefix: p, limit, cursor: c })).items,
           ),
           cursor: null,
         }
-      : await ctx.client.list({ prefix, limit, cursor });
-  if (ctx.json) await writeJson(result);
+      : await view.client.list({ prefix, limit, cursor });
+  if (view.json) await writeJson(result);
   else {
     for (const item of result.items)
       await writeStdout(`${item.key}${item.url ? `  ${item.url}` : ""}\n`);
