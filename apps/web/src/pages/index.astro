@@ -371,18 +371,16 @@ Source (and where to look if something breaks): https://github.com/buildinternet
         content: "";
       }
       .faq-list summary::after {
-        content: "";
+        content: "+";
         position: absolute;
-        right: 20px;
+        right: 16px;
         top: 50%;
-        width: 8px;
-        height: 8px;
-        border-right: 1.5px solid var(--accent);
-        border-bottom: 1.5px solid var(--accent);
-        transform: translateY(-70%) rotate(45deg);
+        transform: translateY(-52%);
+        color: var(--accent);
+        font: 500 22px / 1 var(--sans);
       }
       .faq-list details[open] summary::after {
-        transform: translateY(-30%) rotate(225deg);
+        content: "−";
       }
       .faq-list summary:focus-visible {
         outline: 2px solid var(--accent);
