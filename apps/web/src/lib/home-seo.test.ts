@@ -63,7 +63,18 @@ describe("homepage SEO copy", () => {
     expect(pay).toContain("Amazon S3");
     expect(pay).toContain("unmetered");
     expect(pay).toContain("fair-use API limits");
+    expect(pay).toContain("hundreds of screenshots");
+    expect(pay).not.toContain("thousands of screenshots");
     expect(pay).not.toMatch(/\b(60|3000|100000)\b/);
+  });
+
+  it("keeps the gh attachment answer to the token gap", () => {
+    const gh = homeFaqPlainText(HOME_FAQ[1]!);
+    expect(gh).toContain("no public API for attachments");
+    expect(gh).toContain("installation token");
+    expect(gh).toContain("Claude Code cloud session");
+    expect(gh).toContain("posts one comment on the pull request");
+    expect(gh).not.toMatch(/2\.99|September 2026/);
   });
 
   it("links self-hosting and describes private-repo URLs", () => {

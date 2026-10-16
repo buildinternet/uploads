@@ -62,22 +62,17 @@ export const HOME_FAQ: HomeFaqItem[] = [
     paragraphs: [
       [
         {
-          text: "People still search for “gh has no attachment upload” because GitHub has no public API for attachments. The website can attach a file in the editor.",
+          text: "People still search for “gh has no attachment upload” because GitHub has no public API for attachments.",
         },
       ],
       [
         {
-          text: "Since September 2026, gh 2.99 can attach images and video to an existing issue or pull request. That upload accepts an OAuth token from gh auth login, or a classic personal access token, and the file has to be on that machine.",
+          text: "A GitHub App token, an installation token, or a Claude Code cloud session cannot upload an attachment.",
         },
       ],
       [
         {
-          text: "A GitHub App token or installation token cannot upload an attachment. Claude Code cloud sessions and most CI jobs run with one of those tokens, or with no gh login at all, so they cannot either.",
-        },
-      ],
-      [
-        {
-          text: "Uploads hosts the file and posts one comment on the PR, so those runs can still attach screenshots to a PR.",
+          text: "Uploads hosts the file and posts one comment on the pull request.",
         },
       ],
     ],
@@ -116,7 +111,7 @@ export const HOME_FAQ: HomeFaqItem[] = [
     paragraphs: [
       [
         {
-          text: `No. A new workspace starts on the ${PLAN_FACTS.freeName} plan: ${PLAN_FACTS.freeStorage} of hosted storage and files up to ${PLAN_FACTS.freeMaxUpload}. That holds thousands of screenshots, so you can start with no bucket of your own.`,
+          text: `No. A new workspace starts on the ${PLAN_FACTS.freeName} plan: ${PLAN_FACTS.freeStorage} of hosted storage and files up to ${PLAN_FACTS.freeMaxUpload}. That holds hundreds of screenshots, so you can start with no bucket of your own.`,
         },
       ],
       [
