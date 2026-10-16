@@ -13,6 +13,7 @@ import type { AuthEnv } from "./auth";
 import {
   coerceExplicitWebToNativeForPrivateUseScheme,
   defaultRegistrationApplicationType,
+  __resetJwksFetchCacheForTest,
   fetchClientMetadataResource,
   intersectAdvertisedGrantTypes,
   rewriteClientMetadataGrantTypes,
@@ -70,6 +71,7 @@ async function authorize(env: AuthEnv, params: Record<string, string> = {}) {
 }
 
 afterEach(() => {
+  __resetJwksFetchCacheForTest();
   vi.unstubAllGlobals();
 });
 
@@ -83,7 +85,7 @@ describe("AS metadata", () => {
       grant_types_supported?: string[];
     };
     expect(body.client_id_metadata_document_supported).toBe(true);
-    expect(body.token_endpoint_auth_methods_supported).toEqual(["none"]);
+    expect(body.token_endpoint_auth_methods_supported).toEqual(["none", "private_key_jwt"]);
     expect(body.grant_types_supported).toEqual(["authorization_code", "refresh_token"]);
   });
 });
@@ -326,6 +328,125 @@ describe("CIMD grant_types interop", () => {
     expect(body).not.toHaveProperty("skip_consent");
     expect(body).not.toHaveProperty("trusted");
     expect(body).not.toHaveProperty("client_secret");
+  });
+});
+
+/** A JSON response streamed in chunks with no content-length. */
+function chunkedJson(text: string, chunkBytes = 1024): Response {
+  const bytes = new TextEncoder().encode(text);
+  let offset = 0;
+  const stream = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (offset >= bytes.byteLength) {
+        controller.close();
+        return;
+      }
+      controller.enqueue(bytes.slice(offset, offset + chunkBytes));
+      offset += chunkBytes;
+    },
+  });
+  // No content-length: a chunked body.
+  return new Response(stream, { headers: { "content-type": "application/json" } });
+}
+
+describe("CIMD transport and private_key_jwt documents", () => {
+  it("keeps private_key_jwt + a same-origin jwks_uri in fetched metadata", async () => {
+    const jwksUri = "https://client.example.com/jwks.json";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({
+          ...metadataDocument(),
+          token_endpoint_auth_method: "private_key_jwt",
+          jwks_uri: jwksUri,
+          grant_types: ["authorization_code", "client_credentials", "refresh_token"],
+        }),
+      ),
+    );
+    const body = (await (await fetchClientMetadataResource(CLIENT_ID_URL)).json()) as Record<
+      string,
+      unknown
+    >;
+    expect(body.token_endpoint_auth_method).toBe("private_key_jwt");
+    expect(body.jwks_uri).toBe(jwksUri);
+    expect(body.grant_types).toEqual(["authorization_code", "refresh_token"]);
+  });
+
+  it("refuses a chunked JSON body over 64 KiB without buffering it all", async () => {
+    const oversize = JSON.stringify({ keys: [], pad: "x".repeat(70 * 1024) });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => chunkedJson(oversize)),
+    );
+    await expect(
+      fetchClientMetadataResource("https://client.example.com/jwks.json"),
+    ).rejects.toThrow(/exceeds/);
+  });
+
+  it("refuses a body whose Content-Length understates it", async () => {
+    const oversize = JSON.stringify({ keys: [], pad: "x".repeat(70 * 1024) });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        const res = chunkedJson(oversize);
+        const headers = new Headers(res.headers);
+        headers.set("content-length", "10");
+        return new Response(res.body, { headers });
+      }),
+    );
+    await expect(
+      fetchClientMetadataResource("https://client.example.com/jwks.json"),
+    ).rejects.toThrow(/exceeds/);
+  });
+
+  it("refuses a metadata document over 5 KiB instead of passing it through unsanitized", async () => {
+    const big = JSON.stringify({
+      ...metadataDocument(),
+      token_endpoint_auth_method: "client_secret_basic",
+      client_secret: "forged",
+      pad: "x".repeat(6 * 1024),
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => chunkedJson(big)),
+    );
+    await expect(fetchClientMetadataResource(CLIENT_ID_URL)).rejects.toThrow(/exceeds/);
+  });
+
+  it("serves a JWK Set from memory for 30 s, then refetches", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date("2026-10-15T12:00:00Z"));
+      const jwksUrl = "https://client.example.com/rotating/jwks.json";
+      const upstream = vi.fn(async () => Response.json({ keys: [{ kid: "k1" }] }));
+      vi.stubGlobal("fetch", upstream);
+      await (await fetchClientMetadataResource(jwksUrl)).json();
+      await (await fetchClientMetadataResource(jwksUrl)).json();
+      expect(upstream).toHaveBeenCalledTimes(1);
+      vi.setSystemTime(new Date("2026-10-15T12:00:31Z"));
+      await (await fetchClientMetadataResource(jwksUrl)).json();
+      expect(upstream).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("never caches a metadata document", async () => {
+    const upstream = vi.fn(async () => Response.json(metadataDocument()));
+    vi.stubGlobal("fetch", upstream);
+    await (await fetchClientMetadataResource(CLIENT_ID_URL)).json();
+    await (await fetchClientMetadataResource(CLIENT_ID_URL)).json();
+    expect(upstream).toHaveBeenCalledTimes(2);
+  });
+
+  it("passes a JWK Set fetched through the transport through unchanged", async () => {
+    const jwks = { keys: [{ kty: "EC", crv: "P-256", x: "x", y: "y", kid: "k1" }] };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json(jwks)),
+    );
+    const res = await fetchClientMetadataResource("https://client.example.com/jwks.json");
+    expect(await res.json()).toEqual(jwks);
   });
 });
 

@@ -11,6 +11,10 @@
  *   it but never approves) leaves the row behind forever. Growth here is
  *   unauthenticated (`POST /device/code` needs no auth), bounded only by
  *   Better Auth's database-backed rate limiter (src/auth.ts `rateLimit`).
+ * - `oauth_client_assertion`: `private_key_jwt` replay tombstones, one per
+ *   accepted `jti` (CIMD clients such as Vercel Connect). oauth-provider
+ *   inserts them and never deletes; a row is useless once the assertion's
+ *   `exp` (at most 300 s out) has passed.
  *
  * Deletes are batched (id-select then delete-by-id, looped) so a table that
  * has grown large doesn't turn one sweep into a single unbounded statement.
@@ -66,9 +70,32 @@ async function purgeExpiredDeviceCode(db: Db, now: Date): Promise<number> {
   return deleted;
 }
 
+/** Batched delete of expired `oauth_client_assertion` (jti replay) rows. */
+async function purgeExpiredClientAssertions(db: Db, now: Date): Promise<number> {
+  let deleted = 0;
+  for (;;) {
+    const rows = await db
+      .select({ id: schema.oauthClientAssertion.id })
+      .from(schema.oauthClientAssertion)
+      .where(lt(schema.oauthClientAssertion.expiresAt, now))
+      .limit(BATCH_SIZE);
+    if (rows.length === 0) break;
+
+    const ids = rows.map((r) => r.id);
+    await db
+      .delete(schema.oauthClientAssertion)
+      .where(inArray(schema.oauthClientAssertion.id, ids));
+    deleted += ids.length;
+
+    if (rows.length < BATCH_SIZE) break;
+  }
+  return deleted;
+}
+
 export interface RetentionSweepResult {
   verificationDeleted: number;
   deviceCodeDeleted: number;
+  clientAssertionDeleted: number;
 }
 
 export async function runAuthRetentionSweep(env: AuthEnv): Promise<RetentionSweepResult> {
@@ -77,14 +104,16 @@ export async function runAuthRetentionSweep(env: AuthEnv): Promise<RetentionSwee
 
   const verificationDeleted = await purgeExpiredVerification(db, now);
   const deviceCodeDeleted = await purgeExpiredDeviceCode(db, now);
+  const clientAssertionDeleted = await purgeExpiredClientAssertions(db, now);
 
   console.log(
     JSON.stringify({
       message: "auth_retention_sweep",
       verificationDeleted,
       deviceCodeDeleted,
+      clientAssertionDeleted,
     }),
   );
 
-  return { verificationDeleted, deviceCodeDeleted };
+  return { verificationDeleted, deviceCodeDeleted, clientAssertionDeleted };
 }

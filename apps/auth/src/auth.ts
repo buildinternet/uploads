@@ -51,6 +51,8 @@ import { notifyAdminsOfMemberJoin } from "./notify-member-join";
 import {
   clampDcrRegistrationResult,
   dcrClientRowPatch,
+  cimdClientRowFixups,
+  dcrRegistrationRejection,
   sanitizeDcrRegistrationBody,
 } from "./oauth-dcr";
 import { annotatePublicClientOfficial, PUBLIC_CLIENT_PATHS } from "./oauth-public-client";
@@ -302,6 +304,15 @@ async function applyOAuthClientInterop(
   if (ctx.path === "/oauth2/register") {
     const body = ctx.body as Record<string, unknown> | null;
     if (!body || typeof body !== "object" || Array.isArray(body)) return;
+    // Discovery lists private_key_jwt for CIMD only; DCR refuses it rather
+    // than downgrading a key-holding client to `none` (see oauth-dcr.ts).
+    const rejection = dcrRegistrationRejection(body);
+    if (rejection) {
+      throw new APIError("BAD_REQUEST", {
+        error: "invalid_client_metadata",
+        error_description: rejection,
+      });
+    }
     const withGrantTypes = rewriteClientMetadataGrantTypes(body) ?? body;
     const withDefaultType = defaultRegistrationApplicationType(withGrantTypes) ?? withGrantTypes;
     const afterAppType =
@@ -368,6 +379,33 @@ async function clampRegisteredDcrClient(
       .where(eq(schema.oauthClient.clientId, clientId));
   } catch (err) {
     reportHandledError(new Error("DCR client row clamp failed after register", { cause: err }));
+  }
+}
+
+/**
+ * Best-effort row fix-up after the cimd plugin persists a client (see
+ * `cimdClientRowFixups`). The plugin logs and ignores a thrown hook, and the
+ * in-request client already behaves the same (null requirePKCE reads as
+ * required; a stale jwksUri is unused without private_key_jwt).
+ */
+async function applyCimdClientRowFixups(
+  db: ReturnType<typeof drizzle<typeof schema>>,
+  client: Parameters<typeof cimdClientRowFixups>[0] & { clientId: string },
+): Promise<void> {
+  const patch = cimdClientRowFixups(client);
+  if (!patch) return;
+  try {
+    await db
+      .update(schema.oauthClient)
+      .set(patch)
+      .where(
+        and(
+          eq(schema.oauthClient.clientId, client.clientId),
+          eq(schema.oauthClient.clientDiscoveryId, "cimd"),
+        ),
+      );
+  } catch (err) {
+    reportHandledError(new Error("CIMD client row fix-up failed", { cause: err }));
   }
 }
 
@@ -645,6 +683,45 @@ export async function upsertGithubLogin(
   } catch (err) {
     reportHandledError(new Error("github login capture failed", { cause: err }));
   }
+}
+
+/**
+ * The issuer origin and the auth worker's direct origin when they differ
+ * (prod: uploads.sh vs auth.uploads.sh, #749). `undefined` in dev/preview,
+ * where the worker is reached directly. Shared by the discovery rewrite in
+ * `index.ts` and the client-assertion audience list below, so both agree on
+ * which origin the token endpoint is advertised on.
+ */
+export function directAuthOrigins(
+  env: Pick<AuthEnv, "AUTH_DIRECT_ORIGIN" | "BETTER_AUTH_URL">,
+): { issuerOrigin: string; directOrigin: string } | undefined {
+  const authOrigin = env.AUTH_DIRECT_ORIGIN;
+  if (!authOrigin) return undefined;
+  try {
+    const issuerOrigin = new URL(env.BETTER_AUTH_URL || "https://auth.uploads.sh").origin;
+    const directOrigin = new URL(authOrigin).origin;
+    if (issuerOrigin === directOrigin) return undefined;
+    return { issuerOrigin, directOrigin };
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * oauth-provider option added by our patch
+ * (patches/@better-auth__oauth-provider.patch, `clientAssertionAliasAudiences`).
+ * A `private_key_jwt` assertion's `aud` is checked against
+ * `${baseURL}<endpoint>` and the issuer. Discovery advertises the token and
+ * revocation endpoints on AUTH_DIRECT_ORIGIN, and RFC 7523 clients (Vercel
+ * Connect) put that advertised URL in `aud`, so the same endpoint path on the
+ * direct origin must also verify. Spread into `oauthProvider({...})`: the
+ * option is not in the plugin's types.
+ */
+function clientAssertionAudienceOptions(env: AuthEnv): {
+  clientAssertionAudienceOrigins?: string[];
+} {
+  const origins = directAuthOrigins(env);
+  return origins ? { clientAssertionAudienceOrigins: [origins.directOrigin] } : {};
 }
 
 function buildAuth(
@@ -961,8 +1038,14 @@ function buildAuth(
         // Public DCR clients always require PKCE; keep the plugin's
         // confidential-DCR default on too so a regression cannot opt a
         // DCR row out. hooks.before still forces
-        // token_endpoint_auth_method: "none".
+        // token_endpoint_auth_method: "none". A CIMD `private_key_jwt` row
+        // also requires PKCE: ingest strips `require_pkce`, the column stays
+        // null, and `isPKCERequired` treats null as true for a confidential
+        // client (the plugin also rejects `require_pkce: false` on CIMD).
         clientRegistrationRequirePKCE: true,
+        // CIMD `private_key_jwt` clients (Vercel Connect) sign assertions
+        // with `aud` = the advertised token endpoint on AUTH_DIRECT_ORIGIN.
+        ...clientAssertionAudienceOptions(env),
         // Refresh tokens rotate on every refresh, and the plugin's default
         // reuse grace is 0 — a second use of a just-rotated token (a network
         // retry whose first attempt landed, or two processes of the same
@@ -1021,9 +1104,17 @@ function buildAuth(
       // like any other anonymous row (see oauth-client-reaper.ts).
       // The MCP profile pins the draft-00 requirements that spec revision
       // mandates (client_name + redirect_uris required).
+      // Every resolution and refresh re-fetches through
+      // fetchClientMetadataResource, which re-applies
+      // sanitizeCimdMetadataDocument: a document that moves its jwks_uri off
+      // the client_id origin drops to `none` on the next refresh. The hooks
+      // then pin requirePKCE = true and clear a leftover key URL
+      // (cimdClientRowFixups).
       cimd({
         fetchClientMetadataResource,
         metadataProfile: "mcp-2026-07-28",
+        onClientCreated: ({ client }) => applyCimdClientRowFixups(db, client),
+        onClientRefreshed: ({ client }) => applyCimdClientRowFixups(db, client),
       }),
       // D5/Phase 4: bearer() lets the CLI present the device-flow session token
       // as `Authorization: Bearer <token>` so apps/api's session verification
@@ -1252,6 +1343,8 @@ function cacheKey(
   return JSON.stringify({
     betterAuthUrl: env.BETTER_AUTH_URL,
     webOrigin: env.WEB_ORIGIN,
+    // Feeds oauthProvider's clientAssertionAudienceOrigins.
+    authDirectOrigin: env.AUTH_DIRECT_ORIGIN,
     environment: env.ENVIRONMENT,
     trustedOriginsEnv: env.BETTER_AUTH_TRUSTED_ORIGINS,
     rateLimitDisabled: env.AUTH_RATE_LIMIT_DISABLED,

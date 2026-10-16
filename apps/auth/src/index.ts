@@ -2,7 +2,7 @@ import { reportHandledError } from "@uploads/observability";
 import { drizzle } from "drizzle-orm/d1";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import { createAuth, type AuthEnv } from "./auth";
+import { createAuth, directAuthOrigins, type AuthEnv } from "./auth";
 import { internal } from "./internal-routes";
 import { isInternalRequest } from "./internal";
 import { localDemoEnabled } from "./local-demo";
@@ -88,24 +88,29 @@ function isDiscoveryMetadataPath(pathname: string): boolean {
  * the same-origin issuer so session cookies and discovery are unaffected. See
  * issue #749.
  *
- * The same pass clamps `token_endpoint_auth_methods_supported` to `["none"]`
- * and `grant_types_supported` to `authorization_code` + `refresh_token`.
- * Better Auth 1.7's oauth-provider also lists confidential client auth and
- * `client_credentials`. Unauthenticated DCR and CIMD persist public PKCE
- * only (`sanitizeDcrRegistrationBody`, #990) and drop `client_credentials`.
- * The token endpoint rejects that grant for a public client. RFC 8414's
- * defaults (omitted auth methods → `client_secret_basic`; omitted grants →
- * `authorization_code` + `implicit`) are wrong for this server, so both
- * fields are always set. Revocation gets the same `["none"]` list: the
- * plugin accepts a bare `client_id` there for a public client. The JWT
- * signing-algorithm lists for the token and revocation endpoints are
- * removed. RFC 8414 only calls for them alongside a `*_jwt` method, and a
- * leftover list reads as a `private_key_jwt` hint (Vercel Connect's form
- * still pre-filled it). Introspection lists stay as the plugin emits them:
- * that endpoint requires a secret or an assertion, so `none` would be false. The `client_credentials` handler stays registered
- * for a non-discovery client; discovery describes what a self-registered
- * client can do. Seeded `uploads-cli` uses the device-code plugin, not this
- * list.
+ * The same pass sets `token_endpoint_auth_methods_supported` to
+ * `["none", "private_key_jwt"]` and `grant_types_supported` to
+ * `authorization_code` + `refresh_token`. Better Auth 1.7's oauth-provider
+ * also lists `client_secret_*` and `client_credentials`. Unauthenticated DCR
+ * persists public PKCE only (`sanitizeDcrRegistrationBody`, #990) and
+ * refuses `private_key_jwt`; CIMD persists public PKCE, or `private_key_jwt`
+ * when the document's `jwks_uri` is HTTPS on the `client_id` origin
+ * (`sanitizeCimdMetadataDocument`, for Vercel Connect). No
+ * self-registered client gets a secret or `client_credentials`; the token
+ * endpoint rejects that grant for a public client and for a client whose row
+ * lacks it. RFC 8414's defaults (omitted auth methods →
+ * `client_secret_basic`; omitted grants → `authorization_code` + `implicit`)
+ * are wrong for this server, so both fields are always set. Revocation gets
+ * the same two methods: the plugin accepts a bare `client_id` there for a
+ * public client and verifies an assertion for a `private_key_jwt` one. RFC
+ * 8414 requires the `*_auth_signing_alg_values_supported` list next to a
+ * `*_jwt` method, so the token, revocation, and introspection lists are kept
+ * (or filled in) with the algorithms oauth-provider's `verifyClientAssertion`
+ * accepts. Introspection's method list stays as the plugin emits it: that
+ * endpoint requires a secret or an assertion, so `none` would be false. The `client_credentials`
+ * handler stays registered for a non-discovery client; discovery describes
+ * what a self-registered client can do. Seeded `uploads-cli` uses the
+ * device-code plugin, not this list.
  *
  * The origin rewrite no-ops unless `AUTH_DIRECT_ORIGIN` is set and differs
  * from the issuer origin — dev/preview reach the worker directly. The
@@ -119,8 +124,11 @@ const FORM_POST_ENDPOINT_KEYS = [
   "revocation_endpoint",
 ] as const;
 
-/** Only method DCR and CIMD registration will store. */
-const PUBLIC_TOKEN_ENDPOINT_AUTH_METHODS = ["none"] as const;
+/**
+ * Methods a self-registered client can use: `none` (DCR and CIMD) and
+ * `private_key_jwt` (CIMD with a same-origin `jwks_uri` only).
+ */
+const SELF_REGISTERED_TOKEN_ENDPOINT_AUTH_METHODS = ["none", "private_key_jwt"] as const;
 
 /**
  * Grants a self-registered client can use. Matches `DCR_GRANT_TYPES`.
@@ -129,10 +137,33 @@ const PUBLIC_TOKEN_ENDPOINT_AUTH_METHODS = ["none"] as const;
  */
 const PUBLIC_GRANT_TYPES = ["authorization_code", "refresh_token"] as const;
 
-/** Signing-alg lists that only make sense next to a `*_jwt` auth method. */
-const JWT_ONLY_SIGNING_ALG_KEYS = [
-  "token_endpoint_auth_signing_alg_values_supported",
-  "revocation_endpoint_auth_signing_alg_values_supported",
+/**
+ * `PRIVATE_KEY_JWT_SIGNING_ALGORITHMS` from `@better-auth/core/oauth2` 1.7.7,
+ * the list `verifyClientAssertion` checks `alg` against. Used only when the
+ * plugin omits the field; the plugin's own list wins otherwise so the two
+ * cannot drift.
+ */
+const PRIVATE_KEY_JWT_SIGNING_ALGS = [
+  "RS256",
+  "RS384",
+  "RS512",
+  "PS256",
+  "PS384",
+  "PS512",
+  "ES256",
+  "ES384",
+  "ES512",
+  "EdDSA",
+] as const;
+
+/**
+ * Endpoints whose `*_auth_signing_alg_values_supported` RFC 8414 §2 requires
+ * whenever their `*_auth_methods_supported` lists a `*_jwt` method.
+ */
+const JWT_AUTH_ENDPOINT_PREFIXES = [
+  "token_endpoint",
+  "revocation_endpoint",
+  "introspection_endpoint",
 ] as const;
 
 function listEquals(value: unknown, expected: readonly string[]): boolean {
@@ -143,19 +174,10 @@ function listEquals(value: unknown, expected: readonly string[]): boolean {
   );
 }
 
-function directAuthOrigins(
-  env: AuthEnv,
-): { issuerOrigin: string; directOrigin: string } | undefined {
-  const authOrigin = env.AUTH_DIRECT_ORIGIN;
-  if (!authOrigin) return undefined;
-  try {
-    const issuerOrigin = new URL(env.BETTER_AUTH_URL || "https://auth.uploads.sh").origin;
-    const directOrigin = new URL(authOrigin).origin;
-    if (issuerOrigin === directOrigin) return undefined;
-    return { issuerOrigin, directOrigin };
-  } catch {
-    return undefined;
-  }
+function isNonEmptyStringList(value: unknown): boolean {
+  return (
+    Array.isArray(value) && value.length > 0 && value.every((item) => typeof item === "string")
+  );
 }
 
 export async function rewriteDiscoveryEndpoints(
@@ -176,8 +198,13 @@ export async function rewriteDiscoveryEndpoints(
   }
 
   let changed = false;
-  if (!listEquals(json.token_endpoint_auth_methods_supported, PUBLIC_TOKEN_ENDPOINT_AUTH_METHODS)) {
-    json.token_endpoint_auth_methods_supported = [...PUBLIC_TOKEN_ENDPOINT_AUTH_METHODS];
+  if (
+    !listEquals(
+      json.token_endpoint_auth_methods_supported,
+      SELF_REGISTERED_TOKEN_ENDPOINT_AUTH_METHODS,
+    )
+  ) {
+    json.token_endpoint_auth_methods_supported = [...SELF_REGISTERED_TOKEN_ENDPOINT_AUTH_METHODS];
     changed = true;
   }
   if (!listEquals(json.grant_types_supported, PUBLIC_GRANT_TYPES)) {
@@ -186,14 +213,24 @@ export async function rewriteDiscoveryEndpoints(
   }
   if (
     "revocation_endpoint" in json &&
-    !listEquals(json.revocation_endpoint_auth_methods_supported, PUBLIC_TOKEN_ENDPOINT_AUTH_METHODS)
+    !listEquals(
+      json.revocation_endpoint_auth_methods_supported,
+      SELF_REGISTERED_TOKEN_ENDPOINT_AUTH_METHODS,
+    )
   ) {
-    json.revocation_endpoint_auth_methods_supported = [...PUBLIC_TOKEN_ENDPOINT_AUTH_METHODS];
+    json.revocation_endpoint_auth_methods_supported = [
+      ...SELF_REGISTERED_TOKEN_ENDPOINT_AUTH_METHODS,
+    ];
     changed = true;
   }
-  for (const key of JWT_ONLY_SIGNING_ALG_KEYS) {
-    if (key in json) {
-      delete json[key];
+  for (const prefix of JWT_AUTH_ENDPOINT_PREFIXES) {
+    const methods = json[`${prefix}_auth_methods_supported`];
+    const listsJwtMethod =
+      Array.isArray(methods) &&
+      methods.some((method) => typeof method === "string" && method.endsWith("_jwt"));
+    const algKey = `${prefix}_auth_signing_alg_values_supported`;
+    if (listsJwtMethod && !isNonEmptyStringList(json[algKey])) {
+      json[algKey] = [...PRIVATE_KEY_JWT_SIGNING_ALGS];
       changed = true;
     }
   }
@@ -322,9 +359,9 @@ export const app = new Hono<{ Bindings: AuthEnv }>()
     // better-auth version adds one.
     //
     // The discovery-metadata rewrite (#749, #1117) advertises the OAuth
-    // form-POST endpoints on AUTH_DIRECT_ORIGIN and clamps token auth methods
-    // to ["none"] and grant_types_supported to authorization_code +
-    // refresh_token. It no-ops for every non-metadata path (the path check
+    // form-POST endpoints on AUTH_DIRECT_ORIGIN and sets token auth methods
+    // to ["none", "private_key_jwt"] and grant_types_supported to
+    // authorization_code + refresh_token. It no-ops for every non-metadata path (the path check
     // short-circuits before the body is read), so it doesn't touch the
     // actual /oauth2/token request itself.
     return rewriteDiscoveryEndpoints(c.req.raw.url, await auth.handler(c.req.raw), c.env);
