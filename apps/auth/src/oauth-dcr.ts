@@ -90,7 +90,7 @@ function allowsAuthorizationCode(grantTypes: unknown): boolean {
   return capped === undefined || capped.includes("authorization_code");
 }
 
-function grantTypesUnchanged(advertised: unknown, next: readonly unknown[]): boolean {
+export function grantTypesUnchanged(advertised: unknown, next: readonly unknown[]): boolean {
   return (
     Array.isArray(advertised) &&
     advertised.length === next.length &&

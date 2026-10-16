@@ -731,6 +731,11 @@ function buildAuth(
   dashApiKey: string | null,
 ) {
   const db = drizzle(env.DB, { schema });
+  const fixCimdClientRow = ({
+    client,
+  }: {
+    client: Parameters<typeof applyCimdClientRowFixups>[1];
+  }) => applyCimdClientRowFixups(db, client);
   const betterAuthUrl = env.BETTER_AUTH_URL || "https://auth.uploads.sh";
   const webOrigin = env.WEB_ORIGIN || "https://uploads.sh";
   const isProduction = env.ENVIRONMENT === "production";
@@ -1113,8 +1118,8 @@ function buildAuth(
       cimd({
         fetchClientMetadataResource,
         metadataProfile: "mcp-2026-07-28",
-        onClientCreated: ({ client }) => applyCimdClientRowFixups(db, client),
-        onClientRefreshed: ({ client }) => applyCimdClientRowFixups(db, client),
+        onClientCreated: fixCimdClientRow,
+        onClientRefreshed: fixCimdClientRow,
       }),
       // D5/Phase 4: bearer() lets the CLI present the device-flow session token
       // as `Authorization: Bearer <token>` so apps/api's session verification

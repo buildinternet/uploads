@@ -28,65 +28,29 @@ const BATCH_SIZE = 500;
 
 type Db = ReturnType<typeof drizzle<typeof schema>>;
 
-/** Batched delete of expired `verification` rows: select ids, delete by id, repeat. */
-async function purgeExpiredVerification(db: Db, now: Date): Promise<number> {
+/** Tables the sweep pages through: an `id` key and an `expiresAt` timestamp. */
+type ExpiringTable =
+  | typeof schema.verification
+  | typeof schema.deviceCode
+  | typeof schema.oauthClientAssertion;
+
+/** Batched delete of expired rows: select ids, delete by id, repeat. */
+async function purgeExpired(db: Db, table: ExpiringTable, now: Date): Promise<number> {
   let deleted = 0;
   for (;;) {
     const rows = await db
-      .select({ id: schema.verification.id })
-      .from(schema.verification)
-      .where(lt(schema.verification.expiresAt, now))
+      .select({ id: table.id })
+      .from(table)
+      .where(lt(table.expiresAt, now))
       .limit(BATCH_SIZE);
     if (rows.length === 0) break;
 
     const ids = rows.map((r) => r.id);
-    await db.delete(schema.verification).where(inArray(schema.verification.id, ids));
+    await db.delete(table).where(inArray(table.id, ids));
     deleted += ids.length;
 
     // A batch smaller than the page size means there's nothing left to page
     // through; avoid one extra round-trip that would just return empty.
-    if (rows.length < BATCH_SIZE) break;
-  }
-  return deleted;
-}
-
-/** Batched delete of expired `device_code` rows: select ids, delete by id, repeat. */
-async function purgeExpiredDeviceCode(db: Db, now: Date): Promise<number> {
-  let deleted = 0;
-  for (;;) {
-    const rows = await db
-      .select({ id: schema.deviceCode.id })
-      .from(schema.deviceCode)
-      .where(lt(schema.deviceCode.expiresAt, now))
-      .limit(BATCH_SIZE);
-    if (rows.length === 0) break;
-
-    const ids = rows.map((r) => r.id);
-    await db.delete(schema.deviceCode).where(inArray(schema.deviceCode.id, ids));
-    deleted += ids.length;
-
-    if (rows.length < BATCH_SIZE) break;
-  }
-  return deleted;
-}
-
-/** Batched delete of expired `oauth_client_assertion` (jti replay) rows. */
-async function purgeExpiredClientAssertions(db: Db, now: Date): Promise<number> {
-  let deleted = 0;
-  for (;;) {
-    const rows = await db
-      .select({ id: schema.oauthClientAssertion.id })
-      .from(schema.oauthClientAssertion)
-      .where(lt(schema.oauthClientAssertion.expiresAt, now))
-      .limit(BATCH_SIZE);
-    if (rows.length === 0) break;
-
-    const ids = rows.map((r) => r.id);
-    await db
-      .delete(schema.oauthClientAssertion)
-      .where(inArray(schema.oauthClientAssertion.id, ids));
-    deleted += ids.length;
-
     if (rows.length < BATCH_SIZE) break;
   }
   return deleted;
@@ -102,9 +66,9 @@ export async function runAuthRetentionSweep(env: AuthEnv): Promise<RetentionSwee
   const db = drizzle(env.DB, { schema });
   const now = new Date();
 
-  const verificationDeleted = await purgeExpiredVerification(db, now);
-  const deviceCodeDeleted = await purgeExpiredDeviceCode(db, now);
-  const clientAssertionDeleted = await purgeExpiredClientAssertions(db, now);
+  const verificationDeleted = await purgeExpired(db, schema.verification, now);
+  const deviceCodeDeleted = await purgeExpired(db, schema.deviceCode, now);
+  const clientAssertionDeleted = await purgeExpired(db, schema.oauthClientAssertion, now);
 
   console.log(
     JSON.stringify({

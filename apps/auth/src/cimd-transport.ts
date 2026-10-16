@@ -38,7 +38,7 @@
  */
 import { validateClientIdUrl } from "@better-auth/cimd";
 import type { ClientMetadataResourceFetch } from "@better-auth/oauth-provider";
-import { sanitizeCimdMetadataDocument } from "./oauth-dcr";
+import { grantTypesUnchanged, sanitizeCimdMetadataDocument } from "./oauth-dcr";
 
 /**
  * Grants this AS's oauth-provider token endpoint actually issues. Matches
@@ -86,7 +86,7 @@ const TRANSPORT_MAX_BYTES = 64 * 1024;
  * rotated key is picked up within this window.
  */
 const JWKS_REFETCH_COOLDOWN_MS = 30_000;
-const JWKS_CACHE_MAX_ENTRIES = 256;
+const JWKS_CACHE_MAX_ENTRIES = 32;
 
 type CachedJwks = { text: string; headers: Headers; fetchedAt: number };
 const jwksResponseCache = new Map<string, CachedJwks>();
@@ -177,14 +177,6 @@ export function intersectAdvertisedGrantTypes(grantTypes: unknown): string[] | u
   }
   if (!supported.includes("authorization_code")) return undefined;
   return supported;
-}
-
-function grantTypesUnchanged(advertised: unknown, next: string[]): boolean {
-  return (
-    Array.isArray(advertised) &&
-    advertised.length === next.length &&
-    advertised.every((grant, i) => grant === next[i])
-  );
 }
 
 /**
@@ -348,12 +340,12 @@ async function rewriteFetchedMetadataGrantTypes(
 
   const metadata = parsed as Record<string, unknown>;
   // This transport also serves the plugin's `jwks_uri` fetch for a CIMD
-  // `private_key_jwt` client. A JWK Set has no `client_id`; pass it through
-  // untouched (and remember it for the refetch cooldown). A metadata
-  // document without `client_id` fails the plugin's own `client_id` match,
-  // so skipping the rewrite there admits nothing.
-  if (typeof metadata.client_id !== "string") {
-    if (isJwkSet(metadata)) storeJwksResponse(requestUrl, text, res.headers, Date.now());
+  // `private_key_jwt` client. Only a body shaped like a JWK Set (and with no
+  // `client_id`) skips the sanitizer; it is passed through untouched and
+  // remembered for the refetch cooldown. Everything else is sanitized, so a
+  // metadata document never bypasses the rewrite by omitting `client_id`.
+  if (typeof metadata.client_id !== "string" && isJwkSet(metadata)) {
+    storeJwksResponse(requestUrl, text, res.headers, Date.now());
     return passThrough(res, text);
   }
   if (new TextEncoder().encode(text).byteLength > CIMD_METADATA_MAX_BYTES) {
