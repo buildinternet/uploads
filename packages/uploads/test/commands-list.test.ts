@@ -92,6 +92,61 @@ function fakeFindClient() {
   return { client, calls };
 }
 
+describe("runList unknown flags", () => {
+  it("rejects --branch and points at uploads staged", async () => {
+    const { client } = fakeListClient();
+    await expect(
+      runList(ctxWith(client), ["--branch", "feature/thing"], false, noRun),
+    ).rejects.toMatchObject({
+      message: expect.stringMatching(/uploads staged/),
+      example: "uploads staged --branch feature/thing",
+    });
+  });
+
+  it("rejects an unknown flag", async () => {
+    const { client } = fakeListClient();
+    await expect(runList(ctxWith(client), ["--nope"], false, noRun)).rejects.toThrow(UsageError);
+  });
+
+  it("honors --json after the command", async () => {
+    const { client } = fakeListClient();
+    const chunks: string[] = [];
+    const original = process.stdout.write;
+    process.stdout.write = ((chunk: unknown) => {
+      chunks.push(String(chunk));
+      return true;
+    }) as typeof process.stdout.write;
+    try {
+      const code = await runList(
+        ctxWith(client),
+        ["--prefix", "screenshots/", "--json"],
+        false,
+        noRun,
+      );
+      expect(code).toBe(0);
+    } finally {
+      process.stdout.write = original;
+    }
+    expect(JSON.parse(chunks.join(""))).toEqual({ items: [], cursor: null });
+  });
+
+  it("lists the resolved private prefix when activePrefixIds is empty", async () => {
+    const id = "0123456789abcdef0123456789abcdef";
+    const { client, prefixes } = fakeListClient({
+      resolveGhPrefix: { mode: "private", prefixId: id, activePrefixIds: [] },
+    });
+    await runList(
+      ctxWith(client),
+      ["--pr", "123", "--repo", "buildinternet/uploads"],
+      false,
+      noRun,
+    );
+    expect(prefixes.sort()).toEqual(
+      [`gh/buildinternet/uploads/pull/123/`, `gh/private/${id}/pull/123/`].sort(),
+    );
+  });
+});
+
 describe("runList --pr/--issue", () => {
   it("translates --pr to the gh prefix", async () => {
     const { client, prefixes } = fakeListClient();

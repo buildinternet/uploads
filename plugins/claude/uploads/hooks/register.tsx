@@ -46,6 +46,8 @@ type RawFile = {
   url?: unknown;
   size?: unknown;
   stagedAt?: unknown;
+  /** `gh.branch`, when the CLI includes it. Older CLIs omit the field. */
+  branch?: unknown;
 };
 type Role = "before" | "after";
 
@@ -161,13 +163,20 @@ const parseStaged = (stdout: string): Staged | null => {
       return null;
     }
     const state = doc.binding?.state;
-    const files: RawFile[] = doc.files.filter(
-      (f: { filename?: unknown }) => typeof f?.filename === "string",
-    );
+    const wanted = doc.branch.toLowerCase();
+    // A file that names a different branch is not staged for this one. Files
+    // with no `branch` (an older CLI) stay: the count is already what that
+    // CLI returned. Count the files we keep, not `doc.files.length`, so a
+    // mismatched row cannot make the band or the PR-create hook claim work.
+    const files: RawFile[] = doc.files.filter((f: { filename?: unknown; branch?: unknown }) => {
+      if (typeof f?.filename !== "string") return false;
+      if (typeof f.branch === "string" && f.branch.toLowerCase() !== wanted) return false;
+      return true;
+    });
     return {
       repo: doc.repo,
       branch: doc.branch,
-      count: doc.files.length,
+      count: files.length,
       rows: toRows(files),
       binding: BINDINGS.includes(state) ? state : "unknown",
       autoAttach: doc.binding?.autoAttach === true,

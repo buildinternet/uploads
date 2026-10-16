@@ -77,6 +77,7 @@ async function seedPlainStaged(seeded: Seeded, filename: string) {
     "gh.repo": REPO,
     "gh.kind": "branch",
     "gh.branch": BRANCH,
+    "gh.status": "staged",
     "gh.staged-at": new Date().toISOString(),
   });
 }
@@ -90,6 +91,7 @@ async function seedPrivateStaged(seeded: Seeded, prefixId: string, filename: str
     "gh.repo": REPO,
     "gh.kind": "branch",
     "gh.branch": BRANCH,
+    "gh.status": "staged",
     "gh.staged-at": new Date().toISOString(),
   });
   return key;
@@ -108,6 +110,7 @@ describe("promoteBranchAttachments — private prefixes (issue #631)", () => {
       "gh.repo": REPO,
       "gh.kind": "branch",
       "gh.branch": staleBranch,
+      "gh.status": "staged",
       "gh.staged-at": new Date().toISOString(),
     });
 

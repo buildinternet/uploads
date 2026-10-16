@@ -224,6 +224,11 @@ export function flagBool(flags: CommandFlags["flags"], name: string): boolean {
   return flags.get(name) === true;
 }
 
+/** Flag names in `flags` that are not in `known`, in first-seen order. */
+export function unknownFlags(flags: CommandFlags["flags"], known: ReadonlySet<string>): string[] {
+  return [...flags.keys()].filter((name) => !known.has(name));
+}
+
 /**
  * Every string value passed for a repeatable flag (e.g. `--meta k=v`), in
  * argument order. Empty when the flag is absent; a single occurrence yields

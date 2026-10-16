@@ -19,8 +19,8 @@ type Cli = {
   /** Staged files per branch; `attach --promote` empties the promoted one. */
   counts: Record<string, number>;
   binding: [state: string, autoAttach: boolean];
-  /** Overrides for the nth staged file's JSON (filename, state, path). */
-  files?: { filename: string; state?: string; path?: string }[];
+  /** Overrides for the nth staged file's JSON (filename, state, path, branch). */
+  files?: { filename: string; state?: string; path?: string; branch?: string }[];
   /** How `attach --promote` ends: everything moved (default), one skipped, or a server error. */
   promote?: "ok" | "partial" | "error";
   /** The open PR for the session branch, as `gh pr view` reports it. */
@@ -243,6 +243,39 @@ describe("gh pr create", () => {
     expect(world.toasts).toContainEqual(
       "uploads: 3 attachments added to PR #1051 by the uploads-sh bot",
     );
+  });
+
+  test("does not claim the App will attach when this branch has nothing staged", async ($, on) => {
+    const world = setup(on, { counts: { "feat/x": 0 }, binding: ["self", true] });
+
+    const ran = await runBash($, world, "gh pr create --fill");
+
+    expect(promoted(world)).toBe(false);
+    expect(world.toasts).toEqual([]);
+    expect(ran.context?.join("\n") ?? "").not.toContain("Don't re-upload");
+  });
+
+  test("does not claim another branch's files, even when the JSON still lists them", async ($, on) => {
+    const world = setup(
+      on,
+      {
+        counts: { "feat/x": 2 },
+        binding: ["self", true],
+        files: [
+          { filename: "a.png", branch: "refactor/room-stage-top-bar" },
+          { filename: "b.png", branch: "refactor/room-stage-top-bar" },
+        ],
+      },
+      "",
+    );
+    await runBash($, world, STAGE);
+    expect(await (await mountBand($)).find({ text: /waiting for a PR/ })).toBeUndefined();
+
+    world.output.text = PR_OUTPUT;
+    const ran = await runBash($, world, "gh pr create --fill");
+    expect(promoted(world)).toBe(false);
+    expect(world.toasts).toEqual([]);
+    expect(ran.context?.join("\n") ?? "").not.toContain("Don't re-upload");
   });
 
   test("does not promote when nothing is staged for the PR head", async ($, on) => {

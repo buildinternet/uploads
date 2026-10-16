@@ -108,15 +108,27 @@ uploads staged --format json
 ```
 
 Same branch/repo resolution as `attach --branch` (current git branch by
-default, worktree-safe). Files already promoted to a PR (`gh.status=promoted`)
-are not listed. Human mode prints one compact line per staged file
-(filename, size, `gh.staged-at`, public URL), then a `binding:` line and
-`once the PR exists: uploads attach --promote` (the promote line is omitted
-for `binding: other` — promoting from a non-owning workspace would be
-rejected by the cross-tenant gate). Nothing staged prints a
-single zero-state line. `--format json` (or global `--json`) always emits a
-valid document — `{ repo, branch, files, binding }` — even with zero files;
-`files` is `[]`, never empty stdout.
+default, worktree-safe). A file already on a pull request is not listed.
+That includes `gh.status=promoted`, a `gh.promoted-to` or `gh.promoted-at`
+marker, and a pull-request copy of the same filename whose copy is at least
+as new as `gh.staged-at`. A newer re-stage of that filename stays. On a
+private repo the staged key is `gh/private/<id>/branch/<filename>`. The
+branch name is not in the key, because the id belongs to one branch.
+`uploads staged --branch` lists that id and keeps a file whose `gh.branch`
+is that branch. A file with no `gh.branch` stays, because it was listed
+under this branch's prefix.
+
+`uploads list` has no `--branch`. An unknown flag, including `--branch`, is
+an error. Use `uploads staged --branch <name>`.
+
+Human mode prints one compact line per staged file (filename, size,
+`gh.staged-at`, public URL), then a `binding:` line and `once the PR exists:
+uploads attach --promote` (the promote line is omitted for `binding: other`
+— promoting from a non-owning workspace would be rejected by the
+cross-tenant gate). Nothing staged prints a single zero-state line.
+`--format json` (or global `--json`) always emits a valid document —
+`{ repo, branch, files, binding }` — even with zero files; `files` is `[]`,
+never empty stdout.
 
 `binding` folds in the same repo↔workspace check the stage-time warning uses
 (see "Repo binding" below), so you don't have to separately reason about it:

@@ -388,7 +388,24 @@ export interface ResolveGhPrefixOptions {
 /** `POST /v1/workspaces/:workspace/github/private-prefix` response (server contract, issue #631/#613). */
 export type ResolveGhPrefixResult =
   | { mode: "plain" }
-  | { mode: "private"; prefixId: string; activePrefixIds?: string[] };
+  | {
+      mode: "private";
+      prefixId: string;
+      /**
+       * Ids the caller may list. With a target, only ids that can hold that
+       * target. With a branch and no target, that branch only (active, then
+       * retired) — a repo-wide list mixes branches, because a private staged
+       * key has no branch segment (issue #1122). Older workers omit this and
+       * may return every active id in the repo.
+       */
+      activePrefixIds?: string[];
+      /**
+       * This branch's ids (active, then retired), set only on a branch
+       * resolve with no target. Prefer this over `activePrefixIds` for
+       * `uploads staged`: an older worker's `activePrefixIds` is every branch.
+       */
+      branchPrefixIds?: string[];
+    };
 
 /** `POST /v1/workspaces/:workspace/github/private-prefix/rotate` request (server contract, issue #631/#613). */
 export interface RotateGhPrefixOptions {
