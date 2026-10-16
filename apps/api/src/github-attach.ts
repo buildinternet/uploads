@@ -235,14 +235,55 @@ export async function attachExistingObject(
   const clientSourceMeta = Object.fromEntries(
     Object.entries(sourceMeta).filter(([key]) => !isServerMetaKey(key)),
   );
-  await setFileMetadata(dbFor(env), workspaceName, destKey, {
-    ...clientSourceMeta,
-    "gh.repo": `${owner}/${name}`.toLowerCase(),
-    "gh.kind": req.target.kind,
-    "gh.number": String(req.target.num),
-    "gh.ref": ref,
-    "gh.attached-at": nowIso,
-  });
+  const sourceStatus = clientSourceMeta["gh.status"];
+  const sourceKind = clientSourceMeta["gh.kind"];
+  // A branch stage copied onto a PR (link adoption does this) used to keep
+  // `gh.status=staged` on the source and copy that status onto the
+  // destination. The destination is attached, not staged. Strip it here;
+  // `remove` clears a status a previous copy already stored, which a merge
+  // alone cannot delete (issue #1122).
+  const destMeta = { ...clientSourceMeta };
+  const remove: string[] = [];
+  if (sourceStatus === "staged") {
+    delete destMeta["gh.status"];
+    remove.push("gh.status");
+  }
+  await setFileMetadata(
+    dbFor(env),
+    workspaceName,
+    destKey,
+    {
+      ...destMeta,
+      "gh.repo": `${owner}/${name}`.toLowerCase(),
+      "gh.kind": req.target.kind,
+      "gh.number": String(req.target.num),
+      "gh.ref": ref,
+      "gh.attached-at": nowIso,
+    },
+    remove,
+  );
+
+  // Tag the branch source before a move-delete. The copy already succeeded,
+  // so a tagging failure is logged and does not fail the attach. Promote
+  // already does this on its own sweep; this is the other copy path.
+  if (sourceKind === "branch" && sourceStatus !== "promoted") {
+    try {
+      await setFileMetadata(dbFor(env), workspaceName, sourceKey, {
+        "gh.status": "promoted",
+        "gh.promoted-to": ref,
+        "gh.promoted-at": nowIso,
+      });
+    } catch (err) {
+      console.error(
+        JSON.stringify({
+          message: "attach: failed to tag staged source",
+          sourceKey,
+          destKey,
+          error: err instanceof Error ? err.message : String(err),
+        }),
+      );
+    }
+  }
 
   if (req.move) {
     try {

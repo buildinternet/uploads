@@ -184,6 +184,28 @@ export async function listActivePrefixIds(db: D1Queryable, repo: string): Promis
 }
 
 /**
+ * Prefix ids that hold one branch's private attachments: the active id, then
+ * retired ids oldest-first.
+ *
+ * This is NOT `listActivePrefixIds`. That list is every branch in the repo.
+ * A private staged key is `gh/private/<id>/branch/<filename>` — the branch
+ * name is not in the key — so listing every active id returns every branch's
+ * staged files (issue #1122). Callers that asked for one branch must list
+ * only that branch's ids.
+ */
+export async function listBranchPrefixIds(
+  db: D1Queryable,
+  repo: string,
+  branch: string,
+  activeId: string,
+): Promise<string[]> {
+  const retired = await listRetiredPrefixIds(db, repo, branch);
+  const ids = [activeId];
+  for (const id of retired) if (id !== activeId) ids.push(id);
+  return ids;
+}
+
+/**
  * All RETIRED prefix ids for (repo, branch), oldest first. Rotation's
  * resumability (issue #631, Task 8) uses this to drain any leftovers
  * stranded under a PREVIOUS rotation that was interrupted mid-sweep — a
