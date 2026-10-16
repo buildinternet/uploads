@@ -1,5 +1,12 @@
 # @uploads/plugin
 
+## 0.4.2
+
+### Patch Changes
+
+- 4879d8a: `uploads staged --branch` returns only that branch's still-staged files on private repos, and the Claude plugin no longer reports another branch's files as waiting.
+- 5da7003: Add `uploads unstage` to clear a branch's staged files without deleting them. A write token can delete `gh/` objects the server stamped as that user's. Files uploaded before that stamp still need `files:delete`. A missing-scope error names the scope and where to mint it.
+
 ## 0.4.1
 
 ### Patch Changes
