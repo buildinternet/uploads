@@ -30,11 +30,15 @@
  *
  * The plugin has already run `validateClientIdUrl` on the `client_id` URL
  * before fetching; the checks here also cover discovery-owned follow-up
- * fetches such as a confidential client's `jwks_uri`.
+ * fetches such as a CIMD `private_key_jwt` client's `jwks_uri`. oauth-provider
+ * routes that key fetch through this same transport (`fetchClientJwks` uses
+ * the discovery's `fetchClientMetadataResource`), and ingest only keeps a
+ * `jwks_uri` on the `client_id` origin, so the key fetch never reaches a host
+ * the metadata fetch could not.
  */
 import { validateClientIdUrl } from "@better-auth/cimd";
 import type { ClientMetadataResourceFetch } from "@better-auth/oauth-provider";
-import { sanitizeDcrRegistrationBody } from "./oauth-dcr";
+import { grantTypesUnchanged, sanitizeCimdMetadataDocument } from "./oauth-dcr";
 
 /**
  * Grants this AS's oauth-provider token endpoint actually issues. Matches
@@ -46,7 +50,7 @@ import { sanitizeDcrRegistrationBody } from "./oauth-dcr";
  * `@better-auth/cimd` 1.7 has no option to ignore extras, so the transport
  * intersects fetched metadata (and DCR POST /oauth2/register, via the
  * rewrite helper) with this list before the plugin parses it. DCR/CIMD
- * ingest then drops `client_credentials` in {@link sanitizeDcrRegistrationBody}.
+ * ingest then drops `client_credentials` in {@link sanitizeCimdMetadataDocument}.
  *
  * `urn:ietf:params:oauth:grant-type:device_code` is intentionally absent.
  * This worker does implement RFC 8628 for the seeded `uploads-cli` client
@@ -63,8 +67,94 @@ export const AS_SUPPORTED_GRANT_TYPES = [
 
 const AS_SUPPORTED_GRANT_TYPE_SET: ReadonlySet<string> = new Set(AS_SUPPORTED_GRANT_TYPES);
 
-/** Plugin body cap is 5 KiB; skip the JSON rewrite above that. */
-const CIMD_METADATA_REWRITE_MAX_BYTES = 5 * 1024;
+/** `@better-auth/cimd`'s metadata document cap. */
+const CIMD_METADATA_MAX_BYTES = 5 * 1024;
+
+/**
+ * Hard cap on any JSON body this transport buffers: oauth-provider's JWKS
+ * cap. Metadata documents are held to {@link CIMD_METADATA_MAX_BYTES} once
+ * parsed. Either overflow throws, which both plugin call sites turn into a
+ * failed fetch (fail closed).
+ */
+const TRANSPORT_MAX_BYTES = 64 * 1024;
+
+/**
+ * How long a fetched JWK Set is served from memory for its URL. oauth-provider
+ * refetches `jwks_uri` whenever an assertion names an unknown `kid`
+ * (`refetchClientJwks`), so without this an unauthenticated caller could turn
+ * every garbage assertion for a victim CIMD client into an outbound fetch. A
+ * rotated key is picked up within this window.
+ */
+const JWKS_REFETCH_COOLDOWN_MS = 30_000;
+const JWKS_CACHE_MAX_ENTRIES = 32;
+
+type CachedJwks = { text: string; headers: Headers; fetchedAt: number };
+const jwksResponseCache = new Map<string, CachedJwks>();
+
+/** Test-only: clear the per-URL JWK Set cache between cases. */
+export function __resetJwksFetchCacheForTest(): void {
+  jwksResponseCache.clear();
+}
+
+function cachedJwksResponse(url: string, now: number): Response | undefined {
+  const entry = jwksResponseCache.get(url);
+  if (!entry) return undefined;
+  if (now - entry.fetchedAt >= JWKS_REFETCH_COOLDOWN_MS) {
+    jwksResponseCache.delete(url);
+    return undefined;
+  }
+  return new Response(entry.text, { status: 200, headers: new Headers(entry.headers) });
+}
+
+function storeJwksResponse(url: string, text: string, headers: Headers, now: number): void {
+  jwksResponseCache.delete(url);
+  while (jwksResponseCache.size >= JWKS_CACHE_MAX_ENTRIES) {
+    const oldest = jwksResponseCache.keys().next().value;
+    if (oldest === undefined) break;
+    jwksResponseCache.delete(oldest);
+  }
+  jwksResponseCache.set(url, { text, headers: new Headers(headers), fetchedAt: now });
+}
+
+function isJwkSet(value: Record<string, unknown>): boolean {
+  return Array.isArray(value.keys);
+}
+
+/**
+ * Read a body with a byte cap, whatever Content-Length says (chunked bodies
+ * have none). Cancels the stream and throws past `maxBytes`.
+ */
+async function readBoundedText(res: Response, maxBytes: number): Promise<string> {
+  const declared = res.headers.get("content-length");
+  if (declared !== null) {
+    const declaredBytes = Number.parseInt(declared, 10);
+    if (Number.isFinite(declaredBytes) && declaredBytes > maxBytes) {
+      await res.body?.cancel();
+      throw new TypeError(`CIMD transport response exceeds ${maxBytes} bytes`);
+    }
+  }
+  if (!res.body) return "";
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel();
+      throw new TypeError(`CIMD transport response exceeds ${maxBytes} bytes`);
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(bytes);
+}
 
 /**
  * Intersect advertised CIMD/DCR `grant_types` with {@link AS_SUPPORTED_GRANT_TYPES}.
@@ -87,14 +177,6 @@ export function intersectAdvertisedGrantTypes(grantTypes: unknown): string[] | u
   }
   if (!supported.includes("authorization_code")) return undefined;
   return supported;
-}
-
-function grantTypesUnchanged(advertised: unknown, next: string[]): boolean {
-  return (
-    Array.isArray(advertised) &&
-    advertised.length === next.length &&
-    advertised.every((grant, i) => grant === next[i])
-  );
 }
 
 /**
@@ -219,54 +301,66 @@ export function coerceExplicitWebToNativeForPrivateUseScheme(
   return { ...body, application_type: "native" };
 }
 
-function shouldRewriteMetadataBody(res: Response): boolean {
+/**
+ * 200 + a JSON media type: the only responses either plugin caller will read.
+ * `/json/i` is a superset of the plugins' own JSON checks, so anything passed
+ * through unread here is rejected by them without being parsed. Content-Length
+ * never decides whether to sanitize (it can be absent or lie): the body is
+ * always read under {@link readBoundedText}.
+ */
+function shouldReadJsonBody(res: Response): boolean {
   if (res.status !== 200) return false;
-  const declared = Number(res.headers.get("content-length"));
-  if (Number.isFinite(declared) && declared > CIMD_METADATA_REWRITE_MAX_BYTES) {
-    return false;
-  }
-  const contentType = res.headers.get("content-type") ?? "";
-  return contentType === "" || /json/i.test(contentType);
+  return /json/i.test(res.headers.get("content-type") ?? "");
 }
 
-async function rewriteFetchedMetadataGrantTypes(res: Response): Promise<Response> {
-  if (!shouldRewriteMetadataBody(res)) return res;
+function passThrough(res: Response, text: string): Response {
+  return new Response(text, {
+    status: res.status,
+    statusText: res.statusText,
+    headers: res.headers,
+  });
+}
 
-  const text = await res.text();
+async function rewriteFetchedMetadataGrantTypes(
+  res: Response,
+  requestUrl: string,
+): Promise<Response> {
+  if (!shouldReadJsonBody(res)) return res;
+
+  const text = await readBoundedText(res, TRANSPORT_MAX_BYTES);
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
   } catch {
-    return new Response(text, {
-      status: res.status,
-      statusText: res.statusText,
-      headers: res.headers,
-    });
+    return passThrough(res, text);
   }
   if (parsed == null || typeof parsed !== "object" || Array.isArray(parsed)) {
-    return new Response(text, {
-      status: res.status,
-      statusText: res.statusText,
-      headers: res.headers,
-    });
+    return passThrough(res, text);
   }
 
   const metadata = parsed as Record<string, unknown>;
-  const afterGrants = rewriteClientMetadataGrantTypes(metadata) ?? metadata;
-  const sanitized = sanitizeDcrRegistrationBody(afterGrants);
-  const rewritten = sanitized ?? (afterGrants !== metadata ? afterGrants : undefined);
-  if (!rewritten) {
-    return new Response(text, {
-      status: res.status,
-      statusText: res.statusText,
-      headers: res.headers,
-    });
+  // This transport also serves the plugin's `jwks_uri` fetch for a CIMD
+  // `private_key_jwt` client. Only a body shaped like a JWK Set (and with no
+  // `client_id`) skips the sanitizer; it is passed through untouched and
+  // remembered for the refetch cooldown. Everything else is sanitized, so a
+  // metadata document never bypasses the rewrite by omitting `client_id`.
+  if (typeof metadata.client_id !== "string" && isJwkSet(metadata)) {
+    storeJwksResponse(requestUrl, text, res.headers, Date.now());
+    return passThrough(res, text);
   }
+  if (new TextEncoder().encode(text).byteLength > CIMD_METADATA_MAX_BYTES) {
+    throw new TypeError(`CIMD metadata document exceeds ${CIMD_METADATA_MAX_BYTES} bytes`);
+  }
+  const afterGrants = rewriteClientMetadataGrantTypes(metadata) ?? metadata;
+  // `requestUrl` is the URL actually fetched; the plugin requires the
+  // document's `client_id` to equal it, so its origin is the client's.
+  const sanitized = sanitizeCimdMetadataDocument(afterGrants, requestUrl);
+  const rewritten = sanitized ?? (afterGrants !== metadata ? afterGrants : undefined);
+  if (!rewritten) return passThrough(res, text);
 
   const body = JSON.stringify(rewritten);
   const headers = new Headers(res.headers);
   headers.set("content-length", String(new TextEncoder().encode(body).byteLength));
-  if (!headers.has("content-type")) headers.set("content-type", "application/json");
   return new Response(body, { status: res.status, statusText: res.statusText, headers });
 }
 
@@ -293,6 +387,10 @@ export const fetchClientMetadataResource: ClientMetadataResourceFetch = async (i
   if (urlError) {
     throw new TypeError(`metadata URL rejected: ${urlError}`);
   }
+  if (request.method === "GET") {
+    const cached = cachedJwksResponse(request.url, Date.now());
+    if (cached) return cached;
+  }
   const res = await fetch(request);
-  return rewriteFetchedMetadataGrantTypes(res);
+  return rewriteFetchedMetadataGrantTypes(res, request.url);
 };

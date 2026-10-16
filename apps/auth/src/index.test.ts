@@ -241,9 +241,11 @@ const discoveryMetadata = () => ({
   revocation_endpoint: "https://uploads.sh/api/auth/oauth2/revoke",
   jwks_uri: "https://uploads.sh/api/auth/jwks",
   // Already honest, so origin-rewrite cases can stay a true no-op.
-  token_endpoint_auth_methods_supported: ["none"],
+  token_endpoint_auth_methods_supported: ["none", "private_key_jwt"],
+  token_endpoint_auth_signing_alg_values_supported: ["RS256", "ES256", "EdDSA"],
   grant_types_supported: ["authorization_code", "refresh_token"],
-  revocation_endpoint_auth_methods_supported: ["none"],
+  revocation_endpoint_auth_methods_supported: ["none", "private_key_jwt"],
+  revocation_endpoint_auth_signing_alg_values_supported: ["RS256", "ES256", "EdDSA"],
 });
 const discoveryEnv = (overrides: Partial<AuthEnv> = {}): AuthEnv => ({
   DB: {} as unknown as D1Database,
@@ -335,7 +337,7 @@ describe("rewriteDiscoveryEndpoints (#749)", () => {
     "private_key_jwt",
   ];
 
-  it("clamps token auth methods to public PKCE even when the origin rewrite is a no-op", async () => {
+  it("clamps token auth methods to none + private_key_jwt even when the origin rewrite is a no-op", async () => {
     const out = await rewriteDiscoveryEndpoints(
       META_URL,
       jsonRes({
@@ -347,13 +349,15 @@ describe("rewriteDiscoveryEndpoints (#749)", () => {
       metaEnv({ AUTH_DIRECT_ORIGIN: undefined }),
     );
     const j = (await out.json()) as Record<string, unknown>;
-    expect(j.token_endpoint_auth_methods_supported).toEqual(["none"]);
+    expect(j.token_endpoint_auth_methods_supported).toEqual(["none", "private_key_jwt"]);
     expect(j.token_endpoint).toBe("https://uploads.sh/api/auth/oauth2/token");
     expect(j.introspection_endpoint_auth_methods_supported).toEqual(confidentialEndpointMethods);
-    expect(j.revocation_endpoint_auth_methods_supported).toEqual(["none"]);
+    expect(j.revocation_endpoint_auth_methods_supported).toEqual(["none", "private_key_jwt"]);
   });
 
-  it("drops JWT signing-alg lists for the token and revocation endpoints", async () => {
+  it("keeps the plugin's JWT signing-alg lists for the token and revocation endpoints", async () => {
+    // RFC 8414 §2: REQUIRED when a *_jwt auth method is listed (#1120 had
+    // removed them while private_key_jwt was off the list).
     const algs = ["RS256", "ES256", "EdDSA"];
     const out = await rewriteDiscoveryEndpoints(
       META_URL,
@@ -367,11 +371,52 @@ describe("rewriteDiscoveryEndpoints (#749)", () => {
       metaEnv({ AUTH_DIRECT_ORIGIN: undefined }),
     );
     const j = (await out.json()) as Record<string, unknown>;
-    expect(j).not.toHaveProperty("token_endpoint_auth_signing_alg_values_supported");
-    expect(j).not.toHaveProperty("revocation_endpoint_auth_signing_alg_values_supported");
-    // Introspection still takes a secret or an assertion, so its lists stay.
+    expect(j.token_endpoint_auth_signing_alg_values_supported).toEqual(algs);
+    expect(j.revocation_endpoint_auth_signing_alg_values_supported).toEqual(algs);
     expect(j.introspection_endpoint_auth_methods_supported).toEqual(confidentialEndpointMethods);
     expect(j.introspection_endpoint_auth_signing_alg_values_supported).toEqual(algs);
+  });
+
+  it("fills in the signing-alg lists when the plugin omits them", async () => {
+    const withoutAlgs: Record<string, unknown> = { ...metadata() };
+    delete withoutAlgs.token_endpoint_auth_signing_alg_values_supported;
+    delete withoutAlgs.revocation_endpoint_auth_signing_alg_values_supported;
+    const out = await rewriteDiscoveryEndpoints(
+      META_URL,
+      jsonRes(withoutAlgs),
+      metaEnv({ AUTH_DIRECT_ORIGIN: undefined }),
+    );
+    const j = (await out.json()) as Record<string, unknown>;
+    const expected = [
+      "RS256",
+      "RS384",
+      "RS512",
+      "PS256",
+      "PS384",
+      "PS512",
+      "ES256",
+      "ES384",
+      "ES512",
+      "EdDSA",
+    ];
+    expect(j.token_endpoint_auth_signing_alg_values_supported).toEqual(expected);
+    expect(j.revocation_endpoint_auth_signing_alg_values_supported).toEqual(expected);
+  });
+
+  it("pairs introspection's private_key_jwt with a signing-alg list", async () => {
+    const out = await rewriteDiscoveryEndpoints(
+      META_URL,
+      jsonRes({
+        ...metadata(),
+        introspection_endpoint_auth_methods_supported: confidentialEndpointMethods,
+      }),
+      metaEnv({ AUTH_DIRECT_ORIGIN: undefined }),
+    );
+    const j = (await out.json()) as Record<string, unknown>;
+    expect(j.introspection_endpoint_auth_methods_supported).toEqual(confidentialEndpointMethods);
+    expect(j.introspection_endpoint_auth_signing_alg_values_supported).toEqual(
+      expect.arrayContaining(["RS256", "ES256", "EdDSA"]),
+    );
   });
 
   it("clamps token auth methods and moves form-POST endpoints in one document", async () => {
@@ -384,17 +429,17 @@ describe("rewriteDiscoveryEndpoints (#749)", () => {
       metaEnv(),
     );
     const j = (await out.json()) as Record<string, unknown>;
-    expect(j.token_endpoint_auth_methods_supported).toEqual(["none"]);
+    expect(j.token_endpoint_auth_methods_supported).toEqual(["none", "private_key_jwt"]);
     expect(j.token_endpoint).toBe("https://auth.uploads.sh/api/auth/oauth2/token");
     expect(j.authorization_endpoint).toBe("https://uploads.sh/api/auth/oauth2/authorize");
   });
 
-  it("sets token auth methods to none when the field is omitted (RFC 8414 default is client_secret_basic)", async () => {
+  it("sets token auth methods when the field is omitted (RFC 8414 default is client_secret_basic)", async () => {
     const withoutMethods: Record<string, unknown> = { ...metadata() };
     delete withoutMethods.token_endpoint_auth_methods_supported;
     const out = await rewriteDiscoveryEndpoints(META_URL, jsonRes(withoutMethods), metaEnv());
     const j = (await out.json()) as Record<string, unknown>;
-    expect(j.token_endpoint_auth_methods_supported).toEqual(["none"]);
+    expect(j.token_endpoint_auth_methods_supported).toEqual(["none", "private_key_jwt"]);
     expect(j.token_endpoint).toBe("https://auth.uploads.sh/api/auth/oauth2/token");
   });
 
@@ -425,11 +470,8 @@ describe("rewriteDiscoveryEndpoints (#749)", () => {
     expect(j.token_endpoint).toBe("https://uploads.sh/api/auth/oauth2/token");
   });
 
-  it("returns the same response when methods are already public-only and origins match", async () => {
-    const res = jsonRes({
-      ...metadata(),
-      token_endpoint_auth_methods_supported: ["none"],
-    });
+  it("returns the same response when methods are already honest and origins match", async () => {
+    const res = jsonRes(metadata());
     const out = await rewriteDiscoveryEndpoints(
       META_URL,
       res,

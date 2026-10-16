@@ -253,6 +253,39 @@ describe("dynamic client registration", () => {
   // persist a confidential or skip-consent client. Scope ceiling stays the
   // product default ∪ allowed list (files:read/write + offline_access, and
   // files:delete remains requestable).
+  // Discovery lists private_key_jwt for CIMD. Open DCR has no client_id
+  // origin to bind a jwks_uri to, so it refuses the method instead of
+  // downgrading a key-holding client that would then fail at the token
+  // endpoint. client_secret_* still coerces (next test).
+  it("rejects private_key_jwt on open DCR with invalid_client_metadata", async () => {
+    const env = dbEnv();
+    const res = await app.request(
+      "/api/auth/oauth2/register",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          client_name: "probe-jwt",
+          redirect_uris: ["https://client.example.com/cb"],
+          token_endpoint_auth_method: "private_key_jwt",
+          jwks_uri: "https://client.example.com/jwks.json",
+          grant_types: ["authorization_code", "refresh_token"],
+        }),
+      },
+      env,
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error?: string; error_description?: string };
+    expect(body.error).toBe("invalid_client_metadata");
+    expect(body.error_description).toMatch(/private_key_jwt/);
+    const orm = drizzle(env.DB, { schema });
+    const rows = await orm
+      .select({ name: schema.oauthClient.name })
+      .from(schema.oauthClient)
+      .where(eq(schema.oauthClient.name, "probe-jwt"));
+    expect(rows).toEqual([]);
+  });
+
   it("forces public PKCE when DCR asks for a confidential client and a secret", async () => {
     const env = dbEnv();
     const res = await app.request(
@@ -378,14 +411,26 @@ describe("root discovery aliases", () => {
         revocation_endpoint_auth_methods_supported?: string[];
         token_endpoint_auth_signing_alg_values_supported?: string[];
         revocation_endpoint_auth_signing_alg_values_supported?: string[];
+        introspection_endpoint_auth_signing_alg_values_supported?: string[];
       };
-      expect(body.token_endpoint_auth_methods_supported, path).toEqual(["none"]);
+      expect(body.token_endpoint_auth_methods_supported, path).toEqual(["none", "private_key_jwt"]);
       expect(body.grant_types_supported, path).toEqual(["authorization_code", "refresh_token"]);
       expect(body.introspection_endpoint_auth_methods_supported, path).toEqual(confidential);
-      expect(body.revocation_endpoint_auth_methods_supported, path).toEqual(["none"]);
-      expect(body, path).not.toHaveProperty("token_endpoint_auth_signing_alg_values_supported");
-      expect(body, path).not.toHaveProperty(
-        "revocation_endpoint_auth_signing_alg_values_supported",
+      expect(body.revocation_endpoint_auth_methods_supported, path).toEqual([
+        "none",
+        "private_key_jwt",
+      ]);
+      // RFC 8414 §2: required alongside private_key_jwt. The plugin's own
+      // list (the algorithms verifyClientAssertion accepts) passes through.
+      expect(body.token_endpoint_auth_signing_alg_values_supported, path).toEqual(
+        expect.arrayContaining(["RS256", "ES256", "EdDSA"]),
+      );
+      expect(body.revocation_endpoint_auth_signing_alg_values_supported, path).toEqual(
+        body.token_endpoint_auth_signing_alg_values_supported,
+      );
+      // Introspection lists private_key_jwt too, so its alg list must be present.
+      expect(body.introspection_endpoint_auth_signing_alg_values_supported, path).toEqual(
+        body.token_endpoint_auth_signing_alg_values_supported,
       );
     }
   });
