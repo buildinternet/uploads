@@ -719,14 +719,26 @@ targeting context), a server-mediated put may later write `ai.kind`
 (`login|signup|settings|profile|dashboard|analytics|list|detail|form|search|modal|onboarding|empty|error|checkout|other`),
 and `ai.classifier=v5` (`v6` when the image was resized for Jev, `v4` when a
 Luna try is on, `skipped` with `ai.skip=small` when the image was too small
-to classify). The labeler does not write `ai.tags` or `ai.summary`. Older
-files may still have those keys.
+to classify). The same call may also write internal `ai.rating`
+(`safe|suggestive|explicit`), `ai.content`
+(`none|sexual|violence|gore|drugs|hate|self_harm|other`), `ai.secret`
+(`none|api_key|password|private_key|token|connection_string|other`), and
+`ai.pii` (`none|contact|identity_document|financial|other`). Each stored
+flag also gets `ai.<flag>.confidence` of `high` (0.85+), `medium` (0.70 up
+to 0.85), or `low` (0.50 up to 0.70). Those four flags are internal: they
+are not chips, and public pages, galleries, feeds, embeds, and pull request
+comments omit them. They do not change who can view a file. The classifier
+version is not bumped for them. The labeler does not write `ai.tags` or
+`ai.summary`. Older files may still have those keys.
 Read them with `uploads meta get <key>` or MCP `get_metadata`; filter with
-`uploads find ai.kind=screenshot` or `uploads find ai.screen=login`. Do not
-set `ai.*` yourself — the prefix is server-owned and the API rejects client
-writes. Labels are not in the put response; they land shortly after via
-`waitUntil`. Presigned uploads are not classified. See `docs/ops.md`
-(Experimental LLM file classifier).
+`uploads find ai.kind=screenshot`, `uploads find ai.screen=login`, or
+`uploads find ai.secret=api_key`. A name or an email in a header is not
+`ai.secret` and is not `ai.pii`. A stored flag stays until a later
+classification writes that key. Re-uploading identical bytes does not
+clear it. New bytes start fresh. Do not set `ai.*` yourself — the prefix is
+server-owned and the API rejects client writes. Labels are not in the put
+response; they land shortly after via `waitUntil`. Presigned uploads are
+not classified. See `docs/ops.md` (Experimental LLM file classifier).
 
 Search results are paged. When more matches remain, `find` prints `truncated:
 true` and the next page's opaque `cursor` on stderr. `--json` carries the same

@@ -8,7 +8,7 @@ import { FakeKv } from "./fake-kv";
 import { GITHUB_APP_CFG_ENV } from "./github-app-env";
 import { withGlobalFetch } from "./helpers/github-fetch-fakes";
 import { SqliteD1, database } from "./helpers/sqlite-d1";
-import { replaceFileMetadata } from "../src/file-metadata";
+import { replaceFileMetadata, setServerFileMetadata } from "../src/file-metadata";
 import type { PublicFeedItemPage } from "../src/scope-wire";
 import { LIVE_LINK_INDEX_TTL_SECONDS } from "../src/live-link-index";
 
@@ -206,6 +206,31 @@ describe("feed routes", () => {
     expect(
       (await app.request(`/public/feeds/${feed.id.replace("feed_", "gal_")}`, {}, env)).status,
     ).toBe(404);
+  });
+
+  it("does not publish internal safety flags on the public feed", async () => {
+    const key = "gh/acme/app/pull/1/secret.png";
+    await putShot("alpha", key, { "gh.repo": "acme/app", path: "/settings" });
+    await setServerFileMetadata(sqlite as unknown as D1Database, "alpha", key, {
+      "ai.secret": "api_key",
+      "ai.secret.confidence": "high",
+      "ai.pii": "financial",
+      "ai.rating": "explicit",
+      "ai.content": "gore",
+    });
+    const created = await request("/v1/workspaces/alpha/feeds", {
+      method: "POST",
+      body: JSON.stringify({ repo: "acme/app" }),
+    });
+    expect(created.status).toBe(201);
+    const feed = (await created.json()) as { id: string };
+    const publicFeed = await app.request(`/public/feeds/${feed.id}`, {}, env);
+    expect(publicFeed.status).toBe(200);
+    const body = JSON.stringify(await publicFeed.json());
+    expect(body).toContain("/settings");
+    for (const leaked of ["api_key", "financial", "explicit", "gore", "ai.secret", "ai.pii"]) {
+      expect(body).not.toContain(leaked);
+    }
   });
 
   it("filters by path and lists/deletes on the owner routes", async () => {

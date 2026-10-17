@@ -58,6 +58,30 @@ interface HashRow {
 }
 
 /**
+ * The stored-body hash currently indexed for this key, or `undefined` when
+ * no row exists or the read fails. `putObject` reads this before
+ * `recordContentHash` overwrites it, to decide whether safety flags still
+ * describe these bytes (`SAFETY_FLAG_KEYS`).
+ */
+export async function contentHashForKey(
+  db: D1Queryable,
+  workspace: string,
+  objectKey: string,
+): Promise<string | undefined> {
+  try {
+    const row = await db
+      .prepare(
+        `SELECT content_sha256 FROM file_content_hash WHERE workspace = ? AND object_key = ?`,
+      )
+      .bind(workspace, objectKey)
+      .first<{ content_sha256: string }>();
+    return row?.content_sha256;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Record this object's stored-body hash, replacing any prior hash for the same
  * key (an overwrite changes the bytes a key points at).
  *

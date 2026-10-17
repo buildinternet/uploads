@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { putObject } from "../src/files-core";
-import { getMetadataForKeys } from "../src/file-metadata";
+import { findObjectsByMetadata, getMetadataForKeys } from "../src/file-metadata";
 import {
   CLASSIFIER_JEV_MODEL,
   CLASSIFIER_LUNA_MODEL,
@@ -36,6 +36,17 @@ const DECIDED = {
     screen: jevAnswer("settings"),
   },
   usage: {},
+};
+
+const FLAGGED = {
+  ...DECIDED,
+  answers: {
+    ...DECIDED.answers,
+    rating: jevAnswer("explicit", 0.95),
+    content: jevAnswer("sexual", 0.91),
+    secret: jevAnswer("api_key", 0.9),
+    pii: jevAnswer("financial", 0.8),
+  },
 };
 
 function pngOf(width: number, height: number): Uint8Array {
@@ -145,6 +156,24 @@ function makeClassifierEnv(
   return { env: patched, db, ws: workspace, calls, flagCalls, wasAborted: () => aborted };
 }
 
+type ClassifierHarness = Pick<ReturnType<typeof makeClassifierEnv>, "env" | "ws">;
+
+async function putFlagged(
+  harness: ClassifierHarness,
+  bytes: Uint8Array,
+  opts: { replace?: boolean; metadata?: Record<string, string> } = {},
+) {
+  const pending: Promise<unknown>[] = [];
+  const result = await putObject(harness.env, harness.ws, "images/flagged.png", bytes, WORKSPACE, {
+    ...opts,
+    waitUntil: (work) => {
+      pending.push(work);
+    },
+  });
+  await Promise.all(pending);
+  return result;
+}
+
 function stateText(call: DecisionCall | undefined): string {
   return String(call?.body.state[0] ?? "");
 }
@@ -177,6 +206,15 @@ describe("classifier on upload", () => {
     expect(call.url).not.toContain("/api/v1/");
     expect(call.headers.Authorization).toBe("Bearer test-key");
     expect(call.body.model).toBe(CLASSIFIER_JEV_MODEL);
+    expect(Object.keys(call.body.questions)).toEqual([
+      "kind",
+      "surface",
+      "screen",
+      "rating",
+      "content",
+      "secret",
+      "pii",
+    ]);
     expect(stateText(call)).toContain("filename: pic.png");
     expect(stateText(call)).toContain("dimensions unknown");
     expect(stateImage(call)).toBeUndefined();
@@ -860,5 +898,212 @@ describe("trivial image skip", () => {
     expect(meta?.["ai.classifier"]).toBe(CLASSIFIER_SKIPPED);
     expect(meta?.["ai.skip"]).toBe(CLASSIFIER_SKIP_SMALL);
     expect(meta?.["ai.kind"]).toBeUndefined();
+    expect(meta?.["ai.secret"]).toBeUndefined();
+    expect(meta?.["ai.pii"]).toBeUndefined();
+    expect(meta?.["ai.rating"]).toBeUndefined();
+  });
+});
+
+describe("safety flags", () => {
+  it("stores rating, content, secret, and pii from the same call", async () => {
+    const { env, ws, calls } = makeClassifierEnv(() => ({
+      ...DECIDED,
+      answers: {
+        ...DECIDED.answers,
+        rating: jevAnswer("safe", 0.93),
+        content: jevAnswer("none", 0.9),
+        secret: jevAnswer("api_key", 0.88),
+        pii: jevAnswer("none", 0.55),
+      },
+    }));
+    const png = atLeast(pngOf(400, 256));
+    const written = await classifyAndStore(env, ws, WORKSPACE, "images/leak.png", png, "image/png");
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.body.model).toBe(CLASSIFIER_JEV_MODEL);
+    expect(written?.["ai.classifier"]).toBe(CLASSIFIER_VERSION);
+    expect(written?.["ai.kind"]).toBe("screenshot");
+    expect(written?.["ai.rating"]).toBe("safe");
+    expect(written?.["ai.rating.confidence"]).toBe("high");
+    expect(written?.["ai.content"]).toBe("none");
+    expect(written?.["ai.content.confidence"]).toBe("high");
+    expect(written?.["ai.secret"]).toBe("api_key");
+    expect(written?.["ai.secret.confidence"]).toBe("high");
+    expect(written?.["ai.pii"]).toBe("none");
+    expect(written?.["ai.pii.confidence"]).toBe("low");
+    expect(written?.["ai.kind.confidence"]).toBeUndefined();
+
+    const found = await findObjectsByMetadata(env.DB, WORKSPACE, { "ai.secret": "api_key" });
+    expect(found.map((match) => match.key)).toEqual(["images/leak.png"]);
+    expect(found[0]?.metadata["ai.secret"]).toBe("api_key");
+    expect(found[0]?.metadata["ai.pii"]).toBe("none");
+  });
+
+  it("keeps the Luna version when the same questions are answered", async () => {
+    const { env, ws, calls } = makeClassifierEnv(
+      () => ({
+        ...DECIDED,
+        answers: {
+          ...DECIDED.answers,
+          secret: jevAnswer("password", 0.8),
+          pii: jevAnswer("contact", 0.7),
+        },
+      }),
+      {},
+      { provider: "luna" },
+    );
+    const written = await classifyAndStore(
+      env,
+      ws,
+      WORKSPACE,
+      "notes/creds.txt",
+      new TextEncoder().encode("password = hunter2\n"),
+      "text/plain",
+    );
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.body.model).toBe(CLASSIFIER_LUNA_MODEL);
+    expect(Object.keys(calls[0]?.body.questions ?? {})).toEqual([
+      "kind",
+      "surface",
+      "screen",
+      "rating",
+      "content",
+      "secret",
+      "pii",
+    ]);
+    expect(written?.["ai.classifier"]).toBe(CLASSIFIER_LUNA_VERSION);
+    expect(written?.["ai.secret"]).toBe("password");
+    expect(written?.["ai.secret.confidence"]).toBe("medium");
+    expect(written?.["ai.pii"]).toBe("contact");
+    expect(written?.["ai.pii.confidence"]).toBe("medium");
+  });
+
+  it("replaces a stored safety flag only when the new answer is confident", async () => {
+    let calls = 0;
+    const { env, ws } = makeClassifierEnv(() => {
+      calls += 1;
+      if (calls === 1) return FLAGGED;
+      return {
+        answers: {
+          secret: jevAnswer("none", 0.88),
+          pii: jevAnswer("contact", 0.2),
+        },
+      };
+    });
+    const png = atLeast(pngOf(400, 256));
+    const key = "images/flagged.png";
+    await classifyAndStore(env, ws, WORKSPACE, key, png, "image/png");
+    const written = await classifyAndStore(env, ws, WORKSPACE, key, png, "image/png");
+    expect(written?.["ai.secret"]).toBe("none");
+    expect(written?.["ai.pii"]).toBeUndefined();
+    expect(written?.["ai.rating"]).toBeUndefined();
+
+    const stored = (await getMetadataForKeys(env.DB, WORKSPACE, [key])).get(key);
+    expect(stored?.["ai.secret"]).toBe("none");
+    expect(stored?.["ai.secret.confidence"]).toBe("high");
+    expect(stored?.["ai.pii"]).toBe("financial");
+    expect(stored?.["ai.pii.confidence"]).toBe("medium");
+    expect(stored?.["ai.rating"]).toBe("explicit");
+    expect(stored?.["ai.content"]).toBe("sexual");
+  });
+
+  it("keeps safety flags when the same bytes are re-uploaded and reclassification fails", async () => {
+    let calls = 0;
+    const harness = makeClassifierEnv(() => {
+      calls += 1;
+      if (calls === 1) return FLAGGED;
+      throw new Error("provider down");
+    });
+    const png = atLeast(pngOf(400, 256));
+    const first = await putFlagged(harness, png);
+    const second = await putFlagged(harness, png, {
+      replace: true,
+      metadata: { path: "/settings", state: "after" },
+    });
+
+    expect(calls).toBe(2);
+    expect(second.metadata).toEqual({ path: "/settings", state: "after" });
+    const after = (await getMetadataForKeys(harness.env.DB, WORKSPACE, [first.key])).get(first.key);
+    expect(after?.["ai.rating"]).toBe("explicit");
+    expect(after?.["ai.rating.confidence"]).toBe("high");
+    expect(after?.["ai.content"]).toBe("sexual");
+    expect(after?.["ai.content.confidence"]).toBe("high");
+    expect(after?.["ai.secret"]).toBe("api_key");
+    expect(after?.["ai.secret.confidence"]).toBe("high");
+    expect(after?.["ai.pii"]).toBe("financial");
+    expect(after?.["ai.pii.confidence"]).toBe("medium");
+    expect(after?.["ai.kind"]).toBeUndefined();
+    expect(after?.path).toBe("/settings");
+  });
+
+  it("removes safety flags when different bytes fail to reclassify, with or without metadata headers", async () => {
+    const png = atLeast(pngOf(400, 256));
+    const changed = atLeast(pngOf(500, 256));
+
+    let headerCalls = 0;
+    const withHeaders = makeClassifierEnv(() => {
+      headerCalls += 1;
+      if (headerCalls === 1) return FLAGGED;
+      throw new Error("provider down");
+    });
+    await putFlagged(withHeaders, png, { metadata: { app: "web" } });
+    await putFlagged(withHeaders, changed, { replace: true, metadata: { path: "/redacted" } });
+    const replaced = (
+      await getMetadataForKeys(withHeaders.env.DB, WORKSPACE, ["images/flagged.png"])
+    ).get("images/flagged.png");
+    expect(replaced?.["ai.secret"]).toBeUndefined();
+    expect(replaced?.["ai.rating"]).toBeUndefined();
+    expect(replaced?.["ai.pii"]).toBeUndefined();
+    expect(replaced?.["ai.content"]).toBeUndefined();
+    expect(replaced?.path).toBe("/redacted");
+    expect(replaced?.app).toBeUndefined();
+
+    let bareCalls = 0;
+    const bare = makeClassifierEnv(() => {
+      bareCalls += 1;
+      if (bareCalls === 1) return FLAGGED;
+      throw new Error("provider down");
+    });
+    await putFlagged(bare, png, { metadata: { app: "web" } });
+    await putFlagged(bare, changed, { replace: true });
+    const left = (await getMetadataForKeys(bare.env.DB, WORKSPACE, ["images/flagged.png"])).get(
+      "images/flagged.png",
+    );
+    expect(left?.["ai.secret"]).toBeUndefined();
+    expect(left?.["ai.secret.confidence"]).toBeUndefined();
+    expect(left?.["ai.rating"]).toBeUndefined();
+    expect(left?.["ai.pii"]).toBeUndefined();
+    expect(left?.["ai.content"]).toBeUndefined();
+    expect(left?.app).toBe("web");
+  });
+
+  it("stores the new safety flags when different bytes are reclassified", async () => {
+    let calls = 0;
+    const harness = makeClassifierEnv(() => {
+      calls += 1;
+      if (calls === 1) return FLAGGED;
+      return {
+        answers: {
+          secret: jevAnswer("none", 0.93),
+          pii: jevAnswer("none", 0.91),
+          rating: jevAnswer("safe", 0.96),
+          content: jevAnswer("none", 0.94),
+        },
+      };
+    });
+    await putFlagged(harness, atLeast(pngOf(400, 256)));
+    await putFlagged(harness, atLeast(pngOf(500, 256)), {
+      replace: true,
+      metadata: { path: "/redacted" },
+    });
+
+    const stored = (
+      await getMetadataForKeys(harness.env.DB, WORKSPACE, ["images/flagged.png"])
+    ).get("images/flagged.png");
+    expect(stored?.["ai.secret"]).toBe("none");
+    expect(stored?.["ai.secret.confidence"]).toBe("high");
+    expect(stored?.["ai.pii"]).toBe("none");
+    expect(stored?.["ai.rating"]).toBe("safe");
+    expect(stored?.["ai.content"]).toBe("none");
+    expect(stored?.path).toBe("/redacted");
   });
 });

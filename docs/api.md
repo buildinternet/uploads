@@ -309,12 +309,22 @@ the workspace slug (`org` / `workspace` targeting context),
 a successful server-mediated put may later write server-owned `ai.kind`,
 `ai.surface`, `ai.screen`, and `ai.classifier` (`v5` for original bytes,
 `v6` when the image was resized for Jev, `skipped` with `ai.skip=small`
-when the image was too small to classify). A low-confidence enum is
-omitted. The labeler does not write `ai.tags` or `ai.summary` (older rows
-may still have them). A Luna Decisions try writes `ai.classifier=v4` and
-the same enums. Luna does not receive the resized copy. A trivially small
-image is skipped before either provider runs. Clients cannot set or delete those keys (`ai.*` is reserved,
-same as `video.*` / `image.*`). The 201 response does not wait for the model;
+when the image was too small to classify). The same call also writes
+internal `ai.rating`, `ai.content`, `ai.secret`, and `ai.pii`, each with
+an `ai.<flag>.confidence` of `high` (0.85+), `medium` (0.70 up to 0.85),
+or `low` (0.50 up to 0.70). Those flags do not bump the classifier version.
+`v4`, `v5`, `v6`, and `skipped` still name the pixel path. A low-confidence
+enum is omitted, and so is its confidence key. A stored safety flag stays
+until a later classification writes that key, including a confident `none`.
+A miss leaves the previous value. Re-uploading identical bytes does not
+clear it. New bytes start fresh. The labeler does not write
+`ai.tags` or `ai.summary` (older rows may still have them). A Luna
+Decisions try writes `ai.classifier=v4` and the same enums. Luna does not
+receive the resized copy. A trivially small image is skipped before either
+provider runs. Clients cannot set or delete those keys (`ai.*` is reserved,
+same as `video.*` / `image.*`). Public file, gallery, feed, embed, and
+pull-request responses omit every `ai.*` key. Workspace members can still
+read and search them. The 201 response does not wait for the model;
 read `GET …/files/:key?metadata=1` (or `uploads meta get <key>`) after the
 upload. Presigned uploads never get labels. See
 [docs/ops.md](ops.md#experimental-llm-file-classifier).

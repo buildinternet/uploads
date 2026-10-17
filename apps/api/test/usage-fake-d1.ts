@@ -84,6 +84,8 @@ export class UsageFakeD1 {
   get attachmentIndexUpserts() {
     return this.attachmentIndexTable.upserts;
   }
+  /** `${workspace} ${objectKey}` → stored-body hash. Backs `file_content_hash`. */
+  private contentHashes = new Map<string, string>();
 
   prepare = (sql: string) => {
     const normalized = sql.replace(/\s+/g, " ").trim();
@@ -109,6 +111,15 @@ export class UsageFakeD1 {
         if (adoptFirstResult !== undefined) return adoptFirstResult;
         const attachmentFirstResult = this.attachmentIndexTable.tryFirst(normalized, values);
         if (attachmentFirstResult !== undefined) return attachmentFirstResult;
+        if (
+          normalized.startsWith(
+            "SELECT content_sha256 FROM file_content_hash WHERE workspace = ? AND object_key = ?",
+          )
+        ) {
+          const [workspace, objectKey] = values as [string, string];
+          const hash = this.contentHashes.get(`${workspace} ${objectKey}`);
+          return hash === undefined ? null : { content_sha256: hash };
+        }
         throw new Error(`unsupported first: ${normalized}`);
       },
       all: async <T>() => {
@@ -154,6 +165,11 @@ export class UsageFakeD1 {
         if (claimResult) return claimResult;
         const attachmentRunResult = this.attachmentIndexTable.tryRun(normalized, values);
         if (attachmentRunResult) return attachmentRunResult;
+        if (normalized.startsWith("INSERT INTO file_content_hash")) {
+          const [workspace, objectKey, hash] = values as [string, string, string];
+          this.contentHashes.set(`${workspace} ${objectKey}`, hash);
+          return { success: true as const, meta: { changes: 1 }, results: [] };
+        }
         if (normalized.startsWith("INSERT OR IGNORE INTO workspace_usage")) {
           // applyUsageDelta: (ws, period, updatedAt) with zeros
           // setUsageTotals: (ws, bytes, objects, period, updatedAt)

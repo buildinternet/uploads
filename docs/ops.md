@@ -1164,16 +1164,21 @@ while the flag is on, the same way the video backfill re-PUTs.
 a Flagship-allowlisted workspace can get server-owned `ai.kind`,
 `ai.surface`, `ai.screen`, and `ai.classifier` rows (`v5` when Jev sees the
 original bytes, `v6` when it sees a resized copy, `skipped` when the image
-was too small to classify). Agents read them with
+was too small to classify). The same call also writes internal safety flags
+(`ai.rating`, `ai.content`, `ai.secret`, `ai.pii`). Enums and confidence
+buckets are listed below. Agents read them with
 `uploads meta get <key>` or `GET …/files/:key?metadata=1`. Classifier
 errors never fail the upload. The labeler does not write `ai.tags` or
-`ai.summary`. Older rows may still have those keys.
+`ai.summary`. Older rows may still have those keys. The safety flags are
+not chips, and public file, gallery, feed, embed, and pull-request
+responses omit every `ai.*` key. They do not change who can view a file.
 
 ### One Decisions call
 
 The worker `POST`s `https://openrouter.ai/api/alpha/decisions` with
 `OPENROUTER_API_KEY`. The default model is the alias `~typesafe/jev-latest`.
-It picks `kind`, `surface`, and `screen` from the closed enums.
+It picks `kind`, `surface`, `screen`, `rating`, `content`, `secret`, and
+`pii` from the closed enums. That is one request. There is no second call.
 
 Do not send this call through the Cloudflare AI Gateway. That gateway's
 `openrouter` provider is based at `https://openrouter.ai/api/v1`, so a
@@ -1267,13 +1272,37 @@ rows. A thrown evaluation of `llm-file-classifier-luna` stays on Jev Latest.
 
 Jev reports a calibrated confidence per answer. An answer under **0.5**
 (`CLASSIFIER_MIN_CONFIDENCE`) omits its key, so a low-confidence `screen`
-drops while a confident `kind` still lands. The worker logs
-`classifier_decided` with the confidences and no file content.
+drops while a confident `kind` still lands. A stored safety answer also
+writes `ai.<flag>.confidence`: `high` at **0.85** or above, `medium` from
+**0.70** up to 0.85, and `low` from **0.50** up to 0.70. Kind, surface,
+and screen do not get a bucket. The worker logs `classifier_decided`
+with the confidences and no file content.
 
 Closed enums: `ai.kind` is `screenshot|photo|diagram|document|code|ui|other`.
 `ai.surface` is `mobile|desktop|tablet|unknown`. `ai.screen` is
 `login|signup|settings|profile|dashboard|analytics|list|detail|form|search|modal|onboarding|empty|error|checkout|other`.
 A value outside the enum omits that key.
+
+Internal safety enums, on the same request:
+
+- `ai.rating` is `safe|suggestive|explicit`. Sexual content only. Violence
+  without sexual content is `safe` here.
+- `ai.content` is `none|sexual|violence|gore|drugs|hate|self_harm|other`.
+- `ai.secret` is `none|api_key|password|private_key|token|connection_string|other`.
+  These are credentials that grant access. A username, a display name, or an
+  email is not a secret. A masked or empty secret field is `none`.
+- `ai.pii` is `none|contact|identity_document|financial|other`. `contact` is
+  an email, phone, or street address that is content of the screen. A
+  signed-in user's name or email that only appears in a header, nav, or
+  account menu is `none`.
+
+When the bytes are unchanged, a stored flag stays until a later
+classification writes that key. A confident `none` replaces the old
+value. A miss leaves the previous flag. Re-uploading identical bytes
+does not clear it. New bytes start fresh. Jev Choice allows 2–255
+options and does not cap the number of questions (the budget is tokens).
+This request asks seven questions. The largest enum is `screen`, at 16
+options.
 
 Text excerpts are capped at 1,500 characters. Image bytes sent to the model
 are capped at 512 KiB after any resize. The call times out at 8s, and that

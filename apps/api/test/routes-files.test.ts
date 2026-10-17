@@ -5,7 +5,7 @@ import { DeleteUsageClaimsTable } from "./helpers/fake-delete-usage-claims-table
 import { FileMetadataTable } from "./helpers/fake-file-metadata-table";
 import { app } from "../src/index";
 import { presignExpiresIn } from "../src/routes/files-shared-handlers";
-import { getFileMetadata } from "../src/file-metadata";
+import { getFileMetadata, setServerFileMetadata } from "../src/file-metadata";
 import { sha256Hex, type WorkspaceRecord } from "../src/workspace";
 import { HOSTED_ACTIVE_CONTENT_HOSTS } from "../src/active-content-hosts";
 
@@ -1061,6 +1061,21 @@ describe("PUT /v1/:workspace/files custom metadata capture + cascade", () => {
     ).resolves.toEqual({});
   });
 
+  it("rejects an upload header that sets a safety flag", async () => {
+    const { env, db, bucket } = await makeEnv();
+    const res = await putShot(env, {
+      headers: { "X-Uploads-Meta-ai.secret": "none" },
+    });
+    expect(res.status).toBe(400);
+    const json = (await res.json()) as { error: { type: string; code: string } };
+    expect(json.error.type).toBe("validation");
+    expect(json.error.code).toBe("file_metadata_reserved_key");
+    expect(bucket.store.has("default/screenshots/shot.png")).toBe(false);
+    await expect(
+      getFileMetadata(db as unknown as D1Database, "default", "screenshots/shot.png"),
+    ).resolves.toEqual({});
+  });
+
   it("rejects an upload trying to shadow the R2 visibility gate as custom metadata", async () => {
     const { env, db, bucket } = await makeEnv();
     const res = await putShot(env, {
@@ -1365,6 +1380,41 @@ describe("GET ?metadata=1 / PATCH /v1/:workspace/files/:key", () => {
 
     const res = await getMeta(env, "screenshots/shot.png");
     expect(await res.json()).toEqual({ metadata: {} });
+  });
+
+  it("PATCH rejects setting or deleting a safety flag and leaves the stored flag", async () => {
+    const { env, db } = await makeEnv();
+    await putShot(env);
+    await setServerFileMetadata(db as unknown as D1Database, "default", "screenshots/shot.png", {
+      "ai.secret": "api_key",
+      "ai.secret.confidence": "high",
+      "ai.pii": "contact",
+      "ai.pii.confidence": "medium",
+    });
+
+    const setPatch = await patchMeta(env, "screenshots/shot.png", {
+      set: { "ai.secret": "none" },
+    });
+    expect(setPatch.status).toBe(400);
+    const setJson = (await setPatch.json()) as { error: { type: string; code: string } };
+    expect(setJson.error.type).toBe("validation");
+    expect(setJson.error.code).toBe("file_metadata_reserved_key");
+
+    const deletePatch = await patchMeta(env, "screenshots/shot.png", {
+      delete: ["ai.secret", "ai.pii", "ai.secret.confidence"],
+    });
+    expect(deletePatch.status).toBe(400);
+    const deleteJson = (await deletePatch.json()) as { error: { code: string } };
+    expect(deleteJson.error.code).toBe("file_metadata_reserved_key");
+
+    await expect(
+      getFileMetadata(db as unknown as D1Database, "default", "screenshots/shot.png"),
+    ).resolves.toMatchObject({
+      "ai.secret": "api_key",
+      "ai.secret.confidence": "high",
+      "ai.pii": "contact",
+      "ai.pii.confidence": "medium",
+    });
   });
 
   it("PATCH rejects setting the reserved visibility key with 400", async () => {

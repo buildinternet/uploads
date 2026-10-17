@@ -54,10 +54,39 @@ const RESERVED_META_KEYS = new Set<string>([...PROVENANCE_SERVER_KEYS, "visibili
  * preview: `pdf.poster` decides whether a thumbnail `<img>` renders in a
  * public PR comment. `ai.*` (experimental file classifier) is the same class
  * of server-derived fact: agents read `ai.tags` / `ai.summary` / `ai.kind` /
- * `ai.surface` / `ai.screen` but must not spoof them. Reserved as *prefixes*
- * rather than exact keys so future derived facts can't collide.
+ * `ai.surface` / `ai.screen`, plus the internal safety flags `ai.rating` /
+ * `ai.content` / `ai.secret` / `ai.pii` and their `.confidence` keys, but
+ * must not spoof them. Public responses strip the prefix. Reserved as
+ * *prefixes* rather than exact keys so future derived facts can't collide.
  */
 export const SERVER_META_PREFIXES = ["video.", "image.", "pdf.", "ai."] as const;
+
+/**
+ * The four internal safety flags. Each stored answer also has
+ * `ai.<field>.confidence`.
+ */
+export const SAFETY_FLAG_FIELDS = ["rating", "content", "secret", "pii"] as const;
+
+/**
+ * The eight internal safety-flag rows. This is the lifetime rule.
+ *
+ * `putObject` reads the key's previous `file_content_hash` before
+ * replacing it. Identical bytes keep these rows: a metadata replace
+ * passes `keepSafetyFlags`, and a put with no metadata headers leaves
+ * them in place. New bytes, or no stored hash, delete the eight rows
+ * before classification is scheduled. A later classification that writes
+ * a value, including a confident `none`, replaces that key through
+ * `setServerFileMetadata`. A run that omits a key leaves the previous
+ * value. Re-uploading identical bytes does not clear a flag. New bytes
+ * start fresh.
+ *
+ * These flags do not bump `ai.classifier`. `v4`, `v5`, `v6`, and
+ * `skipped` still name the pixel path. Other `ai.*` keys are not in
+ * this set. Object delete still removes the rows.
+ */
+export const SAFETY_FLAG_KEYS: ReadonlySet<string> = new Set(
+  SAFETY_FLAG_FIELDS.flatMap((field) => [`ai.${field}`, `ai.${field}.confidence`]),
+);
 
 export function isServerMetaKey(key: string): boolean {
   return SERVER_META_PREFIXES.some((prefix) => key.startsWith(prefix));
@@ -516,27 +545,37 @@ export async function deleteFileMetadataForKeys(
   }
 }
 
+/** Stable bind list for the safety-flag exclusion in `replaceFileMetadata`. */
+const SAFETY_FLAG_KEY_LIST = [...SAFETY_FLAG_KEYS];
+
 /**
- * Fully replaces an object's metadata: validates `metadata` once (there's no
- * prior state to merge against, so unlike `setFileMetadata` there's nothing
- * to re-read first), then deletes any existing rows and inserts the new set
- * in a single `db.batch` — atomic, and without the wasted
- * guaranteed-empty-map SELECT that `deleteFileMetadata` + `setFileMetadata`
- * would otherwise incur. Used by `putObject`'s full-replace-on-upload path.
+ * Fully replaces an object's client metadata. See `SAFETY_FLAG_KEYS` for
+ * when `keepSafetyFlags` retains those rows. The incoming map is client
+ * metadata, so `validateMetadataEntries` already rejects `ai.*` in it.
  */
 export async function replaceFileMetadata(
   db: D1Queryable,
   workspace: string,
   objectKey: string,
   metadata: Record<string, string>,
+  opts?: { keepSafetyFlags?: boolean },
 ): Promise<void> {
   validateMetadataEntries(metadata);
 
   const now = new Date().toISOString();
+  const keep = SAFETY_FLAG_KEY_LIST.map(() => "?").join(", ");
+  const deleteStmt = opts?.keepSafetyFlags
+    ? db
+        .prepare(
+          `DELETE FROM file_metadata
+           WHERE workspace = ? AND object_key = ? AND meta_key NOT IN (${keep})`,
+        )
+        .bind(workspace, objectKey, ...SAFETY_FLAG_KEY_LIST)
+    : db
+        .prepare(`DELETE FROM file_metadata WHERE workspace = ? AND object_key = ?`)
+        .bind(workspace, objectKey);
   const statements: D1PreparedStatement[] = [
-    db
-      .prepare(`DELETE FROM file_metadata WHERE workspace = ? AND object_key = ?`)
-      .bind(workspace, objectKey),
+    deleteStmt,
     ...upsertStatements(db, workspace, objectKey, metadata, now),
   ];
   await db.batch(statements);
@@ -1187,8 +1226,8 @@ export async function getObjectUpdatedAt(
 }
 
 /**
- * Upsert server-owned metadata (`video.*`) without touching user rows.
- * Deliberately not `replaceFileMetadata`: that is delete-then-insert, and this
+ * Upsert server-owned metadata without touching rows this call omits.
+ * Deliberately not `replaceFileMetadata`: that deletes client rows, and this
  * runs *after* it on the upload path — a full replace here would wipe the
  * request's own custom metadata.
  */
