@@ -76,7 +76,8 @@ legitimate use, email [hi@uploads.sh](mailto:hi@uploads.sh).
   including any tax.
 - Cancel at any time. The workspace stays on ${P.proName} until the end of the
   paid period.
-- A downgrade never deletes files. Existing links keep working.
+- After a downgrade, a workspace over the ${P.freeName} storage cap can't upload
+  new files until it is back under the cap.
 
 Full terms: [Terms of Service](https://uploads.sh/terms).
 
