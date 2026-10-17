@@ -9,7 +9,9 @@ import {
   CLASSIFIER_MAX_IMAGE_BYTES,
   CLASSIFIER_SKIP_MIN_BYTES,
   CLASSIFIER_SKIP_MIN_EDGE,
+  CLASSIFIER_SKIP_RESIZE_FAILED,
   CLASSIFIER_SKIP_SMALL,
+  CLASSIFIER_SKIP_UNSUPPORTED,
   JEV_MAX_IMAGE_EDGE,
   JEV_MAX_IMAGE_PIXELS,
   JEV_MIN_IMAGE_EDGE,
@@ -39,7 +41,6 @@ import {
   parseJevAnswers,
   resolveClassifierProvider,
   scheduleFileClassification,
-  textExcerpt,
   trivialImageSkip,
   workersAiClassifierRun,
   type DecisionImagePart,
@@ -283,30 +284,6 @@ describe("buildClassifierState", () => {
     expect(buildClassifierState("a.png", "image/png", pngOf(1440, 900)).aspect).toBe("landscape");
     expect(buildClassifierState("a.png", "image/png", pngOf(512, 512)).aspect).toBe("square");
   });
-
-  it("includes a text excerpt for text files and never raw bytes", () => {
-    const bytes = new TextEncoder().encode("export function hello() { return 1; }\n");
-    const state = buildClassifierState("src/hello.ts", "text/plain", bytes);
-    expect(state.excerpt).toContain("export function hello");
-    expect(state.byte_size).toBe(bytes.byteLength);
-    expect(state.note).toBeUndefined();
-    expect(JSON.stringify(state)).not.toContain("base64");
-  });
-
-  it("notes an oversized image instead of sending it", () => {
-    const big = new Uint8Array(CLASSIFIER_MAX_IMAGE_BYTES + 1);
-    const state = buildClassifierState("huge.png", "image/png", big);
-    expect(state.note).toContain("image skipped");
-    expect(state.excerpt).toBeUndefined();
-  });
-
-  it("carries no excerpt for SVG or PDF", () => {
-    const svg = new TextEncoder().encode("<svg xmlns='http://www.w3.org/2000/svg'></svg>");
-    expect(buildClassifierState("icon.svg", "image/svg+xml", svg).excerpt).toBeUndefined();
-    expect(
-      buildClassifierState("notes.pdf", "application/pdf", new Uint8Array([1, 2, 3])).excerpt,
-    ).toBeUndefined();
-  });
 });
 
 describe("trivialImageSkip", () => {
@@ -442,18 +419,6 @@ describe("formatDecisionState", () => {
     expect(state[0]).toContain("outside jev pixel limits");
     expect(String(state[0])).not.toContain("base64");
     expect(state[1]).toEqual(image);
-  });
-
-  it("sends text files as a one-item array with the excerpt", () => {
-    const state = formatDecisionState({
-      filename: "notes.txt",
-      content_type: "text/plain",
-      byte_size: 5,
-      excerpt: "hello",
-    });
-    expect(state).toEqual([
-      "filename: notes.txt\ncontent_type: text/plain\nbyte_size: 5\nexcerpt: hello",
-    ]);
   });
 });
 
@@ -638,19 +603,6 @@ describe("workersAiClassifierRun", () => {
     expect(model).toBe("typesafe/jev");
     expect(input.state.excerpt).toBe("Screenshots");
     expect(options.gateway?.id).toBe("uploads-classifier");
-  });
-});
-
-describe("textExcerpt", () => {
-  it("returns undefined for NUL-looking binary", () => {
-    expect(textExcerpt(new Uint8Array([65, 0, 66]))).toBeUndefined();
-  });
-
-  it("strips non-ASCII and caps length", () => {
-    const excerpt = textExcerpt(new TextEncoder().encode("café " + "a".repeat(2000)));
-    expect(excerpt).toBeDefined();
-    expect(excerpt!.includes("é")).toBe(false);
-    expect(excerpt!.length).toBeLessThanOrEqual(1500);
   });
 });
 
@@ -848,13 +800,16 @@ describe("prepareClassifierImage", () => {
     expect(prepared.image).toBeUndefined();
     expect(prepared.resized).toBe(false);
     expect(prepared.note).toBe("image skipped: below jev pixel limits");
+    expect(prepared.skip).toBe(CLASSIFIER_SKIP_UNSUPPORTED);
   });
 
-  it("leaves an extreme aspect ratio on the text facts", async () => {
+  it("skips an extreme aspect ratio instead of resizing", async () => {
     const { transform, calls } = recordingTransform(() => pngOf(280, 280));
     const prepared = await prepareClassifierImage("jev", "image/png", pngOf(8000, 100), transform);
     expect(calls).toHaveLength(0);
+    expect(prepared.image).toBeUndefined();
     expect(prepared.note).toBe("image skipped: outside jev pixel limits");
+    expect(prepared.skip).toBe(CLASSIFIER_SKIP_UNSUPPORTED);
   });
 
   it("does not send an SVG to the transform", async () => {
@@ -865,6 +820,7 @@ describe("prepareClassifierImage", () => {
     expect(prepared.image).toBeUndefined();
     expect(prepared.resized).toBe(false);
     expect(prepared.note).toBe("image skipped: jev accepts png and jpeg");
+    expect(prepared.skip).toBe(CLASSIFIER_SKIP_UNSUPPORTED);
   });
 
   it("falls back when the transform throws", async () => {
@@ -876,6 +832,7 @@ describe("prepareClassifierImage", () => {
     expect(prepared.image).toBeUndefined();
     expect(prepared.resized).toBe(false);
     expect(prepared.note).toBe("image skipped: transform failed");
+    expect(prepared.skip).toBe(CLASSIFIER_SKIP_RESIZE_FAILED);
     expect(error).toHaveBeenCalledWith(
       expect.objectContaining({ event: "classifier_image_transform_failed" }),
     );
@@ -885,6 +842,7 @@ describe("prepareClassifierImage", () => {
     const prepared = await prepareClassifierImage("jev", "image/webp", webp640x480(), undefined);
     expect(prepared.note).toBe("image skipped: transform unavailable");
     expect(prepared.image).toBeUndefined();
+    expect(prepared.skip).toBe(CLASSIFIER_SKIP_RESIZE_FAILED);
   });
 
   it("drops to JPEG when the PNG copy is over the byte cap", async () => {
@@ -916,6 +874,9 @@ describe("prepareClassifierImage", () => {
     const webp = await prepareClassifierImage("luna", "image/webp", webp640x480(), transform);
     expect(webp.image?.image_url.url.startsWith("data:image/webp;base64,")).toBe(true);
     expect(calls).toHaveLength(0);
+    const gif = await prepareClassifierImage("luna", "image/gif", pngOf(400, 256), transform);
+    expect(gif.image).toBeUndefined();
+    expect(gif.skip).toBe(CLASSIFIER_SKIP_UNSUPPORTED);
   });
 });
 

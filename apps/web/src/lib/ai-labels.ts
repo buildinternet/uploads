@@ -3,7 +3,7 @@
  *
  * The API writes these after a Flagship-gated put (`ai.classifier` is `v5`
  * on Jev Latest, `v6` when the image was resized, `skipped` with `ai.skip`
- * when the image was too small to classify, or `v4` on the Luna try; older
+ * when the model does not see an image, or `v4` on the Luna try; older
  * rows may say `v1`–`v3`). Clients cannot set them. Used by the Storage
  * file-detail drawer and the public `/f/` share-page rail — never by
  * galleries, feeds, or PR comments.

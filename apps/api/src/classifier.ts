@@ -10,39 +10,41 @@
  * does not block. Fail-open: classifier errors never fail the upload.
  * Presigned (`POST /sign`) uploads never reach this hook.
  *
- * One Decisions call (`ai.classifier=v5` on the default path). The model
- * picks `kind`, `surface`, and `screen` from the closed enums, plus four
+ * One Decisions call when the provider can see an image. The model picks
+ * `kind`, `surface`, and `screen` from the closed enums, plus four
  * internal safety flags (`rating`, `content`, `secret`, `pii`). Flag
  * lifetime is `SAFETY_FLAG_KEYS`. Decisions models do not write free
  * text, so this path does not write `ai.tags` or `ai.summary`.
  *
- * Default model is the OpenRouter alias `~typesafe/jev-latest`. A raster
- * PNG or JPEG that already fits Jev's pixel window and the byte cap goes
- * in `state` as an `image_url` part (`ai.classifier=v5`), next to a short
- * text fact list. A PNG, JPEG, WebP, GIF, or AVIF that does not fit is
- * scaled with the Images binding (`env.IMAGES`) into that window first
- * (`ai.classifier=v6`). The text facts keep the original dimensions.
- * Anything the transform cannot produce (SVG, an image below Jev's window
- * that is still large enough to be worth a look, a thrown transform, a
- * missing binding) still gets the text facts and no image bytes.
+ * Default model is the OpenRouter alias `~typesafe/jev-latest`. A PNG or
+ * JPEG that already fits Jev's pixel window and the byte cap goes in
+ * `state` as an `image_url` part (`ai.classifier=v5`), next to a short
+ * fact list. A PNG, JPEG, WebP, GIF, or AVIF that does not fit is scaled
+ * with the Images binding (`env.IMAGES`) into that window first
+ * (`ai.classifier=v6`). The fact list keeps the original dimensions.
+ * Images below Jev's window are not upscaled. `fit=scale-down` matches
+ * the thumbnail transform.
  *
- * A trivially small image never calls the model, on Jev or Luna. Either
- * known side under 64 px, or an image file under 2 KiB, writes
- * `ai.classifier=skipped` and `ai.skip=small` and returns. That is smaller
- * than a screenshot and smaller than Jev's 256 px floor. A 64 px icon that
- * is also at least 2 KiB still gets a call. Unknown dimensions do not count
- * as small: only the byte floor applies then.
+ * The model is not called without those pixels. A no-image file writes
+ * `ai.classifier=skipped` and `ai.skip`, and nothing else. Reasons are
+ * `small`, `unsupported`, `resize_failed`, and `resize_timeout`. `small`
+ * is a trivially small image (either known side under 64 px, or an image
+ * file under 2 KiB), on Jev or Luna. Unknown dimensions do not count as
+ * small. A skip removes a previous kind, surface, and screen. It does
+ * not write safety values. New bytes clear those rows before this runs,
+ * so a skip leaves them clear. Identical bytes keep them.
  *
- * Images below Jev's window are not upscaled. `fit=scale-down` matches the
- * thumbnail transform, and enlarging an icon would not add detail Jev
- * could read.
+ * The resize has its own timeout (`CLASSIFIER_RESIZE_TIMEOUT_MS`). The
+ * Decisions call keeps `CLASSIFIER_TIMEOUT_MS`. A slow resize cannot
+ * spend the model's budget. Either timeout fails open.
  *
  * Optional Luna path (`ai.classifier=v4`): `CLASSIFIER_PROVIDER=luna` or
  * Flagship `llm-file-classifier-luna` (default off) selects
  * `openai/gpt-6-luna-decisions` on the same endpoint. Luna does not use
  * the resize. It accepts WebP and is not held to Jev's pixel window, so
- * a large screenshot under the byte cap can still be seen when the flag
- * is on. Unset provider and a flag that is off stay on Jev Latest.
+ * a screenshot under the byte cap can still be seen when the flag is on.
+ * A Luna file with no acceptable image is `unsupported`. Unset provider
+ * and a flag that is off stay on Jev Latest.
  *
  * Both providers `POST https://openrouter.ai/api/alpha/decisions` with
  * `OPENROUTER_API_KEY`. The Cloudflare AI Gateway `openrouter` provider is
@@ -52,7 +54,11 @@
  * classification. The weekly digest still uses the Workers AI binding.
  */
 
-import { SAFETY_FLAG_KEYS, setServerFileMetadata } from "./file-metadata";
+import {
+  SAFETY_FLAG_KEYS,
+  deleteServerFileMetadataKeys,
+  setServerFileMetadata,
+} from "./file-metadata";
 import { dbFor } from "./db-session";
 import { detectImageDimensions, uploadKind } from "./guards";
 import type { WorkspaceRecord } from "./workspace";
@@ -94,6 +100,18 @@ export const CLASSIFIER_SKIPPED = "skipped";
 
 /** Written to `ai.skip` when the image is too small to be worth a call. */
 export const CLASSIFIER_SKIP_SMALL = "small";
+
+/**
+ * Written to `ai.skip` when the file cannot be sent as an image this
+ * provider accepts, and a resize is not the path to one.
+ */
+export const CLASSIFIER_SKIP_UNSUPPORTED = "unsupported";
+
+/** Written to `ai.skip` when a resize was required and did not produce an image. */
+export const CLASSIFIER_SKIP_RESIZE_FAILED = "resize_failed";
+
+/** Written to `ai.skip` when the resize budget runs out. */
+export const CLASSIFIER_SKIP_RESIZE_TIMEOUT = "resize_timeout";
 
 /**
  * Either known edge below this skips the model. 64 px is a common icon
@@ -143,7 +161,7 @@ export const CLASSIFIER_MAX_IMAGE_BYTES = 512 * 1024;
 
 /**
  * Images binding input ceiling (`input()` accepts up to 20 MB). A larger
- * file stays on the text facts instead of throwing inside the binding.
+ * file is `ai.skip=resize_failed` instead of throwing inside the binding.
  */
 export const CLASSIFIER_TRANSFORM_MAX_INPUT_BYTES = 20 * 1024 * 1024;
 
@@ -154,9 +172,6 @@ export const CLASSIFIER_TRANSFORM_MAX_INPUT_BYTES = 20 * 1024 * 1024;
  * stays lossless when the result fits.
  */
 export const CLASSIFIER_JPEG_QUALITIES = [82, 60] as const;
-
-/** Max characters of a text file sent to the model. */
-export const CLASSIFIER_MAX_TEXT_CHARS = 1500;
 
 /** Below this confidence the decision model's answer is dropped. */
 export const CLASSIFIER_MIN_CONFIDENCE = 0.5;
@@ -193,16 +208,22 @@ export function confidenceBucket(confidence: number): ConfidenceBucket {
 export const CLASSIFIER_TIMEOUT_MS = 8_000;
 
 /**
+ * Bound the Images resize on its own. A slow transform must not consume
+ * `CLASSIFIER_TIMEOUT_MS`.
+ */
+export const CLASSIFIER_RESIZE_TIMEOUT_MS = 8_000;
+
+/**
  * Jev image window, inclusive, from the OpenRouter multimodal Decisions
- * guide. An image outside it returns 400 or 413, so we omit the bytes and
- * send the text facts instead.
+ * guide. An image outside it is not sent. A copy that can be scaled down
+ * into the window is resized first. Anything else is a skip.
  */
 export const JEV_MIN_IMAGE_EDGE = 256;
 export const JEV_MAX_IMAGE_EDGE = 1_568;
 export const JEV_MIN_IMAGE_PIXELS = 78_400;
 export const JEV_MAX_IMAGE_PIXELS = 2_458_624;
 
-/** Jev reads PNG and JPEG only. Luna also reads WebP. GIF, AVIF, and SVG stay text-only. */
+/** Jev reads PNG and JPEG only. Luna also reads WebP. Other types are skipped. */
 const JEV_IMAGE_TYPES = new Set(["image/png", "image/jpeg"]);
 const LUNA_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 
@@ -526,9 +547,9 @@ export function jevUnfittableNote(width: number, height: number): string {
 }
 
 /**
- * The text-only facts the decision sees. Pixel dimensions come from the
- * image header, so aspect ratio is available even when the pixels are not
- * attached.
+ * Facts that accompany an image. Pixel dimensions come from the header.
+ * This is not a classification by itself: the caller sends it only next
+ * to pixels the provider can see.
  */
 export function buildClassifierState(
   key: string,
@@ -548,22 +569,15 @@ export function buildClassifierState(
     state.aspect = aspectOf(dims.width, dims.height);
   }
 
-  if (isSafeTextExcerptType(contentType) && bytes.byteLength > 0) {
-    const excerpt = textExcerpt(bytes);
-    if (excerpt) state.excerpt = excerpt;
-  } else if (uploadKind(contentType) === "image" && bytes.byteLength > CLASSIFIER_MAX_IMAGE_BYTES) {
-    state.note = `image skipped: over ${CLASSIFIER_MAX_IMAGE_BYTES} bytes`;
-  }
-
   return state;
 }
 
 /**
- * Why this image should not call the model, or undefined when it should.
- * Images only: a short text file still gets a call. Unknown dimensions do
- * not count as a short edge. The byte floor still applies to them, so a
- * 1×1 file whose header we cannot read is skipped, and a large unmeasured
- * image is not.
+ * Why this image is too small to call the model, or undefined when size
+ * alone does not skip it. Non-images return undefined. Unknown dimensions
+ * do not count as a short edge. The byte floor still applies to them, so
+ * a 1×1 file whose header we cannot read is skipped, and a large
+ * unmeasured image is not.
  */
 export function trivialImageSkip(contentType: string, bytes: Uint8Array): string | undefined {
   if (uploadKind(contentType) !== "image") return undefined;
@@ -670,6 +684,18 @@ export interface PreparedClassifierImage {
   note?: string;
   /** True when `image` was produced by the Images binding rather than the upload. */
   resized: boolean;
+  /**
+   * Set when `image` is absent. `resize_timeout` is applied by the caller
+   * when the resize budget fires before this returns.
+   */
+  skip?: typeof CLASSIFIER_SKIP_RESIZE_FAILED | typeof CLASSIFIER_SKIP_UNSUPPORTED;
+}
+
+function skippedImage(
+  skip: NonNullable<PreparedClassifierImage["skip"]>,
+  note?: string,
+): PreparedClassifierImage {
+  return { note, resized: false, skip };
 }
 
 /**
@@ -741,7 +767,9 @@ export async function encodeForJevWindow(
 /**
  * Image part for this provider. Jev may resize first. Luna never does: the
  * try is there to see the original pixels, including WebP and sizes outside
- * Jev's window. A missing transform leaves Jev on the text facts.
+ * Jev's window. No image means a skip. Luna's skip is `unsupported`. Jev
+ * uses `unsupported` when a resize cannot produce an acceptable image, and
+ * `resize_failed` when a resize was required and did not.
  */
 export async function prepareClassifierImage(
   provider: ClassifierProvider,
@@ -752,47 +780,57 @@ export async function prepareClassifierImage(
 ): Promise<PreparedClassifierImage> {
   if (provider !== "jev") {
     const decision = buildDecisionImage(provider, contentType, bytes);
-    return { image: decision.image, note: decision.note, resized: false };
+    if (decision.image) return { image: decision.image, resized: false };
+    return skippedImage(CLASSIFIER_SKIP_UNSUPPORTED, decision.note);
   }
 
   const direct = buildDecisionImage("jev", contentType, bytes);
   if (direct.image) return { image: direct.image, resized: false };
   if (!JEV_TRANSFORM_TYPES.has(contentType) || bytes.byteLength === 0) {
-    return { note: direct.note, resized: false };
+    return skippedImage(CLASSIFIER_SKIP_UNSUPPORTED, direct.note);
   }
 
   const dims = detectImageDimensions(bytes, contentType);
   if (dims && !jevScaleDownFit(dims.width, dims.height)) {
-    return { note: jevUnfittableNote(dims.width, dims.height), resized: false };
+    return skippedImage(CLASSIFIER_SKIP_UNSUPPORTED, jevUnfittableNote(dims.width, dims.height));
   }
   if (bytes.byteLength > CLASSIFIER_TRANSFORM_MAX_INPUT_BYTES) {
-    return { note: "image skipped: image too large to transform", resized: false };
+    return skippedImage(
+      CLASSIFIER_SKIP_RESIZE_FAILED,
+      "image skipped: image too large to transform",
+    );
   }
   if (!transform) {
-    // A PNG or JPEG whose header we cannot measure is not a missed resize.
-    if (!dims && direct.note === "image skipped: dimensions unknown") {
-      return { note: direct.note, resized: false };
-    }
-    return { note: "image skipped: transform unavailable", resized: false };
+    const note =
+      !dims && direct.note === "image skipped: dimensions unknown"
+        ? direct.note
+        : "image skipped: transform unavailable";
+    return skippedImage(CLASSIFIER_SKIP_RESIZE_FAILED, note);
   }
 
   try {
     const encoded = await encodeForJevWindow(transform, bytes, contentType, signal);
     if (!encoded.ok) {
       if (encoded.reason === "unfittable" && encoded.width && encoded.height) {
-        return { note: jevUnfittableNote(encoded.width, encoded.height), resized: false };
+        return skippedImage(
+          CLASSIFIER_SKIP_RESIZE_FAILED,
+          jevUnfittableNote(encoded.width, encoded.height),
+        );
       }
       if (encoded.reason === "over_cap") {
-        return {
-          note: `image skipped: transformed image over ${CLASSIFIER_MAX_IMAGE_BYTES} bytes`,
-          resized: false,
-        };
+        return skippedImage(
+          CLASSIFIER_SKIP_RESIZE_FAILED,
+          `image skipped: transformed image over ${CLASSIFIER_MAX_IMAGE_BYTES} bytes`,
+        );
       }
-      return { note: "image skipped: transform failed", resized: false };
+      return skippedImage(CLASSIFIER_SKIP_RESIZE_FAILED, "image skipped: transform failed");
     }
     const decision = buildDecisionImage("jev", encoded.contentType, encoded.bytes);
     if (!decision.image) {
-      return { note: decision.note ?? "image skipped: transform failed", resized: false };
+      return skippedImage(
+        CLASSIFIER_SKIP_RESIZE_FAILED,
+        decision.note ?? "image skipped: transform failed",
+      );
     }
     const label = encoded.contentType === "image/png" ? "png" : "jpeg";
     return {
@@ -803,7 +841,7 @@ export async function prepareClassifierImage(
   } catch (err) {
     if (signal?.aborted) throw err;
     console.error({ event: "classifier_image_transform_failed", err });
-    return { note: "image skipped: transform failed", resized: false };
+    return skippedImage(CLASSIFIER_SKIP_RESIZE_FAILED, "image skipped: transform failed");
   }
 }
 
@@ -883,23 +921,6 @@ function bytesToBase64(bytes: Uint8Array): string {
     binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
   }
   return btoa(binary);
-}
-
-function isSafeTextExcerptType(contentType: string): boolean {
-  return contentType.startsWith("text/") || contentType === "application/json";
-}
-
-/** First N chars of UTF-8 text, dropping NUL-looking binary. */
-export function textExcerpt(bytes: Uint8Array): string | undefined {
-  if (bytes.byteLength === 0) return undefined;
-  const slice = bytes.subarray(0, CLASSIFIER_MAX_TEXT_CHARS * 4);
-  if (slice.includes(0)) return undefined;
-  const decoded = new TextDecoder("utf-8").decode(slice);
-  const trimmed = decoded.replace(/[^\x20-\x7E\n\t]/g, " ").trim();
-  if (!trimmed) return undefined;
-  return trimmed.length > CLASSIFIER_MAX_TEXT_CHARS
-    ? trimmed.slice(0, CLASSIFIER_MAX_TEXT_CHARS)
-    : trimmed;
 }
 
 /**
@@ -982,6 +1003,8 @@ export function openRouterDecisionsRun(env: Env): ClassifierRun {
     const apiKey = env.OPENROUTER_API_KEY?.trim();
     if (!apiKey) throw new Error("OPENROUTER_API_KEY missing");
 
+    if (!req.image) throw new Error("decisions call requires an image");
+
     const response = await fetch(OPENROUTER_DECISIONS_URL, {
       method: "POST",
       headers: {
@@ -1014,7 +1037,70 @@ function classifierVersionMarker(provider: ClassifierProvider, resized: boolean)
   return resized ? CLASSIFIER_RESIZED_VERSION : CLASSIFIER_VERSION;
 }
 
-async function runClassifierPipeline(
+/** Display labels a skip must not leave behind from an earlier classification. */
+const CLASSIFIER_DISPLAY_KEYS = ["ai.kind", "ai.surface", "ai.screen"] as const;
+
+function skipMeta(reason: string, provider: ClassifierProvider): Record<string, string> {
+  // Two keys, and only these. A model miss writes nothing, so a lone
+  // `ai.classifier` would look like a miss. Display and safety keys stay
+  // off the write so a skip cannot put a stale flag back.
+  console.log({ event: "classifier_skipped", reason, provider });
+  return {
+    "ai.classifier": CLASSIFIER_SKIPPED,
+    "ai.skip": reason,
+  };
+}
+
+async function storeSkip(
+  env: Env,
+  workspaceName: string,
+  key: string,
+  reason: string,
+  provider: ClassifierProvider,
+): Promise<Record<string, string>> {
+  const db = dbFor(env);
+  await deleteServerFileMetadataKeys(db, workspaceName, key, [...CLASSIFIER_DISPLAY_KEYS]);
+  const meta = skipMeta(reason, provider);
+  await setServerFileMetadata(db, workspaceName, key, meta);
+  return meta;
+}
+
+async function storeDecision(
+  env: Env,
+  workspaceName: string,
+  key: string,
+  meta: Record<string, string>,
+): Promise<Record<string, string>> {
+  const db = dbFor(env);
+  await deleteServerFileMetadataKeys(db, workspaceName, key, ["ai.skip"]);
+  await setServerFileMetadata(db, workspaceName, key, meta);
+  return meta;
+}
+
+function withDeadline<T>(
+  work: Promise<T>,
+  timeoutMs: number,
+  onTimeout: () => void,
+  message: string,
+): Promise<T> {
+  void work.catch(() => {
+    // The race already observed a timeout or a rejection.
+  });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([
+    work,
+    new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        onTimeout();
+        reject(new Error(message));
+      }, timeoutMs);
+    }),
+  ]).finally(() => {
+    if (timer !== undefined) clearTimeout(timer);
+  });
+}
+
+async function decideImage(
   run: ClassifierRun,
   key: string,
   bytes: Uint8Array,
@@ -1022,21 +1108,9 @@ async function runClassifierPipeline(
   minConfidence: number,
   provider: ClassifierProvider,
   signal: AbortSignal,
-  transform?: ClassifierImageTransform,
+  prepared: PreparedClassifierImage & { image: DecisionImagePart },
 ): Promise<Record<string, string> | undefined> {
-  const trivial = trivialImageSkip(contentType, bytes);
-  if (trivial) {
-    // Two keys on purpose. A model path with no usable answer writes
-    // nothing, so a lone `ai.classifier` would look like a miss. `ai.skip`
-    // is the reason, and it keeps the row.
-    console.log({ event: "classifier_skipped", reason: trivial, provider });
-    return {
-      "ai.classifier": CLASSIFIER_SKIPPED,
-      "ai.skip": trivial,
-    };
-  }
   const state = buildClassifierState(key, contentType, bytes);
-  const prepared = await prepareClassifierImage(provider, contentType, bytes, transform, signal);
   if (prepared.note) state.note = prepared.note;
   const request = buildDecideRequest(state, provider, prepared.image);
   const decided = parseJevAnswers(await run(request, { signal }), { minConfidence });
@@ -1065,6 +1139,7 @@ export async function classifyAndStore(
   contentType: string,
   deps?: {
     timeoutMs?: number;
+    resizeTimeoutMs?: number;
     run?: ClassifierRun;
     minConfidence?: number;
     transform?: ClassifierImageTransform;
@@ -1073,41 +1148,56 @@ export async function classifyAndStore(
   try {
     if (!(await classificationAllowed(env, ws, workspaceName))) return undefined;
     const provider = await resolveClassifierProvider(env, ws, workspaceName);
+    const trivial = trivialImageSkip(contentType, bytes);
+    if (trivial) return await storeSkip(env, workspaceName, key, trivial, provider);
+
+    const transform =
+      deps?.transform ?? (env.IMAGES ? imagesClassifierTransform(env.IMAGES) : undefined);
+    const resizeController = new AbortController();
+    const resizeTimeoutMs = deps?.resizeTimeoutMs ?? CLASSIFIER_RESIZE_TIMEOUT_MS;
+    let prepared: PreparedClassifierImage;
+    try {
+      prepared = await withDeadline(
+        prepareClassifierImage(provider, contentType, bytes, transform, resizeController.signal),
+        resizeTimeoutMs,
+        () => resizeController.abort(),
+        "classifier resize timed out",
+      );
+    } catch (err) {
+      const reason = resizeController.signal.aborted
+        ? CLASSIFIER_SKIP_RESIZE_TIMEOUT
+        : CLASSIFIER_SKIP_RESIZE_FAILED;
+      if (!resizeController.signal.aborted) {
+        console.error({ event: "classifier_image_transform_failed", err });
+      }
+      return await storeSkip(env, workspaceName, key, reason, provider);
+    }
+
+    if (!prepared.image) {
+      return await storeSkip(
+        env,
+        workspaceName,
+        key,
+        prepared.skip ?? CLASSIFIER_SKIP_UNSUPPORTED,
+        provider,
+      );
+    }
+
     const run = deps?.run ?? openRouterDecisionsRun(env);
     const timeoutMs = deps?.timeoutMs ?? CLASSIFIER_TIMEOUT_MS;
     const minConfidence = deps?.minConfidence ?? CLASSIFIER_MIN_CONFIDENCE;
-    const transform =
-      deps?.transform ?? (env.IMAGES ? imagesClassifierTransform(env.IMAGES) : undefined);
-    const controller = new AbortController();
-    const work = runClassifierPipeline(
-      run,
-      key,
-      bytes,
-      contentType,
-      minConfidence,
-      provider,
-      controller.signal,
-      transform,
-    );
-    // Abort rejects `work` after the race has already settled.
-    void work.catch(() => {
-      // The race already observed a timeout or a model error.
-    });
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const meta = await Promise.race([
-      work,
-      new Promise<never>((_, reject) => {
-        timer = setTimeout(() => {
-          reject(new Error("classifier timed out"));
-          controller.abort();
-        }, timeoutMs);
+    const modelController = new AbortController();
+    const meta = await withDeadline(
+      decideImage(run, key, bytes, contentType, minConfidence, provider, modelController.signal, {
+        ...prepared,
+        image: prepared.image,
       }),
-    ]).finally(() => {
-      if (timer !== undefined) clearTimeout(timer);
-    });
+      timeoutMs,
+      () => modelController.abort(),
+      "classifier timed out",
+    );
     if (!meta) return undefined;
-    await setServerFileMetadata(dbFor(env), workspaceName, key, meta);
-    return meta;
+    return await storeDecision(env, workspaceName, key, meta);
   } catch (err) {
     console.error({ event: "classifier_failed", workspace: workspaceName, key, err });
     return undefined;

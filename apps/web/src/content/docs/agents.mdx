@@ -226,8 +226,8 @@ about is left off.
 | `ai.screen`     | `login` `signup` `settings` `profile` `dashboard` `analytics` `list` `detail` `form` `search` `modal` `onboarding` `empty` `error` `checkout` `other` |
 | `ai.tags`       | Older uploads only. The current labeler does not write tags.                                                                                          |
 | `ai.summary`    | Older uploads only. The current labeler does not write a summary.                                                                                     |
-| `ai.classifier` | `v5` on the default labeler. A resized image writes `v6`. A Luna try writes `v4`. A trivially small image writes `skipped`.                            |
-| `ai.skip`       | `small` when the image was too small to classify. Paired with `ai.classifier=skipped`. No model call was made.                                        |
+| `ai.classifier` | `v5` on the default labeler. A resized image writes `v6`. A Luna try writes `v4`. No image writes `skipped`.                                          |
+| `ai.skip`       | `small`, `unsupported`, `resize_failed`, or `resize_timeout`. Paired with `ai.classifier=skipped`. No model call, and no kind, surface, screen, or safety value. |
 
 The same call also records four internal flags. They are not chips. They do not appear on the public file page, in a gallery, in a feed, in an embed, or in a pull request comment. They do not change who can view the file.
 
@@ -244,7 +244,7 @@ The same call also records four internal flags. They are not chips. They do not 
 
 An answer under 0.50 is left off, and so is its confidence key. `ai.secret` and `ai.pii` stay separate, so a broad personal-data hit does not hide a real credential.
 
-A stored flag stays until a later classification writes that same key. A confident `none` replaces the old value. An answer under the floor, a skip, a timeout, or an error leaves the previous flag in place. Re-uploading identical bytes does not clear it. New bytes start fresh.
+A stored flag stays until a later classification writes that same key. A confident `none` replaces the old value. An answer under the floor, a model timeout, or an error leaves the previous flag in place. A skip writes no safety value, so it does not replace or restore one. Re-uploading identical bytes does not clear a flag. New bytes start fresh, and a skip on those bytes leaves the flags clear.
 
 The classifier version does not change for these flags. `v5`, `v6`, `v4`, and `skipped` still name how the image was prepared. A file labeled before the flags existed simply has none of these keys.
 

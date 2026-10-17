@@ -65,10 +65,10 @@ interface Env {
   /**
    * Cloudflare Images transform binding. The file classifier uses it to fit
    * PNG, JPEG, WebP, GIF, and AVIF into Jev's pixel window. Optional: an
-   * absent binding leaves those files on the text-facts path. A PNG or JPEG
-   * that already fits does not need it. apps/mcp type-checks this module
-   * and does not bind Images (classification does not run there: that
-   * worker has no `FLAGS`).
+   * absent binding skips files that need a resize (`ai.skip=resize_failed`).
+   * A PNG or JPEG that already fits does not need it. apps/mcp type-checks
+   * this module and does not bind Images (classification does not run
+   * there: that worker has no `FLAGS`).
    */
   IMAGES?: ImagesBinding;
   FLAGS?: Flagship;
