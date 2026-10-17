@@ -314,6 +314,11 @@ describe("server-owned video.* namespace", () => {
     expect(isServerMetaKey("video.duration")).toBe(true);
     expect(isServerMetaKey("ai.tags")).toBe(true);
     expect(isServerMetaKey("ai.classifier")).toBe(true);
+    expect(isServerMetaKey("ai.secret")).toBe(true);
+    expect(isServerMetaKey("ai.secret.confidence")).toBe(true);
+    expect(isServerMetaKey("ai.pii")).toBe(true);
+    expect(isServerMetaKey("ai.rating")).toBe(true);
+    expect(isServerMetaKey("ai.content")).toBe(true);
     expect(isServerMetaKey("videoclip")).toBe(false);
     expect(isServerMetaKey("air")).toBe(false);
     expect(isServerMetaKey("path")).toBe(false);
@@ -323,6 +328,13 @@ describe("server-owned video.* namespace", () => {
     expect(() => validateMetadataEntries({ "video.poster": "1" })).toThrow(/reserved metadata key/);
     expect(() => validateMetadataEntries({ "pdf.poster": "1" })).toThrow(/reserved metadata key/);
     expect(() => validateMetadataEntries({ "ai.tags": "ui" })).toThrow(/reserved metadata key/);
+    expect(() => validateMetadataEntries({ "ai.secret": "api_key" })).toThrow(
+      /reserved metadata key/,
+    );
+    expect(() => validateMetadataEntries({ "ai.pii": "contact" })).toThrow(/reserved metadata key/);
+    expect(() => validateMetadataEntries({ "ai.rating.confidence": "high" })).toThrow(
+      /reserved metadata key/,
+    );
   });
 
   it("allows a server write when opted in", () => {

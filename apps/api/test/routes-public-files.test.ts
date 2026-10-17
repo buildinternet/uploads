@@ -674,6 +674,38 @@ describe("GET /public/files/:workspace/:key", () => {
     expect(json.metadata).toEqual({ app: "uploads-cli" });
   });
 
+  it("does not leak internal safety flags to anonymous readers", async () => {
+    const { env } = await makeEnv({}, { db: makeFakeDB() });
+    await seedShot(env, { "X-Uploads-Meta-path": "/settings", "X-Uploads-Meta-app": "web" });
+    await setServerFileMetadata(
+      env.DB as unknown as D1Database,
+      "default",
+      "screenshots/shot.png",
+      {
+        "ai.kind": "screenshot",
+        "ai.screen": "settings",
+        "ai.rating": "explicit",
+        "ai.rating.confidence": "high",
+        "ai.content": "sexual",
+        "ai.content.confidence": "high",
+        "ai.secret": "api_key",
+        "ai.secret.confidence": "high",
+        "ai.pii": "financial",
+        "ai.pii.confidence": "medium",
+        "ai.classifier": "v5",
+      },
+    );
+
+    const res = await app.request("/public/files/default/screenshots/shot.png", {}, env);
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { metadata?: Record<string, string> };
+    expect(json.metadata).toEqual({ path: "/settings", app: "web" });
+    const body = JSON.stringify(json);
+    for (const leaked of ["api_key", "explicit", "financial", "ai.secret", "ai.pii", "ai.rating"]) {
+      expect(body).not.toContain(leaked);
+    }
+  });
+
   it("omits posterUrl and videoDimensions when there is no poster", async () => {
     const { env } = await makeEnv({}, { db: makeFakeDB() });
     await seedShot(env);

@@ -753,6 +753,32 @@ describe("gatherCommentBody attachment metadata (issue #365)", () => {
     expect(body).not.toContain("Photoshop");
   });
 
+  it("does not render internal safety flags in the public comment", async () => {
+    const { env, ws, workspaceName, bucket } = makeTestEnv();
+    await seed(env, bucket, { path: "/settings", state: "after" });
+    await setServerFileMetadata(env.DB, workspaceName, "gh/acme/web/pull/12/before.webp", {
+      "ai.secret": "api_key",
+      "ai.secret.confidence": "high",
+      "ai.pii": "contact",
+      "ai.rating": "explicit",
+      "ai.content": "sexual",
+    });
+
+    const result = await gatherCommentBody(env, ws, workspaceName, {
+      repo: "acme/web",
+      num: 12,
+      kind: "pull",
+    });
+
+    expect(result.body).toContain("<code>/settings</code>");
+    const body = result.body;
+    expect(body).not.toContain("api_key");
+    expect(body).not.toContain("ai.secret");
+    expect(body).not.toContain("contact");
+    expect(body).not.toContain("explicit");
+    expect(body).not.toContain("sexual");
+  });
+
   it("renders exactly as before when the workspace has no metadata", async () => {
     const { env, ws, workspaceName, bucket } = makeTestEnv();
     await bucket.put("acme/gh/acme/web/pull/12/before.webp", PNG);

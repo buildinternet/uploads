@@ -12,6 +12,11 @@
  * the kind, surface, and screen chips, and they drop out of `ai.tags`.
  * A classifier-only row, including a skip, stays silent. A row that only
  * has those placeholders stays silent too. Stored metadata is unchanged.
+ *
+ * Internal safety flags (`ai.rating`, `ai.content`, `ai.secret`, `ai.pii`,
+ * and each `ai.<flag>.confidence`) are never chips and never land in the
+ * generic metadata list. The drawer and the public `/f/` page both read
+ * through this module, so those keys stay off both surfaces.
  */
 
 /** Classifier answers that mean "no useful chip". Compared after trim + lowercase. */

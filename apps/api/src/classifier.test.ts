@@ -15,6 +15,11 @@ import {
   JEV_MIN_IMAGE_EDGE,
   JEV_MIN_IMAGE_PIXELS,
   OPENROUTER_DECISIONS_URL,
+  CLASSIFIER_CONFIDENCE_HIGH,
+  CLASSIFIER_CONFIDENCE_MEDIUM,
+  CLASSIFIER_MIN_CONFIDENCE,
+  JEV_CHOICE_MAX_OPTIONS,
+  JEV_CHOICE_MIN_OPTIONS,
   buildClassifierQuestions,
   buildClassifierState,
   buildDecideRequest,
@@ -455,18 +460,42 @@ describe("formatDecisionState", () => {
 });
 
 describe("buildDecideRequest", () => {
-  it("asks Jev Latest the three closed-enum questions", () => {
+  const QUESTION_IDS = ["kind", "surface", "screen", "rating", "content", "secret", "pii"];
+
+  it("asks Jev Latest every closed question in one request", () => {
     const bytes = pngOf(400, 256);
     const image = buildDecisionImage("jev", "image/png", bytes).image;
     const req = buildDecideRequest(buildClassifierState("a.png", "image/png", bytes), "jev", image);
     expect(req.stage).toBe("decide");
     expect(req.model).toBe(CLASSIFIER_JEV_MODEL);
     expect(req.image?.type).toBe("image_url");
-    expect(Object.keys(req.questions)).toEqual(["kind", "surface", "screen"]);
-    for (const question of Object.values(buildClassifierQuestions())) {
+    expect(Object.keys(req.questions)).toEqual(QUESTION_IDS);
+    for (const question of Object.values(req.questions)) {
       expect(question.type).toBe("choice");
-      expect(Object.keys(question.criteria).length).toBeGreaterThan(1);
+      const options = Object.keys(question.criteria).length;
+      expect(options).toBeGreaterThanOrEqual(JEV_CHOICE_MIN_OPTIONS);
+      expect(options).toBeLessThanOrEqual(JEV_CHOICE_MAX_OPTIONS);
     }
+    // TypeSafe documents no question-count cap (token budget only). Seven
+    // short choices stay far inside that budget and inside the 255-option cap.
+    expect(QUESTION_IDS.length).toBe(7);
+    expect(Object.keys(req.questions.screen.criteria).length).toBeLessThanOrEqual(
+      JEV_CHOICE_MAX_OPTIONS,
+    );
+  });
+
+  it("keeps secrets and personal data on separate questions", () => {
+    const questions = buildClassifierQuestions();
+    expect(questions.secret.instructions).toMatch(/email/i);
+    expect(questions.secret.instructions).toMatch(/personal data/i);
+    expect(questions.pii.instructions).toMatch(/header/i);
+    expect(questions.pii.instructions).toMatch(/credential/i);
+    expect(Object.keys(questions.secret.criteria)).not.toContain("contact");
+    expect(Object.keys(questions.secret.criteria)).not.toContain("email");
+    expect(Object.keys(questions.pii.criteria)).not.toContain("api_key");
+    expect(Object.keys(questions.pii.criteria)).not.toContain("password");
+    expect(questions.pii.criteria.none).toMatch(/header/i);
+    expect(questions.secret.criteria.none).toMatch(/email/i);
   });
 
   it("selects the Luna model without changing the questions", () => {
@@ -475,7 +504,7 @@ describe("buildDecideRequest", () => {
       "luna",
     );
     expect(req.model).toBe(CLASSIFIER_LUNA_MODEL);
-    expect(Object.keys(req.questions)).toEqual(["kind", "surface", "screen"]);
+    expect(Object.keys(req.questions)).toEqual(QUESTION_IDS);
   });
 });
 
@@ -532,10 +561,18 @@ describe("openRouterDecisionsRun", () => {
     expect(call.headers["HTTP-Referer"]).toBe("https://uploads.sh");
     expect(call.headers["X-Title"]).toBe("uploads");
     expect(call.body.model).toBe(CLASSIFIER_JEV_MODEL);
+    expect(Object.keys(call.body.questions as object)).toEqual([
+      "kind",
+      "surface",
+      "screen",
+      "rating",
+      "content",
+      "secret",
+      "pii",
+    ]);
     const state = call.body.state as unknown[];
     expect(state[1]).toEqual(image);
     expect(String(state[0])).toContain("filename: a.png");
-    expect(Object.keys(call.body.questions as object)).toEqual(["kind", "surface", "screen"]);
   });
 
   it("posts Luna to the same URL", async () => {
@@ -678,6 +715,76 @@ describe("parseJevAnswers", () => {
     expect(parseJevAnswers({ answers: { kind: "screenshot" } })).toBeNull();
     expect(parseJevAnswers({ answers: { kind: { choice: "photo" } } })).toBeNull();
     expect(parseJevAnswers({ answers: { kind: answer("photo", Number.NaN) } })).toBeNull();
+  });
+
+  it("writes safety flags and confidence buckets without mixing secret and pii", () => {
+    const parsed = parseJevAnswers({
+      answers: {
+        kind: answer("screenshot", 0.99),
+        rating: answer("suggestive", CLASSIFIER_CONFIDENCE_HIGH),
+        content: answer("sexual", 0.72),
+        secret: answer("api_key", 0.91),
+        pii: answer("none", 0.61),
+      },
+    });
+    expect(parsed?.meta).toEqual({
+      "ai.kind": "screenshot",
+      "ai.rating": "suggestive",
+      "ai.rating.confidence": "high",
+      "ai.content": "sexual",
+      "ai.content.confidence": "medium",
+      "ai.secret": "api_key",
+      "ai.secret.confidence": "high",
+      "ai.pii": "none",
+      "ai.pii.confidence": "low",
+    });
+    expect(parsed?.meta["ai.kind.confidence"]).toBeUndefined();
+    expect(parsed?.meta["ai.secret"]).not.toBe(parsed?.meta["ai.pii"]);
+  });
+
+  it("buckets confidence at the documented bounds and drops the rest", () => {
+    const at = (confidence: number) =>
+      parseJevAnswers({ answers: { secret: answer("token", confidence) } })?.meta?.[
+        "ai.secret.confidence"
+      ];
+    expect(at(CLASSIFIER_CONFIDENCE_HIGH)).toBe("high");
+    expect(at(CLASSIFIER_CONFIDENCE_HIGH - 0.001)).toBe("medium");
+    expect(at(CLASSIFIER_CONFIDENCE_MEDIUM)).toBe("medium");
+    expect(at(CLASSIFIER_CONFIDENCE_MEDIUM - 0.001)).toBe("low");
+    expect(at(CLASSIFIER_MIN_CONFIDENCE)).toBe("low");
+    expect(at(CLASSIFIER_MIN_CONFIDENCE - 0.001)).toBeUndefined();
+    expect(
+      parseJevAnswers({
+        answers: { secret: answer("token", CLASSIFIER_MIN_CONFIDENCE - 0.001) },
+      }),
+    ).toBeNull();
+  });
+
+  it("drops a secret choice that is really personal data, and the reverse", () => {
+    const parsed = parseJevAnswers({
+      answers: {
+        secret: answer("email", 0.99),
+        pii: answer("contact", 0.8),
+      },
+    });
+    expect(parsed?.meta).toEqual({
+      "ai.pii": "contact",
+      "ai.pii.confidence": "medium",
+    });
+    expect(parsed?.meta["ai.secret"]).toBeUndefined();
+    expect(parsed?.meta["ai.secret.confidence"]).toBeUndefined();
+
+    const credential = parseJevAnswers({
+      answers: {
+        secret: answer("password", 0.95),
+        pii: answer("api_key", 0.95),
+      },
+    });
+    expect(credential?.meta).toEqual({
+      "ai.secret": "password",
+      "ai.secret.confidence": "high",
+    });
+    expect(credential?.meta["ai.pii"]).toBeUndefined();
   });
 });
 

@@ -229,11 +229,29 @@ about is left off.
 | `ai.classifier` | `v5` on the default labeler. A resized image writes `v6`. A Luna try writes `v4`. A trivially small image writes `skipped`.                            |
 | `ai.skip`       | `small` when the image was too small to classify. Paired with `ai.classifier=skipped`. No model call was made.                                        |
 
+The same call also records four internal flags. They are not chips. They do not appear on the public file page, in a gallery, in a feed, in an embed, or in a pull request comment. They do not change who can view the file.
+
+| Key                     | Values                                                                                                                                          |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ai.rating`             | `safe` `suggestive` `explicit`                                                                                                                  |
+| `ai.content`            | `none` `sexual` `violence` `gore` `drugs` `hate` `self_harm` `other`                                                                            |
+| `ai.secret`             | `none` `api_key` `password` `private_key` `token` `connection_string` `other`. A credential that grants access. A name or an email is not one. |
+| `ai.pii`                | `none` `contact` `identity_document` `financial` `other`. A signed-in name or email in a header stays `none`.                                   |
+| `ai.rating.confidence`  | `high` at 0.85 or above. `medium` from 0.70 up to 0.85. `low` from 0.50 up to 0.70.                                                             |
+| `ai.content.confidence` | Same buckets as `ai.rating.confidence`.                                                                                                         |
+| `ai.secret.confidence`  | Same buckets as `ai.rating.confidence`.                                                                                                         |
+| `ai.pii.confidence`     | Same buckets as `ai.rating.confidence`.                                                                                                         |
+
+An answer under 0.50 is left off, and so is its confidence key. `ai.secret` and `ai.pii` stay separate, so a broad personal-data hit does not hide a real credential.
+
+The classifier version does not change for these flags. `v5`, `v6`, `v4`, and `skipped` still name how the image was prepared. A file labeled before the flags existed simply has none of these keys.
+
 Labels aren't in the upload's response. Read them afterward, or search by them:
 
 ```ansi
-uploads meta get <key>          # one file's labels
-uploads find ai.screen=login    # files with a label
+uploads meta get <key>              # one file's labels, including internal flags
+uploads find ai.screen=login        # files with a label
+uploads find ai.secret=api_key      # internal flag; workspace members only
 ```
 
 From an MCP client, use `get_metadata` and `find_files`. Clients can't set or delete `ai.*` keys.

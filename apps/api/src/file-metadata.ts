@@ -54,8 +54,10 @@ const RESERVED_META_KEYS = new Set<string>([...PROVENANCE_SERVER_KEYS, "visibili
  * preview: `pdf.poster` decides whether a thumbnail `<img>` renders in a
  * public PR comment. `ai.*` (experimental file classifier) is the same class
  * of server-derived fact: agents read `ai.tags` / `ai.summary` / `ai.kind` /
- * `ai.surface` / `ai.screen` but must not spoof them. Reserved as *prefixes*
- * rather than exact keys so future derived facts can't collide.
+ * `ai.surface` / `ai.screen`, plus the internal safety flags `ai.rating` /
+ * `ai.content` / `ai.secret` / `ai.pii` and their `.confidence` keys, but
+ * must not spoof them. Public responses strip the prefix. Reserved as
+ * *prefixes* rather than exact keys so future derived facts can't collide.
  */
 export const SERVER_META_PREFIXES = ["video.", "image.", "pdf.", "ai."] as const;
 

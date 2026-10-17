@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { putObject } from "../src/files-core";
-import { getMetadataForKeys } from "../src/file-metadata";
+import { findObjectsByMetadata, getMetadataForKeys } from "../src/file-metadata";
 import {
   CLASSIFIER_JEV_MODEL,
   CLASSIFIER_LUNA_MODEL,
@@ -177,6 +177,15 @@ describe("classifier on upload", () => {
     expect(call.url).not.toContain("/api/v1/");
     expect(call.headers.Authorization).toBe("Bearer test-key");
     expect(call.body.model).toBe(CLASSIFIER_JEV_MODEL);
+    expect(Object.keys(call.body.questions)).toEqual([
+      "kind",
+      "surface",
+      "screen",
+      "rating",
+      "content",
+      "secret",
+      "pii",
+    ]);
     expect(stateText(call)).toContain("filename: pic.png");
     expect(stateText(call)).toContain("dimensions unknown");
     expect(stateImage(call)).toBeUndefined();
@@ -860,5 +869,82 @@ describe("trivial image skip", () => {
     expect(meta?.["ai.classifier"]).toBe(CLASSIFIER_SKIPPED);
     expect(meta?.["ai.skip"]).toBe(CLASSIFIER_SKIP_SMALL);
     expect(meta?.["ai.kind"]).toBeUndefined();
+    expect(meta?.["ai.secret"]).toBeUndefined();
+    expect(meta?.["ai.pii"]).toBeUndefined();
+    expect(meta?.["ai.rating"]).toBeUndefined();
+  });
+});
+
+describe("safety flags", () => {
+  it("stores rating, content, secret, and pii from the same call", async () => {
+    const { env, ws, calls } = makeClassifierEnv(() => ({
+      ...DECIDED,
+      answers: {
+        ...DECIDED.answers,
+        rating: jevAnswer("safe", 0.93),
+        content: jevAnswer("none", 0.9),
+        secret: jevAnswer("api_key", 0.88),
+        pii: jevAnswer("none", 0.55),
+      },
+    }));
+    const png = atLeast(pngOf(400, 256));
+    const written = await classifyAndStore(env, ws, WORKSPACE, "images/leak.png", png, "image/png");
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.body.model).toBe(CLASSIFIER_JEV_MODEL);
+    expect(written?.["ai.classifier"]).toBe(CLASSIFIER_VERSION);
+    expect(written?.["ai.kind"]).toBe("screenshot");
+    expect(written?.["ai.rating"]).toBe("safe");
+    expect(written?.["ai.rating.confidence"]).toBe("high");
+    expect(written?.["ai.content"]).toBe("none");
+    expect(written?.["ai.content.confidence"]).toBe("high");
+    expect(written?.["ai.secret"]).toBe("api_key");
+    expect(written?.["ai.secret.confidence"]).toBe("high");
+    expect(written?.["ai.pii"]).toBe("none");
+    expect(written?.["ai.pii.confidence"]).toBe("low");
+    expect(written?.["ai.kind.confidence"]).toBeUndefined();
+
+    const found = await findObjectsByMetadata(env.DB, WORKSPACE, { "ai.secret": "api_key" });
+    expect(found.map((match) => match.key)).toEqual(["images/leak.png"]);
+    expect(found[0]?.metadata["ai.secret"]).toBe("api_key");
+    expect(found[0]?.metadata["ai.pii"]).toBe("none");
+  });
+
+  it("keeps the Luna version when the same questions are answered", async () => {
+    const { env, ws, calls } = makeClassifierEnv(
+      () => ({
+        ...DECIDED,
+        answers: {
+          ...DECIDED.answers,
+          secret: jevAnswer("password", 0.8),
+          pii: jevAnswer("contact", 0.7),
+        },
+      }),
+      {},
+      { provider: "luna" },
+    );
+    const written = await classifyAndStore(
+      env,
+      ws,
+      WORKSPACE,
+      "notes/creds.txt",
+      new TextEncoder().encode("password = hunter2\n"),
+      "text/plain",
+    );
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.body.model).toBe(CLASSIFIER_LUNA_MODEL);
+    expect(Object.keys(calls[0]?.body.questions ?? {})).toEqual([
+      "kind",
+      "surface",
+      "screen",
+      "rating",
+      "content",
+      "secret",
+      "pii",
+    ]);
+    expect(written?.["ai.classifier"]).toBe(CLASSIFIER_LUNA_VERSION);
+    expect(written?.["ai.secret"]).toBe("password");
+    expect(written?.["ai.secret.confidence"]).toBe("medium");
+    expect(written?.["ai.pii"]).toBe("contact");
+    expect(written?.["ai.pii.confidence"]).toBe("medium");
   });
 });

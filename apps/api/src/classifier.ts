@@ -11,10 +11,15 @@
  * Presigned (`POST /sign`) uploads never reach this hook.
  *
  * One Decisions call (`ai.classifier=v5` on the default path). The model
- * picks `kind`, `surface`, and `screen` from the closed enums and reports
+ * picks `kind`, `surface`, and `screen` from the closed enums, plus four
+ * internal safety flags (`rating`, `content`, `secret`, `pii`), and reports
  * a calibrated confidence per answer. An answer under
- * `CLASSIFIER_MIN_CONFIDENCE` omits its key. Decisions models do not write
- * free text, so this path does not write `ai.tags` or `ai.summary`.
+ * `CLASSIFIER_MIN_CONFIDENCE` omits its key. Each safety flag that lands
+ * also writes a coarse bucket (`ai.secret.confidence` and the same shape
+ * for the other three). Those flags do not bump `ai.classifier`: `v4`,
+ * `v5`, `v6`, and `skipped` still name the pixel path. A file labeled
+ * before the flags existed simply lacks the keys. Decisions models do not
+ * write free text, so this path does not write `ai.tags` or `ai.summary`.
  *
  * Default model is the OpenRouter alias `~typesafe/jev-latest`. A raster
  * PNG or JPEG that already fits Jev's pixel window and the byte cap goes
@@ -70,6 +75,12 @@ export const CLASSIFIER_LUNA_FLAG = "llm-file-classifier-luna";
  * Written to `ai.classifier` on the Jev Latest path when the original
  * bytes are sent. `v3` was the Llama-describe plus Workers AI Jev hybrid,
  * which did not send pixels. `v6` is the resized path.
+ *
+ * The safety questions do not get a new marker. `v4` / `v5` / `v6` /
+ * `skipped` still mean Luna, Jev original bytes, Jev resized, or no call.
+ * Bumping one string to also mean "which questions were asked" would make
+ * the pixel path unreadable. Absence of `ai.rating` (and the other three)
+ * is the signal that those answers were not stored.
  */
 export const CLASSIFIER_VERSION = "v5";
 
@@ -161,6 +172,45 @@ export const CLASSIFIER_MAX_TEXT_CHARS = 1500;
 /** Below this confidence the decision model's answer is dropped. */
 export const CLASSIFIER_MIN_CONFIDENCE = 0.5;
 
+/**
+ * Lower bound for `high` on a safety-flag confidence bucket. Inclusive.
+ * 0.85 is the bar a later access policy can treat as actionable. Jev's
+ * confidence is calibrated, so this means the chosen option is clearly ahead.
+ */
+export const CLASSIFIER_CONFIDENCE_HIGH = 0.85;
+
+/**
+ * Lower bound for `medium`. Inclusive. At or above this, and below
+ * `CLASSIFIER_CONFIDENCE_HIGH`, the bucket is `medium`. From
+ * `CLASSIFIER_MIN_CONFIDENCE` up to this bound the bucket is `low`.
+ * 0.70 sits clearly above the write floor and below the action bar.
+ */
+export const CLASSIFIER_CONFIDENCE_MEDIUM = 0.7;
+
+/** Coarse bucket stored on `ai.<flag>.confidence`. */
+export type ConfidenceBucket = "high" | "medium" | "low";
+
+/**
+ * Map a stored answer's confidence onto `high` / `medium` / `low`.
+ * Callers only pass a confidence that already cleared the write floor.
+ */
+export function confidenceBucket(confidence: number): ConfidenceBucket {
+  if (confidence >= CLASSIFIER_CONFIDENCE_HIGH) return "high";
+  if (confidence >= CLASSIFIER_CONFIDENCE_MEDIUM) return "medium";
+  return "low";
+}
+
+/**
+ * Jev Choice limits this request stays inside. TypeSafe's API reference
+ * allows 2–255 options per choice. It documents no separate cap on how
+ * many questions one request may carry: the budget is tokens (64k for the
+ * state plus every question on the TypeSafe default; OpenRouter's Jev page
+ * lists a 262,144-token context). Seven short choice questions fit in one
+ * call. The largest enum here is `screen`, at 16 options.
+ */
+export const JEV_CHOICE_MIN_OPTIONS = 2;
+export const JEV_CHOICE_MAX_OPTIONS = 255;
+
 /** Bound the Decisions call so a hung provider cannot pin the isolate. */
 export const CLASSIFIER_TIMEOUT_MS = 8_000;
 
@@ -174,16 +224,32 @@ export const JEV_MAX_IMAGE_EDGE = 1_568;
 export const JEV_MIN_IMAGE_PIXELS = 78_400;
 export const JEV_MAX_IMAGE_PIXELS = 2_458_624;
 
-/** Server-owned rows this module writes. Tags and summary are legacy keys. */
+/**
+ * Server-owned rows this module writes. Tags and summary are legacy keys.
+ * The safety flags and their confidence buckets are internal: public
+ * responses strip every `ai.*` key, and the file drawer does not render them.
+ */
 export const CLASSIFIER_META_KEYS = [
   "ai.tags",
   "ai.summary",
   "ai.kind",
   "ai.surface",
   "ai.screen",
+  "ai.rating",
+  "ai.rating.confidence",
+  "ai.content",
+  "ai.content.confidence",
+  "ai.secret",
+  "ai.secret.confidence",
+  "ai.pii",
+  "ai.pii.confidence",
   "ai.classifier",
   "ai.skip",
 ] as const;
+
+/** Safety flags that also write `ai.<flag>.confidence`. Kind, surface, and screen do not. */
+const SAFETY_FIELDS = ["rating", "content", "secret", "pii"] as const;
+const SAFETY_FIELD_SET = new Set<string>(SAFETY_FIELDS);
 
 /** Jev reads PNG and JPEG only. Luna also reads WebP. GIF, AVIF, and SVG stay text-only. */
 const JEV_IMAGE_TYPES = new Set(["image/png", "image/jpeg"]);
@@ -231,9 +297,67 @@ export const SCREEN_CRITERIA: Record<string, string> = {
   other: "A screen none of the other values describe, or a file that shows no screen.",
 };
 
+/**
+ * Closed enum for `ai.rating`. Sexual content only. Violence is `safe`
+ * here; `ai.content` says why a file is unsafe.
+ */
+export const RATING_CRITERIA: Record<string, string> = {
+  safe: "No sexual content. Violence, text, and ordinary product UI are safe on this question.",
+  suggestive: "Sexual innuendo, revealing clothing, or partial nudity that is not explicit.",
+  explicit: "Nudity, a sex act, or pornography.",
+};
+
+/**
+ * Closed enum for `ai.content`. The subject that makes a file unsafe.
+ * Independent of `ai.rating`.
+ */
+export const CONTENT_CRITERIA: Record<string, string> = {
+  none: "Ordinary content: a product screenshot, a document, or a photo with no unsafe subject.",
+  sexual: "Nudity, a sex act, or other sexual content.",
+  violence: "Physical harm that is not graphic gore.",
+  gore: "Graphic injury, blood, or mutilation.",
+  drugs: "Illegal drug use or drug paraphernalia as a subject.",
+  hate: "A slur or a hate symbol targeting a protected group.",
+  self_harm: "Suicide or self-injury.",
+  other: "An unsafe subject that the other values do not fit.",
+};
+
+/**
+ * Closed enum for `ai.secret`. Credentials that grant access. Kept apart
+ * from `ai.pii` so a name or an email cannot fill this field.
+ */
+export const SECRET_CRITERIA: Record<string, string> = {
+  none: "No credential that grants access. A username, a display name, or an email address is not a secret. A masked or empty secret field is none.",
+  api_key: "An API key, client secret, or similar application credential.",
+  password: "A password or passphrase, including one visible in a field.",
+  private_key: "A private key or the private half of a certificate.",
+  token: "A bearer token, session secret, access token, or refresh token.",
+  connection_string: "A database or service URL that embeds a credential.",
+  other: "Another credential that grants access and does not fit the other values.",
+};
+
+/**
+ * Closed enum for `ai.pii`. Personal data that is the subject of the file.
+ * Signed-in chrome (a header name or email) is `none`, so a normal UI
+ * screenshot is not flagged.
+ */
+export const PII_CRITERIA: Record<string, string> = {
+  none: "No personal data as the subject. A signed-in user's name, avatar, or email that appears only as interface chrome (a header, a nav bar, or an account menu) is none. An empty field labeled Email is none. A display name alone is none.",
+  contact:
+    "An email address, phone number, or street address that is content of the screen, such as a form, a directory, a message, or a shipping block. Not a name or email that only labels the signed-in account in the chrome.",
+  identity_document: "A passport, driver's license, or other government identity document.",
+  financial: "A payment card number or a bank account number.",
+  other:
+    "Other personal data, such as a government identifier or a medical record. A display name alone is not this.",
+};
+
 const KIND_ALLOWLIST = new Set(Object.keys(KIND_CRITERIA));
 const SURFACE_ALLOWLIST = new Set(Object.keys(SURFACE_CRITERIA));
 const SCREEN_ALLOWLIST = new Set(Object.keys(SCREEN_CRITERIA));
+const RATING_ALLOWLIST = new Set(Object.keys(RATING_CRITERIA));
+const CONTENT_ALLOWLIST = new Set(Object.keys(CONTENT_CRITERIA));
+const SECRET_ALLOWLIST = new Set(Object.keys(SECRET_CRITERIA));
+const PII_ALLOWLIST = new Set(Object.keys(PII_CRITERIA));
 
 export type ClassifierWaitUntil = (promise: Promise<unknown>) => void;
 
@@ -466,7 +590,11 @@ function aspectOf(width: number, height: number): "portrait" | "landscape" | "sq
   return "square";
 }
 
-/** The three closed-enum questions the decision model answers. */
+/**
+ * The closed-enum questions the decision model answers, in one request.
+ * Safety flags are separate questions so a PII hit cannot become a secret,
+ * and a violent image is not scored as sexually explicit.
+ */
 export function buildClassifierQuestions(): Record<string, JevChoiceQuestion> {
   return {
     kind: {
@@ -485,6 +613,30 @@ export function buildClassifierQuestions(): Record<string, JevChoiceQuestion> {
       instructions:
         "Which product screen does the content show? Pick `other` when the file is not an interface.",
       criteria: { ...SCREEN_CRITERIA },
+    },
+    rating: {
+      type: "choice",
+      instructions:
+        "Rate the sexual content. Pick `safe` when there is none. Violence without sexual content is `safe`; the content question covers it.",
+      criteria: { ...RATING_CRITERIA },
+    },
+    content: {
+      type: "choice",
+      instructions:
+        "What is the main unsafe subject, if any? Pick `none` for an ordinary file, including a normal product screenshot. This question is separate from the sexual rating.",
+      criteria: { ...CONTENT_CRITERIA },
+    },
+    secret: {
+      type: "choice",
+      instructions:
+        "Does this file show a credential that grants access to a system? Pick `none` for a masked or empty secret field, and for a username, a display name, or an email. Do not treat personal data as a secret; that is a different question.",
+      criteria: { ...SECRET_CRITERIA },
+    },
+    pii: {
+      type: "choice",
+      instructions:
+        "Does this file show personal data about a person? Pick `none` for a normal product screenshot, including one that shows the signed-in user's own name or email only in the header, nav, or account menu. An empty email field is `none`. Do not treat an API key, password, or other access credential as personal data; that is a different question.",
+      criteria: { ...PII_CRITERIA },
     },
   };
 }
@@ -808,6 +960,9 @@ export function textExcerpt(bytes: Uint8Array): string | undefined {
  * Jev's answers, narrowed to the closed enums this module writes. An answer
  * is dropped when its confidence is under the threshold, when the choice is
  * not in the allowlist, or when the shape is not what the model documents.
+ * A stored safety flag also writes `ai.<field>.confidence` (`high` /
+ * `medium` / `low`). A dropped answer omits both keys. A secret answer
+ * never fills `ai.pii`, and the reverse is also true.
  */
 export function parseJevAnswers(
   result: unknown,
@@ -823,6 +978,10 @@ export function parseJevAnswers(
     ["kind", KIND_ALLOWLIST],
     ["surface", SURFACE_ALLOWLIST],
     ["screen", SCREEN_ALLOWLIST],
+    ["rating", RATING_ALLOWLIST],
+    ["content", CONTENT_ALLOWLIST],
+    ["secret", SECRET_ALLOWLIST],
+    ["pii", PII_ALLOWLIST],
   ];
 
   for (const [field, allowlist] of fields) {
@@ -837,6 +996,10 @@ export function parseJevAnswers(
     const normalized = choice.trim().toLowerCase();
     if (!allowlist.has(normalized)) continue;
     meta[`ai.${field}`] = normalized;
+    // Kind, surface, and screen stay as they were: a value, no bucket key.
+    if (SAFETY_FIELD_SET.has(field)) {
+      meta[`ai.${field}.confidence`] = confidenceBucket(confidence);
+    }
   }
 
   if (Object.keys(meta).length === 0) return null;

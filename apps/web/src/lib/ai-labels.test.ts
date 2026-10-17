@@ -150,6 +150,53 @@ describe("parseAiLabels", () => {
     expect(hasAiMetadata(metadata)).toBe(true);
   });
 
+  it("ignores internal safety flags even when display chips are present", () => {
+    const metadata = {
+      "ai.classifier": "v5",
+      "ai.kind": "screenshot",
+      "ai.screen": "login",
+      "ai.rating": "explicit",
+      "ai.rating.confidence": "high",
+      "ai.content": "sexual",
+      "ai.content.confidence": "medium",
+      "ai.secret": "api_key",
+      "ai.secret.confidence": "high",
+      "ai.pii": "contact",
+      "ai.pii.confidence": "low",
+    };
+    expect(parseAiLabels(metadata)).toEqual({
+      classifier: "v5",
+      kind: "screenshot",
+      surface: undefined,
+      screen: "login",
+      tags: [],
+      summary: undefined,
+    });
+    const split = splitFileDetailMeta(metadata);
+    expect(split.other).toEqual([]);
+    const rendered = JSON.stringify(split);
+    expect(rendered).not.toContain("api_key");
+    expect(rendered).not.toContain("explicit");
+    expect(rendered).not.toContain("contact");
+    expect(rendered).not.toContain("sexual");
+  });
+
+  it("stays silent when only internal safety flags are set", () => {
+    const metadata = {
+      "ai.classifier": "v5",
+      "ai.rating": "safe",
+      "ai.rating.confidence": "high",
+      "ai.content": "none",
+      "ai.secret": "none",
+      "ai.secret.confidence": "low",
+      "ai.pii": "none",
+      "ai.pii.confidence": "medium",
+    };
+    expect(parseAiLabels(metadata)).toBeNull();
+    expect(hasAiMetadata(metadata)).toBe(false);
+    expect(splitFileDetailMeta(metadata)).toEqual({ primary: [], other: [], ai: null });
+  });
+
   it("keeps a summary when the chips are only placeholders", () => {
     const metadata = {
       "ai.kind": "other",

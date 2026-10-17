@@ -370,6 +370,40 @@ describe("gallery routes with SQLite D1", () => {
     expect(body.items[0]).not.toHaveProperty("videoDimensions");
   });
 
+  it("does not publish internal safety flags on the public gallery", async () => {
+    const key = "screenshots/flagged.png";
+    const uploaded = await fileRequest(`/v1/alpha/files/${key}`, PNG);
+    expect(uploaded.status).toBe(201);
+    await setServerFileMetadata(fakeDb as unknown as D1Database, "alpha", key, {
+      "ai.secret": "connection_string",
+      "ai.secret.confidence": "high",
+      "ai.pii": "identity_document",
+      "ai.rating": "suggestive",
+      "ai.content": "violence",
+    });
+    const gallery = await create();
+    const added = await request(`/v1/alpha/galleries/${gallery.id}/items`, {
+      method: "POST",
+      body: JSON.stringify({ expectedVersion: 1, objectKey: key }),
+    });
+    expect(added.status).toBe(201);
+
+    const publicGallery = await app.request(`/public/galleries/${gallery.id}`, {}, env);
+    expect(publicGallery.status).toBe(200);
+    const serialized = JSON.stringify(await publicGallery.json());
+    expect(serialized).toContain("flagged.png");
+    for (const leaked of [
+      "connection_string",
+      "identity_document",
+      "suggestive",
+      "violence",
+      "ai.secret",
+      "ai.pii",
+    ]) {
+      expect(serialized).not.toContain(leaked);
+    }
+  });
+
   it("adds only existing public objects and keeps deleted objects as tombstones", async () => {
     const gallery = await create();
     const missing = await request(`/v1/alpha/galleries/${gallery.id}/items`, {
