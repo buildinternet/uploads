@@ -62,7 +62,7 @@ export const GET: APIRoute = async () => {
       path: "/pricing",
       title: "Pricing",
       summary:
-        "Open source, the free plan, Pro for teams, bring-your-own-bucket storage, and fair use.",
+        "The free plan, Pro for teams, bring-your-own-bucket storage, fair use, and self-hosting as the fallback.",
       aliases: aliasesFor("pricing"),
     },
   ];

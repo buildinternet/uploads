@@ -10,25 +10,27 @@ const PRO_PRICE = "$10";
 
 export const PRICING_TITLE = "Pricing";
 export const PRICING_DESCRIPTION =
-  "uploads.sh is open source with a free plan, a Pro plan for teams, and bring-your-own-bucket storage on any plan.";
+  "Start free on hosted uploads.sh, move to Pro for teams, or bring your own bucket on any plan. Self-hosting the open-source service is the fallback.";
 
 export const PRICING_MARKDOWN = `# Pricing
 
 > **uploads.sh** hosts screenshots, recordings, and other files for agents and
-> humans, and puts them on GitHub pull requests and issues. It is open source,
-> the free plan covers everyday use, and any workspace can bring its own bucket.
+> humans, and puts them on GitHub pull requests and issues. For most people the
+> hosted service is the easiest place to start: sign in, install the CLI or
+> connect the MCP server, and you are uploading in a few minutes.
 
 ## Summary
 
-- **Open source.** Apache-2.0. Self-host the service on your own infrastructure;
-  uploads.sh charges nothing for that.
-  [Source on GitHub](https://github.com/buildinternet/uploads).
-- **${P.freeName}** — $0, no card required, no time limit.
+- **${P.freeName}** — $0, no card required, no time limit. Start here.
 - **${P.proName}** — ${PRO_PRICE} per month per workspace (introductory price),
   for teams that need more storage and larger files.
 - **Bring your own bucket** — on any plan, including ${P.freeName}. Storage in
   your own bucket has no uploads.sh storage cap; you pay your storage provider
   directly.
+- **Self-host** — the fallback. The service is open source (Apache-2.0), so if
+  hosted uploads.sh doesn't fit, you can run it on your own infrastructure. Expect
+  to set up and operate several workers, storage, and a database yourself.
+  [Source on GitHub](https://github.com/buildinternet/uploads).
 
 ## Plans
 
