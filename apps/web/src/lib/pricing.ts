@@ -1,10 +1,12 @@
 /**
  * Pricing copy, shared by /pricing (HTML) and /pricing.md (raw Markdown) so
  * the two cannot diverge. Plan numbers come from the plan catalog (same
- * source as /docs/limits). The Pro price lives in Stripe and is shown at
- * checkout, so it is not repeated here.
+ * source as /docs/limits). The Pro price is set in Stripe; keep
+ * PRO_PRICE in step with it when the introductory price changes.
  */
 import { PLAN_FACTS as P } from "./plan-facts";
+
+const PRO_PRICE = "$10";
 
 export const PRICING_TITLE = "Pricing";
 export const PRICING_DESCRIPTION =
@@ -22,8 +24,8 @@ export const PRICING_MARKDOWN = `# Pricing
   uploads.sh charges nothing for that.
   [Source on GitHub](https://github.com/buildinternet/uploads).
 - **${P.freeName}** — $0, no card required, no time limit.
-- **${P.proName}** — a paid monthly subscription per workspace, for teams that
-  need more storage and larger files.
+- **${P.proName}** — ${PRO_PRICE} per month per workspace (introductory price),
+  for teams that need more storage and larger files.
 - **Bring your own bucket** — on any plan, including ${P.freeName}. Storage in
   your own bucket has no uploads.sh storage cap; you pay your storage provider
   directly.
@@ -34,7 +36,7 @@ Limits apply per workspace, not per user. Everyone in a workspace shares them.
 
 | | ${P.freeName} | ${P.proName} |
 | --- | --- | --- |
-| Price | $0 | Monthly subscription, shown at checkout |
+| Price | $0 | ${PRO_PRICE} per month per workspace (introductory) |
 | Hosted storage | ${P.freeStorage} | ${P.proStorage} |
 | Max file size | ${P.freeMaxUpload} | ${P.proMaxUpload} |
 | Max video size | ${P.freeMaxVideo} | ${P.proMaxVideo} |
@@ -44,6 +46,9 @@ Limits apply per workspace, not per user. Everyone in a workspace shares them.
 
 Both plans include every product surface. ${P.proName} raises the caps; it does
 not unlock features.
+
+Some optional AI features may be billed by usage in the future. They will be
+opt-in, and the plan prices above do not change because of them.
 
 ## Bring your own bucket
 
@@ -65,7 +70,8 @@ legitimate use, email [hi@uploads.sh](mailto:hi@uploads.sh).
 ## Upgrading and billing
 
 - A workspace owner or admin subscribes to ${P.proName} from the workspace's
-  billing tab. Stripe processes payment.
+  billing tab. Stripe processes payment, and checkout shows the final price,
+  including any tax.
 - Cancel at any time. The workspace stays on ${P.proName} until the end of the
   paid period.
 - A downgrade never deletes files. Existing links keep working.
