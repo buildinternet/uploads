@@ -207,6 +207,19 @@ async function makeEnv(
               const map = metadata.get(scopeKey(ws, objectKey)) ?? new Map<string, string>();
               map.set(key, value);
               metadata.set(scopeKey(ws, objectKey), map);
+            } else if (
+              normalized.includes("meta_key NOT IN (") &&
+              normalized.startsWith("DELETE")
+            ) {
+              // replaceFileMetadata keeps the bound safety-flag keys.
+              const [ws, objectKey, ...keep] = values as string[];
+              const map = metadata.get(scopeKey(ws, objectKey));
+              if (map) {
+                const sticky = new Set(keep);
+                for (const key of map.keys()) {
+                  if (!sticky.has(key)) map.delete(key);
+                }
+              }
             } else if (normalized.includes("meta_key = ?") && normalized.startsWith("DELETE")) {
               const [ws, objectKey, key] = values as [string, string, string];
               metadata.get(scopeKey(ws, objectKey))?.delete(key);
@@ -1541,6 +1554,39 @@ describe("mcp worker", () => {
     });
     expect(result.isError).toBe(true);
     expect(result.content).toEqual([{ type: "text", text: "object not found" }]);
+  });
+
+  it("set_metadata rejects setting or deleting a safety flag and leaves the stored flag", async () => {
+    const { env, metadata } = await makeEnv();
+    await callTool(env, "put", {
+      contentBase64: PNG_B64,
+      filename: "shot.png",
+      key: "shots/tagged.png",
+    });
+    const stored = metadata.get("test-ws shots/tagged.png") ?? new Map<string, string>();
+    stored.set("ai.secret", "api_key");
+    stored.set("ai.secret.confidence", "high");
+    metadata.set("test-ws shots/tagged.png", stored);
+
+    const setResult = await callTool(env, "set_metadata", {
+      key: "shots/tagged.png",
+      set: { "ai.secret": "none" },
+    });
+    expect(setResult.isError).toBe(true);
+    expect(setResult.content).toEqual([{ type: "text", text: "reserved metadata key: ai.secret" }]);
+
+    const deleteResult = await callTool(env, "set_metadata", {
+      key: "shots/tagged.png",
+      delete: ["ai.secret"],
+    });
+    expect(deleteResult.isError).toBe(true);
+    expect(deleteResult.content).toEqual([
+      { type: "text", text: "reserved metadata key: ai.secret" },
+    ]);
+    expect(Object.fromEntries(metadata.get("test-ws shots/tagged.png") ?? [])).toMatchObject({
+      "ai.secret": "api_key",
+      "ai.secret.confidence": "high",
+    });
   });
 
   it("set_metadata rejects a reserved key as a tool error", async () => {

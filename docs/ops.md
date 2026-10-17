@@ -1303,7 +1303,12 @@ Each stored safety answer also writes `ai.<flag>.confidence`:
 - `low` from **0.50** (`CLASSIFIER_MIN_CONFIDENCE`) up to 0.70
 
 An answer under 0.50 omits both the value and the bucket. Kind, surface,
-and screen do not get a bucket key. Jev Choice allows 2–255 options and
+and screen do not get a bucket key. A stored safety flag stays until a
+later classification writes that same key. A confident `none` replaces
+the old value. An answer under 0.50, a skip, a timeout, or a provider
+error leaves the previous flag in place. A re-upload that sends
+`X-Uploads-Meta-*` headers replaces the other metadata and keeps these
+eight rows. Jev Choice allows 2–255 options and
 does not cap the number of questions (the budget is tokens). This request
 asks seven questions. The largest enum is `screen`, at 16 options.
 

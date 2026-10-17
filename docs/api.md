@@ -314,7 +314,9 @@ internal `ai.rating`, `ai.content`, `ai.secret`, and `ai.pii`, each with
 an `ai.<flag>.confidence` of `high` (0.85+), `medium` (0.70 up to 0.85),
 or `low` (0.50 up to 0.70). Those flags do not bump the classifier version.
 `v4`, `v5`, `v6`, and `skipped` still name the pixel path. A low-confidence
-enum is omitted, and so is its confidence key. The labeler does not write
+enum is omitted, and so is its confidence key. A stored safety flag stays
+until a later classification writes that key, including a confident `none`.
+A miss leaves the previous value. A re-upload does not clear it. The labeler does not write
 `ai.tags` or `ai.summary` (older rows may still have them). A Luna
 Decisions try writes `ai.classifier=v4` and the same enums. Luna does not
 receive the resized copy. A trivially small image is skipped before either

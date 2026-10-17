@@ -575,14 +575,14 @@ export async function putObject(
     replace?: boolean;
     /**
      * Custom queryable metadata (D1 `file_metadata`), distinct from the R2
-     * `provenance` bag above. When present (even `{}`), this call fully
-     * replaces any metadata already stored for the key — delete-then-set —
-     * so an overwrite never leaves stale rows from a prior put. Omit
-     * entirely (undefined) to leave existing metadata untouched. Every
-     * caller follows this contract: the REST PUT route passes `undefined`
-     * when the request had no custom (non-provenance) `X-Uploads-Meta-*`
-     * headers, and the MCP `put`/`attach` tools pass `undefined` when their
-     * `metadata` argument was omitted.
+     * `provenance` bag above. When present (even `{}`), this call replaces
+     * the object's client metadata so an overwrite never leaves stale rows
+     * from a prior put. Safety-flag rows (`SAFETY_FLAG_KEYS`) stay; only a
+     * later classification can change them. Omit entirely (undefined) to
+     * leave existing metadata untouched. Every caller follows this contract:
+     * the REST PUT route passes `undefined` when the request had no custom
+     * (non-provenance) `X-Uploads-Meta-*` headers, and the MCP `put`/`attach`
+     * tools pass `undefined` when their `metadata` argument was omitted.
      */
     metadata?: Record<string, string>;
     /**
@@ -924,10 +924,11 @@ export async function putObject(
   let storedMetadata: Record<string, string> | undefined;
 
   if (opts?.metadata) {
-    // Full replace: an overwrite must not inherit a prior put's custom
-    // metadata, so clear the row set before (re-)writing this request's, in
-    // one atomic batch (replaceFileMetadata) rather than a delete followed
-    // by a separate re-read-then-write.
+    // Full replace of client metadata: an overwrite must not inherit a prior
+    // put's custom metadata. One atomic batch (replaceFileMetadata) rather
+    // than a delete followed by a separate re-read-then-write. That delete
+    // keeps SAFETY_FLAG_KEYS, so a reclassification that stores nothing
+    // cannot clear a previous flag.
     storedMetadata = mergeWithinMetadataCaps(opts.metadata, inherited);
     await replaceFileMetadata(dbFor(env), workspaceName, finalKey, storedMetadata);
     // Explicit metadata only, never the inherited merge: inherited keys
@@ -952,8 +953,9 @@ export async function putObject(
   // inheritance rather than this upload.
   await recordContentHash(dbFor(env), workspaceName, finalKey, contentSha256);
 
-  // After the metadata replace, never before: replaceFileMetadata is
-  // delete-then-insert and would wipe the server-owned video.*/image.* rows.
+  // After the metadata replace, never before: replaceFileMetadata deletes
+  // client rows and would wipe the server-owned video.*/image.* rows.
+  // Safety-flag rows are the exception that delete keeps.
   await storeImageDimensions(env, workspaceName, finalKey, bytes, inspection.contentType);
   await generateAndStorePoster(
     env,

@@ -45,6 +45,21 @@ export class FileMetadataTable {
     }
     if (
       normalizedSql.startsWith("DELETE FROM file_metadata") &&
+      normalizedSql.includes("meta_key NOT IN (")
+    ) {
+      // replaceFileMetadata keeps SAFETY_FLAG_KEYS and drops every other row.
+      const [workspace, objectKey, ...keep] = args as [string, string, ...string[]];
+      const map = this.metadata.get(this.scopeKey(workspace, objectKey));
+      if (map) {
+        const sticky = new Set(keep);
+        for (const key of map.keys()) {
+          if (!sticky.has(key)) map.delete(key);
+        }
+      }
+      return { success: true, meta: { changes: 1 }, results: [] };
+    }
+    if (
+      normalizedSql.startsWith("DELETE FROM file_metadata") &&
       normalizedSql.includes("meta_key = ?")
     ) {
       // Single-key delete (setFileMetadata's `remove` path).

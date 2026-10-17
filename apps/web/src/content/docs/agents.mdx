@@ -244,6 +244,8 @@ The same call also records four internal flags. They are not chips. They do not 
 
 An answer under 0.50 is left off, and so is its confidence key. `ai.secret` and `ai.pii` stay separate, so a broad personal-data hit does not hide a real credential.
 
+A stored flag stays until a later classification writes that same key. A confident `none` replaces the old value. An answer under the floor, a skip, a timeout, or an error leaves the previous flag in place. Uploading the file again does not clear it.
+
 The classifier version does not change for these flags. `v5`, `v6`, `v4`, and `skipped` still name how the image was prepared. A file labeled before the flags existed simply has none of these keys.
 
 Labels aren't in the upload's response. Read them afterward, or search by them:

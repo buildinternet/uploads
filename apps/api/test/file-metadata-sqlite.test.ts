@@ -4,6 +4,7 @@ import { AppError } from "@uploads/errors";
 import { describe, expect, it } from "vitest";
 import {
   META_MAX_KEYS,
+  SAFETY_FLAG_KEYS,
   deleteFileMetadata,
   deleteFileMetadataForWorkspace,
   findObjectsByMetadata,
@@ -11,6 +12,7 @@ import {
   getMetadataForKeys,
   replaceFileMetadata,
   setFileMetadata,
+  setServerFileMetadata,
 } from "../src/file-metadata";
 import { SqliteD1, database } from "./helpers/sqlite-d1";
 
@@ -293,6 +295,64 @@ describe("file metadata persistence against SQLite", () => {
         await expect(getFileMetadata(database(sqlite), "alpha", "f/one.png")).resolves.toEqual({
           app: "other",
         });
+      } finally {
+        sqlite.close();
+      }
+    });
+
+    it("keeps safety flags and still replaces other metadata, including other ai.* keys", async () => {
+      const sqlite = new SqliteD1(MIGRATION);
+      try {
+        const db = database(sqlite);
+        await setServerFileMetadata(db, "alpha", "f/one.png", {
+          "ai.rating": "explicit",
+          "ai.rating.confidence": "high",
+          "ai.content": "sexual",
+          "ai.content.confidence": "high",
+          "ai.secret": "api_key",
+          "ai.secret.confidence": "high",
+          "ai.pii": "financial",
+          "ai.pii.confidence": "medium",
+          "ai.kind": "screenshot",
+          "ai.classifier": "v5",
+        });
+        await setFileMetadata(db, "alpha", "f/one.png", { app: "screenshots", page: "/old" });
+
+        await replaceFileMetadata(db, "alpha", "f/one.png", { path: "/settings" });
+
+        const stored = await getFileMetadata(db, "alpha", "f/one.png");
+        expect(stored.path).toBe("/settings");
+        expect(stored.app).toBeUndefined();
+        expect(stored.page).toBeUndefined();
+        expect(stored["ai.kind"]).toBeUndefined();
+        expect(stored["ai.classifier"]).toBeUndefined();
+        expect(stored["ai.rating"]).toBe("explicit");
+        expect(stored["ai.rating.confidence"]).toBe("high");
+        expect(stored["ai.content"]).toBe("sexual");
+        expect(stored["ai.content.confidence"]).toBe("high");
+        expect(stored["ai.secret"]).toBe("api_key");
+        expect(stored["ai.secret.confidence"]).toBe("high");
+        expect(stored["ai.pii"]).toBe("financial");
+        expect(stored["ai.pii.confidence"]).toBe("medium");
+        expect([...SAFETY_FLAG_KEYS].every((key) => stored[key] !== undefined)).toBe(true);
+      } finally {
+        sqlite.close();
+      }
+    });
+
+    it("still removes safety flags when the object metadata is deleted", async () => {
+      const sqlite = new SqliteD1(MIGRATION);
+      try {
+        const db = database(sqlite);
+        await setServerFileMetadata(db, "alpha", "f/one.png", {
+          "ai.secret": "api_key",
+          "ai.secret.confidence": "high",
+        });
+        await setFileMetadata(db, "alpha", "f/one.png", { app: "screenshots" });
+
+        await deleteFileMetadata(db, "alpha", "f/one.png");
+
+        await expect(getFileMetadata(db, "alpha", "f/one.png")).resolves.toEqual({});
       } finally {
         sqlite.close();
       }

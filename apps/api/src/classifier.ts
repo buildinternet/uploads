@@ -18,7 +18,11 @@
  * also writes a coarse bucket (`ai.secret.confidence` and the same shape
  * for the other three). Those flags do not bump `ai.classifier`: `v4`,
  * `v5`, `v6`, and `skipped` still name the pixel path. A file labeled
- * before the flags existed simply lacks the keys. Decisions models do not
+ * before the flags existed simply lacks the keys. A stored flag stays
+ * until a later classification writes that same key, including a
+ * confident `none`. A run that omits the key — under the confidence
+ * floor, skipped, failed, or timed out — leaves the previous value.
+ * Re-uploading the file does not clear it. Decisions models do not
  * write free text, so this path does not write `ai.tags` or `ai.summary`.
  *
  * Default model is the OpenRouter alias `~typesafe/jev-latest`. A raster
@@ -57,7 +61,7 @@
  * classification. The weekly digest still uses the Workers AI binding.
  */
 
-import { setServerFileMetadata } from "./file-metadata";
+import { SAFETY_FLAG_FIELDS, SAFETY_FLAG_KEYS, setServerFileMetadata } from "./file-metadata";
 import { dbFor } from "./db-session";
 import { detectImageDimensions, uploadKind } from "./guards";
 import type { WorkspaceRecord } from "./workspace";
@@ -80,7 +84,8 @@ export const CLASSIFIER_LUNA_FLAG = "llm-file-classifier-luna";
  * `skipped` still mean Luna, Jev original bytes, Jev resized, or no call.
  * Bumping one string to also mean "which questions were asked" would make
  * the pixel path unreadable. Absence of `ai.rating` (and the other three)
- * is the signal that those answers were not stored.
+ * means no confident answer has been stored yet. A later miss does not
+ * clear a flag that is already there.
  */
 export const CLASSIFIER_VERSION = "v5";
 
@@ -235,21 +240,13 @@ export const CLASSIFIER_META_KEYS = [
   "ai.kind",
   "ai.surface",
   "ai.screen",
-  "ai.rating",
-  "ai.rating.confidence",
-  "ai.content",
-  "ai.content.confidence",
-  "ai.secret",
-  "ai.secret.confidence",
-  "ai.pii",
-  "ai.pii.confidence",
+  ...SAFETY_FLAG_KEYS,
   "ai.classifier",
   "ai.skip",
 ] as const;
 
 /** Safety flags that also write `ai.<flag>.confidence`. Kind, surface, and screen do not. */
-const SAFETY_FIELDS = ["rating", "content", "secret", "pii"] as const;
-const SAFETY_FIELD_SET = new Set<string>(SAFETY_FIELDS);
+const SAFETY_FIELD_SET = new Set<string>(SAFETY_FLAG_FIELDS);
 
 /** Jev reads PNG and JPEG only. Luna also reads WebP. GIF, AVIF, and SVG stay text-only. */
 const JEV_IMAGE_TYPES = new Set(["image/png", "image/jpeg"]);
