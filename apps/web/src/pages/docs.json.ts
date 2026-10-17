@@ -57,6 +57,14 @@ export const GET: APIRoute = async () => {
       summary: "Device sign-in, workspace bearer tokens, and hosted MCP OAuth.",
       aliases: aliasesFor("auth"),
     },
+    {
+      page: "pricing",
+      path: "/pricing",
+      title: "Pricing",
+      summary:
+        "The free plan, Pro for teams, bring-your-own-bucket storage, fair use, and self-hosting as the fallback.",
+      aliases: aliasesFor("pricing"),
+    },
   ];
   return new Response(JSON.stringify(renderDocsCatalog(pages), null, 2) + "\n", {
     headers: { "content-type": "application/json; charset=utf-8" },

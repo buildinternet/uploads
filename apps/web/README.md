@@ -49,15 +49,15 @@ wrangler.jsonc                       Hybrid Worker, static assets, skills index,
 The landing page, `/docs`, and the `/github-screenshots` use-case guide are meant
 for search engines. Agent discovery docs are public but not listed in the sitemap.
 
-| Path                                                        | Indexable | Notes                                                                                                 |
-| ----------------------------------------------------------- | --------- | ----------------------------------------------------------------------------------------------------- |
-| `/`                                                         | yes       | Listed in `sitemap.xml`; Link headers advertise catalogs                                              |
-| `/docs`                                                     | yes       | Plain-language setup guide; in `sitemap.xml`                                                          |
-| `/github-screenshots`                                       | yes       | SEO landing: agents uploading media to GitHub; FAQ JSON-LD                                            |
-| `/changelog`                                                | yes       | Product updates + CLI releases; in `sitemap.xml`; Atom at `/changelog.xml`; JSON at `/changelog.json` |
-| `/invite`                                                   | **no**    | Magic-link enrollment; robots + meta + `X-Robots-Tag`                                                 |
-| `/404`,`/500`                                               | **no**    | Status pages                                                                                          |
-| `/auth.md`, `/llms.txt`, `/llms-full.txt`, `/.well-known/*` | n/a       | Machine-readable; not in sitemap                                                                      |
+| Path                                                                       | Indexable | Notes                                                                                                 |
+| -------------------------------------------------------------------------- | --------- | ----------------------------------------------------------------------------------------------------- |
+| `/`                                                                        | yes       | Listed in `sitemap.xml`; Link headers advertise catalogs                                              |
+| `/docs`                                                                    | yes       | Plain-language setup guide; in `sitemap.xml`                                                          |
+| `/github-screenshots`                                                      | yes       | SEO landing: agents uploading media to GitHub; FAQ JSON-LD                                            |
+| `/changelog`                                                               | yes       | Product updates + CLI releases; in `sitemap.xml`; Atom at `/changelog.xml`; JSON at `/changelog.json` |
+| `/invite`                                                                  | **no**    | Magic-link enrollment; robots + meta + `X-Robots-Tag`                                                 |
+| `/404`,`/500`                                                              | **no**    | Status pages                                                                                          |
+| `/auth.md`, `/pricing.md`, `/llms.txt`, `/llms-full.txt`, `/.well-known/*` | n/a       | Machine-readable; not in sitemap (`/pricing.md` mirrors `/pricing`)                                   |
 
 `robots.txt` includes explicit `User-agent` blocks for common AI crawlers and
 `Content-Signal` preferences (`search=yes`, `ai-input=yes`, `ai-train=no`).
