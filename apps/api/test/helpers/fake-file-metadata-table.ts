@@ -47,7 +47,6 @@ export class FileMetadataTable {
       normalizedSql.startsWith("DELETE FROM file_metadata") &&
       normalizedSql.includes("meta_key NOT IN (")
     ) {
-      // replaceFileMetadata keeps SAFETY_FLAG_KEYS and drops every other row.
       const [workspace, objectKey, ...keep] = args as [string, string, ...string[]];
       const map = this.metadata.get(this.scopeKey(workspace, objectKey));
       if (map) {

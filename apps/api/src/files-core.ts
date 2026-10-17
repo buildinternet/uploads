@@ -579,7 +579,7 @@ export async function putObject(
      * Custom queryable metadata (D1 `file_metadata`), distinct from the R2
      * `provenance` bag above. When present (even `{}`), this call replaces
      * the object's client metadata so an overwrite never leaves stale rows
-     * from a prior put. Safety-flag rows follow `SAFETY_FLAG_KEYS`. Omit
+     * from a prior put. Omit
      * entirely (undefined) to leave existing metadata untouched. Every
      * caller follows this contract: the REST PUT route passes `undefined`
      * when the request had no custom (non-provenance) `X-Uploads-Meta-*`

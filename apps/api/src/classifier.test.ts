@@ -735,7 +735,28 @@ describe("parseJevAnswers", () => {
       "ai.pii.confidence": "low",
     });
     expect(parsed?.meta["ai.kind.confidence"]).toBeUndefined();
-    expect(parsed?.meta["ai.secret"]).not.toBe(parsed?.meta["ai.pii"]);
+
+    const personal = parseJevAnswers({
+      answers: {
+        secret: answer("email", 0.99),
+        pii: answer("contact", 0.8),
+      },
+    });
+    expect(personal?.meta).toEqual({
+      "ai.pii": "contact",
+      "ai.pii.confidence": "medium",
+    });
+
+    const credential = parseJevAnswers({
+      answers: {
+        secret: answer("password", 0.95),
+        pii: answer("api_key", 0.95),
+      },
+    });
+    expect(credential?.meta).toEqual({
+      "ai.secret": "password",
+      "ai.secret.confidence": "high",
+    });
   });
 
   it("buckets confidence at the documented bounds and drops the rest", () => {
@@ -754,33 +775,6 @@ describe("parseJevAnswers", () => {
         answers: { secret: answer("token", CLASSIFIER_MIN_CONFIDENCE - 0.001) },
       }),
     ).toBeNull();
-  });
-
-  it("drops a secret choice that is really personal data, and the reverse", () => {
-    const parsed = parseJevAnswers({
-      answers: {
-        secret: answer("email", 0.99),
-        pii: answer("contact", 0.8),
-      },
-    });
-    expect(parsed?.meta).toEqual({
-      "ai.pii": "contact",
-      "ai.pii.confidence": "medium",
-    });
-    expect(parsed?.meta["ai.secret"]).toBeUndefined();
-    expect(parsed?.meta["ai.secret.confidence"]).toBeUndefined();
-
-    const credential = parseJevAnswers({
-      answers: {
-        secret: answer("password", 0.95),
-        pii: answer("api_key", 0.95),
-      },
-    });
-    expect(credential?.meta).toEqual({
-      "ai.secret": "password",
-      "ai.secret.confidence": "high",
-    });
-    expect(credential?.meta["ai.pii"]).toBeUndefined();
   });
 });
 

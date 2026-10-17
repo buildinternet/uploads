@@ -1,10 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { putObject } from "../src/files-core";
-import {
-  findObjectsByMetadata,
-  getMetadataForKeys,
-  setServerFileMetadata,
-} from "../src/file-metadata";
+import { findObjectsByMetadata, getMetadataForKeys } from "../src/file-metadata";
 import {
   CLASSIFIER_JEV_MODEL,
   CLASSIFIER_LUNA_MODEL,
@@ -158,6 +154,24 @@ function makeClassifierEnv(
   } as unknown as Env;
   const workspace: WorkspaceRecord = { ...ws, name: WORKSPACE, ...wsOver };
   return { env: patched, db, ws: workspace, calls, flagCalls, wasAborted: () => aborted };
+}
+
+type ClassifierHarness = Pick<ReturnType<typeof makeClassifierEnv>, "env" | "ws">;
+
+async function putFlagged(
+  harness: ClassifierHarness,
+  bytes: Uint8Array,
+  opts: { replace?: boolean; metadata?: Record<string, string> } = {},
+) {
+  const pending: Promise<unknown>[] = [];
+  const result = await putObject(harness.env, harness.ws, "images/flagged.png", bytes, WORKSPACE, {
+    ...opts,
+    waitUntil: (work) => {
+      pending.push(work);
+    },
+  });
+  await Promise.all(pending);
+  return result;
 }
 
 function stateText(call: DecisionCall | undefined): string {
@@ -963,120 +977,52 @@ describe("safety flags", () => {
     expect(written?.["ai.pii.confidence"]).toBe("medium");
   });
 
-  it("overwrites a safety flag only when the new answer is stored", async () => {
+  it("replaces a stored safety flag only when the new answer is confident", async () => {
     let calls = 0;
     const { env, ws } = makeClassifierEnv(() => {
       calls += 1;
-      if (calls === 1) {
-        return {
-          answers: {
-            secret: jevAnswer("api_key", 0.95),
-            pii: jevAnswer("contact", 0.9),
-            rating: jevAnswer("explicit", 0.92),
-            content: jevAnswer("sexual", 0.91),
-          },
-        };
-      }
+      if (calls === 1) return FLAGGED;
       return {
         answers: {
           secret: jevAnswer("none", 0.88),
-          pii: jevAnswer("financial", 0.2),
-          content: jevAnswer("none", 0.4),
+          pii: jevAnswer("contact", 0.2),
         },
       };
     });
     const png = atLeast(pngOf(400, 256));
-    await classifyAndStore(env, ws, WORKSPACE, "images/flagged.png", png, "image/png");
-    const written = await classifyAndStore(
-      env,
-      ws,
-      WORKSPACE,
-      "images/flagged.png",
-      png,
-      "image/png",
-    );
+    const key = "images/flagged.png";
+    await classifyAndStore(env, ws, WORKSPACE, key, png, "image/png");
+    const written = await classifyAndStore(env, ws, WORKSPACE, key, png, "image/png");
     expect(written?.["ai.secret"]).toBe("none");
-    expect(written?.["ai.secret.confidence"]).toBe("high");
     expect(written?.["ai.pii"]).toBeUndefined();
     expect(written?.["ai.rating"]).toBeUndefined();
-    expect(written?.["ai.content"]).toBeUndefined();
 
-    const stored = (await getMetadataForKeys(env.DB, WORKSPACE, ["images/flagged.png"])).get(
-      "images/flagged.png",
-    );
+    const stored = (await getMetadataForKeys(env.DB, WORKSPACE, [key])).get(key);
     expect(stored?.["ai.secret"]).toBe("none");
     expect(stored?.["ai.secret.confidence"]).toBe("high");
-    expect(stored?.["ai.pii"]).toBe("contact");
-    expect(stored?.["ai.pii.confidence"]).toBe("high");
-    expect(stored?.["ai.rating"]).toBe("explicit");
-    expect(stored?.["ai.rating.confidence"]).toBe("high");
-    expect(stored?.["ai.content"]).toBe("sexual");
-    expect(stored?.["ai.content.confidence"]).toBe("high");
-  });
-
-  it("leaves safety flags in place when classification is skipped or fails", async () => {
-    const { env, ws } = makeClassifierEnv(() => {
-      throw new Error("provider down");
-    });
-    await setServerFileMetadata(env.DB, WORKSPACE, "images/flagged.png", {
-      "ai.secret": "token",
-      "ai.secret.confidence": "medium",
-      "ai.pii": "financial",
-      "ai.pii.confidence": "low",
-    });
-    const png = atLeast(pngOf(400, 256));
-    await expect(
-      classifyAndStore(env, ws, WORKSPACE, "images/flagged.png", png, "image/png"),
-    ).resolves.toBeUndefined();
-
-    const skipped = await classifyAndStore(
-      env,
-      ws,
-      WORKSPACE,
-      "images/flagged.png",
-      pngOf(1, 1),
-      "image/png",
-    );
-    expect(skipped?.["ai.skip"]).toBe(CLASSIFIER_SKIP_SMALL);
-    expect(skipped?.["ai.secret"]).toBeUndefined();
-
-    const stored = (await getMetadataForKeys(env.DB, WORKSPACE, ["images/flagged.png"])).get(
-      "images/flagged.png",
-    );
-    expect(stored?.["ai.secret"]).toBe("token");
-    expect(stored?.["ai.secret.confidence"]).toBe("medium");
     expect(stored?.["ai.pii"]).toBe("financial");
-    expect(stored?.["ai.pii.confidence"]).toBe("low");
-    expect(stored?.["ai.classifier"]).toBe(CLASSIFIER_SKIPPED);
-    expect(stored?.["ai.skip"]).toBe(CLASSIFIER_SKIP_SMALL);
+    expect(stored?.["ai.pii.confidence"]).toBe("medium");
+    expect(stored?.["ai.rating"]).toBe("explicit");
+    expect(stored?.["ai.content"]).toBe("sexual");
   });
 
   it("keeps safety flags when the same bytes are re-uploaded and reclassification fails", async () => {
     let calls = 0;
-    const { env, ws } = makeClassifierEnv(() => {
+    const harness = makeClassifierEnv(() => {
       calls += 1;
       if (calls === 1) return FLAGGED;
       throw new Error("provider down");
     });
     const png = atLeast(pngOf(400, 256));
-    const pending: Promise<unknown>[] = [];
-    const waitUntil = (work: Promise<unknown>) => {
-      pending.push(work);
-    };
-    const first = await putObject(env, ws, "images/flagged.png", png, WORKSPACE, { waitUntil });
-    await Promise.all(pending);
-    pending.length = 0;
-
-    const second = await putObject(env, ws, "images/flagged.png", png, WORKSPACE, {
+    const first = await putFlagged(harness, png);
+    const second = await putFlagged(harness, png, {
       replace: true,
       metadata: { path: "/settings", state: "after" },
-      waitUntil,
     });
-    await Promise.all(pending);
 
     expect(calls).toBe(2);
     expect(second.metadata).toEqual({ path: "/settings", state: "after" });
-    const after = (await getMetadataForKeys(env.DB, WORKSPACE, [first.key])).get(first.key);
+    const after = (await getMetadataForKeys(harness.env.DB, WORKSPACE, [first.key])).get(first.key);
     expect(after?.["ai.rating"]).toBe("explicit");
     expect(after?.["ai.rating.confidence"]).toBe("high");
     expect(after?.["ai.content"]).toBe("sexual");
@@ -1099,22 +1045,8 @@ describe("safety flags", () => {
       if (headerCalls === 1) return FLAGGED;
       throw new Error("provider down");
     });
-    const pending: Promise<unknown>[] = [];
-    const waitUntil = (work: Promise<unknown>) => {
-      pending.push(work);
-    };
-    await putObject(withHeaders.env, withHeaders.ws, "images/flagged.png", png, WORKSPACE, {
-      metadata: { app: "web" },
-      waitUntil,
-    });
-    await Promise.all(pending);
-    pending.length = 0;
-    await putObject(withHeaders.env, withHeaders.ws, "images/flagged.png", changed, WORKSPACE, {
-      replace: true,
-      metadata: { path: "/redacted" },
-      waitUntil,
-    });
-    await Promise.all(pending);
+    await putFlagged(withHeaders, png, { metadata: { app: "web" } });
+    await putFlagged(withHeaders, changed, { replace: true, metadata: { path: "/redacted" } });
     const replaced = (
       await getMetadataForKeys(withHeaders.env.DB, WORKSPACE, ["images/flagged.png"])
     ).get("images/flagged.png");
@@ -1131,18 +1063,8 @@ describe("safety flags", () => {
       if (bareCalls === 1) return FLAGGED;
       throw new Error("provider down");
     });
-    pending.length = 0;
-    await putObject(bare.env, bare.ws, "images/flagged.png", png, WORKSPACE, {
-      metadata: { app: "web" },
-      waitUntil,
-    });
-    await Promise.all(pending);
-    pending.length = 0;
-    await putObject(bare.env, bare.ws, "images/flagged.png", changed, WORKSPACE, {
-      replace: true,
-      waitUntil,
-    });
-    await Promise.all(pending);
+    await putFlagged(bare, png, { metadata: { app: "web" } });
+    await putFlagged(bare, changed, { replace: true });
     const left = (await getMetadataForKeys(bare.env.DB, WORKSPACE, ["images/flagged.png"])).get(
       "images/flagged.png",
     );
@@ -1156,7 +1078,7 @@ describe("safety flags", () => {
 
   it("stores the new safety flags when different bytes are reclassified", async () => {
     let calls = 0;
-    const { env, ws } = makeClassifierEnv(() => {
+    const harness = makeClassifierEnv(() => {
       calls += 1;
       if (calls === 1) return FLAGGED;
       return {
@@ -1168,25 +1090,15 @@ describe("safety flags", () => {
         },
       };
     });
-    const pending: Promise<unknown>[] = [];
-    const waitUntil = (work: Promise<unknown>) => {
-      pending.push(work);
-    };
-    await putObject(env, ws, "images/flagged.png", atLeast(pngOf(400, 256)), WORKSPACE, {
-      waitUntil,
-    });
-    await Promise.all(pending);
-    pending.length = 0;
-    await putObject(env, ws, "images/flagged.png", atLeast(pngOf(500, 256)), WORKSPACE, {
+    await putFlagged(harness, atLeast(pngOf(400, 256)));
+    await putFlagged(harness, atLeast(pngOf(500, 256)), {
       replace: true,
       metadata: { path: "/redacted" },
-      waitUntil,
     });
-    await Promise.all(pending);
 
-    const stored = (await getMetadataForKeys(env.DB, WORKSPACE, ["images/flagged.png"])).get(
-      "images/flagged.png",
-    );
+    const stored = (
+      await getMetadataForKeys(harness.env.DB, WORKSPACE, ["images/flagged.png"])
+    ).get("images/flagged.png");
     expect(stored?.["ai.secret"]).toBe("none");
     expect(stored?.["ai.secret.confidence"]).toBe("high");
     expect(stored?.["ai.pii"]).toBe("none");

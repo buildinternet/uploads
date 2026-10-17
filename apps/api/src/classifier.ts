@@ -69,8 +69,7 @@ export const CLASSIFIER_LUNA_FLAG = "llm-file-classifier-luna";
 /**
  * Written to `ai.classifier` on the Jev Latest path when the original
  * bytes are sent. `v3` was the Llama-describe plus Workers AI Jev hybrid,
- * which did not send pixels. `v6` is the resized path. Safety-flag
- * lifetime is `SAFETY_FLAG_KEYS`.
+ * which did not send pixels. `v6` is the resized path.
  */
 export const CLASSIFIER_VERSION = "v5";
 

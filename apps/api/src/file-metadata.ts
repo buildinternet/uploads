@@ -1229,7 +1229,7 @@ export async function getObjectUpdatedAt(
  * Upsert server-owned metadata without touching rows this call omits.
  * Deliberately not `replaceFileMetadata`: that deletes client rows, and this
  * runs *after* it on the upload path — a full replace here would wipe the
- * request's own custom metadata. Safety-flag lifetime is `SAFETY_FLAG_KEYS`.
+ * request's own custom metadata.
  */
 export async function setServerFileMetadata(
   db: D1Queryable,
