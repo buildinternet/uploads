@@ -5,8 +5,10 @@
  * A member digest is one highlight, the busiest pull request, and a stat
  * line. An admin digest is three headline numbers, a few plain sentences,
  * and a storage footnote when the plan is nearly full. Each workspace is its
- * own email. Jev may choose the highlight from screenshot captions. A missing
- * or low-confidence answer keeps the newest image.
+ * own email. Jev may choose the highlight from screenshot captions, through
+ * the Workers AI binding (`typesafe/jev`). File classification uses
+ * OpenRouter instead. A missing or low-confidence answer keeps the newest
+ * image.
  */
 import type {
   WeeklyDigestHighlight,

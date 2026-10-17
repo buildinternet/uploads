@@ -44,8 +44,9 @@
     // so a deployed worker without this entry reads `undefined` and the
     // breakdown panel reports `not_configured` no matter how the secret is set.
     "CLOUDFLARE_ACCOUNT_ID": "b082600d280d44fd5da3501bc1bffe2f",
-    // Experimental file classifier: Workers AI calls route through this
-    // AI Gateway. Create once per account (`uploads-classifier`) — see
+    // Weekly digest highlight: Workers AI calls route through this AI
+    // Gateway. The file classifier calls OpenRouter directly and does not
+    // use it. Create once per account (`uploads-classifier`) — see
     // docs/ops.md. Not a secret.
     "AI_GATEWAY_ID": "uploads-classifier",
   },
@@ -144,16 +145,11 @@
     "binding": "MEDIA",
     "remote": true,
   },
-  // Workers AI (experimental file classifier). The default path runs two
-  // models per raster upload: `@cf/meta/llama-3.2-11b-vision-instruct`
-  // describes the image, and `typesafe/jev` picks the closed enums. An
-  // optional Luna try (`CLASSIFIER_PROVIDER=luna` or Flagship
-  // `llm-file-classifier-luna`) calls OpenRouter
-  // `openai/gpt-6-luna-decisions` through the same gateway instead.
-  // Requests go through AI Gateway (`AI_GATEWAY_ID` var, default
-  // `uploads-classifier`). An absent binding is a hard off switch
-  // (`classificationAllowed`). Self-hosters can delete this block;
-  // classification simply stays off.
+  // Workers AI for the weekly digest highlight (`typesafe/jev` through
+  // AI Gateway). The file classifier does not use this binding: it calls
+  // OpenRouter Decisions directly (`OPENROUTER_API_KEY`). An absent binding
+  // leaves digest curation on the newest screenshot. Self-hosters can
+  // delete this block.
   "ai": {
     "binding": "AI",
   },

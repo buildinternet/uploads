@@ -923,7 +923,8 @@ recommend removing.
 | `BROWSER`                                                                      | api       | `POST /v1/render` (CLI screenshot capture) answers 503 `renderer_unavailable`. Nothing else is affected.                                                                                                                                                                                                                                                                                                |
 | `MEDIA`                                                                        | api       | Video poster-frame generation is skipped; uploads still succeed, just without a generated poster image.                                                                                                                                                                                                                                                                                                 |
 | `FLAGS`                                                                        | api       | Every Flagship-gated feature evaluates to off (fails closed): poster generation, active-content uploads, the attachment index shadow, and the experimental LLM file classifier — same effect as never enabling them.                                                                                                                                                                                    |
-| `AI`                                                                           | api       | Experimental LLM file classifier is skipped; uploads still succeed without `ai.*` metadata. The weekly digest still sends. Without AI, the highlight is the newest screenshot instead of the one Jev picks from captions.                                                                                                                                                                               |
+| `AI`                                                                           | api       | Weekly digest still sends. Without AI, the highlight is the newest screenshot instead of the one Jev picks from captions. The file classifier does not use this binding.                                                                                                                                                                                                                                |
+| `OPENROUTER_API_KEY`                                                           | api       | Experimental LLM file classifier is skipped; uploads still succeed without `ai.*` metadata. Set with `wrangler secret put OPENROUTER_API_KEY`.                                                                                                                                                                                                                                                          |
 | `GITHUB_WEBHOOK_QUEUE`                                                         | api       | GitHub webhook deliveries process inline (`waitUntil`) instead of through a durable queue — functionally the same, just without queue-level retry/DLQ semantics.                                                                                                                                                                                                                                        |
 | `AUTH`                                                                         | mcp       | Uploader attribution on hosted-MCP uploads degrades to the id-only `gh.uploader-id` tag (no `gh.uploader` login) — the binding backs `uploaderTags()` in `@uploads/api/uploader-identity`, called from `apps/mcp/src/tools.ts`, and every failure path there fails soft. Uploads still succeed. (Listed here because a grep of `apps/mcp/src` alone misses the usage — it lives in the shared package.) |
 | `WRITE_LIMITER`                                                                | api, mcp  | No per-workspace burst limit on uploads/deletes.                                                                                                                                                                                                                                                                                                                                                        |
@@ -1159,45 +1160,55 @@ while the flag is on, the same way the video backfill re-PUTs.
 
 **Experimental.** Off by default. After a successful server-mediated put
 (`putObject` — REST `PUT /v1/:ws/files/:key`, not a presigned `POST /sign`),
-a Flagship-allowlisted workspace can get server-owned `ai.tags` (up to five
-kebab-case labels), `ai.summary`, `ai.kind`, `ai.surface`, `ai.screen`, and
-`ai.classifier=v3` rows. Agents read them with
+a Flagship-allowlisted workspace can get server-owned `ai.kind`,
+`ai.surface`, `ai.screen`, and `ai.classifier=v5` rows. Agents read them with
 `uploads meta get <key>` or `GET …/files/:key?metadata=1`. Classifier
-errors never fail the upload.
+errors never fail the upload. The labeler does not write `ai.tags` or
+`ai.summary`. Older rows may still have those keys.
 
-### Two stages
+### One Decisions call
 
-1. **describe** — `@cf/meta/llama-3.2-11b-vision-instruct` looks at a raster
-   image under the 512 KiB cap and returns a short description, tags, and a
-   summary. Every other file skips this stage, so a PDF, a zip, an SVG, an
-   oversized image, or a text file gets no `ai.tags` and no `ai.summary`.
-2. **decide** — `typesafe/jev` picks `kind`, `surface`, and `screen` from the
-   closed enums. It sees a text-only state: the filename, the content type,
-   the byte size, the pixel dimensions and aspect ratio, a text excerpt for
-   text files, and stage 1's description when there is one. This stage always
-   runs.
+The worker `POST`s `https://openrouter.ai/api/alpha/decisions` with
+`OPENROUTER_API_KEY`. The default model is the alias `~typesafe/jev-latest`.
+It picks `kind`, `surface`, and `screen` from the closed enums.
 
-Stage 1 is advisory. When it fails, stage 2 still decides the enums from the
-file facts. When stage 2 fails, the classifier writes nothing.
+Do not send this call through the Cloudflare AI Gateway. That gateway's
+`openrouter` provider is based at `https://openrouter.ai/api/v1`, so a
+request for `alpha/decisions` hits `/api/v1/alpha/decisions` and returns 404.
+OpenRouter's Decisions route is `/api/alpha/decisions`.
+
+The request `state` is an array. The first item is a short text fact list:
+filename, content type, byte size, pixel dimensions and aspect ratio when
+the header parses, a text excerpt for text files, and a note when the image
+bytes are left out. A second item carries the image when the model can take
+it:
+
+```json
+{ "type": "image_url", "image_url": { "url": "data:image/png;base64,..." } }
+```
+
+Jev accepts PNG and JPEG only, and only inside its pixel window: each side
+from 256 to 1,568 pixels, and 78,400 to 2,458,624 pixels in total. A file
+outside that window, a WebP, a GIF, an AVIF, an SVG, a header we cannot
+measure, or a file over 512 KiB still gets the text facts and no image
+bytes. The model can still answer from the filename and the dimensions.
+
+Decisions models only answer closed questions, so there is no describe step
+and no Llama vision call.
 
 ### Luna Decisions try
 
-The default stays the two-stage path above (`ai.classifier=v3`).
-
-`openai/gpt-6-luna-decisions` is a separate, opt-in provider. It is one
-OpenRouter Decisions call. Raster images under the same 512 KiB cap go in
-`state` as an inline image (an OpenAI Decisions `input_image` data URL) plus
-the filename, content type, size, and dimensions. That path skips the Llama
-vision stage. Every other file sends the same text state Jev sees, and no
-image. Luna writes `ai.classifier=v4` and the same closed enums. It uses the same
-0.5 confidence threshold. It does not write `ai.tags` or `ai.summary`.
-Decisions models only answer closed questions.
+`openai/gpt-6-luna-decisions` is a separate, opt-in provider on the same
+endpoint. It writes `ai.classifier=v4` and the same closed enums, at the
+same 0.5 confidence threshold. It accepts PNG, JPEG, and WebP, and it is
+not held to Jev's pixel window, so a large screenshot can still be seen.
+It does not write `ai.tags` or `ai.summary`.
 
 Select it only on a workspace that already has `llm-file-classifier` on.
 Two switches, and an explicit `jev` pin wins over the flag:
 
 1. **Env pin.** `CLASSIFIER_PROVIDER=luna` selects Luna for every allowlisted
-   workspace. `CLASSIFIER_PROVIDER=jev` forces the hybrid path. Unset defers
+   workspace. `CLASSIFIER_PROVIDER=jev` forces Jev Latest. Unset defers
    to the flag below. The value is not a secret. Set it in `.dev.vars` locally
    or as a worker var when you want the try on a whole deploy.
 
@@ -1212,22 +1223,18 @@ Two switches, and an explicit `jev` pin wins over the flag:
      llm-file-classifier-luna --default off
    ```
 
-The call needs an OpenRouter API key. The Jev path does not use it.
+Both providers need the OpenRouter key. A missing key skips classification.
 
 ```bash
 cd apps/api && pnpm exec wrangler secret put OPENROUTER_API_KEY
 ```
 
-Luna goes through the same AI Gateway as Jev (`AI_GATEWAY_ID`, provider
-`openrouter`, path `alpha/decisions`), so the gateway rate limit and spend
-limit still apply. A Luna upload is one gateway request, including images.
-Pass the OpenRouter key on that request. Leave **Require provider credentials**
-off — that setting still rejects Jev. The key is billed on the OpenRouter
-account. Listed input price is $0.10 per million tokens, and output tokens
-are free. The worker log records the model and the confidences only. The
-gateway request body carries the image. A missing key or a gateway error
-fails open: the upload succeeds, and that file gets no `ai.*` rows. A thrown
-evaluation of `llm-file-classifier-luna` stays on the Jev hybrid.
+The key is billed on the OpenRouter account. Output tokens are free. Jev
+Latest costs about half of Luna Decisions on input tokens; the model pages
+have the current price. The worker log records the model and the confidences
+only. A missing key, a 4xx from an image Jev cannot take, or any other
+provider error fails open: the upload succeeds, and that file gets no `ai.*`
+rows. A thrown evaluation of `llm-file-classifier-luna` stays on Jev Latest.
 
 Jev reports a calibrated confidence per answer. An answer under **0.5**
 (`CLASSIFIER_MIN_CONFIDENCE`) omits its key, so a low-confidence `screen`
@@ -1239,17 +1246,8 @@ Closed enums: `ai.kind` is `screenshot|photo|diagram|document|code|ui|other`.
 `login|signup|settings|profile|dashboard|analytics|list|detail|form|search|modal|onboarding|empty|error|checkout|other`.
 A value outside the enum omits that key.
 
-Cost: the vision call dominates. Jev bills input tokens only
-($0.042 per million) and its output is free, so the state stays small on
-purpose — no image bytes, and a 1500-character excerpt cap.
-
-Workers AI calls go through AI Gateway (`env.AI.run(..., { gateway: { id } })`).
-Create the gateway once in the same account as `uploads-api`:
-
-```bash
-# Cloudflare dashboard → AI → AI Gateway → Create, id `uploads-classifier`
-# or the API equivalent. The worker var AI_GATEWAY_ID must match.
-```
+Text excerpts are capped at 1,500 characters. Image bytes are capped at
+512 KiB before encoding. The call times out at 8s.
 
 ### Allowlist (Flagship is the control plane)
 
@@ -1274,7 +1272,8 @@ wrangler flagship flags evaluate 8371bfe7-9767-4b4d-b75a-37b94d2724f7 \
 ```
 
 `classificationAllowed` (`apps/api/src/classifier.ts`) fails closed:
-missing `FLAGS`, a disabled flag, or a thrown evaluation are all off.
+a missing `OPENROUTER_API_KEY`, missing `FLAGS`, a disabled flag, or a
+thrown evaluation are all off.
 
 ### Kill switches (in order of blast radius)
 
@@ -1293,30 +1292,40 @@ missing `FLAGS`, a disabled flag, or a thrown evaluation are all off.
    `--llm-classifier on` is deprecated as an allowlist. It writes `true`,
    which does not enable classification by itself.
 
-3. **Remove the `AI` binding** — drop the `ai` block from
-   `apps/api/wrangler.jsonc` and redeploy. Slower than Flagship, survives a
-   Flagship outage.
+3. **Unset `OPENROUTER_API_KEY`** — remove the worker secret and redeploy.
+   Slower than Flagship, survives a Flagship outage. The upload path skips
+   classification and does not call OpenRouter.
 
-The classifier skips vision on images over 512 KiB, never sends SVG bytes,
-and times out at 8s across both stages. It does not log raw file bytes.
+The classifier does not log raw file bytes or the API key.
 
-### Gateway guardrails
+### Weekly digest gateway
 
-`typesafe/jev` is a third-party catalog model. It runs only through an AI
-Gateway and bills against the account's prepaid AI Gateway credits (Unified
-Billing). The `uploads-classifier` gateway is configured with:
+File classification does not use AI Gateway. The weekly digest highlight
+still calls Workers AI `typesafe/jev` through the `AI` binding and the
+`uploads-classifier` gateway (`env.AI.run(..., { gateway: { id } })`).
+Create that gateway once in the same account as `uploads-api`:
+
+```bash
+# Cloudflare dashboard → AI → AI Gateway → Create, id `uploads-classifier`
+# or the API equivalent. The worker var AI_GATEWAY_ID must match.
+```
+
+`typesafe/jev` on that path is a third-party catalog model. It bills against
+the account's prepaid AI Gateway credits (Unified Billing). The
+`uploads-classifier` gateway is configured with:
 
 - **Authenticated gateway** on. Direct calls to the gateway URL need a
   Cloudflare API token; the worker uses the `AI` binding instead.
-- **Rate limit** 100 requests per minute, fixed window. A raster image costs
-  two requests (describe + decide); everything else costs one. Requests over
-  the limit fail open: the upload succeeds without `ai.*` rows.
+- **Rate limit** 100 requests per minute, fixed window. One digest curation
+  is one request. Requests over the limit fail open: the digest keeps the
+  newest screenshot.
 - **Spend limit** $10 per day, sliding window.
 - **Require provider credentials** must stay off. It blocks the Unified
-  Billing fallback and would reject every Jev call with a 400.
+  Billing fallback and would reject the catalog Jev call with a 400.
 
 Check the credit balance under AI Gateway → Credits Available. An empty
-balance also fails open.
+balance also fails open for the digest. It does not affect file
+classification, which bills the OpenRouter account instead.
 
 ## Attachment index shadow (issue #934)
 

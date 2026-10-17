@@ -306,16 +306,14 @@ store, so it takes a separate read (`?metadata=1`).
 
 **Experimental AI labels.** When Flagship `llm-file-classifier` serves on for
 the workspace slug (`org` / `workspace` targeting context),
-a successful server-mediated put may later write server-owned `ai.tags`
-(up to five kebab-case labels), `ai.summary`, `ai.kind`, `ai.surface`,
-`ai.screen`, and `ai.classifier=v3`. Only raster images under 512 KiB get
-`ai.tags` and `ai.summary`; every file can get the closed enums, and a
-low-confidence enum is omitted. A Luna Decisions try writes `ai.classifier=v4`
-and the same enums, and it leaves `ai.tags` and `ai.summary` off. Clients
-cannot set or delete those keys (`ai.*` is reserved, same as `video.*` /
-`image.*`). The 201 response does not wait for the model; read
-`GET …/files/:key?metadata=1` (or `uploads meta get <key>`) after the upload.
-Presigned uploads never get labels. See
+a successful server-mediated put may later write server-owned `ai.kind`,
+`ai.surface`, `ai.screen`, and `ai.classifier=v5`. A low-confidence enum is
+omitted. The labeler does not write `ai.tags` or `ai.summary` (older rows
+may still have them). A Luna Decisions try writes `ai.classifier=v4` and
+the same enums. Clients cannot set or delete those keys (`ai.*` is reserved,
+same as `video.*` / `image.*`). The 201 response does not wait for the model;
+read `GET …/files/:key?metadata=1` (or `uploads meta get <key>`) after the
+upload. Presigned uploads never get labels. See
 [docs/ops.md](ops.md#experimental-llm-file-classifier).
 
 ### Usage ledger and budgets
