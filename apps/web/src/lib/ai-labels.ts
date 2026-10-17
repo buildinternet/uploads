@@ -1,8 +1,9 @@
 /**
  * Read-only view of experimental `ai.*` classifier metadata.
  *
- * The API writes these after a Flagship-gated put (`ai.classifier` is `v1`,
- * `v2`, `v3`, or `v4` on the Luna try). Clients cannot set them. Used by the Storage file-detail drawer
+ * The API writes these after a Flagship-gated put (`ai.classifier` is `v5`
+ * on Jev Latest, or `v4` on the Luna try; older rows may say `v1`–`v3`).
+ * Clients cannot set them. Used by the Storage file-detail drawer
  * and the public `/f/` share-page rail — never by galleries, feeds, or
  * PR comments.
  */
@@ -10,7 +11,7 @@
 const DISPLAY_KEYS = ["ai.kind", "ai.surface", "ai.screen", "ai.tags", "ai.summary"] as const;
 
 export interface AiLabels {
-  /** Schema marker (`v1` / `v2` / `v3` / `v4`); omitted when the file only has display keys. */
+  /** Schema marker (`v4` Luna, `v5` Jev Latest, or an older `v1`–`v3`); omitted when the file only has display keys. */
   classifier?: string;
   kind?: string;
   surface?: string;

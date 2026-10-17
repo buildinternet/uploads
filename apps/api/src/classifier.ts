@@ -1,37 +1,41 @@
 /**
- * Experimental LLM file classifier (Workers AI via AI Gateway).
+ * Experimental LLM file classifier (OpenRouter Decisions, called directly).
  *
  * After a successful `putObject`, a Flagship-allowlisted workspace can get
- * server-owned `ai.*` labels (`ai.tags`, `ai.summary`, `ai.kind`,
- * `ai.surface`, `ai.screen`, `ai.classifier`) so agents can organize uploads
- * later. Off by default:
+ * server-owned `ai.*` labels (`ai.kind`, `ai.surface`, `ai.screen`,
+ * `ai.classifier`) so agents can organize uploads later. Off by default:
  * Flagship `llm-file-classifier` fails closed and is the sole allowlist
  * (targeting context `{ org, workspace }` = the workspace slug).
  * `llmClassifierEnabled === false` is an optional hard off; `undefined`
  * does not block. Fail-open: classifier errors never fail the upload.
  * Presigned (`POST /sign`) uploads never reach this hook.
  *
- * Default path, two stages (`ai.classifier=v3`):
+ * One Decisions call (`ai.classifier=v5` on the default path). The model
+ * picks `kind`, `surface`, and `screen` from the closed enums and reports
+ * a calibrated confidence per answer. An answer under
+ * `CLASSIFIER_MIN_CONFIDENCE` omits its key. Decisions models do not write
+ * free text, so this path does not write `ai.tags` or `ai.summary`.
  *
- * 1. **describe** — a vision model looks at a raster image under the size
- *    cap and returns free-text `description`, `tags`, and `summary`. Every
- *    other file type skips this stage, so it gets no tags and no summary.
- * 2. **decide** — `typesafe/jev` picks `kind`, `surface`, and `screen` from
- *    the closed enums and reports a calibrated confidence per answer. This
- *    stage always runs. An answer under `CLASSIFIER_MIN_CONFIDENCE` omits
- *    its key.
- *
- * Stage 1 is advisory: when it throws, stage 2 still runs on the file facts
- * alone. When stage 2 throws, the classifier writes nothing.
+ * Default model is the OpenRouter alias `~typesafe/jev-latest`. A raster
+ * PNG or JPEG that fits Jev's pixel window goes in `state` as an
+ * `image_url` part, next to a short text fact list. Anything Jev cannot
+ * take (other types, unknown dimensions, images outside that window, files
+ * over the byte cap) still gets the text facts, including pixel dimensions
+ * when the header parses, and no image bytes.
  *
  * Optional Luna path (`ai.classifier=v4`): `CLASSIFIER_PROVIDER=luna` or
  * Flagship `llm-file-classifier-luna` (default off) selects
- * `openai/gpt-6-luna-decisions` on OpenRouter. One Decisions call answers
- * the same closed enums. Raster images under the same cap go in `state`
- * as an inline image, and stage 1 does not run. Other files send the text
- * state only. Luna does not write `ai.tags` or `ai.summary` — Decisions
- * models only answer closed questions. Unset provider and a flag that is
- * off keep the Jev hybrid.
+ * `openai/gpt-6-luna-decisions` on the same endpoint. Luna accepts WebP
+ * and is not held to Jev's pixel window, so a large screenshot can still
+ * be seen when the flag is on. Unset provider and a flag that is off stay
+ * on Jev Latest.
+ *
+ * Both providers `POST https://openrouter.ai/api/alpha/decisions` with
+ * `OPENROUTER_API_KEY`. The Cloudflare AI Gateway `openrouter` provider is
+ * based at `https://openrouter.ai/api/v1`, so a gateway request for
+ * `alpha/decisions` hits `/api/v1/alpha/decisions` and returns 404. Do not
+ * send this call through `env.AI.gateway()`. A missing key skips
+ * classification. The weekly digest still uses the Workers AI binding.
  */
 
 import { setServerFileMetadata } from "./file-metadata";
@@ -44,50 +48,51 @@ export const CLASSIFIER_FLAG = "llm-file-classifier";
 
 /**
  * Flagship flag that selects the Luna Decisions try for one workspace.
- * Default `false`. Evaluation errors stay on the Jev hybrid path.
+ * Default `false`. Evaluation errors stay on the Jev Latest path.
  */
 export const CLASSIFIER_LUNA_FLAG = "llm-file-classifier-luna";
 
-/** Written to `ai.classifier` on the default Jev hybrid path. */
-export const CLASSIFIER_VERSION = "v3";
+/**
+ * Written to `ai.classifier` on the Jev Latest path. `v3` was the
+ * Llama-describe plus Workers AI Jev hybrid, which did not send pixels.
+ */
+export const CLASSIFIER_VERSION = "v5";
 
 /**
  * Written to `ai.classifier` when Luna Decisions runs, so a try is distinct
- * from the Jev hybrid in stored metadata.
+ * from Jev Latest in stored metadata.
  */
 export const CLASSIFIER_LUNA_VERSION = "v4";
 
-/** Vision-capable Workers AI model for raster images (stage 1). */
-export const CLASSIFIER_VISION_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
-
 /**
- * Closed-enum decision model (stage 2). Jev answers typed questions with a
- * calibrated confidence. Input-token priced; output tokens are free.
+ * Workers AI catalog id for weekly-digest curation. File classification
+ * does not call this model. The digest runner still passes it to `env.AI`.
  */
 export const CLASSIFIER_DECISION_MODEL = "typesafe/jev";
 
 /**
- * OpenRouter model id for the Luna try. Vision-capable Decisions model:
- * text and image in, closed answers out.
+ * OpenRouter alias for the current Jev release. Tracks the newest Jev that
+ * accepts text and images on the Decisions API.
+ */
+export const CLASSIFIER_JEV_MODEL = "~typesafe/jev-latest";
+
+/**
+ * OpenRouter model id for the Luna try. Same Decisions API, wider image
+ * acceptance than Jev's pixel window.
  */
 export const CLASSIFIER_LUNA_MODEL = "openai/gpt-6-luna-decisions";
 
 /**
- * Path under the AI Gateway OpenRouter provider.
- *
- * Cloudflare's OpenRouter cURL maps
- * `…/openrouter/v1/chat/completions` to
- * `https://openrouter.ai/api/v1/chat/completions`, so the provider root is
- * `https://openrouter.ai/api/`. Decisions is
- * `POST https://openrouter.ai/api/alpha/decisions`.
+ * Decisions lives at `/api/alpha/decisions`, not under `/api/v1`.
+ * `https://openrouter.ai/api/v1/alpha/decisions` is the gateway 404.
  */
-export const OPENROUTER_DECISIONS_ENDPOINT = "alpha/decisions";
+export const OPENROUTER_DECISIONS_URL = "https://openrouter.ai/api/alpha/decisions";
 
-/** Decision provider. `jev` is the default hybrid. `luna` is the try. */
+/** Decision provider. `jev` is the default. `luna` is the try. */
 export const CLASSIFIER_PROVIDERS = ["jev", "luna"] as const;
 export type ClassifierProvider = (typeof CLASSIFIER_PROVIDERS)[number];
 
-/** Skip vision on images larger than this — cost/latency cap. */
+/** Skip image bytes above this — cost and request-size cap. */
 export const CLASSIFIER_MAX_IMAGE_BYTES = 512 * 1024;
 
 /** Max characters of a text file sent to the model. */
@@ -96,10 +101,20 @@ export const CLASSIFIER_MAX_TEXT_CHARS = 1500;
 /** Below this confidence the decision model's answer is dropped. */
 export const CLASSIFIER_MIN_CONFIDENCE = 0.5;
 
-/** Bound the whole pipeline so a hung gateway cannot pin the isolate. */
+/** Bound the Decisions call so a hung provider cannot pin the isolate. */
 export const CLASSIFIER_TIMEOUT_MS = 8_000;
 
-/** Server-owned rows this module writes. */
+/**
+ * Jev image window, inclusive, from the OpenRouter multimodal Decisions
+ * guide. An image outside it returns 400 or 413, so we omit the bytes and
+ * send the text facts instead.
+ */
+export const JEV_MIN_IMAGE_EDGE = 256;
+export const JEV_MAX_IMAGE_EDGE = 1_568;
+export const JEV_MIN_IMAGE_PIXELS = 78_400;
+export const JEV_MAX_IMAGE_PIXELS = 2_458_624;
+
+/** Server-owned rows this module writes. Tags and summary are legacy keys. */
 export const CLASSIFIER_META_KEYS = [
   "ai.tags",
   "ai.summary",
@@ -109,7 +124,9 @@ export const CLASSIFIER_META_KEYS = [
   "ai.classifier",
 ] as const;
 
-const VISION_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp", "image/avif"]);
+/** Jev reads PNG and JPEG only. Luna also reads WebP. GIF, AVIF, and SVG stay text-only. */
+const JEV_IMAGE_TYPES = new Set(["image/png", "image/jpeg"]);
+const LUNA_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 
 /** Closed enum for `ai.kind`, with the criteria Jev decides against. */
 export const KIND_CRITERIA: Record<string, string> = {
@@ -157,33 +174,9 @@ const KIND_ALLOWLIST = new Set(Object.keys(KIND_CRITERIA));
 const SURFACE_ALLOWLIST = new Set(Object.keys(SURFACE_CRITERIA));
 const SCREEN_ALLOWLIST = new Set(Object.keys(SCREEN_CRITERIA));
 
-const TAG_RE = /^[a-z][a-z0-9-]{0,31}$/;
-const MAX_TAGS = 5;
-
-/** Stage 1 prompt. Describes the picture; it never picks an enum value. */
-export const CLASSIFIER_PROMPT = [
-  "Describe this uploaded image so another system can classify it.",
-  'Reply with JSON only: {"description":"one or two sentences","tags":["kebab-case"],"summary":"one short sentence"}',
-  "The description states what is visible and how it is laid out: device frame, page structure,",
-  "controls, charts, and any product screen it resembles.",
-  "Rules: 3-5 lowercase kebab-case tags (fewer is fine; do not invent filler);",
-  "summary max 140 ASCII characters;",
-  "describe visual or document structure, not secrets.",
-  "Do not transcribe emails, tokens, names, passwords, or credentials.",
-].join(" ");
-
 export type ClassifierWaitUntil = (promise: Promise<unknown>) => void;
 
-/** Stage 1: free-text description of a raster image. */
-export interface ClassifierDescribeRequest {
-  stage: "describe";
-  model: string;
-  prompt: string;
-  /** Raster image bytes for vision models. Never log this field. */
-  image?: Uint8Array;
-}
-
-/** A Jev question. Only `choice` questions are used today. */
+/** A Decisions choice question. */
 export interface JevChoiceQuestion {
   type: "choice";
   instructions: string;
@@ -191,38 +184,35 @@ export interface JevChoiceQuestion {
 }
 
 /**
- * OpenAI Decisions image part. The native API puts this in `input` as
- * `{ type: "input_image", image_url: "data:<mime>;base64,…" }` and rejects
- * hosted URLs. OpenRouter Decisions has no separate image field — `state`
- * is a string, object, or array — and the Luna catalog modality is
- * `text+image -> decisions`. The Luna path nests this part on `state.image`.
+ * Image part for the Decisions `state` array. This is the Chat Completions
+ * shape. `{ type: "input_image", image_url: "data:..." }` is not an image
+ * input on this API.
  */
-export interface LunaImagePart {
-  type: "input_image";
-  image_url: string;
+export interface DecisionImagePart {
+  type: "image_url";
+  image_url: { url: string };
 }
 
-/**
- * Text facts plus an optional inline image. Only the Luna path sets `image`.
- * The Jev path keeps `ClassifierState`, which never carries bytes.
- */
-export interface LunaDecisionState extends ClassifierState {
-  image?: LunaImagePart;
-}
-
-/** Stage 2: closed-enum decision over the facts gathered so far. */
+/** One Decisions call. `image` is omitted when the model cannot take the bytes. */
 export interface ClassifierDecideRequest {
   stage: "decide";
   model: string;
-  state: LunaDecisionState;
+  state: ClassifierState;
+  image?: DecisionImagePart;
   questions: Record<string, JevChoiceQuestion>;
 }
 
-export type ClassifierRequest = ClassifierDescribeRequest | ClassifierDecideRequest;
+export type ClassifierRequest = ClassifierDecideRequest;
 
-export type ClassifierRun = (req: ClassifierRequest) => Promise<unknown>;
+export type ClassifierRun = (
+  req: ClassifierRequest,
+  opts?: { signal?: AbortSignal },
+) => Promise<unknown>;
 
-/** Text-only facts handed to the decision model. Never carries raw bytes. */
+/**
+ * Text facts handed to the decision model. The OpenRouter runner turns this
+ * into a string in the `state` array. It never carries raw bytes.
+ */
 export interface ClassifierState {
   filename: string;
   content_type: string;
@@ -235,13 +225,6 @@ export interface ClassifierState {
   tags?: string[];
   summary?: string;
   note?: string;
-}
-
-/** Stage 1's parsed reply. Every field is optional — the model may skip one. */
-export interface ClassifierDescription {
-  description?: string;
-  tags: string[];
-  summary?: string;
 }
 
 /**
@@ -258,16 +241,16 @@ export function classifierEvaluationContext(
 }
 
 /**
- * Every kill switch, cheapest first. Flagship is the sole allowlist
- * (default off; Demo adds targeting rules). `llmClassifierEnabled === false`
- * is a workspace-level hard off; `undefined`/`true` do not block.
+ * Every kill switch, cheapest first. A missing OpenRouter key skips the
+ * call. Flagship is the sole allowlist (default off). `llmClassifierEnabled
+ * === false` is a workspace-level hard off; `undefined`/`true` do not block.
  */
 export async function classificationAllowed(
   env: Env,
   ws: Pick<WorkspaceRecord, "llmClassifierEnabled" | "name">,
   workspaceName: string,
 ): Promise<boolean> {
-  if (!env.AI) return false;
+  if (!env.OPENROUTER_API_KEY?.trim()) return false;
   if (ws.llmClassifierEnabled === false) return false;
   if (!env.FLAGS) return false;
   try {
@@ -320,36 +303,23 @@ export async function resolveClassifierProvider(
   return "jev";
 }
 
-/**
- * Stage 1 request, or `undefined` when a generative pass adds nothing.
- * Only raster images under the size cap qualify, so SVG (active content)
- * and oversized images never attach raw bytes.
- */
-export function buildDescribeRequest(
-  key: string,
-  contentType: string,
-  bytes: Uint8Array,
-): ClassifierDescribeRequest | undefined {
-  if (!VISION_TYPES.has(contentType)) return undefined;
-  if (bytes.byteLength > CLASSIFIER_MAX_IMAGE_BYTES) return undefined;
-  const filename = key.split("/").pop() || key;
-  return {
-    stage: "describe",
-    model: CLASSIFIER_VISION_MODEL,
-    prompt: `${CLASSIFIER_PROMPT}\n\nfilename: ${filename}\ncontent-type: ${contentType}`,
-    image: bytes,
-  };
+/** True when both edges and the pixel count sit inside Jev's inclusive window. */
+export function jevAcceptsDimensions(width: number, height: number): boolean {
+  if (width < JEV_MIN_IMAGE_EDGE || height < JEV_MIN_IMAGE_EDGE) return false;
+  if (width > JEV_MAX_IMAGE_EDGE || height > JEV_MAX_IMAGE_EDGE) return false;
+  const pixels = width * height;
+  return pixels >= JEV_MIN_IMAGE_PIXELS && pixels <= JEV_MAX_IMAGE_PIXELS;
 }
 
 /**
- * The text-only facts stage 2 decides from. Pixel dimensions come from the
- * image header, so aspect ratio is available even when stage 1 is skipped.
+ * The text-only facts the decision sees. Pixel dimensions come from the
+ * image header, so aspect ratio is available even when the pixels are not
+ * attached.
  */
 export function buildClassifierState(
   key: string,
   contentType: string,
   bytes: Uint8Array,
-  described?: ClassifierDescription,
 ): ClassifierState {
   const state: ClassifierState = {
     filename: key.split("/").pop() || key,
@@ -371,9 +341,6 @@ export function buildClassifierState(
     state.note = `image skipped: over ${CLASSIFIER_MAX_IMAGE_BYTES} bytes`;
   }
 
-  if (described?.description) state.description = described.description;
-  if (described?.tags.length) state.tags = described.tags;
-  if (described?.summary) state.summary = described.summary;
   return state;
 }
 
@@ -385,7 +352,7 @@ function aspectOf(width: number, height: number): "portrait" | "landscape" | "sq
   return "square";
 }
 
-/** The three closed-enum questions Jev answers. */
+/** The three closed-enum questions the decision model answers. */
 export function buildClassifierQuestions(): Record<string, JevChoiceQuestion> {
   return {
     kind: {
@@ -408,55 +375,96 @@ export function buildClassifierQuestions(): Record<string, JevChoiceQuestion> {
   };
 }
 
-export function buildDecideRequest(state: ClassifierState): ClassifierDecideRequest {
+/**
+ * Inline image for this provider, or a note explaining why the bytes stay
+ * off the request. Non-images return neither.
+ */
+export function buildDecisionImage(
+  provider: ClassifierProvider,
+  contentType: string,
+  bytes: Uint8Array,
+): { image?: DecisionImagePart; note?: string } {
+  const allowed = provider === "luna" ? LUNA_IMAGE_TYPES : JEV_IMAGE_TYPES;
+  if (!allowed.has(contentType)) {
+    if (uploadKind(contentType) !== "image") return {};
+    return {
+      note:
+        provider === "luna"
+          ? "image skipped: luna accepts png, jpeg, and webp"
+          : "image skipped: jev accepts png and jpeg",
+    };
+  }
+  if (bytes.byteLength === 0) return {};
+  if (bytes.byteLength > CLASSIFIER_MAX_IMAGE_BYTES) {
+    return { note: `image skipped: over ${CLASSIFIER_MAX_IMAGE_BYTES} bytes` };
+  }
+  const dims = detectImageDimensions(bytes, contentType);
+  if (!dims) return { note: "image skipped: dimensions unknown" };
+  if (provider === "jev" && !jevAcceptsDimensions(dims.width, dims.height)) {
+    return { note: "image skipped: outside jev pixel limits" };
+  }
+  return {
+    image: {
+      type: "image_url",
+      image_url: { url: `data:${contentType};base64,${bytesToBase64(bytes)}` },
+    },
+  };
+}
+
+/**
+ * Facts plus an optional image part. The note lands on `state` when one is
+ * not already set (the byte cap writes its own).
+ */
+export function applyDecisionImage(
+  provider: ClassifierProvider,
+  contentType: string,
+  bytes: Uint8Array,
+  state: ClassifierState,
+): DecisionImagePart | undefined {
+  const decision = buildDecisionImage(provider, contentType, bytes);
+  if (decision.note && !state.note) state.note = decision.note;
+  return decision.image;
+}
+
+export function buildDecideRequest(
+  state: ClassifierState,
+  provider: ClassifierProvider = "jev",
+  image?: DecisionImagePart,
+): ClassifierDecideRequest {
   return {
     stage: "decide",
-    model: CLASSIFIER_DECISION_MODEL,
+    model: provider === "luna" ? CLASSIFIER_LUNA_MODEL : CLASSIFIER_JEV_MODEL,
     state,
+    ...(image ? { image } : {}),
     questions: buildClassifierQuestions(),
   };
 }
 
 /**
- * Inline image for Luna, or `undefined` when a pixel pass adds nothing.
- * Same raster types and size cap as stage 1, so SVG and oversized images
- * never attach bytes.
+ * Decisions `state` array: one plain-text fact list, then the image part
+ * when there is one. Image parts have to sit in that top-level array.
+ * Nesting them inside the fact object hides them from every model except
+ * Jev, and the `input_image` shape is not an image input at all.
  */
-export function buildLunaImagePart(
-  contentType: string,
-  bytes: Uint8Array,
-): LunaImagePart | undefined {
-  if (!VISION_TYPES.has(contentType)) return undefined;
-  if (bytes.byteLength === 0 || bytes.byteLength > CLASSIFIER_MAX_IMAGE_BYTES) return undefined;
-  return {
-    type: "input_image",
-    image_url: `data:${contentType};base64,${bytesToBase64(bytes)}`,
-  };
-}
-
-/**
- * Facts Luna decides from. Images under the cap include the pixels in
- * `state.image`. Everything else is the same text state stage 2 already
- * builds, with no stage-1 description.
- */
-export function buildLunaDecisionState(
-  key: string,
-  contentType: string,
-  bytes: Uint8Array,
-): LunaDecisionState {
-  const state = buildClassifierState(key, contentType, bytes);
-  const image = buildLunaImagePart(contentType, bytes);
-  if (!image) return state;
-  return { ...state, image };
-}
-
-export function buildLunaDecideRequest(state: LunaDecisionState): ClassifierDecideRequest {
-  return {
-    stage: "decide",
-    model: CLASSIFIER_LUNA_MODEL,
-    state,
-    questions: buildClassifierQuestions(),
-  };
+export function formatDecisionState(
+  state: ClassifierState,
+  image?: DecisionImagePart,
+): Array<string | DecisionImagePart> {
+  const lines = [
+    `filename: ${state.filename}`,
+    `content_type: ${state.content_type}`,
+    `byte_size: ${state.byte_size}`,
+  ];
+  if (state.image_width !== undefined) lines.push(`image_width: ${state.image_width}`);
+  if (state.image_height !== undefined) lines.push(`image_height: ${state.image_height}`);
+  if (state.aspect) lines.push(`aspect: ${state.aspect}`);
+  if (state.excerpt) lines.push(`excerpt: ${state.excerpt}`);
+  if (state.description) lines.push(`description: ${state.description}`);
+  if (state.tags?.length) lines.push(`tags: ${state.tags.join(",")}`);
+  if (state.summary) lines.push(`summary: ${state.summary}`);
+  if (state.note) lines.push(`note: ${state.note}`);
+  const text = lines.join("\n");
+  return image ? [text, image] : [text];
 }
 
 /** Base64 without spreading the whole buffer into one `fromCharCode` call. */
@@ -484,37 +492,6 @@ export function textExcerpt(bytes: Uint8Array): string | undefined {
   return trimmed.length > CLASSIFIER_MAX_TEXT_CHARS
     ? trimmed.slice(0, CLASSIFIER_MAX_TEXT_CHARS)
     : trimmed;
-}
-
-/** Pull a JSON object out of a model reply (raw or fenced). */
-export function extractJsonObject(raw: string): Record<string, unknown> | null {
-  const trimmed = raw.trim();
-  if (!trimmed) return null;
-  const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(trimmed);
-  const candidate = (fenced?.[1] ?? trimmed).trim();
-  const start = candidate.indexOf("{");
-  const end = candidate.lastIndexOf("}");
-  if (start === -1 || end <= start) return null;
-  try {
-    const parsed: unknown = JSON.parse(candidate.slice(start, end + 1));
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      return parsed as Record<string, unknown>;
-    }
-  } catch {
-    return null;
-  }
-  return null;
-}
-
-/** Stage 1's JSON reply, normalized. Returns `null` when nothing survives. */
-export function parseDescribeOutput(raw: string): ClassifierDescription | null {
-  const json = extractJsonObject(raw);
-  if (!json) return null;
-  const description = normalizeSummary(json.description);
-  const tags = normalizeTags(json.tags);
-  const summary = normalizeSummary(json.summary);
-  if (!description && tags.length === 0 && !summary) return null;
-  return { description, tags, summary };
 }
 
 /**
@@ -556,7 +533,7 @@ export function parseJevAnswers(
   return { meta, confidences };
 }
 
-/** AI Gateway sometimes wraps the model payload; look one level down too. */
+/** A direct Decisions body, or one wrapped a level down. */
 function findJevAnswers(result: unknown): Record<string, unknown> | null {
   if (!isPlainObject(result)) return null;
   if (isPlainObject(result.answers)) return result.answers;
@@ -567,149 +544,60 @@ function findJevAnswers(result: unknown): Record<string, unknown> | null {
   return null;
 }
 
-function normalizeTags(value: unknown): string[] {
-  const raw = Array.isArray(value) ? value : typeof value === "string" ? value.split(",") : [];
-  const out: string[] = [];
-  const seen = new Set<string>();
-  for (const item of raw) {
-    if (typeof item !== "string") continue;
-    const tag = item
-      .trim()
-      .toLowerCase()
-      .replace(/[\s_]+/g, "-")
-      .replace(/[^a-z0-9-]/g, "");
-    if (!TAG_RE.test(tag) || seen.has(tag)) continue;
-    seen.add(tag);
-    out.push(tag);
-    if (out.length >= MAX_TAGS) break;
-  }
-  return out;
-}
-
-function normalizeSummary(value: unknown): string | undefined {
-  if (typeof value !== "string") return undefined;
-  const ascii = value
-    .replace(/[^\x20-\x7E]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  if (!ascii) return undefined;
-  return ascii.length > 200 ? ascii.slice(0, 200) : ascii;
-}
-
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
-/** String fields, or a plain object that is already the classifier JSON. */
-function fieldAsText(value: unknown): string {
-  if (typeof value === "string") return value;
-  if (!isPlainObject(value)) return "";
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return "";
-  }
-}
-
-export function extractModelText(result: unknown): string {
-  if (typeof result === "string") return result;
-  if (!isPlainObject(result)) return "";
-
-  const fromKnown =
-    fieldAsText(result.response) || fieldAsText(result.description) || fieldAsText(result.result);
-  if (fromKnown) return fromKnown;
-
-  const first = Array.isArray(result.choices) ? result.choices[0] : undefined;
-  if (isPlainObject(first)) {
-    if (isPlainObject(first.message)) {
-      const content = fieldAsText(first.message.content);
-      if (content) return content;
-    }
-    if (typeof first.text === "string") return first.text;
-  }
-
-  return "";
-}
-
 /**
- * Default runner: Workers AI binding, always via AI Gateway when `env.AI`
- * is present. Does not log image bytes or excerpts.
- *
- * `typesafe/jev` is not in `@cloudflare/workers-types`' `AiModelList`, so
- * the decide call casts its model name and input rather than loosening the
- * whole binding's types.
+ * Weekly-digest runner: Workers AI binding, via AI Gateway when `env.AI`
+ * is present. File classification does not use this. The catalog model is
+ * not in `@cloudflare/workers-types`' `AiModelList`, so the call casts its
+ * model name and input.
  */
 export function workersAiClassifierRun(env: Env): ClassifierRun {
   return async (req) => {
     if (!env.AI) throw new Error("AI binding missing");
     const gateway = { id: classifierGatewayId(env), skipCache: true };
-
-    if (req.stage === "decide") {
-      const input = { state: req.state, questions: req.questions };
-      return env.AI.run(req.model as never, input as never, { gateway });
-    }
-
-    const input: Record<string, unknown> = { prompt: req.prompt, max_tokens: 256 };
-    if (req.image) {
-      // Workers AI vision models take a number[] of bytes.
-      input.image = Array.from(req.image);
-    }
+    const input = { state: req.state, questions: req.questions };
     return env.AI.run(req.model as never, input as never, { gateway });
   };
 }
 
 /**
- * Luna runner: one OpenRouter Decisions call through the same AI Gateway
- * the Jev path already uses. The model is not in the Workers AI catalog,
- * so this uses `env.AI.gateway().run` (provider `openrouter`) instead of
- * `env.AI.run`. Does not log image bytes, data URLs, or the API key.
+ * File-classifier runner. One direct OpenRouter Decisions call. Does not
+ * log image bytes, data URLs, or the API key. A missing key throws; callers
+ * that classify an upload catch it and write nothing.
  */
-export function openRouterLunaClassifierRun(env: Env): ClassifierRun {
-  return async (req) => {
-    if (req.stage !== "decide") {
-      throw new Error("luna decisions does not run a describe stage");
-    }
+export function openRouterDecisionsRun(env: Env): ClassifierRun {
+  return async (req, opts) => {
     const apiKey = env.OPENROUTER_API_KEY?.trim();
     if (!apiKey) throw new Error("OPENROUTER_API_KEY missing");
-    if (!env.AI) throw new Error("AI binding missing");
 
-    const gatewayId = classifierGatewayId(env);
-    const response = await env.AI.gateway(gatewayId).run(
-      {
-        provider: "openrouter",
-        endpoint: OPENROUTER_DECISIONS_ENDPOINT,
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-        query: {
-          model: req.model,
-          state: req.state,
-          questions: req.questions,
-        },
+    const response = await fetch(OPENROUTER_DECISIONS_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://uploads.sh",
+        "X-Title": "uploads",
       },
-      // `id` is required by the generated options type. The binding call
-      // above already selects the gateway; skipCache matches the Jev path.
-      { gateway: { id: gatewayId, skipCache: true } },
-    );
+      body: JSON.stringify({
+        model: req.model,
+        state: formatDecisionState(req.state, req.image),
+        questions: req.questions,
+      }),
+      signal: opts?.signal,
+    });
     if (!response.ok) {
+      try {
+        await response.body?.cancel();
+      } catch {
+        // The status is the failure that matters.
+      }
       throw new Error(`openrouter decisions failed: ${response.status}`);
     }
     return response.json();
   };
-}
-
-/** Stage 1, best effort. A throw or an unusable reply is not fatal. */
-async function describeFile(
-  run: ClassifierRun,
-  request: ClassifierDescribeRequest,
-): Promise<ClassifierDescription | undefined> {
-  try {
-    const result = await run(request);
-    return parseDescribeOutput(extractModelText(result)) ?? undefined;
-  } catch {
-    return undefined;
-  }
 }
 
 async function runClassifierPipeline(
@@ -719,42 +607,22 @@ async function runClassifierPipeline(
   contentType: string,
   minConfidence: number,
   provider: ClassifierProvider,
+  signal: AbortSignal,
 ): Promise<Record<string, string> | undefined> {
-  if (provider === "luna") {
-    const state = buildLunaDecisionState(key, contentType, bytes);
-    const decided = parseJevAnswers(await run(buildLunaDecideRequest(state)), { minConfidence });
-    const meta: Record<string, string> = {
-      "ai.classifier": CLASSIFIER_LUNA_VERSION,
-      ...decided?.meta,
-    };
-    if (Object.keys(meta).length === 1) return undefined;
-    console.log({
-      event: "classifier_decided",
-      provider: "luna",
-      model: CLASSIFIER_LUNA_MODEL,
-      confidences: decided?.confidences ?? {},
-    });
-    return meta;
-  }
-
-  const describeRequest = buildDescribeRequest(key, contentType, bytes);
-  const described = describeRequest ? await describeFile(run, describeRequest) : undefined;
-
-  const state = buildClassifierState(key, contentType, bytes, described);
-  const decided = parseJevAnswers(await run(buildDecideRequest(state)), { minConfidence });
+  const state = buildClassifierState(key, contentType, bytes);
+  const image = applyDecisionImage(provider, contentType, bytes, state);
+  const request = buildDecideRequest(state, provider, image);
+  const decided = parseJevAnswers(await run(request, { signal }), { minConfidence });
 
   const meta: Record<string, string> = {
-    "ai.classifier": CLASSIFIER_VERSION,
+    "ai.classifier": provider === "luna" ? CLASSIFIER_LUNA_VERSION : CLASSIFIER_VERSION,
     ...decided?.meta,
   };
-  if (described?.tags.length) meta["ai.tags"] = described.tags.join(",");
-  if (described?.summary) meta["ai.summary"] = described.summary;
-
   if (Object.keys(meta).length === 1) return undefined;
   console.log({
     event: "classifier_decided",
-    provider: "jev",
-    model: CLASSIFIER_DECISION_MODEL,
+    provider,
+    model: request.model,
     confidences: decided?.confidences ?? {},
   });
   return meta;
@@ -772,17 +640,31 @@ export async function classifyAndStore(
   try {
     if (!(await classificationAllowed(env, ws, workspaceName))) return undefined;
     const provider = await resolveClassifierProvider(env, ws, workspaceName);
-    const run =
-      deps?.run ??
-      (provider === "luna" ? openRouterLunaClassifierRun(env) : workersAiClassifierRun(env));
+    const run = deps?.run ?? openRouterDecisionsRun(env);
     const timeoutMs = deps?.timeoutMs ?? CLASSIFIER_TIMEOUT_MS;
     const minConfidence = deps?.minConfidence ?? CLASSIFIER_MIN_CONFIDENCE;
+    const controller = new AbortController();
+    const work = runClassifierPipeline(
+      run,
+      key,
+      bytes,
+      contentType,
+      minConfidence,
+      provider,
+      controller.signal,
+    );
+    // Abort rejects `work` after the race has already settled.
+    void work.catch(() => {
+      // The race already observed a timeout or a model error.
+    });
     let timer: ReturnType<typeof setTimeout> | undefined;
-    // One deadline for the whole pipeline, not one per call.
     const meta = await Promise.race([
-      runClassifierPipeline(run, key, bytes, contentType, minConfidence, provider),
+      work,
       new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new Error("classifier timed out")), timeoutMs);
+        timer = setTimeout(() => {
+          reject(new Error("classifier timed out"));
+          controller.abort();
+        }, timeoutMs);
       }),
     ]).finally(() => {
       if (timer !== undefined) clearTimeout(timer);
@@ -812,7 +694,7 @@ export function scheduleFileClassification(
 ): void {
   if (!waitUntil) return;
   // Cheap local gates only — Flagship is async and lives inside classifyAndStore.
-  if (!env.AI) return;
+  if (!env.OPENROUTER_API_KEY?.trim()) return;
   if (ws.llmClassifierEnabled === false) return;
   const work = classifyAndStore(env, ws, workspaceName, key, bytes, contentType);
   try {

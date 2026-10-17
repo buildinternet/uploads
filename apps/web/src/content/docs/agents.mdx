@@ -224,9 +224,9 @@ about is left off.
 | `ai.kind`       | `screenshot` `photo` `diagram` `document` `code` `ui` `other`                                                                                         |
 | `ai.surface`    | `mobile` `desktop` `tablet` `unknown`                                                                                                                 |
 | `ai.screen`     | `login` `signup` `settings` `profile` `dashboard` `analytics` `list` `detail` `form` `search` `modal` `onboarding` `empty` `error` `checkout` `other` |
-| `ai.tags`       | Up to five kebab-case labels (raster images under 512 KiB)                                                                                            |
-| `ai.summary`    | One short sentence (raster images under 512 KiB)                                                                                                      |
-| `ai.classifier` | `v3` on the default labeler. A Luna try writes `v4` and leaves tags and summary off.                                                                 |
+| `ai.tags`       | Older uploads only. The current labeler does not write tags.                                                                                          |
+| `ai.summary`    | Older uploads only. The current labeler does not write a summary.                                                                                     |
+| `ai.classifier` | `v5` on the default labeler. A Luna try writes `v4`.                                                                                                  |
 
 Labels aren't in the upload's response. Read them afterward, or search by them:
 

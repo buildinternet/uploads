@@ -713,12 +713,12 @@ know which keys exist, start with `meta keys` / `meta values <key>` (or the MCP
 
 **Experimental AI labels (`ai.*`).** Off by default. When Flagship
 `llm-file-classifier` serves on for the workspace slug (`org` / `workspace`
-targeting context), a server-mediated put may later write `ai.tags`
-(up to five kebab-case labels), `ai.summary`, `ai.kind`
+targeting context), a server-mediated put may later write `ai.kind`
 (`screenshot|photo|diagram|document|code|ui|other`), `ai.surface`
 (`mobile|desktop|tablet|unknown`), `ai.screen`
 (`login|signup|settings|profile|dashboard|analytics|list|detail|form|search|modal|onboarding|empty|error|checkout|other`),
-and `ai.classifier=v2`.
+and `ai.classifier=v5` (`v4` when a Luna try is on). The labeler does not
+write `ai.tags` or `ai.summary`. Older files may still have those keys.
 Read them with `uploads meta get <key>` or MCP `get_metadata`; filter with
 `uploads find ai.kind=screenshot` or `uploads find ai.screen=login`. Do not
 set `ai.*` yourself — the prefix is server-owned and the API rejects client
