@@ -6,7 +6,9 @@ import {
   CLASSIFIER_LUNA_MODEL,
   CLASSIFIER_LUNA_VERSION,
   CLASSIFIER_MAX_IMAGE_BYTES,
+  CLASSIFIER_RESIZED_VERSION,
   CLASSIFIER_VERSION,
+  type ClassifierResizeRequest,
   OPENROUTER_DECISIONS_URL,
   classifyAndStore,
 } from "../src/classifier";
@@ -303,7 +305,7 @@ describe("classifyAndStore", () => {
     const wide = pngOf(1600, 900);
     await classifyAndStore(env, ws, WORKSPACE, "wide.png", wide, "image/png");
     expect(stateImage(calls[1])).toBeUndefined();
-    expect(stateText(calls[1])).toContain("outside jev pixel limits");
+    expect(stateText(calls[1])).toContain("transform unavailable");
     expect(stateText(calls[1])).toContain("image_width: 1600");
   });
 
@@ -360,6 +362,226 @@ describe("classifyAndStore", () => {
     const { env, ws } = makeClassifierEnv(() => DECIDED, {}, { status: 502 });
     const written = await classifyAndStore(env, ws, WORKSPACE, "images/pic.png", PNG, "image/png");
     expect(written).toBeUndefined();
+  });
+});
+
+function jpegOf(width: number, height: number): Uint8Array {
+  const bytes = new Uint8Array([
+    0xff, 0xd8, 0xff, 0xe0, 0x00, 0x04, 0x00, 0x00, 0xff, 0xc0, 0x00, 0x11, 0x08, 0x00, 0x00, 0x00,
+    0x00, 0x03,
+  ]);
+  const view = new DataView(bytes.buffer);
+  view.setUint16(13, height, false);
+  view.setUint16(15, width, false);
+  return bytes;
+}
+
+function gifOf(width: number, height: number): Uint8Array {
+  const bytes = new Uint8Array(10);
+  bytes.set([0x47, 0x49, 0x46, 0x38, 0x39, 0x61]);
+  const view = new DataView(bytes.buffer);
+  view.setUint16(6, width, true);
+  view.setUint16(8, height, true);
+  return bytes;
+}
+
+function recordingTransform(outputFor: (request: ClassifierResizeRequest) => Uint8Array): {
+  resize: (bytes: Uint8Array, request: ClassifierResizeRequest) => Promise<Uint8Array>;
+  calls: ClassifierResizeRequest[];
+} {
+  const calls: ClassifierResizeRequest[] = [];
+  return {
+    calls,
+    async resize(_bytes, request) {
+      calls.push(request);
+      return outputFor(request);
+    },
+  };
+}
+
+describe("classifier image resize", () => {
+  it("sends an oversized screenshot as a classifier-sized image and marks v6", async () => {
+    const output = pngOf(1568, 980);
+    const transform = recordingTransform(() => output);
+    const { env, ws, calls } = makeClassifierEnv();
+    const written = await classifyAndStore(
+      env,
+      ws,
+      WORKSPACE,
+      "shots/retina.png",
+      pngOf(2880, 1800),
+      "image/png",
+      { transform },
+    );
+    expect(transform.calls).toHaveLength(1);
+    expect(transform.calls[0]).toMatchObject({
+      width: 1568,
+      height: 1568,
+      fit: "scale-down",
+      format: "image/png",
+    });
+    expect(written?.["ai.classifier"]).toBe(CLASSIFIER_RESIZED_VERSION);
+    expect(stateText(calls[0])).toContain("image_width: 2880");
+    expect(stateText(calls[0])).toContain("image_height: 1800");
+    expect(stateText(calls[0])).toContain("image prepared for classification: 1568x980 png");
+    const image = stateImage(calls[0]);
+    expect(image?.image_url?.url?.startsWith("data:image/png;base64,")).toBe(true);
+    const b64 = image!.image_url!.url!.slice("data:image/png;base64,".length);
+    expect(Uint8Array.from(Buffer.from(b64, "base64"))).toEqual(output);
+  });
+
+  it("does not upscale an undersized image", async () => {
+    const transform = recordingTransform(() => {
+      throw new Error("should not resize");
+    });
+    const { env, ws, calls } = makeClassifierEnv();
+    const written = await classifyAndStore(
+      env,
+      ws,
+      WORKSPACE,
+      "icons/tiny.png",
+      pngOf(100, 100),
+      "image/png",
+      { transform },
+    );
+    expect(transform.calls).toHaveLength(0);
+    expect(stateImage(calls[0])).toBeUndefined();
+    expect(stateText(calls[0])).toContain("below jev pixel limits");
+    expect(stateText(calls[0])).toContain("image_width: 100");
+    expect(written?.["ai.classifier"]).toBe(CLASSIFIER_VERSION);
+  });
+
+  it("sends a WebP as a JPEG still", async () => {
+    const output = jpegOf(640, 480);
+    const transform = recordingTransform((request) => {
+      expect(request.format).toBe("image/jpeg");
+      return output;
+    });
+    const { env, ws, calls } = makeClassifierEnv();
+    const webp = new Uint8Array(30);
+    webp.set([0x52, 0x49, 0x46, 0x46]);
+    webp.set([0x57, 0x45, 0x42, 0x50], 8);
+    webp.set([0x56, 0x50, 0x38, 0x58], 12);
+    webp[24] = 0x7f;
+    webp[25] = 0x02;
+    webp[27] = 0xdf;
+    webp[28] = 0x01;
+    const written = await classifyAndStore(
+      env,
+      ws,
+      WORKSPACE,
+      "shots/ui.webp",
+      webp,
+      "image/webp",
+      {
+        transform,
+      },
+    );
+    expect(transform.calls[0]?.format).toBe("image/jpeg");
+    expect(written?.["ai.classifier"]).toBe(CLASSIFIER_RESIZED_VERSION);
+    expect(stateText(calls[0])).toContain("content_type: image/webp");
+    expect(stateText(calls[0])).toContain("image_width: 640");
+    expect(stateImage(calls[0])?.image_url?.url?.startsWith("data:image/jpeg;base64,")).toBe(true);
+  });
+
+  it("sends a GIF as a JPEG still", async () => {
+    const output = jpegOf(1568, 980);
+    const transform = recordingTransform(() => output);
+    const { env, ws, calls } = makeClassifierEnv();
+    const written = await classifyAndStore(
+      env,
+      ws,
+      WORKSPACE,
+      "shots/walk.gif",
+      gifOf(2880, 1800),
+      "image/gif",
+      { transform },
+    );
+    expect(transform.calls[0]?.format).toBe("image/jpeg");
+    expect(written?.["ai.classifier"]).toBe(CLASSIFIER_RESIZED_VERSION);
+    expect(stateText(calls[0])).toContain("content_type: image/gif");
+    expect(stateText(calls[0])).toContain("image_width: 2880");
+    expect(stateImage(calls[0])?.image_url?.url?.startsWith("data:image/jpeg;base64,")).toBe(true);
+  });
+
+  it("sends an AVIF as a JPEG still", async () => {
+    const output = jpegOf(1024, 768);
+    const transform = recordingTransform(() => output);
+    const { env, ws, calls } = makeClassifierEnv();
+    const written = await classifyAndStore(
+      env,
+      ws,
+      WORKSPACE,
+      "shots/ui.avif",
+      new Uint8Array([0, 1, 2, 3]),
+      "image/avif",
+      { transform },
+    );
+    expect(transform.calls[0]?.format).toBe("image/jpeg");
+    expect(written?.["ai.classifier"]).toBe(CLASSIFIER_RESIZED_VERSION);
+    expect(stateImage(calls[0])?.image_url?.url?.startsWith("data:image/jpeg;base64,")).toBe(true);
+  });
+
+  it("keeps classifying from text facts when the transform fails", async () => {
+    const transform = recordingTransform(() => {
+      throw new Error("images down");
+    });
+    const { env, ws, calls } = makeClassifierEnv();
+    const written = await classifyAndStore(
+      env,
+      ws,
+      WORKSPACE,
+      "shots/retina.png",
+      pngOf(2880, 1800),
+      "image/png",
+      { transform },
+    );
+    expect(calls).toHaveLength(1);
+    expect(stateImage(calls[0])).toBeUndefined();
+    expect(stateText(calls[0])).toContain("transform failed");
+    expect(stateText(calls[0])).toContain("image_width: 2880");
+    expect(written?.["ai.classifier"]).toBe(CLASSIFIER_VERSION);
+    expect(written?.["ai.kind"]).toBe("screenshot");
+  });
+
+  it("uses env.IMAGES when no transform override is passed", async () => {
+    const output = pngOf(1568, 980);
+    const { env, ws, calls } = makeClassifierEnv();
+    env.IMAGES = {
+      input(stream: ReadableStream<Uint8Array>) {
+        return {
+          transform() {
+            return {
+              output() {
+                return new Response(stream).arrayBuffer().then(() => ({
+                  contentType: () => "image/png",
+                  response: () => new Response(output),
+                  image: () =>
+                    new ReadableStream<Uint8Array>({
+                      start(controller) {
+                        controller.enqueue(output);
+                        controller.close();
+                      },
+                    }),
+                }));
+              },
+            };
+          },
+        };
+      },
+    } as unknown as ImagesBinding;
+    const written = await classifyAndStore(
+      env,
+      ws,
+      WORKSPACE,
+      "shots/retina.png",
+      pngOf(2880, 1800),
+      "image/png",
+    );
+    expect(written?.["ai.classifier"]).toBe(CLASSIFIER_RESIZED_VERSION);
+    const image = stateImage(calls[0]);
+    const b64 = image!.image_url!.url!.slice("data:image/png;base64,".length);
+    expect(Uint8Array.from(Buffer.from(b64, "base64"))).toEqual(output);
   });
 });
 
@@ -424,6 +646,31 @@ describe("luna decisions provider", () => {
     expect(stateImage(calls[0])).toBeUndefined();
     expect(stateText(calls[0])).toContain("image skipped");
     expect(written?.["ai.classifier"]).toBe(CLASSIFIER_LUNA_VERSION);
+  });
+
+  it("does not resize a large screenshot for luna", async () => {
+    const png = pngOf(2880, 1800);
+    const { env, ws, calls } = lunaBase();
+    env.IMAGES = {
+      input() {
+        throw new Error("luna must not transform");
+      },
+    } as unknown as ImagesBinding;
+    const written = await classifyAndStore(
+      env,
+      ws,
+      WORKSPACE,
+      "shots/retina.png",
+      png,
+      "image/png",
+    );
+    expect(written?.["ai.classifier"]).toBe(CLASSIFIER_LUNA_VERSION);
+    expect(stateText(calls[0])).toContain("image_width: 2880");
+    expect(stateText(calls[0])).not.toContain("prepared for classification");
+    const image = stateImage(calls[0]);
+    expect(image?.image_url?.url?.startsWith("data:image/png;base64,")).toBe(true);
+    const b64 = image!.image_url!.url!.slice("data:image/png;base64,".length);
+    expect(Uint8Array.from(Buffer.from(b64, "base64"))).toEqual(png);
   });
 
   it("selects luna from the flag when CLASSIFIER_PROVIDER is unset", async () => {
