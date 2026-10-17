@@ -42,6 +42,17 @@ const DECIDED = {
   usage: {},
 };
 
+const FLAGGED = {
+  ...DECIDED,
+  answers: {
+    ...DECIDED.answers,
+    rating: jevAnswer("explicit", 0.95),
+    content: jevAnswer("sexual", 0.91),
+    secret: jevAnswer("api_key", 0.9),
+    pii: jevAnswer("financial", 0.8),
+  },
+};
+
 function pngOf(width: number, height: number): Uint8Array {
   const bytes = new Uint8Array(24);
   bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 0);
@@ -1040,23 +1051,12 @@ describe("safety flags", () => {
     expect(stored?.["ai.skip"]).toBe(CLASSIFIER_SKIP_SMALL);
   });
 
-  it("keeps safety flags when an overwrite with metadata headers is not reclassified", async () => {
+  it("keeps safety flags when the same bytes are re-uploaded and reclassification fails", async () => {
     let calls = 0;
     const { env, ws } = makeClassifierEnv(() => {
       calls += 1;
-      if (calls === 1) {
-        return {
-          ...DECIDED,
-          answers: {
-            ...DECIDED.answers,
-            rating: jevAnswer("explicit", 0.95),
-            content: jevAnswer("sexual", 0.91),
-            secret: jevAnswer("api_key", 0.9),
-            pii: jevAnswer("financial", 0.8),
-          },
-        };
-      }
-      return { answers: {} };
+      if (calls === 1) return FLAGGED;
+      throw new Error("provider down");
     });
     const png = atLeast(pngOf(400, 256));
     const pending: Promise<unknown>[] = [];
@@ -1066,9 +1066,6 @@ describe("safety flags", () => {
     const first = await putObject(env, ws, "images/flagged.png", png, WORKSPACE, { waitUntil });
     await Promise.all(pending);
     pending.length = 0;
-    const before = (await getMetadataForKeys(env.DB, WORKSPACE, [first.key])).get(first.key);
-    expect(before?.["ai.secret"]).toBe("api_key");
-    expect(before?.["ai.kind"]).toBe("screenshot");
 
     const second = await putObject(env, ws, "images/flagged.png", png, WORKSPACE, {
       replace: true,
@@ -1090,6 +1087,111 @@ describe("safety flags", () => {
     expect(after?.["ai.pii.confidence"]).toBe("medium");
     expect(after?.["ai.kind"]).toBeUndefined();
     expect(after?.path).toBe("/settings");
-    expect(after?.state).toBe("after");
+  });
+
+  it("removes safety flags when different bytes fail to reclassify, with or without metadata headers", async () => {
+    const png = atLeast(pngOf(400, 256));
+    const changed = atLeast(pngOf(500, 256));
+
+    let headerCalls = 0;
+    const withHeaders = makeClassifierEnv(() => {
+      headerCalls += 1;
+      if (headerCalls === 1) return FLAGGED;
+      throw new Error("provider down");
+    });
+    const pending: Promise<unknown>[] = [];
+    const waitUntil = (work: Promise<unknown>) => {
+      pending.push(work);
+    };
+    await putObject(withHeaders.env, withHeaders.ws, "images/flagged.png", png, WORKSPACE, {
+      metadata: { app: "web" },
+      waitUntil,
+    });
+    await Promise.all(pending);
+    pending.length = 0;
+    await putObject(withHeaders.env, withHeaders.ws, "images/flagged.png", changed, WORKSPACE, {
+      replace: true,
+      metadata: { path: "/redacted" },
+      waitUntil,
+    });
+    await Promise.all(pending);
+    const replaced = (
+      await getMetadataForKeys(withHeaders.env.DB, WORKSPACE, ["images/flagged.png"])
+    ).get("images/flagged.png");
+    expect(replaced?.["ai.secret"]).toBeUndefined();
+    expect(replaced?.["ai.rating"]).toBeUndefined();
+    expect(replaced?.["ai.pii"]).toBeUndefined();
+    expect(replaced?.["ai.content"]).toBeUndefined();
+    expect(replaced?.path).toBe("/redacted");
+    expect(replaced?.app).toBeUndefined();
+
+    let bareCalls = 0;
+    const bare = makeClassifierEnv(() => {
+      bareCalls += 1;
+      if (bareCalls === 1) return FLAGGED;
+      throw new Error("provider down");
+    });
+    pending.length = 0;
+    await putObject(bare.env, bare.ws, "images/flagged.png", png, WORKSPACE, {
+      metadata: { app: "web" },
+      waitUntil,
+    });
+    await Promise.all(pending);
+    pending.length = 0;
+    await putObject(bare.env, bare.ws, "images/flagged.png", changed, WORKSPACE, {
+      replace: true,
+      waitUntil,
+    });
+    await Promise.all(pending);
+    const left = (await getMetadataForKeys(bare.env.DB, WORKSPACE, ["images/flagged.png"])).get(
+      "images/flagged.png",
+    );
+    expect(left?.["ai.secret"]).toBeUndefined();
+    expect(left?.["ai.secret.confidence"]).toBeUndefined();
+    expect(left?.["ai.rating"]).toBeUndefined();
+    expect(left?.["ai.pii"]).toBeUndefined();
+    expect(left?.["ai.content"]).toBeUndefined();
+    expect(left?.app).toBe("web");
+  });
+
+  it("stores the new safety flags when different bytes are reclassified", async () => {
+    let calls = 0;
+    const { env, ws } = makeClassifierEnv(() => {
+      calls += 1;
+      if (calls === 1) return FLAGGED;
+      return {
+        answers: {
+          secret: jevAnswer("none", 0.93),
+          pii: jevAnswer("none", 0.91),
+          rating: jevAnswer("safe", 0.96),
+          content: jevAnswer("none", 0.94),
+        },
+      };
+    });
+    const pending: Promise<unknown>[] = [];
+    const waitUntil = (work: Promise<unknown>) => {
+      pending.push(work);
+    };
+    await putObject(env, ws, "images/flagged.png", atLeast(pngOf(400, 256)), WORKSPACE, {
+      waitUntil,
+    });
+    await Promise.all(pending);
+    pending.length = 0;
+    await putObject(env, ws, "images/flagged.png", atLeast(pngOf(500, 256)), WORKSPACE, {
+      replace: true,
+      metadata: { path: "/redacted" },
+      waitUntil,
+    });
+    await Promise.all(pending);
+
+    const stored = (await getMetadataForKeys(env.DB, WORKSPACE, ["images/flagged.png"])).get(
+      "images/flagged.png",
+    );
+    expect(stored?.["ai.secret"]).toBe("none");
+    expect(stored?.["ai.secret.confidence"]).toBe("high");
+    expect(stored?.["ai.pii"]).toBe("none");
+    expect(stored?.["ai.rating"]).toBe("safe");
+    expect(stored?.["ai.content"]).toBe("none");
+    expect(stored?.path).toBe("/redacted");
   });
 });

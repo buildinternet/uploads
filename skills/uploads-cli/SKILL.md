@@ -734,8 +734,8 @@ Read them with `uploads meta get <key>` or MCP `get_metadata`; filter with
 `uploads find ai.kind=screenshot`, `uploads find ai.screen=login`, or
 `uploads find ai.secret=api_key`. A name or an email in a header is not
 `ai.secret` and is not `ai.pii`. A stored flag stays until a later
-classification writes that key. Re-uploading the file does not clear it.
-Do not set `ai.*` yourself — the prefix is
+classification writes that key. Re-uploading identical bytes does not
+clear it. New bytes start fresh. Do not set `ai.*` yourself — the prefix is
 server-owned and the API rejects client writes. Labels are not in the put
 response; they land shortly after via `waitUntil`. Presigned uploads are
 not classified. See `docs/ops.md` (Experimental LLM file classifier).

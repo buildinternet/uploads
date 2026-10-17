@@ -1164,12 +1164,9 @@ while the flag is on, the same way the video backfill re-PUTs.
 a Flagship-allowlisted workspace can get server-owned `ai.kind`,
 `ai.surface`, `ai.screen`, and `ai.classifier` rows (`v5` when Jev sees the
 original bytes, `v6` when it sees a resized copy, `skipped` when the image
-was too small to classify). The same call also writes internal safety flags:
-`ai.rating`, `ai.content`, `ai.secret`, `ai.pii`, and a coarse
-`ai.<flag>.confidence` bucket for each one that lands. Those flags do not
-bump `ai.classifier`. `v4`, `v5`, `v6`, and `skipped` still name the pixel
-path (Luna, Jev original bytes, Jev resized, or no call). A file labeled
-before the flags existed simply lacks the keys. Agents read them with
+was too small to classify). The same call also writes internal safety flags
+(`ai.rating`, `ai.content`, `ai.secret`, `ai.pii`). Enums and confidence
+buckets are listed below. Agents read them with
 `uploads meta get <key>` or `GET …/files/:key?metadata=1`. Classifier
 errors never fail the upload. The labeler does not write `ai.tags` or
 `ai.summary`. Older rows may still have those keys. The safety flags are
@@ -1275,8 +1272,11 @@ rows. A thrown evaluation of `llm-file-classifier-luna` stays on Jev Latest.
 
 Jev reports a calibrated confidence per answer. An answer under **0.5**
 (`CLASSIFIER_MIN_CONFIDENCE`) omits its key, so a low-confidence `screen`
-drops while a confident `kind` still lands. The worker logs
-`classifier_decided` with the confidences and no file content.
+drops while a confident `kind` still lands. A stored safety answer also
+writes `ai.<flag>.confidence`: `high` at **0.85** or above, `medium` from
+**0.70** up to 0.85, and `low` from **0.50** up to 0.70. Kind, surface,
+and screen do not get a bucket. The worker logs `classifier_decided`
+with the confidences and no file content.
 
 Closed enums: `ai.kind` is `screenshot|photo|diagram|document|code|ui|other`.
 `ai.surface` is `mobile|desktop|tablet|unknown`. `ai.screen` is
@@ -1296,21 +1296,13 @@ Internal safety enums, on the same request:
   signed-in user's name or email that only appears in a header, nav, or
   account menu is `none`.
 
-Each stored safety answer also writes `ai.<flag>.confidence`:
-
-- `high` when confidence is **0.85** or above
-- `medium` from **0.70** up to 0.85
-- `low` from **0.50** (`CLASSIFIER_MIN_CONFIDENCE`) up to 0.70
-
-An answer under 0.50 omits both the value and the bucket. Kind, surface,
-and screen do not get a bucket key. A stored safety flag stays until a
-later classification writes that same key. A confident `none` replaces
-the old value. An answer under 0.50, a skip, a timeout, or a provider
-error leaves the previous flag in place. A re-upload that sends
-`X-Uploads-Meta-*` headers replaces the other metadata and keeps these
-eight rows. Jev Choice allows 2–255 options and
-does not cap the number of questions (the budget is tokens). This request
-asks seven questions. The largest enum is `screen`, at 16 options.
+When the bytes are unchanged, a stored flag stays until a later
+classification writes that key. A confident `none` replaces the old
+value. A miss leaves the previous flag. Re-uploading identical bytes
+does not clear it. New bytes start fresh. Jev Choice allows 2–255
+options and does not cap the number of questions (the budget is tokens).
+This request asks seven questions. The largest enum is `screen`, at 16
+options.
 
 Text excerpts are capped at 1,500 characters. Image bytes sent to the model
 are capped at 512 KiB after any resize. The call times out at 8s, and that

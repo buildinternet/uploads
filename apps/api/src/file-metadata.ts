@@ -63,18 +63,26 @@ export const SERVER_META_PREFIXES = ["video.", "image.", "pdf.", "ai."] as const
 
 /**
  * The four internal safety flags. Each stored answer also has
- * `ai.<field>.confidence`. Defined once so a metadata replace and the
- * classifier write the same rows.
+ * `ai.<field>.confidence`.
  */
 export const SAFETY_FLAG_FIELDS = ["rating", "content", "secret", "pii"] as const;
 
 /**
- * Rows a metadata replace must keep. An overwrite that carries
- * `X-Uploads-Meta-*` deletes every other row and inserts the new map.
- * These eight stay until a later classification writes them through
+ * The eight internal safety-flag rows. This is the lifetime rule.
+ *
+ * `putObject` reads the key's previous `file_content_hash` before
+ * replacing it. Identical bytes keep these rows: a metadata replace
+ * passes `keepSafetyFlags`, and a put with no metadata headers leaves
+ * them in place. New bytes, or no stored hash, delete the eight rows
+ * before classification is scheduled. A later classification that writes
+ * a value, including a confident `none`, replaces that key through
  * `setServerFileMetadata`. A run that omits a key leaves the previous
- * value. Other `ai.*` keys (kind, surface, screen, tags, summary) are
- * not in this set.
+ * value. Re-uploading identical bytes does not clear a flag. New bytes
+ * start fresh.
+ *
+ * These flags do not bump `ai.classifier`. `v4`, `v5`, `v6`, and
+ * `skipped` still name the pixel path. Other `ai.*` keys are not in
+ * this set. Object delete still removes the rows.
  */
 export const SAFETY_FLAG_KEYS: ReadonlySet<string> = new Set(
   SAFETY_FLAG_FIELDS.flatMap((field) => [`ai.${field}`, `ai.${field}.confidence`]),
@@ -541,39 +549,33 @@ export async function deleteFileMetadataForKeys(
 const SAFETY_FLAG_KEY_LIST = [...SAFETY_FLAG_KEYS];
 
 /**
- * Fully replaces an object's client metadata: validates `metadata` once
- * (there's no prior client state to merge against, so unlike
- * `setFileMetadata` there's nothing to re-read first), then deletes existing
- * rows and inserts the new set in a single `db.batch`. Used by `putObject`'s
- * full-replace-on-upload path.
- *
- * Safety-flag rows (`SAFETY_FLAG_KEYS`) are excluded from that delete. A
- * re-upload that carries `X-Uploads-Meta-*` must not clear `ai.rating`,
- * `ai.content`, `ai.secret`, `ai.pii`, or their `.confidence` keys. Only a
- * later classification, through `setServerFileMetadata`, can change them. A
- * run that omits a key leaves the previous value, including when the run
- * is skipped, fails, or times out. Other `ai.*` rows are replaced with the
- * rest of the map. The incoming map is client metadata, so
- * `validateMetadataEntries` already rejects `ai.*` in it. Object delete
- * (`deleteFileMetadata`) still removes the flags.
+ * Fully replaces an object's client metadata. See `SAFETY_FLAG_KEYS` for
+ * when `keepSafetyFlags` retains those rows. The incoming map is client
+ * metadata, so `validateMetadataEntries` already rejects `ai.*` in it.
  */
 export async function replaceFileMetadata(
   db: D1Queryable,
   workspace: string,
   objectKey: string,
   metadata: Record<string, string>,
+  opts?: { keepSafetyFlags?: boolean },
 ): Promise<void> {
   validateMetadataEntries(metadata);
 
   const now = new Date().toISOString();
   const keep = SAFETY_FLAG_KEY_LIST.map(() => "?").join(", ");
+  const deleteStmt = opts?.keepSafetyFlags
+    ? db
+        .prepare(
+          `DELETE FROM file_metadata
+           WHERE workspace = ? AND object_key = ? AND meta_key NOT IN (${keep})`,
+        )
+        .bind(workspace, objectKey, ...SAFETY_FLAG_KEY_LIST)
+    : db
+        .prepare(`DELETE FROM file_metadata WHERE workspace = ? AND object_key = ?`)
+        .bind(workspace, objectKey);
   const statements: D1PreparedStatement[] = [
-    db
-      .prepare(
-        `DELETE FROM file_metadata
-         WHERE workspace = ? AND object_key = ? AND meta_key NOT IN (${keep})`,
-      )
-      .bind(workspace, objectKey, ...SAFETY_FLAG_KEY_LIST),
+    deleteStmt,
     ...upsertStatements(db, workspace, objectKey, metadata, now),
   ];
   await db.batch(statements);
@@ -1227,12 +1229,7 @@ export async function getObjectUpdatedAt(
  * Upsert server-owned metadata without touching rows this call omits.
  * Deliberately not `replaceFileMetadata`: that deletes client rows, and this
  * runs *after* it on the upload path — a full replace here would wipe the
- * request's own custom metadata.
- *
- * Classification writes through here. A value in `metadata`, including a
- * confident `none`, overwrites the stored safety flag. A key this call does
- * not include stays as stored, so a run under the confidence floor, a skip,
- * a failure, or a timeout does not clear a previous flag.
+ * request's own custom metadata. Safety-flag lifetime is `SAFETY_FLAG_KEYS`.
  */
 export async function setServerFileMetadata(
   db: D1Queryable,

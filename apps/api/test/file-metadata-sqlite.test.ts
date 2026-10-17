@@ -318,7 +318,15 @@ describe("file metadata persistence against SQLite", () => {
         });
         await setFileMetadata(db, "alpha", "f/one.png", { app: "screenshots", page: "/old" });
 
-        await replaceFileMetadata(db, "alpha", "f/one.png", { path: "/settings" });
+        await replaceFileMetadata(
+          db,
+          "alpha",
+          "f/one.png",
+          { path: "/settings" },
+          {
+            keepSafetyFlags: true,
+          },
+        );
 
         const stored = await getFileMetadata(db, "alpha", "f/one.png");
         expect(stored.path).toBe("/settings");
@@ -335,6 +343,27 @@ describe("file metadata persistence against SQLite", () => {
         expect(stored["ai.pii"]).toBe("financial");
         expect(stored["ai.pii.confidence"]).toBe("medium");
         expect([...SAFETY_FLAG_KEYS].every((key) => stored[key] !== undefined)).toBe(true);
+      } finally {
+        sqlite.close();
+      }
+    });
+
+    it("drops safety flags when a replace does not ask to keep them", async () => {
+      const sqlite = new SqliteD1(MIGRATION);
+      try {
+        const db = database(sqlite);
+        await setServerFileMetadata(db, "alpha", "f/one.png", {
+          "ai.secret": "api_key",
+          "ai.secret.confidence": "high",
+          "ai.kind": "screenshot",
+        });
+        await setFileMetadata(db, "alpha", "f/one.png", { app: "screenshots" });
+
+        await replaceFileMetadata(db, "alpha", "f/one.png", { path: "/settings" });
+
+        await expect(getFileMetadata(db, "alpha", "f/one.png")).resolves.toEqual({
+          path: "/settings",
+        });
       } finally {
         sqlite.close();
       }

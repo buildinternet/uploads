@@ -316,7 +316,8 @@ or `low` (0.50 up to 0.70). Those flags do not bump the classifier version.
 `v4`, `v5`, `v6`, and `skipped` still name the pixel path. A low-confidence
 enum is omitted, and so is its confidence key. A stored safety flag stays
 until a later classification writes that key, including a confident `none`.
-A miss leaves the previous value. A re-upload does not clear it. The labeler does not write
+A miss leaves the previous value. Re-uploading identical bytes does not
+clear it. New bytes start fresh. The labeler does not write
 `ai.tags` or `ai.summary` (older rows may still have them). A Luna
 Decisions try writes `ai.classifier=v4` and the same enums. Luna does not
 receive the resized copy. A trivially small image is skipped before either
