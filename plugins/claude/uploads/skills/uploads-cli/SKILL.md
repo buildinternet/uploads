@@ -718,8 +718,10 @@ targeting context), a server-mediated put may later write `ai.kind`
 (`mobile|desktop|tablet|unknown`), `ai.screen`
 (`login|signup|settings|profile|dashboard|analytics|list|detail|form|search|modal|onboarding|empty|error|checkout|other`),
 and `ai.classifier=v5` (`v6` when the image was resized for Jev, `v4` when a
-Luna try is on, `skipped` with `ai.skip=small` when the image was too small
-to classify). The same call may also write internal `ai.rating`
+Luna try is on, `skipped` when the model does not see an image). `ai.skip`
+is `small`, `unsupported`, `resize_failed`, or `resize_timeout`. A skip
+writes no kind, surface, screen, or safety value. The same call may also
+write internal `ai.rating`
 (`safe|suggestive|explicit`), `ai.content`
 (`none|sexual|violence|gore|drugs|hate|self_harm|other`), `ai.secret`
 (`none|api_key|password|private_key|token|connection_string|other`), and
@@ -734,9 +736,10 @@ Read them with `uploads meta get <key>` or MCP `get_metadata`; filter with
 `uploads find ai.kind=screenshot`, `uploads find ai.screen=login`, or
 `uploads find ai.secret=api_key`. A name or an email in a header is not
 `ai.secret` and is not `ai.pii`. A stored flag stays until a later
-classification writes that key. Re-uploading identical bytes does not
-clear it. New bytes start fresh. Do not set `ai.*` yourself — the prefix is
-server-owned and the API rejects client writes. Labels are not in the put
+classification writes that key. A skip does not write a safety value.
+Re-uploading identical bytes does not clear a flag. New bytes start fresh,
+and a skip on those bytes leaves the flags clear. Do not set `ai.*`
+yourself — the prefix is server-owned and the API rejects client writes. Labels are not in the put
 response; they land shortly after via `waitUntil`. Presigned uploads are
 not classified. See `docs/ops.md` (Experimental LLM file classifier).
 

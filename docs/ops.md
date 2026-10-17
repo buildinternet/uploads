@@ -922,7 +922,7 @@ recommend removing.
 | `ANALYTICS_API_TOKEN`                                                          | api       | Same as above — without it the breakdown panel reports `not_configured` even if `ANALYTICS` itself is bound.                                                                                                                                                                                                                                                                                            |
 | `BROWSER`                                                                      | api       | `POST /v1/render` (CLI screenshot capture) answers 503 `renderer_unavailable`. Nothing else is affected.                                                                                                                                                                                                                                                                                                |
 | `MEDIA`                                                                        | api       | Video poster-frame generation is skipped; uploads still succeed, just without a generated poster image.                                                                                                                                                                                                                                                                                                 |
-| `IMAGES`                                                                       | api       | The file classifier cannot resize images into Jev's pixel window. Oversized PNG/JPEG and WebP/GIF/AVIF stay on the text-facts path. A PNG or JPEG that already fits is still sent.                                                                                                                                                                                                                      |
+| `IMAGES`                                                                       | api       | The file classifier cannot resize images into Jev's pixel window. Oversized PNG/JPEG and WebP/GIF/AVIF are skipped (`ai.skip=resize_failed`). A PNG or JPEG that already fits is still sent.                                                                                                                                                                                                            |
 | `FLAGS`                                                                        | api       | Every Flagship-gated feature evaluates to off (fails closed): poster generation, active-content uploads, the attachment index shadow, and the experimental LLM file classifier — same effect as never enabling them.                                                                                                                                                                                    |
 | `AI`                                                                           | api       | Weekly digest still sends. Without AI, the highlight is the newest screenshot instead of the one Jev picks from captions. The file classifier does not use this binding.                                                                                                                                                                                                                                |
 | `OPENROUTER_API_KEY`                                                           | api       | Experimental LLM file classifier is skipped; uploads still succeed without `ai.*` metadata. Set with `wrangler secret put OPENROUTER_API_KEY`.                                                                                                                                                                                                                                                          |
@@ -1163,8 +1163,8 @@ while the flag is on, the same way the video backfill re-PUTs.
 (`putObject` — REST `PUT /v1/:ws/files/:key`, not a presigned `POST /sign`),
 a Flagship-allowlisted workspace can get server-owned `ai.kind`,
 `ai.surface`, `ai.screen`, and `ai.classifier` rows (`v5` when Jev sees the
-original bytes, `v6` when it sees a resized copy, `skipped` when the image
-was too small to classify). The same call also writes internal safety flags
+original bytes, `v6` when it sees a resized copy, `skipped` when the model
+does not see an image). The same call also writes internal safety flags
 (`ai.rating`, `ai.content`, `ai.secret`, `ai.pii`). Enums and confidence
 buckets are listed below. Agents read them with
 `uploads meta get <key>` or `GET …/files/:key?metadata=1`. Classifier
@@ -1185,11 +1185,10 @@ Do not send this call through the Cloudflare AI Gateway. That gateway's
 request for `alpha/decisions` hits `/api/v1/alpha/decisions` and returns 404.
 OpenRouter's Decisions route is `/api/alpha/decisions`.
 
-The request `state` is an array. The first item is a short text fact list:
-filename, content type, byte size, pixel dimensions and aspect ratio when
-the header parses, a text excerpt for text files, and a note when the image
-bytes are left out. A second item carries the image when the model can take
-it:
+The request `state` is an array. The first item is a short fact list:
+filename, content type, byte size, and pixel dimensions and aspect ratio
+when the header parses. A second item carries the image. The model is not
+called without that image.
 
 ```json
 { "type": "image_url", "image_url": { "url": "data:image/png;base64,..." } }
@@ -1205,23 +1204,28 @@ PNG, JPEG, WebP, GIF, or AVIF that does not fit. The transform fits the
 longest side inside 1,568 pixels with `fit=scale-down`, so a small image is
 not enlarged. A PNG tries a PNG encode first, so UI text stays lossless when
 that copy is under 512 KiB. Otherwise the copy is a JPEG. GIF and AVIF
-become a still frame. Those rows are `ai.classifier=v6`. The text facts keep
+become a still frame. Those rows are `ai.classifier=v6`. The fact list keeps
 the original pixel size.
 
-An image that is still too small for Jev's window, but not trivial, stays
-on the text facts. Upscaling it would not add detail. That is a file of at
-least 2 KiB whose shorter side is at least 64 px and still under 256 px.
+A file with no image the provider can see is skipped. The worker writes
+`ai.classifier=skipped` and `ai.skip`, and no kind, surface, screen, or
+safety value. A previous kind, surface, or screen is removed. The reasons
+are:
 
-A trivially small image does not call the model, on Jev or on Luna. Either
-known side under 64 px, or an image file under 2 KiB, writes
-`ai.classifier=skipped` and `ai.skip=small`. A 64 px image of exactly 2 KiB
-still gets a call. Unknown dimensions use only the byte floor. A file of
-at least 2 KiB whose header does not parse still gets a call.
+- `small`. A trivially small image, on Jev or on Luna. Either known side
+  under 64 px, or an image file under 2 KiB. Unknown dimensions use only
+  the byte floor.
+- `unsupported`. The file cannot be sent as an image this provider accepts,
+  and a resize is not the way there. That includes a text file, an SVG, a
+  Jev image below the 256 px window (it is not upscaled), an extreme aspect
+  ratio, and a Luna file that is a GIF, AVIF, SVG, or over 512 KiB.
+- `resize_failed`. Jev needed a resize and did not get an image. A missing
+  `IMAGES` binding, an input over the binding's 20 MB ceiling, a transform
+  error, or an output that still cannot fit.
+- `resize_timeout`. The resize budget ran out.
 
-An SVG, a transform error, a missing `IMAGES` binding, an input over the
-binding's 20 MB ceiling, or an output that still cannot fit also stays on
-the text facts. The model can still answer from the filename and the
-dimensions.
+A 64 px image of exactly 2 KiB is not `small`. Jev skips it as
+`unsupported`. Luna still sees it, because Luna is not held to Jev's window.
 
 Decisions models only answer closed questions, so there is no describe step
 and no Llama vision call.
@@ -1231,12 +1235,12 @@ and no Llama vision call.
 `openai/gpt-6-luna-decisions` is a separate, opt-in provider on the same
 endpoint. It writes `ai.classifier=v4` and the same closed enums, at the
 same 0.5 confidence threshold. It accepts PNG, JPEG, and WebP, and it is
-not held to Jev's pixel window, so a large screenshot under 512 KiB can
-still be seen. It does not use the Images resize. Sending Luna a downscaled
-JPEG would hide the difference the try is there to measure. A Luna file
-over 512 KiB, or a GIF, AVIF, or SVG, stays text-only. A trivially small
-image is skipped before either provider runs, so Luna does not see a 1×1
-pixel either. It does not write `ai.tags` or `ai.summary`.
+not held to Jev's pixel window, so a screenshot under 512 KiB can still be
+seen. It does not use the Images resize. Sending Luna a downscaled JPEG
+would hide the difference the try is there to measure. A Luna file over
+512 KiB, or a GIF, AVIF, or SVG, is `ai.skip=unsupported`. A trivially
+small image is skipped before either provider runs, so Luna does not see a
+1×1 pixel either. It does not write `ai.tags` or `ai.summary`.
 
 Select it only on a workspace that already has `llm-file-classifier` on.
 Two switches, and an explicit `jev` pin wins over the flag:
@@ -1298,15 +1302,18 @@ Internal safety enums, on the same request:
 
 When the bytes are unchanged, a stored flag stays until a later
 classification writes that key. A confident `none` replaces the old
-value. A miss leaves the previous flag. Re-uploading identical bytes
-does not clear it. New bytes start fresh. Jev Choice allows 2–255
-options and does not cap the number of questions (the budget is tokens).
-This request asks seven questions. The largest enum is `screen`, at 16
-options.
+value. A miss leaves the previous flag. A skip writes no safety value,
+so it does not replace one and it does not restore one. Re-uploading
+identical bytes does not clear a flag. New bytes start fresh, and a skip
+on those bytes leaves the flags clear. Jev Choice allows 2–255 options
+and does not cap the number of questions (the budget is tokens). This
+request asks seven questions. The largest enum is `screen`, at 16 options.
 
-Text excerpts are capped at 1,500 characters. Image bytes sent to the model
-are capped at 512 KiB after any resize. The call times out at 8s, and that
-budget includes the resize.
+Image bytes sent to the model are capped at 512 KiB after any resize.
+The resize times out at 8s (`CLASSIFIER_RESIZE_TIMEOUT_MS`). The
+Decisions call times out at 8s (`CLASSIFIER_TIMEOUT_MS`). The two budgets
+are separate, so a slow resize cannot spend the model's time. A resize
+timeout writes `ai.skip=resize_timeout`. A model timeout writes nothing.
 
 ### Allowlist (Flagship is the control plane)
 

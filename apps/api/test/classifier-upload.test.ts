@@ -9,7 +9,10 @@ import {
   CLASSIFIER_RESIZED_VERSION,
   CLASSIFIER_SKIP_MIN_BYTES,
   CLASSIFIER_SKIP_MIN_EDGE,
+  CLASSIFIER_SKIP_RESIZE_FAILED,
+  CLASSIFIER_SKIP_RESIZE_TIMEOUT,
   CLASSIFIER_SKIP_SMALL,
+  CLASSIFIER_SKIP_UNSUPPORTED,
   CLASSIFIER_SKIPPED,
   CLASSIFIER_VERSION,
   type ClassifierResizeRequest,
@@ -72,6 +75,9 @@ function atLeast(bytes: Uint8Array, min = CLASSIFIER_SKIP_MIN_BYTES): Uint8Array
 
 /** PNG signature with no IHDR, large enough that the byte floor does not skip it. */
 const CLASSIFIABLE_PNG = atLeast(PNG);
+
+/** Inside Jev's window, so the model sees the original bytes. */
+const FITTING_PNG = atLeast(pngOf(400, 256));
 
 interface DecisionCall {
   url: string;
@@ -188,7 +194,7 @@ describe("classifier on upload", () => {
   it("writes server-owned ai.* metadata after one Decisions call", async () => {
     const { env, ws, calls } = makeClassifierEnv();
     const pending: Promise<unknown>[] = [];
-    const result = await putObject(env, ws, "images/pic.png", CLASSIFIABLE_PNG, WORKSPACE, {
+    const result = await putObject(env, ws, "images/pic.png", FITTING_PNG, WORKSPACE, {
       waitUntil: (p) => pending.push(p),
     });
     await Promise.all(pending);
@@ -216,8 +222,7 @@ describe("classifier on upload", () => {
       "pii",
     ]);
     expect(stateText(call)).toContain("filename: pic.png");
-    expect(stateText(call)).toContain("dimensions unknown");
-    expect(stateImage(call)).toBeUndefined();
+    expect(stateImage(call)?.type).toBe("image_url");
   });
 
   it("sends a fitting PNG as an image_url part and skips Workers AI", async () => {
@@ -257,7 +262,7 @@ describe("classifier on upload", () => {
   it("leaves the request's own custom metadata intact", async () => {
     const { env, ws } = makeClassifierEnv();
     const pending: Promise<unknown>[] = [];
-    const result = await putObject(env, ws, "images/pic.png", CLASSIFIABLE_PNG, WORKSPACE, {
+    const result = await putObject(env, ws, "images/pic.png", FITTING_PNG, WORKSPACE, {
       metadata: { path: "/settings", state: "after" },
       waitUntil: (p) => pending.push(p),
     });
@@ -274,7 +279,7 @@ describe("classifier on upload", () => {
       throw new Error("openrouter down");
     });
     const pending: Promise<unknown>[] = [];
-    const result = await putObject(env, ws, "images/pic.png", CLASSIFIABLE_PNG, WORKSPACE, {
+    const result = await putObject(env, ws, "images/pic.png", FITTING_PNG, WORKSPACE, {
       waitUntil: (p) => pending.push(p),
     });
     expect(result.key).toBe("images/pic.png");
@@ -299,7 +304,7 @@ describe("classifier on upload", () => {
       llmClassifierEnabled: undefined,
     });
     const pending: Promise<unknown>[] = [];
-    await putObject(env, ws, "images/pic.png", CLASSIFIABLE_PNG, WORKSPACE, {
+    await putObject(env, ws, "images/pic.png", FITTING_PNG, WORKSPACE, {
       waitUntil: (p) => pending.push(p),
     });
     await Promise.all(pending);
@@ -345,7 +350,7 @@ describe("classifyAndStore", () => {
       ws,
       WORKSPACE,
       "images/pic.png",
-      CLASSIFIABLE_PNG,
+      FITTING_PNG,
       "image/png",
     );
     expect(written?.["ai.kind"]).toBe("photo");
@@ -353,31 +358,64 @@ describe("classifyAndStore", () => {
     expect(written?.["ai.classifier"]).toBe("v5");
   });
 
-  it("sends a text file as facts with no image and writes no tags", async () => {
+  it("does not send a text-only request", async () => {
     const { env, ws, calls } = makeClassifierEnv();
     const bytes = new TextEncoder().encode("hello world\n");
     const written = await classifyAndStore(env, ws, WORKSPACE, "notes.txt", bytes, "text/plain");
-    expect(calls).toHaveLength(1);
-    expect(calls[0]?.body.model).toBe(CLASSIFIER_JEV_MODEL);
-    expect(calls[0]?.body.state).toHaveLength(1);
-    expect(stateText(calls[0])).toContain("hello world");
-    expect(written?.["ai.tags"]).toBeUndefined();
-    expect(written?.["ai.summary"]).toBeUndefined();
-    expect(written?.["ai.kind"]).toBe("screenshot");
+    expect(calls).toHaveLength(0);
+    expect(written).toEqual({
+      "ai.classifier": CLASSIFIER_SKIPPED,
+      "ai.skip": CLASSIFIER_SKIP_UNSUPPORTED,
+    });
+
+    const svg = atLeast(new TextEncoder().encode("<svg xmlns='http://www.w3.org/2000/svg'></svg>"));
+    const svgWritten = await classifyAndStore(env, ws, WORKSPACE, "icon.svg", svg, "image/svg+xml");
+    expect(svgWritten?.["ai.skip"]).toBe(CLASSIFIER_SKIP_UNSUPPORTED);
+    expect(svgWritten?.["ai.kind"]).toBeUndefined();
+    expect(svgWritten?.["ai.secret"]).toBeUndefined();
+
+    const luna = makeClassifierEnv(() => DECIDED, {}, { provider: "luna" });
+    const lunaText = await classifyAndStore(
+      luna.env,
+      luna.ws,
+      WORKSPACE,
+      "src/n.ts",
+      new TextEncoder().encode("export const n = 1;\n"),
+      "text/plain",
+    );
+    expect(lunaText?.["ai.skip"]).toBe(CLASSIFIER_SKIP_UNSUPPORTED);
+    const big = new Uint8Array(CLASSIFIER_MAX_IMAGE_BYTES + 1);
+    const lunaBig = await classifyAndStore(
+      luna.env,
+      luna.ws,
+      WORKSPACE,
+      "huge.png",
+      big,
+      "image/png",
+    );
+    expect(lunaBig).toEqual({
+      "ai.classifier": CLASSIFIER_SKIPPED,
+      "ai.skip": CLASSIFIER_SKIP_UNSUPPORTED,
+    });
+    expect(calls).toHaveLength(0);
+    expect(luna.calls).toHaveLength(0);
   });
 
-  it("leaves an oversized or out-of-window image off the request", async () => {
+  it("skips when a resize is required and the binding is missing", async () => {
     const { env, ws, calls } = makeClassifierEnv();
     const big = new Uint8Array(CLASSIFIER_MAX_IMAGE_BYTES + 1);
-    await classifyAndStore(env, ws, WORKSPACE, "huge.png", big, "image/png");
-    expect(stateImage(calls[0])).toBeUndefined();
-    expect(stateText(calls[0])).toContain("image skipped");
+    const oversized = await classifyAndStore(env, ws, WORKSPACE, "huge.png", big, "image/png");
+    expect(oversized).toEqual({
+      "ai.classifier": CLASSIFIER_SKIPPED,
+      "ai.skip": CLASSIFIER_SKIP_RESIZE_FAILED,
+    });
 
     const wide = atLeast(pngOf(1600, 900));
-    await classifyAndStore(env, ws, WORKSPACE, "wide.png", wide, "image/png");
-    expect(stateImage(calls[1])).toBeUndefined();
-    expect(stateText(calls[1])).toContain("transform unavailable");
-    expect(stateText(calls[1])).toContain("image_width: 1600");
+    const wideWritten = await classifyAndStore(env, ws, WORKSPACE, "wide.png", wide, "image/png");
+    expect(wideWritten?.["ai.skip"]).toBe(CLASSIFIER_SKIP_RESIZE_FAILED);
+    expect(wideWritten?.["ai.kind"]).toBeUndefined();
+    expect(wideWritten?.["ai.rating"]).toBeUndefined();
+    expect(calls).toHaveLength(0);
   });
 
   it("writes nothing when the decision model returns unusable output", async () => {
@@ -387,7 +425,7 @@ describe("classifyAndStore", () => {
       ws,
       WORKSPACE,
       "images/pic.png",
-      CLASSIFIABLE_PNG,
+      FITTING_PNG,
       "image/png",
     );
     expect(written).toBeUndefined();
@@ -403,7 +441,7 @@ describe("classifyAndStore", () => {
       ws,
       WORKSPACE,
       "images/pic.png",
-      CLASSIFIABLE_PNG,
+      FITTING_PNG,
       "image/png",
       {
         timeoutMs: 20,
@@ -421,7 +459,7 @@ describe("classifyAndStore", () => {
       ws,
       WORKSPACE,
       "images/pic.png",
-      CLASSIFIABLE_PNG,
+      FITTING_PNG,
       "image/png",
       {
         run: async () => {
@@ -459,10 +497,38 @@ describe("classifyAndStore", () => {
       ws,
       WORKSPACE,
       "images/pic.png",
-      CLASSIFIABLE_PNG,
+      FITTING_PNG,
       "image/png",
     );
     expect(written).toBeUndefined();
+  });
+
+  it("aborts a hung model call after the resize has finished", async () => {
+    const transform = recordingTransform(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      return pngOf(1568, 980);
+    });
+    const { env, ws, calls, wasAborted } = makeClassifierEnv(
+      () => DECIDED,
+      {},
+      { hangUntilAbort: true },
+    );
+    const started = Date.now();
+    const written = await classifyAndStore(
+      env,
+      ws,
+      WORKSPACE,
+      "shots/retina.png",
+      atLeast(pngOf(2880, 1800)),
+      "image/png",
+      { transform, resizeTimeoutMs: 500, timeoutMs: 30 },
+    );
+    expect(transform.calls).toHaveLength(1);
+    expect(calls).toHaveLength(1);
+    expect(stateImage(calls[0])?.type).toBe("image_url");
+    expect(written).toBeUndefined();
+    expect(wasAborted()).toBe(true);
+    expect(Date.now() - started).toBeLessThan(1000);
   });
 });
 
@@ -486,7 +552,9 @@ function gifOf(width: number, height: number): Uint8Array {
   return bytes;
 }
 
-function recordingTransform(outputFor: (request: ClassifierResizeRequest) => Uint8Array): {
+function recordingTransform(
+  outputFor: (request: ClassifierResizeRequest) => Uint8Array | Promise<Uint8Array>,
+): {
   resize: (bytes: Uint8Array, request: ClassifierResizeRequest) => Promise<Uint8Array>;
   calls: ClassifierResizeRequest[];
 } {
@@ -546,10 +614,11 @@ describe("classifier image resize", () => {
       { transform },
     );
     expect(transform.calls).toHaveLength(0);
-    expect(stateImage(calls[0])).toBeUndefined();
-    expect(stateText(calls[0])).toContain("below jev pixel limits");
-    expect(stateText(calls[0])).toContain("image_width: 100");
-    expect(written?.["ai.classifier"]).toBe(CLASSIFIER_VERSION);
+    expect(calls).toHaveLength(0);
+    expect(written).toEqual({
+      "ai.classifier": CLASSIFIER_SKIPPED,
+      "ai.skip": CLASSIFIER_SKIP_UNSUPPORTED,
+    });
   });
 
   it("sends a WebP as a JPEG still", async () => {
@@ -623,7 +692,7 @@ describe("classifier image resize", () => {
     expect(stateImage(calls[0])?.image_url?.url?.startsWith("data:image/jpeg;base64,")).toBe(true);
   });
 
-  it("keeps classifying from text facts when the transform fails", async () => {
+  it("skips when the resize throws", async () => {
     const transform = recordingTransform(() => {
       throw new Error("images down");
     });
@@ -637,12 +706,34 @@ describe("classifier image resize", () => {
       "image/png",
       { transform },
     );
-    expect(calls).toHaveLength(1);
-    expect(stateImage(calls[0])).toBeUndefined();
-    expect(stateText(calls[0])).toContain("transform failed");
-    expect(stateText(calls[0])).toContain("image_width: 2880");
-    expect(written?.["ai.classifier"]).toBe(CLASSIFIER_VERSION);
-    expect(written?.["ai.kind"]).toBe("screenshot");
+    expect(calls).toHaveLength(0);
+    expect(written).toEqual({
+      "ai.classifier": CLASSIFIER_SKIPPED,
+      "ai.skip": CLASSIFIER_SKIP_RESIZE_FAILED,
+    });
+  });
+
+  it("skips with resize_timeout when the resize hangs", async () => {
+    const transform = recordingTransform(() => new Promise<Uint8Array>(() => {}));
+    const { env, ws, calls } = makeClassifierEnv();
+    const started = Date.now();
+    const written = await classifyAndStore(
+      env,
+      ws,
+      WORKSPACE,
+      "shots/retina.png",
+      atLeast(pngOf(2880, 1800)),
+      "image/png",
+      { transform, resizeTimeoutMs: 20 },
+    );
+    expect(calls).toHaveLength(0);
+    expect(written).toEqual({
+      "ai.classifier": CLASSIFIER_SKIPPED,
+      "ai.skip": CLASSIFIER_SKIP_RESIZE_TIMEOUT,
+    });
+    expect(written?.["ai.kind"]).toBeUndefined();
+    expect(written?.["ai.secret"]).toBeUndefined();
+    expect(Date.now() - started).toBeLessThan(1000);
   });
 
   it("uses env.IMAGES when no transform override is passed", async () => {
@@ -728,25 +819,21 @@ describe("luna decisions provider", () => {
     expect(meta?.["ai.summary"]).toBeUndefined();
   });
 
-  it("classifies a text file from the excerpt and sends no image", async () => {
+  it("skips a text file and an oversized image", async () => {
     const { env, ws, calls } = lunaBase();
     const bytes = new TextEncoder().encode("export const n = 1;\n");
-    const written = await classifyAndStore(env, ws, WORKSPACE, "src/n.ts", bytes, "text/plain");
-    expect(calls).toHaveLength(1);
-    expect(calls[0]?.body.state).toHaveLength(1);
-    expect(stateText(calls[0])).toContain("export const n");
-    expect(written?.["ai.classifier"]).toBe(CLASSIFIER_LUNA_VERSION);
-    expect(written?.["ai.kind"]).toBe("screenshot");
-    expect(written?.["ai.tags"]).toBeUndefined();
-  });
-
-  it("does not attach an oversized image", async () => {
-    const { env, ws, calls } = lunaBase();
+    const text = await classifyAndStore(env, ws, WORKSPACE, "src/n.ts", bytes, "text/plain");
     const big = new Uint8Array(CLASSIFIER_MAX_IMAGE_BYTES + 1);
-    const written = await classifyAndStore(env, ws, WORKSPACE, "huge.png", big, "image/png");
-    expect(stateImage(calls[0])).toBeUndefined();
-    expect(stateText(calls[0])).toContain("image skipped");
-    expect(written?.["ai.classifier"]).toBe(CLASSIFIER_LUNA_VERSION);
+    const oversized = await classifyAndStore(env, ws, WORKSPACE, "huge.png", big, "image/png");
+    expect(calls).toHaveLength(0);
+    expect(text).toEqual({
+      "ai.classifier": CLASSIFIER_SKIPPED,
+      "ai.skip": CLASSIFIER_SKIP_UNSUPPORTED,
+    });
+    expect(oversized).toEqual({
+      "ai.classifier": CLASSIFIER_SKIPPED,
+      "ai.skip": CLASSIFIER_SKIP_UNSUPPORTED,
+    });
   });
 
   it("does not resize a large screenshot for luna", async () => {
@@ -780,9 +867,9 @@ describe("luna decisions provider", () => {
       env,
       ws,
       WORKSPACE,
-      "notes.txt",
-      new TextEncoder().encode("hi\n"),
-      "text/plain",
+      "images/pic.png",
+      FITTING_PNG,
+      "image/png",
     );
     expect(calls).toHaveLength(1);
     expect(calls[0]?.body.model).toBe(CLASSIFIER_LUNA_MODEL);
@@ -840,20 +927,19 @@ describe("trivial image skip", () => {
     });
   });
 
-  it("classifies a 64 px image of exactly 2 KiB", async () => {
+  it("skips a 64 px image that cannot enter Jev's window", async () => {
     const icon = atLeast(pngOf(CLASSIFIER_SKIP_MIN_EDGE, CLASSIFIER_SKIP_MIN_EDGE));
     expect(icon.byteLength).toBe(CLASSIFIER_SKIP_MIN_BYTES);
     const { env, ws, calls } = makeClassifierEnv();
     const written = await classifyAndStore(env, ws, WORKSPACE, "icons/app.png", icon, "image/png");
-    expect(calls).toHaveLength(1);
-    expect(stateImage(calls[0])).toBeUndefined();
-    expect(stateText(calls[0])).toContain("below jev pixel limits");
-    expect(stateText(calls[0])).toContain("image_width: 64");
-    expect(written?.["ai.classifier"]).toBe(CLASSIFIER_VERSION);
-    expect(written?.["ai.skip"]).toBeUndefined();
+    expect(calls).toHaveLength(0);
+    expect(written).toEqual({
+      "ai.classifier": CLASSIFIER_SKIPPED,
+      "ai.skip": CLASSIFIER_SKIP_UNSUPPORTED,
+    });
   });
 
-  it("skips unknown dimensions under 2 KiB and classifies a file at 2 KiB", async () => {
+  it("skips unknown dimensions under 2 KiB, and skips a larger unmeasured file", async () => {
     const tiny = makeClassifierEnv();
     const skipped = await classifyAndStore(
       tiny.env,
@@ -879,11 +965,11 @@ describe("trivial image skip", () => {
       "image/png",
     );
     expect(CLASSIFIABLE_PNG.byteLength).toBe(CLASSIFIER_SKIP_MIN_BYTES);
-    expect(calls).toHaveLength(1);
-    expect(stateText(calls[0])).toContain("dimensions unknown");
-    expect(stateImage(calls[0])).toBeUndefined();
-    expect(written?.["ai.classifier"]).toBe(CLASSIFIER_VERSION);
-    expect(written?.["ai.skip"]).toBeUndefined();
+    expect(calls).toHaveLength(0);
+    expect(written).toEqual({
+      "ai.classifier": CLASSIFIER_SKIPPED,
+      "ai.skip": CLASSIFIER_SKIP_RESIZE_FAILED,
+    });
   });
 
   it("stores the skip marker on the uploaded file", async () => {
@@ -955,9 +1041,9 @@ describe("safety flags", () => {
       env,
       ws,
       WORKSPACE,
-      "notes/creds.txt",
-      new TextEncoder().encode("password = hunter2\n"),
-      "text/plain",
+      "images/creds.png",
+      FITTING_PNG,
+      "image/png",
     );
     expect(calls).toHaveLength(1);
     expect(calls[0]?.body.model).toBe(CLASSIFIER_LUNA_MODEL);
@@ -1105,5 +1191,47 @@ describe("safety flags", () => {
     expect(stored?.["ai.rating"]).toBe("safe");
     expect(stored?.["ai.content"]).toBe("none");
     expect(stored?.path).toBe("/redacted");
+  });
+
+  it("leaves safety flags cleared when new bytes are skipped", async () => {
+    const png = atLeast(pngOf(400, 256));
+    const skipped = atLeast(pngOf(100, 100));
+
+    const withHeaders = makeClassifierEnv(() => FLAGGED);
+    await putFlagged(withHeaders, png, { metadata: { app: "web" } });
+    await putFlagged(withHeaders, skipped, { replace: true, metadata: { path: "/icon" } });
+    const replaced = (
+      await getMetadataForKeys(withHeaders.env.DB, WORKSPACE, ["images/flagged.png"])
+    ).get("images/flagged.png");
+    expect(withHeaders.calls).toHaveLength(1);
+    expect(replaced?.["ai.classifier"]).toBe(CLASSIFIER_SKIPPED);
+    expect(replaced?.["ai.skip"]).toBe(CLASSIFIER_SKIP_UNSUPPORTED);
+    expect(replaced?.["ai.kind"]).toBeUndefined();
+    expect(replaced?.["ai.surface"]).toBeUndefined();
+    expect(replaced?.["ai.screen"]).toBeUndefined();
+    expect(replaced?.["ai.secret"]).toBeUndefined();
+    expect(replaced?.["ai.rating"]).toBeUndefined();
+    expect(replaced?.["ai.content"]).toBeUndefined();
+    expect(replaced?.["ai.pii"]).toBeUndefined();
+    expect(replaced?.path).toBe("/icon");
+
+    const bare = makeClassifierEnv(() => FLAGGED);
+    await putFlagged(bare, png, { metadata: { app: "web" } });
+    await putFlagged(bare, skipped, { replace: true });
+    const left = (await getMetadataForKeys(bare.env.DB, WORKSPACE, ["images/flagged.png"])).get(
+      "images/flagged.png",
+    );
+    expect(bare.calls).toHaveLength(1);
+    expect(left?.["ai.classifier"]).toBe(CLASSIFIER_SKIPPED);
+    expect(left?.["ai.skip"]).toBe(CLASSIFIER_SKIP_UNSUPPORTED);
+    expect(left?.["ai.kind"]).toBeUndefined();
+    expect(left?.["ai.surface"]).toBeUndefined();
+    expect(left?.["ai.screen"]).toBeUndefined();
+    expect(left?.["ai.secret"]).toBeUndefined();
+    expect(left?.["ai.secret.confidence"]).toBeUndefined();
+    expect(left?.["ai.rating"]).toBeUndefined();
+    expect(left?.["ai.content"]).toBeUndefined();
+    expect(left?.["ai.pii"]).toBeUndefined();
+    expect(left?.app).toBe("web");
   });
 });
