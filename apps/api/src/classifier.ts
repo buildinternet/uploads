@@ -17,18 +17,32 @@
  * free text, so this path does not write `ai.tags` or `ai.summary`.
  *
  * Default model is the OpenRouter alias `~typesafe/jev-latest`. A raster
- * PNG or JPEG that fits Jev's pixel window goes in `state` as an
- * `image_url` part, next to a short text fact list. Anything Jev cannot
- * take (other types, unknown dimensions, images outside that window, files
- * over the byte cap) still gets the text facts, including pixel dimensions
- * when the header parses, and no image bytes.
+ * PNG or JPEG that already fits Jev's pixel window and the byte cap goes
+ * in `state` as an `image_url` part (`ai.classifier=v5`), next to a short
+ * text fact list. A PNG, JPEG, WebP, GIF, or AVIF that does not fit is
+ * scaled with the Images binding (`env.IMAGES`) into that window first
+ * (`ai.classifier=v6`). The text facts keep the original dimensions.
+ * Anything the transform cannot produce (SVG, an image below Jev's window
+ * that is still large enough to be worth a look, a thrown transform, a
+ * missing binding) still gets the text facts and no image bytes.
+ *
+ * A trivially small image never calls the model, on Jev or Luna. Either
+ * known side under 64 px, or an image file under 2 KiB, writes
+ * `ai.classifier=skipped` and `ai.skip=small` and returns. That is smaller
+ * than a screenshot and smaller than Jev's 256 px floor. A 64 px icon that
+ * is also at least 2 KiB still gets a call. Unknown dimensions do not count
+ * as small: only the byte floor applies then.
+ *
+ * Images below Jev's window are not upscaled. `fit=scale-down` matches the
+ * thumbnail transform, and enlarging an icon would not add detail Jev
+ * could read.
  *
  * Optional Luna path (`ai.classifier=v4`): `CLASSIFIER_PROVIDER=luna` or
  * Flagship `llm-file-classifier-luna` (default off) selects
- * `openai/gpt-6-luna-decisions` on the same endpoint. Luna accepts WebP
- * and is not held to Jev's pixel window, so a large screenshot can still
- * be seen when the flag is on. Unset provider and a flag that is off stay
- * on Jev Latest.
+ * `openai/gpt-6-luna-decisions` on the same endpoint. Luna does not use
+ * the resize. It accepts WebP and is not held to Jev's pixel window, so
+ * a large screenshot under the byte cap can still be seen when the flag
+ * is on. Unset provider and a flag that is off stay on Jev Latest.
  *
  * Both providers `POST https://openrouter.ai/api/alpha/decisions` with
  * `OPENROUTER_API_KEY`. The Cloudflare AI Gateway `openrouter` provider is
@@ -53,16 +67,48 @@ export const CLASSIFIER_FLAG = "llm-file-classifier";
 export const CLASSIFIER_LUNA_FLAG = "llm-file-classifier-luna";
 
 /**
- * Written to `ai.classifier` on the Jev Latest path. `v3` was the
- * Llama-describe plus Workers AI Jev hybrid, which did not send pixels.
+ * Written to `ai.classifier` on the Jev Latest path when the original
+ * bytes are sent. `v3` was the Llama-describe plus Workers AI Jev hybrid,
+ * which did not send pixels. `v6` is the resized path.
  */
 export const CLASSIFIER_VERSION = "v5";
+
+/**
+ * Written to `ai.classifier` when the bytes sent to Jev came from the
+ * Images binding (a downscale, a recompress, or a WebP/GIF/AVIF still).
+ * Distinct from `v5` so a resized row is recognizable.
+ */
+export const CLASSIFIER_RESIZED_VERSION = "v6";
 
 /**
  * Written to `ai.classifier` when Luna Decisions runs, so a try is distinct
  * from Jev Latest in stored metadata.
  */
 export const CLASSIFIER_LUNA_VERSION = "v4";
+
+/**
+ * Written to `ai.classifier` when the model is not called. Distinct from
+ * `v4`/`v5`/`v6`, which mean a Decisions call ran. Paired with `ai.skip`.
+ */
+export const CLASSIFIER_SKIPPED = "skipped";
+
+/** Written to `ai.skip` when the image is too small to be worth a call. */
+export const CLASSIFIER_SKIP_SMALL = "small";
+
+/**
+ * Either known edge below this skips the model. 64 px is a common icon
+ * size and is well under Jev's 256 px minimum, so the pixels cannot be a
+ * screenshot Jev could read. The edge is exclusive: 64 px still classifies
+ * when the file is also large enough.
+ */
+export const CLASSIFIER_SKIP_MIN_EDGE = 64;
+
+/**
+ * Image files under this many bytes skip the model. 2 KiB. A tracking
+ * pixel and a tiny icon sit under it. A screenshot does not. A file of
+ * exactly this size still classifies.
+ */
+export const CLASSIFIER_SKIP_MIN_BYTES = 2 * 1024;
 
 /**
  * Workers AI catalog id for weekly-digest curation. File classification
@@ -95,6 +141,20 @@ export type ClassifierProvider = (typeof CLASSIFIER_PROVIDERS)[number];
 /** Skip image bytes above this — cost and request-size cap. */
 export const CLASSIFIER_MAX_IMAGE_BYTES = 512 * 1024;
 
+/**
+ * Images binding input ceiling (`input()` accepts up to 20 MB). A larger
+ * file stays on the text facts instead of throwing inside the binding.
+ */
+export const CLASSIFIER_TRANSFORM_MAX_INPUT_BYTES = 20 * 1024 * 1024;
+
+/**
+ * JPEG qualities for a classifier copy, tried in order. 82 matches the
+ * thumbnail transform (`thumb-url.ts`). 60 is the retry when 82 is still
+ * over the byte cap. A PNG upload tries a PNG encode first, so UI text
+ * stays lossless when the result fits.
+ */
+export const CLASSIFIER_JPEG_QUALITIES = [82, 60] as const;
+
 /** Max characters of a text file sent to the model. */
 export const CLASSIFIER_MAX_TEXT_CHARS = 1500;
 
@@ -122,6 +182,7 @@ export const CLASSIFIER_META_KEYS = [
   "ai.surface",
   "ai.screen",
   "ai.classifier",
+  "ai.skip",
 ] as const;
 
 /** Jev reads PNG and JPEG only. Luna also reads WebP. GIF, AVIF, and SVG stay text-only. */
@@ -312,6 +373,41 @@ export function jevAcceptsDimensions(width: number, height: number): boolean {
 }
 
 /**
+ * Size of `width`×`height` after `fit=scale-down` into the 1,568 px box.
+ * Returns undefined when that copy still cannot enter Jev's window: the
+ * source is too small to upscale (we do not enlarge), or the aspect ratio
+ * is too extreme to keep both edges inside the window.
+ */
+export function jevScaleDownFit(
+  width: number,
+  height: number,
+): { width: number; height: number } | undefined {
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width < 1 || height < 1) {
+    return undefined;
+  }
+  const scale = Math.min(1, JEV_MAX_IMAGE_EDGE / width, JEV_MAX_IMAGE_EDGE / height);
+  const fittedWidth = Math.min(JEV_MAX_IMAGE_EDGE, Math.max(1, Math.round(width * scale)));
+  const fittedHeight = Math.min(JEV_MAX_IMAGE_EDGE, Math.max(1, Math.round(height * scale)));
+  if (!jevAcceptsDimensions(fittedWidth, fittedHeight)) return undefined;
+  return { width: fittedWidth, height: fittedHeight };
+}
+
+/**
+ * Why a measured image cannot be scaled down into the window. A source
+ * that is already inside the max box is too small. Anything else is too
+ * large or too extreme to fit without cropping or upscaling.
+ */
+export function jevUnfittableNote(width: number, height: number): string {
+  const withinMax =
+    width <= JEV_MAX_IMAGE_EDGE &&
+    height <= JEV_MAX_IMAGE_EDGE &&
+    width * height <= JEV_MAX_IMAGE_PIXELS;
+  return withinMax
+    ? "image skipped: below jev pixel limits"
+    : "image skipped: outside jev pixel limits";
+}
+
+/**
  * The text-only facts the decision sees. Pixel dimensions come from the
  * image header, so aspect ratio is available even when the pixels are not
  * attached.
@@ -342,6 +438,24 @@ export function buildClassifierState(
   }
 
   return state;
+}
+
+/**
+ * Why this image should not call the model, or undefined when it should.
+ * Images only: a short text file still gets a call. Unknown dimensions do
+ * not count as a short edge. The byte floor still applies to them, so a
+ * 1×1 file whose header we cannot read is skipped, and a large unmeasured
+ * image is not.
+ */
+export function trivialImageSkip(contentType: string, bytes: Uint8Array): string | undefined {
+  if (uploadKind(contentType) !== "image") return undefined;
+  if (bytes.byteLength < CLASSIFIER_SKIP_MIN_BYTES) return CLASSIFIER_SKIP_SMALL;
+  const dims = detectImageDimensions(bytes, contentType);
+  if (!dims) return undefined;
+  if (dims.width < CLASSIFIER_SKIP_MIN_EDGE || dims.height < CLASSIFIER_SKIP_MIN_EDGE) {
+    return CLASSIFIER_SKIP_SMALL;
+  }
+  return undefined;
 }
 
 /** Within 5% of square counts as square; the rest is a plain comparison. */
@@ -424,6 +538,202 @@ export function applyDecisionImage(
   const decision = buildDecisionImage(provider, contentType, bytes);
   if (decision.note && !state.note) state.note = decision.note;
   return decision.image;
+}
+
+/** Formats the Images binding can turn into a PNG or JPEG Jev will accept. */
+const JEV_TRANSFORM_TYPES = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+  "image/gif",
+  "image/avif",
+]);
+
+/** One encode attempt. The binding wrapper turns this into `transform` + `output`. */
+export interface ClassifierResizeRequest {
+  width: number;
+  height: number;
+  fit: "scale-down";
+  format: "image/jpeg" | "image/png";
+  quality?: number;
+}
+
+/**
+ * Seam around `env.IMAGES`. The binding has a local subset and no Miniflare
+ * fake that returns classifier-sized bytes, so tests pass their own.
+ */
+export interface ClassifierImageTransform {
+  resize(bytes: Uint8Array, request: ClassifierResizeRequest): Promise<Uint8Array>;
+}
+
+/** Result of choosing the image part for one Decisions call. */
+export interface PreparedClassifierImage {
+  image?: DecisionImagePart;
+  note?: string;
+  /** True when `image` was produced by the Images binding rather than the upload. */
+  resized: boolean;
+}
+
+/**
+ * Encode ladder for one source. A PNG tries a lossless encode first so
+ * screenshot text stays sharp when the result fits under the byte cap.
+ * Every other transformable type becomes a JPEG. The box is the whole
+ * Jev window; `scale-down` never enlarges.
+ */
+export function classifierResizeAttempts(contentType: string): ClassifierResizeRequest[] {
+  const box = {
+    width: JEV_MAX_IMAGE_EDGE,
+    height: JEV_MAX_IMAGE_EDGE,
+    fit: "scale-down" as const,
+  };
+  const attempts: ClassifierResizeRequest[] = [];
+  if (contentType === "image/png") attempts.push({ ...box, format: "image/png" });
+  for (const quality of CLASSIFIER_JPEG_QUALITIES) {
+    attempts.push({ ...box, format: "image/jpeg", quality });
+  }
+  return attempts;
+}
+
+type EncodedForJev =
+  | {
+      ok: true;
+      bytes: Uint8Array;
+      contentType: "image/png" | "image/jpeg";
+      width: number;
+      height: number;
+    }
+  | { ok: false; reason: "over_cap" | "invalid" | "unfittable"; width?: number; height?: number };
+
+/**
+ * Run the encode ladder. A copy whose pixel size cannot enter the window
+ * stops the ladder (a lower JPEG quality will not change that). A copy
+ * that is only too large tries the next quality.
+ */
+export async function encodeForJevWindow(
+  transform: ClassifierImageTransform,
+  bytes: Uint8Array,
+  contentType: string,
+  signal?: AbortSignal,
+): Promise<EncodedForJev> {
+  let sawOverCap = false;
+  for (const attempt of classifierResizeAttempts(contentType)) {
+    if (signal?.aborted) throw new Error("classifier timed out");
+    const out = await transform.resize(bytes, attempt);
+    if (signal?.aborted) throw new Error("classifier timed out");
+    const dims = detectImageDimensions(out, attempt.format);
+    if (!dims || out.byteLength === 0) continue;
+    if (!jevAcceptsDimensions(dims.width, dims.height)) {
+      return { ok: false, reason: "unfittable", width: dims.width, height: dims.height };
+    }
+    if (out.byteLength > CLASSIFIER_MAX_IMAGE_BYTES) {
+      sawOverCap = true;
+      continue;
+    }
+    return {
+      ok: true,
+      bytes: out,
+      contentType: attempt.format,
+      width: dims.width,
+      height: dims.height,
+    };
+  }
+  return sawOverCap ? { ok: false, reason: "over_cap" } : { ok: false, reason: "invalid" };
+}
+
+/**
+ * Image part for this provider. Jev may resize first. Luna never does: the
+ * try is there to see the original pixels, including WebP and sizes outside
+ * Jev's window. A missing transform leaves Jev on the text facts.
+ */
+export async function prepareClassifierImage(
+  provider: ClassifierProvider,
+  contentType: string,
+  bytes: Uint8Array,
+  transform?: ClassifierImageTransform,
+  signal?: AbortSignal,
+): Promise<PreparedClassifierImage> {
+  if (provider !== "jev") {
+    const decision = buildDecisionImage(provider, contentType, bytes);
+    return { image: decision.image, note: decision.note, resized: false };
+  }
+
+  const direct = buildDecisionImage("jev", contentType, bytes);
+  if (direct.image) return { image: direct.image, resized: false };
+  if (!JEV_TRANSFORM_TYPES.has(contentType) || bytes.byteLength === 0) {
+    return { note: direct.note, resized: false };
+  }
+
+  const dims = detectImageDimensions(bytes, contentType);
+  if (dims && !jevScaleDownFit(dims.width, dims.height)) {
+    return { note: jevUnfittableNote(dims.width, dims.height), resized: false };
+  }
+  if (bytes.byteLength > CLASSIFIER_TRANSFORM_MAX_INPUT_BYTES) {
+    return { note: "image skipped: image too large to transform", resized: false };
+  }
+  if (!transform) {
+    // A PNG or JPEG whose header we cannot measure is not a missed resize.
+    if (!dims && direct.note === "image skipped: dimensions unknown") {
+      return { note: direct.note, resized: false };
+    }
+    return { note: "image skipped: transform unavailable", resized: false };
+  }
+
+  try {
+    const encoded = await encodeForJevWindow(transform, bytes, contentType, signal);
+    if (!encoded.ok) {
+      if (encoded.reason === "unfittable" && encoded.width && encoded.height) {
+        return { note: jevUnfittableNote(encoded.width, encoded.height), resized: false };
+      }
+      if (encoded.reason === "over_cap") {
+        return {
+          note: `image skipped: transformed image over ${CLASSIFIER_MAX_IMAGE_BYTES} bytes`,
+          resized: false,
+        };
+      }
+      return { note: "image skipped: transform failed", resized: false };
+    }
+    const decision = buildDecisionImage("jev", encoded.contentType, encoded.bytes);
+    if (!decision.image) {
+      return { note: decision.note ?? "image skipped: transform failed", resized: false };
+    }
+    const label = encoded.contentType === "image/png" ? "png" : "jpeg";
+    return {
+      image: decision.image,
+      resized: true,
+      note: `image prepared for classification: ${encoded.width}x${encoded.height} ${label}`,
+    };
+  } catch (err) {
+    if (signal?.aborted) throw err;
+    console.error({ event: "classifier_image_transform_failed", err });
+    return { note: "image skipped: transform failed", resized: false };
+  }
+}
+
+/**
+ * Wraps `env.IMAGES`. One fresh stream per attempt because `input()`
+ * consumes it. `anim: false` keeps a GIF or AVIF first frame as a still.
+ * Does not log the bytes.
+ */
+export function imagesClassifierTransform(images: ImagesBinding): ClassifierImageTransform {
+  return {
+    async resize(bytes, request) {
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(bytes);
+          controller.close();
+        },
+      });
+      const result = await images
+        .input(stream)
+        .transform({ width: request.width, height: request.height, fit: request.fit })
+        .output({
+          format: request.format,
+          anim: false,
+          ...(request.quality !== undefined ? { quality: request.quality } : {}),
+        });
+      return new Uint8Array(await new Response(result.image()).arrayBuffer());
+    },
+  };
 }
 
 export function buildDecideRequest(
@@ -600,6 +910,11 @@ export function openRouterDecisionsRun(env: Env): ClassifierRun {
   };
 }
 
+function classifierVersionMarker(provider: ClassifierProvider, resized: boolean): string {
+  if (provider === "luna") return CLASSIFIER_LUNA_VERSION;
+  return resized ? CLASSIFIER_RESIZED_VERSION : CLASSIFIER_VERSION;
+}
+
 async function runClassifierPipeline(
   run: ClassifierRun,
   key: string,
@@ -608,14 +923,27 @@ async function runClassifierPipeline(
   minConfidence: number,
   provider: ClassifierProvider,
   signal: AbortSignal,
+  transform?: ClassifierImageTransform,
 ): Promise<Record<string, string> | undefined> {
+  const trivial = trivialImageSkip(contentType, bytes);
+  if (trivial) {
+    // Two keys on purpose. A model path with no usable answer writes
+    // nothing, so a lone `ai.classifier` would look like a miss. `ai.skip`
+    // is the reason, and it keeps the row.
+    console.log({ event: "classifier_skipped", reason: trivial, provider });
+    return {
+      "ai.classifier": CLASSIFIER_SKIPPED,
+      "ai.skip": trivial,
+    };
+  }
   const state = buildClassifierState(key, contentType, bytes);
-  const image = applyDecisionImage(provider, contentType, bytes, state);
-  const request = buildDecideRequest(state, provider, image);
+  const prepared = await prepareClassifierImage(provider, contentType, bytes, transform, signal);
+  if (prepared.note) state.note = prepared.note;
+  const request = buildDecideRequest(state, provider, prepared.image);
   const decided = parseJevAnswers(await run(request, { signal }), { minConfidence });
 
   const meta: Record<string, string> = {
-    "ai.classifier": provider === "luna" ? CLASSIFIER_LUNA_VERSION : CLASSIFIER_VERSION,
+    "ai.classifier": classifierVersionMarker(provider, prepared.resized),
     ...decided?.meta,
   };
   if (Object.keys(meta).length === 1) return undefined;
@@ -623,6 +951,7 @@ async function runClassifierPipeline(
     event: "classifier_decided",
     provider,
     model: request.model,
+    resized: prepared.resized,
     confidences: decided?.confidences ?? {},
   });
   return meta;
@@ -635,7 +964,12 @@ export async function classifyAndStore(
   key: string,
   bytes: Uint8Array,
   contentType: string,
-  deps?: { timeoutMs?: number; run?: ClassifierRun; minConfidence?: number },
+  deps?: {
+    timeoutMs?: number;
+    run?: ClassifierRun;
+    minConfidence?: number;
+    transform?: ClassifierImageTransform;
+  },
 ): Promise<Record<string, string> | undefined> {
   try {
     if (!(await classificationAllowed(env, ws, workspaceName))) return undefined;
@@ -643,6 +977,8 @@ export async function classifyAndStore(
     const run = deps?.run ?? openRouterDecisionsRun(env);
     const timeoutMs = deps?.timeoutMs ?? CLASSIFIER_TIMEOUT_MS;
     const minConfidence = deps?.minConfidence ?? CLASSIFIER_MIN_CONFIDENCE;
+    const transform =
+      deps?.transform ?? (env.IMAGES ? imagesClassifierTransform(env.IMAGES) : undefined);
     const controller = new AbortController();
     const work = runClassifierPipeline(
       run,
@@ -652,6 +988,7 @@ export async function classifyAndStore(
       minConfidence,
       provider,
       controller.signal,
+      transform,
     );
     // Abort rejects `work` after the race has already settled.
     void work.catch(() => {

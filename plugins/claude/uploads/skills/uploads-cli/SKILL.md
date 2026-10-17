@@ -717,8 +717,10 @@ targeting context), a server-mediated put may later write `ai.kind`
 (`screenshot|photo|diagram|document|code|ui|other`), `ai.surface`
 (`mobile|desktop|tablet|unknown`), `ai.screen`
 (`login|signup|settings|profile|dashboard|analytics|list|detail|form|search|modal|onboarding|empty|error|checkout|other`),
-and `ai.classifier=v5` (`v4` when a Luna try is on). The labeler does not
-write `ai.tags` or `ai.summary`. Older files may still have those keys.
+and `ai.classifier=v5` (`v6` when the image was resized for Jev, `v4` when a
+Luna try is on, `skipped` with `ai.skip=small` when the image was too small
+to classify). The labeler does not write `ai.tags` or `ai.summary`. Older
+files may still have those keys.
 Read them with `uploads meta get <key>` or MCP `get_metadata`; filter with
 `uploads find ai.kind=screenshot` or `uploads find ai.screen=login`. Do not
 set `ai.*` yourself — the prefix is server-owned and the API rejects client

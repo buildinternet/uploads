@@ -922,6 +922,7 @@ recommend removing.
 | `ANALYTICS_API_TOKEN`                                                          | api       | Same as above — without it the breakdown panel reports `not_configured` even if `ANALYTICS` itself is bound.                                                                                                                                                                                                                                                                                            |
 | `BROWSER`                                                                      | api       | `POST /v1/render` (CLI screenshot capture) answers 503 `renderer_unavailable`. Nothing else is affected.                                                                                                                                                                                                                                                                                                |
 | `MEDIA`                                                                        | api       | Video poster-frame generation is skipped; uploads still succeed, just without a generated poster image.                                                                                                                                                                                                                                                                                                 |
+| `IMAGES`                                                                       | api       | The file classifier cannot resize images into Jev's pixel window. Oversized PNG/JPEG and WebP/GIF/AVIF stay on the text-facts path. A PNG or JPEG that already fits is still sent.                                                                                                                                                                                                                      |
 | `FLAGS`                                                                        | api       | Every Flagship-gated feature evaluates to off (fails closed): poster generation, active-content uploads, the attachment index shadow, and the experimental LLM file classifier — same effect as never enabling them.                                                                                                                                                                                    |
 | `AI`                                                                           | api       | Weekly digest still sends. Without AI, the highlight is the newest screenshot instead of the one Jev picks from captions. The file classifier does not use this binding.                                                                                                                                                                                                                                |
 | `OPENROUTER_API_KEY`                                                           | api       | Experimental LLM file classifier is skipped; uploads still succeed without `ai.*` metadata. Set with `wrangler secret put OPENROUTER_API_KEY`.                                                                                                                                                                                                                                                          |
@@ -1161,7 +1162,9 @@ while the flag is on, the same way the video backfill re-PUTs.
 **Experimental.** Off by default. After a successful server-mediated put
 (`putObject` — REST `PUT /v1/:ws/files/:key`, not a presigned `POST /sign`),
 a Flagship-allowlisted workspace can get server-owned `ai.kind`,
-`ai.surface`, `ai.screen`, and `ai.classifier=v5` rows. Agents read them with
+`ai.surface`, `ai.screen`, and `ai.classifier` rows (`v5` when Jev sees the
+original bytes, `v6` when it sees a resized copy, `skipped` when the image
+was too small to classify). Agents read them with
 `uploads meta get <key>` or `GET …/files/:key?metadata=1`. Classifier
 errors never fail the upload. The labeler does not write `ai.tags` or
 `ai.summary`. Older rows may still have those keys.
@@ -1188,10 +1191,32 @@ it:
 ```
 
 Jev accepts PNG and JPEG only, and only inside its pixel window: each side
-from 256 to 1,568 pixels, and 78,400 to 2,458,624 pixels in total. A file
-outside that window, a WebP, a GIF, an AVIF, an SVG, a header we cannot
-measure, or a file over 512 KiB still gets the text facts and no image
-bytes. The model can still answer from the filename and the dimensions.
+from 256 to 1,568 pixels, and 78,400 to 2,458,624 pixels in total. A PNG or
+JPEG that already sits in that window, and is under 512 KiB, is sent as its
+original bytes (`ai.classifier=v5`).
+
+The `IMAGES` binding (Cloudflare Images) makes a classifier-sized copy of a
+PNG, JPEG, WebP, GIF, or AVIF that does not fit. The transform fits the
+longest side inside 1,568 pixels with `fit=scale-down`, so a small image is
+not enlarged. A PNG tries a PNG encode first, so UI text stays lossless when
+that copy is under 512 KiB. Otherwise the copy is a JPEG. GIF and AVIF
+become a still frame. Those rows are `ai.classifier=v6`. The text facts keep
+the original pixel size.
+
+An image that is still too small for Jev's window, but not trivial, stays
+on the text facts. Upscaling it would not add detail. That is a file of at
+least 2 KiB whose shorter side is at least 64 px and still under 256 px.
+
+A trivially small image does not call the model, on Jev or on Luna. Either
+known side under 64 px, or an image file under 2 KiB, writes
+`ai.classifier=skipped` and `ai.skip=small`. A 64 px image of exactly 2 KiB
+still gets a call. Unknown dimensions use only the byte floor. A file of
+at least 2 KiB whose header does not parse still gets a call.
+
+An SVG, a transform error, a missing `IMAGES` binding, an input over the
+binding's 20 MB ceiling, or an output that still cannot fit also stays on
+the text facts. The model can still answer from the filename and the
+dimensions.
 
 Decisions models only answer closed questions, so there is no describe step
 and no Llama vision call.
@@ -1201,8 +1226,12 @@ and no Llama vision call.
 `openai/gpt-6-luna-decisions` is a separate, opt-in provider on the same
 endpoint. It writes `ai.classifier=v4` and the same closed enums, at the
 same 0.5 confidence threshold. It accepts PNG, JPEG, and WebP, and it is
-not held to Jev's pixel window, so a large screenshot can still be seen.
-It does not write `ai.tags` or `ai.summary`.
+not held to Jev's pixel window, so a large screenshot under 512 KiB can
+still be seen. It does not use the Images resize. Sending Luna a downscaled
+JPEG would hide the difference the try is there to measure. A Luna file
+over 512 KiB, or a GIF, AVIF, or SVG, stays text-only. A trivially small
+image is skipped before either provider runs, so Luna does not see a 1×1
+pixel either. It does not write `ai.tags` or `ai.summary`.
 
 Select it only on a workspace that already has `llm-file-classifier` on.
 Two switches, and an explicit `jev` pin wins over the flag:
@@ -1246,8 +1275,9 @@ Closed enums: `ai.kind` is `screenshot|photo|diagram|document|code|ui|other`.
 `login|signup|settings|profile|dashboard|analytics|list|detail|form|search|modal|onboarding|empty|error|checkout|other`.
 A value outside the enum omits that key.
 
-Text excerpts are capped at 1,500 characters. Image bytes are capped at
-512 KiB before encoding. The call times out at 8s.
+Text excerpts are capped at 1,500 characters. Image bytes sent to the model
+are capped at 512 KiB after any resize. The call times out at 8s, and that
+budget includes the resize.
 
 ### Allowlist (Flagship is the control plane)
 

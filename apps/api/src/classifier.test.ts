@@ -5,7 +5,11 @@ import {
   CLASSIFIER_JEV_MODEL,
   CLASSIFIER_LUNA_FLAG,
   CLASSIFIER_LUNA_MODEL,
+  CLASSIFIER_JPEG_QUALITIES,
   CLASSIFIER_MAX_IMAGE_BYTES,
+  CLASSIFIER_SKIP_MIN_BYTES,
+  CLASSIFIER_SKIP_MIN_EDGE,
+  CLASSIFIER_SKIP_SMALL,
   JEV_MAX_IMAGE_EDGE,
   JEV_MAX_IMAGE_PIXELS,
   JEV_MIN_IMAGE_EDGE,
@@ -15,8 +19,16 @@ import {
   buildClassifierState,
   buildDecideRequest,
   buildDecisionImage,
+  classifierResizeAttempts,
+  encodeForJevWindow,
   formatDecisionState,
+  imagesClassifierTransform,
   jevAcceptsDimensions,
+  jevScaleDownFit,
+  jevUnfittableNote,
+  prepareClassifierImage,
+  type ClassifierImageTransform,
+  type ClassifierResizeRequest,
   classificationAllowed,
   classifierEvaluationContext,
   classifierGatewayId,
@@ -25,6 +37,7 @@ import {
   resolveClassifierProvider,
   scheduleFileClassification,
   textExcerpt,
+  trivialImageSkip,
   workersAiClassifierRun,
   type DecisionImagePart,
 } from "./classifier";
@@ -56,12 +69,31 @@ function pngOf(width: number, height: number): Uint8Array {
   return bytes;
 }
 
+function atLeast(bytes: Uint8Array, min: number): Uint8Array {
+  if (bytes.byteLength >= min) return bytes;
+  const out = new Uint8Array(min);
+  out.set(bytes);
+  return out;
+}
+
 /** SOF0 JPEG, 640×480. Small enough for Jev's pixel window. */
 function jpeg640x480(): Uint8Array {
   return new Uint8Array([
     0xff, 0xd8, 0xff, 0xe0, 0x00, 0x04, 0x00, 0x00, 0xff, 0xc0, 0x00, 0x11, 0x08, 0x01, 0xe0, 0x02,
     0x80, 0x03,
   ]);
+}
+
+/** SOF0 JPEG of the given size. The segment lengths match the small fixture above. */
+function jpegOf(width: number, height: number): Uint8Array {
+  const bytes = new Uint8Array([
+    0xff, 0xd8, 0xff, 0xe0, 0x00, 0x04, 0x00, 0x00, 0xff, 0xc0, 0x00, 0x11, 0x08, 0x00, 0x00, 0x00,
+    0x00, 0x03,
+  ]);
+  const view = new DataView(bytes.buffer);
+  view.setUint16(13, height, false);
+  view.setUint16(15, width, false);
+  return bytes;
 }
 
 /** VP8X WebP, 640×480. Luna can read it. Jev cannot. */
@@ -271,6 +303,43 @@ describe("buildClassifierState", () => {
     expect(
       buildClassifierState("notes.pdf", "application/pdf", new Uint8Array([1, 2, 3])).excerpt,
     ).toBeUndefined();
+  });
+});
+
+describe("trivialImageSkip", () => {
+  const floor = CLASSIFIER_SKIP_MIN_BYTES;
+  const edge = CLASSIFIER_SKIP_MIN_EDGE;
+
+  it("skips an image under 64 px or under 2 KiB", () => {
+    expect(trivialImageSkip("image/png", pngOf(1, 1))).toBe(CLASSIFIER_SKIP_SMALL);
+    expect(trivialImageSkip("image/png", atLeast(pngOf(edge - 1, edge - 1), floor))).toBe(
+      CLASSIFIER_SKIP_SMALL,
+    );
+    expect(trivialImageSkip("image/png", atLeast(pngOf(32, 400), floor))).toBe(
+      CLASSIFIER_SKIP_SMALL,
+    );
+    expect(trivialImageSkip("image/png", atLeast(pngOf(400, 256), floor - 1))).toBe(
+      CLASSIFIER_SKIP_SMALL,
+    );
+    expect(
+      trivialImageSkip(
+        "image/png",
+        new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      ),
+    ).toBe(CLASSIFIER_SKIP_SMALL);
+  });
+
+  it("keeps a 64 px image of exactly 2 KiB, an unmeasured file at that size, and non-images", () => {
+    expect(trivialImageSkip("image/png", atLeast(pngOf(edge, edge), floor))).toBeUndefined();
+    expect(trivialImageSkip("image/png", atLeast(pngOf(400, edge), floor))).toBeUndefined();
+    const unknown = atLeast(
+      new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      floor,
+    );
+    expect(unknown.byteLength).toBe(floor);
+    expect(trivialImageSkip("image/png", unknown)).toBeUndefined();
+    expect(trivialImageSkip("text/plain", new TextEncoder().encode("hi"))).toBeUndefined();
+    expect(trivialImageSkip("video/mp4", new Uint8Array(8))).toBeUndefined();
   });
 });
 
@@ -609,6 +678,203 @@ describe("parseJevAnswers", () => {
     expect(parseJevAnswers({ answers: { kind: "screenshot" } })).toBeNull();
     expect(parseJevAnswers({ answers: { kind: { choice: "photo" } } })).toBeNull();
     expect(parseJevAnswers({ answers: { kind: answer("photo", Number.NaN) } })).toBeNull();
+  });
+});
+
+describe("jevScaleDownFit", () => {
+  it("fits the longest side inside the window and does not upscale", () => {
+    expect(jevScaleDownFit(2880, 1800)).toEqual({ width: 1568, height: 980 });
+    expect(jevScaleDownFit(1600, 900)).toEqual({ width: 1568, height: 882 });
+    expect(jevScaleDownFit(400, 256)).toEqual({ width: 400, height: 256 });
+    expect(jevScaleDownFit(100, 100)).toBeUndefined();
+    expect(jevScaleDownFit(8000, 100)).toBeUndefined();
+    expect(jevUnfittableNote(100, 100)).toBe("image skipped: below jev pixel limits");
+    expect(jevUnfittableNote(8000, 100)).toBe("image skipped: outside jev pixel limits");
+  });
+});
+
+describe("classifierResizeAttempts", () => {
+  it("tries a PNG first for a PNG upload, then two JPEG qualities", () => {
+    const attempts = classifierResizeAttempts("image/png");
+    expect(attempts.map((attempt) => attempt.format)).toEqual([
+      "image/png",
+      "image/jpeg",
+      "image/jpeg",
+    ]);
+    expect(attempts[1]?.quality).toBe(CLASSIFIER_JPEG_QUALITIES[0]);
+    expect(attempts[2]?.quality).toBe(CLASSIFIER_JPEG_QUALITIES[1]);
+    expect(attempts.every((attempt) => attempt.fit === "scale-down")).toBe(true);
+    expect(attempts.every((attempt) => attempt.width === JEV_MAX_IMAGE_EDGE)).toBe(true);
+    expect(attempts.every((attempt) => attempt.height === JEV_MAX_IMAGE_EDGE)).toBe(true);
+  });
+
+  it("encodes WebP, GIF, and AVIF as JPEG only", () => {
+    for (const type of ["image/webp", "image/gif", "image/avif"]) {
+      const attempts = classifierResizeAttempts(type);
+      expect(attempts.map((attempt) => attempt.format)).toEqual(["image/jpeg", "image/jpeg"]);
+    }
+  });
+});
+
+function recordingTransform(
+  respond: (request: ClassifierResizeRequest) => Uint8Array | Promise<Uint8Array>,
+): { transform: ClassifierImageTransform; calls: ClassifierResizeRequest[] } {
+  const calls: ClassifierResizeRequest[] = [];
+  return {
+    calls,
+    transform: {
+      async resize(_bytes, request) {
+        calls.push(request);
+        return respond(request);
+      },
+    },
+  };
+}
+
+describe("prepareClassifierImage", () => {
+  it("sends a fitting PNG through unchanged", async () => {
+    const png = pngOf(400, 256);
+    const { transform, calls } = recordingTransform(() => {
+      throw new Error("should not resize");
+    });
+    const prepared = await prepareClassifierImage("jev", "image/png", png, transform);
+    expect(calls).toHaveLength(0);
+    expect(prepared.resized).toBe(false);
+    expect(prepared.note).toBeUndefined();
+    expect(prepared.image?.image_url.url.startsWith("data:image/png;base64,")).toBe(true);
+  });
+
+  it("does not upscale an undersized image", async () => {
+    const { transform, calls } = recordingTransform(() => pngOf(280, 280));
+    const prepared = await prepareClassifierImage("jev", "image/png", pngOf(100, 100), transform);
+    expect(calls).toHaveLength(0);
+    expect(prepared.image).toBeUndefined();
+    expect(prepared.resized).toBe(false);
+    expect(prepared.note).toBe("image skipped: below jev pixel limits");
+  });
+
+  it("leaves an extreme aspect ratio on the text facts", async () => {
+    const { transform, calls } = recordingTransform(() => pngOf(280, 280));
+    const prepared = await prepareClassifierImage("jev", "image/png", pngOf(8000, 100), transform);
+    expect(calls).toHaveLength(0);
+    expect(prepared.note).toBe("image skipped: outside jev pixel limits");
+  });
+
+  it("does not send an SVG to the transform", async () => {
+    const svg = new TextEncoder().encode("<svg xmlns='http://www.w3.org/2000/svg'></svg>");
+    const { transform, calls } = recordingTransform(() => pngOf(280, 280));
+    const prepared = await prepareClassifierImage("jev", "image/svg+xml", svg, transform);
+    expect(calls).toHaveLength(0);
+    expect(prepared.image).toBeUndefined();
+    expect(prepared.resized).toBe(false);
+    expect(prepared.note).toBe("image skipped: jev accepts png and jpeg");
+  });
+
+  it("falls back when the transform throws", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { transform } = recordingTransform(() => {
+      throw new Error("images down");
+    });
+    const prepared = await prepareClassifierImage("jev", "image/png", pngOf(2880, 1800), transform);
+    expect(prepared.image).toBeUndefined();
+    expect(prepared.resized).toBe(false);
+    expect(prepared.note).toBe("image skipped: transform failed");
+    expect(error).toHaveBeenCalledWith(
+      expect.objectContaining({ event: "classifier_image_transform_failed" }),
+    );
+  });
+
+  it("says when the binding is missing", async () => {
+    const prepared = await prepareClassifierImage("jev", "image/webp", webp640x480(), undefined);
+    expect(prepared.note).toBe("image skipped: transform unavailable");
+    expect(prepared.image).toBeUndefined();
+  });
+
+  it("drops to JPEG when the PNG copy is over the byte cap", async () => {
+    const over = new Uint8Array(CLASSIFIER_MAX_IMAGE_BYTES + 1);
+    over.set(pngOf(1568, 980));
+    const jpeg = jpegOf(1568, 980);
+    const { transform, calls } = recordingTransform((request) =>
+      request.format === "image/png" ? over : jpeg,
+    );
+    const encoded = await encodeForJevWindow(transform, pngOf(2880, 1800), "image/png");
+    expect(encoded.ok).toBe(true);
+    if (!encoded.ok) return;
+    expect(encoded.contentType).toBe("image/jpeg");
+    expect(encoded.width).toBe(1568);
+    expect(encoded.height).toBe(980);
+    expect(calls.map((call) => call.format)).toEqual(["image/png", "image/jpeg"]);
+    expect(calls[1]?.quality).toBe(82);
+  });
+
+  it("does not resize Luna", async () => {
+    const wide = pngOf(1600, 900);
+    const { transform, calls } = recordingTransform(() => {
+      throw new Error("should not resize");
+    });
+    const prepared = await prepareClassifierImage("luna", "image/png", wide, transform);
+    expect(calls).toHaveLength(0);
+    expect(prepared.resized).toBe(false);
+    expect(prepared.image?.image_url.url.startsWith("data:image/png;base64,")).toBe(true);
+    const webp = await prepareClassifierImage("luna", "image/webp", webp640x480(), transform);
+    expect(webp.image?.image_url.url.startsWith("data:image/webp;base64,")).toBe(true);
+    expect(calls).toHaveLength(0);
+  });
+});
+
+describe("imagesClassifierTransform", () => {
+  it("asks the Images binding for a still inside the Jev box", async () => {
+    const source = pngOf(2880, 1800);
+    const produced = jpegOf(1568, 980);
+    const calls: Array<{
+      transform: { width?: number; height?: number; fit?: string };
+      output: { format?: string; quality?: number; anim?: boolean };
+      received: Uint8Array;
+    }> = [];
+    const binding = {
+      input(stream: ReadableStream<Uint8Array>) {
+        const pending = new Response(stream).arrayBuffer();
+        return {
+          transform(transform: { width?: number; height?: number; fit?: string }) {
+            return {
+              output(options: { format?: string; quality?: number; anim?: boolean }) {
+                return pending.then((buf) => {
+                  calls.push({ transform, output: options, received: new Uint8Array(buf) });
+                  return {
+                    contentType: () => options.format ?? "image/jpeg",
+                    response: () => new Response(produced),
+                    image: () =>
+                      new ReadableStream<Uint8Array>({
+                        start(controller) {
+                          controller.enqueue(produced);
+                          controller.close();
+                        },
+                      }),
+                  };
+                });
+              },
+            };
+          },
+        };
+      },
+    } as unknown as ImagesBinding;
+
+    const out = await imagesClassifierTransform(binding).resize(source, {
+      width: JEV_MAX_IMAGE_EDGE,
+      height: JEV_MAX_IMAGE_EDGE,
+      fit: "scale-down",
+      format: "image/jpeg",
+      quality: 82,
+    });
+    expect(out).toEqual(produced);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.received).toEqual(source);
+    expect(calls[0]?.transform).toEqual({
+      width: JEV_MAX_IMAGE_EDGE,
+      height: JEV_MAX_IMAGE_EDGE,
+      fit: "scale-down",
+    });
+    expect(calls[0]?.output).toEqual({ format: "image/jpeg", quality: 82, anim: false });
   });
 });
 

@@ -226,7 +226,8 @@ about is left off.
 | `ai.screen`     | `login` `signup` `settings` `profile` `dashboard` `analytics` `list` `detail` `form` `search` `modal` `onboarding` `empty` `error` `checkout` `other` |
 | `ai.tags`       | Older uploads only. The current labeler does not write tags.                                                                                          |
 | `ai.summary`    | Older uploads only. The current labeler does not write a summary.                                                                                     |
-| `ai.classifier` | `v5` on the default labeler. A Luna try writes `v4`.                                                                                                  |
+| `ai.classifier` | `v5` on the default labeler. A resized image writes `v6`. A Luna try writes `v4`. A trivially small image writes `skipped`.                            |
+| `ai.skip`       | `small` when the image was too small to classify. Paired with `ai.classifier=skipped`. No model call was made.                                        |
 
 Labels aren't in the upload's response. Read them afterward, or search by them:
 

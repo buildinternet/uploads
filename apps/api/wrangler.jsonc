@@ -145,6 +145,15 @@
     "binding": "MEDIA",
     "remote": true,
   },
+  // Cloudflare Images — classifier-sized copies for Jev (issue #1131).
+  // Transforms bytes the worker already holds, so it covers private files
+  // and hosts the `/cdn-cgi/image/` thumbnail helper does not. Local
+  // `wrangler dev` uses the offline subset (resize and format). An absent
+  // binding leaves the classifier on the text-facts path; see
+  // apps/api/src/classifier.ts.
+  "images": {
+    "binding": "IMAGES",
+  },
   // Workers AI for the weekly digest highlight (`typesafe/jev` through
   // AI Gateway). The file classifier does not use this binding: it calls
   // OpenRouter Decisions directly (`OPENROUTER_API_KEY`). An absent binding
@@ -325,7 +334,7 @@
   // lists — so everything is spelled out: stateful bindings re-pointed at
   // preview-tier resources (without that, a preview of an API branch would
   // write to production KV/D1/R2), and the stateless/shared-safe ones
-  // repeated verbatim: BROWSER/MEDIA (metered, stateless), FLAGS (read-only),
+  // repeated verbatim: BROWSER/MEDIA/IMAGES (metered, stateless), FLAGS (read-only),
   // EMAIL, the rate limiters, and the AUTH service binding — service bindings
   // always call the bound Worker's *production* deployment, so a preview
   // verifies sessions against real auth. Cron triggers and queue consumers
@@ -427,6 +436,9 @@
     "media": {
       "binding": "MEDIA",
       "remote": true,
+    },
+    "images": {
+      "binding": "IMAGES",
     },
     "flagship": [
       {
