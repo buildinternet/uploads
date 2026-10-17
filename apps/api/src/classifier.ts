@@ -22,12 +22,20 @@
  * text fact list. A PNG, JPEG, WebP, GIF, or AVIF that does not fit is
  * scaled with the Images binding (`env.IMAGES`) into that window first
  * (`ai.classifier=v6`). The text facts keep the original dimensions.
- * Anything the transform cannot produce (SVG, a tiny image, a thrown
- * transform, a missing binding) still gets the text facts and no image
- * bytes.
+ * Anything the transform cannot produce (SVG, an image below Jev's window
+ * that is still large enough to be worth a look, a thrown transform, a
+ * missing binding) still gets the text facts and no image bytes.
  *
- * Tiny images are not upscaled. `fit=scale-down` matches the thumbnail
- * transform, and enlarging an icon would not add detail Jev could read.
+ * A trivially small image never calls the model, on Jev or Luna. Either
+ * known side under 64 px, or an image file under 2 KiB, writes
+ * `ai.classifier=skipped` and `ai.skip=small` and returns. That is smaller
+ * than a screenshot and smaller than Jev's 256 px floor. A 64 px icon that
+ * is also at least 2 KiB still gets a call. Unknown dimensions do not count
+ * as small: only the byte floor applies then.
+ *
+ * Images below Jev's window are not upscaled. `fit=scale-down` matches the
+ * thumbnail transform, and enlarging an icon would not add detail Jev
+ * could read.
  *
  * Optional Luna path (`ai.classifier=v4`): `CLASSIFIER_PROVIDER=luna` or
  * Flagship `llm-file-classifier-luna` (default off) selects
@@ -77,6 +85,30 @@ export const CLASSIFIER_RESIZED_VERSION = "v6";
  * from Jev Latest in stored metadata.
  */
 export const CLASSIFIER_LUNA_VERSION = "v4";
+
+/**
+ * Written to `ai.classifier` when the model is not called. Distinct from
+ * `v4`/`v5`/`v6`, which mean a Decisions call ran. Paired with `ai.skip`.
+ */
+export const CLASSIFIER_SKIPPED = "skipped";
+
+/** Written to `ai.skip` when the image is too small to be worth a call. */
+export const CLASSIFIER_SKIP_SMALL = "small";
+
+/**
+ * Either known edge below this skips the model. 64 px is a common icon
+ * size and is well under Jev's 256 px minimum, so the pixels cannot be a
+ * screenshot Jev could read. The edge is exclusive: 64 px still classifies
+ * when the file is also large enough.
+ */
+export const CLASSIFIER_SKIP_MIN_EDGE = 64;
+
+/**
+ * Image files under this many bytes skip the model. 2 KiB. A tracking
+ * pixel and a tiny icon sit under it. A screenshot does not. A file of
+ * exactly this size still classifies.
+ */
+export const CLASSIFIER_SKIP_MIN_BYTES = 2 * 1024;
 
 /**
  * Workers AI catalog id for weekly-digest curation. File classification
@@ -150,6 +182,7 @@ export const CLASSIFIER_META_KEYS = [
   "ai.surface",
   "ai.screen",
   "ai.classifier",
+  "ai.skip",
 ] as const;
 
 /** Jev reads PNG and JPEG only. Luna also reads WebP. GIF, AVIF, and SVG stay text-only. */
@@ -405,6 +438,24 @@ export function buildClassifierState(
   }
 
   return state;
+}
+
+/**
+ * Why this image should not call the model, or undefined when it should.
+ * Images only: a short text file still gets a call. Unknown dimensions do
+ * not count as a short edge. The byte floor still applies to them, so a
+ * 1×1 file whose header we cannot read is skipped, and a large unmeasured
+ * image is not.
+ */
+export function trivialImageSkip(contentType: string, bytes: Uint8Array): string | undefined {
+  if (uploadKind(contentType) !== "image") return undefined;
+  if (bytes.byteLength < CLASSIFIER_SKIP_MIN_BYTES) return CLASSIFIER_SKIP_SMALL;
+  const dims = detectImageDimensions(bytes, contentType);
+  if (!dims) return undefined;
+  if (dims.width < CLASSIFIER_SKIP_MIN_EDGE || dims.height < CLASSIFIER_SKIP_MIN_EDGE) {
+    return CLASSIFIER_SKIP_SMALL;
+  }
+  return undefined;
 }
 
 /** Within 5% of square counts as square; the rest is a plain comparison. */
@@ -874,6 +925,17 @@ async function runClassifierPipeline(
   signal: AbortSignal,
   transform?: ClassifierImageTransform,
 ): Promise<Record<string, string> | undefined> {
+  const trivial = trivialImageSkip(contentType, bytes);
+  if (trivial) {
+    // Two keys on purpose. A model path with no usable answer writes
+    // nothing, so a lone `ai.classifier` would look like a miss. `ai.skip`
+    // is the reason, and it keeps the row.
+    console.log({ event: "classifier_skipped", reason: trivial, provider });
+    return {
+      "ai.classifier": CLASSIFIER_SKIPPED,
+      "ai.skip": trivial,
+    };
+  }
   const state = buildClassifierState(key, contentType, bytes);
   const prepared = await prepareClassifierImage(provider, contentType, bytes, transform, signal);
   if (prepared.note) state.note = prepared.note;

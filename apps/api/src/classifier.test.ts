@@ -7,6 +7,9 @@ import {
   CLASSIFIER_LUNA_MODEL,
   CLASSIFIER_JPEG_QUALITIES,
   CLASSIFIER_MAX_IMAGE_BYTES,
+  CLASSIFIER_SKIP_MIN_BYTES,
+  CLASSIFIER_SKIP_MIN_EDGE,
+  CLASSIFIER_SKIP_SMALL,
   JEV_MAX_IMAGE_EDGE,
   JEV_MAX_IMAGE_PIXELS,
   JEV_MIN_IMAGE_EDGE,
@@ -34,6 +37,7 @@ import {
   resolveClassifierProvider,
   scheduleFileClassification,
   textExcerpt,
+  trivialImageSkip,
   workersAiClassifierRun,
   type DecisionImagePart,
 } from "./classifier";
@@ -63,6 +67,13 @@ function pngOf(width: number, height: number): Uint8Array {
   new DataView(bytes.buffer).setUint32(16, width, false);
   new DataView(bytes.buffer).setUint32(20, height, false);
   return bytes;
+}
+
+function atLeast(bytes: Uint8Array, min: number): Uint8Array {
+  if (bytes.byteLength >= min) return bytes;
+  const out = new Uint8Array(min);
+  out.set(bytes);
+  return out;
 }
 
 /** SOF0 JPEG, 640×480. Small enough for Jev's pixel window. */
@@ -292,6 +303,43 @@ describe("buildClassifierState", () => {
     expect(
       buildClassifierState("notes.pdf", "application/pdf", new Uint8Array([1, 2, 3])).excerpt,
     ).toBeUndefined();
+  });
+});
+
+describe("trivialImageSkip", () => {
+  const floor = CLASSIFIER_SKIP_MIN_BYTES;
+  const edge = CLASSIFIER_SKIP_MIN_EDGE;
+
+  it("skips an image under 64 px or under 2 KiB", () => {
+    expect(trivialImageSkip("image/png", pngOf(1, 1))).toBe(CLASSIFIER_SKIP_SMALL);
+    expect(trivialImageSkip("image/png", atLeast(pngOf(edge - 1, edge - 1), floor))).toBe(
+      CLASSIFIER_SKIP_SMALL,
+    );
+    expect(trivialImageSkip("image/png", atLeast(pngOf(32, 400), floor))).toBe(
+      CLASSIFIER_SKIP_SMALL,
+    );
+    expect(trivialImageSkip("image/png", atLeast(pngOf(400, 256), floor - 1))).toBe(
+      CLASSIFIER_SKIP_SMALL,
+    );
+    expect(
+      trivialImageSkip(
+        "image/png",
+        new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      ),
+    ).toBe(CLASSIFIER_SKIP_SMALL);
+  });
+
+  it("keeps a 64 px image of exactly 2 KiB, an unmeasured file at that size, and non-images", () => {
+    expect(trivialImageSkip("image/png", atLeast(pngOf(edge, edge), floor))).toBeUndefined();
+    expect(trivialImageSkip("image/png", atLeast(pngOf(400, edge), floor))).toBeUndefined();
+    const unknown = atLeast(
+      new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      floor,
+    );
+    expect(unknown.byteLength).toBe(floor);
+    expect(trivialImageSkip("image/png", unknown)).toBeUndefined();
+    expect(trivialImageSkip("text/plain", new TextEncoder().encode("hi"))).toBeUndefined();
+    expect(trivialImageSkip("video/mp4", new Uint8Array(8))).toBeUndefined();
   });
 });
 

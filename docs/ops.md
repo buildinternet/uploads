@@ -1163,7 +1163,8 @@ while the flag is on, the same way the video backfill re-PUTs.
 (`putObject` — REST `PUT /v1/:ws/files/:key`, not a presigned `POST /sign`),
 a Flagship-allowlisted workspace can get server-owned `ai.kind`,
 `ai.surface`, `ai.screen`, and `ai.classifier` rows (`v5` when Jev sees the
-original bytes, `v6` when it sees a resized copy). Agents read them with
+original bytes, `v6` when it sees a resized copy, `skipped` when the image
+was too small to classify). Agents read them with
 `uploads meta get <key>` or `GET …/files/:key?metadata=1`. Classifier
 errors never fail the upload. The labeler does not write `ai.tags` or
 `ai.summary`. Older rows may still have those keys.
@@ -1202,11 +1203,20 @@ that copy is under 512 KiB. Otherwise the copy is a JPEG. GIF and AVIF
 become a still frame. Those rows are `ai.classifier=v6`. The text facts keep
 the original pixel size.
 
-An image that is too small to enter the window stays on the text facts.
-Upscaling it would not add detail. An SVG, a transform error, a missing
-`IMAGES` binding, an input over the binding's 20 MB ceiling, or an output
-that still cannot fit also stays on the text facts. The model can still
-answer from the filename and the dimensions.
+An image that is still too small for Jev's window, but not trivial, stays
+on the text facts. Upscaling it would not add detail. That is a file of at
+least 2 KiB whose shorter side is at least 64 px and still under 256 px.
+
+A trivially small image does not call the model, on Jev or on Luna. Either
+known side under 64 px, or an image file under 2 KiB, writes
+`ai.classifier=skipped` and `ai.skip=small`. A 64 px image of exactly 2 KiB
+still gets a call. Unknown dimensions use only the byte floor. A file of
+at least 2 KiB whose header does not parse still gets a call.
+
+An SVG, a transform error, a missing `IMAGES` binding, an input over the
+binding's 20 MB ceiling, or an output that still cannot fit also stays on
+the text facts. The model can still answer from the filename and the
+dimensions.
 
 Decisions models only answer closed questions, so there is no describe step
 and no Llama vision call.
@@ -1219,8 +1229,9 @@ same 0.5 confidence threshold. It accepts PNG, JPEG, and WebP, and it is
 not held to Jev's pixel window, so a large screenshot under 512 KiB can
 still be seen. It does not use the Images resize. Sending Luna a downscaled
 JPEG would hide the difference the try is there to measure. A Luna file
-over 512 KiB, or a GIF, AVIF, or SVG, stays text-only. It does not write
-`ai.tags` or `ai.summary`.
+over 512 KiB, or a GIF, AVIF, or SVG, stays text-only. A trivially small
+image is skipped before either provider runs, so Luna does not see a 1×1
+pixel either. It does not write `ai.tags` or `ai.summary`.
 
 Select it only on a workspace that already has `llm-file-classifier` on.
 Two switches, and an explicit `jev` pin wins over the flag:

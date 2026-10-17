@@ -308,10 +308,12 @@ store, so it takes a separate read (`?metadata=1`).
 the workspace slug (`org` / `workspace` targeting context),
 a successful server-mediated put may later write server-owned `ai.kind`,
 `ai.surface`, `ai.screen`, and `ai.classifier` (`v5` for original bytes,
-`v6` when the image was resized for Jev). A low-confidence enum is
+`v6` when the image was resized for Jev, `skipped` with `ai.skip=small`
+when the image was too small to classify). A low-confidence enum is
 omitted. The labeler does not write `ai.tags` or `ai.summary` (older rows
 may still have them). A Luna Decisions try writes `ai.classifier=v4` and
-the same enums. Luna does not receive the resized copy. Clients cannot set or delete those keys (`ai.*` is reserved,
+the same enums. Luna does not receive the resized copy. A trivially small
+image is skipped before either provider runs. Clients cannot set or delete those keys (`ai.*` is reserved,
 same as `video.*` / `image.*`). The 201 response does not wait for the model;
 read `GET …/files/:key?metadata=1` (or `uploads meta get <key>`) after the
 upload. Presigned uploads never get labels. See
