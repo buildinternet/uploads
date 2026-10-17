@@ -39,6 +39,7 @@ How to call it:
 - [Claude directory listing](https://claude.ai/directory/uploads): add uploads on claude.ai and in Cowork
 - [Docs: experimental AI labels](https://uploads.sh/docs/agents#experimental-ai-tags): Flagship-gated `ai.kind` / `ai.surface` / `ai.screen` / `ai.tags` / `ai.summary` after a REST put — read with `uploads meta get` or `uploads find ai.screen=login` (MCP `get_metadata` / `find_files`). Clients cannot set `ai.*`. Human `path` / `state` stay primary.
 - [Docs: reference](https://uploads.sh/docs/reference): manage uploads (list/delete/usage) and what to know before relying on it
+- [Pricing](https://uploads.sh/pricing) (Markdown: https://uploads.sh/pricing.md): open source, free plan, Pro for teams, bring-your-own-bucket storage, and fair use
 - [Docs: plans & limits](https://uploads.sh/docs/limits): storage/file-size/member caps per plan, behavior at each cap, and the GitHub attachment-cap comparison
 - [Docs: bring your own bucket](https://uploads.sh/docs/byo-bucket): point a workspace at your own Cloudflare R2 bucket instead of the shared one — setup steps, the serving matrix, what's degraded, disconnecting (in preview)
 - [Agent guide](https://uploads.sh/github-screenshots): how to get coding agents to upload screenshots & video to GitHub PRs and issues
