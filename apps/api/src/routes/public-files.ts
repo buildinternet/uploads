@@ -183,9 +183,6 @@ export const publicFiles = new Hono<WorkspaceVars>().get("/:workspace/:key{.+}",
   // clients as generic metadata — only via the derived posterUrl/videoDimensions
   // fields below. Filter them out of the raw metadata pass-through the same way
   // provenance/visibility are already excluded from D1 reads entirely.
-  // `ai.*` is the same strip, including the internal safety flags
-  // (`ai.rating`, `ai.content`, `ai.secret`, `ai.pii`, and each
-  // `.confidence` key). This unauthenticated response must not carry them.
   const publicMetadata = Object.fromEntries(
     Object.entries(metadata).filter(([metaKey]) => !isServerMetaKey(metaKey)),
   );

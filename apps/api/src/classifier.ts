@@ -12,18 +12,9 @@
  *
  * One Decisions call (`ai.classifier=v5` on the default path). The model
  * picks `kind`, `surface`, and `screen` from the closed enums, plus four
- * internal safety flags (`rating`, `content`, `secret`, `pii`), and reports
- * a calibrated confidence per answer. An answer under
- * `CLASSIFIER_MIN_CONFIDENCE` omits its key. Each safety flag that lands
- * also writes a coarse bucket (`ai.secret.confidence` and the same shape
- * for the other three). Those flags do not bump `ai.classifier`: `v4`,
- * `v5`, `v6`, and `skipped` still name the pixel path. A file labeled
- * before the flags existed simply lacks the keys. A stored flag stays
- * until a later classification writes that same key, including a
- * confident `none`. A run that omits the key — under the confidence
- * floor, skipped, failed, or timed out — leaves the previous value.
- * Re-uploading the file does not clear it. Decisions models do not
- * write free text, so this path does not write `ai.tags` or `ai.summary`.
+ * internal safety flags (`rating`, `content`, `secret`, `pii`). Flag
+ * lifetime is `SAFETY_FLAG_KEYS`. Decisions models do not write free
+ * text, so this path does not write `ai.tags` or `ai.summary`.
  *
  * Default model is the OpenRouter alias `~typesafe/jev-latest`. A raster
  * PNG or JPEG that already fits Jev's pixel window and the byte cap goes
@@ -61,7 +52,7 @@
  * classification. The weekly digest still uses the Workers AI binding.
  */
 
-import { SAFETY_FLAG_FIELDS, SAFETY_FLAG_KEYS, setServerFileMetadata } from "./file-metadata";
+import { SAFETY_FLAG_KEYS, setServerFileMetadata } from "./file-metadata";
 import { dbFor } from "./db-session";
 import { detectImageDimensions, uploadKind } from "./guards";
 import type { WorkspaceRecord } from "./workspace";
@@ -78,14 +69,8 @@ export const CLASSIFIER_LUNA_FLAG = "llm-file-classifier-luna";
 /**
  * Written to `ai.classifier` on the Jev Latest path when the original
  * bytes are sent. `v3` was the Llama-describe plus Workers AI Jev hybrid,
- * which did not send pixels. `v6` is the resized path.
- *
- * The safety questions do not get a new marker. `v4` / `v5` / `v6` /
- * `skipped` still mean Luna, Jev original bytes, Jev resized, or no call.
- * Bumping one string to also mean "which questions were asked" would make
- * the pixel path unreadable. Absence of `ai.rating` (and the other three)
- * means no confident answer has been stored yet. A later miss does not
- * clear a flag that is already there.
+ * which did not send pixels. `v6` is the resized path. Safety-flag
+ * lifetime is `SAFETY_FLAG_KEYS`.
  */
 export const CLASSIFIER_VERSION = "v5";
 
@@ -205,17 +190,6 @@ export function confidenceBucket(confidence: number): ConfidenceBucket {
   return "low";
 }
 
-/**
- * Jev Choice limits this request stays inside. TypeSafe's API reference
- * allows 2–255 options per choice. It documents no separate cap on how
- * many questions one request may carry: the budget is tokens (64k for the
- * state plus every question on the TypeSafe default; OpenRouter's Jev page
- * lists a 262,144-token context). Seven short choice questions fit in one
- * call. The largest enum here is `screen`, at 16 options.
- */
-export const JEV_CHOICE_MIN_OPTIONS = 2;
-export const JEV_CHOICE_MAX_OPTIONS = 255;
-
 /** Bound the Decisions call so a hung provider cannot pin the isolate. */
 export const CLASSIFIER_TIMEOUT_MS = 8_000;
 
@@ -228,25 +202,6 @@ export const JEV_MIN_IMAGE_EDGE = 256;
 export const JEV_MAX_IMAGE_EDGE = 1_568;
 export const JEV_MIN_IMAGE_PIXELS = 78_400;
 export const JEV_MAX_IMAGE_PIXELS = 2_458_624;
-
-/**
- * Server-owned rows this module writes. Tags and summary are legacy keys.
- * The safety flags and their confidence buckets are internal: public
- * responses strip every `ai.*` key, and the file drawer does not render them.
- */
-export const CLASSIFIER_META_KEYS = [
-  "ai.tags",
-  "ai.summary",
-  "ai.kind",
-  "ai.surface",
-  "ai.screen",
-  ...SAFETY_FLAG_KEYS,
-  "ai.classifier",
-  "ai.skip",
-] as const;
-
-/** Safety flags that also write `ai.<flag>.confidence`. Kind, surface, and screen do not. */
-const SAFETY_FIELD_SET = new Set<string>(SAFETY_FLAG_FIELDS);
 
 /** Jev reads PNG and JPEG only. Luna also reads WebP. GIF, AVIF, and SVG stay text-only. */
 const JEV_IMAGE_TYPES = new Set(["image/png", "image/jpeg"]);
@@ -348,13 +303,56 @@ export const PII_CRITERIA: Record<string, string> = {
     "Other personal data, such as a government identifier or a medical record. A display name alone is not this.",
 };
 
-const KIND_ALLOWLIST = new Set(Object.keys(KIND_CRITERIA));
-const SURFACE_ALLOWLIST = new Set(Object.keys(SURFACE_CRITERIA));
-const SCREEN_ALLOWLIST = new Set(Object.keys(SCREEN_CRITERIA));
-const RATING_ALLOWLIST = new Set(Object.keys(RATING_CRITERIA));
-const CONTENT_ALLOWLIST = new Set(Object.keys(CONTENT_CRITERIA));
-const SECRET_ALLOWLIST = new Set(Object.keys(SECRET_CRITERIA));
-const PII_ALLOWLIST = new Set(Object.keys(PII_CRITERIA));
+/**
+ * One entry per closed question. Allowlists and `parseJevAnswers` both
+ * read this map, so a new question is a change here.
+ */
+const CLASSIFIER_FIELDS: Record<
+  string,
+  { instructions: string; criteria: Record<string, string> }
+> = {
+  kind: {
+    instructions: "What kind of file is this?",
+    criteria: KIND_CRITERIA,
+  },
+  surface: {
+    instructions:
+      "Which device surface does the content show? Judge from the aspect ratio, the pixel width, and any visible device or window chrome.",
+    criteria: SURFACE_CRITERIA,
+  },
+  screen: {
+    instructions:
+      "Which product screen does the content show? Pick `other` when the file is not an interface.",
+    criteria: SCREEN_CRITERIA,
+  },
+  rating: {
+    instructions:
+      "Rate the sexual content. Pick `safe` when there is none. Violence without sexual content is `safe`; the content question covers it.",
+    criteria: RATING_CRITERIA,
+  },
+  content: {
+    instructions:
+      "What is the main unsafe subject, if any? Pick `none` for an ordinary file, including a normal product screenshot. This question is separate from the sexual rating.",
+    criteria: CONTENT_CRITERIA,
+  },
+  secret: {
+    instructions:
+      "Does this file show a credential that grants access to a system? Pick `none` for a masked or empty secret field, and for a username, a display name, or an email. Do not treat personal data as a secret; that is a different question.",
+    criteria: SECRET_CRITERIA,
+  },
+  pii: {
+    instructions:
+      "Does this file show personal data about a person? Pick `none` for a normal product screenshot, including one that shows the signed-in user's own name or email only in the header, nav, or account menu. An empty email field is `none`. Do not treat an API key, password, or other access credential as personal data; that is a different question.",
+    criteria: PII_CRITERIA,
+  },
+};
+
+const CLASSIFIER_ALLOWLISTS: Record<string, Set<string>> = Object.fromEntries(
+  Object.entries(CLASSIFIER_FIELDS).map(([id, field]) => [
+    id,
+    new Set(Object.keys(field.criteria)),
+  ]),
+);
 
 export type ClassifierWaitUntil = (promise: Promise<unknown>) => void;
 
@@ -593,49 +591,16 @@ function aspectOf(width: number, height: number): "portrait" | "landscape" | "sq
  * and a violent image is not scored as sexually explicit.
  */
 export function buildClassifierQuestions(): Record<string, JevChoiceQuestion> {
-  return {
-    kind: {
-      type: "choice",
-      instructions: "What kind of file is this?",
-      criteria: { ...KIND_CRITERIA },
-    },
-    surface: {
-      type: "choice",
-      instructions:
-        "Which device surface does the content show? Judge from the aspect ratio, the pixel width, and any visible device or window chrome.",
-      criteria: { ...SURFACE_CRITERIA },
-    },
-    screen: {
-      type: "choice",
-      instructions:
-        "Which product screen does the content show? Pick `other` when the file is not an interface.",
-      criteria: { ...SCREEN_CRITERIA },
-    },
-    rating: {
-      type: "choice",
-      instructions:
-        "Rate the sexual content. Pick `safe` when there is none. Violence without sexual content is `safe`; the content question covers it.",
-      criteria: { ...RATING_CRITERIA },
-    },
-    content: {
-      type: "choice",
-      instructions:
-        "What is the main unsafe subject, if any? Pick `none` for an ordinary file, including a normal product screenshot. This question is separate from the sexual rating.",
-      criteria: { ...CONTENT_CRITERIA },
-    },
-    secret: {
-      type: "choice",
-      instructions:
-        "Does this file show a credential that grants access to a system? Pick `none` for a masked or empty secret field, and for a username, a display name, or an email. Do not treat personal data as a secret; that is a different question.",
-      criteria: { ...SECRET_CRITERIA },
-    },
-    pii: {
-      type: "choice",
-      instructions:
-        "Does this file show personal data about a person? Pick `none` for a normal product screenshot, including one that shows the signed-in user's own name or email only in the header, nav, or account menu. An empty email field is `none`. Do not treat an API key, password, or other access credential as personal data; that is a different question.",
-      criteria: { ...PII_CRITERIA },
-    },
-  };
+  return Object.fromEntries(
+    Object.entries(CLASSIFIER_FIELDS).map(([id, field]) => [
+      id,
+      {
+        type: "choice" as const,
+        instructions: field.instructions,
+        criteria: { ...field.criteria },
+      },
+    ]),
+  );
 }
 
 /**
@@ -672,21 +637,6 @@ export function buildDecisionImage(
       image_url: { url: `data:${contentType};base64,${bytesToBase64(bytes)}` },
     },
   };
-}
-
-/**
- * Facts plus an optional image part. The note lands on `state` when one is
- * not already set (the byte cap writes its own).
- */
-export function applyDecisionImage(
-  provider: ClassifierProvider,
-  contentType: string,
-  bytes: Uint8Array,
-  state: ClassifierState,
-): DecisionImagePart | undefined {
-  const decision = buildDecisionImage(provider, contentType, bytes);
-  if (decision.note && !state.note) state.note = decision.note;
-  return decision.image;
 }
 
 /** Formats the Images binding can turn into a PNG or JPEG Jev will accept. */
@@ -957,9 +907,9 @@ export function textExcerpt(bytes: Uint8Array): string | undefined {
  * Jev's answers, narrowed to the closed enums this module writes. An answer
  * is dropped when its confidence is under the threshold, when the choice is
  * not in the allowlist, or when the shape is not what the model documents.
- * A stored safety flag also writes `ai.<field>.confidence` (`high` /
- * `medium` / `low`). A dropped answer omits both keys. A secret answer
- * never fills `ai.pii`, and the reverse is also true.
+ * A stored safety flag also writes `ai.<field>.confidence`. A dropped
+ * answer omits both keys. A secret answer never fills `ai.pii`, and the
+ * reverse is also true.
  */
 export function parseJevAnswers(
   result: unknown,
@@ -971,17 +921,8 @@ export function parseJevAnswers(
 
   const meta: Record<string, string> = {};
   const confidences: Record<string, number> = {};
-  const fields: [string, Set<string>][] = [
-    ["kind", KIND_ALLOWLIST],
-    ["surface", SURFACE_ALLOWLIST],
-    ["screen", SCREEN_ALLOWLIST],
-    ["rating", RATING_ALLOWLIST],
-    ["content", CONTENT_ALLOWLIST],
-    ["secret", SECRET_ALLOWLIST],
-    ["pii", PII_ALLOWLIST],
-  ];
 
-  for (const [field, allowlist] of fields) {
+  for (const [field, allowlist] of Object.entries(CLASSIFIER_ALLOWLISTS)) {
     const answer = answers[field];
     if (!isPlainObject(answer)) continue;
     const choice = answer.choice;
@@ -993,8 +934,7 @@ export function parseJevAnswers(
     const normalized = choice.trim().toLowerCase();
     if (!allowlist.has(normalized)) continue;
     meta[`ai.${field}`] = normalized;
-    // Kind, surface, and screen stay as they were: a value, no bucket key.
-    if (SAFETY_FIELD_SET.has(field)) {
+    if (SAFETY_FLAG_KEYS.has(`ai.${field}`)) {
       meta[`ai.${field}.confidence`] = confidenceBucket(confidence);
     }
   }

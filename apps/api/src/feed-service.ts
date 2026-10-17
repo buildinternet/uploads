@@ -288,8 +288,6 @@ export async function hydrateFeedItems(
       size: withheld ? null : (meta?.size ?? null),
       uploaded: dates.uploaded ?? null,
       modified: dates.modified ?? null,
-      // Public and owner items expose path and state only. Classifier flags,
-      // including the internal safety keys, stay in D1.
       path: match.metadata.path ?? null,
       state: match.metadata.state ?? null,
     };

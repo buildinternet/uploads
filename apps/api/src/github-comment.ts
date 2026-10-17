@@ -112,8 +112,6 @@ const COMMENT_META_KEYS = [
   "image.width",
   "image.height",
 ];
-// Safety flags (`ai.rating`, `ai.content`, `ai.secret`, `ai.pii`, and their
-// confidence keys) stay off this list. The managed comment posts in public.
 
 /**
  * Fetched unconditionally (unlike `COMMENT_META_KEYS`, which is skipped

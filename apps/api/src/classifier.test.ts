@@ -18,8 +18,6 @@ import {
   CLASSIFIER_CONFIDENCE_HIGH,
   CLASSIFIER_CONFIDENCE_MEDIUM,
   CLASSIFIER_MIN_CONFIDENCE,
-  JEV_CHOICE_MAX_OPTIONS,
-  JEV_CHOICE_MIN_OPTIONS,
   buildClassifierQuestions,
   buildClassifierState,
   buildDecideRequest,
@@ -473,15 +471,13 @@ describe("buildDecideRequest", () => {
     for (const question of Object.values(req.questions)) {
       expect(question.type).toBe("choice");
       const options = Object.keys(question.criteria).length;
-      expect(options).toBeGreaterThanOrEqual(JEV_CHOICE_MIN_OPTIONS);
-      expect(options).toBeLessThanOrEqual(JEV_CHOICE_MAX_OPTIONS);
+      expect(options).toBeGreaterThanOrEqual(2);
+      expect(options).toBeLessThanOrEqual(255);
     }
     // TypeSafe documents no question-count cap (token budget only). Seven
     // short choices stay far inside that budget and inside the 255-option cap.
     expect(QUESTION_IDS.length).toBe(7);
-    expect(Object.keys(req.questions.screen.criteria).length).toBeLessThanOrEqual(
-      JEV_CHOICE_MAX_OPTIONS,
-    );
+    expect(Object.keys(req.questions.screen.criteria).length).toBeLessThanOrEqual(255);
   });
 
   it("keeps secrets and personal data on separate questions", () => {
