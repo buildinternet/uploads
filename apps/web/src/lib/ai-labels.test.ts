@@ -95,6 +95,77 @@ describe("parseAiLabels", () => {
       summary: undefined,
     });
   });
+
+  it("stays silent when every chip is a placeholder", () => {
+    const metadata = {
+      "ai.classifier": "v5",
+      "ai.kind": "other",
+      "ai.screen": " OTHER ",
+      "ai.surface": "unknown",
+      "ai.tags": "other, Unknown",
+    };
+    expect(parseAiLabels(metadata)).toBeNull();
+    expect(hasAiMetadata(metadata)).toBe(false);
+  });
+
+  it("stays silent for placeholder chips even without a classifier", () => {
+    const metadata = {
+      "ai.kind": "Other",
+      "ai.surface": "Unknown",
+      "ai.screen": "other",
+      "ai.tags": "unknown",
+    };
+    expect(parseAiLabels(metadata)).toBeNull();
+    expect(hasAiMetadata(metadata)).toBe(false);
+  });
+
+  it("keeps a real screen and drops a placeholder surface", () => {
+    const metadata = {
+      "ai.classifier": "v5",
+      "ai.screen": "login",
+      "ai.surface": "unknown",
+      "ai.kind": "other",
+    };
+    expect(parseAiLabels(metadata)).toEqual({
+      classifier: "v5",
+      kind: undefined,
+      surface: undefined,
+      screen: "login",
+      tags: [],
+      summary: undefined,
+    });
+    expect(hasAiMetadata(metadata)).toBe(true);
+  });
+
+  it("drops placeholder tags and keeps the rest", () => {
+    const metadata = { "ai.tags": "ui, other, Unknown, settings, another" };
+    expect(parseAiLabels(metadata)).toEqual({
+      classifier: undefined,
+      kind: undefined,
+      surface: undefined,
+      screen: undefined,
+      tags: ["ui", "settings", "another"],
+      summary: undefined,
+    });
+    expect(hasAiMetadata(metadata)).toBe(true);
+  });
+
+  it("keeps a summary when the chips are only placeholders", () => {
+    const metadata = {
+      "ai.kind": "other",
+      "ai.surface": "unknown",
+      "ai.summary": "A blurry photo",
+    };
+    expect(parseAiLabels(metadata)).toEqual({
+      classifier: undefined,
+      kind: undefined,
+      surface: undefined,
+      screen: undefined,
+      tags: [],
+      summary: "A blurry photo",
+    });
+    expect(hasAiMetadata(metadata)).toBe(true);
+  });
 });
 
 describe("splitFileDetailMeta", () => {

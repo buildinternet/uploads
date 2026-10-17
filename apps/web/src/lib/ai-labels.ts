@@ -4,13 +4,18 @@
  * The API writes these after a Flagship-gated put (`ai.classifier` is `v5`
  * on Jev Latest, `v6` when the image was resized, `skipped` with `ai.skip`
  * when the image was too small to classify, or `v4` on the Luna try; older
- * rows may say `v1`–`v3`). A classifier-only row, including a skip, stays
- * silent here. Clients cannot set them. Used by the Storage file-detail drawer
- * and the public `/f/` share-page rail — never by galleries, feeds, or
- * PR comments.
+ * rows may say `v1`–`v3`). Clients cannot set them. Used by the Storage
+ * file-detail drawer and the public `/f/` share-page rail — never by
+ * galleries, feeds, or PR comments.
+ *
+ * `other` and `unknown` (any case, surrounding space ignored) are empty for
+ * the kind, surface, and screen chips, and they drop out of `ai.tags`.
+ * A classifier-only row, including a skip, stays silent. A row that only
+ * has those placeholders stays silent too. Stored metadata is unchanged.
  */
 
-const DISPLAY_KEYS = ["ai.kind", "ai.surface", "ai.screen", "ai.tags", "ai.summary"] as const;
+/** Classifier answers that mean "no useful chip". Compared after trim + lowercase. */
+const PLACEHOLDER_CHIP_VALUES = new Set(["other", "unknown"]);
 
 export interface AiLabels {
   /** Schema marker (`v4` Luna, `v5` Jev Latest, `v6` resized, `skipped`, or an older `v1`–`v3`); omitted when the file only has display keys. */
@@ -56,19 +61,31 @@ function trimMeta(value: string | undefined): string | undefined {
   return trimmed ? trimmed : undefined;
 }
 
+function isPlaceholderChip(value: string): boolean {
+  return PLACEHOLDER_CHIP_VALUES.has(value.toLowerCase());
+}
+
+/** Trimmed chip text, or undefined when blank or a placeholder (`other` / `unknown`). */
+function displayChip(value: string | undefined): string | undefined {
+  const trimmed = trimMeta(value);
+  if (!trimmed || isPlaceholderChip(trimmed)) return undefined;
+  return trimmed;
+}
+
 /**
  * Structured AI labels, or `null` when there is nothing to show.
- * Classifier-only (no kind/surface/screen/tags/summary) stays silent.
+ * Classifier-only rows stay silent. So do rows whose kind, surface, screen,
+ * and tags are only `other` or `unknown`, with no summary.
  */
 export function parseAiLabels(
   metadata: Record<string, string> | undefined | null,
 ): AiLabels | null {
   if (!metadata) return null;
-  const kind = trimMeta(metadata["ai.kind"]);
-  const surface = trimMeta(metadata["ai.surface"]);
-  const screen = trimMeta(metadata["ai.screen"]);
+  const kind = displayChip(metadata["ai.kind"]);
+  const surface = displayChip(metadata["ai.surface"]);
+  const screen = displayChip(metadata["ai.screen"]);
   const summary = trimMeta(metadata["ai.summary"]);
-  const tags = splitAiTags(metadata["ai.tags"]);
+  const tags = splitAiTags(metadata["ai.tags"]).filter((tag) => !isPlaceholderChip(tag));
   if (!kind && !surface && !screen && !summary && tags.length === 0) return null;
   return {
     classifier: trimMeta(metadata["ai.classifier"]),
@@ -80,11 +97,9 @@ export function parseAiLabels(
   };
 }
 
-/** True when any `ai.*` display key or `ai.classifier` is present. */
+/** True when the drawer or share page would render an AI section. */
 export function hasAiMetadata(metadata: Record<string, string> | undefined | null): boolean {
-  if (!metadata) return false;
-  if (trimMeta(metadata["ai.classifier"])) return parseAiLabels(metadata) !== null;
-  return DISPLAY_KEYS.some((key) => trimMeta(metadata[key]));
+  return parseAiLabels(metadata) !== null;
 }
 
 export function splitFileDetailMeta(
