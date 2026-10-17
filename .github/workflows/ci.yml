@@ -74,6 +74,9 @@ jobs:
       - name: Plugin skills
         run: pnpm plugin-skills:check
 
+      - name: OpenAI directory package
+        run: pnpm plugin-directory:check
+
   test:
     name: Test
     runs-on: ubuntu-latest

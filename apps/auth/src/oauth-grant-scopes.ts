@@ -4,7 +4,7 @@
  * `@better-auth/oauth-provider` has no per-authorize scope hook and rejects
  * the whole authorize when the request asks for a scope the client is not
  * registered for. Generic MCP clients copy `scopes_supported` (and extras
- * such as `openid`) into `scope=`. RFC 6749 §3.3 lets the AS ignore
+ * such as `profile`) into `scope=`. RFC 6749 §3.3 lets the AS ignore
  * requested scopes it will not grant: downscope to the intersection with
  * the client's registered list, and only `invalid_scope` when nothing
  * grantable remains.
@@ -16,6 +16,8 @@ const KNOWN_SCOPES: ReadonlySet<string> = new Set([
   "files:read",
   "files:write",
   "files:delete",
+  "openid",
+  "email",
   "offline_access",
 ]);
 
@@ -34,8 +36,11 @@ function filterScopeString(scope: string, allowedScopes: readonly string[]): str
   const requested = scope.split(/\s+/).filter(Boolean);
   const allow = new Set(allowedScopes);
   let permitted = requested.filter((id) => KNOWN_SCOPES.has(id) && allow.has(id));
-  const grantsResourceScope = permitted.some((id) => id !== OFFLINE_ACCESS);
-  if (!grantsResourceScope) {
+  // Email is an OIDC claim scope: it is only useful alongside the requested,
+  // permitted openid scope. Never add openid implicitly to a grant.
+  if (!permitted.includes("openid")) permitted = permitted.filter((id) => id !== "email");
+  const grantsAccessScope = permitted.some((id) => id !== OFFLINE_ACCESS);
+  if (!grantsAccessScope) {
     // An offline_access-only request must not survive: it would mint a
     // refresh-token-only grant with no resource access. Dropping it lands in
     // the plugin's invalid_scope path like any other nothing-grantable request.

@@ -12,6 +12,53 @@ const DEFAULT_SCOPES = ["files:read", "files:write"] as const;
 const SELF_REGISTERED = ["files:read", "files:write", "files:delete"] as const;
 const KITCHEN_SINK = "files:read files:write files:delete openid profile admin";
 
+describe("optional identity scopes", () => {
+  const allowed = [...SELF_REGISTERED, "openid", "email", "offline_access"];
+  const requested = "files:read openid email profile admin";
+  const expected = "files:read openid email offline_access";
+
+  it("preserves registered identity scopes on authorize, consent, and code exchange", () => {
+    expect(restrictOAuthQueryScopes({ scope: requested }, allowed)).toEqual({ scope: expected });
+    expect(restrictOAuthConsentBody({ accept: true, scope: requested }, allowed)).toEqual({
+      accept: true,
+      scope: expected,
+    });
+    const value = JSON.stringify({ type: "authorization_code", query: { scope: requested } });
+    expect(JSON.parse(restrictAuthorizationCodeValue(value, allowed) ?? "")).toEqual({
+      type: "authorization_code",
+      query: { scope: expected },
+    });
+  });
+
+  it("does not add identity scopes to a file-only request", () => {
+    expect(restrictOAuthQueryScopes({ scope: "files:read" }, allowed)).toEqual({
+      scope: "files:read offline_access",
+    });
+  });
+
+  it("keeps old clients within their persisted scope ceiling", () => {
+    expect(restrictOAuthQueryScopes({ scope: requested }, SELF_REGISTERED)).toEqual({
+      scope: "files:read",
+    });
+  });
+
+  it("drops email without openid and never grants identity implicitly", () => {
+    expect(restrictOAuthQueryScopes({ scope: "email" }, allowed)).toEqual({ scope: "" });
+    expect(restrictOAuthQueryScopes({ scope: "files:read email" }, allowed)).toEqual({
+      scope: "files:read offline_access",
+    });
+    expect(restrictOAuthConsentBody({ accept: true, scope: "email" }, allowed)).toEqual({
+      accept: true,
+      scope: "",
+    });
+    const value = JSON.stringify({ type: "authorization_code", query: { scope: "email" } });
+    expect(JSON.parse(restrictAuthorizationCodeValue(value, allowed) ?? "")).toEqual({
+      type: "authorization_code",
+      query: { scope: "" },
+    });
+  });
+});
+
 describe("restrictOAuthQueryScopes", () => {
   it("drops unknown scope ids rather than failing the request", () => {
     expect(

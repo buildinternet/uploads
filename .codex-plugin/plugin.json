@@ -16,7 +16,7 @@
   "interface": {
     "displayName": "uploads.sh",
     "shortDescription": "Host files for GitHub PRs",
-    "longDescription": "Host screenshots, GIFs, recordings, and files on uploads.sh and embed them in GitHub PRs and issues. Bundles the github-screenshots, annotate-screenshots, and uploads-cli skills, the hosted MCP server at agents.uploads.sh, and a pre-PR screenshot reminder hook.",
+    "longDescription": "Host screenshots, GIFs, recordings, and files on uploads.sh and embed them in GitHub PRs and issues. Stage media before a pull request opens, retrieve files by metadata, and update one managed attachments comment. Connect an uploads.sh account to use the hosted tools. Files you upload have public URLs. The bundled skills also cover optional CLI capture and annotation workflows.",
     "developerName": "Build Internet",
     "category": "Developer Tools",
     "capabilities": ["Host files on a public CDN", "Attach media to GitHub PRs"],
