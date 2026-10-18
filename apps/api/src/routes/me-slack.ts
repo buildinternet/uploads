@@ -34,6 +34,7 @@ export async function slackTicketHash(ticket: string): Promise<string> {
 interface TicketRow {
   team_id: string;
   team_name: string | null;
+  slack_user_name: string | null;
   slack_user_id: string;
   expires_at: string;
 }
@@ -67,7 +68,7 @@ export const meSlack = new Hono<SessionVars>()
     const hash = await slackTicketHash(ticketParam(c));
     const row = await dbFor(c.env)
       .prepare(
-        `SELECT team_id, team_name, slack_user_id, expires_at
+        `SELECT team_id, team_name, slack_user_id, slack_user_name, expires_at
            FROM slack_link_tickets
           WHERE ticket_hash = ? AND expires_at > ?`,
       )
@@ -78,6 +79,7 @@ export const meSlack = new Hono<SessionVars>()
       teamId: row.team_id,
       teamName: row.team_name,
       slackUserId: row.slack_user_id,
+      slackUserName: row.slack_user_name,
       expiresAt: row.expires_at,
     });
   })
@@ -96,7 +98,7 @@ export const meSlack = new Hono<SessionVars>()
       .prepare(
         `DELETE FROM slack_link_tickets
           WHERE ticket_hash = ? AND expires_at > ?
-        RETURNING team_id, team_name, slack_user_id, expires_at`,
+        RETURNING team_id, team_name, slack_user_id, slack_user_name, expires_at`,
       )
       .bind(hash, now)
       .first<TicketRow>();

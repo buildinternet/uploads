@@ -46,14 +46,15 @@ async function insertTicket(
   sqlite.db
     .prepare(
       `INSERT INTO slack_link_tickets
-         (ticket_hash, team_id, team_name, slack_user_id, created_at, expires_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+         (ticket_hash, team_id, team_name, slack_user_id, slack_user_name, created_at, expires_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       await slackTicketHash(ticket),
       opts.teamId ?? "T0123ABC",
       "Acme",
       opts.slackUserId ?? "U0456DEF",
+      "alice",
       new Date(now).toISOString(),
       new Date(now + (opts.expiresInMs ?? 30 * 60 * 1000)).toISOString(),
     );
@@ -83,7 +84,12 @@ describe("GET /me/slack/connect/:ticket", () => {
     const res = await app().request(`/me/slack/connect/${TICKET}`, {}, env(ALICE));
     expect(res.status).toBe(200);
     const body = (await res.json()) as Record<string, unknown>;
-    expect(body).toMatchObject({ teamId: "T0123ABC", teamName: "Acme", slackUserId: "U0456DEF" });
+    expect(body).toMatchObject({
+      teamId: "T0123ABC",
+      teamName: "Acme",
+      slackUserId: "U0456DEF",
+      slackUserName: "alice",
+    });
     expect(typeof body.expiresAt).toBe("string");
     expect(sqlite.db.prepare("SELECT COUNT(*) AS n FROM slack_link_tickets").get()).toEqual({
       n: 1,

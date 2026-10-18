@@ -5,11 +5,15 @@
 -- carries the raw ticket to uploads.sh/slack/connect, and the signed-in
 -- user's POST /me/slack/connect/:ticket consumes it. Only the SHA-256 of the
 -- ticket (base64url) is stored, so a database read can't replay one.
+-- slack_user_name is the Slack display name at mint time, shown on the
+-- confirm page so a user can tell when a forwarded link would connect
+-- someone else's Slack account to theirs.
 CREATE TABLE IF NOT EXISTS slack_link_tickets (
   ticket_hash TEXT PRIMARY KEY,
   team_id TEXT NOT NULL,
   team_name TEXT,
   slack_user_id TEXT NOT NULL,
+  slack_user_name TEXT,
   created_at TEXT NOT NULL,
   expires_at TEXT NOT NULL
 );

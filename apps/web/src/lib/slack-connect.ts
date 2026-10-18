@@ -10,6 +10,8 @@ export interface SlackTicketPreview {
   teamId: string;
   teamName: string | null;
   slackUserId: string;
+  /** Slack display name at mint time; null when Slack didn't provide one. */
+  slackUserName: string | null;
 }
 
 export type SlackTicketResult =
@@ -31,6 +33,7 @@ function parsePreview(body: unknown): SlackTicketPreview | null {
     teamId: b.teamId,
     slackUserId: b.slackUserId,
     teamName: typeof b.teamName === "string" && b.teamName ? b.teamName : null,
+    slackUserName: typeof b.slackUserName === "string" && b.slackUserName ? b.slackUserName : null,
   };
 }
 

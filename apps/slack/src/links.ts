@@ -14,7 +14,6 @@ import { randomToken } from "./crypto";
 export const TICKET_TTL_MS = 30 * 60 * 1000;
 
 export interface SlackUserLink {
-  userEmail: string | null;
   linkedAt: string;
 }
 
@@ -31,7 +30,12 @@ export async function ticketHash(ticket: string): Promise<string> {
 /** Mints a single-use ticket for this Slack user and returns the raw value. */
 export async function mintTicket(
   db: D1Database,
-  input: { teamId: string; teamName: string | null; slackUserId: string },
+  input: {
+    teamId: string;
+    teamName: string | null;
+    slackUserId: string;
+    slackUserName: string | null;
+  },
   now = new Date(),
 ): Promise<string> {
   const ticket = randomToken();
@@ -42,14 +46,16 @@ export async function mintTicket(
     db
       .prepare(
         `INSERT INTO slack_link_tickets
-           (ticket_hash, team_id, team_name, slack_user_id, created_at, expires_at)
-         VALUES (?, ?, ?, ?, ?, ?)`,
+           (ticket_hash, team_id, team_name, slack_user_id, slack_user_name,
+            created_at, expires_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
       )
       .bind(
         await ticketHash(ticket),
         input.teamId,
         input.teamName,
         input.slackUserId,
+        input.slackUserName,
         now.toISOString(),
         expires.toISOString(),
       ),
@@ -63,12 +69,10 @@ export async function findLink(
   slackUserId: string,
 ): Promise<SlackUserLink | null> {
   const row = await db
-    .prepare(
-      "SELECT user_email, linked_at FROM slack_user_links WHERE team_id = ? AND slack_user_id = ?",
-    )
+    .prepare("SELECT linked_at FROM slack_user_links WHERE team_id = ? AND slack_user_id = ?")
     .bind(teamId, slackUserId)
-    .first<{ user_email: string | null; linked_at: string }>();
-  return row ? { userEmail: row.user_email, linkedAt: row.linked_at } : null;
+    .first<{ linked_at: string }>();
+  return row ? { linkedAt: row.linked_at } : null;
 }
 
 export async function removeLink(db: D1Database, teamId: string, slackUserId: string) {

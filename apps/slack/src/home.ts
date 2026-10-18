@@ -8,22 +8,30 @@
  */
 import type { SlackEnv } from "./config";
 import { findLink, mintTicket, removeLink, teamName } from "./links";
-import { viewsPublish, type Block } from "./slack/api";
+import { slackDisplayName, viewsPublish, type Block } from "./slack/api";
 
 export const DISCONNECT_ACTION = "uploads_disconnect";
 export const CONNECT_ACTION = "uploads_connect";
 
-function escapeMrkdwn(text: string): string {
-  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
-
-export function linkedHome(userEmail: string | null): Block[] {
-  const who = userEmail ? `*${escapeMrkdwn(userEmail)}*` : "your uploads.sh account";
+/**
+ * The linked state names no uploads.sh account on purpose: if someone was
+ * tricked into connecting another person's Slack user to their account
+ * (by following a forwarded Connect link), this tab must not reveal whose
+ * account it is. The date lets the real owner spot a link they didn't make.
+ */
+export function linkedHome(linkedAt: string): Block[] {
+  const seconds = Math.floor(Date.parse(linkedAt) / 1000);
+  const when = Number.isFinite(seconds)
+    ? ` on <!date^${seconds}^{date_short}|${linkedAt.slice(0, 10)}>`
+    : "";
   return [
     { type: "header", text: { type: "plain_text", text: "uploads.sh" } },
     {
       type: "section",
-      text: { type: "mrkdwn", text: `Your Slack account is connected to ${who}.` },
+      text: {
+        type: "mrkdwn",
+        text: `Your Slack account was connected to an uploads.sh account${when}. Didn't do this? Disconnect.`,
+      },
       accessory: {
         type: "button",
         action_id: DISCONNECT_ACTION,
@@ -87,12 +95,16 @@ export async function publishHome(ctx: HomeContext): Promise<void> {
   const link = await findLink(db, ctx.teamId, ctx.slackUserId);
   let blocks: Block[];
   if (link) {
-    blocks = linkedHome(link.userEmail);
+    blocks = linkedHome(link.linkedAt);
   } else {
     const ticket = await mintTicket(db, {
       teamId: ctx.teamId,
       teamName: await teamName(db, ctx.teamId),
       slackUserId: ctx.slackUserId,
+      slackUserName: await slackDisplayName(ctx.slackUserId, {
+        token: ctx.botToken,
+        fetch: ctx.slackFetch,
+      }),
     });
     const url = new URL("/slack/connect", ctx.env.WEB_ORIGIN || "https://uploads.sh");
     url.searchParams.set("ticket", ticket);

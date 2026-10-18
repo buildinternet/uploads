@@ -42,13 +42,20 @@ async function setup() {
 
 function fakeSlack() {
   const views: Array<{ user_id: string; view: { blocks: Array<Record<string, any>> } }> = [];
+  const lookups: string[] = [];
   const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-    expect(String(input)).toBe("https://slack.com/api/views.publish");
     expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer xoxb-acme");
+    if (String(input) === "https://slack.com/api/users.info") {
+      lookups.push(new URLSearchParams(String(init?.body)).get("user")!);
+      return new Response(
+        JSON.stringify({ ok: true, user: { name: "alice", profile: { display_name: "Alice" } } }),
+      );
+    }
+    expect(String(input)).toBe("https://slack.com/api/views.publish");
     views.push(JSON.parse(String(init?.body)));
     return new Response(JSON.stringify({ ok: true }));
   }) as unknown as typeof globalThis.fetch;
-  return { fetch, views };
+  return { fetch, views, lookups };
 }
 
 async function signed(path: string, body: string, contentType: string) {
@@ -108,7 +115,13 @@ describe("Home tab", () => {
       string,
       string
     >;
-    expect(row).toMatchObject({ team_id: "T1", team_name: "Acme", slack_user_id: "U42" });
+    expect(row).toMatchObject({
+      team_id: "T1",
+      team_name: "Acme",
+      slack_user_id: "U42",
+      slack_user_name: "Alice",
+    });
+    expect(slack.lookups).toEqual(["U42"]);
     expect(row.ticket_hash).toBe(await ticketHash(ticket));
     expect(row.ticket_hash).not.toBe(ticket);
     expect(Date.parse(row.expires_at) - Date.parse(row.created_at)).toBe(30 * 60 * 1000);
@@ -124,7 +137,9 @@ describe("Home tab", () => {
     const slack = fakeSlack();
     await run(env, await signed("/slack/events", homeOpened(), "application/json"), slack.fetch);
     const blocks = slack.views[0]!.view.blocks;
-    expect(JSON.stringify(blocks)).toContain("*zach@example.com*");
+    // Names no uploads.sh account, so a forwarded-link victim's email can't leak here.
+    expect(JSON.stringify(blocks)).not.toContain("zach@example.com");
+    expect(JSON.stringify(blocks)).toContain("<!date^1792281600^{date_short}|2026-10-18>");
     expect(buttonOf(blocks)).toMatchObject({ action_id: "uploads_disconnect" });
     expect(sqlite!.db.prepare("SELECT count(*) AS n FROM slack_link_tickets").get()).toEqual({
       n: 0,

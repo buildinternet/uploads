@@ -19,7 +19,7 @@ import { hmac, randomToken, safeEqual, TokensKeyUnconfiguredError } from "./cryp
 import { saveInstall } from "./installs";
 
 /** Bot scopes requested at install. Keep in sync with manifest.json. */
-export const BOT_SCOPES = ["links:read", "links:write"];
+export const BOT_SCOPES = ["links:read", "links:write", "users:read"];
 const STATE_COOKIE = "__Host-uploads_slack_oauth";
 const STATE_TTL_SECONDS = 10 * 60;
 const STATE_LABEL = "slack-oauth-state";

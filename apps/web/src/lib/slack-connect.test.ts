@@ -14,11 +14,15 @@ describe("slack connect client", () => {
   it("previews through the same-origin api proxy with credentials", async () => {
     const seen: Request[] = [];
     const result = await previewSlackTicket("/api", TICKET, {
-      fetchImpl: fakeFetch(200, { teamId: "T1AB", teamName: "Acme", slackUserId: "U1AB" }, seen),
+      fetchImpl: fakeFetch(
+        200,
+        { teamId: "T1AB", teamName: "Acme", slackUserId: "U1AB", slackUserName: "alice" },
+        seen,
+      ),
     });
     expect(result).toEqual({
       kind: "ok",
-      ticket: { teamId: "T1AB", teamName: "Acme", slackUserId: "U1AB" },
+      ticket: { teamId: "T1AB", teamName: "Acme", slackUserId: "U1AB", slackUserName: "alice" },
     });
     expect(new URL(seen[0]!.url).pathname).toBe(`/api/me/slack/connect/${TICKET}`);
     expect(seen[0]!.method).toBe("GET");

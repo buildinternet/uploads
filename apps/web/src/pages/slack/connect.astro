@@ -69,6 +69,10 @@ applyAuthSecurityHeaders(Astro.response.headers, devicePageCsp(authOrigin, apiOr
       .status {
         margin: 16px 0;
       }
+      .muted {
+        color: var(--muted);
+        font-size: var(--text-ui);
+      }
       button.github {
         width: 100%;
         display: flex;
@@ -225,8 +229,11 @@ applyAuthSecurityHeaders(Astro.response.headers, devicePageCsp(authOrigin, apiOr
 
       <div id="confirm" hidden>
         <p>
-          Connect your Slack account in <strong id="team-name"></strong> to <strong id="who"
-          ></strong>?
+          Connect Slack user <strong id="slack-user"></strong> in
+          <strong id="team-name"></strong> to <strong id="who"></strong>?
+        </p>
+        <p class="muted">
+          Only continue if that's your own Slack account. If someone sent you this link, cancel.
         </p>
         <div class="actions">
           <button type="button" class="primary" id="connect-btn">Connect</button>
@@ -276,6 +283,7 @@ applyAuthSecurityHeaders(Astro.response.headers, devicePageCsp(authOrigin, apiOr
       const connected = requireElement<HTMLElement>("#connected");
       const cancelled = requireElement<HTMLElement>("#cancelled");
       const teamName = requireElement<HTMLElement>("#team-name");
+      const slackUser = requireElement<HTMLElement>("#slack-user");
       const who = requireElement<HTMLElement>("#who");
       const githubBtn = requireElement<HTMLButtonElement>("#github-btn");
       const magicForm = requireElement<HTMLFormElement>("#magic-form");
@@ -318,6 +326,9 @@ applyAuthSecurityHeaders(Astro.response.headers, devicePageCsp(authOrigin, apiOr
         if (preview.kind === "unavailable") return show(unavailable);
 
         teamName.textContent = preview.ticket.teamName ?? "your Slack workspace";
+        slackUser.textContent = preview.ticket.slackUserName
+          ? `@${preview.ticket.slackUserName}`
+          : preview.ticket.slackUserId;
         who.textContent = session.session.user.email;
         show(confirmBox);
       }
