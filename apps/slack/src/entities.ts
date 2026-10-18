@@ -90,6 +90,24 @@ function dateField(seconds: number | null): Json | null {
   return seconds === null ? null : { value: seconds };
 }
 
+/**
+ * The repo owner's GitHub account as the entity's creator, which Slack shows
+ * as the avatar and name on the card's viewer. Public: it's in the repo name.
+ */
+function ownerField(owner: string | undefined, withImages: boolean): Json | null {
+  if (!owner) return null;
+  return {
+    type: "slack#/types/user",
+    user: {
+      text: owner,
+      url: `https://github.com/${owner}`,
+      ...(withImages
+        ? { icon: { url: `https://avatars.githubusercontent.com/${owner}`, alt_text: owner } }
+        : {}),
+    },
+  };
+}
+
 /** Drops null entries so Slack never sees an empty field. */
 function compact(fields: Record<string, Json | null>): Json {
   return Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== null));
@@ -205,6 +223,7 @@ export function entityMetadata(
     entity.type === "file"
       ? compact({
           preview: preview_,
+          created_by: ownerField(entity.owner, withImages),
           date_created: dateField(created),
           date_updated: dateField(updated),
           file_size: entity.size != null ? { value: formatBytes(entity.size) ?? "" } : null,
@@ -216,6 +235,7 @@ export function entityMetadata(
           // fields instead; the pager flexpane shows the current item.
           preview: pager ? preview_ : null,
           description: entity.description ? { value: clamp(entity.description, 1000) } : null,
+          created_by: ownerField(entity.owner, withImages),
           date_updated: dateField(updated),
         });
 

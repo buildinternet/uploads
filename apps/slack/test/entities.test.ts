@@ -212,6 +212,14 @@ describe("Work Object unfurls", () => {
     });
     expect(payload.fields).toEqual({
       preview: { type: "slack#/types/image", image_url: FILE.url, alt_text: "after.png" },
+      created_by: {
+        type: "slack#/types/user",
+        user: {
+          text: "acme",
+          url: "https://github.com/acme",
+          icon: { url: "https://avatars.githubusercontent.com/acme", alt_text: "acme" },
+        },
+      },
       date_created: { value: 1792282655 },
       date_updated: { value: 1792282655 },
       file_size: { value: "138 kB" },
@@ -316,6 +324,7 @@ describe("Work Object unfurls", () => {
     const imageless = slack.calls[1]!.body.metadata.entities[0].entity_payload;
     expect(imageless.fields).not.toHaveProperty("preview");
     expect(imageless.fields.file_size).toEqual({ value: "138 kB" });
+    expect(imageless.fields.created_by.user).not.toHaveProperty("icon");
     expect(slack.calls[2]!.body.metadata).toBeUndefined();
     expect(slack.calls[2]!.body.unfurls[FILE_PAGE]).toBeDefined();
   });
