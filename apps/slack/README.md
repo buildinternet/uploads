@@ -106,7 +106,14 @@ thumbnail only.
 
 Each entity's `external_ref` is fixed per link (the file key, feed id,
 gallery id, or collection id plus item id), which Slack uses to list the
-conversations that mention it.
+conversations that mention it. Slack only accepts ids matching
+`^[0-9a-zA-Z\-_:!\/=]+$` and rejects the whole Work Object otherwise
+(`error_processing_metadata`, "input must match regex pattern"), so
+`slackRef` escapes any other character as `!` plus its UTF-8 bytes in hex
+(`after.png` becomes `after!2epng`).
+
+The card's creator is the repo owner's GitHub account. Galleries and files
+with no repo show uploads.sh instead, since the public API has no uploader.
 
 Turning it on:
 

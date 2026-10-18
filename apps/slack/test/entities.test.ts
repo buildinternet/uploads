@@ -1,7 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { database, SqliteD1 } from "../../api/test/helpers/sqlite-d1";
 import type { SlackEnv } from "../src/config";
-import { PAGE_NEXT_ACTION, PAGE_PREV_ACTION } from "../src/entities";
+import {
+  entityMetadata,
+  PAGE_NEXT_ACTION,
+  PAGE_PREV_ACTION,
+  PROVIDER_ICON_URL,
+  slackRef,
+} from "../src/entities";
 import { createApp } from "../src/index";
 import { saveInstall } from "../src/installs";
 import { signSlackRequest } from "../src/slack/signature";
@@ -202,7 +208,7 @@ describe("Work Object unfurls", () => {
       app_unfurl_url: FILE_PAGE,
       url: FILE_PAGE,
       entity_type: "slack#/entities/file",
-      external_ref: { id: "default/gh/acme/app/pull/12/after.png", type: "file" },
+      external_ref: { id: "default/gh/acme/app/pull/12/after!2epng", type: "file" },
     });
     const payload = entity.entity_payload;
     expect(payload.attributes).toEqual({
@@ -359,6 +365,49 @@ describe("Work Object unfurls", () => {
   });
 });
 
+describe("Work Object refs", () => {
+  it("escapes characters Slack's external_ref.id pattern rejects", () => {
+    const pattern = /^[0-9a-zA-Z\-_:!/=]+$/;
+    const ids = ["ws/gh/acme/app/pull/12/after.png", "ws/My Shot (1)!.png", "ws/café.png"];
+    for (const id of ids) expect(slackRef({ id, type: "file" }).id).toMatch(pattern);
+    expect(slackRef({ id: "ws/a b!.png", type: "file" }).id).toBe("ws/a!20b!21!2epng");
+    expect(slackRef({ id: "ws/é", type: "file" }).id).toBe("ws/!c3!a9");
+    expect(slackRef({ id: "feed_123/item-4", type: "feed_item" })).toEqual({
+      id: "feed_123/item-4",
+      type: "feed_item",
+    });
+  });
+});
+
+describe("Work Object creator", () => {
+  const gallery = {
+    url: "https://uploads.sh/g/abc",
+    title: "Launch shots",
+    entity: {
+      type: "content_item",
+      ref: { id: "gallery:abc", type: "gallery" },
+      displayType: "Gallery",
+      canonicalUrl: "https://uploads.sh/g/abc",
+      fields: [],
+    },
+  } as unknown as Parameters<typeof entityMetadata>[0];
+
+  it("falls back to uploads.sh when there's no repo owner", () => {
+    const { fields } = entityMetadata(gallery).entity_payload as Record<string, any>;
+    expect(fields.created_by).toEqual({
+      type: "slack#/types/user",
+      user: {
+        text: "uploads.sh",
+        url: "https://uploads.sh",
+        icon: { url: PROVIDER_ICON_URL, alt_text: "uploads.sh" },
+      },
+    });
+    const imageless = entityMetadata(gallery, undefined, { images: false })
+      .entity_payload as Record<string, any>;
+    expect(imageless.fields.created_by.user).not.toHaveProperty("icon");
+  });
+});
+
 describe("Work Object flexpane", () => {
   it("presents a file's details", async () => {
     const slack = fakeSlack();
@@ -378,7 +427,7 @@ describe("Work Object flexpane", () => {
       metadata: {
         entity_type: "slack#/entities/file",
         url: FILE_PAGE,
-        external_ref: { id: "default/gh/acme/app/pull/12/after.png", type: "file" },
+        external_ref: { id: "default/gh/acme/app/pull/12/after!2epng", type: "file" },
       },
     });
   });
