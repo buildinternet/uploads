@@ -8,7 +8,7 @@
  * image (a file) or a small thumbnail beside the title (a collection), and a
  * muted context line of facts.
  */
-import { isSlackImage, unfurlEntity } from "./entities";
+import { isSlackImage, unfurlEntity, type EntityOptions } from "./entities";
 import { resolvePreview, type Preview, type PreviewLink, type ShareDeps } from "./share";
 import { chatUnfurl, type Block, type UnfurlTarget } from "./slack/api";
 import type { LinkSharedEvent } from "./slack/types";
@@ -22,7 +22,7 @@ const PROVIDER_ICON_URL = "https://uploads.sh/apple-touch-icon.png";
 /** chat.unfurl errors that mean Slack couldn't use an image block. */
 const IMAGE_ERRORS = new Set(["invalid_blocks", "downloading_image_failed", "invalid_unfurls"]);
 
-export interface UnfurlDeps extends ShareDeps {
+export interface UnfurlDeps extends ShareDeps, EntityOptions {
   /** Reaches slack.com. */
   slackFetch?: typeof globalThis.fetch;
   botToken: string;
@@ -118,14 +118,32 @@ export async function handleLinkShared(
     Object.fromEntries(
       previews.map((preview) => [preview.url, { blocks: previewBlocks(preview, { images }) }]),
     );
-  const metadata = deps.workObjects ? { entities: previews.map(unfurlEntity) } : undefined;
+  const entities = (images: boolean) => ({
+    entities: previews.map((preview) => unfurlEntity(preview, { ...deps, images })),
+  });
   const api = { token: deps.botToken, fetch: deps.slackFetch };
-  let result = await chatUnfurl(unfurlTarget(event), build(true), api, metadata);
-  // Work Objects need the app's Work Object Previews setting; if Slack
-  // rejects the metadata for any reason, the blocks alone still preview.
-  if (!result.ok && metadata) {
-    console.warn("slack.unfurl: retrying without Work Object metadata", { error: result.error });
-    result = await chatUnfurl(unfurlTarget(event), build(true), api);
+  let result = await chatUnfurl(
+    unfurlTarget(event),
+    build(true),
+    api,
+    deps.workObjects ? entities(true) : undefined,
+  );
+  // Slack answers `error_processing_metadata` when it can't use the Work
+  // Object, and an image it can't fetch is one cause. Try the Work Object
+  // without images, then the blocks alone, which always preview.
+  if (!result.ok && deps.workObjects) {
+    console.warn("slack.unfurl: Work Object rejected, retrying without images", {
+      error: result.error,
+      detail: result.response_metadata,
+    });
+    result = await chatUnfurl(unfurlTarget(event), build(true), api, entities(false));
+    if (!result.ok) {
+      console.warn("slack.unfurl: Work Object rejected again, sending blocks only", {
+        error: result.error,
+        detail: result.response_metadata,
+      });
+      result = await chatUnfurl(unfurlTarget(event), build(true), api);
+    }
   }
   // Slack fetches every image before accepting the call, and one image it
   // can't fetch rejects the whole batch. Retry once without images.

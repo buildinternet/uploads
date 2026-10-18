@@ -71,7 +71,8 @@ export interface Preview {
   /** Second line under the title, e.g. the PR a screenshot is attached to. */
   subtitle?: PreviewLink[];
   /** Full-width media, or a small thumbnail beside the title. */
-  image?: { url: string; alt: string; size: "large" | "thumb" };
+  /** `mime` is set when the image is the object itself (not a video's poster). */
+  image?: { url: string; alt: string; size: "large" | "thumb"; mime?: string };
   /** Shown as "video" next to the title. */
   isVideo?: boolean;
   /** Facts for the muted context line, in order. */
@@ -102,7 +103,12 @@ export interface PreviewEntity {
   updated?: string | null;
   /** Extra labelled values for the Work Object body, in order. */
   fields: EntityField[];
+  /** A feed's newest or a gallery's first few images, for a thumbnail strip. */
+  strip?: Array<{ url: string; alt: string }>;
 }
+
+/** How many images a feed or gallery card shows side by side. */
+export const STRIP_SIZE = 4;
 
 export interface EntityField {
   key: string;
@@ -118,7 +124,7 @@ export interface PagerPage {
     id: string;
     title: string;
     url: string;
-    image?: { url: string; alt: string };
+    image?: { url: string; alt: string; mime?: string };
     isVideo: boolean;
     contentType: string | null;
     size: number | null;
@@ -280,6 +286,28 @@ function mediaImage(item: {
   return undefined;
 }
 
+/** The object's own image type, when the object is an image; null for a video's poster. */
+function imageMime(item: { url: string | null; contentType: string | null }): string | undefined {
+  if (!item.url || !isImageType(item.contentType)) return undefined;
+  return item.contentType!.split(";")[0]!.trim().toLowerCase();
+}
+
+function mime(item: { url: string | null; contentType: string | null }) {
+  const value = imageMime(item);
+  return value ? { mime: value } : {};
+}
+
+/** Up to STRIP_SIZE images from `items`, in order. */
+function strip(items: CollectionItem[]): Array<{ url: string; alt: string }> {
+  const images: Array<{ url: string; alt: string }> = [];
+  for (const item of items) {
+    const url = mediaImage(item);
+    if (url) images.push({ url, alt: item.altText || item.caption?.trim() || item.filename });
+    if (images.length === STRIP_SIZE) break;
+  }
+  return images;
+}
+
 function prRef(repo: string, number: number): string {
   return `${repo}#${number}`;
 }
@@ -346,7 +374,7 @@ async function filePreview(
     url: pageUrl,
     title,
     isVideo: isVideoType(file.contentType),
-    ...(image ? { image: { url: image, alt: title, size: "large" as const } } : {}),
+    ...(image ? { image: { url: image, alt: title, size: "large" as const, ...mime(file) } } : {}),
     ...(gh
       ? {
           subtitle: [
@@ -395,7 +423,9 @@ async function feedPreview(
       url: pageUrl,
       title: item.filename,
       isVideo: isVideoType(item.contentType),
-      ...(image ? { image: { url: image, alt: item.filename, size: "large" as const } } : {}),
+      ...(image
+        ? { image: { url: image, alt: item.filename, size: "large" as const, ...mime(item) } }
+        : {}),
       // No position here: feeds list newest first, so "1 of 334" reads as
       // the first of 334 rather than the latest.
       subtitle: [{ text: feed.title, url: feedPage }, { text: "Change feed" }],
@@ -417,7 +447,7 @@ async function feedPreview(
     };
   }
 
-  const feed = await getJson<PublicFeed>(`/public/feeds/${id}?limit=1`, deps);
+  const feed = await getJson<PublicFeed>(`/public/feeds/${id}?limit=${STRIP_SIZE}`, deps);
   if (!feed) return null;
   const latest = feed.items.find((item) => item.status === "available");
   // The list endpoint pages without a total; the item page carries one.
@@ -438,7 +468,9 @@ async function feedPreview(
   return {
     url: pageUrl,
     title,
-    ...(image ? { image: { url: image, alt: latest!.filename, size: "thumb" as const } } : {}),
+    ...(image
+      ? { image: { url: image, alt: latest!.filename, size: "thumb" as const, ...mime(latest!) } }
+      : {}),
     subtitle: isThread
       ? [{ text: feed.repo, url: ghUrl! }, ...(state ? [{ text: state }] : [])]
       : [{ text: "Change feed" }],
@@ -461,6 +493,7 @@ async function feedPreview(
           : []),
         ...(page ? [{ key: "files", label: "Files", value: String(page.total) }] : []),
       ],
+      strip: strip(feed.items.filter((item) => item.status === "available")),
     },
   };
 }
@@ -500,7 +533,14 @@ async function galleryPreview(
       title,
       isVideo: isVideoType(item.contentType),
       ...(image
-        ? { image: { url: image, alt: item.altText || title, size: "large" as const } }
+        ? {
+            image: {
+              url: image,
+              alt: item.altText || title,
+              size: "large" as const,
+              ...mime(item),
+            },
+          }
         : {}),
       subtitle: [{ text: gallery.title, url: galleryPage }],
       facts: present(text(position), date(item.uploaded)),
@@ -530,7 +570,14 @@ async function galleryPreview(
     url: pageUrl,
     title: gallery.title,
     ...(image
-      ? { image: { url: image, alt: cover!.altText || gallery.title, size: "thumb" as const } }
+      ? {
+          image: {
+            url: image,
+            alt: cover!.altText || gallery.title,
+            size: "thumb" as const,
+            ...mime(cover!),
+          },
+        }
       : {}),
     subtitle: description ? [{ text: description }] : [{ text: "Gallery" }],
     facts: present(text(plural(items.length, "item")), date(gallery.updatedAt)),
@@ -542,6 +589,7 @@ async function galleryPreview(
       updated: gallery.updatedAt,
       ...(description ? { description } : {}),
       fields: [{ key: "items", label: "Items", value: String(items.length) }],
+      strip: strip(items),
     },
   };
 }
@@ -566,7 +614,7 @@ function pagerItem(
     id: item.id,
     title,
     url,
-    ...(image ? { image: { url: image, alt } } : {}),
+    ...(image ? { image: { url: image, alt, ...mime(item) } } : {}),
     isVideo: isVideoType(item.contentType),
     contentType: item.contentType,
     size: item.size,

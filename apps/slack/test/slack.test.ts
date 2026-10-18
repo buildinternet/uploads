@@ -175,7 +175,7 @@ const FEED_ITEM = {
   state: "after",
 };
 const FEED_FIXTURES = {
-  [`/public/feeds/${FEED_ID}?limit=1`]: {
+  [`/public/feeds/${FEED_ID}?limit=4`]: {
     id: FEED_ID,
     title: "acme/app#12",
     repo: "acme/app",
@@ -424,7 +424,7 @@ describe("previews", () => {
     const page = `https://uploads.sh/c/${FEED_ID}`;
     const { blocks, api } = await unfurl(page, FEED_FIXTURES);
     expect(api.calls).toEqual([
-      `/public/feeds/${FEED_ID}?limit=1`,
+      `/public/feeds/${FEED_ID}?limit=4`,
       `/public/feeds/${FEED_ID}/items/item1`,
     ]);
     expect(blocks!.map((b) => b.type)).toEqual(["section", "context"]);

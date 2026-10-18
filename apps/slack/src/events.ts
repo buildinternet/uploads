@@ -6,7 +6,7 @@
  * report outcomes through logs, not the response.
  */
 import { botTokenFor, type SlackEnv } from "./config";
-import { presentDetails } from "./entities";
+import { parseHosts, presentDetails } from "./entities";
 import { publishHome } from "./home";
 import { revokeInstall } from "./installs";
 import type {
@@ -34,12 +34,13 @@ export function apiFetchFor(env: SlackEnv): typeof globalThis.fetch {
   return api.fetch.bind(api) as unknown as typeof globalThis.fetch;
 }
 
-/** Where share-link data comes from: uploads-api's public endpoints. */
+/** Where share-link data comes from (uploads-api's public endpoints), and which image hosts Slack may open full size. */
 export function shareDeps(env: SlackEnv) {
   return {
     webOrigin: env.WEB_ORIGIN || "https://uploads.sh",
     apiOrigin: env.API_ORIGIN || "https://api.uploads.sh",
     apiFetch: apiFetchFor(env),
+    fullSizeHosts: parseHosts(env.SLACK_FULL_SIZE_HOSTS),
   };
 }
 

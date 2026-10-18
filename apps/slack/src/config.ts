@@ -24,6 +24,12 @@ export interface SlackEnv {
    * `features.rich_previews`); anything else sends Block Kit previews only.
    */
   SLACK_WORK_OBJECTS?: string;
+  /**
+   * Comma-separated image hosts that answer CORS for https://app.slack.com,
+   * so Work Objects can open their images in Slack's full-size viewer.
+   * Empty: thumbnails only.
+   */
+  SLACK_FULL_SIZE_HOSTS?: string;
   /** Shared D1 (uploads-production); holds slack_installations and slack_user_links. */
   DB?: D1Database;
   /**
