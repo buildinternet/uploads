@@ -243,10 +243,23 @@ describe("renderWeeklyDigestHtml", () => {
     expect(html).toContain('data-org-id="org-acme"');
     expect(html).toContain('data-digest="admin"');
     expect(html.match(/data-digest="admin"/g)).toHaveLength(1);
-    expect(html).toContain("Email me a weekly summary of this workspace.");
-    expect(html).not.toContain('data-org-id="org-beta" data-digest="admin"');
+    expect(html).toContain('aria-label="Weekly summary for Acme"');
+    expect(html).toContain('aria-label="Admin pulse for Acme"');
     const betaBlock = html.slice(html.indexOf("Beta"));
     expect(betaBlock).not.toContain('data-digest="admin"');
+    expect(betaBlock).toContain("digest-table__na");
+  });
+
+  it("renders one table row per workspace with the saved state", () => {
+    const html = renderWeeklyDigestHtml([acme, beta]);
+    expect(html).toContain('<table class="digest-table">');
+    expect(html.match(/<tr>/g)).toHaveLength(3);
+    expect(html).toContain(
+      'data-digest="member" data-org-id="org-acme" aria-label="Weekly summary for Acme" checked',
+    );
+    expect(html).toContain(
+      'data-digest="admin" data-org-id="org-acme" aria-label="Admin pulse for Acme" />',
+    );
   });
 
   it("escapes a workspace name", () => {

@@ -87,32 +87,33 @@ function digestChecked(on: boolean): string {
 }
 
 /**
- * One switch group per workspace. The admin pulse appears only when the
- * membership is an admin or owner. Server-safe.
+ * One table row per workspace, one checkbox column per digest. The admin
+ * pulse cell is a dash unless the membership is an admin or owner. Each
+ * checkbox carries its own aria-label because the column header alone
+ * doesn't name the workspace. Server-safe.
  */
 export function renderWeeklyDigestHtml(workspaces: DigestWorkspacePreference[]): string {
   if (workspaces.length === 0) {
     return `<p class="muted settings-note">Join a workspace to get a weekly digest.</p>`;
   }
-  return workspaces
+  const rows = workspaces
     .map((workspace) => {
-      const titleId = `digest-${workspace.organizationId}`;
+      const name = escapeHtml(workspace.name || workspace.slug);
+      const orgId = escapeHtml(workspace.organizationId);
       const admin = workspace.admin
-        ? `<label class="notify-row">
-        <input type="checkbox" data-digest="admin" data-org-id="${escapeHtml(workspace.organizationId)}"${digestChecked(workspace.notifyWeeklyWorkspaceDigest)} />
-        <span>Email me this workspace's admin pulse.</span>
-      </label>`
-        : "";
-      return `<section class="weekly-workspace" aria-labelledby="${escapeHtml(titleId)}">
-      <h3 class="weekly-workspace__name" id="${escapeHtml(titleId)}">${escapeHtml(workspace.name || workspace.slug)}</h3>
-      <label class="notify-row">
-        <input type="checkbox" data-digest="member" data-org-id="${escapeHtml(workspace.organizationId)}"${digestChecked(workspace.notifyWeeklyDigest)} />
-        <span>Email me a weekly summary of this workspace.</span>
-      </label>
-      ${admin}
-    </section>`;
+        ? `<input type="checkbox" data-digest="admin" data-org-id="${orgId}" aria-label="Admin pulse for ${name}"${digestChecked(workspace.notifyWeeklyWorkspaceDigest)} />`
+        : `<span class="digest-table__na" title="For workspace admins">—</span>`;
+      return `<tr>
+        <th scope="row"><span class="digest-table__name">${name}</span> <span class="digest-table__role">${escapeHtml(workspace.role)}</span></th>
+        <td class="digest-table__toggle"><input type="checkbox" data-digest="member" data-org-id="${orgId}" aria-label="Weekly summary for ${name}"${digestChecked(workspace.notifyWeeklyDigest)} /></td>
+        <td class="digest-table__toggle">${admin}</td>
+      </tr>`;
     })
     .join("");
+  return `<table class="digest-table">
+    <thead><tr><th scope="col">Workspace</th><th scope="col" class="digest-table__toggle">Weekly summary</th><th scope="col" class="digest-table__toggle">Admin pulse</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
 }
 
 function asNonEmptyString(value: unknown): string | null {
