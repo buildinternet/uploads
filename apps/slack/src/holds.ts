@@ -18,6 +18,8 @@
  * the buttons can't be pressed twice.
  */
 import { botTokenFor, type SlackEnv } from "./config";
+import { installedScopes } from "./installs";
+import { canRun } from "./scopes";
 import {
   chatPostMessage,
   openDm,
@@ -192,6 +194,13 @@ export interface HoldContext {
 export async function sendHoldNotice(notice: HoldNotice, ctx: HoldContext): Promise<boolean> {
   const token = await botTokenFor(ctx.env, notice.teamId);
   if (!token) return false;
+  // An install from before chat:write/im:write can't DM; the Home tab asks
+  // the workspace to update instead of failing here with missing_scope.
+  const granted = ctx.env.DB ? await installedScopes(ctx.env.DB, notice.teamId) : null;
+  if (granted && !canRun(granted, "holds")) {
+    console.log("slack.holds: skipped, install is missing scopes", { team: notice.teamId });
+    return false;
+  }
   const options: SlackApiOptions = { token, fetch: ctx.slackFetch };
   const channel = await openDm(notice.slackUserId, options);
   if (!channel) {

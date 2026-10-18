@@ -4,14 +4,18 @@
  * Unlinked users see a Connect button that carries a fresh single-use
  * ticket to uploads.sh/slack/connect (links.ts). Linked users see which
  * account they're connected to and a Disconnect button, handled by the
- * interactivity endpoint.
+ * interactivity endpoint. Either way, a workspace whose install is missing
+ * scopes gets an Update permissions banner first.
  */
 import type { SlackEnv } from "./config";
+import { installedScopes } from "./installs";
 import { findLink, mintTicket, removeLink, teamName } from "./links";
+import { missingFeaturesText } from "./scopes";
 import { slackDisplayName, viewsPublish, type Block } from "./slack/api";
 
 export const DISCONNECT_ACTION = "uploads_disconnect";
 export const CONNECT_ACTION = "uploads_connect";
+export const UPDATE_PERMISSIONS_ACTION = "uploads_update_permissions";
 
 const SETTINGS_URL = "https://uploads.sh/account/profile#slack";
 
@@ -87,6 +91,40 @@ export function unlinkedHome(connectUrl: string): Block[] {
   ];
 }
 
+/**
+ * Shown above everything else when the workspace's install lacks scopes the
+ * current features need (scopes.ts). Slack only adds scopes when someone
+ * runs the install again, so the button goes back to /slack/install.
+ */
+export function updatePermissionsBlocks(missingText: string, installUrl: string): Block[] {
+  return [
+    {
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `⚠️ *uploads.sh needs updated permissions in this workspace* for ${missingText}.`,
+      },
+      accessory: {
+        type: "button",
+        action_id: UPDATE_PERMISSIONS_ACTION,
+        style: "primary",
+        text: { type: "plain_text", text: "Update permissions" },
+        url: installUrl,
+      },
+    },
+    {
+      type: "context",
+      elements: [
+        {
+          type: "mrkdwn",
+          text: "Anyone who can add apps to this workspace can approve it on Slack's Allow page. Some workspaces send it to an admin first.",
+        },
+      ],
+    },
+    { type: "divider" },
+  ];
+}
+
 export interface HomeContext {
   env: SlackEnv;
   teamId: string;
@@ -116,6 +154,12 @@ export async function publishHome(ctx: HomeContext): Promise<void> {
     const url = new URL("/slack/connect", ctx.env.WEB_ORIGIN || "https://uploads.sh");
     url.searchParams.set("ticket", ticket);
     blocks = unlinkedHome(url.href);
+  }
+  const granted = await installedScopes(db, ctx.teamId);
+  const missing = granted ? missingFeaturesText(granted) : null;
+  if (missing) {
+    const installUrl = `${(ctx.env.SLACK_ORIGIN || "https://agents.uploads.sh").replace(/\/+$/, "")}/slack/install`;
+    blocks = [...updatePermissionsBlocks(missing, installUrl), ...blocks];
   }
   const result = await viewsPublish(
     ctx.slackUserId,

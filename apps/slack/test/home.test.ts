@@ -19,7 +19,7 @@ afterEach(() => {
   sqlite = null;
 });
 
-async function setup() {
+async function setup(scopes = "chat:write,im:write,links:read,links:write,users:read") {
   sqlite = new SqliteD1(MIGRATIONS);
   const env: SlackEnv = {
     WEB_ORIGIN: "https://uploads.sh",
@@ -34,7 +34,7 @@ async function setup() {
     appId: "A1",
     botUserId: "UBOT",
     botToken: "xoxb-acme",
-    scopes: "links:read,links:write",
+    scopes,
     installedBySlackUserId: "U1",
   });
   return env;
@@ -144,6 +144,27 @@ describe("Home tab", () => {
     expect(sqlite!.db.prepare("SELECT count(*) AS n FROM slack_link_tickets").get()).toEqual({
       n: 0,
     });
+  });
+
+  it("asks a workspace missing scopes to update, above everything else", async () => {
+    const env = await setup("links:read,links:write,users:read");
+    const slack = fakeSlack();
+    await run(env, await signed("/slack/events", homeOpened(), "application/json"), slack.fetch);
+    const blocks = slack.views[0]!.view.blocks;
+    expect(blocks[0]!.text.text).toContain("held-upload messages");
+    expect(blocks[0]!.accessory).toMatchObject({
+      action_id: "uploads_update_permissions",
+      url: "https://agents.uploads.sh/slack/install",
+    });
+    // The Connect button is still there below the banner.
+    expect(blocks.some((b) => b.accessory?.action_id === "uploads_connect")).toBe(true);
+  });
+
+  it("shows no banner when every scope is granted", async () => {
+    const env = await setup();
+    const slack = fakeSlack();
+    await run(env, await signed("/slack/events", homeOpened(), "application/json"), slack.fetch);
+    expect(JSON.stringify(slack.views[0]!.view.blocks)).not.toContain("uploads_update_permissions");
   });
 
   it("ignores the Messages tab", async () => {

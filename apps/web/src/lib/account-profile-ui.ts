@@ -233,20 +233,28 @@ export function renderSlackLinksHtml(links: SlackLink[] | null): string {
     </div>`;
   }
   return `<ul class="detail-list" id="slack-links-list">${links
-    .map(
-      (link) => `<li>
+    .map((link) => {
+      const needsUpdate = link.missingScopes.length > 0;
+      const meta = needsUpdate
+        ? "Needs updated Slack permissions for held-upload messages"
+        : `Connected ${formatSessionTime(link.linkedAt)}`;
+      const update = needsUpdate
+        ? `<a class="text-btn text-btn--boxed" href="${SLACK_INSTALL_URL}">Update permissions</a>`
+        : "";
+      return `<li>
             <div class="detail-main">
               <div class="detail-title">
                 <span>${escapeHtml(link.teamName ?? "Slack workspace")}</span>
                 <span class="ul-badge ul-badge--ok">Connected</span>
               </div>
-              <div class="detail-meta">Connected ${escapeHtml(formatSessionTime(link.linkedAt))}</div>
+              <div class="detail-meta">${escapeHtml(meta)}</div>
             </div>
             <div class="detail-action">
+              ${update}
               <button type="button" class="text-btn text-btn--boxed" data-slack-unlink data-team-id="${escapeHtml(link.teamId)}" data-slack-user-id="${escapeHtml(link.slackUserId)}">Disconnect</button>
             </div>
-          </li>`,
-    )
+          </li>`;
+    })
     .join("")}</ul>`;
 }
 

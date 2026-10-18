@@ -15,6 +15,7 @@
 import { NotFoundError } from "@uploads/errors";
 import { Hono, type Context } from "hono";
 import { dbFor } from "../db-session";
+import { missingSlackScopes } from "../slack-scopes";
 import type { SessionUser, SessionVars } from "../session-auth";
 
 const TEAM_ID = /^[TE][A-Z0-9]{2,20}$/;
@@ -159,7 +160,7 @@ export const meSlack = new Hono<SessionVars>()
     const user = sessionUser(c);
     const { results } = await dbFor(c.env)
       .prepare(
-        `SELECT l.team_id, l.slack_user_id, l.linked_at, i.team_name
+        `SELECT l.team_id, l.slack_user_id, l.linked_at, i.team_name, i.scopes
            FROM slack_user_links l
            LEFT JOIN slack_installations i ON i.team_id = l.team_id
           WHERE l.user_id = ?
@@ -171,6 +172,7 @@ export const meSlack = new Hono<SessionVars>()
         slack_user_id: string;
         linked_at: string;
         team_name: string | null;
+        scopes: string | null;
       }>();
     return c.json({
       links: results.map((r) => ({
@@ -178,6 +180,9 @@ export const meSlack = new Hono<SessionVars>()
         teamName: r.team_name,
         slackUserId: r.slack_user_id,
         linkedAt: r.linked_at,
+        // Scopes the workspace's install hasn't approved yet; account
+        // settings offers "Update permissions" when this isn't empty.
+        missingScopes: r.scopes === null ? [] : missingSlackScopes(r.scopes),
       })),
     });
   })

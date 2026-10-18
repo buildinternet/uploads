@@ -17,9 +17,7 @@ import type { Context } from "hono";
 import type { SlackEnv } from "./config";
 import { hmac, randomToken, safeEqual, TokensKeyUnconfiguredError } from "./crypto";
 import { saveInstall } from "./installs";
-
-/** Bot scopes requested at install. Keep in sync with manifest.json. */
-export const BOT_SCOPES = ["links:read", "links:write", "users:read"];
+import { BOT_SCOPES } from "./scopes";
 const STATE_COOKIE = "__Host-uploads_slack_oauth";
 const STATE_TTL_SECONDS = 10 * 60;
 const STATE_LABEL = "slack-oauth-state";

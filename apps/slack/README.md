@@ -70,9 +70,28 @@ The D1 install row is the only token source; a team without one gets no
 previews or messages. Org-wide (Enterprise Grid) installs are refused for
 now.
 
-Adding a scope means every workspace has to approve it again: open
-`/slack/install` and press **Allow**. Until then, calls that need the new
-scope fail for that team and are logged.
+### Adding a scope
+
+Slack never upgrades an existing install. A new scope only changes what new
+installs request; every workspace keeps its old token until someone there
+runs the OAuth flow again, and Slack then adds the new grant to the old one
+(Slack's [App lifecycle & distribution](https://docs.slack.dev/app-management/distribution/)
+guide). So:
+
+1. Add the scope to the feature that needs it in `src/scopes.ts`
+   (`FEATURE_SCOPES`), to `manifest.json`, and to
+   `apps/api/src/slack-scopes.ts`. `test/scopes.test.ts` fails until all
+   three agree, and `/slack/install` requests `BOT_SCOPES` from that file.
+2. Ship it and run `slack manifest sync`.
+3. Nothing else: each install's granted scopes are stored in
+   `slack_installations.scopes`. Where any are missing, the Home tab shows
+   an **Update permissions** banner that opens `/slack/install`, and the
+   workspace's row under **Slack** on `/account/profile` does the same
+   (`missingScopes` on `GET /me/slack/links`). A feature whose scopes are
+   missing is skipped and logged instead of failing with `missing_scope`.
+
+Slack shows the Allow page to anyone who can add apps; workspaces that
+require admin approval route it to an admin.
 
 For another workspace to install, the app needs public distribution
 turned on under **Manage Distribution** in the app settings.
@@ -175,6 +194,9 @@ tab (where held-upload DMs land), and interactivity at
 | `users:read`  | Show the connecting user's Slack name on the uploads.sh confirm page. |
 | `chat:write`  | Send held-upload DMs and update them after a button press.            |
 | `im:write`    | Open the DM between the app and a connected user.                     |
+
+The list lives in `src/scopes.ts`, grouped by feature (see
+[Adding a scope](#adding-a-scope)).
 
 The manifest has no field for scope reasons. Slack's app settings ask for
 one per scope; paste the "Why" column there. The app is installed in the Build
