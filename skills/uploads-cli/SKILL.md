@@ -744,7 +744,7 @@ to 0.85), or `low` (0.50 up to 0.70). Those four flags are internal: they
 are not chips, and public pages, galleries, feeds, embeds, and pull request
 comments omit them. A high-confidence `ai.secret` (not `none`), or a
 high-confidence `ai.pii` of `identity_document|financial|other`, holds the
-file (`ai.hold=pending`): the managed comment leaves it out and shows a held
+file (`ai.hold=pending`) when it was uploaded with CLI 0.59.0 or newer: the managed comment leaves it out and shows a held
 count, public feeds and galleries withhold it, and its `/f/` page asks for
 sign-in. On hosted storage the raw URL returns 404 until approval, which
 restores the same URL. Check the file, then run

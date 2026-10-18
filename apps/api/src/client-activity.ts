@@ -5,8 +5,9 @@
  *
  * Two producers, both through `recordClient`:
  * - `workspaceAuth` (REST, and the hosted MCP's `up_` token lane) parses the
- *   CLI's `User-Agent: @buildinternet/uploads/<version> (<surface>)`. Any
- *   other User-Agent records nothing.
+ *   CLI's `User-Agent: @buildinternet/uploads/<version> (<surface>)`. A
+ *   bare `node` User-Agent (a CLI older than 0.57.0) records a versionless
+ *   CLI row. Any other User-Agent records nothing.
  * - the hosted MCP worker reads the MCP host's `clientInfo` from the JSON-RPC
  *   body (`mcp-remote`).
  *
@@ -86,6 +87,17 @@ export function parseCliUserAgent(ua: string | null | undefined): ClientInfo | n
     clientName: "@buildinternet/uploads",
     clientVersion: match[1],
   };
+}
+
+/**
+ * A CLI older than 0.57.0 sent no User-Agent of its own, so Node's fetch
+ * sent the bare `node`. On a workspace-token request that is almost always
+ * an old CLI (or its plugin hook), so it is recorded as one with no version,
+ * and `/admin/clients` shows it as outdated rather than not at all.
+ */
+export function legacyCliUserAgent(ua: string | null | undefined): ClientInfo | null {
+  if (ua?.trim() !== "node") return null;
+  return { surface: "cli", clientName: "@buildinternet/uploads", clientVersion: null };
 }
 
 /** MCP host identity from its `{ name, version }` clientInfo, or null without a usable name. */

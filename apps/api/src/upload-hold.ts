@@ -84,6 +84,36 @@ export function isHeld(meta: Record<string, string> | undefined): boolean {
   return meta?.[HOLD_META_KEY] === HOLD_PENDING;
 }
 
+/**
+ * The first CLI release with `uploads approve`. A hold is only placed for an
+ * upload from this CLI or newer: anything else (an older CLI, a script, the
+ * web) could not release it, so its would-be holds are logged instead.
+ */
+export const HOLD_MIN_CLI_VERSION = "0.59.0";
+
+/**
+ * Whether an upload's client can act on a hold: our CLI (or its local MCP)
+ * at `HOLD_MIN_CLI_VERSION` or newer. `client` is `parseCliUserAgent`'s
+ * result for the upload request.
+ */
+export function clientCanApprove(
+  client: { surface: string; clientVersion: string | null } | null | undefined,
+): boolean {
+  if (!client || (client.surface !== "cli" && client.surface !== "mcp-local")) return false;
+  const have = semverTriple(client.clientVersion);
+  const need = semverTriple(HOLD_MIN_CLI_VERSION);
+  if (!have || !need) return false;
+  for (let i = 0; i < 3; i++) {
+    if (have[i] !== need[i]) return have[i] > need[i];
+  }
+  return true;
+}
+
+function semverTriple(version: string | null): [number, number, number] | null {
+  const match = version ? /^(\d+)\.(\d+)\.(\d+)/.exec(version) : null;
+  return match ? [Number(match[1]), Number(match[2]), Number(match[3])] : null;
+}
+
 /** The workspace switch. On unless the record says `false`. */
 export function holdPolicyEnabled(ws: { holdFlaggedUploads?: boolean }): boolean {
   return ws.holdFlaggedUploads !== false;

@@ -12,6 +12,7 @@ import {
   legacyClientPrincipal,
   listClientActivity,
   mcpClientInfo,
+  legacyCliUserAgent,
   parseCliUserAgent,
   recordClientActivity,
   tokenClientPrincipal,
@@ -77,6 +78,22 @@ describe("parseCliUserAgent", () => {
     expect(parseCliUserAgent("node")).toBeNull();
     expect(parseCliUserAgent("Mozilla/5.0 @buildinternet/uploads/1.0.0")).toBeNull();
     expect(parseCliUserAgent("uploads-cli/1.0.0")).toBeNull();
+  });
+});
+
+describe("legacyCliUserAgent", () => {
+  it("records a bare node User-Agent as a versionless CLI", () => {
+    expect(legacyCliUserAgent("node")).toEqual({
+      surface: "cli",
+      clientName: "@buildinternet/uploads",
+      clientVersion: null,
+    });
+  });
+
+  it("ignores every other User-Agent", () => {
+    expect(legacyCliUserAgent(undefined)).toBeNull();
+    expect(legacyCliUserAgent("node-fetch/1.0")).toBeNull();
+    expect(legacyCliUserAgent("@buildinternet/uploads/1.4.2 (cli)")).toBeNull();
   });
 });
 

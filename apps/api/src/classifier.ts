@@ -1194,6 +1194,8 @@ export async function classifyAndStore(
     run?: ClassifierRun;
     minConfidence?: number;
     transform?: ClassifierImageTransform;
+    /** Place a hold (`upload-hold.ts`) rather than only log it. */
+    enforceHold?: boolean;
   },
 ): Promise<Record<string, string> | undefined> {
   try {
@@ -1263,7 +1265,9 @@ export async function classifyAndStore(
     // Loaded lazily: the hold re-syncs the PR comment, and the comment
     // service imports files-core, which imports this module.
     const { applyUploadHold } = await import("./upload-hold-service");
-    await applyUploadHold(env, ws, workspaceName, key, stored);
+    await applyUploadHold(env, ws, workspaceName, key, stored, {
+      enforce: deps?.enforceHold === true,
+    });
     return stored;
   } catch (err) {
     console.error({ event: "classifier_failed", workspace: workspaceName, key, err });
@@ -1284,12 +1288,15 @@ export function scheduleFileClassification(
   bytes: Uint8Array,
   contentType: string,
   waitUntil?: ClassifierWaitUntil,
+  opts: { enforceHold?: boolean } = {},
 ): void {
   if (!waitUntil) return;
   // Cheap local gates only — Flagship is async and lives inside classifyAndStore.
   if (!env.OPENROUTER_API_KEY?.trim()) return;
   if (ws.llmClassifierEnabled === false) return;
-  const work = classifyAndStore(env, ws, workspaceName, key, bytes, contentType);
+  const work = classifyAndStore(env, ws, workspaceName, key, bytes, contentType, {
+    enforceHold: opts.enforceHold,
+  });
   try {
     waitUntil(work);
   } catch {

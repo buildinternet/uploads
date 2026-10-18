@@ -7,6 +7,7 @@
  */
 
 import { ServiceUnavailableError } from "@uploads/errors";
+import { classifierEvaluationContext } from "./classifier";
 import { dbFor } from "./db-session";
 import {
   deleteServerFileMetadataKeys,
@@ -32,6 +33,9 @@ import type { WorkspaceRecord } from "./workspace";
  * and the workspace policy is on. An existing `ai.hold` row wins: identical
  * bytes keep an approval, and a pending hold is not re-announced.
  *
+ * `opts.enforce` is false for an upload from a client that cannot approve
+ * (`clientCanApprove`): the would-be hold is logged and nothing changes.
+ *
  * Returns `true` when this call placed the hold. Never throws; a hold is
  * best-effort like the rest of the classifier.
  */
@@ -41,11 +45,22 @@ export async function applyUploadHold(
   workspaceName: string,
   key: string,
   decided: Record<string, string>,
+  opts: { enforce?: boolean } = {},
 ): Promise<boolean> {
   try {
     if (!holdPolicyEnabled(ws)) return false;
     const reason = holdReason(decided);
     if (!reason) return false;
+    const skip = !opts.enforce
+      ? "client" // the uploading client cannot approve (`clientCanApprove`)
+      : !(await holdsAllowed(env, ws, workspaceName))
+        ? "flag" // operator kill switch (`UPLOAD_HOLD_FLAG`)
+        : null;
+    if (skip) {
+      // Record what would have been held and leave the file alone.
+      console.log({ event: "upload_hold_skipped", workspace: workspaceName, reason, skip });
+      return false;
+    }
     const db = dbFor(env);
     const existing = await getFileMetadata(db, workspaceName, key);
     if (existing[HOLD_META_KEY] !== undefined) return false;
@@ -61,6 +76,32 @@ export async function applyUploadHold(
     return true;
   } catch (err) {
     console.error({ event: "upload_hold_failed", workspace: workspaceName, err });
+    return false;
+  }
+}
+
+/**
+ * Operator kill switch for new holds. Flagship `upload-holds`, evaluated
+ * with the classifier's `{ org, workspace }` context, so it can be turned
+ * off everywhere or for one workspace without a deploy. Fails closed: a
+ * missing binding, a flag served off, or a thrown evaluation all mean no
+ * new holds. Existing holds stay until approved.
+ */
+export const UPLOAD_HOLD_FLAG = "upload-holds";
+
+async function holdsAllowed(
+  env: Env,
+  ws: WorkspaceRecord,
+  workspaceName: string,
+): Promise<boolean> {
+  if (!env.FLAGS) return false;
+  try {
+    return await env.FLAGS.getBooleanValue(
+      UPLOAD_HOLD_FLAG,
+      false,
+      classifierEvaluationContext(ws, workspaceName),
+    );
+  } catch {
     return false;
   }
 }
