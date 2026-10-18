@@ -7,7 +7,12 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FakeR2Bucket } from "./fake-r2";
-import { createLaneResolver, resolveObjectLane, storageConfigs } from "../src/storage";
+import {
+  createLaneResolver,
+  resolveObjectLane,
+  resolveObjectLaneWithHead,
+  storageConfigs,
+} from "../src/storage";
 import type { StorageLane, WorkspaceRecord } from "../src/workspace";
 
 function makeEnv(bindings: Record<string, FakeR2Bucket>) {
@@ -226,5 +231,77 @@ describe("resolveObjectLane", () => {
     } finally {
       errorSpy.mockRestore();
     }
+  });
+});
+
+describe("resolveObjectLaneWithHead", () => {
+  it("returns active metadata with one HEAD and observes replacements and deletion on the same resolver", async () => {
+    const active = new FakeR2Bucket();
+    const key = "mutable.png";
+    await active.put(key, new Uint8Array([1]), {
+      httpMetadata: { contentType: "image/png" },
+    });
+    const headSpy = vi.spyOn(active, "head");
+    const resolver = createLaneResolver(makeEnv({ UPLOADS_DEFAULT: active }), ACTIVE_WS);
+
+    expect(await resolver.resolveWithHead(key)).toMatchObject({
+      role: "active",
+      head: { size: 1, type: "image/png" },
+    });
+    expect(headSpy).toHaveBeenCalledTimes(1);
+
+    await active.put(key, new Uint8Array([1, 2]), {
+      httpMetadata: { contentType: "image/webp" },
+    });
+    expect(await resolver.resolveWithHead(key)).toMatchObject({
+      head: { size: 2, type: "image/webp" },
+    });
+    expect(headSpy).toHaveBeenCalledTimes(2);
+
+    await active.delete(key);
+    expect(await resolver.resolveWithHead(key)).toBeNull();
+    expect(headSpy).toHaveBeenCalledTimes(3);
+  });
+
+  it("falls through a missing active object with one HEAD per lane and prefers active replacements", async () => {
+    const active = new FakeR2Bucket();
+    const fallback = new FakeR2Bucket();
+    const key = "fallback.png";
+    await fallback.put(key, new Uint8Array([1, 2]));
+    const activeHead = vi.spyOn(active, "head");
+    const fallbackHead = vi.spyOn(fallback, "head");
+    const env = makeEnv({ UPLOADS_DEFAULT: active, UPLOADS_FALLBACK: fallback });
+    const ws = { ...ACTIVE_WS, storageLanes: [FALLBACK_LANE] };
+
+    expect(await resolveObjectLaneWithHead(env, ws, key)).toMatchObject({
+      role: "fallback",
+      laneId: FALLBACK_LANE.id,
+      head: { size: 2 },
+    });
+    expect(activeHead).toHaveBeenCalledTimes(1);
+    expect(fallbackHead).toHaveBeenCalledTimes(1);
+
+    await active.put(key, new Uint8Array([3]));
+    expect(await resolveObjectLaneWithHead(env, ws, key)).toMatchObject({
+      role: "active",
+      head: { size: 1 },
+    });
+    expect(activeHead).toHaveBeenCalledTimes(2);
+    expect(fallbackHead).toHaveBeenCalledTimes(1);
+  });
+
+  it("propagates storage failures instead of treating them as missing objects", async () => {
+    const active = new FakeR2Bucket();
+    const fallback = new FakeR2Bucket();
+    await fallback.put("present.png", new Uint8Array([1]));
+    vi.spyOn(active, "head").mockRejectedValue(new Error("storage unavailable"));
+    const fallbackHead = vi.spyOn(fallback, "head");
+    const env = makeEnv({ UPLOADS_DEFAULT: active, UPLOADS_FALLBACK: fallback });
+    const ws = { ...ACTIVE_WS, storageLanes: [FALLBACK_LANE] };
+
+    await expect(resolveObjectLaneWithHead(env, ws, "present.png")).rejects.toThrow(
+      "storage unavailable",
+    );
+    expect(fallbackHead).not.toHaveBeenCalled();
   });
 });

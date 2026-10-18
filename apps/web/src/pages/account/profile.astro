@@ -43,30 +43,35 @@ const sessionsEmpty = sessionsReady && (initial.sessions?.length ?? 0) === 0;
 
     <div class="settings-section">
       <h2>Email notifications</h2>
-      <label class="notify-row">
-        <input
-          type="checkbox"
-          id="notify-member-join"
-          checked={initial.user?.notifyMemberJoin ?? true}
-        />
-        <span>Email me when someone joins a workspace I administer.</span>
-      </label>
-      <label class="notify-row">
-        <input
-          type="checkbox"
-          id="notify-usage-limits"
-          checked={initial.user?.notifyUsageLimits ?? true}
-        />
-        <span>Email me when a workspace I administer nears its usage limit.</span>
-      </label>
-      <div class="weekly-digest">
-        <p class="weekly-digest__title">Weekly digest</p>
+      {/* One .notify-group per channel or cadence; Slack alerts slot in as another group. */}
+      <div class="notify-group">
+        <h3 class="notify-group__title">Workspace alerts</h3>
+        <label class="notify-row">
+          <input
+            type="checkbox"
+            id="notify-member-join"
+            checked={initial.user?.notifyMemberJoin ?? true}
+          />
+          <span>Someone joins a workspace I administer</span>
+        </label>
+        <label class="notify-row">
+          <input
+            type="checkbox"
+            id="notify-usage-limits"
+            checked={initial.user?.notifyUsageLimits ?? true}
+          />
+          <span>A workspace I administer nears its usage limit</span>
+        </label>
+      </div>
+      <div class="notify-group">
+        <h3 class="notify-group__title">Weekly digests</h3>
         <p class="muted settings-note">
-          Each workspace has its own switches. They stay off until you turn them on. An unsubscribe
-          link turns off that workspace only. The admin pulse is for workspaces you administer.
+          Off until you turn them on. An unsubscribe link turns off that workspace only. The admin
+          pulse is for workspaces you administer.
         </p>
         <div
           id="weekly-digest-list"
+          class="digest-table-wrap"
           set:html={initial.digestWorkspaces
             ? renderWeeklyDigestHtml(initial.digestWorkspaces)
             : `<p class="muted settings-note">Couldn’t load weekly digest settings.</p>`}
@@ -190,47 +195,106 @@ const sessionsEmpty = sessionsReady && (initial.sessions?.length ?? 0) === 0;
       gap: 8px;
       margin: 0;
     }
+    .notify-group + .notify-group {
+      margin-top: 20px;
+    }
+    .notify-group__title {
+      margin: 0 0 10px;
+      color: var(--fg);
+      font-size: var(--text-meta);
+      font-weight: var(--weight-semibold);
+    }
+    .notify-group .settings-note {
+      margin: 0 0 14px;
+    }
     .notify-row {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 10px;
+      padding: 4px 0;
       font-size: var(--text-meta);
+      color: var(--body);
     }
     .notify-row input {
       margin: 0;
+      flex: none;
     }
     .slack-links {
       margin-top: 12px;
     }
-    .slack-empty__actions {
+    /* Injected with innerHTML by the client, so :global like the digest table. */
+    .slack-links :global(.slack-empty__actions) {
       display: flex;
       flex-wrap: wrap;
       align-items: center;
       gap: 10px 14px;
       margin: 10px 0 0;
     }
-    .weekly-digest {
-      display: grid;
-      gap: 12px;
-      margin-top: 14px;
+    /* The digest table is injected with set:html (and re-rendered on the
+       client), so its rules must be :global — scoped selectors never match. */
+    .digest-table-wrap {
+      overflow-x: auto;
     }
-    .weekly-digest__title {
-      margin: 0;
+    .digest-table-wrap :global(.digest-table) {
+      width: 100%;
+      border-collapse: collapse;
       font-size: var(--text-meta);
-      font-weight: 600;
+      line-height: 1.4;
     }
-    .weekly-workspace {
-      display: grid;
-      gap: 8px;
+    .digest-table-wrap :global(th),
+    .digest-table-wrap :global(td) {
+      padding: 10px 12px 10px 0;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: middle;
     }
-    .weekly-workspace + .weekly-workspace {
-      padding-top: 12px;
-      border-top: 1px solid var(--line);
+    .digest-table-wrap :global(thead th) {
+      padding-top: 0;
+      color: var(--muted);
+      font: var(--weight-medium) var(--text-micro) / 1 var(--sans);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      white-space: nowrap;
     }
-    .weekly-workspace__name {
+    .digest-table-wrap :global(tbody tr:last-child > *) {
+      border-bottom: 0;
+    }
+    .digest-table-wrap :global(tbody th) {
+      font-weight: inherit;
+    }
+    .digest-table-wrap :global(.digest-table__toggle) {
+      width: 9rem;
+      padding-right: 0;
+      text-align: center;
+    }
+    .digest-table-wrap :global(.digest-table__toggle input) {
       margin: 0;
-      font-size: var(--text-meta);
-      font-weight: 600;
+    }
+    .digest-table-wrap :global(.digest-table__name) {
+      color: var(--fg);
+      font-weight: var(--weight-semibold);
+    }
+    .digest-table-wrap :global(.digest-table__role),
+    .digest-table-wrap :global(.digest-table__na) {
+      color: var(--muted);
+      font-size: var(--text-micro);
+    }
+    .digest-table-wrap :global(.digest-table__role) {
+      margin-left: 6px;
+    }
+    @media (max-width: 560px) {
+      .digest-table-wrap :global(.digest-table__toggle) {
+        width: 5.5rem;
+        padding-left: 8px;
+      }
+      .digest-table-wrap :global(thead th) {
+        white-space: normal;
+        line-height: 1.3;
+      }
+      .digest-table-wrap :global(.digest-table__role) {
+        display: block;
+        margin: 2px 0 0;
+      }
     }
   </style>
 

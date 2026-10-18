@@ -142,6 +142,24 @@ async function readCache(env: Env, key: string): Promise<CacheEntry | null> {
 }
 
 /**
+ * Cache-only public title read. Null means a miss (including an invalidated
+ * epoch); a hit may itself contain a negative-cached null value. Never reads
+ * the member namespace or contacts GitHub.
+ */
+export async function readCachedPublicTitle(
+  env: Env,
+  ref: string,
+): Promise<{ value: TitleInfo | null } | null> {
+  if (!env.GITHUB_CACHE) return null;
+  const { repo } = splitRef(ref);
+  const [cached, epoch] = await Promise.all([
+    readCache(env, `${PUBLIC_TITLE_PREFIX}${ref}`),
+    (async () => env.GITHUB_CACHE.get(`${PUBLIC_TITLE_EPOCH_PREFIX}${repo}`))(),
+  ]);
+  return cached && (cached.e ?? null) === epoch ? { value: cached.v } : null;
+}
+
+/**
  * Make every cached public title for `repo` (lowercased `owner/name`)
  * unreachable. The epoch is a timestamp rather than a counter, so concurrent
  * bumps need no read-modify-write: any new value differs from what existing
