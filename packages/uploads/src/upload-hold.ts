@@ -13,12 +13,13 @@ export function isHeldUpload(meta: Record<string, string> | undefined): boolean 
 
 /**
  * A short reason from the classifier rows, for `uploads approve` output.
- * `secret: api_key`, `personal data: financial`, or `flagged`.
+ * Same wording as the server's held list: `secret: api_key`,
+ * `pii: financial`, or `flagged`.
  */
 export function heldReason(meta: Record<string, string> | undefined): string {
   const secret = meta?.["ai.secret"];
   if (secret && secret !== "none") return `secret: ${secret}`;
   const pii = meta?.["ai.pii"];
-  if (pii && pii !== "none") return `personal data: ${pii}`;
+  if (pii && pii !== "none") return `pii: ${pii}`;
   return "flagged";
 }

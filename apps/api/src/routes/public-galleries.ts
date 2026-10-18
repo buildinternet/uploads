@@ -4,7 +4,7 @@ import { downloadResponse } from "../files-core";
 import { listGalleryItems, resolvePublicGallery } from "../galleries";
 import { galleryItemFilename, hydratePublicGallery } from "../gallery-service";
 import { objectPublicUrls, storage, storageConfig } from "../storage";
-import { heldKeysAmong } from "../upload-hold-read";
+import { isKeyHeld } from "../upload-hold-read";
 import { objectVisibility } from "../visibility";
 import { loadWorkspaceRecord, type WorkspaceVars } from "../workspace";
 import { dbFor } from "../db-session";
@@ -58,12 +58,15 @@ export const publicGalleries = new Hono<WorkspaceVars>()
     // the bytes here exactly when the gallery's own read path would withhold
     // the item (uniform 404, never a distinct code), so this route can't be
     // used to bypass that gate.
-    const head = await withGalleryStorageErrors(() => store.head(item.object_key));
+    const [head, held] = await Promise.all([
+      withGalleryStorageErrors(() => store.head(item.object_key)),
+      isKeyHeld(c.env, record.workspace, item.object_key),
+    ]);
     if (objectVisibility((head as { metadata?: Record<string, string> } | null)?.metadata)) {
       throw new NotFoundError("Gallery item not found.", { code: "gallery_item_not_found" });
     }
     // A held upload (`upload-hold.ts`) is withheld the same way.
-    if ((await heldKeysAmong(c.env, record.workspace, [item.object_key])).has(item.object_key)) {
+    if (held) {
       throw new NotFoundError("Gallery item not found.", { code: "gallery_item_not_found" });
     }
 

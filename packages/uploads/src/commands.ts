@@ -3114,9 +3114,9 @@ export async function approveHeldFiles(opts: {
 }
 
 /**
- * Held files under `prefixes`. The server's held list is the source: a held
- * file on hosted storage leaves the public bucket, so `list` cannot see it.
- * An older server without that route falls back to the listing's metadata.
+ * Held files under `prefixes`, from the server's held list: a held file on
+ * hosted storage leaves the public bucket, so `list` cannot see it. A server
+ * without that route has never held a file.
  */
 async function listHeldUnder(
   client: UploadsClient,
@@ -3125,13 +3125,9 @@ async function listHeldUnder(
   try {
     const pages = await Promise.all(prefixes.map((prefix) => client.listHeld(prefix)));
     return pages.flat().map((file) => ({ key: file.key, reason: file.reason ?? "flagged" }));
-  } catch {
-    const listed = await ghMergedList(prefixes, undefined, async (prefix) =>
-      client.listAll({ prefix, metadata: true }),
-    );
-    return listed
-      .filter((item) => isHeldUpload(item.metadata))
-      .map((item) => ({ key: item.key, reason: heldReason(item.metadata) }));
+  } catch (err) {
+    if (err instanceof UploadsError && err.status === 404) return [];
+    throw err;
   }
 }
 

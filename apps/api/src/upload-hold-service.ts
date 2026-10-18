@@ -52,13 +52,10 @@ export async function applyUploadHold(
     // The row lands first: a move that fails part way leaves the public
     // object in place, still held on every surface.
     await setServerFileMetadata(db, workspaceName, key, { [HOLD_META_KEY]: HOLD_PENDING });
-    let moved = false;
-    try {
-      moved = await moveToHeld(env, ws, workspaceName, key);
-      if (moved) await setServerFileMetadata(db, workspaceName, key, { [HOLD_MOVED_KEY]: "1" });
-    } catch (err) {
+    const moved = await moveToHeld(env, ws, workspaceName, key).catch((err: unknown) => {
       console.error({ event: "upload_hold_move_failed", workspace: workspaceName, err });
-    }
+      return false;
+    });
     console.log({ event: "upload_held", workspace: workspaceName, reason, moved });
     await resyncAttachmentComment(env, ws, workspaceName, key, existing);
     return true;

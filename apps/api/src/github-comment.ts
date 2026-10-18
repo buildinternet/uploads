@@ -190,6 +190,10 @@ async function gatherAttachments(
     ...activePrefixIds.map((id) => ghPrivateKeyPrefix(id, target)),
   ];
 
+  // Independent of the listing below, so it overlaps it. A moved hold
+  // (`held-storage.ts`) has no public object to list.
+  const heldKeysPromise = listHeldKeysSafe(env, workspaceName);
+
   // Paginated per-prefix, but the prefixes themselves are independent — run
   // them concurrently and concatenate in prefix order, so output ordering is
   // unchanged (plain first, then ids in listActivePrefixIds order).
@@ -246,10 +250,8 @@ async function gatherAttachments(
   );
 
   const shown = items.filter((item) => !isHeld(scopeMetaByKey.get(item.key)));
-  // A moved hold (`held-storage.ts`) has no public object to list, so its
-  // key comes from D1.
   const listedKeys = new Set(items.map((item) => item.key));
-  const movedHeld = (await listHeldKeysSafe(env, workspaceName)).filter(
+  const movedHeld = (await heldKeysPromise).filter(
     (key) => !listedKeys.has(key) && prefixes.some((prefix) => key.startsWith(prefix)),
   );
   const heldCount = items.length - shown.length + movedHeld.length;

@@ -31,7 +31,7 @@ import { ForbiddenError, NotFoundError, ValidationError } from "@uploads/errors"
 import { dbFor } from "../db-session";
 import { boundedDataRead } from "../data-read-bounds";
 import { parseFileTypeQuery } from "../file-type-sql";
-import { createFilesRouter, signedDownloadUrl, type Files } from "@uploads/storage";
+import { createFilesRouter, signedDownloadUrl } from "@uploads/storage";
 import { Hono, type Context, type Handler, type MiddlewareHandler } from "hono";
 import {
   dualWorkspaceAuth,
@@ -40,7 +40,8 @@ import {
   type DualAuthVars,
 } from "../dual-workspace-auth";
 import { respondError } from "../error-response";
-import { badKey, downloadResponse, listObjects, setObjectVisibility } from "../files-core";
+import { attachmentResponse, badKey, listObjects, setObjectVisibility } from "../files-core";
+import { feedItemFilename } from "../feed-service";
 import { approveUpload } from "../upload-hold-service";
 import { listHeldKeys } from "../upload-hold-read";
 import { HOLD_MOVED_KEY, storedHoldReason } from "../upload-hold";
@@ -460,15 +461,14 @@ export const workspaceFiles = new Hono<DualAuthVars>()
     if (badKey(key)) throw new NotFoundError();
     const body = await readHeld(c.env, name, key);
     if (!body) throw new NotFoundError("no held copy of this file", { code: "not_held" });
-    const filename = key.split("/").filter(Boolean).pop() ?? key;
-    const store = {
-      download: async () => ({
+    return attachmentResponse(
+      {
         type: body.httpMetadata?.contentType ?? "application/octet-stream",
         size: body.size,
         stream: () => body.body,
-      }),
-    } as unknown as Files;
-    return downloadResponse(store, key, filename);
+      },
+      feedItemFilename(key),
+    );
   })
 
   // Release a file held for approval (`upload-hold.ts`). Idempotent: a key

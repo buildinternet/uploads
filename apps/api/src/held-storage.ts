@@ -18,7 +18,7 @@ import { dbFor } from "./db-session";
 import { setServerFileMetadata } from "./file-metadata";
 import { UPLOAD_CACHE_CONTROL } from "./files-core";
 import { HOLD_MOVED_KEY } from "./upload-hold";
-import { heldKeysAmong } from "./upload-hold-read";
+import { isKeyHeld } from "./upload-hold-read";
 import { posterKeyFor } from "./poster";
 import { isSharedLane, resolveObjectLane, storageConfigs } from "./storage";
 import type { WorkspaceRecord } from "./workspace";
@@ -33,9 +33,14 @@ export function heldObjectKey(workspaceName: string, key: string): string {
   return `${workspaceName}/${key}`;
 }
 
+/** The held keys for a file and its poster. */
+function heldKeysFor(workspaceName: string, key: string): string[] {
+  return [heldObjectKey(workspaceName, key), heldObjectKey(workspaceName, posterKeyFor(key))];
+}
+
 /**
- * Move `key` (and its poster) from the hosted lane into the held bucket.
- * `false` when there is nothing to move: no held bucket, a BYO lane, or no
+ * Move `key` (and its poster) from the hosted lane into the held bucket,
+ * and record `ai.hold.moved`. `false` when there is nothing to move: no held bucket, a BYO lane, or no
  * object. The copy lands before the public delete, so a failure part way
  * leaves the public object in place rather than losing it.
  */
@@ -49,13 +54,14 @@ export async function moveToHeld(
   if (!held) return false;
   const lane = await resolveObjectLane(env, ws, key);
   if (!lane || !isSharedLane(lane.config)) return false;
-  await copyOut(lane.store, held, heldObjectKey(workspaceName, key), key);
   const posterKey = posterKeyFor(key);
-  if (await lane.store.head(posterKey).catch(() => null)) {
-    await copyOut(lane.store, held, heldObjectKey(workspaceName, posterKey), posterKey);
-    await lane.store.delete(posterKey);
-  }
-  await lane.store.delete(key);
+  const [, poster] = await Promise.all([
+    copyOut(lane.store, held, heldObjectKey(workspaceName, key), key),
+    lane.store.head(posterKey).catch(() => null),
+  ]);
+  if (poster) await copyOut(lane.store, held, heldObjectKey(workspaceName, posterKey), posterKey);
+  await Promise.all([lane.store.delete(key), poster ? lane.store.delete(posterKey) : undefined]);
+  await setServerFileMetadata(dbFor(env), workspaceName, key, { [HOLD_MOVED_KEY]: "1" });
   return true;
 }
 
@@ -77,24 +83,25 @@ export async function restoreFromHeld(
   if (!restored) return false;
   const posterKey = posterKeyFor(key);
   await copyIn(held, store, heldObjectKey(workspaceName, posterKey), posterKey);
-  await held.delete([heldObjectKey(workspaceName, key), heldObjectKey(workspaceName, posterKey)]);
+  await held.delete(heldKeysFor(workspaceName, key));
   return true;
 }
 
 /**
- * Delete any held copy of `key` and its poster. Returns the held object's
- * size so a delete can still debit usage, or `null` when there was none.
+ * Delete any held copy of `key` and its poster. With `measure`, first reads
+ * the held object's size so a delete can still debit usage; otherwise it
+ * skips that read and returns `null`.
  */
 export async function deleteHeldCopy(
   env: Env,
   workspaceName: string,
   key: string,
+  opts: { measure?: boolean } = {},
 ): Promise<number | null> {
   const held = heldBucket(env);
   if (!held) return null;
-  const heldKey = heldObjectKey(workspaceName, key);
-  const head = await held.head(heldKey);
-  await held.delete([heldKey, heldObjectKey(workspaceName, posterKeyFor(key))]);
+  const head = opts.measure ? await held.head(heldObjectKey(workspaceName, key)) : null;
+  await held.delete(heldKeysFor(workspaceName, key));
   return head?.size ?? null;
 }
 
@@ -102,28 +109,18 @@ export async function deleteHeldCopy(
  * When `key` is held, move the object now at its public key into the held
  * bucket. For writes that land bytes under a held key without a new
  * classification: an identical re-upload, a promote, or an attach copy.
+ * Pass `held` when the caller already has the key's rows.
  */
 export async function reholdIfHeld(
   env: Env,
   ws: WorkspaceRecord,
   workspaceName: string,
   key: string,
+  held?: boolean,
 ): Promise<void> {
   if (!heldBucket(env)) return;
-  if (!(await heldKeysAmong(env, workspaceName, [key])).has(key)) return;
-  if (await moveToHeld(env, ws, workspaceName, key)) {
-    await setServerFileMetadata(dbFor(env), workspaceName, key, { [HOLD_MOVED_KEY]: "1" });
-  }
-}
-
-/** Drop any held copy of `key` and its poster, without reading it first. */
-export async function dropHeldCopy(env: Env, workspaceName: string, key: string): Promise<void> {
-  const held = heldBucket(env);
-  if (!held) return;
-  await held.delete([
-    heldObjectKey(workspaceName, key),
-    heldObjectKey(workspaceName, posterKeyFor(key)),
-  ]);
+  if (!(held ?? (await isKeyHeld(env, workspaceName, key)))) return;
+  await moveToHeld(env, ws, workspaceName, key);
 }
 
 /** A held object's body for a member review, or `null`. */

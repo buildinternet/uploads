@@ -30,6 +30,16 @@ function fakeClient(opts: {
   const client = {
     listAll: async (listOpts: { prefix?: string }) =>
       listOpts.prefix === PREFIX ? (opts.items ?? []) : [],
+    listHeld: async (prefix: string) =>
+      (opts.items ?? [])
+        .filter((entry) => entry.key.startsWith(prefix) && held.has(entry.key))
+        .map((entry) => ({
+          key: entry.key,
+          reason: entry.metadata?.["ai.secret"]
+            ? `secret: ${entry.metadata["ai.secret"]}`
+            : `pii: ${entry.metadata?.["ai.pii"]}`,
+          moved: false,
+        })),
     getMetadata: async (key: string) => ({ metadata: opts.metadata?.[key] ?? {} }),
     approve: async (key: string) => {
       if (!held.delete(key)) return { key, approved: false, reason: "not_held" };
@@ -53,7 +63,7 @@ describe("approveHeldFiles", () => {
     const result = await approveHeldFiles({ client, target: TARGET });
     expect(result.files).toEqual([
       { key: `${PREFIX}token.png`, action: "held", reason: "secret: token" },
-      { key: `${PREFIX}card.png`, action: "held", reason: "personal data: financial" },
+      { key: `${PREFIX}card.png`, action: "held", reason: "pii: financial" },
     ]);
     expect(approved).toEqual([]);
   });
