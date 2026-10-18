@@ -1,6 +1,6 @@
 import { FEED_ITEM_ID_RE } from "@uploads/comment-render/scope";
 import { applyPublicGalleryHeaders } from "./public-gallery";
-import { fileKind, isVideoDimensions, nullableHttpsUrl } from "./public-file";
+import { fileKind, isMetadataMap, isVideoDimensions, nullableHttpsUrl } from "./public-file";
 import { SSR_USER_AGENT } from "./ssr-fetch";
 
 export interface PublicFeedItem {
@@ -10,6 +10,7 @@ export interface PublicFeedItem {
   url: string | null;
   embedUrl: string | null;
   contentType: string | null;
+  metadata?: Record<string, string>;
   size: number | null;
   uploaded?: string | null;
   modified?: string | null;
@@ -192,6 +193,7 @@ export function isPublicFeedItem(entry: unknown): entry is PublicFeedItem {
   const videoDimensionsOk =
     item.videoDimensions === undefined || isVideoDimensions(item.videoDimensions);
   return (
+    (item.metadata === undefined || isMetadataMap(item.metadata)) &&
     posterUrlOk &&
     videoDimensionsOk &&
     text(item.id, 64) &&

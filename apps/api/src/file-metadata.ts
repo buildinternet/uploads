@@ -128,6 +128,24 @@ export function isServerMetaKey(key: string): boolean {
 }
 
 /**
+ * Public queryable tags only. Collections omit GitHub tags because their titles
+ * and state follow a separate public-audience check; standalone files retain
+ * their existing raw GitHub metadata contract.
+ */
+export function publicFileMetadata(
+  metadata: Record<string, string>,
+  { includeGithub = true }: { includeGithub?: boolean } = {},
+): Record<string, string> | undefined {
+  const entries = Object.entries(metadata).filter(
+    ([key]) =>
+      !RESERVED_META_KEYS.has(key) &&
+      !isServerMetaKey(key) &&
+      (includeGithub || !key.startsWith("gh.")),
+  );
+  return entries.length ? Object.fromEntries(entries) : undefined;
+}
+
+/**
  * True when `key` must not be written (or deleted) by a client:
  * `RESERVED_META_KEYS` always, plus the server-owned `video.*` namespace
  * unless `opts.allowServerKeys` opts in. Single choke point for the

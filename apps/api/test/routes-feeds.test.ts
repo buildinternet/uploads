@@ -8,7 +8,7 @@ import { FakeKv } from "./fake-kv";
 import { GITHUB_APP_CFG_ENV } from "./github-app-env";
 import { withGlobalFetch } from "./helpers/github-fetch-fakes";
 import { SqliteD1, database } from "./helpers/sqlite-d1";
-import { replaceFileMetadata, setServerFileMetadata } from "../src/file-metadata";
+import { replaceFileMetadata, setFileMetadata, setServerFileMetadata } from "../src/file-metadata";
 import type { PublicFeedItemPage } from "../src/scope-wire";
 import { LIVE_LINK_INDEX_TTL_SECONDS } from "../src/live-link-index";
 
@@ -136,6 +136,7 @@ describe("feed routes", () => {
       "gh.repo": "acme/app",
       path: "/billing",
       state: "after",
+      viewport: "390x844",
     });
     await putShot("alpha", "gh/acme/app/branch/feat/shadow.png", {
       "gh.repo": "acme/app",
@@ -201,6 +202,19 @@ describe("feed routes", () => {
     expect(body.items[0]?.url).toContain("new.png");
     expect(body.items[0]).not.toHaveProperty("objectKey");
     expect(body.items[0]).not.toHaveProperty("pageUrl");
+    expect(body.items[0]).toHaveProperty("metadata", {
+      path: "/billing",
+      state: "after",
+      viewport: "390x844",
+    });
+    const itemPage = await app.request(
+      `/public/feeds/${feed.id}/items/${(await sha256Hex("gh/acme/app/pull/2/new.png")).slice(0, 32)}`,
+      {},
+      env,
+    );
+    expect(await itemPage.json()).toMatchObject({
+      item: { metadata: { path: "/billing", state: "after", viewport: "390x844" } },
+    });
 
     expect((await request(`/v1/workspaces/beta/feeds/${feed.id}`)).status).toBe(404);
     expect(
@@ -582,6 +596,10 @@ describe("public feed pagination and pager", () => {
 
   it("withholds a file held for review from the public feed", async () => {
     await seedPr7(2);
+    await setFileMetadata(database(sqlite), "alpha", shotKey(1), {
+      path: "/hidden-path",
+      state: "hidden-state",
+    });
     await setServerFileMetadata(database(sqlite), "alpha", shotKey(1), { "ai.hold": "pending" });
     const id = await createPr7Feed();
     const page = (await (await app.request(`/public/feeds/${id}`, {}, env)).json()) as {
@@ -593,6 +611,14 @@ describe("public feed pagination and pager", () => {
       status: "withheld",
       url: null,
     });
+    expect(page.items[1]).toMatchObject({ path: null, state: null });
+    expect(page.items[1]).not.toHaveProperty("metadata");
+    const heldPage = await app.request(
+      `/public/feeds/${id}/items/${await itemIdFor(shotKey(1))}`,
+      {},
+      env,
+    );
+    expect(await heldPage.json()).toMatchObject({ item: { path: null, state: null } });
     expect(JSON.stringify(page)).not.toContain("shot-01");
   });
 
@@ -729,12 +755,18 @@ describe("public feed pagination and pager", () => {
 
   it("withholds a private pager item and 404s unknown, malformed, and revoked ids", async () => {
     await seedPr7(3, 1);
+    await setFileMetadata(database(sqlite), "alpha", shotKey(1), {
+      path: "/private-path",
+      state: "private-state",
+    });
     const id = await createPr7Feed();
 
     const hidden = (await (
       await app.request(`/public/feeds/${id}/items/${await itemIdFor(shotKey(1))}`, {}, env)
     ).json()) as PublicFeedItemPage;
     expect(hidden.item).toMatchObject({ status: "withheld", url: null, embedUrl: null });
+    expect(hidden.item).toMatchObject({ path: null, state: null });
+    expect(hidden.item).not.toHaveProperty("metadata");
 
     const unknown = await app.request(`/public/feeds/${id}/items/${"0".repeat(32)}`, {}, env);
     expect(unknown.status).toBe(404);

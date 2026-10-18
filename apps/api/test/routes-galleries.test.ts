@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { fileURLToPath, URL as NodeURL } from "node:url";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { setServerFileMetadata } from "../src/file-metadata";
+import { setFileMetadata, setServerFileMetadata } from "../src/file-metadata";
 import { MAX_GALLERY_ITEMS, MAX_GALLERY_REFERENCES } from "../src/galleries";
 import { app } from "../src/index";
 import { sha256Hex, stampSoftDelete, type WorkspaceRecord } from "../src/workspace";
@@ -1002,40 +1002,68 @@ describe("GET /public/galleries/:id/items/:item/download", () => {
 });
 
 describe("private gallery items are withheld from the public surfaces", () => {
-  it("public gallery JSON withholds a private item but leaves the public item untouched", async () => {
-    await bucket.put("alpha/screenshots/secret.png", PNG, {
-      customMetadata: { visibility: "private" },
-    });
-    const gallery = await create();
-    const publicItem = (await (
-      await request(`/v1/alpha/galleries/${gallery.id}/items`, {
-        method: "POST",
-        body: JSON.stringify({ expectedVersion: 1, objectKey: "screenshots/one.png" }),
-      })
-    ).json()) as { id: string };
-    const privateItem = (await (
-      await request(`/v1/alpha/galleries/${gallery.id}/items`, {
-        method: "POST",
-        body: JSON.stringify({ expectedVersion: 2, objectKey: "screenshots/secret.png" }),
-      })
-    ).json()) as { id: string };
+  it.each(["private", "held", "missing"] as const)(
+    "public metadata excludes internal rows and %s items",
+    async (state) => {
+      await bucket.put("alpha/screenshots/secret.png", PNG, {
+        customMetadata: state === "private" ? { visibility: "private" } : {},
+      });
+      const tags = { path: "/settings", state: "after", viewport: "390x844", repo: "acme/app" };
+      await setFileMetadata(fakeDb as unknown as D1Database, "alpha", "screenshots/one.png", tags);
+      await setFileMetadata(fakeDb as unknown as D1Database, "beta", "screenshots/one.png", {
+        path: "/other-workspace",
+      });
+      await setFileMetadata(fakeDb as unknown as D1Database, "alpha", "screenshots/secret.png", {
+        path: "/secret-details",
+      });
+      await setServerFileMetadata(fakeDb as unknown as D1Database, "alpha", "screenshots/one.png", {
+        "ai.secret": "internal",
+        "image.width": "390",
+      });
+      db.prepare(
+        `INSERT INTO file_metadata (workspace, object_key, meta_key, meta_value, updated_at) VALUES (?, ?, ?, ?, ?)`,
+      ).run("alpha", "screenshots/one.png", "visibility", "private", "2026-10-18T00:00:00.000Z");
+      const gallery = await create();
+      const publicItem = (await (
+        await request(`/v1/alpha/galleries/${gallery.id}/items`, {
+          method: "POST",
+          body: JSON.stringify({ expectedVersion: 1, objectKey: "screenshots/one.png" }),
+        })
+      ).json()) as { id: string };
+      const privateItem = (await (
+        await request(`/v1/alpha/galleries/${gallery.id}/items`, {
+          method: "POST",
+          body: JSON.stringify({ expectedVersion: 2, objectKey: "screenshots/secret.png" }),
+        })
+      ).json()) as { id: string };
 
-    const publicGallery = await app.request(`/public/galleries/${gallery.id}`, {}, env);
-    expect(publicGallery.status).toBe(200);
-    const body = (await publicGallery.json()) as {
-      items: { id: string; status: string; url: string | null; embedUrl: string | null }[];
-    };
-    expect(body.items.find((item) => item.id === publicItem.id)).toMatchObject({
-      status: "available",
-    });
-    expect(body.items.find((item) => item.id === privateItem.id)).toMatchObject({
-      status: "withheld",
-      url: null,
-      embedUrl: null,
-      contentType: null,
-      size: null,
-    });
-  });
+      if (state === "held")
+        await setServerFileMetadata(
+          fakeDb as unknown as D1Database,
+          "alpha",
+          "screenshots/secret.png",
+          { "ai.hold": "pending" },
+        );
+      if (state === "missing") await bucket.delete("alpha/screenshots/secret.png");
+      const publicGallery = await app.request(`/public/galleries/${gallery.id}`, {}, env);
+      expect(publicGallery.status).toBe(200);
+      const body = (await publicGallery.json()) as {
+        items: { id: string; status: string; url: string | null; embedUrl: string | null }[];
+      };
+      expect(body.items.find((item) => item.id === publicItem.id)).toMatchObject({
+        status: "available",
+        metadata: tags,
+      });
+      expect(body.items.find((item) => item.id === privateItem.id)).toMatchObject({
+        status: state === "missing" ? "missing" : "withheld",
+        url: null,
+        embedUrl: null,
+        contentType: null,
+        size: null,
+      });
+      expect(body.items.find((item) => item.id === privateItem.id)).not.toHaveProperty("metadata");
+    },
+  );
 
   it("404s the public download route for a private item but streams the public one", async () => {
     await bucket.put("alpha/screenshots/secret.png", PNG, {

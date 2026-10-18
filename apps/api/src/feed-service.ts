@@ -10,7 +10,7 @@ import {
   ValidationError,
 } from "@uploads/errors";
 import { publicObjectDateFields } from "./files-core";
-import { getMetadataForKeys } from "./file-metadata";
+import { getMetadataForKeys, publicFileMetadata } from "./file-metadata";
 import {
   encodePublicFeedCursor,
   feedRecordScope,
@@ -300,8 +300,11 @@ export async function hydrateFeedItems(
       size: withheld ? null : (meta?.size ?? null),
       uploaded: dates.uploaded ?? null,
       modified: dates.modified ?? null,
-      path: match.metadata.path ?? null,
-      state: match.metadata.state ?? null,
+      ...(meta && !withheld && opts.audience === "public"
+        ? { metadata: publicFileMetadata(match.metadata, { includeGithub: false }) }
+        : {}),
+      path: withheld ? null : (match.metadata.path ?? null),
+      state: withheld ? null : (match.metadata.state ?? null),
     };
   });
 
@@ -406,6 +409,7 @@ function toPublicItem(item: FeedItemDto): PublicFeedItemDto {
     size: item.size,
     ...(item.uploaded ? { uploaded: item.uploaded } : {}),
     ...(item.modified ? { modified: item.modified } : {}),
+    ...(item.metadata ? { metadata: item.metadata } : {}),
     path: item.path,
     state: item.state,
     ...(item.posterUrl ? { posterUrl: item.posterUrl } : {}),
