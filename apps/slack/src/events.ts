@@ -45,17 +45,12 @@ const EVENT_HANDLERS: Record<string, EventHandler> = {
   },
 };
 
-/** True when this app has a handler for the event's type. */
-export function handlesEvent(type: string): boolean {
-  return Object.hasOwn(EVENT_HANDLERS, type);
-}
-
 /** Runs the handler for one event_callback. Unknown event types are ignored. */
 export async function dispatchEvent(
   payload: EventCallbackPayload,
   ctx: Omit<HandlerContext, "teamId">,
 ): Promise<void> {
   const type = payload.event?.type;
-  if (!type || !handlesEvent(type)) return;
+  if (!type || !Object.hasOwn(EVENT_HANDLERS, type)) return;
   await EVENT_HANDLERS[type]!(payload.event, { ...ctx, teamId: payload.team_id });
 }

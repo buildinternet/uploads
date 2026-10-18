@@ -12,9 +12,9 @@
 import { chatUnfurl, type Block, type UnfurlTarget } from "./slack/api";
 import type { LinkSharedEvent } from "./slack/types";
 
-export const UNFURL_USER_AGENT = "uploads-slack (+https://uploads.sh; unfurl)";
+const UNFURL_USER_AGENT = "uploads-slack (+https://uploads.sh; unfurl)";
 /** Slack sends at most a handful of links per event; this bounds the fan-out regardless. */
-export const MAX_LINKS_PER_EVENT = 5;
+const MAX_LINKS_PER_EVENT = 5;
 const OEMBED_TIMEOUT_MS = 5_000;
 const TITLE_MAX = 150;
 /** chat.unfurl errors that mean Slack couldn't use an image block. */
@@ -38,7 +38,7 @@ export interface UnfurlDeps {
   botToken: string;
 }
 
-/** True when `url` is an https link on the configured web origin. */
+/** True when `url` is on the configured web origin (scheme included). */
 export function isUnfurlableUrl(url: string, webOrigin: string): boolean {
   try {
     const parsed = new URL(url);
@@ -105,6 +105,13 @@ function fallbackTitle(pageUrl: string): string {
   }
 }
 
+/** The image shown full width: a photo itself, or a video's poster frame. */
+function largeImage(oembed: OEmbed): string | undefined {
+  if (oembed.type === "photo" && isSlackImage(oembed.url)) return oembed.url;
+  if (oembed.type === "video" && isSlackImage(oembed.thumbnail_url)) return oembed.thumbnail_url;
+  return undefined;
+}
+
 /**
  * Block Kit for one link. Images show inline; videos show their poster frame
  * (Slack's video block needs the extra `links.embed:write` scope, so it is
@@ -124,13 +131,7 @@ export function unfurlBlocks(
     elements: [{ type: "mrkdwn", text: "uploads.sh" }],
   };
 
-  const image = !images
-    ? undefined
-    : oembed.type === "photo" && isSlackImage(oembed.url)
-      ? oembed.url
-      : oembed.type === "video" && isSlackImage(oembed.thumbnail_url)
-        ? oembed.thumbnail_url
-        : undefined;
+  const image = images ? largeImage(oembed) : undefined;
   if (image) {
     const label = oembed.type === "video" ? `${titleLine} · video` : titleLine;
     return [

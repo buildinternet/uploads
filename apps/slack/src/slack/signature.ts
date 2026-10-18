@@ -29,6 +29,16 @@ function hexToBytes(hex: string): Uint8Array<ArrayBuffer> | null {
   return bytes;
 }
 
+function hmacKey(secret: string, usage: "sign" | "verify"): Promise<CryptoKey> {
+  return crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    [usage],
+  );
+}
+
 /**
  * True when the request is signed by Slack with `signingSecret` and is
  * fresh. Uses `crypto.subtle.verify`, which compares in constant time.
@@ -44,15 +54,9 @@ export async function verifySlackSignature(input: SignatureInput): Promise<boole
   const expected = hexToBytes(signature.slice(3));
   if (!expected || expected.length !== 32) return false;
 
-  const encoder = new TextEncoder();
-  const key = await crypto.subtle.importKey(
-    "raw",
-    encoder.encode(signingSecret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["verify"],
-  );
-  return crypto.subtle.verify("HMAC", key, expected, encoder.encode(`v0:${timestamp}:${rawBody}`));
+  const key = await hmacKey(signingSecret, "verify");
+  const message = new TextEncoder().encode(`v0:${timestamp}:${rawBody}`);
+  return crypto.subtle.verify("HMAC", key, expected, message);
 }
 
 /** Signs a body the way Slack does. Used by tests and local smoke scripts. */
@@ -61,15 +65,12 @@ export async function signSlackRequest(
   timestamp: string,
   rawBody: string,
 ): Promise<string> {
-  const encoder = new TextEncoder();
-  const key = await crypto.subtle.importKey(
-    "raw",
-    encoder.encode(signingSecret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
+  const key = await hmacKey(signingSecret, "sign");
+  const mac = await crypto.subtle.sign(
+    "HMAC",
+    key,
+    new TextEncoder().encode(`v0:${timestamp}:${rawBody}`),
   );
-  const mac = await crypto.subtle.sign("HMAC", key, encoder.encode(`v0:${timestamp}:${rawBody}`));
   const hex = Array.from(new Uint8Array(mac), (b) => b.toString(16).padStart(2, "0")).join("");
   return `v0=${hex}`;
 }
