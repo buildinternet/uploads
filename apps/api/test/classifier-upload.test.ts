@@ -286,7 +286,8 @@ describe("classifier on upload", () => {
     expect(result.contentType).toBe("image/png");
     await Promise.all(pending);
     const metaByKey = await getMetadataForKeys(env.DB, WORKSPACE, [result.key]);
-    expect(metaByKey.get(result.key)?.["ai.classifier"]).toBeUndefined();
+    expect(metaByKey.get(result.key)?.["ai.classifier"]).toBe("failed");
+    expect(metaByKey.get(result.key)?.["ai.error"]).toBe("provider_error");
   });
 
   it("skips when the workspace hard-off is set", async () => {
@@ -418,7 +419,7 @@ describe("classifyAndStore", () => {
     expect(calls).toHaveLength(0);
   });
 
-  it("writes nothing when the decision model returns unusable output", async () => {
+  it("records no_answer when the decision model returns unusable output", async () => {
     const { env, ws } = makeClassifierEnv(() => ({ response: "nope" }));
     const written = await classifyAndStore(
       env,
@@ -428,9 +429,9 @@ describe("classifyAndStore", () => {
       FITTING_PNG,
       "image/png",
     );
-    expect(written).toBeUndefined();
+    expect(written).toEqual({ "ai.classifier": "failed", "ai.error": "no_answer" });
     const metaByKey = await getMetadataForKeys(env.DB, WORKSPACE, ["images/pic.png"]);
-    expect(metaByKey.get("images/pic.png")?.["ai.classifier"]).toBeUndefined();
+    expect(metaByKey.get("images/pic.png")?.["ai.classifier"]).toBe("failed");
   });
 
   it("does not wait out a hung call", async () => {
@@ -447,7 +448,7 @@ describe("classifyAndStore", () => {
         timeoutMs: 20,
       },
     );
-    expect(written).toBeUndefined();
+    expect(written).toEqual({ "ai.classifier": "failed", "ai.error": "timeout" });
     expect(wasAborted()).toBe(true);
     expect(Date.now() - started).toBeLessThan(1000);
   });
@@ -467,7 +468,7 @@ describe("classifyAndStore", () => {
         },
       },
     );
-    expect(written).toBeUndefined();
+    expect(written).toEqual({ "ai.classifier": "failed", "ai.error": "provider_error" });
   });
 
   it("pins Jev Latest when CLASSIFIER_PROVIDER=jev even if the luna flag is on", async () => {
@@ -500,7 +501,7 @@ describe("classifyAndStore", () => {
       FITTING_PNG,
       "image/png",
     );
-    expect(written).toBeUndefined();
+    expect(written).toEqual({ "ai.classifier": "failed", "ai.error": "provider_error" });
   });
 
   it("aborts a hung model call after the resize has finished", async () => {
@@ -526,7 +527,7 @@ describe("classifyAndStore", () => {
     expect(transform.calls).toHaveLength(1);
     expect(calls).toHaveLength(1);
     expect(stateImage(calls[0])?.type).toBe("image_url");
-    expect(written).toBeUndefined();
+    expect(written).toEqual({ "ai.classifier": "failed", "ai.error": "timeout" });
     expect(wasAborted()).toBe(true);
     expect(Date.now() - started).toBeLessThan(1000);
   });
@@ -1092,7 +1093,7 @@ describe("safety flags", () => {
     expect(stored?.["ai.content"]).toBe("sexual");
   });
 
-  it("keeps safety flags when the same bytes are re-uploaded and reclassification fails", async () => {
+  it("keeps every classifier row when the same bytes are re-uploaded and reclassification fails", async () => {
     let calls = 0;
     const harness = makeClassifierEnv(() => {
       calls += 1;
@@ -1117,8 +1118,74 @@ describe("safety flags", () => {
     expect(after?.["ai.secret.confidence"]).toBe("high");
     expect(after?.["ai.pii"]).toBe("financial");
     expect(after?.["ai.pii.confidence"]).toBe("medium");
-    expect(after?.["ai.kind"]).toBeUndefined();
+    // Same bytes: the earlier labels still describe them, and the failed
+    // retry does not overwrite them with a failure marker.
+    expect(after?.["ai.kind"]).toBe("screenshot");
+    expect(after?.["ai.classifier"]).toBe("v5");
+    expect(after?.["ai.error"]).toBeUndefined();
     expect(after?.path).toBe("/settings");
+  });
+
+  it("clears old labels when new bytes fail to classify, with or without metadata headers", async () => {
+    for (const metadata of [undefined, { path: "/settings" }]) {
+      let calls = 0;
+      const harness = makeClassifierEnv(() => {
+        calls += 1;
+        if (calls === 1) return FLAGGED;
+        throw new Error("provider down");
+      });
+      const first = await putFlagged(harness, atLeast(pngOf(400, 256)));
+      await putFlagged(harness, atLeast(pngOf(512, 300)), { replace: true, metadata });
+
+      const after = (await getMetadataForKeys(harness.env.DB, WORKSPACE, [first.key])).get(
+        first.key,
+      );
+      expect(after?.["ai.kind"]).toBeUndefined();
+      expect(after?.["ai.surface"]).toBeUndefined();
+      expect(after?.["ai.screen"]).toBeUndefined();
+      expect(after?.["ai.rating"]).toBeUndefined();
+      expect(after?.["ai.classifier"]).toBe("failed");
+      expect(after?.["ai.error"]).toBe("provider_error");
+    }
+  });
+
+  it("does not keep a screen from old bytes when new bytes answer only some fields", async () => {
+    let calls = 0;
+    const harness = makeClassifierEnv(() => {
+      calls += 1;
+      if (calls === 1) return FLAGGED;
+      return { ...DECIDED, answers: { kind: jevAnswer("photo") } };
+    });
+    const first = await putFlagged(harness, atLeast(pngOf(400, 256)));
+    await putFlagged(harness, atLeast(pngOf(512, 300)), { replace: true });
+
+    const after = (await getMetadataForKeys(harness.env.DB, WORKSPACE, [first.key])).get(first.key);
+    expect(after?.["ai.kind"]).toBe("photo");
+    expect(after?.["ai.screen"]).toBeUndefined();
+    expect(after?.["ai.surface"]).toBeUndefined();
+    expect(after?.["ai.classifier"]).toBe("v5");
+  });
+
+  it("replaces a failure marker once a retry on the same bytes succeeds", async () => {
+    let calls = 0;
+    const harness = makeClassifierEnv(() => {
+      calls += 1;
+      if (calls === 1) throw new Error("provider down");
+      return DECIDED;
+    });
+    const png = atLeast(pngOf(400, 256));
+    const first = await putFlagged(harness, png);
+    expect(
+      (await getMetadataForKeys(harness.env.DB, WORKSPACE, [first.key])).get(first.key)?.[
+        "ai.classifier"
+      ],
+    ).toBe("failed");
+    await putFlagged(harness, png, { replace: true });
+
+    const after = (await getMetadataForKeys(harness.env.DB, WORKSPACE, [first.key])).get(first.key);
+    expect(after?.["ai.classifier"]).toBe("v5");
+    expect(after?.["ai.error"]).toBeUndefined();
+    expect(after?.["ai.kind"]).toBe("screenshot");
   });
 
   it("removes safety flags when different bytes fail to reclassify, with or without metadata headers", async () => {

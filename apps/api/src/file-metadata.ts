@@ -72,7 +72,7 @@ export const SAFETY_FLAG_FIELDS = ["rating", "content", "secret", "pii"] as cons
  *
  * `putObject` reads the key's previous `file_content_hash` before
  * replacing it. Identical bytes keep these rows: a metadata replace
- * passes `keepSafetyFlags`, and a put with no metadata headers leaves
+ * passes `keepClassifierRows`, and a put with no metadata headers leaves
  * them in place. New bytes, or no stored hash, delete the eight rows
  * before classification is scheduled. A later classification that writes
  * a value, including a confident `none`, replaces that key through
@@ -87,6 +87,27 @@ export const SAFETY_FLAG_FIELDS = ["rating", "content", "secret", "pii"] as cons
 export const SAFETY_FLAG_KEYS: ReadonlySet<string> = new Set(
   SAFETY_FLAG_FIELDS.flatMap((field) => [`ai.${field}`, `ai.${field}.confidence`]),
 );
+
+/**
+ * Every row the classifier writes: the version marker, skip and error
+ * reasons, the display labels, the older `ai.tags` / `ai.summary`, and
+ * the eight safety-flag rows. They all describe one set of bytes, so
+ * they share the `SAFETY_FLAG_KEYS` lifetime: identical bytes keep them,
+ * new bytes delete them before classification is scheduled. Without
+ * that, a failed or partial run on new bytes would leave labels from the
+ * old bytes behind.
+ */
+export const CLASSIFIER_ROW_KEYS: ReadonlySet<string> = new Set([
+  "ai.classifier",
+  "ai.skip",
+  "ai.error",
+  "ai.kind",
+  "ai.surface",
+  "ai.screen",
+  "ai.tags",
+  "ai.summary",
+  ...SAFETY_FLAG_KEYS,
+]);
 
 export function isServerMetaKey(key: string): boolean {
   return SERVER_META_PREFIXES.some((prefix) => key.startsWith(prefix));
@@ -545,12 +566,12 @@ export async function deleteFileMetadataForKeys(
   }
 }
 
-/** Stable bind list for the safety-flag exclusion in `replaceFileMetadata`. */
-const SAFETY_FLAG_KEY_LIST = [...SAFETY_FLAG_KEYS];
+/** Stable bind list for the classifier-row exclusion in `replaceFileMetadata`. */
+const CLASSIFIER_ROW_KEY_LIST = [...CLASSIFIER_ROW_KEYS];
 
 /**
- * Fully replaces an object's client metadata. See `SAFETY_FLAG_KEYS` for
- * when `keepSafetyFlags` retains those rows. The incoming map is client
+ * Fully replaces an object's client metadata. See `CLASSIFIER_ROW_KEYS`
+ * for when `keepClassifierRows` retains those rows. The incoming map is client
  * metadata, so `validateMetadataEntries` already rejects `ai.*` in it.
  */
 export async function replaceFileMetadata(
@@ -558,19 +579,19 @@ export async function replaceFileMetadata(
   workspace: string,
   objectKey: string,
   metadata: Record<string, string>,
-  opts?: { keepSafetyFlags?: boolean },
+  opts?: { keepClassifierRows?: boolean },
 ): Promise<void> {
   validateMetadataEntries(metadata);
 
   const now = new Date().toISOString();
-  const keep = SAFETY_FLAG_KEY_LIST.map(() => "?").join(", ");
-  const deleteStmt = opts?.keepSafetyFlags
+  const keep = CLASSIFIER_ROW_KEY_LIST.map(() => "?").join(", ");
+  const deleteStmt = opts?.keepClassifierRows
     ? db
         .prepare(
           `DELETE FROM file_metadata
            WHERE workspace = ? AND object_key = ? AND meta_key NOT IN (${keep})`,
         )
-        .bind(workspace, objectKey, ...SAFETY_FLAG_KEY_LIST)
+        .bind(workspace, objectKey, ...CLASSIFIER_ROW_KEY_LIST)
     : db
         .prepare(`DELETE FROM file_metadata WHERE workspace = ? AND object_key = ?`)
         .bind(workspace, objectKey);
