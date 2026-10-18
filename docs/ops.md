@@ -1410,6 +1410,13 @@ thrown evaluation are all off.
      upload-holds --default off
    ```
 
+   To release files already held, use **Held uploads** on
+   `/admin/classifier`: per-workspace counts, a per-workspace Release, and
+   "Release all holds" (`POST /admin-ui/classifier/holds/release`, batches
+   of 25 through the same path as a member approval, so bytes move back and
+   comments re-sync). A file whose held copy cannot be restored is counted
+   as failed and stays held.
+
 4. **Workspace hold off** — `holdFlaggedUploads === false` keeps the labels
    but stops holding high-confidence secret and sensitive-PII uploads
    (`upload-hold.ts`). It does not release files already held; approve

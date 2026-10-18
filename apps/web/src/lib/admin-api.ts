@@ -31,6 +31,8 @@ import { trimOrigin } from "./api-client";
 import type {
   ClassifierAdminWindow,
   ClassifierFlaggedPage,
+  ClassifierHoldsReleaseResult,
+  ClassifierHoldsSummary,
   ClassifierOverview,
   ClassifierSafetyField,
 } from "@uploads/api/classifier-admin-wire";
@@ -93,6 +95,9 @@ export interface AdminApi {
   revokeInviteLink(workspace: string, id: string): Promise<void>;
   getClassifierOverview(days: ClassifierAdminWindow, fresh?: boolean): Promise<ClassifierOverview>;
   listClassifierFlagged(params: FlaggedFilters): Promise<ClassifierFlaggedPage>;
+  getClassifierHolds(): Promise<ClassifierHoldsSummary>;
+  /** One batch of the operator release; call again while `remaining` drops. */
+  releaseClassifierHolds(workspace?: string): Promise<ClassifierHoldsReleaseResult>;
 }
 
 export function makeAdminApi(apiOrigin: string): AdminApi {
@@ -138,6 +143,20 @@ export function makeAdminApi(apiOrigin: string): AdminApi {
       return get<ClassifierFlaggedPage>(
         `${base}/admin-ui/classifier/flagged?${params}`,
         "load flagged uploads failed",
+      );
+    },
+    getClassifierHolds() {
+      return get<ClassifierHoldsSummary>(
+        `${base}/admin-ui/classifier/holds`,
+        "load held uploads failed",
+      );
+    },
+    releaseClassifierHolds(workspace) {
+      return send<ClassifierHoldsReleaseResult>(
+        `${base}/admin-ui/classifier/holds/release`,
+        "POST",
+        "release held uploads failed",
+        workspace ? { workspace } : {},
       );
     },
     async listWorkspaces() {

@@ -26,7 +26,8 @@ import {
   holdPolicyEnabled,
   holdReason,
 } from "./upload-hold";
-import type { WorkspaceRecord } from "./workspace";
+import { loadWorkspaceRecord, type WorkspaceRecord } from "./workspace";
+import { countHeldByWorkspace, listHeldAcrossWorkspaces } from "./upload-hold-read";
 
 /**
  * Hold `key` when `decided` (the rows the classifier just stored) flags it
@@ -171,4 +172,55 @@ async function resyncAttachmentComment(
   } catch (err) {
     console.error({ event: "upload_hold_comment_failed", workspace: workspaceName, err });
   }
+}
+
+/** Most holds one operator release call handles. The page calls again. */
+export const RELEASE_HOLDS_BATCH = 25;
+
+export interface ReleaseHoldsResult {
+  released: number;
+  failed: number;
+  /** Holds still pending after this call (0 when done). */
+  remaining: number;
+}
+
+/**
+ * Operator release of pending holds, every workspace or one, in batches of
+ * `RELEASE_HOLDS_BATCH`. Each file goes through `approveUpload`, so bytes
+ * move back and comments re-sync exactly as a member approval would. A
+ * file that fails (its workspace is gone, its held copy cannot be
+ * restored) is counted and stays held, so a caller looping until
+ * `remaining` is 0 must also stop when a batch releases nothing.
+ */
+export async function releaseHolds(
+  env: Env,
+  opts: { workspace?: string } = {},
+): Promise<ReleaseHoldsResult> {
+  const rows = await listHeldAcrossWorkspaces(env, {
+    workspace: opts.workspace,
+    limit: RELEASE_HOLDS_BATCH,
+  });
+  let released = 0;
+  let failed = 0;
+  const records = new Map<string, WorkspaceRecord | null>();
+  for (const row of rows) {
+    if (!records.has(row.workspace)) {
+      records.set(row.workspace, await loadWorkspaceRecord(env, row.workspace));
+    }
+    const ws = records.get(row.workspace);
+    try {
+      if (!ws) throw new Error("workspace not found");
+      const result = await approveUpload(env, ws, row.workspace, row.objectKey);
+      if (result.approved) released += 1;
+    } catch (err) {
+      failed += 1;
+      console.error({ event: "hold_release_failed", workspace: row.workspace, err });
+    }
+  }
+  console.log({ event: "holds_released", workspace: opts.workspace ?? null, released, failed });
+  const counts = await countHeldByWorkspace(env);
+  const remaining = counts
+    .filter((row) => !opts.workspace || row.workspace === opts.workspace)
+    .reduce((sum, row) => sum + row.count, 0);
+  return { released, failed, remaining };
 }
