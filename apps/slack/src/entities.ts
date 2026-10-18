@@ -295,8 +295,14 @@ export function entityMetadata(
   const image = !withImages ? undefined : pager ? pager.image : preview.image;
   const preview_ = imageField(image);
 
-  const fields =
-    entity.type === "file"
+  // A feed or gallery card is its image alone: Slack draws the cover full
+  // width and clips whatever fields follow, so they live in the side panel.
+  // Without an image (say, only videos with no poster) the fields stay.
+  const imageOnly = entity.type === "content_item" && !details && preview_ !== null;
+
+  const fields = imageOnly
+    ? { preview: preview_ }
+    : entity.type === "file"
       ? compact({
           preview: preview_,
           created_by: details ? creatorField(entity.owner, withImages) : null,
@@ -305,10 +311,7 @@ export function entityMetadata(
           date_updated: updated !== created ? dateField(updated) : null,
         })
       : compact({
-          // Slack draws a content item's preview as a full-width cover and
-          // hides its fields, so the card is the cover (a feed's latest image,
-          // a gallery's cover) and the fields live in the side panel, where
-          // the preview follows the pager's item.
+          // In the side panel the preview follows the pager's item.
           preview: preview_,
           description: entity.description ? { value: clamp(entity.description, 1000) } : null,
           created_by: details ? creatorField(entity.owner, withImages) : null,
@@ -320,14 +323,16 @@ export function entityMetadata(
   const itemList = pager
     ? itemsField(entity.items, entity.ref.type === "feed" ? "Latest files" : "Items", withImages)
     : null;
-  const customFields = [
-    ...(pager?.fields ?? []),
-    ...(itemList ? [itemList] : []),
-    ...entity.fields.map((field) => customField(field, iconBase)),
-    // Size and type are trivia: the card leaves them out so the PR and page
-    // path lead, and the side panel lists them last.
-    ...(entity.type === "file" && details ? fileFacts(entity) : []),
-  ];
+  const customFields = imageOnly
+    ? []
+    : [
+        ...(pager?.fields ?? []),
+        ...(itemList ? [itemList] : []),
+        ...entity.fields.map((field) => customField(field, iconBase)),
+        // Size and type are trivia: the card leaves them out so the PR and page
+        // path lead, and the side panel lists them last.
+        ...(entity.type === "file" && details ? fileFacts(entity) : []),
+      ];
   const overflow = (entity.links ?? []).slice(0, MAX_OVERFLOW).map((link, index) => ({
     text: link.text,
     action_id: `${OPEN_LINK_ACTION}_${index}`,

@@ -249,7 +249,7 @@ describe("Work Object unfurls", () => {
     });
   });
 
-  it("feeds are content items with the thread and state", async () => {
+  it("a feed card is its latest image alone", async () => {
     const slack = fakeSlack();
     await run(await linkShared(FEED_PAGE), slack);
     const [entity] = slack.calls[0]!.body.metadata.entities;
@@ -257,17 +257,16 @@ describe("Work Object unfurls", () => {
     expect(entity.external_ref).toEqual({ id: FEED_ID, type: "feed" });
     expect(entity.entity_payload.attributes.display_type).toBe("Change feed");
     expect(entity.entity_payload.attributes.product_icon.url).toBe(`${ICONS}/type-collection.png`);
-    // The PR's state rides on the GitHub field instead of a field of its own.
-    expect(entity.entity_payload.custom_fields).toContainEqual({
-      key: "github",
-      label: "GitHub",
-      value: "acme/app#12 · Open",
-      type: "string",
-      link: "https://github.com/acme/app/pull/12",
-      icon: { url: `${ICONS}/pr-open.png`, alt_text: "GitHub" },
+    // Slack draws the cover full width and clips fields under it, so the
+    // card sends the image and nothing else; the side panel has the rest.
+    expect(entity.entity_payload.fields).toEqual({
+      preview: {
+        type: "slack#/types/image",
+        image_url: "https://storage.uploads.sh/newest.png",
+        alt_text: "newest.png",
+      },
     });
-    const keys = entity.entity_payload.custom_fields.map((f: { key: string }) => f.key);
-    expect(keys).not.toContain("state");
+    expect(entity.entity_payload).not.toHaveProperty("custom_fields");
     // The unfurl has no pager buttons (those live in the flexpane), only the PR link.
     expect(entity.entity_payload.actions).toEqual({
       overflow_actions: [
@@ -278,18 +277,6 @@ describe("Work Object unfurls", () => {
         },
       ],
     });
-    // The item list is for the side panel only.
-    expect(entity.entity_payload.custom_fields.map((f: { key: string }) => f.key)).not.toContain(
-      "items_list",
-    );
-    // The card is the latest image, full width; Slack hides the fields
-    // under it, so they're for the side panel.
-    expect(entity.entity_payload.fields.preview).toEqual({
-      type: "slack#/types/image",
-      image_url: "https://storage.uploads.sh/newest.png",
-      alt_text: "newest.png",
-    });
-    expect(keys).not.toContain("thumbnails");
   });
 
   it("offers Slack's full-size viewer only for images on allowed hosts", async () => {
@@ -448,6 +435,16 @@ describe("Work Object flexpane", () => {
     const metadata = slack.calls[0]!.body.metadata;
     expect(metadata.external_ref).toEqual({ id: FEED_ID, type: "feed" });
     const payload = metadata.entity_payload;
+    // The PR's state rides on the GitHub field instead of a field of its own.
+    expect(payload.custom_fields).toContainEqual({
+      key: "github",
+      label: "GitHub",
+      value: "acme/app#12 · Open",
+      type: "string",
+      link: "https://github.com/acme/app/pull/12",
+      icon: { url: `${ICONS}/pr-open.png`, alt_text: "GitHub" },
+    });
+    expect(payload.custom_fields.map((f: { key: string }) => f.key)).not.toContain("state");
     expect(payload.fields.preview.image_url).toBe("https://storage.uploads.sh/newest.png");
     expect(payload.custom_fields.slice(0, 2)).toEqual([
       {

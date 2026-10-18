@@ -75,10 +75,10 @@ item (or the gallery's first) and has **Newer** / **Older** (feeds) or
 preview, so the card and flexpane never show more than the share page.
 Anything that isn't public answers `not_found`.
 
-Slack draws a content item's `preview` as a full-width cover and hides its
-other fields, so feed and gallery cards are one image (the feed's latest, the
-gallery's cover) and their details (PR and state, file count, description)
-are in the side panel.
+Slack draws a content item's `preview` as a full-width cover and clips any
+fields under it, so feed and gallery cards send the image alone (the feed's
+latest, the gallery's cover) and their details (PR and state, file count,
+description) are in the side panel. A feed with no image keeps its fields.
 
 Clicking a thumbnail can open Slack's full-size viewer
 (`attributes.full_size_preview`), but only for PNG, JPEG, GIF, and WebP
