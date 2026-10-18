@@ -213,6 +213,19 @@ export interface EntityOptions {
   fullSizeHosts?: readonly string[];
   /** false leaves out every image (preview, strip, full size): the fallback when Slack rejects one. */
   images?: boolean;
+  /** Building the side panel (`entity.presentDetails`) rather than the card. */
+  details?: boolean;
+}
+
+/** A file's size and content type, for the end of its side panel. */
+function fileFacts(entity: Preview["entity"]): Json[] {
+  const size = entity.size != null ? formatBytes(entity.size) : null;
+  return [
+    ...(size ? [customField({ key: "file_size", label: "Size", value: size })] : []),
+    ...(entity.contentType
+      ? [customField({ key: "content_type", label: "Type", value: entity.contentType })]
+      : []),
+  ];
 }
 
 /** Parses SLACK_FULL_SIZE_HOSTS ("a.example, b.example"). */
@@ -278,9 +291,8 @@ export function entityMetadata(
           preview: preview_,
           created_by: creatorField(entity.owner, withImages),
           date_created: dateField(created),
-          date_updated: dateField(updated),
-          file_size: entity.size != null ? { value: formatBytes(entity.size) ?? "" } : null,
-          mime_type: entity.contentType ? { value: entity.contentType } : null,
+          // A file's update time is its upload time; one date is enough.
+          date_updated: updated !== created ? dateField(updated) : null,
         })
       : compact({
           // Slack draws a content item's preview as a full-width cover and
@@ -307,6 +319,9 @@ export function entityMetadata(
     ...(thumbnails && !pager ? [thumbnails] : []),
     ...(itemList ? [itemList] : []),
     ...entity.fields.map(customField),
+    // Size and type are trivia: the card leaves them out so the PR and page
+    // path lead, and the side panel lists them last.
+    ...(entity.type === "file" && options.details ? fileFacts(entity) : []),
   ];
   const overflow = (entity.links ?? []).slice(0, MAX_OVERFLOW).map((link, index) => ({
     text: link.text,
@@ -372,7 +387,10 @@ export async function presentDetails(
   const result = await entityPresentDetails(
     {
       trigger_id: input.triggerId,
-      metadata: entityMetadata(preview, page ?? undefined, { fullSizeHosts: deps.fullSizeHosts }),
+      metadata: entityMetadata(preview, page ?? undefined, {
+        fullSizeHosts: deps.fullSizeHosts,
+        details: true,
+      }),
     },
     deps.slack,
   );

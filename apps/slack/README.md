@@ -59,12 +59,12 @@ the Block Kit preview, and clicking it opens a flexpane beside the
 conversation. The blocks are still sent, and if Slack rejects the metadata
 the worker retries with the blocks alone.
 
-| Link                     | Entity type    | Card shows                                           |
-| ------------------------ | -------------- | ---------------------------------------------------- |
-| File (`/f/…`)            | `file`         | Image or poster, PR or issue, page path, size, dates |
-| Change feed (`/c/…`)     | `content_item` | Latest screenshot, PR or issue, state, file count    |
-| Gallery (`/g/…`)         | `content_item` | Cover, description, item count                       |
-| One feed or gallery item | `file`         | The item, a link to its feed or gallery              |
+| Link                     | Entity type    | Card shows                                        |
+| ------------------------ | -------------- | ------------------------------------------------- |
+| File (`/f/…`)            | `file`         | Image or poster, creator, date, PR or issue, path |
+| Change feed (`/c/…`)     | `content_item` | Latest screenshot, PR or issue, state, file count |
+| Gallery (`/g/…`)         | `content_item` | Cover, description, item count                    |
+| One feed or gallery item | `file`         | The item, a link to its feed or gallery           |
 
 The flexpane for a feed or gallery is a pager: it opens on the feed's newest
 item (or the gallery's first) and has **Newer** / **Older** (feeds) or
@@ -111,6 +111,9 @@ conversations that mention it. Slack only accepts ids matching
 (`error_processing_metadata`, "input must match regex pattern"), so
 `slackRef` escapes any other character as `!` plus its UTF-8 bytes in hex
 (`after.png` becomes `after!2epng`).
+
+A file's size and content type only appear at the end of its side panel;
+the card leaves them out so the PR and page path lead.
 
 The card's creator is the repo owner's GitHub account. Galleries and files
 with no repo show uploads.sh instead, since the public API has no uploader.

@@ -227,9 +227,6 @@ describe("Work Object unfurls", () => {
         },
       },
       date_created: { value: 1792282655 },
-      date_updated: { value: 1792282655 },
-      file_size: { value: "138 kB" },
-      mime_type: { value: "image/png" },
     });
     expect(payload.custom_fields).toEqual([
       {
@@ -345,7 +342,7 @@ describe("Work Object unfurls", () => {
     expect(slack.calls).toHaveLength(3);
     const imageless = slack.calls[1]!.body.metadata.entities[0].entity_payload;
     expect(imageless.fields).not.toHaveProperty("preview");
-    expect(imageless.fields.file_size).toEqual({ value: "138 kB" });
+    expect(imageless.fields.date_created).toEqual({ value: 1792282655 });
     expect(imageless.fields.created_by.user).not.toHaveProperty("icon");
     expect(slack.calls[2]!.body.metadata).toBeUndefined();
     expect(slack.calls[2]!.body.unfurls[FILE_PAGE]).toBeDefined();
@@ -430,6 +427,11 @@ describe("Work Object flexpane", () => {
         external_ref: { id: "default/gh/acme/app/pull/12/after!2epng", type: "file" },
       },
     });
+    // The side panel ends with size and type, which the card leaves out.
+    const keys = slack.calls[0]!.body.metadata.entity_payload.custom_fields.map(
+      (f: { key: string }) => f.key,
+    );
+    expect(keys).toEqual(["github", "page_path", "file_size", "content_type"]);
   });
 
   it("opens a feed at its newest item with only an Older button", async () => {
