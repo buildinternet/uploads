@@ -136,29 +136,43 @@ function DailyChart({ daily }: { daily: ClassifierOverview["daily"] }) {
           return (
             <g key={d.day}>
               <title>{`${d.day}: ${d.classified} classified, ${d.skipped} skipped, ${d.failed} failed`}</title>
-              <rect x={x} y={H - hc} width={bar} height={hc} fill="var(--primary)" />
+              <rect x={x} y={H - hc} width={bar} height={hc} className="fill-primary" />
               <rect
                 x={x}
                 y={H - hc - hs}
                 width={bar}
                 height={hs}
-                fill="var(--muted-foreground)"
-                opacity="0.5"
+                className="fill-muted-foreground"
               />
-              <rect x={x} y={H - hc - hs - hf} width={bar} height={hf} fill="var(--destructive)" />
+              <rect
+                x={x}
+                y={H - hc - hs - hf}
+                width={bar}
+                height={hf}
+                className="fill-destructive"
+              />
             </g>
           );
         })}
       </svg>
       <p className="m-0 mt-1 flex gap-4 text-(length:--text-micro) text-muted-foreground">
-        <span>Classified</span>
-        <span>Skipped</span>
-        <span>Failed</span>
+        <LegendItem swatch="bg-primary">Classified</LegendItem>
+        <LegendItem swatch="bg-muted-foreground">Skipped</LegendItem>
+        <LegendItem swatch="bg-destructive">Failed</LegendItem>
         <span>
           {daily[0]?.day} to {daily[daily.length - 1]?.day} (UTC)
         </span>
       </p>
     </div>
+  );
+}
+
+function LegendItem({ swatch, children }: { swatch: string; children: string }) {
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span aria-hidden="true" className={`inline-block size-2 rounded-[2px] ${swatch}`} />
+      {children}
+    </span>
   );
 }
 
