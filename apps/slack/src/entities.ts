@@ -19,6 +19,7 @@
  */
 import {
   formatBytes,
+  stateField,
   parseShareUrl,
   resolvePagerPage,
   resolvePreview,
@@ -191,10 +192,6 @@ function compact(fields: Record<string, Json | null>): Json {
 
 /** The pager's current item, as extra body fields and buttons for a feed or gallery flexpane. */
 function pagerParts(page: PagerPage, kind: "feed" | "gallery") {
-  const position =
-    kind === "feed"
-      ? `${page.index + 1} of ${page.total}, newest first`
-      : `${page.index + 1} of ${page.total}`;
   const uploaded = unixSeconds(page.item.uploaded);
   const fields: Json[] = [
     {
@@ -204,7 +201,6 @@ function pagerParts(page: PagerPage, kind: "feed" | "gallery") {
       type: "string",
       link: page.item.url,
     },
-    { key: "position", label: "Position", value: position, type: "string" },
     ...(page.item.path
       ? [
           {
@@ -215,6 +211,7 @@ function pagerParts(page: PagerPage, kind: "feed" | "gallery") {
           },
         ]
       : []),
+    ...(page.item.state ? [customField(stateField(page.item.state))] : []),
     ...(uploaded !== null
       ? [{ key: "uploaded", label: "Uploaded", value: uploaded, type: "slack#/types/timestamp" }]
       : []),

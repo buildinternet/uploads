@@ -93,7 +93,7 @@ const FIXTURES: Record<string, unknown> = {
   },
   [`/public/feeds/${FEED_ID}/items/newest`]: {
     feed: FEED_FEED,
-    item: feedItem("newest", "2026-10-18T00:00:00.000Z"),
+    item: { ...feedItem("newest", "2026-10-18T00:00:00.000Z"), state: "after" },
     prev: null,
     next: "middle",
     index: 0,
@@ -484,7 +484,7 @@ describe("Work Object flexpane", () => {
     });
     expect(payload.custom_fields.map((f: { key: string }) => f.key)).not.toContain("state");
     expect(payload.fields.preview.image_url).toBe("https://storage.uploads.sh/newest.png");
-    expect(payload.custom_fields.slice(0, 2)).toEqual([
+    expect(payload.custom_fields.slice(0, 3)).toEqual([
       {
         key: "showing",
         label: "Showing",
@@ -492,7 +492,9 @@ describe("Work Object flexpane", () => {
         type: "string",
         link: `https://uploads.sh/c/${FEED_ID}/newest`,
       },
-      { key: "position", label: "Position", value: "1 of 3, newest first", type: "string" },
+      // No position: "1 of 3" says little, and the pager buttons show where you are.
+      { key: "page_path", label: "Page", value: "/settings", type: "string" },
+      { key: "shot_state", label: "State", value: "After", type: "string" },
     ]);
     expect(payload.actions.primary_actions).toEqual([
       { text: "Older", action_id: PAGE_NEXT_ACTION, value: "middle" },

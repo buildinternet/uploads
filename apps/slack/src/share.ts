@@ -161,6 +161,8 @@ export interface PagerPage {
     size: number | null;
     uploaded: string | null;
     path: string | null;
+    /** A screenshot's before/after state. */
+    state: string | null;
   };
   /** Item ids either side; for a feed `prev` is newer (feeds list newest first). */
   prev: string | null;
@@ -439,6 +441,20 @@ function pathField(path: string | null | undefined): EntityField[] {
   return path ? [{ key: "page_path", label: "Page", value: path }] : [];
 }
 
+/** A screenshot's before/after state ("before" → "Before"). */
+export function stateField(state: string): EntityField {
+  const value = state.trim();
+  return {
+    key: "shot_state",
+    label: "State",
+    value: value.charAt(0).toUpperCase() + value.slice(1),
+  };
+}
+
+function stateFields(state: string | null | undefined): EntityField[] {
+  return state?.trim() ? [stateField(state)] : [];
+}
+
 async function filePreview(
   pageUrl: string,
   target: Extract<ShareTarget, { kind: "file" }>,
@@ -481,7 +497,11 @@ async function filePreview(
       created: file.uploaded,
       updated: file.uploaded,
       ...(gh?.title ? { description: gh.title } : {}),
-      fields: [...(gh ? [threadField(gh)] : []), ...pathField(file.metadata?.path)],
+      fields: [
+        ...(gh ? [threadField(gh)] : []),
+        ...pathField(file.metadata?.path),
+        ...stateFields(file.metadata?.state),
+      ],
       ...ownerOf(gh?.repo),
       ...pdfUrl(file),
       links: [...(gh ? [{ text: "Open on GitHub", url: gh.url }] : []), ...originalLink(file.url)],
@@ -533,6 +553,7 @@ async function feedPreview(
             icon: "collection",
           },
           ...pathField(item.path),
+          ...stateFields(item.state),
         ],
         ...ownerOf(feed.repo),
         ...pdfUrl(item),
@@ -665,7 +686,8 @@ async function galleryPreview(
             url: galleryPage,
             icon: "collection",
           },
-          { key: "position", label: "Position", value: position },
+          ...pathField(item.path),
+          ...stateFields(item.state),
         ],
         ...pdfUrl(item),
         links: originalLink(item.url),
@@ -732,6 +754,7 @@ function pagerItem(
     size: item.size,
     uploaded: item.uploaded ?? null,
     path: item.path ?? null,
+    state: item.state ?? null,
   };
 }
 
