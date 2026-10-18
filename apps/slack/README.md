@@ -75,6 +75,35 @@ item (or the gallery's first) and has **Newer** / **Older** (feeds) or
 preview, so the card and flexpane never show more than the share page.
 Anything that isn't public answers `not_found`.
 
+Feed and gallery cards also show a strip of up to four thumbnails (a feed's
+newest images, a gallery's first), as an array of `slack#/types/image`. The
+pager flexpane leaves the strip out, since its current item leads.
+
+Clicking a thumbnail can open Slack's full-size viewer
+(`attributes.full_size_preview`), but only for PNG, JPEG, GIF, and WebP
+images on a host listed in `SLACK_FULL_SIZE_HOSTS`. Slack loads the image
+from `app.slack.com`, so each listed host must answer CORS for that origin.
+For the hosted R2 domains that's a bucket CORS rule on `uploads-default`:
+
+```json
+{
+  "rules": [
+    {
+      "allowed": { "origins": ["https://app.slack.com"], "methods": ["GET", "HEAD"] },
+      "maxAgeSeconds": 3600
+    }
+  ]
+}
+```
+
+```bash
+wrangler r2 bucket cors set uploads-default --file slack-cors.json
+```
+
+Then add `storage.uploads.sh` (and `store.uploads.sh`) to
+`SLACK_FULL_SIZE_HOSTS`. Images on other hosts (BYO buckets) keep the
+thumbnail only.
+
 Each entity's `external_ref` is fixed per link (the file key, feed id,
 gallery id, or collection id plus item id), which Slack uses to list the
 conversations that mention it.
@@ -194,17 +223,18 @@ twice. Messages arrive in the app's Messages tab, which is read-only.
 
 ## Configuration
 
-| Name                   | Kind   | Purpose                                                                    |
-| ---------------------- | ------ | -------------------------------------------------------------------------- |
-| `SLACK_SIGNING_SECRET` | secret | Verifies every inbound request. Unset: `/slack/events` answers 503.        |
-| `SLACK_CLIENT_SECRET`  | secret | OAuth client secret. Unset: `/slack/install` answers 503.                  |
-| `SLACK_TOKENS_KEY`     | secret | 16+ character master key that seals bot tokens and signs OAuth state.      |
-| `SLACK_CLIENT_ID`      | var    | The app's public OAuth client id.                                          |
-| `SLACK_APP_ID`         | var    | The app's id, for the "Open Slack" link after install.                     |
-| `SLACK_ORIGIN`         | var    | This worker's origin; the OAuth redirect URI is built from it.             |
-| `WEB_ORIGIN`           | var    | The only origin whose share links unfurl.                                  |
-| `SLACK_WORK_OBJECTS`   | var    | `on` adds Work Object metadata to unfurls ([Work Objects](#work-objects)). |
-| `API_ORIGIN`           | var    | The public API's origin; the plain-`fetch` target when `API` isn't bound.  |
+| Name                    | Kind   | Purpose                                                                    |
+| ----------------------- | ------ | -------------------------------------------------------------------------- |
+| `SLACK_SIGNING_SECRET`  | secret | Verifies every inbound request. Unset: `/slack/events` answers 503.        |
+| `SLACK_CLIENT_SECRET`   | secret | OAuth client secret. Unset: `/slack/install` answers 503.                  |
+| `SLACK_TOKENS_KEY`      | secret | 16+ character master key that seals bot tokens and signs OAuth state.      |
+| `SLACK_CLIENT_ID`       | var    | The app's public OAuth client id.                                          |
+| `SLACK_APP_ID`          | var    | The app's id, for the "Open Slack" link after install.                     |
+| `SLACK_ORIGIN`          | var    | This worker's origin; the OAuth redirect URI is built from it.             |
+| `WEB_ORIGIN`            | var    | The only origin whose share links unfurl.                                  |
+| `SLACK_WORK_OBJECTS`    | var    | `on` adds Work Object metadata to unfurls ([Work Objects](#work-objects)). |
+| `SLACK_FULL_SIZE_HOSTS` | var    | Image hosts Slack may open full size; each needs CORS for `app.slack.com`. |
+| `API_ORIGIN`            | var    | The public API's origin; the plain-`fetch` target when `API` isn't bound.  |
 
 ```bash
 wrangler secret put SLACK_SIGNING_SECRET --config apps/slack/wrangler.jsonc

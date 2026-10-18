@@ -132,11 +132,62 @@ function pagerParts(page: PagerPage, kind: "feed" | "gallery") {
   return { fields, actions, image: page.item.image };
 }
 
+/** Options that depend on deployment config rather than the link. */
+export interface EntityOptions {
+  /**
+   * Hosts whose image URLs answer CORS for https://app.slack.com, which
+   * Slack's full-size viewer needs (`attributes.full_size_preview`). Images
+   * elsewhere (BYO buckets, other lanes) get the thumbnail only.
+   */
+  fullSizeHosts?: readonly string[];
+}
+
+/** Parses SLACK_FULL_SIZE_HOSTS ("a.example, b.example"). */
+export function parseHosts(raw: string | null | undefined): string[] {
+  return (raw ?? "")
+    .split(",")
+    .map((host) => host.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+/** Slack's full-size viewer takes images and PDFs; we only send images it can draw. */
+const FULL_SIZE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
+
+function fullSizePreview(
+  image: { url: string; mime?: string } | undefined,
+  hosts: readonly string[],
+): Json | null {
+  if (!image?.mime || !FULL_SIZE_TYPES.has(image.mime) || !isSlackImage(image.url)) return null;
+  if (!hosts.includes(new URL(image.url).hostname.toLowerCase())) return null;
+  return { is_supported: true, preview_url: image.url, mime_type: image.mime };
+}
+
+/** A row of thumbnails: a feed's newest or a gallery's first few images. */
+function stripField(images: Array<{ url: string; alt: string }> | undefined, label: string) {
+  const usable = (images ?? []).filter((image) => isSlackImage(image.url));
+  if (usable.length < 2) return null;
+  return {
+    key: "thumbnails",
+    label,
+    type: "array",
+    item_type: "slack#/types/image",
+    value: usable.map((image) => ({
+      type: "slack#/types/image",
+      image_url: image.url,
+      alt_text: clamp(image.alt, 100),
+    })),
+  };
+}
+
 /**
  * The Work Object for one preview. With `page` (a feed or gallery
  * flexpane), the preview image and buttons follow the pager's item.
  */
-export function entityMetadata(preview: Preview, page?: PagerPage): EntityMetadata {
+export function entityMetadata(
+  preview: Preview,
+  page?: PagerPage,
+  options: EntityOptions = {},
+): EntityMetadata {
   const entity = preview.entity;
   const updated = unixSeconds(entity.updated);
   const created = unixSeconds(entity.created);
@@ -162,11 +213,19 @@ export function entityMetadata(preview: Preview, page?: PagerPage): EntityMetada
           date_updated: dateField(updated),
         });
 
-  const customFields = [...(pager?.fields ?? []), ...entity.fields.map(customField)];
+  // The strip leads on the card; in a pager flexpane the current item does.
+  const thumbnails = stripField(entity.strip, entity.ref.type === "feed" ? "Latest" : "Items");
+  const customFields = [
+    ...(pager?.fields ?? []),
+    ...(thumbnails && !pager ? [thumbnails] : []),
+    ...entity.fields.map(customField),
+  ];
+  const fullSize = fullSizePreview(image, options.fullSizeHosts ?? []);
   const payload: Json = {
     attributes: {
       title: { text: clamp(preview.title, TITLE_MAX) },
       display_type: entity.displayType,
+      ...(fullSize ? { full_size_preview: fullSize } : {}),
       ...(updated !== null ? { metadata_last_modified: updated } : {}),
     },
     fields,
@@ -183,8 +242,8 @@ export function entityMetadata(preview: Preview, page?: PagerPage): EntityMetada
 }
 
 /** `metadata.entities[n]` for `chat.unfurl`. */
-export function unfurlEntity(preview: Preview): EntityMetadata {
-  return { ...entityMetadata(preview), app_unfurl_url: preview.url };
+export function unfurlEntity(preview: Preview, options: EntityOptions = {}): EntityMetadata {
+  return { ...entityMetadata(preview, undefined, options), app_unfurl_url: preview.url };
 }
 
 export type DetailsOutcome = "presented" | "not_found" | "failed";
@@ -197,7 +256,7 @@ export type DetailsOutcome = "presented" | "not_found" | "failed";
  */
 export async function presentDetails(
   input: { triggerId: string; link: string; itemId?: string },
-  deps: ShareDeps & { slack: SlackApiOptions },
+  deps: ShareDeps & { slack: SlackApiOptions } & EntityOptions,
 ): Promise<DetailsOutcome> {
   const target = parseShareUrl(input.link, deps.webOrigin);
   const preview = target ? await resolvePreview(input.link, deps) : null;
@@ -213,7 +272,10 @@ export async function presentDetails(
     return "not_found";
   }
   const result = await entityPresentDetails(
-    { trigger_id: input.triggerId, metadata: entityMetadata(preview, page ?? undefined) },
+    {
+      trigger_id: input.triggerId,
+      metadata: entityMetadata(preview, page ?? undefined, { fullSizeHosts: deps.fullSizeHosts }),
+    },
     deps.slack,
   );
   if (!result.ok) {

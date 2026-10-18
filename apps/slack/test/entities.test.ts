@@ -65,7 +65,15 @@ const FIXTURES: Record<string, unknown> = {
   [`/public/feeds/${FEED_ID}`]: {
     ...FEED_FEED,
     updatedAt: "2026-10-18T00:00:00.000Z",
-    items: [feedItem("newest", "2026-10-18T00:00:00.000Z")],
+    items: [
+      feedItem("newest", "2026-10-18T00:00:00.000Z"),
+      feedItem("middle", "2026-10-17T00:00:00.000Z"),
+      {
+        ...feedItem("clip", "2026-10-16T00:00:00.000Z"),
+        contentType: "video/mp4",
+        url: "https://storage.uploads.sh/clip.mp4",
+      },
+    ],
     github: { title: "Settings redesign", state: "open" },
   },
   [`/public/feeds/${FEED_ID}/items/newest`]: {
@@ -246,6 +254,53 @@ describe("Work Object unfurls", () => {
     });
     // The unfurl itself has no pager buttons; those live in the flexpane.
     expect(entity.entity_payload.actions).toBeUndefined();
+    // A video without a poster has no image, so the strip skips it.
+    expect(entity.entity_payload.custom_fields).toContainEqual({
+      key: "thumbnails",
+      label: "Latest",
+      type: "array",
+      item_type: "slack#/types/image",
+      value: [
+        {
+          type: "slack#/types/image",
+          image_url: "https://storage.uploads.sh/newest.png",
+          alt_text: "newest.png",
+        },
+        {
+          type: "slack#/types/image",
+          image_url: "https://storage.uploads.sh/middle.png",
+          alt_text: "middle.png",
+        },
+      ],
+    });
+  });
+
+  it("offers Slack's full-size viewer only for images on allowed hosts", async () => {
+    const off = fakeSlack();
+    await run(await linkShared(FILE_PAGE), off);
+    expect(off.calls[0]!.body.metadata.entities[0].entity_payload.attributes).not.toHaveProperty(
+      "full_size_preview",
+    );
+
+    const on = fakeSlack();
+    await run(
+      await linkShared(FILE_PAGE),
+      on,
+      env({ SLACK_FULL_SIZE_HOSTS: "embed.uploads.sh, storage.uploads.sh" }),
+    );
+    expect(
+      on.calls[0]!.body.metadata.entities[0].entity_payload.attributes.full_size_preview,
+    ).toEqual({ is_supported: true, preview_url: FILE.url, mime_type: "image/png" });
+
+    const elsewhere = fakeSlack();
+    await run(
+      await linkShared(FILE_PAGE),
+      elsewhere,
+      env({ SLACK_FULL_SIZE_HOSTS: "cdn.example" }),
+    );
+    expect(
+      elsewhere.calls[0]!.body.metadata.entities[0].entity_payload.attributes,
+    ).not.toHaveProperty("full_size_preview");
   });
 
   it("retries with blocks only when Slack rejects the metadata", async () => {
@@ -314,6 +369,8 @@ describe("Work Object flexpane", () => {
     expect(payload.actions).toEqual({
       primary_actions: [{ text: "Older", action_id: PAGE_NEXT_ACTION, value: "middle" }],
     });
+    // The pager's item leads the flexpane, so the card's strip is left out.
+    expect(payload.custom_fields.map((f: { key: string }) => f.key)).not.toContain("thumbnails");
   });
 
   it("pages a feed from the flexpane buttons, keeping the feed's identity", async () => {
