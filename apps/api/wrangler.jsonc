@@ -215,6 +215,13 @@
       "binding": "AUTH",
       "service": "uploads-auth",
     },
+    // uploads-slack: re-render a user's Slack Home tab after they connect
+    // or unlink (src/routes/me-slack.ts). Best effort; production only, so
+    // previews never touch real Slack workspaces.
+    {
+      "binding": "SLACK",
+      "service": "uploads-slack",
+    },
   ],
   // Rate limits use separate namespaces so public invite traffic cannot consume
   // a workspace's write quota. Both are per-colo rather than globally exact.

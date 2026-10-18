@@ -231,3 +231,34 @@ describe("/me/slack/links", () => {
     expect(res.status).toBe(404);
   });
 });
+
+describe("Slack Home refresh", () => {
+  it("asks uploads-slack to re-render the user's Home tab after connecting", async () => {
+    await insertTicket(TICKET);
+    const calls: Array<{ url: string; body: unknown }> = [];
+    const slack = {
+      fetch: (async (input: RequestInfo | URL, init?: RequestInit) => {
+        calls.push({ url: String(input), body: JSON.parse(String(init?.body)) });
+        return new Response(null, { status: 204 });
+      }) as Fetcher["fetch"],
+    };
+    const pending: Promise<unknown>[] = [];
+    const res = await app().fetch(
+      new Request(`https://api.uploads.sh/me/slack/connect/${TICKET}`, { method: "POST" }),
+      { ...env(ALICE), SLACK: slack } as unknown as Env,
+      {
+        waitUntil: (p: Promise<unknown>) => pending.push(p),
+        passThroughOnException() {},
+        props: {},
+      } as unknown as ExecutionContext,
+    );
+    await Promise.all(pending);
+    expect(res.status).toBe(200);
+    expect(calls).toEqual([
+      {
+        url: "https://slack.internal/slack/internal/home",
+        body: { teamId: "T0123ABC", slackUserId: "U0456DEF" },
+      },
+    ]);
+  });
+});

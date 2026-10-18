@@ -154,6 +154,17 @@ applyAuthSecurityHeaders(Astro.response.headers, devicePageCsp(authOrigin, apiOr
       button.secondary {
         color: var(--muted);
       }
+      /* The confirm step's one action: filled, and last in the row. */
+      #connect-btn {
+        color: var(--bg);
+        background: var(--accent);
+        border-color: var(--accent);
+        font-weight: var(--weight-semibold);
+      }
+      #connect-btn:hover,
+      #connect-btn:focus-visible {
+        filter: brightness(1.08);
+      }
       button.primary:hover,
       button.primary:focus-visible,
       button[type="submit"]:hover,
@@ -229,15 +240,15 @@ applyAuthSecurityHeaders(Astro.response.headers, devicePageCsp(authOrigin, apiOr
 
       <div id="confirm" hidden>
         <p>
-          Connect Slack user <strong id="slack-user"></strong> in
-          <strong id="team-name"></strong> to <strong id="who"></strong>?
+          Connect Slack user <strong id="slack-user"></strong>{" "}in{" "}<strong id="team-name"
+          ></strong>{" "}to{" "}<strong id="who"></strong>?
         </p>
         <p class="muted">
           Only continue if that's your own Slack account. If someone sent you this link, cancel.
         </p>
         <div class="actions">
-          <button type="button" class="primary" id="connect-btn">Connect</button>
           <button type="button" class="secondary" id="cancel-btn">Cancel</button>
+          <button type="button" class="primary" id="connect-btn">Connect</button>
         </div>
         <div class="ul-callout status" id="confirm-error" data-state="error" role="alert" hidden>
         </div>
