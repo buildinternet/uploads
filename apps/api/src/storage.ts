@@ -7,6 +7,7 @@ import {
   type EmbedUrlOptions,
   type Files,
   type StorageConfig,
+  type StoredFile,
 } from "@uploads/storage";
 import {
   openCredentialFields,
@@ -228,6 +229,11 @@ export interface ResolvedLane extends LaneConfig {
   store: Files;
 }
 
+/** A fresh metadata read from the same lookup that selected the storage lane. */
+export interface ResolvedLaneWithHead extends ResolvedLane {
+  head: StoredFile;
+}
+
 /**
  * Resolves and caches each lane's store/config at most once per resolver
  * instance — a batch of `resolve()` calls against many keys (gallery
@@ -248,6 +254,8 @@ export interface LaneResolver {
    * `exists` call.
    */
   resolve(key: string): Promise<ResolvedLane | null>;
+  /** Like `resolve`, but returns fresh metadata using one HEAD per attempted lane. Object results are never cached. */
+  resolveWithHead(key: string): Promise<ResolvedLaneWithHead | null>;
   /** The active lane's store, resolved (and cached) the same way `resolve` would — for a caller that already knows it's writing to (or otherwise doesn't need to search past) the active lane. */
   activeStore(): Promise<Files>;
   /** The active lane's config, resolved (and cached) the same way `resolve` would. */
@@ -287,6 +295,38 @@ export function createLaneResolver(env: Env, ws: WorkspaceRecord): LaneResolver 
     async activeConfig() {
       return (await active()).config;
     },
+    async resolveWithHead(key) {
+      const probe = async (lane: ResolvedLane): Promise<ResolvedLaneWithHead | null> => {
+        try {
+          return { ...lane, head: await lane.store.head(key) };
+        } catch (err) {
+          // files-sdk normalizes provider failures; only NotFound permits
+          // falling through. Never hide a provider outage or access denial.
+          if (err && typeof err === "object" && "code" in err && err.code === "NotFound") {
+            return null;
+          }
+          throw err;
+        }
+      };
+      const resolved = await active();
+      const hit = await probe({
+        ...resolved,
+        laneId: ws.storageLaneId ?? null,
+        role: "active",
+      });
+      if (hit) return hit;
+      for (const lane of ws.storageLanes ?? []) {
+        const resolvedFallback = await fallback(lane);
+        if (!resolvedFallback) continue;
+        const fallbackHit = await probe({
+          ...resolvedFallback,
+          laneId: lane.id,
+          role: "fallback",
+        });
+        if (fallbackHit) return fallbackHit;
+      }
+      return null;
+    },
     async resolve(key) {
       const { store: activeStore, config: activeConfig } = await active();
       if (await activeStore.exists(key)) {
@@ -321,6 +361,15 @@ export async function resolveObjectLane(
   key: string,
 ): Promise<ResolvedLane | null> {
   return createLaneResolver(env, ws).resolve(key);
+}
+
+/** Resolve a key and its current metadata without a separate existence check. */
+export async function resolveObjectLaneWithHead(
+  env: Env,
+  ws: WorkspaceRecord,
+  key: string,
+): Promise<ResolvedLaneWithHead | null> {
+  return createLaneResolver(env, ws).resolveWithHead(key);
 }
 
 export { publicUrl };
