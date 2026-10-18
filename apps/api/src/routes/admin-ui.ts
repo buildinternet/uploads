@@ -60,6 +60,8 @@ import {
   decodeFlaggedCursor,
   listFlaggedFiles,
 } from "../classifier-admin";
+import { releaseHolds } from "../upload-hold-service";
+import { countHeldByWorkspace } from "../upload-hold-read";
 import {
   ADMIN_METRIC_WINDOWS,
   CLASSIFIER_SAFETY_FIELDS,
@@ -701,6 +703,29 @@ export const adminUi = new Hono<SessionVars>()
         () => buildClassifierOverview(dbFor(c.env), days),
       ),
     );
+  })
+
+  // Held uploads (upload-hold.ts): per-workspace counts, and the operator
+  // release that approves pending holds in batches (the page loops).
+  .get("/classifier/holds", async (c) => {
+    const workspaces = await countHeldByWorkspace(c.env);
+    const total = workspaces.reduce((sum, row) => sum + row.count, 0);
+    return c.json({ total, workspaces });
+  })
+
+  .post("/classifier/holds/release", async (c) => {
+    if (!(await allowWrite(c.env, "operator-holds"))) {
+      throw new RateLimitedError("rate limit exceeded");
+    }
+    const body = (await c.req.json().catch(() => ({}))) as { workspace?: unknown };
+    const workspace =
+      typeof body.workspace === "string" && body.workspace.trim()
+        ? body.workspace.trim()
+        : undefined;
+    if (workspace && !WS_NAME_RE.test(workspace)) {
+      throw new ValidationError("invalid workspace name", { code: "invalid_workspace" });
+    }
+    return c.json(await releaseHolds(c.env, { workspace }));
   })
 
   .get("/classifier/flagged", async (c) => {

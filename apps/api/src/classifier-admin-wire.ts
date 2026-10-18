@@ -127,3 +127,17 @@ export interface ClassifierFlaggedPage {
   files: ClassifierFlaggedFile[];
   nextCursor: string | null;
 }
+
+/** `GET /admin-ui/classifier/holds`: pending holds (upload-hold.ts). */
+export interface ClassifierHoldsSummary {
+  total: number;
+  workspaces: { workspace: string; count: number }[];
+}
+
+/** `POST /admin-ui/classifier/holds/release`: one batch of the operator release. */
+export interface ClassifierHoldsReleaseResult {
+  released: number;
+  failed: number;
+  /** Holds still pending after this batch. */
+  remaining: number;
+}

@@ -49,3 +49,56 @@ export async function listHeldKeys(env: Env, workspaceName: string): Promise<str
     .all<{ object_key: string }>();
   return (result.results ?? []).map((row) => row.object_key);
 }
+
+/** One held file, across workspaces, for the operator view. */
+export interface HeldFileRow {
+  workspace: string;
+  objectKey: string;
+}
+
+/**
+ * Pending holds across every workspace (or one), oldest key order, for the
+ * operator release. Seeks `file_metadata_ai_idx`, which leads with
+ * `(meta_key, meta_value, workspace, object_key)`.
+ */
+export async function listHeldAcrossWorkspaces(
+  env: Env,
+  opts: { workspace?: string; limit: number },
+): Promise<HeldFileRow[]> {
+  const workspaceClause = opts.workspace ? "AND workspace = ?" : "";
+  const binds: unknown[] = [HOLD_META_KEY, HOLD_PENDING];
+  if (opts.workspace) binds.push(opts.workspace);
+  binds.push(opts.limit);
+  const result = await dbFor(env)
+    .prepare(
+      `SELECT workspace, object_key FROM file_metadata
+       WHERE meta_key = ? AND meta_value = ? AND ${aiRows("")} ${workspaceClause}
+       ORDER BY workspace, object_key
+       LIMIT ?`,
+    )
+    .bind(...binds)
+    .all<{ workspace: string; object_key: string }>();
+  return (result.results ?? []).map((row) => ({
+    workspace: row.workspace,
+    objectKey: row.object_key,
+  }));
+}
+
+/** How many files are held, per workspace, for the operator view. */
+export async function countHeldByWorkspace(
+  env: Env,
+): Promise<{ workspace: string; count: number }[]> {
+  const result = await dbFor(env)
+    .prepare(
+      `SELECT workspace, COUNT(*) AS count FROM file_metadata
+       WHERE meta_key = ? AND meta_value = ? AND ${aiRows("")}
+       GROUP BY workspace
+       ORDER BY count DESC, workspace`,
+    )
+    .bind(HOLD_META_KEY, HOLD_PENDING)
+    .all<{ workspace: string; count: number }>();
+  return (result.results ?? []).map((row) => ({
+    workspace: row.workspace,
+    count: Number(row.count),
+  }));
+}

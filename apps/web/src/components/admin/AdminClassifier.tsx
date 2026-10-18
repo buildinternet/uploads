@@ -33,7 +33,7 @@ import {
   type ClassifierValueCount,
 } from "@uploads/api/classifier-admin-wire";
 import { makeAdminApi } from "../../lib/admin-api";
-import { ADMIN_BTN } from "../../lib/admin-ui";
+import { ADMIN_BTN, ADMIN_BTN_DANGER } from "../../lib/admin-ui";
 import {
   coverageLabel,
   flaggedFileHref,
@@ -469,11 +469,134 @@ function FlaggedSection({ apiOrigin }: AdminClassifierProps) {
   );
 }
 
+/**
+ * Held uploads (upload-hold.ts) and the operator release: approves every
+ * pending hold, or one workspace's, in server-sized batches until none are
+ * left or a batch releases nothing. The kill switch for new holds is the
+ * Flagship `upload-holds` flag, not this button.
+ */
+function HoldsSection({ apiOrigin }: AdminClassifierProps) {
+  const api = useMemo(() => makeAdminApi(apiOrigin), [apiOrigin]);
+  const res = useAdminResource(() => api.getClassifierHolds(), [api]);
+  const [confirming, setConfirming] = useState<string | null>(null);
+  const [status, setStatus] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const data = res.data;
+
+  const release = async (workspace: string) => {
+    setBusy(true);
+    setConfirming(null);
+    let released = 0;
+    let failed = 0;
+    try {
+      for (;;) {
+        const batch = await api.releaseClassifierHolds(workspace || undefined);
+        released += batch.released;
+        failed += batch.failed;
+        setStatus(`Released ${released}…`);
+        if (batch.remaining === 0 || batch.released === 0) break;
+      }
+      setStatus(
+        `Released ${released} held file${released === 1 ? "" : "s"}` +
+          (failed > 0 ? `. ${failed} could not be restored and stay held.` : "."),
+      );
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : "Release failed.");
+    } finally {
+      setBusy(false);
+      res.reload();
+    }
+  };
+
+  return (
+    <section className="grid gap-3 min-w-0">
+      <h3 className={H3}>Held uploads</h3>
+      {res.error ? (
+        <p className="m-0 text-(length:--text-meta) text-destructive">Could not load holds.</p>
+      ) : !data ? (
+        <Skeleton className="h-16 w-full" />
+      ) : data.total === 0 ? (
+        <p className="m-0 text-(length:--text-meta) text-muted-foreground">
+          Nothing is held. New holds stop when the Flagship <code>upload-holds</code> flag is off.
+        </p>
+      ) : (
+        <>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Workspace</TableHead>
+                <TableHead className="text-right">Held</TableHead>
+                <TableHead className="text-right" />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {data.workspaces.map((row) => (
+                <TableRow key={row.workspace}>
+                  <TableCell className="font-mono">{row.workspace}</TableCell>
+                  <TableCell className="text-right tabular-nums">{row.count}</TableCell>
+                  <TableCell className="text-right">
+                    <button
+                      type="button"
+                      className={ADMIN_BTN}
+                      disabled={busy}
+                      onClick={() => setConfirming(row.workspace)}
+                    >
+                      Release
+                    </button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+          <div className="flex flex-wrap items-center gap-2">
+            {confirming !== null ? (
+              <>
+                <span className="text-(length:--text-meta)">
+                  {confirming
+                    ? `Release every held file in ${confirming}?`
+                    : `Release all ${data.total} held files?`}{" "}
+                  Their URLs work again and they return to PR comments.
+                </span>
+                <button
+                  type="button"
+                  className={ADMIN_BTN_DANGER}
+                  disabled={busy}
+                  onClick={() => void release(confirming)}
+                >
+                  Release
+                </button>
+                <button type="button" className={ADMIN_BTN} onClick={() => setConfirming(null)}>
+                  Cancel
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                className={ADMIN_BTN_DANGER}
+                disabled={busy}
+                onClick={() => setConfirming("")}
+              >
+                Release all holds
+              </button>
+            )}
+          </div>
+        </>
+      )}
+      {status ? (
+        <p className="m-0 text-(length:--text-meta) text-muted-foreground" role="status">
+          {status}
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
 export function AdminClassifier(props: AdminClassifierProps) {
   return (
     <IslandErrorBoundary>
       <div className="grid gap-8 min-w-0">
         <OverviewSection {...props} />
+        <HoldsSection {...props} />
         <FlaggedSection {...props} />
       </div>
     </IslandErrorBoundary>
