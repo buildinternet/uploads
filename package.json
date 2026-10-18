@@ -56,6 +56,8 @@
     "plugin-version:check": "node scripts/check-plugin-version.mjs",
     "plugin-skills:sync": "node scripts/sync-plugin-skills.mjs",
     "plugin-skills:check": "node scripts/sync-plugin-skills.mjs --check",
+    "plugin-directory:build": "node scripts/build-openai-plugin.mjs",
+    "plugin-directory:check": "node --test scripts/build-openai-plugin.test.mjs && node scripts/build-openai-plugin.mjs --check",
     "changeset:version": "changeset version && node scripts/sync-server-json-version.mjs && node scripts/sync-plugin-version.mjs && node scripts/build-mcp-server-card.mjs && pnpm install --lockfile-only",
     "changeset:publish": "changeset publish",
     "prepare": "husky"

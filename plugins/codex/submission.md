@@ -3,6 +3,12 @@
 Copy these into the plugin submission portal after identity verification.
 They are not loaded at runtime.
 
+For the current ZIP workflow, use [directory.md](directory.md) and the
+machine-readable [review cases](review-cases.json). The older cases below are
+reference material; replace their PR and branch with dedicated fixtures.
+OpenAI no longer requires annotation justifications. An authorization decline
+does not count as a successful positive comment case.
+
 ## Annotation justifications
 
 Every hosted tool advertises `readOnlyHint`, `openWorldHint`, and
