@@ -54,9 +54,10 @@ function exclusive<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 async function loadEngine(): Promise<PdfEngine> {
-  // A bundled worker has no file URL. Node (vitest) does, and clawpdf's
-  // default loader reads the WASM off disk there.
-  if (import.meta.url.startsWith("file:")) {
+  // A bundled worker has no file URL (`import.meta.url` is undefined in
+  // workerd). Node (vitest) does, and clawpdf's default loader reads the
+  // WASM off disk there.
+  if (import.meta.url?.startsWith("file:")) {
     return createEngine({ maxRenderPixels: PDF_PREVIEW_MAX_PIXELS });
   }
   const { createBundledPdfEngine } = await import("./pdf-preview-workerd");

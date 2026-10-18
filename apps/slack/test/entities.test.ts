@@ -15,6 +15,7 @@ import { signSlackRequest } from "../src/slack/signature";
 const SECRET = "test-signing-secret";
 const TOKENS_KEY = "test-tokens-key-0123456789";
 const WEB = "https://uploads.sh";
+const ICONS = "https://agents.uploads.sh/slack/icons";
 
 let sqlite: SqliteD1;
 beforeEach(async () => {
@@ -68,6 +69,14 @@ function feedItem(id: string, uploaded: string) {
 const FEED_FEED = { id: FEED_ID, title: "acme/app#12", repo: "acme/app", number: 12, kind: "pull" };
 const FIXTURES: Record<string, unknown> = {
   "/public/files/default/gh/acme/app/pull/12/after.png": FILE,
+  "/public/files/default/docs/spec.pdf": {
+    key: "docs/spec.pdf",
+    url: "https://storage.uploads.sh/default/docs/spec.pdf",
+    size: 5000,
+    contentType: "application/pdf",
+    uploaded: "2026-10-18T00:17:35.000Z",
+    posterUrl: "https://storage.uploads.sh/default/docs/spec.pdf.poster.webp",
+  },
   [`/public/feeds/${FEED_ID}`]: {
     ...FEED_FEED,
     updatedAt: "2026-10-18T00:00:00.000Z",
@@ -214,22 +223,12 @@ describe("Work Object unfurls", () => {
     expect(payload.attributes).toEqual({
       title: { text: "after.png" },
       display_type: "Image",
+      product_icon: { url: `${ICONS}/type-image.png`, alt_text: "Image" },
       metadata_last_modified: 1792282655,
     });
     expect(payload.fields).toEqual({
       preview: { type: "slack#/types/image", image_url: FILE.url, alt_text: "after.png" },
-      created_by: {
-        type: "slack#/types/user",
-        user: {
-          text: "acme",
-          url: "https://github.com/acme",
-          icon: { url: "https://avatars.githubusercontent.com/acme", alt_text: "acme" },
-        },
-      },
       date_created: { value: 1792282655 },
-      date_updated: { value: 1792282655 },
-      file_size: { value: "138 kB" },
-      mime_type: { value: "image/png" },
     });
     expect(payload.custom_fields).toEqual([
       {
@@ -238,6 +237,8 @@ describe("Work Object unfurls", () => {
         value: "acme/app#12",
         type: "string",
         link: "https://github.com/acme/app/pull/12",
+        // A file doesn't know its PR's state, so the icon is the neutral one.
+        icon: { url: `${ICONS}/pr.png`, alt_text: "GitHub" },
       },
       { key: "page_path", label: "Page", value: "/settings", type: "string" },
     ]);
@@ -245,6 +246,36 @@ describe("Work Object unfurls", () => {
       "Open on GitHub",
       "Open original file",
     ]);
+  });
+
+  it("labels a PDF as a PDF, with its own header icon", async () => {
+    const slack = fakeSlack();
+    await run(await linkShared("https://uploads.sh/f/default/docs/spec.pdf"), slack);
+    const { attributes } = slack.calls[0]!.body.metadata.entities[0].entity_payload;
+    expect(attributes.display_type).toBe("PDF");
+    expect(attributes.product_icon).toEqual({ url: `${ICONS}/type-pdf.png`, alt_text: "PDF" });
+    // Not on an allowed host by default, so no full-size viewer.
+    expect(attributes).not.toHaveProperty("full_size_preview");
+    // The card shows the first page the API rendered.
+    const { fields } = slack.calls[0]!.body.metadata.entities[0].entity_payload;
+    expect(fields.preview.image_url).toBe(
+      "https://storage.uploads.sh/default/docs/spec.pdf.poster.webp",
+    );
+  });
+
+  it("opens a PDF in Slack's full-size viewer on allowed hosts", async () => {
+    const slack = fakeSlack();
+    await run(
+      await linkShared("https://uploads.sh/f/default/docs/spec.pdf"),
+      slack,
+      env({ SLACK_FULL_SIZE_HOSTS: "storage.uploads.sh" }),
+    );
+    const { attributes } = slack.calls[0]!.body.metadata.entities[0].entity_payload;
+    expect(attributes.full_size_preview).toEqual({
+      is_supported: true,
+      preview_url: "https://storage.uploads.sh/default/docs/spec.pdf",
+      mime_type: "application/pdf",
+    });
   });
 
   it("drops query strings from the canonical url but keeps the posted one", async () => {
@@ -256,20 +287,24 @@ describe("Work Object unfurls", () => {
     });
   });
 
-  it("feeds are content items with the thread and state", async () => {
+  it("a feed card is its latest image alone", async () => {
     const slack = fakeSlack();
     await run(await linkShared(FEED_PAGE), slack);
     const [entity] = slack.calls[0]!.body.metadata.entities;
     expect(entity.entity_type).toBe("slack#/entities/content_item");
     expect(entity.external_ref).toEqual({ id: FEED_ID, type: "feed" });
     expect(entity.entity_payload.attributes.display_type).toBe("Change feed");
-    expect(entity.entity_payload.custom_fields).toContainEqual({
-      key: "state",
-      label: "State",
-      value: "Open",
-      type: "string",
-      tag_color: "green",
+    expect(entity.entity_payload.attributes.product_icon.url).toBe(`${ICONS}/type-collection.png`);
+    // Slack draws the cover full width and clips fields under it, so the
+    // card sends the image and nothing else; the side panel has the rest.
+    expect(entity.entity_payload.fields).toEqual({
+      preview: {
+        type: "slack#/types/image",
+        image_url: "https://storage.uploads.sh/newest.png",
+        alt_text: "newest.png",
+      },
     });
+    expect(entity.entity_payload).not.toHaveProperty("custom_fields");
     // The unfurl has no pager buttons (those live in the flexpane), only the PR link.
     expect(entity.entity_payload.actions).toEqual({
       overflow_actions: [
@@ -277,31 +312,6 @@ describe("Work Object unfurls", () => {
           text: "Open on GitHub",
           action_id: "uploads_wo_open_0",
           url: "https://github.com/acme/app/pull/12",
-        },
-      ],
-    });
-    // The item list is for the side panel only.
-    expect(entity.entity_payload.custom_fields.map((f: { key: string }) => f.key)).not.toContain(
-      "items_list",
-    );
-    // No cover image: Slack would draw it full width and hide the fields.
-    expect(entity.entity_payload.fields).not.toHaveProperty("preview");
-    // A video without a poster has no image, so the strip skips it.
-    expect(entity.entity_payload.custom_fields).toContainEqual({
-      key: "thumbnails",
-      label: "Latest",
-      type: "array",
-      item_type: "slack#/types/image",
-      value: [
-        {
-          type: "slack#/types/image",
-          image_url: "https://storage.uploads.sh/newest.png",
-          alt_text: "newest.png",
-        },
-        {
-          type: "slack#/types/image",
-          image_url: "https://storage.uploads.sh/middle.png",
-          alt_text: "middle.png",
         },
       ],
     });
@@ -345,8 +355,10 @@ describe("Work Object unfurls", () => {
     expect(slack.calls).toHaveLength(3);
     const imageless = slack.calls[1]!.body.metadata.entities[0].entity_payload;
     expect(imageless.fields).not.toHaveProperty("preview");
-    expect(imageless.fields.file_size).toEqual({ value: "138 kB" });
-    expect(imageless.fields.created_by.user).not.toHaveProperty("icon");
+    expect(imageless.fields.date_created).toEqual({ value: 1792282655 });
+    expect(imageless.fields).not.toHaveProperty("created_by");
+    expect(imageless.attributes).not.toHaveProperty("product_icon");
+    expect(imageless.custom_fields[0]).not.toHaveProperty("icon");
     expect(slack.calls[2]!.body.metadata).toBeUndefined();
     expect(slack.calls[2]!.body.unfurls[FILE_PAGE]).toBeDefined();
   });
@@ -392,8 +404,13 @@ describe("Work Object creator", () => {
     },
   } as unknown as Parameters<typeof entityMetadata>[0];
 
+  it("leaves the creator off the card", () => {
+    expect(entityMetadata(gallery).entity_payload.fields).not.toHaveProperty("created_by");
+  });
+
   it("falls back to uploads.sh when there's no repo owner", () => {
-    const { fields } = entityMetadata(gallery).entity_payload as Record<string, any>;
+    const { fields } = entityMetadata(gallery, undefined, { details: true })
+      .entity_payload as Record<string, any>;
     expect(fields.created_by).toEqual({
       type: "slack#/types/user",
       user: {
@@ -402,7 +419,7 @@ describe("Work Object creator", () => {
         icon: { url: PROVIDER_ICON_URL, alt_text: "uploads.sh" },
       },
     });
-    const imageless = entityMetadata(gallery, undefined, { images: false })
+    const imageless = entityMetadata(gallery, undefined, { images: false, details: true })
       .entity_payload as Record<string, any>;
     expect(imageless.fields.created_by.user).not.toHaveProperty("icon");
   });
@@ -430,6 +447,17 @@ describe("Work Object flexpane", () => {
         external_ref: { id: "default/gh/acme/app/pull/12/after!2epng", type: "file" },
       },
     });
+    // The side panel names the repo owner as creator, which the card leaves out.
+    expect(slack.calls[0]!.body.metadata.entity_payload.fields.created_by.user).toEqual({
+      text: "acme",
+      url: "https://github.com/acme",
+      icon: { url: "https://avatars.githubusercontent.com/acme", alt_text: "acme" },
+    });
+    // The side panel ends with size and type, which the card leaves out.
+    const keys = slack.calls[0]!.body.metadata.entity_payload.custom_fields.map(
+      (f: { key: string }) => f.key,
+    );
+    expect(keys).toEqual(["github", "page_path", "file_size", "content_type"]);
   });
 
   it("opens a feed at its newest item with only an Older button", async () => {
@@ -445,6 +473,16 @@ describe("Work Object flexpane", () => {
     const metadata = slack.calls[0]!.body.metadata;
     expect(metadata.external_ref).toEqual({ id: FEED_ID, type: "feed" });
     const payload = metadata.entity_payload;
+    // The PR's state rides on the GitHub field instead of a field of its own.
+    expect(payload.custom_fields).toContainEqual({
+      key: "github",
+      label: "GitHub",
+      value: "acme/app#12 · Open",
+      type: "string",
+      link: "https://github.com/acme/app/pull/12",
+      icon: { url: `${ICONS}/pr-open.png`, alt_text: "GitHub" },
+    });
+    expect(payload.custom_fields.map((f: { key: string }) => f.key)).not.toContain("state");
     expect(payload.fields.preview.image_url).toBe("https://storage.uploads.sh/newest.png");
     expect(payload.custom_fields.slice(0, 2)).toEqual([
       {
@@ -473,8 +511,6 @@ describe("Work Object flexpane", () => {
       },
     });
     expect(list.value[2].entity_ref).not.toHaveProperty("icon");
-    // The pager's item leads the flexpane, so the card's strip is left out.
-    expect(payload.custom_fields.map((f: { key: string }) => f.key)).not.toContain("thumbnails");
   });
 
   it("pages a feed from the flexpane buttons, keeping the feed's identity", async () => {

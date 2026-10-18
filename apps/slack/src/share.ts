@@ -105,10 +105,10 @@ export interface PreviewEntity {
   fields: EntityField[];
   /** The GitHub account that owns the repo, shown where Slack expects a creator. */
   owner?: string;
-  /** A feed's newest or a gallery's first few images, for a thumbnail strip. */
-  strip?: Array<{ url: string; alt: string }>;
   /** A feed's newest or a gallery's first few items, each its own Work Object. */
   items?: EntityItemRef[];
+  /** The object's own URL when it's a PDF, for Slack's full-size viewer. */
+  pdfUrl?: string;
   /** Links for the Work Object's overflow menu, e.g. the PR on GitHub. */
   links?: Array<{ text: string; url: string }>;
 }
@@ -125,15 +125,28 @@ export interface EntityItemRef {
 /** How many items a feed or gallery side panel lists. */
 export const ITEM_LIST_SIZE = 10;
 
-/** How many images a feed or gallery card shows side by side. */
-export const STRIP_SIZE = 4;
+/** How many of a feed's newest items the card fetches. */
+const FEED_FETCH_SIZE = 4;
+
+/** Small icons beside a Work Object field's value (served from apps/slack/public/slack/icons). */
+export type FieldIcon =
+  | "pr"
+  | "pr-open"
+  | "pr-merged"
+  | "pr-closed"
+  | "issue"
+  | "issue-open"
+  | "issue-closed"
+  | "collection";
 
 export interface EntityField {
   key: string;
   label: string;
   value: string;
   url?: string;
+  /** Slack can't draw both on one field; `tag` wins. */
   tag?: "red" | "yellow" | "green" | "gray" | "blue";
+  icon?: FieldIcon;
 }
 
 /** One item of a feed or gallery, as the flexpane pager shows it. */
@@ -293,7 +306,10 @@ function isImageType(contentType: string | null | undefined): boolean {
   return Boolean(contentType?.toLowerCase().startsWith("image/"));
 }
 
-/** The image to show for one object: itself when it's an image, its poster when it's a video. */
+/**
+ * The image to show for one object: itself when it's an image, its poster
+ * when it's a video or a PDF (the API renders a PDF's first page).
+ */
 function mediaImage(item: {
   url: string | null;
   contentType: string | null;
@@ -301,6 +317,7 @@ function mediaImage(item: {
 }): string | undefined {
   if (isImageType(item.contentType) && item.url) return item.url;
   if (isVideoType(item.contentType) && item.posterUrl) return item.posterUrl;
+  if (mediaKind(item.contentType) === "PDF" && item.posterUrl) return item.posterUrl;
   return undefined;
 }
 
@@ -313,17 +330,6 @@ function imageMime(item: { url: string | null; contentType: string | null }): st
 function mime(item: { url: string | null; contentType: string | null }) {
   const value = imageMime(item);
   return value ? { mime: value } : {};
-}
-
-/** Up to STRIP_SIZE images from `items`, in order. */
-function strip(items: CollectionItem[]): Array<{ url: string; alt: string }> {
-  const images: Array<{ url: string; alt: string }> = [];
-  for (const item of items) {
-    const url = mediaImage(item);
-    if (url) images.push({ url, alt: item.altText || item.caption?.trim() || item.filename });
-    if (images.length === STRIP_SIZE) break;
-  }
-  return images;
 }
 
 /** Up to ITEM_LIST_SIZE items as references, in order; `base` is the collection's share page. */
@@ -343,6 +349,10 @@ function itemRefs(
       ...(image ? { image } : {}),
     };
   });
+}
+
+function pdfUrl(item: { url: string | null; contentType: string | null }) {
+  return item.url && mediaKind(item.contentType) === "PDF" ? { pdfUrl: item.url } : {};
 }
 
 function originalLink(url: string | null | undefined) {
@@ -389,17 +399,40 @@ function canonical(pageUrl: string): string {
   return `${url.origin}${url.pathname}`;
 }
 
-/** "Image", "Video", or "File": the Work Object header's type label. */
+/** Text-like types that get the "Text" label besides `text/*`. */
+const TEXT_TYPES = new Set(["application/json", "application/xml", "application/yaml"]);
+
+/** The Work Object header's type label, which also picks its icon (entities.ts). */
 function mediaKind(contentType: string | null | undefined): string {
   if (isVideoType(contentType)) return "Video";
   if (isImageType(contentType)) return "Image";
+  const base = contentType?.split(";")[0]!.trim().toLowerCase() ?? "";
+  if (base === "application/pdf") return "PDF";
+  if (base.startsWith("audio/")) return "Audio";
+  if (base.startsWith("text/") || TEXT_TYPES.has(base)) return "Text";
   return "File";
 }
 
-const STATE_TAGS = { open: "green", closed: "red", merged: "blue" } as const;
+/** The PR or issue icon, colored by state when the state is known. */
+function threadIcon(kind: string | null, state?: "open" | "closed" | "merged" | null): FieldIcon {
+  const base = kind === "issue" ? "issue" : "pr";
+  if (!state) return base;
+  if (base === "issue") return state === "open" ? "issue-open" : "issue-closed";
+  return `pr-${state}`;
+}
 
-function threadField(gh: { repo: string; number: number; url: string }): EntityField {
-  return { key: "github", label: "GitHub", value: prRef(gh.repo, gh.number), url: gh.url };
+function threadField(
+  gh: { repo: string; number: number; url: string; kind?: string | null },
+  state?: "open" | "closed" | "merged" | null,
+): EntityField {
+  const value = prRef(gh.repo, gh.number);
+  return {
+    key: "github",
+    label: "GitHub",
+    value: state ? `${value} · ${STATE_LABELS[state]}` : value,
+    url: gh.url,
+    icon: threadIcon(gh.kind ?? null, state),
+  };
 }
 
 function pathField(path: string | null | undefined): EntityField[] {
@@ -450,6 +483,7 @@ async function filePreview(
       ...(gh?.title ? { description: gh.title } : {}),
       fields: [...(gh ? [threadField(gh)] : []), ...pathField(file.metadata?.path)],
       ...ownerOf(gh?.repo),
+      ...pdfUrl(file),
       links: [...(gh ? [{ text: "Open on GitHub", url: gh.url }] : []), ...originalLink(file.url)],
     },
   };
@@ -491,16 +525,23 @@ async function feedPreview(
         created: item.uploaded ?? null,
         updated: item.uploaded ?? null,
         fields: [
-          { key: "change_feed", label: "Change feed", value: feed.title, url: feedPage },
+          {
+            key: "change_feed",
+            label: "Change feed",
+            value: feed.title,
+            url: feedPage,
+            icon: "collection",
+          },
           ...pathField(item.path),
         ],
         ...ownerOf(feed.repo),
+        ...pdfUrl(item),
         links: originalLink(item.url),
       },
     };
   }
 
-  const feed = await getJson<PublicFeed>(`/public/feeds/${id}?limit=${STRIP_SIZE}`, deps);
+  const feed = await getJson<PublicFeed>(`/public/feeds/${id}?limit=${FEED_FETCH_SIZE}`, deps);
   if (!feed) return null;
   const latest = feed.items.find((item) => item.status === "available");
   // The list endpoint pages without a total; the item page carries one.
@@ -538,15 +579,17 @@ async function feedPreview(
       canonicalUrl: canonical(pageUrl),
       updated: latest?.uploaded ?? feed.updatedAt,
       fields: [
+        // The PR's state rides on the GitHub field as an icon and a word.
         ...(isThread
-          ? [threadField({ repo: feed.repo, number: feed.number!, url: ghUrl! })]
+          ? [
+              threadField(
+                { repo: feed.repo, number: feed.number!, url: ghUrl!, kind: feed.kind },
+                feed.github?.state,
+              ),
+            ]
           : [{ key: "repo", label: "Repository", value: feed.repo }]),
-        ...(state && feed.github?.state
-          ? [{ key: "state", label: "State", value: state, tag: STATE_TAGS[feed.github.state] }]
-          : []),
         ...(page ? [{ key: "files", label: "Files", value: String(page.total) }] : []),
       ],
-      strip: strip(feed.items.filter((item) => item.status === "available")),
       items: itemRefs(
         feed.items.filter((item) => item.status === "available"),
         feedPage,
@@ -615,9 +658,16 @@ async function galleryPreview(
         created: item.uploaded ?? null,
         updated: item.uploaded ?? null,
         fields: [
-          { key: "gallery", label: "Gallery", value: gallery.title, url: galleryPage },
+          {
+            key: "gallery",
+            label: "Gallery",
+            value: gallery.title,
+            url: galleryPage,
+            icon: "collection",
+          },
           { key: "position", label: "Position", value: position },
         ],
+        ...pdfUrl(item),
         links: originalLink(item.url),
       },
     };
@@ -651,7 +701,6 @@ async function galleryPreview(
       updated: gallery.updatedAt,
       ...(description ? { description } : {}),
       fields: [{ key: "items", label: "Items", value: String(items.length) }],
-      strip: strip(items),
       items: itemRefs(items, galleryPage, gallery.id, "gallery_item"),
     },
   };

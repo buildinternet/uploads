@@ -41,6 +41,7 @@ export function shareDeps(env: SlackEnv) {
     apiOrigin: env.API_ORIGIN || "https://api.uploads.sh",
     apiFetch: apiFetchFor(env),
     fullSizeHosts: parseHosts(env.SLACK_FULL_SIZE_HOSTS),
+    iconBase: `${(env.SLACK_ORIGIN || "https://agents.uploads.sh").replace(/\/+$/, "")}/slack/icons`,
   };
 }
 

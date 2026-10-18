@@ -75,15 +75,38 @@ function unixSeconds(iso: string | null | undefined): number | null {
   return Number.isNaN(ms) ? null : Math.floor(ms / 1000);
 }
 
-function customField(field: EntityField): Json {
+/** `iconBase` is where the field icons are served; without it, fields carry no icon. */
+function customField(field: EntityField, iconBase?: string): Json {
   return {
     key: field.key,
     label: field.label,
     value: clamp(field.value, FIELD_MAX),
     type: "string",
     ...(field.url ? { link: field.url } : {}),
-    ...(field.tag ? { tag_color: field.tag } : {}),
+    ...(field.tag
+      ? { tag_color: field.tag }
+      : field.icon && iconBase
+        ? { icon: { url: `${iconBase}/${field.icon}.png`, alt_text: field.label } }
+        : {}),
   };
+}
+
+/** The header icon for each kind of link, in place of the app icon. */
+const TYPE_ICONS: Record<string, string> = {
+  Image: "type-image",
+  Video: "type-video",
+  PDF: "type-pdf",
+  Audio: "type-audio",
+  Text: "type-text",
+  File: "type-file",
+  // Feeds and galleries share one icon: it says "several items", nothing more.
+  "Change feed": "type-collection",
+  Gallery: "type-collection",
+};
+
+function productIcon(displayType: string, iconBase: string | undefined): Json | null {
+  const name = TYPE_ICONS[displayType];
+  return name && iconBase ? { url: `${iconBase}/${name}.png`, alt_text: displayType } : null;
 }
 
 function imageField(image: { url: string; alt: string } | undefined): Json | null {
@@ -211,8 +234,23 @@ export interface EntityOptions {
    * elsewhere (BYO buckets, other lanes) get the thumbnail only.
    */
   fullSizeHosts?: readonly string[];
-  /** false leaves out every image (preview, strip, full size): the fallback when Slack rejects one. */
+  /** false leaves out every image (preview, icons, full size): the fallback when Slack rejects one. */
   images?: boolean;
+  /** Building the side panel (`entity.presentDetails`) rather than the card. */
+  details?: boolean;
+  /** Where the field and header icons are served, e.g. https://agents.uploads.sh/slack/icons. */
+  iconBase?: string;
+}
+
+/** A file's size and content type, for the end of its side panel. */
+function fileFacts(entity: Preview["entity"]): Json[] {
+  const size = entity.size != null ? formatBytes(entity.size) : null;
+  return [
+    ...(size ? [customField({ key: "file_size", label: "Size", value: size })] : []),
+    ...(entity.contentType
+      ? [customField({ key: "content_type", label: "Type", value: entity.contentType })]
+      : []),
+  ];
 }
 
 /** Parses SLACK_FULL_SIZE_HOSTS ("a.example, b.example"). */
@@ -223,8 +261,14 @@ export function parseHosts(raw: string | null | undefined): string[] {
     .filter(Boolean);
 }
 
-/** Slack's full-size viewer takes images and PDFs; we only send images it can draw. */
-const FULL_SIZE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
+/** Slack's full-size viewer takes images and PDFs (not video); these are the ones it can draw. */
+const FULL_SIZE_TYPES = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+  "application/pdf",
+]);
 
 function fullSizePreview(
   image: { url: string; mime?: string } | undefined,
@@ -233,23 +277,6 @@ function fullSizePreview(
   if (!image?.mime || !FULL_SIZE_TYPES.has(image.mime) || !isSlackImage(image.url)) return null;
   if (!hosts.includes(new URL(image.url).hostname.toLowerCase())) return null;
   return { is_supported: true, preview_url: image.url, mime_type: image.mime };
-}
-
-/** A row of thumbnails: a feed's newest or a gallery's first few images. */
-function stripField(images: Array<{ url: string; alt: string }> | undefined, label: string) {
-  const usable = (images ?? []).filter((image) => isSlackImage(image.url));
-  if (usable.length < 2) return null;
-  return {
-    key: "thumbnails",
-    label,
-    type: "array",
-    item_type: "slack#/types/image",
-    value: usable.map((image) => ({
-      type: "slack#/types/image",
-      image_url: image.url,
-      alt_text: clamp(image.alt, 100),
-    })),
-  };
 }
 
 /**
@@ -269,45 +296,52 @@ export function entityMetadata(
       ? pagerParts(page, entity.ref.type === "feed" ? "feed" : "gallery")
       : null;
   const withImages = options.images ?? true;
+  // The card leads with the PR and path; the creator (often the same org
+  // for every link) only shows in the side panel.
+  const details = options.details ?? false;
+  // Icons are images too, so the imageless fallback leaves them out.
+  const iconBase = withImages ? options.iconBase : undefined;
   const image = !withImages ? undefined : pager ? pager.image : preview.image;
   const preview_ = imageField(image);
 
-  const fields =
-    entity.type === "file"
+  // A feed or gallery card is its image alone: Slack draws the cover full
+  // width and clips whatever fields follow, so they live in the side panel.
+  // Without an image (say, only videos with no poster) the fields stay.
+  const imageOnly = entity.type === "content_item" && !details && preview_ !== null;
+
+  const fields = imageOnly
+    ? { preview: preview_ }
+    : entity.type === "file"
       ? compact({
           preview: preview_,
-          created_by: creatorField(entity.owner, withImages),
+          created_by: details ? creatorField(entity.owner, withImages) : null,
           date_created: dateField(created),
-          date_updated: dateField(updated),
-          file_size: entity.size != null ? { value: formatBytes(entity.size) ?? "" } : null,
-          mime_type: entity.contentType ? { value: entity.contentType } : null,
+          // A file's update time is its upload time; one date is enough.
+          date_updated: updated !== created ? dateField(updated) : null,
         })
       : compact({
-          // Slack draws a content item's preview as a full-width cover and
-          // hides its fields, so the card leads with the thumbnail strip and
-          // fields instead; the pager flexpane shows the current item.
-          preview: pager ? preview_ : null,
+          // In the side panel the preview follows the pager's item.
+          preview: preview_,
           description: entity.description ? { value: clamp(entity.description, 1000) } : null,
-          created_by: creatorField(entity.owner, withImages),
+          created_by: details ? creatorField(entity.owner, withImages) : null,
           date_updated: dateField(updated),
         });
 
-  // The strip leads on the card; in a pager flexpane the current item does.
-  const thumbnails = stripField(
-    withImages ? entity.strip : undefined,
-    entity.ref.type === "feed" ? "Latest" : "Items",
-  );
   // The side panel lists the collection's items, each a link to its own
-  // Work Object; the card keeps the strip instead.
+  // Work Object.
   const itemList = pager
     ? itemsField(entity.items, entity.ref.type === "feed" ? "Latest files" : "Items", withImages)
     : null;
-  const customFields = [
-    ...(pager?.fields ?? []),
-    ...(thumbnails && !pager ? [thumbnails] : []),
-    ...(itemList ? [itemList] : []),
-    ...entity.fields.map(customField),
-  ];
+  const customFields = imageOnly
+    ? []
+    : [
+        ...(pager?.fields ?? []),
+        ...(itemList ? [itemList] : []),
+        ...entity.fields.map((field) => customField(field, iconBase)),
+        // Size and type are trivia: the card leaves them out so the PR and page
+        // path lead, and the side panel lists them last.
+        ...(entity.type === "file" && details ? fileFacts(entity) : []),
+      ];
   const overflow = (entity.links ?? []).slice(0, MAX_OVERFLOW).map((link, index) => ({
     text: link.text,
     action_id: `${OPEN_LINK_ACTION}_${index}`,
@@ -317,12 +351,21 @@ export function entityMetadata(
     ...(pager?.actions.length ? { primary_actions: pager.actions } : {}),
     ...(overflow.length ? { overflow_actions: overflow } : {}),
   };
-  const fullSize =
-    entity.type === "file" || pager ? fullSizePreview(image, options.fullSizeHosts ?? []) : null;
+  // A PDF has no preview image, so the viewer opens the PDF itself.
+  const fullSizeSource =
+    entity.type === "file" && entity.pdfUrl && withImages
+      ? { url: entity.pdfUrl, mime: "application/pdf" }
+      : entity.type === "file" || pager
+        ? image
+        : undefined;
+  const fullSize = fullSizePreview(fullSizeSource, options.fullSizeHosts ?? []);
   const payload: Json = {
     attributes: {
       title: { text: clamp(preview.title, TITLE_MAX) },
       display_type: entity.displayType,
+      ...(productIcon(entity.displayType, iconBase)
+        ? { product_icon: productIcon(entity.displayType, iconBase) }
+        : {}),
       ...(fullSize ? { full_size_preview: fullSize } : {}),
       ...(updated !== null ? { metadata_last_modified: updated } : {}),
     },
@@ -372,7 +415,11 @@ export async function presentDetails(
   const result = await entityPresentDetails(
     {
       trigger_id: input.triggerId,
-      metadata: entityMetadata(preview, page ?? undefined, { fullSizeHosts: deps.fullSizeHosts }),
+      metadata: entityMetadata(preview, page ?? undefined, {
+        fullSizeHosts: deps.fullSizeHosts,
+        iconBase: deps.iconBase,
+        details: true,
+      }),
     },
     deps.slack,
   );
