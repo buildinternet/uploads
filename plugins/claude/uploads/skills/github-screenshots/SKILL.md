@@ -382,6 +382,13 @@ handful of milestones reads better than a dumped folder.
   visibility is not an access control, and `gh/<owner>/<repo>/pull/<num>/…`
   keys are predictable. Never upload secrets, tokens, or customer PII —
   crop/redact first.
+- **A held file is not a failure.** If the managed comment shows
+  `🔒 N files are held for review`, uploads.sh thinks a shot shows a secret
+  or personal data, and that file is out of the comment and its URL until
+  approved. Run `uploads approve --pr <n>` to see which file and why. Look
+  at the file: if it shows a real credential, tell the user to rotate it,
+  then redact and re-upload. Otherwise run `uploads approve --pr <n> --all`.
+  Do not approve on the user's behalf without checking.
 - **Private repos get an unguessable URL automatically.** When the uploads
   GitHub App can see a target repo is private, attachments key under
   `gh/private/<id>/…` instead — no flag needed. A staged file's key is

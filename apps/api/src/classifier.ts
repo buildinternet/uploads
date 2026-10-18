@@ -470,15 +470,17 @@ export function classifierEvaluationContext(
 /**
  * Every kill switch, cheapest first. A missing OpenRouter key skips the
  * call. Flagship is the sole allowlist (default off). `llmClassifierEnabled
- * === false` is a workspace-level hard off; `undefined`/`true` do not block.
+ * === false` is the operator's workspace hard off and `classifyUploads ===
+ * false` the workspace admin's; `undefined`/`true` do not block.
  */
 export async function classificationAllowed(
   env: Env,
-  ws: Pick<WorkspaceRecord, "llmClassifierEnabled" | "name">,
+  ws: Pick<WorkspaceRecord, "llmClassifierEnabled" | "classifyUploads" | "name">,
   workspaceName: string,
 ): Promise<boolean> {
   if (!env.OPENROUTER_API_KEY?.trim()) return false;
   if (ws.llmClassifierEnabled === false) return false;
+  if (ws.classifyUploads === false) return false;
   if (!env.FLAGS) return false;
   try {
     const context = classifierEvaluationContext(ws, workspaceName);
@@ -1294,6 +1296,7 @@ export function scheduleFileClassification(
   // Cheap local gates only — Flagship is async and lives inside classifyAndStore.
   if (!env.OPENROUTER_API_KEY?.trim()) return;
   if (ws.llmClassifierEnabled === false) return;
+  if (ws.classifyUploads === false) return;
   const work = classifyAndStore(env, ws, workspaceName, key, bytes, contentType, {
     enforceHold: opts.enforceHold,
   });

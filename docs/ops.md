@@ -1417,7 +1417,15 @@ thrown evaluation are all off.
    comments re-sync). A file whose held copy cannot be restored is counted
    as failed and stays held.
 
-4. **Workspace hold off** — `holdFlaggedUploads === false` keeps the labels
+4. **Workspace switches (admins)** — the workspace settings page's **AI
+   labels** section (`GET/PATCH /v1/workspaces/:ws/classifier-settings`,
+   session admin/owner) writes `classifyUploads` and `holdFlaggedUploads`.
+   `classifyUploads === false` skips classification in `classificationAllowed`.
+   It is a separate field from the operator's `llmClassifierEnabled`, so an
+   admin cannot switch on what an operator turned off. The operator script
+   below writes the same `holdFlaggedUploads` field.
+
+   **Workspace hold off (operator)** — `holdFlaggedUploads === false` keeps the labels
    but stops holding high-confidence secret and sensitive-PII uploads
    (`upload-hold.ts`). It does not release files already held; approve
    those with `uploads approve`.

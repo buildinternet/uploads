@@ -94,6 +94,7 @@ command to run by hand, rather than overwriting your build.
 | `gallery …`                | Create and organize public media galleries                                                                                                        |
 | `staged`                   | Show what's staged for a branch, and whether it will auto-attach                                                                                  |
 | `unstage`                  | Mark a branch's staged files (or specific keys) `gh.status=unstaged` without deleting them                                                        |
+| `approve`                  | List files held for review on a PR/issue, or approve them (`--all`, or keys). Held files are likely secrets or personal data                      |
 | `delete <key>`             | Delete an object. A `files:write` token can delete a `gh/` object the server stamped as theirs; older files and other deletes need `files:delete` |
 | `usage`                    | Workspace storage / upload counters                                                                                                               |
 | `install`                  | Skills + remote MCP (Claude/Codex/Grok; skips missing CLIs) + hooks (Grok/Cursor)                                                                 |

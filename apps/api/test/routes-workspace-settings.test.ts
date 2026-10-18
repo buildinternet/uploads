@@ -531,6 +531,78 @@ describe("GET/PATCH /v1/workspaces/:workspace/poster-settings", () => {
   });
 });
 
+describe("GET/PATCH /v1/workspaces/:workspace/classifier-settings", () => {
+  it("GET treats absent switches as on and reports the classifier unavailable", async () => {
+    const { env } = makeEnv({ role: "admin" });
+    const res = await app.request(
+      "/v1/workspaces/acme/classifier-settings",
+      { headers: sessionHeaders },
+      env,
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      classifyUploads: true,
+      holdFlaggedUploads: true,
+      available: false,
+    });
+  });
+
+  it("PATCH persists the admin switches without touching the operator hard off", async () => {
+    const { env, registry } = makeEnv({
+      role: "owner",
+      record: { ...SHARED_RECORD, llmClassifierEnabled: false },
+    });
+    const res = await app.request(
+      "/v1/workspaces/acme/classifier-settings",
+      {
+        method: "PATCH",
+        headers: { ...sessionHeaders, "content-type": "application/json" },
+        body: JSON.stringify({ classifyUploads: false, holdFlaggedUploads: false }),
+      },
+      env,
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ classifyUploads: false, holdFlaggedUploads: false });
+    const saved = registry.record<{
+      classifyUploads?: boolean;
+      holdFlaggedUploads?: boolean;
+      llmClassifierEnabled?: boolean;
+    }>("acme");
+    expect(saved?.classifyUploads).toBe(false);
+    expect(saved?.holdFlaggedUploads).toBe(false);
+    expect(saved?.llmClassifierEnabled).toBe(false);
+  });
+
+  it("PATCH 403s a non-admin member and does not write", async () => {
+    const { env, registry } = makeEnv({ sessionUser: MEMBER, role: "member" });
+    const res = await app.request(
+      "/v1/workspaces/acme/classifier-settings",
+      {
+        method: "PATCH",
+        headers: { ...sessionHeaders, "content-type": "application/json" },
+        body: JSON.stringify({ classifyUploads: false }),
+      },
+      env,
+    );
+    expect(res.status).toBe(403);
+    expect(registry.record<{ classifyUploads?: boolean }>("acme")?.classifyUploads).toBeUndefined();
+  });
+
+  it("PATCH rejects a non-boolean", async () => {
+    const { env } = makeEnv({ role: "admin" });
+    const res = await app.request(
+      "/v1/workspaces/acme/classifier-settings",
+      {
+        method: "PATCH",
+        headers: { ...sessionHeaders, "content-type": "application/json" },
+        body: JSON.stringify({ holdFlaggedUploads: "off" }),
+      },
+      env,
+    );
+    expect(res.status).toBe(400);
+  });
+});
+
 describe("storage vertical (self-serve BYO bucket)", () => {
   const BYO_RECORD = {
     provider: "r2",

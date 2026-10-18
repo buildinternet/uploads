@@ -179,6 +179,24 @@ with `uploads github link --status`.
 
 </section>
 
+<section id="held-files">
+
+## Held files <a class="anchor" href="#held-files" aria-label="Link to this section">#</a>
+
+If uploads.sh thinks an attachment shows a secret (an API key, a password, a token) or sensitive
+personal data (an ID document, a card number), it holds the file for review. The comment then leaves
+the file out and shows one line instead:
+
+```text
+🔒 1 file is held for review · approve with uploads approve --pr 12
+```
+
+The line never names the file. A workspace member checks the file, then runs
+`uploads approve --pr 12 --all`, and the comment updates. If the file does show a real credential,
+rotate it and delete the file instead. See [Held uploads](/docs/agents#held-uploads).
+
+</section>
+
 <section id="self-healing">
 
 ## Self-healing comments <a class="anchor" href="#self-healing" aria-label="Link to this section">#</a>

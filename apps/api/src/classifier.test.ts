@@ -202,6 +202,9 @@ describe("classificationAllowed", () => {
     expect(
       await classificationAllowed(env({ FLAGS: flags }), { llmClassifierEnabled: false }, "acme"),
     ).toBe(false);
+    expect(
+      await classificationAllowed(env({ FLAGS: flags }), { classifyUploads: false }, "acme"),
+    ).toBe(false);
     expect(called).toBe(false);
   });
 });
