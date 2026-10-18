@@ -3,6 +3,7 @@ import { serverTimingDisabled, type TimingEnv } from "@uploads/observability";
 import BaseHead from "../../../components/BaseHead.astro";
 import Brand from "../../../components/Brand.astro";
 import CopyAsControls from "../../../components/CopyAsControls.astro";
+import FileDetails from "../../../components/FileDetails.astro";
 import Footer from "../../../components/Footer.astro";
 import MediaStage from "../../../components/MediaStage.astro";
 import ReportAbuse from "../../../components/ReportAbuse.astro";
@@ -22,18 +23,13 @@ import {
   fileDownloadUrl,
   fileKind as kind,
   filePath,
-  formatBytes,
-  formatFileDate,
   isTextPreviewable,
-  shouldShowModified,
-  sameUtcDay,
 } from "../../../lib/public-file";
 import { oembedDiscoveryHref } from "../../../lib/oembed";
 import { env } from "cloudflare:workers";
 import { publicApiFetch } from "../../../lib/ssr-fetch";
 import { resolveSignedInOrigins } from "../../../lib/signed-in-page";
 import { workspaceHomePath } from "../../../lib/workspaces-nav";
-import { AI_CHIP_FIELDS, splitFileDetailMeta } from "../../../lib/ai-labels";
 
 export const prerender = false;
 
@@ -73,23 +69,6 @@ else if (!file) Astro.response.status = 404;
 
 const previewUrl = file?.previewUrl ?? file?.url ?? null;
 const filename = key.split("/").filter(Boolean).pop() ?? key;
-const uploadedIso = file?.uploaded ?? null;
-const modifiedIso = file?.modified ?? null;
-const showModified = shouldShowModified(uploadedIso, modifiedIso);
-const withTime = Boolean(
-  showModified && uploadedIso && modifiedIso && sameUtcDay(uploadedIso, modifiedIso),
-);
-const uploadedLabel = uploadedIso ? formatFileDate(uploadedIso, { withTime }) : null;
-const modifiedLabel =
-  showModified && modifiedIso ? formatFileDate(modifiedIso, { withTime }) : null;
-// Rail footnote (demoted from a Size/Uploaded/Modified dl — issue: right-rail hierarchy pass):
-// one muted line beneath the actions instead of a data table.
-const footnoteParts = [
-  file ? formatBytes(file.size) : null,
-  uploadedLabel ? `Uploaded ${uploadedLabel}` : null,
-  modifiedLabel ? `Modified ${modifiedLabel}` : null,
-].filter((part): part is string => Boolean(part));
-const footnoteLine = footnoteParts.join(" · ");
 const gh = file?.github;
 const ghKindLabel = gh?.kind === "pull" ? "Pull request" : gh ? "Issue" : "";
 const ghRef = gh ? `${gh.repo}#${gh.number}` : "";
@@ -100,17 +79,6 @@ const ghAriaLabel = gh
   : "";
 const canonical = new URL(file ? filePath(workspace, key) : Astro.url.pathname, Astro.url.origin)
   .href;
-// Generic metadata list excludes `gh.*` (the byline) and `ai.*` (the
-// experimental labels block below). `path` / `state` stay first.
-const detailMeta = splitFileDetailMeta(file?.metadata);
-const metadataEntries = [...detailMeta.primary, ...detailMeta.other];
-const aiLabels = detailMeta.ai;
-const aiChips = aiLabels
-  ? AI_CHIP_FIELDS.flatMap((field) => {
-      const value = aiLabels[field];
-      return value ? [{ field, value }] : [];
-    })
-  : [];
 // Empty when there's no file — CopyAsControls hides itself when both are empty.
 const embedFormats = file
   ? buildEmbedFormats({
@@ -340,75 +308,6 @@ if (timingsEnabled)
         height: 1px;
         background: var(--line);
       }
-      dl.meta {
-        display: grid;
-        grid-template-columns: auto 1fr;
-        gap: 6px 16px;
-        margin: 0;
-        font: var(--text-micro) var(--mono);
-      }
-      dl.meta dt {
-        color: var(--muted);
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-        font-size: var(--text-micro);
-      }
-      dl.meta dd {
-        margin: 0;
-        color: var(--body);
-        overflow-wrap: anywhere;
-      }
-      .ai-labels {
-        display: grid;
-        gap: 8px;
-      }
-      .ai-labels-head {
-        display: flex;
-        align-items: baseline;
-        gap: 8px;
-      }
-      .ai-labels-exp {
-        color: var(--muted);
-        font: var(--text-micro) var(--sans);
-        opacity: 0.7;
-      }
-      .ai-chips {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 6px;
-      }
-      .ai-chip {
-        display: inline-flex;
-        align-items: center;
-        gap: 5px;
-        max-width: 100%;
-        padding: 3px 8px;
-        border: 1px solid var(--line);
-        border-radius: 2px;
-        background: var(--panel);
-        color: var(--fg);
-        font: var(--text-micro) var(--mono);
-      }
-      .ai-chip-key {
-        color: var(--muted);
-      }
-      .ai-chip-value {
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-      .ai-summary {
-        margin: 0;
-        color: var(--muted);
-        font: var(--text-micro) / 1.5 var(--sans);
-      }
-      /* Subordinate to everything above — margin-top:auto sinks it (and ReportAbuse, right
-         after it in flow) to the bottom of the rail on tall pages, no-op on short ones. */
-      .footnote {
-        margin: auto 0 0;
-        color: var(--muted);
-        font: var(--text-micro)/1.5 var(--sans);
-      }
       /* Before/after counterpart (issue #420) — rail rows; the stage itself
          carries the comparison via ImagePreview's Compare mode. */
       .pairlist {
@@ -578,6 +477,7 @@ if (timingsEnabled)
               type="button"
               class="public sharelink"
               data-copy={canonical}
+              data-public-copy-button
               title="Copy link — anyone with this link can view this page"
             >
               Public link
@@ -676,48 +576,12 @@ if (timingsEnabled)
                   </ul>
                 </div>
               )}
-              {metadataEntries.length > 0 && (
-                <div>
-                  <div class="rail-head">
-                    <span class="rail-label">Details</span>
-                    <span class="rail-rule" aria-hidden="true" />
-                  </div>
-                  <dl class="meta">
-                    {metadataEntries.map((entry) => (
-                      <>
-                        <dt>{entry.key}</dt>
-                        <dd>{entry.value}</dd>
-                      </>
-                    ))}
-                  </dl>
-                </div>
-              )}
-              {aiLabels && (
-                <div class="ai-labels">
-                  <div class="rail-head">
-                    <span class="rail-label">AI labels</span>
-                    <span class="ai-labels-exp">experimental</span>
-                    <span class="rail-rule" aria-hidden="true" />
-                  </div>
-                  {(aiChips.length > 0 || aiLabels.tags.length > 0) && (
-                    <div class="ai-chips">
-                      {aiChips.map((chip) => (
-                        <span class="ai-chip">
-                          <span class="ai-chip-key">{chip.field}</span>
-                          <span class="ai-chip-value">{chip.value}</span>
-                        </span>
-                      ))}
-                      {aiLabels.tags.map((tag) => (
-                        <span class="ai-chip">
-                          <span class="ai-chip-value">{tag}</span>
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                  {aiLabels.summary && <p class="ai-summary">{aiLabels.summary}</p>}
-                </div>
-              )}
-              {footnoteLine && <p class="footnote">{footnoteLine}</p>}
+              <FileDetails
+                metadata={file.metadata}
+                size={file.size}
+                uploaded={file.uploaded}
+                modified={file.modified}
+              />
               <div class="danger-zone" id="delete-zone" hidden>
                 <button type="button" class="delete-link" id="delete-open">
                   Delete file…

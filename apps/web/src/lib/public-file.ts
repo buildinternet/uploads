@@ -204,7 +204,7 @@ const META_MAX_KEYS = 24;
 const META_VALUE_MAX = 512;
 
 /** Bounded, non-empty `Record<string,string>` of metadata pairs — never sent empty by the API. */
-function isMetadataMap(value: unknown): value is Record<string, string> {
+export function isMetadataMap(value: unknown): value is Record<string, string> {
   if (typeof value !== "object" || value === null) return false;
   const entries = Object.entries(value as Record<string, unknown>);
   if (entries.length === 0 || entries.length > META_MAX_KEYS) return false;

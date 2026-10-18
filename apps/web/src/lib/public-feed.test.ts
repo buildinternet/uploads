@@ -85,6 +85,15 @@ describe("public feed headers", () => {
 });
 
 describe("public feed API", () => {
+  it.each([
+    [{ path: "/settings", viewport: "390x844" }, true],
+    [{ path: 123 }, false],
+    [{ path: "x".repeat(513) }, false],
+    [{}, false],
+  ])("validates optional public item metadata %j", (metadata, accepted) => {
+    expect(isPublicFeed({ ...feed, items: [{ ...feed.items[0], metadata }] })).toBe(accepted);
+  });
+
   it("accepts a bounded github label and rejects a spoofed one", () => {
     expect(isPublicFeed({ ...feed, github: null })).toBe(true);
     expect(isPublicFeed({ ...feed, github: { title: "Fix nav", state: "open" } })).toBe(true);

@@ -33,6 +33,8 @@ export interface FeedItemDto {
   modified: string | null;
   path: string | null;
   state: string | null;
+  /** Public queryable tags, excluding internal metadata. */
+  metadata?: Record<string, string>;
   posterUrl?: string;
   videoDimensions?: VideoDimensions;
 }
@@ -49,6 +51,8 @@ export interface PublicFeedItemDto {
   modified?: string;
   path: string | null;
   state: string | null;
+  /** Public queryable tags, excluding internal metadata. */
+  metadata?: Record<string, string>;
   posterUrl?: string;
   videoDimensions?: VideoDimensions;
 }

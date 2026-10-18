@@ -13,7 +13,7 @@ import {
   type BeforeAfterState,
 } from "../before-after";
 import { badKey, downloadResponse, publicObjectDateFields } from "../files-core";
-import { displayTitle, getFileMetadata, isServerMetaKey } from "../file-metadata";
+import { displayTitle, getFileMetadata, publicFileMetadata } from "../file-metadata";
 import { githubAvatarProxyUrl, ownerFromRepo } from "../github-avatars";
 import { readCachedPublicTitle, resolveTitles, withPublicTitleBudget } from "../github-titles";
 import { videoPresentation } from "../poster";
@@ -235,13 +235,7 @@ export const publicFiles = new Hono<WorkspaceVars>().get("/:workspace/:key{.+}",
         ).catch(() => null)
       : Promise.resolve(null);
 
-    // `video.*` rows are server-owned (issue #299) and never meant to reach
-    // clients as generic metadata — only via the derived posterUrl/videoDimensions
-    // fields below. Filter them out of the raw metadata pass-through the same way
-    // provenance/visibility are already excluded from D1 reads entirely.
-    const publicMetadata = Object.fromEntries(
-      Object.entries(metadata).filter(([metaKey]) => !isServerMetaKey(metaKey)),
-    );
+    const publicMetadata = publicFileMetadata(metadata);
 
     // Before/after counterpart (issue #420). findCounterpartCandidate only
     // proposes a key from D1 metadata / filename convention — it has no
@@ -333,7 +327,7 @@ export const publicFiles = new Hono<WorkspaceVars>().get("/:workspace/:key{.+}",
       size: meta.size ?? 0,
       contentType: meta.type ?? "application/octet-stream",
       ...publicObjectDateFields(meta),
-      ...(Object.keys(publicMetadata).length > 0 ? { metadata: publicMetadata } : {}),
+      ...(publicMetadata ? { metadata: publicMetadata } : {}),
       ...(github ? { github } : {}),
       ...(posterUrl ? { posterUrl } : {}),
       ...(videoDimensions ? { videoDimensions } : {}),

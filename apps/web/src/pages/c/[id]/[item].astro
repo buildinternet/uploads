@@ -1,17 +1,11 @@
 ---
-import BaseHead from "../../../components/BaseHead.astro";
-import Brand from "../../../components/Brand.astro";
+import PublicItemLayout from "../../../layouts/PublicItemLayout.astro";
 import CopyAsControls from "../../../components/CopyAsControls.astro";
-import Footer from "../../../components/Footer.astro";
+import FileDetails from "../../../components/FileDetails.astro";
+import ItemNavigation from "../../../components/ItemNavigation.astro";
 import MediaStage from "../../../components/MediaStage.astro";
 import UnfurlMeta from "../../../components/UnfurlMeta.astro";
 import { buildEmbedFormats, type EmbedFormatOption } from "../../../lib/embed-formats";
-import {
-  formatBytes,
-  formatFileDate,
-  sameUtcDay,
-  shouldShowModified,
-} from "../../../lib/public-file";
 import {
   applyPublicFeedHeaders,
   fetchPublicFeed,
@@ -75,15 +69,6 @@ const embedFormats: EmbedFormatOption[] =
       })
     : [];
 const oembedHref = feed && item ? oembedDiscoveryHref(canonical, Astro.url.origin) : null;
-const uploadedIso = item?.uploaded ?? null;
-const modifiedIso = item?.modified ?? null;
-const showModified = shouldShowModified(uploadedIso, modifiedIso);
-const withTime = Boolean(
-  showModified && uploadedIso && modifiedIso && sameUtcDay(uploadedIso, modifiedIso),
-);
-const uploadedLabel = uploadedIso ? formatFileDate(uploadedIso, { withTime }) : null;
-const modifiedLabel =
-  showModified && modifiedIso ? formatFileDate(modifiedIso, { withTime }) : null;
 const description =
   item && page
     ? `${item.filename} in the ${page.scopeLabel} live link.`
@@ -92,16 +77,6 @@ const unfurlKind =
   item && item.status === "available" && (itemKind === "image" || itemKind === "video")
     ? itemKind
     : "other";
-const sizeLabel =
-  item && item.size != null && Number.isSafeInteger(item.size) ? formatBytes(item.size) : null;
-const footnoteParts = [
-  sizeLabel,
-  uploadedLabel ? `Uploaded ${uploadedLabel}` : null,
-  modifiedLabel ? `Modified ${modifiedLabel}` : null,
-  item?.path ? item.path : null,
-  item?.state ? item.state : null,
-].filter((part): part is string => Boolean(part));
-const footnoteLine = footnoteParts.join(" · ");
 
 function thumbSrc(entry: PublicFeedItem): string | null {
   const media = kind(entry);
@@ -111,14 +86,8 @@ function thumbSrc(entry: PublicFeedItem): string | null {
 }
 ---
 
-<!doctype html>
-<html lang="en">
-  <head>
-    <BaseHead />
-    <meta name="robots" content="noindex, nofollow, noarchive" />
-    <link rel="canonical" href={canonical} />
-    <title>{title}</title>
-    <meta name="description" content={description} />
+<PublicItemLayout title={title} canonical={canonical} description={description}>
+  <Fragment slot="head">
     <UnfurlMeta
       pageUrl={canonical}
       siteOrigin={Astro.url.origin}
@@ -141,297 +110,128 @@ function thumbSrc(entry: PublicFeedItem): string | null {
         />
       )
     }
-    <style>
-      * {
-        box-sizing: border-box;
-      }
-      body {
-        margin: 0;
-        min-height: 100dvh;
-        color: var(--fg);
-        background: var(--bg);
-        font-family: var(--sans);
-        display: flex;
-        flex-direction: column;
-      }
-      .shell {
-        width: min(var(--width-viewer, 1080px), calc(100% - 48px));
-        margin: 0 auto;
-        padding: 36px 0 64px;
-        flex: 1 0 auto;
-        box-sizing: border-box;
-      }
-      nav.top {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        margin-bottom: 32px;
-        font: var(--text-meta) var(--mono);
-        letter-spacing: 0.02em;
-      }
-      .public {
-        color: var(--muted);
-        font-size: var(--text-micro);
-        letter-spacing: 0.1em;
-        text-transform: uppercase;
-        border: 1px solid var(--line);
-        border-radius: 999px;
-        padding: 6px 11px;
-        background: var(--panel);
-      }
-      button.public {
-        appearance: none;
-        -webkit-appearance: none;
-        cursor: pointer;
-        font-family: inherit;
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-      }
-      button.public:hover,
-      button.public:focus-visible {
-        border-color: var(--accent);
-        color: var(--accent);
-        outline: none;
-      }
-      .sharelink::before {
-        content: "";
-        width: 11px;
-        height: 11px;
-        flex: none;
-        background: currentColor;
-        -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71'/%3E%3Cpath d='M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71'/%3E%3C/svg%3E")
-          center/contain no-repeat;
-        mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71'/%3E%3Cpath d='M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71'/%3E%3C/svg%3E")
-          center/contain no-repeat;
-      }
-      .crumbs {
-        margin-bottom: 12px;
-        color: var(--muted);
-        font: var(--text-meta) var(--mono);
-        overflow-wrap: anywhere;
-      }
-      .crumbs .count {
-        color: var(--muted);
-      }
-      .filehead {
-        margin: 0 0 16px;
-        min-width: 0;
-      }
-      .filetitle {
-        margin: 0;
-        color: var(--fg);
-        font: 600 var(--text-h3) var(--mono);
-        letter-spacing: -0.01em;
-        overflow-wrap: anywhere;
-      }
-      .footnote {
-        margin: auto 0 0;
-        color: var(--muted);
-        font: var(--text-micro) / 1.5 var(--sans);
-      }
-      .pager {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 12px;
-        margin: 22px 0 0;
-        font: var(--text-meta) var(--sans);
-      }
-      .pager a,
-      .pager span.disabled {
-        display: inline-block;
-        padding: 10px 16px;
-        border: 1px solid var(--line);
-        border-radius: var(--radius-md);
-        background: var(--panel);
-        color: var(--fg);
-        text-decoration: none;
-      }
-      .pager a:hover,
-      .pager a:focus-visible {
-        border-color: var(--accent);
-        color: var(--accent);
-        outline: none;
-      }
-      .pager span.disabled {
-        color: var(--muted);
-      }
-      .strip {
-        display: flex;
-        gap: 8px;
-        margin: 18px 0 0;
-        overflow-x: auto;
-        padding-bottom: 4px;
-      }
-      .strip a {
-        flex: none;
-        width: 72px;
-        height: 48px;
-        border: 1px solid var(--line);
-        border-radius: var(--radius-sm, 6px);
-        background: var(--panel);
-        overflow: hidden;
-        text-decoration: none;
-      }
-      .strip a.current {
-        border-color: var(--accent);
-        box-shadow: 0 0 0 1px var(--accent);
-      }
-      .strip img {
-        width: 100%;
-        height: 100%;
-        object-fit: cover;
-        display: block;
-      }
-      .strip .placeholder {
-        display: grid;
-        place-items: center;
-        width: 100%;
-        height: 100%;
-        color: var(--muted);
-        font: var(--text-micro) var(--mono);
-      }
-      .error {
-        padding: 70px 24px;
-        border: 1px solid var(--line);
-        border-radius: var(--radius-lg);
-        text-align: center;
-        background: var(--panel);
-        color: var(--body);
-      }
-      .error code {
-        color: var(--accent);
-        font-family: var(--mono);
-      }
-      a {
-        color: var(--fg);
-        text-decoration-color: color-mix(in srgb, var(--accent) 55%, transparent);
-        text-underline-offset: 3px;
-      }
-      @media (min-width: 1080px) {
-        .shell {
-          width: min(1200px, calc(100% - 48px));
-        }
-      }
-      @media (max-width: 760px) {
-        .shell {
-          width: min(100% - 32px, 1080px);
-          padding-top: 24px;
-        }
-        .pager a,
-        .pager span.disabled {
-          padding: 8px 12px;
-        }
-      }
-    </style>
-  </head>
-  <body>
-    <main class="shell">
-      <nav class="top">
-        <Brand />
-        {
-          embedFormats.length > 0 ? (
-            <button
-              type="button"
-              class="public sharelink"
-              data-copy={canonical}
-              title="Copy link — anyone with this link can view this page"
-            >
-              Public link
-            </button>
-          ) : (
-            <span class="public">live link</span>
-          )
-        }
-      </nav>
-      {
-        feed && item ? (
-          <>
-            <div class="crumbs">
-              <a href={listPath}>{feed.title}</a> · <span class="count">{position}</span>
-            </div>
-            <header class="filehead">
-              <h1 class="filetitle">{item.filename}</h1>
-            </header>
-            <MediaStage
-              kind={kind(item)}
-              url={item.url}
-              filename={item.filename}
-              alt={item.filename}
-              posterUrl={item.posterUrl}
-              videoDimensions={item.videoDimensions}
-              railId="item-caption"
-              contentType={item.contentType}
-              size={item.size}
-              downloadUrl={item.status === "available" ? item.url : null}
-            >
-              {item.status === "available" && (
-                <CopyAsControls formats={embedFormats} downloadUrl={item.url}>
-                  {item.url && (
-                    <a class="original" href={item.url} rel="noopener noreferrer">
-                      Open original ↗
-                    </a>
+  </Fragment>
+  {
+    feed && item ? (
+      <>
+        <div class="crumbs">
+          <a href={listPath}>{feed.title}</a> · <span class="count">{position}</span>
+        </div>
+        <header class="filehead">
+          <h1 class="filetitle">{item.filename}</h1>
+        </header>
+        <MediaStage
+          kind={kind(item)}
+          url={item.url}
+          filename={item.filename}
+          alt={item.filename}
+          posterUrl={item.posterUrl}
+          videoDimensions={item.videoDimensions}
+          railId="item-caption"
+          contentType={item.contentType}
+          size={item.size}
+          downloadUrl={item.status === "available" ? item.url : null}
+        >
+          <ItemNavigation
+            slot="navigation"
+            previous={newer ? feedItemPath(id, newer) : null}
+            next={older ? feedItemPath(id, older) : null}
+            list={listPath}
+            label="Live link items"
+          />
+          {item.status === "available" && (
+            <CopyAsControls formats={embedFormats} downloadUrl={item.url}>
+              {item.url && (
+                <a class="original" href={item.url} rel="noopener noreferrer">
+                  Open original ↗
+                </a>
+              )}
+            </CopyAsControls>
+          )}
+          <FileDetails
+            metadata={{
+              ...(item.path ? { path: item.path } : {}),
+              ...(item.state ? { state: item.state } : {}),
+              ...item.metadata,
+            }}
+            size={item.size}
+            uploaded={item.uploaded}
+            modified={item.modified}
+          />
+        </MediaStage>
+
+        {strip.length > 1 && (
+          <nav class="strip" aria-label="Newest files">
+            {strip.map((entry, entryIndex) => {
+              const src = thumbSrc(entry);
+              return (
+                <a
+                  href={itemPath(entry)}
+                  class={entry.id === item.id ? "current" : undefined}
+                  aria-current={entry.id === item.id ? "page" : undefined}
+                  aria-label={`${entry.filename} (${entryIndex + 1} of ${strip.length})`}
+                >
+                  {src ? (
+                    <img src={src} alt="" />
+                  ) : (
+                    <span class="placeholder">{entryIndex + 1}</span>
                   )}
-                </CopyAsControls>
-              )}
-              {footnoteLine && <p class="footnote">{footnoteLine}</p>}
-            </MediaStage>
-            <nav class="pager" aria-label="Live link items">
-              {newer ? (
-                <a href={feedItemPath(id, newer)} rel="prev">
-                  ← Newer
                 </a>
-              ) : (
-                <span class="disabled">← Newest</span>
-              )}
-              <a href={listPath}>All files</a>
-              {older ? (
-                <a href={feedItemPath(id, older)} rel="next">
-                  Older →
-                </a>
-              ) : (
-                <span class="disabled">Oldest →</span>
-              )}
-            </nav>
-            {strip.length > 1 && (
-              <nav class="strip" aria-label="Newest files">
-                {strip.map((entry, entryIndex) => {
-                  const src = thumbSrc(entry);
-                  return (
-                    <a
-                      href={itemPath(entry)}
-                      class={entry.id === item.id ? "current" : undefined}
-                      aria-current={entry.id === item.id ? "page" : undefined}
-                      aria-label={`${entry.filename} (${entryIndex + 1} of ${strip.length})`}
-                    >
-                      {src ? (
-                        <img src={src} alt="" />
-                      ) : (
-                        <span class="placeholder">{entryIndex + 1}</span>
-                      )}
-                    </a>
-                  );
-                })}
-              </nav>
-            )}
-          </>
-        ) : (
-          <section class="error">
-            <p>
-              {itemResult.status === "unavailable"
-                ? "The service could not be reached. Please try again shortly."
-                : "This item may have been removed, or the link is incorrect."}
-            </p>
-            {itemResult.status !== "unavailable" && (
-              <p>
-                <a href={listPath}>View the live link</a>
-              </p>
-            )}
-          </section>
-        )
-      }
-    </main>
-    <Footer />
-  </body>
-</html>
+              );
+            })}
+          </nav>
+        )}
+      </>
+    ) : (
+      <section class="error">
+        <p>
+          {itemResult.status === "unavailable"
+            ? "The service could not be reached. Please try again shortly."
+            : "This item may have been removed, or the link is incorrect."}
+        </p>
+        {itemResult.status !== "unavailable" && (
+          <p>
+            <a href={listPath}>View the live link</a>
+          </p>
+        )}
+      </section>
+    )
+  }
+</PublicItemLayout>
+<style>
+  .strip {
+    display: flex;
+    gap: 8px;
+    margin: 18px 0 0;
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+  .strip a {
+    flex: none;
+    width: 72px;
+    height: 48px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm, 6px);
+    background: var(--panel);
+    overflow: hidden;
+    text-decoration: none;
+  }
+  .strip a.current {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent);
+  }
+  .strip img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+  .strip .placeholder {
+    display: grid;
+    place-items: center;
+    width: 100%;
+    height: 100%;
+    color: var(--muted);
+    font: var(--text-micro) var(--mono);
+  }
+</style>

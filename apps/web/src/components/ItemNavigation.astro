@@ -1,0 +1,89 @@
+---
+interface Props {
+  previous: string | null;
+  next: string | null;
+  list: string;
+  label: string;
+  listLabel?: string;
+}
+const { previous, next, list, label, listLabel = "All files" } = Astro.props;
+---
+
+<nav class="item-navigation" aria-label={label} data-item-navigation>
+  {
+    previous ? (
+      <a href={previous} rel="prev" aria-keyshortcuts="ArrowLeft" title="Previous item (←)">
+        ← Previous
+      </a>
+    ) : (
+      <span aria-disabled="true">← Previous</span>
+    )
+  }
+  <a href={list}>{listLabel}</a>
+  {
+    next ? (
+      <a href={next} rel="next" aria-keyshortcuts="ArrowRight" title="Next item (→)">
+        Next →
+      </a>
+    ) : (
+      <span aria-disabled="true">Next →</span>
+    )
+  }
+</nav>
+<script>
+  document.addEventListener("keydown", (event) => {
+    if (
+      event.defaultPrevented ||
+      event.repeat ||
+      event.altKey ||
+      event.ctrlKey ||
+      event.metaKey ||
+      event.shiftKey
+    )
+      return;
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    const target = event.target;
+    if (
+      target instanceof Element &&
+      target.closest(
+        'input, textarea, select, button, a, video, audio, [contenteditable]:not([contenteditable="false"]), [role="slider"], [role="dialog"], img-comparison-slider',
+      )
+    )
+      return;
+    if (document.querySelector('[aria-modal="true"]:not([hidden]), dialog[open]')) return;
+    const rel = event.key === "ArrowLeft" ? "prev" : "next";
+    const link = document.querySelector<HTMLAnchorElement>(
+      `[data-item-navigation] a[rel="${rel}"]`,
+    );
+    if (!link) return;
+    event.preventDefault();
+    link.click();
+  });
+</script>
+<style>
+  .item-navigation {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin: 0;
+    font: var(--text-meta) var(--sans);
+  }
+  a,
+  span {
+    padding: 8px 12px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    background: var(--panel);
+    color: var(--fg);
+    text-decoration: none;
+  }
+  span {
+    color: var(--muted);
+  }
+  a:hover,
+  a:focus-visible {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+</style>
