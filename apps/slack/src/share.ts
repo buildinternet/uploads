@@ -107,6 +107,11 @@ export interface PreviewEntity {
   owner?: string;
   /** A feed's newest or a gallery's first few items, each its own Work Object. */
   items?: EntityItemRef[];
+  /**
+   * The file's other public metadata (viewport, url, env, …): the share
+   * page's "Details" list, for the side panel only.
+   */
+  details?: EntityField[];
   /** The object's own URL when it's a PDF, for Slack's full-size viewer. */
   pdfUrl?: string;
   /** Links for the Work Object's overflow menu, e.g. the PR on GitHub. */
@@ -441,6 +446,34 @@ function pathField(path: string | null | undefined): EntityField[] {
   return path ? [{ key: "page_path", label: "Page", value: path }] : [];
 }
 
+/** How many extra metadata rows the side panel lists. */
+const DETAIL_FIELDS_MAX = 8;
+
+/**
+ * The share page's "Details" list, minus what has its own field: every
+ * public key except `gh.*` (the GitHub field), `ai.*` (never public),
+ * and `path` / `state`. Sorted by key, like the page.
+ */
+function detailFields(metadata: Record<string, string> | undefined): EntityField[] {
+  if (!metadata) return [];
+  return Object.entries(metadata)
+    .filter(
+      ([key, value]) =>
+        !key.startsWith("gh.") &&
+        !key.startsWith("ai.") &&
+        key !== "path" &&
+        key !== "state" &&
+        value.trim() !== "",
+    )
+    .sort(([a], [b]) => a.localeCompare(b))
+    .slice(0, DETAIL_FIELDS_MAX)
+    .map(([key, value]) => ({
+      key: `meta_${key.replace(/[^A-Za-z0-9_]/g, "_")}`,
+      label: key,
+      value: value.trim(),
+    }));
+}
+
 /** A screenshot's before/after state ("before" → "Before"). */
 export function stateField(state: string): EntityField {
   const value = state.trim();
@@ -502,6 +535,7 @@ async function filePreview(
         ...pathField(file.metadata?.path),
         ...stateFields(file.metadata?.state),
       ],
+      details: detailFields(file.metadata),
       ...ownerOf(gh?.repo),
       ...pdfUrl(file),
       links: [...(gh ? [{ text: "Open on GitHub", url: gh.url }] : []), ...originalLink(file.url)],

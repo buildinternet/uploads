@@ -42,7 +42,7 @@ const FILE = {
   size: 138352,
   contentType: "image/png",
   uploaded: "2026-10-18T00:17:35.000Z",
-  metadata: { path: "/settings" },
+  metadata: { path: "/settings", viewport: "1280x800@2x", "ai.kind": "screenshot" },
   github: {
     repo: "acme/app",
     kind: "pull",
@@ -457,7 +457,8 @@ describe("Work Object flexpane", () => {
     const keys = slack.calls[0]!.body.metadata.entity_payload.custom_fields.map(
       (f: { key: string }) => f.key,
     );
-    expect(keys).toEqual(["github", "page_path", "file_size", "content_type"]);
+    // The share page's other public metadata follows (never `ai.*`).
+    expect(keys).toEqual(["github", "page_path", "meta_viewport", "file_size", "content_type"]);
   });
 
   it("opens a feed at its newest item with only an Older button", async () => {

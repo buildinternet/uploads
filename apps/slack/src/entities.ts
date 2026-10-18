@@ -335,6 +335,7 @@ export function entityMetadata(
         ...(pager?.fields ?? []),
         ...(itemList ? [itemList] : []),
         ...entity.fields.map((field) => customField(field, iconBase)),
+        ...(details ? (entity.details ?? []).map((field) => customField(field)) : []),
         // Size and type are trivia: the card leaves them out so the PR and page
         // path lead, and the side panel lists them last.
         ...(entity.type === "file" && details ? fileFacts(entity) : []),
