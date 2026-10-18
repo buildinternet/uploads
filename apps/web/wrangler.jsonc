@@ -57,9 +57,15 @@
       // use literal /_astro/ URLs even under the dev server — without this the
       // worker swallows them and serves the 404 page as their body).
       "!/_astro/*",
-      // The brand icon is linked from Slack Work Objects and unfurls; serve it
-      // straight from the asset server.
+      // Static images, some linked from off-site (Slack Work Objects and
+      // unfurls, social cards): served straight from the asset server.
+      // Not /reference/*, which also holds docs pages.
       "!/apple-touch-icon.png",
+      "!/favicon.svg",
+      "!/favicon-32x32.png",
+      "!/og/*",
+      "!/brand/*",
+      "!/preview/*",
       "!/@vite/*",
       "!/@fs/*",
       "!/@id/*",
