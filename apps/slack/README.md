@@ -35,32 +35,67 @@ goes to uploads-mcp.
 The public endpoints are the only source of preview data, the same ones the
 share pages render from. They never sign URLs and return 404 for private,
 held, missing, and expired objects; a 404 means no preview, and collection
-items marked missing or withheld are skipped. This worker has no storage, D1,
-or KV bindings, so a preview can never show more than the public share page.
+items marked missing or withheld are skipped. The worker has no storage or
+KV bindings, and its only D1 access is the `slack_installations` table
+(sealed bot tokens). It never reads upload data directly, so a preview can
+never show more than the public share page.
 
 If Slack rejects the call because it can't fetch an image, the worker retries
 once with text-only previews.
+
+## Installing in a workspace
+
+Anyone can add the app to their Slack workspace from
+`https://agents.uploads.sh/slack/install` (the "Add to Slack" link):
+
+1. `GET /slack/install` sets a short-lived, host-only state cookie and
+   redirects to Slack's OAuth consent screen with the bot scopes.
+2. Slack redirects to `GET /slack/oauth/callback` with a `code` and the
+   `state`. The worker checks the signed state and that it matches the
+   cookie, then exchanges the code with `oauth.v2.access`.
+3. The bot token is sealed with `SLACK_TOKENS_KEY` (AES-GCM, `enc:v1:`) and
+   stored per team in the shared D1 table `slack_installations`
+   (`src/installs.ts`). Reinstalling a team replaces its row.
+4. `app_uninstalled` and `tokens_revoked` events clear the stored token.
+
+Each event looks up its team's token (`botTokenFor` in `src/config.ts`).
+The original Build Internet install still uses the `SLACK_BOT_TOKEN`
+secret, for `SLACK_TEAM_ID` only, until it reinstalls through the flow
+above. Org-wide (Enterprise Grid) installs are refused for now.
+
+For another workspace to install, the app needs public distribution
+turned on under **Manage Distribution** in the app settings.
 
 ## Configuration
 
 | Name                   | Kind   | Purpose                                                                   |
 | ---------------------- | ------ | ------------------------------------------------------------------------- |
 | `SLACK_SIGNING_SECRET` | secret | Verifies every inbound request. Unset: `/slack/events` answers 503.       |
-| `SLACK_BOT_TOKEN`      | secret | `xoxb-` token for `chat.unfurl`. Unset: events are acked and ignored.     |
-| `SLACK_TEAM_ID`        | var    | Optional. When set, events from any other Slack team are ignored.         |
+| `SLACK_CLIENT_SECRET`  | secret | OAuth client secret. Unset: `/slack/install` answers 503.                 |
+| `SLACK_TOKENS_KEY`     | secret | 16+ character master key that seals bot tokens and signs OAuth state.     |
+| `SLACK_BOT_TOKEN`      | secret | Legacy `xoxb-` token, used only for `SLACK_TEAM_ID`.                      |
+| `SLACK_CLIENT_ID`      | var    | The app's public OAuth client id.                                         |
+| `SLACK_APP_ID`         | var    | The app's id, for the "Open Slack" link after install.                    |
+| `SLACK_TEAM_ID`        | var    | The team the legacy token belongs to.                                     |
+| `SLACK_ORIGIN`         | var    | This worker's origin; the OAuth redirect URI is built from it.            |
 | `WEB_ORIGIN`           | var    | The only origin whose share links unfurl.                                 |
 | `API_ORIGIN`           | var    | The public API's origin; the plain-`fetch` target when `API` isn't bound. |
 
 ```bash
 wrangler secret put SLACK_SIGNING_SECRET --config apps/slack/wrangler.jsonc
-wrangler secret put SLACK_BOT_TOKEN --config apps/slack/wrangler.jsonc
+wrangler secret put SLACK_CLIENT_SECRET --config apps/slack/wrangler.jsonc
+wrangler secret put SLACK_TOKENS_KEY --config apps/slack/wrangler.jsonc
 ```
+
+Rotating `SLACK_TOKENS_KEY` makes stored tokens unreadable; teams then need
+to reinstall. There is no key ring yet.
 
 ## Setting up the Slack app
 
 `manifest.json` is the app definition: bot scopes `links:read` and
-`links:write`, unfurl domain `uploads.sh`, and the `link_shared` event pointed
-at `https://agents.uploads.sh/slack/events`. The app is installed in the Build
+`links:write`, unfurl domain `uploads.sh`, the OAuth redirect URL, and the
+`link_shared`, `app_uninstalled`, and `tokens_revoked` events pointed at
+`https://agents.uploads.sh/slack/events`. The app is installed in the Build
 Internet workspace (app `A0CA0AWAJCD`, recorded in `.slack/apps.json`).
 
 `apps/slack` is a Slack CLI project: `.slack/hooks.json` points the CLI's
@@ -116,5 +151,5 @@ The worker is laid out so the next features slot in without reshaping it:
   `POST /slack/internal/*` route on this worker over a service binding, and
   the worker posts with a `chat.postMessage` wrapper in `src/slack/api.ts`.
   Internal routes must not be reachable from the public route.
-- **More than one Slack workspace**: the OAuth install flow plus a per-team
-  token store. Only `botTokenFor()` in `src/config.ts` changes.
+- **Linking Slack users to uploads.sh accounts**: a per-team, per-user link
+  table next to `slack_installations`, started from the app's Home tab.

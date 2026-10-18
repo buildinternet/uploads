@@ -30,3 +30,9 @@ export interface LinkSharedEvent extends SlackEvent {
   source?: "composer" | "conversations_history";
   links: Array<{ domain: string; url: string }>;
 }
+
+/** https://docs.slack.dev/reference/events/tokens_revoked */
+export interface TokensRevokedEvent extends SlackEvent {
+  type: "tokens_revoked";
+  tokens?: { oauth?: string[]; bot?: string[] };
+}

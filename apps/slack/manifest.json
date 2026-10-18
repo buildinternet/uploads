@@ -17,6 +17,7 @@
     "unfurl_domains": ["uploads.sh"]
   },
   "oauth_config": {
+    "redirect_urls": ["https://agents.uploads.sh/slack/oauth/callback"],
     "scopes": {
       "bot": ["links:read", "links:write"]
     }
@@ -24,7 +25,7 @@
   "settings": {
     "event_subscriptions": {
       "request_url": "https://agents.uploads.sh/slack/events",
-      "bot_events": ["link_shared"]
+      "bot_events": ["app_uninstalled", "link_shared", "tokens_revoked"]
     },
     "org_deploy_enabled": false,
     "socket_mode_enabled": false,

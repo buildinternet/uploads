@@ -64,7 +64,7 @@ function env(overrides: Partial<SlackEnv> = {}): SlackEnv {
   return {
     WEB_ORIGIN: WEB,
     API_ORIGIN: "https://api.uploads.sh",
-    SLACK_TEAM_ID: "",
+    SLACK_TEAM_ID: "T123",
     SLACK_SIGNING_SECRET: SECRET,
     SLACK_BOT_TOKEN: TOKEN,
     ...overrides,

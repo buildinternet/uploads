@@ -2,9 +2,12 @@
  * Slack app for uploads.sh, served at agents.uploads.sh/slack/* (a route in
  * front of the uploads-mcp Custom Domain; see wrangler.jsonc).
  *
- * v1 unfurls uploads.sh share links. The layout leaves room for what comes
- * next without reshaping this file:
- *   - POST /slack/events     Events API (link_shared today; see events.ts)
+ * It unfurls uploads.sh share links in any workspace that installs it. The
+ * layout leaves room for what comes next without reshaping this file:
+ *   - GET  /slack/install    "Add to Slack" (OAuth v2; see oauth.ts)
+ *   - GET  /slack/oauth/callback
+ *   - POST /slack/events     Events API (link_shared, app_uninstalled,
+ *                            tokens_revoked; see events.ts)
  *   - POST /slack/commands   slash commands, e.g. an agent search command
  *   - POST /slack/internal/* service-binding-only calls from uploads-api,
  *                            e.g. flag and PII hold notifications
@@ -13,6 +16,7 @@
 import { Hono, type Context } from "hono";
 import type { SlackEnv } from "./config";
 import { dispatchEvent } from "./events";
+import { handleCallback, handleInstall } from "./oauth";
 import { verifySlackSignature } from "./slack/signature";
 import type { EventsApiPayload } from "./slack/types";
 
@@ -51,33 +55,38 @@ export interface AppOptions {
 }
 
 export function createApp(options: AppOptions = {}) {
-  return new Hono<AppEnv>()
-    .get("/slack/health", (c) => c.json({ ok: true }))
-    .post("/slack/events", async (c) => {
-      const body = await readSignedBody(c);
-      if (body instanceof Response) return body;
+  return (
+    new Hono<AppEnv>()
+      .get("/slack/health", (c) => c.json({ ok: true }))
+      // "Add to Slack" for other workspaces; see oauth.ts.
+      .get("/slack/install", handleInstall)
+      .get("/slack/oauth/callback", (c) => handleCallback(c, { slackFetch: options.slackFetch }))
+      .post("/slack/events", async (c) => {
+        const body = await readSignedBody(c);
+        if (body instanceof Response) return body;
 
-      let payload: EventsApiPayload;
-      try {
-        payload = JSON.parse(body) as EventsApiPayload;
-      } catch {
-        return c.json({ error: "invalid_json" }, 400);
-      }
+        let payload: EventsApiPayload;
+        try {
+          payload = JSON.parse(body) as EventsApiPayload;
+        } catch {
+          return c.json({ error: "invalid_json" }, 400);
+        }
 
-      if (payload.type === "url_verification") {
-        return c.json({ challenge: payload.challenge });
-      }
-      if (payload.type === "event_callback") {
-        // Ack now and work after: Slack retries any event not acked within 3s.
-        c.executionCtx.waitUntil(
-          dispatchEvent(payload, { env: c.env, slackFetch: options.slackFetch }).catch((err) => {
-            console.error("slack.events: handler threw", err);
-          }),
-        );
-      }
-      return c.body(null, 200);
-    })
-    .notFound((c) => c.json({ error: "not_found" }, 404));
+        if (payload.type === "url_verification") {
+          return c.json({ challenge: payload.challenge });
+        }
+        if (payload.type === "event_callback") {
+          // Ack now and work after: Slack retries any event not acked within 3s.
+          c.executionCtx.waitUntil(
+            dispatchEvent(payload, { env: c.env, slackFetch: options.slackFetch }).catch((err) => {
+              console.error("slack.events: handler threw", err);
+            }),
+          );
+        }
+        return c.body(null, 200);
+      })
+      .notFound((c) => c.json({ error: "not_found" }, 404))
+  );
 }
 
 export default createApp();
