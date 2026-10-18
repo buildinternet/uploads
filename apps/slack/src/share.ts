@@ -107,7 +107,23 @@ export interface PreviewEntity {
   owner?: string;
   /** A feed's newest or a gallery's first few images, for a thumbnail strip. */
   strip?: Array<{ url: string; alt: string }>;
+  /** A feed's newest or a gallery's first few items, each its own Work Object. */
+  items?: EntityItemRef[];
+  /** Links for the Work Object's overflow menu, e.g. the PR on GitHub. */
+  links?: Array<{ text: string; url: string }>;
 }
+
+/** One feed or gallery item, as a reference to its own Work Object. */
+export interface EntityItemRef {
+  url: string;
+  ref: { id: string; type: "feed_item" | "gallery_item" };
+  title: string;
+  displayType: string;
+  image?: string;
+}
+
+/** How many items a feed or gallery side panel lists. */
+export const ITEM_LIST_SIZE = 10;
 
 /** How many images a feed or gallery card shows side by side. */
 export const STRIP_SIZE = 4;
@@ -310,6 +326,29 @@ function strip(items: CollectionItem[]): Array<{ url: string; alt: string }> {
   return images;
 }
 
+/** Up to ITEM_LIST_SIZE items as references, in order; `base` is the collection's share page. */
+function itemRefs(
+  items: CollectionItem[],
+  base: string,
+  collectionId: string,
+  type: EntityItemRef["ref"]["type"],
+): EntityItemRef[] {
+  return items.slice(0, ITEM_LIST_SIZE).map((item) => {
+    const image = mediaImage(item);
+    return {
+      url: `${base}/${encodeURIComponent(item.id)}`,
+      ref: { id: `${collectionId}/${item.id}`, type },
+      title: (type === "gallery_item" && item.caption?.trim()) || item.filename,
+      displayType: mediaKind(item.contentType),
+      ...(image ? { image } : {}),
+    };
+  });
+}
+
+function originalLink(url: string | null | undefined) {
+  return url ? [{ text: "Open original file", url }] : [];
+}
+
 const GITHUB_LOGIN = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/;
 
 /** `{ owner }` for "owner/name", when the owner is a valid GitHub login. */
@@ -411,6 +450,7 @@ async function filePreview(
       ...(gh?.title ? { description: gh.title } : {}),
       fields: [...(gh ? [threadField(gh)] : []), ...pathField(file.metadata?.path)],
       ...ownerOf(gh?.repo),
+      links: [...(gh ? [{ text: "Open on GitHub", url: gh.url }] : []), ...originalLink(file.url)],
     },
   };
 }
@@ -455,6 +495,7 @@ async function feedPreview(
           ...pathField(item.path),
         ],
         ...ownerOf(feed.repo),
+        links: originalLink(item.url),
       },
     };
   }
@@ -506,7 +547,14 @@ async function feedPreview(
         ...(page ? [{ key: "files", label: "Files", value: String(page.total) }] : []),
       ],
       strip: strip(feed.items.filter((item) => item.status === "available")),
+      items: itemRefs(
+        feed.items.filter((item) => item.status === "available"),
+        feedPage,
+        target.id,
+        "feed_item",
+      ),
       ...ownerOf(feed.repo),
+      ...(ghUrl ? { links: [{ text: "Open on GitHub", url: ghUrl }] } : {}),
     },
   };
 }
@@ -570,6 +618,7 @@ async function galleryPreview(
           { key: "gallery", label: "Gallery", value: gallery.title, url: galleryPage },
           { key: "position", label: "Position", value: position },
         ],
+        links: originalLink(item.url),
       },
     };
   }
@@ -603,6 +652,7 @@ async function galleryPreview(
       ...(description ? { description } : {}),
       fields: [{ key: "items", label: "Items", value: String(items.length) }],
       strip: strip(items),
+      items: itemRefs(items, galleryPage, gallery.id, "gallery_item"),
     },
   };
 }

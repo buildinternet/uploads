@@ -235,6 +235,10 @@ describe("Work Object unfurls", () => {
       },
       { key: "page_path", label: "Page", value: "/settings", type: "string" },
     ]);
+    expect(payload.actions.overflow_actions.map((a: { text: string }) => a.text)).toEqual([
+      "Open on GitHub",
+      "Open original file",
+    ]);
   });
 
   it("drops query strings from the canonical url but keeps the posted one", async () => {
@@ -260,8 +264,20 @@ describe("Work Object unfurls", () => {
       type: "string",
       tag_color: "green",
     });
-    // The unfurl itself has no pager buttons; those live in the flexpane.
-    expect(entity.entity_payload.actions).toBeUndefined();
+    // The unfurl has no pager buttons (those live in the flexpane), only the PR link.
+    expect(entity.entity_payload.actions).toEqual({
+      overflow_actions: [
+        {
+          text: "Open on GitHub",
+          action_id: "uploads_wo_open_0",
+          url: "https://github.com/acme/app/pull/12",
+        },
+      ],
+    });
+    // The item list is for the side panel only.
+    expect(entity.entity_payload.custom_fields.map((f: { key: string }) => f.key)).not.toContain(
+      "items_list",
+    );
     // No cover image: Slack would draw it full width and hide the fields.
     expect(entity.entity_payload.fields).not.toHaveProperty("preview");
     // A video without a poster has no image, so the strip skips it.
@@ -391,9 +407,23 @@ describe("Work Object flexpane", () => {
       },
       { key: "position", label: "Position", value: "1 of 3, newest first", type: "string" },
     ]);
-    expect(payload.actions).toEqual({
-      primary_actions: [{ text: "Older", action_id: PAGE_NEXT_ACTION, value: "middle" }],
+    expect(payload.actions.primary_actions).toEqual([
+      { text: "Older", action_id: PAGE_NEXT_ACTION, value: "middle" },
+    ]);
+    // Each item links to its own Work Object; a video without a poster gets no icon.
+    const list = payload.custom_fields.find((f: { key: string }) => f.key === "items_list");
+    expect(list).toMatchObject({ label: "Latest files", item_type: "slack#/types/entity_ref" });
+    expect(list.value[0]).toEqual({
+      type: "slack#/types/entity_ref",
+      entity_ref: {
+        entity_url: `https://uploads.sh/c/${FEED_ID}/newest`,
+        external_ref: { id: `${FEED_ID}/newest`, type: "feed_item" },
+        title: "newest.png",
+        display_type: "Image",
+        icon: { url: "https://storage.uploads.sh/newest.png", alt_text: "newest.png" },
+      },
     });
+    expect(list.value[2].entity_ref).not.toHaveProperty("icon");
     // The pager's item leads the flexpane, so the card's strip is left out.
     expect(payload.custom_fields.map((f: { key: string }) => f.key)).not.toContain("thumbnails");
   });
