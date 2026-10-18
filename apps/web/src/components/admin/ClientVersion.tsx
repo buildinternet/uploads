@@ -13,9 +13,9 @@ export function ClientVersion({
   const status = clientVersionStatus(row, latest);
   return (
     <span className="inline-flex items-center gap-1.5">
-      <span className="font-mono">{row.clientVersion ?? "-"}</span>
+      <span className="font-mono">{row.clientVersion ?? "< 0.57.0"}</span>
       {status === "outdated" ? (
-        <Badge variant="destructive" title={`Latest is ${latest}`}>
+        <Badge variant="destructive" title={latest ? `Latest is ${latest}` : undefined}>
           outdated
         </Badge>
       ) : null}

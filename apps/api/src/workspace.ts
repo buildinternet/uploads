@@ -23,6 +23,7 @@ import {
 import {
   type ClientPrincipal,
   legacyClientPrincipal,
+  legacyCliUserAgent,
   parseCliUserAgent,
   recordClient,
   tokenClientPrincipal,
@@ -756,7 +757,8 @@ function workspaceAuthWith(
         appendServerTiming(c, touchTiming);
       }
     }
-    const client = parseCliUserAgent(c.req.header("User-Agent"));
+    const userAgent = c.req.header("User-Agent");
+    const client = parseCliUserAgent(userAgent) ?? legacyCliUserAgent(userAgent);
     if (client) await recordClient(c, client);
     await next();
   };

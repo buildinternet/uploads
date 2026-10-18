@@ -251,7 +251,7 @@ The classifier version does not change for these flags. `v5`, `v6`, `v4`, and `s
 
 ### Held uploads <a class="anchor" href="#held-uploads" aria-label="Link to this section">#</a>
 
-A high-confidence `ai.secret` (any value other than `none`), or a high-confidence `ai.pii` of `identity_document`, `financial`, or `other`, holds the file for review. The server writes `ai.hold=pending`. A held file works like a staged one:
+A high-confidence `ai.secret` (any value other than `none`), or a high-confidence `ai.pii` of `identity_document`, `financial`, or `other`, holds the file for review when it was uploaded with `uploads` 0.59.0 or newer, the first release that can approve it. The server writes `ai.hold=pending`. An upload from an older CLI or another client is not held. A held file works like a staged one:
 
 - The managed pull request comment leaves it out. One line says how many files are held and how to approve them. The line never names a file.
 - Public feeds and galleries show it as withheld, and its `/f/` page asks for sign-in.

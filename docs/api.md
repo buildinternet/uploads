@@ -341,7 +341,9 @@ upload. Presigned uploads never get labels. See
 
 A high-confidence `ai.secret` (not `none`), or a high-confidence `ai.pii` of
 `identity_document`, `financial`, or `other`, holds the file: the server
-writes `ai.hold=pending`. The managed PR comment leaves a held file out and
+writes `ai.hold=pending`. Only an upload whose User-Agent is the uploads CLI
+(or its local MCP) at 0.59.0 or newer is held, since older clients cannot
+approve; other uploads log `upload_hold_skipped` and are left alone. The managed PR comment leaves a held file out and
 adds one line with the held count and `uploads approve --pr <n>`. Public
 feeds and galleries return it as `withheld`, and `GET /public/files/...`
 answers 401 `auth_required`. On hosted storage the bytes move to a private

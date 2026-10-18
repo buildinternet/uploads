@@ -654,6 +654,12 @@ export async function putObject(
      * than awaited on the upload path.
      */
     waitUntil?: ClassifierWaitUntil;
+    /**
+     * The upload came from a client that can approve a hold
+     * (`clientCanApprove`), so a flagged result holds the file. Otherwise a
+     * would-be hold is only logged.
+     */
+    enforceHold?: boolean;
   },
 ): Promise<{
   key: string;
@@ -1011,6 +1017,7 @@ export async function putObject(
     bytes,
     inspection.contentType,
     opts?.waitUntil,
+    { enforceHold: opts?.enforceHold },
   );
 
   const cfg = await storageConfig(env, ws);

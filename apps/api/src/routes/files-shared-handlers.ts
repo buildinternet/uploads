@@ -31,6 +31,8 @@ import { createLaneResolver, objectPublicUrls, resolveObjectLane, storage } from
 import { withUploaderTags } from "../uploader-identity";
 import { putObjectIdempotently } from "../upload-idempotency";
 import { sanitizeVisibility } from "../visibility";
+import { parseCliUserAgent } from "../client-activity";
+import { clientCanApprove } from "../upload-hold";
 import type { WorkspaceVars } from "../workspace";
 import { dbFor, primaryDbFor } from "../db-session";
 
@@ -279,6 +281,7 @@ export async function putFileHandler(c: Context<WorkspaceVars>) {
     surface: "api" as const,
     declaredContentType: c.req.header("Content-Type"),
     waitUntil,
+    enforceHold: clientCanApprove(parseCliUserAgent(c.req.header("User-Agent"))),
   };
 
   const idempotencyKey = c.req.header("Idempotency-Key");

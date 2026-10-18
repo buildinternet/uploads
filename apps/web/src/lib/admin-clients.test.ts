@@ -37,7 +37,14 @@ describe("clientVersionStatus", () => {
     );
     expect(clientVersionStatus(row(), null)).toBe("unknown");
     expect(clientVersionStatus(row({ clientVersion: "dev" }), "1.3.0")).toBe("unknown");
-    expect(clientVersionStatus(row({ clientVersion: null }), "1.3.0")).toBe("unknown");
+  });
+
+  it("flags a versionless CLI row (a CLI older than 0.57.0) as outdated", () => {
+    expect(clientVersionStatus(row({ clientVersion: null }), "1.3.0")).toBe("outdated");
+    expect(clientVersionStatus(row({ clientVersion: null }), null)).toBe("outdated");
+    expect(clientVersionStatus(row({ surface: "mcp-remote", clientVersion: null }), "1.3.0")).toBe(
+      "unknown",
+    );
   });
 });
 

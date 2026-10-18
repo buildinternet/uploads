@@ -169,7 +169,7 @@ type ClassifierHarness = Pick<ReturnType<typeof makeClassifierEnv>, "env" | "ws"
 async function putFlagged(
   harness: ClassifierHarness,
   bytes: Uint8Array,
-  opts: { replace?: boolean; metadata?: Record<string, string> } = {},
+  opts: { replace?: boolean; metadata?: Record<string, string>; enforceHold?: boolean } = {},
 ) {
   const pending: Promise<unknown>[] = [];
   const result = await putObject(harness.env, harness.ws, "images/flagged.png", bytes, WORKSPACE, {
@@ -1315,7 +1315,9 @@ describe("held uploads", () => {
       ...DECIDED,
       answers: { ...DECIDED.answers, secret: jevAnswer("api_key", 0.9) },
     }));
-    await classifyAndStore(env, ws, WORKSPACE, key, FITTING_PNG, "image/png");
+    await classifyAndStore(env, ws, WORKSPACE, key, FITTING_PNG, "image/png", {
+      enforceHold: true,
+    });
     expect(await holdOf(env)).toBe("pending");
   });
 
@@ -1324,7 +1326,9 @@ describe("held uploads", () => {
       ...DECIDED,
       answers: { ...DECIDED.answers, pii: jevAnswer("financial", 0.9) },
     }));
-    await classifyAndStore(env, ws, WORKSPACE, key, FITTING_PNG, "image/png");
+    await classifyAndStore(env, ws, WORKSPACE, key, FITTING_PNG, "image/png", {
+      enforceHold: true,
+    });
     expect(await holdOf(env)).toBe("pending");
   });
 
@@ -1339,41 +1343,55 @@ describe("held uploads", () => {
         pii: jevAnswer("contact", 0.95),
       },
     }));
-    await classifyAndStore(env, ws, WORKSPACE, key, FITTING_PNG, "image/png");
+    await classifyAndStore(env, ws, WORKSPACE, key, FITTING_PNG, "image/png", {
+      enforceHold: true,
+    });
     expect(await holdOf(env)).toBeUndefined();
+  });
+
+  it("only logs a would-be hold for a client that cannot approve", async () => {
+    const harness = makeClassifierEnv(() => FLAGGED);
+    await putFlagged(harness, FITTING_PNG);
+    expect(await holdOf(harness.env)).toBeUndefined();
+    const stored = (await getMetadataForKeys(harness.env.DB, WORKSPACE, [key])).get(key);
+    expect(stored?.["ai.secret"]).toBe("api_key");
   });
 
   it("does not hold when the workspace turned holds off", async () => {
     const { env, ws } = makeClassifierEnv(() => FLAGGED, { holdFlaggedUploads: false });
-    await classifyAndStore(env, ws, WORKSPACE, key, FITTING_PNG, "image/png");
+    await classifyAndStore(env, ws, WORKSPACE, key, FITTING_PNG, "image/png", {
+      enforceHold: true,
+    });
     expect(await holdOf(env)).toBeUndefined();
   });
 
   it("keeps an approval when identical bytes are classified again", async () => {
     const harness = makeClassifierEnv(() => FLAGGED);
-    await putFlagged(harness, FITTING_PNG);
+    await putFlagged(harness, FITTING_PNG, { enforceHold: true });
     expect(await holdOf(harness.env)).toBe("pending");
 
     const approved = await approveUpload(harness.env, harness.ws, WORKSPACE, key);
     expect(approved).toEqual({ approved: true });
     expect(await holdOf(harness.env)).toBe("approved");
 
-    await putFlagged(harness, FITTING_PNG, { replace: true });
+    await putFlagged(harness, FITTING_PNG, { replace: true, enforceHold: true });
     expect(await holdOf(harness.env)).toBe("approved");
   });
 
   it("holds new bytes again after an approval", async () => {
     const harness = makeClassifierEnv(() => FLAGGED);
-    await putFlagged(harness, FITTING_PNG);
+    await putFlagged(harness, FITTING_PNG, { enforceHold: true });
     await approveUpload(harness.env, harness.ws, WORKSPACE, key);
 
-    await putFlagged(harness, atLeast(pngOf(512, 300)), { replace: true });
+    await putFlagged(harness, atLeast(pngOf(512, 300)), { replace: true, enforceHold: true });
     expect(await holdOf(harness.env)).toBe("pending");
   });
 
   it("reports not_held for a file that is not held", async () => {
     const { env, ws } = makeClassifierEnv();
-    await classifyAndStore(env, ws, WORKSPACE, key, FITTING_PNG, "image/png");
+    await classifyAndStore(env, ws, WORKSPACE, key, FITTING_PNG, "image/png", {
+      enforceHold: true,
+    });
     expect(await approveUpload(env, ws, WORKSPACE, key)).toEqual({
       approved: false,
       reason: "not_held",
@@ -1399,7 +1417,7 @@ describe("held uploads move out of the public bucket", () => {
 
   it("moves a held file into the held bucket and back on approval", async () => {
     const harness = heldHarness();
-    await putFlagged(harness, FITTING_PNG);
+    await putFlagged(harness, FITTING_PNG, { enforceHold: true });
 
     expect(await harness.publicBucket.head(publicKey)).toBeNull();
     expect(await harness.held.head(heldKey)).not.toBeNull();
@@ -1418,8 +1436,8 @@ describe("held uploads move out of the public bucket", () => {
 
   it("moves identical bytes straight back out when a held key is re-uploaded", async () => {
     const harness = heldHarness();
-    await putFlagged(harness, FITTING_PNG);
-    await putFlagged(harness, FITTING_PNG, { replace: true });
+    await putFlagged(harness, FITTING_PNG, { enforceHold: true });
+    await putFlagged(harness, FITTING_PNG, { replace: true, enforceHold: true });
     expect(await harness.publicBucket.head(publicKey)).toBeNull();
     expect(await harness.held.head(heldKey)).not.toBeNull();
   });
@@ -1427,8 +1445,8 @@ describe("held uploads move out of the public bucket", () => {
   it("drops the held copy when new bytes replace a held file", async () => {
     let calls = 0;
     const harness = heldHarness(() => (++calls === 1 ? FLAGGED : DECIDED));
-    await putFlagged(harness, FITTING_PNG);
-    await putFlagged(harness, atLeast(pngOf(512, 300)), { replace: true });
+    await putFlagged(harness, FITTING_PNG, { enforceHold: true });
+    await putFlagged(harness, atLeast(pngOf(512, 300)), { replace: true, enforceHold: true });
     expect(await harness.held.head(heldKey)).toBeNull();
     expect(await harness.publicBucket.head(publicKey)).not.toBeNull();
     expect((await rows(harness.env))?.["ai.hold"]).toBeUndefined();
@@ -1436,7 +1454,7 @@ describe("held uploads move out of the public bucket", () => {
 
   it("deletes the held copy with the file", async () => {
     const harness = heldHarness();
-    await putFlagged(harness, FITTING_PNG);
+    await putFlagged(harness, FITTING_PNG, { enforceHold: true });
     await deleteObject(harness.env, harness.ws, key, WORKSPACE);
     expect(await harness.held.head(heldKey)).toBeNull();
     expect(await rows(harness.env)).toBeUndefined();

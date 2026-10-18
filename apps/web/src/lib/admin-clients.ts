@@ -14,15 +14,18 @@ function runsCliPackage(row: Pick<AdminClientActivity, "surface">): boolean {
 }
 
 /**
- * `outdated` when a CLI / local-MCP row's version trails `latest`; `unknown`
- * for hosted-MCP rows (the version is the MCP host's, not ours), a missing
- * latest, or an unparseable version.
+ * `outdated` when a CLI / local-MCP row's version trails `latest`, or when a
+ * CLI row has no version at all (a CLI older than 0.57.0, which sent a bare
+ * `node` User-Agent). `unknown` for hosted-MCP rows (the version is the MCP
+ * host's, not ours), a missing latest, or an unparseable version.
  */
 export function clientVersionStatus(
   row: Pick<AdminClientActivity, "surface" | "clientVersion">,
   latest: string | null,
 ): ClientVersionStatus {
-  if (!runsCliPackage(row) || !latest || !row.clientVersion) return "unknown";
+  if (!runsCliPackage(row)) return "unknown";
+  if (!row.clientVersion) return "outdated";
+  if (!latest) return "unknown";
   if (!parseSemver(row.clientVersion) || !parseSemver(latest)) return "unknown";
   return isNewerVersion(latest, row.clientVersion) ? "outdated" : "current";
 }

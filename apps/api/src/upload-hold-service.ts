@@ -32,6 +32,9 @@ import type { WorkspaceRecord } from "./workspace";
  * and the workspace policy is on. An existing `ai.hold` row wins: identical
  * bytes keep an approval, and a pending hold is not re-announced.
  *
+ * `opts.enforce` is false for an upload from a client that cannot approve
+ * (`clientCanApprove`): the would-be hold is logged and nothing changes.
+ *
  * Returns `true` when this call placed the hold. Never throws; a hold is
  * best-effort like the rest of the classifier.
  */
@@ -41,11 +44,18 @@ export async function applyUploadHold(
   workspaceName: string,
   key: string,
   decided: Record<string, string>,
+  opts: { enforce?: boolean } = {},
 ): Promise<boolean> {
   try {
     if (!holdPolicyEnabled(ws)) return false;
     const reason = holdReason(decided);
     if (!reason) return false;
+    if (!opts.enforce) {
+      // The uploading client cannot approve a hold (`clientCanApprove`), so
+      // record what would have been held and leave the file alone.
+      console.log({ event: "upload_hold_skipped", workspace: workspaceName, reason });
+      return false;
+    }
     const db = dbFor(env);
     const existing = await getFileMetadata(db, workspaceName, key);
     if (existing[HOLD_META_KEY] !== undefined) return false;
