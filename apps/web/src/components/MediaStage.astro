@@ -71,6 +71,15 @@ const pdfPosterUrl =
   kind === "file" && contentType === "application/pdf" && posterUrl ? posterUrl : null;
 ---
 
+<div class="viewer-toolbar">
+  <slot name="navigation" />
+  <button
+    type="button"
+    data-details-toggle
+    aria-expanded="true"
+    aria-controls={railId ?? "viewer-details"}>Hide details</button
+  >
+</div>
 <figure class="stage" style="margin:0" data-media-stage>
   {
     kind === "image" && url ? (
@@ -156,12 +165,39 @@ const pdfPosterUrl =
       </div>
     )
   }
-  <figcaption class="details" id={railId}>
+  <figcaption class="details" id={railId ?? "viewer-details"}>
     <slot />
   </figcaption>
 </figure>
 
 <style>
+  .viewer-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+  }
+  .viewer-toolbar button {
+    margin-left: auto;
+    padding: 7px 12px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    background: var(--panel);
+    color: var(--fg);
+    font: var(--text-meta) var(--sans);
+    cursor: pointer;
+  }
+  .viewer-toolbar button:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  .stage[data-details="hidden"] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .details[hidden] {
+    display: none;
+  }
   .stage {
     background: var(--panel);
     border: 1px solid var(--line);
@@ -324,11 +360,29 @@ const pdfPosterUrl =
 </style>
 
 <script>
+  import { readViewerPreference, saveViewerPreference } from "../lib/viewer-preferences";
   import { bindMediaLoadError } from "../lib/media-load";
 
-  // Skip ±10s for the native player. Progressive enhancement only — without
-  // JS the buttons are inert and the native controls still work.
-  function bootVideoStages() {
+  // Bind the details toggle and native player controls after each item swap.
+  function bootMediaStages() {
+    for (const button of document.querySelectorAll<HTMLButtonElement>("[data-details-toggle]")) {
+      if (button.dataset.bound) continue;
+      const stage = button.parentElement?.nextElementSibling;
+      const details = stage?.querySelector<HTMLElement>(".details");
+      if (!(stage instanceof HTMLElement) || !details) continue;
+      button.dataset.bound = "1";
+      const apply = (hidden: boolean) => {
+        details.hidden = hidden;
+        stage.dataset.details = hidden ? "hidden" : "visible";
+        button.setAttribute("aria-expanded", String(!hidden));
+        button.textContent = hidden ? "Show details" : "Hide details";
+      };
+      apply(readViewerPreference("details") === "hidden");
+      button.addEventListener("click", () => {
+        apply(!details.hidden);
+        saveViewerPreference("details", details.hidden ? "hidden" : "visible");
+      });
+    }
     for (const wrap of document.querySelectorAll<HTMLElement>("[data-video-stage]")) {
       if (wrap.dataset.bound) continue;
       wrap.dataset.bound = "1";
@@ -345,6 +399,11 @@ const pdfPosterUrl =
       }
     }
   }
-  bootVideoStages();
-  document.addEventListener("astro:page-load", bootVideoStages);
+  document.addEventListener("astro:before-swap", () => {
+    for (const video of document.querySelectorAll<HTMLVideoElement>("[data-media-stage] video")) {
+      video.pause();
+    }
+  });
+  bootMediaStages();
+  document.addEventListener("astro:page-load", bootMediaStages);
 </script>

@@ -1,9 +1,8 @@
 ---
-import BaseHead from "../../../components/BaseHead.astro";
-import Brand from "../../../components/Brand.astro";
+import PublicItemLayout from "../../../layouts/PublicItemLayout.astro";
 import CopyAsControls from "../../../components/CopyAsControls.astro";
-import Footer from "../../../components/Footer.astro";
 import GalleryReferences from "../../../components/GalleryReferences.astro";
+import ItemNavigation from "../../../components/ItemNavigation.astro";
 import MediaStage from "../../../components/MediaStage.astro";
 import UnfurlMeta from "../../../components/UnfurlMeta.astro";
 import { buildEmbedFormats, type EmbedFormatOption } from "../../../lib/embed-formats";
@@ -96,14 +95,8 @@ const footnoteParts = [
 const footnoteLine = footnoteParts.join(" · ");
 ---
 
-<!doctype html>
-<html lang="en">
-  <head>
-    <BaseHead />
-    <meta name="robots" content="noindex, nofollow, noarchive" />
-    <link rel="canonical" href={canonical} />
-    <title>{title}</title>
-    <meta name="description" content={description} />
+<PublicItemLayout title={title} canonical={canonical} description={description}>
+  <Fragment slot="head">
     <UnfurlMeta
       pageUrl={canonical}
       siteOrigin={Astro.url.origin}
@@ -126,264 +119,80 @@ const footnoteLine = footnoteParts.join(" · ");
         />
       )
     }
-    <style>
-      * {
-        box-sizing: border-box;
-      }
-      body {
-        margin: 0;
-        min-height: 100dvh;
-        color: var(--fg);
-        background: var(--bg);
-        font-family: var(--sans);
-        display: flex;
-        flex-direction: column;
-      }
-      .shell {
-        width: min(var(--width-viewer, 1080px), calc(100% - 48px));
-        margin: 0 auto;
-        padding: 36px 0 64px;
-        flex: 1 0 auto;
-        box-sizing: border-box;
-      }
-      nav.top {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        margin-bottom: 32px;
-        font: var(--text-meta) var(--mono);
-        letter-spacing: 0.02em;
-      }
-      .public {
-        color: var(--muted);
-        font-size: var(--text-micro);
-        letter-spacing: 0.1em;
-        text-transform: uppercase;
-        border: 1px solid var(--line);
-        border-radius: 999px;
-        padding: 6px 11px;
-        background: var(--panel);
-      }
-      /* Click-to-copy share pill — same pattern as the public file page. */
-      button.public {
-        appearance: none;
-        -webkit-appearance: none;
-        cursor: pointer;
-        font-family: inherit;
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-      }
-      button.public:hover,
-      button.public:focus-visible {
-        border-color: var(--accent);
-        color: var(--accent);
-        outline: none;
-      }
-      /* Icon lives in ::before, not a child node — CopyAsControls' handler replaces
-         button.textContent on copy, which would otherwise destroy an inline <svg>. */
-      .sharelink::before {
-        content: "";
-        width: 11px;
-        height: 11px;
-        flex: none;
-        background: currentColor;
-        -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71'/%3E%3Cpath d='M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71'/%3E%3C/svg%3E")
-          center/contain no-repeat;
-        mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71'/%3E%3Cpath d='M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71'/%3E%3C/svg%3E")
-          center/contain no-repeat;
-      }
-      .crumbs {
-        margin-bottom: 12px;
-        color: var(--muted);
-        font: var(--text-meta) var(--mono);
-        overflow-wrap: anywhere;
-      }
-      .crumbs .count {
-        color: var(--muted);
-      }
-      .filehead {
-        margin: 0 0 16px;
-        min-width: 0;
-      }
-      .filetitle {
-        margin: 0;
-        color: var(--fg);
-        font: 600 var(--text-h3) var(--mono);
-        letter-spacing: -0.01em;
-        overflow-wrap: anywhere;
-      }
-      /* Rail content (slotted into MediaStage). */
-      .caption {
-        margin: 0;
-        color: var(--body);
-        font-size: var(--text-body);
-        line-height: 1.6;
-        white-space: pre-wrap;
-      }
-      /* Subordinate to everything above — margin-top:auto sinks it to the bottom of the
-         rail on tall pages, no-op on short ones. */
-      .footnote {
-        margin: auto 0 0;
-        color: var(--muted);
-        font: var(--text-micro)/1.5 var(--sans);
-      }
-      .pager {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 12px;
-        margin: 22px 0 0;
-        font: var(--text-meta) var(--sans);
-      }
-      .pager a,
-      .pager span.disabled {
-        display: inline-block;
-        padding: 10px 16px;
-        border: 1px solid var(--line);
-        border-radius: var(--radius-md);
-        background: var(--panel);
-        color: var(--fg);
-        text-decoration: none;
-      }
-      .pager a:hover,
-      .pager a:focus-visible {
-        border-color: var(--accent);
-        color: var(--accent);
-        outline: none;
-      }
-      .pager span.disabled {
-        color: var(--muted);
-      }
-      .error {
-        padding: 70px 24px;
-        border: 1px solid var(--line);
-        border-radius: var(--radius-lg);
-        text-align: center;
-        background: var(--panel);
-        color: var(--body);
-      }
-      .error code {
-        color: var(--accent);
-        font-family: var(--mono);
-      }
-      a {
-        color: var(--fg);
-        text-decoration-color: color-mix(in srgb, var(--accent) 55%, transparent);
-        text-underline-offset: 3px;
-      }
-      @media (min-width: 1080px) {
-        /* align with signed-in --bp-rail (1080px); media queries can't read custom props */
-        .shell {
-          width: min(1200px, calc(100% - 48px));
-        }
-      }
-      @media (max-width: 760px) {
-        .shell {
-          width: min(100% - 32px, 1080px);
-          padding-top: 24px;
-        }
-        .pager a,
-        .pager span.disabled {
-          padding: 8px 12px;
-        }
-      }
-    </style>
-  </head>
-  <body>
-    <main class="shell">
-      <nav class="top">
-        <Brand />
-        {
-          /* Button only when CopyAsControls renders — its delegated
-           `button[data-copy]` handler is what makes the pill copy. */
-        }
-        {
-          embedFormats.length > 0 ? (
-            <button
-              type="button"
-              class="public sharelink"
-              data-copy={canonical}
-              title="Copy link — anyone with this link can view this page"
-            >
-              Public link
-            </button>
-          ) : (
-            <span class="public">public gallery</span>
-          )
-        }
-      </nav>
-      {
-        gallery && item ? (
-          <>
-            <div class="crumbs">
-              <a href={listPath}>{gallery.title}</a> ·{" "}
-              <span class="count">
-                {index + 1} of {items.length}
-              </span>
-            </div>
-            <header class="filehead">
-              <h1 class="filetitle">{item.filename}</h1>
-              <GalleryReferences references={gallery.references} variant="header" />
-            </header>
-            <MediaStage
-              kind={kind(item)}
-              url={item.url}
-              filename={item.filename}
-              alt={item.altText ?? item.caption ?? item.filename}
-              posterUrl={item.posterUrl}
-              videoDimensions={item.videoDimensions}
-              railId="item-caption"
-              contentType={item.contentType}
-              size={item.size}
-              downloadUrl={downloadUrl}
-            >
-              {item.caption && <div class="caption">{item.caption}</div>}
-              {item.status === "available" && (
-                <CopyAsControls formats={embedFormats} downloadUrl={downloadUrl}>
-                  {item.url && (
-                    <a class="original" href={item.url} rel="noopener noreferrer">
-                      Open original ↗
-                    </a>
-                  )}
-                </CopyAsControls>
-              )}
-              {footnoteLine && <p class="footnote">{footnoteLine}</p>}
-            </MediaStage>
-            <nav class="pager" aria-label="Gallery items">
-              {previous ? (
-                <a href={itemPath(previous)} rel="prev">
-                  ← {previous.filename}
+  </Fragment>
+  {
+    gallery && item ? (
+      <>
+        <div class="crumbs">
+          <a href={listPath}>{gallery.title}</a> ·{" "}
+          <span class="count">
+            {index + 1} of {items.length}
+          </span>
+        </div>
+        <header class="filehead">
+          <h1 class="filetitle">{item.filename}</h1>
+          <GalleryReferences references={gallery.references} variant="header" />
+        </header>
+        <MediaStage
+          kind={kind(item)}
+          url={item.url}
+          filename={item.filename}
+          alt={item.altText ?? item.caption ?? item.filename}
+          posterUrl={item.posterUrl}
+          videoDimensions={item.videoDimensions}
+          railId="item-caption"
+          contentType={item.contentType}
+          size={item.size}
+          downloadUrl={downloadUrl}
+        >
+          <ItemNavigation
+            slot="navigation"
+            previous={previous ? itemPath(previous) : null}
+            next={next ? itemPath(next) : null}
+            list={listPath}
+            label="Gallery items"
+            listLabel="All items"
+          />
+          {item.caption && <div class="caption">{item.caption}</div>}
+          {item.status === "available" && (
+            <CopyAsControls formats={embedFormats} downloadUrl={downloadUrl}>
+              {item.url && (
+                <a class="original" href={item.url} rel="noopener noreferrer">
+                  Open original ↗
                 </a>
-              ) : (
-                <span class="disabled">← Start</span>
               )}
-              <a href={listPath}>All items</a>
-              {next ? (
-                <a href={itemPath(next)} rel="next">
-                  {next.filename} →
-                </a>
-              ) : (
-                <span class="disabled">End →</span>
-              )}
-            </nav>
-          </>
-        ) : (
-          <section class="error">
-            <p>
-              {result.status === "unavailable"
-                ? "The gallery service could not be reached. Please try again shortly."
-                : "This item may have been removed, or the link is incorrect."}
-            </p>
-            {result.status !== "unavailable" && (
-              <p>
-                <a href={listPath}>View the gallery</a>
-              </p>
-            )}
-          </section>
-        )
-      }
-    </main>
-    <Footer />
-  </body>
-</html>
+            </CopyAsControls>
+          )}
+          {footnoteLine && <p class="footnote">{footnoteLine}</p>}
+        </MediaStage>
+      </>
+    ) : (
+      <section class="error">
+        <p>
+          {result.status === "unavailable"
+            ? "The gallery service could not be reached. Please try again shortly."
+            : "This item may have been removed, or the link is incorrect."}
+        </p>
+        {result.status !== "unavailable" && (
+          <p>
+            <a href={listPath}>View the gallery</a>
+          </p>
+        )}
+      </section>
+    )
+  }
+</PublicItemLayout>
+<style>
+  .caption {
+    margin: 0;
+    color: var(--body);
+    font-size: var(--text-body);
+    line-height: 1.6;
+    white-space: pre-wrap;
+  }
+  .footnote {
+    margin: auto 0 0;
+    color: var(--muted);
+    font: var(--text-micro) / 1.5 var(--sans);
+  }
+</style>
