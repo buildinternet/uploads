@@ -7,6 +7,7 @@
  */
 export const API_SLACK_BOT_SCOPES: readonly string[] = [
   "chat:write",
+  "commands",
   "im:write",
   "links:read",
   "links:write",

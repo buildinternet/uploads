@@ -142,3 +142,68 @@ export async function unlinkSlack(
   if (result.kind === "unavailable") return false;
   return result.response.ok || result.response.status === 404;
 }
+
+/** A Slack workspace an admin can let search this uploads.sh workspace (#1165). */
+export interface SlackSearchTeam {
+  teamId: string;
+  teamName: string | null;
+  /** Whether `/uploads search` there covers this workspace. */
+  bound: boolean;
+  /** Scopes the Slack workspace hasn't approved yet; search needs `commands`. */
+  missingScopes: string[];
+}
+
+function teamsUrl(apiOrigin: string, workspace: string, teamId?: string): string {
+  const base = `${apiOrigin.replace(/\/$/, "")}/me/slack/workspaces/${encodeURIComponent(workspace)}/teams`;
+  return teamId ? `${base}/${encodeURIComponent(teamId)}` : base;
+}
+
+/**
+ * The admin's connected Slack workspaces (and any already bound) for
+ * `workspace`, or null when the request fails or the caller isn't an admin.
+ */
+export async function listSlackSearchTeams(
+  apiOrigin: string,
+  workspace: string,
+  opts?: FetchWithTimeoutOptions,
+): Promise<SlackSearchTeam[] | null> {
+  const result = await fetchWithTimeout(
+    teamsUrl(apiOrigin, workspace),
+    { credentials: "include", cache: "no-store" },
+    opts,
+  );
+  if (result.kind === "unavailable" || !result.response.ok) return null;
+  const raw = ((await result.response.json().catch(() => null)) as { teams?: unknown } | null)
+    ?.teams;
+  if (!Array.isArray(raw)) return null;
+  const out: SlackSearchTeam[] = [];
+  for (const item of raw) {
+    const r = item as Record<string, unknown> | null;
+    if (!r || typeof r.teamId !== "string" || typeof r.bound !== "boolean") return null;
+    out.push({
+      teamId: r.teamId,
+      teamName: typeof r.teamName === "string" && r.teamName ? r.teamName : null,
+      bound: r.bound,
+      missingScopes: Array.isArray(r.missingScopes)
+        ? r.missingScopes.filter((x): x is string => typeof x === "string")
+        : [],
+    });
+  }
+  return out;
+}
+
+/** Turns `/uploads search` for `workspace` on or off in one Slack workspace. True on success. */
+export async function setSlackSearch(
+  apiOrigin: string,
+  workspace: string,
+  teamId: string,
+  on: boolean,
+  opts?: FetchWithTimeoutOptions,
+): Promise<boolean> {
+  const result = await fetchWithTimeout(
+    teamsUrl(apiOrigin, workspace, teamId),
+    { method: on ? "PUT" : "DELETE", credentials: "include", cache: "no-store" },
+    opts,
+  );
+  return result.kind !== "unavailable" && result.response.ok;
+}

@@ -20,6 +20,7 @@
  * Every public Slack-facing route verifies the request signature first.
  */
 import { Hono, type Context } from "hono";
+import { handleSlashCommand, parseSlashCommand } from "./commands";
 import { botTokenFor, type SlackEnv } from "./config";
 import { PAGE_NEXT_ACTION, PAGE_PREV_ACTION, presentDetails } from "./entities";
 import { dispatchEvent, shareDeps } from "./events";
@@ -179,6 +180,22 @@ export function createApp(options: AppOptions = {}) {
           );
         }
         return c.body(null, 200);
+      })
+      .post("/slack/commands", async (c) => {
+        const body = await readSignedBody(c);
+        if (body instanceof Response) return body;
+        const command = parseSlashCommand(body);
+        if (!command) return c.json({ error: "invalid_command" }, 400);
+        const { ack, work } = handleSlashCommand(command, {
+          env: c.env,
+          slackFetch: options.slackFetch,
+        });
+        if (work) {
+          c.executionCtx.waitUntil(
+            work.catch((err) => console.error("slack.commands: handler threw", err)),
+          );
+        }
+        return c.json(ack);
       })
       // Service-binding only (uploads-api, after a connect or unlink): the
       // binding addresses slack.internal, while public traffic can only reach

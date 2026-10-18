@@ -8,6 +8,10 @@
  * (migration 20261018170000_slack_user_links.sql). Only the ticket's
  * base64url SHA-256 is stored; see apps/slack/src/links.ts `ticketHash`.
  *
+ * `/me/slack/workspaces/:name/teams[/:teamId]` lets a workspace admin or
+ * owner choose which of their connected Slack workspaces can search it with
+ * `/uploads search` (#1165; `slack_workspace_bindings`).
+ *
  * Mounted under `me`, so `sessionAuth` + `requireSessionUser` already ran.
  * Every bad-shape, unknown, expired, or not-yours case is the same 404, so
  * these routes can't be used to probe for tickets or other users' links.
@@ -15,12 +19,14 @@
 import { NotFoundError } from "@uploads/errors";
 import { Hono, type Context } from "hono";
 import { dbFor } from "../db-session";
+import { adminWorkspaceOr403 } from "../org-workspaces";
 import { missingSlackScopes } from "../slack-scopes";
 import type { SessionUser, SessionVars } from "../session-auth";
 
 const TEAM_ID = /^[TE][A-Z0-9]{2,20}$/;
 const SLACK_USER_ID = /^[UW][A-Z0-9]{2,20}$/;
 const TICKET = /^[A-Za-z0-9_-]{16,64}$/;
+const WORKSPACE = /^[a-z0-9-]{1,64}$/;
 
 /** base64url(SHA-256(ticket)), no padding. Must match apps/slack's `ticketHash`. */
 export async function slackTicketHash(ticket: string): Promise<string> {
@@ -48,6 +54,21 @@ function ticketNotFound(): NotFoundError {
 
 function linkNotFound(): NotFoundError {
   return new NotFoundError("Slack link not found.", { code: "slack_link_not_found" });
+}
+
+function teamNotFound(): NotFoundError {
+  return new NotFoundError("Slack workspace not found.", { code: "slack_team_not_found" });
+}
+
+/** Admin/owner gate for the workspace-binding routes; a bad name is the usual 404. */
+async function adminWorkspace(c: Context<SessionVars>): Promise<{ userId: string; name: string }> {
+  const user = sessionUser(c);
+  const name = c.req.param("name") ?? "";
+  if (!WORKSPACE.test(name)) {
+    throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
+  }
+  await adminWorkspaceOr403(c.env, user.id, name);
+  return { userId: user.id, name };
 }
 
 function sessionUser(c: Context<SessionVars>): SessionUser {
@@ -201,5 +222,76 @@ export const meSlack = new Hono<SessionVars>()
       .run();
     if (!result.meta.changes) throw linkNotFound();
     refreshSlackHome(c, teamId, slackUserId);
+    return c.body(null, 204);
+  })
+
+  // Workspace bindings (#1165): which Slack workspaces can search this
+  // uploads.sh workspace with `/uploads search`. Lists the Slack workspaces
+  // the caller is connected to (where the app is still installed) plus any
+  // already bound, so an admin can turn one off without being linked there.
+  .get("/workspaces/:name/teams", async (c) => {
+    const { userId, name } = await adminWorkspace(c);
+    const { results } = await dbFor(c.env)
+      .prepare(
+        `SELECT i.team_id, i.team_name, i.scopes, (b.team_id IS NOT NULL) AS bound
+           FROM slack_installations i
+           LEFT JOIN slack_workspace_bindings b
+             ON b.team_id = i.team_id AND b.workspace = ?
+          WHERE i.revoked_at IS NULL
+            AND (b.team_id IS NOT NULL
+                 OR EXISTS (SELECT 1 FROM slack_user_links l
+                             WHERE l.team_id = i.team_id AND l.user_id = ?))
+          ORDER BY i.team_name`,
+      )
+      .bind(name, userId)
+      .all<{ team_id: string; team_name: string | null; scopes: string; bound: number }>();
+    return c.json({
+      teams: results.map((r) => ({
+        teamId: r.team_id,
+        teamName: r.team_name,
+        bound: Boolean(r.bound),
+        missingScopes: missingSlackScopes(r.scopes),
+      })),
+    });
+  })
+
+  // Bind. The caller must be connected to that Slack workspace themselves,
+  // and the app must still be installed there.
+  .put("/workspaces/:name/teams/:teamId", async (c) => {
+    const { userId, name } = await adminWorkspace(c);
+    const teamId = c.req.param("teamId");
+    if (!TEAM_ID.test(teamId)) throw teamNotFound();
+    const db = dbFor(c.env);
+    const eligible = await db
+      .prepare(
+        `SELECT 1 AS ok
+           FROM slack_installations i
+          WHERE i.team_id = ? AND i.revoked_at IS NULL
+            AND EXISTS (SELECT 1 FROM slack_user_links l
+                         WHERE l.team_id = i.team_id AND l.user_id = ?)`,
+      )
+      .bind(teamId, userId)
+      .first<{ ok: number }>();
+    if (!eligible) throw teamNotFound();
+    await db
+      .prepare(
+        `INSERT INTO slack_workspace_bindings (team_id, workspace, bound_by_user_id, created_at)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT (team_id, workspace) DO NOTHING`,
+      )
+      .bind(teamId, name, userId, new Date().toISOString())
+      .run();
+    return c.json({ teamId, workspace: name, bound: true });
+  })
+
+  // Unbind. Any admin of the workspace can, linked to that Slack team or not.
+  .delete("/workspaces/:name/teams/:teamId", async (c) => {
+    const { name } = await adminWorkspace(c);
+    const teamId = c.req.param("teamId");
+    if (!TEAM_ID.test(teamId)) throw teamNotFound();
+    await dbFor(c.env)
+      .prepare("DELETE FROM slack_workspace_bindings WHERE team_id = ? AND workspace = ?")
+      .bind(teamId, name)
+      .run();
     return c.body(null, 204);
   });
