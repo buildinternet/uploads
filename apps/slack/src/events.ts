@@ -6,7 +6,13 @@
  * report outcomes through logs, not the response.
  */
 import { botTokenFor, type SlackEnv } from "./config";
-import type { EventCallbackPayload, LinkSharedEvent, SlackEvent } from "./slack/types";
+import { revokeInstall } from "./installs";
+import type {
+  EventCallbackPayload,
+  LinkSharedEvent,
+  SlackEvent,
+  TokensRevokedEvent,
+} from "./slack/types";
 import { handleLinkShared } from "./unfurl";
 
 export interface HandlerContext {
@@ -26,7 +32,7 @@ function apiFetchFor(env: SlackEnv): typeof globalThis.fetch {
 
 const EVENT_HANDLERS: Record<string, EventHandler> = {
   async link_shared(event, ctx) {
-    const botToken = botTokenFor(ctx.env, ctx.teamId);
+    const botToken = await botTokenFor(ctx.env, ctx.teamId);
     if (!botToken) {
       console.warn("slack.unfurl: no bot token for team", { team: ctx.teamId });
       return;
@@ -43,6 +49,21 @@ const EVENT_HANDLERS: Record<string, EventHandler> = {
     } else {
       console.log("slack.unfurl", outcome);
     }
+  },
+
+  // Uninstalls and token revocations drop the stored token. The legacy
+  // SLACK_BOT_TOKEN secret is not touched; remove it by hand.
+  async app_uninstalled(_event, ctx) {
+    if (!ctx.env.DB) return;
+    await revokeInstall(ctx.env.DB, ctx.teamId);
+    console.log("slack.install: uninstalled", { team: ctx.teamId });
+  },
+
+  async tokens_revoked(event, ctx) {
+    const bots = (event as TokensRevokedEvent).tokens?.bot ?? [];
+    if (!ctx.env.DB || bots.length === 0) return;
+    await revokeInstall(ctx.env.DB, ctx.teamId);
+    console.log("slack.install: bot token revoked", { team: ctx.teamId });
   },
 };
 

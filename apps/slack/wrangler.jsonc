@@ -10,8 +10,15 @@
     // Public API origin. Requests go over the API binding when it's bound;
     // this is the host they're addressed to, and the plain-fetch target in dev.
     "API_ORIGIN": "https://api.uploads.sh",
-    // The Slack team (workspace) the bot token belongs to: Build Internet.
-    // Events from any other team are ignored. Blank accepts any team.
+    // This worker's public origin; the OAuth redirect URI is
+    // `${SLACK_ORIGIN}/slack/oauth/callback` and must match manifest.json.
+    "SLACK_ORIGIN": "https://agents.uploads.sh",
+    // The Slack app's public identifiers (not secrets).
+    "SLACK_APP_ID": "A0CA0AWAJCD",
+    "SLACK_CLIENT_ID": "12373944164736.12340370358421",
+    // The team the legacy SLACK_BOT_TOKEN secret belongs to (Build Internet).
+    // Used only until that team reinstalls through /slack/install; every
+    // other team's token comes from the slack_installations table.
     "SLACK_TEAM_ID": "T0CAZTS4UMN",
   },
   // Served as a path on the agent subdomain instead of a hostname of its own.
@@ -43,7 +50,18 @@
       "service": "uploads-api",
     },
   ],
+  // Shared with uploads-api; migrations are managed from apps/api
+  // (slack_installations: 20261018160000_slack_installations.sql).
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "uploads-production",
+      "database_id": "5f73946b-edd5-414c-856c-8f9bd3c644ba",
+    },
+  ],
   // Secrets, set with `wrangler secret put <NAME> --config apps/slack/wrangler.jsonc`:
   //   SLACK_SIGNING_SECRET  verifies every inbound request (fail closed: 503 when unset)
-  //   SLACK_BOT_TOKEN       xoxb- token used for chat.unfurl
+  //   SLACK_CLIENT_SECRET   OAuth client secret for /slack/install (installs answer 503 when unset)
+  //   SLACK_TOKENS_KEY      master key that seals bot tokens in D1 and signs OAuth state (16+ chars)
+  //   SLACK_BOT_TOKEN       legacy xoxb- token for SLACK_TEAM_ID only
 }
