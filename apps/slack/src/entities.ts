@@ -95,6 +95,9 @@ function customField(field: EntityField, iconBase?: string): Json {
 const TYPE_ICONS: Record<string, string> = {
   Image: "type-image",
   Video: "type-video",
+  PDF: "type-pdf",
+  Audio: "type-audio",
+  Text: "type-text",
   File: "type-file",
   // Feeds and galleries share one icon: it says "several items", nothing more.
   "Change feed": "type-collection",

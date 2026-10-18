@@ -121,7 +121,7 @@ leaves it out, since it's often the same org for every link). Galleries and file
 with no repo show uploads.sh instead, since the public API has no uploader.
 
 Icons: each card's header uses a per-type icon (`attributes.product_icon`:
-image, video, file, or one "collection" icon for both feeds and galleries,
+image, video, PDF, audio, text, other files, or one "collection" icon for both feeds and galleries,
 which only says the link holds several items), and the GitHub, Change feed,
 and Gallery fields carry a small icon beside their value. A change feed's GitHub
 field shows the PR or issue state as its icon and a word ("acme/app#12 ·

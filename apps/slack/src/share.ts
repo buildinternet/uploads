@@ -389,10 +389,17 @@ function canonical(pageUrl: string): string {
   return `${url.origin}${url.pathname}`;
 }
 
-/** "Image", "Video", or "File": the Work Object header's type label. */
+/** Text-like types that get the "Text" label besides `text/*`. */
+const TEXT_TYPES = new Set(["application/json", "application/xml", "application/yaml"]);
+
+/** The Work Object header's type label, which also picks its icon (entities.ts). */
 function mediaKind(contentType: string | null | undefined): string {
   if (isVideoType(contentType)) return "Video";
   if (isImageType(contentType)) return "Image";
+  const base = contentType?.split(";")[0]!.trim().toLowerCase() ?? "";
+  if (base === "application/pdf") return "PDF";
+  if (base.startsWith("audio/")) return "Audio";
+  if (base.startsWith("text/") || TEXT_TYPES.has(base)) return "Text";
   return "File";
 }
 

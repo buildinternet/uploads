@@ -69,6 +69,13 @@ function feedItem(id: string, uploaded: string) {
 const FEED_FEED = { id: FEED_ID, title: "acme/app#12", repo: "acme/app", number: 12, kind: "pull" };
 const FIXTURES: Record<string, unknown> = {
   "/public/files/default/gh/acme/app/pull/12/after.png": FILE,
+  "/public/files/default/docs/spec.pdf": {
+    key: "docs/spec.pdf",
+    url: "https://storage.uploads.sh/default/docs/spec.pdf",
+    size: 5000,
+    contentType: "application/pdf",
+    uploaded: "2026-10-18T00:17:35.000Z",
+  },
   [`/public/feeds/${FEED_ID}`]: {
     ...FEED_FEED,
     updatedAt: "2026-10-18T00:00:00.000Z",
@@ -238,6 +245,14 @@ describe("Work Object unfurls", () => {
       "Open on GitHub",
       "Open original file",
     ]);
+  });
+
+  it("labels a PDF as a PDF, with its own header icon", async () => {
+    const slack = fakeSlack();
+    await run(await linkShared("https://uploads.sh/f/default/docs/spec.pdf"), slack);
+    const { attributes } = slack.calls[0]!.body.metadata.entities[0].entity_payload;
+    expect(attributes.display_type).toBe("PDF");
+    expect(attributes.product_icon).toEqual({ url: `${ICONS}/type-pdf.png`, alt_text: "PDF" });
   });
 
   it("drops query strings from the canonical url but keeps the posted one", async () => {
