@@ -8,7 +8,7 @@
  * image (a file) or a small thumbnail beside the title (a collection), and a
  * muted context line of facts.
  */
-import { isSlackImage, unfurlEntity, type EntityOptions } from "./entities";
+import { isSlackImage, PROVIDER_ICON_URL, unfurlEntity, type EntityOptions } from "./entities";
 import { resolvePreview, type Preview, type PreviewLink, type ShareDeps } from "./share";
 import { chatUnfurl, type Block, type UnfurlTarget } from "./slack/api";
 import type { LinkSharedEvent } from "./slack/types";
@@ -17,8 +17,6 @@ import type { LinkSharedEvent } from "./slack/types";
 const MAX_LINKS_PER_EVENT = 5;
 const TITLE_MAX = 150;
 const SUBTITLE_MAX = 200;
-/** Shown at the start of the context line so it's clear where a preview comes from, like X's logo on its cards. */
-const PROVIDER_ICON_URL = "https://uploads.sh/apple-touch-icon.png";
 /** chat.unfurl errors that mean Slack couldn't use an image block. */
 const IMAGE_ERRORS = new Set(["invalid_blocks", "downloading_image_failed", "invalid_unfurls"]);
 

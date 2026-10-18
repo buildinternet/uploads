@@ -96,19 +96,44 @@ function dateField(seconds: number | null): Json | null {
 }
 
 /**
- * The repo owner's GitHub account as the entity's creator, which Slack shows
- * as the avatar and name on the card's viewer. Public: it's in the repo name.
+ * Slack only accepts `external_ref.id` matching `^[0-9a-zA-Z\-_:!\/=]+$`
+ * and rejects the whole Work Object (`error_processing_metadata`) otherwise.
+ * Our ids are file keys, so dots, spaces, and other characters get escaped
+ * as `!` plus their UTF-8 bytes in hex; `!` itself is escaped so the
+ * mapping stays one-to-one, and ids that are already valid don't change.
  */
-function ownerField(owner: string | undefined, withImages: boolean): Json | null {
-  if (!owner) return null;
+export function slackRef<T extends { id: string }>(ref: T): T {
+  const id = ref.id.replace(/[^0-9a-zA-Z\-_:/=]/gu, (char) =>
+    [...new TextEncoder().encode(char)]
+      .map((byte) => `!${byte.toString(16).padStart(2, "0")}`)
+      .join(""),
+  );
+  return { ...ref, id };
+}
+
+/** uploads.sh's mark, for unfurl context lines and as the default Work Object creator. */
+export const PROVIDER_ICON_URL = "https://uploads.sh/apple-touch-icon.png";
+
+/**
+ * The entity's creator, which Slack shows as the avatar and name on the
+ * card's viewer: the repo owner's GitHub account (public: it's in the repo
+ * name), or uploads.sh itself when there's no repo (galleries, plain files),
+ * since the public API carries no uploader.
+ */
+function creatorField(owner: string | undefined, withImages: boolean): Json {
+  const user = owner
+    ? {
+        text: owner,
+        url: `https://github.com/${owner}`,
+        icon: `https://avatars.githubusercontent.com/${owner}`,
+      }
+    : { text: "uploads.sh", url: "https://uploads.sh", icon: PROVIDER_ICON_URL };
   return {
     type: "slack#/types/user",
     user: {
-      text: owner,
-      url: `https://github.com/${owner}`,
-      ...(withImages
-        ? { icon: { url: `https://avatars.githubusercontent.com/${owner}`, alt_text: owner } }
-        : {}),
+      text: user.text,
+      url: user.url,
+      ...(withImages ? { icon: { url: user.icon, alt_text: user.text } } : {}),
     },
   };
 }
@@ -125,7 +150,7 @@ function itemsField(items: EntityItemRef[] | undefined, label: string, withImage
       type: "slack#/types/entity_ref",
       entity_ref: {
         entity_url: item.url,
-        external_ref: item.ref,
+        external_ref: slackRef(item.ref),
         title: clamp(item.title, TITLE_MAX),
         display_type: item.displayType,
         ...(withImages && item.image && isSlackImage(item.image)
@@ -251,7 +276,7 @@ export function entityMetadata(
     entity.type === "file"
       ? compact({
           preview: preview_,
-          created_by: ownerField(entity.owner, withImages),
+          created_by: creatorField(entity.owner, withImages),
           date_created: dateField(created),
           date_updated: dateField(updated),
           file_size: entity.size != null ? { value: formatBytes(entity.size) ?? "" } : null,
@@ -263,7 +288,7 @@ export function entityMetadata(
           // fields instead; the pager flexpane shows the current item.
           preview: pager ? preview_ : null,
           description: entity.description ? { value: clamp(entity.description, 1000) } : null,
-          created_by: ownerField(entity.owner, withImages),
+          created_by: creatorField(entity.owner, withImages),
           date_updated: dateField(updated),
         });
 
@@ -309,7 +334,7 @@ export function entityMetadata(
   return {
     entity_type: `slack#/entities/${entity.type}`,
     url: entity.canonicalUrl,
-    external_ref: entity.ref,
+    external_ref: slackRef(entity.ref),
     entity_payload: payload,
   };
 }
