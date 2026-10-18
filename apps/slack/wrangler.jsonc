@@ -21,7 +21,7 @@
     "SLACK_WORK_OBJECTS": "on",
     // Image hosts Slack may open full size (comma-separated). Each needs a CORS
     // rule allowing https://app.slack.com; see README "Work Objects".
-    "SLACK_FULL_SIZE_HOSTS": "",
+    "SLACK_FULL_SIZE_HOSTS": "storage.uploads.sh,store.uploads.sh",
   },
   // Served as a path on the agent subdomain instead of a hostname of its own.
   // agents.uploads.sh is a Custom Domain on uploads-mcp; a route on the same
