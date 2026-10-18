@@ -198,6 +198,25 @@ importers:
         specifier: ^4.134.0
         version: 4.151.0(@types/node@26.1.0)
 
+  apps/slack:
+    dependencies:
+      hono:
+        specifier: ^4.13.3
+        version: 4.13.3
+    devDependencies:
+      '@types/node':
+        specifier: ^26.1.0
+        version: 26.1.0
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.0)(vite@8.1.3(@types/node@26.1.0)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.0))
+      wrangler:
+        specifier: ^4.134.0
+        version: 4.151.0(@types/node@26.1.0)
+
   apps/web:
     dependencies:
       '@astrojs/cloudflare':

@@ -2,10 +2,11 @@
 
 Deployable applications. API and web are separate Workers — see each app's README.
 
-| Directory | Package        | Deploy target   |
-| --------- | -------------- | --------------- |
-| `api/`    | `@uploads/api` | api.uploads.sh  |
-| `web/`    | `@uploads/web` | uploads.sh site |
+| Directory | Package          | Deploy target              |
+| --------- | ---------------- | -------------------------- |
+| `api/`    | `@uploads/api`   | api.uploads.sh             |
+| `web/`    | `@uploads/web`   | uploads.sh site            |
+| `slack/`  | `@uploads/slack` | agents.uploads.sh/slack/\* |
 
 ```bash
 pnpm dev          # API on :8787 (from repo root)

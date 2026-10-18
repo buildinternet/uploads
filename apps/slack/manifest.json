@@ -1,0 +1,33 @@
+{
+  "_metadata": {
+    "major_version": 2,
+    "minor_version": 1
+  },
+  "display_information": {
+    "name": "uploads.sh",
+    "description": "Previews for uploads.sh share links.",
+    "background_color": "#111111",
+    "long_description": "Shows a preview when someone posts an uploads.sh file, gallery, or change-feed link. Only public links get a preview: private, held, and deleted files never unfurl, so a preview can't show more than the share page itself."
+  },
+  "features": {
+    "bot_user": {
+      "display_name": "uploads.sh",
+      "always_online": false
+    },
+    "unfurl_domains": ["uploads.sh"]
+  },
+  "oauth_config": {
+    "scopes": {
+      "bot": ["links:read", "links:write"]
+    }
+  },
+  "settings": {
+    "event_subscriptions": {
+      "request_url": "https://agents.uploads.sh/slack/events",
+      "bot_events": ["link_shared"]
+    },
+    "org_deploy_enabled": false,
+    "socket_mode_enabled": false,
+    "token_rotation_enabled": false
+  }
+}

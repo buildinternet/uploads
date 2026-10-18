@@ -1,0 +1,22 @@
+{
+  "name": "@uploads/slack",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --port 8790",
+    "deploy": "node --env-file-if-exists=../../.env node_modules/wrangler/bin/wrangler.js deploy",
+    "types": "wrangler types",
+    "typecheck": "wrangler types && tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "hono": "^4.13.3"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.0",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10",
+    "wrangler": "^4.134.0"
+  }
+}
