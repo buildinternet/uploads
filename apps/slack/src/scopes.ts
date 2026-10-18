@@ -24,6 +24,8 @@ export const FEATURE_SCOPES = {
   connect: ["users:read"],
   /** Held-upload DMs and their buttons. */
   holds: ["chat:write", "im:write"],
+  /** `/uploads search`; users:read tells full members from guests. */
+  search: ["commands", "users:read"],
 } as const satisfies Record<string, readonly string[]>;
 
 export type Feature = keyof typeof FEATURE_SCOPES;
@@ -62,6 +64,7 @@ export function missingFeaturesText(granted: Set<string>): string | null {
     unfurl: "link previews",
     connect: "connecting accounts",
     holds: "held-upload messages",
+    search: "search",
   };
   const missing = (Object.keys(FEATURE_SCOPES) as Feature[])
     .filter((f) => !canRun(granted, f))

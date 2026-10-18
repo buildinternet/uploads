@@ -12,6 +12,7 @@ toc:
   - { id: install, label: Add it to Slack }
   - { id: connect, label: Connect your account }
   - { id: held-uploads, label: Held-upload messages }
+  - { id: search, label: Search from Slack }
   - { id: privacy, label: What a preview shows }
 ---
 
@@ -56,9 +57,10 @@ Slack asks for these permissions:
 | ------------- | ---------------------------------------------------------------------------- |
 | `links:read`  | Sees uploads.sh links in messages. It reads only the link, not the message. |
 | `links:write` | Adds the preview to an uploads.sh link.                                      |
-| `users:read`  | Reads your Slack name, so the connect page shows whose account it links.    |
+| `users:read`  | Reads your Slack name for the connect page, and checks who may search.      |
 | `chat:write`  | Sends you held-upload messages and updates them after you press a button.   |
 | `im:write`    | Opens the direct message between you and the app.                           |
+| `commands`    | Adds `/uploads search`.                                                      |
 
 The app can't read your messages or files. Post an uploads.sh link to see a preview.
 
@@ -110,6 +112,29 @@ Who gets the message:
 Each person must have connected Slack. To stop these messages, turn off **Message me in Slack when
 an upload is held for review** under **Slack** in [account settings](/account/profile#slack).
 Messages arrive in the app's **Messages** tab in Slack.
+
+</section>
+
+<section id="search">
+
+## Search from Slack <a class="anchor" href="#search" aria-label="Link to this section">#</a>
+
+Find a workspace's public files by name without leaving Slack:
+
+```
+/uploads search login
+```
+
+The reply lists up to ten matching files, links to their pages, and only you can see it.
+
+A workspace admin or owner turns search on. In uploads.sh, open the workspace's **Settings**,
+find **Search from Slack** under **Slack**, and switch on the Slack workspace. It's listed once
+you've [connected your account](#connect) there.
+
+- Every full member of that Slack workspace can search, whether or not they connected an account.
+- Guests and people from other organizations in shared channels can't.
+- Results include only files the public share page would show. Private and held files never
+  appear.
 
 </section>
 

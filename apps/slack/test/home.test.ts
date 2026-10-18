@@ -19,7 +19,7 @@ afterEach(() => {
   sqlite = null;
 });
 
-async function setup(scopes = "chat:write,im:write,links:read,links:write,users:read") {
+async function setup(scopes = "chat:write,commands,im:write,links:read,links:write,users:read") {
   sqlite = new SqliteD1(MIGRATIONS);
   const env: SlackEnv = {
     WEB_ORIGIN: "https://uploads.sh",

@@ -245,6 +245,21 @@ On success either button rewrites the DM through the payload's
 `response_url` (Slack's `hooks.slack.com` only), so it can't be pressed
 twice. Messages arrive in the app's Messages tab, which is read-only.
 
+## Search from Slack
+
+`/uploads search <term>` searches filenames in the uploads.sh workspaces a
+Slack workspace is bound to (`slack_workspace_bindings`, #1165). A
+workspace admin or owner binds it under workspace **Settings → Slack** on
+uploads.sh, for a Slack workspace where they've connected their own
+account (`/me/slack/workspaces/:name/teams/:teamId`).
+
+`src/commands.ts` acks with "Searching…", checks with `users.info` that the
+person is a full member (not a guest, a bot, or someone from another org),
+then calls uploads-api's `POST /internal/slack/search` over the `API`
+binding and posts the results to the command's `response_url`. Only
+the person who ran it sees them. The API searches each bound workspace and
+drops anything the public share page wouldn't show (private or held).
+
 ## Configuration
 
 | Name                    | Kind   | Purpose                                                                    |
@@ -279,13 +294,14 @@ the OAuth redirect URL, the `link_shared`, `entity_details_requested`,
 tab (where held-upload DMs land), and interactivity at
 `https://agents.uploads.sh/slack/interactivity`.
 
-| Scope         | Why                                                                   |
-| ------------- | --------------------------------------------------------------------- |
-| `links:read`  | See uploads.sh links in messages (the URL only) to preview them.      |
-| `links:write` | Add the preview.                                                      |
-| `users:read`  | Show the connecting user's Slack name on the uploads.sh confirm page. |
-| `chat:write`  | Send held-upload DMs and update them after a button press.            |
-| `im:write`    | Open the DM between the app and a connected user.                     |
+| Scope         | Why                                                              |
+| ------------- | ---------------------------------------------------------------- |
+| `links:read`  | See uploads.sh links in messages (the URL only) to preview them. |
+| `links:write` | Add the preview.                                                 |
+| `users:read`  | Show the connecting user's Slack name; check who may search.     |
+| `chat:write`  | Send held-upload DMs and update them after a button press.       |
+| `im:write`    | Open the DM between the app and a connected user.                |
+| `commands`    | `/uploads search`.                                               |
 
 The list lives in `src/scopes.ts`, grouped by feature (see
 [Adding a scope](#adding-a-scope)).
@@ -343,8 +359,8 @@ The worker is laid out so the next features slot in without reshaping it:
 
 - **New Slack events**: add a handler to `EVENT_HANDLERS` in `src/events.ts`
   and the event to `manifest.json`.
-- **Slash commands** (for example, an agent search command): a new
-  `POST /slack/commands` route in `src/index.ts` that reuses `readSignedBody`.
+- **Slash commands**: add a subcommand to `src/commands.ts` (next to
+  `search`); `/uploads` is the one command in `manifest.json`.
 - **Notifications**: follow held-upload messages. uploads-api calls a
   `POST /slack/internal/*` route on this worker over its `SLACK` binding
   (host `slack.internal`), and the worker posts with `chatPostMessage` in
