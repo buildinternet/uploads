@@ -2,8 +2,19 @@
 
 The uploads.sh Slack app. Today it does one thing: when someone posts an
 uploads.sh share link (`/f/…`, `/g/…`, `/c/…`) in Slack, it replaces the link
-with a preview. Images show inline, videos show their poster frame, and
-galleries and change feeds show a titled link with a cover thumbnail.
+with a preview:
+
+- **File** (`/f/…`): filename, the PR or issue it's attached to, the image
+  (or a video's poster frame), then type, size, page path, and upload time.
+- **Change feed** (`/c/…`): the PR number and title, the repo and PR state,
+  the latest screenshot as a thumbnail, then the file count and last upload.
+- **Gallery** (`/g/…`): title, description, cover thumbnail, item count.
+- **One item in a feed or gallery**: the item's image, a link to its
+  collection; gallery items also show their position ("3 of 12").
+
+The layout is the one GitHub, Linear, and Loom unfurls use: bold title, one
+line of what it belongs to, media, and a muted line of facts. Times use
+Slack's date token, so each reader sees them in their own timezone.
 
 Deployed as the `uploads-slack` worker on a route, `agents.uploads.sh/slack/*`,
 in front of the uploads-mcp Custom Domain on the same hostname. Only
@@ -15,26 +26,30 @@ goes to uploads-mcp.
 1. Slack sends a signed `link_shared` event to `POST /slack/events`.
 2. The worker checks the signature, answers 200 at once, and does the rest in
    `waitUntil` (Slack retries any event not answered within 3 seconds).
-3. For each link on `WEB_ORIGIN`, it calls uploads-web's public
-   `/oembed?url=…` over the `WEB` service binding.
-4. It sends one `chat.unfurl` with Block Kit for every link that resolved.
+3. For each share link on `WEB_ORIGIN`, it reads uploads-api's public
+   endpoints (`/public/files|feeds|galleries/…`) over the `API` service
+   binding (`src/share.ts`).
+4. It sends one `chat.unfurl` with Block Kit for every link that resolved
+   (`src/unfurl.ts`).
 
-The oEmbed endpoint is the only source of preview data. It returns 404 for
-private, held, missing, and expired objects, and a 404 means no preview. This
-worker has no storage, D1, or KV bindings, so a preview can never show more
-than the public share page.
+The public endpoints are the only source of preview data, the same ones the
+share pages render from. They never sign URLs and return 404 for private,
+held, missing, and expired objects; a 404 means no preview, and collection
+items marked missing or withheld are skipped. This worker has no storage, D1,
+or KV bindings, so a preview can never show more than the public share page.
 
 If Slack rejects the call because it can't fetch an image, the worker retries
 once with text-only previews.
 
 ## Configuration
 
-| Name                   | Kind   | Purpose                                                                    |
-| ---------------------- | ------ | -------------------------------------------------------------------------- |
-| `SLACK_SIGNING_SECRET` | secret | Verifies every inbound request. Unset: `/slack/events` answers 503.        |
-| `SLACK_BOT_TOKEN`      | secret | `xoxb-` token for `chat.unfurl`. Unset: events are acked and ignored.      |
-| `SLACK_TEAM_ID`        | var    | Optional. When set, events from any other Slack team are ignored.          |
-| `WEB_ORIGIN`           | var    | The only origin whose links unfurl. Must be the origin that serves oEmbed. |
+| Name                   | Kind   | Purpose                                                                   |
+| ---------------------- | ------ | ------------------------------------------------------------------------- |
+| `SLACK_SIGNING_SECRET` | secret | Verifies every inbound request. Unset: `/slack/events` answers 503.       |
+| `SLACK_BOT_TOKEN`      | secret | `xoxb-` token for `chat.unfurl`. Unset: events are acked and ignored.     |
+| `SLACK_TEAM_ID`        | var    | Optional. When set, events from any other Slack team are ignored.         |
+| `WEB_ORIGIN`           | var    | The only origin whose share links unfurl.                                 |
+| `API_ORIGIN`           | var    | The public API's origin; the plain-`fetch` target when `API` isn't bound. |
 
 ```bash
 wrangler secret put SLACK_SIGNING_SECRET --config apps/slack/wrangler.jsonc
@@ -85,7 +100,7 @@ pnpm dev:slack    # wrangler dev on :8790
 pnpm test:slack
 ```
 
-Without the `WEB` binding the worker calls `WEB_ORIGIN` over plain `fetch`.
+Without the `API` binding the worker calls `API_ORIGIN` over plain `fetch`.
 Put the secrets in `apps/slack/.dev.vars` to exercise it locally; to receive
 real events, tunnel port 8790 and point a test app's event URL at the tunnel.
 
