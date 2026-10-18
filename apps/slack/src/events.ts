@@ -6,8 +6,10 @@
  * report outcomes through logs, not the response.
  */
 import { botTokenFor, type SlackEnv } from "./config";
+import { publishHome } from "./home";
 import { revokeInstall } from "./installs";
 import type {
+  AppHomeOpenedEvent,
   EventCallbackPayload,
   LinkSharedEvent,
   SlackEvent,
@@ -49,6 +51,20 @@ const EVENT_HANDLERS: Record<string, EventHandler> = {
     } else {
       console.log("slack.unfurl", outcome);
     }
+  },
+
+  async app_home_opened(event, ctx) {
+    const { user, tab } = event as AppHomeOpenedEvent;
+    if (tab !== "home" || !user) return;
+    const botToken = await botTokenFor(ctx.env, ctx.teamId);
+    if (!botToken) return;
+    await publishHome({
+      env: ctx.env,
+      teamId: ctx.teamId,
+      slackUserId: user,
+      botToken,
+      slackFetch: ctx.slackFetch,
+    });
   },
 
   // Uninstalls and token revocations drop the stored token. The legacy

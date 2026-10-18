@@ -286,6 +286,7 @@ staged files are promoted into the PR's attachments comment automatically.
 - Capture & annotate: https://uploads.sh/docs/capture
 - Galleries: https://uploads.sh/docs/galleries
 - GitHub App: https://uploads.sh/docs/github-app
+- Slack: https://uploads.sh/docs/slack
 - Comment config (`.uploads.yml`): https://uploads.sh/docs/comment-config
 - Agents: https://uploads.sh/docs/agents
 - Experimental AI labels: https://uploads.sh/docs/agents#experimental-ai-tags (`ai.kind` / `ai.surface` / `ai.screen` / `ai.tags` / `ai.summary`; internal `ai.rating` / `ai.content` / `ai.secret` / `ai.pii` plus `.confidence` buckets, not shown on public pages; identical bytes keep a stored flag and new bytes start fresh; `uploads meta get` / `uploads find`; MCP `get_metadata` / `find_files`)

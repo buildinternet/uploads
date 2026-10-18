@@ -37,5 +37,7 @@ const { preloadSans = false, manifest = false } = Astro.props;
 <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
 {manifest && <link rel="manifest" href="/site.webmanifest" />}
 <meta name="theme-color" content="#121214" />
+<!-- Lets Slack suggest the uploads.sh app when someone posts an uploads.sh link (Marketplace). -->
+<meta name="slack-app-id" content="A0CA0AWAJCD" />
 <link rel="preload" as="font" type="font/woff2" crossorigin href={geistMonoUrl} />
 {preloadSans && <link rel="preload" as="font" type="font/woff2" crossorigin href={geistSansUrl} />}

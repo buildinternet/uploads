@@ -1,0 +1,80 @@
+---
+title: Slack
+description: Add the uploads.sh Slack app to show previews for uploads.sh file, gallery, and live-link URLs, and connect your Slack account to uploads.sh.
+heading: Slack
+tagline: "Previews for uploads.sh links posted in Slack."
+navLabel: Slack
+navSlug: slack
+navOrder: 12
+navGroup: workspace
+toc:
+  - { id: what-it-does, label: What it does }
+  - { id: install, label: Add it to Slack }
+  - { id: connect, label: Connect your account }
+  - { id: privacy, label: What a preview shows }
+---
+
+<section class="lead" id="what-it-does">
+
+## What it does <a class="anchor" href="#what-it-does" aria-label="Link to this section">#</a>
+
+The uploads.sh Slack app turns uploads.sh links into previews. With it in your workspace:
+
+- A [file link](/docs/attach-pull-request-images) shows its image, the pull request or issue it
+  belongs to, and its type, size, and upload time.
+- A [live link](/docs/feeds) shows the pull request title and state, the latest screenshot, and
+  how many files it holds.
+- A [gallery](/docs/galleries) link shows its title, description, and cover image.
+
+</section>
+
+<section id="install">
+
+## Add it to Slack <a class="anchor" href="#install" aria-label="Link to this section">#</a>
+
+Anyone who can install apps in a Slack workspace can add it:
+
+<p>
+  <a href="https://agents.uploads.sh/slack/install">
+    <img
+      alt="Add to Slack"
+      height="40"
+      width="139"
+      src="https://platform.slack-edge.com/img/add_to_slack.png"
+      srcset="https://platform.slack-edge.com/img/add_to_slack.png 1x, https://platform.slack-edge.com/img/add_to_slack@2x.png 2x"
+    />
+  </a>
+</p>
+
+Slack asks for three permissions: to see uploads.sh links in messages, to add previews to
+them, and to read people's names so the connect page can show whose Slack account it links.
+The app can't read messages or files. Post an uploads.sh link to see a preview.
+
+</section>
+
+<section id="connect">
+
+## Connect your account <a class="anchor" href="#connect" aria-label="Link to this section">#</a>
+
+Open the app's **Home** tab in Slack and press **Connect uploads.sh**. Sign in to uploads.sh if
+asked. The page names the Slack account it's about to connect; confirm only if it's yours. The
+link ties your Slack account in that workspace to your uploads.sh account.
+
+Previews work without connecting. The link is for features that act on your behalf. To undo it,
+press **Disconnect** on the same Home tab.
+
+</section>
+
+<section id="privacy">
+
+## What a preview shows <a class="anchor" href="#privacy" aria-label="Link to this section">#</a>
+
+A preview shows only what the public share page shows. The app reads the same public endpoints
+the share pages use, so private, held, and deleted files get no preview.
+
+<div class="note">
+  Previews are visible to everyone in the channel. Post a link to a private file only where
+  you'd share the file itself.
+</div>
+
+</section>
