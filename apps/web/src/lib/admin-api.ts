@@ -23,11 +23,20 @@ import type {
   AdminStorageResponse,
   AdminTokenRow,
   AdminWorkspaceSummary,
+  ClassifierAdminWindow,
+  ClassifierConfidenceBucket,
+  ClassifierFlaggedFile,
+  ClassifierFlaggedPage,
+  ClassifierFlagStats,
+  ClassifierOverview,
+  ClassifierSafetyField,
+  ClassifierValueCount,
   OpenEnrollment,
   OrgInvite,
   OrgMember,
 } from "@uploads/api/admin-ui";
 import { trimOrigin } from "./api-client";
+import { flaggedQuery, overviewQuery, type FlaggedFilters } from "./admin-classifier";
 
 export type {
   AdminClientActivity,
@@ -37,6 +46,14 @@ export type {
   AdminStorageResponse,
   AdminTokenRow,
   AdminWorkspaceSummary,
+  ClassifierAdminWindow,
+  ClassifierConfidenceBucket,
+  ClassifierFlaggedFile,
+  ClassifierFlaggedPage,
+  ClassifierFlagStats,
+  ClassifierOverview,
+  ClassifierSafetyField,
+  ClassifierValueCount,
   OpenEnrollment,
   OrgInvite,
   OrgMember,
@@ -75,6 +92,8 @@ export interface AdminApi {
   getInviteLinks(workspace: string): Promise<OpenEnrollment[]>;
   createInviteLink(workspace: string, body: { label?: string; scopes: string[] }): Promise<string>;
   revokeInviteLink(workspace: string, id: string): Promise<void>;
+  getClassifierOverview(days: ClassifierAdminWindow, fresh?: boolean): Promise<ClassifierOverview>;
+  listClassifierFlagged(params: FlaggedFilters): Promise<ClassifierFlaggedPage>;
 }
 
 export function makeAdminApi(apiOrigin: string): AdminApi {
@@ -104,6 +123,18 @@ export function makeAdminApi(apiOrigin: string): AdminApi {
   }
 
   return {
+    getClassifierOverview(days, fresh = false) {
+      return get<ClassifierOverview>(
+        `${base}/admin-ui/classifier/overview${overviewQuery(days, fresh)}`,
+        "load classifier overview failed",
+      );
+    },
+    listClassifierFlagged(params) {
+      return get<ClassifierFlaggedPage>(
+        `${base}/admin-ui/classifier/flagged${flaggedQuery(params)}`,
+        "load flagged uploads failed",
+      );
+    },
     async listWorkspaces() {
       const { workspaces } = await get<{ workspaces: AdminWorkspaceSummary[] }>(
         `${base}/admin-ui/workspaces`,
