@@ -306,7 +306,10 @@ function isImageType(contentType: string | null | undefined): boolean {
   return Boolean(contentType?.toLowerCase().startsWith("image/"));
 }
 
-/** The image to show for one object: itself when it's an image, its poster when it's a video. */
+/**
+ * The image to show for one object: itself when it's an image, its poster
+ * when it's a video or a PDF (the API renders a PDF's first page).
+ */
 function mediaImage(item: {
   url: string | null;
   contentType: string | null;
@@ -314,6 +317,7 @@ function mediaImage(item: {
 }): string | undefined {
   if (isImageType(item.contentType) && item.url) return item.url;
   if (isVideoType(item.contentType) && item.posterUrl) return item.posterUrl;
+  if (mediaKind(item.contentType) === "PDF" && item.posterUrl) return item.posterUrl;
   return undefined;
 }
 

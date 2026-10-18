@@ -75,6 +75,7 @@ const FIXTURES: Record<string, unknown> = {
     size: 5000,
     contentType: "application/pdf",
     uploaded: "2026-10-18T00:17:35.000Z",
+    posterUrl: "https://storage.uploads.sh/default/docs/spec.pdf.poster.webp",
   },
   [`/public/feeds/${FEED_ID}`]: {
     ...FEED_FEED,
@@ -255,6 +256,11 @@ describe("Work Object unfurls", () => {
     expect(attributes.product_icon).toEqual({ url: `${ICONS}/type-pdf.png`, alt_text: "PDF" });
     // Not on an allowed host by default, so no full-size viewer.
     expect(attributes).not.toHaveProperty("full_size_preview");
+    // The card shows the first page the API rendered.
+    const { fields } = slack.calls[0]!.body.metadata.entities[0].entity_payload;
+    expect(fields.preview.image_url).toBe(
+      "https://storage.uploads.sh/default/docs/spec.pdf.poster.webp",
+    );
   });
 
   it("opens a PDF in Slack's full-size viewer on allowed hosts", async () => {
