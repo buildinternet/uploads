@@ -1,0 +1,47 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "uploads-slack",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-06",
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    // The only origin whose links this app unfurls. Must match the origin
+    // uploads-web answers /oembed on, because that endpoint rejects page URLs
+    // from any other origin (no open proxy).
+    "WEB_ORIGIN": "https://uploads.sh",
+    // The Slack team (workspace) the bot token belongs to: Build Internet.
+    // Events from any other team are ignored. Blank accepts any team.
+    "SLACK_TEAM_ID": "T0CAZTS4UMN",
+  },
+  // Served as a path on the agent subdomain instead of a hostname of its own.
+  // agents.uploads.sh is a Custom Domain on uploads-mcp; a route on the same
+  // hostname runs before the Custom Domain worker, so only /slack/* reaches
+  // this worker and everything else still goes to uploads-mcp.
+  "routes": [
+    {
+      "pattern": "agents.uploads.sh/slack/*",
+      "zone_name": "uploads.sh",
+    },
+  ],
+  "workers_dev": false,
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1,
+    "issues": {
+      "enabled": true,
+    },
+  },
+  "upload_source_maps": true,
+  // Public oEmbed lookups go to uploads-web over a service binding: no edge
+  // subrequest, and immune to WAF rules on the public origin (see #998).
+  // Without the binding (local dev) the worker falls back to fetch().
+  "services": [
+    {
+      "binding": "WEB",
+      "service": "uploads-web",
+    },
+  ],
+  // Secrets, set with `wrangler secret put <NAME> --config apps/slack/wrangler.jsonc`:
+  //   SLACK_SIGNING_SECRET  verifies every inbound request (fail closed: 503 when unset)
+  //   SLACK_BOT_TOKEN       xoxb- token used for chat.unfurl
+}
