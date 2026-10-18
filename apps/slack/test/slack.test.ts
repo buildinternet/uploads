@@ -211,7 +211,7 @@ const GALLERY_FIXTURES = {
   },
 };
 
-const contextText = (blocks: Blocks) => blocks.at(-1)!.elements[0].text as string;
+const contextText = (blocks: Blocks) => blocks.at(-1)!.elements.at(-1).text as string;
 const sectionText = (blocks: Blocks) => blocks[0]!.text.text as string;
 
 describe("verifySlackSignature", () => {
@@ -339,6 +339,7 @@ describe("POST /slack/events", () => {
     const retry = (slack.bodies[1]!.unfurls as Record<string, { blocks: Blocks }>)[FILE_PAGE]!
       .blocks;
     expect(retry.map((b) => b.type)).toEqual(["section", "context"]);
+    expect(retry[1]!.elements.map((e: { type: string }) => e.type)).toEqual(["mrkdwn"]);
   });
 
   it("acks event types it doesn't handle without doing anything", async () => {
@@ -367,6 +368,11 @@ describe("previews", () => {
       `*<${FILE_PAGE}|after.png>*\n<https://github.com/acme/app/pull/12|acme/app#12> · Settings &lt;redesign&gt;`,
     );
     expect(blocks![1]).toMatchObject({ image_url: FILE.url, alt_text: "after.png" });
+    expect(blocks![2]!.elements[0]).toEqual({
+      type: "image",
+      image_url: "https://uploads.sh/apple-touch-icon.png",
+      alt_text: "uploads.sh",
+    });
     expect(contextText(blocks!)).toBe(
       "uploads.sh · PNG · 138 kB · /settings · <!date^1792282655^{ago}|2026-10-18>",
     );
@@ -413,9 +419,9 @@ describe("previews", () => {
     const { blocks } = await unfurl(page, FEED_FIXTURES);
     expect(blocks!.map((b) => b.type)).toEqual(["section", "image", "context"]);
     expect(sectionText(blocks!)).toBe(
-      `*<${page}|after.png>*\n<https://uploads.sh/c/${FEED_ID}|acme/app#12>`,
+      `*<${page}|after.png>*\n<https://uploads.sh/c/${FEED_ID}|acme/app#12> · Change feed`,
     );
-    expect(contextText(blocks!)).toMatch(/^uploads\.sh · 1 of 7 · \/settings · <!date/);
+    expect(contextText(blocks!)).toMatch(/^uploads\.sh · \/settings · <!date/);
   });
 
   it("gallery: description, cover thumbnail, and visible item count", async () => {

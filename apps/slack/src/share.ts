@@ -304,12 +304,13 @@ async function feedPreview(
       title: item.filename,
       isVideo: isVideoType(item.contentType),
       ...(image ? { image: { url: image, alt: item.filename, size: "large" as const } } : {}),
-      subtitle: [{ text: feed.title, url: new URL(`/c/${id}`, deps.webOrigin).href }],
-      facts: present(
-        text(`${page.index + 1} of ${page.total}`),
-        text(item.path),
-        date(item.uploaded),
-      ),
+      // No position here: feeds list newest first, so "1 of 334" reads as
+      // the first of 334 rather than the latest.
+      subtitle: [
+        { text: feed.title, url: new URL(`/c/${id}`, deps.webOrigin).href },
+        { text: "Change feed" },
+      ],
+      facts: present(text(item.path), date(item.uploaded)),
     };
   }
 

@@ -10,7 +10,7 @@ with a preview:
   the latest screenshot as a thumbnail, then the file count and last upload.
 - **Gallery** (`/g/…`): title, description, cover thumbnail, item count.
 - **One item in a feed or gallery**: the item's image, a link to its
-  collection, and its position ("3 of 12").
+  collection; gallery items also show their position ("3 of 12").
 
 The layout is the one GitHub, Linear, and Loom unfurls use: bold title, one
 line of what it belongs to, media, and a muted line of facts. Times use

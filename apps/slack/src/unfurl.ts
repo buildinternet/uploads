@@ -16,6 +16,8 @@ import type { LinkSharedEvent } from "./slack/types";
 const MAX_LINKS_PER_EVENT = 5;
 const TITLE_MAX = 150;
 const SUBTITLE_MAX = 200;
+/** Shown at the start of the context line so it's clear where a preview comes from, like X's logo on its cards. */
+const PROVIDER_ICON_URL = "https://uploads.sh/apple-touch-icon.png";
 /** chat.unfurl errors that mean Slack couldn't use an image block. */
 const IMAGE_ERRORS = new Set(["invalid_blocks", "downloading_image_failed", "invalid_unfurls"]);
 
@@ -83,7 +85,10 @@ export function previewBlocks(preview: Preview, options: { images?: boolean } = 
   );
   const context: Block = {
     type: "context",
-    elements: [{ type: "mrkdwn", text: ["uploads.sh", ...facts].join(" · ") }],
+    elements: [
+      ...(images ? [{ type: "image", image_url: PROVIDER_ICON_URL, alt_text: "uploads.sh" }] : []),
+      { type: "mrkdwn", text: ["uploads.sh", ...facts].join(" · ") },
+    ],
   };
 
   return image?.size === "large"
