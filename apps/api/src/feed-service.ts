@@ -36,6 +36,7 @@ import type {
 } from "./scope-wire";
 import { createLaneResolver, objectPublicUrls, type LaneResolver } from "./storage";
 import type { StorageConfig } from "@uploads/storage";
+import { HELD_FILENAME } from "./upload-hold";
 import { heldKeysAmong } from "./upload-hold-read";
 import { objectVisibility } from "./visibility";
 import { webOrigin } from "./web-url";
@@ -291,7 +292,7 @@ export async function hydrateFeedItems(
     return {
       id,
       objectKey: match.key,
-      filename: feedItemFilename(match.key),
+      filename: heldKeys.has(match.key) ? HELD_FILENAME : feedItemFilename(match.key),
       status: withheld ? "withheld" : meta ? "available" : "missing",
       url: urls.url,
       embedUrl: urls.embedUrl,

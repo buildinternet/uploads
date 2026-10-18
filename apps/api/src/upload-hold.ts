@@ -53,6 +53,12 @@ export function holdReason(meta: Record<string, string> | undefined): HoldReason
   return undefined;
 }
 
+/**
+ * Shown in place of a held file's name on public feeds and galleries. The
+ * name plus the repo and PR is enough to build a public repo's raw URL.
+ */
+export const HELD_FILENAME = "held for review";
+
 /** A file is held while its `ai.hold` row is `pending`. */
 export function isHeld(meta: Record<string, string> | undefined): boolean {
   return meta?.[HOLD_META_KEY] === HOLD_PENDING;

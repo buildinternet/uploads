@@ -588,7 +588,12 @@ describe("public feed pagination and pager", () => {
       items: Array<{ filename: string; status: string; url: string | null }>;
     };
     expect(page.items[0]).toMatchObject({ filename: "shot-00.png", status: "available" });
-    expect(page.items[1]).toMatchObject({ status: "withheld", url: null });
+    expect(page.items[1]).toMatchObject({
+      filename: "held for review",
+      status: "withheld",
+      url: null,
+    });
+    expect(JSON.stringify(page)).not.toContain("shot-01");
   });
 
   it("keeps object keys out of the public nextCursor when the last item is private", async () => {
