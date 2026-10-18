@@ -303,12 +303,26 @@ describe("Work Object unfurls", () => {
     ).not.toHaveProperty("full_size_preview");
   });
 
-  it("retries with blocks only when Slack rejects the metadata", async () => {
-    const slack = fakeSlack([{ ok: false, error: "invalid_metadata" }, { ok: true }]);
+  it("retries without images, then with blocks only, when Slack rejects the metadata", async () => {
+    const slack = fakeSlack([
+      { ok: false, error: "error_processing_metadata" },
+      { ok: false, error: "error_processing_metadata" },
+      { ok: true },
+    ]);
+    await run(await linkShared(FILE_PAGE), slack);
+    expect(slack.calls).toHaveLength(3);
+    const imageless = slack.calls[1]!.body.metadata.entities[0].entity_payload;
+    expect(imageless.fields).not.toHaveProperty("preview");
+    expect(imageless.fields.file_size).toEqual({ value: "138 kB" });
+    expect(slack.calls[2]!.body.metadata).toBeUndefined();
+    expect(slack.calls[2]!.body.unfurls[FILE_PAGE]).toBeDefined();
+  });
+
+  it("keeps the imageless Work Object when Slack accepts it", async () => {
+    const slack = fakeSlack([{ ok: false, error: "error_processing_metadata" }, { ok: true }]);
     await run(await linkShared(FILE_PAGE), slack);
     expect(slack.calls).toHaveLength(2);
-    expect(slack.calls[1]!.body.metadata).toBeUndefined();
-    expect(slack.calls[1]!.body.unfurls[FILE_PAGE]).toBeDefined();
+    expect(slack.calls[1]!.body.metadata.entities).toHaveLength(1);
   });
 
   it("sends blocks only unless SLACK_WORK_OBJECTS is on", async () => {

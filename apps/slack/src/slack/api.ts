@@ -12,6 +12,8 @@ export type Block = Record<string, unknown>;
 export interface SlackApiResult {
   ok: boolean;
   error?: string;
+  /** Slack's detail on an error or warning, e.g. which metadata field it rejected. */
+  response_metadata?: { messages?: string[]; warnings?: string[] };
 }
 
 export interface SlackApiOptions {

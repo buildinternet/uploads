@@ -140,6 +140,8 @@ export interface EntityOptions {
    * elsewhere (BYO buckets, other lanes) get the thumbnail only.
    */
   fullSizeHosts?: readonly string[];
+  /** false leaves out every image (preview, strip, full size): the fallback when Slack rejects one. */
+  images?: boolean;
 }
 
 /** Parses SLACK_FULL_SIZE_HOSTS ("a.example, b.example"). */
@@ -195,7 +197,8 @@ export function entityMetadata(
     page && entity.ref.type !== "file" && entity.type === "content_item"
       ? pagerParts(page, entity.ref.type === "feed" ? "feed" : "gallery")
       : null;
-  const image = pager ? pager.image : preview.image;
+  const withImages = options.images ?? true;
+  const image = !withImages ? undefined : pager ? pager.image : preview.image;
   const preview_ = imageField(image);
 
   const fields =
@@ -214,7 +217,10 @@ export function entityMetadata(
         });
 
   // The strip leads on the card; in a pager flexpane the current item does.
-  const thumbnails = stripField(entity.strip, entity.ref.type === "feed" ? "Latest" : "Items");
+  const thumbnails = stripField(
+    withImages ? entity.strip : undefined,
+    entity.ref.type === "feed" ? "Latest" : "Items",
+  );
   const customFields = [
     ...(pager?.fields ?? []),
     ...(thumbnails && !pager ? [thumbnails] : []),

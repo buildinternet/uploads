@@ -118,16 +118,32 @@ export async function handleLinkShared(
     Object.fromEntries(
       previews.map((preview) => [preview.url, { blocks: previewBlocks(preview, { images }) }]),
     );
-  const metadata = deps.workObjects
-    ? { entities: previews.map((preview) => unfurlEntity(preview, deps)) }
-    : undefined;
+  const entities = (images: boolean) => ({
+    entities: previews.map((preview) => unfurlEntity(preview, { ...deps, images })),
+  });
   const api = { token: deps.botToken, fetch: deps.slackFetch };
-  let result = await chatUnfurl(unfurlTarget(event), build(true), api, metadata);
-  // Work Objects need the app's Work Object Previews setting; if Slack
-  // rejects the metadata for any reason, the blocks alone still preview.
-  if (!result.ok && metadata) {
-    console.warn("slack.unfurl: retrying without Work Object metadata", { error: result.error });
-    result = await chatUnfurl(unfurlTarget(event), build(true), api);
+  let result = await chatUnfurl(
+    unfurlTarget(event),
+    build(true),
+    api,
+    deps.workObjects ? entities(true) : undefined,
+  );
+  // Slack answers `error_processing_metadata` when it can't use the Work
+  // Object, and an image it can't fetch is one cause. Try the Work Object
+  // without images, then the blocks alone, which always preview.
+  if (!result.ok && deps.workObjects) {
+    console.warn("slack.unfurl: Work Object rejected, retrying without images", {
+      error: result.error,
+      detail: result.response_metadata,
+    });
+    result = await chatUnfurl(unfurlTarget(event), build(true), api, entities(false));
+    if (!result.ok) {
+      console.warn("slack.unfurl: Work Object rejected again, sending blocks only", {
+        error: result.error,
+        detail: result.response_metadata,
+      });
+      result = await chatUnfurl(unfurlTarget(event), build(true), api);
+    }
   }
   // Slack fetches every image before accepting the call, and one image it
   // can't fetch rejects the whole batch. Retry once without images.
