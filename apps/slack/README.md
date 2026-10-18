@@ -80,9 +80,10 @@ fields under it, so feed and gallery cards send the image alone (the feed's
 latest, the gallery's cover) and their details (PR and state, file count,
 description) are in the side panel. A feed with no image keeps its fields.
 
-Clicking a thumbnail can open Slack's full-size viewer
+Clicking a card's image can open Slack's full-size viewer
 (`attributes.full_size_preview`), but only for PNG, JPEG, GIF, and WebP
-images on a host listed in `SLACK_FULL_SIZE_HOSTS`. Slack loads the image
+images and PDFs on a host listed in `SLACK_FULL_SIZE_HOSTS`. Slack's viewer
+doesn't take video. Slack loads the file
 from `app.slack.com`, so each listed host must answer CORS for that origin.
 For the hosted R2 domains that's a bucket CORS rule on `uploads-default`:
 

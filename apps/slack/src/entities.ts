@@ -261,8 +261,14 @@ export function parseHosts(raw: string | null | undefined): string[] {
     .filter(Boolean);
 }
 
-/** Slack's full-size viewer takes images and PDFs; we only send images it can draw. */
-const FULL_SIZE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
+/** Slack's full-size viewer takes images and PDFs (not video); these are the ones it can draw. */
+const FULL_SIZE_TYPES = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+  "application/pdf",
+]);
 
 function fullSizePreview(
   image: { url: string; mime?: string } | undefined,
@@ -345,8 +351,14 @@ export function entityMetadata(
     ...(pager?.actions.length ? { primary_actions: pager.actions } : {}),
     ...(overflow.length ? { overflow_actions: overflow } : {}),
   };
-  const fullSize =
-    entity.type === "file" || pager ? fullSizePreview(image, options.fullSizeHosts ?? []) : null;
+  // A PDF has no preview image, so the viewer opens the PDF itself.
+  const fullSizeSource =
+    entity.type === "file" && entity.pdfUrl && withImages
+      ? { url: entity.pdfUrl, mime: "application/pdf" }
+      : entity.type === "file" || pager
+        ? image
+        : undefined;
+  const fullSize = fullSizePreview(fullSizeSource, options.fullSizeHosts ?? []);
   const payload: Json = {
     attributes: {
       title: { text: clamp(preview.title, TITLE_MAX) },

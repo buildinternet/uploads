@@ -253,6 +253,23 @@ describe("Work Object unfurls", () => {
     const { attributes } = slack.calls[0]!.body.metadata.entities[0].entity_payload;
     expect(attributes.display_type).toBe("PDF");
     expect(attributes.product_icon).toEqual({ url: `${ICONS}/type-pdf.png`, alt_text: "PDF" });
+    // Not on an allowed host by default, so no full-size viewer.
+    expect(attributes).not.toHaveProperty("full_size_preview");
+  });
+
+  it("opens a PDF in Slack's full-size viewer on allowed hosts", async () => {
+    const slack = fakeSlack();
+    await run(
+      await linkShared("https://uploads.sh/f/default/docs/spec.pdf"),
+      slack,
+      env({ SLACK_FULL_SIZE_HOSTS: "storage.uploads.sh" }),
+    );
+    const { attributes } = slack.calls[0]!.body.metadata.entities[0].entity_payload;
+    expect(attributes.full_size_preview).toEqual({
+      is_supported: true,
+      preview_url: "https://storage.uploads.sh/default/docs/spec.pdf",
+      mime_type: "application/pdf",
+    });
   });
 
   it("drops query strings from the canonical url but keeps the posted one", async () => {

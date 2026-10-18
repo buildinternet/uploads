@@ -107,6 +107,8 @@ export interface PreviewEntity {
   owner?: string;
   /** A feed's newest or a gallery's first few items, each its own Work Object. */
   items?: EntityItemRef[];
+  /** The object's own URL when it's a PDF, for Slack's full-size viewer. */
+  pdfUrl?: string;
   /** Links for the Work Object's overflow menu, e.g. the PR on GitHub. */
   links?: Array<{ text: string; url: string }>;
 }
@@ -345,6 +347,10 @@ function itemRefs(
   });
 }
 
+function pdfUrl(item: { url: string | null; contentType: string | null }) {
+  return item.url && mediaKind(item.contentType) === "PDF" ? { pdfUrl: item.url } : {};
+}
+
 function originalLink(url: string | null | undefined) {
   return url ? [{ text: "Open original file", url }] : [];
 }
@@ -473,6 +479,7 @@ async function filePreview(
       ...(gh?.title ? { description: gh.title } : {}),
       fields: [...(gh ? [threadField(gh)] : []), ...pathField(file.metadata?.path)],
       ...ownerOf(gh?.repo),
+      ...pdfUrl(file),
       links: [...(gh ? [{ text: "Open on GitHub", url: gh.url }] : []), ...originalLink(file.url)],
     },
   };
@@ -524,6 +531,7 @@ async function feedPreview(
           ...pathField(item.path),
         ],
         ...ownerOf(feed.repo),
+        ...pdfUrl(item),
         links: originalLink(item.url),
       },
     };
@@ -655,6 +663,7 @@ async function galleryPreview(
           },
           { key: "position", label: "Position", value: position },
         ],
+        ...pdfUrl(item),
         links: originalLink(item.url),
       },
     };
