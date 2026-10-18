@@ -51,6 +51,22 @@ import { allowWrite } from "../guards";
 import { throwForInviteError } from "../invite-error";
 import { deriveWebOrigin, inviteLinkUrl } from "../invite-links";
 import { ALLOWED_WINDOWS, cachedOverview } from "../metrics-overview";
+import {
+  buildClassifierOverview,
+  CLASSIFIER_CACHE_TTL,
+  CLASSIFIER_FLAGGED_DEFAULT_LIMIT,
+  CLASSIFIER_FLAGGED_MAX_LIMIT,
+  CLASSIFIER_SAFETY_FIELDS,
+  classifierCacheKey,
+  decodeFlaggedCursor,
+  listFlaggedFiles,
+} from "../classifier-admin";
+import {
+  CLASSIFIER_ADMIN_WINDOWS,
+  type ClassifierAdminWindow,
+  type ClassifierOverview,
+  type ClassifierSafetyField,
+} from "../classifier-admin-wire";
 import { utcDay } from "../adoption";
 import { uploadsOnDay, windowStart, workspaceUploadSeries } from "../adoption-queries";
 import {
@@ -671,6 +687,73 @@ export const adminUi = new Hono<SessionVars>()
       sinceDays: Number.isFinite(days) && days > 0 ? Math.min(days, 365) : undefined,
     });
     return c.json({ clients: rows.map(clientActivityResponse) });
+  })
+
+  // Operator classifier views (classifier-admin.ts). Overview is cached in KV
+  // like /metrics/overview; the flagged list is a live keyset-paged read.
+  .get("/classifier/overview", async (c) => {
+    const raw = c.req.query("days");
+    const days = raw === undefined ? 30 : Number(raw);
+    if (!CLASSIFIER_ADMIN_WINDOWS.includes(days as ClassifierAdminWindow)) {
+      throw new ValidationError(`days must be one of ${CLASSIFIER_ADMIN_WINDOWS.join(", ")}`, {
+        code: "invalid_window",
+      });
+    }
+    const key = classifierCacheKey(days);
+    if (c.req.query("fresh") !== "1") {
+      try {
+        const hit = await c.env.REGISTRY.get(key);
+        if (hit) return c.json(JSON.parse(hit) as ClassifierOverview);
+      } catch {
+        // fall through to a live build
+      }
+    }
+    const overview = await buildClassifierOverview(dbFor(c.env), days as ClassifierAdminWindow);
+    try {
+      await c.env.REGISTRY.put(key, JSON.stringify(overview), {
+        expirationTtl: CLASSIFIER_CACHE_TTL,
+      });
+    } catch {
+      // caching is an optimization, never a requirement
+    }
+    return c.json(overview);
+  })
+
+  .get("/classifier/flagged", async (c) => {
+    const field = c.req.query("field") || undefined;
+    if (field && !(CLASSIFIER_SAFETY_FIELDS as readonly string[]).includes(field)) {
+      throw new ValidationError(`field must be one of ${CLASSIFIER_SAFETY_FIELDS.join(", ")}`, {
+        code: "invalid_field",
+      });
+    }
+    const confidence = c.req.query("confidence") || undefined;
+    if (confidence && confidence !== "high") {
+      throw new ValidationError("confidence must be high", { code: "invalid_confidence" });
+    }
+    const workspace = c.req.query("workspace")?.trim() || undefined;
+    if (workspace && !WS_NAME_RE.test(workspace)) {
+      throw new ValidationError("invalid workspace name", { code: "invalid_workspace" });
+    }
+    const cursor = c.req.query("cursor") || undefined;
+    if (cursor && !decodeFlaggedCursor(cursor)) {
+      throw new ValidationError("invalid cursor", { code: "invalid_cursor" });
+    }
+    const rawLimit = c.req.query("limit");
+    const limit = rawLimit === undefined ? CLASSIFIER_FLAGGED_DEFAULT_LIMIT : Number(rawLimit);
+    if (!Number.isInteger(limit) || limit < 1 || limit > CLASSIFIER_FLAGGED_MAX_LIMIT) {
+      throw new ValidationError(`limit must be 1-${CLASSIFIER_FLAGGED_MAX_LIMIT}`, {
+        code: "invalid_limit",
+      });
+    }
+    return c.json(
+      await listFlaggedFiles(dbFor(c.env), {
+        field: field as ClassifierSafetyField | undefined,
+        highConfidenceOnly: confidence === "high",
+        workspace,
+        cursor,
+        limit,
+      }),
+    );
   })
 
   // List every KV workspace joined with its org + member/invite counts.
