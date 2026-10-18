@@ -1397,7 +1397,20 @@ thrown evaluation are all off.
    `--llm-classifier on` is deprecated as an allowlist. It writes `true`,
    which does not enable classification by itself.
 
-3. **Workspace hold off** — `holdFlaggedUploads === false` keeps the labels
+3. **Hold kill switch (preferred for holds)** — Flagship flag
+   `upload-holds`, same app and `{ org, workspace }` context as the
+   classifier. Serving off stops every new hold, platform-wide or for one
+   workspace via a targeting rule, with no deploy. Labels keep landing, and
+   each would-be hold logs `upload_hold_skipped` with `skip: "flag"`. Fails
+   closed: an unreachable Flagship also stops new holds. Files already held
+   stay held until approved.
+
+   ```bash
+   wrangler flagship flags update 8371bfe7-9767-4b4d-b75a-37b94d2724f7 \
+     upload-holds --default off
+   ```
+
+4. **Workspace hold off** — `holdFlaggedUploads === false` keeps the labels
    but stops holding high-confidence secret and sensitive-PII uploads
    (`upload-hold.ts`). It does not release files already held; approve
    those with `uploads approve`.
@@ -1407,7 +1420,7 @@ thrown evaluation are all off.
    pnpm workspace:limits <name> --clear-hold-flagged
    ```
 
-4. **Unset `OPENROUTER_API_KEY`** — remove the worker secret and redeploy.
+5. **Unset `OPENROUTER_API_KEY`** — remove the worker secret and redeploy.
    Slower than Flagship, survives a Flagship outage. The upload path skips
    classification and does not call OpenRouter.
 

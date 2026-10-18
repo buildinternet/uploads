@@ -96,6 +96,7 @@ function makeClassifierEnv(
   wsOver: Partial<WorkspaceRecord> = {},
   opts: {
     lunaFlag?: boolean;
+    holdFlag?: boolean;
     provider?: string;
     openRouterKey?: string;
     status?: number;
@@ -153,6 +154,7 @@ function makeClassifierEnv(
         flagCalls.push(args);
         if (args[0] === "llm-file-classifier") return true;
         if (args[0] === "llm-file-classifier-luna") return opts.lunaFlag === true;
+        if (args[0] === "upload-holds") return opts.holdFlag !== false;
         return false;
       },
     },
@@ -1355,6 +1357,14 @@ describe("held uploads", () => {
     expect(await holdOf(harness.env)).toBeUndefined();
     const stored = (await getMetadataForKeys(harness.env.DB, WORKSPACE, [key])).get(key);
     expect(stored?.["ai.secret"]).toBe("api_key");
+  });
+
+  it("does not hold when the operator kill switch is off", async () => {
+    const { env, ws } = makeClassifierEnv(() => FLAGGED, {}, { holdFlag: false });
+    await classifyAndStore(env, ws, WORKSPACE, key, FITTING_PNG, "image/png", {
+      enforceHold: true,
+    });
+    expect(await holdOf(env)).toBeUndefined();
   });
 
   it("does not hold when the workspace turned holds off", async () => {
