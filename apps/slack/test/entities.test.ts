@@ -42,7 +42,7 @@ const FILE = {
   size: 138352,
   contentType: "image/png",
   uploaded: "2026-10-18T00:17:35.000Z",
-  metadata: { path: "/settings" },
+  metadata: { path: "/settings", viewport: "1280x800@2x", "ai.kind": "screenshot" },
   github: {
     repo: "acme/app",
     kind: "pull",
@@ -93,7 +93,7 @@ const FIXTURES: Record<string, unknown> = {
   },
   [`/public/feeds/${FEED_ID}/items/newest`]: {
     feed: FEED_FEED,
-    item: feedItem("newest", "2026-10-18T00:00:00.000Z"),
+    item: { ...feedItem("newest", "2026-10-18T00:00:00.000Z"), state: "after" },
     prev: null,
     next: "middle",
     index: 0,
@@ -457,7 +457,8 @@ describe("Work Object flexpane", () => {
     const keys = slack.calls[0]!.body.metadata.entity_payload.custom_fields.map(
       (f: { key: string }) => f.key,
     );
-    expect(keys).toEqual(["github", "page_path", "file_size", "content_type"]);
+    // The share page's other public metadata follows (never `ai.*`).
+    expect(keys).toEqual(["github", "page_path", "meta_viewport", "file_size", "content_type"]);
   });
 
   it("opens a feed at its newest item with only an Older button", async () => {
@@ -484,7 +485,7 @@ describe("Work Object flexpane", () => {
     });
     expect(payload.custom_fields.map((f: { key: string }) => f.key)).not.toContain("state");
     expect(payload.fields.preview.image_url).toBe("https://storage.uploads.sh/newest.png");
-    expect(payload.custom_fields.slice(0, 2)).toEqual([
+    expect(payload.custom_fields.slice(0, 3)).toEqual([
       {
         key: "showing",
         label: "Showing",
@@ -492,7 +493,9 @@ describe("Work Object flexpane", () => {
         type: "string",
         link: `https://uploads.sh/c/${FEED_ID}/newest`,
       },
-      { key: "position", label: "Position", value: "1 of 3, newest first", type: "string" },
+      // No position: "1 of 3" says little, and the pager buttons show where you are.
+      { key: "page_path", label: "Page", value: "/settings", type: "string" },
+      { key: "shot_state", label: "State", value: "After", type: "string" },
     ]);
     expect(payload.actions.primary_actions).toEqual([
       { text: "Older", action_id: PAGE_NEXT_ACTION, value: "middle" },
