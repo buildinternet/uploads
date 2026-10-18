@@ -249,7 +249,7 @@ A stored flag stays until a later classification writes that same key. A confide
 
 The classifier version does not change for these flags. `v5`, `v6`, `v4`, and `skipped` still name how the image was prepared. A file labeled before the flags existed simply has none of these keys.
 
-### Held uploads
+### Held uploads <a class="anchor" href="#held-uploads" aria-label="Link to this section">#</a>
 
 A high-confidence `ai.secret` (any value other than `none`), or a high-confidence `ai.pii` of `identity_document`, `financial`, or `other`, holds the file for review. The server writes `ai.hold=pending`. A held file works like a staged one:
 
@@ -263,6 +263,13 @@ Check each held file before you approve it. If it does show a credential, rotate
 uploads approve --pr 12             # list held files and why
 uploads approve --pr 12 --all       # approve every held file on the PR
 uploads approve <key>               # approve one file
+```
+
+A CLI older than `uploads approve` can call the API directly. Find the keys with `GET /v1/workspaces/$WORKSPACE/files/held`:
+
+```bash
+curl -X POST -H "Authorization: Bearer $UPLOADS_TOKEN" \
+  "https://api.uploads.sh/v1/workspaces/$WORKSPACE/files/approve?key=$KEY"
 ```
 
 Approval writes `ai.hold=approved` and re-syncs the comment. Re-uploading identical bytes keeps the approval. New bytes are classified again and can be held again. `ai.pii=contact` never holds a file, and the `ai.rating` and `ai.content` flags never hold one.
