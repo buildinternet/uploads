@@ -273,6 +273,70 @@
         }
       }
     },
+    "/v1/workspaces/{workspace}/files/held": {
+      "parameters": [{ "$ref": "#/components/parameters/Workspace" }],
+      "get": {
+        "operationId": "listHeldFiles",
+        "security": [{ "bearerAuth": ["files:read"] }],
+        "summary": "List files held for review",
+        "description": "Keys held for approval, optionally under one key prefix. A held file on hosted storage is moved out of the public bucket, so the file list does not show it.",
+        "parameters": [
+          { "name": "prefix", "in": "query", "required": false, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Held files.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["items"],
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": ["key", "reason", "moved"],
+                        "properties": {
+                          "key": { "type": "string" },
+                          "reason": { "type": ["string", "null"] },
+                          "moved": { "type": "boolean" }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
+    "/v1/workspaces/{workspace}/files/held/download": {
+      "parameters": [{ "$ref": "#/components/parameters/Workspace" }],
+      "get": {
+        "operationId": "downloadHeldFile",
+        "security": [{ "bearerAuth": ["files:read"] }],
+        "summary": "Download a held file for review",
+        "description": "Streams the held copy as an attachment. 404 when the file has no held copy.",
+        "parameters": [
+          { "name": "key", "in": "query", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "The held file's bytes.",
+            "content": {
+              "application/octet-stream": { "schema": { "type": "string", "format": "binary" } }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
     "/v1/workspaces/{workspace}/files/approve": {
       "parameters": [{ "$ref": "#/components/parameters/Workspace" }],
       "post": {

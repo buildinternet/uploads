@@ -994,7 +994,19 @@ export async function syncAttachmentsComment(
   // Held uploads (parity with the bot's gather): a file the classifier held
   // for approval never renders, and only a count line says it exists.
   const items = listedItems.filter((item) => !isHeldUpload(metadataByKey.get(item.key)));
-  const heldCount = listedItems.length - items.length;
+  // A held file on hosted storage is no longer in the listing; the server's
+  // held list still counts it. Best-effort, like the rest of this path.
+  const heldKeys = new Set(
+    listedItems.filter((item) => !items.includes(item)).map((item) => item.key),
+  );
+  try {
+    for (const file of (await Promise.all(prefixes.map((p) => client.listHeld(p)))).flat()) {
+      heldKeys.add(file.key);
+    }
+  } catch {
+    // Older server, or no files:read: count only what the listing shows.
+  }
+  const heldCount = heldKeys.size;
 
   const galleries: (GalleryCommentItem & { id: string })[] = [];
   let cursor: string | undefined;
@@ -3088,21 +3100,39 @@ export async function approveHeldFiles(opts: {
   const prefixes = ghListPrefixes(ghKeyPrefix(target), ghPrefix, (id) =>
     ghPrivateKeyPrefix(id, target),
   );
-  const listed = await ghMergedList(prefixes, undefined, async (prefix) =>
-    opts.client.listAll({ prefix, metadata: true }),
-  );
+  const held = await listHeldUnder(opts.client, prefixes);
   const files: ApproveFile[] = [];
-  for (const item of listed) {
-    if (!isHeldUpload(item.metadata)) continue;
-    const reason = heldReason(item.metadata);
+  for (const { key, reason } of held) {
     if (opts.all && !dryRun) {
-      const result = await opts.client.approve(item.key);
-      files.push({ key: item.key, action: result.approved ? "approved" : "not_held", reason });
+      const result = await opts.client.approve(key);
+      files.push({ key, action: result.approved ? "approved" : "not_held", reason });
     } else {
-      files.push({ key: item.key, action: "held", reason });
+      files.push({ key, action: "held", reason });
     }
   }
   return { dryRun, repo: target.repo, number: target.num, files };
+}
+
+/**
+ * Held files under `prefixes`. The server's held list is the source: a held
+ * file on hosted storage leaves the public bucket, so `list` cannot see it.
+ * An older server without that route falls back to the listing's metadata.
+ */
+async function listHeldUnder(
+  client: UploadsClient,
+  prefixes: readonly string[],
+): Promise<{ key: string; reason: string }[]> {
+  try {
+    const pages = await Promise.all(prefixes.map((prefix) => client.listHeld(prefix)));
+    return pages.flat().map((file) => ({ key: file.key, reason: file.reason ?? "flagged" }));
+  } catch {
+    const listed = await ghMergedList(prefixes, undefined, async (prefix) =>
+      client.listAll({ prefix, metadata: true }),
+    );
+    return listed
+      .filter((item) => isHeldUpload(item.metadata))
+      .map((item) => ({ key: item.key, reason: heldReason(item.metadata) }));
+  }
 }
 
 const APPROVE_HELP = `uploads approve (--pr <n> | --issue <n>) [--repo <owner/name>] [--all] [--dry-run]
@@ -3112,7 +3142,9 @@ Release uploads held for review. The classifier holds a file it thinks shows
 a secret (an API key, a password, a token) or sensitive personal data (an ID
 document, a card number). A held file stays out of the managed PR comment,
 public feeds, galleries, and its /f/ page until a workspace member approves
-it. Its raw storage URL still serves the bytes.
+it. On hosted storage its raw URL returns 404 while it is held, and comes
+back at the same URL on approval. A file in your own bucket keeps serving
+from your domain.
 
 Check the file first. If it does show a credential, rotate the credential
 and replace or delete the file instead of approving it.

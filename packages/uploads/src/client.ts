@@ -202,6 +202,15 @@ export interface DeleteResult {
   deleted: boolean;
 }
 
+/** One row of `GET /v1/workspaces/:workspace/files/held`. */
+export interface HeldFile {
+  key: string;
+  /** `secret: api_key`, `pii: financial`, or null. */
+  reason: string | null;
+  /** True when the bytes moved out of the public bucket while held. */
+  moved: boolean;
+}
+
 /**
  * `POST /v1/workspaces/:workspace/files/approve?key=`. `approved: false`
  * with `reason: "not_held"` means the file was not held (already approved,
@@ -1419,6 +1428,16 @@ export function createUploadsClient(
 
     async delete(key: string): Promise<DeleteResult> {
       return request<DeleteResult>("DELETE", `${canonicalFilesBase(config)}/${encodeKeyPath(key)}`);
+    },
+
+    /** Files held for review, optionally under one key prefix. */
+    async listHeld(prefix?: string): Promise<HeldFile[]> {
+      const query = prefix ? `?prefix=${encodeURIComponent(prefix)}` : "";
+      const result = await request<{ items: HeldFile[] }>(
+        "GET",
+        `${canonicalFilesBase(config)}/held${query}`,
+      );
+      return result.items;
     },
 
     /** Release a file held for approval (a likely secret or personal data). */

@@ -255,7 +255,7 @@ A high-confidence `ai.secret` (any value other than `none`), or a high-confidenc
 
 - The managed pull request comment leaves it out. One line says how many files are held and how to approve them. The line never names a file.
 - Public feeds and galleries show it as withheld, and its `/f/` page asks for sign-in.
-- Its raw storage URL still serves the bytes. A hold keeps the file out of what uploads.sh publishes. It does not lock the bytes.
+- On hosted storage, its raw URL returns 404 while it is held. Approval brings the file back at the same URL. A file in your own bucket keeps serving from your domain.
 
 Check each held file before you approve it. If it does show a credential, rotate the credential, then replace or delete the file.
 

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { putObject } from "../src/files-core";
+import { deleteObject, putObject } from "../src/files-core";
+import { FakeR2Bucket } from "./fake-r2";
 import { findObjectsByMetadata, getMetadataForKeys } from "../src/file-metadata";
 import {
   CLASSIFIER_JEV_MODEL,
@@ -1378,5 +1379,66 @@ describe("held uploads", () => {
       reason: "not_held",
     });
     expect(await holdOf(env)).toBeUndefined();
+  });
+});
+
+describe("held uploads move out of the public bucket", () => {
+  const key = "images/flagged.png";
+  const publicKey = `default/${key}`;
+  const heldKey = `${WORKSPACE}/${key}`;
+
+  function heldHarness(respond: () => unknown = () => FLAGGED) {
+    const harness = makeClassifierEnv(respond);
+    const held = new FakeR2Bucket();
+    (harness.env as unknown as { UPLOADS_HELD: FakeR2Bucket }).UPLOADS_HELD = held;
+    const publicBucket = (harness.env as unknown as { UPLOADS_DEFAULT: FakeR2Bucket })
+      .UPLOADS_DEFAULT;
+    return { ...harness, held, publicBucket };
+  }
+  const rows = async (env: Env) => (await getMetadataForKeys(env.DB, WORKSPACE, [key])).get(key);
+
+  it("moves a held file into the held bucket and back on approval", async () => {
+    const harness = heldHarness();
+    await putFlagged(harness, FITTING_PNG);
+
+    expect(await harness.publicBucket.head(publicKey)).toBeNull();
+    expect(await harness.held.head(heldKey)).not.toBeNull();
+    expect((await rows(harness.env))?.["ai.hold.moved"]).toBe("1");
+
+    expect(await approveUpload(harness.env, harness.ws, WORKSPACE, key)).toEqual({
+      approved: true,
+    });
+    const restored = await harness.publicBucket.get(publicKey);
+    expect(new Uint8Array(await restored!.arrayBuffer())).toEqual(FITTING_PNG);
+    expect(await harness.held.head(heldKey)).toBeNull();
+    const after = await rows(harness.env);
+    expect(after?.["ai.hold"]).toBe("approved");
+    expect(after?.["ai.hold.moved"]).toBeUndefined();
+  });
+
+  it("moves identical bytes straight back out when a held key is re-uploaded", async () => {
+    const harness = heldHarness();
+    await putFlagged(harness, FITTING_PNG);
+    await putFlagged(harness, FITTING_PNG, { replace: true });
+    expect(await harness.publicBucket.head(publicKey)).toBeNull();
+    expect(await harness.held.head(heldKey)).not.toBeNull();
+  });
+
+  it("drops the held copy when new bytes replace a held file", async () => {
+    let calls = 0;
+    const harness = heldHarness(() => (++calls === 1 ? FLAGGED : DECIDED));
+    await putFlagged(harness, FITTING_PNG);
+    await putFlagged(harness, atLeast(pngOf(512, 300)), { replace: true });
+    expect(await harness.held.head(heldKey)).toBeNull();
+    expect(await harness.publicBucket.head(publicKey)).not.toBeNull();
+    expect((await rows(harness.env))?.["ai.hold"]).toBeUndefined();
+  });
+
+  it("deletes the held copy with the file", async () => {
+    const harness = heldHarness();
+    await putFlagged(harness, FITTING_PNG);
+    await deleteObject(harness.env, harness.ws, key, WORKSPACE);
+    expect(await harness.held.head(heldKey)).toBeNull();
+    expect(await rows(harness.env)).toBeUndefined();
   });
 });

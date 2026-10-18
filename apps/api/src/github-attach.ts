@@ -35,6 +35,7 @@ import {
   putOptsFromStoredObject,
   sanitizeKeyBasename,
 } from "./files-core";
+import { reholdIfHeld } from "./held-storage";
 import {
   classifierRowsOf,
   getFileMetadata,
@@ -278,6 +279,7 @@ export async function attachExistingObject(
   // The copy is not classified again, so its labels and any hold
   // (`upload-hold.ts`) come from the source.
   await setServerFileMetadata(dbFor(env), workspaceName, destKey, classifierRowsOf(sourceMeta));
+  await reholdIfHeld(env, ws, workspaceName, destKey);
 
   // Tag the branch source before a move-delete. The copy already succeeded,
   // so a tagging failure is logged and does not fail the attach. Promote

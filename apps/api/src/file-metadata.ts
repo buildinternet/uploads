@@ -109,6 +109,7 @@ export const CLASSIFIER_ROW_KEYS: ReadonlySet<string> = new Set([
   "ai.tags",
   "ai.summary",
   "ai.hold",
+  "ai.hold.moved",
   ...SAFETY_FLAG_KEYS,
 ]);
 

@@ -392,6 +392,22 @@ describe("gatherCommentBody held uploads", () => {
     expect(result.body).toContain("1 file is held for review");
   });
 
+  it("counts a moved hold that has no public object left", async () => {
+    const { env, ws, workspaceName } = makeTestEnv();
+    await setServerFileMetadata(env.DB, workspaceName, "gh/acme/web/pull/12/moved.png", {
+      "ai.hold": "pending",
+      "ai.hold.moved": "1",
+    });
+    // Another PR's hold does not count here.
+    await setServerFileMetadata(env.DB, workspaceName, "gh/acme/web/pull/13/other.png", {
+      "ai.hold": "pending",
+    });
+    const result = await gatherCommentBody(env, ws, workspaceName, target);
+    expect(result.count).toBe(1);
+    expect(result.body).toContain("1 file is held for review");
+    expect(result.body).not.toContain("moved.png");
+  });
+
   it("renders an approved file normally", async () => {
     const { env, ws, workspaceName, bucket } = makeTestEnv();
     await bucket.put("acme/gh/acme/web/pull/12/ok.png", PNG, {
@@ -839,10 +855,11 @@ describe("gatherCommentBody attachment metadata (issue #365)", () => {
       { repo: "acme/web", num: 12, kind: "pull" },
     );
 
-    // Two queries: the private-prefix discovery scan (issue #934) and the
-    // unconditional gh.detached + feed-scope read. The path/state fetch is
-    // skipped, and the comment path no longer queries the PR scope.
-    expect(metadataQueries).toBe(2);
+    // Three queries: the private-prefix discovery scan (issue #934), the
+    // unconditional gh.detached + feed-scope read, and the moved-hold lookup
+    // (`listHeldKeys`). The path/state fetch is skipped, and the comment path
+    // no longer queries the PR scope.
+    expect(metadataQueries).toBe(3);
     expect(result.body).not.toContain("<code>/settings");
   });
 

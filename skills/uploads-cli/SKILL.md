@@ -746,7 +746,8 @@ comments omit them. A high-confidence `ai.secret` (not `none`), or a
 high-confidence `ai.pii` of `identity_document|financial|other`, holds the
 file (`ai.hold=pending`): the managed comment leaves it out and shows a held
 count, public feeds and galleries withhold it, and its `/f/` page asks for
-sign-in. The raw URL still serves the bytes. Check the file, then run
+sign-in. On hosted storage the raw URL returns 404 until approval, which
+restores the same URL. Check the file, then run
 `uploads approve --pr <n>` to list held files and `--all` to approve them,
 or `uploads approve <key>`. If the file does show a credential, rotate it and
 replace or delete the file instead of approving. The classifier

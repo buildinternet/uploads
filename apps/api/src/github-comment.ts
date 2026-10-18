@@ -27,6 +27,7 @@ import type { WorkspaceRecord } from "./workspace";
 import { githubFetch, githubHeaders, installationToken, type GithubAppConfig } from "./github-app";
 import { resolveRepoCommentOptions } from "./repo-comment-config";
 import { HOLD_META_KEY, isHeld } from "./upload-hold";
+import { listHeldKeys } from "./upload-hold-read";
 import type { ResolvedCommentOptions } from "@uploads/comment-config";
 import {
   attachmentsCommentBody,
@@ -245,7 +246,13 @@ async function gatherAttachments(
   );
 
   const shown = items.filter((item) => !isHeld(scopeMetaByKey.get(item.key)));
-  const heldCount = items.length - shown.length;
+  // A moved hold (`held-storage.ts`) has no public object to list, so its
+  // key comes from D1.
+  const listedKeys = new Set(items.map((item) => item.key));
+  const movedHeld = (await listHeldKeysSafe(env, workspaceName)).filter(
+    (key) => !listedKeys.has(key) && prefixes.some((prefix) => key.startsWith(prefix)),
+  );
+  const heldCount = items.length - shown.length + movedHeld.length;
   items = shown;
 
   const liveLinkUrl =
@@ -329,6 +336,19 @@ async function gatherAttachments(
     }
   }
   return { items, liveLinkUrl, heldCount };
+}
+
+/**
+ * Best-effort for the comment: a failed lookup renders without the moved
+ * holds' count line, the same as before holds existed.
+ */
+async function listHeldKeysSafe(env: Env, workspaceName: string): Promise<string[]> {
+  try {
+    return await listHeldKeys(env, workspaceName);
+  } catch (err) {
+    console.error({ event: "held_keys_lookup_failed", workspace: workspaceName, err });
+    return [];
+  }
 }
 
 async function resolvePosterUrl(

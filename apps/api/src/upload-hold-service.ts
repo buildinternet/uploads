@@ -6,14 +6,21 @@
  * approved one returns to it, without waiting for the next upload.
  */
 
+import { ServiceUnavailableError } from "@uploads/errors";
 import { dbFor } from "./db-session";
-import { getFileMetadata, setServerFileMetadata } from "./file-metadata";
+import {
+  deleteServerFileMetadataKeys,
+  getFileMetadata,
+  setServerFileMetadata,
+} from "./file-metadata";
 import { parseAttachmentKey } from "./github-attachment-index";
+import { moveToHeld, restoreFromHeld } from "./held-storage";
 import { postManagedComment } from "./github-comment-service";
 import type { GhTarget } from "./github-comment-render";
 import {
   HOLD_APPROVED,
   HOLD_META_KEY,
+  HOLD_MOVED_KEY,
   HOLD_PENDING,
   holdPolicyEnabled,
   holdReason,
@@ -42,8 +49,17 @@ export async function applyUploadHold(
     const db = dbFor(env);
     const existing = await getFileMetadata(db, workspaceName, key);
     if (existing[HOLD_META_KEY] !== undefined) return false;
+    // The row lands first: a move that fails part way leaves the public
+    // object in place, still held on every surface.
     await setServerFileMetadata(db, workspaceName, key, { [HOLD_META_KEY]: HOLD_PENDING });
-    console.log({ event: "upload_held", workspace: workspaceName, reason });
+    let moved = false;
+    try {
+      moved = await moveToHeld(env, ws, workspaceName, key);
+      if (moved) await setServerFileMetadata(db, workspaceName, key, { [HOLD_MOVED_KEY]: "1" });
+    } catch (err) {
+      console.error({ event: "upload_hold_move_failed", workspace: workspaceName, err });
+    }
+    console.log({ event: "upload_held", workspace: workspaceName, reason, moved });
     await resyncAttachmentComment(env, ws, workspaceName, key, existing);
     return true;
   } catch (err) {
@@ -68,6 +84,16 @@ export async function approveUpload(
   const db = dbFor(env);
   const existing = await getFileMetadata(db, workspaceName, key);
   if (existing[HOLD_META_KEY] !== HOLD_PENDING) return { approved: false, reason: "not_held" };
+  if (existing[HOLD_MOVED_KEY] === "1") {
+    // Bytes first: approving a file whose bytes cannot come back would
+    // leave its links broken with no hold left to explain why.
+    if (!(await restoreFromHeld(env, ws, workspaceName, key))) {
+      throw new ServiceUnavailableError("the held copy of this file could not be restored", {
+        code: "held_restore_failed",
+      });
+    }
+    await deleteServerFileMetadataKeys(db, workspaceName, key, [HOLD_MOVED_KEY]);
+  }
   await setServerFileMetadata(db, workspaceName, key, { [HOLD_META_KEY]: HOLD_APPROVED });
   console.log({ event: "upload_approved", workspace: workspaceName });
   await resyncAttachmentComment(env, ws, workspaceName, key, existing);

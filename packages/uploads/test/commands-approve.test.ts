@@ -72,6 +72,18 @@ describe("approveHeldFiles", () => {
     expect(approved).toEqual([]);
   });
 
+  it("finds a moved hold through the server's held list", async () => {
+    const { client } = fakeClient({ items: [item("ok.png")] });
+    const moved = `${PREFIX}moved.png`;
+    const withHeld = {
+      ...client,
+      listHeld: async (prefix: string) =>
+        prefix === PREFIX ? [{ key: moved, reason: "secret: token", moved: true }] : [],
+    } as unknown as UploadsClient;
+    const result = await approveHeldFiles({ client: withHeld, target: TARGET });
+    expect(result.files).toEqual([{ key: moved, action: "held", reason: "secret: token" }]);
+  });
+
   it("approves explicit keys and reports a key that was not held", async () => {
     const key = `${PREFIX}token.png`;
     const { client, approved } = fakeClient({

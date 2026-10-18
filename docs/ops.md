@@ -1323,8 +1323,23 @@ A stored decision with a `high` `ai.secret` other than `none`, or a `high`
 logs `upload_held` with the reason, then re-syncs the managed PR comment
 when the key is a PR or issue attachment. A held file is left out of the
 comment (a count line replaces it), withheld from public feeds and
-galleries, and 401s on `/public/files`. The raw storage URL still serves:
-storage hosts are R2 custom domains with no Worker in the read path.
+galleries, and 401s on `/public/files`.
+
+Storage hosts are R2 custom domains with no Worker in the read path, so
+the bytes have to move (`held-storage.ts`). On a hosted (shared-lane) key
+the hold copies the object and its poster into `UPLOADS_HELD` (bucket
+`uploads-held`, preview `uploads-preview-held`) at `<workspace>/<key>`,
+deletes the public copy, and writes `ai.hold.moved=1`. Never give that
+bucket a custom domain or an r2.dev URL. The edge may serve its cached copy
+for up to 60 s (`UPLOAD_CACHE_CONTROL`), and GitHub's Camo can keep its own
+copy longer. A BYO key is not moved: the customer's domain serves it.
+Approval copies the bytes back to the same key before it writes
+`approved`, so links work again. An identical re-upload of a held key is
+moved straight back out. New bytes drop the held copy. Delete removes the
+held copy and debits its size. `GET /v1/workspaces/:workspace/files/held`
+lists held keys (a moved one is absent from `list`), and
+`…/files/held/download?key=` streams the held copy to a member. Private
+prefix rotation does not move held copies.
 
 `POST /v1/workspaces/:workspace/files/approve?key=` writes
 `ai.hold=approved` and re-syncs the comment (`upload_approved`). `ai.hold`

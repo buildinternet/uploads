@@ -68,6 +68,7 @@ import {
   posterKeyFor,
 } from "./poster";
 import { scheduleFileClassification, type ClassifierWaitUntil } from "./classifier";
+import { deleteHeldCopy, dropHeldCopy, reholdIfHeld } from "./held-storage";
 import {
   contentSha256Hex,
   provenanceForResponse,
@@ -977,6 +978,21 @@ export async function putObject(
     storedVisibility,
   );
 
+  // Held uploads (`held-storage.ts`). New bytes end a hold (their
+  // classifier rows are gone above), so a held copy of the old bytes must
+  // not wait in the held bucket; R2 deletes are free. Identical bytes keep
+  // the hold, so the object this put just wrote goes straight back out of
+  // the public bucket.
+  try {
+    if (!sameBytes) {
+      await dropHeldCopy(env, workspaceName, finalKey);
+    } else {
+      await reholdIfHeld(env, ws, workspaceName, finalKey);
+    }
+  } catch (err) {
+    console.error({ event: "held_put_sync_failed", workspace: workspaceName, err });
+  }
+
   // Experimental: after durable storage + server metadata, never on the
   // critical path. Fail-open inside classifyAndStore.
   scheduleFileClassification(
@@ -1526,6 +1542,13 @@ export async function deleteObject(
 
   const configs = await storageConfigs(env, ws);
   const { hits, failures } = await deleteFromEveryLane(configs, key);
+  // A held upload's bytes may sit in the held bucket instead
+  // (`held-storage.ts`). Its size still counts against the workspace.
+  const heldSize = await deleteHeldCopy(env, workspaceName, key).catch((err: unknown) => {
+    console.error({ event: "held_delete_failed", workspace: workspaceName, err });
+    return null;
+  });
+  if (heldSize !== null && hits.length === 0) hits.push({ size: heldSize, sharedLane: true });
   await deleteFileMetadata(dbFor(env), workspaceName, key);
 
   if (hits.length > 0) {
