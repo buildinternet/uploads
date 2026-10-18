@@ -1,5 +1,11 @@
 # @buildinternet/uploads
 
+## 0.59.1
+
+### Patch Changes
+
+- 6d765c5: `uploads approve <key> --dry-run` now reports a held file correctly when its bytes have moved out of public storage, instead of failing with "Not found".
+
 ## 0.59.0
 
 ### Minor Changes

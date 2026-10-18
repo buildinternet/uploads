@@ -1,5 +1,11 @@
 # @uploads/plugin
 
+## 0.4.4
+
+### Patch Changes
+
+- 532519e: The bundled github-screenshots skill now explains a held file in the managed comment and how to check and approve it.
+
 ## 0.4.3
 
 ### Patch Changes
