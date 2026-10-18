@@ -81,6 +81,45 @@ attachments comment prefer `embedUrl` for `<img src>`.
 
 No Worker proxies image bytes — dual host is DNS + zone rules only.
 
+## Public file page performance
+
+The `/f/<workspace>/<key>` page and its `/public/files/...` metadata response
+use `Cache-Control: no-store`. Every request checks the current storage object,
+its visibility, and its hold status. Do not cache these responses by URL alone:
+a replacement, deletion, or private flip must take effect on the next request.
+
+The API returns a `previewUrl` with the object's ETag in its `v` query parameter.
+The page uses it for primary media and paired images. An overwrite with different
+bytes changes that cache key. The `url` and `embedUrl` fields keep their stable
+identities. Storage providers without an ETag fall back to the stable URL.
+Derived video/PDF poster URLs still follow their existing cache policy.
+
+GitHub titles use the attach-time stamp or the existing public-title cache.
+A cache hit must match the repository's public-title epoch. The page waits at
+most 75 ms for this optional read, alongside counterpart verification. Misses
+refresh through `waitUntil`; GitHub requests do not block the response. A later
+request can use the refreshed title. Member-only title caches never enter this path.
+
+Inspect the document's `Server-Timing` header in browser DevTools. The web worker
+forwards the API phases, so a single navigation shows both layers:
+
+| Metric              | Work measured                                               |
+| ------------------- | ----------------------------------------------------------- |
+| `file_workspace`    | Workspace registry lookup                                   |
+| `file_storage`      | Storage-lane selection and fresh object HEAD                |
+| `file_metadata`     | Current metadata and hold-state read                        |
+| `file_pair`         | Counterpart lookup and visibility verification              |
+| `file_title_cache`  | Bounded public-title cache read                             |
+| `file_api`          | Entire public-file API handler                              |
+| `file_ssr_fetch`    | Web worker's metadata subrequest, including JSON validation |
+| `file_text_preview` | Optional text-body fetch                                    |
+| `file_ssr_prepare`  | Web page preparation before template rendering              |
+
+These durations overlap; do not add them together. Failure responses include
+the phases reached before rejection. `SERVER_TIMING_DISABLED=1` suppresses
+headers on the worker where it is set. Slow API phases use the existing
+structured slow-operation logger with a fixed route label, without asset keys.
+
 ## SVG and XML on the hosted hosts (issue #929)
 
 **Applied 2026-09-02** (zone ruleset `1b295145ce4a4dc685498657af8a6956`, phase `http_response_headers_transform`, via the API):

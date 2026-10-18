@@ -89,6 +89,24 @@ describe("isPublicFile", () => {
     expect(isPublicFile(noEmbedUrl)).toBe(false);
   });
 
+  it("accepts versioned previews and rejects unsafe preview URLs on either image", () => {
+    const counterpart = { key: "before.png", url: file.url, state: "before" };
+    expect(
+      isPublicFile({
+        ...file,
+        previewUrl: `${file.url}?v=abc`,
+        counterpart: { ...counterpart, previewUrl: `${file.url}?v=def` },
+      }),
+    ).toBe(true);
+    expect(isPublicFile({ ...file, previewUrl: "javascript:alert(1)" })).toBe(false);
+    expect(
+      isPublicFile({
+        ...file,
+        counterpart: { ...counterpart, previewUrl: "http://storage.uploads.sh/x" },
+      }),
+    ).toBe(false);
+  });
+
   it("rejects non-https URLs, bad sizes, and over-long content types", () => {
     expect(isPublicFile({ ...file, url: "http://storage.uploads.sh/x" })).toBe(false);
     expect(isPublicFile({ ...file, size: -1 })).toBe(false);
@@ -302,6 +320,26 @@ describe("fetchTextPreview", () => {
     });
     expect(result).toBe("hello world");
   });
+
+  it.each([200, 401, 404, 503])(
+    "forwards API phase timings on %s without caching the read",
+    async (status) => {
+      const onServerTiming = vi.fn();
+      const fetcher = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+        Response.json(status === 200 ? file : { error: { code: "auth_required" } }, {
+          status,
+          headers: { "Server-Timing": "file_storage;dur=24, file_api;dur=51" },
+        }),
+      );
+      await fetchPublicFile("acme", "screenshots/shot.png", {
+        origin: "https://api.uploads.sh",
+        fetch: fetcher,
+        onServerTiming,
+      });
+      expect(onServerTiming).toHaveBeenCalledWith("file_storage;dur=24, file_api;dur=51");
+      expect(fetcher.mock.calls[0][1]?.cache).toBe("no-store");
+    },
+  );
 
   it("sends an identifying User-Agent so the storage zone's empty-UA WAF rule lets the SSR call through", async () => {
     const fetcher = vi.fn(

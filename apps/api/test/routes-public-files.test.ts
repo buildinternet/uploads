@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { FakeR2Bucket } from "./fake-r2";
 import { FakeKv } from "./fake-kv";
 import { GITHUB_APP_CFG_ENV } from "./github-app-env";
@@ -149,6 +149,19 @@ async function seedShot(
   return "screenshots/shot.png";
 }
 
+/** Exercise background title refreshes inside the same fetch-fake lifetime. */
+async function requestAndDrain(env: Parameters<typeof app.request>[2]) {
+  const tasks: Promise<unknown>[] = [];
+  const ctx = {
+    waitUntil: (task: Promise<unknown>) => tasks.push(task),
+    passThroughOnException() {},
+    props: {},
+  };
+  const res = await app.request("/public/files/default/screenshots/shot.png", {}, env, ctx);
+  await Promise.all(tasks);
+  return res;
+}
+
 describe("GET /public/files/:workspace/:key", () => {
   it("returns metadata + the public URL for a stored object without auth", async () => {
     const { env } = await makeEnv();
@@ -168,6 +181,103 @@ describe("GET /public/files/:workspace/:key", () => {
     expect(json.url).toBe("https://storage.uploads.sh/default/screenshots/shot.png");
     expect(json.contentType).toBe("image/png");
     expect(json.size).toBeGreaterThan(0);
+  });
+
+  it("reads one fresh storage HEAD and one metadata query per unpaired page", async () => {
+    const db = makeFakeDB();
+    const { env, bucket } = await makeEnv({}, { db });
+    await seedShot(env);
+    const head = vi.spyOn(bucket, "head");
+    const prepare = vi.spyOn(db, "prepare");
+    const res = await app.request("/public/files/default/screenshots/shot.png", {}, env);
+    expect(res.status).toBe(200);
+    expect(head).toHaveBeenCalledTimes(1);
+    expect(prepare.mock.calls.filter(([sql]) => sql.includes("FROM file_metadata"))).toHaveLength(
+      1,
+    );
+    expect(res.headers.get("Cache-Control")).toBe("no-store");
+    const timing = res.headers.get("Server-Timing");
+    for (const phase of [
+      "file_workspace",
+      "file_storage",
+      "file_metadata",
+      "file_pair",
+      "file_api",
+    ]) {
+      expect(timing).toMatch(new RegExp(`${phase};dur=\\d`));
+    }
+  });
+
+  it.each(["missing", "private", "held"])(
+    "emits uncached failure timings for %s files",
+    async (state) => {
+      const { env } = await makeEnv({}, { db: makeFakeDB() });
+      if (state !== "missing")
+        await seedShot(env, state === "private" ? { "X-Uploads-Visibility": "private" } : {});
+      if (state === "held")
+        await setServerFileMetadata(
+          env.DB as unknown as D1Database,
+          "default",
+          "screenshots/shot.png",
+          { "ai.hold": "pending" },
+        );
+      const res = await app.request("/public/files/default/screenshots/shot.png", {}, env);
+      expect(res.status).toBe(state === "missing" ? 404 : 401);
+      expect(res.headers.get("Server-Timing")).toContain("file_api;dur=");
+      expect(res.headers.get("Cache-Control")).toBe("no-store");
+    },
+  );
+
+  it("respects the Server-Timing kill switch", async () => {
+    const { env } = await makeEnv();
+    Object.assign(env, { SERVER_TIMING_DISABLED: "1" });
+    await seedShot(env);
+    const res = await app.request("/public/files/default/screenshots/shot.png", {}, env);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Server-Timing")).toBeNull();
+  });
+
+  it("rechecks replacements, visibility, and holds at the same key on every request", async () => {
+    const { env, bucket } = await makeEnv({}, { db: makeFakeDB() });
+    const key = await seedShot(env);
+    const read = () => app.request(`/public/files/default/${key}`, {}, env);
+    const originalHead = bucket.head.bind(bucket);
+    vi.spyOn(bucket, "head").mockImplementation(async (objectKey) => {
+      const head = await originalHead(objectKey);
+      return head ? { ...head, etag: `revision ${head.size}` } : null;
+    });
+    const initial = (await (await read()).json()) as { url: string; previewUrl: string };
+    expect(initial.previewUrl).toBe(`${initial.url}?v=revision+${PNG.byteLength}`);
+    expect(await (await read()).json()).toMatchObject({ previewUrl: initial.previewUrl });
+    await bucket.put(`default/${key}`, new Uint8Array(128), {
+      httpMetadata: { contentType: "image/webp" },
+    });
+    await setFileMetadata(env.DB as unknown as D1Database, "default", key, { app: "replacement" });
+    const updated = await read();
+    const replacement = (await updated.json()) as { url: string; previewUrl: string };
+    expect(replacement.url).toBe(initial.url);
+    expect(replacement.previewUrl).toBe(`${initial.url}?v=revision+128`);
+    expect(replacement).toMatchObject({
+      size: 128,
+      contentType: "image/webp",
+      metadata: { app: "replacement" },
+    });
+    await bucket.put(`default/${key}`, PNG, {
+      httpMetadata: { contentType: "image/png" },
+      customMetadata: { visibility: "private" },
+    });
+    expect((await read()).status).toBe(401);
+    await bucket.put(`default/${key}`, PNG, { httpMetadata: { contentType: "image/png" } });
+    await setServerFileMetadata(env.DB as unknown as D1Database, "default", key, {
+      "ai.hold": "pending",
+    });
+    expect((await read()).status).toBe(401);
+    await setServerFileMetadata(env.DB as unknown as D1Database, "default", key, {
+      "ai.hold": "approved",
+    });
+    expect((await read()).status).toBe(200);
+    await bucket.delete(`default/${key}`);
+    expect((await read()).status).toBe(404);
   });
 
   it("includes an embedUrl alongside the stable url", async () => {
@@ -525,7 +635,7 @@ describe("GET /public/files/:workspace/:key", () => {
     expect(json.github?.title).toBe("Fix the login bug");
   });
 
-  it("prefers live-resolved title over stamped gh.title", async () => {
+  it("prefers the public cached title over stamped gh.title", async () => {
     const kv = new FakeKv();
     // Cache hit short-circuits before App config is required (no network).
     // Public pages read only the verified-public namespace (`ghref:pub:`).
@@ -550,6 +660,77 @@ describe("GET /public/files/:workspace/:key", () => {
     expect(json.github?.title).toBe("Live title from cache");
   });
 
+  it.each(["invalidated", "epoch-unavailable", "negative"])(
+    "fails closed on %s public-title cache entries",
+    async (mode) => {
+      const kv = new FakeKv();
+      kv.store.set("ghref:pub:buildinternet/uploads#142", {
+        value: JSON.stringify({
+          v:
+            mode === "negative" ? null : { title: "Old public title", state: "open", kind: "pull" },
+        }),
+      });
+      if (mode === "invalidated")
+        kv.store.set("ghpubgen:buildinternet/uploads", { value: "new-epoch" });
+      const get = kv.get.bind(kv);
+      if (mode === "epoch-unavailable")
+        kv.get = (async (key: string, ...args: unknown[]) => {
+          if (key.startsWith("ghpubgen:")) throw new Error("epoch unavailable");
+          return get(key, ...(args as []));
+        }) as typeof kv.get;
+      const { env } = await makeEnv({}, { db: makeFakeDB() });
+      Object.assign(env, { GITHUB_CACHE: kv });
+      await seedShot(env, {
+        "X-Uploads-Meta-gh.repo": "buildinternet/uploads",
+        "X-Uploads-Meta-gh.kind": "pull",
+        "X-Uploads-Meta-gh.number": "142",
+        "X-Uploads-Meta-gh.title": "Stamped title",
+      });
+      const res = await requestAndDrain(env);
+      expect(await res.json()).toMatchObject({ github: { title: "Stamped title" } });
+    },
+  );
+
+  it("bounds a stalled optional cache read and handles background refresh rejection", async () => {
+    let release!: () => void;
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const kv = {
+      get: async () => {
+        await blocked;
+        throw new Error("cache offline");
+      },
+      put: async () => {},
+    };
+    const { env } = await makeEnv({}, { db: makeFakeDB() });
+    Object.assign(env, { GITHUB_CACHE: kv });
+    await seedShot(env, {
+      "X-Uploads-Meta-gh.repo": "buildinternet/uploads",
+      "X-Uploads-Meta-gh.kind": "pull",
+      "X-Uploads-Meta-gh.number": "142",
+      "X-Uploads-Meta-gh.title": "Stamped title",
+    });
+    const tasks: Promise<unknown>[] = [];
+    const ctx = {
+      waitUntil: (task: Promise<unknown>) => tasks.push(task),
+      passThroughOnException() {},
+      props: {},
+    };
+    try {
+      const res = await Promise.race([
+        app.request("/public/files/default/screenshots/shot.png", {}, env, ctx),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 500)),
+      ]);
+      expect(res).not.toBeNull();
+      expect(await res!.json()).toMatchObject({ github: { title: "Stamped title" } });
+      expect(tasks).toHaveLength(1);
+    } finally {
+      release();
+      await Promise.all(tasks);
+    }
+  });
+
   it("never serves a private repo's member-cached live title on the public page", async () => {
     const kv = new FakeKv();
     kv.store.set("ghref:victim/priv#5", {
@@ -565,7 +746,7 @@ describe("GET /public/files/:workspace/:key", () => {
     });
     const res = await withGlobalFetch(
       (async () => new Response("", { status: 404 })) as typeof fetch,
-      async () => app.request("/public/files/default/screenshots/shot.png", {}, env),
+      async () => requestAndDrain(env),
     );
     const json = (await res.json()) as { github?: { title?: string } };
     expect(json.github?.title).toBe("Stamped title");
@@ -591,9 +772,7 @@ describe("GET /public/files/:workspace/:key", () => {
         return Response.json({ title: "Secret roadmap", state: "open" });
       return new Response("", { status: 404 });
     }) as typeof fetch;
-    const res = await withGlobalFetch(fetchImpl, async () =>
-      app.request("/public/files/default/screenshots/shot.png", {}, env),
-    );
+    const res = await withGlobalFetch(fetchImpl, async () => requestAndDrain(env));
     const json = (await res.json()) as { github?: { title?: string } };
     expect(json.github).toBeDefined();
     expect(json.github).not.toHaveProperty("title");
@@ -614,11 +793,12 @@ describe("GET /public/files/:workspace/:key", () => {
       String(input).includes("/issues/")
         ? Response.json({ title: "Internal plan", state: "open" })
         : Response.json({ private: true })) as typeof fetch;
-    const res = await withGlobalFetch(fetchImpl, async () =>
-      app.request("/public/files/default/screenshots/shot.png", {}, env),
-    );
+    const res = await withGlobalFetch(fetchImpl, async () => requestAndDrain(env));
     const json = (await res.json()) as { github?: { title?: string } };
     expect(json.github).not.toHaveProperty("title");
+    const next = await app.request("/public/files/default/screenshots/shot.png", {}, env);
+    expect(await next.json()).not.toMatchObject({ github: { title: "Internal plan" } });
+    expect(JSON.parse(kv.store.get("ghref:pub:home/internal#5")!.value).v).toBeNull();
   });
 
   it("omits github.title when neither stamp nor live resolve provides one", async () => {
@@ -635,37 +815,55 @@ describe("GET /public/files/:workspace/:key", () => {
     expect(json.github).not.toHaveProperty("title");
   });
 
-  it("keeps stamped title when live resolve exceeds the public budget", async () => {
-    // Slow GITHUB_CACHE.get simulates a cold ladder that would otherwise
-    // approach resolveTitles' ~8s GitHub abort and trip apps/web's 4s fetch.
-    // Public route races resolve with ~1.4s and must return the stamp.
-    const slowKv = {
-      async get() {
-        await new Promise((r) => setTimeout(r, 5000));
-        return null;
-      },
-      async put() {
-        /* no-op */
-      },
-    };
+  it("returns the stamp before a cold GitHub fetch completes, then uses the refreshed public cache", async () => {
+    const kv = new FakeKv();
+    kv.store.set("ghtok:777", { value: "ghs_home" });
     const { env } = await makeEnv({}, { db: makeFakeDB() });
-    (env as { GITHUB_CACHE?: typeof slowKv }).GITHUB_CACHE = slowKv;
-
+    Object.assign(env, { GITHUB_CACHE: kv, ...GITHUB_APP_CFG_ENV });
     await seedShot(env, {
       "X-Uploads-Meta-gh.repo": "buildinternet/uploads",
       "X-Uploads-Meta-gh.kind": "pull",
       "X-Uploads-Meta-gh.number": "142",
-      "X-Uploads-Meta-gh.title": "Stamped under budget",
+      "X-Uploads-Meta-gh.title": "Stamped title",
     });
-
-    const started = Date.now();
-    const res = await app.request("/public/files/default/screenshots/shot.png", {}, env);
-    const elapsedMs = Date.now() - started;
-    expect(res.status).toBe(200);
-    const json = (await res.json()) as { github?: { title?: string } };
-    expect(json.github?.title).toBe("Stamped under budget");
-    // Budget 1400ms + request overhead; must stay well under web's 4s abort.
-    expect(elapsedMs).toBeLessThan(3000);
+    let release!: () => void;
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const tasks: Promise<unknown>[] = [];
+    const ctx = {
+      waitUntil: (task: Promise<unknown>) => tasks.push(task),
+      passThroughOnException() {},
+      props: {},
+    };
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => {
+      await blocked;
+      return String(input).includes("/issues/")
+        ? Response.json({ title: "Refreshed title", state: "open", pull_request: {} })
+        : Response.json({ private: false });
+    });
+    await withGlobalFetch(fetcher as typeof fetch, async () => {
+      try {
+        const result = await Promise.race([
+          app.request("/public/files/default/screenshots/shot.png", {}, env, ctx),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 500)),
+        ]);
+        expect(result, "response must not await GitHub").not.toBeNull();
+        expect(await result!.json()).toMatchObject({ github: { title: "Stamped title" } });
+        expect(tasks).toHaveLength(1);
+      } finally {
+        release();
+        await Promise.all(tasks);
+      }
+      const refreshed = await app.request(
+        "/public/files/default/screenshots/shot.png",
+        {},
+        env,
+        ctx,
+      );
+      expect(await refreshed.json()).toMatchObject({ github: { title: "Refreshed title" } });
+      expect(tasks).toHaveLength(1);
+    });
   });
 
   it("exposes posterUrl + videoDimensions when the poster sentinel is set, without leaking video.* into metadata", async () => {
@@ -1049,6 +1247,8 @@ describe("GET /public/files/:workspace/:key — before/after counterpart (issue 
     expect(json.counterpart).toEqual({
       key: "gh/acme/web/pull/12/hero-after.webp",
       url: "https://storage.uploads.sh/default/gh/acme/web/pull/12/hero-after.webp",
+      previewUrl:
+        "https://storage.uploads.sh/default/gh/acme/web/pull/12/hero-after.webp?v=fake-etag",
       state: "after",
     });
   });
@@ -1111,6 +1311,7 @@ describe("GET /public/files/:workspace/:key — before/after counterpart (issue 
     expect(json.counterpart).toEqual({
       key: afterKey,
       url: `https://storage.customer.example.com/legacy/${afterKey}`,
+      previewUrl: `https://storage.customer.example.com/legacy/${afterKey}?v=fake-etag`,
       state: "after",
     });
   });
@@ -1150,6 +1351,8 @@ describe("GET /public/files/:workspace/:key — before/after counterpart (issue 
       key: "gh/acme/web/pull/12/hero-before.webp",
       state: "before",
       url: "https://storage.uploads.sh/default/gh/acme/web/pull/12/hero-before.webp",
+      previewUrl:
+        "https://storage.uploads.sh/default/gh/acme/web/pull/12/hero-before.webp?v=fake-etag",
     });
   });
 

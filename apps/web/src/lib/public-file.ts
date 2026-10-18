@@ -24,6 +24,8 @@ export interface PublicFile {
   workspace: string;
   key: string;
   url: string;
+  /** Content-versioned URL for previews; stable links continue to use url. */
+  previewUrl?: string;
   /** Embed-host URL when the dual-host policy applies (GitHub Camo); null otherwise. */
   embedUrl: string | null;
   size: number;
@@ -47,6 +49,7 @@ export interface PublicFile {
 export interface PublicFileCounterpart {
   key: string;
   url: string;
+  previewUrl?: string;
   state: "before" | "after";
 }
 
@@ -261,6 +264,7 @@ function isPublicFileCounterpart(value: unknown): value is PublicFileCounterpart
   return (
     text(counterpart.key, 1024) &&
     httpsUrl(counterpart.url) &&
+    (counterpart.previewUrl === undefined || httpsUrl(counterpart.previewUrl)) &&
     (counterpart.state === "before" || counterpart.state === "after")
   );
 }
@@ -279,6 +283,7 @@ export function isPublicFile(value: unknown): value is PublicFile {
     text(file.workspace, 64) &&
     text(file.key, 1024) &&
     httpsUrl(file.url) &&
+    (file.previewUrl === undefined || httpsUrl(file.previewUrl)) &&
     nullableHttpsUrl(file.embedUrl) &&
     Number.isSafeInteger(file.size) &&
     (file.size as number) >= 0 &&
@@ -303,7 +308,13 @@ export function isPublicFile(value: unknown): value is PublicFile {
 export async function fetchPublicFile(
   workspace: string,
   key: string,
-  options: { origin: string; fetch?: typeof globalThis.fetch; timeoutMs?: number },
+  options: {
+    origin: string;
+    fetch?: typeof globalThis.fetch;
+    timeoutMs?: number;
+    /** Forward API phase timings to the enclosing SSR response, including errors. */
+    onServerTiming?: (value: string) => void;
+  },
 ): Promise<FileFetchResult> {
   if (!WORKSPACE_PATTERN.test(workspace) || !isSafeKey(key)) return { status: "not_found" };
 
@@ -334,6 +345,8 @@ export async function fetchPublicFile(
       credentials: "omit",
       referrerPolicy: "no-referrer",
     });
+    const serverTiming = response.headers.get("Server-Timing");
+    if (serverTiming) options.onServerTiming?.(serverTiming);
     if (response.status === 404) return { status: "not_found" };
     if (response.status === 401) {
       let body: unknown;
