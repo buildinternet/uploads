@@ -35,8 +35,10 @@ goes to uploads-mcp.
 The public endpoints are the only source of preview data, the same ones the
 share pages render from. They never sign URLs and return 404 for private,
 held, missing, and expired objects; a 404 means no preview, and collection
-items marked missing or withheld are skipped. This worker has no storage, D1,
-or KV bindings, so a preview can never show more than the public share page.
+items marked missing or withheld are skipped. The worker has no storage or
+KV bindings, and its only D1 access is the `slack_installations` table
+(sealed bot tokens). It never reads upload data directly, so a preview can
+never show more than the public share page.
 
 If Slack rejects the call because it can't fetch an image, the worker retries
 once with text-only previews.
