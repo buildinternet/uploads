@@ -9,6 +9,8 @@ import { adminUi } from "./admin-ui";
 const MIGRATIONS = [
   "migrations/20260713210559_file_metadata.sql",
   "migrations/20260722180000_file_metadata_value_covering_idx.sql",
+  "migrations/20260722190000_drop_file_metadata_value_lookup_idx.sql",
+  "migrations/20261018000000_file_metadata_ai_idx.sql",
   "migrations/20260728120000_daily_metrics.sql",
 ];
 const ADMIN_USER = { id: "u-admin", email: "admin@b.com", name: "Admin", role: "admin" };

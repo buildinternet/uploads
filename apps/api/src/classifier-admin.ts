@@ -3,7 +3,10 @@
  * `file_metadata` (EAV, one row per key), no Hono dependency.
  *
  * D1 bills rows read, so every query binds `meta_key` (or an `IN` list of
- * literal keys) first. The overview is cached in KV by the route.
+ * literal keys) first and repeats `AI_ROWS`, the partial-index predicate of
+ * `file_metadata_ai_idx`. Without that literal term SQLite will not use the
+ * index and every read scans the table. The overview is cached in KV by
+ * the route.
  */
 
 import { windowStart, platformSeries } from "./adoption-queries";
@@ -38,6 +41,10 @@ export function classifierCacheKey(days: number): string {
   return `metrics:classifier:v1:${days}`;
 }
 
+/** Must match the `WHERE` of `file_metadata_ai_idx` exactly. */
+const AI_ROWS = "substr(meta_key, 1, 3) = 'ai.'";
+const aiRows = (alias: string) => `substr(${alias}.meta_key, 1, 3) = 'ai.'`;
+
 const flagKey = (field: ClassifierSafetyField) => `ai.${field}`;
 const confidenceKey = (field: ClassifierSafetyField) => `ai.${field}.confidence`;
 
@@ -45,7 +52,7 @@ async function valueCounts(db: D1Queryable, metaKey: string): Promise<Classifier
   const result = await db
     .prepare(
       `SELECT meta_value AS value, COUNT(*) AS count FROM file_metadata
-       WHERE meta_key = ? GROUP BY meta_value ORDER BY count DESC, value`,
+       WHERE meta_key = ? AND ${AI_ROWS} GROUP BY meta_value ORDER BY count DESC, value`,
     )
     .bind(metaKey)
     .all<ClassifierValueCount>();
@@ -65,7 +72,7 @@ async function flagStats(
          FROM file_metadata f
          JOIN file_metadata c ON c.workspace = f.workspace AND c.object_key = f.object_key
            AND c.meta_key = ?
-         WHERE f.meta_key = ? AND f.meta_value <> ?
+         WHERE f.meta_key = ? AND ${aiRows("f")} AND f.meta_value <> ?
          GROUP BY c.meta_value`,
       )
       .bind(confidenceKey(field), flagKey(field), clean)
@@ -102,7 +109,8 @@ async function flaggedFileCount(db: D1Queryable): Promise<number> {
   const row = await db
     .prepare(
       `SELECT COUNT(DISTINCT workspace || char(31) || object_key) AS n FROM file_metadata
-       WHERE meta_key IN (${CLASSIFIER_SAFETY_FIELDS.map(() => "?").join(", ")}) AND (${sql})`,
+       WHERE meta_key IN (${CLASSIFIER_SAFETY_FIELDS.map(() => "?").join(", ")}) AND ${AI_ROWS}
+         AND (${sql})`,
     )
     .bind(...CLASSIFIER_SAFETY_FIELDS.map(flagKey), ...binds)
     .first<{ n: number }>();
@@ -114,7 +122,7 @@ async function dailySeries(db: D1Queryable, since: string, days: number) {
     .prepare(
       `SELECT substr(updated_at, 1, 10) AS day, meta_value AS value, COUNT(*) AS count
        FROM file_metadata
-       WHERE meta_key = 'ai.classifier' AND updated_at >= ?
+       WHERE meta_key = 'ai.classifier' AND ${AI_ROWS} AND updated_at >= ?
        GROUP BY day, meta_value`,
     )
     .bind(since)
@@ -168,7 +176,8 @@ export async function buildClassifierOverview(
     flaggedFileCount(db),
     db
       .prepare(
-        `SELECT COUNT(DISTINCT workspace) AS n FROM file_metadata WHERE meta_key = 'ai.classifier'`,
+        `SELECT COUNT(DISTINCT workspace) AS n FROM file_metadata
+         WHERE meta_key = 'ai.classifier' AND ${AI_ROWS}`,
       )
       .first<{ n: number }>(),
     dailySeries(db, since, days),
@@ -271,7 +280,7 @@ export async function listFlaggedFiles(
   // meta_key IN (...) first so the planner seeks by key.
   const keyBinds = fields.map(flagKey);
 
-  let where = `f.meta_key IN (${keyList}) AND (${legs.join(" OR ")})`;
+  let where = `f.meta_key IN (${keyList}) AND ${aiRows("f")} AND (${legs.join(" OR ")})`;
   const allBinds: unknown[] = [...keyBinds, ...binds];
   if (query.workspace) {
     where += " AND f.workspace = ?";
