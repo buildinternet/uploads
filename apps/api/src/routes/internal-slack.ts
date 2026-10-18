@@ -58,7 +58,12 @@ export const internalSlack = new Hono<WorkspaceVars>()
       throw notFound();
     }
     const link = await dbFor(c.env)
-      .prepare("SELECT user_id FROM slack_user_links WHERE team_id = ? AND slack_user_id = ?")
+      .prepare(
+        `SELECT l.user_id
+           FROM slack_user_links l
+           INNER JOIN user u ON u.id = l.user_id
+          WHERE l.team_id = ? AND l.slack_user_id = ? AND COALESCE(u.banned, 0) = 0`,
+      )
       .bind(teamId, slackUserId)
       .first<{ user_id: string }>();
     if (!link) throw notFound();

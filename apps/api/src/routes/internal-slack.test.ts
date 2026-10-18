@@ -18,7 +18,15 @@ const { internalSlack } = await import("./internal-slack");
 let sqlite: SqliteD1;
 
 beforeEach(() => {
-  sqlite = new SqliteD1("migrations/20261018170000_slack_user_links.sql");
+  sqlite = new SqliteD1([
+    "migrations/20260822120000_auth_tables.sql",
+    "migrations/20261018170000_slack_user_links.sql",
+  ]);
+  for (const id of ["u-alice", "u-bob"]) {
+    sqlite.db
+      .prepare("INSERT INTO user (id, name, email, created_at, updated_at) VALUES (?, ?, ?, 0, 0)")
+      .run(id, id, `${id}@example.com`);
+  }
   sqlite.db
     .prepare(
       "INSERT INTO slack_user_links (team_id, slack_user_id, user_id, linked_at) VALUES ('T0TEAM1', 'U0ALICE', 'u-alice', '2026-10-18')",
@@ -95,6 +103,12 @@ describe("POST /internal/slack/approve", () => {
 
   it("404s for an unlinked Slack user", async () => {
     expect((await approve({ ...GOOD, slackUserId: "U0MALLORY" })).status).toBe(404);
+    expect(approveUpload).not.toHaveBeenCalled();
+  });
+
+  it("404s when the linked account is banned", async () => {
+    sqlite.db.prepare("UPDATE user SET banned = 1 WHERE id = 'u-alice'").run();
+    expect((await approve(GOOD)).status).toBe(404);
     expect(approveUpload).not.toHaveBeenCalled();
   });
 
