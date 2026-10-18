@@ -1,5 +1,15 @@
 # @uploads/plugin
 
+## 0.4.3
+
+### Patch Changes
+
+- e921238: The bundled CLI skill now says a failed classifier call writes `ai.classifier=failed` and `ai.error` (`timeout`, `provider_error`, or `no_answer`).
+- ecb281b: The bundled CLI skill now says the classifier skips a file when it cannot see an image. A skip is `small`, `unsupported`, `resize_failed`, or `resize_timeout`, and it does not write safety flags.
+- 7c130b1: The bundled CLI skill now documents the internal classifier flags (`ai.rating`, `ai.content`, `ai.secret`, `ai.pii`). An installed agent can read and search them, and it should not treat them as public chips.
+- 3c3758b: Add `uploads approve`. The classifier can now hold an upload it thinks shows a secret or sensitive personal data, and the managed PR comment shows a held count in its place. `uploads approve --pr <n>` lists held files, `--all` approves them, and `uploads approve <key>` approves one file. The local-gh comment path leaves held files out the same way the bot does. The bundled CLI skill documents the flow.
+- 20f978b: The bundled CLI skill now says a flagged upload is held only when it came from CLI 0.59.0 or newer.
+
 ## 0.4.2
 
 ### Patch Changes
