@@ -40,6 +40,7 @@ import { fetchUploadSource, resolveUploadFilename } from "./fetch-upload-source.
 import { writeJson, writeStdout } from "./io.js";
 import { imageFactsFromBytes } from "./image-facts.js";
 import { parseMetaFlags, validateMetaMap } from "./metadata.js";
+import { heldReason, isHeldUpload } from "./upload-hold.js";
 import { mergeDerivedMeta, nearMissMetaWarnings, validateStateValue } from "./metadata-vocab.js";
 import { mergeSidecarMeta } from "./sidecar.js";
 import {
@@ -951,7 +952,7 @@ export async function syncAttachmentsComment(
     ghPrivateKeyPrefix(id, target),
   );
   const metadataByKey = new Map<string, Record<string, string>>();
-  const items: AttachmentItem[] = await ghMergedList(prefixes, undefined, async (prefix) =>
+  const listedItems: AttachmentItem[] = await ghMergedList(prefixes, undefined, async (prefix) =>
     (await client.listAll({ prefix, metadata: true })).map(
       ({ key, url, embedUrl, pageUrl, size, metadata }) => {
         // Full metadata feeds the live link scope check; the rendered item
@@ -990,6 +991,10 @@ export async function syncAttachmentsComment(
       },
     ),
   );
+  // Held uploads (parity with the bot's gather): a file the classifier held
+  // for approval never renders, and only a count line says it exists.
+  const items = listedItems.filter((item) => !isHeldUpload(metadataByKey.get(item.key)));
+  const heldCount = listedItems.length - items.length;
 
   const galleries: (GalleryCommentItem & { id: string })[] = [];
   let cursor: string | undefined;
@@ -1064,8 +1069,8 @@ export async function syncAttachmentsComment(
     : null;
   // Append only on the local-gh path: bot posts already carry the uploads-sh
   // bot identity, so this note would be wrong there.
-  const body = `${attachmentsCommentBody(items, previewGalleries, marker, renderOptions, target, { liveLinkUrl })}\n${GH_FALLBACK_AUTHOR_NOTE}`;
-  const count = items.length + previewGalleries.length;
+  const body = `${attachmentsCommentBody(items, previewGalleries, marker, renderOptions, target, { liveLinkUrl, heldCount })}\n${GH_FALLBACK_AUTHOR_NOTE}`;
+  const count = items.length + previewGalleries.length + heldCount;
   // Noise guard (issue #708, mirrors the bot's `shouldSyncAfterAdopt`): a
   // lone adopted link with nothing else already attached is already fully
   // visible inline in the PR/comment — don't create a brand-new comment just
@@ -3007,6 +3012,170 @@ export async function runUnstage(
     }
     if (result.truncated) {
       process.stderr.write("stopped after the list cap; run again to clear the rest\n");
+    }
+  }
+  return 0;
+}
+
+// --- approve ---
+
+export interface ApproveFile {
+  key: string;
+  /** `held`: listed only (no `--all`, or `--dry-run`). */
+  action: "approved" | "not_held" | "held";
+  reason?: string;
+}
+
+export interface ApproveResult {
+  dryRun: boolean;
+  repo?: string;
+  number?: number;
+  files: ApproveFile[];
+}
+
+/**
+ * Release held uploads. With keys, approve each one. With a PR/issue target,
+ * list its held files, and approve them only when `all` is set.
+ */
+export async function approveHeldFiles(opts: {
+  client: UploadsClient;
+  keys?: string[];
+  target?: GhTarget;
+  all?: boolean;
+  dryRun?: boolean;
+}): Promise<ApproveResult> {
+  const keys = (opts.keys ?? []).filter((key) => key.length > 0);
+  const dryRun = opts.dryRun === true;
+  if (keys.length > 0 && opts.target) {
+    throw new UsageError("pass either keys or --pr/--issue, not both", {
+      example: "uploads approve --pr 123",
+    });
+  }
+  if (keys.length === 0 && !opts.target) {
+    throw new UsageError("approve requires --pr, --issue, or one or more keys", {
+      example: "uploads approve --pr 123",
+    });
+  }
+  if (opts.all && !opts.target) {
+    throw new UsageError("--all requires --pr or --issue", {
+      example: "uploads approve --pr 123 --all",
+    });
+  }
+
+  if (keys.length > 0) {
+    const files: ApproveFile[] = [];
+    for (const key of keys) {
+      if (dryRun) {
+        const { metadata } = await opts.client.getMetadata(key);
+        files.push(
+          isHeldUpload(metadata)
+            ? { key, action: "held", reason: heldReason(metadata) }
+            : { key, action: "not_held" },
+        );
+        continue;
+      }
+      const result = await opts.client.approve(key);
+      files.push({ key, action: result.approved ? "approved" : "not_held" });
+    }
+    return { dryRun, files };
+  }
+
+  const target = opts.target!;
+  const ghPrefix = await resolveGhPrefixSafe(opts.client, {
+    repo: target.repo,
+    target: { kind: target.kind, num: target.num },
+  });
+  const prefixes = ghListPrefixes(ghKeyPrefix(target), ghPrefix, (id) =>
+    ghPrivateKeyPrefix(id, target),
+  );
+  const listed = await ghMergedList(prefixes, undefined, async (prefix) =>
+    opts.client.listAll({ prefix, metadata: true }),
+  );
+  const files: ApproveFile[] = [];
+  for (const item of listed) {
+    if (!isHeldUpload(item.metadata)) continue;
+    const reason = heldReason(item.metadata);
+    if (opts.all && !dryRun) {
+      const result = await opts.client.approve(item.key);
+      files.push({ key: item.key, action: result.approved ? "approved" : "not_held", reason });
+    } else {
+      files.push({ key: item.key, action: "held", reason });
+    }
+  }
+  return { dryRun, repo: target.repo, number: target.num, files };
+}
+
+const APPROVE_HELP = `uploads approve (--pr <n> | --issue <n>) [--repo <owner/name>] [--all] [--dry-run]
+uploads approve <key...> [--dry-run]
+
+Release uploads held for review. The classifier holds a file it thinks shows
+a secret (an API key, a password, a token) or sensitive personal data (an ID
+document, a card number). A held file stays out of the managed PR comment,
+public feeds, galleries, and its /f/ page until a workspace member approves
+it. Its raw storage URL still serves the bytes.
+
+Check the file first. If it does show a credential, rotate the credential
+and replace or delete the file instead of approving it.
+
+With --pr or --issue and no --all, lists the held files and changes nothing.
+--all approves every held file on that PR or issue. Pass keys to approve
+specific files. Approving re-syncs the managed comment. Needs files:write.
+
+Examples:
+  uploads approve --pr 123
+  uploads approve --pr 123 --all
+  uploads approve gh/owner/name/pull/123/settings.png
+`;
+
+export async function runApprove(
+  ctx: CliContext,
+  args: string[],
+  help = false,
+  run: CommandRunner = execRunner,
+): Promise<number> {
+  const parsed = parseCommandArgs(args);
+  if (help || parsed.help) {
+    writeCommandHelp(APPROVE_HELP);
+    return 0;
+  }
+  const target = ghTargetFromFlags(parsed.flags, run);
+  const all = flagBool(parsed.flags, "--all");
+  const dryRun = flagBool(parsed.flags, "--dry-run");
+  const result = await approveHeldFiles({
+    client: ctx.client,
+    keys: parsed.positionals,
+    target,
+    all,
+    dryRun,
+  });
+  // The server re-syncs the bot comment on approval. This covers the
+  // local-gh comment path, where the bot cannot post.
+  if (target && !dryRun && result.files.some((file) => file.action === "approved")) {
+    try {
+      await syncAttachmentsComment(ctx.client, target, run, ctx.config.workspace);
+    } catch {
+      // Best-effort: the approval itself already landed.
+    }
+  }
+
+  if (ctx.json) {
+    await writeJson(result);
+  } else if (!ctx.quiet) {
+    if (result.files.length === 0) {
+      const where = result.repo ? ` on ${result.repo}#${result.number}` : "";
+      process.stderr.write(`nothing held${where}\n`);
+    }
+    for (const file of result.files) {
+      const verb =
+        file.action === "approved" ? "approved" : file.action === "held" ? "held" : "not held";
+      const why = file.reason ? ` (${file.reason})` : "";
+      process.stderr.write(`${verb} ${file.key}${why}\n`);
+    }
+    if (target && !all && result.files.some((file) => file.action === "held")) {
+      const flag = target.kind === "issues" ? "--issue" : "--pr";
+      process.stderr.write(
+        `check each file, then run: uploads approve ${flag} ${target.num} --all\n`,
+      );
     }
   }
   return 0;

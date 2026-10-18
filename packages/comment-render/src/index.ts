@@ -693,6 +693,14 @@ export interface CommentLinks {
    * synthesized here.
    */
   liveLinkUrl?: string | null;
+  /**
+   * How many of the PR/issue's attachments are held for approval (a likely
+   * secret or personal data). Held files never render; this count adds one
+   * line telling the agent how to approve them. It never names a file: a
+   * held file's raw URL still serves, and a public comment must not point
+   * at it. Absent or 0: byte-identical to before.
+   */
+  heldCount?: number;
 }
 
 /**
@@ -703,6 +711,18 @@ export interface CommentLinks {
 function liveLinkLine(count: number, url: string): string {
   const noun = count === 1 ? "file" : "files";
   return `${count} ${noun} · <a href="${escapeHtmlAttr(url)}">View all on uploads.sh →</a>`;
+}
+
+/**
+ * `🔒 1 file is held for review · approve with <code>uploads approve --pr 12</code>`.
+ * Uses the real target number when there is one, like the footer.
+ */
+function heldLine(count: number, target?: Pick<GhTarget, "kind" | "num">): string {
+  const flag = target?.kind === "issues" ? "--issue" : "--pr";
+  const n =
+    target && Number.isInteger(target.num) && target.num > 0 ? String(target.num) : "&lt;N&gt;";
+  const subject = count === 1 ? "1 file is" : `${count} files are`;
+  return `🔒 ${subject} held for review · approve with <code>uploads approve ${flag} ${n}</code>`;
 }
 
 /**
@@ -943,9 +963,11 @@ export function attachmentsCommentBody(
   // still keeps its managed comment (a later push can repopulate it) — show a
   // neutral resting state rather than a bare footer. Only the truly-empty case
   // (no attachments, no galleries); a galleries-only comment must not get this.
-  if (sorted.length === 0 && sortedGalleries.length === 0) {
+  const heldCount = links.heldCount ?? 0;
+  if (sorted.length === 0 && sortedGalleries.length === 0 && heldCount === 0) {
     lines.push("_No attachments are currently associated with this pull request._", "");
   }
+  if (heldCount > 0) lines.push(heldLine(heldCount, target), "");
   // Footer condensed to a single quiet line — the old two-line explainer
   // ("re-uploading updates everywhere", full add-media flags) repeats on
   // every PR and lost value with each appearance; details live in the docs.

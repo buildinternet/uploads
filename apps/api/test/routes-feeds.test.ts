@@ -580,6 +580,17 @@ describe("public feed pagination and pager", () => {
     expect(await bad.json()).toMatchObject({ error: { code: "invalid_cursor" } });
   });
 
+  it("withholds a file held for review from the public feed", async () => {
+    await seedPr7(2);
+    await setServerFileMetadata(database(sqlite), "alpha", shotKey(1), { "ai.hold": "pending" });
+    const id = await createPr7Feed();
+    const page = (await (await app.request(`/public/feeds/${id}`, {}, env)).json()) as {
+      items: Array<{ filename: string; status: string; url: string | null }>;
+    };
+    expect(page.items[0]).toMatchObject({ filename: "shot-00.png", status: "available" });
+    expect(page.items[1]).toMatchObject({ status: "withheld", url: null });
+  });
+
   it("keeps object keys out of the public nextCursor when the last item is private", async () => {
     const privateKey = `gh/private/${"a1".repeat(16)}/acme/app/pull/7/secret.png`;
     for (let i = 0; i < 52; i++) {

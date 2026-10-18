@@ -339,6 +339,30 @@ describe("GET /public/files/:workspace/:key", () => {
     expect(res.status).toBe(404);
   });
 
+  it("401s with auth_required for a file held for review", async () => {
+    const { env } = await makeEnv({}, { db: makeFakeDB() });
+    const key = await seedShot(env);
+    await setServerFileMetadata(env.DB as unknown as D1Database, "default", key, {
+      "ai.hold": "pending",
+    });
+
+    const res = await app.request("/public/files/default/screenshots/shot.png", {}, env);
+    expect(res.status).toBe(401);
+    const json = (await res.json()) as { error: { code: string } };
+    expect(json.error.code).toBe("auth_required");
+  });
+
+  it("serves a file once its hold is approved", async () => {
+    const { env } = await makeEnv({}, { db: makeFakeDB() });
+    const key = await seedShot(env);
+    await setServerFileMetadata(env.DB as unknown as D1Database, "default", key, {
+      "ai.hold": "approved",
+    });
+
+    const res = await app.request("/public/files/default/screenshots/shot.png", {}, env);
+    expect(res.status).toBe(200);
+  });
+
   it("401s with auth_required for a private object, without leaking metadata", async () => {
     const { env } = await makeEnv();
     await seedShot(env, { "X-Uploads-Visibility": "private" });

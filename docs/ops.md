@@ -1315,6 +1315,24 @@ Decisions call times out at 8s (`CLASSIFIER_TIMEOUT_MS`). The two budgets
 are separate, so a slow resize cannot spend the model's time. A resize
 timeout writes `ai.skip=resize_timeout`. A model timeout writes nothing.
 
+### Held uploads
+
+A stored decision with a `high` `ai.secret` other than `none`, or a `high`
+`ai.pii` of `identity_document`, `financial`, or `other`, writes
+`ai.hold=pending` (`applyUploadHold`, `upload-hold-service.ts`). The worker
+logs `upload_held` with the reason, then re-syncs the managed PR comment
+when the key is a PR or issue attachment. A held file is left out of the
+comment (a count line replaces it), withheld from public feeds and
+galleries, and 401s on `/public/files`. The raw storage URL still serves:
+storage hosts are R2 custom domains with no Worker in the read path.
+
+`POST /v1/workspaces/:workspace/files/approve?key=` writes
+`ai.hold=approved` and re-syncs the comment (`upload_approved`). `ai.hold`
+is in `CLASSIFIER_ROW_KEYS`, so identical bytes keep an approval and new
+bytes start over. Promote and attach copy every classifier row onto the
+new key, since the copy is not classified again. `ai.rating`,
+`ai.content`, and `ai.pii=contact` never hold a file.
+
 ### Allowlist (Flagship is the control plane)
 
 `classificationAllowed` evaluates Flagship with context
@@ -1358,7 +1376,17 @@ thrown evaluation are all off.
    `--llm-classifier on` is deprecated as an allowlist. It writes `true`,
    which does not enable classification by itself.
 
-3. **Unset `OPENROUTER_API_KEY`** — remove the worker secret and redeploy.
+3. **Workspace hold off** — `holdFlaggedUploads === false` keeps the labels
+   but stops holding high-confidence secret and sensitive-PII uploads
+   (`upload-hold.ts`). It does not release files already held; approve
+   those with `uploads approve`.
+
+   ```bash
+   pnpm workspace:limits <name> --hold-flagged off
+   pnpm workspace:limits <name> --clear-hold-flagged
+   ```
+
+4. **Unset `OPENROUTER_API_KEY`** — remove the worker secret and redeploy.
    Slower than Flagship, survives a Flagship outage. The upload path skips
    classification and does not call OpenRouter.
 

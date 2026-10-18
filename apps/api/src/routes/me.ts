@@ -303,6 +303,9 @@ export const me = new Hono<SessionVars>()
   .patch("/workspaces/:name/files/visibility", (c) =>
     forwardToWorkspaceFiles(c, `/${encodeURIComponent(c.req.param("name"))}/files/visibility`),
   )
+  .post("/workspaces/:name/files/approve", (c) =>
+    forwardToWorkspaceFiles(c, `/${encodeURIComponent(c.req.param("name"))}/files/approve`),
+  )
   .delete("/workspaces/:name/files", (c) => {
     const key = c.req.query("key") ?? "";
     if (badKey(key)) throw new NotFoundError();

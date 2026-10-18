@@ -137,6 +137,7 @@ Throw `AppError` subclasses from `@uploads/errors` in route code; the API's
 | `GET /v1/workspaces/:workspace/files/by-path?merged=`                           | Group recently uploaded `gh.*`-tagged files by project and path. Powers the web Screenshots page                                                                                                                                |
 | `GET /v1/workspaces/:workspace/files/file-url?key=`                             | Resolve a usable URL for a key: the workspace's public URL, else a short-lived signed URL, else an error                                                                                                                        |
 | `PATCH /v1/workspaces/:workspace/files/visibility?key=`                         | Set a file's `visibility` flag with `{ visibility: "public" \| "private" }`                                                                                                                                                     |
+| `POST /v1/workspaces/:workspace/files/approve?key=`                             | Release a file held for review (a likely secret or personal data). A key that is not held returns `approved: false`                                                                                                             |
 | `GET /v1/workspaces/:workspace/usage`                                           | Read workspace usage, limits, token scopes, and plan; requires `files:read`                                                                                                                                                     |
 | `POST /v1/workspaces/:workspace/usage/reconcile`                                | Maintenance operation. Potentially expensive: scans storage and rebuilds `bytes` and `objects`; bearer token only; requires `files:write`                                                                                       |
 | `POST /v1/workspaces/:workspace/usage/purge-expired`                            | Destructive maintenance operation. Permanently deletes objects older than `retentionDays`, then reconciles; bearer token only; requires `files:delete`                                                                          |
@@ -335,6 +336,18 @@ read and search them. The 201 response does not wait for the model;
 read `GET …/files/:key?metadata=1` (or `uploads meta get <key>`) after the
 upload. Presigned uploads never get labels. See
 [docs/ops.md](ops.md#experimental-llm-file-classifier).
+
+A high-confidence `ai.secret` (not `none`), or a high-confidence `ai.pii` of
+`identity_document`, `financial`, or `other`, holds the file: the server
+writes `ai.hold=pending`. The managed PR comment leaves a held file out and
+adds one line with the held count and `uploads approve --pr <n>`. Public
+feeds and galleries return it as `withheld`, and `GET /public/files/...`
+answers 401 `auth_required`. The raw storage URL still serves the bytes.
+`POST /v1/workspaces/:workspace/files/approve?key=` (`files:write`) writes
+`ai.hold=approved` and re-syncs the comment. `ai.hold` follows the same
+lifetime as the other `ai.*` rows, and promote and attach copy it onto the
+new key. A workspace record with `holdFlaggedUploads: false` writes no
+holds.
 
 ### Usage ledger and budgets
 

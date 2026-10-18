@@ -14,10 +14,15 @@
  *     [--clear-max-storage] [--clear-max-uploads-per-month] [--clear-max-upload-bytes] \
  *     [--clear-retention-days] [--clear-allowed-prefixes] [--clear-max-key-depth] \
  *     [--llm-classifier on|off] [--clear-llm-classifier] \
+ *     [--hold-flagged on|off] [--clear-hold-flagged] \
  *     [--local]
  *
  * `--llm-classifier off` writes llmClassifierEnabled=false (hard off).
  * Flagship targeting is the allowlist; `--llm-classifier on` is not.
+ *
+ * `--hold-flagged off` writes holdFlaggedUploads=false: classified uploads
+ * with a likely secret or sensitive personal data are no longer held for
+ * approval. On is the default (absent field).
  *
  * Units: bare number = bytes (or count for uploads). Also accepts KB/MB/GB
  * and KiB/MiB/GiB (e.g. 1GB, 25MiB). Use 0 or "unlimited" with a --clear-*
@@ -190,6 +195,7 @@ const before = {
   allowedKeyPrefixes: record.allowedKeyPrefixes,
   maxKeyDepth: record.maxKeyDepth,
   llmClassifierEnabled: record.llmClassifierEnabled,
+  holdFlaggedUploads: record.holdFlaggedUploads,
 };
 
 const patch = {};
@@ -242,6 +248,11 @@ if (clears.has("llm-classifier") || opts["llm-classifier"] !== undefined) {
     patch.llmClassifierEnabled = v === true ? true : false;
   }
 }
+if (clears.has("hold-flagged") || opts["hold-flagged"] !== undefined) {
+  patch.holdFlaggedUploads = clears.has("hold-flagged")
+    ? null
+    : parseOnOff(opts["hold-flagged"], "hold-flagged");
+}
 
 const changing = Object.keys(patch).length > 0;
 if (!changing) {
@@ -256,6 +267,7 @@ if (!changing) {
   );
   console.log(`  node scripts/set-workspace-limits.mjs ${name} --clear-max-storage`);
   console.log(`  node scripts/set-workspace-limits.mjs ${name} --llm-classifier off`);
+  console.log(`  node scripts/set-workspace-limits.mjs ${name} --hold-flagged off`);
   process.exit(0);
 }
 
@@ -286,6 +298,7 @@ const after = {
   allowedKeyPrefixes: record.allowedKeyPrefixes,
   maxKeyDepth: record.maxKeyDepth,
   llmClassifierEnabled: record.llmClassifierEnabled,
+  holdFlaggedUploads: record.holdFlaggedUploads,
 };
 
 console.log(`workspace : ${name} (${opts.local ? "local" : "remote"})`);

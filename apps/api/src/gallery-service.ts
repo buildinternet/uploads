@@ -22,6 +22,7 @@ import {
 } from "./galleries";
 import { createLaneResolver, objectPublicUrls, type LaneResolver } from "./storage";
 import type { StorageConfig } from "@uploads/storage";
+import { heldKeysAmong } from "./upload-hold-read";
 import { objectVisibility } from "./visibility";
 import { webOrigin } from "./web-url";
 import type { WorkspaceRecord } from "./workspace";
@@ -276,6 +277,16 @@ export async function hydrateGalleryItems(
     });
   }
   const laneConfigByKey = new Map<string, StorageConfig>();
+  // Held uploads (`upload-hold.ts`) are withheld from a public gallery the
+  // same way private ones are.
+  const heldKeys =
+    opts.audience === "public" && workspace.name
+      ? await heldKeysAmong(
+          env,
+          workspace.name,
+          items.map((item) => item.object_key),
+        )
+      : new Set<string>();
   const hydrated = await mapBounded(
     items,
     8,
@@ -298,7 +309,7 @@ export async function hydrateGalleryItems(
         });
       }
       const isPrivate = meta ? objectVisibility(meta.metadata) === "private" : false;
-      const withheld = opts.audience === "public" && isPrivate;
+      const withheld = opts.audience === "public" && (isPrivate || heldKeys.has(item.object_key));
       const urls =
         meta && !withheld && itemConfig
           ? objectPublicUrls(env, itemConfig, item.object_key)

@@ -202,6 +202,15 @@ export interface DeleteResult {
   deleted: boolean;
 }
 
+/**
+ * `POST /v1/workspaces/:workspace/files/approve?key=`. `approved: false`
+ * with `reason: "not_held"` means the file was not held (already approved,
+ * never flagged, or unknown).
+ */
+export type ApproveResult =
+  | { key: string; approved: true }
+  | { key: string; approved: false; reason: "not_held" };
+
 /** A workspace-owned, publicly visible ordered media gallery. */
 export interface GalleryItem {
   id: string;
@@ -1410,6 +1419,14 @@ export function createUploadsClient(
 
     async delete(key: string): Promise<DeleteResult> {
       return request<DeleteResult>("DELETE", `${canonicalFilesBase(config)}/${encodeKeyPath(key)}`);
+    },
+
+    /** Release a file held for approval (a likely secret or personal data). */
+    async approve(key: string): Promise<ApproveResult> {
+      return request<ApproveResult>(
+        "POST",
+        `${canonicalFilesBase(config)}/approve?key=${encodeURIComponent(key)}`,
+      );
     },
 
     /** `GET /v1/:workspace/files/:key?metadata=1` — the object's queryable metadata. */

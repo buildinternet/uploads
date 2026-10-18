@@ -41,6 +41,7 @@ import {
 } from "../dual-workspace-auth";
 import { respondError } from "../error-response";
 import { badKey, listObjects, setObjectVisibility } from "../files-core";
+import { approveUpload } from "../upload-hold-service";
 import {
   getMetadataForKeys,
   getObjectUpdatedAt,
@@ -423,6 +424,23 @@ export const workspaceFiles = new Hono<DualAuthVars>()
       await setObjectVisibility(store, key, requested as "public" | "private");
 
       return c.json({ key, visibility: sanitizeVisibility(requested) ?? "public" });
+    },
+  )
+
+  // Release a file held for approval (`upload-hold.ts`). Idempotent: a key
+  // that is not held answers 200 with `approved: false`.
+  .post(
+    "/:workspace/files/approve",
+    dualWorkspaceAuth(),
+    rateLimited,
+    scoped("files:write"),
+    async (c) => {
+      const record = c.get("workspace");
+      const workspaceName = c.req.param("workspace");
+      const key = c.req.query("key") ?? "";
+      if (badKey(key)) throw new NotFoundError();
+      const result = await approveUpload(c.env, record, workspaceName, key);
+      return c.json({ key, ...result });
     },
   )
 

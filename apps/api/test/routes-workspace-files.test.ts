@@ -13,6 +13,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Files } from "@uploads/storage";
 import { FakeR2Bucket } from "./fake-r2";
 import { FileMetadataTable } from "./helpers/fake-file-metadata-table";
+import { getFileMetadata, setServerFileMetadata } from "../src/file-metadata";
 import { sha256Hex, type WorkspaceRecord } from "../src/workspace";
 
 // `resolveObjectLane` delegates to the real implementation everywhere except
@@ -373,6 +374,44 @@ describe("PATCH /v1/workspaces/:workspace/files/visibility (dual auth)", () => {
     );
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ key: "shots/a.png", visibility: "private" });
+  });
+});
+
+describe("POST /v1/workspaces/:workspace/files/approve (dual auth)", () => {
+  const approve = (env: Parameters<typeof app.request>[2], headers: Record<string, string>) =>
+    app.request(
+      "/v1/workspaces/acme/files/approve?key=shots/a.png",
+      { method: "POST", headers },
+      env,
+    );
+
+  it("releases a held file, then reports not_held on a retry", async () => {
+    const { env, bucket } = await makeEnv();
+    await seed(bucket);
+    await setServerFileMetadata((env as { DB: D1Database }).DB, "acme", "shots/a.png", {
+      "ai.hold": "pending",
+    });
+
+    const first = await approve(env, { Authorization: `Bearer ${TOKEN}` });
+    expect(first.status).toBe(200);
+    expect(await first.json()).toEqual({ key: "shots/a.png", approved: true });
+    const stored = await getFileMetadata((env as { DB: D1Database }).DB, "acme", "shots/a.png");
+    expect(stored["ai.hold"]).toBe("approved");
+
+    const again = await approve(env, { cookie: "session=x" });
+    expect(again.status).toBe(200);
+    expect(await again.json()).toEqual({
+      key: "shots/a.png",
+      approved: false,
+      reason: "not_held",
+    });
+  });
+
+  it("rejects an unauthenticated caller", async () => {
+    const { env, bucket } = await makeEnv({ session: false });
+    await seed(bucket);
+    const res = await approve(env, {});
+    expect(res.status).toBe(401);
   });
 });
 

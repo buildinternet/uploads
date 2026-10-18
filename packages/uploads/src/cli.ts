@@ -19,6 +19,7 @@ import {
   runAttach,
   runStaged,
   runUnstage,
+  runApprove,
   runList,
   runFind,
   runMeta,
@@ -402,6 +403,7 @@ export async function runCli(argv: string[]): Promise<number> {
       case "put":
       case "staged":
       case "unstage":
+      case "approve":
       case "screenshot":
       case "gallery":
       case "feed":
@@ -429,6 +431,9 @@ export async function runCli(argv: string[]): Promise<number> {
             break;
           case "unstage":
             code = await runUnstage(ctx, cmdArgs, showHelp);
+            break;
+          case "approve":
+            code = await runApprove(ctx, cmdArgs, showHelp);
             break;
           case "screenshot":
             code = await runScreenshot(ctx, cmdArgs, showHelp);

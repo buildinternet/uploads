@@ -20,6 +20,7 @@ import {
   classifyAndStore,
 } from "../src/classifier";
 import { makePosterEnv, PNG, WORKSPACE } from "./poster-fixtures";
+import { approveUpload } from "../src/upload-hold-service";
 import type { WorkspaceRecord } from "../src/workspace";
 
 afterEach(() => {
@@ -1300,5 +1301,82 @@ describe("safety flags", () => {
     expect(left?.["ai.content"]).toBeUndefined();
     expect(left?.["ai.pii"]).toBeUndefined();
     expect(left?.app).toBe("web");
+  });
+});
+
+describe("held uploads", () => {
+  const key = "images/flagged.png";
+  const holdOf = async (env: Env) =>
+    (await getMetadataForKeys(env.DB, WORKSPACE, [key])).get(key)?.["ai.hold"];
+
+  it("holds a file with a high-confidence secret", async () => {
+    const { env, ws } = makeClassifierEnv(() => ({
+      ...DECIDED,
+      answers: { ...DECIDED.answers, secret: jevAnswer("api_key", 0.9) },
+    }));
+    await classifyAndStore(env, ws, WORKSPACE, key, FITTING_PNG, "image/png");
+    expect(await holdOf(env)).toBe("pending");
+  });
+
+  it("holds a file with high-confidence financial data", async () => {
+    const { env, ws } = makeClassifierEnv(() => ({
+      ...DECIDED,
+      answers: { ...DECIDED.answers, pii: jevAnswer("financial", 0.9) },
+    }));
+    await classifyAndStore(env, ws, WORKSPACE, key, FITTING_PNG, "image/png");
+    expect(await holdOf(env)).toBe("pending");
+  });
+
+  it("does not hold contact details, medium confidence, or unsafe content", async () => {
+    const { env, ws } = makeClassifierEnv(() => ({
+      ...DECIDED,
+      answers: {
+        ...DECIDED.answers,
+        rating: jevAnswer("explicit", 0.95),
+        content: jevAnswer("gore", 0.95),
+        secret: jevAnswer("token", 0.75),
+        pii: jevAnswer("contact", 0.95),
+      },
+    }));
+    await classifyAndStore(env, ws, WORKSPACE, key, FITTING_PNG, "image/png");
+    expect(await holdOf(env)).toBeUndefined();
+  });
+
+  it("does not hold when the workspace turned holds off", async () => {
+    const { env, ws } = makeClassifierEnv(() => FLAGGED, { holdFlaggedUploads: false });
+    await classifyAndStore(env, ws, WORKSPACE, key, FITTING_PNG, "image/png");
+    expect(await holdOf(env)).toBeUndefined();
+  });
+
+  it("keeps an approval when identical bytes are classified again", async () => {
+    const harness = makeClassifierEnv(() => FLAGGED);
+    await putFlagged(harness, FITTING_PNG);
+    expect(await holdOf(harness.env)).toBe("pending");
+
+    const approved = await approveUpload(harness.env, harness.ws, WORKSPACE, key);
+    expect(approved).toEqual({ approved: true });
+    expect(await holdOf(harness.env)).toBe("approved");
+
+    await putFlagged(harness, FITTING_PNG, { replace: true });
+    expect(await holdOf(harness.env)).toBe("approved");
+  });
+
+  it("holds new bytes again after an approval", async () => {
+    const harness = makeClassifierEnv(() => FLAGGED);
+    await putFlagged(harness, FITTING_PNG);
+    await approveUpload(harness.env, harness.ws, WORKSPACE, key);
+
+    await putFlagged(harness, atLeast(pngOf(512, 300)), { replace: true });
+    expect(await holdOf(harness.env)).toBe("pending");
+  });
+
+  it("reports not_held for a file that is not held", async () => {
+    const { env, ws } = makeClassifierEnv();
+    await classifyAndStore(env, ws, WORKSPACE, key, FITTING_PNG, "image/png");
+    expect(await approveUpload(env, ws, WORKSPACE, key)).toEqual({
+      approved: false,
+      reason: "not_held",
+    });
+    expect(await holdOf(env)).toBeUndefined();
   });
 });

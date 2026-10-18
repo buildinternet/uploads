@@ -230,7 +230,7 @@ about is left off.
 | `ai.skip`       | `small`, `unsupported`, `resize_failed`, or `resize_timeout`. Paired with `ai.classifier=skipped`. No model call, and no kind, surface, screen, or safety value. |
 | `ai.error`      | `timeout`, `provider_error`, or `no_answer`. Paired with `ai.classifier=failed`. The model call ran and no label was stored.                               |
 
-The same call also records four internal flags. They are not chips. They do not appear on the public file page, in a gallery, in a feed, in an embed, or in a pull request comment. They do not change who can view the file.
+The same call also records four internal flags. They are not chips. They do not appear on the public file page, in a gallery, in a feed, in an embed, or in a pull request comment. Two of them can hold a file for review. See [Held uploads](#held-uploads).
 
 | Key                     | Values                                                                                                                                          |
 | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -248,6 +248,24 @@ An answer under 0.50 is left off, and so is its confidence key. `ai.secret` and 
 A stored flag stays until a later classification writes that same key. A confident `none` replaces the old value. An answer under the floor, a model timeout, or an error leaves the previous flag in place. A skip writes no safety value, so it does not replace or restore one. Re-uploading identical bytes does not clear a flag. New bytes start fresh, and a skip on those bytes leaves the flags clear.
 
 The classifier version does not change for these flags. `v5`, `v6`, `v4`, and `skipped` still name how the image was prepared. A file labeled before the flags existed simply has none of these keys.
+
+### Held uploads
+
+A high-confidence `ai.secret` (any value other than `none`), or a high-confidence `ai.pii` of `identity_document`, `financial`, or `other`, holds the file for review. The server writes `ai.hold=pending`. A held file works like a staged one:
+
+- The managed pull request comment leaves it out. One line says how many files are held and how to approve them. The line never names a file.
+- Public feeds and galleries show it as withheld, and its `/f/` page asks for sign-in.
+- Its raw storage URL still serves the bytes. A hold keeps the file out of what uploads.sh publishes. It does not lock the bytes.
+
+Check each held file before you approve it. If it does show a credential, rotate the credential, then replace or delete the file.
+
+```ansi
+uploads approve --pr 12             # list held files and why
+uploads approve --pr 12 --all       # approve every held file on the PR
+uploads approve <key>               # approve one file
+```
+
+Approval writes `ai.hold=approved` and re-syncs the comment. Re-uploading identical bytes keeps the approval. New bytes are classified again and can be held again. `ai.pii=contact` never holds a file, and the `ai.rating` and `ai.content` flags never hold one.
 
 Labels aren't in the upload's response. Read them afterward, or search by them:
 
