@@ -208,3 +208,31 @@ describe("POST /slack/interactivity", () => {
     expect(res.status).toBe(401);
   });
 });
+
+describe("POST /slack/internal/home", () => {
+  const body = JSON.stringify({ teamId: "T1", slackUserId: "U42" });
+
+  it("re-renders Home when called through the service binding host", async () => {
+    const env = await setup();
+    const slack = fakeSlack();
+    const res = await run(
+      env,
+      new Request("https://slack.internal/slack/internal/home", { method: "POST", body }),
+      slack.fetch,
+    );
+    expect(res.status).toBe(204);
+    expect(slack.views[0]!.user_id).toBe("U42");
+  });
+
+  it("is not reachable on the public hostname", async () => {
+    const env = await setup();
+    const slack = fakeSlack();
+    const res = await run(
+      env,
+      new Request("https://agents.uploads.sh/slack/internal/home", { method: "POST", body }),
+      slack.fetch,
+    );
+    expect(res.status).toBe(404);
+    expect(slack.fetch).not.toHaveBeenCalled();
+  });
+});

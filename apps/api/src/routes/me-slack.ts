@@ -62,6 +62,33 @@ function ticketParam(c: Context<SessionVars>): string {
   return ticket;
 }
 
+/**
+ * Asks uploads-slack to re-render this Slack user's Home tab, so it flips
+ * between Connect and Disconnect without the user reopening it. Best effort
+ * and after the response: the binding is absent in tests and local dev, and
+ * a failure only leaves the old Home view up until the next open.
+ */
+function refreshSlackHome(c: Context<SessionVars>, teamId: string, slackUserId: string): void {
+  const slack = (c.env as { SLACK?: Fetcher }).SLACK;
+  if (!slack) return;
+  let ctx: Context<SessionVars>["executionCtx"];
+  try {
+    ctx = c.executionCtx;
+  } catch {
+    return;
+  }
+  ctx.waitUntil(
+    slack
+      .fetch("https://slack.internal/slack/internal/home", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ teamId, slackUserId }),
+      })
+      .then(() => undefined)
+      .catch(() => undefined),
+  );
+}
+
 export const meSlack = new Hono<SessionVars>()
   // Preview: who is this ticket for? Read-only.
   .get("/connect/:ticket", async (c) => {
@@ -117,6 +144,7 @@ export const meSlack = new Hono<SessionVars>()
       // Lazy cleanup of other expired tickets; the expires index keeps it cheap.
       db.prepare("DELETE FROM slack_link_tickets WHERE expires_at <= ?").bind(now),
     ]);
+    refreshSlackHome(c, row.team_id, row.slack_user_id);
     return c.json({
       teamId: row.team_id,
       teamName: row.team_name,
@@ -159,5 +187,6 @@ export const meSlack = new Hono<SessionVars>()
       .bind(teamId, slackUserId, user.id)
       .run();
     if (!result.meta.changes) throw linkNotFound();
+    refreshSlackHome(c, teamId, slackUserId);
     return c.body(null, 204);
   });

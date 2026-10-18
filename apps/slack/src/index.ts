@@ -10,19 +10,23 @@
  *                            app_uninstalled, tokens_revoked; see events.ts)
  *   - POST /slack/interactivity  Home tab buttons (Disconnect; see home.ts)
  *   - POST /slack/commands   slash commands, e.g. an agent search command
- *   - POST /slack/internal/* service-binding-only calls from uploads-api,
- *                            e.g. flag and PII hold notifications
+ *   - POST /slack/internal/* service-binding-only calls from uploads-api
+ *                            (host slack.internal): Home refresh after a
+ *                            connect today; flag and PII notifications later
  * Every public Slack-facing route verifies the request signature first.
  */
 import { Hono, type Context } from "hono";
 import { botTokenFor, type SlackEnv } from "./config";
 import { dispatchEvent } from "./events";
-import { DISCONNECT_ACTION, disconnect } from "./home";
+import { DISCONNECT_ACTION, disconnect, publishHome } from "./home";
 import { handleCallback, handleInstall } from "./oauth";
 import { verifySlackSignature } from "./slack/signature";
 import type { BlockActionsPayload, EventsApiPayload } from "./slack/types";
 
 type AppEnv = { Bindings: SlackEnv };
+
+/** The host uploads-api's SLACK service binding addresses. */
+const INTERNAL_HOST = "slack.internal";
 
 /** Slack's documented request body cap is well under this; anything bigger isn't from Slack. */
 const MAX_BODY_BYTES = 1024 * 1024;
@@ -119,6 +123,36 @@ export function createApp(options: AppOptions = {}) {
           );
         }
         return c.body(null, 200);
+      })
+      // Service-binding only (uploads-api, after a connect or unlink): the
+      // binding addresses slack.internal, while public traffic can only reach
+      // this worker through the agents.uploads.sh route, so the host check
+      // keeps it off the internet.
+      .post("/slack/internal/home", async (c) => {
+        if (new URL(c.req.url).hostname !== INTERNAL_HOST) {
+          return c.json({ error: "not_found" }, 404);
+        }
+        let input: { teamId?: unknown; slackUserId?: unknown } | null = null;
+        try {
+          input = await c.req.json();
+        } catch {
+          return c.json({ error: "invalid_json" }, 400);
+        }
+        const teamId = typeof input?.teamId === "string" ? input.teamId : "";
+        const slackUserId = typeof input?.slackUserId === "string" ? input.slackUserId : "";
+        if (!/^[TE][A-Z0-9]{1,20}$/.test(teamId) || !/^[UW][A-Z0-9]{1,20}$/.test(slackUserId)) {
+          return c.json({ error: "invalid_ids" }, 400);
+        }
+        const botToken = await botTokenFor(c.env, teamId);
+        if (!botToken) return c.body(null, 204);
+        await publishHome({
+          env: c.env,
+          teamId,
+          slackUserId,
+          botToken,
+          slackFetch: options.slackFetch,
+        });
+        return c.body(null, 204);
       })
       .notFound((c) => c.json({ error: "not_found" }, 404))
   );
