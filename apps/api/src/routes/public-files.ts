@@ -176,8 +176,7 @@ export const publicFiles = new Hono<WorkspaceVars>().get("/:workspace/:key{.+}",
 
   const downloadParam = c.req.query("download");
   if (downloadParam === "1" || downloadParam === "true") {
-    const filename = key.split("/").filter(Boolean).pop() ?? key;
-    return downloadResponse(store, key, filename);
+    return downloadResponse(store, key);
   }
 
   // After the visibility gate — private objects 401 before this D1 read.

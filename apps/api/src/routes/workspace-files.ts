@@ -40,8 +40,13 @@ import {
   type DualAuthVars,
 } from "../dual-workspace-auth";
 import { respondError } from "../error-response";
-import { attachmentResponse, badKey, listObjects, setObjectVisibility } from "../files-core";
-import { feedItemFilename } from "../feed-service";
+import {
+  attachmentResponse,
+  badKey,
+  downloadFilename,
+  listObjects,
+  setObjectVisibility,
+} from "../files-core";
 import { approveUpload } from "../upload-hold-service";
 import { listHeldKeys } from "../upload-hold-read";
 import { HOLD_MOVED_KEY, storedHoldReason } from "../upload-hold";
@@ -467,7 +472,7 @@ export const workspaceFiles = new Hono<DualAuthVars>()
         size: body.size,
         stream: () => body.body,
       },
-      feedItemFilename(key),
+      downloadFilename(key, body.customMetadata?.["source-name"]),
     );
   })
 
