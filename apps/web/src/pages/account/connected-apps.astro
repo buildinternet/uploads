@@ -45,6 +45,49 @@ const grantsEmpty = grantsReady && (initial.grants?.length ?? 0) === 0;
       />
       <p id="connected-apps-error" class="detail-error" role="alert" hidden></p>
     </div>
+
+    {
+      /* Slack and GitHub connect without an OAuth grant, so they never appear in
+        the list above. Point at where each is managed instead. */
+    }
+    <div class="settings-section" id="connected-elsewhere">
+      <h2>Also connected elsewhere</h2>
+      <p class="muted settings-note">
+        Slack and GitHub connect differently, so they're managed on other pages.
+      </p>
+      <ul class="detail-list">
+        <li>
+          <div class="detail-main">
+            <div class="detail-title"><span>Slack</span></div>
+            <div class="detail-meta">
+              Your linked Slack accounts and held-upload messages are on your Account page. The
+              Slack app is added per workspace.
+            </div>
+          </div>
+          <div class="detail-action">
+            <a class="text-btn text-btn--boxed" href="/account/profile#slack">Account</a>
+            <a class="text-btn text-btn--boxed" href="/account/workspaces" data-workspace-settings
+              >Workspace settings</a
+            >
+          </div>
+        </li>
+        <li>
+          <div class="detail-main">
+            <div class="detail-title"><span>GitHub</span></div>
+            <div class="detail-meta">
+              Sign in with GitHub is under your Account's sign-in methods. The GitHub App is
+              installed per workspace.
+            </div>
+          </div>
+          <div class="detail-action">
+            <a class="text-btn text-btn--boxed" href="/account/profile#sign-in-methods">Account</a>
+            <a class="text-btn text-btn--boxed" href="/account/workspaces" data-workspace-settings
+              >Workspace settings</a
+            >
+          </div>
+        </li>
+      </ul>
+    </div>
   </section>
 
   <style>
@@ -61,9 +104,22 @@ const grantsEmpty = grantsReady && (initial.grants?.length ?? 0) === 0;
     import { listConnectedApps, revokeConnectedApp } from "../../lib/auth-client";
     import { renderConnectedAppsHtml } from "../../lib/connected-apps-ui";
     import { renderDetailListPlaceholderHtml, renderEmptyStateHtml } from "../../lib/workspace-ui";
+    import { readCachedActiveWorkspace } from "../../lib/workspaces-nav";
 
     onAstroPageLoad(() => {
       if (!document.getElementById("connected-apps-list")) return;
+
+      // Account pages have no workspace in the URL; send "Workspace settings"
+      // to the last-used workspace when we know it, else the workspace list.
+      const activeWorkspace = readCachedActiveWorkspace();
+      if (activeWorkspace) {
+        const href = `/account/workspaces/${encodeURIComponent(activeWorkspace)}/settings`;
+        for (const link of document.querySelectorAll<HTMLAnchorElement>(
+          "a[data-workspace-settings]",
+        )) {
+          link.href = href;
+        }
+      }
 
       const authOrigin = (window as unknown as { __UPLOADS_AUTH_ORIGIN__: string })
         .__UPLOADS_AUTH_ORIGIN__;
