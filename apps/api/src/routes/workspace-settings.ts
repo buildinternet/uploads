@@ -15,6 +15,7 @@
  * tier exactly):
  *
  *  - `GET/PATCH /comment-settings`, `GET/PATCH /poster-settings`,
+ *    `GET/PATCH /classifier-settings`,
  *    `GET /comment-preview`, `GET/POST-verify/PUT/DELETE /storage` —
  *    **session-only, admin/owner tier**. A bearer `Authorization` header
  *    403s `settings_requires_session`
@@ -62,6 +63,7 @@ import {
   ValidationError,
 } from "@uploads/errors";
 import { createStorage, hostOf, type R2Jurisdiction } from "@uploads/storage";
+import { classificationAllowed } from "../classifier";
 import { dbFor } from "../db-session";
 import { Hono, type Context, type MiddlewareHandler } from "hono";
 import { usageWithLimits } from "../budget";
@@ -431,10 +433,96 @@ export async function commentSettingsPatchHandler(c: Context<SettingsVars>) {
   return c.json(commentSettingsResponse(record));
 }
 
-/** The two poster opt-outs a workspace admin can flip. Absent on the record means on. */
-const POSTER_SETTINGS_KEYS = ["pdfPosterEnabled", "videoPosterEnabled"] as const;
-type PosterSettingsKey = (typeof POSTER_SETTINGS_KEYS)[number];
-type PosterSettingsPatch = Partial<Record<PosterSettingsKey, boolean>>;
+/**
+ * A settings vertical made of on/off workspace switches (poster previews,
+ * file classification). Absent on the record means on: `undefined` and
+ * `true` both read as on, only an explicit `false` is off, which matches the
+ * gates that read these fields. A PATCH is partial; a present key must be a
+ * boolean and is stored as given, so a later read never depends on field
+ * absence. Unknown keys are ignored, same as comment-settings. Saving never
+ * consults Flagship: a switch saves while its platform flag is off, and the
+ * gate keeps ignoring it until the flag is on.
+ */
+function switchSettings<K extends SwitchKey>(
+  keys: readonly K[],
+  extra?: (env: Env, record: WorkspaceRecord, name: string) => Promise<Record<string, unknown>>,
+) {
+  const response = (record: WorkspaceRecord) =>
+    Object.fromEntries(keys.map((key) => [key, record[key] !== false])) as Record<K, boolean>;
+
+  function validate(body: unknown): Partial<Record<K, boolean>> {
+    if (typeof body !== "object" || body === null || Array.isArray(body)) {
+      throw new ValidationError("request body must be a JSON object", {
+        code: "invalid_settings",
+      });
+    }
+    const input = body as Record<string, unknown>;
+    const patch: Partial<Record<K, boolean>> = {};
+    for (const key of keys) {
+      if (!(key in input)) continue;
+      const value = input[key];
+      if (typeof value !== "boolean") {
+        throw new ValidationError(`${key} must be a boolean`, {
+          code: "invalid_settings",
+          details: { field: key },
+        });
+      }
+      patch[key] = value;
+    }
+    return patch;
+  }
+
+  const respond = async (c: Context<SettingsVars>, record: WorkspaceRecord, name: string) =>
+    c.json({ ...response(record), ...(extra ? await extra(c.env, record, name) : {}) });
+
+  return {
+    response,
+    async get(c: Context<SettingsVars>) {
+      const name = c.req.param("workspace") ?? "";
+      const record = await loadWorkspaceRecord(c.env, name);
+      if (!record) throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
+      return respond(c, record, name);
+    },
+    async patch(c: Context<SettingsVars>) {
+      const name = c.req.param("workspace") ?? "";
+      if (!(await allowWrite(c.env, name))) {
+        throw new RateLimitedError("rate limit exceeded");
+      }
+      let body: unknown;
+      try {
+        body = await c.req.json();
+      } catch {
+        throw new ValidationError("request body must be valid JSON", { code: "invalid_settings" });
+      }
+      const patch = validate(body);
+      const record = await mutateWorkspaceRecord(
+        c.env,
+        name,
+        (current) => {
+          const next = { ...current };
+          for (const key of keys) {
+            const value = patch[key];
+            if (value !== undefined) next[key] = value;
+          }
+          return next;
+        },
+        { requireServing: true },
+      );
+      return respond(c, record, name);
+    },
+  };
+}
+
+type SwitchKey =
+  | "pdfPosterEnabled"
+  | "videoPosterEnabled"
+  | "classifyUploads"
+  | "holdFlaggedUploads";
+
+/** `GET`/`PATCH /:workspace/poster-settings` — admin/owner only. */
+const posterSettings = switchSettings(["pdfPosterEnabled", "videoPosterEnabled"] as const);
+export const posterSettingsGetHandler = posterSettings.get;
+export const posterSettingsPatchHandler = posterSettings.patch;
 
 /**
  * Wire type for `GET`/`PATCH /:workspace/poster-settings`. Inferred from the
@@ -442,88 +530,29 @@ type PosterSettingsPatch = Partial<Record<PosterSettingsKey, boolean>>;
  * instead of re-declaring it. Type-only — never imported at runtime across
  * workers.
  */
-export type PosterSettingsResponse = ReturnType<typeof posterSettingsResponse>;
+export type PosterSettingsResponse = ReturnType<typeof posterSettings.response>;
 
 /**
- * Display values for the settings switches. `undefined` and `true` both read
- * as on; only an explicit `false` is off. Matches the generation gates, which
- * treat anything other than `false` as allowed (Flagship still has to be on).
+ * `GET`/`PATCH /:workspace/classifier-settings` — admin/owner only. AI labels
+ * on uploads (`classifyUploads`) and holding likely secrets or personal data
+ * for review (`holdFlaggedUploads`, `upload-hold.ts`). `available` says
+ * whether the classifier runs for this workspace at all (the Flagship
+ * allowlist and the operator off switch), so the page can say why the
+ * switches do nothing yet.
  */
-function posterSettingsResponse(record: WorkspaceRecord) {
-  return {
-    pdfPosterEnabled: record.pdfPosterEnabled !== false,
-    videoPosterEnabled: record.videoPosterEnabled !== false,
-  };
-}
+const classifierSettings = switchSettings(
+  ["classifyUploads", "holdFlaggedUploads"] as const,
+  async (env, record, name) => ({
+    available: await classificationAllowed(env, { ...record, classifyUploads: true }, name),
+  }),
+);
+export const classifierSettingsGetHandler = classifierSettings.get;
+export const classifierSettingsPatchHandler = classifierSettings.patch;
 
-/**
- * Partial PATCH for the poster switches. An omitted key leaves that field
- * unchanged. A present key must be a boolean and is stored as given — `true`
- * and `false` both persist, so a later read does not depend on field absence.
- * Unknown keys are ignored, same as comment-settings.
- */
-function validatePosterSettingsPatch(body: unknown): PosterSettingsPatch {
-  if (typeof body !== "object" || body === null || Array.isArray(body)) {
-    throw new ValidationError("request body must be a JSON object", { code: "invalid_settings" });
-  }
-  const record = body as Record<string, unknown>;
-  const patch: PosterSettingsPatch = {};
-  for (const key of POSTER_SETTINGS_KEYS) {
-    if (!(key in record)) continue;
-    const value = record[key];
-    if (typeof value !== "boolean") {
-      throw new ValidationError(`${key} must be a boolean`, {
-        code: "invalid_settings",
-        details: { field: key },
-      });
-    }
-    patch[key] = value;
-  }
-  return patch;
-}
-
-/** `GET /:workspace/poster-settings` — admin/owner only. */
-export async function posterSettingsGetHandler(c: Context<SettingsVars>) {
-  const name = c.req.param("workspace") ?? "";
-  const record = await loadWorkspaceRecord(c.env, name);
-  if (!record) throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
-  return c.json(posterSettingsResponse(record));
-}
-
-/**
- * `PATCH /:workspace/poster-settings` — admin/owner only. Validated in full
- * before any write. Does not consult Flagship: the switches save while the
- * platform flag is off, and the generation gates keep ignoring them until
- * that flag is on.
- */
-export async function posterSettingsPatchHandler(c: Context<SettingsVars>) {
-  const name = c.req.param("workspace") ?? "";
-  if (!(await allowWrite(c.env, name))) {
-    throw new RateLimitedError("rate limit exceeded");
-  }
-  let body: unknown;
-  try {
-    body = await c.req.json();
-  } catch {
-    throw new ValidationError("request body must be valid JSON", { code: "invalid_settings" });
-  }
-  const patch = validatePosterSettingsPatch(body);
-  const record = await mutateWorkspaceRecord(
-    c.env,
-    name,
-    (current) => {
-      const next = { ...current };
-      for (const key of POSTER_SETTINGS_KEYS) {
-        const value = patch[key];
-        if (value === undefined) continue;
-        next[key] = value;
-      }
-      return next;
-    },
-    { requireServing: true },
-  );
-  return c.json(posterSettingsResponse(record));
-}
+/** Wire type for `/:workspace/classifier-settings`. Type-only. */
+export type ClassifierSettingsResponse = ReturnType<typeof classifierSettings.response> & {
+  available: boolean;
+};
 
 /**
  * `GET /:workspace/storage` — self-serve BYO R2 bucket (issue #583 Task
@@ -1539,6 +1568,8 @@ export const workspaceSettings = new Hono<SettingsVars>()
   .patch("/:workspace/comment-settings", sessionAdminGate(), commentSettingsPatchHandler)
   .get("/:workspace/poster-settings", sessionAdminGate(), posterSettingsGetHandler)
   .patch("/:workspace/poster-settings", sessionAdminGate(), posterSettingsPatchHandler)
+  .get("/:workspace/classifier-settings", sessionAdminGate(), classifierSettingsGetHandler)
+  .patch("/:workspace/classifier-settings", sessionAdminGate(), classifierSettingsPatchHandler)
   .get("/:workspace/comment-preview", sessionAdminGate(), commentPreviewHandler)
   .get("/:workspace/storage", sessionAdminGate(), storageGetHandler)
   .post("/:workspace/storage/verify", sessionAdminGate(), storageVerifyHandler)

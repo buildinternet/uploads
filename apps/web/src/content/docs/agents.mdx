@@ -272,6 +272,8 @@ curl -X POST -H "Authorization: Bearer $UPLOADS_TOKEN" \
   "https://api.uploads.sh/v1/workspaces/$WORKSPACE/files/approve?key=$KEY"
 ```
 
+Workspace admins can turn labels, or just holds, off under **Settings → AI labels**.
+
 Approval writes `ai.hold=approved` and re-syncs the comment. Re-uploading identical bytes keeps the approval. New bytes are classified again and can be held again. `ai.pii=contact` never holds a file, and the `ai.rating` and `ai.content` flags never hold one.
 
 Labels aren't in the upload's response. Read them afterward, or search by them:

@@ -255,6 +255,12 @@ export interface WorkspaceRecord {
    * classifier runs.
    */
   holdFlaggedUploads?: boolean;
+  /**
+   * Workspace admins' switch for AI labels on uploads (the settings page).
+   * On unless `false`. Separate from the operator's `llmClassifierEnabled`
+   * hard off, so an admin cannot switch on what an operator turned off.
+   */
+  classifyUploads?: boolean;
   /** Set by `DELETE /admin/workspaces/:name` (default/soft mode). Present → the workspace is soft-deleted. */
   deletedAt?: string;
   /** `deletedAt` + the grace window (`WORKSPACE_DELETE_GRACE_DAYS`); the retention sweep finalizes at/after this. */

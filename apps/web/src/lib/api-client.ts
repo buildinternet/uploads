@@ -16,6 +16,7 @@ import type { WorkspaceCreateQuota } from "@uploads/billing";
 import type { OpenEnrollment, OrgInvite, WorkspaceMemberRow } from "@uploads/api/workspace-members";
 import type { WorkspaceUsageResponse } from "@uploads/api/workspace-usage";
 import type {
+  ClassifierSettingsResponse,
   CommentSettingsResponse,
   PosterSettingsResponse,
 } from "@uploads/api/workspace-settings";
@@ -2066,6 +2067,71 @@ export async function patchWorkspacePosterSettings(
   if (response.status === 404) return { kind: "unavailable", reason: "not_found" };
   if (!response.ok) return { kind: "unavailable", reason: "server" };
   const settings = toPosterSettings(await response.json().catch(() => null));
+  if (!settings) return { kind: "unavailable", reason: "server" };
+  return { kind: "ok", settings };
+}
+
+/**
+ * Per-workspace AI-label switches: `classifyUploads`, `holdFlaggedUploads`,
+ * and `available` (whether the classifier runs for this workspace at all).
+ */
+export type ClassifierSettings = ClassifierSettingsResponse;
+
+export type ClassifierSettingsResult =
+  | { kind: "ok"; settings: ClassifierSettings }
+  | { kind: "invalid"; message: string }
+  | { kind: "unavailable"; reason: RequestFailure | "forbidden" | "not_found" | "server" };
+
+function toClassifierSettings(body: unknown): ClassifierSettings | null {
+  if (!body || typeof body !== "object") return null;
+  const b = body as Record<string, unknown>;
+  if (
+    typeof b.classifyUploads !== "boolean" ||
+    typeof b.holdFlaggedUploads !== "boolean" ||
+    typeof b.available !== "boolean"
+  ) {
+    return null;
+  }
+  return {
+    classifyUploads: b.classifyUploads,
+    holdFlaggedUploads: b.holdFlaggedUploads,
+    available: b.available,
+  };
+}
+
+/**
+ * GET, or with `patch` a partial PATCH, of
+ * /v1/workspaces/:name/classifier-settings — admin/owner only.
+ */
+export async function workspaceClassifierSettings(
+  apiOrigin: string,
+  name: string,
+  patch?: Partial<Pick<ClassifierSettings, "classifyUploads" | "holdFlaggedUploads">>,
+): Promise<ClassifierSettingsResult> {
+  const result = await fetchWithTimeout(
+    `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(name)}/classifier-settings`,
+    patch
+      ? {
+          method: "PATCH",
+          credentials: "include",
+          cache: "no-store",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(patch),
+        }
+      : { credentials: "include", cache: "no-store" },
+  );
+  if (result.kind === "unavailable") return result;
+  const { response } = result;
+  if (response.status === 400) {
+    const body = (await response.json().catch(() => null)) as {
+      error?: { message?: string };
+    } | null;
+    return { kind: "invalid", message: body?.error?.message ?? "That change isn’t allowed." };
+  }
+  if (response.status === 403) return { kind: "unavailable", reason: "forbidden" };
+  if (response.status === 404) return { kind: "unavailable", reason: "not_found" };
+  if (!response.ok) return { kind: "unavailable", reason: "server" };
+  const settings = toClassifierSettings(await response.json().catch(() => null));
   if (!settings) return { kind: "unavailable", reason: "server" };
   return { kind: "ok", settings };
 }
