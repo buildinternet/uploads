@@ -103,6 +103,8 @@ export interface PreviewEntity {
   updated?: string | null;
   /** Extra labelled values for the Work Object body, in order. */
   fields: EntityField[];
+  /** The GitHub account that owns the repo, shown where Slack expects a creator. */
+  owner?: string;
   /** A feed's newest or a gallery's first few images, for a thumbnail strip. */
   strip?: Array<{ url: string; alt: string }>;
 }
@@ -308,6 +310,14 @@ function strip(items: CollectionItem[]): Array<{ url: string; alt: string }> {
   return images;
 }
 
+const GITHUB_LOGIN = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/;
+
+/** `{ owner }` for "owner/name", when the owner is a valid GitHub login. */
+function ownerOf(repo: string | null | undefined): { owner?: string } {
+  const owner = repo?.split("/")[0];
+  return owner && GITHUB_LOGIN.test(owner) ? { owner } : {};
+}
+
 function prRef(repo: string, number: number): string {
   return `${repo}#${number}`;
 }
@@ -400,6 +410,7 @@ async function filePreview(
       updated: file.uploaded,
       ...(gh?.title ? { description: gh.title } : {}),
       fields: [...(gh ? [threadField(gh)] : []), ...pathField(file.metadata?.path)],
+      ...ownerOf(gh?.repo),
     },
   };
 }
@@ -443,6 +454,7 @@ async function feedPreview(
           { key: "change_feed", label: "Change feed", value: feed.title, url: feedPage },
           ...pathField(item.path),
         ],
+        ...ownerOf(feed.repo),
       },
     };
   }
@@ -494,6 +506,7 @@ async function feedPreview(
         ...(page ? [{ key: "files", label: "Files", value: String(page.total) }] : []),
       ],
       strip: strip(feed.items.filter((item) => item.status === "available")),
+      ...ownerOf(feed.repo),
     },
   };
 }
