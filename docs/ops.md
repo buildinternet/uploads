@@ -103,22 +103,37 @@ request can use the refreshed title. Member-only title caches never enter this p
 Inspect the document's `Server-Timing` header in browser DevTools. The web worker
 forwards the API phases, so a single navigation shows both layers:
 
-| Metric              | Work measured                                               |
-| ------------------- | ----------------------------------------------------------- |
-| `file_workspace`    | Workspace registry lookup                                   |
-| `file_storage`      | Storage-lane selection and fresh object HEAD                |
-| `file_metadata`     | Current metadata and hold-state read                        |
-| `file_pair`         | Counterpart lookup and visibility verification              |
-| `file_title_cache`  | Bounded public-title cache read                             |
-| `file_api`          | Entire public-file API handler                              |
-| `file_ssr_fetch`    | Web worker's metadata subrequest, including JSON validation |
-| `file_text_preview` | Optional text-body fetch                                    |
-| `file_ssr_prepare`  | Web page preparation before template rendering              |
+| Metric              | Work measured                                                                          |
+| ------------------- | -------------------------------------------------------------------------------------- |
+| `file_workspace`    | Workspace registry lookup                                                              |
+| `file_storage`      | Storage-lane selection and fresh object HEAD                                           |
+| `file_metadata`     | Current metadata and hold-state read                                                   |
+| `file_pair`         | Counterpart lookup and visibility verification                                         |
+| `file_title_cache`  | Bounded public-title cache read                                                        |
+| `file_api`          | Entire public-file API handler                                                         |
+| `file_api_headers`  | Web worker wait until API response headers; description identifies `binding` or `http` |
+| `file_api_body`     | API response-body read and JSON decode after headers arrive                            |
+| `file_ssr_fetch`    | Web worker's metadata subrequest, including JSON validation                            |
+| `file_text_preview` | Optional text-body fetch                                                               |
+| `file_ssr_prepare`  | Web page preparation before template rendering                                         |
 
 These durations overlap; do not add them together. Failure responses include
 the phases reached before rejection. `SERVER_TIMING_DISABLED=1` suppresses
 headers on the worker where it is set. Slow API phases use the existing
 structured slow-operation logger with a fixed route label, without asset keys.
+
+To investigate a slow metadata subrequest, compare `file_api_headers` with
+`file_api`. A large difference is outside the timed API route. A large
+`file_api_body` instead points to response delivery after the headers arrive.
+Check the transport description before diagnosing a network hop: production
+uses the `API` service binding; local development can use HTTP.
+
+Workers' wall clocks advance at I/O boundaries. These headers measure I/O
+waits, not precise CPU time for parsing or validation. Correlate outliers with
+Workers invocation logs by trace ID and compare CPU and wall time for both
+workers. Invocation wall time can also include background work. Neither route
+nor fetch-entry timers capture module initialization before the handler starts.
+Avoid changing placement or adding response caches based on one outlier.
 
 ## SVG and XML on the hosted hosts (issue #929)
 

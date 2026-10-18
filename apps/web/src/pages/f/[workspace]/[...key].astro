@@ -51,6 +51,7 @@ const fetchStarted = Date.now();
 const result = await fetchPublicFile(workspace, key, {
   origin,
   fetch: publicApiFetch(env),
+  transport: env.API ? "binding" : "http",
   onServerTiming: timingsEnabled
     ? (value) => Astro.response.headers.append("Server-Timing", value)
     : undefined,
