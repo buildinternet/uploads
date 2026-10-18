@@ -254,6 +254,8 @@ describe("Work Object unfurls", () => {
     });
     // The unfurl itself has no pager buttons; those live in the flexpane.
     expect(entity.entity_payload.actions).toBeUndefined();
+    // No cover image: Slack would draw it full width and hide the fields.
+    expect(entity.entity_payload.fields).not.toHaveProperty("preview");
     // A video without a poster has no image, so the strip skips it.
     expect(entity.entity_payload.custom_fields).toContainEqual({
       key: "thumbnails",

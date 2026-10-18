@@ -135,6 +135,7 @@ export async function handleLinkShared(
     console.warn("slack.unfurl: Work Object rejected, retrying without images", {
       error: result.error,
       detail: result.response_metadata,
+      links: previews.map((preview) => `${preview.entity.ref.type} ${preview.url}`).join(", "),
     });
     result = await chatUnfurl(unfurlTarget(event), build(true), api, entities(false));
     if (!result.ok) {

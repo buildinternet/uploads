@@ -211,7 +211,10 @@ export function entityMetadata(
           mime_type: entity.contentType ? { value: entity.contentType } : null,
         })
       : compact({
-          preview: preview_,
+          // Slack draws a content item's preview as a full-width cover and
+          // hides its fields, so the card leads with the thumbnail strip and
+          // fields instead; the pager flexpane shows the current item.
+          preview: pager ? preview_ : null,
           description: entity.description ? { value: clamp(entity.description, 1000) } : null,
           date_updated: dateField(updated),
         });
@@ -226,7 +229,8 @@ export function entityMetadata(
     ...(thumbnails && !pager ? [thumbnails] : []),
     ...entity.fields.map(customField),
   ];
-  const fullSize = fullSizePreview(image, options.fullSizeHosts ?? []);
+  const fullSize =
+    entity.type === "file" || pager ? fullSizePreview(image, options.fullSizeHosts ?? []) : null;
   const payload: Json = {
     attributes: {
       title: { text: clamp(preview.title, TITLE_MAX) },
