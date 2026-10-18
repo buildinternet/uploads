@@ -574,6 +574,7 @@ export type AdminGithubLink = ReturnType<typeof repoLinkResponse>;
 export type { AdminTokenRow } from "../admin-token-list";
 export type { AdminClientActivity } from "../client-activity";
 export type { MetricsOverview } from "../metrics-overview";
+export type * from "../classifier-admin-wire";
 export type { OrgInvite, OrgMember } from "../org-workspaces";
 export type { OpenEnrollment } from "../auth-db";
 /** `/admin-ui/oauth-clients*` passes the auth worker's body through unchanged. */
