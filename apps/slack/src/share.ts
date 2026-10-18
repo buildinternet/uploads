@@ -105,8 +105,6 @@ export interface PreviewEntity {
   fields: EntityField[];
   /** The GitHub account that owns the repo, shown where Slack expects a creator. */
   owner?: string;
-  /** A feed's newest or a gallery's first few images, for a thumbnail strip. */
-  strip?: Array<{ url: string; alt: string }>;
   /** A feed's newest or a gallery's first few items, each its own Work Object. */
   items?: EntityItemRef[];
   /** Links for the Work Object's overflow menu, e.g. the PR on GitHub. */
@@ -125,8 +123,8 @@ export interface EntityItemRef {
 /** How many items a feed or gallery side panel lists. */
 export const ITEM_LIST_SIZE = 10;
 
-/** How many images a feed or gallery card shows side by side. */
-export const STRIP_SIZE = 4;
+/** How many of a feed's newest items the card fetches. */
+const FEED_FETCH_SIZE = 4;
 
 /** Small icons beside a Work Object field's value (served from apps/slack/public/slack/icons). */
 export type FieldIcon =
@@ -137,8 +135,7 @@ export type FieldIcon =
   | "issue"
   | "issue-open"
   | "issue-closed"
-  | "gallery"
-  | "feed";
+  | "collection";
 
 export interface EntityField {
   key: string;
@@ -329,17 +326,6 @@ function mime(item: { url: string | null; contentType: string | null }) {
   return value ? { mime: value } : {};
 }
 
-/** Up to STRIP_SIZE images from `items`, in order. */
-function strip(items: CollectionItem[]): Array<{ url: string; alt: string }> {
-  const images: Array<{ url: string; alt: string }> = [];
-  for (const item of items) {
-    const url = mediaImage(item);
-    if (url) images.push({ url, alt: item.altText || item.caption?.trim() || item.filename });
-    if (images.length === STRIP_SIZE) break;
-  }
-  return images;
-}
-
 /** Up to ITEM_LIST_SIZE items as references, in order; `base` is the collection's share page. */
 function itemRefs(
   items: CollectionItem[],
@@ -526,7 +512,7 @@ async function feedPreview(
             label: "Change feed",
             value: feed.title,
             url: feedPage,
-            icon: "feed",
+            icon: "collection",
           },
           ...pathField(item.path),
         ],
@@ -536,7 +522,7 @@ async function feedPreview(
     };
   }
 
-  const feed = await getJson<PublicFeed>(`/public/feeds/${id}?limit=${STRIP_SIZE}`, deps);
+  const feed = await getJson<PublicFeed>(`/public/feeds/${id}?limit=${FEED_FETCH_SIZE}`, deps);
   if (!feed) return null;
   const latest = feed.items.find((item) => item.status === "available");
   // The list endpoint pages without a total; the item page carries one.
@@ -585,7 +571,6 @@ async function feedPreview(
           : [{ key: "repo", label: "Repository", value: feed.repo }]),
         ...(page ? [{ key: "files", label: "Files", value: String(page.total) }] : []),
       ],
-      strip: strip(feed.items.filter((item) => item.status === "available")),
       items: itemRefs(
         feed.items.filter((item) => item.status === "available"),
         feedPage,
@@ -659,7 +644,7 @@ async function galleryPreview(
             label: "Gallery",
             value: gallery.title,
             url: galleryPage,
-            icon: "gallery",
+            icon: "collection",
           },
           { key: "position", label: "Position", value: position },
         ],
@@ -696,7 +681,6 @@ async function galleryPreview(
       updated: gallery.updatedAt,
       ...(description ? { description } : {}),
       fields: [{ key: "items", label: "Items", value: String(items.length) }],
-      strip: strip(items),
       items: itemRefs(items, galleryPage, gallery.id, "gallery_item"),
     },
   };

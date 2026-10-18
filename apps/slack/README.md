@@ -59,12 +59,12 @@ the Block Kit preview, and clicking it opens a flexpane beside the
 conversation. The blocks are still sent, and if Slack rejects the metadata
 the worker retries with the blocks alone.
 
-| Link                     | Entity type    | Card shows                                        |
-| ------------------------ | -------------- | ------------------------------------------------- |
-| File (`/f/…`)            | `file`         | Image or poster, date, PR or issue, page path     |
-| Change feed (`/c/…`)     | `content_item` | Latest screenshot, PR or issue, state, file count |
-| Gallery (`/g/…`)         | `content_item` | Cover, description, item count                    |
-| One feed or gallery item | `file`         | The item, a link to its feed or gallery           |
+| Link                     | Entity type    | Card shows                                    |
+| ------------------------ | -------------- | --------------------------------------------- |
+| File (`/f/…`)            | `file`         | Image or poster, date, PR or issue, page path |
+| Change feed (`/c/…`)     | `content_item` | Latest screenshot, full width                 |
+| Gallery (`/g/…`)         | `content_item` | Cover, full width                             |
+| One feed or gallery item | `file`         | The item, a link to its feed or gallery       |
 
 The flexpane for a feed or gallery is a pager: it opens on the feed's newest
 item (or the gallery's first) and has **Newer** / **Older** (feeds) or
@@ -75,9 +75,10 @@ item (or the gallery's first) and has **Newer** / **Older** (feeds) or
 preview, so the card and flexpane never show more than the share page.
 Anything that isn't public answers `not_found`.
 
-Feed and gallery cards also show a strip of up to four thumbnails (a feed's
-newest images, a gallery's first), as an array of `slack#/types/image`. The
-pager flexpane leaves the strip out, since its current item leads.
+Slack draws a content item's `preview` as a full-width cover and hides its
+other fields, so feed and gallery cards are one image (the feed's latest, the
+gallery's cover) and their details (PR and state, file count, description)
+are in the side panel.
 
 Clicking a thumbnail can open Slack's full-size viewer
 (`attributes.full_size_preview`), but only for PNG, JPEG, GIF, and WebP
@@ -120,13 +121,15 @@ leaves it out, since it's often the same org for every link). Galleries and file
 with no repo show uploads.sh instead, since the public API has no uploader.
 
 Icons: each card's header uses a per-type icon (`attributes.product_icon`:
-image, video, file, change feed, gallery), and the GitHub, Change feed, and
-Gallery fields carry a small icon beside their value. A change feed's GitHub
+image, video, file, or one "collection" icon for both feeds and galleries,
+which only says the link holds several items), and the GitHub, Change feed,
+and Gallery fields carry a small icon beside their value. A change feed's GitHub
 field shows the PR or issue state as its icon and a word ("acme/app#12 ·
 Merged"); a file's shows a neutral PR icon, since the file doesn't know the
 state. The PNGs live in `public/slack/icons/` and are served as static assets
-at `agents.uploads.sh/slack/icons/`. The glyphs are from GitHub's
-[Octicons](https://github.com/primer/octicons) (MIT).
+at `agents.uploads.sh/slack/icons/`. The PR and issue glyphs are
+from GitHub's [Octicons](https://github.com/primer/octicons) (MIT), the rest
+from [Lucide](https://lucide.dev) (ISC).
 
 Turning it on:
 

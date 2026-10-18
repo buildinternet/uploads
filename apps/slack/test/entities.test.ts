@@ -256,7 +256,7 @@ describe("Work Object unfurls", () => {
     expect(entity.entity_type).toBe("slack#/entities/content_item");
     expect(entity.external_ref).toEqual({ id: FEED_ID, type: "feed" });
     expect(entity.entity_payload.attributes.display_type).toBe("Change feed");
-    expect(entity.entity_payload.attributes.product_icon.url).toBe(`${ICONS}/type-feed.png`);
+    expect(entity.entity_payload.attributes.product_icon.url).toBe(`${ICONS}/type-collection.png`);
     // The PR's state rides on the GitHub field instead of a field of its own.
     expect(entity.entity_payload.custom_fields).toContainEqual({
       key: "github",
@@ -282,27 +282,14 @@ describe("Work Object unfurls", () => {
     expect(entity.entity_payload.custom_fields.map((f: { key: string }) => f.key)).not.toContain(
       "items_list",
     );
-    // No cover image: Slack would draw it full width and hide the fields.
-    expect(entity.entity_payload.fields).not.toHaveProperty("preview");
-    // A video without a poster has no image, so the strip skips it.
-    expect(entity.entity_payload.custom_fields).toContainEqual({
-      key: "thumbnails",
-      label: "Latest",
-      type: "array",
-      item_type: "slack#/types/image",
-      value: [
-        {
-          type: "slack#/types/image",
-          image_url: "https://storage.uploads.sh/newest.png",
-          alt_text: "newest.png",
-        },
-        {
-          type: "slack#/types/image",
-          image_url: "https://storage.uploads.sh/middle.png",
-          alt_text: "middle.png",
-        },
-      ],
+    // The card is the latest image, full width; Slack hides the fields
+    // under it, so they're for the side panel.
+    expect(entity.entity_payload.fields.preview).toEqual({
+      type: "slack#/types/image",
+      image_url: "https://storage.uploads.sh/newest.png",
+      alt_text: "newest.png",
     });
+    expect(keys).not.toContain("thumbnails");
   });
 
   it("offers Slack's full-size viewer only for images on allowed hosts", async () => {
@@ -489,8 +476,6 @@ describe("Work Object flexpane", () => {
       },
     });
     expect(list.value[2].entity_ref).not.toHaveProperty("icon");
-    // The pager's item leads the flexpane, so the card's strip is left out.
-    expect(payload.custom_fields.map((f: { key: string }) => f.key)).not.toContain("thumbnails");
   });
 
   it("pages a feed from the flexpane buttons, keeping the feed's identity", async () => {

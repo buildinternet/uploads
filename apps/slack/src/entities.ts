@@ -96,8 +96,9 @@ const TYPE_ICONS: Record<string, string> = {
   Image: "type-image",
   Video: "type-video",
   File: "type-file",
-  "Change feed": "type-feed",
-  Gallery: "type-gallery",
+  // Feeds and galleries share one icon: it says "several items", nothing more.
+  "Change feed": "type-collection",
+  Gallery: "type-collection",
 };
 
 function productIcon(displayType: string, iconBase: string | undefined): Json | null {
@@ -230,7 +231,7 @@ export interface EntityOptions {
    * elsewhere (BYO buckets, other lanes) get the thumbnail only.
    */
   fullSizeHosts?: readonly string[];
-  /** false leaves out every image (preview, strip, full size): the fallback when Slack rejects one. */
+  /** false leaves out every image (preview, icons, full size): the fallback when Slack rejects one. */
   images?: boolean;
   /** Building the side panel (`entity.presentDetails`) rather than the card. */
   details?: boolean;
@@ -269,23 +270,6 @@ function fullSizePreview(
   return { is_supported: true, preview_url: image.url, mime_type: image.mime };
 }
 
-/** A row of thumbnails: a feed's newest or a gallery's first few images. */
-function stripField(images: Array<{ url: string; alt: string }> | undefined, label: string) {
-  const usable = (images ?? []).filter((image) => isSlackImage(image.url));
-  if (usable.length < 2) return null;
-  return {
-    key: "thumbnails",
-    label,
-    type: "array",
-    item_type: "slack#/types/image",
-    value: usable.map((image) => ({
-      type: "slack#/types/image",
-      image_url: image.url,
-      alt_text: clamp(image.alt, 100),
-    })),
-  };
-}
-
 /**
  * The Work Object for one preview. With `page` (a feed or gallery
  * flexpane), the preview image and buttons follow the pager's item.
@@ -322,27 +306,22 @@ export function entityMetadata(
         })
       : compact({
           // Slack draws a content item's preview as a full-width cover and
-          // hides its fields, so the card leads with the thumbnail strip and
-          // fields instead; the pager flexpane shows the current item.
-          preview: pager ? preview_ : null,
+          // hides its fields, so the card is the cover (a feed's latest image,
+          // a gallery's cover) and the fields live in the side panel, where
+          // the preview follows the pager's item.
+          preview: preview_,
           description: entity.description ? { value: clamp(entity.description, 1000) } : null,
           created_by: details ? creatorField(entity.owner, withImages) : null,
           date_updated: dateField(updated),
         });
 
-  // The strip leads on the card; in a pager flexpane the current item does.
-  const thumbnails = stripField(
-    withImages ? entity.strip : undefined,
-    entity.ref.type === "feed" ? "Latest" : "Items",
-  );
   // The side panel lists the collection's items, each a link to its own
-  // Work Object; the card keeps the strip instead.
+  // Work Object.
   const itemList = pager
     ? itemsField(entity.items, entity.ref.type === "feed" ? "Latest files" : "Items", withImages)
     : null;
   const customFields = [
     ...(pager?.fields ?? []),
-    ...(thumbnails && !pager ? [thumbnails] : []),
     ...(itemList ? [itemList] : []),
     ...entity.fields.map((field) => customField(field, iconBase)),
     // Size and type are trivia: the card leaves them out so the PR and page
