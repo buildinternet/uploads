@@ -7,6 +7,7 @@
  */
 import { ConflictError, NotFoundError, ValidationError } from "@uploads/errors";
 import { createStorage, type Files, type StoredFile } from "@uploads/storage";
+import { sanitizeFilename } from "@uploads/comment-render";
 import { activeContentAllowed, activeContentAllowedForCopy } from "./active-content";
 import { recordAdoptionSafe, type UploadSurface } from "./adoption";
 import {
@@ -141,10 +142,9 @@ export function badKey(key: string): boolean {
   );
 }
 
-/** Sanitize a bare basename for object keys. */
+/** Sanitize a bare basename for object keys — see `sanitizeFilename`. */
 export function sanitizeKeyBasename(name: string): string {
-  const cleaned = name.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
-  return cleaned || "file";
+  return sanitizeFilename(name);
 }
 
 /** Short url-safe id for auto-prefix paths (`f/<id>/…`). */
@@ -1172,12 +1172,41 @@ function encodeRfc5987Filename(filename: string): string {
  * unchanged). Full-file only: no `Range` support. Uses `StoredFile.stream()`
  * so the whole object is never buffered into Worker memory.
  */
-export async function downloadResponse(
-  store: Files,
-  key: string,
-  filename: string,
-): Promise<Response> {
-  return attachmentResponse(await store.download(key), filename);
+export async function downloadResponse(store: Files, key: string): Promise<Response> {
+  const file = await store.download(key);
+  return attachmentResponse(file, downloadFilename(key, file.metadata?.["source-name"]));
+}
+
+/** Last extension including its dot (`.png`), or "" when there is none. */
+function extensionOf(name: string): string {
+  const dot = name.lastIndexOf(".");
+  return dot > 0 && dot < name.length - 1 ? name.slice(dot) : "";
+}
+
+/**
+ * Filename a download is saved under. Keys dash interior dots and special
+ * characters (`sanitizeFilename`), so when the uploader's original basename
+ * (the `source-name` provenance value) is the name this key was derived
+ * from, hand that back instead — with the stored extension, since an
+ * optimized `shot.png` is stored as `.webp`. "Derived from" means the
+ * original sanitizes to the key's basename, optionally plus the dated
+ * layout's `-<6 hex>` content hash. A renamed upload (`--name`), a missing
+ * `source-name`, or any other mismatch falls back to the key's basename.
+ */
+export function downloadFilename(key: string, sourceName?: string): string {
+  const keyName = key.split("/").filter(Boolean).pop() ?? key;
+  const original = sourceName?.split(/[\\/]/).pop()?.trim();
+  if (!original) return keyName;
+  const keyExt = extensionOf(keyName);
+  const srcExt = extensionOf(original);
+  const candidate = `${srcExt ? original.slice(0, -srcExt.length) : original}${keyExt}`;
+  const sanitized = sanitizeFilename(candidate);
+  if (sanitized === keyName) return candidate;
+  const stem = sanitized.slice(0, sanitized.length - extensionOf(sanitized).length);
+  const rest = keyName.startsWith(stem) ? keyName.slice(stem.length) : "";
+  return /^-[0-9a-f]{6}$/.test(rest.slice(0, rest.length - keyExt.length)) && rest.endsWith(keyExt)
+    ? candidate
+    : keyName;
 }
 
 /** `downloadResponse` for a body already in hand (a held copy, for one). */

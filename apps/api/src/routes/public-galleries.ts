@@ -2,7 +2,7 @@ import { NotFoundError, ServiceUnavailableError } from "@uploads/errors";
 import { Hono } from "hono";
 import { downloadResponse } from "../files-core";
 import { listGalleryItems, resolvePublicGallery } from "../galleries";
-import { galleryItemFilename, hydratePublicGallery } from "../gallery-service";
+import { hydratePublicGallery } from "../gallery-service";
 import { objectPublicUrls, storage, storageConfig } from "../storage";
 import { isKeyHeld } from "../upload-hold-read";
 import { objectVisibility } from "../visibility";
@@ -76,9 +76,7 @@ export const publicGalleries = new Hono<WorkspaceVars>()
       throw new NotFoundError("Gallery item not found.", { code: "gallery_item_not_found" });
     }
 
-    return withGalleryStorageErrors(() =>
-      downloadResponse(store, item.object_key, galleryItemFilename(item.object_key)),
-    );
+    return withGalleryStorageErrors(() => downloadResponse(store, item.object_key));
   })
   .get("/:id", async (c) => {
     const record = await resolvePublicGallery(dbFor(c.env), c.req.param("id"));
