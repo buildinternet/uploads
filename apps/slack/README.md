@@ -74,6 +74,10 @@ press **Retry** under **Event Subscriptions** once the secret is in place.
 The worker is not part of `pnpm run deploy` or Workers Builds yet. Add it once
 the app is installed.
 
+`icon.png` (1024×1024, rendered from `apps/web/public/favicon.svg` on a full
+square) is the app icon. The manifest can't set an icon, so upload it under
+**Basic Information** → **Display Information**.
+
 ## Local development
 
 ```bash

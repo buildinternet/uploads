@@ -6,7 +6,7 @@
   "display_information": {
     "name": "uploads.sh",
     "description": "Previews for uploads.sh share links.",
-    "background_color": "#111111",
+    "background_color": "#121214",
     "long_description": "Shows a preview when someone posts an uploads.sh file, gallery, or change-feed link. Only public links get a preview: private, held, and deleted files never unfurl, so a preview can't show more than the share page itself."
   },
   "features": {
