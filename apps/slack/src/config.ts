@@ -18,6 +18,12 @@ export interface SlackEnv {
   /** Master secret for sealing bot tokens and signing OAuth state. */
   SLACK_TOKENS_KEY?: string;
   SLACK_SIGNING_SECRET?: string;
+  /**
+   * "on" sends Work Object metadata with each unfurl (entities.ts). Needs
+   * Work Object Previews enabled in the Slack app settings (manifest
+   * `features.rich_previews`); anything else sends Block Kit previews only.
+   */
+  SLACK_WORK_OBJECTS?: string;
   /** Shared D1 (uploads-production); holds slack_installations and slack_user_links. */
   DB?: D1Database;
   /**

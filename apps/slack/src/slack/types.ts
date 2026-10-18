@@ -44,6 +44,22 @@ export interface AppHomeOpenedEvent extends SlackEvent {
   tab: "home" | "messages";
 }
 
+/**
+ * A Work Object flexpane was opened or refreshed.
+ * https://docs.slack.dev/reference/events/entity_details_requested
+ */
+export interface EntityDetailsRequestedEvent extends SlackEvent {
+  type: "entity_details_requested";
+  user?: string;
+  trigger_id: string;
+  external_ref?: { id: string; type?: string };
+  /** The entity's canonical `url`. */
+  entity_url?: string;
+  /** The exact URL that was unfurled. */
+  app_unfurl_url?: string;
+  link?: { url: string; domain?: string };
+}
+
 /** The slice of an interactivity `block_actions` payload this app reads. */
 export interface BlockActionsPayload {
   type: "block_actions";
@@ -52,4 +68,7 @@ export interface BlockActionsPayload {
   actions?: Array<{ action_id: string; value?: string }>;
   /** Where to send a reply that replaces the message the button was on. */
   response_url?: string;
+  trigger_id?: string;
+  /** For a Work Object button, `type` is `entity_detail` (flexpane) or `message_attachment` (unfurl). */
+  container?: { type?: string; app_unfurl_url?: string; entity_url?: string };
 }

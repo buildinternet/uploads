@@ -6,10 +6,12 @@
  * report outcomes through logs, not the response.
  */
 import { botTokenFor, type SlackEnv } from "./config";
+import { presentDetails } from "./entities";
 import { publishHome } from "./home";
 import { revokeInstall } from "./installs";
 import type {
   AppHomeOpenedEvent,
+  EntityDetailsRequestedEvent,
   EventCallbackPayload,
   LinkSharedEvent,
   SlackEvent,
@@ -26,10 +28,19 @@ export interface HandlerContext {
 
 type EventHandler = (event: SlackEvent, ctx: HandlerContext) => Promise<void>;
 
-function apiFetchFor(env: SlackEnv): typeof globalThis.fetch {
+export function apiFetchFor(env: SlackEnv): typeof globalThis.fetch {
   const api = env.API;
   if (!api) return globalThis.fetch;
   return api.fetch.bind(api) as unknown as typeof globalThis.fetch;
+}
+
+/** Where share-link data comes from: uploads-api's public endpoints. */
+export function shareDeps(env: SlackEnv) {
+  return {
+    webOrigin: env.WEB_ORIGIN || "https://uploads.sh",
+    apiOrigin: env.API_ORIGIN || "https://api.uploads.sh",
+    apiFetch: apiFetchFor(env),
+  };
 }
 
 const EVENT_HANDLERS: Record<string, EventHandler> = {
@@ -40,17 +51,33 @@ const EVENT_HANDLERS: Record<string, EventHandler> = {
       return;
     }
     const outcome = await handleLinkShared(event as LinkSharedEvent, {
-      webOrigin: ctx.env.WEB_ORIGIN || "https://uploads.sh",
-      apiOrigin: ctx.env.API_ORIGIN || "https://api.uploads.sh",
-      apiFetch: apiFetchFor(ctx.env),
+      ...shareDeps(ctx.env),
       slackFetch: ctx.slackFetch,
       botToken,
+      workObjects: ctx.env.SLACK_WORK_OBJECTS === "on",
     });
     if (outcome.status === "failed") {
       console.error("slack.unfurl: chat.unfurl failed", { error: outcome.error });
     } else {
       console.log("slack.unfurl", outcome);
     }
+  },
+
+  // A Work Object flexpane opened: fill it (entities.ts).
+  async entity_details_requested(event, ctx) {
+    const { trigger_id, app_unfurl_url, entity_url, link } = event as EntityDetailsRequestedEvent;
+    const url = app_unfurl_url || entity_url || link?.url;
+    if (!trigger_id || !url) return;
+    const botToken = await botTokenFor(ctx.env, ctx.teamId);
+    if (!botToken) return;
+    const outcome = await presentDetails(
+      { triggerId: trigger_id, link: url },
+      {
+        ...shareDeps(ctx.env),
+        slack: { token: botToken, fetch: ctx.slackFetch },
+      },
+    );
+    console.log("slack.work_objects: details", { outcome });
   },
 
   async app_home_opened(event, ctx) {

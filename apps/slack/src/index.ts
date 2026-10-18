@@ -6,11 +6,13 @@
  * layout leaves room for what comes next without reshaping this file:
  *   - GET  /slack/install    "Add to Slack" (OAuth v2; see oauth.ts)
  *   - GET  /slack/oauth/callback
- *   - POST /slack/events     Events API (link_shared, app_home_opened,
- *                            app_uninstalled, tokens_revoked; see events.ts)
+ *   - POST /slack/events     Events API (link_shared, entity_details_requested,
+ *                            app_home_opened, app_uninstalled,
+ *                            tokens_revoked; see events.ts)
  *   - POST /slack/interactivity  buttons: Disconnect on the Home tab
  *                            (home.ts), Approve / Keep held on a held-upload
- *                            DM (holds.ts)
+ *                            DM (holds.ts), the pager in a Work Object
+ *                            flexpane (entities.ts)
  *   - POST /slack/commands   slash commands, e.g. an agent search command
  *   - POST /slack/internal/* service-binding-only calls from uploads-api
  *                            (host slack.internal): Home refresh after a
@@ -19,7 +21,8 @@
  */
 import { Hono, type Context } from "hono";
 import { botTokenFor, type SlackEnv } from "./config";
-import { dispatchEvent } from "./events";
+import { PAGE_NEXT_ACTION, PAGE_PREV_ACTION, presentDetails } from "./entities";
+import { dispatchEvent, shareDeps } from "./events";
 import { DISCONNECT_ACTION, disconnect, publishHome } from "./home";
 import {
   HOLD_APPROVE_ACTION,
@@ -101,7 +104,8 @@ export function createApp(options: AppOptions = {}) {
         return c.body(null, 200);
       })
       // Interactivity. Connect is a URL button, so it needs no handling;
-      // Disconnect, Approve, and Keep held do. Anything else is acked and ignored.
+      // Disconnect, Approve, Keep held, and the flexpane pager do. Anything
+      // else is acked and ignored.
       .post("/slack/interactivity", async (c) => {
         const body = await readSignedBody(c);
         if (body instanceof Response) return body;
@@ -123,6 +127,28 @@ export function createApp(options: AppOptions = {}) {
                   action.action_id === HOLD_APPROVE_ACTION || action.action_id === HOLD_KEEP_ACTION,
               )
             : undefined;
+        // Newer/Older or Previous/Next in a feed or gallery flexpane.
+        const pageAction =
+          payload?.type === "block_actions" && payload.container?.type === "entity_detail"
+            ? payload.actions?.find(
+                (action) =>
+                  action.action_id === PAGE_PREV_ACTION || action.action_id === PAGE_NEXT_ACTION,
+              )
+            : undefined;
+        const pageLink = payload?.container?.app_unfurl_url || payload?.container?.entity_url;
+        if (pageAction?.value && pageLink && payload?.trigger_id && teamId) {
+          const triggerId = payload.trigger_id;
+          c.executionCtx.waitUntil(
+            (async () => {
+              const botToken = await botTokenFor(c.env, teamId);
+              if (!botToken) return;
+              await presentDetails(
+                { triggerId, link: pageLink, itemId: pageAction.value },
+                { ...shareDeps(c.env), slack: { token: botToken, fetch: options.slackFetch } },
+              );
+            })().catch((err) => console.error("slack.interactivity: pager threw", err)),
+          );
+        }
         if (holdAction && teamId && slackUserId) {
           c.executionCtx.waitUntil(
             handleHoldAction(

@@ -19,7 +19,11 @@
       "display_name": "uploads.sh",
       "always_online": false
     },
-    "unfurl_domains": ["uploads.sh"]
+    "unfurl_domains": ["uploads.sh"],
+    "rich_previews": {
+      "is_active": true,
+      "entity_types": ["slack#/entities/file", "slack#/entities/content_item"]
+    }
   },
   "oauth_config": {
     "redirect_urls": ["https://agents.uploads.sh/slack/oauth/callback"],
@@ -30,7 +34,13 @@
   "settings": {
     "event_subscriptions": {
       "request_url": "https://agents.uploads.sh/slack/events",
-      "bot_events": ["app_home_opened", "app_uninstalled", "link_shared", "tokens_revoked"]
+      "bot_events": [
+        "app_home_opened",
+        "app_uninstalled",
+        "entity_details_requested",
+        "link_shared",
+        "tokens_revoked"
+      ]
     },
     "interactivity": {
       "is_enabled": true,

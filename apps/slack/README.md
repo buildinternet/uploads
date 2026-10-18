@@ -50,6 +50,42 @@ never show more than the public share page.
 If Slack rejects the call because it can't fetch an image, the worker retries
 once with text-only previews.
 
+## Work Objects
+
+With `SLACK_WORK_OBJECTS` set to `on`, each `chat.unfurl` also carries
+[Work Object](https://docs.slack.dev/messaging/work-objects-overview)
+metadata (`src/entities.ts`). Slack then draws a structured card instead of
+the Block Kit preview, and clicking it opens a flexpane beside the
+conversation. The blocks are still sent, and if Slack rejects the metadata
+the worker retries with the blocks alone.
+
+| Link                     | Entity type    | Card shows                                           |
+| ------------------------ | -------------- | ---------------------------------------------------- |
+| File (`/f/…`)            | `file`         | Image or poster, PR or issue, page path, size, dates |
+| Change feed (`/c/…`)     | `content_item` | Latest screenshot, PR or issue, state, file count    |
+| Gallery (`/g/…`)         | `content_item` | Cover, description, item count                       |
+| One feed or gallery item | `file`         | The item, a link to its feed or gallery              |
+
+The flexpane for a feed or gallery is a pager: it opens on the feed's newest
+item (or the gallery's first) and has **Newer** / **Older** (feeds) or
+**Previous** / **Next** (galleries) buttons. Opening the flexpane sends
+`entity_details_requested` to `POST /slack/events`; a button press sends
+`block_actions` to `POST /slack/interactivity`. Both answer with
+`entity.presentDetails`, built from the same public endpoints as the
+preview, so the card and flexpane never show more than the share page.
+Anything that isn't public answers `not_found`.
+
+Each entity's `external_ref` is fixed per link (the file key, feed id,
+gallery id, or collection id plus item id), which Slack uses to list the
+conversations that mention it.
+
+Turning it on:
+
+1. Sync the manifest (`features.rich_previews` and the
+   `entity_details_requested` event). No new scopes, so existing installs
+   don't need to reinstall.
+2. Set `SLACK_WORK_OBJECTS` to `on` in `wrangler.jsonc` and deploy.
+
 ## Installing in a workspace
 
 Anyone can add the app to their Slack workspace from
@@ -158,16 +194,17 @@ twice. Messages arrive in the app's Messages tab, which is read-only.
 
 ## Configuration
 
-| Name                   | Kind   | Purpose                                                                   |
-| ---------------------- | ------ | ------------------------------------------------------------------------- |
-| `SLACK_SIGNING_SECRET` | secret | Verifies every inbound request. Unset: `/slack/events` answers 503.       |
-| `SLACK_CLIENT_SECRET`  | secret | OAuth client secret. Unset: `/slack/install` answers 503.                 |
-| `SLACK_TOKENS_KEY`     | secret | 16+ character master key that seals bot tokens and signs OAuth state.     |
-| `SLACK_CLIENT_ID`      | var    | The app's public OAuth client id.                                         |
-| `SLACK_APP_ID`         | var    | The app's id, for the "Open Slack" link after install.                    |
-| `SLACK_ORIGIN`         | var    | This worker's origin; the OAuth redirect URI is built from it.            |
-| `WEB_ORIGIN`           | var    | The only origin whose share links unfurl.                                 |
-| `API_ORIGIN`           | var    | The public API's origin; the plain-`fetch` target when `API` isn't bound. |
+| Name                   | Kind   | Purpose                                                                    |
+| ---------------------- | ------ | -------------------------------------------------------------------------- |
+| `SLACK_SIGNING_SECRET` | secret | Verifies every inbound request. Unset: `/slack/events` answers 503.        |
+| `SLACK_CLIENT_SECRET`  | secret | OAuth client secret. Unset: `/slack/install` answers 503.                  |
+| `SLACK_TOKENS_KEY`     | secret | 16+ character master key that seals bot tokens and signs OAuth state.      |
+| `SLACK_CLIENT_ID`      | var    | The app's public OAuth client id.                                          |
+| `SLACK_APP_ID`         | var    | The app's id, for the "Open Slack" link after install.                     |
+| `SLACK_ORIGIN`         | var    | This worker's origin; the OAuth redirect URI is built from it.             |
+| `WEB_ORIGIN`           | var    | The only origin whose share links unfurl.                                  |
+| `SLACK_WORK_OBJECTS`   | var    | `on` adds Work Object metadata to unfurls ([Work Objects](#work-objects)). |
+| `API_ORIGIN`           | var    | The public API's origin; the plain-`fetch` target when `API` isn't bound.  |
 
 ```bash
 wrangler secret put SLACK_SIGNING_SECRET --config apps/slack/wrangler.jsonc
@@ -181,7 +218,8 @@ to reinstall. There is no key ring yet.
 ## Setting up the Slack app
 
 `manifest.json` is the app definition: the bot scopes below, unfurl domain
-`uploads.sh`, the OAuth redirect URL, the `link_shared`,
+`uploads.sh`, Work Object previews for `file` and `content_item` entities,
+the OAuth redirect URL, the `link_shared`, `entity_details_requested`,
 `app_home_opened`, `app_uninstalled`, and `tokens_revoked` events pointed at
 `https://agents.uploads.sh/slack/events`, the Home tab, a read-only Messages
 tab (where held-upload DMs land), and interactivity at

@@ -473,6 +473,13 @@ describe("previews", () => {
       title: "<!here> logo",
       image: { url: "https://storage.uploads.sh/acme/logo.svg", alt: "logo", size: "large" },
       facts: [{ text: "SVG" }],
+      entity: {
+        type: "file",
+        ref: { id: "acme/logo.svg", type: "file" },
+        displayType: "Image",
+        canonicalUrl: "https://uploads.sh/f/acme/logo.svg",
+        fields: [],
+      },
     });
     expect(blocks.map((b) => b.type)).toEqual(["section", "context"]);
     expect(sectionText(blocks)).toContain("&lt;!here&gt; logo");
