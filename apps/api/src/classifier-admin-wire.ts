@@ -56,6 +56,10 @@ export interface ClassifierOverview {
   skipped: number;
   /** `ai.skip` values. */
   skipReasons: ClassifierValueCount[];
+  /** Files whose ai.classifier is failed. */
+  failed: number;
+  /** ai.error values. */
+  errorReasons: ClassifierValueCount[];
   kinds: ClassifierValueCount[];
   surfaces: ClassifierValueCount[];
   screens: ClassifierValueCount[];
@@ -66,7 +70,7 @@ export interface ClassifierOverview {
    * One point per UTC day in the window, from the `updated_at` of each
    * `ai.classifier` row (the latest write, so a re-classified file moves).
    */
-  daily: Array<{ day: string; classified: number; skipped: number }>;
+  daily: Array<{ day: string; classified: number; skipped: number; failed: number }>;
   /** Platform uploads in the window from `daily_metrics`, or null when unavailable. */
   windowUploads: number | null;
 }
