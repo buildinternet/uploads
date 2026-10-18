@@ -53,6 +53,11 @@ describe.each([
     importPath: "../components/LegalConsent.astro",
   },
   {
+    page: "/slack/connect",
+    path: "./pages/slack/connect.astro",
+    importPath: "../../components/LegalConsent.astro",
+  },
+  {
     page: "/accept-invitation/[id]",
     path: "./pages/accept-invitation/[id].astro",
     importPath: "../../components/LegalConsent.astro",

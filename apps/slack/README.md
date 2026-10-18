@@ -66,6 +66,24 @@ above. Org-wide (Enterprise Grid) installs are refused for now.
 For another workspace to install, the app needs public distribution
 turned on under **Manage Distribution** in the app settings.
 
+## Connecting Slack users to uploads.sh accounts
+
+Each Slack user can link their uploads.sh account from the app's Home tab.
+Notifications and agent search will use the link to know who is asking.
+
+1. `app_home_opened` renders the Home tab (`src/home.ts`). An unlinked user
+   gets a **Connect uploads.sh** button whose URL carries a fresh ticket:
+   24 random bytes, single use, valid for 30 minutes. Only its SHA-256 is
+   stored, in `slack_link_tickets` (`src/links.ts`).
+2. The button opens `uploads.sh/slack/connect?ticket=…`. The signed-in user
+   confirms, and uploads-api's `POST /me/slack/connect/:ticket` consumes the
+   ticket and writes `slack_user_links` (team, Slack user → uploads.sh user).
+3. A linked user's Home tab shows the account and a **Disconnect** button,
+   handled by `POST /slack/interactivity`. Users can also unlink from
+   uploads.sh with `DELETE /me/slack/links/:teamId/:slackUserId`.
+
+Link previews don't depend on any of this; they work for everyone.
+
 ## Configuration
 
 | Name                   | Kind   | Purpose                                                                   |
@@ -94,8 +112,9 @@ to reinstall. There is no key ring yet.
 
 `manifest.json` is the app definition: bot scopes `links:read` and
 `links:write`, unfurl domain `uploads.sh`, the OAuth redirect URL, and the
-`link_shared`, `app_uninstalled`, and `tokens_revoked` events pointed at
-`https://agents.uploads.sh/slack/events`. The app is installed in the Build
+`link_shared`, `app_home_opened`, `app_uninstalled`, and `tokens_revoked`
+events pointed at `https://agents.uploads.sh/slack/events`, the Home tab, and
+interactivity at `https://agents.uploads.sh/slack/interactivity`. The app is installed in the Build
 Internet workspace (app `A0CA0AWAJCD`, recorded in `.slack/apps.json`).
 
 `apps/slack` is a Slack CLI project: `.slack/hooks.json` points the CLI's
@@ -151,5 +170,6 @@ The worker is laid out so the next features slot in without reshaping it:
   `POST /slack/internal/*` route on this worker over a service binding, and
   the worker posts with a `chat.postMessage` wrapper in `src/slack/api.ts`.
   Internal routes must not be reachable from the public route.
-- **Linking Slack users to uploads.sh accounts**: a per-team, per-user link
-  table next to `slack_installations`, started from the app's Home tab.
+- **Acting as a linked user** (search, notifications): look up
+  `slack_user_links` for the event's team and user, then call uploads-api
+  for that user.

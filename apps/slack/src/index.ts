@@ -6,19 +6,21 @@
  * layout leaves room for what comes next without reshaping this file:
  *   - GET  /slack/install    "Add to Slack" (OAuth v2; see oauth.ts)
  *   - GET  /slack/oauth/callback
- *   - POST /slack/events     Events API (link_shared, app_uninstalled,
- *                            tokens_revoked; see events.ts)
+ *   - POST /slack/events     Events API (link_shared, app_home_opened,
+ *                            app_uninstalled, tokens_revoked; see events.ts)
+ *   - POST /slack/interactivity  Home tab buttons (Disconnect; see home.ts)
  *   - POST /slack/commands   slash commands, e.g. an agent search command
  *   - POST /slack/internal/* service-binding-only calls from uploads-api,
  *                            e.g. flag and PII hold notifications
  * Every public Slack-facing route verifies the request signature first.
  */
 import { Hono, type Context } from "hono";
-import type { SlackEnv } from "./config";
+import { botTokenFor, type SlackEnv } from "./config";
 import { dispatchEvent } from "./events";
+import { DISCONNECT_ACTION, disconnect } from "./home";
 import { handleCallback, handleInstall } from "./oauth";
 import { verifySlackSignature } from "./slack/signature";
-import type { EventsApiPayload } from "./slack/types";
+import type { BlockActionsPayload, EventsApiPayload } from "./slack/types";
 
 type AppEnv = { Bindings: SlackEnv };
 
@@ -81,6 +83,39 @@ export function createApp(options: AppOptions = {}) {
             dispatchEvent(payload, { env: c.env, slackFetch: options.slackFetch }).catch((err) => {
               console.error("slack.events: handler threw", err);
             }),
+          );
+        }
+        return c.body(null, 200);
+      })
+      // Interactivity: Home tab buttons. Connect is a URL button, so only
+      // Disconnect needs handling; everything else is acked and ignored.
+      .post("/slack/interactivity", async (c) => {
+        const body = await readSignedBody(c);
+        if (body instanceof Response) return body;
+        let payload: BlockActionsPayload | null;
+        try {
+          payload = JSON.parse(new URLSearchParams(body).get("payload") ?? "null");
+        } catch {
+          return c.json({ error: "invalid_payload" }, 400);
+        }
+        const teamId = payload?.team?.id ?? payload?.user?.team_id;
+        const slackUserId = payload?.user?.id;
+        const wantsDisconnect =
+          payload?.type === "block_actions" &&
+          payload.actions?.some((action) => action.action_id === DISCONNECT_ACTION);
+        if (wantsDisconnect && teamId && slackUserId) {
+          c.executionCtx.waitUntil(
+            (async () => {
+              const botToken = await botTokenFor(c.env, teamId);
+              if (!botToken) return;
+              await disconnect({
+                env: c.env,
+                teamId,
+                slackUserId,
+                botToken,
+                slackFetch: options.slackFetch,
+              });
+            })().catch((err) => console.error("slack.interactivity: handler threw", err)),
           );
         }
         return c.body(null, 200);

@@ -23,6 +23,7 @@ import { presetResolvedSessionUser } from "../dual-workspace-auth";
 import { requireSessionUser, sessionAuth, type SessionVars } from "../session-auth";
 import { loadWorkspaceRecord } from "../workspace";
 import { planResponse } from "../workspace-plan";
+import { meSlack } from "./me-slack";
 import { workspaceFiles } from "./workspace-files";
 import { workspaceGalleries } from "./workspace-galleries";
 import { workspaceGithub } from "./workspace-github";
@@ -472,4 +473,7 @@ export const me = new Hono<SessionVars>()
       c,
       `/${encodeURIComponent(c.req.param("name"))}/storage/lanes/${encodeURIComponent(c.req.param("laneId"))}/verify-active-content`,
     ),
-  );
+  )
+
+  // Slack user ↔ account linking (apps/slack Home tab → /slack/connect).
+  .route("/slack", meSlack);

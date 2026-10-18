@@ -10,6 +10,11 @@
     "long_description": "Shows a preview when someone posts an uploads.sh file, gallery, or change-feed link. Only public links get a preview: private, held, and deleted files never unfurl, so a preview can't show more than the share page itself."
   },
   "features": {
+    "app_home": {
+      "home_tab_enabled": true,
+      "messages_tab_enabled": false,
+      "messages_tab_read_only_enabled": false
+    },
     "bot_user": {
       "display_name": "uploads.sh",
       "always_online": false
@@ -25,7 +30,11 @@
   "settings": {
     "event_subscriptions": {
       "request_url": "https://agents.uploads.sh/slack/events",
-      "bot_events": ["app_uninstalled", "link_shared", "tokens_revoked"]
+      "bot_events": ["app_home_opened", "app_uninstalled", "link_shared", "tokens_revoked"]
+    },
+    "interactivity": {
+      "is_enabled": true,
+      "request_url": "https://agents.uploads.sh/slack/interactivity"
     },
     "org_deploy_enabled": false,
     "socket_mode_enabled": false,

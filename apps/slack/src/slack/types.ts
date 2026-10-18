@@ -36,3 +36,18 @@ export interface TokensRevokedEvent extends SlackEvent {
   type: "tokens_revoked";
   tokens?: { oauth?: string[]; bot?: string[] };
 }
+
+/** https://docs.slack.dev/reference/events/app_home_opened */
+export interface AppHomeOpenedEvent extends SlackEvent {
+  type: "app_home_opened";
+  user: string;
+  tab: "home" | "messages";
+}
+
+/** The slice of an interactivity `block_actions` payload this app reads. */
+export interface BlockActionsPayload {
+  type: "block_actions";
+  team?: { id: string } | null;
+  user?: { id: string; team_id?: string };
+  actions?: Array<{ action_id: string }>;
+}

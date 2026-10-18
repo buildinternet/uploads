@@ -56,3 +56,12 @@ export function chatUnfurl(
 ): Promise<SlackApiResult> {
   return call("chat.unfurl", { ...target, unfurls }, options);
 }
+
+/** `views.publish`: https://docs.slack.dev/reference/methods/views.publish */
+export function viewsPublish(
+  userId: string,
+  view: { type: "home"; blocks: Block[] },
+  options: SlackApiOptions,
+): Promise<SlackApiResult> {
+  return call("views.publish", { user_id: userId, view }, options);
+}
