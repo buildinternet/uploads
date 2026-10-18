@@ -40,7 +40,7 @@ import { fetchUploadSource, resolveUploadFilename } from "./fetch-upload-source.
 import { writeJson, writeStdout } from "./io.js";
 import { imageFactsFromBytes } from "./image-facts.js";
 import { parseMetaFlags, validateMetaMap } from "./metadata.js";
-import { heldReason, isHeldUpload } from "./upload-hold.js";
+import { isHeldUpload } from "./upload-hold.js";
 import { mergeDerivedMeta, nearMissMetaWarnings, validateStateValue } from "./metadata-vocab.js";
 import { mergeSidecarMeta } from "./sidecar.js";
 import {
@@ -3078,11 +3078,11 @@ export async function approveHeldFiles(opts: {
     const files: ApproveFile[] = [];
     for (const key of keys) {
       if (dryRun) {
-        const { metadata } = await opts.client.getMetadata(key);
+        // The held list, not `getMetadata`: a held file on hosted storage
+        // has left the public bucket, so its metadata read 404s.
+        const held = (await listHeldUnder(opts.client, [key])).find((file) => file.key === key);
         files.push(
-          isHeldUpload(metadata)
-            ? { key, action: "held", reason: heldReason(metadata) }
-            : { key, action: "not_held" },
+          held ? { key, action: "held", reason: held.reason } : { key, action: "not_held" },
         );
         continue;
       }

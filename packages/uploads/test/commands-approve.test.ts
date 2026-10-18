@@ -107,6 +107,23 @@ describe("approveHeldFiles", () => {
     expect(approved).toEqual([key]);
   });
 
+  it("dry-runs explicit keys from the held list, so a moved hold still shows", async () => {
+    const moved = `${PREFIX}token.png`;
+    const { client, approved } = fakeClient({
+      items: [item("token.png", { "ai.hold": "pending", "ai.secret": "token" })],
+    });
+    const result = await approveHeldFiles({
+      client,
+      keys: [moved, `${PREFIX}ok.png`],
+      dryRun: true,
+    });
+    expect(result.files).toEqual([
+      { key: moved, action: "held", reason: "secret: token" },
+      { key: `${PREFIX}ok.png`, action: "not_held" },
+    ]);
+    expect(approved).toEqual([]);
+  });
+
   it("rejects keys together with a target, and --all without one", async () => {
     const { client } = fakeClient({});
     await expect(approveHeldFiles({ client, keys: ["a"], target: TARGET })).rejects.toThrow(
