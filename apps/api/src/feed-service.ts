@@ -36,6 +36,8 @@ import type {
 } from "./scope-wire";
 import { createLaneResolver, objectPublicUrls, type LaneResolver } from "./storage";
 import type { StorageConfig } from "@uploads/storage";
+import { HELD_FILENAME } from "./upload-hold";
+import { heldKeysAmong } from "./upload-hold-read";
 import { objectVisibility } from "./visibility";
 import { webOrigin } from "./web-url";
 import { FEED_ITEM_ID_RE, feedItemIdFor } from "@uploads/comment-render/scope";
@@ -248,6 +250,16 @@ export async function hydrateFeedItems(
     });
   }
   const laneConfigByKey = new Map<string, StorageConfig>();
+  // Held uploads (`upload-hold.ts`) are withheld from a public feed the same
+  // way private ones are.
+  const heldKeys =
+    opts.audience === "public" && workspace.name
+      ? await heldKeysAmong(
+          env,
+          workspace.name,
+          matches.map((match) => match.key),
+        )
+      : new Set<string>();
   const hydrated = await mapBounded(matches, 8, async (match): Promise<FeedItemDto> => {
     let meta: FeedObjectHead | null;
     let itemConfig: StorageConfig | null = null;
@@ -268,7 +280,7 @@ export async function hydrateFeedItems(
     }
     const isPrivate = meta ? objectVisibility(meta.metadata) === "private" : false;
     if (isPrivate) opts.privateKeys?.add(match.key);
-    const withheld = opts.audience === "public" && isPrivate;
+    const withheld = opts.audience === "public" && (isPrivate || heldKeys.has(match.key));
     const urls =
       meta && !withheld && itemConfig
         ? objectPublicUrls(env, itemConfig, match.key)
@@ -280,7 +292,7 @@ export async function hydrateFeedItems(
     return {
       id,
       objectKey: match.key,
-      filename: feedItemFilename(match.key),
+      filename: heldKeys.has(match.key) ? HELD_FILENAME : feedItemFilename(match.key),
       status: withheld ? "withheld" : meta ? "available" : "missing",
       url: urls.url,
       embedUrl: urls.embedUrl,

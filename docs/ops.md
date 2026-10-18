@@ -1315,6 +1315,39 @@ Decisions call times out at 8s (`CLASSIFIER_TIMEOUT_MS`). The two budgets
 are separate, so a slow resize cannot spend the model's time. A resize
 timeout writes `ai.skip=resize_timeout`. A model timeout writes nothing.
 
+### Held uploads
+
+A stored decision with a `high` `ai.secret` other than `none`, or a `high`
+`ai.pii` of `identity_document`, `financial`, or `other`, writes
+`ai.hold=pending` (`applyUploadHold`, `upload-hold-service.ts`). The worker
+logs `upload_held` with the reason, then re-syncs the managed PR comment
+when the key is a PR or issue attachment. A held file is left out of the
+comment (a count line replaces it), withheld from public feeds and
+galleries, and 401s on `/public/files`.
+
+Storage hosts are R2 custom domains with no Worker in the read path, so
+the bytes have to move (`held-storage.ts`). On a hosted (shared-lane) key
+the hold copies the object and its poster into `UPLOADS_HELD` (bucket
+`uploads-held`, preview `uploads-preview-held`) at `<workspace>/<key>`,
+deletes the public copy, and writes `ai.hold.moved=1`. Never give that
+bucket a custom domain or an r2.dev URL. The edge may serve its cached copy
+for up to 60 s (`UPLOAD_CACHE_CONTROL`), and GitHub's Camo can keep its own
+copy longer. A BYO key is not moved: the customer's domain serves it.
+Approval copies the bytes back to the same key before it writes
+`approved`, so links work again. An identical re-upload of a held key is
+moved straight back out. New bytes drop the held copy. Delete removes the
+held copy and debits its size. `GET /v1/workspaces/:workspace/files/held`
+lists held keys (a moved one is absent from `list`), and
+`…/files/held/download?key=` streams the held copy to a member. Private
+prefix rotation does not move held copies.
+
+`POST /v1/workspaces/:workspace/files/approve?key=` writes
+`ai.hold=approved` and re-syncs the comment (`upload_approved`). `ai.hold`
+is in `CLASSIFIER_ROW_KEYS`, so identical bytes keep an approval and new
+bytes start over. Promote and attach copy every classifier row onto the
+new key, since the copy is not classified again. `ai.rating`,
+`ai.content`, and `ai.pii=contact` never hold a file.
+
 ### Allowlist (Flagship is the control plane)
 
 `classificationAllowed` evaluates Flagship with context
@@ -1358,7 +1391,17 @@ thrown evaluation are all off.
    `--llm-classifier on` is deprecated as an allowlist. It writes `true`,
    which does not enable classification by itself.
 
-3. **Unset `OPENROUTER_API_KEY`** — remove the worker secret and redeploy.
+3. **Workspace hold off** — `holdFlaggedUploads === false` keeps the labels
+   but stops holding high-confidence secret and sensitive-PII uploads
+   (`upload-hold.ts`). It does not release files already held; approve
+   those with `uploads approve`.
+
+   ```bash
+   pnpm workspace:limits <name> --hold-flagged off
+   pnpm workspace:limits <name> --clear-hold-flagged
+   ```
+
+4. **Unset `OPENROUTER_API_KEY`** — remove the worker secret and redeploy.
    Slower than Flagship, survives a Flagship outage. The upload path skips
    classification and does not call OpenRouter.
 

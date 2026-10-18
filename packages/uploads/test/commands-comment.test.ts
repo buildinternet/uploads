@@ -133,6 +133,25 @@ describe("runComment", () => {
     expect(create!.input).toContain(GH_FALLBACK_AUTHOR_NOTE);
   });
 
+  it("leaves a held file out of the gh-fallback comment and adds the approve line", async () => {
+    const { run, calls } = ghRunner();
+    const client = listClient([
+      { key: "gh/o/r/pull/5/after.png", url: "https://x.test/gh/o/r/pull/5/after.png" },
+      {
+        key: "gh/o/r/pull/5/settings-token.png",
+        url: "https://x.test/gh/o/r/pull/5/settings-token.png",
+        metadata: { "ai.hold": "pending" },
+      } as { key: string; url: string | null },
+    ]);
+    await runComment(ctxWith(client), ["--pr", "5", "--repo", "o/r"], false, run);
+    const create = calls.find((c) => c.args.includes("repos/o/r/issues/5/comments"));
+    expect(create!.input).toContain("after.png");
+    expect(create!.input).not.toContain("settings-token");
+    expect(create!.input).toContain(
+      "🔒 1 file is held for review · approve with <code>uploads approve --pr 5</code>",
+    );
+  });
+
   it("does not append the gh-author note when the bot posts successfully", async () => {
     const { run, calls } = ghRunner();
     const client = fakeClient({

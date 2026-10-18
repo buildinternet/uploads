@@ -355,6 +355,73 @@ describe("gatherCommentBody", () => {
   });
 });
 
+describe("gatherCommentBody held uploads", () => {
+  const target = { repo: "acme/web", num: 12, kind: "pull" as const };
+
+  it("leaves a held file out and adds an approve line that names no file", async () => {
+    const { env, ws, workspaceName, bucket } = makeTestEnv();
+    for (const name of ["shown.png", "secret-settings.png"]) {
+      await bucket.put(`acme/gh/acme/web/pull/12/${name}`, PNG, {
+        httpMetadata: { contentType: "image/png" },
+      });
+    }
+    await setServerFileMetadata(env.DB, workspaceName, "gh/acme/web/pull/12/secret-settings.png", {
+      "ai.hold": "pending",
+    });
+    const result = await gatherCommentBody(env, ws, workspaceName, target);
+    expect(result.body).toContain("shown.png");
+    expect(result.body).not.toContain("secret-settings");
+    expect(result.body).toContain(
+      "🔒 1 file is held for review · approve with <code>uploads approve --pr 12</code>",
+    );
+    expect(result.count).toBe(2);
+  });
+
+  it("counts a held-only PR so the comment still carries the approve line", async () => {
+    const { env, ws, workspaceName, bucket } = makeTestEnv();
+    await bucket.put("acme/gh/acme/web/pull/12/token.png", PNG, {
+      httpMetadata: { contentType: "image/png" },
+    });
+    await setServerFileMetadata(env.DB, workspaceName, "gh/acme/web/pull/12/token.png", {
+      "ai.hold": "pending",
+    });
+    const result = await gatherCommentBody(env, ws, workspaceName, target);
+    expect(result.count).toBe(1);
+    expect(result.body).not.toContain("No attachments are currently associated");
+    expect(result.body).not.toContain("token.png");
+    expect(result.body).toContain("1 file is held for review");
+  });
+
+  it("counts a moved hold that has no public object left", async () => {
+    const { env, ws, workspaceName } = makeTestEnv();
+    await setServerFileMetadata(env.DB, workspaceName, "gh/acme/web/pull/12/moved.png", {
+      "ai.hold": "pending",
+      "ai.hold.moved": "1",
+    });
+    // Another PR's hold does not count here.
+    await setServerFileMetadata(env.DB, workspaceName, "gh/acme/web/pull/13/other.png", {
+      "ai.hold": "pending",
+    });
+    const result = await gatherCommentBody(env, ws, workspaceName, target);
+    expect(result.count).toBe(1);
+    expect(result.body).toContain("1 file is held for review");
+    expect(result.body).not.toContain("moved.png");
+  });
+
+  it("renders an approved file normally", async () => {
+    const { env, ws, workspaceName, bucket } = makeTestEnv();
+    await bucket.put("acme/gh/acme/web/pull/12/ok.png", PNG, {
+      httpMetadata: { contentType: "image/png" },
+    });
+    await setServerFileMetadata(env.DB, workspaceName, "gh/acme/web/pull/12/ok.png", {
+      "ai.hold": "approved",
+    });
+    const result = await gatherCommentBody(env, ws, workspaceName, target);
+    expect(result.body).toContain("ok.png");
+    expect(result.body).not.toContain("held for review");
+  });
+});
+
 describe("gatherCommentBody live link (spec: PR comment links to the live link)", () => {
   const target = { repo: "acme/web", num: 12, kind: "pull" as const };
   const PR12 = { "gh.repo": "acme/web", "gh.number": "12", "gh.kind": "pull" };
@@ -788,10 +855,11 @@ describe("gatherCommentBody attachment metadata (issue #365)", () => {
       { repo: "acme/web", num: 12, kind: "pull" },
     );
 
-    // Two queries: the private-prefix discovery scan (issue #934) and the
-    // unconditional gh.detached + feed-scope read. The path/state fetch is
-    // skipped, and the comment path no longer queries the PR scope.
-    expect(metadataQueries).toBe(2);
+    // Three queries: the private-prefix discovery scan (issue #934), the
+    // unconditional gh.detached + feed-scope read, and the moved-hold lookup
+    // (`listHeldKeys`). The path/state fetch is skipped, and the comment path
+    // no longer queries the PR scope.
+    expect(metadataQueries).toBe(3);
     expect(result.body).not.toContain("<code>/settings");
   });
 

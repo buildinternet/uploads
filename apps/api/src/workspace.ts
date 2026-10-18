@@ -248,6 +248,12 @@ export interface WorkspaceRecord {
    * `undefined`/`true` do not. See `classificationAllowed` in classifier.ts.
    */
   llmClassifierEnabled?: boolean;
+  /**
+   * Hold high-confidence secret or sensitive-PII uploads for approval
+   * (`upload-hold.ts`). On unless `false`. Only matters where the
+   * classifier runs.
+   */
+  holdFlaggedUploads?: boolean;
   /** Set by `DELETE /admin/workspaces/:name` (default/soft mode). Present → the workspace is soft-deleted. */
   deletedAt?: string;
   /** `deletedAt` + the grace window (`WORKSPACE_DELETE_GRACE_DAYS`); the retention sweep finalizes at/after this. */

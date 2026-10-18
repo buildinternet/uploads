@@ -91,8 +91,9 @@ export const SAFETY_FLAG_KEYS: ReadonlySet<string> = new Set(
 
 /**
  * Every row the classifier writes: the version marker, skip and error
- * reasons, the display labels, the older `ai.tags` / `ai.summary`, and
- * the eight safety-flag rows. They all describe one set of bytes, so
+ * reasons, the display labels, the older `ai.tags` / `ai.summary`, the
+ * hold state (`ai.hold`, see `upload-hold.ts`), and the eight
+ * safety-flag rows. They all describe one set of bytes, so
  * they share the `SAFETY_FLAG_KEYS` lifetime: identical bytes keep them,
  * new bytes delete them before classification is scheduled. Without
  * that, a failed or partial run on new bytes would leave labels from the
@@ -107,8 +108,20 @@ export const CLASSIFIER_ROW_KEYS: ReadonlySet<string> = new Set([
   "ai.screen",
   "ai.tags",
   "ai.summary",
+  "ai.hold",
+  "ai.hold.moved",
   ...SAFETY_FLAG_KEYS,
 ]);
+
+/**
+ * The classifier rows in `meta`. A server-side copy of the same bytes
+ * (promote, attach) carries these over, because the copy is not classified
+ * again and a hold (`ai.hold`) must follow the file.
+ */
+export function classifierRowsOf(meta: Record<string, string> | undefined): Record<string, string> {
+  if (!meta) return {};
+  return Object.fromEntries(Object.entries(meta).filter(([key]) => CLASSIFIER_ROW_KEYS.has(key)));
+}
 
 export function isServerMetaKey(key: string): boolean {
   return SERVER_META_PREFIXES.some((prefix) => key.startsWith(prefix));

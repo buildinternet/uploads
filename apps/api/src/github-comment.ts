@@ -26,6 +26,8 @@ import {
 import type { WorkspaceRecord } from "./workspace";
 import { githubFetch, githubHeaders, installationToken, type GithubAppConfig } from "./github-app";
 import { resolveRepoCommentOptions } from "./repo-comment-config";
+import { HOLD_META_KEY, isHeld } from "./upload-hold";
+import { listHeldKeys } from "./upload-hold-read";
 import type { ResolvedCommentOptions } from "@uploads/comment-config";
 import {
   attachmentsCommentBody,
@@ -70,12 +72,14 @@ export async function gatherCommentBody(
 
   // Attachments (R2 list) and galleries (D1) are independent reads — overlap
   // them so the request only waits the longer of the two, not their sum.
-  const [{ items, liveLinkUrl }, galleries] = await Promise.all([
+  const [{ items, liveLinkUrl, heldCount }, galleries] = await Promise.all([
     gatherAttachments(env, ws, workspaceName, target, options, opts),
     gatherGalleries(env, ws, workspaceName, target),
   ]);
 
-  const count = items.length + galleries.length;
+  // Held files count so a PR whose only attachment is held still gets a
+  // comment carrying the approve line.
+  const count = items.length + galleries.length + heldCount;
   const marker = attachmentsMarker(workspaceName);
   const renderOptions: CommentRenderOptions = {
     imageWidth: options.imageWidth,
@@ -87,7 +91,10 @@ export async function gatherCommentBody(
   // count may be 0 — attachmentsCommentBody renders a neutral empty state.
   // Callers gate create-vs-patch on count (see upsertBotComment createIfMissing).
   return {
-    body: attachmentsCommentBody(items, galleries, marker, renderOptions, target, { liveLinkUrl }),
+    body: attachmentsCommentBody(items, galleries, marker, renderOptions, target, {
+      liveLinkUrl,
+      heldCount,
+    }),
     count,
   };
 }
@@ -131,6 +138,12 @@ const DETACH_META_KEY = "gh.detached";
  */
 const SCOPE_META_KEYS = ["gh.repo", "gh.number", "gh.status"];
 
+/**
+ * Read in the same unconditional query as `gh.detached`: a held file
+ * (`upload-hold.ts`) must never render, whatever the caption settings.
+ */
+const HOLD_META_KEYS = [HOLD_META_KEY];
+
 /** The workspace's own objects under the stable gh key prefix. */
 async function gatherAttachments(
   env: Env,
@@ -139,7 +152,7 @@ async function gatherAttachments(
   target: GhTarget,
   options: ResolvedCommentOptions,
   gatherOpts: { headBranch?: string; shadow?: boolean },
-): Promise<{ items: AttachmentItem[]; liveLinkUrl: string | null }> {
+): Promise<{ items: AttachmentItem[]; liveLinkUrl: string | null; heldCount: number }> {
   // Per-workspace/repo choice (issues #304, #307): default (auto/true) links
   // the managed comment's attachments to a share page — the PR/issue feed
   // item when that object is in the feed, otherwise `/f/`. `false` links to
@@ -176,6 +189,10 @@ async function gatherAttachments(
     ghKeyPrefix(target),
     ...activePrefixIds.map((id) => ghPrivateKeyPrefix(id, target)),
   ];
+
+  // Independent of the listing below, so it overlaps it. A moved hold
+  // (`held-storage.ts`) has no public object to list.
+  const heldKeysPromise = listHeldKeysSafe(env, workspaceName);
 
   // Paginated per-prefix, but the prefixes themselves are independent — run
   // them concurrently and concatenate in prefix order, so output ordering is
@@ -218,17 +235,27 @@ async function gatherAttachments(
       dbFor(env),
       workspaceName,
       items.map((item) => item.key),
-      { metaKeys: [DETACH_META_KEY, ...SCOPE_META_KEYS] },
+      { metaKeys: [DETACH_META_KEY, ...SCOPE_META_KEYS, ...HOLD_META_KEYS] },
     );
     items = items.filter((item) => scopeMetaByKey.get(item.key)?.[DETACH_META_KEY] !== "true");
   }
 
+  // Before the hold filter: a held file is still an attachment of this
+  // target, so the index still has its row.
   reportAttachmentIndexShadow(
     await indexShadow,
     workspaceName,
     target,
     items.map((item) => item.key),
   );
+
+  const shown = items.filter((item) => !isHeld(scopeMetaByKey.get(item.key)));
+  const listedKeys = new Set(items.map((item) => item.key));
+  const movedHeld = (await heldKeysPromise).filter(
+    (key) => !listedKeys.has(key) && prefixes.some((prefix) => key.startsWith(prefix)),
+  );
+  const heldCount = items.length - shown.length + movedHeld.length;
+  items = shown;
 
   const liveLinkUrl =
     items.length > 0
@@ -243,7 +270,7 @@ async function gatherAttachments(
         )
       : null;
 
-  if (!showMetadata || items.length === 0) return { items, liveLinkUrl };
+  if (!showMetadata || items.length === 0) return { items, liveLinkUrl, heldCount };
 
   const metaByKey = await getMetadataForKeys(
     dbFor(env),
@@ -310,7 +337,20 @@ async function gatherAttachments(
       };
     }
   }
-  return { items, liveLinkUrl };
+  return { items, liveLinkUrl, heldCount };
+}
+
+/**
+ * Best-effort for the comment: a failed lookup renders without the moved
+ * holds' count line, the same as before holds existed.
+ */
+async function listHeldKeysSafe(env: Env, workspaceName: string): Promise<string[]> {
+  try {
+    return await listHeldKeys(env, workspaceName);
+  } catch (err) {
+    console.error({ event: "held_keys_lookup_failed", workspace: workspaceName, err });
+    return [];
+  }
 }
 
 async function resolvePosterUrl(

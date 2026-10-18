@@ -202,6 +202,24 @@ export interface DeleteResult {
   deleted: boolean;
 }
 
+/** One row of `GET /v1/workspaces/:workspace/files/held`. */
+export interface HeldFile {
+  key: string;
+  /** `secret: api_key`, `pii: financial`, or null. */
+  reason: string | null;
+  /** True when the bytes moved out of the public bucket while held. */
+  moved: boolean;
+}
+
+/**
+ * `POST /v1/workspaces/:workspace/files/approve?key=`. `approved: false`
+ * with `reason: "not_held"` means the file was not held (already approved,
+ * never flagged, or unknown).
+ */
+export type ApproveResult =
+  | { key: string; approved: true }
+  | { key: string; approved: false; reason: "not_held" };
+
 /** A workspace-owned, publicly visible ordered media gallery. */
 export interface GalleryItem {
   id: string;
@@ -1410,6 +1428,24 @@ export function createUploadsClient(
 
     async delete(key: string): Promise<DeleteResult> {
       return request<DeleteResult>("DELETE", `${canonicalFilesBase(config)}/${encodeKeyPath(key)}`);
+    },
+
+    /** Files held for review, optionally under one key prefix. */
+    async listHeld(prefix?: string): Promise<HeldFile[]> {
+      const query = prefix ? `?prefix=${encodeURIComponent(prefix)}` : "";
+      const result = await request<{ items: HeldFile[] }>(
+        "GET",
+        `${canonicalFilesBase(config)}/held${query}`,
+      );
+      return result.items;
+    },
+
+    /** Release a file held for approval (a likely secret or personal data). */
+    async approve(key: string): Promise<ApproveResult> {
+      return request<ApproveResult>(
+        "POST",
+        `${canonicalFilesBase(config)}/approve?key=${encodeURIComponent(key)}`,
+      );
     },
 
     /** `GET /v1/:workspace/files/:key?metadata=1` — the object's queryable metadata. */

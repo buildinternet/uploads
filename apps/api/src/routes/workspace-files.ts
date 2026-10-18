@@ -40,7 +40,12 @@ import {
   type DualAuthVars,
 } from "../dual-workspace-auth";
 import { respondError } from "../error-response";
-import { badKey, listObjects, setObjectVisibility } from "../files-core";
+import { attachmentResponse, badKey, listObjects, setObjectVisibility } from "../files-core";
+import { feedItemFilename } from "../feed-service";
+import { approveUpload } from "../upload-hold-service";
+import { listHeldKeys } from "../upload-hold-read";
+import { HOLD_MOVED_KEY, storedHoldReason } from "../upload-hold";
+import { readHeld } from "../held-storage";
 import {
   getMetadataForKeys,
   getObjectUpdatedAt,
@@ -423,6 +428,63 @@ export const workspaceFiles = new Hono<DualAuthVars>()
       await setObjectVisibility(store, key, requested as "public" | "private");
 
       return c.json({ key, visibility: sanitizeVisibility(requested) ?? "public" });
+    },
+  )
+
+  // Files held for approval (`upload-hold.ts`), optionally under one key
+  // prefix. A moved hold has no public object, so `list` cannot show it.
+  .get("/:workspace/files/held", dualWorkspaceAuth(), scoped("files:read"), async (c) => {
+    const name = c.get("workspaceName");
+    const prefix = c.req.query("prefix") ?? "";
+    const keys = (await listHeldKeys(c.env, name)).filter((key) => key.startsWith(prefix));
+    const meta = await getMetadataForKeys(dbFor(c.env), name, keys, {
+      metaKeys: [HOLD_MOVED_KEY, "ai.secret", "ai.pii"],
+    });
+    return c.json({
+      items: keys.map((key) => {
+        const row = meta.get(key) ?? {};
+        return {
+          key,
+          reason: storedHoldReason(row),
+          moved: row[HOLD_MOVED_KEY] === "1",
+        };
+      }),
+    });
+  })
+
+  // A held file's bytes, for a member checking it before approval. Streams
+  // the held bucket's copy; a hold that never moved is served by the
+  // ordinary download paths.
+  .get("/:workspace/files/held/download", dualWorkspaceAuth(), scoped("files:read"), async (c) => {
+    const name = c.get("workspaceName");
+    const key = c.req.query("key") ?? "";
+    if (badKey(key)) throw new NotFoundError();
+    const body = await readHeld(c.env, name, key);
+    if (!body) throw new NotFoundError("no held copy of this file", { code: "not_held" });
+    return attachmentResponse(
+      {
+        type: body.httpMetadata?.contentType ?? "application/octet-stream",
+        size: body.size,
+        stream: () => body.body,
+      },
+      feedItemFilename(key),
+    );
+  })
+
+  // Release a file held for approval (`upload-hold.ts`). Idempotent: a key
+  // that is not held answers 200 with `approved: false`.
+  .post(
+    "/:workspace/files/approve",
+    dualWorkspaceAuth(),
+    rateLimited,
+    scoped("files:write"),
+    async (c) => {
+      const record = c.get("workspace");
+      const workspaceName = c.req.param("workspace");
+      const key = c.req.query("key") ?? "";
+      if (badKey(key)) throw new NotFoundError();
+      const result = await approveUpload(c.env, record, workspaceName, key);
+      return c.json({ key, ...result });
     },
   )
 

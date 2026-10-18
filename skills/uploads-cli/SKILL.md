@@ -119,6 +119,18 @@ is that branch. A file with no `gh.branch` stays, because it was listed
 under this branch's prefix. A file with `gh.status=unstaged` is omitted.
 `uploads staged` never writes.
 
+**Release held files: `uploads approve`.** The classifier can hold a file
+it thinks shows a secret or sensitive personal data. The managed comment then
+shows `🔒 N files are held for review` instead of the image. Check each file
+before approving; if it shows a real credential, rotate it and replace the
+file. Needs `files:write`.
+
+```bash
+uploads approve --pr 123          # list held files and why; changes nothing
+uploads approve --pr 123 --all    # approve every held file on the PR
+uploads approve gh/owner/name/pull/123/settings.png
+```
+
 **Clear a branch: `uploads unstage`.** Marks files `gh.status=unstaged` so
 they drop out of `uploads staged`, auto-promotion, and the Claude plugin
 band. The object and its URL stay. Needs `files:write`, not `files:delete`.
@@ -730,7 +742,15 @@ write internal `ai.rating`
 flag also gets `ai.<flag>.confidence` of `high` (0.85+), `medium` (0.70 up
 to 0.85), or `low` (0.50 up to 0.70). Those four flags are internal: they
 are not chips, and public pages, galleries, feeds, embeds, and pull request
-comments omit them. They do not change who can view a file. The classifier
+comments omit them. A high-confidence `ai.secret` (not `none`), or a
+high-confidence `ai.pii` of `identity_document|financial|other`, holds the
+file (`ai.hold=pending`): the managed comment leaves it out and shows a held
+count, public feeds and galleries withhold it, and its `/f/` page asks for
+sign-in. On hosted storage the raw URL returns 404 until approval, which
+restores the same URL. Check the file, then run
+`uploads approve --pr <n>` to list held files and `--all` to approve them,
+or `uploads approve <key>`. If the file does show a credential, rotate it and
+replace or delete the file instead of approving. The classifier
 version is not bumped for them. The labeler does not write `ai.tags` or
 `ai.summary`. Older files may still have those keys.
 Read them with `uploads meta get <key>` or MCP `get_metadata`; filter with

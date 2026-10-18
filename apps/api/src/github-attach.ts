@@ -35,7 +35,15 @@ import {
   putOptsFromStoredObject,
   sanitizeKeyBasename,
 } from "./files-core";
-import { getFileMetadata, isServerMetaKey, setFileMetadata } from "./file-metadata";
+import { reholdIfHeld } from "./held-storage";
+import { isHeld } from "./upload-hold";
+import {
+  classifierRowsOf,
+  getFileMetadata,
+  isServerMetaKey,
+  setFileMetadata,
+  setServerFileMetadata,
+} from "./file-metadata";
 import { type AttachmentSource } from "./github-attachment-index";
 import { resolveGhKeyContextSafe } from "./github-private-prefix-service";
 import { storage, storageConfig } from "./storage";
@@ -268,6 +276,11 @@ export async function attachExistingObject(
     // one on the copy.
     { allowUploaderKeys: true },
   );
+
+  // The copy is not classified again, so its labels and any hold
+  // (`upload-hold.ts`) come from the source.
+  await setServerFileMetadata(dbFor(env), workspaceName, destKey, classifierRowsOf(sourceMeta));
+  await reholdIfHeld(env, ws, workspaceName, destKey, isHeld(sourceMeta));
 
   // Tag the branch source before a move-delete. The copy already succeeded,
   // so a tagging failure is logged and does not fail the attach. Promote

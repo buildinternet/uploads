@@ -68,6 +68,7 @@ import {
   posterKeyFor,
 } from "./poster";
 import { scheduleFileClassification, type ClassifierWaitUntil } from "./classifier";
+import { deleteHeldCopy, heldBucket, reholdIfHeld } from "./held-storage";
 import {
   contentSha256Hex,
   provenanceForResponse,
@@ -977,6 +978,29 @@ export async function putObject(
     storedVisibility,
   );
 
+  // Held uploads (`held-storage.ts`). Identical bytes keep the hold, so the
+  // object this put just wrote goes straight back out of the public bucket.
+  // New bytes end a hold (their classifier rows are gone above), so a held
+  // copy of the old bytes must not wait in the held bucket. That delete is
+  // cleanup, not part of the response, so it runs after it when it can.
+  const logHeldError = (err: unknown) =>
+    console.error({ event: "held_put_sync_failed", workspace: workspaceName, err });
+  if (sameBytes) {
+    await reholdIfHeld(env, ws, workspaceName, finalKey).catch(logHeldError);
+  } else if (heldBucket(env)) {
+    const cleanup = deleteHeldCopy(env, workspaceName, finalKey).catch(logHeldError);
+    let deferred = false;
+    try {
+      if (opts?.waitUntil) {
+        opts.waitUntil(cleanup);
+        deferred = true;
+      }
+    } catch {
+      // No execution context: finish the cleanup inline.
+    }
+    if (!deferred) await cleanup;
+  }
+
   // Experimental: after durable storage + server metadata, never on the
   // critical path. Fail-open inside classifyAndStore.
   scheduleFileClassification(
@@ -1146,7 +1170,14 @@ export async function downloadResponse(
   key: string,
   filename: string,
 ): Promise<Response> {
-  const file = await store.download(key);
+  return attachmentResponse(await store.download(key), filename);
+}
+
+/** `downloadResponse` for a body already in hand (a held copy, for one). */
+export function attachmentResponse(
+  file: { type: string; size?: number; stream(): ReadableStream },
+  filename: string,
+): Response {
   const headers = new Headers();
   headers.set("Content-Type", file.type || "application/octet-stream");
   headers.set(
@@ -1526,6 +1557,15 @@ export async function deleteObject(
 
   const configs = await storageConfigs(env, ws);
   const { hits, failures } = await deleteFromEveryLane(configs, key);
+  // A held upload's bytes may sit in the held bucket instead
+  // (`held-storage.ts`). Its size still counts against the workspace.
+  const heldSize = await deleteHeldCopy(env, workspaceName, key, {
+    measure: hits.length === 0,
+  }).catch((err: unknown) => {
+    console.error({ event: "held_delete_failed", workspace: workspaceName, err });
+    return null;
+  });
+  if (heldSize !== null) hits.push({ size: heldSize, sharedLane: true });
   await deleteFileMetadata(dbFor(env), workspaceName, key);
 
   if (hits.length > 0) {

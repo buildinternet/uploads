@@ -154,6 +154,10 @@ export const ROOT_COMMANDS: readonly CatalogCommand[] = [
     summary: "Clear a branch's staged files without deleting them",
   },
   {
+    name: "approve",
+    summary: "Release uploads held for review (a likely secret or personal data)",
+  },
+  {
     name: "screenshot",
     usage: "screenshot <target>",
     summary: "Capture a URL or .html file and host it (local browser or remote render)",

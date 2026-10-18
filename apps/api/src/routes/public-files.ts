@@ -12,6 +12,7 @@ import { githubAvatarProxyUrl, ownerFromRepo } from "../github-avatars";
 import { resolveTitles, withPublicTitleBudget } from "../github-titles";
 import { videoPresentation } from "../poster";
 import { objectPublicUrls, resolveObjectLane } from "../storage";
+import { isKeyHeld } from "../upload-hold-read";
 import { objectVisibility } from "../visibility";
 import { loadWorkspaceRecord, type WorkspaceRecord, type WorkspaceVars } from "../workspace";
 import { requestOrigin } from "../well-known";
@@ -124,9 +125,13 @@ async function resolvePublicObject(
   const urls = objectPublicUrls(env, lane.config, key);
   if (!urls.url) throw new NotFoundError();
 
-  const meta = await lane.store.head(key);
+  const [meta, held] = await Promise.all([lane.store.head(key), isKeyHeld(env, workspace, key)]);
 
   if (objectVisibility(meta.metadata ?? undefined)) {
+    throw new UnauthorizedError("sign in to view this file", { code: "auth_required" });
+  }
+  // A held upload (`upload-hold.ts`) gets the same answer as a private one.
+  if (held) {
     throw new UnauthorizedError("sign in to view this file", { code: "auth_required" });
   }
 
@@ -210,7 +215,8 @@ export const publicFiles = new Hono<WorkspaceVars>().get("/:workspace/:key{.+}",
       const counterpartType = counterpartMeta.type ?? "application/octet-stream";
       if (
         isPairableImageContentType(counterpartType) &&
-        !objectVisibility(counterpartMeta.metadata ?? undefined)
+        !objectVisibility(counterpartMeta.metadata ?? undefined) &&
+        !(await isKeyHeld(env, workspace, candidate.key))
       ) {
         const counterpartUrls = objectPublicUrls(env, counterpartLane.config, candidate.key);
         if (counterpartUrls.url) {

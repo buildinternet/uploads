@@ -328,6 +328,13 @@
       "binding": "UPLOADS_DEFAULT",
       "bucket_name": "uploads-default",
     },
+    // Held uploads (src/held-storage.ts): a likely secret or sensitive
+    // personal data waits here until a member approves it. No custom
+    // domain and no r2.dev URL, ever — that is the whole point.
+    {
+      "binding": "UPLOADS_HELD",
+      "bucket_name": "uploads-held",
+    },
   ],
   // Workers Previews (`npx wrangler preview` from a branch). Bindings do NOT
   // inherit from the production config — a preview gets only what this block
@@ -401,6 +408,10 @@
       {
         "binding": "UPLOADS_DEFAULT",
         "bucket_name": "uploads-preview-default",
+      },
+      {
+        "binding": "UPLOADS_HELD",
+        "bucket_name": "uploads-preview-held",
       },
     ],
     // Producer only — Previews cannot run queue consumers, so preview-enqueued

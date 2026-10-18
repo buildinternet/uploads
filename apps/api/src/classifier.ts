@@ -16,6 +16,9 @@
  * lifetime is `SAFETY_FLAG_KEYS`. Decisions models do not write free
  * text, so this path does not write `ai.tags` or `ai.summary`.
  *
+ * A high-confidence `secret` or sensitive `pii` answer holds the file for
+ * approval (`upload-hold.ts`) unless the workspace turned that off.
+ *
  * Default model is the OpenRouter alias `~typesafe/jev-latest`. A PNG or
  * JPEG that already fits Jev's pixel window and the byte cap goes in
  * `state` as an `image_url` part (`ai.classifier=v5`), next to a short
@@ -1256,7 +1259,12 @@ export async function classifyAndStore(
     if (!meta) {
       return await storeFailure(env, workspaceName, key, CLASSIFIER_ERROR_NO_ANSWER, provider);
     }
-    return await storeDecision(env, workspaceName, key, meta);
+    const stored = await storeDecision(env, workspaceName, key, meta);
+    // Loaded lazily: the hold re-syncs the PR comment, and the comment
+    // service imports files-core, which imports this module.
+    const { applyUploadHold } = await import("./upload-hold-service");
+    await applyUploadHold(env, ws, workspaceName, key, stored);
+    return stored;
   } catch (err) {
     console.error({ event: "classifier_failed", workspace: workspaceName, key, err });
     return undefined;

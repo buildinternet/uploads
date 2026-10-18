@@ -19,7 +19,14 @@
 
 import { UPLOADER_KEYS, UPLOADER_PROOF_KEY } from "./uploader-identity";
 import { UnsupportedMediaTypeError } from "@uploads/errors";
-import { getMetadataForKeys, setFileMetadata } from "./file-metadata";
+import {
+  classifierRowsOf,
+  getMetadataForKeys,
+  setFileMetadata,
+  setServerFileMetadata,
+} from "./file-metadata";
+import { reholdIfHeld } from "./held-storage";
+import { isHeld } from "./upload-hold";
 import { putObject, putOptsFromStoredObject } from "./files-core";
 import { resolveBranchLineageSafe } from "./github-branch-renames";
 import { ghPrivateAttachmentKey, ghPrivateBranchKeyPrefix } from "./github-comment-render";
@@ -468,6 +475,22 @@ export async function promoteBranchAttachments(
     // below. Tagging the staged original is best-effort bookkeeping: a
     // failure here must not un-promote the file or land it in `skipped`.
     promoted.push(destKey);
+
+    try {
+      // The copy is not classified again, so its labels and any hold
+      // (`upload-hold.ts`) come from the staged original.
+      await setServerFileMetadata(dbFor(env), workspaceName, destKey, classifierRowsOf(stagedMeta));
+      await reholdIfHeld(env, ws, workspaceName, destKey, isHeld(stagedMeta));
+    } catch (err) {
+      console.error(
+        JSON.stringify({
+          message: "promote: failed to copy classifier rows",
+          key,
+          destKey,
+          error: err instanceof Error ? err.message : String(err),
+        }),
+      );
+    }
 
     try {
       // Merge (not replace) onto the staged original: mark it promoted

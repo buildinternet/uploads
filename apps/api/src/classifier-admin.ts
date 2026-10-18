@@ -41,7 +41,7 @@ export function classifierCacheKey(days: number): string {
  * 20261018000000) exactly, or SQLite scans the table. `alias` is `""` or
  * a table prefix such as `"f."`.
  */
-const aiRows = (alias: string) => `substr(${alias}meta_key, 1, 3) = 'ai.'`;
+export const aiRows = (alias: string) => `substr(${alias}meta_key, 1, 3) = 'ai.'`;
 
 const flagKey = (field: ClassifierSafetyField) => `ai.${field}`;
 const confidenceKey = (field: ClassifierSafetyField) => `ai.${field}.confidence`;

@@ -862,6 +862,36 @@ describe("GET /public/galleries/:id/items/:item/download", () => {
     expect(bytes).toEqual(PNG);
   });
 
+  it("withholds a held item from the public gallery and its download", async () => {
+    const gallery = await create();
+    const added = await request(`/v1/alpha/galleries/${gallery.id}/items`, {
+      method: "POST",
+      body: JSON.stringify({ expectedVersion: 1, objectKey: "screenshots/one.png" }),
+    });
+    const item = (await added.json()) as { id: string };
+    await setServerFileMetadata(fakeDb as unknown as D1Database, "alpha", "screenshots/one.png", {
+      "ai.hold": "pending",
+    });
+
+    const download = await app.request(
+      `/public/galleries/${gallery.id}/items/${item.id}/download`,
+      {},
+      env,
+    );
+    expect(download.status).toBe(404);
+
+    const view = await app.request(`/public/galleries/${gallery.id}`, {}, env);
+    const body = (await view.json()) as {
+      items: Array<{ filename: string; status: string; url: string | null }>;
+    };
+    expect(body.items[0]).toMatchObject({
+      filename: "held for review",
+      status: "withheld",
+      url: null,
+    });
+    expect(JSON.stringify(body)).not.toContain("one.png");
+  });
+
   it("404s for an unknown item id", async () => {
     const gallery = await create();
     const res = await app.request(

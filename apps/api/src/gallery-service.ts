@@ -22,6 +22,8 @@ import {
 } from "./galleries";
 import { createLaneResolver, objectPublicUrls, type LaneResolver } from "./storage";
 import type { StorageConfig } from "@uploads/storage";
+import { HELD_FILENAME } from "./upload-hold";
+import { heldKeysAmong } from "./upload-hold-read";
 import { objectVisibility } from "./visibility";
 import { webOrigin } from "./web-url";
 import type { WorkspaceRecord } from "./workspace";
@@ -256,7 +258,7 @@ export async function hydrateGalleryItems(
   env: Env,
   workspace: WorkspaceRecord,
   items: GalleryItemRecord[],
-  opts: { audience: "owner" | "public" } = { audience: "owner" },
+  opts: { audience: "owner" | "public"; heldOut?: Set<string> } = { audience: "owner" },
 ): Promise<Omit<GalleryItemDto, "pageUrl">[]> {
   // Two-lane storage (PR C audit): each item resolves its OWN lane via a
   // shared `LaneResolver` — a gallery can reference objects uploaded before
@@ -276,6 +278,17 @@ export async function hydrateGalleryItems(
     });
   }
   const laneConfigByKey = new Map<string, StorageConfig>();
+  // Held uploads (`upload-hold.ts`) are withheld from a public gallery the
+  // same way private ones are.
+  const heldKeys =
+    opts.audience === "public" && workspace.name
+      ? await heldKeysAmong(
+          env,
+          workspace.name,
+          items.map((item) => item.object_key),
+        )
+      : new Set<string>();
+  for (const key of heldKeys) opts.heldOut?.add(key);
   const hydrated = await mapBounded(
     items,
     8,
@@ -298,7 +311,7 @@ export async function hydrateGalleryItems(
         });
       }
       const isPrivate = meta ? objectVisibility(meta.metadata) === "private" : false;
-      const withheld = opts.audience === "public" && isPrivate;
+      const withheld = opts.audience === "public" && (isPrivate || heldKeys.has(item.object_key));
       const urls =
         meta && !withheld && itemConfig
           ? objectPublicUrls(env, itemConfig, item.object_key)
@@ -511,15 +524,19 @@ export async function hydratePublicGallery(
   record: GalleryRecord,
   items: GalleryItemRecord[],
 ): Promise<PublicGalleryDto> {
-  const hydrated = await hydrateGalleryItems(env, workspace, items, { audience: "public" });
+  const held = new Set<string>();
+  const hydrated = await hydrateGalleryItems(env, workspace, items, {
+    audience: "public",
+    heldOut: held,
+  });
   return {
     ...projectPublicGallery(record),
     items: hydrated.map((item) => ({
       id: item.id,
-      filename: galleryItemFilename(item.objectKey),
+      filename: held.has(item.objectKey) ? HELD_FILENAME : galleryItemFilename(item.objectKey),
       position: item.position,
-      caption: item.caption,
-      altText: item.altText,
+      caption: held.has(item.objectKey) ? null : item.caption,
+      altText: held.has(item.objectKey) ? null : item.altText,
       status: item.status,
       url: item.url,
       embedUrl: item.embedUrl,
