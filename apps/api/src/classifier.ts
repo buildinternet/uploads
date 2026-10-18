@@ -38,6 +38,14 @@
  * Decisions call keeps `CLASSIFIER_TIMEOUT_MS`. A slow resize cannot
  * spend the model's budget. Either timeout fails open.
  *
+ * A Decisions call that times out, errors, or returns no answer above
+ * the confidence floor writes `ai.classifier=failed` and `ai.error`
+ * (`timeout`, `provider_error`, `no_answer`), so a failure is visible in
+ * stored metadata and not only in logs. It does so only when these bytes
+ * have no earlier result: a failed retry on identical bytes keeps the
+ * earlier labels. New bytes clear every classifier row first
+ * (`CLASSIFIER_ROW_KEYS`), so old labels never describe new bytes.
+ *
  * Optional Luna path (`ai.classifier=v4`): `CLASSIFIER_PROVIDER=luna` or
  * Flagship `llm-file-classifier-luna` (default off) selects
  * `openai/gpt-6-luna-decisions` on the same endpoint. Luna does not use
@@ -57,6 +65,7 @@
 import {
   SAFETY_FLAG_KEYS,
   deleteServerFileMetadataKeys,
+  getFileMetadata,
   setServerFileMetadata,
 } from "./file-metadata";
 import type { ClassifierConfidenceBucket } from "./classifier-admin-wire";
@@ -98,6 +107,21 @@ export const CLASSIFIER_LUNA_VERSION = "v4";
  * `v4`/`v5`/`v6`, which mean a Decisions call ran. Paired with `ai.skip`.
  */
 export const CLASSIFIER_SKIPPED = "skipped";
+
+/**
+ * Written to `ai.classifier` when a Decisions call ran and produced no
+ * labels. Paired with `ai.error`.
+ */
+export const CLASSIFIER_FAILED = "failed";
+
+/** `ai.error` values. */
+export const CLASSIFIER_ERROR_TIMEOUT = "timeout";
+export const CLASSIFIER_ERROR_PROVIDER = "provider_error";
+export const CLASSIFIER_ERROR_NO_ANSWER = "no_answer";
+export type ClassifierErrorReason =
+  | typeof CLASSIFIER_ERROR_TIMEOUT
+  | typeof CLASSIFIER_ERROR_PROVIDER
+  | typeof CLASSIFIER_ERROR_NO_ANSWER;
 
 /** Written to `ai.skip` when the image is too small to be worth a call. */
 export const CLASSIFIER_SKIP_SMALL = "small";
@@ -1041,9 +1065,8 @@ function classifierVersionMarker(provider: ClassifierProvider, resized: boolean)
 const CLASSIFIER_DISPLAY_KEYS = ["ai.kind", "ai.surface", "ai.screen"] as const;
 
 function skipMeta(reason: string, provider: ClassifierProvider): Record<string, string> {
-  // Two keys, and only these. A model miss writes nothing, so a lone
-  // `ai.classifier` would look like a miss. Display and safety keys stay
-  // off the write so a skip cannot put a stale flag back.
+  // Two keys, and only these. Display and safety keys stay off the write
+  // so a skip cannot put a stale flag back.
   console.log({ event: "classifier_skipped", reason, provider });
   return {
     "ai.classifier": CLASSIFIER_SKIPPED,
@@ -1059,7 +1082,10 @@ async function storeSkip(
   provider: ClassifierProvider,
 ): Promise<Record<string, string>> {
   const db = dbFor(env);
-  await deleteServerFileMetadataKeys(db, workspaceName, key, [...CLASSIFIER_DISPLAY_KEYS]);
+  await deleteServerFileMetadataKeys(db, workspaceName, key, [
+    ...CLASSIFIER_DISPLAY_KEYS,
+    "ai.error",
+  ]);
   const meta = skipMeta(reason, provider);
   await setServerFileMetadata(db, workspaceName, key, meta);
   return meta;
@@ -1072,7 +1098,29 @@ async function storeDecision(
   meta: Record<string, string>,
 ): Promise<Record<string, string>> {
   const db = dbFor(env);
+  await deleteServerFileMetadataKeys(db, workspaceName, key, ["ai.skip", "ai.error"]);
+  await setServerFileMetadata(db, workspaceName, key, meta);
+  return meta;
+}
+
+/**
+ * Record a failed Decisions call. An earlier result for these bytes wins:
+ * a retry that fails on identical bytes must not erase good labels. New
+ * bytes arrive with no classifier rows, so the marker always lands there.
+ */
+async function storeFailure(
+  env: Env,
+  workspaceName: string,
+  key: string,
+  reason: ClassifierErrorReason,
+  provider: ClassifierProvider,
+): Promise<Record<string, string> | undefined> {
+  console.log({ event: "classifier_call_failed", reason, provider });
+  const db = dbFor(env);
+  const existing = (await getFileMetadata(db, workspaceName, key))["ai.classifier"];
+  if (existing !== undefined && existing !== CLASSIFIER_FAILED) return undefined;
   await deleteServerFileMetadataKeys(db, workspaceName, key, ["ai.skip"]);
+  const meta = { "ai.classifier": CLASSIFIER_FAILED, "ai.error": reason };
   await setServerFileMetadata(db, workspaceName, key, meta);
   return meta;
 }
@@ -1187,16 +1235,27 @@ export async function classifyAndStore(
     const timeoutMs = deps?.timeoutMs ?? CLASSIFIER_TIMEOUT_MS;
     const minConfidence = deps?.minConfidence ?? CLASSIFIER_MIN_CONFIDENCE;
     const modelController = new AbortController();
-    const meta = await withDeadline(
-      decideImage(run, key, bytes, contentType, minConfidence, provider, modelController.signal, {
-        ...prepared,
-        image: prepared.image,
-      }),
-      timeoutMs,
-      () => modelController.abort(),
-      "classifier timed out",
-    );
-    if (!meta) return undefined;
+    let meta: Record<string, string> | undefined;
+    try {
+      meta = await withDeadline(
+        decideImage(run, key, bytes, contentType, minConfidence, provider, modelController.signal, {
+          ...prepared,
+          image: prepared.image,
+        }),
+        timeoutMs,
+        () => modelController.abort(),
+        "classifier timed out",
+      );
+    } catch (err) {
+      const reason = modelController.signal.aborted
+        ? CLASSIFIER_ERROR_TIMEOUT
+        : CLASSIFIER_ERROR_PROVIDER;
+      console.error({ event: "classifier_failed", workspace: workspaceName, key, reason, err });
+      return await storeFailure(env, workspaceName, key, reason, provider);
+    }
+    if (!meta) {
+      return await storeFailure(env, workspaceName, key, CLASSIFIER_ERROR_NO_ANSWER, provider);
+    }
     return await storeDecision(env, workspaceName, key, meta);
   } catch (err) {
     console.error({ event: "classifier_failed", workspace: workspaceName, key, err });

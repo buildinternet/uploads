@@ -311,6 +311,9 @@ a successful server-mediated put may later write server-owned `ai.kind`,
 `v6` when the image was resized for Jev, `skipped` when the model does not
 see an image). `ai.skip` is `small`, `unsupported`, `resize_failed`, or
 `resize_timeout`. A skip writes no kind, surface, screen, or safety value.
+A call that times out, errors, or returns no confident answer writes
+`ai.classifier=failed` and `ai.error` (`timeout`, `provider_error`, or
+`no_answer`), unless identical bytes already have an earlier result.
 The same call, when it does run, also writes internal `ai.rating`,
 `ai.content`, `ai.secret`, and `ai.pii`, each with an
 `ai.<flag>.confidence` of `high` (0.85+), `medium` (0.70 up to 0.85), or
@@ -319,8 +322,8 @@ The same call, when it does run, also writes internal `ai.rating`,
 enum is omitted, and so is its confidence key. A stored safety flag stays
 until a later classification writes that key, including a confident `none`.
 A miss leaves the previous value. A skip does not write one. Re-uploading
-identical bytes does not clear a flag. New bytes start fresh, and a skip
-on those bytes leaves the flags clear. The labeler does not write
+identical bytes does not clear a flag. New bytes clear every `ai.*` row
+before classification runs, so labels from the old bytes never remain. The labeler does not write
 `ai.tags` or `ai.summary` (older rows may still have them). A Luna
 Decisions try writes `ai.classifier=v4` and the same enums. Luna does not
 receive the resized copy. A file Luna cannot see is `unsupported`. A

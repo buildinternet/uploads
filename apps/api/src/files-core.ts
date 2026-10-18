@@ -23,7 +23,7 @@ import {
   deleteServerFileMetadataKeys,
   mergeWithinMetadataCaps,
   replaceFileMetadata,
-  SAFETY_FLAG_KEYS,
+  CLASSIFIER_ROW_KEYS,
   setServerFileMetadata,
   validateMetadataEntries,
 } from "./file-metadata";
@@ -925,7 +925,7 @@ export async function putObject(
   // What actually landed in the queryable tier, echoed on the response (#511).
   let storedMetadata: Record<string, string> | undefined;
 
-  // Before recordContentHash overwrites the row. See SAFETY_FLAG_KEYS.
+  // Before recordContentHash overwrites the row. See CLASSIFIER_ROW_KEYS.
   const previousHash = await contentHashForKey(dbFor(env), workspaceName, finalKey);
   const sameBytes = previousHash === contentSha256;
 
@@ -935,7 +935,7 @@ export async function putObject(
     // than a delete followed by a separate re-read-then-write.
     storedMetadata = mergeWithinMetadataCaps(opts.metadata, inherited);
     await replaceFileMetadata(dbFor(env), workspaceName, finalKey, storedMetadata, {
-      keepSafetyFlags: sameBytes,
+      keepClassifierRows: sameBytes,
     });
     // Explicit metadata only, never the inherited merge: inherited keys
     // describe the bytes, and letting them reach PR activity would attribute
@@ -954,7 +954,7 @@ export async function putObject(
     );
     if (!sameBytes) {
       await deleteServerFileMetadataKeys(dbFor(env), workspaceName, finalKey, [
-        ...SAFETY_FLAG_KEYS,
+        ...CLASSIFIER_ROW_KEYS,
       ]);
     }
   }
