@@ -45,17 +45,31 @@ wrangler secret put SLACK_BOT_TOKEN --config apps/slack/wrangler.jsonc
 
 `manifest.json` is the app definition: bot scopes `links:read` and
 `links:write`, unfurl domain `uploads.sh`, and the `link_shared` event pointed
-at `https://agents.uploads.sh/slack/events`. To create the app, paste the
-manifest at https://api.slack.com/apps → **Create New App** → **From a
-manifest**, or use the Slack CLI. Then install it to the workspace, copy the
-bot token and signing secret into the worker secrets above, and deploy:
+at `https://agents.uploads.sh/slack/events`. The app is installed in the Build
+Internet workspace (app `A0CA0AWAJCD`, recorded in `.slack/apps.json`).
+
+`apps/slack` is a Slack CLI project: `.slack/hooks.json` points the CLI's
+`get-manifest` hook at `manifest.json`, so manifest changes go through the CLI
+from this directory:
+
+```bash
+slack manifest validate
+slack manifest diff      # project manifest vs. live app settings
+slack manifest sync      # push manifest.json to the app
+```
+
+The CLI doesn't print the bot token or signing secret. Copy them from the
+app's settings page (`slack app settings`): **Basic Information** → Signing
+Secret, and **OAuth & Permissions** → Bot User OAuth Token. Then set them as
+worker secrets (above) and deploy:
 
 ```bash
 pnpm run deploy:slack
 ```
 
-Slack sends a `url_verification` challenge when the request URL is saved, so
-deploy the worker with the signing secret set before saving the event URL.
+Slack sends a `url_verification` challenge to the event URL, so the signing
+secret must be set before Slack can verify it. If the URL shows as unverified,
+press **Retry** under **Event Subscriptions** once the secret is in place.
 
 The worker is not part of `pnpm run deploy` or Workers Builds yet. Add it once
 the app is installed.

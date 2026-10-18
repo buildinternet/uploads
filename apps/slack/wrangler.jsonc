@@ -9,10 +9,9 @@
     // uploads-web answers /oembed on, because that endpoint rejects page URLs
     // from any other origin (no open proxy).
     "WEB_ORIGIN": "https://uploads.sh",
-    // Optional: the Slack team (workspace) id the bot token belongs to. When
-    // set, events from any other team are ignored. Leave blank until the app
-    // is installed; see README.md.
-    "SLACK_TEAM_ID": "",
+    // The Slack team (workspace) the bot token belongs to: Build Internet.
+    // Events from any other team are ignored. Blank accepts any team.
+    "SLACK_TEAM_ID": "T0CAZTS4UMN",
   },
   // Served as a path on the agent subdomain instead of a hostname of its own.
   // agents.uploads.sh is a Custom Domain on uploads-mcp; a route on the same
