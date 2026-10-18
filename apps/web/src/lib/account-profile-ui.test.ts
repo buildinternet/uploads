@@ -3,6 +3,7 @@ import {
   loadProfilePageData,
   renderSessionsHtml,
   renderSignInMethodsHtml,
+  renderSlackLinksHtml,
   renderWeeklyDigestHtml,
 } from "./account-profile-ui";
 import type { DigestWorkspacePreference } from "./auth-client";
@@ -270,5 +271,33 @@ describe("renderWeeklyDigestHtml", () => {
 
   it("says when the person has no workspace", () => {
     expect(renderWeeklyDigestHtml([])).toContain("Join a workspace");
+  });
+});
+
+describe("renderSlackLinksHtml", () => {
+  const link = {
+    teamId: "T1",
+    teamName: "Acme <Eng>",
+    slackUserId: "U1",
+    linkedAt: "2026-10-18T12:00:00.000Z",
+    missingScopes: [] as string[],
+  };
+
+  it("offers Add to Slack with no links, and a retry line when the load failed", () => {
+    expect(renderSlackLinksHtml([])).toContain("https://agents.uploads.sh/slack/install");
+    expect(renderSlackLinksHtml(null)).toContain("Couldn’t load");
+  });
+
+  it("lists links with Disconnect, escaping the workspace name", () => {
+    const html = renderSlackLinksHtml([link]);
+    expect(html).toContain("Acme &lt;Eng&gt;");
+    expect(html).toContain('data-team-id="T1"');
+    expect(html).not.toContain("Update permissions");
+  });
+
+  it("asks a workspace with missing scopes to update its permissions", () => {
+    const html = renderSlackLinksHtml([{ ...link, missingScopes: ["chat:write"] }]);
+    expect(html).toContain("Update permissions");
+    expect(html).toContain("Needs updated Slack permissions");
   });
 });

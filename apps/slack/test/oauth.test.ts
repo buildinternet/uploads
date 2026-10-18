@@ -115,7 +115,9 @@ describe("GET /slack/install", () => {
     const { location, state, cookie } = await startInstall(e);
     expect(location.origin + location.pathname).toBe("https://slack.com/oauth/v2/authorize");
     expect(location.searchParams.get("client_id")).toBe("111.222");
-    expect(location.searchParams.get("scope")).toBe("links:read,links:write,users:read");
+    expect(location.searchParams.get("scope")).toBe(
+      "chat:write,im:write,links:read,links:write,users:read",
+    );
     expect(location.searchParams.get("redirect_uri")).toBe(
       "https://agents.uploads.sh/slack/oauth/callback",
     );

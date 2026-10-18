@@ -199,7 +199,13 @@ describe("/me/slack/links", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { links: Record<string, unknown>[] };
     expect(body.links).toEqual([
-      { teamId: "T0123ABC", teamName: null, slackUserId: "U0AAA111", linkedAt: expect.any(String) },
+      {
+        teamId: "T0123ABC",
+        teamName: null,
+        slackUserId: "U0AAA111",
+        linkedAt: expect.any(String),
+        missingScopes: [],
+      },
     ]);
   });
 
@@ -207,13 +213,16 @@ describe("/me/slack/links", () => {
     await link(ALICE, "aliceticketaliceticket01", "U0AAA111");
     sqlite.db
       .prepare(
-        `INSERT INTO slack_installations (team_id, team_name, app_id, installed_at, updated_at)
-         VALUES ('T0123ABC', 'Acme', 'A1', '2026-10-18', '2026-10-18')`,
+        `INSERT INTO slack_installations (team_id, team_name, app_id, scopes, installed_at, updated_at)
+         VALUES ('T0123ABC', 'Acme', 'A1', 'links:read,links:write,users:read', '2026-10-18', '2026-10-18')`,
       )
       .run();
     const res = await app().request("/me/slack/links", {}, env(ALICE));
     const body = (await res.json()) as { links: Record<string, unknown>[] };
-    expect(body.links[0]).toMatchObject({ teamName: "Acme" });
+    expect(body.links[0]).toMatchObject({
+      teamName: "Acme",
+      missingScopes: ["chat:write", "im:write"],
+    });
   });
 
   it("deletes the session user's own link", async () => {

@@ -83,6 +83,8 @@ export interface SlackLink {
   teamName: string | null;
   slackUserId: string;
   linkedAt: string;
+  /** Scopes the Slack workspace hasn't approved yet; empty when up to date. */
+  missingScopes: string[];
 }
 
 function parseLinks(body: unknown): SlackLink[] | null {
@@ -104,6 +106,9 @@ function parseLinks(body: unknown): SlackLink[] | null {
       teamName: typeof r.teamName === "string" && r.teamName ? r.teamName : null,
       slackUserId: r.slackUserId,
       linkedAt: r.linkedAt,
+      missingScopes: Array.isArray(r.missingScopes)
+        ? r.missingScopes.filter((x): x is string => typeof x === "string")
+        : [],
     });
   }
   return out;

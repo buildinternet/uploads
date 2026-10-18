@@ -4,6 +4,7 @@
  * Bot tokens are sealed with SLACK_TOKENS_KEY before they are written.
  */
 import { open, seal } from "./crypto";
+import { parseScopes } from "./scopes";
 
 export interface InstallRecord {
   teamId: string;
@@ -87,4 +88,17 @@ export async function revokeInstall(db: D1Database, teamId: string, now = new Da
     )
     .bind(stamp, stamp, teamId)
     .run();
+}
+
+/**
+ * The scopes a team's live install granted, or null when it never
+ * installed or has uninstalled. See scopes.ts.
+ */
+export async function installedScopes(db: D1Database, teamId: string): Promise<Set<string> | null> {
+  const row = await db
+    .prepare("SELECT scopes, revoked_at FROM slack_installations WHERE team_id = ?")
+    .bind(teamId)
+    .first<{ scopes: string | null; revoked_at: string | null }>();
+  if (!row || row.revoked_at) return null;
+  return parseScopes(row.scopes);
 }
