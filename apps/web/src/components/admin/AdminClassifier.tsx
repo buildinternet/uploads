@@ -8,7 +8,7 @@
  * the file was not classified (or the answer was under the confidence
  * floor), so it is never counted as clean here.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Badge } from "@uploads/ui/components/ui/badge";
 import { Skeleton } from "@uploads/ui/components/ui/skeleton";
 import {
@@ -22,39 +22,58 @@ import {
 import "@uploads/ui/styles.css";
 import { IslandErrorBoundary } from "../IslandErrorBoundary";
 import {
-  makeAdminApi,
+  ADMIN_METRIC_WINDOWS,
+  CLASSIFIER_CLEAN_VALUES,
+  CLASSIFIER_SAFETY_FIELDS,
   type ClassifierAdminWindow,
+  type ClassifierDailyPoint,
   type ClassifierFlaggedFile,
   type ClassifierOverview,
   type ClassifierSafetyField,
   type ClassifierValueCount,
-} from "../../lib/admin-api";
+} from "@uploads/api/classifier-admin-wire";
+import { makeAdminApi } from "../../lib/admin-api";
 import { ADMIN_BTN } from "../../lib/admin-ui";
 import {
-  CLASSIFIER_FIELDS,
-  CLASSIFIER_WINDOWS,
   coverageLabel,
   flaggedFileHref,
-  flaggedRate,
   flagLabel,
   flagTitle,
   flagVariant,
-  relativeTime,
+  sharePercent,
   topFlaggedValues,
   withShares,
 } from "../../lib/admin-classifier";
+import { lastUpdatedLabel } from "../../lib/workspace-screenshots";
+import { useCursorList } from "../files/useCursorList";
 import { useAdminResource } from "./use-admin-resource";
 
 export interface AdminClassifierProps {
   apiOrigin: string;
 }
 
-const CLEAN: Record<ClassifierSafetyField, string> = {
-  rating: "safe",
-  content: "none",
-  secret: "none",
-  pii: "none",
-};
+const ago = (iso: string) => lastUpdatedLabel(iso, new Date());
+
+/** One stacked series of the daily chart; the legend reads the same list. */
+const SERIES = [
+  { key: "classified", label: "Classified", fill: "fill-primary", swatch: "bg-primary" },
+  {
+    key: "skipped",
+    label: "Skipped",
+    fill: "fill-muted-foreground",
+    swatch: "bg-muted-foreground",
+  },
+  { key: "failed", label: "Failed", fill: "fill-destructive", swatch: "bg-destructive" },
+] as const;
+
+const BREAKDOWNS = [
+  ["Versions", "versions"],
+  ["Skip reasons", "skipReasons"],
+  ["Errors", "errorReasons"],
+  ["Kind", "kinds"],
+  ["Surface", "surfaces"],
+  ["Screen", "screens"],
+] as const satisfies ReadonlyArray<readonly [string, keyof ClassifierOverview]>;
 
 const FIELD_CLASS =
   "h-8 rounded-sm border border-border bg-transparent px-2 text-(length:--text-meta) text-foreground";
@@ -107,8 +126,10 @@ function Breakdown({ title, rows }: { title: string; rows: ClassifierValueCount[
   );
 }
 
-function DailyChart({ daily }: { daily: ClassifierOverview["daily"] }) {
-  if (daily.length === 0) {
+function DailyChart({ daily }: { daily: ClassifierDailyPoint[] }) {
+  const first = daily[0]?.day;
+  const last = daily.at(-1)?.day;
+  if (!first || !last) {
     return <p className="m-0 text-(length:--text-meta) text-muted-foreground">No activity.</p>;
   }
   const W = 960;
@@ -117,50 +138,37 @@ function DailyChart({ daily }: { daily: ClassifierOverview["daily"] }) {
   const slot = W / daily.length;
   const bar = Math.max(1, slot * 0.7);
   const scale = (n: number) => (n / max) * (H - 4);
-  const summary = `Classified, skipped, and failed files per day, ${daily[0]?.day} to ${
-    daily[daily.length - 1]?.day
-  }, peak ${max}.`;
   return (
     <div>
       <svg
         viewBox={`0 0 ${W} ${H}`}
         role="img"
-        aria-label={summary}
+        aria-label={`Classified, skipped, and failed files per day, ${first} to ${last}, peak ${max}.`}
         className="w-full h-auto max-h-48"
       >
         {daily.map((d, i) => {
           const x = i * slot + (slot - bar) / 2;
-          const hc = scale(d.classified);
-          const hs = scale(d.skipped);
-          const hf = scale(d.failed);
+          let top = H;
           return (
             <g key={d.day}>
               <title>{`${d.day}: ${d.classified} classified, ${d.skipped} skipped, ${d.failed} failed`}</title>
-              <rect x={x} y={H - hc} width={bar} height={hc} className="fill-primary" />
-              <rect
-                x={x}
-                y={H - hc - hs}
-                width={bar}
-                height={hs}
-                className="fill-muted-foreground"
-              />
-              <rect
-                x={x}
-                y={H - hc - hs - hf}
-                width={bar}
-                height={hf}
-                className="fill-destructive"
-              />
+              {SERIES.map((s) => {
+                const h = scale(d[s.key]);
+                top -= h;
+                return <rect key={s.key} x={x} y={top} width={bar} height={h} className={s.fill} />;
+              })}
             </g>
           );
         })}
       </svg>
       <p className="m-0 mt-1 flex gap-4 text-(length:--text-micro) text-muted-foreground">
-        <LegendItem swatch="bg-primary">Classified</LegendItem>
-        <LegendItem swatch="bg-muted-foreground">Skipped</LegendItem>
-        <LegendItem swatch="bg-destructive">Failed</LegendItem>
+        {SERIES.map((s) => (
+          <LegendItem key={s.key} swatch={s.swatch}>
+            {s.label}
+          </LegendItem>
+        ))}
         <span>
-          {daily[0]?.day} to {daily[daily.length - 1]?.day} (UTC)
+          {first} to {last} (UTC)
         </span>
       </p>
     </div>
@@ -191,7 +199,7 @@ function FlagStats({ flags }: { flags: ClassifierOverview["flags"] }) {
       </TableHeader>
       <TableBody>
         {flags.map((f) => {
-          const top = topFlaggedValues(f.values, CLEAN[f.field]);
+          const top = topFlaggedValues(f.values, CLASSIFIER_CLEAN_VALUES[f.field]);
           return (
             <TableRow key={f.field}>
               <TableCell className="font-mono">{f.field}</TableCell>
@@ -201,7 +209,9 @@ function FlagStats({ flags }: { flags: ClassifierOverview["flags"] }) {
               <TableCell className="text-right tabular-nums">
                 {f.flagged.toLocaleString()}
               </TableCell>
-              <TableCell className="text-right tabular-nums">{flaggedRate(f)}</TableCell>
+              <TableCell className="text-right tabular-nums">
+                {sharePercent(f.flagged, f.answered)}
+              </TableCell>
               <TableCell className="tabular-nums">
                 high {f.flaggedConfidence.high} · med {f.flaggedConfidence.medium} · low{" "}
                 {f.flaggedConfidence.low}
@@ -239,7 +249,7 @@ function OverviewSection({ apiOrigin }: AdminClassifierProps) {
   return (
     <div className="grid gap-6 min-w-0">
       <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Time window">
-        {CLASSIFIER_WINDOWS.map((d) => (
+        {ADMIN_METRIC_WINDOWS.map((d) => (
           <button
             key={d}
             type="button"
@@ -255,7 +265,7 @@ function OverviewSection({ apiOrigin }: AdminClassifierProps) {
         </button>
         {data ? (
           <span className="text-(length:--text-micro) text-muted-foreground">
-            Updated {relativeTime(data.generatedAt)}
+            Updated {ago(data.generatedAt)}
           </span>
         ) : null}
       </div>
@@ -290,12 +300,9 @@ function OverviewSection({ apiOrigin }: AdminClassifierProps) {
           </section>
 
           <div className="grid gap-6 [grid-template-columns:repeat(auto-fit,minmax(18rem,1fr))]">
-            <Breakdown title="Versions" rows={data.versions} />
-            <Breakdown title="Skip reasons" rows={data.skipReasons} />
-            <Breakdown title="Errors" rows={data.errorReasons} />
-            <Breakdown title="Kind" rows={data.kinds} />
-            <Breakdown title="Surface" rows={data.surfaces} />
-            <Breakdown title="Screen" rows={data.screens} />
+            {BREAKDOWNS.map(([title, key]) => (
+              <Breakdown key={key} title={title} rows={data[key]} />
+            ))}
           </div>
 
           <section>
@@ -319,40 +326,21 @@ function FlaggedSection({ apiOrigin }: AdminClassifierProps) {
   const [highOnly, setHighOnly] = useState(false);
   const [workspaceInput, setWorkspaceInput] = useState("");
   const [workspace, setWorkspace] = useState("");
-  const [files, setFiles] = useState<ClassifierFlaggedFile[] | null>(null);
-  const [cursor, setCursor] = useState<string | null>(null);
-  const [error, setError] = useState(false);
-  const [loadingMore, setLoadingMore] = useState(false);
-
-  useEffect(() => {
-    let alive = true;
-    setFiles(null);
-    setError(false);
-    api
-      .listClassifierFlagged({ field, highOnly, workspace, limit: 25 })
-      .then((page) => {
-        if (!alive) return;
-        setFiles(page.files);
-        setCursor(page.nextCursor);
-      })
-      .catch(() => alive && setError(true));
-    return () => {
-      alive = false;
-    };
-  }, [api, field, highOnly, workspace]);
-
-  const loadMore = () => {
-    if (!cursor) return;
-    setLoadingMore(true);
-    api
-      .listClassifierFlagged({ field, highOnly, workspace, cursor, limit: 25 })
-      .then((page) => {
-        setFiles((prev) => [...(prev ?? []), ...page.files]);
-        setCursor(page.nextCursor);
-      })
-      .catch(() => setError(true))
-      .finally(() => setLoadingMore(false));
-  };
+  // Shared cursor-list hook: a filter change resets the list, and a Load
+  // more that lands after the reset is dropped by its generation guard.
+  const { state, loadMore } = useCursorList<ClassifierFlaggedFile>({
+    queryKey: JSON.stringify([apiOrigin, field, highOnly, workspace]),
+    keyOf: (f) => `${f.workspace}/${f.key}`,
+    load: (cursor) =>
+      api
+        .listClassifierFlagged({ field, highOnly, workspace, cursor, limit: 25 })
+        .then((page) => ({
+          ok: true as const,
+          value: { rows: page.files, nextCursor: page.nextCursor },
+        }))
+        .catch(() => ({ ok: false as const })),
+  });
+  const files = state.status === "ready" ? state.rows : null;
 
   return (
     <section className="grid gap-3 min-w-0">
@@ -372,7 +360,7 @@ function FlaggedSection({ apiOrigin }: AdminClassifierProps) {
             onChange={(e) => setField(e.target.value as ClassifierSafetyField | "")}
           >
             <option value="">All</option>
-            {CLASSIFIER_FIELDS.map((f) => (
+            {CLASSIFIER_SAFETY_FIELDS.map((f) => (
               <option key={f} value={f}>
                 {f}
               </option>
@@ -402,7 +390,7 @@ function FlaggedSection({ apiOrigin }: AdminClassifierProps) {
         </label>
       </form>
 
-      {error && !files ? (
+      {state.status === "error" ? (
         <p role="alert" className="m-0 text-(length:--text-meta) text-destructive">
           Failed to load flagged uploads.
         </p>
@@ -454,20 +442,25 @@ function FlaggedSection({ apiOrigin }: AdminClassifierProps) {
                     </TableCell>
                     <TableCell>{[f.kind, f.screen].filter(Boolean).join(" / ") || "-"}</TableCell>
                     <TableCell className="font-mono">{f.classifier ?? "-"}</TableCell>
-                    <TableCell title={f.flaggedAt}>{relativeTime(f.flaggedAt)}</TableCell>
+                    <TableCell title={f.flaggedAt}>{ago(f.flaggedAt)}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
           </div>
-          {error ? (
+          {state.more === "error" ? (
             <p role="alert" className="m-0 text-(length:--text-meta) text-destructive">
               Failed to load more.
             </p>
           ) : null}
-          {cursor ? (
-            <button type="button" className={ADMIN_BTN} onClick={loadMore} disabled={loadingMore}>
-              {loadingMore ? "Loading…" : "Load more"}
+          {state.nextCursor ? (
+            <button
+              type="button"
+              className={ADMIN_BTN}
+              onClick={loadMore}
+              disabled={state.more === "loading"}
+            >
+              {state.more === "loading" ? "Loading…" : "Load more"}
             </button>
           ) : null}
         </>

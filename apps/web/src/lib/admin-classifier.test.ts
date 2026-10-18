@@ -3,10 +3,7 @@ import {
   coverageLabel,
   flagLabel,
   flaggedFileHref,
-  flaggedQuery,
   flagVariant,
-  overviewQuery,
-  relativeTime,
   sharePercent,
   topFlaggedValues,
   withShares,
@@ -73,37 +70,10 @@ describe("flags", () => {
   });
 });
 
-describe("queries", () => {
-  it("omits empty filters", () => {
-    expect(flaggedQuery({ field: "", highOnly: false, workspace: " " })).toBe("");
-  });
-  it("includes set filters and cursor", () => {
-    expect(
-      flaggedQuery({ field: "pii", highOnly: true, workspace: " acme ", cursor: "a b", limit: 25 }),
-    ).toBe("?field=pii&confidence=high&workspace=acme&cursor=a+b&limit=25");
-  });
-  it("builds the overview query", () => {
-    expect(overviewQuery(30)).toBe("?days=30");
-    expect(overviewQuery(7, true)).toBe("?days=7&fresh=1");
-  });
-});
-
 describe("flaggedFileHref", () => {
   it("encodes segments and keeps slashes", () => {
     expect(flaggedFileHref({ workspace: "acme", key: "a b/c#d.png" })).toBe(
       "/f/acme/a%20b/c%23d.png",
     );
-  });
-});
-
-describe("relativeTime", () => {
-  const now = Date.parse("2026-10-17T12:00:00Z");
-  it("formats recent times", () => {
-    expect(relativeTime("2026-10-17T11:59:40Z", now)).toBe("just now");
-    expect(relativeTime("2026-10-17T11:55:00Z", now)).toBe("5m ago");
-    expect(relativeTime("2026-10-17T09:00:00Z", now)).toBe("3h ago");
-    expect(relativeTime("2026-10-15T12:00:00Z", now)).toBe("2d ago");
-    expect(relativeTime("2026-08-01T12:00:00Z", now)).toBe("2026-08-01");
-    expect(relativeTime("nope", now)).toBe("-");
   });
 });

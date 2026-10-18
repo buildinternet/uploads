@@ -44,7 +44,18 @@ import {
   trivialImageSkip,
   workersAiClassifierRun,
   type DecisionImagePart,
+  CONTENT_CRITERIA,
+  PII_CRITERIA,
+  RATING_CRITERIA,
+  SECRET_CRITERIA,
+  confidenceBucket,
 } from "./classifier";
+import {
+  CLASSIFIER_CLEAN_VALUES,
+  CLASSIFIER_SAFETY_FIELDS,
+  isConfidenceBucket,
+} from "./classifier-admin-wire";
+import { SAFETY_FLAG_FIELDS } from "./file-metadata";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -991,5 +1002,26 @@ describe("scheduleFileClassification", () => {
       waitUntil,
     );
     expect(waitUntil).not.toHaveBeenCalled();
+  });
+});
+
+describe("classifier admin vocabulary", () => {
+  it("names a clean value the classifier can actually write for each safety field", () => {
+    const criteria = {
+      rating: RATING_CRITERIA,
+      content: CONTENT_CRITERIA,
+      secret: SECRET_CRITERIA,
+      pii: PII_CRITERIA,
+    };
+    expect([...SAFETY_FLAG_FIELDS]).toEqual(Object.keys(criteria));
+    for (const field of CLASSIFIER_SAFETY_FIELDS) {
+      expect(Object.keys(criteria[field])).toContain(CLASSIFIER_CLEAN_VALUES[field]);
+    }
+  });
+
+  it("covers every confidence bucket the classifier writes", () => {
+    for (const confidence of [0.5, 0.7, 0.85, 1]) {
+      expect(isConfidenceBucket(confidenceBucket(confidence))).toBe(true);
+    }
   });
 });

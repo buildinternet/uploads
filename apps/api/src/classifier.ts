@@ -59,6 +59,7 @@ import {
   deleteServerFileMetadataKeys,
   setServerFileMetadata,
 } from "./file-metadata";
+import type { ClassifierConfidenceBucket } from "./classifier-admin-wire";
 import { dbFor } from "./db-session";
 import { detectImageDimensions, uploadKind } from "./guards";
 import type { WorkspaceRecord } from "./workspace";
@@ -191,8 +192,7 @@ export const CLASSIFIER_CONFIDENCE_HIGH = 0.85;
  */
 export const CLASSIFIER_CONFIDENCE_MEDIUM = 0.7;
 
-/** Coarse bucket stored on `ai.<flag>.confidence`. */
-export type ConfidenceBucket = "high" | "medium" | "low";
+export type ConfidenceBucket = ClassifierConfidenceBucket;
 
 /**
  * Map a stored answer's confidence onto `high` / `medium` / `low`.

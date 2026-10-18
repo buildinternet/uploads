@@ -50,23 +50,23 @@ import {
 import { allowWrite } from "../guards";
 import { throwForInviteError } from "../invite-error";
 import { deriveWebOrigin, inviteLinkUrl } from "../invite-links";
-import { ALLOWED_WINDOWS, cachedOverview } from "../metrics-overview";
+import { cachedKvJson, cachedOverview } from "../metrics-overview";
 import {
   buildClassifierOverview,
   CLASSIFIER_CACHE_TTL,
   CLASSIFIER_FLAGGED_DEFAULT_LIMIT,
   CLASSIFIER_FLAGGED_MAX_LIMIT,
-  CLASSIFIER_SAFETY_FIELDS,
   classifierCacheKey,
   decodeFlaggedCursor,
   listFlaggedFiles,
 } from "../classifier-admin";
 import {
-  CLASSIFIER_ADMIN_WINDOWS,
+  ADMIN_METRIC_WINDOWS,
+  CLASSIFIER_SAFETY_FIELDS,
   type ClassifierAdminWindow,
-  type ClassifierOverview,
   type ClassifierSafetyField,
 } from "../classifier-admin-wire";
+import { parseLimit } from "../query-params";
 import { utcDay } from "../adoption";
 import { uploadsOnDay, windowStart, workspaceUploadSeries } from "../adoption-queries";
 import {
@@ -596,20 +596,25 @@ export type { OpenEnrollment } from "../auth-db";
 /** `/admin-ui/oauth-clients*` passes the auth worker's body through unchanged. */
 export type { SerializedOauthClient } from "@uploads/auth/oauth-client-serialize";
 
+/** `days` for the operator metrics views: default 30, else one of `ADMIN_METRIC_WINDOWS`. */
+function parseWindowDays(raw: string | undefined): ClassifierAdminWindow {
+  const days = raw === undefined ? 30 : Number(raw);
+  if (!ADMIN_METRIC_WINDOWS.includes(days as ClassifierAdminWindow)) {
+    throw new ValidationError(`days must be one of ${ADMIN_METRIC_WINDOWS.join(", ")}`, {
+      code: "invalid_window",
+    });
+  }
+  return days as ClassifierAdminWindow;
+}
+
 export const adminUi = new Hono<SessionVars>()
   .use("/*", sessionAuth, requireSessionUser, requireAdminUser)
 
   // Cached operator adoption-metrics overview (D1 rollups + auth-worker
-  // signup history). `days` selects the window; only ALLOWED_WINDOWS are
+  // signup history). `days` selects the window; only ADMIN_METRIC_WINDOWS are
   // accepted so the cache stays small. `fresh=1` bypasses the KV cache.
   .get("/metrics/overview", async (c) => {
-    const raw = c.req.query("days");
-    const days = raw === undefined ? 30 : Number(raw);
-    if (!ALLOWED_WINDOWS.includes(days as (typeof ALLOWED_WINDOWS)[number])) {
-      throw new ValidationError(`days must be one of ${ALLOWED_WINDOWS.join(", ")}`, {
-        code: "invalid_window",
-      });
-    }
+    const days = parseWindowDays(c.req.query("days"));
     return c.json(await cachedOverview(c.env, days, c.req.query("fresh") === "1"));
   })
 
@@ -639,13 +644,7 @@ export const adminUi = new Hono<SessionVars>()
     if (!workspace || workspace.length > 100) {
       throw new ValidationError("workspace is required", { code: "invalid_workspace" });
     }
-    const raw = c.req.query("days");
-    const days = raw === undefined ? 30 : Number(raw);
-    if (!ALLOWED_WINDOWS.includes(days as (typeof ALLOWED_WINDOWS)[number])) {
-      throw new ValidationError(`days must be one of ${ALLOWED_WINDOWS.join(", ")}`, {
-        code: "invalid_window",
-      });
-    }
+    const days = parseWindowDays(c.req.query("days"));
     const since = windowStart(days);
     const series = await workspaceUploadSeries(dbFor(c.env), workspace, since);
     return c.json({ workspace, window: { days, since }, series });
@@ -692,31 +691,16 @@ export const adminUi = new Hono<SessionVars>()
   // Operator classifier views (classifier-admin.ts). Overview is cached in KV
   // like /metrics/overview; the flagged list is a live keyset-paged read.
   .get("/classifier/overview", async (c) => {
-    const raw = c.req.query("days");
-    const days = raw === undefined ? 30 : Number(raw);
-    if (!CLASSIFIER_ADMIN_WINDOWS.includes(days as ClassifierAdminWindow)) {
-      throw new ValidationError(`days must be one of ${CLASSIFIER_ADMIN_WINDOWS.join(", ")}`, {
-        code: "invalid_window",
-      });
-    }
-    const key = classifierCacheKey(days);
-    if (c.req.query("fresh") !== "1") {
-      try {
-        const hit = await c.env.REGISTRY.get(key);
-        if (hit) return c.json(JSON.parse(hit) as ClassifierOverview);
-      } catch {
-        // fall through to a live build
-      }
-    }
-    const overview = await buildClassifierOverview(dbFor(c.env), days as ClassifierAdminWindow);
-    try {
-      await c.env.REGISTRY.put(key, JSON.stringify(overview), {
-        expirationTtl: CLASSIFIER_CACHE_TTL,
-      });
-    } catch {
-      // caching is an optimization, never a requirement
-    }
-    return c.json(overview);
+    const days = parseWindowDays(c.req.query("days"));
+    return c.json(
+      await cachedKvJson(
+        c.env,
+        classifierCacheKey(days),
+        CLASSIFIER_CACHE_TTL,
+        c.req.query("fresh") === "1",
+        () => buildClassifierOverview(dbFor(c.env), days),
+      ),
+    );
   })
 
   .get("/classifier/flagged", async (c) => {
@@ -734,17 +718,13 @@ export const adminUi = new Hono<SessionVars>()
     if (workspace && !WS_NAME_RE.test(workspace)) {
       throw new ValidationError("invalid workspace name", { code: "invalid_workspace" });
     }
-    const cursor = c.req.query("cursor") || undefined;
-    if (cursor && !decodeFlaggedCursor(cursor)) {
-      throw new ValidationError("invalid cursor", { code: "invalid_cursor" });
-    }
-    const rawLimit = c.req.query("limit");
-    const limit = rawLimit === undefined ? CLASSIFIER_FLAGGED_DEFAULT_LIMIT : Number(rawLimit);
-    if (!Number.isInteger(limit) || limit < 1 || limit > CLASSIFIER_FLAGGED_MAX_LIMIT) {
-      throw new ValidationError(`limit must be 1-${CLASSIFIER_FLAGGED_MAX_LIMIT}`, {
-        code: "invalid_limit",
-      });
-    }
+    const rawCursor = c.req.query("cursor");
+    const cursor = rawCursor ? decodeFlaggedCursor(rawCursor) : undefined;
+    const limit = parseLimit(
+      c.req.query("limit"),
+      CLASSIFIER_FLAGGED_DEFAULT_LIMIT,
+      CLASSIFIER_FLAGGED_MAX_LIMIT,
+    );
     return c.json(
       await listFlaggedFiles(dbFor(c.env), {
         field: field as ClassifierSafetyField | undefined,

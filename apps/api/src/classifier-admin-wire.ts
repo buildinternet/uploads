@@ -1,6 +1,10 @@
 /**
- * Wire shapes for the operator classifier views (`/admin-ui/classifier/*`).
- * Env-free so apps/web can import the types through `@uploads/api/admin-ui`.
+ * Wire shapes and vocabulary for the operator classifier views
+ * (`/admin-ui/classifier/*`). Env-free, and exported as
+ * `@uploads/api/classifier-admin-wire`, so apps/web imports the runtime
+ * constants from here rather than copying them. The classifier itself
+ * (`classifier.ts`, `file-metadata.ts`) reads the field list and the
+ * confidence buckets from this module too.
  *
  * "Flagged" means a stored safety answer that is not the clean value:
  * `ai.rating` other than `safe`, or `ai.content` / `ai.secret` / `ai.pii`
@@ -8,13 +12,26 @@
  * the answer was under the confidence floor. It does not mean clean.
  */
 
-export const CLASSIFIER_ADMIN_WINDOWS = [7, 30, 90] as const;
-export type ClassifierAdminWindow = (typeof CLASSIFIER_ADMIN_WINDOWS)[number];
+/** Day windows every operator metrics view offers. Anything else is a 400. */
+export const ADMIN_METRIC_WINDOWS = [7, 30, 90] as const;
+export type ClassifierAdminWindow = (typeof ADMIN_METRIC_WINDOWS)[number];
 
-export type ClassifierSafetyField = "rating" | "content" | "secret" | "pii";
-export type ClassifierConfidenceBucket = "high" | "medium" | "low";
+/** The four internal safety questions, in display order. */
+export const CLASSIFIER_SAFETY_FIELDS = ["rating", "content", "secret", "pii"] as const;
+export type ClassifierSafetyField = (typeof CLASSIFIER_SAFETY_FIELDS)[number];
 
-/** The value that means "nothing to flag" for each safety field. */
+/** Coarse bucket stored on `ai.<flag>.confidence`. */
+export const CLASSIFIER_CONFIDENCE_BUCKETS = ["high", "medium", "low"] as const;
+export type ClassifierConfidenceBucket = (typeof CLASSIFIER_CONFIDENCE_BUCKETS)[number];
+
+export function isConfidenceBucket(value: string | undefined): value is ClassifierConfidenceBucket {
+  return (CLASSIFIER_CONFIDENCE_BUCKETS as readonly (string | undefined)[]).includes(value);
+}
+
+/**
+ * The value that means "nothing to flag" for each safety field. A test
+ * holds each one to a key of the classifier's criteria map.
+ */
 export const CLASSIFIER_CLEAN_VALUES: Record<ClassifierSafetyField, string> = {
   rating: "safe",
   content: "none",
@@ -70,9 +87,16 @@ export interface ClassifierOverview {
    * One point per UTC day in the window, from the `updated_at` of each
    * `ai.classifier` row (the latest write, so a re-classified file moves).
    */
-  daily: Array<{ day: string; classified: number; skipped: number; failed: number }>;
+  daily: ClassifierDailyPoint[];
   /** Platform uploads in the window from `daily_metrics`, or null when unavailable. */
   windowUploads: number | null;
+}
+
+export interface ClassifierDailyPoint {
+  day: string;
+  classified: number;
+  skipped: number;
+  failed: number;
 }
 
 export interface ClassifierFlaggedFile {
