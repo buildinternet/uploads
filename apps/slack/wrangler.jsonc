@@ -16,6 +16,9 @@
     // The Slack app's public identifiers (not secrets).
     "SLACK_APP_ID": "A0CA0AWAJCD",
     "SLACK_CLIENT_ID": "12373944164736.12340370358421",
+    // "on" adds Work Object metadata to unfurls (src/entities.ts). Turn on only
+    // after the manifest with features.rich_previews is synced to the app.
+    "SLACK_WORK_OBJECTS": "off",
   },
   // Served as a path on the agent subdomain instead of a hostname of its own.
   // agents.uploads.sh is a Custom Domain on uploads-mcp; a route on the same

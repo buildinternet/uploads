@@ -57,13 +57,34 @@ export type UnfurlTarget =
   | { channel: string; ts: string }
   | { unfurl_id: string; source: "composer" | "conversations_history" };
 
-/** `chat.unfurl`: https://api.slack.com/methods/chat.unfurl */
+/**
+ * `chat.unfurl`: https://api.slack.com/methods/chat.unfurl. `metadata`
+ * carries Work Object entities (entities.ts); Slack draws those where it
+ * can and falls back to the blocks elsewhere.
+ */
 export function chatUnfurl(
   target: UnfurlTarget,
   unfurls: Record<string, { blocks: Block[] }>,
   options: SlackApiOptions,
+  metadata?: { entities: Record<string, unknown>[] },
 ): Promise<SlackApiResult> {
-  return call("chat.unfurl", { ...target, unfurls }, options);
+  return call("chat.unfurl", { ...target, unfurls, ...(metadata ? { metadata } : {}) }, options);
+}
+
+/**
+ * `entity.presentDetails`: fills a Work Object flexpane for the user whose
+ * click produced `trigger_id` (valid for a few seconds). No scope needed.
+ * https://docs.slack.dev/reference/methods/entity.presentdetails
+ */
+export function entityPresentDetails(
+  body: {
+    trigger_id: string;
+    metadata?: Record<string, unknown>;
+    error?: { status: string; custom_message?: string };
+  },
+  options: SlackApiOptions,
+): Promise<SlackApiResult> {
+  return call("entity.presentDetails", body, options);
 }
 
 interface UsersInfoResult extends SlackApiResult {

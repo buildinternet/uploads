@@ -8,6 +8,7 @@
  * image (a file) or a small thumbnail beside the title (a collection), and a
  * muted context line of facts.
  */
+import { isSlackImage, unfurlEntity } from "./entities";
 import { resolvePreview, type Preview, type PreviewLink, type ShareDeps } from "./share";
 import { chatUnfurl, type Block, type UnfurlTarget } from "./slack/api";
 import type { LinkSharedEvent } from "./slack/types";
@@ -25,6 +26,8 @@ export interface UnfurlDeps extends ShareDeps {
   /** Reaches slack.com. */
   slackFetch?: typeof globalThis.fetch;
   botToken: string;
+  /** Also send Work Object metadata (entities.ts) alongside the blocks. */
+  workObjects?: boolean;
 }
 
 /** Escapes text for Slack mrkdwn: https://api.slack.com/reference/surfaces/formatting#escaping */
@@ -39,17 +42,6 @@ function clamp(value: string, max: number): string {
 
 function link(url: string, label: string): string {
   return `<${url}|${escapeMrkdwn(label)}>`;
-}
-
-/** Slack's image blocks take PNG, JPEG, GIF, and WebP; an SVG or other type fails the whole chat.unfurl call. */
-function isSlackImage(value: string): boolean {
-  try {
-    const url = new URL(value);
-    if (url.protocol !== "https:") return false;
-    return !/\.(svg|svgz|avif|heic|heif|tiff?|bmp|ico)$/.test(url.pathname.toLowerCase());
-  } catch {
-    return false;
-  }
 }
 
 function subtitleText(parts: PreviewLink[]): string {
@@ -126,8 +118,15 @@ export async function handleLinkShared(
     Object.fromEntries(
       previews.map((preview) => [preview.url, { blocks: previewBlocks(preview, { images }) }]),
     );
+  const metadata = deps.workObjects ? { entities: previews.map(unfurlEntity) } : undefined;
   const api = { token: deps.botToken, fetch: deps.slackFetch };
-  let result = await chatUnfurl(unfurlTarget(event), build(true), api);
+  let result = await chatUnfurl(unfurlTarget(event), build(true), api, metadata);
+  // Work Objects need the app's Work Object Previews setting; if Slack
+  // rejects the metadata for any reason, the blocks alone still preview.
+  if (!result.ok && metadata) {
+    console.warn("slack.unfurl: retrying without Work Object metadata", { error: result.error });
+    result = await chatUnfurl(unfurlTarget(event), build(true), api);
+  }
   // Slack fetches every image before accepting the call, and one image it
   // can't fetch rejects the whole batch. Retry once without images.
   if (!result.ok && result.error && IMAGE_ERRORS.has(result.error)) {
